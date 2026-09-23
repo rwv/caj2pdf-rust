@@ -3,6 +3,7 @@
 - The project's public language is English.
 - Follow the GitHub issue hierarchy and blocked-by relationships. Read an
   issue's acceptance criteria before implementing it; report unmet criteria.
+  The v0.1.0 entry point is the [parent issue](https://github.com/rwv/caj2pdf-rust/issues/1).
 - All source code committed here must be MIT-licensed. Reimplement HN parsing
   and CAJ-specific JBIG decoding independently. Do not copy or transliterate
   code from the Python or Go converters, the private Rust prototype, or other

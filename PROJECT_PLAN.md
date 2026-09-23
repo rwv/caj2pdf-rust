@@ -90,6 +90,10 @@ caj2pdf add-bookmarks SOURCE_CAJ INPUT_PDF -o OUTPUT_PDF [--force]
 
 ## Verification and milestones
 
+The actionable v0.1.0 hierarchy and native blocking relationships start at
+the [parent issue](https://github.com/rwv/caj2pdf-rust/issues/1). The list below is a summary;
+issue acceptance criteria are authoritative for each task.
+
 1. Establish the workspace, dependency license inventory, API contracts, CLI skeleton,
    browser/Node adapters, and generated small test fixtures.
 2. Implement CAJ/PDF conversion and bookmarks with ranged input and chunked

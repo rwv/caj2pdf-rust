@@ -15,7 +15,10 @@ phase; no converter release is available yet.
 - Implement HN parsing and the CAJ-specific JBIG decoder as new MIT code.
 
 The proposed architecture, CLI, acceptance milestones, and reference links are
-in [PROJECT_PLAN.md](PROJECT_PLAN.md). Work is tracked in GitHub Issues.
+in [PROJECT_PLAN.md](PROJECT_PLAN.md). Start with the
+[v0.1.0 parent issue](https://github.com/rwv/caj2pdf-rust/issues/1) and its
+native sub-issues and blocked-by relationships. All initial tasks belong to
+the [v0.1.0 milestone](https://github.com/rwv/caj2pdf-rust/milestone/1).
 
 ## Versioning and development
 
