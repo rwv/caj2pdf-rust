@@ -7,6 +7,10 @@ sub-issues, and blocked-by relationships. Keep a pull request focused on one
 issue or a closely related set of issues. Use English for code, documentation,
 CLI text, issue updates, and pull requests.
 
+Create a short-lived branch from `main` for each issue, for example
+`feat/4-streaming-core` or `chore/2-workspace`. Reference the issue in the pull
+request and merge only after its acceptance criteria and tests are reviewed.
+
 ## Licensing and provenance
 
 All source code committed here must be MIT-licensed. Write original code from

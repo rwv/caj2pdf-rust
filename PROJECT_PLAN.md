@@ -10,8 +10,9 @@ the repository, API, CLI, documentation, and diagnostics.
 
 - Create a new public repository named `rwv/caj2pdf-rust` with a clean `main`
   history. Keep the existing private `caj2pdf-rs` prototype as a reference.
-- Develop the first release on a short-lived `feat/v0.1.0` branch and merge
-  through a reviewed pull request.
+- Keep `main` as the integration branch. Develop each issue on a short-lived
+  branch such as `feat/4-streaming-core` and merge through a reviewed pull
+  request; no shared long-lived release branch is required.
 - All source code committed to this repository must be MIT-licensed. Do not
   copy code from the Python or Go projects or their FreeType/LGPL-derived
   decoders. Existing private Rust modules may be reused only after a per-file
