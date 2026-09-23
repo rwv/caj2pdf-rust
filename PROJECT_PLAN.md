@@ -13,18 +13,19 @@ the repository, API, CLI, documentation, and diagnostics.
 - Develop the first release on a short-lived `feat/v0.1.0` branch and merge
   through a reviewed pull request.
 - All source code committed to this repository must be MIT-licensed. Do not
-  copy code from the Python project, the private Rust prototype, or their
+  copy code from the Python or Go projects, the private Rust prototype, or their
   FreeType/LGPL-derived decoders. Reimplement HN parsing and the CAJ-specific
   JBIG decoder from format descriptions and independently constructed tests.
-  Prefer external dependencies that permit MIT use; do not vendor code without
-  an explicit MIT license and preserved attribution.
+  Prefer external dependencies that permit MIT use; audit native and WASM
+  dependency trees. Do not vendor code without an explicit MIT license and
+  preserved attribution.
 - Do not copy CAJ sample documents into the repository. Use an optional external
   corpus path for compatibility testing.
 - Use Conventional Commits. A breaking change uses `!` or a `BREAKING CHANGE:`
   footer. Releases remain `v0.x.y` until the API and output contract stabilize;
   breaking changes are allowed during this period and must be documented.
 
-## Version 1 compatibility target
+## v0.1.0 compatibility target
 
 - Match the Python project's working conversions for CAJ, HN, C8, KDH, and PDF,
   including PDF bookmarks where the source provides them.
@@ -35,8 +36,9 @@ the repository, API, CLI, documentation, and diagnostics.
   reference behavior. Pure-text HN and searchable HN text are outside the
   reference converter's successful behavior and must not be advertised as
   supported in version 1.
-- Treat the private Rust prototype and Python project as behavioral references,
-  not source trees to copy. Record format observations and build new MIT code.
+- Treat the private Rust prototype and Python/Go projects as behavioral
+  references, not source trees to copy. Record format observations and build
+  new MIT code.
 
 ## Architecture and I/O
 
@@ -60,7 +62,7 @@ the repository, API, CLI, documentation, and diagnostics.
 
 ## CLI behavior
 
-Proposed version 1 interface:
+Proposed v0.1.0 interface:
 
 ```text
 caj2pdf INPUT [-o OUTPUT] [--force]

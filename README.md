@@ -28,7 +28,7 @@ including `!` or a `BREAKING CHANGE:` footer for breaking changes. See
 ## License and test data
 
 Source code in this repository is licensed under [MIT](LICENSE). Contributors
-must not copy code from the Python converter, the earlier private Rust
+must not copy code from the Python or Go converters, the earlier private Rust
 prototype, or third-party decoders with different licenses. The separate
 [CAJSamples](https://github.com/caj2pdf/CAJSamples) collection may be used as
 an optional external compatibility corpus; sample documents are not included
