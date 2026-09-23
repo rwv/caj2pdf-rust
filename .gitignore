@@ -1,0 +1,8 @@
+/target/
+/pkg/
+/node_modules/
+/coverage/
+/tests/external-corpus/
+/references/
+.env
+.env.*
