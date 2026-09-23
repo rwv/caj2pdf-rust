@@ -11,8 +11,10 @@ CLI text, issue updates, and pull requests.
 
 All source code committed here must be MIT-licensed. Write original code from
 format specifications, documented observations, and independently authored
-tests. Do not copy or transliterate the Python or Go projects, the previous private
-Rust prototype, or any FreeType/LGPL-derived decoder or HN implementation.
+tests. Do not copy or transliterate the Python or Go projects or any
+FreeType/LGPL-derived decoder or HN implementation. A private Rust module may
+be migrated only after a per-file provenance review confirms original
+ownership and MIT eligibility; its JBIG/HN code must be reimplemented.
 Document the source of format facts in code comments or pull requests. Do not
 vendor sample documents or third-party code unless its MIT license and
 attribution have been verified. Audit native and WASM dependency trees before

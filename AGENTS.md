@@ -6,8 +6,9 @@
   The v0.1.0 entry point is the [parent issue](https://github.com/rwv/caj2pdf-rust/issues/1).
 - All source code committed here must be MIT-licensed. Reimplement HN parsing
   and CAJ-specific JBIG decoding independently. Do not copy or transliterate
-  code from the Python or Go converters, the private Rust prototype, or other
-  differently licensed sources.
+  code from the Python or Go converters or other differently licensed sources.
+  Migrate a private Rust module only after per-file provenance review confirms
+  original ownership and MIT eligibility; never migrate its JBIG/HN code.
 - Preserve memory-conscious I/O: seekable or ranged input, sequential output,
   bounded buffers, and temporary spooling for forward-only inputs when needed.
   Avoid whole-file `Vec<u8>` conversion APIs as the main path.

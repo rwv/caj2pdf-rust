@@ -13,9 +13,11 @@ the repository, API, CLI, documentation, and diagnostics.
 - Develop the first release on a short-lived `feat/v0.1.0` branch and merge
   through a reviewed pull request.
 - All source code committed to this repository must be MIT-licensed. Do not
-  copy code from the Python or Go projects, the private Rust prototype, or their
-  FreeType/LGPL-derived decoders. Reimplement HN parsing and the CAJ-specific
-  JBIG decoder from format descriptions and independently constructed tests.
+  copy code from the Python or Go projects or their FreeType/LGPL-derived
+  decoders. Existing private Rust modules may be reused only after a per-file
+  provenance review confirms that they are original and MIT-eligible.
+  Reimplement HN parsing and the CAJ-specific JBIG decoder from format
+  descriptions and independently constructed tests.
   Prefer external dependencies that permit MIT use; audit native and WASM
   dependency trees. Do not vendor code without an explicit MIT license and
   preserved attribution.
@@ -36,9 +38,10 @@ the repository, API, CLI, documentation, and diagnostics.
   reference behavior. Pure-text HN and searchable HN text are outside the
   reference converter's successful behavior and must not be advertised as
   supported in version 1.
-- Treat the private Rust prototype and Python/Go projects as behavioral
-  references, not source trees to copy. Record format observations and build
-  new MIT code.
+- Use Python and Go as behavioral references. Treat the private Rust
+  prototype as a migration candidate only after per-file provenance review;
+  exclude its FreeType-derived JBIG/HN implementations. Record format
+  observations and build or migrate only MIT-eligible code.
 
 ## Architecture and I/O
 
