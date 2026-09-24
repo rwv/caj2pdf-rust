@@ -51,12 +51,12 @@ for row in rows:
 PY
 ```
 
-On Linux 6.17.4-2-pve x86_64 with rustc 1.98.1, the release probe's per-process peak RSS from `os.wait4` was 10,760 KiB (`issue-48`, 37,743 input bytes), 10,900 KiB (`issue-21`, 480,486 bytes), and 10,900 KiB (`issue-34`, 1,877,728 bytes). A sparse temporary copy of `issue-48` with a 64 MiB zero trailer measured 11,596 KiB RSS for a 67,146,607-byte input and still reported a 37,327-byte PDF. This is evidence for bounded decoder buffers only. Full converter measurements, including the PDF object/page index and repair writer, remain required after the shared PDF path accepts all three inputs.
+On Linux 6.17.4-2-pve x86_64 with rustc 1.98.1, the release probe's per-process peak RSS from `os.wait4` was 10,760 KiB (`issue-48`, 37,743 input bytes), 10,900 KiB (`issue-21`, 480,486 bytes), and 10,900 KiB (`issue-34`, 1,877,728 bytes). A sparse temporary copy of `issue-48` with a 64 MiB zero trailer measured 11,596 KiB RSS for a 67,146,607-byte input and still reported a 37,327-byte PDF. These are scanner-only measurements; the full converter results follow below.
 
 ## End-to-end KDH conversion evidence
 
-In a temporary integration checkout containing the #36 PDF changes and the #11
-KDH converter, all three pinned raw KDH inputs converted to PDFs outside Git:
+On the #11 branch rebased onto the merged #36 PDF changes, all three pinned
+raw KDH inputs converted to PDFs outside Git:
 
 ```sh
 cargo build --locked --release -p caj2pdf-core --example native_kdh_to_pdf
