@@ -327,6 +327,34 @@ fn kdh_header_payload_and_eof_fail_with_locations() {
         })
     ));
 
+    let mut bad_signature = kdh_bytes(&pdf, b"");
+    bad_signature[0] = b'!';
+    assert!(matches!(
+        run(KdhPdfSource::open(
+            &mut MeasuredSource::new(bad_signature),
+            &limits,
+            &NeverCancel
+        )),
+        Err(Error::Kdh {
+            offset: 0,
+            reason: "KDH signature is invalid"
+        })
+    ));
+
+    let short_payload = kdh_bytes(&pdf, b"")[..PDF_START + 7].to_vec();
+    assert!(matches!(
+        run(KdhPdfSource::open(
+            &mut MeasuredSource::new(short_payload),
+            &limits,
+            &NeverCancel
+        )),
+        Err(Error::TruncatedInput {
+            offset: 254,
+            expected: 8,
+            available: 7
+        })
+    ));
+
     let mut bad_version = kdh_bytes(&pdf, b"");
     bad_version[0x28] = 1;
     assert!(matches!(
@@ -386,4 +414,27 @@ fn corrupt_pdf_object_is_reported_at_kdh_absolute_offset() {
     ))
     .unwrap_err();
     assert!(matches!(error, Error::Pdf { offset, .. } if offset >= PDF_START as u64));
+}
+
+#[test]
+fn pdf_output_limit_preserves_kdh_absolute_error_location() {
+    let pdf = fixture_pdf();
+    let mut source = MeasuredSource::new(kdh_bytes(&pdf, b""));
+    let mut output = Vec::new();
+    let limits = Limits {
+        max_output_bytes: pdf.len() as u64 - 1,
+        ..Limits::default()
+    };
+    let error = run(convert_kdh(
+        &mut source,
+        &mut WriteSink::new(&mut output),
+        &limits,
+        &NeverCancel,
+    ))
+    .unwrap_err();
+    assert!(
+        matches!(error, Error::PdfLimitExceeded { offset, resource: "output bytes", .. } if offset >= PDF_START as u64),
+        "{error}"
+    );
+    assert!(output.is_empty());
 }
