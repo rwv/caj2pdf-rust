@@ -14,6 +14,7 @@ checking the provenance of each imported file.
 | --- | --- | --- |
 | PDF output and PDF input | [ISO 32000-1:2008](https://opensource.adobe.com/dc-acrobat-sdk-docs/pdfstandards/PDF32000_2008.pdf) and the [PDF specification archive](https://pdfa.org/resource/pdf-specification-archive/) | Published format specifications. Record the exact PDF version and clauses used for each implementation change. Link to the documents; do not copy their text into source. |
 | JBIG / JBIG2 bitstreams | [ITU-T T.82](https://www.itu.int/rec/T-REC-T.82) and [ITU-T T.88](https://www.itu.int/rec/T-REC-T.88/en) | Published coding recommendations. Implement the subset required by observed CAJ-family data as original MIT code. Do not reuse reference implementation source. |
+| T.82 arithmetic SCD core and numeric states | [ITU-T T.82 (03/1993)](https://www.itu.int/rec/T-REC-T.82), §6.2.5, §6.8.2.3/Table 24, §6.8.3, and §7.1/Table 26; [ITU Software Copyright Guidelines](https://www.itu.int/dms_pub/itu-t/oth/04/04/T04040000040004PDFE.pdf) | Use the public algorithm to author original MIT Rust code. Keep Table 24's 113 exact numeric rows and the §7.1 vector outside the repository until their MIT redistribution basis is documented. The [core design](t82-arithmetic-core.md) records the external-table contract and local test procedure; standard conformance does not establish CAJ compatibility. |
 | CAJ-family headers, pages, and outlines | [caj2pdf format notes](https://github.com/caj2pdf/caj2pdf/wiki), including [CAJ/HN identification](https://github.com/caj2pdf/caj2pdf/wiki/CAJ-%E5%92%8C-HN), [basic information and outlines](https://github.com/caj2pdf/caj2pdf/wiki/%E6%96%87%E4%BB%B6%E5%9F%BA%E6%9C%AC%E4%BF%A1%E6%81%AF%E4%B8%8E%E5%A4%A7%E7%BA%B2), and [CAJ page content](https://github.com/caj2pdf/caj2pdf/wiki/CAJ-%E6%A0%BC%E5%BC%8F%E7%9A%84%E9%A1%B5%E9%9D%A2%E5%86%85%E5%AE%B9) | Public observations, not a complete normative specification. [Repository-owned CAJ measurements](caj-format.md) pin ten successful sample digests and document TOC, page-table, and PDF-fragment exceptions independently. Do not copy parser source or pseudocode. |
 | HN page layout | [caj2pdf HN format notes](https://github.com/caj2pdf/caj2pdf/wiki/HN-%E6%A0%BC%E5%BC%8F%E7%9A%84%E9%A1%B5%E9%9D%A2%E5%86%85%E5%AE%B9) | Incomplete public observations. Derive the parser from documented facts and independent tests; mark unresolved fields explicitly. |
 | HN/C8 type-0 image wrapper and pixels | [ITU-T T.82](https://www.itu.int/rec/T-REC-T.82), [Microsoft BITMAPINFOHEADER](https://learn.microsoft.com/windows/win32/api/wingdi/ns-wingdi-bitmapinfoheader), and [repository-owned oracle measurements](jbig1-oracle.md) | The standards describe public coding and DIB fields. The local corpus measurements pin the CAJ-family wrapper and output hashes. The external differently licensed native decoder is a black-box oracle only, never implementation source or a project dependency. |
@@ -207,6 +208,40 @@ to test hypotheses; no literal standard table or vector is committed. The
 standard's exact numeric state-table redistribution under MIT remains a
 provenance decision for #26, not an implicit grant from this investigation.
 
+Issue #26's [arithmetic-core design](t82-arithmetic-core.md) is derived from
+the English ITU-T T.82 (03/1993) publication, official PDF SHA-256
+`6d4280f4402ce285199b3835dda54e35372e8378e7352d2e88ab3ac420f46942`.
+It covers §6.2.5, §6.8.2.3/Table 24, §6.8.3.1–§6.8.3.9, and §7.1/Table 26.
+The ITU component list also includes Technical Corrigendum 1 (03/1995) and
+Technical Corrigendum 2 (03/2001); their Table 24 impact is not yet assessed.
+The proposed local official-vector fixture with three Table 26 checkpoints
+is outside the repository at
+`/tmp/caj26-official-vector-with-checkpoints.txt`, SHA-256
+`11fe241dedbbf4faa542af4a1485566c2794fa69e5c06e2e5c8542adfe9b1ab7`;
+the path is an example from the current local study, not a CI dependency.
+The original MIT [opt-in integration test](../crates/caj2pdf-core/tests/qm_official_external.rs)
+passed all 256 §7.1 symbols and three Table 26 A/C/CT checkpoints with this
+external fixture on 2026-09-24. Ordinary clean-clone tests ignore that check;
+its absence must not be reported as standard conformance or CAJ support.
+No Table 24 tuples, official §7.1 vector bytes, or generated equivalents are
+approved for the MIT source tree, tests, build output, or release artifacts.
+The [ITU guidelines](https://www.itu.int/dms_pub/itu-t/oth/04/04/T04040000040004PDFE.pdf)
+§2.2.2 discuss unrestricted implementation use of data structures and
+streams, but do not explicitly classify this numeric table or grant MIT
+redistribution of it; the cited guideline edition took effect in 2012,
+after this 1993 standard.
+The [ITU software declaration database](https://www.itu.int/net4/ipr/search.aspx?class=SW&sector=ITU)
+does not list T.82 and disclaims completeness. T.82 is published as identical
+to ISO/IEC 11544:1993, so any permission request must address whether ITU can
+cover the joint material. Written rights confirmation or a qualified legal
+assessment must precede any proposal to embed the exact table under MIT.
+The explicit decision gate is [issue #30](https://github.com/rwv/caj2pdf-rust/issues/30),
+which blocks completion of #26 and #28 while unresolved. A local conformance
+pass with an externally supplied table does not satisfy that gate. As of
+2026-09-24, the rights outcome is **unresolved** and independent review is
+pending; this note is an interim research record, not an approval to embed
+the table.
+
 ## Dependency inventory and review
 
 The issue #2 baseline contains three owned packages:
@@ -249,6 +284,38 @@ integration tests invoke installed `qpdf`, MuPDF `mutool`, and Poppler
 linked, vendored, or distributed with this project. The local baseline used
 `qpdf` 12.2.0, `mutool` 1.25.1, Poppler 25.03.0, and libjpeg-turbo 2.1.5.
 Required CI installs them and prints their versions before tests and coverage.
+
+Issue #26 adds `sha2` as a **dev dependency only** for the ignored
+[`qm_official_external.rs`](../crates/caj2pdf-core/tests/qm_official_external.rs)
+test. It rejects a separately supplied T.82 fixture above 16 KiB and checks
+its pinned SHA-256 before parsing. The selected grant for each package below
+is **MIT** from its distributed `LICENSE-MIT`; every inspected
+package manifest says `MIT OR Apache-2.0`. The versions are pinned in
+[`Cargo.lock`](../Cargo.lock). Feature and target scopes were checked with
+`cargo tree --locked -p caj2pdf-core -e features` for Linux x86_64 and
+`wasm32-unknown-unknown` on 2026-09-24.
+
+| Package | Purpose and resolved features | License / selected grant | Inclusion |
+| --- | --- | --- | --- |
+| `sha2` 0.11.0 | SHA-256 of the external test fixture; direct `default-features = false`. | `MIT OR Apache-2.0` / MIT | Dev/test graph only; absent from normal core, CLI, and WASM artifacts. |
+| `block-buffer` 0.12.1 | Digest block buffering; `default`. | `MIT OR Apache-2.0` / MIT | Transitive test graph, Linux x86_64 and WASM test builds. |
+| `cfg-if` 1.0.5 | Hash implementation configuration; `default`. | `MIT OR Apache-2.0` / MIT | Transitive test graph, Linux x86_64 and WASM test builds. |
+| `cpufeatures` 0.3.1 | CPU feature selection; `default`. | `MIT OR Apache-2.0` / MIT | Transitive native x86_64 test graph; absent from wasm32 test graph. |
+| `crypto-common` 0.2.2 | Shared digest primitives; `default`. | `MIT OR Apache-2.0` / MIT | Transitive test graph, Linux x86_64 and WASM test builds. |
+| `digest` 0.11.3 | Digest traits and block API; `default`, `block-api`. | `MIT OR Apache-2.0` / MIT | Transitive test graph, Linux x86_64 and WASM test builds. |
+| `hybrid-array` 0.4.15 | Fixed-size digest storage; `default`. | `MIT OR Apache-2.0` / MIT | Transitive test graph, Linux x86_64 and WASM test builds. |
+| `libc` 0.2.189 | OS interfaces for `cpufeatures` on selected architectures; default features disabled through that dependency. | `MIT OR Apache-2.0` / MIT | Locked target-specific transitive package; absent from Linux x86_64 and wasm32 graphs. |
+| `typenum` 1.20.1 | Type-level block sizes; `default`, `const-generics`. | `MIT OR Apache-2.0` / MIT | Transitive test graph, Linux x86_64 and WASM test builds. |
+
+The native and WASM license gates passed with `cargo-deny` 0.20.2. In the
+local registry source scan, `libc` alone has a Rust `build.rs`; none of these
+nine packages contains bundled native C/C++ source or binary artifacts.
+
+There is no new runtime or WASM library/package dependency. The production
+`caj2pdf-core`, `caj2pdf-cli`, and `caj2pdf-wasm` normal dependency trees
+contain only workspace packages; test-only packages do not enter released
+binaries or a future JavaScript package. No external official table/vector
+bytes or library source are vendored with this dependency change.
 
 For each pull request and release, regenerate the locked transitive inventory
 for the Linux native target and `wasm32-unknown-unknown`, including target-
