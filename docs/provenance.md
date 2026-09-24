@@ -282,6 +282,24 @@ pass with an externally supplied table does not satisfy that gate. As of
 pending; this note is an interim research record, not an approval to embed
 the table.
 
+Issue #40 adds the original MIT segment-header reader in
+[`crates/caj2pdf-core/src/jbig2/mod.rs`](../crates/caj2pdf-core/src/jbig2/mod.rs),
+exports that module from the existing
+[`lib.rs`](../crates/caj2pdf-core/src/lib.rs), adds independently chosen
+synthetic header bytes and assertions in
+[`jbig2_segment_header.rs`](../crates/caj2pdf-core/tests/jbig2_segment_header.rs),
+and records the implementation boundary in the original English
+[header note](jbig2-segment-header.md). Its format facts come only from the
+English [ITU-T T.88 (02/2000)](https://www.itu.int/rec/T-REC-T.88-200002-S/en),
+§§5.4.2 and 7.1–7.3, with Annex D used to distinguish contiguous segments
+from standalone file organizations. No source was migrated from Python, Go,
+private Rust, or any third-party decoder. No T.88 example, Annex E table, or
+Annex H vector bytes were copied into code, tests, or documentation. The
+reader consumes only a caller-delimited segment and does not establish
+JBIG2 pixel or HN/C8 compatibility; those external checks are `NOT_RUN`.
+The T.88 Annex E numeric-state redistribution basis remains to be reviewed
+before adding an arithmetic decoder or bundling exact states under MIT.
+
 ## Dependency inventory and review
 
 The issue #2 baseline contains three owned packages:
