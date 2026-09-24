@@ -205,6 +205,48 @@ fn one_page_body(annotation: Option<&str>, declared_stream_length: Option<usize>
     body
 }
 
+#[test]
+fn a_synthetic_pages_node_cannot_satisfy_an_annotation_destination() {
+    let mut body = Vec::new();
+    object(
+        &mut body,
+        9,
+        "<< /Type /Page /Parent 5 0 R /MediaBox [0 0 72 72] /Resources << >> /Annots [12 0 R] >>",
+    );
+    object(
+        &mut body,
+        12,
+        "<< /Type /Annot /Subtype /Link /Rect [0 0 1 1] /Dest [5 0 R /Fit] >>",
+    );
+    let error = rejected_without_output(&fragment_caj(&body, &[9]), &Limits::default());
+    assert!(matches!(
+        error,
+        Error::Pdf {
+            object: Some((12, 0)),
+            reason: "indirect reference targets a missing object",
+            ..
+        }
+    ));
+}
+
+#[test]
+fn a_shared_indirect_link_destination_cannot_rewrite_an_appearance() {
+    let mut body = one_page_body(
+        Some("<< /Type /Annot /Subtype /Link /Rect [0 0 1 1] /Dest 10 0 R /AP 10 0 R >>"),
+        None,
+    );
+    object(&mut body, 10, "[22 0 R /Fit]");
+    let error = rejected_without_output(&fragment_caj(&body, &[9]), &Limits::default());
+    assert!(matches!(
+        error,
+        Error::Pdf {
+            object: Some((12, 0)),
+            reason: "indirect reference targets a missing object",
+            ..
+        }
+    ));
+}
+
 fn convert(
     input: &[u8],
     options: ConversionOptions,
@@ -1159,6 +1201,78 @@ fn enforces_caj_metadata_limits_before_writing() {
                 ..
             }
         ),
+        "{error}"
+    );
+}
+
+#[test]
+fn retained_link_repair_budget_is_checked_before_output() {
+    let pages: Vec<u32> = (1000..1032).collect();
+    let mut body = Vec::new();
+    for (index, page) in pages.iter().copied().enumerate() {
+        let link = 2000 + index as u32;
+        object(
+            &mut body,
+            page,
+            &format!(
+                "<< /Type /Page /Parent 5 0 R /MediaBox [0 0 72 72] /Resources << >> /Annots [{link} 0 R] >>"
+            ),
+        );
+        object(
+            &mut body,
+            link,
+            "<< /Type /Annot /Subtype /Link /Rect [0 0 1 1] /Dest [9999 0 R /Fit] >>",
+        );
+    }
+    let input = fragment_caj(&body, &pages);
+    let error = rejected_without_output(
+        &input,
+        &Limits {
+            io_chunk_bytes: 64,
+            max_allocation_bytes: 5000,
+            ..Limits::default()
+        },
+    );
+    assert!(
+        matches!(&error, Error::CajLimitExceeded { resource: "retained link repairs", limit: 5000, attempted, .. } if *attempted > 5000),
+        "{error}"
+    );
+
+    let (output, report) = convert(&input, ConversionOptions::default(), &Limits::default())
+        .expect("same fragment should convert when repair budget is sufficient");
+    assert_eq!(report.pages_converted, pages.len() as u32);
+    assert_eq!(inspect(&output).pages().len(), pages.len());
+    assert!(!output.windows(5).any(|window| window == b"/Dest"));
+    let file = TempPdf::write("many-link-repairs", &output);
+    checked_command(Command::new("qpdf").arg("--check").arg(&file.0), "qpdf");
+}
+
+#[test]
+fn missing_reference_index_budget_is_checked_before_output() {
+    let mut body = Vec::new();
+    object(
+        &mut body,
+        9,
+        "<< /Type /Page /Parent 5 0 R /MediaBox [0 0 1 1] >>",
+    );
+    for number in 100..180 {
+        object(
+            &mut body,
+            number,
+            "<< /A 9001 0 R /B 9002 0 R /C 9003 0 R >>",
+        );
+    }
+    let input = fragment_caj(&body, &[9]);
+    let error = rejected_without_output(
+        &input,
+        &Limits {
+            io_chunk_bytes: 64,
+            max_allocation_bytes: 4000,
+            ..Limits::default()
+        },
+    );
+    assert!(
+        matches!(&error, Error::CajLimitExceeded { resource: "missing PDF references", limit: 4000, attempted, .. } if *attempted > 4000),
         "{error}"
     );
 }
