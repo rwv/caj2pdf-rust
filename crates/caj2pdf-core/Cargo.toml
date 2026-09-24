@@ -1,0 +1,12 @@
+[package]
+name = "caj2pdf-core"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85.0"
+license = "MIT"
+description = "Platform-neutral CAJ-family conversion core"
+repository = "https://github.com/rwv/caj2pdf-rust"
+publish = false
+
+[lib]
+path = "src/lib.rs"

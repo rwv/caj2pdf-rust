@@ -14,7 +14,11 @@
   Avoid whole-file `Vec<u8>` conversion APIs as the main path.
 - Browser and Node.js are both first-class JavaScript targets. Keep platform
   adapters separate from conversion logic.
-- Use Conventional Commits; mark breaking changes explicitly. `v0.x.y` is
-  unstable and may contain documented breaking changes.
+- Use Conventional Commits; mark breaking changes with `!` or a
+  `BREAKING CHANGE:` footer. `v0.x.y` is unstable and may contain documented
+  breaking changes.
 - Do not count skipped optional-corpus tests as successful compatibility tests.
   Do not commit the external CAJSamples document corpus to this repository.
+- Keep [docs/provenance.md](docs/provenance.md) current for format facts,
+  fixtures, dependencies, and every proposed private-source migration. Follow
+  [docs/release-policy.md](docs/release-policy.md) for review and releases.
