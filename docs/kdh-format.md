@@ -28,7 +28,7 @@ The decoder first checks the KDH signature, version field, and decoded PDF start
 
 Temporary decoded PDFs cut at those ends had 6, 67, and 1 pages. Every page dimension and all 74 MuPDF PAM RGB render SHA-256 values matched the matrix. MuPDF 1.25.1 rendered all pages. `qpdf --check` 12.2.0 accepted `issue-48` cleanly. For `issue-21` and `issue-34`, qpdf returned warning status 3 because object 1 is a `/Pages` dictionary with two identical direct `/MediaBox[0 0 612 792]` values. `issue-21` also has six stream keywords followed by a lone CR, which qpdf warns about. Their page renders still matched; a clean validator pass requires the shared PDF repair path. The temporary, merely trimmed PDFs had SHA-256 values `86011857255adcfe313f72e4dac86a0f8b1562921060adcb6808cc4508d81d52`, `d6aef22832ad11d2e86f3b9033eaa339c659001efe177662c15a1c6348d29f88`, and `448d785710c5c2195d326e1a104894efc7ead4c215b1aa3e0a105e32e0c604b5` respectively.
 
-At this branch's initial PDF-layer baseline, `convert_kdh` rejects the first two files as unsupported xref streams at KDH absolute offsets 479,932 and 1,835,221. The third reaches an existing PDF validation error for a stale `/Parent 606 0 R` reference in object 184. Shared PDF work in [issue #36](https://github.com/rwv/caj2pdf-rust/issues/36) must resolve these before the three-case conversion acceptance criterion can be claimed. The synthetic KDH tests exercise valid classic xref conversion, short ranged reads, cancellation, sink failure, and typed wrapper, missing-EOF, false-trailer-marker, full-input-limit, and corrupt-object failures. They do not count as external corpus compatibility passes.
+At the initial PDF-layer baseline, `convert_kdh` rejected the first two files as unsupported xref streams at KDH absolute offsets 479,932 and 1,835,221. The third exposed a stale `/Parent 606 0 R` reference in object 184. The bounded shared PDF normalization in [issue #36](https://github.com/rwv/caj2pdf-rust/issues/36) addresses these observed structures. The synthetic KDH tests cover valid classic xref conversion, short ranged reads, cancellation, sink failure, and typed wrapper, missing-EOF, false-trailer-marker, full-input-limit, and corrupt-object failures. Synthetic tests are not counted as external corpus compatibility passes.
 
 ## Reproducing the scan and memory observation
 
@@ -53,4 +53,39 @@ PY
 
 On Linux 6.17.4-2-pve x86_64 with rustc 1.98.1, the release probe's per-process peak RSS from `os.wait4` was 10,760 KiB (`issue-48`, 37,743 input bytes), 10,900 KiB (`issue-21`, 480,486 bytes), and 10,900 KiB (`issue-34`, 1,877,728 bytes). A sparse temporary copy of `issue-48` with a 64 MiB zero trailer measured 11,596 KiB RSS for a 67,146,607-byte input and still reported a 37,327-byte PDF. This is evidence for bounded decoder buffers only. Full converter measurements, including the PDF object/page index and repair writer, remain required after the shared PDF path accepts all three inputs.
 
-To produce local output PDFs after the shared PDF support lands, use `cargo run --release -p caj2pdf-core --example native_kdh_to_pdf -- INPUT.caj OUTPUT.pdf` once per matrix row, with outputs outside the repository. Then run `CAJ2PDF_CORPUS_DIR=/path/to/CAJSamples python3 scripts/conformance.py --only-format KDH --pdf-dir /path/to/outputs`. The conformance script validates exact input identities and checks the output page dimensions, outlines, and render hashes; skipped optional files are not successes.
+## End-to-end KDH conversion evidence
+
+In a temporary integration checkout containing the #36 PDF changes and the #11
+KDH converter, all three pinned raw KDH inputs converted to PDFs outside Git:
+
+```sh
+cargo build --locked --release -p caj2pdf-core --example native_kdh_to_pdf
+target/release/examples/native_kdh_to_pdf INPUT.caj OUTPUT.pdf
+qpdf --check OUTPUT.pdf
+python3 scripts/conformance.py --corpus-dir /path/to/CAJSamples \
+  --pdf-dir /path/to/converted-pdfs --only-format KDH --json
+```
+
+`qpdf --check` exited 0 without warnings for 3/3 outputs. The format-scoped
+matrix reported inventory `PASS` 3/3 and PDF `PASS` 3/3: page counts,
+dimensions, outline hierarchy/destinations, and all 74 rendered-page hashes
+matched. The same Rust `convert_kdh` future was also called from the real
+WASM runtime through both Blob/Web Writable and positioned Node file/Writable
+adapters in synthetic tests; `node --test js/test/*.test.mjs` passed 21/21.
+The production JavaScript package API remains issue #13 work.
+
+For the full release converter, including PDF indexing and repair writing,
+Linux `os.wait4(...).ru_maxrss` on the same host measured:
+
+| Input | Input bytes | Peak RSS |
+| --- | ---: | ---: |
+| `issue-48` | 37,743 | 7,896 KiB |
+| `issue-21` | 480,486 | 7,896 KiB |
+| `issue-34` | 1,877,728 | 7,908 KiB |
+| `issue-48` plus a sparse 64 MiB zero trailer | 67,146,607 | 8,848 KiB |
+
+The large-trailer output had the same SHA-256 as the original `issue-48`
+output. These measurements show a bounded path for the observed corpus and
+trailer experiment; they do not establish a global memory ceiling for every
+possible PDF object count or configured limit. The corpus and all generated
+PDFs remained outside the repository.
