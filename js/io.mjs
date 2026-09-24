@@ -119,7 +119,7 @@ const ERROR_NAMES = [
 
 function coreError(kind) {
   const code = ERROR_NAMES[kind] ?? "UNKNOWN";
-  const error = new Error(`Rust I/O proof failed: ${code}`);
+  const error = new Error(`Rust operation failed: ${code}`);
   error.code = code;
   return error;
 }
@@ -130,14 +130,16 @@ function coreError(kind) {
  * The raw WASM instance is single-operation. Use one instance per concurrent
  * operation until the handle-based production binding is implemented.
  */
-export async function copyRangeProof(
+async function driveProof(
   wasm,
   source,
   sink,
   { offset = 0n, length, chunkSize = DEFAULT_IO_CHUNK, signal } = {},
+  kdh = false,
 ) {
   const exports = wasm?.exports ?? wasm;
-  if (exports?.memory == null || typeof exports.caj2pdf_io_start !== "function") {
+  const start = kdh ? exports?.caj2pdf_kdh_start : exports?.caj2pdf_io_start;
+  if (exports?.memory == null || typeof start !== "function") {
     throw new TypeError("a caj2pdf WASM instance or its exports is required");
   }
   if (source == null || typeof source.readAt !== "function") {
@@ -154,7 +156,9 @@ export async function copyRangeProof(
   requireChunkLength(chunkSize);
   checkAbort(signal);
 
-  const started = exports.caj2pdf_io_start(source.size, offset, length, chunkSize);
+  const started = kdh
+    ? start(source.size, chunkSize)
+    : start(source.size, offset, length, chunkSize);
   if (started === 1) {
     throw new Error("WASM instance already has an active I/O proof");
   }
@@ -210,7 +214,7 @@ export async function copyRangeProof(
         return {
           inputBytesRead: exports.caj2pdf_io_input_bytes_read(),
           outputBytesWritten: exports.caj2pdf_io_output_bytes_written(),
-          pagesConverted: 0,
+          pagesConverted: kdh ? exports.caj2pdf_io_pages_converted() : 0,
           bookmarksWritten: 0,
         };
       } else if (status === 5) {
@@ -223,4 +227,13 @@ export async function copyRangeProof(
     exports.caj2pdf_io_cancel();
     exports.caj2pdf_io_reset();
   }
+}
+
+export function copyRangeProof(wasm, source, sink, options = {}) {
+  return driveProof(wasm, source, sink, options);
+}
+
+/** Drive the native-equivalent KDH core through bounded browser or Node I/O. */
+export function convertKdhProof(wasm, source, sink, { chunkSize, signal } = {}) {
+  return driveProof(wasm, source, sink, { chunkSize, signal }, true);
 }

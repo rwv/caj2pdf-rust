@@ -8,7 +8,7 @@
 
 use caj2pdf_core::{
     Cancellation, ConversionReport, Error, Limits, MAX_IO_CHUNK, RangedSource, Result,
-    SequentialSink, copy_range,
+    SequentialSink, copy_range, kdh::convert_kdh,
 };
 use std::{
     cell::RefCell,
@@ -170,6 +170,12 @@ impl Cancellation for BridgeCancellation {
 
 type Operation = Pin<Box<dyn Future<Output = Result<ConversionReport>>>>;
 
+#[derive(Clone, Copy)]
+enum OperationKind {
+    Copy { offset: u64, length: u64 },
+    Kdh,
+}
+
 struct Engine {
     shared: Rc<RefCell<Shared>>,
     operation: Operation,
@@ -189,6 +195,21 @@ pub extern "C" fn caj2pdf_io_start(
     length: u64,
     chunk_size: u32,
 ) -> u32 {
+    start_operation(
+        source_size,
+        chunk_size,
+        OperationKind::Copy { offset, length },
+    )
+}
+
+/// Start the same bounded KDH conversion core used by the native adapter.
+/// This raw bridge is a runtime proof; the public JS package is issue #13.
+#[unsafe(no_mangle)]
+pub extern "C" fn caj2pdf_kdh_start(source_size: u64, chunk_size: u32) -> u32 {
+    start_operation(source_size, chunk_size, OperationKind::Kdh)
+}
+
+fn start_operation(source_size: u64, chunk_size: u32, kind: OperationKind) -> u32 {
     let chunk_size = chunk_size as usize;
     if chunk_size == 0 || chunk_size > MAX_IO_CHUNK {
         return START_INVALID;
@@ -213,15 +234,22 @@ pub extern "C" fn caj2pdf_io_start(
                 io_chunk_bytes: chunk_size,
                 ..Limits::default()
             };
-            copy_range(
-                &mut source,
-                &mut sink,
-                offset,
-                length,
-                &limits,
-                &cancellation,
-            )
-            .await
+            match kind {
+                OperationKind::Copy { offset, length } => {
+                    copy_range(
+                        &mut source,
+                        &mut sink,
+                        offset,
+                        length,
+                        &limits,
+                        &cancellation,
+                    )
+                    .await
+                }
+                OperationKind::Kdh => {
+                    convert_kdh(&mut source, &mut sink, &limits, &cancellation).await
+                }
+            }
         });
         *slot = Some(Engine {
             shared,
@@ -417,6 +445,19 @@ pub extern "C" fn caj2pdf_io_output_bytes_written() -> u64 {
             .and_then(|engine| engine.result.as_ref())
             .and_then(|result| result.as_ref().ok())
             .map(|report| report.output_bytes_written)
+            .unwrap_or(0)
+    })
+}
+
+/// Pages converted by a successful operation; zero when unavailable.
+#[unsafe(no_mangle)]
+pub extern "C" fn caj2pdf_io_pages_converted() -> u32 {
+    ENGINE.with(|cell| {
+        cell.borrow()
+            .as_ref()
+            .and_then(|engine| engine.result.as_ref())
+            .and_then(|result| result.as_ref().ok())
+            .map(|report| report.pages_converted)
             .unwrap_or(0)
     })
 }

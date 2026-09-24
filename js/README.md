@@ -1,8 +1,10 @@
 # JavaScript I/O proof
 
-This directory demonstrates the I/O contract for future CAJ conversion. It
-copies a requested range byte for byte through the real Rust core
-`copy_range` future. It does **not** parse CAJ or produce PDF yet.
+This directory demonstrates the bounded I/O contract through real Rust core
+futures. `copyRangeProof` copies a requested byte range, and
+`convertKdhProof` converts a KDH wrapper into PDF through the same core used
+by the native adapter. CAJ conversion and the public browser/Node package API
+remain separate work.
 
 Build the raw WebAssembly module and run the Node.js 22+ tests from the
 repository root:
@@ -48,7 +50,8 @@ not an `fsync` or document finalization operation.
 The Node adapter catches errors associated with each awaited write; callers
 remain responsible for later, unrelated stream errors after a write settles.
 
-`copyRangeProof(instance, source, sink, options)` drives a single core future
+`copyRangeProof(instance, source, sink, options)` and
+`convertKdhProof(instance, source, sink, options)` drive a single core future
 through the raw WASM ABI. Rust requests a range, JavaScript awaits the
 source, copies only that bounded chunk into WASM staging memory, and resumes
 the Rust future. Rust then requests a write; JavaScript passes a bounded view
@@ -58,16 +61,20 @@ them before resolving. The supplied Web and Node sinks make that copy. The
 configured chunk defaults to 256 KiB and cannot exceed 1 MiB. Core and
 staging each hold one chunk; the JavaScript source and supplied output sink
 each hold at most one additional chunk while awaiting I/O. No complete
-document buffer is created.
+document buffer is created. The KDH proof checks the full source length,
+decrypts through positioned reads, and uses the shared bounded PDF repair
+path. The Node tests run it with both a Blob source and a positioned file
+source; the same Blob and Web Writable adapters work in a browser.
 This proof uses the core's default 8 GiB input and 16 GiB output limits;
 configurable JavaScript limits belong to the production API in issue #13.
 
 One WASM instance handles one proof at a time. Use a separate instance for
 concurrent proofs. `AbortSignal` is checked between awaited operations; an
 already running Blob or file read cannot be interrupted by this adapter, and
-bytes already accepted by a sink cannot be withdrawn. `copyRangeProof` always
-resets the WASM state when it resolves or rejects. The production JavaScript
+bytes already accepted by a sink cannot be withdrawn. Both proof drivers
+reset the WASM state when they resolve or reject. The production JavaScript
 conversion API and multi-operation handles are later work.
 
-This proof uses no npm or external Cargo dependencies. All project-owned
-source here is MIT-licensed.
+This proof uses no npm dependencies. The core's audited pure Rust Flate
+dependency is documented in [`docs/provenance.md`](../docs/provenance.md).
+All project-owned source here is MIT-licensed.
