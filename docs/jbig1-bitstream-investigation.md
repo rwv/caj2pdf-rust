@@ -2,10 +2,11 @@
 
 This note tracks [issue #27](https://github.com/rwv/caj2pdf-rust/issues/27).
 It records independent measurements and black-box experiments against the
-[pinned image manifest](../tests/conformance/jbig1_oracle.json). It is an
-investigation, **not a decoder specification**: the CAJ-specific context and
-prediction rules remain unresolved. The corpus documents, coded image bytes,
-decoded bitmaps, and all external executable binaries stay outside this MIT
+[pinned image manifest](../tests/conformance/jbig1_oracle.json). A later
+[row-model candidate](jbig1-row-model.md) matches all 1,400 pinned type-0
+images; support beyond that observed mode and a released decoder remain open.
+The corpus documents, coded image bytes, decoded bitmaps, and all external
+executable binaries stay outside this MIT
 repository. The differently licensed reference decoder was only invoked as a
 behavioral oracle; its source, tables, comments, and pseudocode were
 not inspected or used.
@@ -160,10 +161,17 @@ the nonblank C8 `issue-33/test1.caj` page 1; all 48 candidates differed
 already in row 0.
 The all-zero `issue-7` page 75 matched some offset-0 candidates, as expected
 for a non-discriminating blank. Offset-0 three-line candidates for nonblank
-HN `issue-85` page 4 first differed at row 341, byte 66. Passing the official
-arithmetic vector and failing this limited CAJ grid are compatible: the
-private context/prediction model or framing is still unknown. The grid did
-not include deterministic prediction, adaptive-template movement, or stripe
+HN `issue-85` page 4 first differed at row 341, byte 66. A fresh scan of the
+pinned oracle's external raw buffer found its **first nonzero byte at exactly
+that location**. The apparent match through row 340 covered only a blank
+prefix; it provides no evidence that the tested context template is correct.
+For C8 `issue-33/test1.caj` page 1, the first nonzero oracle byte is at row 0,
+byte 303, where the tested offset-0 candidates first differ too. These are
+raw-buffer row and byte coordinates, with no pixel bytes retained here.
+Passing the official arithmetic vector and failing this limited CAJ grid are
+compatible. At that stage, the private context/prediction model or framing
+remained unknown. The grid did not include deterministic prediction,
+adaptive-template movement, or stripe
 restart. The nonblank canaries used bounded first-row/first-six-row checks
 and extended representative survivors to their first difference; the
 full-image transform comparisons above belong to the separate standard CLI
@@ -207,21 +215,71 @@ MuPDF PBM bytes. This validates the placement equivalence for that small
 geometry; the final Rust path still needs real HN/C8 render checks. A
 page-sized row reversal buffer should not be assumed necessary.
 
+## Valid-image pair and mutation controls
+
+The earlier `issue-68` pages 6/7 and `issue-76` pages 2/3 pairs share 15 and
+22 initial coded bytes, respectively. Their oracle raw buffers first differ
+at memory-order row 217, byte 153 and row 106, byte 273. Those are exactly
+the first nonzero rows of one member of each pair: `issue-68` page 6 first
+has ink at row 217 (page 7 at 267), and `issue-76` page 3 at row 106 (page 2
+at 517). Their shared output prefixes contain only blank rows and do not
+establish a shared predictor or arithmetic state.
+
+A stronger valid pair is `issue-68` pages 97/101, image 1, both 2481 × 3509
+with a 312-byte raw stride. Their pinned DIB-plus-coded spans are
+`(12791062, 19292)` and `(12952640, 22294)`, with encoded SHA-256 values
+`1536368271cffd6ff4466f23e36a236c62791a5cedbd3c00454e73be74b52a5e`
+and `53b1b57bc9b8feb34d5fcdb14ebaf6771650ad9c6b570fa646a9958e32a75d60`.
+The first 1,214 coded bytes are equal. Their complete oracle buffers share
+the final 380 memory-order rows (3129–3508), including 39 rows with at least
+one visible foreground bit. This is a valid-image nonblank agreement; it is
+stronger than the blank-only controls above, though it does not determine the
+private context or stripe rule.
+
+All source and encoded-span SHA-256 values were verified against the pinned
+manifest before calling the native binary. Each valid or mutated coded span
+was passed to the pinned black-box `jbigDecode` ABI in four isolated runs:
+output prefill `00`/`a5` crossed with 4 KiB input tail `00`/`ff` beyond the
+declared input length. An output buffer of exactly `stride × height` bytes
+had 4 KiB guards on both sides. Each child had a 256 MiB address-space cap,
+8 s CPU cap, and 20 s parent wall timeout. Guards and all four outputs had
+to agree before comparing hashes; all six valid baselines matched both
+manifest raw-stride and visible-bit SHA-256 values. The temporary original
+orchestration scripts are `/tmp/caj27/pair_divergence.py` (SHA-256
+`6e47a0be67c661dbde9ee20e975a31f8e64ab3f38fa7e5bf48b8cf0e72b9ccb7`)
+and `/tmp/caj27/pair_p97_probe.py` (SHA-256
+`7c2deb07f8f7f3e62a7191cb6822cf7984e07fc37ed48632c573e93a304e821d`).
+They and their coded/raw outputs remain outside the repository; the protocol
+uses the pinned manifest and external corpus, not embedded document bytes.
+
+A one-byte XOR mutation at p97 coded offset 500 left 196 output suffix rows,
+including 12 nonblank rows, matching **unmutated p97**. Mutating the first
+differing coded byte at offset 1214 or its successor at 1215 left 397 or 388
+suffix rows, respectively, matching unmutated p97, each with 39 nonblank rows.
+These mutation comparisons are distinct from the 380 shared rows of the valid
+p97/p101 pair. A last-nine-byte flip left p97's output unchanged. In the
+blank-prefix pairs,
+substituting the first differing coded byte made roughly 0.9–1.0 million raw
+bytes differ from the corresponding valid output, beginning at row 0 byte 0.
+These are reproducible black-box responses to **possibly invalid inputs**:
+the native `void` ABI gives no success/failure signal. They are consistent
+with sequential decoding into high-to-low memory rows but cannot prove a
+valid CAJ context or restart rule.
+
 ## Still unresolved
 
-No tested standard wrapper or simple display transform reproduces a nonblank
-HN/C8 oracle hash. Across the 1,400 pinned images, **zero decoder modes are
-proven**. Two four-byte all-zero images are non-discriminating blank controls;
-the other 1,398 images remain unsupported by a verified decoder rule too.
-The arithmetic byte framing, context template, predictor,
-stripe behavior, and complete mode partition remain unknown. A standard
-arithmetic-core conformance pass, a blank-image match, or a plausible-looking
-render is not enough to close #27 or claim CAJ type-0 support. The next
-experiments must compare exact pixels for nonblank HN and C8 canaries and
-then for all supported entries in the pinned 1,400-image manifest. Two
-same-geometry, valid-image pairs offer controlled divergence checks:
-`issue-68` pages 6/7 share their first 15 coded bytes yet first differ in
-the oracle output at row 217, byte 153; `issue-76` pages 2/3 share 22 coded
-bytes and first differ at row 106, byte 273. Mutating a byte just after
-each shared prefix in isolated black-box calls could distinguish localized
-from persistent context effects, but a mutation has no valid-format claim.
+No tested **self-contained standard wrapper** or simple display transform
+reproduced a nonblank HN/C8 hash in the earlier grid. That negative result
+does not refute the later [CAJ row-control candidate](jbig1-row-model.md),
+which matches complete nonblank canaries with an externally supplied T.82
+arithmetic state table. The observed 1,400 pinned type-0 images have since
+matched the finite row-control candidate under that external table, as
+recorded in the [row-model note](jbig1-row-model.md). This does not identify
+the broader CAJ mode partition, dynamic template changes, deterministic
+prediction, stripe behavior, or malformed-input handling. A standard-vector
+pass,
+a blank-image match, or a plausible-looking render alone does not establish
+CAJ support. The valid-pair observations above constrain output traversal
+but do not prove a context rule; mutated inputs have no validity signal.
+The candidate still needs a portable, bounded Rust integration harness and
+an MIT Table 24 redistribution decision before #28 can ship a decoder.

@@ -207,6 +207,17 @@ the official T.82 table and conformance vector at runtime from the standard
 to test hypotheses; no literal standard table or vector is committed. The
 standard's exact numeric state-table redistribution under MIT remains a
 provenance decision for #26, not an implicit grant from this investigation.
+The [Rust row-model result ledger](../tests/conformance/jbig1_row_model_results.md)
+is a hash-only record of a separate, independently authored temporary Rust
+experiment using the MIT `caj2pdf-core::qm` API. It checked all 27 pinned
+source files, including six without type-0 images, and all 1,400 type-0 images
+across the other 21 files. Its 1,400 manifest-indexed rows record exact hash
+matches and bounded resource counters, not corpus or decoded bitmap bytes.
+The temporary harness loaded the T.82 probability states only from an
+external runtime fixture; the states, conformance vector, corpus documents,
+and bitmap spools were not migrated. The source and full external report
+digests are pinned in the ledger README. The Table 24 rights question remains
+open in #30, so this result does not authorize bundling those numeric states.
 
 Issue #26's [arithmetic-core design](t82-arithmetic-core.md) is derived from
 the English ITU-T T.82 (03/1993) publication, official PDF SHA-256
