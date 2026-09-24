@@ -118,11 +118,34 @@ struct MissingGroup {
     seen: BTreeSet<PdfRef>,
 }
 
+#[derive(Clone, Copy)]
 struct SyntheticPageTree<'a> {
     number: u32,
     parent: Option<u32>,
     kids: &'a [PdfRef],
     count: u32,
+}
+
+/// Append formatted PDF syntax without allocating a second page-tree body.
+/// The caller reserves and caps the entire synthetic suffix first.
+struct BoundedSuffix<'a> {
+    bytes: &'a mut Vec<u8>,
+    maximum_len: usize,
+}
+
+impl std::fmt::Write for BoundedSuffix<'_> {
+    fn write_str(&mut self, text: &str) -> std::fmt::Result {
+        let end = self
+            .bytes
+            .len()
+            .checked_add(text.len())
+            .ok_or(std::fmt::Error)?;
+        if end > self.maximum_len {
+            return Err(std::fmt::Error);
+        }
+        self.bytes.extend_from_slice(text.as_bytes());
+        Ok(())
+    }
 }
 
 fn malformed(offset: u64, reason: &'static str) -> Error {
@@ -315,7 +338,18 @@ fn push_synthetic(
             reason: "CAJ synthetic page tree estimate overflows",
         })?;
     limits.check_allocation(estimated as u64)?;
-    let mut body = String::new();
+    suffix
+        .try_reserve_exact(estimated - suffix.len())
+        .map_err(|_| Error::LimitExceeded {
+            resource: "CAJ synthetic page tree allocation",
+            limit: limits.max_allocation_bytes,
+            attempted: estimated as u64,
+        })?;
+    let start = suffix.len();
+    let mut body = BoundedSuffix {
+        bytes: suffix,
+        maximum_len: estimated,
+    };
     let number = node.number;
     write!(&mut body, "{number} 0 obj\n<< /Type /Pages ").map_err(|_| Error::InvalidInput {
         reason: "CAJ synthetic page tree formatting failed",
@@ -333,33 +367,21 @@ fn push_synthetic(
             reason: "CAJ synthetic page tree formatting failed",
         })?;
     }
-    body.push_str("] >>\nendobj\n");
-    let next_size = suffix
-        .len()
-        .checked_add(body.len())
-        .ok_or(Error::InvalidInput {
-            reason: "CAJ synthetic page tree size overflows",
+    body.write_str("] >>\nendobj\n")
+        .map_err(|_| Error::InvalidInput {
+            reason: "CAJ synthetic page tree exceeds reserved bound",
         })?;
-    limits.check_allocation(next_size as u64)?;
-    suffix
-        .try_reserve(body.len())
-        .map_err(|_| Error::LimitExceeded {
-            resource: "CAJ synthetic page tree allocation",
-            limit: limits.max_allocation_bytes,
-            attempted: next_size as u64,
-        })?;
-    let start = suffix.len() as u64;
-    suffix.extend_from_slice(body.as_bytes());
+    let body_len = body.bytes.len() - start;
     objects.push(FragmentObject {
         reference: PdfRef {
             number,
             generation: 0,
         },
         range: PdfRange {
-            offset: base.checked_add(start).ok_or(Error::InvalidInput {
+            offset: base.checked_add(start as u64).ok_or(Error::InvalidInput {
                 reason: "CAJ synthetic page tree offset overflows",
             })?,
-            length: body.len() as u64,
+            length: body_len as u64,
         },
     });
     Ok(())
@@ -767,4 +789,59 @@ pub async fn convert_caj<S: RangedSource, W: SequentialSink, C: Cancellation>(
     .await?;
     report.input_bytes_read = counted.bytes_read;
     Ok(report)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn synthetic_page_tree_appends_within_budget_at_maximum_object_width() {
+        let kids = [
+            PdfRef {
+                number: u32::MAX - 1,
+                generation: 0,
+            },
+            PdfRef {
+                number: u32::MAX,
+                generation: 0,
+            },
+        ];
+        let node = SyntheticPageTree {
+            number: u32::MAX,
+            parent: Some(u32::MAX - 1),
+            kids: &kids,
+            count: 2,
+        };
+        let mut suffix = b"prefix".to_vec();
+        let mut objects = Vec::new();
+        let estimated = suffix.len() + 160 + 24 * kids.len();
+        let limits = Limits {
+            max_allocation_bytes: estimated as u64,
+            ..Limits::default()
+        };
+        push_synthetic(&mut suffix, &mut objects, 100, node, &limits).unwrap();
+        let body = &suffix[b"prefix".len()..];
+        assert_eq!(
+            body,
+            b"4294967295 0 obj\n<< /Type /Pages /Parent 4294967294 0 R /Count 2 /Kids [4294967294 0 R 4294967295 0 R ] >>\nendobj\n"
+        );
+        assert!(suffix.len() <= estimated);
+        assert_eq!(objects.len(), 1);
+        assert_eq!(objects[0].range.offset, 106);
+        assert_eq!(objects[0].range.length, body.len() as u64);
+
+        let mut too_small = b"prefix".to_vec();
+        let mut rejected_objects = Vec::new();
+        let limits = Limits {
+            max_allocation_bytes: estimated as u64 - 1,
+            ..Limits::default()
+        };
+        assert!(matches!(
+            push_synthetic(&mut too_small, &mut rejected_objects, 100, node, &limits),
+            Err(Error::LimitExceeded { .. })
+        ));
+        assert_eq!(too_small, b"prefix");
+        assert!(rejected_objects.is_empty());
+    }
 }
