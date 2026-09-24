@@ -83,6 +83,7 @@ transliterate any Python, Go, FreeType, LGPL, GPL, or unlicensed code.
 | --- | --- | --- |
 | [Python caj2pdf](https://github.com/rwv/caj2pdf) | Compare successful conversion results, page counts, outlines, and reported unsupported cases. | Run a pinned revision as an external oracle; capture the command, revision, input digest, and observed result. Do not import its source or bundled libraries. |
 | External HN/C8 type-0 decoder from the pinned Python project | Measure raw 1 bpp image hashes for [issue #22](https://github.com/rwv/caj2pdf-rust/issues/22). | Build and run only in a disposable external environment. Record the revision, compiler, library digest, ABI, timeouts, and secondary PDF cross-check. Its GLWT-licensed implementation and binary must never enter this MIT repository, build, package, or release. |
+| External standard T.82 command-line encoder/decoder | Test a finite set of reconstructed BIH/stripe hypotheses for [issue #27](https://github.com/rwv/caj2pdf-rust/issues/27). | Run `pbmtojbg`/`jbgtopbm` only as separately supplied black-box tools. Record binary digests and exact flags. Do not import their source, generated bitmaps, or executable binaries into the project or release. |
 | [Go prototype](https://github.com/rwv/caj2pdf-go) | Compare the limited cases it implements when useful. | Pin the revision and record its limitations. Do not treat an unfinished result as proof of compatibility or import source. |
 | PDF readers and validators | Independently validate generated PDF structure and rendering. | Record the exact tool and version in the test report when introduced. A reference converter alone cannot establish PDF validity. |
 
@@ -189,6 +190,22 @@ optional stdlib-only oracle runner and its synthetic tests are original MIT
 project code. Future Rust JBIG1 logic must be independently authored from
 the public T.82 recommendation and measured input/output behavior; the
 external library is not an algorithm source.
+
+Issue #27's [bitstream investigation](jbig1-bitstream-investigation.md) uses
+the #22 source/hash inventory, separately supplied standard T.82 command
+line tools, native decoder calls only as a black-box oracle, and observations
+from reference PDFs and MuPDF renders. The optional
+[finite standard probe](../scripts/jbig1_standard_probe.py) is original MIT
+stdlib-only code; it uses the pinned inventory and a separately supplied
+standard CLI and records only hashes and counts, not bitmap or bitstream
+bytes. The investigation note includes a two-byte SCD observation produced
+from an independently authored synthetic blank bitmap by the external
+standard encoder; it includes no corpus payload bytes. A separate original
+experiment under `/tmp` read
+the official T.82 table and conformance vector at runtime from the standard
+to test hypotheses; no literal standard table or vector is committed. The
+standard's exact numeric state-table redistribution under MIT remains a
+provenance decision for #26, not an implicit grant from this investigation.
 
 ## Dependency inventory and review
 

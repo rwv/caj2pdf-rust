@@ -92,6 +92,46 @@ A changed or new invalid record fails discovery. No corpus
 document, decoded bitmap, derived PDF, or differently licensed decoder binary
 belongs in this repository or its release artifacts.
 
+The optional [standard T.82 probe](../scripts/jbig1_standard_probe.py) tests a
+finite set of constructed BIH/stripe settings against one selected HN/C8
+image from that manifest. It requires an external standard `jbgtopbm` binary
+and the pinned corpus; the executable stays outside this repository. This
+optional probe runs on Linux/POSIX because it limits child output with
+`RLIMIT_FSIZE`:
+
+```sh
+python3 scripts/jbig1_standard_probe.py \
+  --corpus-dir /path/to/CAJSamples \
+  --decoder /path/to/jbgtopbm \
+  --sample-id issue-33/test1.caj --page 1 --json
+```
+
+With no probe options, it reports `NOT_RUN`; an incomplete explicit request
+fails. `NO_MATCH_IN_TESTED_GRID` means none of the decoded outputs matched
+the oracle's visible pixels. `VISIBLE_ONLY_IN_TESTED_GRID` means at least one
+setting matched visible pixels but no setting matched the complete stride
+hash in the same orientation. A match on an all-zero image is explicitly
+`BLANK_MATCH_NON_DISCRIMINATING`; a visible-only blank result is
+`VISIBLE_ONLY_BLANK_NON_DISCRIMINATING` and is not a full match. The
+probe hashes each valid PBM both in its returned row order and with rows
+reversed. In each order it compares visible pixels (unused low bits masked)
+and the complete DIB stride against the manifest. Since PBM has no DIB row
+padding, the stride comparison assumes zero padding while retaining the
+PBM's actual unused low bits. `MATCH` requires both hashes to agree in the
+same row order; `VISIBLE_MATCH_RAW_MISMATCH` means visible pixels agree but
+the raw stride does not for an individual setting. The parser follows the
+[Netpbm raw PBM format](https://netpbm.sourceforge.net/doc/pbm.html) for P4
+magic, decimal dimensions, and whitespace or comments before the dimensions.
+It also accepts a comment directly after the height digits. The first
+whitespace after height is always the single raster delimiter; a `#` after
+that byte belongs to the raster, so whitespace-then-comment after height is
+rejected. The header is limited to 1,024 bytes, and exactly one image of the
+expected raster length is required. If every setting fails to decode, the
+report is `INCONCLUSIVE_NO_DECODABLE_SETTINGS` and exits nonzero. The
+[experiment note](jbig1-bitstream-investigation.md) records the tested grid,
+positive controls, refuted hypotheses, row-order evidence, and unresolved
+CAJ-specific rules. Neither result claims full JBIG1 compatibility.
+
 ## Reference behavior
 
 The [Python converter](https://github.com/rwv/caj2pdf) is a black-box
