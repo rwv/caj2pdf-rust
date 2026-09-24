@@ -106,6 +106,12 @@ impl<'a, S: RangedSource> KdhPdfSource<'a, S> {
                                     reason: "KDH input byte count overflows",
                                 })?;
                             if valid {
+                                if eof.is_some() {
+                                    return Err(Error::Kdh {
+                                        offset: marker,
+                                        reason: "ambiguous PDF end in KDH trailer",
+                                    });
+                                }
                                 eof = Some((marker, xref));
                             }
                         }
@@ -229,6 +235,13 @@ impl<S: RangedSource> RangedSource for KdhPdfSource<'_, S> {
         if read > count {
             return Err(Error::InvalidInput {
                 reason: "KDH source reported more bytes than requested",
+            });
+        }
+        if read == 0 {
+            return Err(Error::TruncatedInput {
+                offset: PDF_START + offset,
+                expected: count as u64,
+                available: 0,
             });
         }
         xor_at(offset, &mut destination[..read]);

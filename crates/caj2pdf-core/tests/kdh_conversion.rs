@@ -56,6 +56,7 @@ struct MeasuredSource {
     max_request: usize,
     max_return: usize,
     reads: Rc<Cell<usize>>,
+    fail_reads: Rc<Cell<bool>>,
 }
 
 impl MeasuredSource {
@@ -66,6 +67,7 @@ impl MeasuredSource {
             max_request: 0,
             max_return: usize::MAX,
             reads: Rc::new(Cell::new(0)),
+            fail_reads: Rc::new(Cell::new(false)),
         }
     }
 }
@@ -82,6 +84,9 @@ impl RangedSource for MeasuredSource {
     ) -> caj2pdf_core::Result<usize> {
         self.max_request = self.max_request.max(destination.len());
         self.reads.set(self.reads.get() + 1);
+        if self.fail_reads.get() {
+            return Ok(0);
+        }
         let count = (self.size() - offset)
             .min(destination.len() as u64)
             .min(self.max_return as u64) as usize;
@@ -95,6 +100,37 @@ impl RangedSource for MeasuredSource {
         destination[from_bytes..count].fill(0);
         Ok(count)
     }
+}
+
+#[test]
+fn a_later_zero_read_reports_the_absolute_kdh_offset() {
+    let pdf = fixture_pdf();
+    let mut source = MeasuredSource::new(kdh_bytes(&pdf, b""));
+    let fail_reads = Rc::clone(&source.fail_reads);
+    let mut decoded = run(KdhPdfSource::open(
+        &mut source,
+        &Limits::default(),
+        &NeverCancel,
+    ))
+    .unwrap();
+    fail_reads.set(true);
+    let mut output = Vec::new();
+    let error = run(caj2pdf_core::pdf::copy_pdf(
+        &mut decoded,
+        &mut WriteSink::new(&mut output),
+        &Limits::default(),
+        &NeverCancel,
+    ))
+    .unwrap_err();
+    assert!(matches!(
+        error,
+        Error::TruncatedInput {
+            offset: 254,
+            expected: 8,
+            available: 0,
+        }
+    ));
+    assert!(output.is_empty());
 }
 
 struct CancelAfterReads {
@@ -149,6 +185,30 @@ fn bounded_kdh_source_discards_a_large_tail_and_false_eof() {
         assert_eq!(actual, pdf);
     }
     assert!(source.max_request <= limits.io_chunk_bytes);
+}
+
+#[test]
+fn a_second_plausible_xref_end_is_rejected_as_ambiguous() {
+    let pdf = fixture_pdf();
+    let tail = format!(
+        "xref\n0 1\n0000000000 65535 f \nstartxref\n{}\n%%EOF\n",
+        pdf.len()
+    );
+    let mut source = MeasuredSource::new(kdh_bytes(&pdf, tail.as_bytes()));
+    let error = run(KdhPdfSource::open(
+        &mut source,
+        &Limits::default(),
+        &NeverCancel,
+    ))
+    .err()
+    .unwrap();
+    assert!(matches!(
+        error,
+        Error::Kdh {
+            reason: "ambiguous PDF end in KDH trailer",
+            ..
+        }
+    ));
 }
 
 #[test]
