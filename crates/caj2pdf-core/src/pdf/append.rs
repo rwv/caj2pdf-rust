@@ -196,6 +196,7 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfOutlineAppender<'a, W, C> {
             &mut writer,
             range.offset,
             index.logical_end(),
+            index,
             limits,
             cancellation,
         )
@@ -599,6 +600,7 @@ async fn copy_prefix<R: RangedSource, W: SequentialSink, C: Cancellation>(
     writer: &mut AppendWriter<'_, W, C>,
     offset: u64,
     length: u64,
+    index: &PdfIndex,
     limits: &Limits,
     cancellation: &C,
 ) -> Result<()> {
@@ -613,17 +615,79 @@ async fn copy_prefix<R: RangedSource, W: SequentialSink, C: Cancellation>(
             attempted: chunk as u64,
         })?;
     buffer.resize(chunk, 0);
+    let separator_patches = index.stream_separator_patches();
+    let gap_patches = index.gap_patches();
     let mut done = 0;
+    let mut next_patch = 0;
+    let mut next_gap = 0;
     while done < length {
         let count = (length - done).min(chunk as u64) as usize;
         let at = offset.checked_add(done).ok_or(Error::InvalidInput {
             reason: "PDF copy offset overflows",
         })?;
         read_exact_at(source, at, &mut buffer[..count], limits, cancellation).await?;
+        while let Some(&patch_at) = separator_patches.get(next_patch) {
+            if patch_at >= done + count as u64 {
+                break;
+            }
+            let within =
+                usize::try_from(patch_at.checked_sub(done).ok_or(Error::InvalidInput {
+                    reason: "PDF stream separator patches are not sorted",
+                })?)
+                .map_err(|_| Error::InvalidInput {
+                    reason: "PDF stream separator patch exceeds chunk",
+                })?;
+            if buffer[within] != b'\r' {
+                return Err(Error::InvalidInput {
+                    reason: "PDF stream separator changed after inspection",
+                });
+            }
+            buffer[within] = b'\n';
+            next_patch += 1;
+        }
+        while let Some(gap) = gap_patches.get(next_gap) {
+            let gap_end =
+                gap.offset
+                    .checked_add(gap.original.len() as u64)
+                    .ok_or(Error::InvalidInput {
+                        reason: "PDF orphan gap patch overflows",
+                    })?;
+            if gap.offset >= done + count as u64 {
+                break;
+            }
+            let overlap_start = gap.offset.max(done);
+            let overlap_end = gap_end.min(done + count as u64);
+            if overlap_start < overlap_end {
+                let source_start = (overlap_start - done) as usize;
+                let source_end = (overlap_end - done) as usize;
+                let original_start = (overlap_start - gap.offset) as usize;
+                let original_end = (overlap_end - gap.offset) as usize;
+                if buffer[source_start..source_end] != gap.original[original_start..original_end] {
+                    return Err(Error::InvalidInput {
+                        reason: "PDF orphan gap changed after inspection",
+                    });
+                }
+                buffer[source_start..source_end].fill(b' ');
+            }
+            if gap_end > done + count as u64 {
+                break;
+            }
+            next_gap += 1;
+        }
         writer.write_raw(&buffer[..count]).await?;
         done = done.checked_add(count as u64).ok_or(Error::InvalidInput {
             reason: "PDF copied-byte count overflows",
         })?;
+    }
+    if next_patch != separator_patches.len() {
+        return Err(Error::InvalidInput {
+            reason: "PDF stream separator patch exceeds copied prefix",
+        });
+    }
+    if next_gap != gap_patches.len() {
+        return Err(Error::InvalidInput {
+            reason: "PDF orphan gap patch exceeds copied prefix",
+        });
     }
     Ok(())
 }
