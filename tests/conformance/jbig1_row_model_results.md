@@ -58,3 +58,27 @@ compatibility. The state table was supplied only at runtime and is absent
 from this repository. Its MIT redistribution question remains open in
 [issue #30](https://github.com/rwv/caj2pdf-rust/issues/30). A passing corpus
 snapshot does not establish every CAJ variant or release support.
+
+## Re-run with external inputs
+
+The [portable Rust test](../../crates/caj2pdf-core/tests/qm_caj_oracle_external.rs)
+is ignored by ordinary `cargo test`. A clean clone therefore has **no CAJ
+pixel compatibility run** (`NOT_RUN`), even when its ordinary test suite
+passes. To request the full run, supply the corpus checkout and separately
+obtained, hash-pinned T.82 fixture:
+
+```sh
+CAJ2PDF_CORPUS_DIR=/path/to/CAJSamples \
+CAJ2PDF_T82_VECTOR_FILE=/path/to/external-t82-fixture \
+cargo test --release -p caj2pdf-core --test qm_caj_oracle_external \
+  --locked -- --ignored --exact all_pinned_caj_images --nocapture
+```
+
+A requested run fails if either input is absent or mismatched. Its summary
+must report `processed=1400 pass=1400 fail=0 sources_pass=27 sources_fail=0`.
+The local release-mode run on 2026-09-24 did so; its output SHA-256 is
+`d1ca7f368ba1c1458ed41868a5dfab038e2e4606372f17e85bb97884e3d774e1`.
+After that run, the test was hardened to reuse the encoded-hash file handle
+for decoding and to close the spool before removal. Those changes passed
+compilation, formatting, Clippy, Rust 1.85, and wasm target checks; the
+full external corpus was not rerun after them.

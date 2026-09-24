@@ -218,6 +218,11 @@ external runtime fixture; the states, conformance vector, corpus documents,
 and bitmap spools were not migrated. The source and full external report
 digests are pinned in the ledger README. The Table 24 rights question remains
 open in #30, so this result does not authorize bundling those numeric states.
+The [portable opt-in Rust harness](../crates/caj2pdf-core/tests/qm_caj_oracle_external.rs)
+is an original MIT adaptation of that research probe. It uses the already
+MIT-licensed arithmetic core, bounded source hashing and row buffers, a
+unique temporary spool, and an external hash-checked probability fixture.
+It embeds no corpus bytes, oracle pixels, Table 24 rows, or official vector.
 
 Issue #26's [arithmetic-core design](t82-arithmetic-core.md) is derived from
 the English ITU-T T.82 (03/1993) publication, official PDF SHA-256

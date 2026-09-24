@@ -166,6 +166,17 @@ report is `/tmp/caj27/rust-batch-report.txt`, SHA-256
 the temporary MIT probe source is `/tmp/caj27/rust-canary/src/main.rs`, SHA-256
 `01e52ca11e6a764a242d68a1d6bb174c33bf6a6be4808242ebb22476dbe4904b`.
 Those `/tmp` files are research artifacts, not required repository inputs.
+The portable, ignored [Rust corpus harness](../crates/caj2pdf-core/tests/qm_caj_oracle_external.rs)
+adapts the independently authored row probe without bundling the corpus or
+numeric table. Its release-mode external run also checked **1,400/1,400**
+images and **27/27** source files, with zero failures; the hash-only output
+report SHA-256 is
+`d1ca7f368ba1c1458ed41868a5dfab038e2e4606372f17e85bb97884e3d774e1`.
+The [ledger note](../tests/conformance/jbig1_row_model_results.md) gives the
+opt-in command and explains why normal clean-clone tests report this as
+`NOT_RUN`. A later one-file-handle hardening change was compiled and reviewed
+after that full run; it changes which already-open handle supplies verified
+bytes, not the row model or expected hashes.
 
 For each image, the probe capped the encoded span at 64 MiB, decoded output
 at 128 MiB, and arithmetic symbols at 12 million; the work budget was at
@@ -216,8 +227,9 @@ but in-range arithmetic data may require additional integrity evidence.
 ## Limits of the evidence
 
 The official T.82 §7.1 arithmetic check and its Table 24 states were used
-only through separately supplied local material. The temporary Python and
-Rust row prototypes are original research code. All 1,400 **pinned type-0**
+only through separately supplied local material. The temporary Python probe
+and committed opt-in Rust harness are original research code. All 1,400
+**pinned type-0**
 images are explained by this candidate, but their success cannot establish
 the mode partition of other CAJ-family inputs, dynamic template changes,
 deterministic prediction, stripe boundaries, or behavior on malformed coding.

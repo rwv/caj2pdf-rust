@@ -281,5 +281,6 @@ pass,
 a blank-image match, or a plausible-looking render alone does not establish
 CAJ support. The valid-pair observations above constrain output traversal
 but do not prove a context rule; mutated inputs have no validity signal.
-The candidate still needs a portable, bounded Rust integration harness and
-an MIT Table 24 redistribution decision before #28 can ship a decoder.
+The portable, ignored [Rust corpus harness](../crates/caj2pdf-core/tests/qm_caj_oracle_external.rs)
+checks the pinned mode independently. Production integration in #28 and an
+MIT Table 24 redistribution decision remain necessary before a decoder ships.
