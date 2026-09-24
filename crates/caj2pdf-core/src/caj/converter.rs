@@ -92,6 +92,16 @@ impl<S: RangedSource> RangedSource for ExtendedSource<'_, S> {
 #[derive(Clone, Copy)]
 struct TreeNode {
     parent: Option<PdfRef>,
+    resolved_root: Option<PageRoot>,
+}
+
+#[derive(Clone, Copy)]
+enum PageRoot {
+    Existing(PdfRef),
+    Missing {
+        parent: PdfRef,
+        direct_child: PdfRef,
+    },
 }
 
 #[derive(Clone, Copy)]
@@ -133,6 +143,70 @@ fn missing_reference(objects: &[FragmentObject], owner: PdfRef) -> Error {
         kind: PdfErrorKind::Malformed,
         reason: "indirect reference targets a missing object",
     }
+}
+
+fn resolve_page_root(
+    nodes: &mut BTreeMap<PdfRef, TreeNode>,
+    occupied: &[PdfRef],
+    page: PdfRef,
+    page_offset: u64,
+    body_start: u64,
+) -> Result<PageRoot> {
+    let mut child = page;
+    let mut steps = 0usize;
+    let resolved = loop {
+        steps += 1;
+        if steps > nodes.len().saturating_add(1) {
+            return Err(malformed(body_start, "PDF page-tree parent cycle"));
+        }
+        let node = nodes
+            .get(&child)
+            .ok_or_else(|| malformed(page_offset, "CAJ page object is missing or is not a Page"))?;
+        if let Some(root) = node.resolved_root {
+            break root;
+        }
+        match node.parent {
+            Some(parent) if nodes.contains_key(&parent) => child = parent,
+            Some(parent) => {
+                if occupied.binary_search(&parent).is_ok() {
+                    return Err(malformed(
+                        page_offset,
+                        "PDF page parent is not a Pages object",
+                    ));
+                }
+                break PageRoot::Missing {
+                    parent,
+                    direct_child: child,
+                };
+            }
+            None => break PageRoot::Existing(child),
+        }
+    };
+
+    // A second walk fills the existing node index without retaining a path
+    // vector. Later pages under the same group stop at the first cached node.
+    let terminal = match resolved {
+        PageRoot::Existing(root) => root,
+        PageRoot::Missing { direct_child, .. } => direct_child,
+    };
+    let mut current = page;
+    loop {
+        let node = nodes.get_mut(&current).ok_or(Error::InvalidInput {
+            reason: "resolved page-tree path changed during caching",
+        })?;
+        if node.resolved_root.is_some() {
+            break;
+        }
+        let parent = node.parent;
+        node.resolved_root = Some(resolved);
+        if current == terminal {
+            break;
+        }
+        current = parent.ok_or(Error::InvalidInput {
+            reason: "resolved page-tree path lost its parent",
+        })?;
+    }
+    Ok(resolved)
 }
 
 fn replace_object(
@@ -425,7 +499,13 @@ pub async fn convert_caj<S: RangedSource, W: SequentialSink, C: Cancellation>(
                 _ => continue,
             };
             if nodes
-                .insert(object.reference, TreeNode { parent })
+                .insert(
+                    object.reference,
+                    TreeNode {
+                        parent,
+                        resolved_root: None,
+                    },
+                )
                 .is_some()
             {
                 return Err(malformed(
@@ -440,54 +520,40 @@ pub async fn convert_caj<S: RangedSource, W: SequentialSink, C: Cancellation>(
     let mut missing_order = Vec::<PdfRef>::new();
     let mut present_root = None;
     for (index, page) in page_refs.iter().copied().enumerate() {
-        let mut child = page;
-        let mut steps = 0usize;
-        loop {
-            steps += 1;
-            if steps > nodes.len().saturating_add(1) {
-                return Err(malformed(metadata.body_start, "PDF page-tree parent cycle"));
-            }
-            let node = nodes.get(&child).ok_or_else(|| {
-                malformed(
-                    metadata.page_rows[index].offset,
-                    "CAJ page object is missing or is not a Page",
-                )
-            })?;
-            match node.parent {
-                Some(parent) if nodes.contains_key(&parent) => child = parent,
-                Some(parent) => {
-                    if occupied.binary_search(&parent).is_ok() {
-                        return Err(malformed(
-                            metadata.page_rows[index].offset,
-                            "PDF page parent is not a Pages object",
-                        ));
-                    }
-                    let group = missing.entry(parent).or_insert_with(|| {
-                        missing_order.push(parent);
-                        MissingGroup::default()
-                    });
-                    group.count = group.count.checked_add(1).ok_or_else(|| {
-                        malformed(
-                            metadata.page_rows[index].offset,
-                            "CAJ page-tree count overflows",
-                        )
-                    })?;
-                    if group.seen.insert(child) {
-                        group.kids.push(child);
-                    }
-                    break;
+        match resolve_page_root(
+            &mut nodes,
+            &occupied,
+            page,
+            metadata.page_rows[index].offset,
+            metadata.body_start,
+        )? {
+            PageRoot::Missing {
+                parent,
+                direct_child,
+            } => {
+                let group = missing.entry(parent).or_insert_with(|| {
+                    missing_order.push(parent);
+                    MissingGroup::default()
+                });
+                group.count = group.count.checked_add(1).ok_or_else(|| {
+                    malformed(
+                        metadata.page_rows[index].offset,
+                        "CAJ page-tree count overflows",
+                    )
+                })?;
+                if group.seen.insert(direct_child) {
+                    group.kids.push(direct_child);
                 }
-                None => {
-                    if present_root
-                        .replace(child)
-                        .is_some_and(|root| root != child)
-                    {
-                        return Err(malformed(
-                            metadata.page_rows[index].offset,
-                            "CAJ pages have multiple existing roots",
-                        ));
-                    }
-                    break;
+            }
+            PageRoot::Existing(child) => {
+                if present_root
+                    .replace(child)
+                    .is_some_and(|root| root != child)
+                {
+                    return Err(malformed(
+                        metadata.page_rows[index].offset,
+                        "CAJ pages have multiple existing roots",
+                    ));
                 }
             }
         }

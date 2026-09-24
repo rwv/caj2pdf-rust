@@ -592,6 +592,65 @@ fn joins_multiple_missing_page_tree_groups_in_table_order() {
 }
 
 #[test]
+fn converts_many_pages_under_a_deep_shared_missing_parent_chain() {
+    const DEPTH: u32 = 128;
+    const PAGE_COUNT: u32 = 128;
+    const FIRST_GROUP: u32 = 1000;
+    const FIRST_PAGE: u32 = 2000;
+    const MISSING_ROOT: u32 = 5000;
+
+    let page_ids: Vec<u32> = (FIRST_PAGE..FIRST_PAGE + PAGE_COUNT).collect();
+    let mut body = Vec::new();
+    for page in &page_ids {
+        object(
+            &mut body,
+            *page,
+            &format!(
+                "<< /Type /Page /Parent {} 0 R /MediaBox [0 0 72 72] /Resources << >> >>",
+                FIRST_GROUP + DEPTH - 1
+            ),
+        );
+    }
+    for level in 0..DEPTH {
+        let number = FIRST_GROUP + level;
+        let parent = if level == 0 { MISSING_ROOT } else { number - 1 };
+        let kids = if level + 1 == DEPTH {
+            page_ids
+                .iter()
+                .map(|page| format!("{page} 0 R "))
+                .collect::<String>()
+        } else {
+            format!("{} 0 R ", number + 1)
+        };
+        object(
+            &mut body,
+            number,
+            &format!("<< /Type /Pages /Parent {parent} 0 R /Count {PAGE_COUNT} /Kids [{kids}] >>"),
+        );
+    }
+
+    let input = fragment_caj(&body, &page_ids);
+    let (output, report) = convert(&input, ConversionOptions::default(), &Limits::default())
+        .expect("convert a deep shared page-tree chain");
+    assert_eq!(report.pages_converted, PAGE_COUNT);
+    let expected_pages: Vec<PdfRef> = page_ids
+        .into_iter()
+        .map(|number| PdfRef {
+            number,
+            generation: 0,
+        })
+        .collect();
+    assert_eq!(inspect(&output).pages(), expected_pages);
+    let pdf = String::from_utf8_lossy(&output);
+    assert!(
+        pdf.contains(&format!(
+            "{MISSING_ROOT} 0 obj\n<< /Type /Pages /Count {PAGE_COUNT} /Kids [{FIRST_GROUP} 0 R ]"
+        )),
+        "missing root should count every page but list the shared direct child once"
+    );
+}
+
+#[test]
 fn synthetic_root_never_satisfies_an_unrelated_missing_reference() {
     // The two omitted /Pages parents are 20 and 21. Object 22 is absent but
     // referenced as a page resource; an automatically assigned root must not
