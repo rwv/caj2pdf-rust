@@ -3,8 +3,9 @@
 This is the implementation note for [issue #26](https://github.com/rwv/caj2pdf-rust/issues/26).
 It describes the original, bounded Rust decoder for the standard arithmetic
 stripe coded data (SCD) algorithm. It does **not** specify a CAJ-family image
-decoder. The [CAJ bitstream investigation](jbig1-bitstream-investigation.md)
-currently has no verified nonblank HN/C8 type-0 decoding rule.
+decoder. The separate [HN/C8 row-model candidate](jbig1-row-model.md)
+matches the pinned type-0 images in local external-corpus tests but is not a
+released decoder.
 The [Table 24 provenance decision, issue #30](https://github.com/rwv/caj2pdf-rust/issues/30),
 blocks completion of #26 and the integrated decoder in #28 while unresolved.
 
@@ -144,22 +145,35 @@ The normative check is an **opt-in local test**, separate from clean-clone CI:
    CAJ compatibility.
 4. After standard conformance, compare CAJ output separately against the
    [#22 pinned pixel oracle](jbig1-oracle.md), with explicit HN and C8
-   nonblank canaries. A standard-vector `PASS` with a CAJ hash mismatch is a
-   failed CAJ framing/context hypothesis, not CAJ decoding support.
+   nonblank canaries. A standard-vector `PASS` with a CAJ hash mismatch
+   refutes the particular CAJ framing/context hypothesis under test; it does
+   not establish CAJ decoding support.
 
 The existing independent `/tmp` prototype reproduced the §7.1 256-bit output
-and tested a finite set of HN/C8 framing and context guesses. Those guesses
-did **not** match the nonblank canaries; the blank matches are not diagnostic.
-See the [investigation](jbig1-bitstream-investigation.md) for exact cases and
-limits. The Rust core passed the pinned opt-in §7.1 check locally on
-2026-09-24; a Rust CAJ pixel-hash canary is **NOT_RUN** because no CAJ row
-decoder exists yet. The standard and CAJ statuses remain separate.
+and tested a finite set of HN/C8 framing and context guesses. Those early
+guesses did **not** match the nonblank canaries; blank matches were not
+diagnostic. The [investigation](jbig1-bitstream-investigation.md) records the
+tested cases and limits. The Rust core separately passed the pinned opt-in
+§7.1 check locally on 2026-09-24.
+
+The later, independently authored [HN/C8 row-model candidate](jbig1-row-model.md)
+used the bounded Rust core with an externally supplied T.82 Table 24 fixture.
+The local Rust runs matched both raw-stride and visible-bit SHA-256 hashes for
+**1,400/1,400** pinned type-0 images, verified **27/27** source hashes, and
+verified all 1,400 encoded-span hashes. The [hash-only result ledger](../tests/conformance/jbig1_row_model_results.md)
+records the exact scope and opt-in reproduction command. The portable harness
+was hardened after its full run to reuse the verified file handle and close
+its temporary spool before removal; the full external corpus was not rerun
+after those edits. Ordinary clean-clone CI ignores both the official-vector
+and CAJ corpus tests, so each is **NOT_RUN** there. These local results do not
+resolve the Table 24 rights question in #30 or establish a released native or
+WASM image decoder.
 
 Before closing #26, run formatting, Clippy with warnings denied, native
 tests, the WASM target check, the repository MIT/source audit, the coverage
 gate, and the fixed-budget mutation test. Report the opt-in standard-vector
-status and CAJ canary status independently; a `NOT_RUN` optional check is an
-unmet conformance criterion, not a pass.
+status and CAJ corpus status independently; an optional check omitted from a
+given run is `NOT_RUN` for that run, never a compatibility pass.
 
 ## Numeric table rights decision
 
