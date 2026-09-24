@@ -23,6 +23,8 @@ const TOC_COUNT_OFFSET: u64 = 0x110;
 const TOC_RECORDS_OFFSET: u64 = 0x114;
 const TOC_RECORD_BYTES: u64 = 308;
 const PAGE_ROW_BYTES: u64 = 12;
+const PAGE_TABLE_BATCH_ROWS: usize = 512;
+const PAGE_TABLE_BATCH_BYTES: usize = PAGE_TABLE_BATCH_ROWS * PAGE_ROW_BYTES as usize;
 
 /// One page-table entry in the document's intended page order.
 ///
@@ -303,58 +305,65 @@ pub async fn parse_metadata<S: RangedSource, C: Cancellation>(
     })?;
 
     let mut previous_end = None;
-    for index in 0..page_count {
-        let row_offset = table_start + u64::from(index) * PAGE_ROW_BYTES;
-        let record = index + 1;
-        let mut row = [0u8; PAGE_ROW_BYTES as usize];
+    let mut batch = [0u8; PAGE_TABLE_BATCH_BYTES];
+    for batch_start in (0..page_count).step_by(PAGE_TABLE_BATCH_ROWS) {
+        let batch_count = (page_count - batch_start).min(PAGE_TABLE_BATCH_ROWS as u32);
+        let batch_offset = table_start + u64::from(batch_start) * PAGE_ROW_BYTES;
         read_field(
             source,
-            row_offset,
-            &mut row,
-            Some(record),
+            batch_offset,
+            &mut batch[..batch_count as usize * PAGE_ROW_BYTES as usize],
+            Some(batch_start + 1),
             limits,
             cancellation,
         )
         .await?;
-        let offset = u64::from(little_u32(&row[..4]));
-        let length = u64::from(little_u32(&row[4..8]));
-        let page_object_id = little_u32(&row[8..12]);
-        if page_object_id == 0 {
-            return Err(malformed(
-                row_offset + 8,
-                Some(record),
-                "CAJ page object number must be positive",
-            ));
-        }
-        if let Some(expected) = previous_end {
-            if offset != expected {
+        for local_index in 0..batch_count {
+            let index = batch_start + local_index;
+            let row_offset = table_start + u64::from(index) * PAGE_ROW_BYTES;
+            let record = index + 1;
+            let row_start = local_index as usize * PAGE_ROW_BYTES as usize;
+            let row = &batch[row_start..row_start + PAGE_ROW_BYTES as usize];
+            let offset = u64::from(little_u32(&row[..4]));
+            let length = u64::from(little_u32(&row[4..8]));
+            let page_object_id = little_u32(&row[8..12]);
+            if page_object_id == 0 {
+                return Err(malformed(
+                    row_offset + 8,
+                    Some(record),
+                    "CAJ page object number must be positive",
+                ));
+            }
+            if let Some(expected) = previous_end {
+                if offset != expected {
+                    return Err(malformed(
+                        row_offset,
+                        Some(record),
+                        "CAJ page spans are not contiguous",
+                    ));
+                }
+            } else if offset < table_end {
                 return Err(malformed(
                     row_offset,
                     Some(record),
-                    "CAJ page spans are not contiguous",
+                    "CAJ PDF body overlaps the page table",
                 ));
             }
-        } else if offset < table_end {
-            return Err(malformed(
-                row_offset,
-                Some(record),
-                "CAJ PDF body overlaps the page table",
-            ));
+            let end = checked_end(offset, length, Some(record))?;
+            if end > source.size() {
+                return Err(malformed(
+                    row_offset + 4,
+                    Some(record),
+                    "CAJ page span extends beyond source",
+                ));
+            }
+            previous_end = Some(end);
+            page_rows.push(CajPageRow {
+                offset,
+                length,
+                page_object_id,
+            });
         }
-        let end = checked_end(offset, length, Some(record))?;
-        if end > source.size() {
-            return Err(malformed(
-                row_offset + 4,
-                Some(record),
-                "CAJ page span extends beyond source",
-            ));
-        }
-        previous_end = Some(end);
-        page_rows.push(CajPageRow {
-            offset,
-            length,
-            page_object_id,
-        });
     }
 
     let body_start = page_rows[0].offset;
@@ -511,6 +520,8 @@ mod tests {
     struct Source {
         bytes: Vec<u8>,
         largest_request: usize,
+        read_calls: usize,
+        max_transfer: Option<usize>,
     }
 
     impl RangedSource for Source {
@@ -519,10 +530,12 @@ mod tests {
         }
 
         async fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> Result<usize> {
+            self.read_calls += 1;
             self.largest_request = self.largest_request.max(destination.len());
             let start = offset as usize;
             let length = destination
                 .len()
+                .min(self.max_transfer.unwrap_or(usize::MAX))
                 .min(self.bytes.len().saturating_sub(start));
             if length > 0 {
                 destination[..length].copy_from_slice(&self.bytes[start..start + length]);
@@ -567,6 +580,34 @@ mod tests {
         Source {
             bytes,
             largest_request: 0,
+            read_calls: 0,
+            max_transfer: None,
+        }
+    }
+
+    fn many_pages(page_count: u32) -> Source {
+        let table_start = 0x400usize;
+        let body_start = table_start + page_count as usize * PAGE_ROW_BYTES as usize;
+        let body_end = body_start + 1;
+        let mut bytes = vec![0u8; body_end];
+        bytes[..4].copy_from_slice(MAGIC);
+        bytes[PAGE_COUNT_OFFSET as usize..PAGE_COUNT_OFFSET as usize + 4]
+            .copy_from_slice(&page_count.to_le_bytes());
+        bytes[PAGE_TABLE_POINTER_OFFSET as usize..PAGE_TABLE_POINTER_OFFSET as usize + 4]
+            .copy_from_slice(&(table_start as u32).to_le_bytes());
+        for index in 0..page_count as usize {
+            let row_start = table_start + index * PAGE_ROW_BYTES as usize;
+            let offset = if index == 0 { body_start } else { body_end };
+            bytes[row_start..row_start + 4].copy_from_slice(&(offset as u32).to_le_bytes());
+            bytes[row_start + 4..row_start + 8]
+                .copy_from_slice(&u32::from(index == 0).to_le_bytes());
+            bytes[row_start + 8..row_start + 12].copy_from_slice(&(index as u32 + 1).to_le_bytes());
+        }
+        Source {
+            bytes,
+            largest_request: 0,
+            read_calls: 0,
+            max_transfer: None,
         }
     }
 
@@ -591,6 +632,55 @@ mod tests {
         assert_eq!(metadata.bookmarks[1].depth, 1);
         assert_eq!(metadata.bookmarks[1].page_index, 1);
         assert_eq!(source.largest_request, 1);
+    }
+
+    #[test]
+    fn page_table_batches_reduce_ranged_round_trips() {
+        let page_count = PAGE_TABLE_BATCH_ROWS as u32 * 2 + 1;
+        let mut source = many_pages(page_count);
+        let metadata = parse(&mut source, &Limits::default()).unwrap();
+        assert_eq!(metadata.page_count, page_count);
+        assert_eq!(metadata.page_rows.len(), page_count as usize);
+        assert_eq!(metadata.page_rows[0].page_object_id, 1);
+        assert_eq!(
+            metadata.page_rows.last().unwrap().page_object_id,
+            page_count
+        );
+        assert_eq!(metadata.body_end_hint, source.size());
+        // Three fixed header reads and three bounded table batches.
+        assert_eq!(source.read_calls, 6);
+        assert_eq!(source.largest_request, PAGE_TABLE_BATCH_BYTES);
+    }
+
+    #[test]
+    fn page_table_batches_handle_short_reads_and_locate_boundary_errors() {
+        let page_count = PAGE_TABLE_BATCH_ROWS as u32 + 1;
+        let limits = Limits {
+            io_chunk_bytes: 17,
+            ..Limits::default()
+        };
+        let mut source = many_pages(page_count);
+        source.max_transfer = Some(5);
+        let metadata = parse(&mut source, &limits).unwrap();
+        assert_eq!(
+            metadata.page_rows.last().unwrap().page_object_id,
+            page_count
+        );
+        assert_eq!(source.largest_request, limits.io_chunk_bytes);
+        assert!(source.read_calls > page_count as usize);
+
+        let mut malformed = many_pages(page_count);
+        malformed.max_transfer = Some(5);
+        let last_id_offset = 0x400 + (page_count as usize - 1) * PAGE_ROW_BYTES as usize + 8;
+        malformed.bytes[last_id_offset..last_id_offset + 4].fill(0);
+        assert!(matches!(
+            parse(&mut malformed, &limits),
+            Err(Error::Caj {
+                offset,
+                record: Some(record),
+                reason: "CAJ page object number must be positive",
+            }) if offset == last_id_offset as u64 && record == page_count
+        ));
     }
 
     #[test]
