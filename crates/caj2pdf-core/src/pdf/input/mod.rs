@@ -6,10 +6,16 @@
 //! stream payloads. All offsets in `PdfIndex` are relative to `PdfRange`;
 //! diagnostics use absolute source offsets.
 
+mod link_repair;
 mod parser;
+
+pub(crate) use link_repair::{
+    LinkDestinationTarget, LinkRepairCandidate, LinkRepairKind, inspect_link_destination_candidate,
+};
 
 pub use parser::DictEntry;
 
+use super::FragmentObject;
 use super::types::{PdfRange, PdfRef};
 use super::writer::MAX_PDF_OBJECTS;
 use crate::error::PdfErrorKind;
