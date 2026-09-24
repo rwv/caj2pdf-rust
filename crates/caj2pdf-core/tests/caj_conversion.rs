@@ -22,6 +22,7 @@ use std::{
 };
 
 static NEXT_TEMP_ID: AtomicU64 = AtomicU64::new(0);
+type CajFieldCase = (&'static str, Vec<u8>, u64, Option<u32>, &'static str);
 
 fn run_native<F: Future>(future: F) -> F::Output {
     let mut context = Context::from_waker(Waker::noop());
@@ -219,6 +220,56 @@ fn convert(
         &NeverCancel,
     ))?;
     Ok((output, report))
+}
+
+fn rejected_without_output(input: &[u8], limits: &Limits) -> Error {
+    let mut source = SeekableSource::new(Cursor::new(input)).unwrap();
+    let mut output = Vec::new();
+    let error = run_native(convert_caj(
+        &mut source,
+        &mut WriteSink::new(&mut output),
+        ConversionOptions::default(),
+        limits,
+        &NeverCancel,
+    ))
+    .expect_err("invalid input must be rejected");
+    assert!(output.is_empty(), "partial PDF was written before: {error}");
+    error
+}
+
+struct OverreportingSource {
+    size: u64,
+}
+
+impl RangedSource for OverreportingSource {
+    fn size(&self) -> u64 {
+        self.size
+    }
+
+    async fn read_at(
+        &mut self,
+        _offset: u64,
+        destination: &mut [u8],
+    ) -> caj2pdf_core::Result<usize> {
+        Ok(destination.len() + 1)
+    }
+}
+
+fn assert_caj_error(
+    label: &str,
+    input: &[u8],
+    expected_offset: u64,
+    expected_record: Option<u32>,
+    expected_reason: &str,
+) {
+    let error = rejected_without_output(input, &Limits::default());
+    assert!(
+        matches!(&error, Error::Caj { offset, record, reason }
+            if *offset == expected_offset
+                && *record == expected_record
+                && reason.contains(expected_reason)),
+        "{label}: {error}"
+    );
 }
 
 fn inspect(output: &[u8]) -> PdfIndex {
@@ -425,6 +476,41 @@ fn joins_multiple_missing_page_tree_groups_in_table_order() {
 }
 
 #[test]
+fn synthetic_root_never_satisfies_an_unrelated_missing_reference() {
+    // The two omitted /Pages parents are 20 and 21. Object 22 is absent but
+    // referenced as a page resource; an automatically assigned root must not
+    // turn that broken resource into a seemingly valid reference.
+    let mut body = Vec::new();
+    object(
+        &mut body,
+        9,
+        "<< /Type /Page /Parent 5 0 R /MediaBox [0 0 72 72] /Resources << /XObject << /Im0 22 0 R >> >> >>",
+    );
+    object(
+        &mut body,
+        3,
+        "<< /Type /Page /Parent 6 0 R /MediaBox [0 0 72 72] /Resources << >> >>",
+    );
+    object(
+        &mut body,
+        5,
+        "<< /Type /Pages /Parent 20 0 R /Count 1 /Kids [9 0 R] >>",
+    );
+    object(
+        &mut body,
+        6,
+        "<< /Type /Pages /Parent 21 0 R /Count 1 /Kids [3 0 R] >>",
+    );
+    let input = fragment_caj(&body, &[9, 3]);
+    let error = rejected_without_output(&input, &Limits::default());
+    assert!(
+        matches!(&error, Error::Pdf { object: Some((9, 0)), reason, .. }
+            if reason.contains("missing object")),
+        "{error}"
+    );
+}
+
+#[test]
 fn repairs_direct_and_indirect_broken_link_destinations_without_changing_render() {
     let baseline_input = fragment_caj(&one_page_body(None, None), &[9]);
     let (baseline_output, _) = convert(
@@ -539,5 +625,500 @@ fn repairs_nearby_stream_length_without_changing_page_render() {
     assert_eq!(
         rendered_page(&repaired_file.0),
         rendered_page(&valid_file.0)
+    );
+}
+
+#[test]
+fn rejects_invalid_page_tree_relationships_before_writing() {
+    let cases: [(&str, &str, &[u32], &str); 4] = [
+        (
+            "cycle",
+            "9 0 obj\n<< /Type /Page /Parent 5 0 R /MediaBox [0 0 72 72] >>\nendobj\n\
+             5 0 obj\n<< /Type /Pages /Parent 6 0 R /Count 1 /Kids [9 0 R] >>\nendobj\n\
+             6 0 obj\n<< /Type /Pages /Parent 5 0 R /Count 1 /Kids [5 0 R] >>\nendobj\n",
+            &[9],
+            "parent cycle",
+        ),
+        (
+            "non-page parent",
+            "9 0 obj\n<< /Type /Page /Parent 11 0 R /MediaBox [0 0 72 72] >>\nendobj\n\
+             11 0 obj\n<< /Producer (not a Pages node) >>\nendobj\n",
+            &[9],
+            "parent is not a Pages object",
+        ),
+        (
+            "two existing roots",
+            "9 0 obj\n<< /Type /Page /Parent 5 0 R /MediaBox [0 0 72 72] >>\nendobj\n\
+             3 0 obj\n<< /Type /Page /Parent 6 0 R /MediaBox [0 0 72 72] >>\nendobj\n\
+             5 0 obj\n<< /Type /Pages /Count 1 /Kids [9 0 R] >>\nendobj\n\
+             6 0 obj\n<< /Type /Pages /Count 1 /Kids [3 0 R] >>\nendobj\n",
+            &[9, 3],
+            "multiple existing roots",
+        ),
+        (
+            "existing and missing roots",
+            "9 0 obj\n<< /Type /Page /Parent 5 0 R /MediaBox [0 0 72 72] >>\nendobj\n\
+             3 0 obj\n<< /Type /Page /Parent 7 0 R /MediaBox [0 0 72 72] >>\nendobj\n\
+             5 0 obj\n<< /Type /Pages /Count 1 /Kids [9 0 R] >>\nendobj\n",
+            &[9, 3],
+            "mixed page-tree roots",
+        ),
+    ];
+    for (label, body, pages, expected) in cases {
+        let input = fragment_caj(body.as_bytes(), pages);
+        let error = rejected_without_output(&input, &Limits::default());
+        assert!(
+            matches!(&error, Error::Caj { reason, .. } if reason.contains(expected)),
+            "{label}: {error}"
+        );
+    }
+}
+
+#[test]
+fn rejects_unsafe_link_repairs_without_writing() {
+    let cases: [(&str, &str, Option<&str>); 5] = [
+        (
+            "missing indirect destination object",
+            "<< /Type /Annot /Subtype /Link /Rect [0 0 20 20] /Dest 99 0 R >>",
+            None,
+        ),
+        (
+            "destination and action together",
+            "<< /Type /Annot /Subtype /Link /Rect [0 0 20 20] /Dest [99 0 R /Fit] /A << /S /URI /URI (https://example.invalid) >> >>",
+            None,
+        ),
+        (
+            "multiple dangling targets",
+            "<< /Type /Annot /Subtype /Link /Rect [0 0 20 20] /Dest [99 0 R /Fit] /P 98 0 R >>",
+            None,
+        ),
+        (
+            "unreferenced destination array",
+            "<< /Type /Annot /Subtype /Link /Rect [0 0 20 20] >>",
+            Some("[99 0 R /Fit]"),
+        ),
+        (
+            "non-link shares destination array",
+            "<< /Type /Annot /Subtype /Link /Rect [0 0 20 20] /Dest 13 0 R >>",
+            Some("[99 0 R /Fit]"),
+        ),
+    ];
+    for (label, annotation, destination) in cases {
+        let mut body = if label == "non-link shares destination array" {
+            let mut body = Vec::new();
+            object(
+                &mut body,
+                9,
+                "<< /Type /Page /Parent 5 0 R /MediaBox [0 0 72 72] /Resources << >> /Annots [12 0 R 14 0 R] >>",
+            );
+            object(&mut body, 5, "<< /Type /Pages /Count 1 /Kids [9 0 R] >>");
+            object(&mut body, 12, annotation);
+            body
+        } else {
+            one_page_body(Some(annotation), None)
+        };
+        if let Some(destination) = destination {
+            object(&mut body, 13, destination);
+        }
+        if label == "non-link shares destination array" {
+            object(
+                &mut body,
+                14,
+                "<< /Type /Annot /Subtype /Text /Rect [0 0 20 20] /Dest 13 0 R >>",
+            );
+        }
+        let input = fragment_caj(&body, &[9]);
+        let error = rejected_without_output(&input, &Limits::default());
+        assert!(
+            matches!(
+                &error,
+                Error::Pdf {
+                    kind: caj2pdf_core::PdfErrorKind::Malformed,
+                    ..
+                }
+            ),
+            "{label}: {error}"
+        );
+    }
+}
+
+#[test]
+fn bounded_page_tree_repair_and_output_preflight_leave_sink_empty() {
+    let mut body = Vec::new();
+    let page_objects: Vec<u32> = (1000..1161).collect();
+    for number in &page_objects {
+        object(
+            &mut body,
+            *number,
+            "<< /Type /Page /Parent 5 0 R /MediaBox [0 0 72 72] /Resources << >> >>",
+        );
+    }
+    let missing_parent = fragment_caj(&body, &page_objects);
+    let error = rejected_without_output(
+        &missing_parent,
+        &Limits {
+            io_chunk_bytes: 64,
+            max_allocation_bytes: 4000,
+            ..Limits::default()
+        },
+    );
+    assert!(
+        matches!(
+            &error,
+            Error::LimitExceeded {
+                resource: "allocation bytes",
+                ..
+            }
+        ),
+        "{error}"
+    );
+
+    let valid = fragment_caj(&one_page_body(None, None), &[9]);
+    let error = rejected_without_output(
+        &valid,
+        &Limits {
+            max_output_bytes: 128,
+            ..Limits::default()
+        },
+    );
+    assert!(
+        matches!(
+            &error,
+            Error::PdfLimitExceeded {
+                resource: "output bytes",
+                ..
+            }
+        ),
+        "{error}"
+    );
+}
+
+#[test]
+fn rejects_a_ranged_source_that_reports_more_bytes_than_requested() {
+    let mut source = OverreportingSource { size: 4096 };
+    let mut output = Vec::new();
+    let error = run_native(convert_caj(
+        &mut source,
+        &mut WriteSink::new(&mut output),
+        ConversionOptions::default(),
+        &Limits::default(),
+        &NeverCancel,
+    ))
+    .expect_err("overreporting source must be rejected");
+    assert!(
+        matches!(&error, Error::InvalidInput { reason } if reason.contains("more bytes than requested")),
+        "{error}"
+    );
+    assert!(output.is_empty());
+}
+
+#[test]
+fn repairs_shared_indirect_destination_for_every_link() {
+    let mut body = Vec::new();
+    object(
+        &mut body,
+        9,
+        "<< /Type /Page /Parent 5 0 R /MediaBox [0 0 72 72] /Resources << >> /Annots [12 0 R 14 0 R] >>",
+    );
+    object(&mut body, 5, "<< /Type /Pages /Count 1 /Kids [9 0 R] >>");
+    for number in [12, 14] {
+        object(
+            &mut body,
+            number,
+            "<< /Type /Annot /Subtype /Link /Rect [0 0 20 20] /Border [0 0 0] /Dest 13 0 R >>",
+        );
+    }
+    object(&mut body, 13, "[99 0 R /Fit]");
+    let input = fragment_caj(&body, &[9]);
+    let (output, report) = convert(&input, ConversionOptions::default(), &Limits::default())
+        .expect("all links sharing the omitted page destination should be repaired");
+    assert_eq!(report.pages_converted, 1);
+    assert_eq!(inspect(&output).pages()[0].number, 9);
+    assert!(!output.windows(5).any(|window| window == b"/Dest"));
+    let file = TempPdf::write("shared-dest", &output);
+    checked_command(Command::new("qpdf").arg("--check").arg(&file.0), "qpdf");
+}
+
+#[test]
+fn rejects_corrupt_caj_header_and_page_rows_with_locations() {
+    let tiny = tiny_caj();
+    let mut cases: Vec<CajFieldCase> = Vec::new();
+
+    let mut zero_pages = tiny.bytes.clone();
+    put_u32(&mut zero_pages, 0x10, 0);
+    cases.push(("zero pages", zero_pages, 0x10, None, "page count"));
+
+    let mut negative_toc_count = tiny.bytes.clone();
+    put_u32(&mut negative_toc_count, 0x110, u32::MAX);
+    cases.push((
+        "negative TOC count",
+        negative_toc_count,
+        0x110,
+        None,
+        "TOC count",
+    ));
+
+    let mut overlapping_table = tiny.bytes.clone();
+    put_u32(&mut overlapping_table, 0x14, 0x300);
+    cases.push((
+        "overlapping table",
+        overlapping_table,
+        0x14,
+        None,
+        "overlaps",
+    ));
+
+    let mut truncated_table = tiny.bytes.clone();
+    put_u32(&mut truncated_table, 0x14, tiny.bytes.len() as u32 - 4);
+    cases.push((
+        "truncated table",
+        truncated_table,
+        0x14,
+        None,
+        "extends beyond",
+    ));
+
+    let mut zero_page_id = tiny.bytes.clone();
+    put_u32(&mut zero_page_id, tiny.table_start + 8, 0);
+    cases.push((
+        "zero page object",
+        zero_page_id,
+        (tiny.table_start + 8) as u64,
+        Some(1),
+        "page object number",
+    ));
+
+    let mut disjoint_spans = tiny.bytes.clone();
+    put_u32(
+        &mut disjoint_spans,
+        tiny.table_start + 12,
+        tiny.bytes.len() as u32 - 1,
+    );
+    cases.push((
+        "disjoint page spans",
+        disjoint_spans,
+        (tiny.table_start + 12) as u64,
+        Some(2),
+        "not contiguous",
+    ));
+
+    let mut overlapping_body = tiny.bytes.clone();
+    put_u32(
+        &mut overlapping_body,
+        tiny.table_start,
+        tiny.table_start as u32,
+    );
+    cases.push((
+        "body overlaps table",
+        overlapping_body,
+        tiny.table_start as u64,
+        Some(1),
+        "overlaps the page table",
+    ));
+
+    let mut overflowing_span = tiny.bytes.clone();
+    let first_body_length = u32::from_le_bytes(
+        overflowing_span[tiny.table_start + 4..tiny.table_start + 8]
+            .try_into()
+            .unwrap(),
+    );
+    put_u32(
+        &mut overflowing_span,
+        tiny.table_start + 4,
+        first_body_length + 1,
+    );
+    cases.push((
+        "page span extends past source",
+        overflowing_span,
+        (tiny.table_start + 4) as u64,
+        Some(1),
+        "extends beyond source",
+    ));
+
+    let mut duplicate_page_id = tiny.bytes.clone();
+    put_u32(&mut duplicate_page_id, tiny.table_start + 12 + 8, 9);
+    cases.push((
+        "duplicate page ID",
+        duplicate_page_id,
+        (tiny.table_start + 12 + 8) as u64,
+        Some(2),
+        "duplicate CAJ page object",
+    ));
+
+    for (label, input, offset, record, reason) in cases {
+        assert_caj_error(label, &input, offset, record, reason);
+    }
+
+    let mut unsupported = tiny.bytes.clone();
+    unsupported[0] = b'X';
+    assert!(matches!(
+        rejected_without_output(&unsupported, &Limits::default()),
+        Error::UnsupportedFormat
+    ));
+
+    let empty_body = fragment_caj(&one_page_body(None, None), &[9]);
+    let mut empty_body = empty_body;
+    put_u32(&mut empty_body, 0x400 + 4, 0);
+    assert_caj_error("empty PDF body", &empty_body, 0x400, None, "body is empty");
+
+    assert_caj_error("short CAJ header", b"CAJ", 0, None, "extends beyond source");
+}
+
+#[test]
+fn rejects_invalid_caj_outline_fields_with_record_locations() {
+    let tiny = tiny_caj();
+    let first = 0x114;
+    let second = first + 308;
+    let mut cases: Vec<(&str, Vec<u8>, u64, u32, &str)> = Vec::new();
+
+    let mut empty_title = tiny.bytes.clone();
+    empty_title[first] = 0;
+    cases.push((
+        "empty title",
+        empty_title,
+        first as u64,
+        1,
+        "empty CAJ TOC title",
+    ));
+
+    let mut invalid_encoding = tiny.bytes.clone();
+    invalid_encoding[first] = 0xff;
+    invalid_encoding[first + 1] = 0;
+    cases.push((
+        "invalid GB18030",
+        invalid_encoding,
+        first as u64,
+        1,
+        "GB18030",
+    ));
+
+    let mut malformed_page = tiny.bytes.clone();
+    malformed_page[first + 280] = b'x';
+    cases.push((
+        "nondecimal TOC page",
+        malformed_page,
+        (first + 280) as u64,
+        1,
+        "ASCII decimal",
+    ));
+
+    let mut overflowing_page = tiny.bytes.clone();
+    overflowing_page[first + 280..first + 292].copy_from_slice(b"42949672960\0");
+    cases.push((
+        "overflowing TOC page",
+        overflowing_page,
+        (first + 289) as u64,
+        1,
+        "overflows",
+    ));
+
+    let mut out_of_range_page = tiny.bytes.clone();
+    out_of_range_page[first + 280] = b'4';
+    cases.push((
+        "out-of-range TOC page",
+        out_of_range_page,
+        (first + 280) as u64,
+        1,
+        "outside the document",
+    ));
+
+    let mut zero_level = tiny.bytes.clone();
+    put_u32(&mut zero_level, first + 304, 0);
+    cases.push((
+        "zero outline level",
+        zero_level,
+        (first + 304) as u64,
+        1,
+        "level must be positive",
+    ));
+
+    let mut skipped_level = tiny.bytes.clone();
+    put_u32(&mut skipped_level, second + 304, 3);
+    cases.push((
+        "skipped outline level",
+        skipped_level,
+        (second + 304) as u64,
+        2,
+        "skips a parent",
+    ));
+
+    for (label, input, offset, record, reason) in cases {
+        assert_caj_error(label, &input, offset, Some(record), reason);
+    }
+}
+
+#[test]
+fn enforces_caj_metadata_limits_before_writing() {
+    let tiny = tiny_caj();
+    let cases = [
+        (
+            "page count",
+            Limits {
+                max_pages: 2,
+                ..Limits::default()
+            },
+            "CAJ pages",
+        ),
+        (
+            "bookmark count",
+            Limits {
+                max_bookmarks: 2,
+                ..Limits::default()
+            },
+            "CAJ bookmarks",
+        ),
+        (
+            "body bytes",
+            Limits {
+                max_input_bytes: 100,
+                ..Limits::default()
+            },
+            "CAJ PDF input bytes",
+        ),
+        (
+            "page metadata",
+            Limits {
+                io_chunk_bytes: 1,
+                max_allocation_bytes: 64,
+                ..Limits::default()
+            },
+            "CAJ page metadata",
+        ),
+        (
+            "bookmark metadata",
+            Limits {
+                io_chunk_bytes: 1,
+                max_allocation_bytes: 80,
+                ..Limits::default()
+            },
+            "CAJ bookmarks",
+        ),
+    ];
+    for (label, limits, expected_resource) in cases {
+        let error = rejected_without_output(&tiny.bytes, &limits);
+        assert!(
+            matches!(&error, Error::CajLimitExceeded { resource, .. } if *resource == expected_resource),
+            "{label}: {error}"
+        );
+    }
+
+    let mut large_title = tiny.bytes.clone();
+    large_title[0x114..0x114 + 200].fill(b'A');
+    let limits = Limits {
+        io_chunk_bytes: 1,
+        max_allocation_bytes: 256,
+        ..Limits::default()
+    };
+    let error = rejected_without_output(&large_title, &limits);
+    assert!(
+        matches!(
+            &error,
+            Error::CajLimitExceeded {
+                resource: "CAJ title allocation bytes",
+                record: Some(1),
+                ..
+            }
+        ),
+        "{error}"
     );
 }
