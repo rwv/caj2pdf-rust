@@ -631,6 +631,26 @@ fn cancellation_and_source_failures_keep_locations() {
     assert_eq!(error.offset, 14);
     assert_eq!(source.reads.len(), 14);
 
+    let active = Rc::new(Cell::new(false));
+    let mut source = TestSource::new(GLOBAL_EMPTY);
+    source.bytes.truncate(5);
+    source.max_read = 1;
+    source.cancel_after = Some((6, active.clone()));
+    let error = run(read_segment_header(
+        &mut source,
+        SegmentSpan {
+            offset: 0,
+            length: GLOBAL_EMPTY.len() as u64,
+        },
+        &Limits::default(),
+        HeaderLimits::default(),
+        &Flag(active),
+    ))
+    .unwrap_err();
+    assert!(matches!(error.kind, HeaderErrorKind::Cancelled));
+    assert_eq!(error.offset, 5);
+    assert_eq!(source.reads.len(), 6);
+
     let mut source = TestSource::new(GLOBAL_EMPTY);
     source.source_cancel_at = Some(5);
     let error = run(read_segment_header(

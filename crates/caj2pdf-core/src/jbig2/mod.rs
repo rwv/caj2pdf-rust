@@ -206,9 +206,6 @@ impl HeaderCursor {
                     "source returned more bytes than requested",
                 )));
             }
-            if read == 0 {
-                return Err(self.error(HeaderErrorKind::Truncated(field)));
-            }
             done += read;
             self.at = self
                 .at
@@ -216,6 +213,10 @@ impl HeaderCursor {
                     self.error(HeaderErrorKind::InvalidSpan("read length overflows"))
                 })?)
                 .ok_or_else(|| self.error(HeaderErrorKind::InvalidSpan("read end overflows")))?;
+            self.check_cancelled(cancellation)?;
+            if read == 0 {
+                return Err(self.error(HeaderErrorKind::Truncated(field)));
+            }
         }
         self.check_cancelled(cancellation)
     }
