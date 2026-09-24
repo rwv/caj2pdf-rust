@@ -63,6 +63,12 @@ pub enum Error {
         limit: u64,
         attempted: u64,
     },
+    /// A located problem in a KDH wrapper or its encoded PDF boundary.
+    Kdh {
+        /// Absolute byte offset in the KDH input.
+        offset: u64,
+        reason: &'static str,
+    },
     /// A located problem in an embedded or standalone PDF.
     Pdf {
         /// Absolute byte offset in the input source.
@@ -133,6 +139,9 @@ impl fmt::Display for Error {
                     write!(f, ", record {record}")?;
                 }
                 write!(f, ": maximum {limit}, attempted {attempted}")
+            }
+            Self::Kdh { offset, reason } => {
+                write!(f, "malformed KDH at byte {offset}: {reason}")
             }
             Self::Pdf {
                 offset,
