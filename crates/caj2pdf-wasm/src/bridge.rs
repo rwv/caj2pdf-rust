@@ -364,7 +364,7 @@ pub extern "C" fn caj2pdf_io_cancel() {
     });
 }
 
-/// Numeric error category for a completed operation (1..=14).
+/// Numeric error category for a completed operation (1..=15).
 #[unsafe(no_mangle)]
 pub extern "C" fn caj2pdf_io_error_kind() -> u32 {
     ENGINE.with(|cell| {
@@ -389,6 +389,7 @@ pub extern "C" fn caj2pdf_io_error_kind() -> u32 {
                 Error::PdfLimitExceeded { .. } => 12,
                 Error::Caj { .. } => 13,
                 Error::CajLimitExceeded { .. } => 14,
+                Error::Kdh { .. } => 15,
             })
             .unwrap_or(0)
     })

@@ -114,6 +114,7 @@ const ERROR_NAMES = [
   "PDF_LIMIT_EXCEEDED",
   "MALFORMED_CAJ",
   "CAJ_LIMIT_EXCEEDED",
+  "MALFORMED_KDH",
 ];
 
 function coreError(kind) {

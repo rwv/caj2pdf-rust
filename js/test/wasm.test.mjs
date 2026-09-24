@@ -174,6 +174,25 @@ test("WASM returns typed resource and truncation errors without panicking", asyn
   );
 });
 
+test("the JS bridge names a located KDH error", async () => {
+  const wasm = { exports: {
+    memory: new WebAssembly.Memory({ initial: 1 }),
+    caj2pdf_io_start: () => 0,
+    caj2pdf_io_poll: () => 5,
+    caj2pdf_io_error_kind: () => 15,
+    caj2pdf_io_cancel: () => {},
+    caj2pdf_io_reset: () => {},
+  } };
+  await assert.rejects(
+    copyRangeProof(
+      wasm,
+      { size: 0n, async readAt() { throw new Error("unused"); } },
+      { async writeChunk() { throw new Error("unused"); }, async flush() {} },
+    ),
+    { code: "MALFORMED_KDH" },
+  );
+});
+
 test("raw WASM ABI rejects oversized completions without corrupting the future", async () => {
   const { exports } = await newInstance();
   assert.equal(exports.caj2pdf_io_start(4n, 0n, 4n, 2), 0);
