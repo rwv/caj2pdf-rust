@@ -4,64 +4,88 @@
 [CAJSamples](https://github.com/caj2pdf/CAJSamples) repository at commit
 `7e1c35e7b6de34e21972fcd1752c2a7e99b4ad07`. It has 56 unique input
 documents: 49 `.caj` files and 7 `.teb` files. The 51 entries under `type-*`
-are symbolic-link aliases of real files, so they appear only in each sample's
+are symbolic-link aliases of real files and appear only in each sample's
 `aliases` list. Five `.caj` files have no type alias. Eight separate `.pdf`
-files and ten `.dat` image dumps are not input samples.
+files and ten `.dat` image dumps are excluded from the input matrix.
 
-The repository does not declare a redistribution license for these documents.
-Keep the corpus and every derived PDF outside this repository. A sample's
-`id` and `path` identify its real path within the pinned corpus. Its
-`git_blob_oid` and `size_bytes` identify the file contents: the OID is the
-SHA-1 digest of `blob <size>\0` followed by the file bytes. The optional
-`sha256` is recorded only for files examined locally. The corpus runner
-checks the pinned content hash when `CAJ2PDF_CORPUS_DIR` is set.
+## Identity and redistribution
 
-For the 51 aliased samples, `detected_type` and `variant` come from the
-upstream type index. The other five were classified from their file headers:
-one from a locally downloaded file and Python `show`, and four from HTTP
-`Range: bytes=0-255` requests at the pinned corpus revision. The returned
-`Content-Range` total was checked against the tree size, and the signatures
-were matched against the pinned
+CAJSamples does not declare a redistribution license for its documents. No
+document, derived PDF, image, or outline text is committed here. Each sample
+has a canonical relative `id`/`path`, a size, a Git blob OID, and a SHA-256
+digest. The OID is the SHA-1 digest of `blob <size>\0` followed by the file
+bytes. All 56 OIDs and SHA-256 digests were verified while streaming the
+external files. The original [Python converter](https://github.com/rwv/caj2pdf)
+was run as a black-box oracle; none of its source code was reused.
+
+For 51 aliased samples, `detected_type` and `variant` follow the upstream type
+index. The five unaliased samples were classified from their file headers,
+matched against the pinned
 [magic index](https://github.com/caj2pdf/CAJSamples/blob/7e1c35e7b6de34e21972fcd1752c2a7e99b4ad07/magic).
-These type labels do not assert that conversion was run. `unknown` and
-`not_run` mean exactly that; neither is a compatibility pass.
-`expected_outcome` records a measured Python result
-when available, or the known reference-level TEB and pure-text HN limitation.
-The Python reference's HN image output does not establish searchable text
-support.
+Four used HTTP `Range: bytes=0-255` responses whose `Content-Range` totals
+matched the Git tree sizes; the fifth was examined locally. The Python `show`
+command confirmed types for the 49 files on which it succeeded.
 
-Six inputs were tested on 2026-09-24 with the unmodified
-[Python converter](https://github.com/rwv/caj2pdf) at commit
-`8cbc3c5721acb762f739434eb3d206171dbb022a`, Python 3.13.5,
-PyPDF2 1.26.0, and MuPDF `mutool` 1.25.1 on Linux. `show` supplied page and
-outline counts except for KDH, whose one-page count came from `pdfinfo` on a
-temporary converted PDF. The two successful conversions were
-`issue-20/文件名未知.caj` (CAJ) and `issue-48/ZZXX200402047.caj` (KDH). The
-`issue-63` HN sample reported pure-text HN as unsupported. The `issue-66`
-C8 conversion was skipped because the Python reference's native
-`libjbig2codec.so` was unavailable; this says nothing about C8 support in a
-complete environment. `issue-77` failed in `mutool` with PDF syntax errors,
-and `issue-100` failed with an invalid image count/offset. These outcomes
-are tied to the stated tool versions and should be remeasured under a pinned
-reference environment before release gating.
+Use a local external corpus checkout to verify the inventory:
 
-For the two successful reference PDFs, `expected_pdf` records every page's
-dimensions from `mutool pages`, a SHA-256 digest of normalized outline
-hierarchy and destinations from `mutool show ... outline`, and a SHA-256 digest
-of page 1 rendered as PAM RGB at 72 dpi. The outline digest hashes one UTF-8,
-newline-terminated, compact JSON object with sorted keys per entry; the
-objects contain depth, title, page, and destination, but only the final digest
-is stored. The render digest hashes stdout from
-`mutool draw -q -L -B 128 -F pam -c rgb -r 72 -o - PDF PAGE`. The parser and
-renderer are in [`scripts/conformance.py`](../../scripts/conformance.py),
-with `mutool version 1.25.1` recorded per sample. No document text, outline
-titles, image pixels, or converted PDF is stored here. Render hashes are
-specific to this renderer and version.
+```sh
+CAJ2PDF_CORPUS_DIR=/path/to/CAJSamples python3 scripts/conformance.py --json
+```
 
-The full external corpus was not available for this baseline run. On
-2026-09-24, a shallow Git clone transferred about 4.4 MiB in one minute, and
-a direct raw download transferred 1,063,598 of 5,520,323 bytes in 60 seconds.
-The other 50 conversion results therefore remain `not_run`; they are not
-evidence of compatibility. Run the opt-in corpus check with a local checkout
-at the pinned revision to populate and verify those results before using them
-as release criteria.
+A missing requested corpus or missing/mismatched file must fail. An unset
+corpus must report `NOT_RUN`, never a compatibility pass.
+
+## Python reference baseline
+
+All 56 inputs were tested on 2026-09-24 with the unmodified Python converter
+at commit `8cbc3c5721acb762f739434eb3d206171dbb022a`, Python 3.13.5,
+PyPDF2 1.26.0, and MuPDF `mutool` 1.25.1 on Linux. The native
+`libjbigdec.so` and `libjbig2codec.so` libraries were unavailable. Results
+are tied to this environment and should be remeasured with pinned native
+dependencies before release gating.
+
+| Conversion status | Samples | Interpretation |
+| --- | ---: | --- |
+| `success` | 16 | A nonempty PDF was produced and inspected by `mutool`. |
+| `unsupported` | 8 | Seven TEB inputs produced no file despite exit code 0; one pure-text HN input was explicitly rejected. |
+| `error` | 8 | Six `mutool` PDF syntax failures, one page-index parse error, and one invalid HN image count/offset. |
+| `skip` | 24 | The Python conversion could not load its native JBIG library; support remains unmeasured. |
+
+Python `show` succeeded on 49 inputs and errored on all seven TEB inputs.
+A `skip` has `expected_outcome: "unknown"`; it is never counted as
+compatibility evidence. HN's image-only reference output does not establish
+searchable text support.
+
+Top-level `page_count` and `outline_count` are Python `show` source counts
+where available. KDH and embedded-PDF `show` output lacks counts, so those
+fields use counts from the successful output PDF. For a successful conversion,
+`expected_pdf.page_count` and `expected_pdf.outline_count` always describe
+the actual output PDF. Three reference conversions differ from source counts:
+
+| Sample | Source pages/outlines | Output pages/outlines |
+| --- | ---: | ---: |
+| `issue-49` | 65 / 49 | 65 / 0 |
+| `issue-65` | 6 / 0 | 2 / 0 |
+| `issue-73` | 84 / 100 | 84 / 0 |
+
+## Output fingerprints
+
+The 16 valid reference PDFs have 933 pages in total. The matrix records every
+output page dimension, output outline count, and a SHA-256 digest of normalized
+outline hierarchy and destinations. The outline digest hashes one UTF-8,
+newline-terminated, compact JSON object with sorted keys per entry; each
+object contains depth, title, page, and destination, but only the digest is
+stored.
+
+Each page is rendered and hashed separately using stdout from
+`mutool draw -q -L -B 128 -F pam -c rgb -r 72 -o - PDF PAGE`. This is a
+bounded-memory PAM RGB render at 72 dpi, and each row records
+`mutool version 1.25.1`. Fifteen PDFs have `render_coverage: "full"`.
+The `issue-20` reference PDF has hashes for 62 of 63 pages; page 39 fails in
+`mutool draw` with embedded-font/zlib errors and is marked `partial`.
+A partial fingerprint must be reported as `NOT_RUN` for full visual
+compatibility. Render hashes are renderer-version-specific.
+
+The inventory and output checks are implemented in
+[`scripts/conformance.py`](../../scripts/conformance.py). No reference PDF
+or document corpus is stored in this repository.

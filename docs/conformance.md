@@ -33,9 +33,9 @@ The runner checks all canonical files, including size and Git blob hash, using
 bounded reads. A missing file, changed hash, unreadable file, or path escaping
 the corpus root fails the requested run. Type aliases do not cause duplicate
 runs. The concise report distinguishes `PASS`, `FAIL`, `UNSUPPORTED`,
-`EXCLUDED`, and `NOT_RUN` for the inventory and PDF checks. An inventory `PASS` means only
-that the local corpus matches the pinned matrix. It is not a Rust conversion
-result.
+`EXCLUDED`, and `NOT_RUN` for the inventory and PDF checks. An inventory
+`PASS` means only that the local corpus matches the pinned matrix. It is not
+a Rust conversion result.
 
 Once a converter produces PDFs, place them outside the repository and pass
 `--pdf-dir /path/to/output`. Each output path mirrors the canonical input path
@@ -44,7 +44,7 @@ compares available page counts, page dimensions, outline hierarchy and
 destinations, and rendered-page hashes against recorded expectations. A
 requested PDF comparison fails if an expected output or required inspection
 tool is missing. A complete output `PASS` requires all five checks and a
-distinct render hash for every page. Unknown reference outcomes or incomplete
+a recorded render hash for every page. Unknown reference outcomes or incomplete
 successful rows report `NOT_RUN`; a requested `--pdf-dir` exits nonzero unless
 the aggregate PDF status is `PASS`. Known reference errors are `EXCLUDED`
 from the successful-conversion scope, while known unsupported inputs remain

@@ -344,6 +344,44 @@ class MatrixAndPdfTests(unittest.TestCase):
         self.assertEqual(len({row["git_blob_oid"] for row in samples}), 56)
         self.assertEqual(sum(len(row["aliases"]) for row in samples), 51)
 
+    def test_checked_in_matrix_has_measured_outcomes_and_complete_output_metadata(self) -> None:
+        samples = conformance.load_matrix(conformance.DEFAULT_MATRIX)
+        outcome_by_status = {
+            "success": "success",
+            "unsupported": "unsupported",
+            "error": "error",
+            "skip": "unknown",
+        }
+        for row in samples:
+            with self.subTest(sample=row["id"]):
+                self.assertRegex(row["sha256"], r"^[0-9a-f]{64}$")
+                reference = row["python_reference"]
+                self.assertIn(reference["show_status"], ("success", "error"))
+                self.assertIn(reference["convert_status"], outcome_by_status)
+                self.assertEqual(
+                    row["expected_outcome"], outcome_by_status[reference["convert_status"]]
+                )
+
+                if reference["convert_status"] != "success":
+                    self.assertNotIn("expected_pdf", row)
+                    continue
+
+                expected = row["expected_pdf"]
+                page_count = expected["page_count"]
+                self.assertGreater(page_count, 0)
+                self.assertGreaterEqual(expected["outline_count"], 0)
+                self.assertEqual(len(expected["page_dimensions_pt"]), page_count)
+                self.assertRegex(expected["outline_sha256"], r"^[0-9a-f]{64}$")
+                rendered = expected["rendered_pages"]
+                page_numbers = [page["page"] for page in rendered]
+                self.assertEqual(len(page_numbers), len(set(page_numbers)))
+                for page in rendered:
+                    self.assertRegex(page["sha256"], r"^[0-9a-f]{64}$")
+                missing = set(range(1, page_count + 1)) - set(page_numbers)
+                failed_pages = {failure["page"] for failure in expected.get("render_failures", [])}
+                self.assertEqual(missing, failed_pages)
+                self.assertEqual(expected["render_coverage"], "partial" if missing else "full")
+
     def test_page_and_outline_parsers_include_destinations(self) -> None:
         pages = conformance.parse_pages(
             "input.pdf:\n<page pagenum=\"1\"><MediaBox l=\"0\" b=\"0\" "
