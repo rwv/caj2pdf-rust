@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-//! Checked, ranged PDF input for the classic cross-reference profile.
+//! Checked, ranged PDF input for classic tables and bounded xref streams.
 //!
 //! This module stores object positions and page references, never page or
 //! stream payloads. All offsets in `PdfIndex` are relative to `PdfRange`;
@@ -20,9 +20,10 @@ use super::types::{PdfRange, PdfRef};
 use super::writer::MAX_PDF_OBJECTS;
 use crate::error::PdfErrorKind;
 use crate::{Cancellation, Error, Limits, RangedSource, Result, read_exact_at};
+use flate2::{Decompress, FlushDecompress, Status};
 use parser::{
     Dictionary, ObjectHead, ObjectTail, Syntax, destination_page, exact_name, exact_reference,
-    exact_unsigned, media_box, parse_object_head, reference_array, valid_id_array,
+    exact_unsigned, media_box, parse_object_head, reference_array, unsigned_array, valid_id_array,
     valid_text_string,
 };
 use std::cmp::min;
@@ -31,6 +32,8 @@ const WINDOW_BYTES: usize = 8 * 1024;
 const MAX_TAIL_SEARCH: u64 = 64 * 1024;
 const MAX_OBJECT_SYNTAX: u64 = 4 * 1024 * 1024;
 const MAX_XREF_SECTIONS: usize = 64;
+const MAX_XREF_INDEX_VALUES: usize = 8192;
+const MAX_XREF_STREAM_BYTES: u64 = 4 * 1024 * 1024;
 
 /// A complete indirect object in a PDF input, relative to the PDF range.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -528,14 +531,6 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
             {
                 continue;
             }
-            if self.bytes(offset, 4).await?.as_slice() != b"xref" {
-                return Err(self.problem(
-                    offset,
-                    None,
-                    PdfErrorKind::UnsupportedFeature,
-                    "PDF cross-reference streams are not supported",
-                ));
-            }
             let mut logical_end = start + eof_at as u64 + 5;
             while logical_end < self.range.length
                 && matches!(
@@ -810,12 +805,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
     async fn read_xref_section(&mut self, at: u64) -> Result<(Vec<XrefRecord>, Trailer)> {
         let mut cursor = at;
         if self.bytes(cursor, 4).await?.as_slice() != b"xref" {
-            return Err(self.problem(
-                at,
-                None,
-                PdfErrorKind::UnsupportedFeature,
-                "PDF cross-reference streams are not supported",
-            ));
+            return self.read_xref_stream(at).await;
         }
         cursor += 4;
         let mut records = Vec::new();
@@ -897,6 +887,317 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                 cursor += 20;
             }
         }
+    }
+
+    async fn read_xref_stream(&mut self, at: u64) -> Result<(Vec<XrefRecord>, Trailer)> {
+        let head = self.load_head(at, None).await?;
+        let reference = head.reference;
+        let dictionary = head.dictionary.as_ref().ok_or_else(|| {
+            self.problem(
+                at,
+                Some(reference),
+                PdfErrorKind::Malformed,
+                "xref stream lacks a dictionary",
+            )
+        })?;
+        if reference.generation != 0
+            || dictionary.value(b"Type").and_then(exact_name).as_deref() != Some(b"XRef")
+        {
+            return Err(self.problem(
+                at,
+                Some(reference),
+                PdfErrorKind::Malformed,
+                "startxref does not point to an xref table or stream",
+            ));
+        }
+        let ObjectTail::Stream { data_start } = head.tail else {
+            return Err(self.problem(
+                at,
+                Some(reference),
+                PdfErrorKind::Malformed,
+                "xref object is not a stream",
+            ));
+        };
+        let trailer = self.parse_trailer(dictionary, at)?;
+        let widths = dictionary
+            .value(b"W")
+            .and_then(|value| unsigned_array(value, 3))
+            .filter(|values| values.len() == 3 && values.iter().all(|width| *width <= 8))
+            .ok_or_else(|| {
+                self.problem(
+                    at,
+                    Some(reference),
+                    PdfErrorKind::Malformed,
+                    "xref stream has invalid W",
+                )
+            })?;
+        let row_width = widths.iter().sum::<u64>();
+        if row_width == 0 {
+            return Err(self.problem(
+                at,
+                Some(reference),
+                PdfErrorKind::Malformed,
+                "xref stream has empty W",
+            ));
+        }
+        let indices = match dictionary.value(b"Index") {
+            Some(value) => unsigned_array(value, MAX_XREF_INDEX_VALUES),
+            None => Some(vec![0, u64::from(trailer.size)]),
+        }
+        .filter(|values| !values.is_empty() && values.len() % 2 == 0)
+        .ok_or_else(|| {
+            self.problem(
+                at,
+                Some(reference),
+                PdfErrorKind::Malformed,
+                "xref stream has invalid Index",
+            )
+        })?;
+        let mut rows = 0_u64;
+        let mut previous_end = 0_u64;
+        for pair in indices.chunks_exact(2) {
+            let [start, count] = [pair[0], pair[1]];
+            let end = start.checked_add(count).ok_or_else(|| {
+                self.problem(
+                    at,
+                    Some(reference),
+                    PdfErrorKind::Malformed,
+                    "xref Index range overflows",
+                )
+            })?;
+            if count == 0 || start < previous_end || end > u64::from(trailer.size) {
+                return Err(self.problem(
+                    at,
+                    Some(reference),
+                    PdfErrorKind::Malformed,
+                    "xref Index ranges overlap or exceed Size",
+                ));
+            }
+            previous_end = end;
+            rows = rows.checked_add(count).ok_or_else(|| {
+                self.problem(
+                    at,
+                    Some(reference),
+                    PdfErrorKind::Malformed,
+                    "xref Index row count overflows",
+                )
+            })?;
+        }
+        let decoded_len = rows.checked_mul(row_width).ok_or_else(|| {
+            self.problem(
+                at,
+                Some(reference),
+                PdfErrorKind::Malformed,
+                "xref stream decoded size overflows",
+            )
+        })?;
+        // Encoded and decoded buffers may coexist during inflation. Keep their
+        // combined ceiling within one quarter of the configured allocation cap.
+        let cap = MAX_XREF_STREAM_BYTES.min(self.limits.max_allocation_bytes / 8);
+        if decoded_len.saturating_add(1) > cap {
+            return Err(self.locate_limit(
+                at,
+                Some(reference),
+                Error::LimitExceeded {
+                    resource: "PDF xref decoded bytes",
+                    limit: cap,
+                    attempted: decoded_len.saturating_add(1),
+                },
+            ));
+        }
+        let length = dictionary
+            .value(b"Length")
+            .and_then(exact_unsigned)
+            .ok_or_else(|| {
+                self.problem(
+                    at,
+                    Some(reference),
+                    PdfErrorKind::UnsupportedFeature,
+                    "xref stream requires a direct Length",
+                )
+            })?;
+        if length > cap {
+            return Err(self.locate_limit(
+                at,
+                Some(reference),
+                Error::LimitExceeded {
+                    resource: "PDF xref encoded bytes",
+                    limit: cap,
+                    attempted: length,
+                },
+            ));
+        }
+        if dictionary.value(b"DecodeParms").is_some() || dictionary.value(b"F").is_some() {
+            return Err(self.problem(
+                at,
+                Some(reference),
+                PdfErrorKind::UnsupportedFeature,
+                "xref stream decode parameters are unsupported",
+            ));
+        }
+        let filter = dictionary
+            .value(b"Filter")
+            .map(exact_name)
+            .transpose_option()
+            .ok_or_else(|| {
+                self.problem(
+                    at,
+                    Some(reference),
+                    PdfErrorKind::UnsupportedFeature,
+                    "xref stream filter is unsupported",
+                )
+            })?;
+        if filter.as_deref().is_some_and(|name| name != b"FlateDecode") {
+            return Err(self.problem(
+                at,
+                Some(reference),
+                PdfErrorKind::UnsupportedFeature,
+                "xref stream filter is unsupported",
+            ));
+        }
+        let data_at = at.checked_add(data_start as u64).ok_or_else(|| {
+            self.problem(
+                at,
+                Some(reference),
+                PdfErrorKind::Malformed,
+                "xref stream offset overflows",
+            )
+        })?;
+        let after_data = data_at.checked_add(length).ok_or_else(|| {
+            self.problem(
+                data_at,
+                Some(reference),
+                PdfErrorKind::Malformed,
+                "xref stream length overflows",
+            )
+        })?;
+        self.check_stream_tail(after_data, Some(reference)).await?;
+        let encoded = self.bytes(data_at, length as usize).await?;
+        let decoded = if filter.is_some() {
+            match inflate_xref(
+                &encoded,
+                decoded_len as usize,
+                self.limits.io_chunk_bytes,
+                self.cancellation,
+            ) {
+                Ok(bytes) => bytes,
+                Err(InflateXrefError::TooLong) => {
+                    return Err(self.locate_limit(
+                        data_at,
+                        Some(reference),
+                        Error::LimitExceeded {
+                            resource: "PDF xref decoded bytes",
+                            limit: decoded_len,
+                            attempted: decoded_len + 1,
+                        },
+                    ));
+                }
+                Err(InflateXrefError::Malformed) => {
+                    return Err(self.problem(
+                        data_at,
+                        Some(reference),
+                        PdfErrorKind::Malformed,
+                        "xref stream Flate data is invalid",
+                    ));
+                }
+                Err(InflateXrefError::Cancelled) => return Err(Error::Cancelled),
+            }
+        } else {
+            if encoded.len() != decoded_len as usize {
+                return Err(self.problem(
+                    data_at,
+                    Some(reference),
+                    PdfErrorKind::Malformed,
+                    "xref stream length disagrees with W and Index",
+                ));
+            }
+            encoded
+        };
+        let mut records = Vec::new();
+        let mut position = 0;
+        for pair in indices.chunks_exact(2) {
+            for number in pair[0]..pair[0] + pair[1] {
+                // A one-byte row can fit millions of entries in the bounded
+                // stream, so check cancellation during row parsing as well.
+                if records.len() % 1024 == 0 && self.cancellation.is_cancelled() {
+                    return Err(Error::Cancelled);
+                }
+                // Exact decoded length was checked against the declared row
+                // geometry, but still reject any future parser drift safely.
+                let mut field = |width| {
+                    read_be(&decoded, &mut position, width).ok_or_else(|| {
+                        self.problem(
+                            data_at,
+                            Some(reference),
+                            PdfErrorKind::Malformed,
+                            "xref stream row is truncated",
+                        )
+                    })
+                };
+                let kind = if widths[0] == 0 {
+                    1
+                } else {
+                    field(widths[0] as usize)?
+                };
+                let field2 = field(widths[1] as usize)?;
+                let field3 = field(widths[2] as usize)?;
+                let kind = match kind {
+                    0 => XrefKind::Free,
+                    1 => {
+                        if field2 >= self.range.length {
+                            return Err(self.problem(
+                                data_at,
+                                Some(reference),
+                                PdfErrorKind::Malformed,
+                                "xref object offset exceeds PDF range",
+                            ));
+                        }
+                        XrefKind::InUse(field2)
+                    }
+                    2 => {
+                        return Err(self.problem(
+                            data_at,
+                            Some(reference),
+                            PdfErrorKind::UnsupportedFeature,
+                            "compressed PDF objects are unsupported",
+                        ));
+                    }
+                    _ => {
+                        return Err(self.problem(
+                            data_at,
+                            Some(reference),
+                            PdfErrorKind::UnsupportedFeature,
+                            "xref entry type is unsupported",
+                        ));
+                    }
+                };
+                let generation = u16::try_from(field3).map_err(|_| {
+                    self.problem(
+                        data_at,
+                        Some(reference),
+                        PdfErrorKind::Malformed,
+                        "xref generation exceeds 16 bits",
+                    )
+                })?;
+                push_bounded(
+                    &mut records,
+                    XrefRecord {
+                        number: number as u32,
+                        slot: XrefSlot { generation, kind },
+                    },
+                    self.limits.max_allocation_bytes,
+                    "PDF xref records",
+                )
+                .map_err(|error| self.locate_limit(data_at, Some(reference), error))?;
+            }
+        }
+        let self_entry = records
+            .iter()
+            .find(|record| record.number == reference.number);
+        if !self_entry.is_some_and(|record| matches!(record.slot, XrefSlot { generation: 0, kind: XrefKind::InUse(offset) } if offset == at)) {
+            return Err(self.problem(at, Some(reference), PdfErrorKind::Malformed, "xref stream has no valid self entry"));
+        }
+        Ok((records, trailer))
     }
 
     fn parse_trailer(&self, dictionary: &Dictionary, at: u64) -> Result<Trailer> {
@@ -2354,6 +2655,72 @@ fn parse_xref_entry(line: &[u8]) -> Option<XrefSlot> {
         _ => return None,
     };
     Some(XrefSlot { generation, kind })
+}
+
+fn read_be(bytes: &[u8], position: &mut usize, width: usize) -> Option<u64> {
+    let end = position.checked_add(width)?;
+    let mut value = 0_u64;
+    for byte in bytes.get(*position..end)? {
+        value = (value << 8) | u64::from(*byte);
+    }
+    *position = end;
+    Some(value)
+}
+
+enum InflateXrefError {
+    Malformed,
+    TooLong,
+    Cancelled,
+}
+
+fn inflate_xref<C: Cancellation>(
+    encoded: &[u8],
+    expected: usize,
+    chunk_bytes: usize,
+    cancellation: &C,
+) -> std::result::Result<Vec<u8>, InflateXrefError> {
+    let length = expected.checked_add(1).ok_or(InflateXrefError::TooLong)?;
+    let mut decoded = Vec::new();
+    decoded
+        .try_reserve_exact(length)
+        .map_err(|_| InflateXrefError::TooLong)?;
+    decoded.resize(length, 0);
+    let mut inflater = Decompress::new(true);
+    loop {
+        if cancellation.is_cancelled() {
+            return Err(InflateXrefError::Cancelled);
+        }
+        let before_in = inflater.total_in();
+        let before_out = inflater.total_out();
+        let input_end = (before_in as usize)
+            .saturating_add(chunk_bytes)
+            .min(encoded.len());
+        let output_end = (before_out as usize)
+            .saturating_add(chunk_bytes)
+            .min(decoded.len());
+        let status = inflater
+            .decompress(
+                &encoded[before_in as usize..input_end],
+                &mut decoded[before_out as usize..output_end],
+                FlushDecompress::None,
+            )
+            .map_err(|_| InflateXrefError::Malformed)?;
+        if inflater.total_out() as usize > expected {
+            return Err(InflateXrefError::TooLong);
+        }
+        if status == Status::StreamEnd {
+            if inflater.total_in() as usize != encoded.len()
+                || inflater.total_out() as usize != expected
+            {
+                return Err(InflateXrefError::Malformed);
+            }
+            decoded.truncate(expected);
+            return Ok(decoded);
+        }
+        if inflater.total_in() == before_in && inflater.total_out() == before_out {
+            return Err(InflateXrefError::Malformed);
+        }
+    }
 }
 
 fn push_bounded<T>(

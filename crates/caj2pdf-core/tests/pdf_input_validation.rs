@@ -3,20 +3,23 @@
 //! Independent validator and renderer checks for inspected and updated PDFs.
 
 use caj2pdf_core::{
-    Bookmark, Error, Limits, NeverCancel, PdfErrorKind, RangedSource,
+    Bookmark, Cancellation, Error, Limits, NeverCancel, PdfErrorKind, RangedSource,
     native::{SeekableSource, WriteSink},
     pdf::{
         FragmentObject, FragmentPlan, PdfIndex, PdfOutlineAppender, PdfRange, PdfRef, PdfWriter,
         copy_pdf, copy_pdf_range, reconstruct_fragment,
     },
 };
+use flate2::{Compression, write::ZlibEncoder};
 use std::{
+    cell::Cell,
     fs::{File, OpenOptions, read, remove_file},
     future::Future,
     io::{Cursor, Write},
     path::{Path, PathBuf},
     pin::pin,
     process::Command,
+    rc::Rc,
     sync::atomic::{AtomicU64, Ordering},
     task::{Context, Poll, Waker},
 };
@@ -107,6 +110,292 @@ fn fixture(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../tests/fixtures")
         .join(name)
+}
+
+fn synthetic_xref_stream_pdf(duplicate_box: bool, bomb: bool, compressed_object: bool) -> Vec<u8> {
+    synthetic_xref_stream_pdf_with_filter(duplicate_box, bomb, compressed_object, true)
+}
+
+fn synthetic_xref_stream_pdf_with_filter(
+    duplicate_box: bool,
+    bomb: bool,
+    compressed_object: bool,
+    flate: bool,
+) -> Vec<u8> {
+    let mut pdf = b"%PDF-1.7\n".to_vec();
+    let mut offsets = [0_u32; 5];
+    let pages = if duplicate_box {
+        b"<< /Type /Pages /Count 1 /Kids [2 0 R] /MediaBox [0 0 612 792] /MediaBox [0 0 612 792] >>"
+            .as_slice()
+    } else {
+        b"<< /Type /Pages /Count 1 /Kids [2 0 R] /MediaBox [0 0 612 792] >>".as_slice()
+    };
+    for (number, body) in [
+        (1, pages),
+        (2, b"<< /Type /Page /Parent 1 0 R >>".as_slice()),
+        (3, b"<< /Type /Catalog /Pages 1 0 R >>".as_slice()),
+    ] {
+        offsets[number] = pdf.len() as u32;
+        pdf.extend_from_slice(format!("{number} 0 obj\n").as_bytes());
+        pdf.extend_from_slice(body);
+        pdf.extend_from_slice(b"\nendobj\n");
+    }
+    offsets[4] = pdf.len() as u32;
+    let mut decoded = Vec::new();
+    for (number, &offset) in offsets.iter().enumerate() {
+        let kind = if number == 0 {
+            0
+        } else if compressed_object && number == 2 {
+            2
+        } else {
+            1
+        };
+        let field2 = if number == 0 {
+            0
+        } else if compressed_object && number == 2 {
+            1
+        } else {
+            offset
+        };
+        let generation = if number == 0 { u16::MAX } else { 0 };
+        decoded.push(kind);
+        decoded.extend_from_slice(&field2.to_be_bytes());
+        decoded.extend_from_slice(&generation.to_be_bytes());
+    }
+    if bomb {
+        decoded.extend_from_slice(&[0; 10_000]);
+    }
+    let encoded = if flate {
+        let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(&decoded).unwrap();
+        encoder.finish().unwrap()
+    } else {
+        decoded
+    };
+    let filter = if flate { " /Filter /FlateDecode" } else { "" };
+    pdf.extend_from_slice(format!("4 0 obj\n<< /Type /XRef /Size 5 /Root 3 0 R /W [1 4 2] /Index [0 5] /Length {}{filter} >>\nstream\n", encoded.len()).as_bytes());
+    pdf.extend_from_slice(&encoded);
+    pdf.extend_from_slice(
+        format!("\nendstream\nendobj\nstartxref\n{}\n%%EOF\n", offsets[4]).as_bytes(),
+    );
+    pdf
+}
+
+struct OneBytePdfSource(Vec<u8>);
+
+impl RangedSource for OneBytePdfSource {
+    fn size(&self) -> u64 {
+        self.0.len() as u64
+    }
+
+    async fn read_at(
+        &mut self,
+        offset: u64,
+        destination: &mut [u8],
+    ) -> caj2pdf_core::Result<usize> {
+        let Some(byte) = self.0.get(offset as usize) else {
+            return Ok(0);
+        };
+        if destination.is_empty() {
+            return Ok(0);
+        }
+        destination[0] = *byte;
+        Ok(1)
+    }
+}
+
+struct CancelAfterXrefRead {
+    armed: Cell<bool>,
+    checks_after_read: Cell<u32>,
+}
+
+impl Cancellation for CancelAfterXrefRead {
+    fn is_cancelled(&self) -> bool {
+        if !self.armed.get() {
+            return false;
+        }
+        let checks = self.checks_after_read.get() + 1;
+        self.checks_after_read.set(checks);
+        checks >= 3
+    }
+}
+
+struct ArmAtPdfOffset {
+    bytes: Vec<u8>,
+    offset: u64,
+    cancellation: Rc<CancelAfterXrefRead>,
+}
+
+impl RangedSource for ArmAtPdfOffset {
+    fn size(&self) -> u64 {
+        self.bytes.len() as u64
+    }
+
+    async fn read_at(
+        &mut self,
+        offset: u64,
+        destination: &mut [u8],
+    ) -> caj2pdf_core::Result<usize> {
+        let start = offset as usize;
+        let Some(remaining) = self.bytes.get(start..) else {
+            return Ok(0);
+        };
+        let count = remaining.len().min(destination.len());
+        destination[..count].copy_from_slice(&remaining[..count]);
+        if offset == self.offset {
+            self.cancellation.armed.set(true);
+        }
+        Ok(count)
+    }
+}
+
+#[test]
+fn flate_xref_stream_copy_handles_one_byte_reads() {
+    let input = synthetic_xref_stream_pdf(false, false, false);
+    let mut source = OneBytePdfSource(input.clone());
+    let mut sink = WriteSink::new(Vec::<u8>::new());
+    let report = run_native(copy_pdf(
+        &mut source,
+        &mut sink,
+        &Limits::default(),
+        &NeverCancel,
+    ))
+    .unwrap();
+    assert_eq!(report.pages_converted, 1);
+    assert_eq!(sink.into_inner(), input);
+}
+
+#[test]
+fn unfiltered_xref_stream_copy_reopens() {
+    let input = synthetic_xref_stream_pdf_with_filter(false, false, false, false);
+    let mut source = SeekableSource::new(Cursor::new(&input)).unwrap();
+    let mut output = TempPdf::new("unfiltered-xref-stream");
+    let report = run_native(copy_pdf(
+        &mut source,
+        &mut WriteSink::new(&mut output.file),
+        &Limits::default(),
+        &NeverCancel,
+    ))
+    .unwrap();
+    output.file.flush().unwrap();
+    assert_eq!(report.pages_converted, 1);
+    assert_eq!(read(&output.path).unwrap(), input);
+    check_pdf(&output.path, 1);
+    inspect_bytes(read(&output.path).unwrap()).unwrap();
+}
+
+#[test]
+fn xref_stream_row_parse_observes_cancellation() {
+    // Width-one rows are cheap to inflate but can require many parse steps.
+    // The deliberately free self-entry would fail later if parsing completed.
+    let decoded = vec![0; 10_000];
+    let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
+    encoder.write_all(&decoded).unwrap();
+    let encoded = encoder.finish().unwrap();
+    let mut bytes = b"%PDF-1.7\n".to_vec();
+    let xref_at = bytes.len();
+    bytes.extend_from_slice(format!("1 0 obj\n<< /Type /XRef /Size 10000 /Root 1 0 R /W [1 0 0] /Length {} /Filter /FlateDecode >>\nstream\n", encoded.len()).as_bytes());
+    let data_at = bytes.len() as u64;
+    bytes.extend_from_slice(&encoded);
+    bytes.extend_from_slice(
+        format!("\nendstream\nendobj\nstartxref\n{xref_at}\n%%EOF\n").as_bytes(),
+    );
+    let cancellation = Rc::new(CancelAfterXrefRead {
+        armed: Cell::new(false),
+        checks_after_read: Cell::new(0),
+    });
+    let mut source = ArmAtPdfOffset {
+        bytes,
+        offset: data_at,
+        cancellation: cancellation.clone(),
+    };
+    let length = source.size();
+    let error = run_native(PdfIndex::open(
+        &mut source,
+        PdfRange { offset: 0, length },
+        &Limits::default(),
+        cancellation.as_ref(),
+    ))
+    .err()
+    .unwrap();
+    assert!(matches!(error, Error::Cancelled), "{error}");
+    assert_eq!(cancellation.checks_after_read.get(), 3);
+}
+
+#[test]
+fn duplicate_page_box_in_xref_stream_pdf_is_repaired_and_reopens() {
+    let input = synthetic_xref_stream_pdf(true, false, false);
+    let mut source = SeekableSource::new(Cursor::new(input)).unwrap();
+    let mut output = TempPdf::new("xref-stream-repair");
+    let report = run_native(copy_pdf(
+        &mut source,
+        &mut WriteSink::new(&mut output.file),
+        &Limits::default(),
+        &NeverCancel,
+    ))
+    .unwrap();
+    output.file.flush().unwrap();
+    assert_eq!(report.pages_converted, 1);
+    check_pdf(&output.path, 1);
+    let reopened = inspect_bytes(read(&output.path).unwrap()).unwrap();
+    assert!(reopened.repair_objects().is_empty());
+}
+
+#[test]
+fn malformed_and_unsupported_xref_streams_are_typed() {
+    for (old, replacement, kind) in [
+        (
+            b"/W [1 4 2]".as_slice(),
+            b"/W [1 4 9]".as_slice(),
+            PdfErrorKind::Malformed,
+        ),
+        (
+            b"/Index [0 5]".as_slice(),
+            b"/Index [1 5]".as_slice(),
+            PdfErrorKind::Malformed,
+        ),
+        (
+            b"/FlateDecode".as_slice(),
+            b"/FlateDecodX".as_slice(),
+            PdfErrorKind::UnsupportedFeature,
+        ),
+    ] {
+        let mut input = synthetic_xref_stream_pdf(false, false, false);
+        replace_once_same_len(&mut input, old, replacement);
+        let error = inspect_bytes(input)
+            .err()
+            .expect("bad xref stream must fail");
+        assert!(
+            matches!(error, Error::Pdf { kind: actual, .. } if actual == kind),
+            "{error}"
+        );
+    }
+    let error = inspect_bytes(synthetic_xref_stream_pdf(false, false, true))
+        .err()
+        .unwrap();
+    assert!(
+        matches!(
+            error,
+            Error::Pdf {
+                kind: PdfErrorKind::UnsupportedFeature,
+                ..
+            }
+        ),
+        "{error}"
+    );
+    let error = inspect_bytes(synthetic_xref_stream_pdf(false, true, false))
+        .err()
+        .unwrap();
+    assert!(
+        matches!(
+            error,
+            Error::PdfLimitExceeded {
+                resource: "PDF xref decoded bytes",
+                ..
+            }
+        ),
+        "{error}"
+    );
 }
 
 #[test]
