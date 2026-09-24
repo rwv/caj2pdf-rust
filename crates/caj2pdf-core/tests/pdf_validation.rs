@@ -9,7 +9,7 @@ use caj2pdf_core::{
     pdf::{ImageEncoding, ImageSpec, PageSpec, PdfDocument, PdfWriter},
 };
 use std::{
-    fs::{File, OpenOptions, read, remove_file},
+    fs::{File, OpenOptions, read, read_dir, remove_file},
     future::Future,
     io::{Cursor, Write},
     path::{Path, PathBuf},
@@ -71,6 +71,47 @@ fn tool_output(command: &mut Command, name: &str) -> Output {
         String::from_utf8_lossy(&output.stderr)
     );
     output
+}
+
+fn extract_one_image(pdf: &Path, root: &Path, pass_through_jpeg: bool) -> (PathBuf, Vec<u8>) {
+    let mut command = Command::new("pdfimages");
+    command.args(["-f", "1", "-l", "1"]);
+    if pass_through_jpeg {
+        command.arg("-j");
+    }
+    command.arg(pdf).arg(root);
+    tool_output(
+        &mut command,
+        if pass_through_jpeg {
+            "pdfimages -j"
+        } else {
+            "pdfimages"
+        },
+    );
+
+    // Poppler 24.02 writes files named <root>-000.<format> but has no
+    // -print-filenames option. The test's PDF-derived root is unique, and
+    // scanning it supports PGM/PPM/JPEG extensions across Poppler versions.
+    let parent = root.parent().expect("image root has a parent directory");
+    let prefix = format!(
+        "{}-",
+        root.file_name()
+            .expect("image root has a file name")
+            .to_string_lossy()
+    );
+    let mut files: Vec<_> = read_dir(parent)
+        .expect("list pdfimages output directory")
+        .map(|entry| entry.expect("read pdfimages output directory entry").path())
+        .filter(|path| {
+            path.file_name()
+                .is_some_and(|name| name.to_string_lossy().starts_with(&prefix))
+        })
+        .collect();
+    assert_eq!(files.len(), 1, "expected one pdfimages output for {prefix}");
+    let extracted = files.pop().expect("one pdfimages output exists");
+    let bytes = read(&extracted).expect("read pdfimages output");
+    remove_file(&extracted).expect("remove pdfimages output");
+    (extracted, bytes)
 }
 
 fn validate_pdf(path: &Path, pages: u32) -> (String, String) {
@@ -261,23 +302,7 @@ fn image_pages_and_unicode_outlines_reopen_with_correct_order_and_dimensions() {
     // versions emit PGM; others emit PPM with each gray sample expanded to
     // equal red, green, and blue samples. Either must preserve the pixels.
     let image_root = output.path.with_extension("image");
-    let images = tool_output(
-        Command::new("pdfimages")
-            .arg("-f")
-            .arg("1")
-            .arg("-l")
-            .arg("1")
-            .arg("-print-filenames")
-            .arg(&output.path)
-            .arg(&image_root),
-        "pdfimages",
-    );
-    let filenames = String::from_utf8(images.stdout).expect("pdfimages filenames are UTF-8");
-    let filenames: Vec<_> = filenames.lines().filter(|line| !line.is_empty()).collect();
-    assert_eq!(filenames.len(), 1, "expected one decoded grayscale image");
-    let extracted = PathBuf::from(filenames[0]);
-    let image_bytes = read(&extracted).expect("read image decoded by pdfimages");
-    remove_file(&extracted).expect("remove decoded test image");
+    let (extracted, image_bytes) = extract_one_image(&output.path, &image_root, false);
     let ppm_header = format!("P6\n{} 1\n255\n", BINARY_GRAY.len());
     let pgm_header = format!("P5\n{} 1\n255\n", BINARY_GRAY.len());
     if image_bytes.starts_with(ppm_header.as_bytes()) {
@@ -364,24 +389,7 @@ fn jpeg_gray_image_is_passed_through_and_renders() {
 
     // Poppler's JPEG extraction must be byte-for-byte equal to the input.
     let image_root = output.path.with_extension("jpeg-extracted");
-    let images = tool_output(
-        Command::new("pdfimages")
-            .arg("-f")
-            .arg("1")
-            .arg("-l")
-            .arg("1")
-            .arg("-j")
-            .arg("-print-filenames")
-            .arg(&output.path)
-            .arg(&image_root),
-        "pdfimages -j",
-    );
-    let filenames = String::from_utf8(images.stdout).expect("pdfimages filenames are UTF-8");
-    let filenames: Vec<_> = filenames.lines().filter(|line| !line.is_empty()).collect();
-    assert_eq!(filenames.len(), 1, "expected one extracted JPEG");
-    let extracted = PathBuf::from(filenames[0]);
-    let extracted_jpeg = read(&extracted).expect("read extracted JPEG");
-    remove_file(&extracted).expect("remove extracted JPEG");
+    let (_, extracted_jpeg) = extract_one_image(&output.path, &image_root, true);
     assert_eq!(
         extracted_jpeg, jpeg,
         "JPEG bytes changed during PDF writing"
