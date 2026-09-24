@@ -21,6 +21,10 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Install pinned Rust toolchain
         run: rustup show active-toolchain
+      - name: Check declared minimum Rust version
+        run: |
+          rustup toolchain install 1.85.0 --profile minimal
+          cargo +1.85.0 check --locked --workspace --all-targets
       - name: Format
         run: cargo fmt --all -- --check
       - name: Clippy
@@ -45,8 +49,22 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Install pinned Rust toolchain
         run: rustup show active-toolchain
+      - name: Set up Node.js 22
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+      - name: Check workspace examples and tests for WASM
+        run: cargo check --locked --workspace --all-features --all-targets --target wasm32-unknown-unknown
       - name: Build WASM boundary
-        run: cargo build --locked --all-features -p caj2pdf-wasm --target wasm32-unknown-unknown
+        run: cargo build --locked --release --all-features -p caj2pdf-wasm --target wasm32-unknown-unknown
+      - name: Test browser and Node.js adapters on Node 22
+        run: node --test js/test/*.test.mjs
+      - name: Set up Node.js 24
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '24'
+      - name: Test browser and Node.js adapters on Node 24
+        run: node --test js/test/*.test.mjs
 
   licenses:
     name: MIT dependency and source audit

@@ -1,0 +1,44 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: MIT -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>caj2pdf bounded browser I/O proof</title>
+  </head>
+  <body>
+    <h1>Bounded browser I/O proof</h1>
+    <p>This reads a selected file through bounded Blob slices and counts the copied bytes. It does not convert to PDF.</p>
+    <input id="file" type="file">
+    <button id="run" type="button">Run proof</button>
+    <pre id="result"></pre>
+    <script type="module">
+      import { blobSource, copyRangeProof, webWritableSink } from "../io.mjs";
+
+      const result = document.querySelector("#result");
+      document.querySelector("#run").addEventListener("click", async () => {
+        const file = document.querySelector("#file").files[0];
+        if (!file) {
+          result.textContent = "Select a file first.";
+          return;
+        }
+        try {
+          const wasmUrl = new URL("../../target/wasm32-unknown-unknown/release/caj2pdf_wasm.wasm", import.meta.url);
+          const moduleBytes = await (await fetch(wasmUrl)).arrayBuffer();
+          const { instance } = await WebAssembly.instantiate(moduleBytes);
+          let counted = 0n;
+          const writer = new WritableStream({
+            write(bytes) { counted += BigInt(bytes.byteLength); },
+          }).getWriter();
+          try {
+            const report = await copyRangeProof(instance, blobSource(file), webWritableSink(writer));
+            result.textContent = `Read ${report.inputBytesRead} bytes in bounded slices; sink counted ${counted} bytes.`;
+          } finally {
+            writer.releaseLock();
+          }
+        } catch (error) {
+          result.textContent = `${error.name}: ${error.message}`;
+        }
+      });
+    </script>
+  </body>
+</html>

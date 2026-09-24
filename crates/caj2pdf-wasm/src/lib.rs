@@ -1,8 +1,12 @@
 // SPDX-License-Identifier: MIT
 
-//! WebAssembly boundary for browser and Node.js adapters.
+//! Dependency-free WebAssembly boundary for bounded browser and Node.js I/O.
 //!
-//! JavaScript bindings will be added after the core I/O contract is defined.
-//! No document conversion is exposed by this scaffold.
+//! The raw ABI is an I/O proof. It drives the same `caj2pdf-core::copy_range`
+//! future as native Rust; format conversion is implemented in later issues.
 
-#![forbid(unsafe_code)]
+// Raw exports require Rust 2024's `unsafe(no_mangle)` linkage marker. The
+// implementation uses no unsafe blocks or pointer dereferences in Rust.
+
+#[cfg(target_arch = "wasm32")]
+mod bridge;
