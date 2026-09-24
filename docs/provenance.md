@@ -49,8 +49,10 @@ build and run from a clean clone without external CAJ documents.
 ## Source migration register
 
 The issue #2 source files are `crates/caj2pdf-core/src/lib.rs`,
-`crates/caj2pdf-cli/src/main.rs`, and `crates/caj2pdf-wasm/src/lib.rs`.
-They are original scaffold code written for this repository under MIT;
+`crates/caj2pdf-cli/src/main.rs`, `crates/caj2pdf-cli/tests/unimplemented.rs`,
+`crates/caj2pdf-wasm/src/lib.rs`, `scripts/check-coverage.sh`, and
+`scripts/check-source-inventory.sh`. They are original code written for this
+repository under MIT;
 **no legacy source files have been migrated**. Register each proposed private
 Rust file below before bringing its code into a pull request. A reviewer must
 verify the original author and right to grant
