@@ -93,8 +93,17 @@ def load_matrix(path: Path) -> list[dict]:
             raise ConformanceError(f"{sample_id}: aliases must be an array")
         for alias in aliases:
             relative_path(alias)
+        for key in ("detected_type", "variant"):
+            if row.get(key) not in ("CAJ", "HN", "C8", "KDH", "PDF", "TEB"):
+                raise ConformanceError(f"{sample_id}: invalid or missing {key}")
         if row.get("expected_outcome") not in ("success", "unsupported", "error", "unknown"):
             raise ConformanceError(f"{sample_id}: invalid expected_outcome")
+        reference = row.get("python_reference")
+        if not isinstance(reference, dict) or any(
+            reference.get(key) not in ("success", "error", "unsupported", "skip", "not_run")
+            for key in ("show_status", "convert_status")
+        ):
+            raise ConformanceError(f"{sample_id}: missing Python reference statuses")
         for key in ("page_count", "outline_count"):
             count = row.get(key)
             if count is not None and (type(count) is not int or count < 0):
@@ -103,6 +112,13 @@ def load_matrix(path: Path) -> list[dict]:
         if expected_pdf is not None:
             if not isinstance(expected_pdf, dict):
                 raise ConformanceError(f"{sample_id}: expected_pdf must be an object")
+            for key in ("page_count", "outline_count"):
+                count = expected_pdf.get(key)
+                if count is not None and (type(count) is not int or count < 0):
+                    raise ConformanceError(f"{sample_id}: invalid expected_pdf.{key}")
+            coverage = expected_pdf.get("render_coverage")
+            if coverage is not None and coverage not in ("full", "partial"):
+                raise ConformanceError(f"{sample_id}: invalid render_coverage")
             version = expected_pdf.get("mutool_version")
             if version is not None and not isinstance(version, str):
                 raise ConformanceError(f"{sample_id}: invalid mutool_version")
@@ -111,6 +127,10 @@ def load_matrix(path: Path) -> list[dict]:
                 not isinstance(outline_hash, str) or not HEX_SHA256.fullmatch(outline_hash)
             ):
                 raise ConformanceError(f"{sample_id}: invalid outline_sha256")
+            if outline_hash is not None and expected_pdf.get("outlines") is not None:
+                raise ConformanceError(
+                    f"{sample_id}: use outline_sha256 or outlines, not both"
+                )
             dimensions = expected_pdf.get("page_dimensions_pt")
             if dimensions is not None and (
                 not isinstance(dimensions, list)
@@ -138,6 +158,8 @@ def load_matrix(path: Path) -> list[dict]:
                 )
             ):
                 raise ConformanceError(f"{sample_id}: invalid rendered_pages")
+            if rendered is not None and len({item["page"] for item in rendered}) != len(rendered):
+                raise ConformanceError(f"{sample_id}: duplicate rendered page number")
     return samples
 
 
@@ -251,6 +273,10 @@ def parse_pages(output: str) -> list[tuple[float, float]]:
             if box is None:
                 raise ConformanceError(f"page {index} has no MediaBox")
             left, bottom, right, top = (float(box.attrib[key]) for key in ("l", "b", "r", "t"))
+            if not all(math.isfinite(value) for value in (left, bottom, right, top)):
+                raise ConformanceError(f"page {index} has nonfinite MediaBox coordinates")
+            if right <= left or top <= bottom:
+                raise ConformanceError(f"page {index} has nonpositive MediaBox dimensions")
             pages.append((right - left, top - bottom))
     except (ET.ParseError, KeyError, ValueError) as exc:
         raise ConformanceError(f"cannot parse mutool pages output: {exc}") from exc
@@ -393,6 +419,8 @@ def compare_pdf(executable: str, pdf: Path, row: dict, tool_version: str | None 
     }
     failures = []
     expected = row.get("expected_pdf") or {}
+    if expected.get("outline_sha256") is not None and expected.get("outlines") is not None:
+        raise ConformanceError("use outline_sha256 or outlines, not both")
     required_version = expected.get("mutool_version")
     if required_version is not None and required_version != tool_version:
         raise ConformanceError(
@@ -408,8 +436,9 @@ def compare_pdf(executable: str, pdf: Path, row: dict, tool_version: str | None 
             else:
                 failures.append(f"{name}: expected {wanted!r}, got {actual!r}")
 
-    if row.get("page_count") is not None:
-        check("page_count", len(pages), row["page_count"])
+    expected_page_count = expected.get("page_count", row.get("page_count"))
+    if expected_page_count is not None:
+        check("page_count", len(pages), expected_page_count)
     dimensions = expected.get("page_dimensions_pt")
     if dimensions is not None:
         if not isinstance(dimensions, list) or len(dimensions) != len(pages):
@@ -420,7 +449,10 @@ def compare_pdf(executable: str, pdf: Path, row: dict, tool_version: str | None 
                 if (
                     not isinstance(pair, list)
                     or len(pair) != 2
-                    or any(type(value) not in (int, float) for value in pair)
+                    or any(
+                        type(value) not in (int, float) or not math.isfinite(value)
+                        for value in pair
+                    )
                     or abs(width - pair[0]) > 0.01
                     or abs(height - pair[1]) > 0.01
                 ):
@@ -432,12 +464,13 @@ def compare_pdf(executable: str, pdf: Path, row: dict, tool_version: str | None 
 
     wanted_outlines = expected.get("outlines")
     wanted_outline_hash = expected.get("outline_sha256")
-    if row.get("outline_count") is not None or wanted_outlines is not None or wanted_outline_hash:
+    expected_outline_count = expected.get("outline_count", row.get("outline_count"))
+    if expected_outline_count is not None or wanted_outlines is not None or wanted_outline_hash:
         outline_count, outline_hash, outlines = scan_pdf_outlines(
             executable, pdf, wanted_outlines is not None
         )
-        if row.get("outline_count") is not None:
-            check("outline_count", outline_count, row["outline_count"])
+        if expected_outline_count is not None:
+            check("outline_count", outline_count, expected_outline_count)
         if wanted_outline_hash is not None:
             check("outline_hierarchy_destinations", outline_hash, wanted_outline_hash)
         if wanted_outlines is not None:
@@ -449,19 +482,35 @@ def compare_pdf(executable: str, pdf: Path, row: dict, tool_version: str | None 
             check("outline_hierarchy_destinations", actual, wanted_outlines)
 
     wanted_rendered = expected.get("rendered_pages")
+    rendered_checked = 0
     if wanted_rendered:
         rendered_failures = []
+        seen_pages = set()
         for item in wanted_rendered:
             number = item["page"]
             if type(number) is not int or not 1 <= number <= len(pages):
                 raise ConformanceError(f"invalid rendered page number: {number!r}")
+            if number in seen_pages:
+                raise ConformanceError(f"duplicate rendered page number: {number}")
+            seen_pages.add(number)
             if rendered_page_sha256(executable, pdf, number) != item["sha256"]:
                 rendered_failures.append(f"page {number} hash mismatch")
-        checks["rendered_pages"] = "FAIL" if rendered_failures else "PASS"
+        rendered_checked = len(seen_pages)
+        if rendered_failures:
+            checks["rendered_pages"] = "FAIL"
+        elif seen_pages == set(range(1, len(pages) + 1)) and expected.get("render_coverage") == "full":
+            checks["rendered_pages"] = "PASS"
         failures.extend(rendered_failures)
 
-    status = "FAIL" if failures else "PASS" if "PASS" in checks.values() else "NOT_RUN"
-    return {"id": row["id"], "status": status, "checks": checks, "failures": failures}
+    incomplete = [name for name, state in checks.items() if state == "NOT_RUN"]
+    status = "FAIL" if failures else "NOT_RUN" if incomplete else "PASS"
+    result = {"id": row["id"], "status": status, "checks": checks, "failures": failures}
+    if incomplete:
+        result["reason"] = (
+            f"incomplete checks: {', '.join(incomplete)}; "
+            f"rendered pages checked {rendered_checked}/{len(pages)}"
+        )
+    return result
 
 
 def audit_pdfs(samples: list[dict], pdf_dir: Path | None, inventory: dict, mutool: str) -> dict:
@@ -470,6 +519,7 @@ def audit_pdfs(samples: list[dict], pdf_dir: Path | None, inventory: dict, mutoo
         "passed": 0,
         "failed": 0,
         "unsupported": 0,
+        "excluded": 0,
         "not_run": len(samples),
         "tool": None,
         "results": [],
@@ -504,10 +554,16 @@ def audit_pdfs(samples: list[dict], pdf_dir: Path | None, inventory: dict, mutoo
                 {"id": row["id"], "status": "UNSUPPORTED", "reason": "reference expectation only"}
             )
             continue
+        if outcome == "error":
+            report["excluded"] += 1
+            report["results"].append(
+                {"id": row["id"], "status": "EXCLUDED", "reason": "reference conversion failed; no successful PDF expectation"}
+            )
+            continue
         if outcome != "success":
             report["not_run"] += 1
             report["results"].append(
-                {"id": row["id"], "status": "NOT_RUN", "reason": "no supported reference expectation"}
+                {"id": row["id"], "status": "NOT_RUN", "reason": "reference outcome unknown"}
             )
             continue
         pdf_relative = relative_path(row["path"]).with_suffix(".pdf")
@@ -524,8 +580,11 @@ def audit_pdfs(samples: list[dict], pdf_dir: Path | None, inventory: dict, mutoo
         else:
             report["not_run"] += 1
     report["status"] = (
-        "FAIL" if report["failed"] else "PASS" if report["passed"] else "NOT_RUN"
+        "FAIL" if report["failed"] else "NOT_RUN" if report["not_run"]
+        else "PASS" if report["passed"] else "NOT_RUN"
     )
+    if report["status"] == "NOT_RUN":
+        report["reason"] = f"{report['not_run']} output comparison(s) remain incomplete"
     return report
 
 
@@ -559,7 +618,8 @@ def print_text(report: dict) -> None:
         print(f"  ... {len(inventory['failures']) - 10} more failures")
     print(
         f"PDF output checks [{pdf['status']}]: PASS={pdf['passed']} FAIL={pdf['failed']} "
-        f"UNSUPPORTED={pdf['unsupported']} NOT_RUN={pdf['not_run']} / {report['sample_count']}"
+        f"UNSUPPORTED={pdf['unsupported']} EXCLUDED={pdf['excluded']} "
+        f"NOT_RUN={pdf['not_run']} / {report['sample_count']}"
     )
     if pdf.get("reason"):
         print(f"  {pdf['reason']}")
@@ -568,6 +628,12 @@ def print_text(report: dict) -> None:
     for result in pdf["results"]:
         if result["status"] == "FAIL":
             print(f"  FAIL {result['id']}: {'; '.join(result.get('failures', []))}")
+    incomplete = [result for result in pdf["results"] if result["status"] == "NOT_RUN"]
+    incomplete.sort(key=lambda result: not result["reason"].startswith("incomplete checks"))
+    for result in incomplete[:10]:
+        print(f"  NOT_RUN {result['id']}: {result['reason']}")
+    if len(incomplete) > 10:
+        print(f"  ... {len(incomplete) - 10} more not-run cases")
     print(
         f"Reference unsupported: {report['reference_unsupported']} "
         "(matrix expectation; no candidate converter was run)"
@@ -593,7 +659,9 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(report, indent=2, sort_keys=True))
     else:
         print_text(report)
-    return 1 if "FAIL" in (report["inventory"]["status"], report["pdf"]["status"]) else 0
+    if report["inventory"]["status"] == "FAIL":
+        return 1
+    return 1 if args.pdf_dir is not None and report["pdf"]["status"] != "PASS" else 0
 
 
 if __name__ == "__main__":

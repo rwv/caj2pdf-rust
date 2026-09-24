@@ -32,8 +32,8 @@ CAJ2PDF_CORPUS_DIR=/path/to/CAJSamples python3 scripts/conformance.py --json
 The runner checks all canonical files, including size and Git blob hash, using
 bounded reads. A missing file, changed hash, unreadable file, or path escaping
 the corpus root fails the requested run. Type aliases do not cause duplicate
-runs. The concise report distinguishes `PASS`, `FAIL`, `UNSUPPORTED`, and
-`NOT_RUN` for the inventory and PDF checks. An inventory `PASS` means only
+runs. The concise report distinguishes `PASS`, `FAIL`, `UNSUPPORTED`,
+`EXCLUDED`, and `NOT_RUN` for the inventory and PDF checks. An inventory `PASS` means only
 that the local corpus matches the pinned matrix. It is not a Rust conversion
 result.
 
@@ -43,9 +43,15 @@ with a `.pdf` suffix: `issue-1/a.caj` maps to `issue-1/a.pdf`. The runner
 compares available page counts, page dimensions, outline hierarchy and
 destinations, and rendered-page hashes against recorded expectations. A
 requested PDF comparison fails if an expected output or required inspection
-tool is missing. Fields without a measured baseline are reported `NOT_RUN`;
-they do not pass by default. `--json` provides a machine-readable report for
-later release gating.
+tool is missing. A complete output `PASS` requires all five checks and a
+distinct render hash for every page. Unknown reference outcomes or incomplete
+successful rows report `NOT_RUN`; a requested `--pdf-dir` exits nonzero unless
+the aggregate PDF status is `PASS`. Known reference errors are `EXCLUDED`
+from the successful-conversion scope, while known unsupported inputs remain
+`UNSUPPORTED`. Top-level page and outline counts are Python `show` observations;
+`expected_pdf.page_count` and `expected_pdf.outline_count` are authoritative
+for converted PDF output when they differ. `--json` provides a
+machine-readable report for later release gating.
 
 PDF inspection and rendering use a separately installed, version-recorded
 `mutool` command. Its source and output PDFs are never vendored here. Exact
