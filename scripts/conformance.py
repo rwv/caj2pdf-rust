@@ -25,6 +25,7 @@ import xml.etree.ElementTree as ET
 
 
 DEFAULT_MATRIX = Path(__file__).resolve().parent.parent / "tests/conformance/matrix.json"
+KNOWN_FORMATS = ("CAJ", "HN", "C8", "KDH", "PDF", "TEB")
 CHUNK_SIZE = 1024 * 1024
 HEX_SHA1 = re.compile(r"[0-9a-f]{40}\Z")
 HEX_SHA256 = re.compile(r"[0-9a-f]{64}\Z")
@@ -94,7 +95,7 @@ def load_matrix(path: Path) -> list[dict]:
         for alias in aliases:
             relative_path(alias)
         for key in ("detected_type", "variant"):
-            if row.get(key) not in ("CAJ", "HN", "C8", "KDH", "PDF", "TEB"):
+            if row.get(key) not in KNOWN_FORMATS:
                 raise ConformanceError(f"{sample_id}: invalid or missing {key}")
         if row.get("expected_outcome") not in ("success", "unsupported", "error", "unknown"):
             raise ConformanceError(f"{sample_id}: invalid expected_outcome")
@@ -584,16 +585,32 @@ def audit_pdfs(samples: list[dict], pdf_dir: Path | None, inventory: dict, mutoo
         else "PASS" if report["passed"] else "NOT_RUN"
     )
     if report["status"] == "NOT_RUN":
-        report["reason"] = f"{report['not_run']} output comparison(s) remain incomplete"
+        report["reason"] = (
+            f"{report['not_run']} output comparison(s) remain incomplete"
+            if report["not_run"] else "no successful PDF expectations in selected samples"
+        )
     return report
 
 
-def run(matrix_path: Path, corpus_dir: Path | None, pdf_dir: Path | None, mutool: str) -> dict:
+def run(
+    matrix_path: Path,
+    corpus_dir: Path | None,
+    pdf_dir: Path | None,
+    mutool: str,
+    only_format: str | None = None,
+) -> dict:
     samples = load_matrix(matrix_path)
+    if only_format is not None:
+        if only_format not in KNOWN_FORMATS:
+            raise ConformanceError(f"unknown format selection: {only_format}")
+        samples = [row for row in samples if row["detected_type"] == only_format]
+        if not samples:
+            raise ConformanceError(f"matrix has no {only_format} samples")
     inventory = audit_inventory(samples, corpus_dir)
     pdf = audit_pdfs(samples, pdf_dir, inventory, mutool)
     return {
         "schema_version": 1,
+        "selected_format": only_format,
         "sample_count": len(samples),
         "reference_unsupported": sum(
             row["expected_outcome"] == "unsupported" for row in samples
@@ -606,6 +623,8 @@ def run(matrix_path: Path, corpus_dir: Path | None, pdf_dir: Path | None, mutool
 def print_text(report: dict) -> None:
     inventory = report["inventory"]
     pdf = report["pdf"]
+    if report["selected_format"] is not None:
+        print(f"Selected format: {report['selected_format']}")
     print(
         f"Corpus inventory [{inventory['status']}]: PASS={inventory['passed']} FAIL={inventory['failed']} "
         f"NOT_RUN={inventory['not_run']} / {report['sample_count']}"
@@ -645,13 +664,17 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--matrix", type=Path, default=DEFAULT_MATRIX)
     parser.add_argument("--corpus-dir", type=Path, default=None)
     parser.add_argument("--pdf-dir", type=Path, default=None)
+    parser.add_argument(
+        "--only-format", choices=KNOWN_FORMATS,
+        help="check only this detected format after validating the full matrix",
+    )
     parser.add_argument("--mutool", default="mutool", help="optional PDF checker executable")
     parser.add_argument("--json", action="store_true", help="print a machine-readable report")
     args = parser.parse_args(argv)
     corpus_value = args.corpus_dir or os.environ.get("CAJ2PDF_CORPUS_DIR")
     corpus_dir = Path(corpus_value) if corpus_value else None
     try:
-        report = run(args.matrix, corpus_dir, args.pdf_dir, args.mutool)
+        report = run(args.matrix, corpus_dir, args.pdf_dir, args.mutool, args.only_format)
     except ConformanceError as exc:
         print(f"Conformance setup FAIL: {exc}", file=sys.stderr)
         return 2

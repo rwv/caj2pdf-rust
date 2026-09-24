@@ -34,6 +34,9 @@ CAJ2PDF_CORPUS_DIR=/path/to/CAJSamples python3 scripts/conformance.py --json
 
 A missing requested corpus or missing/mismatched file must fail. An unset
 corpus must report `NOT_RUN`, never a compatibility pass.
+`--only-format KDH` checks only the three pinned KDH inputs and their output
+PDFs after validating the full matrix; its results make no claim about the
+other formats.
 
 ## Python reference baseline
 
