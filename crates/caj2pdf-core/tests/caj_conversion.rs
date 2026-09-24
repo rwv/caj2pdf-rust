@@ -147,6 +147,63 @@ fn tiny_caj() -> TinyCaj {
     }
 }
 
+fn fragment_caj(body: &[u8], page_objects: &[u32]) -> Vec<u8> {
+    const TABLE_START: usize = 0x400;
+    assert!(!page_objects.is_empty());
+    let body_start = TABLE_START + page_objects.len() * 12;
+    let mut bytes = vec![0_u8; body_start];
+    bytes[..4].copy_from_slice(b"CAJ\0");
+    bytes[4..8].copy_from_slice(&[1, 0, 2, 0]);
+    put_u32(&mut bytes, 0x10, page_objects.len() as u32);
+    put_u32(&mut bytes, 0x14, TABLE_START as u32);
+    for (index, page_object) in page_objects.iter().copied().enumerate() {
+        let row = TABLE_START + index * 12;
+        put_u32(
+            &mut bytes,
+            row,
+            body_start as u32 + if index == 0 { 0 } else { body.len() as u32 },
+        );
+        put_u32(
+            &mut bytes,
+            row + 4,
+            if index == 0 { body.len() as u32 } else { 0 },
+        );
+        put_u32(&mut bytes, row + 8, page_object);
+    }
+    bytes.extend_from_slice(body);
+    bytes
+}
+
+fn one_page_body(annotation: Option<&str>, declared_stream_length: Option<usize>) -> Vec<u8> {
+    const CONTENT: &str = "0 0 0 rg 10 10 30 30 re f";
+    let mut body = Vec::new();
+    let annots = if annotation.is_some() {
+        " /Annots [12 0 R]"
+    } else {
+        ""
+    };
+    object(
+        &mut body,
+        9,
+        &format!(
+            "<< /Type /Page /Parent 5 0 R /MediaBox [0 0 72 72] /Resources << >> /Contents 11 0 R{annots} >>"
+        ),
+    );
+    object(&mut body, 5, "<< /Type /Pages /Count 1 /Kids [9 0 R] >>");
+    object(
+        &mut body,
+        11,
+        &format!(
+            "<< /Length {} >>\nstream\n{CONTENT}\nendstream",
+            declared_stream_length.unwrap_or(CONTENT.len())
+        ),
+    );
+    if let Some(annotation) = annotation {
+        object(&mut body, 12, annotation);
+    }
+    body
+}
+
 fn convert(
     input: &[u8],
     options: ConversionOptions,
@@ -189,6 +246,23 @@ fn checked_command(command: &mut Command, label: &str) -> String {
         String::from_utf8_lossy(&result.stderr)
     );
     String::from_utf8(result.stdout).expect("validator output is UTF-8")
+}
+
+fn rendered_page(path: &PathBuf) -> Vec<u8> {
+    let result = Command::new("mutool")
+        .args([
+            "draw", "-q", "-F", "pnm", "-c", "gray", "-r", "36", "-o", "-",
+        ])
+        .arg(path)
+        .arg("1")
+        .output()
+        .expect("mutool draw is required in CI");
+    assert!(
+        result.status.success(),
+        "mutool draw failed: {}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    result.stdout
 }
 
 #[test]
@@ -291,4 +365,179 @@ fn missing_page_object_is_reported_before_writing() {
         "{result:?}"
     );
     assert!(output.is_empty());
+}
+
+#[test]
+fn joins_multiple_missing_page_tree_groups_in_table_order() {
+    let mut body = Vec::new();
+    object(
+        &mut body,
+        3,
+        "<< /Type /Page /Parent 6 0 R /MediaBox [0 0 90 120] /Resources << >> >>",
+    );
+    object(
+        &mut body,
+        9,
+        "<< /Type /Page /Parent 5 0 R /MediaBox [0 0 72 144] /Resources << >> >>",
+    );
+    object(
+        &mut body,
+        5,
+        "<< /Type /Pages /Parent 20 0 R /Count 1 /Kids [9 0 R] >>",
+    );
+    object(
+        &mut body,
+        6,
+        "<< /Type /Pages /Parent 21 0 R /Count 1 /Kids [3 0 R] >>",
+    );
+    let input = fragment_caj(&body, &[9, 3]);
+    let (output, report) = convert(&input, ConversionOptions::default(), &Limits::default())
+        .expect("join two missing /Pages ancestor groups");
+    assert_eq!(report.pages_converted, 2);
+    assert_eq!(
+        inspect(&output).pages(),
+        &[
+            PdfRef {
+                number: 9,
+                generation: 0
+            },
+            PdfRef {
+                number: 3,
+                generation: 0
+            },
+        ]
+    );
+    let pdf = String::from_utf8_lossy(&output);
+    assert!(
+        pdf.contains("20 0 obj\n<< /Type /Pages /Parent 22 0 R"),
+        "{pdf}"
+    );
+    assert!(
+        pdf.contains("21 0 obj\n<< /Type /Pages /Parent 22 0 R"),
+        "{pdf}"
+    );
+    assert!(pdf.contains("22 0 obj\n<< /Type /Pages /Count 2"), "{pdf}");
+    let file = TempPdf::write("multi-roots", &output);
+    checked_command(Command::new("qpdf").arg("--check").arg(&file.0), "qpdf");
+    let info = checked_command(Command::new("pdfinfo").arg("-box").arg(&file.0), "pdfinfo");
+    assert!(info.contains("Pages:           2"), "{info}");
+    assert!(!rendered_page(&file.0).is_empty());
+}
+
+#[test]
+fn repairs_direct_and_indirect_broken_link_destinations_without_changing_render() {
+    let baseline_input = fragment_caj(&one_page_body(None, None), &[9]);
+    let (baseline_output, _) = convert(
+        &baseline_input,
+        ConversionOptions::default(),
+        &Limits::default(),
+    )
+    .unwrap();
+    let baseline_file = TempPdf::write("link-baseline", &baseline_output);
+    let baseline_render = rendered_page(&baseline_file.0);
+    assert!(!baseline_render.is_empty());
+
+    for (label, destination, indirect) in [
+        ("direct", "[99 0 R /Fit]", false),
+        ("indirect", "13 0 R", true),
+    ] {
+        let mut body = one_page_body(
+            Some(&format!(
+                "<< /Type /Annot /Subtype /Link /Rect [0 0 20 20] /Border [0 0 0] /Dest {destination} >>"
+            )),
+            None,
+        );
+        if indirect {
+            object(&mut body, 13, "[99 0 R /Fit]");
+        }
+        let input = fragment_caj(&body, &[9]);
+        let (output, report) = convert(&input, ConversionOptions::default(), &Limits::default())
+            .unwrap_or_else(|error| panic!("repair {label} link: {error}"));
+        assert_eq!(report.pages_converted, 1);
+        assert_eq!(inspect(&output).pages()[0].number, 9);
+        assert!(!output.windows(5).any(|window| window == b"/Dest"));
+        if indirect {
+            assert!(
+                output
+                    .windows(b"13 0 obj\nnull\nendobj".len())
+                    .any(|window| { window == b"13 0 obj\nnull\nendobj" }),
+                "indirect destination array must become null"
+            );
+        }
+        let file = TempPdf::write(label, &output);
+        checked_command(Command::new("qpdf").arg("--check").arg(&file.0), "qpdf");
+        assert_eq!(
+            rendered_page(&file.0),
+            baseline_render,
+            "{label} render changed"
+        );
+    }
+}
+
+#[test]
+fn unrelated_missing_resource_reference_fails_before_sink_output() {
+    let mut body = Vec::new();
+    object(
+        &mut body,
+        9,
+        "<< /Type /Page /Parent 5 0 R /MediaBox [0 0 72 72] /Resources << /XObject << /Im0 99 0 R >> >> >>",
+    );
+    object(&mut body, 5, "<< /Type /Pages /Count 1 /Kids [9 0 R] >>");
+    let input = fragment_caj(&body, &[9]);
+    let mut source = SeekableSource::new(Cursor::new(input)).unwrap();
+    let mut output = Vec::new();
+    let result = run_native(convert_caj(
+        &mut source,
+        &mut WriteSink::new(&mut output),
+        ConversionOptions::default(),
+        &Limits::default(),
+        &NeverCancel,
+    ));
+    assert!(
+        matches!(
+            &result,
+            Err(Error::Pdf {
+                object: Some((9, 0)),
+                ..
+            })
+        ),
+        "{result:?}"
+    );
+    assert!(output.is_empty());
+}
+
+#[test]
+fn repairs_nearby_stream_length_without_changing_page_render() {
+    const CONTENT_LEN: usize = "0 0 0 rg 10 10 30 30 re f".len();
+    let valid_input = fragment_caj(&one_page_body(None, None), &[9]);
+    let near_input = fragment_caj(&one_page_body(None, Some(CONTENT_LEN - 1)), &[9]);
+    let (valid_output, _) = convert(
+        &valid_input,
+        ConversionOptions::default(),
+        &Limits::default(),
+    )
+    .unwrap();
+    let (repaired_output, report) = convert(
+        &near_input,
+        ConversionOptions::default(),
+        &Limits::default(),
+    )
+    .expect("repair near-stream-length mismatch");
+    assert_eq!(report.pages_converted, 1);
+    assert_eq!(inspect(&repaired_output).pages()[0].number, 9);
+    assert!(
+        repaired_output
+            .windows(format!("/Length {CONTENT_LEN}").len())
+            .any(|window| window == format!("/Length {CONTENT_LEN}").as_bytes())
+    );
+    let valid_file = TempPdf::write("stream-valid", &valid_output);
+    let repaired_file = TempPdf::write("stream-repaired", &repaired_output);
+    checked_command(
+        Command::new("qpdf").arg("--check").arg(&repaired_file.0),
+        "qpdf",
+    );
+    assert_eq!(
+        rendered_page(&repaired_file.0),
+        rendered_page(&valid_file.0)
+    );
 }
