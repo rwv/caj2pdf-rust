@@ -43,8 +43,14 @@ be migrated, even if the file appears otherwise reusable.
 | [CAJSamples](https://github.com/caj2pdf/CAJSamples) | External, optional compatibility corpus collected from issue reports. No document redistribution grant is documented for this project; do not commit, vendor, package, or fetch them in the required clean-clone CI path. | Corpus revision, selected relative paths or digests, reference-tool revision, and results. Report missing corpus tests as **skipped**, never as successful compatibility tests. |
 | User-provided documents | Local testing only unless explicit redistribution rights are documented. | Record a digest and relevant format facts without publishing the document. |
 
-Issue #2 adds no fixtures or external corpus. The required unit tests must
-build and run from a clean clone without external CAJ documents.
+Issue #2 added no fixtures or external corpus. Issue #3 adds original MIT
+fixtures from [`scripts/generate_fixtures.py`](../scripts/generate_fixtures.py),
+with conditions, hashes, and authorship recorded in the
+[fixture manifest](../tests/fixtures/manifest.json) and
+[fixture note](../tests/fixtures/README.md). The external corpus is indexed by
+a [metadata-only matrix](../tests/conformance/matrix.json) at a pinned commit.
+Required unit tests build and run from a clean clone without external CAJ
+documents; a requested corpus run verifies local files separately.
 
 ## Source migration register
 
@@ -68,6 +74,12 @@ This register is per file, not per crate. A bulk statement that the private
 repository is owned by one person does not satisfy the review. HN parsing and
 CAJ-specific JBIG/JBIG2 decoding are categorically excluded from migration.
 
+Issue #3 adds `scripts/generate_fixtures.py`, `scripts/conformance.py`, and
+their tests as original MIT project code. No source is imported from the
+Python or Go references, CAJSamples, or a private Rust prototype. The
+fixture PDFs are generated from documented PDF syntax rather than converted
+from external documents.
+
 ## Dependency inventory and review
 
 The issue #2 baseline contains three owned packages:
@@ -90,6 +102,11 @@ read the distributed license files and inspect vendored code, generated files,
 build scripts, proc macros, and native libraries before accepting an artifact.
 An unknown license, missing evidence, or no MIT grant is a review failure
 until resolved.
+
+The issue #3 conformance and fixture scripts use only the Python standard
+library. `mutool` is an optional local black-box PDF inspector and renderer
+for requested output comparisons; neither its source nor its output is
+distributed here. Its exact version belongs in each measured baseline.
 
 For each pull request and release, regenerate the locked transitive inventory
 for the Linux native target and `wasm32-unknown-unknown`, including target-

@@ -27,6 +27,16 @@ jobs:
         run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
       - name: Unit and integration tests
         run: cargo test --workspace --all-features --locked
+      - name: Check generated MIT fixtures
+        run: python3 scripts/generate_fixtures.py --check
+      - name: Synthetic fixture tests
+        run: python3 -m unittest discover -s tests/fixtures -p 'test_*.py' -v
+      - name: Conformance harness tests
+        run: python3 -m unittest discover -s tests/conformance -p 'test_*.py' -v
+      - name: Report external corpus as not run
+        env:
+          CAJ2PDF_CORPUS_DIR: ""
+        run: python3 scripts/conformance.py
 
   wasm:
     name: WASM build

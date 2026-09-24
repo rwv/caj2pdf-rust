@@ -4,5 +4,7 @@
 /coverage/
 /tests/external-corpus/
 /references/
+__pycache__/
+*.py[cod]
 .env
 .env.*
