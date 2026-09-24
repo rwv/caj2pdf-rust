@@ -173,6 +173,12 @@ impl<'a> Syntax<'a> {
         if self.pos == self.bytes.len() {
             return Err(incomplete(self.pos, "PDF keyword is truncated"));
         }
+        if self.bytes.len() - self.pos < keyword.len() {
+            if keyword.starts_with(&self.bytes[self.pos..]) {
+                return Err(incomplete(self.pos, "PDF keyword is truncated"));
+            }
+            return Ok(false);
+        }
         if !self.bytes[self.pos..].starts_with(keyword) {
             return Ok(false);
         }
@@ -370,6 +376,9 @@ impl<'a> Syntax<'a> {
                         let second_start = self.pos;
                         if let Ok((second, true)) = self.read_number_token() {
                             self.skip_space();
+                            if self.pos == self.bytes.len() {
+                                return Err(incomplete(self.pos, "PDF reference may be truncated"));
+                            }
                             if self.bytes.get(self.pos) == Some(&b'R')
                                 && self
                                     .bytes
@@ -482,6 +491,8 @@ pub(super) enum ObjectTail {
 pub(super) struct ObjectHead {
     pub reference: PdfRef,
     pub dictionary: Option<Dictionary>,
+    /// Offset of the dictionary within `bytes`, when the value is a dictionary.
+    pub dictionary_start: Option<usize>,
     pub scalar: Option<Range<usize>>,
     pub bytes: Vec<u8>,
     pub tail: ObjectTail,
@@ -547,6 +558,9 @@ pub(super) fn parse_object_head(bytes: Vec<u8>) -> ParseResult<ObjectHead> {
     Ok(ObjectHead {
         reference,
         dictionary,
+        dictionary_start: bytes[value_start..value_end]
+            .starts_with(b"<<")
+            .then_some(value_start),
         scalar: if value_start == value_end || bytes[value_start..value_end].starts_with(b"<<") {
             None
         } else {

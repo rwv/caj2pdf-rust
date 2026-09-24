@@ -10,12 +10,14 @@ use super::input::{FragmentKind, inspect_fragment_object, inspect_fragment_scala
 use super::writer::MAX_PDF_OBJECTS;
 use super::{MAX_CLASSIC_PDF_BYTES, PdfRange, PdfRef};
 use crate::{
-    Cancellation, ConversionReport, Error, Limits, PdfErrorKind, RangedSource, Result,
+    Bookmark, Cancellation, ConversionReport, Error, Limits, PdfErrorKind, RangedSource, Result,
     SequentialSink, read_exact_at, write_all,
 };
 use std::mem::size_of;
 
 const HEADER: &[u8] = b"%PDF-1.7\n%\xE2\xE3\xCF\xD3\n";
+const HEX: &[u8; 16] = b"0123456789ABCDEF";
+const MAX_OUTLINE_DEPTH: usize = 256;
 
 /// The complete byte range of one generation-zero indirect object, from its
 /// `<number> 0 obj` header through its `endobj` keyword.
@@ -45,6 +47,19 @@ struct Record {
     reference: PdfRef,
     range: PdfRange,
     output_offset: u64,
+}
+
+#[derive(Clone, Copy)]
+struct OutlineNode {
+    reference: PdfRef,
+    parent: PdfRef,
+    parent_index: Option<usize>,
+    previous: Option<PdfRef>,
+    next: Option<PdfRef>,
+    first_child: Option<PdfRef>,
+    last_child: Option<PdfRef>,
+    descendants: u32,
+    page: PdfRef,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -206,6 +221,256 @@ fn object_index(records: &[Record], reference: PdfRef) -> Option<usize> {
         .ok()
 }
 
+fn build_outline_nodes(
+    bookmarks: &[Bookmark],
+    pages: &[PdfRef],
+    root: PdfRef,
+    limits: &Limits,
+    retained_bytes: u64,
+) -> Result<(Vec<OutlineNode>, PdfRef, PdfRef)> {
+    let metadata_bytes = bookmarks
+        .len()
+        .checked_mul(size_of::<OutlineNode>())
+        .and_then(|bytes| u64::try_from(bytes).ok())
+        .ok_or(Error::InvalidInput {
+            reason: "PDF outline index allocation overflows 64 bits",
+        })?;
+    check_pdf_allocation(
+        limits,
+        checked_add(retained_bytes, metadata_bytes)?,
+        Some(root),
+        0,
+    )?;
+    let mut nodes: Vec<OutlineNode> = Vec::new();
+    nodes.try_reserve_exact(bookmarks.len()).map_err(|_| {
+        pdf_limit(
+            None,
+            0,
+            "PDF outline index allocation",
+            limits.max_allocation_bytes,
+            metadata_bytes,
+        )
+    })?;
+    let mut stack: [Option<usize>; MAX_OUTLINE_DEPTH] = [None; MAX_OUTLINE_DEPTH];
+    let mut first_root = None;
+    let mut last_root: Option<usize> = None;
+    let mut previous_depth = 0;
+    for (index, bookmark) in bookmarks.iter().enumerate() {
+        let depth = usize::try_from(bookmark.depth).map_err(|_| {
+            pdf_limit(
+                None,
+                0,
+                "PDF outline depth",
+                MAX_OUTLINE_DEPTH as u64,
+                u64::MAX,
+            )
+        })?;
+        if depth >= MAX_OUTLINE_DEPTH {
+            return Err(pdf_limit(
+                None,
+                0,
+                "PDF outline depth",
+                MAX_OUTLINE_DEPTH as u64,
+                depth as u64 + 1,
+            ));
+        }
+        if index == 0 && depth != 0 || index != 0 && depth > previous_depth + 1 {
+            return Err(pdf_error(
+                None,
+                0,
+                PdfErrorKind::Malformed,
+                "bookmark depth skips a parent",
+            ));
+        }
+        if bookmark.title.is_empty() {
+            return Err(pdf_error(
+                None,
+                0,
+                PdfErrorKind::Malformed,
+                "bookmark title is empty",
+            ));
+        }
+        let page = *pages.get(bookmark.page_index as usize).ok_or_else(|| {
+            pdf_error(
+                None,
+                0,
+                PdfErrorKind::Malformed,
+                "bookmark destination is outside the ordered pages",
+            )
+        })?;
+        let item_number = u32::try_from(index)
+            .ok()
+            .and_then(|position| position.checked_add(1))
+            .and_then(|position| root.number.checked_add(position))
+            .ok_or_else(|| {
+                pdf_limit(
+                    Some(root),
+                    0,
+                    "PDF object number",
+                    u64::from(MAX_PDF_OBJECTS),
+                    u64::MAX,
+                )
+            })?;
+        let reference = PdfRef {
+            number: item_number,
+            generation: 0,
+        };
+        checked_reference(reference, 0)?;
+        let parent_index: Option<usize> = if depth == 0 {
+            None
+        } else {
+            Some(stack[depth - 1].ok_or_else(|| {
+                pdf_error(
+                    None,
+                    0,
+                    PdfErrorKind::Malformed,
+                    "bookmark parent is missing",
+                )
+            })?)
+        };
+        let previous_index = if let Some(parent_index) = parent_index {
+            nodes[parent_index].last_child
+        } else {
+            last_root.map(|previous| nodes[previous].reference)
+        };
+        let parent = parent_index.map_or(root, |parent_index| nodes[parent_index].reference);
+        nodes.push(OutlineNode {
+            reference,
+            parent,
+            parent_index,
+            previous: previous_index,
+            next: None,
+            first_child: None,
+            last_child: None,
+            descendants: 0,
+            page,
+        });
+        if let Some(previous) = previous_index {
+            let previous_position = previous
+                .number
+                .checked_sub(root.number)
+                .and_then(|difference| difference.checked_sub(1))
+                .and_then(|difference| usize::try_from(difference).ok())
+                .ok_or(Error::InvalidInput {
+                    reason: "PDF outline sibling index overflows",
+                })?;
+            nodes[previous_position].next = Some(reference);
+        }
+        if let Some(parent_index) = parent_index {
+            if nodes[parent_index].first_child.is_none() {
+                nodes[parent_index].first_child = Some(reference);
+            }
+            nodes[parent_index].last_child = Some(reference);
+        } else {
+            first_root.get_or_insert(reference);
+            last_root = Some(index);
+        }
+        stack[depth] = Some(index);
+        previous_depth = depth;
+    }
+    for index in (0..nodes.len()).rev() {
+        if let Some(parent) = nodes[index].parent_index {
+            let subtree = nodes[index]
+                .descendants
+                .checked_add(1)
+                .ok_or(Error::InvalidInput {
+                    reason: "PDF outline descendant count overflows",
+                })?;
+            nodes[parent].descendants =
+                nodes[parent]
+                    .descendants
+                    .checked_add(subtree)
+                    .ok_or(Error::InvalidInput {
+                        reason: "PDF outline descendant count overflows",
+                    })?;
+        }
+    }
+    let first_root = first_root.ok_or(Error::InvalidInput {
+        reason: "PDF outline root has no first item",
+    })?;
+    let last_root = nodes[last_root.ok_or(Error::InvalidInput {
+        reason: "PDF outline root has no last item",
+    })?]
+    .reference;
+    Ok((nodes, first_root, last_root))
+}
+
+fn outline_item_prefix(node: &OutlineNode) -> String {
+    format!("{} 0 obj\n<< /Title <FEFF", node.reference.number)
+}
+
+fn outline_item_suffix(node: &OutlineNode) -> String {
+    let mut suffix = format!(
+        "> /Parent {} 0 R /Dest [{} 0 R /XYZ null null null]",
+        node.parent.number, node.page.number
+    );
+    if let Some(previous) = node.previous {
+        suffix.push_str(&format!(" /Prev {} 0 R", previous.number));
+    }
+    if let Some(next) = node.next {
+        suffix.push_str(&format!(" /Next {} 0 R", next.number));
+    }
+    if let (Some(first), Some(last)) = (node.first_child, node.last_child) {
+        suffix.push_str(&format!(
+            " /First {} 0 R /Last {} 0 R /Count {}",
+            first.number, last.number, node.descendants
+        ));
+    }
+    suffix.push_str(" >>\nendobj\n");
+    suffix
+}
+
+fn outline_title_hex_len(title: &str) -> Result<u64> {
+    let units = u64::try_from(title.encode_utf16().count()).map_err(|_| Error::InvalidInput {
+        reason: "PDF outline title length exceeds 64 bits",
+    })?;
+    units.checked_mul(4).ok_or(Error::InvalidInput {
+        reason: "PDF outline title hex length overflows 64 bits",
+    })
+}
+
+async fn emit_outline_item<W: SequentialSink, C: Cancellation>(
+    sink: &mut W,
+    report: &mut ConversionReport,
+    bookmark: &Bookmark,
+    node: &OutlineNode,
+    limits: &Limits,
+    cancellation: &C,
+) -> Result<()> {
+    emit(
+        sink,
+        outline_item_prefix(node).as_bytes(),
+        report,
+        limits,
+        cancellation,
+    )
+    .await?;
+    let mut hex = [0_u8; 4096];
+    let mut used = 0;
+    for unit in bookmark.title.encode_utf16() {
+        if used == hex.len() {
+            emit(sink, &hex, report, limits, cancellation).await?;
+            used = 0;
+        }
+        for byte in unit.to_be_bytes() {
+            hex[used] = HEX[(byte >> 4) as usize];
+            hex[used + 1] = HEX[(byte & 0x0f) as usize];
+            used += 2;
+        }
+    }
+    if used != 0 {
+        emit(sink, &hex[..used], report, limits, cancellation).await?;
+    }
+    emit(
+        sink,
+        outline_item_suffix(node).as_bytes(),
+        report,
+        limits,
+        cancellation,
+    )
+    .await
+}
+
 /// Reconstruct one PDF from indexed indirect objects and explicit page order.
 ///
 /// All plan and source validation precedes the first sink write. A subsequent
@@ -219,12 +484,59 @@ pub async fn reconstruct_fragment<R: RangedSource, W: SequentialSink, C: Cancell
     limits: &Limits,
     cancellation: &C,
 ) -> Result<ConversionReport> {
+    reconstruct_fragment_with_bookmarks(source, sink, plan, &[], limits, cancellation).await
+}
+
+/// Reconstruct PDF fragments and write a CAJ outline in the same PDF revision.
+///
+/// Bookmark entries are depth-first and name zero-based positions in
+/// `plan.pages`. All titles and links are checked before the first sink write;
+/// title hex is then emitted in bounded chunks. Existing fragment Catalog
+/// objects cannot currently be updated with a new outline.
+pub async fn reconstruct_fragment_with_bookmarks<
+    R: RangedSource,
+    W: SequentialSink,
+    C: Cancellation,
+>(
+    source: &mut R,
+    sink: &mut W,
+    plan: &FragmentPlan<'_>,
+    bookmarks: &[Bookmark],
+    limits: &Limits,
+    cancellation: &C,
+) -> Result<ConversionReport> {
     let mut counted = CountingSource {
         inner: source,
         bytes_read: 0,
     };
     let source = &mut counted;
     limits.validate()?;
+    let bookmark_count = u32::try_from(bookmarks.len()).map_err(|_| {
+        pdf_limit(
+            None,
+            0,
+            "bookmarks",
+            u64::from(limits.max_bookmarks),
+            u64::MAX,
+        )
+    })?;
+    if bookmark_count > limits.max_bookmarks {
+        return Err(pdf_limit(
+            None,
+            0,
+            "bookmarks",
+            u64::from(limits.max_bookmarks),
+            u64::from(bookmark_count),
+        ));
+    }
+    if bookmark_count != 0 && plan.catalog.is_some() {
+        return Err(pdf_error(
+            plan.catalog,
+            0,
+            PdfErrorKind::UnsupportedFeature,
+            "fragment outline import requires a synthetic Catalog",
+        ));
+    }
     let page_count = u32::try_from(plan.pages.len()).map_err(|_| {
         pdf_limit(
             plan.pages.first().copied(),
@@ -272,6 +584,16 @@ pub async fn reconstruct_fragment<R: RangedSource, W: SequentialSink, C: Cancell
         .objects
         .len()
         .checked_add(2)
+        .and_then(|count| {
+            if bookmarks.is_empty() {
+                Some(count)
+            } else {
+                bookmarks
+                    .len()
+                    .checked_add(1)
+                    .and_then(|n| count.checked_add(n))
+            }
+        })
         .ok_or(Error::InvalidInput {
             reason: "PDF object count overflows address space",
         })?;
@@ -486,6 +808,44 @@ pub async fn reconstruct_fragment<R: RangedSource, W: SequentialSink, C: Cancell
     .await?;
     drop(sorted_pages);
 
+    let outline = if bookmarks.is_empty() {
+        None
+    } else {
+        let largest = records.last().ok_or(Error::InvalidInput {
+            reason: "fragment has no PDF objects",
+        })?;
+        let root_number = largest.reference.number.checked_add(1).ok_or_else(|| {
+            pdf_limit(
+                Some(largest.reference),
+                largest.range.offset,
+                "PDF object number",
+                u64::from(MAX_PDF_OBJECTS),
+                u64::from(largest.reference.number) + 1,
+            )
+        })?;
+        let root = PdfRef {
+            number: root_number,
+            generation: 0,
+        };
+        checked_reference(root, 0)?;
+        let retained_bytes = checked_add(
+            checked_add(record_bytes, page_index_bytes)?,
+            limits.io_chunk_bytes as u64,
+        )?;
+        let (nodes, first, last) =
+            build_outline_nodes(bookmarks, plan.pages, root, limits, retained_bytes)?;
+        let root_text = format!(
+            "{} 0 obj\n<< /Type /Outlines /First {} 0 R /Last {} 0 R /Count {} >>\nendobj\n",
+            root.number, first.number, last.number, bookmark_count
+        );
+        records.push(Record::synthetic(root));
+        for node in &nodes {
+            records.push(Record::synthetic(node.reference));
+        }
+        records.sort_unstable_by_key(|record| record.reference.number);
+        Some((root, nodes, root_text))
+    };
+
     let pages_prefix = synthetic_pages.then(|| {
         format!(
             "{} 0 obj\n<< /Type /Pages /Count {} /Kids [",
@@ -494,10 +854,17 @@ pub async fn reconstruct_fragment<R: RangedSource, W: SequentialSink, C: Cancell
     });
     let pages_suffix = b"] >>\nendobj\n";
     let catalog_text = plan.catalog.is_none().then(|| {
-        format!(
-            "{} 0 obj\n<< /Type /Catalog /Pages {} 0 R >>\nendobj\n",
-            catalog.number, plan.pages_root.number
-        )
+        if let Some((outline_root, _, _)) = &outline {
+            format!(
+                "{} 0 obj\n<< /Type /Catalog /Pages {} 0 R /Outlines {} 0 R >>\nendobj\n",
+                catalog.number, plan.pages_root.number, outline_root.number
+            )
+        } else {
+            format!(
+                "{} 0 obj\n<< /Type /Catalog /Pages {} 0 R >>\nendobj\n",
+                catalog.number, plan.pages_root.number
+            )
+        }
     });
     let mut body_bytes = HEADER.len() as u64;
     for record in &records {
@@ -514,6 +881,19 @@ pub async fn reconstruct_fragment<R: RangedSource, W: SequentialSink, C: Cancell
     }
     if let Some(text) = &catalog_text {
         body_bytes = checked_add(body_bytes, text.len() as u64)?;
+    }
+    if let Some((_, nodes, root_text)) = &outline {
+        body_bytes = checked_add(body_bytes, root_text.len() as u64)?;
+        for (bookmark, node) in bookmarks.iter().zip(nodes) {
+            let framing = checked_add(
+                outline_item_prefix(node).len() as u64,
+                outline_item_suffix(node).len() as u64,
+            )?;
+            body_bytes = checked_add(
+                body_bytes,
+                checked_add(framing, outline_title_hex_len(&bookmark.title)?)?,
+            )?;
+        }
     }
     let largest = records
         .last()
@@ -562,6 +942,7 @@ pub async fn reconstruct_fragment<R: RangedSource, W: SequentialSink, C: Cancell
 
     let mut report = ConversionReport {
         pages_converted: page_count,
+        bookmarks_written: bookmark_count,
         ..ConversionReport::default()
     };
     let output_working_bytes = checked_add(record_bytes, limits.io_chunk_bytes as u64)?;
@@ -629,6 +1010,27 @@ pub async fn reconstruct_fragment<R: RangedSource, W: SequentialSink, C: Cancell
         })?;
         records[index].output_offset = report.output_bytes_written;
         emit(sink, text.as_bytes(), &mut report, limits, cancellation).await?;
+    }
+    if let Some((root, nodes, root_text)) = &outline {
+        let index = object_index(&records, *root).ok_or(Error::InvalidInput {
+            reason: "synthetic outline root was not indexed",
+        })?;
+        records[index].output_offset = report.output_bytes_written;
+        emit(
+            sink,
+            root_text.as_bytes(),
+            &mut report,
+            limits,
+            cancellation,
+        )
+        .await?;
+        for (bookmark, node) in bookmarks.iter().zip(nodes) {
+            let index = object_index(&records, node.reference).ok_or(Error::InvalidInput {
+                reason: "synthetic outline item was not indexed",
+            })?;
+            records[index].output_offset = report.output_bytes_written;
+            emit_outline_item(sink, &mut report, bookmark, node, limits, cancellation).await?;
+        }
     }
     if report.output_bytes_written != body_bytes {
         return Err(Error::InvalidInput {
@@ -2919,6 +3321,177 @@ mod tests {
                 Err(Error::Cancelled)
             ));
             assert!(!sink.bytes.is_empty());
+        });
+    }
+
+    #[test]
+    fn fragment_bookmarks_form_a_readable_unicode_outline_tree() {
+        run(async {
+            let (mut source, objects, pages) = two_page_fragment();
+            let plan = FragmentPlan {
+                objects: &objects,
+                pages: &pages,
+                pages_root: reference(5),
+                catalog: None,
+            };
+            let bookmarks = [
+                Bookmark {
+                    depth: 0,
+                    title: "第一章".into(),
+                    page_index: 0,
+                },
+                Bookmark {
+                    depth: 1,
+                    title: "Section".into(),
+                    page_index: 1,
+                },
+                Bookmark {
+                    depth: 2,
+                    title: "𝄞".into(),
+                    page_index: 0,
+                },
+                Bookmark {
+                    depth: 0,
+                    title: "末章".into(),
+                    page_index: 1,
+                },
+            ];
+            let mut sink = BytesSink::default();
+            let report = reconstruct_fragment_with_bookmarks(
+                &mut source,
+                &mut sink,
+                &plan,
+                &bookmarks,
+                &Limits::default(),
+                &NeverCancel,
+            )
+            .await?;
+            assert_eq!(report.pages_converted, 2);
+            assert_eq!(report.bookmarks_written, 4);
+            assert_eq!(report.output_bytes_written, sink.bytes.len() as u64);
+            let text = String::from_utf8_lossy(&sink.bytes);
+            assert!(text.contains("/Outlines 11 0 R"));
+            assert!(text.contains("/First 12 0 R /Last 15 0 R /Count 4"));
+            assert!(text.contains("/First 13 0 R /Last 13 0 R /Count 2"));
+            assert!(text.contains("/First 14 0 R /Last 14 0 R /Count 1"));
+            assert!(text.contains("/Next 15 0 R"));
+            assert!(text.contains("/Prev 12 0 R"));
+            assert!(text.contains("/Title <FEFFD834DD1E>"));
+            let mut output = BytesSource(sink.bytes);
+            let output_size = output.size();
+            let inspected = super::super::input::PdfIndex::open(
+                &mut output,
+                PdfRange {
+                    offset: 0,
+                    length: output_size,
+                },
+                &Limits::default(),
+                &NeverCancel,
+            )
+            .await?;
+            assert_eq!(inspected.pages(), pages);
+            assert!(inspected.has_outlines());
+            Ok::<(), Error>(())
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn invalid_fragment_bookmarks_fail_before_any_output() {
+        run(async {
+            let (mut source, objects, pages) = two_page_fragment();
+            let plan = FragmentPlan {
+                objects: &objects,
+                pages: &pages,
+                pages_root: reference(5),
+                catalog: None,
+            };
+            let cases = [
+                Bookmark {
+                    depth: 1,
+                    title: "skips root".into(),
+                    page_index: 0,
+                },
+                Bookmark {
+                    depth: 0,
+                    title: "invalid page".into(),
+                    page_index: 2,
+                },
+                Bookmark {
+                    depth: 0,
+                    title: String::new(),
+                    page_index: 0,
+                },
+            ];
+            for bookmark in cases {
+                let mut sink = BytesSink::default();
+                let result = reconstruct_fragment_with_bookmarks(
+                    &mut source,
+                    &mut sink,
+                    &plan,
+                    &[bookmark],
+                    &Limits::default(),
+                    &NeverCancel,
+                )
+                .await;
+                assert!(matches!(result, Err(Error::Pdf { .. })));
+                assert!(sink.bytes.is_empty());
+            }
+            let limits = Limits {
+                max_bookmarks: 0,
+                ..Limits::default()
+            };
+            let mut sink = BytesSink::default();
+            let result = reconstruct_fragment_with_bookmarks(
+                &mut source,
+                &mut sink,
+                &plan,
+                &[Bookmark {
+                    depth: 0,
+                    title: "too many".into(),
+                    page_index: 0,
+                }],
+                &limits,
+                &NeverCancel,
+            )
+            .await;
+            assert!(matches!(result, Err(Error::PdfLimitExceeded { .. })));
+            assert!(sink.bytes.is_empty());
+        });
+    }
+
+    #[test]
+    fn fragment_outline_requires_synthetic_catalog() {
+        run(async {
+            let (mut source, objects, pages) = existing_tree_fragment();
+            let plan = FragmentPlan {
+                objects: &objects,
+                pages: &pages,
+                pages_root: reference(5),
+                catalog: Some(reference(1)),
+            };
+            let mut sink = BytesSink::default();
+            let result = reconstruct_fragment_with_bookmarks(
+                &mut source,
+                &mut sink,
+                &plan,
+                &[Bookmark {
+                    depth: 0,
+                    title: "outline".into(),
+                    page_index: 0,
+                }],
+                &Limits::default(),
+                &NeverCancel,
+            )
+            .await;
+            assert!(matches!(
+                result,
+                Err(Error::Pdf {
+                    kind: PdfErrorKind::UnsupportedFeature,
+                    ..
+                })
+            ));
+            assert!(sink.bytes.is_empty());
         });
     }
 }

@@ -47,6 +47,22 @@ pub enum Error {
     Cancelled,
     /// A forward-only source was supplied without a seekable spool.
     RandomAccessRequired,
+    /// A located problem in a CAJ container field or record.
+    Caj {
+        /// Absolute byte offset in the input source.
+        offset: u64,
+        /// One-based TOC or page-table record number, when applicable.
+        record: Option<u32>,
+        reason: &'static str,
+    },
+    /// A resource bound hit while parsing a located CAJ structure.
+    CajLimitExceeded {
+        offset: u64,
+        record: Option<u32>,
+        resource: &'static str,
+        limit: u64,
+        attempted: u64,
+    },
     /// A located problem in an embedded or standalone PDF.
     Pdf {
         /// Absolute byte offset in the input source.
@@ -94,6 +110,30 @@ impl fmt::Display for Error {
             Self::Io(error) => write!(f, "I/O error: {error}"),
             Self::Cancelled => f.write_str("operation cancelled"),
             Self::RandomAccessRequired => f.write_str("random-access input required"),
+            Self::Caj {
+                offset,
+                record,
+                reason,
+            } => {
+                write!(f, "malformed CAJ at byte {offset}")?;
+                if let Some(record) = record {
+                    write!(f, ", record {record}")?;
+                }
+                write!(f, ": {reason}")
+            }
+            Self::CajLimitExceeded {
+                offset,
+                record,
+                resource,
+                limit,
+                attempted,
+            } => {
+                write!(f, "CAJ {resource} limit exceeded at byte {offset}")?;
+                if let Some(record) = record {
+                    write!(f, ", record {record}")?;
+                }
+                write!(f, ": maximum {limit}, attempted {attempted}")
+            }
             Self::Pdf {
                 offset,
                 object,
