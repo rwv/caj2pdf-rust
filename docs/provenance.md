@@ -80,6 +80,17 @@ Python or Go references, CAJSamples, or a private Rust prototype. The
 fixture PDFs are generated from documented PDF syntax rather than converted
 from external documents.
 
+Issue #4 adds the original MIT I/O contract in
+`crates/caj2pdf-core/src/{error,io,limits,native,operations}.rs`,
+`crates/caj2pdf-core/examples/native_bounded_copy.rs`, and
+`crates/caj2pdf-core/tests/io_contract.rs`; the original MIT raw WASM bridge
+in `crates/caj2pdf-wasm/src/bridge.rs`, and the original MIT browser/Node I/O
+proof adapters, examples, and tests in `js/io.mjs`, `js/node.mjs`,
+`js/examples/`, and `js/test/*.test.mjs`.
+No private or legacy implementation code, nor external format facts, were
+imported. The I/O proof copies bytes; it does not establish CAJ-to-PDF
+compatibility.
+
 ## Dependency inventory and review
 
 The issue #2 baseline contains three owned packages:
@@ -107,6 +118,13 @@ The issue #3 conformance and fixture scripts use only the Python standard
 library. `mutool` is an optional local black-box PDF inspector and renderer
 for requested output comparisons; neither its source nor its output is
 distributed here. Its exact version belongs in each measured baseline.
+
+Issue #4 retains the three-package, dependency-free Cargo lockfile. A
+`wasm-bindgen` candidate was rejected: its transitive `unicode-ident`
+generated tables require the Unicode license in addition to an MIT grant.
+Pinning an older metadata version would not change the origin of those tables.
+The chosen raw WASM ABI and JavaScript adapters are original MIT code with no
+external Cargo or npm packages.
 
 For each pull request and release, regenerate the locked transitive inventory
 for the Linux native target and `wasm32-unknown-unknown`, including target-
