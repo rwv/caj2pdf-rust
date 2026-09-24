@@ -36,6 +36,24 @@
       "condition": "The xref entry for object 5 points beyond the end of the file."
     },
     {
+      "path": "repairable_duplicate_mediabox_tail.pdf",
+      "sha256": "1b9d7e0eaf40787f81823b19ce00bf28aa5705ab477c2723b8958bab0f753123",
+      "size": 12200,
+      "format": "PDF",
+      "expected_outcome": "malformed",
+      "condition": "Identical repeated Pages MediaBox key and opaque bytes after a valid EOF; a supported normalization must remove both warnings.",
+      "pages": [
+        [
+          200,
+          300
+        ],
+        [
+          400,
+          250
+        ]
+      ]
+    },
+    {
       "path": "truncated_c8.c8",
       "sha256": "a77802d8305178be2db1ab04fdd5ca3b8c03ad5d45ca35132ff6a04c7faec115",
       "size": 4,

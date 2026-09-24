@@ -364,7 +364,7 @@ pub extern "C" fn caj2pdf_io_cancel() {
     });
 }
 
-/// Numeric error category for a completed operation (1..=7).
+/// Numeric error category for a completed operation (1..=12).
 #[unsafe(no_mangle)]
 pub extern "C" fn caj2pdf_io_error_kind() -> u32 {
     ENGINE.with(|cell| {
@@ -380,6 +380,13 @@ pub extern "C" fn caj2pdf_io_error_kind() -> u32 {
                 Error::Io(_) => 5,
                 Error::Cancelled => 6,
                 Error::RandomAccessRequired => 7,
+                Error::Pdf { kind, .. } => match kind {
+                    caj2pdf_core::PdfErrorKind::Malformed => 8,
+                    caj2pdf_core::PdfErrorKind::Encrypted => 9,
+                    caj2pdf_core::PdfErrorKind::UnsupportedFeature => 10,
+                    caj2pdf_core::PdfErrorKind::AmbiguousRepair => 11,
+                },
+                Error::PdfLimitExceeded { .. } => 12,
             })
             .unwrap_or(0)
     })

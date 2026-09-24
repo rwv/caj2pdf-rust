@@ -16,7 +16,7 @@ pub mod native;
 mod operations;
 pub mod pdf;
 
-pub use error::{Error, Result};
+pub use error::{Error, PdfErrorKind, Result};
 pub use io::{
     Cancellation, NeverCancel, RangedSource, SequentialSink, copy_range, read_exact_at, write_all,
 };

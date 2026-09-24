@@ -42,7 +42,7 @@ class FixtureTests(unittest.TestCase):
         names = [entry["path"] for entry in entries]
         self.assertEqual(len(names), len(set(names)))
         self.assertEqual(names, sorted(names))
-        self.assertEqual(len(entries), 12)
+        self.assertEqual(len(entries), 13)
         for entry in entries:
             with self.subTest(path=entry["path"]):
                 path = FIXTURE_DIR / entry["path"]
@@ -133,6 +133,10 @@ class FixtureTests(unittest.TestCase):
 
         duplicate = (FIXTURE_DIR / "duplicate_object.pdf").read_bytes()
         self.assertEqual(duplicate.count(b"\n6 0 obj\n"), 2)
+
+        repairable = (FIXTURE_DIR / "repairable_duplicate_mediabox_tail.pdf").read_bytes()
+        self.assertEqual(repairable.count(b"/MediaBox [0 0 612 792]"), 2)
+        self.assertIn(b"%%EOF\nWebFastLoadP", repairable)
 
         truncated = (FIXTURE_DIR / "truncated_xref.pdf").read_bytes()
         self.assertIn(b"xref\n0 12\n", truncated)

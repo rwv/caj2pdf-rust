@@ -93,6 +93,14 @@ def fixtures() -> list[tuple[str, bytes, str, str, str, dict[str, object]]]:
     invalid_count = render_pdf(pdf_objects(page_count=3), order)
     duplicate = render_pdf(pdf_objects(), order + (6,))
 
+    repairable_objects = pdf_objects()
+    repairable_objects[2] = (
+        b"<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 "
+        b"/MediaBox [0 0 612 792] /MediaBox [0 0 612 792] >>"
+    )
+    repairable = render_pdf(repairable_objects, order)
+    repairable += b"WebFastLoadP" + b"\x00\xffsynthetic\x80" * 899
+
     xref_header = b"xref\n0 12\n"
     xref_offset = valid.rfind(xref_header)
     assert xref_offset >= 0
@@ -136,6 +144,11 @@ def fixtures() -> list[tuple[str, bytes, str, str, str, dict[str, object]]]:
         (
             "duplicate_object.pdf", duplicate, "PDF", "malformed",
             "Object 6 is defined twice in one body without an incremental update section.", {},
+        ),
+        (
+            "repairable_duplicate_mediabox_tail.pdf", repairable, "PDF", "malformed",
+            "Identical repeated Pages MediaBox key and opaque bytes after a valid EOF; a supported normalization must remove both warnings.",
+            {"pages": [[200, 300], [400, 250]]},
         ),
         (
             "truncated_xref.pdf", truncated_xref, "PDF", "malformed",
