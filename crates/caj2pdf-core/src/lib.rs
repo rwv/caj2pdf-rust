@@ -14,6 +14,7 @@ mod io;
 mod limits;
 pub mod native;
 mod operations;
+pub mod pdf;
 
 pub use error::{Error, Result};
 pub use io::{
