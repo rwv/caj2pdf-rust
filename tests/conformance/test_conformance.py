@@ -194,6 +194,92 @@ class CorpusRunnerTests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("Corpus inventory [FAIL]", output.getvalue())
 
+    def test_format_selection_checks_only_requested_inputs_after_full_matrix_validation(self) -> None:
+        kdh_content = b"independently authored second sample\n"
+        (self.corpus / "kdh.caj").write_bytes(kdh_content)
+        kdh = dict(
+            self.row,
+            id="kdh.caj",
+            path="kdh.caj",
+            size_bytes=len(kdh_content),
+            git_blob_oid=blob_oid(kdh_content),
+            sha256=hashlib.sha256(kdh_content).hexdigest(),
+            detected_type="KDH",
+            variant="KDH",
+        )
+        self.matrix.write_text(
+            json.dumps({"schema_version": 1, "samples": [self.row, kdh]}),
+            encoding="utf-8",
+        )
+        selected = conformance.run(self.matrix, self.corpus, None, "mutool", "KDH")
+        self.assertEqual(selected["selected_format"], "KDH")
+        self.assertEqual(selected["sample_count"], 1)
+        self.assertEqual(selected["inventory"]["status"], "PASS")
+        self.assertEqual(selected["inventory"]["passed"], 1)
+        self.assertEqual(selected["pdf"]["status"], "NOT_RUN")
+        self.assertEqual(conformance.run(self.matrix, self.corpus, None, "mutool")["sample_count"], 2)
+        with redirect_stdout(io.StringIO()) as output:
+            code = conformance.main(
+                ["--matrix", str(self.matrix), "--corpus-dir", str(self.corpus),
+                 "--only-format", "KDH", "--json"]
+            )
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(output.getvalue())["sample_count"], 1)
+        pdf_dir = self.root / "pdfs"
+        pdf_dir.mkdir()
+        selected_pdf = pdf_dir / "kdh.pdf"
+        selected_pdf.write_bytes(b"stubbed PDF output")
+        (self.corpus / "sample.caj").unlink()
+        with (
+            patch.object(conformance.shutil, "which", return_value="/fake/mutool"),
+            patch.object(conformance, "mutool_run", return_value="mutool version test"),
+            patch.object(
+                conformance,
+                "compare_pdf",
+                return_value={"id": kdh["id"], "status": "PASS", "checks": {}, "failures": []},
+            ) as compare_pdf,
+        ):
+            output_report = conformance.run(self.matrix, self.corpus, pdf_dir, "mutool", "KDH")
+            self.assertEqual(output_report["inventory"]["status"], "PASS")
+            self.assertEqual(output_report["pdf"]["status"], "PASS")
+            compare_pdf.assert_called_once()
+            self.assertEqual(compare_pdf.call_args.args[2]["id"], kdh["id"])
+
+            selected_pdf.unlink()
+            missing = conformance.run(self.matrix, self.corpus, pdf_dir, "mutool", "KDH")
+            self.assertEqual(missing["inventory"]["status"], "PASS")
+            self.assertEqual(missing["pdf"]["status"], "FAIL")
+            self.assertEqual(missing["pdf"]["failed"], 1)
+            self.assertEqual(compare_pdf.call_count, 1)
+        with self.assertRaisesRegex(conformance.ConformanceError, "unknown format selection"):
+            conformance.run(self.matrix, self.corpus, None, "mutool", "UNKNOWN")
+        with self.assertRaisesRegex(conformance.ConformanceError, "no HN samples"):
+            conformance.run(self.matrix, self.corpus, None, "mutool", "HN")
+        kdh["id"] = self.row["id"]
+        self.matrix.write_text(
+            json.dumps({"schema_version": 1, "samples": [self.row, kdh]}),
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(conformance.ConformanceError, "duplicate sample ID"):
+            conformance.run(self.matrix, self.corpus, None, "mutool", "KDH")
+
+    def test_format_selection_with_only_unsupported_inputs_has_clear_pdf_status(self) -> None:
+        self.row.update(detected_type="TEB", variant="TEB", expected_outcome="unsupported")
+        self.row["python_reference"]["convert_status"] = "unsupported"
+        self.write_matrix()
+        pdf_dir = self.root / "pdfs"
+        pdf_dir.mkdir()
+        with (
+            patch.object(conformance.shutil, "which", return_value="/fake/mutool"),
+            patch.object(conformance, "mutool_run", return_value="mutool version test"),
+        ):
+            report = conformance.run(self.matrix, self.corpus, pdf_dir, "mutool", "TEB")
+        self.assertEqual(report["inventory"]["status"], "PASS")
+        self.assertEqual(report["pdf"]["status"], "NOT_RUN")
+        self.assertEqual(report["pdf"]["unsupported"], 1)
+        self.assertEqual(report["pdf"]["not_run"], 0)
+        self.assertEqual(report["pdf"]["reason"], "no successful PDF expectations in selected samples")
+
     @unittest.skipUnless(shutil.which("mutool"), "optional mutool integration test")
     def test_pdf_directory_mapping_and_missing_output(self) -> None:
         self.row["page_count"] = 2

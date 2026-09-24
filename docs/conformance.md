@@ -46,7 +46,7 @@ compares available page counts, page dimensions, outline hierarchy and
 destinations, and rendered-page hashes against recorded expectations. A
 requested PDF comparison fails if an expected output or required inspection
 tool is missing. A complete output `PASS` requires all five checks and a
-a recorded render hash for every page. Unknown reference outcomes or incomplete
+recorded render hash for every page. Unknown reference outcomes or incomplete
 successful rows report `NOT_RUN`; a requested `--pdf-dir` exits nonzero unless
 the aggregate PDF status is `PASS`. Known reference errors are `EXCLUDED`
 from the successful-conversion scope, while known unsupported inputs remain
@@ -54,6 +54,20 @@ from the successful-conversion scope, while known unsupported inputs remain
 `expected_pdf.page_count` and `expected_pdf.outline_count` are authoritative
 for converted PDF output when they differ. `--json` provides a
 machine-readable report for later release gating.
+
+To verify one format as its implementation lands, add `--only-format KDH`
+(or another detected format). The runner still validates the full matrix,
+then checks only the selected corpus files and output PDFs. The JSON report
+names `selected_format` and counts only that subset. Missing selected inputs
+or requested outputs fail; omitted formats are outside the reported result. For KDH,
+the selected baseline has three Python-success documents and 74 fully
+fingerprinted pages:
+
+```sh
+CAJ2PDF_CORPUS_DIR=/path/to/CAJSamples \
+  python3 scripts/conformance.py --only-format KDH \
+  --pdf-dir /path/to/output --json
+```
 
 PDF inspection and rendering use a separately installed, version-recorded
 `mutool` command. Its source and output PDFs are never vendored here. Exact
