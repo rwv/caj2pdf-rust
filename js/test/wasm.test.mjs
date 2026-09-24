@@ -103,18 +103,18 @@ test("Node positioned source uses the same WASM contract", async () => {
 test("the real WASM core converts a synthetic KDH through bounded browser I/O", async () => {
   const { pdf, wrapped } = await syntheticKdh();
   const chunks = [];
+  const writer = new WritableStream({
+    async write(bytes) {
+      chunks.push(bytes);
+    },
+  }).getWriter();
   const report = await convertKdhProof(
     await newInstance(),
     blobSource(new Blob([wrapped])),
-    {
-      async writeChunk(bytes) {
-        chunks.push(bytes.slice());
-        return bytes.length;
-      },
-      async flush() {},
-    },
+    webWritableSink(writer),
     { chunkSize: 4096 },
   );
+  writer.releaseLock();
   assert.deepEqual(new Uint8Array(Buffer.concat(chunks)), pdf);
   assert.equal(report.pagesConverted, 2);
   assert.equal(report.outputBytesWritten, BigInt(pdf.length));
