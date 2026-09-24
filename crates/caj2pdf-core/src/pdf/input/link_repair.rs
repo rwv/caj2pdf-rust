@@ -130,6 +130,14 @@ pub(crate) async fn inspect_link_destination_candidate<S: RangedSource, C: Cance
         attempted: range.length,
     })?;
     let complete = reader.bytes(0, length).await?;
+    if !complete.starts_with(&head.bytes) {
+        return Err(reader.problem(
+            0,
+            Some(reference),
+            PdfErrorKind::Malformed,
+            "link repair source changed while reading",
+        ));
+    }
     let complete = parse_object_head(complete)
         .map_err(|issue| reader.parse_issue(0, Some(reference), issue))?;
     if complete.reference != reference {
@@ -467,5 +475,65 @@ mod tests {
             })
         ));
         assert!(source.largest_request <= 8);
+    }
+
+    #[test]
+    fn rejects_a_source_that_changes_between_candidate_reads() {
+        struct ChangingSource {
+            bytes: Vec<u8>,
+            reads: usize,
+        }
+
+        impl RangedSource for ChangingSource {
+            fn size(&self) -> u64 {
+                self.bytes.len() as u64
+            }
+
+            async fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> Result<usize> {
+                let start = offset as usize;
+                let length = destination
+                    .len()
+                    .min(self.bytes.len().saturating_sub(start));
+                destination[..length].copy_from_slice(&self.bytes[start..start + length]);
+                self.reads += 1;
+                if self.reads == 1 {
+                    let digit = self
+                        .bytes
+                        .windows(5)
+                        .position(|window| window == b"6 0 R")
+                        .unwrap();
+                    self.bytes[digit] = b'7';
+                }
+                Ok(length)
+            }
+        }
+
+        let bytes = b"9 0 obj\n<</Subtype/Link /Dest [6 0 R /Fit]>>\nendobj\n";
+        let mut source = ChangingSource {
+            bytes: bytes.to_vec(),
+            reads: 0,
+        };
+        let fragment = FragmentObject {
+            reference: PdfRef {
+                number: 9,
+                generation: 0,
+            },
+            range: PdfRange {
+                offset: 0,
+                length: bytes.len() as u64,
+            },
+        };
+        assert!(matches!(
+            ready(inspect_link_destination_candidate(
+                &mut source,
+                fragment,
+                &Limits::default(),
+                &NeverCancel
+            )),
+            Err(Error::Pdf {
+                reason: "link repair source changed while reading",
+                ..
+            })
+        ));
     }
 }
