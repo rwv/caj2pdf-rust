@@ -212,10 +212,10 @@ fn header_and_tail_errors_are_located_before_any_output() {
         "{error}"
     );
 
-    let mut nonclassic = valid;
+    let mut invalid_xref_start = valid;
     let xref = ordinary_fixture().xref;
-    nonclassic[xref..xref + 4].copy_from_slice(b"1234");
-    assert_pdf_error(nonclassic, PdfErrorKind::UnsupportedFeature);
+    invalid_xref_start[xref..xref + 4].copy_from_slice(b"1234");
+    assert_pdf_error(invalid_xref_start, PdfErrorKind::Malformed);
 }
 
 #[test]

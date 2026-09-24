@@ -11,14 +11,20 @@ fragment spans, rather than unrelated bytes in a containing CAJ file.
 ## Supported input
 
 - PDF 1.7 syntax with ordinary indirect objects, classic cross-reference
-  tables, and incremental revisions linked by `/Prev`.
+  tables, and incremental revisions linked by `/Prev`. The bounded xref-stream
+  subset accepts direct `/Size`, `/W`, `/Index`, and `/Length`, unfiltered or
+  `/FlateDecode` data, and ordinary free or uncompressed in-use entries. A
+  later classic table may point back to an xref stream through `/Prev`.
 - Direct or indirect stream `/Length`; the reader skips exactly that many
   payload bytes before checking `endstream` and `endobj`. PDF-looking bytes
   inside a stream are payload, not structure.
 - Catalog and page-tree links, declared page counts, and bounded object and
   page indexes. Page geometry accepts direct rectangles or indirect scalar
-  rectangle objects. Encrypted input, xref streams, compressed object streams,
-  and unrecognized structural damage return a located typed error.
+  rectangle objects. Encrypted input, type-2 compressed object entries,
+  object streams, unsupported xref filters or predictors, and unrecognized
+  structural damage return a located typed error. This profile does not claim
+  object-stream support because the observed KDH xref streams contain only
+  type-0 and type-1 entries; compressed objects need a separate bounded reader.
 
 Pass-through does not decode page content filters. The reader validates stream
 framing and declared byte lengths, but it cannot establish that compressed

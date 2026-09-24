@@ -592,6 +592,27 @@ pub(super) fn exact_name(bytes: &[u8]) -> Option<Vec<u8>> {
     parser.at_end().then_some(name)
 }
 
+pub(super) fn unsigned_array(bytes: &[u8], max_items: usize) -> Option<Vec<u64>> {
+    let mut parser = Syntax::new(bytes);
+    parser.skip_space();
+    parser
+        .expect_byte(b'[', "expected PDF integer array")
+        .ok()?;
+    let mut result = Vec::new();
+    loop {
+        parser.skip_space();
+        if parser.peek().ok()? == b']' {
+            parser.pos += 1;
+            break;
+        }
+        if result.len() >= max_items {
+            return None;
+        }
+        result.push(parser.unsigned().ok()?);
+    }
+    parser.at_end().then_some(result)
+}
+
 pub(super) fn valid_id_array(bytes: &[u8]) -> bool {
     let mut parser = Syntax::new(bytes);
     parser.skip_space();

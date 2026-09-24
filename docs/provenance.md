@@ -54,6 +54,14 @@ repository. The independently authored
 anomalies for required clean-clone tests; its generator is
 `scripts/generate_fixtures.py` and it remains MIT-redistributable.
 
+Issue #36 uses PDF 1.7 Section 3.4.7, “Cross-Reference Streams,” for the
+`/Size`, `/W`, `/Index`, `/Prev`, and type-0/type-1 entry rules, and Section
+3.4.5 for an incremental classic table pointing back to an earlier xref
+stream. Only the `FlateDecode` subset needed by independently observed KDH
+PDF bodies is implemented. No type-2 compressed object entry or object-stream
+reader is claimed. The synthetic PDF tests are repository-owned MIT work;
+the external documents and normalized outputs remain outside Git.
+
 Issue #7's [CAJ format note](caj-format.md) records direct byte measurements
 for ten Python-success CAJ files from the same external matrix, including
 their SHA-256 digests, header and page-table fields, all 603 outline records,
@@ -327,11 +335,26 @@ The native and WASM license gates passed with `cargo-deny` 0.20.2. In the
 local registry source scan, `libc` alone has a Rust `build.rs`; none of these
 nine packages contains bundled native C/C++ source or binary artifacts.
 
-There is no new runtime or WASM library/package dependency. The production
-`caj2pdf-core`, `caj2pdf-cli`, and `caj2pdf-wasm` normal dependency trees
-contain only workspace packages; test-only packages do not enter released
-binaries or a future JavaScript package. No external official table/vector
-bytes or library source are vendored with this dependency change.
+Issue #36 adds [flate2 1.1.10](https://crates.io/crates/flate2/1.1.10) as a
+normal core dependency with `default-features = false` and `rust_backend`.
+The selected **MIT** grant and corresponding distributed license notice were
+checked for it and each locked transitive dependency. The pure Rust backend
+works in native and `wasm32-unknown-unknown` builds; no C library or runtime
+subprocess is linked. `crc32fast` has a Rust build script that queries the
+compiler version, not a runtime subprocess. The five runtime packages below
+are present in both native and WASM graphs; `cfg-if` 1.0.5 is shared with the
+existing test graph. No package code is copied into this repository.
+
+| Package | Purpose and resolved features | License / selected grant |
+| --- | --- | --- |
+| `flate2` 1.1.10 | Bounded zlib decoding of xref streams; `rust_backend`, `miniz_oxide`, `any_impl`. | `MIT OR Apache-2.0` / MIT (`LICENSE-MIT`) |
+| `miniz_oxide` 0.9.1 | Pure Rust Deflate backend; `default`, `with-alloc`, `simd`, `simd-adler32`. | `MIT OR Zlib OR Apache-2.0` / MIT (`LICENSE-MIT.md`) |
+| `adler2` 2.0.1 | Adler-32 for zlib; `default`. | `0BSD OR MIT OR Apache-2.0` / MIT (`LICENSE-MIT`) |
+| `crc32fast` 1.5.2 | CRC-32 for flate2; `default`. | `MIT OR Apache-2.0` / MIT (`LICENSE-MIT`) |
+| `simd-adler32` 0.3.10 | Pure Rust Adler-32 acceleration; `default`. | `MIT` (`LICENSE.md`) |
+
+No external official table/vector bytes or library source are vendored with
+this dependency change.
 
 For each pull request and release, regenerate the locked transitive inventory
 for the Linux native target and `wasm32-unknown-unknown`, including target-
