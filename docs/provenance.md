@@ -16,6 +16,7 @@ checking the provenance of each imported file.
 | JBIG / JBIG2 bitstreams | [ITU-T T.82](https://www.itu.int/rec/T-REC-T.82) and [ITU-T T.88](https://www.itu.int/rec/T-REC-T.88/en) | Published coding recommendations. Implement the subset required by observed CAJ-family data as original MIT code. Do not reuse reference implementation source. |
 | CAJ-family headers, pages, and outlines | [caj2pdf format notes](https://github.com/caj2pdf/caj2pdf/wiki), including [CAJ/HN identification](https://github.com/caj2pdf/caj2pdf/wiki/CAJ-%E5%92%8C-HN), [basic information and outlines](https://github.com/caj2pdf/caj2pdf/wiki/%E6%96%87%E4%BB%B6%E5%9F%BA%E6%9C%AC%E4%BF%A1%E6%81%AF%E4%B8%8E%E5%A4%A7%E7%BA%B2), and [CAJ page content](https://github.com/caj2pdf/caj2pdf/wiki/CAJ-%E6%A0%BC%E5%BC%8F%E7%9A%84%E9%A1%B5%E9%9D%A2%E5%86%85%E5%AE%B9) | Public observations, not a complete normative specification. [Repository-owned CAJ measurements](caj-format.md) pin ten successful sample digests and document TOC, page-table, and PDF-fragment exceptions independently. Do not copy parser source or pseudocode. |
 | HN page layout | [caj2pdf HN format notes](https://github.com/caj2pdf/caj2pdf/wiki/HN-%E6%A0%BC%E5%BC%8F%E7%9A%84%E9%A1%B5%E9%9D%A2%E5%86%85%E5%AE%B9) | Incomplete public observations. Derive the parser from documented facts and independent tests; mark unresolved fields explicitly. |
+| HN/C8 type-0 image wrapper and pixels | [ITU-T T.82](https://www.itu.int/rec/T-REC-T.82), [Microsoft BITMAPINFOHEADER](https://learn.microsoft.com/windows/win32/api/wingdi/ns-wingdi-bitmapinfoheader), and [repository-owned oracle measurements](jbig1-oracle.md) | The standards describe public coding and DIB fields. The local corpus measurements pin the CAJ-family wrapper and output hashes. The external differently licensed native decoder is a black-box oracle only, never implementation source or a project dependency. |
 | C8, KDH, and TEB variants | [caj2pdf format notes](https://github.com/caj2pdf/caj2pdf/wiki) and independently observed files | No complete normative specification is registered here. A pull request must explain each new rule and its test evidence; TEB is currently detection only. |
 
 Issue #5 uses these PDF 1.7 facts from the published
@@ -81,6 +82,7 @@ transliterate any Python, Go, FreeType, LGPL, GPL, or unlicensed code.
 | Tool | Use | Provenance boundary |
 | --- | --- | --- |
 | [Python caj2pdf](https://github.com/rwv/caj2pdf) | Compare successful conversion results, page counts, outlines, and reported unsupported cases. | Run a pinned revision as an external oracle; capture the command, revision, input digest, and observed result. Do not import its source or bundled libraries. |
+| External HN/C8 type-0 decoder from the pinned Python project | Measure raw 1 bpp image hashes for [issue #22](https://github.com/rwv/caj2pdf-rust/issues/22). | Build and run only in a disposable external environment. Record the revision, compiler, library digest, ABI, timeouts, and secondary PDF cross-check. Its GLWT-licensed implementation and binary must never enter this MIT repository, build, package, or release. |
 | [Go prototype](https://github.com/rwv/caj2pdf-go) | Compare the limited cases it implements when useful. | Pin the revision and record its limitations. Do not treat an unfinished result as proof of compatibility or import source. |
 | PDF readers and validators | Independently validate generated PDF structure and rendering. | Record the exact tool and version in the test report when introduced. A reference converter alone cannot establish PDF validity. |
 
@@ -175,6 +177,18 @@ The original MIT [`caj_conversion.rs`](../crates/caj2pdf-core/tests/caj_conversi
 tests construct synthetic CAJ bytes at runtime from the independently recorded
 fields in the [CAJ format note](caj-format.md), including a four-byte GB18030
 title. They do not contain CAJSamples document bytes or a reference PDF.
+
+Issue #22's [HN/C8 image-oracle note](jbig1-oracle.md) records independent
+container and DIB byte measurements for 27 SHA-256-pinned external files, a
+metadata-and-hash-only manifest of 1,400 type-0 images, and two secondary
+PDF-image comparisons. The external GLWT-licensed library from the pinned
+Python project was compiled and executed only under `/tmp` as a black-box
+behavioral oracle. Its source, binary, output bitmaps, and reference PDFs are
+not migrated, vendored, linked, or included in release artifacts. The
+optional stdlib-only oracle runner and its synthetic tests are original MIT
+project code. Future Rust JBIG1 logic must be independently authored from
+the public T.82 recommendation and measured input/output behavior; the
+external library is not an algorithm source.
 
 ## Dependency inventory and review
 
