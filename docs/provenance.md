@@ -18,6 +18,18 @@ checking the provenance of each imported file.
 | HN page layout | [caj2pdf HN format notes](https://github.com/caj2pdf/caj2pdf/wiki/HN-%E6%A0%BC%E5%BC%8F%E7%9A%84%E9%A1%B5%E9%9D%A2%E5%86%85%E5%AE%B9) | Incomplete public observations. Derive the parser from documented facts and independent tests; mark unresolved fields explicitly. |
 | C8, KDH, and TEB variants | [caj2pdf format notes](https://github.com/caj2pdf/caj2pdf/wiki) and independently observed files | No complete normative specification is registered here. A pull request must explain each new rule and its test evidence; TEB is currently detection only. |
 
+Issue #5 uses these PDF 1.7 facts from the published
+[Adobe PDF Reference, version 1.7](https://opensource.adobe.com/dc-acrobat-sdk-docs/pdfstandards/pdfreference1.7old.pdf):
+
+| Implemented rule | Specification location | Independent check |
+| --- | --- | --- |
+| A stream dictionary can refer to a later indirect `/Length` object, allowing its payload to be emitted before its length is known. | Section 3.2.7, “Stream Objects,” and Example 3.1. | Generated streams are reopened with `qpdf --check` and MuPDF. |
+| A classic cross-reference table records byte offsets to indirect objects; `startxref` points to that table, and the trailer identifies the document root. | Sections 3.4.3–3.4.4, “Cross-Reference Table” and “File Trailer.” | `qpdf --check` validates generated tables and trailers. |
+| The writer caps stream lengths at 2,147,483,647 bytes and indirect objects at 8,388,607, the separate PDF 1.7 Annex C interoperability limits, in addition to the classic xref offset width. | Annex C, “Implementation Limits,” and Section 3.4.3. | Boundary tests reject values above the supported profile with a typed limit error. |
+| A page tree supplies ordered page references and page geometry. | Section 3.6.2, “Page Tree.” | Poppler `pdfinfo -box` and MuPDF inspect page count and dimensions. |
+| Image XObjects carry dimensions, color space, bits per component, and stream bytes. | Section 4.8, “Images,” including Table 4.39. | MuPDF opens generated image pages; Poppler `pdfimages` decodes synthetic pixels. |
+| Outlines link hierarchical items to page destinations; non-ASCII human-readable titles can be UTF-16BE text strings with a byte-order marker. | Section 8.2.2, “Document Outline,” and Section 3.8, “Common Data Structures” (text strings). | MuPDF independently reads generated outline titles and destinations. |
+
 The Python and Go projects below are behavioral references, not source-code
 templates. A format fact may be cited with its location, but implementation
 must be independently designed and tested. In particular, do not copy or
@@ -51,6 +63,11 @@ with conditions, hashes, and authorship recorded in the
 a [metadata-only matrix](../tests/conformance/matrix.json) at a pinned commit.
 Required unit tests build and run from a clean clone without external CAJ
 documents; a requested corpus run verifies local files separately.
+
+Issue #5's `crates/caj2pdf-core/tests/pdf_validation.rs` creates original
+synthetic PDF and PGM bytes during the test. Installed `cjpeg` encodes the PGM
+as a valid grayscale JPEG at test runtime. No binary JPEG fixture is checked
+in, and the test compares the extracted JPEG and independently rendered pixels.
 
 ## Source migration register
 
@@ -91,6 +108,13 @@ No private or legacy implementation code, nor external format facts, were
 imported. The I/O proof copies bytes; it does not establish CAJ-to-PDF
 compatibility.
 
+Issue #5 adds the original MIT forward-only PDF writer and document builder in
+`crates/caj2pdf-core/src/pdf/{mod,writer,document}.rs`, exports them from
+`crates/caj2pdf-core/src/lib.rs`, and adds original MIT tests in
+`crates/caj2pdf-core/tests/{pdf_writer_low_level,pdf_document,pdf_validation}.rs`.
+The tests generate their PDF inputs during execution; no source or document
+was migrated from a reference converter, private prototype, or CAJSamples.
+
 ## Dependency inventory and review
 
 The issue #2 baseline contains three owned packages:
@@ -125,6 +149,14 @@ generated tables require the Unicode license in addition to an MIT grant.
 Pinning an older metadata version would not change the origin of those tables.
 The chosen raw WASM ABI and JavaScript adapters are original MIT code with no
 external Cargo or npm packages.
+
+Issue #5 adds no runtime shell command or external code dependency. Its
+integration tests invoke installed `qpdf`, MuPDF `mutool`, and Poppler
+`pdfinfo` and `pdfimages` as independent PDF validators, and libjpeg-turbo
+`cjpeg` to encode one synthetic JPEG at test runtime. These tools are not
+linked, vendored, or distributed with this project. The local baseline used
+`qpdf` 12.2.0, `mutool` 1.25.1, Poppler 25.03.0, and libjpeg-turbo 2.1.5.
+Required CI installs them and prints their versions before tests and coverage.
 
 For each pull request and release, regenerate the locked transitive inventory
 for the Linux native target and `wasm32-unknown-unknown`, including target-
