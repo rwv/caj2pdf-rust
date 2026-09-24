@@ -347,6 +347,29 @@ fn fragment_scanner_rejects_unsupported_generation_and_stream_framing() {
 }
 
 #[test]
+fn fragment_scanner_requires_a_dictionary_for_stream_payloads() {
+    let bytes = b"1 0 obj\nnull\nstream\nabc\nendstream\nendobj";
+    let mut source = SeekableSource::new(Cursor::new(bytes.to_vec())).unwrap();
+    let error = run(scan_fragment_objects(
+        &mut source,
+        0,
+        bytes.len() as u64,
+        &Limits::default(),
+        &NeverCancel,
+    ))
+    .err()
+    .expect("a stream without a dictionary was accepted");
+    assert!(matches!(
+        error,
+        Error::Pdf {
+            kind: PdfErrorKind::Malformed,
+            reason: "stream has no dictionary",
+            ..
+        }
+    ));
+}
+
+#[test]
 fn patched_stream_length_rejects_source_mutation_after_scan() {
     let mut bytes = b"1 0 obj\n<< /Length 10 >>\nstream\n".to_vec();
     bytes.extend_from_slice(b"123456789012\r\nendstream\rendobj");
@@ -380,6 +403,61 @@ fn patched_stream_length_rejects_source_mutation_after_scan() {
             reason: "source changed after stream Length validation",
             ..
         })
+    ));
+}
+
+#[test]
+fn patched_source_rejects_a_ranged_adapter_that_overreports() {
+    struct Overreporting;
+    impl RangedSource for Overreporting {
+        fn size(&self) -> u64 {
+            1
+        }
+
+        async fn read_at(&mut self, _offset: u64, destination: &mut [u8]) -> Result<usize> {
+            Ok(destination.len() + 1)
+        }
+    }
+
+    let mut source = Overreporting;
+    let mut patched = PatchedSource::new(&mut source, &[]);
+    let mut byte = [0u8; 1];
+    assert!(matches!(
+        run(patched.read_at(0, &mut byte)),
+        Err(Error::InvalidInput {
+            reason: "source reported more bytes than requested"
+        })
+    ));
+}
+
+#[test]
+fn fragment_scanner_caps_the_total_object_index_before_allocating_it() {
+    let mut bytes = Vec::new();
+    for number in 1..=200 {
+        bytes.extend_from_slice(format!("{number} 0 obj\nnull\nendobj\n").as_bytes());
+    }
+    let mut source = SeekableSource::new(Cursor::new(bytes)).unwrap();
+    let limits = Limits {
+        io_chunk_bytes: 1,
+        max_allocation_bytes: 4096,
+        ..Limits::default()
+    };
+    let size = source.size();
+    let error = run(scan_fragment_objects(
+        &mut source,
+        0,
+        size,
+        &limits,
+        &NeverCancel,
+    ))
+    .err()
+    .expect("an unbounded object index was accepted");
+    assert!(matches!(
+        error,
+        Error::PdfLimitExceeded {
+            resource: "allocation bytes",
+            ..
+        }
     ));
 }
 

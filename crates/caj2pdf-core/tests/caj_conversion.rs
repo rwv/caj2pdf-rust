@@ -5,7 +5,7 @@
 //! public observations registered in `docs/caj-format.md`.
 
 use caj2pdf_core::{
-    ConversionOptions, Error, Limits, NeverCancel, RangedSource,
+    ConversionOptions, Error, Limits, NeverCancel, RangedSource, SequentialSink,
     caj::convert_caj,
     native::{SeekableSource, WriteSink},
     pdf::{PdfIndex, PdfRange, PdfRef},
@@ -262,6 +262,80 @@ fn convert(
         &NeverCancel,
     ))?;
     Ok((output, report))
+}
+
+#[test]
+fn conversion_uses_the_platform_neutral_short_io_contract() {
+    struct ShortSource {
+        bytes: Vec<u8>,
+        largest_request: usize,
+    }
+
+    impl RangedSource for ShortSource {
+        fn size(&self) -> u64 {
+            self.bytes.len() as u64
+        }
+
+        async fn read_at(
+            &mut self,
+            offset: u64,
+            destination: &mut [u8],
+        ) -> caj2pdf_core::Result<usize> {
+            self.largest_request = self.largest_request.max(destination.len());
+            let start = offset as usize;
+            let count = destination
+                .len()
+                .min(2)
+                .min(self.bytes.len().saturating_sub(start));
+            destination[..count].copy_from_slice(&self.bytes[start..start + count]);
+            Ok(count)
+        }
+    }
+
+    #[derive(Default)]
+    struct ShortSink {
+        bytes: Vec<u8>,
+        largest_request: usize,
+        flushed: bool,
+    }
+
+    impl SequentialSink for ShortSink {
+        async fn write(&mut self, bytes: &[u8]) -> caj2pdf_core::Result<usize> {
+            self.largest_request = self.largest_request.max(bytes.len());
+            let count = bytes.len().min(2);
+            self.bytes.extend_from_slice(&bytes[..count]);
+            Ok(count)
+        }
+
+        async fn flush(&mut self) -> caj2pdf_core::Result<()> {
+            self.flushed = true;
+            Ok(())
+        }
+    }
+
+    let mut source = ShortSource {
+        bytes: tiny_caj().bytes,
+        largest_request: 0,
+    };
+    let mut sink = ShortSink::default();
+    let limits = Limits {
+        io_chunk_bytes: 3,
+        ..Limits::default()
+    };
+    let report = run_native(convert_caj(
+        &mut source,
+        &mut sink,
+        ConversionOptions::default(),
+        &limits,
+        &NeverCancel,
+    ))
+    .expect("short ranged reads and sequential writes must convert CAJ");
+    assert!(source.largest_request <= 3);
+    assert!(sink.largest_request <= 3);
+    assert!(sink.flushed);
+    assert_eq!(report.pages_converted, 3);
+    assert_eq!(report.output_bytes_written, sink.bytes.len() as u64);
+    assert_eq!(inspect(&sink.bytes).pages().len(), 3);
 }
 
 fn rejected_without_output(input: &[u8], limits: &Limits) -> Error {
@@ -754,6 +828,30 @@ fn rejects_invalid_page_tree_relationships_before_writing() {
             "{label}: {error}"
         );
     }
+}
+
+#[test]
+fn duplicate_page_tree_object_numbers_are_rejected_before_output() {
+    let mut body = Vec::new();
+    object(
+        &mut body,
+        9,
+        "<< /Type /Page /Parent 5 0 R /MediaBox [0 0 72 72] >>",
+    );
+    object(
+        &mut body,
+        9,
+        "<< /Type /Page /Parent 5 0 R /MediaBox [0 0 72 72] >>",
+    );
+    object(&mut body, 5, "<< /Type /Pages /Count 1 /Kids [9 0 R] >>");
+    let error = rejected_without_output(&fragment_caj(&body, &[9]), &Limits::default());
+    assert!(matches!(
+        error,
+        Error::Caj {
+            reason: "duplicate PDF page-tree object",
+            ..
+        }
+    ));
 }
 
 #[test]
