@@ -817,9 +817,11 @@ mod tests {
         let mut objects = Vec::new();
         let estimated = suffix.len() + 160 + 24 * kids.len();
         let limits = Limits {
+            io_chunk_bytes: 1,
             max_allocation_bytes: estimated as u64,
             ..Limits::default()
         };
+        limits.validate().unwrap();
         push_synthetic(&mut suffix, &mut objects, 100, node, &limits).unwrap();
         let body = &suffix[b"prefix".len()..];
         assert_eq!(
@@ -834,9 +836,11 @@ mod tests {
         let mut too_small = b"prefix".to_vec();
         let mut rejected_objects = Vec::new();
         let limits = Limits {
+            io_chunk_bytes: 1,
             max_allocation_bytes: estimated as u64 - 1,
             ..Limits::default()
         };
+        limits.validate().unwrap();
         assert!(matches!(
             push_synthetic(&mut too_small, &mut rejected_objects, 100, node, &limits),
             Err(Error::LimitExceeded { .. })
