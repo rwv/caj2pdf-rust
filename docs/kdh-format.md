@@ -79,10 +79,10 @@ Linux `os.wait4(...).ru_maxrss` on the same host measured:
 
 | Input | Input bytes | Peak RSS |
 | --- | ---: | ---: |
-| `issue-48` | 37,743 | 7,896 KiB |
-| `issue-21` | 480,486 | 7,896 KiB |
-| `issue-34` | 1,877,728 | 7,908 KiB |
-| `issue-48` plus a sparse 64 MiB zero trailer | 67,146,607 | 8,848 KiB |
+| `issue-48` | 37,743 | 7,764 KiB |
+| `issue-21` | 480,486 | 7,752 KiB |
+| `issue-34` | 1,877,728 | 7,764 KiB |
+| `issue-48` plus a sparse 64 MiB zero trailer | 67,146,607 | 8,860 KiB |
 
 The large-trailer output had the same SHA-256 as the original `issue-48`
 output. These measurements show a bounded path for the observed corpus and
