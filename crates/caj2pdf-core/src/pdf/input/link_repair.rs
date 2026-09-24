@@ -536,4 +536,207 @@ mod tests {
             })
         ));
     }
+
+    #[test]
+    fn truncated_located_range_is_rejected_before_reading() {
+        let prefix = b"CAJ!!";
+        let object = b"9 0 obj\n<</Subtype/Link /Dest [6 0 R /Fit]>>\nendobj\n";
+        let mut bytes = prefix.to_vec();
+        bytes.extend_from_slice(object);
+        let mut source = Source {
+            bytes,
+            largest_request: 0,
+        };
+        let fragment = FragmentObject {
+            reference: PdfRef {
+                number: 9,
+                generation: 0,
+            },
+            range: PdfRange {
+                offset: prefix.len() as u64,
+                length: object.len() as u64 + 3,
+            },
+        };
+        let error = ready(inspect_link_destination_candidate(
+            &mut source,
+            fragment,
+            &Limits::default(),
+            &NeverCancel,
+        ))
+        .err()
+        .expect("truncated link object was accepted");
+        assert!(matches!(
+            error,
+            Error::TruncatedInput {
+                offset,
+                expected,
+                available,
+            } if offset == prefix.len() as u64
+                && expected == object.len() as u64 + 3
+                && available == object.len() as u64
+        ));
+        assert_eq!(source.largest_request, 0);
+    }
+
+    #[test]
+    fn nonzero_generation_is_excluded_without_reading() {
+        let object = b"9 0 obj\n<</Subtype/Link /Dest [6 0 R /Fit]>>\nendobj\n";
+        let mut source = Source {
+            bytes: object.to_vec(),
+            largest_request: 0,
+        };
+        let fragment = FragmentObject {
+            reference: PdfRef {
+                number: 9,
+                generation: 1,
+            },
+            range: PdfRange {
+                offset: 0,
+                length: object.len() as u64,
+            },
+        };
+        assert!(
+            ready(inspect_link_destination_candidate(
+                &mut source,
+                fragment,
+                &Limits::default(),
+                &NeverCancel,
+            ))
+            .unwrap()
+            .is_none()
+        );
+        assert_eq!(source.largest_request, 0);
+    }
+
+    #[test]
+    fn rejects_non_whitespace_after_a_link_object_with_absolute_offset() {
+        let prefix = b"CAJ!!";
+        let object = b"9 0 obj\n<</Subtype/Link /Dest [6 0 R /Fit]>>\nendobj";
+        let tail = b"\r\n<container-tail>";
+        let mut bytes = prefix.to_vec();
+        bytes.extend_from_slice(object);
+        bytes.extend_from_slice(tail);
+        let mut source = Source {
+            bytes,
+            largest_request: 0,
+        };
+        let fragment = FragmentObject {
+            reference: PdfRef {
+                number: 9,
+                generation: 0,
+            },
+            range: PdfRange {
+                offset: prefix.len() as u64,
+                length: (object.len() + tail.len()) as u64,
+            },
+        };
+        let error = ready(inspect_link_destination_candidate(
+            &mut source,
+            fragment,
+            &Limits::default(),
+            &NeverCancel,
+        ))
+        .err()
+        .expect("object span swallowed the container tail");
+        assert!(matches!(
+            error,
+            Error::Pdf {
+                offset,
+                object: Some((9, 0)),
+                kind: PdfErrorKind::Malformed,
+                reason: "link repair object has trailing non-whitespace bytes",
+            } if offset == (prefix.len() + object.len() + 2) as u64
+        ));
+    }
+
+    #[test]
+    fn rejects_changed_link_form_between_head_and_full_read() {
+        struct SwitchingSource {
+            first: Vec<u8>,
+            second: Vec<u8>,
+            reads: usize,
+        }
+
+        impl RangedSource for SwitchingSource {
+            fn size(&self) -> u64 {
+                self.first.len() as u64
+            }
+
+            async fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> Result<usize> {
+                let bytes = if self.reads == 0 {
+                    &self.first
+                } else {
+                    &self.second
+                };
+                let start = offset as usize;
+                let count = destination.len().min(bytes.len().saturating_sub(start));
+                destination[..count].copy_from_slice(&bytes[start..start + count]);
+                self.reads += 1;
+                Ok(count)
+            }
+        }
+
+        let first = b"9 0 obj\n<</Subtype/Link /Dest [6 0 R /Fit]>>\nendobj\n".to_vec();
+        let mut second = first.clone();
+        let subtype = second
+            .windows(5)
+            .position(|window| window == b"/Link")
+            .unwrap();
+        second[subtype..subtype + 5].copy_from_slice(b"/Null");
+        let mut source = SwitchingSource {
+            first,
+            second,
+            reads: 0,
+        };
+        let fragment = FragmentObject {
+            reference: PdfRef {
+                number: 9,
+                generation: 0,
+            },
+            range: PdfRange {
+                offset: 0,
+                length: source.size(),
+            },
+        };
+        assert!(matches!(
+            ready(inspect_link_destination_candidate(
+                &mut source,
+                fragment,
+                &Limits::default(),
+                &NeverCancel,
+            )),
+            Err(Error::Pdf {
+                kind: PdfErrorKind::Malformed,
+                reason: "link repair source changed while reading",
+                ..
+            })
+        ));
+        assert!(source.reads >= 2);
+    }
+
+    #[test]
+    fn identifies_an_indirect_destination_used_by_another_link_field() {
+        let ordinary = inspect(b"9 0 obj\n<</Subtype/Link /Dest 42 0 R /AP 43 0 R>>\nendobj\n")
+            .unwrap()
+            .unwrap();
+        assert!(!ordinary.retains_destination_reference);
+
+        let shared = inspect(b"9 0 obj\n<</Subtype/Link /Dest 42 0 R /AP 42 0 R>>\nendobj\n")
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            shared.target,
+            LinkDestinationTarget::IndirectArray(PdfRef {
+                number: 42,
+                generation: 0
+            })
+        );
+        assert!(shared.retains_destination_reference);
+        assert!(
+            shared
+                .replacement
+                .windows(10)
+                .any(|window| window == b"/AP 42 0 R")
+        );
+    }
 }
