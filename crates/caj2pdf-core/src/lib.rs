@@ -16,6 +16,7 @@ mod limits;
 pub mod native;
 mod operations;
 pub mod pdf;
+pub mod qm;
 
 pub use error::{Error, PdfErrorKind, Result};
 pub use io::{
