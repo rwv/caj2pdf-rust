@@ -1,7 +1,7 @@
-# T.82 arithmetic core design
+# T.82 arithmetic core
 
-This is the implementation plan for [issue #26](https://github.com/rwv/caj2pdf-rust/issues/26).
-It describes an original, bounded Rust decoder for the standard arithmetic
+This is the implementation note for [issue #26](https://github.com/rwv/caj2pdf-rust/issues/26).
+It describes the original, bounded Rust decoder for the standard arithmetic
 stripe coded data (SCD) algorithm. It does **not** specify a CAJ-family image
 decoder. The [CAJ bitstream investigation](jbig1-bitstream-investigation.md)
 currently has no verified nonblank HN/C8 type-0 decoding rule.
@@ -29,7 +29,7 @@ Table 24 rows and §7.1 vector are **not** project-owned source or committed
 fixtures. See [provenance](provenance.md) for the unresolved redistribution
 question.
 
-## Proposed core contract
+## Core contract
 
 The arithmetic core receives one **already delimited, unstuffed SCD span**
 and a caller-supplied context index for each requested symbol. A separate
@@ -151,8 +151,9 @@ The existing independent `/tmp` prototype reproduced the §7.1 256-bit output
 and tested a finite set of HN/C8 framing and context guesses. Those guesses
 did **not** match the nonblank canaries; the blank matches are not diagnostic.
 See the [investigation](jbig1-bitstream-investigation.md) for exact cases and
-limits. The #26 Rust implementation must establish its own conformance and
-must report those CAJ results separately.
+limits. The Rust core passed the pinned opt-in §7.1 check locally on
+2026-09-24; a Rust CAJ pixel-hash canary is **NOT_RUN** because no CAJ row
+decoder exists yet. The standard and CAJ statuses remain separate.
 
 Before closing #26, run formatting, Clippy with warnings denied, native
 tests, the WASM target check, the repository MIT/source audit, the coverage
@@ -162,27 +163,11 @@ unmet conformance criterion, not a pass.
 
 ## Numeric table rights decision
 
-The [ITU publication](https://www.itu.int/rec/T-REC-T.82) carries a 1993
-copyright notice. [ITU Software Copyright Guidelines](https://www.itu.int/dms_pub/itu-t/oth/04/04/T04040000040004PDFE.pdf)
-§2.2.2 allow implementation use of data-structure and data-stream material
-without copyright assertions, but do not explicitly identify Table 24's
-numerical probability entries or grant MIT redistribution of them. The
-[ITU declaration database](https://www.itu.int/net4/ipr/search.aspx?class=SW&sector=ITU)
-does not list T.82 and explicitly disclaims completeness. Therefore its
-absence is not clearance. The cited guideline edition took effect in 2012,
-after the 1993 recommendation.
-
-Until a documented rights basis is reviewed, do not commit the 113 normative
-tuples or a generated equivalent. A concrete resolution path is written
-confirmation from [ITU IPR](https://www.itu.int/en/itu-t/ipr/pages/default.aspx)
-(`tsbipr@itu.int`) and [ITU copyright](https://www.itu.int/en/Pages/copyright.aspx)
-(`jur@itu.int`) covering exact Table 24 values in MIT source, binaries, npm,
-WASM, and commercial distribution, including whether ITU can authorize the
-jointly published ISO/IEC material; or a qualified rights assessment that
-the required numeric interoperability facts are not protectable and can be
-recorded as such in provenance. A narrower license does not satisfy this
-repository's all-MIT policy. Borrowed local table data permits conformance
-research but does not yet make a standalone standard decoder distributable.
-Issue #26 must remain open while [issue #30](https://github.com/rwv/caj2pdf-rust/issues/30)
-lacks an approved MIT basis or an independently reviewed exact alternative,
-even if local external-table conformance passes.
+The exact 113 Table 24 numeric states have no documented MIT redistribution
+basis yet. The [provenance register](provenance.md) records the source review;
+[issue #30](https://github.com/rwv/caj2pdf-rust/issues/30) holds the detailed
+decision criteria and rights-resolution path. Keep the normative tuples and
+mechanically generated equivalents out of source, binaries, npm, and WASM
+while that decision is open. An external local table supports research but
+does not make a standalone decoder distributable. Issue #26 remains open
+until #30 resolves, regardless of the local vector result.

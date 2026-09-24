@@ -115,7 +115,7 @@ impl ContextBank {
         self.states.get(index).copied()
     }
 
-    /// Set one context with a checked state index, useful for explicit carry.
+    /// Set one context with a checked state index; this does not enable carry.
     pub fn set(&mut self, index: usize, state: ContextState) -> ArithmeticResult<()> {
         let destination = self.states.get_mut(index).ok_or(ArithmeticError {
             offset: None,
@@ -150,7 +150,7 @@ pub enum StripeMode {
     Carry,
 }
 
-/// Operation-wide bounds. Work counts each symbol, renormalization shift, and
+/// Per-stripe bounds. Work counts each symbol, renormalization shift, and
 /// byte input. Each byte input can cause at most one bounded 256-byte refill.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ArithmeticBudget {
@@ -659,11 +659,9 @@ mod tests {
     fn run<F: Future>(future: F) -> F::Output {
         let mut future = pin!(future);
         let mut context = Context::from_waker(Waker::noop());
-        loop {
-            match future.as_mut().poll(&mut context) {
-                Poll::Ready(output) => return output,
-                Poll::Pending => std::thread::yield_now(),
-            }
+        match future.as_mut().poll(&mut context) {
+            Poll::Ready(output) => output,
+            Poll::Pending => panic!("test source unexpectedly yielded"),
         }
     }
 
