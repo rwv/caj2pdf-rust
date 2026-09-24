@@ -51,6 +51,8 @@ jobs:
           CAJ2PDF_CORPUS_DIR: ""
           CAJ2PDF_JBIG1_ORACLE_LIB: ""
         run: python3 scripts/jbig1_oracle.py --json
+      - name: Report external standard JBIG1 probe as not run
+        run: python3 scripts/jbig1_standard_probe.py --json
       - name: Report external corpus as not run
         env:
           CAJ2PDF_CORPUS_DIR: ""
