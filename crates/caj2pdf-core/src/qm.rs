@@ -919,6 +919,147 @@ mod tests {
     }
 
     #[test]
+    fn assigned_context_survives_rejected_spans_without_reading_or_resetting() {
+        let table = synthetic_table();
+        let limits = Limits::default();
+        let mut contexts = ContextBank::new(2, &limits).unwrap();
+        let assigned = ContextState {
+            state_index: (QM_STATE_COUNT - 1) as u8,
+            mps: true,
+        };
+        contexts.set(1, assigned).unwrap();
+        assert_eq!(contexts.state(1), Some(assigned));
+
+        // A failed assignment must not overwrite the last valid state.
+        let invalid = ContextState {
+            state_index: QM_STATE_COUNT as u8,
+            mps: false,
+        };
+        assert!(matches!(
+            contexts.set(1, invalid).unwrap_err().kind,
+            ArithmeticErrorKind::InvalidState
+        ));
+        assert_eq!(contexts.state(1), Some(assigned));
+
+        let mut source = MockSource::new(&[0, 0, 0]);
+        for span in [
+            EncodedSpan {
+                offset: 2,
+                length: 2,
+            },
+            EncodedSpan {
+                offset: 4,
+                length: 0,
+            },
+        ] {
+            let error = run(ArithmeticDecoder::new(
+                &mut source,
+                span,
+                &table,
+                &mut contexts,
+                StripeMode::Reset,
+                &limits,
+                &NeverCancel,
+                budget(),
+            ))
+            .err()
+            .unwrap();
+            assert_eq!(error.offset, Some(span.offset));
+            assert!(matches!(
+                error.kind,
+                ArithmeticErrorKind::InvalidSpan("outside source size")
+            ));
+            assert_eq!(
+                error.to_string(),
+                format!(
+                    "T.82 arithmetic decoder at source byte {}: invalid SCD span: outside source size",
+                    span.offset
+                )
+            );
+            assert_eq!(source.calls, 0);
+            assert_eq!(contexts.state(1), Some(assigned));
+        }
+
+        contexts.reset();
+        assert_eq!(contexts.state(1), Some(ContextState::default()));
+    }
+
+    #[test]
+    fn arithmetic_errors_keep_source_causes_and_actionable_locations() {
+        let table = synthetic_table();
+        let limits = Limits::default();
+        let mut contexts = ContextBank::new(1, &limits).unwrap();
+
+        let invalid_context = contexts.set(1, ContextState::default()).unwrap_err();
+        assert_eq!(
+            invalid_context.to_string(),
+            "T.82 arithmetic decoder, context 1: invalid context index or count"
+        );
+        assert!(std::error::Error::source(&invalid_context).is_none());
+
+        let mut short = MockSource::new(&[0, 0]);
+        short.advertised_size = 3;
+        let source_error = run(ArithmeticDecoder::new(
+            &mut short,
+            span(3),
+            &table,
+            &mut contexts,
+            StripeMode::Reset,
+            &limits,
+            &NeverCancel,
+            budget(),
+        ))
+        .err()
+        .unwrap();
+        assert_eq!(source_error.offset, Some(2));
+        assert!(matches!(
+            &source_error.kind,
+            ArithmeticErrorKind::Source(Error::TruncatedInput {
+                offset: 0,
+                expected: 3,
+                available: 2,
+            })
+        ));
+        let cause = std::error::Error::source(&source_error).unwrap();
+        assert_eq!(
+            cause.to_string(),
+            "truncated input at offset 0: needed 3 bytes, got 2"
+        );
+        assert_eq!(
+            source_error.to_string(),
+            format!("T.82 arithmetic decoder at source byte 2: source error: {cause}")
+        );
+
+        let mut source = MockSource::new(&[0, 0, 0]);
+        let mut decoder = run(ArithmeticDecoder::new(
+            &mut source,
+            span(3),
+            &table,
+            &mut contexts,
+            StripeMode::Reset,
+            &limits,
+            &NeverCancel,
+            ArithmeticBudget {
+                max_symbols: 1,
+                max_work: 100,
+            },
+        ))
+        .unwrap();
+        assert!(!run(decoder.decode_symbol(0)).unwrap());
+        let limit = run(decoder.decode_symbol(0)).unwrap_err();
+        assert_eq!(
+            limit.to_string(),
+            "T.82 arithmetic decoder at source byte 3, context 0: symbols limit 1 exceeded by 2"
+        );
+        assert!(std::error::Error::source(&limit).is_none());
+        let incomplete = decoder.finish(2).unwrap_err();
+        assert_eq!(
+            incomplete.to_string(),
+            "T.82 arithmetic decoder at source byte 3: incomplete stripe: expected 2 symbols, decoded 1"
+        );
+    }
+
+    #[test]
     fn initializes_registers_with_checked_short_reads_and_virtual_zeros() {
         let table = synthetic_table();
         let limits = Limits {
