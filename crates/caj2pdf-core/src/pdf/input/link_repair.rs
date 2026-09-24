@@ -34,6 +34,9 @@ pub(crate) struct LinkRepairCandidate {
     pub object: PdfRef,
     pub kind: LinkRepairKind,
     pub target: LinkDestinationTarget,
+    /// A link's non-destination fields still refer to its indirect `/Dest`.
+    /// Nulling that destination would also change those unrelated fields.
+    pub retains_destination_reference: bool,
     pub replacement: Vec<u8>,
 }
 
@@ -176,6 +179,17 @@ pub(crate) async fn inspect_link_destination_candidate<S: RangedSource, C: Cance
         } else {
             return Ok(None);
         };
+        let retains_destination_reference = match target {
+            LinkDestinationTarget::IndirectArray(array) => {
+                complete
+                    .references
+                    .iter()
+                    .filter(|reference| **reference == array)
+                    .count()
+                    != 1
+            }
+            LinkDestinationTarget::DirectPage(_) => false,
+        };
         let dictionary_start = complete
             .dictionary_start
             .expect("classified dictionary offset");
@@ -223,6 +237,7 @@ pub(crate) async fn inspect_link_destination_candidate<S: RangedSource, C: Cance
             object: reference,
             kind: LinkRepairKind::Link,
             target,
+            retains_destination_reference,
             replacement,
         }));
     }
@@ -247,6 +262,7 @@ pub(crate) async fn inspect_link_destination_candidate<S: RangedSource, C: Cance
         object: reference,
         kind: LinkRepairKind::ScalarDestination,
         target: LinkDestinationTarget::DirectPage(page),
+        retains_destination_reference: false,
         replacement,
     }))
 }
@@ -563,8 +579,7 @@ mod tests {
             &Limits::default(),
             &NeverCancel,
         ))
-        .err()
-        .expect("truncated link object was accepted");
+        .expect_err("truncated link object was accepted");
         assert!(matches!(
             error,
             Error::TruncatedInput {
@@ -636,8 +651,7 @@ mod tests {
             &Limits::default(),
             &NeverCancel,
         ))
-        .err()
-        .expect("object span swallowed the container tail");
+        .expect_err("object span swallowed the container tail");
         assert!(matches!(
             error,
             Error::Pdf {

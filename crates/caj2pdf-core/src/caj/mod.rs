@@ -427,6 +427,19 @@ pub async fn parse_metadata<S: RangedSource, C: Cancellation>(
                 "empty CAJ TOC title",
             ));
         }
+        // The decoder initially reserves the encoded length and may grow its
+        // String once. GB18030 never needs more than two UTF-8 bytes per input
+        // byte, so this bound covers its maximum requested title allocation.
+        let title_budget = (title_end as u64) * 2;
+        if title_budget > limits.max_allocation_bytes {
+            return Err(limit(
+                record_offset,
+                Some(record),
+                "CAJ title allocation bytes",
+                limits.max_allocation_bytes,
+                title_budget,
+            ));
+        }
         let title = gb18030::decode(&bytes[..title_end]).map_err(|error| {
             malformed(
                 record_offset + error.offset as u64,
@@ -713,6 +726,206 @@ mod tests {
             parse(&mut allocation, &limits),
             Err(Error::CajLimitExceeded {
                 resource: "CAJ page metadata",
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn malformed_header_and_page_table_report_the_field_location() {
+        let mut wrong_magic = sample();
+        wrong_magic.bytes[0] = b'X';
+        assert!(matches!(
+            parse(&mut wrong_magic, &Limits::default()),
+            Err(Error::UnsupportedFormat)
+        ));
+
+        for count in [0i32, -1] {
+            let mut invalid_count = sample();
+            invalid_count.bytes[0x10..0x14].copy_from_slice(&count.to_le_bytes());
+            assert!(matches!(
+                parse(&mut invalid_count, &Limits::default()),
+                Err(Error::Caj {
+                    offset: 0x10,
+                    reason: "CAJ page count must be positive",
+                    ..
+                })
+            ));
+        }
+
+        let mut truncated_table = sample();
+        truncated_table.bytes[0x14..0x18].copy_from_slice(&0x500u32.to_le_bytes());
+        assert!(matches!(
+            parse(&mut truncated_table, &Limits::default()),
+            Err(Error::Caj {
+                offset: 0x14,
+                reason: "CAJ page table extends beyond source",
+                ..
+            })
+        ));
+
+        let mut zero_id = sample();
+        zero_id.bytes[0x408..0x40c].fill(0);
+        assert!(matches!(
+            parse(&mut zero_id, &Limits::default()),
+            Err(Error::Caj {
+                offset: 0x408,
+                record: Some(1),
+                ..
+            })
+        ));
+
+        let mut overlapping_body = sample();
+        overlapping_body.bytes[0x400..0x404].copy_from_slice(&0x400u32.to_le_bytes());
+        assert!(matches!(
+            parse(&mut overlapping_body, &Limits::default()),
+            Err(Error::Caj {
+                offset: 0x400,
+                record: Some(1),
+                reason: "CAJ PDF body overlaps the page table"
+            })
+        ));
+
+        let mut outside_body = sample();
+        outside_body.bytes[0x404..0x408].copy_from_slice(&u32::MAX.to_le_bytes());
+        assert!(matches!(
+            parse(&mut outside_body, &Limits::default()),
+            Err(Error::Caj {
+                offset: 0x404,
+                record: Some(1),
+                reason: "CAJ page span extends beyond source"
+            })
+        ));
+
+        let mut empty_body = sample();
+        empty_body.bytes[0x404..0x408].fill(0);
+        empty_body.bytes[0x40c..0x410].copy_from_slice(&0x418u32.to_le_bytes());
+        empty_body.bytes[0x410..0x414].fill(0);
+        assert!(matches!(
+            parse(&mut empty_body, &Limits::default()),
+            Err(Error::Caj {
+                offset: 0x400,
+                reason: "CAJ PDF body is empty",
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn malformed_toc_numbers_and_levels_report_the_record() {
+        let mut negative_count = sample();
+        negative_count.bytes[0x110..0x114].copy_from_slice(&(-1i32).to_le_bytes());
+        assert!(matches!(
+            parse(&mut negative_count, &Limits::default()),
+            Err(Error::Caj {
+                offset: 0x110,
+                reason: "CAJ TOC count is negative",
+                ..
+            })
+        ));
+
+        let mut empty_title = sample();
+        empty_title.bytes[0x114] = 0;
+        assert!(matches!(
+            parse(&mut empty_title, &Limits::default()),
+            Err(Error::Caj {
+                offset: 0x114,
+                record: Some(1),
+                reason: "empty CAJ TOC title"
+            })
+        ));
+
+        let mut empty_page = sample();
+        empty_page.bytes[0x22c] = b' ';
+        assert!(matches!(
+            parse(&mut empty_page, &Limits::default()),
+            Err(Error::Caj {
+                offset: 0x22c,
+                record: Some(1),
+                reason: "empty TOC page number"
+            })
+        ));
+
+        let mut invalid_digit = sample();
+        invalid_digit.bytes[0x22c] = b'a';
+        assert!(matches!(
+            parse(&mut invalid_digit, &Limits::default()),
+            Err(Error::Caj {
+                offset: 0x22c,
+                record: Some(1),
+                reason: "TOC page number is not ASCII decimal"
+            })
+        ));
+
+        let mut number_overflow = sample();
+        number_overflow.bytes[0x22c..0x238].copy_from_slice(b"429496729599");
+        assert!(matches!(
+            parse(&mut number_overflow, &Limits::default()),
+            Err(Error::Caj {
+                record: Some(1),
+                reason: "TOC page number overflows",
+                ..
+            })
+        ));
+
+        let mut zero_level = sample();
+        zero_level.bytes[0x244..0x248].fill(0);
+        assert!(matches!(
+            parse(&mut zero_level, &Limits::default()),
+            Err(Error::Caj {
+                offset: 0x244,
+                record: Some(1),
+                reason: "CAJ TOC level must be positive"
+            })
+        ));
+    }
+
+    #[test]
+    fn metadata_limits_cover_toc_count_body_length_and_title_expansion() {
+        let mut toc_count = sample();
+        let bookmark_limit = Limits {
+            max_bookmarks: 1,
+            ..Limits::default()
+        };
+        assert!(matches!(
+            parse(&mut toc_count, &bookmark_limit),
+            Err(Error::CajLimitExceeded {
+                offset: 0x110,
+                resource: "CAJ bookmarks",
+                attempted: 2,
+                ..
+            })
+        ));
+
+        let mut body = sample();
+        let body_limit = Limits {
+            io_chunk_bytes: 1,
+            max_input_bytes: 1,
+            ..Limits::default()
+        };
+        assert!(matches!(
+            parse(&mut body, &body_limit),
+            Err(Error::CajLimitExceeded {
+                offset: 0x418,
+                resource: "CAJ PDF input bytes",
+                ..
+            })
+        ));
+
+        let mut title = sample();
+        title.bytes[0x114..0x114 + 80].fill(b'A');
+        title.bytes[0x114 + 80] = 0;
+        let title_limit = Limits {
+            io_chunk_bytes: 1,
+            max_allocation_bytes: 100,
+            ..Limits::default()
+        };
+        assert!(matches!(
+            parse(&mut title, &title_limit),
+            Err(Error::CajLimitExceeded {
+                offset: 0x114,
+                record: Some(1),
+                resource: "CAJ title allocation bytes",
                 ..
             })
         ));

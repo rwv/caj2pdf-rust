@@ -401,7 +401,7 @@ fn outline_item_prefix(node: &OutlineNode) -> String {
 
 fn outline_item_suffix(node: &OutlineNode) -> String {
     let mut suffix = format!(
-        "> /Parent {} 0 R /Dest [{} 0 R /Fit]",
+        "> /Parent {} 0 R /Dest [{} 0 R /XYZ null null null]",
         node.parent.number, node.page.number
     );
     if let Some(previous) = node.previous {

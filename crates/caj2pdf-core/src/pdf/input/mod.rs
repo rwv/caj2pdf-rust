@@ -1092,7 +1092,10 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                         .map_err(|error| self.locate_limit(at, expected, error))?;
                     return Ok(head);
                 }
-                Err(issue) if issue.incomplete && (amount as u64) < maximum => {
+                Err(issue)
+                    if (issue.incomplete || issue.at >= amount.saturating_sub(32))
+                        && (amount as u64) < maximum =>
+                {
                     amount = min(amount.saturating_mul(2), maximum as usize);
                 }
                 Err(issue) if issue.incomplete && maximum == self.syntax_limit() => {
@@ -2705,6 +2708,10 @@ pub(crate) async fn inspect_fragment_scalar<S: RangedSource, C: Cancellation>(
         .scalar
         .and_then(|span| exact_unsigned(&head.bytes[span])))
 }
+
+mod fragment_scan;
+
+pub(crate) use fragment_scan::{PatchedSource, scan_fragment_objects};
 
 #[cfg(test)]
 mod tests;
