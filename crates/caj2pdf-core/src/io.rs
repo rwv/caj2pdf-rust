@@ -79,6 +79,8 @@ fn check_range(source_size: u64, offset: u64, length: u64) -> Result<()> {
 ///
 /// This function rejects a request larger than the configured I/O chunk. A
 /// format handler must process larger ranges in a loop, as `copy_range` does.
+/// The caller checks the selected operation size; unrelated source bytes do
+/// not count against this individual read.
 pub async fn read_exact_at<S: RangedSource, C: Cancellation>(
     source: &mut S,
     offset: u64,
@@ -87,8 +89,8 @@ pub async fn read_exact_at<S: RangedSource, C: Cancellation>(
     cancellation: &C,
 ) -> Result<()> {
     limits.validate()?;
-    limits.check_input_size(source.size())?;
     let length = checked_len(destination.len())?;
+    limits.check_input_size(length)?;
     if destination.len() > limits.io_chunk_bytes {
         return Err(Error::LimitExceeded {
             resource: "I/O request bytes",
@@ -196,7 +198,7 @@ pub async fn copy_range<R: RangedSource, W: SequentialSink, C: Cancellation>(
     cancellation: &C,
 ) -> Result<ConversionReport> {
     limits.validate()?;
-    limits.check_input_size(source.size())?;
+    limits.check_input_size(length)?;
     check_range(source.size(), offset, length)?;
     if length > limits.max_output_bytes {
         return Err(Error::LimitExceeded {

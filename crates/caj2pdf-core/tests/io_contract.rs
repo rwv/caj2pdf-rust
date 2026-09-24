@@ -298,7 +298,7 @@ fn configured_limits_reject_oversized_requests_before_io() {
         Err(Error::LimitExceeded { .. })
     ));
     limits.max_allocation_bytes = 2;
-    limits.max_input_bytes = 2;
+    limits.max_input_bytes = 1;
     assert!(matches!(
         run(read_exact_at(
             &mut source,

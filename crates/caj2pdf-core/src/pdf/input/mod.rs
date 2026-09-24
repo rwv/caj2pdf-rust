@@ -11,6 +11,7 @@ mod parser;
 pub use parser::DictEntry;
 
 use super::types::{PdfRange, PdfRef};
+use super::writer::MAX_PDF_OBJECTS;
 use crate::error::PdfErrorKind;
 use crate::{Cancellation, Error, Limits, RangedSource, Result, read_exact_at};
 use parser::{
@@ -24,7 +25,6 @@ const WINDOW_BYTES: usize = 8 * 1024;
 const MAX_TAIL_SEARCH: u64 = 64 * 1024;
 const MAX_OBJECT_SYNTAX: u64 = 4 * 1024 * 1024;
 const MAX_XREF_SECTIONS: usize = 64;
-const MAX_PDF_OBJECTS: u32 = 8_388_607;
 
 /// A complete indirect object in a PDF input, relative to the PDF range.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -141,7 +141,7 @@ impl PdfIndex {
     ) -> Result<Self> {
         limits.validate()?;
         limits
-            .check_input_size(source.size())
+            .check_input_size(range.length)
             .map_err(|error| match error {
                 Error::LimitExceeded {
                     resource,

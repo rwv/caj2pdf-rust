@@ -7,6 +7,7 @@
 //! object numbers or searches binary stream payloads for PDF delimiters.
 
 use super::input::{FragmentKind, inspect_fragment_object, inspect_fragment_scalar};
+use super::writer::MAX_PDF_OBJECTS;
 use super::{MAX_CLASSIC_PDF_BYTES, PdfRange, PdfRef};
 use crate::{
     Cancellation, ConversionReport, Error, Limits, PdfErrorKind, RangedSource, Result,
@@ -15,7 +16,6 @@ use crate::{
 use std::mem::size_of;
 
 const HEADER: &[u8] = b"%PDF-1.7\n%\xE2\xE3\xCF\xD3\n";
-const MAX_OBJECT_NUMBER: u32 = 8_388_607;
 
 /// The complete byte range of one generation-zero indirect object, from its
 /// `<number> 0 obj` header through its `endobj` keyword.
@@ -180,12 +180,12 @@ fn checked_reference(reference: PdfRef, offset: u64) -> Result<()> {
             "object zero cannot be referenced",
         ));
     }
-    if reference.number > MAX_OBJECT_NUMBER {
+    if reference.number > MAX_PDF_OBJECTS {
         return Err(pdf_limit(
             Some(reference),
             offset,
             "PDF object number",
-            u64::from(MAX_OBJECT_NUMBER),
+            u64::from(MAX_PDF_OBJECTS),
             u64::from(reference.number),
         ));
     }
@@ -225,15 +225,6 @@ pub async fn reconstruct_fragment<R: RangedSource, W: SequentialSink, C: Cancell
     };
     let source = &mut counted;
     limits.validate()?;
-    if source.size() > limits.max_input_bytes {
-        return Err(pdf_limit(
-            plan.objects.first().map(|object| object.reference),
-            plan.objects.first().map_or(0, |object| object.range.offset),
-            "input bytes",
-            limits.max_input_bytes,
-            source.size(),
-        ));
-    }
     let page_count = u32::try_from(plan.pages.len()).map_err(|_| {
         pdf_limit(
             plan.pages.first().copied(),
@@ -284,12 +275,12 @@ pub async fn reconstruct_fragment<R: RangedSource, W: SequentialSink, C: Cancell
         .ok_or(Error::InvalidInput {
             reason: "PDF object count overflows address space",
         })?;
-    if requested > MAX_OBJECT_NUMBER as usize {
+    if requested > MAX_PDF_OBJECTS as usize {
         return Err(pdf_limit(
             plan.objects.first().map(|object| object.reference),
             plan.objects.first().map_or(0, |object| object.range.offset),
             "PDF object count",
-            u64::from(MAX_OBJECT_NUMBER),
+            u64::from(MAX_PDF_OBJECTS),
             requested as u64,
         ));
     }
@@ -315,6 +306,7 @@ pub async fn reconstruct_fragment<R: RangedSource, W: SequentialSink, C: Cancell
             limit: limits.max_allocation_bytes,
             attempted: record_bytes,
         })?;
+    let mut fragment_bytes = 0_u64;
     for fragment in plan.objects {
         checked_reference(fragment.reference, fragment.range.offset)?;
         if fragment.range.length == 0 {
@@ -339,6 +331,26 @@ pub async fn reconstruct_fragment<R: RangedSource, W: SequentialSink, C: Cancell
                 expected: fragment.range.length,
                 available: source.size().saturating_sub(fragment.range.offset),
             });
+        }
+        fragment_bytes = fragment_bytes
+            .checked_add(fragment.range.length)
+            .ok_or_else(|| {
+                pdf_limit(
+                    Some(fragment.reference),
+                    fragment.range.offset,
+                    "input bytes",
+                    limits.max_input_bytes,
+                    u64::MAX,
+                )
+            })?;
+        if fragment_bytes > limits.max_input_bytes {
+            return Err(pdf_limit(
+                Some(fragment.reference),
+                fragment.range.offset,
+                "input bytes",
+                limits.max_input_bytes,
+                fragment_bytes,
+            ));
         }
         records.push(Record::from_fragment(*fragment));
     }
@@ -441,7 +453,7 @@ pub async fn reconstruct_fragment<R: RangedSource, W: SequentialSink, C: Cancell
                 records.last().map(|record| record.reference),
                 records.last().map_or(0, |record| record.range.offset),
                 "PDF object number",
-                u64::from(MAX_OBJECT_NUMBER),
+                u64::from(MAX_PDF_OBJECTS),
                 u64::from(largest) + 1,
             )
         })?;
@@ -899,7 +911,7 @@ async fn validate_fragment_structure<R: RangedSource, C: Cancellation>(
                     "inspected object identity differs from the supplied span",
                 ));
             }
-            if inspection.max_referenced_object > MAX_OBJECT_NUMBER {
+            if inspection.max_referenced_object > MAX_PDF_OBJECTS {
                 return Err(pdf_error(
                     Some(record.reference),
                     record.range.offset,
@@ -2282,7 +2294,7 @@ mod tests {
                     1 => requested[1] = reference(77),
                     2 => catalog = Some(reference(11)),
                     3 => root = reference(0),
-                    _ => root = reference(MAX_OBJECT_NUMBER + 1),
+                    _ => root = reference(MAX_PDF_OBJECTS + 1),
                 }
                 let plan = FragmentPlan {
                     objects: &objects,

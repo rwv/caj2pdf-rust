@@ -5,6 +5,8 @@ operations for the CAJ-family converters. The PDF reader accepts a stable
 `PdfRange` in a `RangedSource`; the writer uses a `SequentialSink`. Platform
 adapters own file handles, browser `Blob` slices, HTTP range requests, and any
 temporary spool for forward-only input.
+`Limits.max_input_bytes` applies to the selected PDF range or the sum of
+fragment spans, rather than unrelated bytes in a containing CAJ file.
 
 ## Supported input
 

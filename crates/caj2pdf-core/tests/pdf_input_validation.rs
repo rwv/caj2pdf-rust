@@ -7,7 +7,7 @@ use caj2pdf_core::{
     native::{SeekableSource, WriteSink},
     pdf::{
         FragmentObject, FragmentPlan, PdfIndex, PdfOutlineAppender, PdfRange, PdfRef, PdfWriter,
-        copy_pdf, reconstruct_fragment,
+        copy_pdf, copy_pdf_range, reconstruct_fragment,
     },
 };
 use std::{
@@ -1346,6 +1346,67 @@ fn pdf_size_limits_keep_source_location_in_each_entry_point() {
 }
 
 #[test]
+fn embedded_pdf_limits_count_only_the_selected_range_or_fragment_spans() {
+    let pdf = write_pdf_without_outlines();
+    let prefix = vec![b'X'; 4096];
+    let mut container = prefix.clone();
+    container.extend_from_slice(&pdf);
+    container.extend_from_slice(&vec![b'Y'; 4096]);
+    let limits = Limits {
+        max_input_bytes: pdf.len() as u64,
+        ..Limits::default()
+    };
+    let mut source = SeekableSource::new(Cursor::new(container)).unwrap();
+    let mut sink = WriteSink::new(Vec::<u8>::new());
+    let report = run_native(copy_pdf_range(
+        &mut source,
+        &mut sink,
+        PdfRange {
+            offset: prefix.len() as u64,
+            length: pdf.len() as u64,
+        },
+        &limits,
+        &NeverCancel,
+    ))
+    .unwrap();
+    assert_eq!(report.pages_converted, 1);
+    assert_eq!(sink.into_inner(), pdf);
+
+    let mut fragment_container = vec![b'X'; 4096];
+    let page = add_fragment_object(
+        &mut fragment_container,
+        3,
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] >>",
+    );
+    fragment_container.extend_from_slice(&vec![b'Y'; 4096]);
+    let objects = [page];
+    let pages = [fragment_ref(3)];
+    let plan = FragmentPlan {
+        objects: &objects,
+        pages: &pages,
+        pages_root: fragment_ref(2),
+        catalog: None,
+    };
+    let limits = Limits {
+        max_input_bytes: page.range.length,
+        ..Limits::default()
+    };
+    let mut source = SeekableSource::new(Cursor::new(fragment_container)).unwrap();
+    let mut output = TempPdf::new("embedded-fragment-range");
+    let report = run_native(reconstruct_fragment(
+        &mut source,
+        &mut WriteSink::new(&mut output.file),
+        &plan,
+        &limits,
+        &NeverCancel,
+    ))
+    .unwrap();
+    output.file.flush().unwrap();
+    assert_eq!(report.pages_converted, 1);
+    check_pdf(&output.path, 1);
+}
+
+#[test]
 fn appender_rejects_a_source_that_shrank_after_inspection() {
     let input = write_pdf_without_outlines();
     let mut original = SeekableSource::new(Cursor::new(&input)).unwrap();
@@ -1388,6 +1449,76 @@ impl RangedSource for OverreportingPdfSource {
     ) -> caj2pdf_core::Result<usize> {
         Ok(destination.len() + 1)
     }
+}
+
+struct HugeNoReadSource;
+
+impl RangedSource for HugeNoReadSource {
+    fn size(&self) -> u64 {
+        u64::MAX
+    }
+
+    async fn read_at(
+        &mut self,
+        _offset: u64,
+        _destination: &mut [u8],
+    ) -> caj2pdf_core::Result<usize> {
+        panic!("overflowing fragment spans must fail before any read")
+    }
+}
+
+#[test]
+fn fragment_span_total_cannot_overflow_before_preflight_reads() {
+    let objects = [
+        FragmentObject {
+            reference: fragment_ref(1),
+            range: PdfRange {
+                offset: 0,
+                length: u64::MAX,
+            },
+        },
+        FragmentObject {
+            reference: fragment_ref(3),
+            range: PdfRange {
+                offset: 0,
+                length: 2,
+            },
+        },
+    ];
+    let pages = [fragment_ref(3)];
+    let plan = FragmentPlan {
+        objects: &objects,
+        pages: &pages,
+        pages_root: fragment_ref(2),
+        catalog: None,
+    };
+    let limits = Limits {
+        max_input_bytes: u64::MAX,
+        ..Limits::default()
+    };
+    let mut source = HugeNoReadSource;
+    let mut sink = WriteSink::new(Vec::<u8>::new());
+    let error = run_native(reconstruct_fragment(
+        &mut source,
+        &mut sink,
+        &plan,
+        &limits,
+        &NeverCancel,
+    ))
+    .expect_err("sum of fragment spans overflows 64 bits");
+    assert!(
+        matches!(
+            error,
+            Error::PdfLimitExceeded {
+                object: Some((3, 0)),
+                resource: "input bytes",
+                attempted: u64::MAX,
+                ..
+            }
+        ),
+        "{error}"
+    );
+    assert!(sink.into_inner().is_empty());
 }
 
 #[test]

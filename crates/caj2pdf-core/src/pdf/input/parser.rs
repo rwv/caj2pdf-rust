@@ -264,8 +264,13 @@ impl<'a> Syntax<'a> {
     }
 
     fn name(&mut self) -> ParseResult<Vec<u8>> {
-        self.expect_byte(b'/', "expected PDF name")?;
         let mut result = Vec::new();
+        self.scan_name(|byte| result.push(byte))?;
+        Ok(result)
+    }
+
+    fn scan_name(&mut self, mut accept: impl FnMut(u8)) -> ParseResult<()> {
+        self.expect_byte(b'/', "expected PDF name")?;
         while let Some(&byte) = self.bytes.get(self.pos) {
             if is_delimiter(byte) {
                 break;
@@ -278,14 +283,14 @@ impl<'a> Syntax<'a> {
                     .ok_or_else(|| malformed(self.pos + 1, "invalid PDF name escape"))?;
                 let low = hex_digit(self.bytes[self.pos + 2])
                     .ok_or_else(|| malformed(self.pos + 2, "invalid PDF name escape"))?;
-                result.push((high << 4) | low);
+                accept((high << 4) | low);
                 self.pos += 3;
             } else {
-                result.push(byte);
+                accept(byte);
                 self.pos += 1;
             }
         }
-        Ok(result)
+        Ok(())
     }
 
     pub fn skip_value(&mut self, depth: u32) -> ParseResult<()> {
@@ -300,7 +305,7 @@ impl<'a> Syntax<'a> {
         self.skip_space();
         match self.peek()? {
             b'/' => {
-                self.name()?;
+                self.scan_name(|_| {})?;
             }
             b'[' => {
                 self.pos += 1;
@@ -751,6 +756,7 @@ mod tests {
             b"1 0 obj <ABG> endobj".as_slice(),
             b"1 0 obj (unterminated endobj",
             b"1 0 obj /Bad#GG endobj",
+            b"1 0 obj /Bad#",
             b"1 0 obj 1.2.3 endobj",
             b"1 0 obj << /A [1 2 >> endobj",
             b"0 0 obj null endobj",
