@@ -102,8 +102,9 @@ cropped, unused-bit-masked rows with the manifest visible hash. The committed
 probe additionally compares direct and reversed row orders and checks both
 visible-bit and raw-stride hashes. Its raw-stride candidates retain the PBM
 row bytes and assume zero DIB padding; they are hypotheses, not an external
-decoder's DIB output. A decoder exit, a parse error, a wrong size, or a
-visible-only match is never counted as a full pixel match.
+decoder's DIB output. A decoder exit, a parse error, or a wrong size is not
+a pixel comparison; a visible-only match is reported separately and does not
+establish full raw-stride equivalence.
 
 Raw coded bytes were rejected by the standard decoder after an unknown
 marker on the nonblank canaries below. Stuffing every `ff` allowed a standard

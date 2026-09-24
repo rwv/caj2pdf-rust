@@ -191,11 +191,17 @@ project code. Future Rust JBIG1 logic must be independently authored from
 the public T.82 recommendation and measured input/output behavior; the
 external library is not an algorithm source.
 
-Issue #27's [bitstream investigation](jbig1-bitstream-investigation.md) and
-optional [finite standard probe](../scripts/jbig1_standard_probe.py) use only
-the #22 source/hash inventory and separately supplied black-box T.82 command
-line tools. The probe is original MIT stdlib-only code and records no external
-bitmap or bitstream bytes. A separate original experiment under `/tmp` read
+Issue #27's [bitstream investigation](jbig1-bitstream-investigation.md) uses
+the #22 source/hash inventory, separately supplied standard T.82 command
+line tools, native decoder calls only as a black-box oracle, and observations
+from reference PDFs and MuPDF renders. The optional
+[finite standard probe](../scripts/jbig1_standard_probe.py) is original MIT
+stdlib-only code; it uses the pinned inventory and a separately supplied
+standard CLI and records only hashes and counts, not bitmap or bitstream
+bytes. The investigation note includes a two-byte SCD observation produced
+from an independently authored synthetic blank bitmap by the external
+standard encoder; it includes no corpus payload bytes. A separate original
+experiment under `/tmp` read
 the official T.82 table and conformance vector at runtime from the standard
 to test hypotheses; no literal standard table or vector is committed. The
 standard's exact numeric state-table redistribution under MIT remains a

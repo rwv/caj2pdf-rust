@@ -189,7 +189,7 @@ class StandardProbeTests(unittest.TestCase):
         self.set_reference_hashes(b"\x80\x00\x00\x00", b"\x80\x00" + bytes(6))
         self.write_fake_decoder(b"\x80\x7f\x00\x00")
         report = self.call_run()
-        self.assertEqual(report["status"], "NO_MATCH_IN_TESTED_GRID")
+        self.assertEqual(report["status"], "VISIBLE_ONLY_IN_TESTED_GRID")
         self.assertEqual(report["decoder_probe"]["status_counts"], {
             "VISIBLE_MATCH_RAW_MISMATCH": 64
         })
@@ -204,7 +204,7 @@ class StandardProbeTests(unittest.TestCase):
         self.set_reference_hashes(b"\x80\x00\x00\x00", b"\x80\x00\x00\x01" + bytes(4))
         self.write_fake_decoder(b"\x80\x00\x00\x00")
         report = self.call_run()
-        self.assertEqual(report["status"], "NO_MATCH_IN_TESTED_GRID")
+        self.assertEqual(report["status"], "VISIBLE_ONLY_IN_TESTED_GRID")
         self.assertEqual(report["decoder_probe"]["status_counts"], {
             "VISIBLE_MATCH_RAW_MISMATCH": 64
         })
@@ -212,6 +212,47 @@ class StandardProbeTests(unittest.TestCase):
         self.assertEqual(first["visible_matching_orientations"], ["direct"])
         self.assertEqual(first["candidate_hashes"]["direct"]["raw_stride_sha256"],
                          sha256(b"\x80\x00" + bytes(6)))
+
+    def test_blank_visible_only_match_is_explicitly_non_discriminating(self) -> None:
+        self.set_reference_hashes(bytes(4), b"\x00\x00\x00\x01" + bytes(4))
+        report = self.call_run()
+        self.assertEqual(report["status"], "VISIBLE_ONLY_BLANK_NON_DISCRIMINATING")
+        self.assertTrue(report["decoder_probe"]["blank_reference"])
+        self.assertEqual(report["decoder_probe"]["status_counts"], {
+            "VISIBLE_MATCH_RAW_MISMATCH": 64
+        })
+        self.assertNotIn("matching_orientations", report["decoder_probe"]["results"][0])
+
+    def test_raw_pbm_header_accepts_whitespace_comments_and_preserves_raster(self) -> None:
+        valid_headers = (
+            b"P4\n9 2\n",
+            b"P4 \t9\r\n2\v",
+            b"P4\n# before width\n9 # between dimensions\r2# before raster\n",
+            b"P4\n9 2# final comment\r",
+        )
+        for header in valid_headers:
+            for raster in (b"\x20\x0a\x23\x09", b"\x23\x00\x20\x0a"):
+                with self.subTest(header=header, raster=raster):
+                    self.assertEqual(bytes(probe.parse_raw_pbm(header + raster, 9, 2)), raster)
+
+    def test_raw_pbm_header_rejects_malformed_or_extra_image(self) -> None:
+        raster = b"\x20\x0a\x23\x09"
+        malformed = (
+            b"P1\n9 2\n" + raster,
+            b"P4\n9 x\n" + raster,
+            b"P4\n0 2\n" + raster,
+            b"P4\n10 2\n" + raster,
+            b"P4\n9 2\n\n" + raster,
+            b"P4\n9 2 # comment\n" + raster,
+            b"P4\n9 2\n#xy\n" + raster,
+            b"P4\n9 2\n" + raster + b"P4\n9 2\n" + raster,
+            b"P4\n" + b" " * 1024 + b"9 2\n" + raster,
+            b"P4\n9 2# unterminated" + raster,
+        )
+        for output in malformed:
+            with self.subTest(output_length=len(output)):
+                with self.assertRaises(probe.ProbeError):
+                    probe.parse_raw_pbm(output, 9, 2)
 
     def test_source_and_encoded_hashes_are_checked_before_cli(self) -> None:
         self.source.write_bytes(self.source.read_bytes()[:-1] + b"X")

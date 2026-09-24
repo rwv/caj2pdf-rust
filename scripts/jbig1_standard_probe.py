@@ -14,7 +14,6 @@ import hashlib
 import json
 import os
 from pathlib import Path
-import re
 import resource
 import subprocess
 import sys
@@ -29,7 +28,8 @@ DEFAULT_MANIFEST = oracle.DEFAULT_MANIFEST
 MAX_CODED_BYTES = 128 * 1024
 MAX_BIE_BYTES = 2 * MAX_CODED_BYTES + 22
 MAX_STDOUT_BYTES = 16 * 1024 * 1024
-PBM_HEADER = re.compile(rb"P4\n *([0-9]+)\n *([0-9]+)\n")
+MAX_PBM_HEADER_BYTES = 1024
+PBM_WHITESPACE = b" \t\r\n\v\f"
 OPTIONS = (0, 8, 64, 72)
 ORDERS = (0, 3)
 TERMINATORS = (b"\xff\x02", b"\xff\x03")
@@ -100,7 +100,7 @@ def selected_image(
 
 
 def pbm_candidate_hashes(
-    bitmap: bytes, width: int, height: int, stride: int
+    bitmap: bytes | memoryview, width: int, height: int, stride: int
 ) -> tuple[dict[str, dict[str, str]], int]:
     """Hash both row orders; hypothesize zero bytes for absent DIB row padding.
 
@@ -137,6 +137,66 @@ def pbm_candidate_hashes(
             "raw_stride_sha256": raw_digest.hexdigest(),
         }
     return hashes, one_bits
+
+
+def parse_raw_pbm(output: bytes, width: int, height: int) -> memoryview:
+    """Read one bounded P4 header without consuming whitespace in the raster.
+
+    The first whitespace after height is the raster delimiter. A comment may
+    directly follow the height digits before that delimiter, but bytes after
+    the delimiter are always raster, even when they resemble a comment.
+    """
+    if not output.startswith(b"P4"):
+        raise ProbeError("standard CLI returned a non-P4 PBM")
+    limit = min(len(output), MAX_PBM_HEADER_BYTES)
+    expected_bytes = ((width + 7) // 8) * height
+
+    def comment_end(position: int) -> int:
+        while position < limit and output[position] not in b"\r\n":
+            position += 1
+        if position == limit:
+            raise ProbeError("standard CLI returned an unterminated PBM comment")
+        return position
+
+    def separators(position: int) -> int:
+        found = False
+        while position < limit:
+            if output[position] in PBM_WHITESPACE:
+                position += 1
+                found = True
+            elif output[position] == ord("#"):
+                position = comment_end(position)
+                found = True
+            else:
+                break
+        if not found:
+            raise ProbeError("standard CLI returned a malformed PBM header")
+        return position
+
+    def dimension(position: int, expected: int) -> int:
+        if position == limit or not 48 <= output[position] <= 57:
+            raise ProbeError("standard CLI returned a malformed PBM dimension")
+        value = 0
+        while position < limit and 48 <= output[position] <= 57:
+            value = value * 10 + output[position] - 48
+            if value > expected:
+                raise ProbeError("standard CLI returned a mismatched PBM dimension")
+            position += 1
+        if value != expected:
+            raise ProbeError("standard CLI returned a mismatched PBM dimension")
+        return position
+
+    position = separators(2)
+    position = dimension(position, width)
+    position = separators(position)
+    position = dimension(position, height)
+    if position < limit and output[position] == ord("#"):
+        position = comment_end(position)
+    if position < limit and output[position] in PBM_WHITESPACE:
+        raster_start = position + 1
+        if len(output) - raster_start == expected_bytes:
+            return memoryview(output)[raster_start:]
+    raise ProbeError("standard CLI returned a malformed or extra-image PBM")
 
 
 def standard_bie(width: int, height: int, l0: int, order: int, options: int,
@@ -226,42 +286,34 @@ def decoder_probe(decoder: Path, coded: bytes, image: dict, timeout: float) -> d
                         elif code != 0:
                             result.update(status="DECODE_ERROR", exit_code=code)
                         else:
-                            match = PBM_HEADER.match(output)
-                            if (
-                                match is None
-                                or len(match[1]) > 10
-                                or len(match[2]) > 10
-                                or (int(match[1]), int(match[2])) != (width, height)
-                            ):
+                            try:
+                                bitmap = parse_raw_pbm(output, width, height)
+                                candidate_hashes, one_bits = pbm_candidate_hashes(
+                                    bitmap, width, height, image["stride"]
+                                )
+                            except ProbeError:
                                 result["status"] = "BAD_PBM"
                             else:
-                                try:
-                                    candidate_hashes, one_bits = pbm_candidate_hashes(
-                                        output[match.end():], width, height, image["stride"]
+                                result.update(candidate_hashes=candidate_hashes, one_bits=one_bits)
+                                visible_matches = [
+                                    orientation for orientation, hashes in candidate_hashes.items()
+                                    if hashes["visible_bits_sha256"] == image["visible_bits_sha256"]
+                                ]
+                                exact_matches = [
+                                    orientation for orientation in visible_matches
+                                    if candidate_hashes[orientation]["raw_stride_sha256"]
+                                    == image["raw_stride_sha256"]
+                                ]
+                                if exact_matches:
+                                    result["matching_orientations"] = exact_matches
+                                    result["status"] = (
+                                        "MATCH_NON_DISCRIMINATING" if blank_reference else "MATCH"
                                     )
-                                except ProbeError:
-                                    result["status"] = "BAD_PBM"
+                                elif visible_matches:
+                                    result["visible_matching_orientations"] = visible_matches
+                                    result["status"] = "VISIBLE_MATCH_RAW_MISMATCH"
                                 else:
-                                    result.update(candidate_hashes=candidate_hashes, one_bits=one_bits)
-                                    visible_matches = [
-                                        orientation for orientation, hashes in candidate_hashes.items()
-                                        if hashes["visible_bits_sha256"] == image["visible_bits_sha256"]
-                                    ]
-                                    exact_matches = [
-                                        orientation for orientation in visible_matches
-                                        if candidate_hashes[orientation]["raw_stride_sha256"]
-                                        == image["raw_stride_sha256"]
-                                    ]
-                                    if exact_matches:
-                                        result["matching_orientations"] = exact_matches
-                                        result["status"] = (
-                                            "MATCH_NON_DISCRIMINATING" if blank_reference else "MATCH"
-                                        )
-                                    elif visible_matches:
-                                        result["visible_matching_orientations"] = visible_matches
-                                        result["status"] = "VISIBLE_MATCH_RAW_MISMATCH"
-                                    else:
-                                        result["status"] = "HASH_MISMATCH"
+                                    result["status"] = "HASH_MISMATCH"
                         results.append(result)
     counts: dict[str, int] = {}
     for result in results:
@@ -272,7 +324,12 @@ def decoder_probe(decoder: Path, coded: bytes, image: dict, timeout: float) -> d
         finding = "MATCH_IN_TESTED_GRID"
     elif counts.get("MATCH_NON_DISCRIMINATING", 0):
         finding = "BLANK_MATCH_NON_DISCRIMINATING"
-    elif counts.get("HASH_MISMATCH", 0) + counts.get("VISIBLE_MATCH_RAW_MISMATCH", 0) == 0:
+    elif counts.get("VISIBLE_MATCH_RAW_MISMATCH", 0):
+        finding = (
+            "VISIBLE_ONLY_BLANK_NON_DISCRIMINATING"
+            if blank_reference else "VISIBLE_ONLY_IN_TESTED_GRID"
+        )
+    elif counts.get("HASH_MISMATCH", 0) == 0:
         finding = "INCONCLUSIVE_NO_DECODABLE_SETTINGS"
     else:
         finding = "NO_MATCH_IN_TESTED_GRID"
