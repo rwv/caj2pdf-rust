@@ -22,6 +22,8 @@ native sub-issues and blocked-by relationships. All initial tasks belong to
 the [v0.1.0 milestone](https://github.com/rwv/caj2pdf-rust/milestone/1).
 See the [provenance and dependency inventory](docs/provenance.md) for format
 references, test corpus rules, and the MIT-only source review process.
+The [conformance baseline](docs/conformance.md) documents the optional
+external corpus runner and independently generated MIT test fixtures.
 
 ## Versioning and development
 

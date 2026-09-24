@@ -1,0 +1,149 @@
+{
+  "schema_version": 1,
+  "generator": "scripts/generate_fixtures.py",
+  "license": "MIT",
+  "fixtures": [
+    {
+      "path": "duplicate_object.pdf",
+      "sha256": "4e7c9818d7903fd15c917eacb9c1d6e920708d8fcff519b2b7e2363f3a6cc1cb",
+      "size": 1428,
+      "format": "PDF",
+      "expected_outcome": "malformed",
+      "condition": "Object 6 is defined twice in one body without an incremental update section."
+    },
+    {
+      "path": "invalid_page_count.pdf",
+      "sha256": "a0ec3043d120fbaf7fa3db11c5830add474604e2355fdbf01b367eef6f064bb5",
+      "size": 1352,
+      "format": "PDF",
+      "expected_outcome": "malformed",
+      "condition": "The Pages node declares three pages but has only two leaf children."
+    },
+    {
+      "path": "invalid_stream_length.pdf",
+      "sha256": "355039eefc4031e3c9626b5f3c8e2f338e4db42dc12907d0661f413d29c5d721",
+      "size": 1354,
+      "format": "PDF",
+      "expected_outcome": "malformed",
+      "condition": "A page content stream declares more bytes than are present before endstream."
+    },
+    {
+      "path": "invalid_xref_offset.pdf",
+      "sha256": "9e3608bd04b4f239348bb159365cfb0f21157a94dd525d7379a00e03db86e04a",
+      "size": 1352,
+      "format": "PDF",
+      "expected_outcome": "malformed",
+      "condition": "The xref entry for object 5 points beyond the end of the file."
+    },
+    {
+      "path": "truncated_c8.c8",
+      "sha256": "a77802d8305178be2db1ab04fdd5ca3b8c03ad5d45ca35132ff6a04c7faec115",
+      "size": 4,
+      "format": "C8",
+      "expected_outcome": "malformed",
+      "condition": "Signature only; header is absent."
+    },
+    {
+      "path": "truncated_caj.caj",
+      "sha256": "7e3bc5d222af3259582a0731ad5c2ca76a853f6eb6b5aa3e6f59459fdab3001e",
+      "size": 3,
+      "format": "CAJ",
+      "expected_outcome": "malformed",
+      "condition": "Signature only; header is absent."
+    },
+    {
+      "path": "truncated_hn.hn",
+      "sha256": "aaadeb0ab2919487c1534f903a2a10049d3764fb1f7c5f718a4bf817a930636a",
+      "size": 2,
+      "format": "HN",
+      "expected_outcome": "malformed",
+      "condition": "Signature only; header is absent."
+    },
+    {
+      "path": "truncated_kdh.kdh",
+      "sha256": "0a536597b5b511ed65d3c3d3bc261241cf72ff297b485bb98368d22221435827",
+      "size": 3,
+      "format": "KDH",
+      "expected_outcome": "malformed",
+      "condition": "Signature only; header is absent."
+    },
+    {
+      "path": "truncated_teb.teb",
+      "sha256": "443d0eba3a4392474a9810be100f0fdb12bdd17f357e7ecf5b69662102cd3ec5",
+      "size": 3,
+      "format": "TEB",
+      "expected_outcome": "malformed",
+      "condition": "Signature only; header is absent."
+    },
+    {
+      "path": "truncated_xref.pdf",
+      "sha256": "41218a32f3fefc45c01e60ee1b7379ba95f191f4f6f8c558c58ce6f4baec2c6c",
+      "size": 1063,
+      "format": "PDF",
+      "expected_outcome": "malformed",
+      "condition": "The xref table stops inside its first entry and has no trailer or EOF marker."
+    },
+    {
+      "path": "valid_nested_outline.pdf",
+      "sha256": "65860fd06efec902847585703f995c6e086d58faec43a5c1c2a681c657cde1f9",
+      "size": 1352,
+      "format": "PDF",
+      "expected_outcome": "valid",
+      "condition": "Two page sizes, nested destinations, and PDF-like markers inside an embedded binary stream.",
+      "pages": [
+        [
+          200,
+          300
+        ],
+        [
+          400,
+          250
+        ]
+      ],
+      "outlines": [
+        {
+          "title": "Part One",
+          "page": 1,
+          "children": [
+            {
+              "title": "Chapter Two",
+              "page": 2,
+              "children": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "path": "valid_out_of_order_objects.pdf",
+      "sha256": "28aa0482fd2d3b0244374f27196ac76a14896de380bde09cbb9925891c033e13",
+      "size": 1352,
+      "format": "PDF",
+      "expected_outcome": "valid",
+      "condition": "Object definitions are physically out of numerical order; xref entries remain correct.",
+      "pages": [
+        [
+          200,
+          300
+        ],
+        [
+          400,
+          250
+        ]
+      ],
+      "outlines": [
+        {
+          "title": "Part One",
+          "page": 1,
+          "children": [
+            {
+              "title": "Chapter Two",
+              "page": 2,
+              "children": []
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

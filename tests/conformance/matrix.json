@@ -1,0 +1,1461 @@
+{
+  "schema_version": 1,
+  "corpus": {
+    "repository": "https://github.com/caj2pdf/CAJSamples",
+    "revision": "7e1c35e7b6de34e21972fcd1752c2a7e99b4ad07",
+    "document_license": "not_declared"
+  },
+  "python_reference": {
+    "repository": "https://github.com/rwv/caj2pdf",
+    "revision": "8cbc3c5721acb762f739434eb3d206171dbb022a",
+    "measured_environment": "Python 3.13.5; PyPDF2 1.26.0; mutool 1.25.1; Linux; native HN/C8 shared libraries unavailable"
+  },
+  "samples": [
+    {
+      "id": "discussion-issue-1/a.caj",
+      "path": "discussion-issue-1/a.caj",
+      "aliases": [],
+      "size_bytes": 7710467,
+      "git_blob_oid": "3603c5e8a8fe03893b59a2335dab79bd2a51a129",
+      "sha256": null,
+      "detected_type": "HN",
+      "variant": "HN",
+      "expected_outcome": "unknown",
+      "page_count": null,
+      "outline_count": null,
+      "python_reference": {
+        "show_status": "not_run",
+        "convert_status": "not_run",
+        "error_kind": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "issue-100/中国金融体制改革阶段研究_李卉.caj",
+      "path": "issue-100/中国金融体制改革阶段研究_李卉.caj",
+      "aliases": [],
+      "size_bytes": 26450,
+      "git_blob_oid": "2fcd2587d20ce8125a2ac76d9a9bdfd64356face",
+      "sha256": "3f3b9b57d6925df811247dced47fd7fb74cf0f678ab9bfda0827c827258ab39b",
+      "detected_type": "HN",
+      "variant": "HN",
+      "expected_outcome": "error",
+      "page_count": 4,
+      "outline_count": 0,
+      "python_reference": {
+        "show_status": "success",
+        "convert_status": "error",
+        "error_kind": "invalid_image_offset_or_count",
+        "evidence": "local-oracle-2026-09-24"
+      }
+    },
+    {
+      "id": "issue-2/a.caj",
+      "path": "issue-2/a.caj",
+      "aliases": [
+        "type-CAJ/a.caj"
+      ],
+      "size_bytes": 5356731,
+      "git_blob_oid": "fe23e3cf9e735a901f258b0518b07b1d749737dc",
+      "sha256": null,
+      "detected_type": "CAJ",
+      "variant": "CAJ",
+      "expected_outcome": "unknown",
+      "page_count": null,
+      "outline_count": null,
+      "python_reference": {
+        "show_status": "not_run",
+        "convert_status": "not_run",
+        "error_kind": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "issue-2/b.caj",
+      "path": "issue-2/b.caj",
+      "aliases": [
+        "type-CAJ/b.caj"
+      ],
+      "size_bytes": 4097057,
+      "git_blob_oid": "045671926c6f2b0e5aa8b0609bfdf1f1e66e9201",
+      "sha256": null,
+      "detected_type": "CAJ",
+      "variant": "CAJ",
+      "expected_outcome": "unknown",
+      "page_count": null,
+      "outline_count": null,
+      "python_reference": {
+        "show_status": "not_run",
+        "convert_status": "not_run",
+        "error_kind": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "issue-20/文件名未知.caj",
+      "path": "issue-20/文件名未知.caj",
+      "aliases": [
+        "type-CAJ/文件名未知.caj"
+      ],
+      "size_bytes": 983523,
+      "git_blob_oid": "1ae48ec991df6d97d0484e9b5aa3417d6a3360cc",
+      "sha256": "5a4432ed4878944c4aaa17f591b2a93d00014ea0bdacc9162bed1d88f8d61127",
+      "detected_type": "CAJ",
+      "variant": "CAJ",
+      "expected_outcome": "success",
+      "page_count": 63,
+      "outline_count": 93,
+      "python_reference": {
+        "show_status": "success",
+        "convert_status": "success",
+        "error_kind": null,
+        "evidence": "local-oracle-2026-09-24"
+      },
+      "expected_pdf": {
+        "mutool_version": "mutool version 1.25.1",
+        "page_dimensions_pt": [
+          [
+            595.22,
+            842.0
+          ],
+          [
+            595.22,
+            842.0
+          ],
+          [
+            595.22,
+            842.0
+          ],
+          [
+            595.22,
+            842.0
+          ],
+          [
+            595.22,
+            842.0
+          ],
+          [
+            595.22,
+            842.0
+          ],
+          [
+            595.22,
+            842.0
+          ],
+          [
+            595.22,
+            842.0
+          ],
+          [
+            595.22,
+            842.0
+          ],
+          [
+            595.22,
+            842.0
+          ],
+          [
+            595.22,
+            842.0
+          ],
+          [
+            595.22,
+            842.0
+          ],
+          [
+            595.22,
+            842.0
+          ],
+          [
+            595.22,
+            842.0
+          ],
+          [
+            595.22,
+            842.0
+          ],
+          [
+            595.22,
+            842.0
+          ],
+          [
+            595.22,
+            842.0
+          ],
+          [
+            595.22,
+            842.0
+          ],
+          [
+            595.22,
+            842.0
+          ],
+          [
+            595.22,
+            842.0
+          ],
+          [
+            595.22,
+            842.0
+          ],
+          [
+            595.22,
+            842.0
+          ],
+          [
+            595.22,
+            842.0
+          ],
+          [
+            595.22,
+            842.0
+          ],
+          [
+            595.22,
+            842.0
+          ],
+          [
+            595.22,
+            842.0
+          ],
+          [
+            595.22,
+            842.0
+          ],
+          [
+            595.22,
+            842.0
+          ],
+          [
+            595.22,
+            842.0
+          ],
+          [
+            595.22,
+            842.0
+          ],
+          [
+            595.22,
+            842.0
+          ],
+          [
+            595.22,
+            842.0
+          ],
+          [
+            595.22,
+            842.0
+          ],
+          [
+            595.22,
+            842.0
+          ],
+          [
+            595.22,
+            842.0
+          ],
+          [
+            595.22,
+            842.0
+          ],
+          [
+            595.22,
+            842.0
+          ],
+          [
+            595.22,
+            842.0
+          ],
+          [
+            595.22,
+            842.0
+          ],
+          [
+            595.22,
+            842.0
+          ],
+          [
+            595.22,
+            842.0
+          ],
+          [
+            595.22,
+            842.0
+          ],
+          [
+            595.22,
+            842.0
+          ],
+          [
+            595.22,
+            842.0
+          ],
+          [
+            595.22,
+            842.0
+          ],
+          [
+            595.22,
+            842.0
+          ],
+          [
+            595.22,
+            842.0
+          ],
+          [
+            595.22,
+            842.0
+          ],
+          [
+            595.22,
+            842.0
+          ],
+          [
+            595.22,
+            842.0
+          ],
+          [
+            595.22,
+            842.0
+          ],
+          [
+            595.22,
+            842.0
+          ],
+          [
+            595.22,
+            842.0
+          ],
+          [
+            595.22,
+            842.0
+          ],
+          [
+            595.22,
+            842.0
+          ],
+          [
+            595.22,
+            842.0
+          ],
+          [
+            595.22,
+            842.0
+          ],
+          [
+            595.22,
+            842.0
+          ],
+          [
+            595.22,
+            842.0
+          ],
+          [
+            595.22,
+            842.0
+          ],
+          [
+            595.22,
+            842.0
+          ],
+          [
+            595.22,
+            842.0
+          ],
+          [
+            595.22,
+            842.0
+          ]
+        ],
+        "outline_sha256": "de65572bf6f95ce55973b8d6e01ab6c590fb2e7803a35aeb3279f5333ba78836",
+        "rendered_pages": [
+          {
+            "page": 1,
+            "sha256": "c9d4951ad59129b89323ba2f389767d3975c54e06cd8be22458bd1329e85aa8e"
+          }
+        ]
+      }
+    },
+    {
+      "id": "issue-21/实时网络流量异常检测算法研究和系统实现_林尚朕.caj",
+      "path": "issue-21/实时网络流量异常检测算法研究和系统实现_林尚朕.caj",
+      "aliases": [
+        "type-HN/实时网络流量异常检测算法研究和系统实现_林尚朕.caj"
+      ],
+      "size_bytes": 5753314,
+      "git_blob_oid": "40e4788f3aa5bc279da25dc3e988f05fd9132646",
+      "sha256": null,
+      "detected_type": "HN",
+      "variant": "HN",
+      "expected_outcome": "unknown",
+      "page_count": null,
+      "outline_count": null,
+      "python_reference": {
+        "show_status": "not_run",
+        "convert_status": "not_run",
+        "error_kind": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "issue-21/时间序列模型在卫星异常检测中的应用研究_余文艳.caj",
+      "path": "issue-21/时间序列模型在卫星异常检测中的应用研究_余文艳.caj",
+      "aliases": [
+        "type-KDH/时间序列模型在卫星异常检测中的应用研究_余文艳.caj"
+      ],
+      "size_bytes": 480486,
+      "git_blob_oid": "2421c254546ca9efe3ea2c3453132942f13369ec",
+      "sha256": null,
+      "detected_type": "KDH",
+      "variant": "KDH",
+      "expected_outcome": "unknown",
+      "page_count": null,
+      "outline_count": null,
+      "python_reference": {
+        "show_status": "not_run",
+        "convert_status": "not_run",
+        "error_kind": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "issue-25/2.caj",
+      "path": "issue-25/2.caj",
+      "aliases": [
+        "type-CAJ/2.caj"
+      ],
+      "size_bytes": 2424052,
+      "git_blob_oid": "393747f96a21852e3d5c42df2a8d1217b2997c6b",
+      "sha256": null,
+      "detected_type": "CAJ",
+      "variant": "CAJ",
+      "expected_outcome": "unknown",
+      "page_count": null,
+      "outline_count": null,
+      "python_reference": {
+        "show_status": "not_run",
+        "convert_status": "not_run",
+        "error_kind": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "issue-29/阈上和阈下奖励对无意识剌激诱发的反应抑制的影响_刁留亭.caj",
+      "path": "issue-29/阈上和阈下奖励对无意识剌激诱发的反应抑制的影响_刁留亭.caj",
+      "aliases": [
+        "type-HN/阈上和阈下奖励对无意识剌激诱发的反应抑制的影响_刁留亭.caj"
+      ],
+      "size_bytes": 10155625,
+      "git_blob_oid": "c4f3bdf9b8470d5df499f5c946ff34d51ac2f184",
+      "sha256": null,
+      "detected_type": "HN",
+      "variant": "HN",
+      "expected_outcome": "unknown",
+      "page_count": null,
+      "outline_count": null,
+      "python_reference": {
+        "show_status": "not_run",
+        "convert_status": "not_run",
+        "error_kind": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "issue-30/Lambertian.caj",
+      "path": "issue-30/Lambertian.caj",
+      "aliases": [
+        "type-CAJ/Lambertian.caj"
+      ],
+      "size_bytes": 3875504,
+      "git_blob_oid": "6c2e95a0f60f53a3f2a01cb036ebdfd9d55ec5e8",
+      "sha256": null,
+      "detected_type": "CAJ",
+      "variant": "CAJ",
+      "expected_outcome": "unknown",
+      "page_count": null,
+      "outline_count": null,
+      "python_reference": {
+        "show_status": "not_run",
+        "convert_status": "not_run",
+        "error_kind": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "issue-31/旋转超声辅助微细电火花加工机床研制及实验研究_张振.caj",
+      "path": "issue-31/旋转超声辅助微细电火花加工机床研制及实验研究_张振.caj",
+      "aliases": [
+        "type-HN/旋转超声辅助微细电火花加工机床研制及实验研究_张振.caj"
+      ],
+      "size_bytes": 7460011,
+      "git_blob_oid": "f47552979deceff2191f7a4055b8f05fb595c845",
+      "sha256": null,
+      "detected_type": "HN",
+      "variant": "HN",
+      "expected_outcome": "unknown",
+      "page_count": null,
+      "outline_count": null,
+      "python_reference": {
+        "show_status": "not_run",
+        "convert_status": "not_run",
+        "error_kind": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "issue-33/test1.caj",
+      "path": "issue-33/test1.caj",
+      "aliases": [
+        "type-C8/test1.caj"
+      ],
+      "size_bytes": 2625902,
+      "git_blob_oid": "e748d7458f421ca2bb8c7aa86878d3808bd0ffdf",
+      "sha256": null,
+      "detected_type": "C8",
+      "variant": "C8",
+      "expected_outcome": "unknown",
+      "page_count": null,
+      "outline_count": null,
+      "python_reference": {
+        "show_status": "not_run",
+        "convert_status": "not_run",
+        "error_kind": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "issue-33/test2.caj",
+      "path": "issue-33/test2.caj",
+      "aliases": [
+        "type-PDF/test2.caj"
+      ],
+      "size_bytes": 6421382,
+      "git_blob_oid": "3d93360cfa2ff3929640e8553aec7384a92d94de",
+      "sha256": null,
+      "detected_type": "PDF",
+      "variant": "PDF",
+      "expected_outcome": "unknown",
+      "page_count": null,
+      "outline_count": null,
+      "python_reference": {
+        "show_status": "not_run",
+        "convert_status": "not_run",
+        "error_kind": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "issue-33/test3.caj",
+      "path": "issue-33/test3.caj",
+      "aliases": [
+        "type-PDF/test3.caj"
+      ],
+      "size_bytes": 5328698,
+      "git_blob_oid": "22d05ef281960180da6d25c543a2aa9d22a22dd7",
+      "sha256": null,
+      "detected_type": "PDF",
+      "variant": "PDF",
+      "expected_outcome": "unknown",
+      "page_count": null,
+      "outline_count": null,
+      "python_reference": {
+        "show_status": "not_run",
+        "convert_status": "not_run",
+        "error_kind": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "issue-34/G公司医药移动电子商务平台项目可行性研究_邓晓聪.caj",
+      "path": "issue-34/G公司医药移动电子商务平台项目可行性研究_邓晓聪.caj",
+      "aliases": [
+        "type-KDH/G公司医药移动电子商务平台项目可行性研究_邓晓聪.caj"
+      ],
+      "size_bytes": 1877728,
+      "git_blob_oid": "08570d392b110cd0a9e2d5caf01d5fecec4246ca",
+      "sha256": null,
+      "detected_type": "KDH",
+      "variant": "KDH",
+      "expected_outcome": "unknown",
+      "page_count": null,
+      "outline_count": null,
+      "python_reference": {
+        "show_status": "not_run",
+        "convert_status": "not_run",
+        "error_kind": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "issue-36/Unsupported file type.caj",
+      "path": "issue-36/Unsupported file type.caj",
+      "aliases": [
+        "type-HN/Unsupported file type.caj"
+      ],
+      "size_bytes": 8854370,
+      "git_blob_oid": "cd0012bbd2b24a03d0146ab7221815ba452c321f",
+      "sha256": null,
+      "detected_type": "HN",
+      "variant": "HN",
+      "expected_outcome": "unknown",
+      "page_count": null,
+      "outline_count": null,
+      "python_reference": {
+        "show_status": "not_run",
+        "convert_status": "not_run",
+        "error_kind": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "issue-39/文件同步服务中数据同步传输消重策略研究_张航.caj",
+      "path": "issue-39/文件同步服务中数据同步传输消重策略研究_张航.caj",
+      "aliases": [
+        "type-CAJ/文件同步服务中数据同步传输消重策略研究_张航.caj"
+      ],
+      "size_bytes": 2623476,
+      "git_blob_oid": "fe7728e20573b17f490022685b6d5dd877f07991",
+      "sha256": null,
+      "detected_type": "CAJ",
+      "variant": "CAJ",
+      "expected_outcome": "unknown",
+      "page_count": null,
+      "outline_count": null,
+      "python_reference": {
+        "show_status": "not_run",
+        "convert_status": "not_run",
+        "error_kind": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "issue-40/非线性量测下的雷达目标跟踪算法研究_张宇轩.caj",
+      "path": "issue-40/非线性量测下的雷达目标跟踪算法研究_张宇轩.caj",
+      "aliases": [
+        "type-CAJ/非线性量测下的雷达目标跟踪算法研究_张宇轩.caj"
+      ],
+      "size_bytes": 3443319,
+      "git_blob_oid": "127c286207c49481e8ad5369242ce74dad6560a2",
+      "sha256": null,
+      "detected_type": "CAJ",
+      "variant": "CAJ",
+      "expected_outcome": "unknown",
+      "page_count": null,
+      "outline_count": null,
+      "python_reference": {
+        "show_status": "not_run",
+        "convert_status": "not_run",
+        "error_kind": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "issue-43/Windows9x_NT操作系统的磁盘备份与恢复的研究与实现_张宗伟.caj",
+      "path": "issue-43/Windows9x_NT操作系统的磁盘备份与恢复的研究与实现_张宗伟.caj",
+      "aliases": [
+        "type-HN/Windows9x_NT操作系统的磁盘备份与恢复的研究与实现_张宗伟.caj"
+      ],
+      "size_bytes": 6489809,
+      "git_blob_oid": "b0388100a77cd57ec1d2841ffba624ce7ed609fc",
+      "sha256": null,
+      "detected_type": "HN",
+      "variant": "HN",
+      "expected_outcome": "unknown",
+      "page_count": null,
+      "outline_count": null,
+      "python_reference": {
+        "show_status": "not_run",
+        "convert_status": "not_run",
+        "error_kind": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "issue-44/基于802.11ac的LDPC编译码算法设计与实现_杨阳.caj",
+      "path": "issue-44/基于802.11ac的LDPC编译码算法设计与实现_杨阳.caj",
+      "aliases": [
+        "type-CAJ/基于802.11ac的LDPC编译码算法设计与实现_杨阳.caj"
+      ],
+      "size_bytes": 5455734,
+      "git_blob_oid": "4f783744fb0abbb8cc7e9ba86df0fdc92a84ddb3",
+      "sha256": null,
+      "detected_type": "CAJ",
+      "variant": "CAJ",
+      "expected_outcome": "unknown",
+      "page_count": null,
+      "outline_count": null,
+      "python_reference": {
+        "show_status": "not_run",
+        "convert_status": "not_run",
+        "error_kind": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "issue-46/1.caj",
+      "path": "issue-46/1.caj",
+      "aliases": [
+        "type-CAJ/1.caj"
+      ],
+      "size_bytes": 19979684,
+      "git_blob_oid": "37f4ef0f2033cdd0d97c9358db2b4a80adcbf80b",
+      "sha256": null,
+      "detected_type": "CAJ",
+      "variant": "CAJ",
+      "expected_outcome": "unknown",
+      "page_count": null,
+      "outline_count": null,
+      "python_reference": {
+        "show_status": "not_run",
+        "convert_status": "not_run",
+        "error_kind": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "issue-47/依据书法笔力对运笔基本问题的再认识_刘玉栋.caj",
+      "path": "issue-47/依据书法笔力对运笔基本问题的再认识_刘玉栋.caj",
+      "aliases": [
+        "type-HN/依据书法笔力对运笔基本问题的再认识_刘玉栋.caj"
+      ],
+      "size_bytes": 3832876,
+      "git_blob_oid": "9a754affd6f83062f97fe95faea61b33feb941bd",
+      "sha256": null,
+      "detected_type": "HN",
+      "variant": "HN",
+      "expected_outcome": "unknown",
+      "page_count": null,
+      "outline_count": null,
+      "python_reference": {
+        "show_status": "not_run",
+        "convert_status": "not_run",
+        "error_kind": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "issue-48/ZZXX200402047.caj",
+      "path": "issue-48/ZZXX200402047.caj",
+      "aliases": [
+        "type-KDH/ZZXX200402047.caj"
+      ],
+      "size_bytes": 37743,
+      "git_blob_oid": "d27f3aa19ae58f09beb1a7cd53a2bdd8c01540fd",
+      "sha256": "5f6f1af5b148af2b6756ff8878124c09797882505d0aca12ca983d9073d94507",
+      "detected_type": "KDH",
+      "variant": "KDH",
+      "expected_outcome": "success",
+      "page_count": 1,
+      "outline_count": 0,
+      "python_reference": {
+        "show_status": "success",
+        "convert_status": "success",
+        "error_kind": null,
+        "evidence": "local-oracle-2026-09-24"
+      },
+      "expected_pdf": {
+        "mutool_version": "mutool version 1.25.1",
+        "page_dimensions_pt": [
+          [
+            553.60006,
+            748.8
+          ]
+        ],
+        "outline_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "rendered_pages": [
+          {
+            "page": 1,
+            "sha256": "aedf91ee3dd8269100cdfb302d266f45fe10c4ff0d3f06941985cb870d437200"
+          }
+        ]
+      }
+    },
+    {
+      "id": "issue-49/皮质骨钻削中温度分布的预测模型及热影响区的研究_李向军.caj",
+      "path": "issue-49/皮质骨钻削中温度分布的预测模型及热影响区的研究_李向军.caj",
+      "aliases": [
+        "type-CAJ/皮质骨钻削中温度分布的预测模型及热影响区的研究_李向军.caj"
+      ],
+      "size_bytes": 3136092,
+      "git_blob_oid": "96360654c4d8e8e32eff341b7089d3039161e66e",
+      "sha256": null,
+      "detected_type": "CAJ",
+      "variant": "CAJ",
+      "expected_outcome": "unknown",
+      "page_count": null,
+      "outline_count": null,
+      "python_reference": {
+        "show_status": "not_run",
+        "convert_status": "not_run",
+        "error_kind": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "issue-50/基于群体协同的交通态势感知服务系统的研究与实现_高尚.caj",
+      "path": "issue-50/基于群体协同的交通态势感知服务系统的研究与实现_高尚.caj",
+      "aliases": [
+        "type-HN/基于群体协同的交通态势感知服务系统的研究与实现_高尚.caj"
+      ],
+      "size_bytes": 15082324,
+      "git_blob_oid": "2e91e96324a0ace3a2a0bf14dfa38700f7ced03c",
+      "sha256": null,
+      "detected_type": "HN",
+      "variant": "HN",
+      "expected_outcome": "unknown",
+      "page_count": null,
+      "outline_count": null,
+      "python_reference": {
+        "show_status": "not_run",
+        "convert_status": "not_run",
+        "error_kind": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "issue-58/混凝土道面评价指标分析_谢永亮.caj",
+      "path": "issue-58/混凝土道面评价指标分析_谢永亮.caj",
+      "aliases": [
+        "type-C8/混凝土道面评价指标分析_谢永亮.caj"
+      ],
+      "size_bytes": 161293,
+      "git_blob_oid": "1282d74daffe4d641d1c6fd9cd76385a3f01979e",
+      "sha256": null,
+      "detected_type": "C8",
+      "variant": "C8",
+      "expected_outcome": "unknown",
+      "page_count": null,
+      "outline_count": null,
+      "python_reference": {
+        "show_status": "not_run",
+        "convert_status": "not_run",
+        "error_kind": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "issue-61/1.teb",
+      "path": "issue-61/1.teb",
+      "aliases": [
+        "type-TEB/1.teb"
+      ],
+      "size_bytes": 5977033,
+      "git_blob_oid": "e73720b017b3df12fc911cfbf4d7a79e3972296d",
+      "sha256": null,
+      "detected_type": "TEB",
+      "variant": "TEB",
+      "expected_outcome": "unsupported",
+      "page_count": null,
+      "outline_count": null,
+      "python_reference": {
+        "show_status": "not_run",
+        "convert_status": "not_run",
+        "error_kind": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "issue-61/2.teb",
+      "path": "issue-61/2.teb",
+      "aliases": [
+        "type-TEB/2.teb"
+      ],
+      "size_bytes": 6008099,
+      "git_blob_oid": "604b47fc6ee481d1231d25638730c7a642856901",
+      "sha256": null,
+      "detected_type": "TEB",
+      "variant": "TEB",
+      "expected_outcome": "unsupported",
+      "page_count": null,
+      "outline_count": null,
+      "python_reference": {
+        "show_status": "not_run",
+        "convert_status": "not_run",
+        "error_kind": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "issue-61/3.teb",
+      "path": "issue-61/3.teb",
+      "aliases": [
+        "type-TEB/3.teb"
+      ],
+      "size_bytes": 5886085,
+      "git_blob_oid": "3f60eaf64a26443ae6a044b223de3b77d4a99a15",
+      "sha256": null,
+      "detected_type": "TEB",
+      "variant": "TEB",
+      "expected_outcome": "unsupported",
+      "page_count": null,
+      "outline_count": null,
+      "python_reference": {
+        "show_status": "not_run",
+        "convert_status": "not_run",
+        "error_kind": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "issue-61/4.teb",
+      "path": "issue-61/4.teb",
+      "aliases": [
+        "type-TEB/4.teb"
+      ],
+      "size_bytes": 5939922,
+      "git_blob_oid": "f6fa2babe175e5ecba9fb3f3d4e109ffcf4195b5",
+      "sha256": null,
+      "detected_type": "TEB",
+      "variant": "TEB",
+      "expected_outcome": "unsupported",
+      "page_count": null,
+      "outline_count": null,
+      "python_reference": {
+        "show_status": "not_run",
+        "convert_status": "not_run",
+        "error_kind": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "issue-61/5.teb",
+      "path": "issue-61/5.teb",
+      "aliases": [
+        "type-TEB/5.teb"
+      ],
+      "size_bytes": 7973056,
+      "git_blob_oid": "7789f646a09f08e9d9ada7f4a4be1935b5007b80",
+      "sha256": null,
+      "detected_type": "TEB",
+      "variant": "TEB",
+      "expected_outcome": "unsupported",
+      "page_count": null,
+      "outline_count": null,
+      "python_reference": {
+        "show_status": "not_run",
+        "convert_status": "not_run",
+        "error_kind": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "issue-61/6.teb",
+      "path": "issue-61/6.teb",
+      "aliases": [
+        "type-TEB/6.teb"
+      ],
+      "size_bytes": 5702269,
+      "git_blob_oid": "77f7d036ab61c1b785d0a1a426e510a9e5700944",
+      "sha256": null,
+      "detected_type": "TEB",
+      "variant": "TEB",
+      "expected_outcome": "unsupported",
+      "page_count": null,
+      "outline_count": null,
+      "python_reference": {
+        "show_status": "not_run",
+        "convert_status": "not_run",
+        "error_kind": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "issue-61/7.teb",
+      "path": "issue-61/7.teb",
+      "aliases": [
+        "type-TEB/7.teb"
+      ],
+      "size_bytes": 5520323,
+      "git_blob_oid": "41f8c9884b1d2290c5ee5059503cecc298a0b401",
+      "sha256": null,
+      "detected_type": "TEB",
+      "variant": "TEB",
+      "expected_outcome": "unsupported",
+      "page_count": null,
+      "outline_count": null,
+      "python_reference": {
+        "show_status": "not_run",
+        "convert_status": "not_run",
+        "error_kind": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "issue-63/对任务型教学法的理论基础与课堂实践的思考.caj",
+      "path": "issue-63/对任务型教学法的理论基础与课堂实践的思考.caj",
+      "aliases": [
+        "type-HN/对任务型教学法的理论基础与课堂实践的思考.caj"
+      ],
+      "size_bytes": 78896,
+      "git_blob_oid": "a0996084c5fcb54a6158fd72d51369589bafed62",
+      "sha256": "63870d12f2069d3d6c663dc2813d04a38a632c4c319f20b6f8dd1b8b8bc589c2",
+      "detected_type": "HN",
+      "variant": "HN",
+      "expected_outcome": "unsupported",
+      "page_count": 4,
+      "outline_count": 0,
+      "python_reference": {
+        "show_status": "success",
+        "convert_status": "unsupported",
+        "error_kind": "pure_text_hn",
+        "evidence": "local-oracle-2026-09-24"
+      }
+    },
+    {
+      "id": "issue-65/伽利略的原子论思想_近代科学革命的形而上学基础.caj",
+      "path": "issue-65/伽利略的原子论思想_近代科学革命的形而上学基础.caj",
+      "aliases": [
+        "type-HN/伽利略的原子论思想_近代科学革命的形而上学基础.caj"
+      ],
+      "size_bytes": 862235,
+      "git_blob_oid": "d76d3915e60b377a252148d3764dd4272140c8cd",
+      "sha256": null,
+      "detected_type": "HN",
+      "variant": "HN",
+      "expected_outcome": "unknown",
+      "page_count": null,
+      "outline_count": null,
+      "python_reference": {
+        "show_status": "not_run",
+        "convert_status": "not_run",
+        "error_kind": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "issue-66/IDL编译器的实现_词法分析部分_于埴尧.caj",
+      "path": "issue-66/IDL编译器的实现_词法分析部分_于埴尧.caj",
+      "aliases": [
+        "type-C8/IDL编译器的实现_词法分析部分_于埴尧.caj"
+      ],
+      "size_bytes": 40874,
+      "git_blob_oid": "524460bebf54fbde96df647867c6fdaf896f4b2a",
+      "sha256": "90e7b47716c32ef7a67cde8094f312e0ee7f1a7e0ed50a25830e8ba64a84f6a6",
+      "detected_type": "C8",
+      "variant": "C8",
+      "expected_outcome": "unknown",
+      "page_count": 6,
+      "outline_count": 0,
+      "python_reference": {
+        "show_status": "success",
+        "convert_status": "skip",
+        "error_kind": "missing_native_jbig2codec",
+        "evidence": "local-oracle-2026-09-24"
+      }
+    },
+    {
+      "id": "issue-68/燃烧计算中火焰面模型的研究_陆阳.caj",
+      "path": "issue-68/燃烧计算中火焰面模型的研究_陆阳.caj",
+      "aliases": [
+        "type-HN/燃烧计算中火焰面模型的研究_陆阳.caj"
+      ],
+      "size_bytes": 20545728,
+      "git_blob_oid": "4ce6572d3ae6ea94dcb4035b3d1188109658d685",
+      "sha256": null,
+      "detected_type": "HN",
+      "variant": "HN",
+      "expected_outcome": "unknown",
+      "page_count": null,
+      "outline_count": null,
+      "python_reference": {
+        "show_status": "not_run",
+        "convert_status": "not_run",
+        "error_kind": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "issue-69/12.caj",
+      "path": "issue-69/12.caj",
+      "aliases": [
+        "type-HN/12.caj"
+      ],
+      "size_bytes": 6685012,
+      "git_blob_oid": "76c7b16e948b49fe6907099c774ea714516e95d1",
+      "sha256": null,
+      "detected_type": "HN",
+      "variant": "HN",
+      "expected_outcome": "unknown",
+      "page_count": null,
+      "outline_count": null,
+      "python_reference": {
+        "show_status": "not_run",
+        "convert_status": "not_run",
+        "error_kind": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "issue-69/光波导光学相控阵技术的理论和实验研究_梁华伟.caj",
+      "path": "issue-69/光波导光学相控阵技术的理论和实验研究_梁华伟.caj",
+      "aliases": [
+        "type-HN/光波导光学相控阵技术的理论和实验研究_梁华伟.caj"
+      ],
+      "size_bytes": 7491145,
+      "git_blob_oid": "4c23e2e5395f803cd6a4f53ed58c0f6fc36aa51a",
+      "sha256": null,
+      "detected_type": "HN",
+      "variant": "HN",
+      "expected_outcome": "unknown",
+      "page_count": null,
+      "outline_count": null,
+      "python_reference": {
+        "show_status": "not_run",
+        "convert_status": "not_run",
+        "error_kind": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "issue-7/a.caj",
+      "path": "issue-7/a.caj",
+      "aliases": [
+        "type-HN/a.caj"
+      ],
+      "size_bytes": 8868218,
+      "git_blob_oid": "b7d06533ac61bb0b859fb58a41714d0d952f5c92",
+      "sha256": null,
+      "detected_type": "HN",
+      "variant": "HN",
+      "expected_outcome": "unknown",
+      "page_count": null,
+      "outline_count": null,
+      "python_reference": {
+        "show_status": "not_run",
+        "convert_status": "not_run",
+        "error_kind": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "issue-73/基于物联网的温室大棚远程环境监测系统_朱超.caj",
+      "path": "issue-73/基于物联网的温室大棚远程环境监测系统_朱超.caj",
+      "aliases": [
+        "type-CAJ/基于物联网的温室大棚远程环境监测系统_朱超.caj"
+      ],
+      "size_bytes": 7212703,
+      "git_blob_oid": "77d6d353a92f4b6775bf87c1391c7a3180a194e9",
+      "sha256": null,
+      "detected_type": "CAJ",
+      "variant": "CAJ",
+      "expected_outcome": "unknown",
+      "page_count": null,
+      "outline_count": null,
+      "python_reference": {
+        "show_status": "not_run",
+        "convert_status": "not_run",
+        "error_kind": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "issue-76/基于压缩感知的合成孔径雷达超分辨成像复数据处理方法研究_曹轩.caj",
+      "path": "issue-76/基于压缩感知的合成孔径雷达超分辨成像复数据处理方法研究_曹轩.caj",
+      "aliases": [
+        "type-HN/基于压缩感知的合成孔径雷达超分辨成像复数据处理方法研究_曹轩.caj"
+      ],
+      "size_bytes": 13109383,
+      "git_blob_oid": "32493f367f8c4668e89a3e18e41d4b8c27912dd4",
+      "sha256": null,
+      "detected_type": "HN",
+      "variant": "HN",
+      "expected_outcome": "unknown",
+      "page_count": null,
+      "outline_count": null,
+      "python_reference": {
+        "show_status": "not_run",
+        "convert_status": "not_run",
+        "error_kind": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "issue-76/基于星载合成孔径雷达干涉测量技术的数字高程模型生成研究_任坤.caj",
+      "path": "issue-76/基于星载合成孔径雷达干涉测量技术的数字高程模型生成研究_任坤.caj",
+      "aliases": [
+        "type-HN/基于星载合成孔径雷达干涉测量技术的数字高程模型生成研究_任坤.caj"
+      ],
+      "size_bytes": 24519256,
+      "git_blob_oid": "8542a0236921d31f21d3c93f00267da00e5de869",
+      "sha256": null,
+      "detected_type": "HN",
+      "variant": "HN",
+      "expected_outcome": "unknown",
+      "page_count": null,
+      "outline_count": null,
+      "python_reference": {
+        "show_status": "not_run",
+        "convert_status": "not_run",
+        "error_kind": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "issue-77/高炉铁水硅含量预测中的直接经验和间接经验.caj",
+      "path": "issue-77/高炉铁水硅含量预测中的直接经验和间接经验.caj",
+      "aliases": [
+        "type-CAJ/高炉铁水硅含量预测中的直接经验和间接经验.caj"
+      ],
+      "size_bytes": 539434,
+      "git_blob_oid": "583b5f90b822a56c7cb713f3993ecb9dddff3a96",
+      "sha256": "5d988d74a6e6a0c392eb58297e70d91ff2e1ad2c2887374a04adc67a253ac2ab",
+      "detected_type": "CAJ",
+      "variant": "CAJ",
+      "expected_outcome": "error",
+      "page_count": 75,
+      "outline_count": 58,
+      "python_reference": {
+        "show_status": "success",
+        "convert_status": "error",
+        "error_kind": "mutool_pdf_syntax",
+        "evidence": "local-oracle-2026-09-24"
+      }
+    },
+    {
+      "id": "issue-85/《周礼》中所见天神祭祀考论_刘涛.caj",
+      "path": "issue-85/《周礼》中所见天神祭祀考论_刘涛.caj",
+      "aliases": [
+        "type-HN/《周礼》中所见天神祭祀考论_刘涛.caj"
+      ],
+      "size_bytes": 73763774,
+      "git_blob_oid": "de5a68fb5c2cdc98a46180cc45c5b42e8e291dbe",
+      "sha256": null,
+      "detected_type": "HN",
+      "variant": "HN",
+      "expected_outcome": "unknown",
+      "page_count": null,
+      "outline_count": null,
+      "python_reference": {
+        "show_status": "not_run",
+        "convert_status": "not_run",
+        "error_kind": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "issue-85/明堂制度研究——明堂制度的源流_张一兵.caj",
+      "path": "issue-85/明堂制度研究——明堂制度的源流_张一兵.caj",
+      "aliases": [
+        "type-CAJ/明堂制度研究——明堂制度的源流_张一兵.caj"
+      ],
+      "size_bytes": 5990802,
+      "git_blob_oid": "dabd03654c7d241b1d9e8620cd96439ce6d1dccc",
+      "sha256": null,
+      "detected_type": "CAJ",
+      "variant": "CAJ",
+      "expected_outcome": "unknown",
+      "page_count": null,
+      "outline_count": null,
+      "python_reference": {
+        "show_status": "not_run",
+        "convert_status": "not_run",
+        "error_kind": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "issue-88/0.caj",
+      "path": "issue-88/0.caj",
+      "aliases": [
+        "type-CAJ/0.caj"
+      ],
+      "size_bytes": 2045046,
+      "git_blob_oid": "26c3ead39c927bc7eabf7fb2727cc66561c77b93",
+      "sha256": null,
+      "detected_type": "CAJ",
+      "variant": "CAJ",
+      "expected_outcome": "unknown",
+      "page_count": null,
+      "outline_count": null,
+      "python_reference": {
+        "show_status": "not_run",
+        "convert_status": "not_run",
+        "error_kind": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "issue-90/4-[21].caj",
+      "path": "issue-90/4-[21].caj",
+      "aliases": [
+        "type-C8/4-[21].caj"
+      ],
+      "size_bytes": 208162,
+      "git_blob_oid": "c7ca703577fc0eb09a7c96451aeec92430e32a08",
+      "sha256": null,
+      "detected_type": "C8",
+      "variant": "C8",
+      "expected_outcome": "unknown",
+      "page_count": null,
+      "outline_count": null,
+      "python_reference": {
+        "show_status": "not_run",
+        "convert_status": "not_run",
+        "error_kind": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "issue-90/4-[24].caj",
+      "path": "issue-90/4-[24].caj",
+      "aliases": [
+        "type-C8/4-[24].caj"
+      ],
+      "size_bytes": 419264,
+      "git_blob_oid": "61b9bc6636c7dcb1ef07f3d9e856a6d2358824d8",
+      "sha256": null,
+      "detected_type": "C8",
+      "variant": "C8",
+      "expected_outcome": "unknown",
+      "page_count": null,
+      "outline_count": null,
+      "python_reference": {
+        "show_status": "not_run",
+        "convert_status": "not_run",
+        "error_kind": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "issue-90/4-[6].caj",
+      "path": "issue-90/4-[6].caj",
+      "aliases": [
+        "type-CAJ/4-[6].caj"
+      ],
+      "size_bytes": 3491634,
+      "git_blob_oid": "a12afbdb44bf4dcd857bca69e0faa8f9a54076c7",
+      "sha256": null,
+      "detected_type": "CAJ",
+      "variant": "CAJ",
+      "expected_outcome": "unknown",
+      "page_count": null,
+      "outline_count": null,
+      "python_reference": {
+        "show_status": "not_run",
+        "convert_status": "not_run",
+        "error_kind": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "issue-90/4-[7].caj",
+      "path": "issue-90/4-[7].caj",
+      "aliases": [
+        "type-HN/4-[7].caj"
+      ],
+      "size_bytes": 8056882,
+      "git_blob_oid": "84a539884f4c4871f42af751b42eb4aa5b072a56",
+      "sha256": null,
+      "detected_type": "HN",
+      "variant": "HN",
+      "expected_outcome": "unknown",
+      "page_count": null,
+      "outline_count": null,
+      "python_reference": {
+        "show_status": "not_run",
+        "convert_status": "not_run",
+        "error_kind": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "issue-90/5-[4].caj",
+      "path": "issue-90/5-[4].caj",
+      "aliases": [
+        "type-HN/5-[4].caj"
+      ],
+      "size_bytes": 10249368,
+      "git_blob_oid": "8d651d0fb7edca5443bdf7ae8b70c397e7b944be",
+      "sha256": null,
+      "detected_type": "HN",
+      "variant": "HN",
+      "expected_outcome": "unknown",
+      "page_count": null,
+      "outline_count": null,
+      "python_reference": {
+        "show_status": "not_run",
+        "convert_status": "not_run",
+        "error_kind": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "issue-92/以太网交换机网络协议栈研究与应用_李晋.caj",
+      "path": "issue-92/以太网交换机网络协议栈研究与应用_李晋.caj",
+      "aliases": [],
+      "size_bytes": 636483,
+      "git_blob_oid": "f6a50a56c749f863ef7ff08623303d79ec6f3836",
+      "sha256": null,
+      "detected_type": "CAJ",
+      "variant": "CAJ",
+      "expected_outcome": "unknown",
+      "page_count": null,
+      "outline_count": null,
+      "python_reference": {
+        "show_status": "not_run",
+        "convert_status": "not_run",
+        "error_kind": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "issue-93/tmp.caj",
+      "path": "issue-93/tmp.caj",
+      "aliases": [],
+      "size_bytes": 2223487,
+      "git_blob_oid": "876abcdd573381e22c9d80df873ccfc9a57411bd",
+      "sha256": null,
+      "detected_type": "CAJ",
+      "variant": "CAJ",
+      "expected_outcome": "unknown",
+      "page_count": null,
+      "outline_count": null,
+      "python_reference": {
+        "show_status": "not_run",
+        "convert_status": "not_run",
+        "error_kind": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "issue-99/科普翻译四性观指导下的盖勾亚守宫汉译实践报告_葛琳 (5).caj",
+      "path": "issue-99/科普翻译四性观指导下的盖勾亚守宫汉译实践报告_葛琳 (5).caj",
+      "aliases": [],
+      "size_bytes": 3431622,
+      "git_blob_oid": "de59ffff981a016845f110c537722193164ac29c",
+      "sha256": null,
+      "detected_type": "HN",
+      "variant": "HN",
+      "expected_outcome": "unknown",
+      "page_count": null,
+      "outline_count": null,
+      "python_reference": {
+        "show_status": "not_run",
+        "convert_status": "not_run",
+        "error_kind": null,
+        "evidence": null
+      }
+    },
+    {
+      "id": "pull-72/碳_碳复合材料多重环境下的氧化机理研究_李龙.caj",
+      "path": "pull-72/碳_碳复合材料多重环境下的氧化机理研究_李龙.caj",
+      "aliases": [
+        "type-HN/碳_碳复合材料多重环境下的氧化机理研究_李龙.caj"
+      ],
+      "size_bytes": 18200390,
+      "git_blob_oid": "20b01e86cc02db32f10fb06dbc62acaa75986ff1",
+      "sha256": null,
+      "detected_type": "HN",
+      "variant": "HN",
+      "expected_outcome": "unknown",
+      "page_count": null,
+      "outline_count": null,
+      "python_reference": {
+        "show_status": "not_run",
+        "convert_status": "not_run",
+        "error_kind": null,
+        "evidence": null
+      }
+    }
+  ]
+}
