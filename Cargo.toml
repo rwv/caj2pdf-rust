@@ -1,0 +1,7 @@
+[workspace]
+members = [
+    "crates/caj2pdf-core",
+    "crates/caj2pdf-cli",
+    "crates/caj2pdf-wasm",
+]
+resolver = "3"

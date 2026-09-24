@@ -1,0 +1,78 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  native:
+    name: Native quality gates
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Install pinned Rust toolchain
+        run: rustup show active-toolchain
+      - name: Format
+        run: cargo fmt --all -- --check
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+      - name: Unit and integration tests
+        run: cargo test --workspace --all-features --locked
+
+  wasm:
+    name: WASM build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Install pinned Rust toolchain
+        run: rustup show active-toolchain
+      - name: Build WASM boundary
+        run: cargo build --locked --all-features -p caj2pdf-wasm --target wasm32-unknown-unknown
+
+  licenses:
+    name: MIT dependency and source audit
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Install cargo-deny
+        uses: taiki-e/install-action@9983c65e42da123ff25d1f78505eb6de315aa172 # v2.87.20
+        with:
+          tool: cargo-deny@0.20.2
+          fallback: none
+      - name: Audit native dependency graph
+        run: cargo deny --locked --all-features --target x86_64-unknown-linux-gnu check licenses sources
+      - name: Audit WASM dependency graph
+        run: cargo deny --locked --all-features --target wasm32-unknown-unknown check licenses sources
+      - name: Flag vendored and generated source for review
+        run: bash scripts/check-source-inventory.sh
+
+  coverage:
+    name: Line coverage (90% minimum; 100% target)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Install pinned Rust toolchain
+        run: rustup show active-toolchain
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@9983c65e42da123ff25d1f78505eb6de315aa172 # v2.87.20
+        with:
+          tool: cargo-llvm-cov@0.9.1
+          fallback: none
+      - name: Generate and check line coverage
+        run: bash scripts/check-coverage.sh
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rust-line-coverage
+          path: target/coverage/
+          if-no-files-found: warn

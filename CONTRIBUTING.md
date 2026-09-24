@@ -22,7 +22,8 @@ ownership and MIT eligibility; its JBIG/HN code must be reimplemented.
 Document the source of format facts in code comments or pull requests. Do not
 vendor sample documents or third-party code unless its MIT license and
 attribution have been verified. Audit native and WASM dependency trees before
-release; a package manifest alone is not proof of source provenance.
+release; a package manifest alone is not proof of source provenance. Record
+the review in the [provenance inventory](docs/provenance.md).
 
 ## Commit and release policy
 
@@ -36,9 +37,11 @@ feat(wasm)!: rename the JavaScript source interface
 ```
 
 Mark breaking changes with `!` or a `BREAKING CHANGE:` footer, describe the
-migration in the pull request, and include it in release notes. Version `0.x.y`
+migration in the pull request, and include it in release notes. Version `v0.x.y`
 is unstable: breaking changes are allowed and compatibility is not promised.
 Do not silently change public APIs or output behavior.
+The [release policy](docs/release-policy.md) defines version bumps, review,
+lockfiles, and release-note requirements.
 
 ## Pull request evidence
 
@@ -48,3 +51,6 @@ evidence when affected. Tests that skip because an optional external corpus is
 absent do not count as corpus validation. Record memory measurements for changes
 to buffering, decoding, or PDF output. Keep new test fixtures synthetic or
 otherwise demonstrably redistributable under MIT.
+Write meaningful unit tests for success, malformed input, and error paths.
+Aim for 100% coverage where practical, and report uncovered behavior rather
+than adding assertions that only mirror the implementation.

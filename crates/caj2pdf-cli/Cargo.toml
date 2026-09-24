@@ -1,0 +1,16 @@
+[package]
+name = "caj2pdf-cli"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85.0"
+license = "MIT"
+description = "Linux command-line interface for caj2pdf"
+repository = "https://github.com/rwv/caj2pdf-rust"
+publish = false
+
+[[bin]]
+name = "caj2pdf"
+path = "src/main.rs"
+
+[dependencies]
+caj2pdf-core = { path = "../caj2pdf-core" }

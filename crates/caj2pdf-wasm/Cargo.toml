@@ -1,0 +1,16 @@
+[package]
+name = "caj2pdf-wasm"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85.0"
+license = "MIT"
+description = "WebAssembly boundary for browser and Node.js caj2pdf adapters"
+repository = "https://github.com/rwv/caj2pdf-rust"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+path = "src/lib.rs"
+
+[dependencies]
+caj2pdf-core = { path = "../caj2pdf-core" }

@@ -2,7 +2,8 @@
 
 An MIT-licensed Rust project for converting CAJ-family documents to PDF from
 the command line and JavaScript. The project is in its initial development
-phase; no converter release is available yet.
+phase; no converter release is available yet. English is the project's public
+language for code, documentation, APIs, CLI output, and releases.
 
 ## Goals
 
@@ -19,6 +20,8 @@ in [PROJECT_PLAN.md](PROJECT_PLAN.md). Start with the
 [v0.1.0 parent issue](https://github.com/rwv/caj2pdf-rust/issues/1) and its
 native sub-issues and blocked-by relationships. All initial tasks belong to
 the [v0.1.0 milestone](https://github.com/rwv/caj2pdf-rust/milestone/1).
+See the [provenance and dependency inventory](docs/provenance.md) for format
+references, test corpus rules, and the MIT-only source review process.
 
 ## Versioning and development
 
@@ -26,7 +29,7 @@ Releases use `v0.x.y` during initial development. APIs, CLI behavior, and
 output may change between `0.x` releases; breaking changes are documented in
 the release notes. Commits follow [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/),
 including `!` or a `BREAKING CHANGE:` footer for breaking changes. See
-[CONTRIBUTING.md](CONTRIBUTING.md).
+[CONTRIBUTING.md](CONTRIBUTING.md) and the [release policy](docs/release-policy.md).
 
 ## License and test data
 
