@@ -162,10 +162,19 @@ code under `crates/caj2pdf-core/src/pdf/`, independent integration tests under
 `scripts/generate_fixtures.py`. No parser or decoder source from Python, Go,
 the private Rust prototype, or a PDF library is migrated.
 
-Issue #7's CAJ metadata and TOC parsing and GB18030 title decoding are
-independently authored MIT code. The mapping values are generated from the
-black-box queries documented above. No CAJ parser or character-decoder source
-was migrated from Python, Go, a private Rust module, or another library.
+Issue #7's CAJ metadata, TOC parsing, GB18030 title decoding, fragment
+scanner, page-tree reconstruction, and narrowly classified link/stream
+repairs are independently authored MIT code under
+`crates/caj2pdf-core/src/{caj,pdf/input,pdf/fragment.rs}`. The small native
+CAJ example and the WASM/JavaScript error-category additions are also
+original MIT code. The mapping values are generated from the black-box
+queries documented above. No CAJ parser, PDF repair logic, or character-
+decoder source was migrated from Python, Go, a private Rust module, or
+another library.
+The original MIT [`caj_conversion.rs`](../crates/caj2pdf-core/tests/caj_conversion.rs)
+tests construct synthetic CAJ bytes at runtime from the independently recorded
+fields in the [CAJ format note](caj-format.md), including a four-byte GB18030
+title. They do not contain CAJSamples document bytes or a reference PDF.
 
 ## Dependency inventory and review
 

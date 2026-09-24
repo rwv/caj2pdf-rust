@@ -85,11 +85,35 @@ All ten have a contiguous page table and a first row immediately after it.
 | `issue-88` | `88b47b4d6fd687f8393d3b9e0aad2389873c5a9cef0f9eeb4cf0bbfa32d08a52` | 110 | 65 / 65 | `0x6690` | 0 | 0 |
 | `issue-93` | `446ccbf126afb94d3559c87f0dc2d684ffa6610bfe8c5803ffe5cd4797ff7105` | 63 | 51 / 51 | `0x14af8` | 35 | 6,632 |
 
-The source/reference outline difference for `issue-49` and `issue-73` is
-unexplained. Their CAJ TOC records are well formed, and no visible `/Outlines`
-token was found in the raw embedded PDF bodies. A parser must not infer that
-an existing PDF outline caused the difference. Compatibility reports should
-state whether they compare source TOC records or the reference's output PDF.
+The source/reference outline difference for `issue-49` and `issue-73` is an
+observed reference conversion failure. At Python converter commit
+`8cbc3c5721acb762f739434eb3d206171dbb022a` with PyPDF2 1.26.0,
+`show` reports 49 and 100 source records. `convert` prints a `PdfReadError`
+and warnings that PDF object `214 0` or `316 0`, respectively, is undefined,
+yet exits with status zero and leaves a PDF with no `/Outlines`. The Rust
+converter repairs only the broken link destinations pointing to omitted
+pages and retains all valid source TOC records. Its 49 and 100 output
+bookmarks each match the source title, level, and page. A reference PDF
+outline comparison therefore fails for these two cases despite valid source
+TOC conversion. Compatibility reports must state both facts.
+
+## Reference page-order differences
+
+The reference PDF permutes pages in `issue-40` and `issue-44`, though every
+rendered source page occurs exactly once. Across all ten successful CAJ
+samples, concatenating surviving source `/Pages` groups' `/Kids` arrays in
+their physical order reproduces the complete CAJ page table order. For
+`issue-40`, the reference order is source-table pages `1..=12`, `18..=78`,
+then `13..=17`. For `issue-44`, it is `1..=9`, `25..=108`, `20..=24`,
+`15..=19`, then `10..=14`. The source page
+table and surviving PDF `/Pages /Kids` arrays agree on the source-table order.
+The reference converter's temporary PDF already has the permutation before
+MuPDF opens it. Changing page-table page IDs in a scratch copy of `issue-40`
+did not change that temporary PDF; renaming two root-child object IDs changed
+their names in its `/Kids` array but did not change the content-group order.
+These black-box experiments rule out page-table ID and numeric object-ID
+sorting as the cause. A general reference ordering rule remains unproven, so
+the parser must not apply a sample-specific permutation as a format rule.
 
 ## One observed PDF-fragment anomaly
 
@@ -114,6 +138,18 @@ Its final table row is `(offset 981652, length 1643, page ID 44)`, giving
 hint end `983295`. Seven stream-payload bytes follow before `\r\nendstream`;
 the final `endobj` ends at `983320`, and XML begins at `983323`. The offsets
 are observations for the SHA-256-pinned input above, not general CAJ rules.
+The implementation accepts a unique, at-most-64-byte same-width length
+correction and requires a repaired final object to reach source EOF or a
+recognized XML trailer. A fake terminator followed by unknown bytes is a
+typed ambiguous-repair error; the XML check is an observed compatibility
+boundary, not proof that every malformed stream has a recoverable end.
+The generated Rust and pinned Python reference PDFs both open in MuPDF and
+both elicit the same 24 `qpdf --check` content-stream warnings about
+`unexpected )`; the affected source content stream is retained unchanged.
+For page 39, MuPDF reports identical zlib/font errors on both outputs, so a
+successful rendered-page comparison remains unavailable there. The other 62
+pages match the recorded reference rendering hashes. Do not count page 39 as
+a passing render check.
 
 ## Encoding implementation provenance
 
