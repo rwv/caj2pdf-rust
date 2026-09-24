@@ -26,6 +26,8 @@ The [bounded I/O architecture](docs/io-architecture.md) records the native and
 JavaScript source/sink contract for the converter.
 The [conformance baseline](docs/conformance.md) documents the optional
 external corpus runner and independently generated MIT test fixtures.
+The [PDF input profile](docs/pdf-input.md) records supported syntax, repair
+rules, and the existing-outline policy.
 
 ## Versioning and development
 

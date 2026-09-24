@@ -26,9 +26,14 @@ and `%%EOF`; their presence must not change object or xref parsing.
 definitions in a different physical order. That order is legal and is a valid
 parser stress case.
 
-The other PDFs intentionally contain one named structural defect each: an
-overstated stream length, an out-of-range xref offset, an incorrect page-tree
-count, a duplicate object definition, or a cut-off xref table. The tiny
+The other PDFs intentionally contain structural defects: an overstated stream
+length, an out-of-range xref offset, an incorrect page-tree count, a duplicate
+object definition, or a cut-off xref table. The
+`repairable_duplicate_mediabox_tail.pdf` case combines two identical
+`/MediaBox` values in one `/Pages` dictionary with a 10,800-byte synthetic
+`WebFastLoadP` footer after the valid EOF. This models two observed external
+PDF-body inputs without copying
+their document bytes. The tiny
 CAJ/HN/C8/KDH/TEB files contain only an observed signature and are deliberately
 too short to be valid documents. A `malformed` entry describes input bytes; it
 does not predetermine whether a future repair operation rejects or repairs

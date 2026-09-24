@@ -12,7 +12,7 @@ pub const MAX_IO_CHUNK: usize = 1024 * 1024;
 pub struct Limits {
     /// Maximum payload per source/sink call. Must be in `1..=MAX_IO_CHUNK`.
     pub io_chunk_bytes: usize,
-    /// Maximum source size accepted for an operation.
+    /// Maximum selected input bytes: a whole source, PDF range, or sum of fragment spans.
     pub max_input_bytes: u64,
     /// Maximum total output bytes for an operation.
     pub max_output_bytes: u64,
@@ -67,7 +67,7 @@ impl Limits {
         Ok(())
     }
 
-    /// Check an input's stable size snapshot.
+    /// Check the selected input byte count for one operation.
     pub fn check_input_size(&self, bytes: u64) -> Result<()> {
         if bytes > self.max_input_bytes {
             return Err(Error::LimitExceeded {

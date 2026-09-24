@@ -30,6 +30,28 @@ Issue #5 uses these PDF 1.7 facts from the published
 | Image XObjects carry dimensions, color space, bits per component, and stream bytes. | Section 4.8, “Images,” including Table 4.39. | MuPDF opens generated image pages; Poppler `pdfimages` decodes synthetic pixels. |
 | Outlines link hierarchical items to page destinations; non-ASCII human-readable titles can be UTF-16BE text strings with a byte-order marker. | Section 8.2.2, “Document Outline,” and Section 3.8, “Common Data Structures” (text strings). | MuPDF independently reads generated outline titles and destinations. |
 
+Issue #6 uses the same published PDF 1.7 reference for indirect object
+syntax and stream lengths (Sections 3.2.5–3.2.7), classic cross-reference
+tables and incremental updates (Sections 3.4.3–3.4.5), document catalogs and
+page trees (Sections 3.6.1–3.6.2), and outlines and destinations (Section
+8.2.2). The reader and repair writer are new MIT code. The optional external
+corpus includes two PDF-body inputs with independently observed, identical
+duplicate `/MediaBox` entries in one `/Pages` dictionary and a
+`WebFastLoadP` or `WebFastLoadW` footer after an otherwise complete `%%EOF`
+marker:
+
+| External sample SHA-256 | Observed anomaly | Independent observation |
+| --- | --- | --- |
+| `d82e49e39b8d74d36e6a96f50ee4f8cb2d1a5e6072735c345c1bbeffcef1e091` | 26-page PDF body, 9,853 bytes after EOF beginning with `WebFastLoadP`, duplicate identical `/MediaBox [0 0 612 792]`. | `qpdf --check` 12.2.0 recovers the trailing data but warns; a normalized temporary copy retains all 26 rendered page hashes. |
+| `8ca4d3a2f42d926ba59b4e0d6c0a2cfd22a75a5c8df7cef05e890b7e79f6106f` | 11-page PDF body, 569 bytes after EOF beginning with `WebFastLoadW`, duplicate identical `/MediaBox [0 0 612 792]`. | Same validator behavior; a normalized temporary copy retains all 11 rendered page hashes. |
+
+These observations describe only the local files matching the listed digests.
+The external documents and derived PDF outputs are not included in this
+repository. The independently authored
+`tests/fixtures/repairable_duplicate_mediabox_tail.pdf` models those two
+anomalies for required clean-clone tests; its generator is
+`scripts/generate_fixtures.py` and it remains MIT-redistributable.
+
 The Python and Go projects below are behavioral references, not source-code
 templates. A format fact may be cited with its location, but implementation
 must be independently designed and tested. In particular, do not copy or
@@ -114,6 +136,12 @@ Issue #5 adds the original MIT forward-only PDF writer and document builder in
 `crates/caj2pdf-core/tests/{pdf_writer_low_level,pdf_document,pdf_validation}.rs`.
 The tests generate their PDF inputs during execution; no source or document
 was migrated from a reference converter, private prototype, or CAJSamples.
+
+Issue #6 adds original MIT PDF input, incremental update, and fragment repair
+code under `crates/caj2pdf-core/src/pdf/`, independent integration tests under
+`crates/caj2pdf-core/tests/`, and a synthetic malformed PDF case to
+`scripts/generate_fixtures.py`. No parser or decoder source from Python, Go,
+the private Rust prototype, or a PDF library is migrated.
 
 ## Dependency inventory and review
 
