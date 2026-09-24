@@ -247,7 +247,7 @@ test("WASM returns typed resource and truncation errors without panicking", asyn
   );
 });
 
-test("the JS bridge names a located KDH error", async () => {
+test("the JS bridge names the KDH error category", async () => {
   const wasm = { exports: {
     memory: new WebAssembly.Memory({ initial: 1 }),
     caj2pdf_io_start: () => 0,

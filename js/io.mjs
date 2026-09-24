@@ -125,8 +125,8 @@ function coreError(kind) {
 }
 
 /**
- * Drive the core Rust `copy_range` future through bounded JS range reads and
- * awaited writes. This copies bytes; it does not convert a document to PDF.
+ * Drive the selected Rust future through bounded JS range reads and awaited
+ * writes. The range-copy operation only copies bytes; KDH converts to PDF.
  * The raw WASM instance is single-operation. Use one instance per concurrent
  * operation until the handle-based production binding is implemented.
  */
