@@ -511,6 +511,46 @@ fn synthetic_root_never_satisfies_an_unrelated_missing_reference() {
 }
 
 #[test]
+fn synthetic_root_id_stays_clear_of_repairable_link_targets() {
+    let mut body = Vec::new();
+    object(
+        &mut body,
+        9,
+        "<< /Type /Page /Parent 5 0 R /MediaBox [0 0 72 72] /Resources << >> /Annots [12 0 R] >>",
+    );
+    object(
+        &mut body,
+        3,
+        "<< /Type /Page /Parent 6 0 R /MediaBox [0 0 72 72] /Resources << >> >>",
+    );
+    object(
+        &mut body,
+        5,
+        "<< /Type /Pages /Parent 20 0 R /Count 1 /Kids [9 0 R] >>",
+    );
+    object(
+        &mut body,
+        6,
+        "<< /Type /Pages /Parent 21 0 R /Count 1 /Kids [3 0 R] >>",
+    );
+    object(
+        &mut body,
+        12,
+        "<< /Type /Annot /Subtype /Link /Rect [0 0 20 20] /Border [0 0 0] /Dest [22 0 R /Fit] >>",
+    );
+    let input = fragment_caj(&body, &[9, 3]);
+    let (output, report) = convert(&input, ConversionOptions::default(), &Limits::default())
+        .expect("repair link without colliding with synthetic page-tree root");
+    assert_eq!(report.pages_converted, 2);
+    assert_eq!(inspect(&output).pages().len(), 2);
+    let pdf = String::from_utf8_lossy(&output);
+    assert!(pdf.contains("23 0 obj\n<< /Type /Pages /Count 2"), "{pdf}");
+    assert!(!pdf.contains("/Dest [22 0 R"), "{pdf}");
+    let file = TempPdf::write("root-link-collision", &output);
+    checked_command(Command::new("qpdf").arg("--check").arg(&file.0), "qpdf");
+}
+
+#[test]
 fn repairs_direct_and_indirect_broken_link_destinations_without_changing_render() {
     let baseline_input = fragment_caj(&one_page_body(None, None), &[9]);
     let (baseline_output, _) = convert(
