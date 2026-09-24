@@ -42,6 +42,19 @@ with one value. Conflicting values
 or other duplicate keys are ambiguous and fail. The original page content
 streams are not decoded or rewritten.
 
+The KDH PDF-body profile also normalizes a `stream` keyword followed by one
+carriage return. After validating the referenced object and its declared
+stream length, the copy path changes that one CR byte to LF; byte offsets and
+stream payloads are unchanged. A stale `/Parent` on a `/Page` can be replaced
+only if the reference is the sole dangling reference in that page and the
+validated page-tree `/Kids` traversal identifies a unique actual parent. The
+replacement is an incremental object update. Short incomplete object prefixes
+in one observed input are permitted in otherwise whitespace-only gaps only
+when the named object is free or is the immediately following live object.
+Their exact bytes are checked during copying and replaced by the same number
+of spaces. Other gap content remains an error. These repairs do not accept
+unrelated dangling references, duplicate page-tree children, or cycles.
+
 CAJ files that contain indirect object fragments but lack a complete PDF
 header/xref use `FragmentPlan`: the CAJ format handler supplies complete,
 nonoverlapping object byte spans and explicit page order. Reconstruction
@@ -92,3 +105,25 @@ clean `qpdf --check` result. MuPDF PNM renders at 36 dpi matched the input
 page by page: 26/26 and 11/11. This measures only the PDF-body repair path;
 the CAJ container conversion path is an issue #7 task. Neither the documents
 nor the generated outputs are committed here.
+
+## Optional KDH PDF-body check
+
+The ignored `kdh_pdf_external` test is `NOT_RUN` in normal test runs. Supply
+three independently decoded, trimmed PDF bodies named `issue-21.pdf`,
+`issue-34.pdf`, and `issue-48.pdf` in one external directory, then run:
+
+```sh
+CAJ2PDF_KDH_PDF_DIR=/path/to/decoded-pdfs \
+  cargo test --locked -p caj2pdf-core --test kdh_pdf_external -- --ignored --nocapture
+```
+
+At the pinned corpus revision used for issue #36, the local check returned
+`qpdf --check` exit 0 for all three normalized outputs and matching 36-dpi
+MuPDF PNM hashes on all 74 pages (6 + 67 + 1). This is PDF-body evidence;
+the KDH wrapper and decryption path remain issue #11 work. The same outputs,
+copied to the matrix-mapped paths outside Git, also returned inventory
+`PASS` 3/3 and PDF `PASS` 3/3 from
+`scripts/conformance.py --only-format KDH --pdf-dir ... --corpus-dir ...`:
+all page counts, dimensions, outlines, and 74 rendered-page hashes matched
+the pinned matrix. The first attempt used external symlinks and was rejected
+by the harness's path-safety check; the reported pass used copied files.

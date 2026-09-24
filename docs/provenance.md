@@ -59,8 +59,13 @@ Issue #36 uses PDF 1.7 Section 3.4.7, “Cross-Reference Streams,” for the
 3.4.5 for an incremental classic table pointing back to an earlier xref
 stream. Only the `FlateDecode` subset needed by independently observed KDH
 PDF bodies is implemented. No type-2 compressed object entry or object-stream
-reader is claimed. The synthetic PDF tests are repository-owned MIT work;
-the external documents and normalized outputs remain outside Git.
+reader is claimed. Two observed inputs have identical duplicate `/MediaBox`
+values; one also has six lone-CR separators after `stream`. The third has a
+stale page `/Parent` pointing to a free object and four short, inactive object
+prefixes between live objects. The latter cases are repaired only after the
+active xref and unique page-tree links are checked. The synthetic PDF tests
+are repository-owned MIT work; the external documents and normalized outputs
+remain outside Git.
 
 Issue #7's [CAJ format note](caj-format.md) records direct byte measurements
 for ten Python-success CAJ files from the same external matrix, including

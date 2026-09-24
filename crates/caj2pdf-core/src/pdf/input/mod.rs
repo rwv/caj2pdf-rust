@@ -34,6 +34,8 @@ const MAX_OBJECT_SYNTAX: u64 = 4 * 1024 * 1024;
 const MAX_XREF_SECTIONS: usize = 64;
 const MAX_XREF_INDEX_VALUES: usize = 8192;
 const MAX_XREF_STREAM_BYTES: u64 = 4 * 1024 * 1024;
+const MAX_ORPHAN_GAP_BYTES: u64 = 64;
+const MAX_ORPHAN_GAP_TOTAL: u64 = 64 * 1024;
 
 /// A complete indirect object in a PDF input, relative to the PDF range.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -50,6 +52,13 @@ pub struct RepairObject {
     pub body: Vec<u8>,
 }
 
+/// A short inactive object prefix, retained for source-stability checking
+/// before its bytes are replaced with equal-length whitespace.
+pub struct GapPatch {
+    pub offset: u64,
+    pub original: Vec<u8>,
+}
+
 /// Validated metadata retained from a PDF input.
 pub struct PdfIndex {
     range: PdfRange,
@@ -64,6 +73,11 @@ pub struct PdfIndex {
     has_outlines: bool,
     object_locations: Vec<Option<(u16, ObjectLocation)>>,
     repair_objects: Vec<RepairObject>,
+    retained_repair_bytes: u64,
+    stale_page_parents: Vec<(PdfRef, PdfRef)>,
+    stream_separator_patches: Vec<u64>,
+    gap_patches: Vec<GapPatch>,
+    retained_gap_bytes: u64,
     max_referenced_object: u32,
 }
 
@@ -103,6 +117,12 @@ impl PdfIndex {
     }
     pub fn repair_objects(&self) -> &[RepairObject] {
         &self.repair_objects
+    }
+    pub fn stream_separator_patches(&self) -> &[u64] {
+        &self.stream_separator_patches
+    }
+    pub fn gap_patches(&self) -> &[GapPatch] {
+        &self.gap_patches
     }
     pub fn max_referenced_object(&self) -> u32 {
         self.max_referenced_object
@@ -228,12 +248,27 @@ impl PdfIndex {
             has_outlines: false,
             object_locations,
             repair_objects: Vec::new(),
+            retained_repair_bytes: 0,
+            stale_page_parents: Vec::new(),
+            stream_separator_patches: Vec::new(),
+            gap_patches: Vec::new(),
+            retained_gap_bytes: 0,
             max_referenced_object: 0,
         };
         reader.validate_objects(&slots, &mut index).await?;
+        index.stream_separator_patches.sort_unstable();
         reader.read_structure(&slots, &mut index).await?;
+        if let Some((reference, _)) = index.stale_page_parents.first() {
+            let location = index.object_location(*reference)?;
+            return Err(reader.problem(
+                location.offset,
+                Some(*reference),
+                PdfErrorKind::Malformed,
+                "stale page Parent is not reachable through validated Kids",
+            ));
+        }
         reader
-            .validate_live_object_spans(&index, trailer.prev.is_none())
+            .validate_live_object_spans(&mut index, &slots, trailer.prev.is_none())
             .await?;
         Ok(index)
     }
@@ -1583,7 +1618,6 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
         slots: &[Option<XrefSlot>],
         index: &mut PdfIndex,
     ) -> Result<()> {
-        let mut retained_repair_bytes = 0_u64;
         for (number, slot) in slots.iter().enumerate().skip(1) {
             let Some(XrefSlot {
                 generation,
@@ -1617,6 +1651,25 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                     "live PDF object extends past logical EOF",
                 ));
             }
+            if let ObjectTail::Stream { data_start } = &head.tail {
+                if *data_start > 0 && head.bytes[*data_start - 1] == b'\r' {
+                    let patch_at = offset.checked_add(*data_start as u64 - 1).ok_or_else(|| {
+                        self.problem(
+                            *offset,
+                            Some(reference),
+                            PdfErrorKind::Malformed,
+                            "stream separator offset overflows",
+                        )
+                    })?;
+                    push_bounded(
+                        &mut index.stream_separator_patches,
+                        patch_at,
+                        self.limits.max_allocation_bytes / 8,
+                        "PDF stream separator patches",
+                    )
+                    .map_err(|error| self.locate_limit(patch_at, Some(reference), error))?;
+                }
+            }
             if let Some(dictionary) = &head.dictionary {
                 let kind = dictionary
                     .value(b"Type")
@@ -1628,13 +1681,42 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                     *offset,
                     &kind,
                     &mut index.repair_objects,
-                    &mut retained_repair_bytes,
+                    &mut index.retained_repair_bytes,
                 )?;
             }
+            let stale_parent = head.dictionary.as_ref().and_then(|dictionary| {
+                (dictionary.value(b"Type").and_then(exact_name).as_deref() == Some(b"Page")
+                    && matches!(&head.tail, ObjectTail::EndObject { .. }))
+                .then(|| dictionary.value(b"Parent").and_then(exact_reference))
+                .flatten()
+            });
             for target in &head.references {
                 let live = slots.get(target.number as usize).and_then(|slot| *slot);
                 if !matches!(live,Some(XrefSlot{generation,kind:XrefKind::InUse(_)}) if generation==target.generation)
                 {
+                    if matches!(
+                        live,
+                        Some(XrefSlot {
+                            kind: XrefKind::Free,
+                            ..
+                        })
+                    ) && stale_parent == Some(*target)
+                        && head
+                            .references
+                            .iter()
+                            .filter(|item| *item == target)
+                            .count()
+                            == 1
+                    {
+                        push_bounded(
+                            &mut index.stale_page_parents,
+                            (reference, *target),
+                            self.limits.max_allocation_bytes / 8,
+                            "PDF stale page parent candidates",
+                        )
+                        .map_err(|error| self.locate_limit(*offset, Some(reference), error))?;
+                        continue;
+                    }
                     return Err(self.problem(
                         *offset,
                         Some(reference),
@@ -1880,12 +1962,45 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
             }
             let actual_parent = actual_parent.flatten();
             if actual_parent != parent {
-                return Err(self.problem(
-                    location.offset,
-                    Some(reference),
-                    PdfErrorKind::Malformed,
-                    "page tree Parent link disagrees with Kids",
-                ));
+                if kind == b"Page" {
+                    if let (Some(expected), Some(stale)) = (parent, actual_parent) {
+                        if let Some(candidate) = index
+                            .stale_page_parents
+                            .iter()
+                            .position(|item| *item == (reference, stale))
+                        {
+                            self.repair_page_parent(
+                                &dictionary,
+                                reference,
+                                expected,
+                                location.offset,
+                                index,
+                            )?;
+                            index.stale_page_parents.swap_remove(candidate);
+                        } else {
+                            return Err(self.problem(
+                                location.offset,
+                                Some(reference),
+                                PdfErrorKind::Malformed,
+                                "page tree Parent link disagrees with Kids",
+                            ));
+                        }
+                    } else {
+                        return Err(self.problem(
+                            location.offset,
+                            Some(reference),
+                            PdfErrorKind::Malformed,
+                            "page tree Parent link disagrees with Kids",
+                        ));
+                    }
+                } else {
+                    return Err(self.problem(
+                        location.offset,
+                        Some(reference),
+                        PdfErrorKind::Malformed,
+                        "page tree Parent link disagrees with Kids",
+                    ));
+                }
             }
             let has_media_box = match dictionary.value(b"MediaBox") {
                 Some(value) => {
@@ -2554,14 +2669,94 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
         Ok(())
     }
 
+    fn repair_page_parent(
+        &self,
+        dictionary: &Dictionary,
+        reference: PdfRef,
+        parent: PdfRef,
+        at: u64,
+        index: &mut PdfIndex,
+    ) -> Result<()> {
+        let replacement = format!("/Parent {} {} R\n", parent.number, parent.generation);
+        let needed = dictionary
+            .entries
+            .iter()
+            .filter(|entry| entry.name != b"Parent")
+            .try_fold(4_usize + replacement.len(), |size, entry| {
+                size.checked_add(entry.pair.len() + 1)
+            })
+            .ok_or_else(|| {
+                self.problem(
+                    at,
+                    Some(reference),
+                    PdfErrorKind::Malformed,
+                    "page Parent repair size overflows",
+                )
+            })?;
+        let next_retained = index
+            .retained_repair_bytes
+            .checked_add(needed as u64)
+            .ok_or_else(|| {
+                self.problem(
+                    at,
+                    Some(reference),
+                    PdfErrorKind::Malformed,
+                    "PDF repair metadata size overflows",
+                )
+            })?;
+        let cap = self.limits.max_allocation_bytes / 2;
+        if next_retained > cap {
+            return Err(self.locate_limit(
+                at,
+                Some(reference),
+                Error::LimitExceeded {
+                    resource: "PDF repair object bytes",
+                    limit: cap,
+                    attempted: next_retained,
+                },
+            ));
+        }
+        let mut body = Vec::new();
+        body.try_reserve_exact(needed).map_err(|_| {
+            self.locate_limit(
+                at,
+                Some(reference),
+                Error::LimitExceeded {
+                    resource: "PDF repair object allocation",
+                    limit: cap,
+                    attempted: needed as u64,
+                },
+            )
+        })?;
+        body.extend_from_slice(b"<<\n");
+        for entry in &dictionary.entries {
+            if entry.name != b"Parent" {
+                body.extend_from_slice(entry.raw_pair(&dictionary.bytes));
+                body.push(b'\n');
+            }
+        }
+        body.extend_from_slice(replacement.as_bytes());
+        body.extend_from_slice(b">>");
+        push_bounded(
+            &mut index.repair_objects,
+            RepairObject { reference, body },
+            cap,
+            "PDF repair index",
+        )
+        .map_err(|error| self.locate_limit(at, Some(reference), error))?;
+        index.retained_repair_bytes = next_retained;
+        Ok(())
+    }
+
     async fn validate_live_object_spans(
         &mut self,
-        index: &PdfIndex,
+        index: &mut PdfIndex,
+        slots: &[Option<XrefSlot>],
         check_gaps: bool,
     ) -> Result<()> {
         let object_count = index.object_locations.iter().flatten().count();
         let bytes = object_count
-            .checked_mul(std::mem::size_of::<ObjectLocation>())
+            .checked_mul(std::mem::size_of::<(u32, ObjectLocation)>())
             .ok_or(Error::InvalidInput {
                 reason: "PDF object span index size overflows",
             })?;
@@ -2584,12 +2779,12 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
             index
                 .object_locations
                 .iter()
-                .flatten()
-                .map(|(_, location)| *location),
+                .enumerate()
+                .filter_map(|(number, slot)| slot.map(|(_, location)| (number as u32, location))),
         );
-        locations.sort_unstable_by_key(|location| location.offset);
+        locations.sort_unstable_by_key(|(_, location)| location.offset);
         let mut previous_end = 0_u64;
-        for location in locations {
+        for (number, location) in locations {
             if location.offset < previous_end {
                 return Err(self.problem(
                     location.offset,
@@ -2599,17 +2794,26 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                 ));
             }
             if check_gaps && previous_end != 0 {
-                self.validate_gap(previous_end, location.offset).await?;
+                self.validate_gap(previous_end, location.offset, Some(number), slots, index)
+                    .await?;
             }
             previous_end = location.offset + location.length;
         }
         if check_gaps && previous_end < index.xref_offset {
-            self.validate_gap(previous_end, index.xref_offset).await?;
+            self.validate_gap(previous_end, index.xref_offset, None, slots, index)
+                .await?;
         }
         Ok(())
     }
 
-    async fn validate_gap(&mut self, start: u64, end: u64) -> Result<()> {
+    async fn validate_gap(
+        &mut self,
+        start: u64,
+        end: u64,
+        next_live: Option<u32>,
+        slots: &[Option<XrefSlot>],
+        index: &mut PdfIndex,
+    ) -> Result<()> {
         let mut cursor = start;
         while cursor < end {
             match self.byte(cursor).await? {
@@ -2624,6 +2828,57 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                     }
                 }
                 _ => {
+                    let length = end - start;
+                    if length <= MAX_ORPHAN_GAP_BYTES {
+                        let original = self.bytes(start, length as usize).await?;
+                        if let Some(number) = parse_orphan_gap(&original) {
+                            let free = matches!(
+                                slots.get(number as usize).and_then(|slot| *slot),
+                                Some(XrefSlot {
+                                    kind: XrefKind::Free,
+                                    ..
+                                })
+                            );
+                            if free || next_live == Some(number) {
+                                let retained = index
+                                    .retained_gap_bytes
+                                    .checked_add(length)
+                                    .ok_or_else(|| {
+                                        self.problem(
+                                            start,
+                                            None,
+                                            PdfErrorKind::Malformed,
+                                            "orphan gap repair size overflows",
+                                        )
+                                    })?;
+                                let cap =
+                                    MAX_ORPHAN_GAP_TOTAL.min(self.limits.max_allocation_bytes / 8);
+                                if retained > cap {
+                                    return Err(self.locate_limit(
+                                        start,
+                                        None,
+                                        Error::LimitExceeded {
+                                            resource: "PDF orphan gap repair bytes",
+                                            limit: cap,
+                                            attempted: retained,
+                                        },
+                                    ));
+                                }
+                                push_bounded(
+                                    &mut index.gap_patches,
+                                    GapPatch {
+                                        offset: start,
+                                        original,
+                                    },
+                                    cap,
+                                    "PDF orphan gap repair index",
+                                )
+                                .map_err(|error| self.locate_limit(start, None, error))?;
+                                index.retained_gap_bytes = retained;
+                                return Ok(());
+                            }
+                        }
+                    }
                     return Err(self.problem(
                         cursor,
                         None,
@@ -2665,6 +2920,48 @@ fn read_be(bytes: &[u8], position: &mut usize, width: usize) -> Option<u64> {
     }
     *position = end;
     Some(value)
+}
+
+fn parse_orphan_gap(bytes: &[u8]) -> Option<u32> {
+    let mut value = bytes.trim_ascii_start();
+    let digits = value
+        .iter()
+        .take_while(|byte| byte.is_ascii_digit())
+        .count();
+    if digits == 0 || !value.get(digits).is_some_and(u8::is_ascii_whitespace) {
+        return None;
+    }
+    let number = std::str::from_utf8(&value[..digits])
+        .ok()?
+        .parse::<u32>()
+        .ok()?;
+    if number == 0 || number > MAX_PDF_OBJECTS {
+        return None;
+    }
+    value = value[digits..].trim_ascii_start();
+    if !value.starts_with(b"0") || value.get(1).is_some_and(|byte| !byte.is_ascii_whitespace()) {
+        return None;
+    }
+    value = value[1..].trim_ascii_start();
+    if value.is_empty() {
+        return Some(number);
+    }
+    if !value.starts_with(b"obj") || value.get(3).is_some_and(|byte| !byte.is_ascii_whitespace()) {
+        return None;
+    }
+    value = value[3..].trim_ascii();
+    if value.is_empty() || value == b"<" {
+        return Some(number);
+    }
+    let scalar_digits = value
+        .iter()
+        .take_while(|byte| byte.is_ascii_digit())
+        .count();
+    if scalar_digits == 0 {
+        return None;
+    }
+    let rest = value[scalar_digits..].trim_ascii();
+    (rest.is_empty() || rest == b"e").then_some(number)
 }
 
 enum InflateXrefError {

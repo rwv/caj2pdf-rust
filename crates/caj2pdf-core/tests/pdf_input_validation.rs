@@ -3,7 +3,7 @@
 //! Independent validator and renderer checks for inspected and updated PDFs.
 
 use caj2pdf_core::{
-    Bookmark, Cancellation, Error, Limits, NeverCancel, PdfErrorKind, RangedSource,
+    Bookmark, Cancellation, Error, Limits, NeverCancel, PdfErrorKind, RangedSource, SequentialSink,
     native::{SeekableSource, WriteSink},
     pdf::{
         FragmentObject, FragmentPlan, PdfIndex, PdfOutlineAppender, PdfRange, PdfRef, PdfWriter,
@@ -12,7 +12,7 @@ use caj2pdf_core::{
 };
 use flate2::{Compression, write::ZlibEncoder};
 use std::{
-    cell::Cell,
+    cell::{Cell, RefCell},
     fs::{File, OpenOptions, read, remove_file},
     future::Future,
     io::{Cursor, Write},
@@ -112,14 +112,20 @@ fn fixture(name: &str) -> PathBuf {
         .join(name)
 }
 
-fn synthetic_xref_stream_pdf(duplicate_box: bool, bomb: bool, compressed_object: bool) -> Vec<u8> {
-    synthetic_xref_stream_pdf_with_filter(duplicate_box, bomb, compressed_object, true)
+fn synthetic_xref_stream_pdf(
+    duplicate_box: bool,
+    bomb: bool,
+    compressed_object: bool,
+    gap: &[u8],
+) -> Vec<u8> {
+    synthetic_xref_stream_pdf_with_filter(duplicate_box, bomb, compressed_object, gap, true)
 }
 
 fn synthetic_xref_stream_pdf_with_filter(
     duplicate_box: bool,
     bomb: bool,
     compressed_object: bool,
+    gap: &[u8],
     flate: bool,
 ) -> Vec<u8> {
     let mut pdf = b"%PDF-1.7\n".to_vec();
@@ -140,6 +146,7 @@ fn synthetic_xref_stream_pdf_with_filter(
         pdf.extend_from_slice(body);
         pdf.extend_from_slice(b"\nendobj\n");
     }
+    pdf.extend_from_slice(gap);
     offsets[4] = pdf.len() as u32;
     let mut decoded = Vec::new();
     for (number, &offset) in offsets.iter().enumerate() {
@@ -177,6 +184,53 @@ fn synthetic_xref_stream_pdf_with_filter(
     pdf.extend_from_slice(&encoded);
     pdf.extend_from_slice(
         format!("\nendstream\nendobj\nstartxref\n{}\n%%EOF\n", offsets[4]).as_bytes(),
+    );
+    pdf
+}
+
+fn synthetic_stale_parent_pdf(page_body: &[u8]) -> Vec<u8> {
+    synthetic_stale_parent_pdf_with_tree(page_body, b"2 0 R", b"(unused but live)", b"")
+}
+
+fn synthetic_stale_parent_pdf_with_tree(
+    page_body: &[u8],
+    kids: &[u8],
+    other_body: &[u8],
+    gap: &[u8],
+) -> Vec<u8> {
+    let mut pdf = b"%PDF-1.7\n".to_vec();
+    let mut offsets = [0_usize; 6];
+    let pages = [
+        b"<< /Type /Pages /Count 1 /Kids [".as_slice(),
+        kids,
+        b"] /MediaBox [0 0 100 100] >>".as_slice(),
+    ]
+    .concat();
+    for (number, body) in [
+        (1, pages.as_slice()),
+        (2, page_body),
+        (4, b"<< /Type /Catalog /Pages 1 0 R >>".as_slice()),
+        (5, other_body),
+    ] {
+        if number == 4 {
+            pdf.extend_from_slice(gap);
+        }
+        offsets[number] = pdf.len();
+        pdf.extend_from_slice(format!("{number} 0 obj\n").as_bytes());
+        pdf.extend_from_slice(body);
+        pdf.extend_from_slice(b"\nendobj\n");
+    }
+    let xref_at = pdf.len();
+    pdf.extend_from_slice(b"xref\n0 6\n0000000000 65535 f \n");
+    for (number, offset) in offsets.iter().enumerate().skip(1) {
+        if number == 3 {
+            pdf.extend_from_slice(b"0000000000 00000 f \n");
+        } else {
+            pdf.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
+        }
+    }
+    pdf.extend_from_slice(
+        format!("trailer\n<< /Size 6 /Root 4 0 R >>\nstartxref\n{xref_at}\n%%EOF\n").as_bytes(),
     );
     pdf
 }
@@ -226,6 +280,47 @@ struct ArmAtPdfOffset {
     cancellation: Rc<CancelAfterXrefRead>,
 }
 
+struct SharedPdfSource(Rc<RefCell<Vec<u8>>>);
+
+impl RangedSource for SharedPdfSource {
+    fn size(&self) -> u64 {
+        self.0.borrow().len() as u64
+    }
+
+    async fn read_at(
+        &mut self,
+        offset: u64,
+        destination: &mut [u8],
+    ) -> caj2pdf_core::Result<usize> {
+        let bytes = self.0.borrow();
+        let remaining = bytes.get(offset as usize..).unwrap_or_default();
+        let count = remaining.len().min(destination.len());
+        destination[..count].copy_from_slice(&remaining[..count]);
+        Ok(count)
+    }
+}
+
+struct MutateOnFirstWrite {
+    bytes: Rc<RefCell<Vec<u8>>>,
+    at: usize,
+    replacement: u8,
+    written: Vec<u8>,
+}
+
+impl SequentialSink for MutateOnFirstWrite {
+    async fn write(&mut self, bytes: &[u8]) -> caj2pdf_core::Result<usize> {
+        if self.written.is_empty() {
+            self.bytes.borrow_mut()[self.at] = self.replacement;
+        }
+        self.written.extend_from_slice(bytes);
+        Ok(bytes.len())
+    }
+
+    async fn flush(&mut self) -> caj2pdf_core::Result<()> {
+        Ok(())
+    }
+}
+
 impl RangedSource for ArmAtPdfOffset {
     fn size(&self) -> u64 {
         self.bytes.len() as u64
@@ -251,7 +346,7 @@ impl RangedSource for ArmAtPdfOffset {
 
 #[test]
 fn flate_xref_stream_copy_handles_one_byte_reads() {
-    let input = synthetic_xref_stream_pdf(false, false, false);
+    let input = synthetic_xref_stream_pdf(false, false, false, b"");
     let mut source = OneBytePdfSource(input.clone());
     let mut sink = WriteSink::new(Vec::<u8>::new());
     let report = run_native(copy_pdf(
@@ -267,7 +362,7 @@ fn flate_xref_stream_copy_handles_one_byte_reads() {
 
 #[test]
 fn unfiltered_xref_stream_copy_reopens() {
-    let input = synthetic_xref_stream_pdf_with_filter(false, false, false, false);
+    let input = synthetic_xref_stream_pdf_with_filter(false, false, false, b"", false);
     let mut source = SeekableSource::new(Cursor::new(&input)).unwrap();
     let mut output = TempPdf::new("unfiltered-xref-stream");
     let report = run_native(copy_pdf(
@@ -324,7 +419,7 @@ fn xref_stream_row_parse_observes_cancellation() {
 
 #[test]
 fn duplicate_page_box_in_xref_stream_pdf_is_repaired_and_reopens() {
-    let input = synthetic_xref_stream_pdf(true, false, false);
+    let input = synthetic_xref_stream_pdf(true, false, false, b"");
     let mut source = SeekableSource::new(Cursor::new(input)).unwrap();
     let mut output = TempPdf::new("xref-stream-repair");
     let report = run_native(copy_pdf(
@@ -360,7 +455,7 @@ fn malformed_and_unsupported_xref_streams_are_typed() {
             PdfErrorKind::UnsupportedFeature,
         ),
     ] {
-        let mut input = synthetic_xref_stream_pdf(false, false, false);
+        let mut input = synthetic_xref_stream_pdf(false, false, false, b"");
         replace_once_same_len(&mut input, old, replacement);
         let error = inspect_bytes(input)
             .err()
@@ -370,7 +465,7 @@ fn malformed_and_unsupported_xref_streams_are_typed() {
             "{error}"
         );
     }
-    let error = inspect_bytes(synthetic_xref_stream_pdf(false, false, true))
+    let error = inspect_bytes(synthetic_xref_stream_pdf(false, false, true, b""))
         .err()
         .unwrap();
     assert!(
@@ -383,7 +478,7 @@ fn malformed_and_unsupported_xref_streams_are_typed() {
         ),
         "{error}"
     );
-    let error = inspect_bytes(synthetic_xref_stream_pdf(false, true, false))
+    let error = inspect_bytes(synthetic_xref_stream_pdf(false, true, false, b""))
         .err()
         .unwrap();
     assert!(
@@ -396,6 +491,458 @@ fn malformed_and_unsupported_xref_streams_are_typed() {
         ),
         "{error}"
     );
+}
+
+#[test]
+fn xref_stream_metadata_limits_and_unsupported_forms_are_located() {
+    for (before, after, kind) in [
+        (
+            b"/Type /XRef".as_slice(),
+            b"/Type /Page".as_slice(),
+            PdfErrorKind::Malformed,
+        ),
+        (
+            b"/W [1 4 2]".as_slice(),
+            b"/W [0 0 0]".as_slice(),
+            PdfErrorKind::Malformed,
+        ),
+        (
+            b"/W [1 4 2]".as_slice(),
+            b"/W [1 4]".as_slice(),
+            PdfErrorKind::Malformed,
+        ),
+        (
+            b"/Index [0 5]".as_slice(),
+            b"/Index [0]".as_slice(),
+            PdfErrorKind::Malformed,
+        ),
+        (
+            b"/Index [0 5]".as_slice(),
+            b"/Index [18446744073709551615 1]".as_slice(),
+            PdfErrorKind::Malformed,
+        ),
+        (
+            b"/Length ".as_slice(),
+            b"/Length 1 0 R /Unused ".as_slice(),
+            PdfErrorKind::UnsupportedFeature,
+        ),
+        (
+            b"/Filter /FlateDecode".as_slice(),
+            b"/Filter [/FlateDecode]".as_slice(),
+            PdfErrorKind::UnsupportedFeature,
+        ),
+        (
+            b"/Filter /FlateDecode".as_slice(),
+            b"/Filter /FlateDecode /DecodeParms << /Predictor 12 >>".as_slice(),
+            PdfErrorKind::UnsupportedFeature,
+        ),
+    ] {
+        let mut input = synthetic_xref_stream_pdf(false, false, false, b"");
+        replace_once(&mut input, before, after);
+        let error = inspect_bytes(input).err().expect("invalid xref metadata");
+        assert!(
+            matches!(error, Error::Pdf { kind: actual, .. } if actual == kind),
+            "{error}"
+        );
+    }
+
+    for (before, after, resource) in [
+        (
+            b"/Size 5 /Root".as_slice(),
+            b"/Size 600000 /Root".as_slice(),
+            "PDF xref decoded bytes",
+        ),
+        (
+            b"/Length ".as_slice(),
+            b"/Length 9000000 /Unused ".as_slice(),
+            "PDF xref encoded bytes",
+        ),
+    ] {
+        let mut input = synthetic_xref_stream_pdf(false, false, false, b"");
+        if resource == "PDF xref decoded bytes" {
+            replace_once(&mut input, b"/Index [0 5]", b"/Index [0 600000]");
+        }
+        replace_once(&mut input, before, after);
+        let error = inspect_bytes(input).err().expect("xref resource limit");
+        assert!(
+            matches!(error, Error::PdfLimitExceeded { resource: actual, .. } if actual == resource),
+            "{error}"
+        );
+    }
+}
+
+#[test]
+fn xref_stream_data_corruption_and_unsupported_rows_are_located() {
+    let mut input = synthetic_xref_stream_pdf(false, false, false, b"");
+    let data_at = input
+        .windows(7)
+        .position(|part| part == b"stream\n")
+        .unwrap()
+        + 7;
+    input[data_at] = 0;
+    let error = inspect_bytes(input).err().unwrap();
+    assert!(
+        matches!(
+            error,
+            Error::Pdf {
+                kind: PdfErrorKind::Malformed,
+                reason: "xref stream Flate data is invalid",
+                ..
+            }
+        ),
+        "{error}"
+    );
+
+    let mut unfiltered = synthetic_xref_stream_pdf_with_filter(false, false, false, b"", false);
+    replace_once(&mut unfiltered, b"/W [1 4 2]", b"/W [1 4 1]");
+    let error = inspect_bytes(unfiltered).err().unwrap();
+    assert!(
+        matches!(
+            error,
+            Error::Pdf {
+                kind: PdfErrorKind::Malformed,
+                reason: "xref stream length disagrees with W and Index",
+                ..
+            }
+        ),
+        "{error}"
+    );
+
+    let mut unknown_kind = synthetic_xref_stream_pdf_with_filter(false, false, false, b"", false);
+    let data_at = unknown_kind
+        .windows(7)
+        .position(|part| part == b"stream\n")
+        .unwrap()
+        + 7;
+    unknown_kind[data_at] = 3;
+    let error = inspect_bytes(unknown_kind).err().unwrap();
+    assert!(
+        matches!(
+            error,
+            Error::Pdf {
+                kind: PdfErrorKind::UnsupportedFeature,
+                reason: "xref entry type is unsupported",
+                ..
+            }
+        ),
+        "{error}"
+    );
+
+    let mut bad_offset = synthetic_xref_stream_pdf_with_filter(false, false, false, b"", false);
+    let data_at = bad_offset
+        .windows(7)
+        .position(|part| part == b"stream\n")
+        .unwrap()
+        + 7;
+    bad_offset[data_at + 8..data_at + 12].fill(0xff);
+    let error = inspect_bytes(bad_offset).err().unwrap();
+    assert!(
+        matches!(
+            error,
+            Error::Pdf {
+                kind: PdfErrorKind::Malformed,
+                reason: "xref object offset exceeds PDF range",
+                ..
+            }
+        ),
+        "{error}"
+    );
+
+    let mut bad_generation = synthetic_xref_stream_pdf_with_filter(false, false, false, b"", false);
+    replace_once(&mut bad_generation, b"/W [1 4 2]", b"/W [1 4 3]");
+    replace_once(&mut bad_generation, b"/Length 35", b"/Length 40");
+    let data_at = bad_generation
+        .windows(7)
+        .position(|part| part == b"stream\n")
+        .unwrap()
+        + 7;
+    let mut wider_rows = Vec::new();
+    for row in bad_generation[data_at..data_at + 35].chunks_exact(7) {
+        wider_rows.extend_from_slice(&row[..5]);
+        wider_rows.push(0);
+        wider_rows.extend_from_slice(&row[5..]);
+    }
+    wider_rows[13..16].copy_from_slice(&[1, 0, 0]);
+    bad_generation.splice(data_at..data_at + 35, wider_rows);
+    let error = inspect_bytes(bad_generation).err().unwrap();
+    assert!(
+        matches!(
+            error,
+            Error::Pdf {
+                kind: PdfErrorKind::Malformed,
+                reason: "xref generation exceeds 16 bits",
+                ..
+            }
+        ),
+        "{error}"
+    );
+
+    let mut missing_self = synthetic_xref_stream_pdf_with_filter(false, false, false, b"", false);
+    let data_at = missing_self
+        .windows(7)
+        .position(|part| part == b"stream\n")
+        .unwrap()
+        + 7;
+    missing_self[data_at + 4 * 7] = 0;
+    let error = inspect_bytes(missing_self).err().unwrap();
+    assert!(
+        matches!(
+            error,
+            Error::Pdf {
+                kind: PdfErrorKind::Malformed,
+                reason: "xref stream has no valid self entry",
+                ..
+            }
+        ),
+        "{error}"
+    );
+}
+
+#[test]
+fn xref_stream_default_index_and_nonstream_body_are_distinguished() {
+    let mut implicit_index = synthetic_xref_stream_pdf(false, false, false, b"");
+    replace_once(&mut implicit_index, b" /Index [0 5]", b"");
+    inspect_bytes(implicit_index).unwrap();
+
+    let mut regular_object = synthetic_xref_stream_pdf(false, false, false, b"");
+    replace_once(&mut regular_object, b">>\nstream\n", b">>\nendobj\n");
+    let error = inspect_bytes(regular_object).err().unwrap();
+    assert!(
+        matches!(
+            error,
+            Error::Pdf {
+                kind: PdfErrorKind::Malformed,
+                reason: "xref object is not a stream",
+                ..
+            }
+        ),
+        "{error}"
+    );
+}
+
+#[test]
+fn lone_cr_stream_separator_is_normalized_without_moving_offsets() {
+    let mut input = write_pdf_without_outlines();
+    let marker = b"stream\n";
+    let at = input
+        .windows(marker.len())
+        .position(|part| part == marker)
+        .unwrap()
+        + marker.len()
+        - 1;
+    input[at] = b'\r';
+    let mut source = SeekableSource::new(Cursor::new(input.clone())).unwrap();
+    let mut sink = WriteSink::new(Vec::<u8>::new());
+    run_native(copy_pdf(
+        &mut source,
+        &mut sink,
+        &Limits::default(),
+        &NeverCancel,
+    ))
+    .unwrap();
+    let mut expected = input;
+    expected[at] = b'\n';
+    assert_eq!(sink.into_inner(), expected);
+    inspect_bytes(expected).unwrap();
+}
+
+#[test]
+fn stale_page_parent_is_repaired_only_from_validated_kids() {
+    let input = synthetic_stale_parent_pdf(b"<< /Type /Page /Parent 3 0 R >>");
+    let mut source = SeekableSource::new(Cursor::new(input)).unwrap();
+    let mut output = TempPdf::new("stale-page-parent");
+    let report = run_native(copy_pdf(
+        &mut source,
+        &mut WriteSink::new(&mut output.file),
+        &Limits::default(),
+        &NeverCancel,
+    ))
+    .unwrap();
+    output.file.flush().unwrap();
+    assert_eq!(report.pages_converted, 1);
+    check_pdf(&output.path, 1);
+    assert!(
+        inspect_bytes(read(&output.path).unwrap())
+            .unwrap()
+            .repair_objects()
+            .is_empty()
+    );
+
+    let mut wrong_live = synthetic_stale_parent_pdf(b"<< /Type /Page /Parent 3 0 R >>");
+    replace_once_same_len(&mut wrong_live, b"/Parent 3 0 R", b"/Parent 4 0 R");
+    let error = inspect_bytes(wrong_live).err().unwrap();
+    assert!(
+        matches!(
+            error,
+            Error::Pdf {
+                kind: PdfErrorKind::Malformed,
+                ..
+            }
+        ),
+        "{error}"
+    );
+
+    let unrelated = synthetic_stale_parent_pdf(b"<< /Type /Page /Parent 3 0 R /Resources 3 0 R >>");
+    let error = inspect_bytes(unrelated).err().unwrap();
+    assert!(
+        matches!(
+            error,
+            Error::Pdf {
+                kind: PdfErrorKind::Malformed,
+                ..
+            }
+        ),
+        "{error}"
+    );
+
+    let unreachable = synthetic_stale_parent_pdf_with_tree(
+        b"<< /Type /Page /Parent 3 0 R >>",
+        b"5 0 R",
+        b"<< /Type /Page /Parent 1 0 R >>",
+        b"",
+    );
+    let error = inspect_bytes(unreachable).err().unwrap();
+    assert!(
+        matches!(
+            error,
+            Error::Pdf {
+                kind: PdfErrorKind::Malformed,
+                reason: "stale page Parent is not reachable through validated Kids",
+                ..
+            }
+        ),
+        "{error}"
+    );
+
+    let missing_parent = synthetic_stale_parent_pdf(b"<< /Type /Page >>");
+    let error = inspect_bytes(missing_parent).err().unwrap();
+    assert!(
+        matches!(
+            error,
+            Error::Pdf {
+                kind: PdfErrorKind::Malformed,
+                reason: "page tree Parent link disagrees with Kids",
+                ..
+            }
+        ),
+        "{error}"
+    );
+
+    let mut parent_on_root = synthetic_stale_parent_pdf(b"<< /Type /Page /Parent 1 0 R >>");
+    replace_once_same_len(&mut parent_on_root, b"/Kids [2 0 R]", b"/Parent 4 0 R");
+    let error = inspect_bytes(parent_on_root).err().unwrap();
+    assert!(
+        matches!(
+            error,
+            Error::Pdf {
+                kind: PdfErrorKind::Malformed,
+                reason: "page tree Parent link disagrees with Kids",
+                ..
+            }
+        ),
+        "{error}"
+    );
+}
+
+#[test]
+fn short_aborted_object_prefix_is_scrubbed_but_other_gap_content_fails() {
+    let input = synthetic_xref_stream_pdf(false, false, false, b"4 0 obj\r<\r\n");
+    let mut source = SeekableSource::new(Cursor::new(input)).unwrap();
+    let mut output = TempPdf::new("orphan-gap");
+    run_native(copy_pdf(
+        &mut source,
+        &mut WriteSink::new(&mut output.file),
+        &Limits::default(),
+        &NeverCancel,
+    ))
+    .unwrap();
+    output.file.flush().unwrap();
+    check_pdf(&output.path, 1);
+    let free_gap = synthetic_stale_parent_pdf_with_tree(
+        b"<< /Type /Page /Parent 1 0 R >>",
+        b"2 0 R",
+        b"(unused but live)",
+        b"3 0 obj\r<\r\n",
+    );
+    let mut source = SeekableSource::new(Cursor::new(free_gap)).unwrap();
+    let mut output = TempPdf::new("free-orphan-gap");
+    run_native(copy_pdf(
+        &mut source,
+        &mut WriteSink::new(&mut output.file),
+        &Limits::default(),
+        &NeverCancel,
+    ))
+    .unwrap();
+    output.file.flush().unwrap();
+    check_pdf(&output.path, 1);
+    let invalid = synthetic_xref_stream_pdf(false, false, false, b"arbitrary gap text\n");
+    let error = inspect_bytes(invalid).err().unwrap();
+    assert!(
+        matches!(
+            error,
+            Error::Pdf {
+                kind: PdfErrorKind::Malformed,
+                ..
+            }
+        ),
+        "{error}"
+    );
+
+    let active_but_not_next = synthetic_xref_stream_pdf(false, false, false, b"2 0 obj\r<\r\n");
+    let error = inspect_bytes(active_but_not_next).err().unwrap();
+    assert!(
+        matches!(
+            error,
+            Error::Pdf {
+                kind: PdfErrorKind::Malformed,
+                reason: "unindexed bytes between PDF objects",
+                ..
+            }
+        ),
+        "{error}"
+    );
+}
+
+#[test]
+fn copy_rechecks_stream_and_gap_patch_bytes_after_inspection() {
+    let mut lone_cr = write_pdf_without_outlines();
+    let separator = lone_cr
+        .windows(7)
+        .position(|part| part == b"stream\n")
+        .unwrap()
+        + 6;
+    lone_cr[separator] = b'\r';
+    let marker = b"4 0 obj\r<\r\n";
+    let orphan = synthetic_xref_stream_pdf(false, false, false, marker);
+    let gap = orphan
+        .windows(marker.len())
+        .position(|part| part == marker)
+        .unwrap();
+    for (bytes, at, reason) in [
+        (
+            lone_cr,
+            separator,
+            "PDF stream separator changed after inspection",
+        ),
+        (orphan, gap, "PDF orphan gap changed after inspection"),
+    ] {
+        let shared = Rc::new(RefCell::new(bytes));
+        let mut source = SharedPdfSource(shared.clone());
+        let mut sink = MutateOnFirstWrite {
+            bytes: shared,
+            at,
+            replacement: b'X',
+            written: Vec::new(),
+        };
+        let limits = Limits {
+            io_chunk_bytes: 16,
+            ..Limits::default()
+        };
+        let error = run_native(copy_pdf(&mut source, &mut sink, &limits, &NeverCancel))
+            .expect_err("changed source must fail copy");
+        assert!(matches!(error, Error::InvalidInput { reason: actual } if actual == reason));
+        assert!(!sink.written.is_empty());
+    }
 }
 
 #[test]
@@ -1003,6 +1550,16 @@ fn replace_once_same_len(bytes: &mut [u8], old: &[u8], new: &[u8]) {
         .collect();
     assert_eq!(positions.len(), 1, "test marker must be unique");
     bytes[positions[0]..positions[0] + old.len()].copy_from_slice(new);
+}
+
+fn replace_once(bytes: &mut Vec<u8>, old: &[u8], new: &[u8]) {
+    let positions: Vec<_> = bytes
+        .windows(old.len())
+        .enumerate()
+        .filter_map(|(index, window)| (window == old).then_some(index))
+        .collect();
+    assert_eq!(positions.len(), 1, "test marker must be unique");
+    bytes.splice(positions[0]..positions[0] + old.len(), new.iter().copied());
 }
 
 #[test]

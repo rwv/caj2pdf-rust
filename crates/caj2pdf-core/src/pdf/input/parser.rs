@@ -532,8 +532,18 @@ pub(super) fn parse_object_head(bytes: Vec<u8>) -> ParseResult<ObjectHead> {
         let byte = parser.peek()?;
         match byte {
             b'\n' => parser.pos += 1,
-            b'\r' if bytes.get(parser.pos + 1) == Some(&b'\n') => parser.pos += 2,
-            _ => return Err(malformed(parser.pos, "PDF stream requires LF or CRLF")),
+            b'\r' => {
+                parser.pos += 1;
+                if bytes.get(parser.pos) == Some(&b'\n') {
+                    parser.pos += 1;
+                }
+            }
+            _ => {
+                return Err(malformed(
+                    parser.pos,
+                    "PDF stream requires an end-of-line marker",
+                ));
+            }
         }
         ObjectTail::Stream {
             data_start: parser.pos,
@@ -782,7 +792,12 @@ mod tests {
             panic!("stream expected")
         };
         assert_eq!(&head.bytes[data_start..data_start + 8], b"endobj!!");
-        assert!(parse_object_head(b"5 0 obj << /Length 0 >> stream\rX".to_vec()).is_err());
+        let lone_cr = parse_object_head(b"5 0 obj << /Length 1 >> stream\rX".to_vec()).unwrap();
+        let ObjectTail::Stream { data_start } = lone_cr.tail else {
+            panic!("stream expected")
+        };
+        assert_eq!(&lone_cr.bytes[data_start..data_start + 1], b"X");
+        assert!(parse_object_head(b"5 0 obj << /Length 0 >> stream X".to_vec()).is_err());
     }
 
     #[test]
