@@ -539,6 +539,10 @@ fn a_failed_bitmap_poisons_interleaved_mq_access() {
         request(1, 1, reference(1, 1, 0, 0), 0, 0),
     ))
     .unwrap_err();
+    assert!(
+        matches!(error.kind, RefinementErrorKind::Sink(_)),
+        "{error:?}"
+    );
     assert!(error.progress.poisoned);
     assert!(matches!(
         host.mq_mut(),
