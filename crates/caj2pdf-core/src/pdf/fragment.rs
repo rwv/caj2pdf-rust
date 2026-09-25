@@ -9,7 +9,7 @@
 use super::input::{FragmentKind, inspect_fragment_object, inspect_fragment_scalar};
 use super::writer::{MAX_PDF_OBJECTS, check_classic_pdf_bytes, checked_object_number};
 use super::{MAX_CLASSIC_PDF_BYTES, PdfRange, PdfRef};
-use crate::fallible::{len_u64, reserve_exact, usize_from_u32};
+use crate::fallible::{checked_read_count, len_u64, reserve_exact, usize_from_u32};
 use crate::{
     Bookmark, Cancellation, ConversionReport, Error, Limits, PdfErrorKind, RangedSource, Result,
     SequentialSink, read_exact_at, write_all,
@@ -76,6 +76,8 @@ struct ContentEvidence {
     references: Vec<PdfRef>,
 }
 
+const OVERREAD: &str = "PDF source reported more bytes than requested";
+
 struct CountingSource<'a, R> {
     inner: &'a mut R,
     bytes_read: u64,
@@ -88,11 +90,7 @@ impl<R: RangedSource> RangedSource for CountingSource<'_, R> {
 
     async fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> Result<usize> {
         let read = self.inner.read_at(offset, destination).await?;
-        if read > destination.len() {
-            return Err(Error::InvalidInput {
-                reason: "PDF source reported more bytes than requested",
-            });
-        }
+        let read = checked_read_count(read, destination.len(), OVERREAD)?;
         self.bytes_read = self
             .bytes_read
             .checked_add(read as u64)
@@ -1740,42 +1738,79 @@ fn validate_existing_page_tree(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::NeverCancel;
-    use crate::test_support::{CancelAfter, run};
+    use crate::test_support::{CancelAfter, NEVER, run};
     use std::{cell::Cell, io};
 
-    struct BytesSource(Vec<u8>);
+    /// Byte segments placed at offsets of a sparse test source.
+    type Segments = Vec<(u64, Vec<u8>)>;
 
-    impl RangedSource for BytesSource {
-        fn size(&self) -> u64 {
-            self.0.len() as u64
-        }
-
-        async fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> Result<usize> {
-            let available = usize::try_from(offset)
-                .ok()
-                .and_then(|start| self.0.get(start..))
-                .unwrap_or_default();
-            let copied = available.len().min(destination.len()).min(7);
-            destination[..copied].copy_from_slice(&available[..copied]);
-            Ok(copied)
-        }
-    }
-
-    struct MeasuredSource {
-        inner: BytesSource,
+    /// The one source type of these tests, so every reconstruction shares a
+    /// single instantiation. Reads return at most seven bytes and are
+    /// counted; a sparse source is a large virtual span of zero bytes with a
+    /// few placed segments, read in full.
+    struct BytesSource {
+        bytes: Vec<u8>,
+        sparse: Option<(u64, Segments)>,
+        over_report: bool,
         bytes_read: u64,
     }
 
-    impl RangedSource for MeasuredSource {
+    impl BytesSource {
+        fn new(bytes: Vec<u8>) -> Self {
+            Self {
+                bytes,
+                sparse: None,
+                over_report: false,
+                bytes_read: 0,
+            }
+        }
+
+        fn sparse(size: u64, segments: Segments) -> Self {
+            Self {
+                sparse: Some((size, segments)),
+                ..Self::new(Vec::new())
+            }
+        }
+    }
+
+    impl RangedSource for BytesSource {
         fn size(&self) -> u64 {
-            self.inner.size()
+            self.sparse
+                .as_ref()
+                .map_or(self.bytes.len() as u64, |(size, _)| *size)
         }
 
         async fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> Result<usize> {
-            let read = self.inner.read_at(offset, destination).await?;
-            self.bytes_read += read as u64;
-            Ok(read)
+            let copied = if let Some((size, segments)) = &self.sparse {
+                let length = destination.len().min(size.saturating_sub(offset) as usize);
+                let end = offset + length as u64;
+                destination[..length].fill(0);
+                for (start, bytes) in segments {
+                    let segment_end = start + bytes.len() as u64;
+                    let from = offset.max(*start);
+                    let to = end.min(segment_end);
+                    if from < to {
+                        destination[(from - offset) as usize..(to - offset) as usize]
+                            .copy_from_slice(
+                                &bytes[(from - start) as usize..(to - start) as usize],
+                            );
+                    }
+                }
+                length
+            } else {
+                let available = usize::try_from(offset)
+                    .ok()
+                    .and_then(|start| self.bytes.get(start..))
+                    .unwrap_or_default();
+                let copied = available.len().min(destination.len()).min(7);
+                destination[..copied].copy_from_slice(&available[..copied]);
+                copied
+            };
+            self.bytes_read += copied as u64;
+            if self.over_report {
+                return Ok(destination.len() + 1);
+            }
+            Ok(copied)
         }
     }
 
@@ -1843,7 +1878,7 @@ mod tests {
         stream_body.extend_from_slice(b"\nendstream");
         let stream = add_object(&mut bytes, 6, &stream_body);
         (
-            BytesSource(bytes),
+            BytesSource::new(bytes),
             vec![second, first, scalar, stream],
             vec![reference(9), reference(3)],
         )
@@ -1873,7 +1908,7 @@ mod tests {
             b"<< /Type /Pages /Count 2 /Kids [9 0 R 7 0 R] >>",
         );
         (
-            BytesSource(bytes),
+            BytesSource::new(bytes),
             vec![first, catalog, second, branch, root],
             vec![reference(9), reference(3)],
         )
@@ -1883,11 +1918,11 @@ mod tests {
         assert_eq!(from.len(), to.len());
         let start = object.range.offset as usize;
         let end = start + object.range.length as usize;
-        let relative = source.0[start..end]
+        let relative = source.bytes[start..end]
             .windows(from.len())
             .position(|window| window == from)
             .expect("test token is present");
-        source.0[start + relative..start + relative + to.len()].copy_from_slice(to);
+        source.bytes[start + relative..start + relative + to.len()].copy_from_slice(to);
     }
 
     #[test]
@@ -1901,14 +1936,9 @@ mod tests {
                 pages_root: reference(5),
                 catalog: None,
             };
-            let report = reconstruct_fragment(
-                &mut source,
-                &mut sink,
-                &plan,
-                &Limits::default(),
-                &NeverCancel,
-            )
-            .await?;
+            let report =
+                reconstruct_fragment(&mut source, &mut sink, &plan, &Limits::default(), &NEVER)
+                    .await?;
             assert_eq!(report.pages_converted, 2);
             assert_eq!(report.output_bytes_written, sink.bytes.len() as u64);
             let pdf = String::from_utf8_lossy(&sink.bytes);
@@ -1924,11 +1954,7 @@ mod tests {
     #[test]
     fn input_report_counts_validation_and_copy_reads() {
         run(async {
-            let (inner, objects, pages) = two_page_fragment();
-            let mut source = MeasuredSource {
-                inner,
-                bytes_read: 0,
-            };
+            let (mut source, objects, pages) = two_page_fragment();
             let mut sink = BytesSink::default();
             let plan = FragmentPlan {
                 objects: &objects,
@@ -1936,14 +1962,9 @@ mod tests {
                 pages_root: reference(5),
                 catalog: None,
             };
-            let report = reconstruct_fragment(
-                &mut source,
-                &mut sink,
-                &plan,
-                &Limits::default(),
-                &NeverCancel,
-            )
-            .await?;
+            let report =
+                reconstruct_fragment(&mut source, &mut sink, &plan, &Limits::default(), &NEVER)
+                    .await?;
             assert_eq!(report.input_bytes_read, source.bytes_read);
             assert!(
                 report.input_bytes_read
@@ -1968,14 +1989,9 @@ mod tests {
                 pages_root: reference(5),
                 catalog: Some(reference(1)),
             };
-            let report = reconstruct_fragment(
-                &mut source,
-                &mut sink,
-                &plan,
-                &Limits::default(),
-                &NeverCancel,
-            )
-            .await?;
+            let report =
+                reconstruct_fragment(&mut source, &mut sink, &plan, &Limits::default(), &NEVER)
+                    .await?;
             assert_eq!(report.pages_converted, 2);
             let pdf = String::from_utf8_lossy(&sink.bytes);
             assert!(pdf.contains("/Root 1 0 R"));
@@ -2002,14 +2018,7 @@ mod tests {
                 pages_root: reference(5),
                 catalog: None,
             };
-            reconstruct_fragment(
-                &mut source,
-                &mut sink,
-                &plan,
-                &Limits::default(),
-                &NeverCancel,
-            )
-            .await?;
+            reconstruct_fragment(&mut source, &mut sink, &plan, &Limits::default(), &NEVER).await?;
             assert!(String::from_utf8_lossy(&sink.bytes).contains("/Root 10 0 R"));
 
             let mut bytes = b"CAJ\0".to_vec();
@@ -2019,7 +2028,7 @@ mod tests {
                 b"<< /Type /Page /Parent 5 0 R /MediaBox [0 0 200 300] /Resources << >> >>",
             );
             let catalog = add_object(&mut bytes, 1, b"<< /Type /Catalog /Pages 5 0 R >>");
-            let mut source = BytesSource(bytes);
+            let mut source = BytesSource::new(bytes);
             let objects = [page, catalog];
             let pages = [reference(9)];
             let mut sink = BytesSink::default();
@@ -2029,14 +2038,7 @@ mod tests {
                 pages_root: reference(5),
                 catalog: Some(reference(1)),
             };
-            reconstruct_fragment(
-                &mut source,
-                &mut sink,
-                &plan,
-                &Limits::default(),
-                &NeverCancel,
-            )
-            .await?;
+            reconstruct_fragment(&mut source, &mut sink, &plan, &Limits::default(), &NEVER).await?;
             let pdf = String::from_utf8_lossy(&sink.bytes);
             assert!(pdf.contains("/Root 1 0 R"));
             assert!(pdf.contains("/Kids [9 0 R ]"));
@@ -2089,15 +2091,10 @@ mod tests {
                     pages_root: reference(5),
                     catalog,
                 };
-                let error = reconstruct_fragment(
-                    &mut source,
-                    &mut sink,
-                    &plan,
-                    &Limits::default(),
-                    &NeverCancel,
-                )
-                .await
-                .unwrap_err();
+                let error =
+                    reconstruct_fragment(&mut source, &mut sink, &plan, &Limits::default(), &NEVER)
+                        .await
+                        .unwrap_err();
                 assert!(
                     matches!(error, Error::Pdf { kind, .. } if kind == expected),
                     "case {case}: {error}"
@@ -2124,7 +2121,7 @@ mod tests {
                     &mut sink,
                     &wrong_root,
                     &Limits::default(),
-                    &NeverCancel,
+                    &NEVER,
                 )
                 .await,
                 Err(Error::Pdf { .. })
@@ -2139,14 +2136,8 @@ mod tests {
                 catalog: None,
             };
             assert!(matches!(
-                reconstruct_fragment(
-                    &mut source,
-                    &mut sink,
-                    &plan,
-                    &Limits::default(),
-                    &NeverCancel,
-                )
-                .await,
+                reconstruct_fragment(&mut source, &mut sink, &plan, &Limits::default(), &NEVER,)
+                    .await,
                 Err(Error::Pdf {
                     kind: PdfErrorKind::AmbiguousRepair,
                     ..
@@ -2171,14 +2162,8 @@ mod tests {
                 catalog: None,
             };
             assert!(matches!(
-                reconstruct_fragment(
-                    &mut source,
-                    &mut sink,
-                    &plan,
-                    &Limits::default(),
-                    &NeverCancel,
-                )
-                .await,
+                reconstruct_fragment(&mut source, &mut sink, &plan, &Limits::default(), &NEVER,)
+                    .await,
                 Err(Error::Io(_))
             ));
             assert!(!sink.bytes.is_empty());
@@ -2190,7 +2175,7 @@ mod tests {
         run(async {
             let (mut source, objects, pages) = two_page_fragment();
             let scalar_offset = objects[2].range.offset as usize + b"4 0 obj\n".len();
-            source.0[scalar_offset] = b'1';
+            source.bytes[scalar_offset] = b'1';
             let mut sink = BytesSink::default();
             let plan = FragmentPlan {
                 objects: &objects,
@@ -2199,14 +2184,8 @@ mod tests {
                 catalog: None,
             };
             assert!(matches!(
-                reconstruct_fragment(
-                    &mut source,
-                    &mut sink,
-                    &plan,
-                    &Limits::default(),
-                    &NeverCancel,
-                )
-                .await,
+                reconstruct_fragment(&mut source, &mut sink, &plan, &Limits::default(), &NEVER,)
+                    .await,
                 Err(Error::Pdf {
                     kind: PdfErrorKind::Malformed,
                     ..
@@ -2232,7 +2211,7 @@ mod tests {
                 ..Limits::default()
             };
             assert!(matches!(
-                reconstruct_fragment(&mut source, &mut sink, &plan, &limits, &NeverCancel).await,
+                reconstruct_fragment(&mut source, &mut sink, &plan, &limits, &NEVER).await,
                 Err(Error::PdfLimitExceeded {
                     resource: "output bytes",
                     ..
@@ -2246,7 +2225,7 @@ mod tests {
                 max_input_bytes: first,
                 ..Limits::default()
             };
-            let error = reconstruct_fragment(&mut source, &mut sink, &plan, &limits, &NeverCancel)
+            let error = reconstruct_fragment(&mut source, &mut sink, &plan, &limits, &NEVER)
                 .await
                 .unwrap_err();
             assert!(
@@ -2273,7 +2252,7 @@ mod tests {
         run(async {
             let (mut source, mut objects, pages) = two_page_fragment();
             let wrong_destination = add_object(
-                &mut source.0,
+                &mut source.bytes,
                 12,
                 b"<< /Title (Wrong) /Dest [4 0 R /Fit] >>",
             );
@@ -2286,14 +2265,8 @@ mod tests {
                 catalog: None,
             };
             assert!(matches!(
-                reconstruct_fragment(
-                    &mut source,
-                    &mut sink,
-                    &plan,
-                    &Limits::default(),
-                    &NeverCancel,
-                )
-                .await,
+                reconstruct_fragment(&mut source, &mut sink, &plan, &Limits::default(), &NEVER,)
+                    .await,
                 Err(Error::Pdf {
                     kind: PdfErrorKind::Malformed,
                     reason: "outline destination does not target an ordered Page object",
@@ -2304,7 +2277,7 @@ mod tests {
 
             let (mut source, mut objects, pages) = two_page_fragment();
             objects.push(add_object(
-                &mut source.0,
+                &mut source.bytes,
                 12,
                 b"<< /Title (Named) /Dest (named-destination) >>",
             ));
@@ -2315,14 +2288,8 @@ mod tests {
                 catalog: None,
             };
             assert!(matches!(
-                reconstruct_fragment(
-                    &mut source,
-                    &mut sink,
-                    &plan,
-                    &Limits::default(),
-                    &NeverCancel,
-                )
-                .await,
+                reconstruct_fragment(&mut source, &mut sink, &plan, &Limits::default(), &NEVER,)
+                    .await,
                 Err(Error::Pdf {
                     kind: PdfErrorKind::UnsupportedFeature,
                     ..
@@ -2337,7 +2304,7 @@ mod tests {
         run(async {
             let (mut source, mut objects, pages) = two_page_fragment();
             let outline = add_object(
-                &mut source.0,
+                &mut source.bytes,
                 12,
                 b"<< /Title (Valid) /Dest [9 0 R /Fit] >>",
             );
@@ -2354,7 +2321,7 @@ mod tests {
                 ..Limits::default()
             };
             assert!(matches!(
-                reconstruct_fragment(&mut source, &mut sink, &plan, &limits, &NeverCancel).await,
+                reconstruct_fragment(&mut source, &mut sink, &plan, &limits, &NEVER).await,
                 Err(Error::PdfLimitExceeded {
                     resource: "bookmarks",
                     offset,
@@ -2382,7 +2349,7 @@ mod tests {
                 catalog: None,
             };
             let report =
-                reconstruct_fragment(&mut source, &mut sink, &plan, &limits, &NeverCancel).await?;
+                reconstruct_fragment(&mut source, &mut sink, &plan, &limits, &NEVER).await?;
             assert_eq!(report.pages_converted, 2);
             assert_eq!(report.output_bytes_written, sink.bytes.len() as u64);
             Ok::<(), Error>(())
@@ -2407,15 +2374,10 @@ mod tests {
                     pages_root: reference(5),
                     catalog: None,
                 };
-                let error = reconstruct_fragment(
-                    &mut source,
-                    &mut sink,
-                    &plan,
-                    &Limits::default(),
-                    &NeverCancel,
-                )
-                .await
-                .unwrap_err();
+                let error =
+                    reconstruct_fragment(&mut source, &mut sink, &plan, &Limits::default(), &NEVER)
+                        .await
+                        .unwrap_err();
                 assert!(
                     matches!(error, Error::Pdf { .. } | Error::TruncatedInput { .. }),
                     "case {case}: {error}"
@@ -2429,7 +2391,7 @@ mod tests {
     fn missing_reference_generation_and_memory_limit_are_typed() {
         run(async {
             let (mut source, mut objects, pages) = two_page_fragment();
-            objects.push(add_object(&mut source.0, 12, b"<< /Contents 77 0 R >>"));
+            objects.push(add_object(&mut source.bytes, 12, b"<< /Contents 77 0 R >>"));
             let mut sink = BytesSink::default();
             let plan = FragmentPlan {
                 objects: &objects,
@@ -2438,14 +2400,8 @@ mod tests {
                 catalog: None,
             };
             assert!(matches!(
-                reconstruct_fragment(
-                    &mut source,
-                    &mut sink,
-                    &plan,
-                    &Limits::default(),
-                    &NeverCancel,
-                )
-                .await,
+                reconstruct_fragment(&mut source, &mut sink, &plan, &Limits::default(), &NEVER,)
+                    .await,
                 Err(Error::Pdf {
                     kind: PdfErrorKind::Malformed,
                     reason: "indirect reference targets a missing object",
@@ -2463,14 +2419,8 @@ mod tests {
                 catalog: None,
             };
             assert!(matches!(
-                reconstruct_fragment(
-                    &mut source,
-                    &mut sink,
-                    &plan,
-                    &Limits::default(),
-                    &NeverCancel,
-                )
-                .await,
+                reconstruct_fragment(&mut source, &mut sink, &plan, &Limits::default(), &NEVER,)
+                    .await,
                 Err(Error::Pdf {
                     kind: PdfErrorKind::UnsupportedFeature,
                     ..
@@ -2491,7 +2441,7 @@ mod tests {
                 catalog: None,
             };
             assert!(matches!(
-                reconstruct_fragment(&mut source, &mut sink, &plan, &limits, &NeverCancel).await,
+                reconstruct_fragment(&mut source, &mut sink, &plan, &limits, &NEVER).await,
                 Err(Error::PdfLimitExceeded {
                     resource: "PDF allocation bytes",
                     object: Some((9, 0)),
@@ -2530,7 +2480,7 @@ mod tests {
                         &mut sink,
                         &plan,
                         &Limits::default(),
-                        &NeverCancel,
+                        &NEVER,
                     )
                     .await
                     .is_err(),
@@ -2546,7 +2496,7 @@ mod tests {
         run(async {
             let (mut source, mut objects, pages) = two_page_fragment();
             objects.push(add_object(
-                &mut source.0,
+                &mut source.bytes,
                 7,
                 b"<< /Type /Pages /Parent 5 0 R /Count 1 /Kids [9 0 R] >>",
             ));
@@ -2558,14 +2508,8 @@ mod tests {
             };
             let mut sink = BytesSink::default();
             assert!(matches!(
-                reconstruct_fragment(
-                    &mut source,
-                    &mut sink,
-                    &plan,
-                    &Limits::default(),
-                    &NeverCancel,
-                )
-                .await,
+                reconstruct_fragment(&mut source, &mut sink, &plan, &Limits::default(), &NEVER,)
+                    .await,
                 Err(Error::Pdf {
                     kind: PdfErrorKind::AmbiguousRepair,
                     ..
@@ -2582,14 +2526,8 @@ mod tests {
                 catalog: None,
             };
             assert!(matches!(
-                reconstruct_fragment(
-                    &mut source,
-                    &mut sink,
-                    &plan,
-                    &Limits::default(),
-                    &NeverCancel,
-                )
-                .await,
+                reconstruct_fragment(&mut source, &mut sink, &plan, &Limits::default(), &NEVER,)
+                    .await,
                 Err(Error::Pdf {
                     kind: PdfErrorKind::Malformed,
                     ..
@@ -2626,7 +2564,7 @@ mod tests {
                     catalog: Some(reference(1)),
                 };
                 assert!(
-                    reconstruct_fragment(&mut source, &mut sink, &plan, &limits, &NeverCancel)
+                    reconstruct_fragment(&mut source, &mut sink, &plan, &limits, &NEVER)
                         .await
                         .is_err(),
                     "case {case} unexpectedly succeeded"
@@ -2650,7 +2588,7 @@ mod tests {
                 3,
                 b"<< /Type /Page /Parent 5 0 R /MediaBox [0 0 400 250] /Resources << >> >>",
             );
-            let mut source = BytesSource(bytes);
+            let mut source = BytesSource::new(bytes);
             let objects = [first, second];
             let pages = [reference(12), reference(3)];
             let plan = FragmentPlan {
@@ -2665,7 +2603,7 @@ mod tests {
             };
             let mut sink = BytesSink::default();
             let report =
-                reconstruct_fragment(&mut source, &mut sink, &plan, &limits, &NeverCancel).await?;
+                reconstruct_fragment(&mut source, &mut sink, &plan, &limits, &NEVER).await?;
             assert_eq!(report.pages_converted, 2);
             assert!(String::from_utf8_lossy(&sink.bytes).contains("/Kids [12 0 R 3 0 R ]"));
             Ok::<(), Error>(())
@@ -2730,7 +2668,7 @@ mod tests {
                 let expected = match case {
                     0 => {
                         objects.push(add_object(
-                            &mut source.0,
+                            &mut source.bytes,
                             11,
                             b"<< /Type /Page /Parent 5 0 R /MediaBox [0 0 100 100] >>",
                         ));
@@ -2757,15 +2695,10 @@ mod tests {
                     catalog: Some(reference(1)),
                 };
                 let mut sink = BytesSink::default();
-                let error = reconstruct_fragment(
-                    &mut source,
-                    &mut sink,
-                    &plan,
-                    &Limits::default(),
-                    &NeverCancel,
-                )
-                .await
-                .unwrap_err();
+                let error =
+                    reconstruct_fragment(&mut source, &mut sink, &plan, &Limits::default(), &NEVER)
+                        .await
+                        .unwrap_err();
                 assert!(
                     matches!(error, Error::Pdf { kind, .. } if kind == expected),
                     "case {case}: {error}"
@@ -2788,14 +2721,8 @@ mod tests {
             };
             let mut sink = BytesSink::default();
             assert!(matches!(
-                reconstruct_fragment(
-                    &mut source,
-                    &mut sink,
-                    &plan,
-                    &Limits::default(),
-                    &NeverCancel,
-                )
-                .await,
+                reconstruct_fragment(&mut source, &mut sink, &plan, &Limits::default(), &NEVER,)
+                    .await,
                 Err(Error::Pdf {
                     kind: PdfErrorKind::Malformed,
                     ..
@@ -2813,14 +2740,8 @@ mod tests {
                 catalog: Some(reference(1)),
             };
             assert!(matches!(
-                reconstruct_fragment(
-                    &mut source,
-                    &mut sink,
-                    &plan,
-                    &Limits::default(),
-                    &NeverCancel,
-                )
-                .await,
+                reconstruct_fragment(&mut source, &mut sink, &plan, &Limits::default(), &NEVER,)
+                    .await,
                 Err(Error::Pdf {
                     kind: PdfErrorKind::Malformed,
                     ..
@@ -2844,15 +2765,10 @@ mod tests {
                 pages_root: reference(5),
                 catalog: None,
             };
-            let mut source = BytesSource(bytes);
-            let report = reconstruct_fragment(
-                &mut source,
-                &mut sink,
-                &plan,
-                &Limits::default(),
-                &NeverCancel,
-            )
-            .await?;
+            let mut source = BytesSource::new(bytes);
+            let report =
+                reconstruct_fragment(&mut source, &mut sink, &plan, &Limits::default(), &NEVER)
+                    .await?;
             assert_eq!(report.pages_converted, 1);
             assert_eq!(report.output_bytes_written, sink.bytes.len() as u64);
             Ok::<(), Error>(())
@@ -2891,16 +2807,11 @@ mod tests {
                     pages_root: reference(5),
                     catalog: None,
                 };
-                let mut source = BytesSource(bytes);
+                let mut source = BytesSource::new(bytes);
                 let mut sink = BytesSink::default();
-                let result = reconstruct_fragment(
-                    &mut source,
-                    &mut sink,
-                    &plan,
-                    &Limits::default(),
-                    &NeverCancel,
-                )
-                .await;
+                let result =
+                    reconstruct_fragment(&mut source, &mut sink, &plan, &Limits::default(), &NEVER)
+                        .await;
                 // Case 2 uses an indirect stream array; case 4 names the
                 // stream directly.
                 if case == 2 || case == 4 {
@@ -2952,7 +2863,7 @@ mod tests {
                     b"<< /Length 0 >>\nstream\nendstream",
                 ));
             }
-            let mut source = BytesSource(bytes);
+            let mut source = BytesSource::new(bytes);
             let mut sink = BytesSink::default();
             let plan = FragmentPlan {
                 objects: &objects,
@@ -2960,14 +2871,9 @@ mod tests {
                 pages_root: reference(5),
                 catalog: None,
             };
-            let report = reconstruct_fragment(
-                &mut source,
-                &mut sink,
-                &plan,
-                &Limits::default(),
-                &NeverCancel,
-            )
-            .await?;
+            let report =
+                reconstruct_fragment(&mut source, &mut sink, &plan, &Limits::default(), &NEVER)
+                    .await?;
             assert_eq!(report.pages_converted, 64);
             assert_eq!(report.output_bytes_written, sink.bytes.len() as u64);
             Ok::<(), Error>(())
@@ -2999,7 +2905,7 @@ mod tests {
                         &mut sink,
                         &plan,
                         &Limits::default(),
-                        &NeverCancel,
+                        &NEVER,
                     )
                     .await,
                     Err(Error::Pdf {
@@ -3020,14 +2926,8 @@ mod tests {
             };
             let mut sink = BytesSink::default();
             assert!(matches!(
-                reconstruct_fragment(
-                    &mut source,
-                    &mut sink,
-                    &plan,
-                    &Limits::default(),
-                    &NeverCancel,
-                )
-                .await,
+                reconstruct_fragment(&mut source, &mut sink, &plan, &Limits::default(), &NEVER,)
+                    .await,
                 Err(Error::Pdf {
                     kind: PdfErrorKind::AmbiguousRepair,
                     ..
@@ -3055,16 +2955,10 @@ mod tests {
                 pages_root: reference(5),
                 catalog: None,
             };
-            let mut source = BytesSource(bytes);
+            let mut source = BytesSource::new(bytes);
             assert!(matches!(
-                reconstruct_fragment(
-                    &mut source,
-                    &mut sink,
-                    &plan,
-                    &Limits::default(),
-                    &NeverCancel,
-                )
-                .await,
+                reconstruct_fragment(&mut source, &mut sink, &plan, &Limits::default(), &NEVER,)
+                    .await,
                 Err(Error::Pdf {
                     kind: PdfErrorKind::AmbiguousRepair,
                     ..
@@ -3183,7 +3077,7 @@ mod tests {
                 &plan,
                 &bookmarks,
                 &Limits::default(),
-                &NeverCancel,
+                &NEVER,
             )
             .await?;
             assert_eq!(report.pages_converted, 2);
@@ -3197,7 +3091,7 @@ mod tests {
             assert!(text.contains("/Next 15 0 R"));
             assert!(text.contains("/Prev 12 0 R"));
             assert!(text.contains("/Title <FEFFD834DD1E>"));
-            let mut output = BytesSource(sink.bytes);
+            let mut output = BytesSource::new(sink.bytes);
             let output_size = output.size();
             let inspected = super::super::input::PdfIndex::open(
                 &mut output,
@@ -3206,7 +3100,7 @@ mod tests {
                     length: output_size,
                 },
                 &Limits::default(),
-                &NeverCancel,
+                &NEVER,
             )
             .await?;
             assert_eq!(inspected.pages(), pages);
@@ -3251,7 +3145,7 @@ mod tests {
                     &plan,
                     &[bookmark],
                     &Limits::default(),
-                    &NeverCancel,
+                    &NEVER,
                 )
                 .await;
                 assert!(matches!(result, Err(Error::Pdf { .. })));
@@ -3272,55 +3166,12 @@ mod tests {
                     page_index: 0,
                 }],
                 &limits,
-                &NeverCancel,
+                &NEVER,
             )
             .await;
             assert!(matches!(result, Err(Error::PdfLimitExceeded { .. })));
             assert!(sink.bytes.is_empty());
         });
-    }
-
-    struct OverReportingSource(BytesSource);
-
-    impl RangedSource for OverReportingSource {
-        fn size(&self) -> u64 {
-            self.0.size()
-        }
-
-        async fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> Result<usize> {
-            self.0.read_at(offset, destination).await?;
-            Ok(destination.len() + 1)
-        }
-    }
-
-    /// A large virtual source: zero bytes except for a few placed segments.
-    struct SparseSource {
-        size: u64,
-        segments: Vec<(u64, Vec<u8>)>,
-    }
-
-    impl RangedSource for SparseSource {
-        fn size(&self) -> u64 {
-            self.size
-        }
-
-        async fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> Result<usize> {
-            let length = destination
-                .len()
-                .min(self.size.saturating_sub(offset) as usize);
-            let end = offset + length as u64;
-            destination[..length].fill(0);
-            for (start, bytes) in &self.segments {
-                let segment_end = start + bytes.len() as u64;
-                let from = offset.max(*start);
-                let to = end.min(segment_end);
-                if from < to {
-                    destination[(from - offset) as usize..(to - offset) as usize]
-                        .copy_from_slice(&bytes[(from - start) as usize..(to - start) as usize]);
-                }
-            }
-            Ok(length)
-        }
     }
 
     /// The usual plan: `pages` under a synthetic-or-existing root 5 and no
@@ -3369,7 +3220,7 @@ mod tests {
             add_object(&mut bytes, 2, b"3"),
         ];
         (
-            BytesSource(bytes),
+            BytesSource::new(bytes),
             objects,
             vec![reference(9), reference(3)],
         )
@@ -3388,23 +3239,69 @@ mod tests {
     #[test]
     fn source_that_over_reports_reads_is_rejected() {
         run(async {
-            let (inner, objects, pages) = two_page_fragment();
-            let mut source = OverReportingSource(inner);
+            let (mut source, objects, pages) = two_page_fragment();
+            source.over_report = true;
             let plan = plan(&objects, &pages);
             let mut sink = BytesSink::default();
             assert!(matches!(
-                reconstruct_fragment(
-                    &mut source,
-                    &mut sink,
-                    &plan,
-                    &Limits::default(),
-                    &NeverCancel,
-                )
-                .await,
+                reconstruct_fragment(&mut source, &mut sink, &plan, &Limits::default(), &NEVER,)
+                    .await,
                 Err(Error::InvalidInput {
                     reason: "PDF source reported more bytes than requested"
                 })
             ));
+            assert!(sink.bytes.is_empty());
+        });
+    }
+
+    #[test]
+    fn fragment_span_total_overflow_is_an_input_limit_before_reads() {
+        run(async {
+            let objects = [
+                FragmentObject {
+                    reference: reference(1),
+                    range: PdfRange {
+                        offset: 0,
+                        length: u64::MAX,
+                    },
+                },
+                FragmentObject {
+                    reference: reference(3),
+                    range: PdfRange {
+                        offset: 0,
+                        length: 2,
+                    },
+                },
+            ];
+            let pages = [reference(3)];
+            let plan = FragmentPlan {
+                objects: &objects,
+                pages: &pages,
+                pages_root: reference(2),
+                catalog: None,
+            };
+            let limits = Limits {
+                max_input_bytes: u64::MAX,
+                ..Limits::default()
+            };
+            let mut source = BytesSource::sparse(u64::MAX, Vec::new());
+            let mut sink = BytesSink::default();
+            let error = reconstruct_fragment(&mut source, &mut sink, &plan, &limits, &NEVER)
+                .await
+                .unwrap_err();
+            assert!(
+                matches!(
+                    error,
+                    Error::PdfLimitExceeded {
+                        object: Some((3, 0)),
+                        resource: "input bytes",
+                        attempted: u64::MAX,
+                        ..
+                    }
+                ),
+                "{error}"
+            );
+            assert_eq!(source.bytes_read, 0);
             assert!(sink.bytes.is_empty());
         });
     }
@@ -3419,7 +3316,7 @@ mod tests {
                 ..Limits::default()
             };
             let mut sink = BytesSink::default();
-            let error = reconstruct_fragment(&mut source, &mut sink, &plan, &limits, &NeverCancel)
+            let error = reconstruct_fragment(&mut source, &mut sink, &plan, &limits, &NEVER)
                 .await
                 .unwrap_err();
             assert!(
@@ -3458,7 +3355,7 @@ mod tests {
                 &plan,
                 &deep,
                 &Limits::default(),
-                &NeverCancel,
+                &NEVER,
             )
             .await
             .unwrap_err();
@@ -3482,7 +3379,7 @@ mod tests {
                 &plan,
                 &deep[..MAX_OUTLINE_DEPTH],
                 &Limits::default(),
-                &NeverCancel,
+                &NEVER,
             )
             .await?;
             assert_eq!(report.bookmarks_written, 256);
@@ -3509,7 +3406,7 @@ mod tests {
                 &plan,
                 &bookmarks,
                 &Limits::default(),
-                &NeverCancel,
+                &NEVER,
             )
             .await?;
             assert_eq!(report.output_bytes_written, sink.bytes.len() as u64);
@@ -3536,12 +3433,12 @@ mod tests {
                 &plan,
                 &bookmarks,
                 &Limits::default(),
-                &NeverCancel,
+                &NEVER,
             )
             .await?;
             assert_eq!(report.pages_converted, 2);
             assert_eq!(report.bookmarks_written, 4);
-            let mut output = BytesSource(sink.bytes);
+            let mut output = BytesSource::new(sink.bytes);
             let output_size = output.size();
             let inspected = super::super::input::PdfIndex::open(
                 &mut output,
@@ -3550,7 +3447,7 @@ mod tests {
                     length: output_size,
                 },
                 &Limits::default(),
-                &NeverCancel,
+                &NEVER,
             )
             .await?;
             assert_eq!(inspected.pages(), pages);
@@ -3565,7 +3462,7 @@ mod tests {
     fn indexed_heavy_fragment() -> (BytesSource, Vec<FragmentObject>, Vec<PdfRef>) {
         let (mut source, mut objects, pages) = content_rich_fragment();
         for number in 100..220 {
-            objects.push(add_object(&mut source.0, number, b"0"));
+            objects.push(add_object(&mut source.bytes, number, b"0"));
         }
         (source, objects, pages)
     }
@@ -3584,7 +3481,7 @@ mod tests {
                     &plan,
                     &bookmarks,
                     &Limits::default(),
-                    &NeverCancel,
+                    &NEVER,
                 )
                 .await?;
             }
@@ -3605,7 +3502,7 @@ mod tests {
                     &plan,
                     &bookmarks,
                     &limits,
-                    &NeverCancel,
+                    &NEVER,
                 )
                 .await
                 {
@@ -3666,7 +3563,7 @@ mod tests {
                 ..Limits::default()
             };
             let mut sink = BytesSink::default();
-            let error = reconstruct_fragment(&mut source, &mut sink, &plan, &limits, &NeverCancel)
+            let error = reconstruct_fragment(&mut source, &mut sink, &plan, &limits, &NEVER)
                 .await
                 .unwrap_err();
             assert!(
@@ -3697,7 +3594,7 @@ mod tests {
             };
             let mut sink = BytesSink::default();
             let report =
-                reconstruct_fragment(&mut source, &mut sink, &plan, &limits, &NeverCancel).await?;
+                reconstruct_fragment(&mut source, &mut sink, &plan, &limits, &NEVER).await?;
             assert_eq!(report.output_bytes_written, sink.bytes.len() as u64);
             assert!(String::from_utf8_lossy(&sink.bytes).contains("/Kids [9 0 R 3 0 R ]"));
             Ok::<(), Error>(())
@@ -3724,7 +3621,7 @@ mod tests {
             ),
             add_object(&mut bytes, 2, b"3"),
         ];
-        (BytesSource(bytes), objects, vec![reference(9)])
+        (BytesSource::new(bytes), objects, vec![reference(9)])
     }
 
     #[test]
@@ -3795,10 +3692,7 @@ mod tests {
                 segments.push((tail_offset, tail.to_vec()));
                 cursor = end;
             }
-            let mut source = SparseSource {
-                size: cursor,
-                segments,
-            };
+            let mut source = BytesSource::sparse(cursor, segments);
             let pages = [reference(9)];
             let plan = plan(&objects, &pages);
             let limits = Limits {
@@ -3807,7 +3701,7 @@ mod tests {
                 ..Limits::default()
             };
             let mut sink = BytesSink::default();
-            let error = reconstruct_fragment(&mut source, &mut sink, &plan, &limits, &NeverCancel)
+            let error = reconstruct_fragment(&mut source, &mut sink, &plan, &limits, &NEVER)
                 .await
                 .unwrap_err();
             assert!(
@@ -3847,19 +3741,14 @@ mod tests {
     fn references_beyond_the_object_profile_are_unsupported() {
         run(async {
             let (mut source, mut objects, pages) = two_page_fragment();
-            let extra = add_object(&mut source.0, 12, b"<< /Next 9000000 0 R >>");
+            let extra = add_object(&mut source.bytes, 12, b"<< /Next 9000000 0 R >>");
             objects.push(extra);
             let plan = plan(&objects, &pages);
             let mut sink = BytesSink::default();
-            let error = reconstruct_fragment(
-                &mut source,
-                &mut sink,
-                &plan,
-                &Limits::default(),
-                &NeverCancel,
-            )
-            .await
-            .unwrap_err();
+            let error =
+                reconstruct_fragment(&mut source, &mut sink, &plan, &Limits::default(), &NEVER)
+                    .await
+                    .unwrap_err();
             assert!(
                 matches!(
                     error,
@@ -3895,7 +3784,7 @@ mod tests {
                     page_index: 0,
                 }],
                 &Limits::default(),
-                &NeverCancel,
+                &NEVER,
             )
             .await;
             assert!(matches!(

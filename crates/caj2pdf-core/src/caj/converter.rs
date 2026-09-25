@@ -3,7 +3,7 @@
 //! CAJ to PDF conversion using bounded PDF fragment reconstruction.
 
 use super::parse_metadata;
-use crate::fallible::{reserve, reserve_exact};
+use crate::fallible::{checked_read_count, reserve, reserve_exact};
 use crate::pdf::input::{
     FragmentKind, LinkDestinationTarget, LinkRepairCandidate, LinkRepairKind, PatchedSource,
     inspect_fragment_object, inspect_link_destination_candidate, scan_fragment_objects,
@@ -18,6 +18,8 @@ use crate::{
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 
+const OVERREAD: &str = "CAJ source reported more bytes than requested";
+
 struct CountingSource<'a, S> {
     source: &'a mut S,
     bytes_read: u64,
@@ -30,11 +32,7 @@ impl<S: RangedSource> RangedSource for CountingSource<'_, S> {
 
     async fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> Result<usize> {
         let read = self.source.read_at(offset, destination).await?;
-        if read > destination.len() {
-            return Err(Error::InvalidInput {
-                reason: "CAJ source reported more bytes than requested",
-            });
-        }
+        let read = checked_read_count(read, destination.len(), OVERREAD)?;
         self.bytes_read = self
             .bytes_read
             .checked_add(read as u64)

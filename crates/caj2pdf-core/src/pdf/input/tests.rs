@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: MIT
 
 use super::*;
-use crate::NeverCancel;
 use crate::native::SeekableSource;
-use crate::test_support::{CancelAfter, run};
+use crate::test_support::{CancelAfter, NEVER, run};
 use std::io::Cursor;
 
 /// A classic-xref PDF with a binary-marker header comment and a trailer of
@@ -37,7 +36,7 @@ fn open_cancellable(
 }
 
 fn open_with(bytes: Vec<u8>, limits: &Limits) -> Result<PdfIndex> {
-    open_cancellable(bytes, limits, &NeverCancel)
+    open_cancellable(bytes, limits, &NEVER)
 }
 
 fn open(bytes: Vec<u8>) -> Result<PdfIndex> {
@@ -73,7 +72,7 @@ fn fragment_scanner_skips_binary_markers_repairs_unique_short_length_and_exclude
         0,
         hint - 3,
         &Limits::default(),
-        &NeverCancel,
+        &NEVER,
     ))
     .unwrap();
     assert_eq!(scan.objects.len(), 2);
@@ -88,7 +87,7 @@ fn fragment_scanner_skips_binary_markers_repairs_unique_short_length_and_exclude
         scan.patches[0].offset,
         &mut length,
         &Limits::default(),
-        &NeverCancel,
+        &NEVER,
     ))
     .unwrap();
     assert_eq!(length, actual.to_string().as_bytes());
@@ -107,7 +106,7 @@ fn fragment_scanner_rejects_ambiguous_nearby_stream_terminators() {
         0,
         hint,
         &Limits::default(),
-        &NeverCancel,
+        &NEVER,
     ));
     assert!(matches!(
         result,
@@ -130,7 +129,7 @@ fn fragment_scanner_does_not_stop_at_a_fake_final_stream_terminator() {
         0,
         hint,
         &Limits::default(),
-        &NeverCancel,
+        &NEVER,
     ))
     .err()
     .expect("fake final stream terminator was accepted");
@@ -156,7 +155,7 @@ fn fragment_scanner_grows_syntax_window_for_split_endobj_keyword() {
         0,
         bytes.len() as u64,
         &Limits::default(),
-        &NeverCancel,
+        &NEVER,
     ))
     .unwrap();
     assert_eq!(scan.objects.len(), 1);
@@ -175,7 +174,7 @@ fn fragment_scanner_uses_declared_stream_extent_even_with_complete_fake_terminat
         0,
         bytes.len() as u64,
         &Limits::default(),
-        &NeverCancel,
+        &NEVER,
     ))
     .unwrap();
     assert_eq!(scan.objects.len(), 1);
@@ -202,7 +201,7 @@ fn fragment_scanner_rejects_unbounded_or_width_changing_stream_repairs() {
             0,
             bytes.len() as u64,
             &Limits::default(),
-            &NeverCancel,
+            &NEVER,
         ))
         .err()
         .expect("unsafe stream repair was accepted");
@@ -219,7 +218,7 @@ fn fragment_scanner_rejects_unresolved_length_and_body_budget_before_output() {
         0,
         bytes.len() as u64,
         &Limits::default(),
-        &NeverCancel,
+        &NEVER,
     ));
     assert!(matches!(
         result,
@@ -238,7 +237,7 @@ fn fragment_scanner_rejects_unresolved_length_and_body_budget_before_output() {
         0,
         bytes.len() as u64,
         &limits,
-        &NeverCancel,
+        &NEVER,
     ));
     assert!(matches!(
         result,
@@ -260,7 +259,7 @@ fn fragment_scanner_rejects_invalid_ranges_and_unfinished_objects() {
                 start,
                 end,
                 &Limits::default(),
-                &NeverCancel
+                &NEVER
             )),
             Err(Error::Caj {
                 reason: "CAJ PDF fragment body range is invalid",
@@ -281,7 +280,7 @@ fn fragment_scanner_rejects_invalid_ranges_and_unfinished_objects() {
                 0,
                 bytes.len() as u64,
                 &Limits::default(),
-                &NeverCancel
+                &NEVER
             )),
             Err(Error::Pdf {
                 kind: PdfErrorKind::Malformed,
@@ -314,7 +313,7 @@ fn fragment_scanner_rejects_unsupported_generation_and_stream_framing() {
             0,
             bytes.len() as u64,
             &Limits::default(),
-            &NeverCancel,
+            &NEVER,
         ))
         .err()
         .expect("invalid fragment was accepted");
@@ -334,7 +333,7 @@ fn fragment_scanner_requires_a_dictionary_for_stream_payloads() {
         0,
         bytes.len() as u64,
         &Limits::default(),
-        &NeverCancel,
+        &NEVER,
     ))
     .err()
     .expect("a stream without a dictionary was accepted");
@@ -359,7 +358,7 @@ fn patched_stream_length_rejects_source_mutation_after_scan() {
         0,
         length,
         &Limits::default(),
-        &NeverCancel,
+        &NEVER,
     ))
     .unwrap();
     assert_eq!(scan.patches.len(), 1);
@@ -373,7 +372,7 @@ fn patched_stream_length_rejects_source_mutation_after_scan() {
         scan.patches[0].offset,
         &mut one,
         &Limits::default(),
-        &NeverCancel,
+        &NEVER,
     ));
     assert!(matches!(
         result,
@@ -422,15 +421,9 @@ fn fragment_scanner_caps_the_total_object_index_before_allocating_it() {
         ..Limits::default()
     };
     let size = source.size();
-    let error = run(scan_fragment_objects(
-        &mut source,
-        0,
-        size,
-        &limits,
-        &NeverCancel,
-    ))
-    .err()
-    .expect("an unbounded object index was accepted");
+    let error = run(scan_fragment_objects(&mut source, 0, size, &limits, &NEVER))
+        .err()
+        .expect("an unbounded object index was accepted");
     assert!(matches!(
         error,
         Error::PdfLimitExceeded {
@@ -463,7 +456,7 @@ fn patched_source_applies_multiple_sorted_lengths_across_split_reads() {
         body_start,
         body_end,
         &Limits::default(),
-        &NeverCancel,
+        &NEVER,
     ))
     .unwrap();
     assert_eq!(scan.objects.len(), 3);
@@ -514,7 +507,7 @@ fn patched_source_applies_multiple_sorted_lengths_across_split_reads() {
             offset as u64,
             std::slice::from_mut(byte),
             &one_byte_reads,
-            &NeverCancel,
+            &NEVER,
         ))
         .unwrap();
     }
@@ -536,7 +529,7 @@ fn repaired_final_stream_accepts_xml_trailer_but_rejects_unknown_tail() {
         0,
         understated_hint,
         &Limits::default(),
-        &NeverCancel,
+        &NEVER,
     ))
     .unwrap();
     assert_eq!(scan.objects.len(), 1);
@@ -552,7 +545,7 @@ fn repaired_final_stream_accepts_xml_trailer_but_rejects_unknown_tail() {
         0,
         understated_hint,
         &Limits::default(),
-        &NeverCancel,
+        &NEVER,
     ))
     .err()
     .expect("unknown trailer after repaired stream was accepted");
@@ -601,7 +594,7 @@ fn nested_page_order_indirect_contents_and_ranged_offsets_are_indexed() {
             length: doc.len() as u64,
         },
         &Limits::default(),
-        &NeverCancel,
+        &NEVER,
     ))
     .unwrap();
     assert_eq!(
@@ -1050,7 +1043,7 @@ fn fragment_catalog_with_unvalidated_outline_tree_is_unsupported() {
             generation: 0,
         },
         &Limits::default(),
-        &NeverCancel,
+        &NEVER,
         |_| None,
     ))
     .err()
@@ -1078,7 +1071,7 @@ fn inspect_raw_fragment(raw: &[u8]) -> Result<FragmentInspection> {
             generation: 0,
         },
         &Limits::default(),
-        &NeverCancel,
+        &NEVER,
         |_| None,
     ))
 }
@@ -1238,7 +1231,7 @@ fn source_ranges_and_parser_limits_have_precise_error_types() {
             length: doc.len() as u64 + 1,
         },
         &Limits::default(),
-        &NeverCancel,
+        &NEVER,
     ))
     .err()
     .unwrap();
@@ -1399,7 +1392,7 @@ fn scalar_fragment_requires_exact_framing() {
                 generation: 0,
             },
             &Limits::default(),
-            &NeverCancel,
+            &NEVER,
         ));
         if expected_none {
             assert!(matches!(result, Ok(None)));
@@ -2109,7 +2102,7 @@ fn xref_inflation_requires_exact_complete_streams() {
     let decoded = (0..=255).collect::<Vec<u8>>();
     let encoded = zlib(&decoded);
     assert_eq!(
-        inflate_xref(&encoded, decoded.len(), 7, &NeverCancel).ok(),
+        inflate_xref(&encoded, decoded.len(), 7, &NEVER).ok(),
         Some(decoded.clone())
     );
     assert!(matches!(
@@ -2117,30 +2110,25 @@ fn xref_inflation_requires_exact_complete_streams() {
         Err(InflateXrefError::Cancelled)
     ));
     assert!(matches!(
-        inflate_xref(&encoded, decoded.len() - 1, 7, &NeverCancel),
+        inflate_xref(&encoded, decoded.len() - 1, 7, &NEVER),
         Err(InflateXrefError::TooLong)
     ));
     assert!(matches!(
-        inflate_xref(&encoded, decoded.len() + 1, 7, &NeverCancel),
+        inflate_xref(&encoded, decoded.len() + 1, 7, &NEVER),
         Err(InflateXrefError::Malformed)
     ));
     let mut trailing = encoded.clone();
     trailing.push(0);
     assert!(matches!(
-        inflate_xref(&trailing, decoded.len(), 7, &NeverCancel),
+        inflate_xref(&trailing, decoded.len(), 7, &NEVER),
         Err(InflateXrefError::Malformed)
     ));
     assert!(matches!(
-        inflate_xref(
-            &encoded[..encoded.len() - 6],
-            decoded.len(),
-            7,
-            &NeverCancel
-        ),
+        inflate_xref(&encoded[..encoded.len() - 6], decoded.len(), 7, &NEVER),
         Err(InflateXrefError::Malformed)
     ));
     assert!(matches!(
-        inflate_xref(b"not zlib", decoded.len(), 7, &NeverCancel),
+        inflate_xref(b"not zlib", decoded.len(), 7, &NEVER),
         Err(InflateXrefError::Malformed)
     ));
 }
@@ -2386,7 +2374,7 @@ fn range_beyond_the_source_is_truncated_input() {
         &mut source,
         range,
         &Limits::default(),
-        &NeverCancel,
+        &NEVER,
     )));
     assert!(
         matches!(

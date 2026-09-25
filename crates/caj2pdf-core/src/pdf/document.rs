@@ -3,7 +3,7 @@
 //! Bounded page and outline assembly over the forward-only PDF writer.
 
 use super::writer::{MAX_PDF_INTEGER, ObjectId, PdfWriter};
-use crate::fallible::{len_u64, reserve_exact};
+use crate::fallible::{checked_read_count, len_u64, reserve_exact};
 use crate::{
     Bookmark, BookmarkVisitor, Cancellation, ConversionReport, Error, Limits, RangedSource, Result,
     SequentialSink, read_exact_at,
@@ -167,6 +167,8 @@ impl<W: SequentialSink, C: Cancellation> BilevelImageWriter<'_, '_, W, C> {
     }
 }
 
+const OVERREAD: &str = "image source reported more bytes than requested";
+
 struct CountingSource<'a, R> {
     inner: &'a mut R,
     total: &'a mut u64,
@@ -179,11 +181,7 @@ impl<R: RangedSource> RangedSource for CountingSource<'_, R> {
 
     async fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> Result<usize> {
         let read = self.inner.read_at(offset, destination).await?;
-        if read > destination.len() {
-            return Err(Error::InvalidInput {
-                reason: "image source reported more bytes than requested",
-            });
-        }
+        let read = checked_read_count(read, destination.len(), OVERREAD)?;
         let read = len_u64(read);
         *self.total = self.total.checked_add(read).ok_or(Error::InvalidInput {
             reason: "image input byte count overflows",
@@ -1131,9 +1129,8 @@ fn reserve_bounded<T>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::NeverCancel;
     use crate::pdf::{PdfIndex, PdfRange};
-    use crate::test_support::{CancelAfter, run};
+    use crate::test_support::{CancelAfter, NEVER, run};
     use std::io;
 
     /// A source whose bytes are all `0x5A`, optionally claiming to have read
@@ -1217,7 +1214,7 @@ mod tests {
             &mut source,
             PdfRange { offset: 0, length },
             &Limits::default(),
-            &NeverCancel,
+            &NEVER,
         ))
     }
 
@@ -1248,7 +1245,7 @@ mod tests {
         let mut sink = VecSink::default();
         let limits = Limits::default();
         let error = run(async {
-            let mut document = PdfDocument::new(&mut sink, &limits, &NeverCancel).await?;
+            let mut document = PdfDocument::new(&mut sink, &limits, &NEVER).await?;
             document
                 .add_image_page(&mut source, 0, 4, page(), gray_pixels(4))
                 .await
@@ -1269,7 +1266,7 @@ mod tests {
         let mut sink = VecSink::default();
         let limits = Limits::default();
         let (error, header_bytes) = run(async {
-            let mut document = PdfDocument::new(&mut sink, &limits, &NeverCancel).await?;
+            let mut document = PdfDocument::new(&mut sink, &limits, &NEVER).await?;
             let header_bytes = document.writer.position();
             let image = ImageSpec {
                 pixel_width: 10,
@@ -1304,7 +1301,7 @@ mod tests {
             ..Limits::default()
         };
         let error = run(async {
-            let mut document = PdfDocument::new(&mut sink, &limits, &NeverCancel).await?;
+            let mut document = PdfDocument::new(&mut sink, &limits, &NEVER).await?;
             document.pages_written = MAX_TREE_PAGES as u32;
             document
                 .add_image_page(&mut source, 0, 1, page(), gray_pixels(1))
@@ -1366,7 +1363,7 @@ mod tests {
         let mut sink = PageTreeSink::default();
         let limits = Limits::default();
         let report = run(async {
-            let mut document = PdfDocument::new(&mut sink, &limits, &NeverCancel).await?;
+            let mut document = PdfDocument::new(&mut sink, &limits, &NEVER).await?;
             for expected in 0..PAGES {
                 let index = document
                     .add_image_page(&mut source, 0, 1, page(), gray_pixels(1))
@@ -1413,7 +1410,7 @@ mod tests {
         let mut sink = VecSink::default();
         let limits = Limits::default();
         let report = run(async {
-            let mut document = PdfDocument::new(&mut sink, &limits, &NeverCancel).await?;
+            let mut document = PdfDocument::new(&mut sink, &limits, &NEVER).await?;
             document
                 .add_image_page(&mut source, 0, 1, page(), gray_pixels(1))
                 .await?;
@@ -1435,14 +1432,14 @@ mod tests {
     fn every_sink_failure_point_returns_the_io_error() {
         let limits = Limits::default();
         let mut clean = VecSink::default();
-        run(write_sample(&mut clean, &limits, &NeverCancel)).unwrap();
+        run(write_sample(&mut clean, &limits, &NEVER)).unwrap();
         assert!(clean.writes > 20);
         for fail_at in 1..=clean.writes {
             let mut sink = VecSink {
                 fail_at_write: Some(fail_at),
                 ..VecSink::default()
             };
-            let result = run(write_sample(&mut sink, &limits, &NeverCancel));
+            let result = run(write_sample(&mut sink, &limits, &NEVER));
             assert!(
                 matches!(&result, Err(Error::Io(error)) if error.to_string() == "injected sink failure"),
                 "write {fail_at}: {result:?}"

@@ -4,9 +4,9 @@
 
 use crate::Cancellation;
 use std::{
-    cell::Cell,
     future::Future,
     pin::pin,
+    sync::atomic::{AtomicU64, Ordering},
     task::{Context, Poll, Waker},
 };
 
@@ -16,10 +16,14 @@ use std::{
 pub(crate) fn ready<F: Future>(future: F) -> F::Output {
     let mut future = pin!(future);
     let mut context = Context::from_waker(Waker::noop());
-    match future.as_mut().poll(&mut context) {
-        Poll::Ready(output) => output,
-        Poll::Pending => panic!("in-memory test future unexpectedly yielded"),
-    }
+    let poll = future.as_mut().poll(&mut context);
+    let Poll::Ready(output) = poll else { yielded() };
+    output
+}
+
+/// Not generic, so every `ready` instantiation shares this failure path.
+fn yielded() -> ! {
+    panic!("in-memory test future unexpectedly yielded")
 }
 
 /// Alias of [`ready`] for tests that read as "run this operation".
@@ -31,14 +35,19 @@ pub(crate) fn run<F: Future>(future: F) -> F::Output {
 /// from then on, counting every query.
 #[derive(Debug)]
 pub(crate) struct CancelAfter {
-    queries: Cell<u64>,
+    queries: AtomicU64,
     allowed: u64,
 }
 
+/// A shared signal that never trips. Tests that do not exercise cancellation
+/// use it instead of `NeverCancel`, so their generic instantiations are the
+/// same ones that the cancellation tests use.
+pub(crate) static NEVER: CancelAfter = CancelAfter::new(u64::MAX);
+
 impl CancelAfter {
-    pub(crate) fn new(allowed: u64) -> Self {
+    pub(crate) const fn new(allowed: u64) -> Self {
         Self {
-            queries: Cell::new(0),
+            queries: AtomicU64::new(0),
             allowed,
         }
     }
@@ -55,15 +64,13 @@ impl CancelAfter {
 
     /// The number of cancellation queries observed so far.
     pub(crate) fn queries(&self) -> u64 {
-        self.queries.get()
+        self.queries.load(Ordering::Relaxed)
     }
 }
 
 impl Cancellation for CancelAfter {
     fn is_cancelled(&self) -> bool {
-        let seen = self.queries.get();
-        self.queries.set(seen + 1);
-        seen >= self.allowed
+        self.queries.fetch_add(1, Ordering::Relaxed) >= self.allowed
     }
 }
 
