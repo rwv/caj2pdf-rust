@@ -780,3 +780,66 @@ fn public_directory_errors_keep_location_and_underlying_header_cause() {
     assert!(header_error.to_string().contains("JBIG2 segment header"));
     assert!(std::error::Error::source(&header_error).is_some());
 }
+
+#[test]
+fn directory_wide_errors_render_without_a_segment_number() {
+    let bytes = join(&[
+        segment(0, 0, 0, &[], true, &[]),
+        segment(1, 0, 0, &[], true, &[]),
+    ]);
+    let mut source = SpySource::new(&bytes);
+    let error = run(read_embedded_directory(
+        &mut source,
+        SegmentSpan {
+            offset: 0,
+            length: bytes.len() as u64,
+        },
+        &Limits::default(),
+        HeaderLimits::default(),
+        DirectoryLimits {
+            max_segments: 1,
+            ..DirectoryLimits::default()
+        },
+        &NeverCancel,
+    ))
+    .unwrap_err();
+    assert_eq!((error.offset, error.segment), (11, None));
+    assert_eq!(
+        error.to_string(),
+        "JBIG2 directory at source byte 11: JBIG2 directory segments limit 1 exceeded by 2"
+    );
+}
+
+#[test]
+fn reference_scratch_is_reused_and_cleared_between_segments() {
+    let shared = join(&[
+        segment(0, 0, 1, &[], true, &[]),
+        segment(1, 0, 1, &[], true, &[]),
+        segment(2, 6, 1, &[0, 1], true, &[]),
+        segment(3, 6, 1, &[1, 0], true, &[]),
+    ]);
+    let directory = parse(&shared).unwrap();
+    assert_eq!(
+        directory
+            .segments
+            .iter()
+            .map(|segment| segment.referred_to.as_slice())
+            .collect::<Vec<_>>(),
+        [&[][..], &[], &[0, 1], &[1, 0]]
+    );
+
+    // The second two-reference list fits the existing scratch capacity; a
+    // repeat inside it must still be found and attributed to that segment.
+    let repeated = join(&[
+        segment(0, 0, 1, &[], true, &[]),
+        segment(1, 0, 1, &[], true, &[]),
+        segment(2, 6, 1, &[0, 1], true, &[]),
+        segment(3, 6, 1, &[1, 1], true, &[]),
+    ]);
+    let error = parse(&repeated).unwrap_err();
+    assert_eq!(error.segment, Some(3));
+    assert!(matches!(
+        error.kind,
+        DirectoryErrorKind::DuplicateReference(1)
+    ));
+}

@@ -487,6 +487,17 @@ mod tests {
             banks.mq_contexts_mut().get(INTEGER_CONTEXT_COUNT),
             Some(MqContext::default())
         );
+        // The unscoped alias clears both integer banks and appended models.
+        for index in [1, INTEGER_CONTEXT_COUNT + 6] {
+            banks.mq_contexts_mut().set(index, carried).unwrap();
+        }
+        banks.reset();
+        for index in [1, INTEGER_CONTEXT_COUNT + 6] {
+            assert_eq!(
+                banks.mq_contexts_mut().get(index),
+                Some(MqContext::default())
+            );
+        }
         let tight = MqBudget {
             max_contexts: INTEGER_CONTEXT_COUNT - 1,
             ..budget

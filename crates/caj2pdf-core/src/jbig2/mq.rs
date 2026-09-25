@@ -914,4 +914,52 @@ mod tests {
             }
         ));
     }
+
+    #[test]
+    fn symbol_counter_rejects_u64_max_overflow_before_any_work() {
+        let limits = Limits::default();
+        let budget = MqBudget {
+            max_symbols: u64::MAX,
+            ..MqBudget::default()
+        };
+        let states = vec![
+            MqState {
+                qe: 0x4000,
+                next_mps: 0,
+                next_lps: 0,
+                switch_mps: false,
+            };
+            MQ_STATE_COUNT
+        ];
+        let table = MqTable::new(states, &limits).unwrap();
+        let mut contexts = MqContexts::new(1, &limits, &budget).unwrap();
+        let mut source = SeekableSource::new(Cursor::new(vec![0, 0xff, 0xac])).unwrap();
+        let mut decoder = ready(MqDecoder::new(
+            &mut source,
+            MqSpan {
+                offset: 0,
+                length: 3,
+            },
+            &table,
+            &mut contexts,
+            &limits,
+            &NeverCancel,
+            budget,
+        ))
+        .unwrap();
+        decoder.symbols_decoded = u64::MAX;
+        let before = decoder.snapshot();
+        let error = ready(decoder.decode_bit(0)).unwrap_err();
+        assert_eq!(error.context, Some(0));
+        assert!(matches!(
+            error.kind,
+            MqErrorKind::LimitExceeded {
+                resource: "MQ symbols",
+                limit: u64::MAX,
+                attempted: u64::MAX,
+            }
+        ));
+        // The preflight failure leaves registers, work, and poison untouched.
+        assert_eq!(decoder.snapshot(), before);
+    }
 }

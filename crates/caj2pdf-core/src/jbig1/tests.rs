@@ -1014,3 +1014,343 @@ fn fixed_budget_mutations_return_without_panic_or_unbounded_work() {
         }
     }
 }
+
+fn span_of(bytes: &[u8]) -> Type0Span {
+    Type0Span {
+        record_type: 0,
+        offset: 0,
+        length: bytes.len() as u64,
+    }
+}
+
+#[test]
+fn preflight_rejects_cancelled_short_and_oversized_spans_before_reading() {
+    let bytes = image(3, 1, &[0, 0, 0]);
+    let table = table(1);
+    let limits = Limits::default();
+    let cancelled = FlagCancel(Rc::new(Cell::new(true)));
+    let oversized = Limits {
+        max_input_bytes: bytes.len() as u64 - 1,
+        ..limits
+    };
+    // A span no longer than the fixed 48-byte DIB header is truncated at its end.
+    let short = Type0Span {
+        record_type: 0,
+        offset: 5,
+        length: DIB_BYTES,
+    };
+    let cases = [
+        (span_of(&bytes), limits, true),
+        (short, limits, false),
+        (span_of(&bytes), oversized, false),
+    ];
+    let mut errors = Vec::new();
+    for (span, limits, cancel) in cases {
+        // Every read of this source fails, so these errors precede any I/O.
+        let mut source = DisruptedSource {
+            bytes: bytes.clone(),
+            stop_at: 0,
+            overreport: false,
+        };
+        let mut contexts = ContextBank::new(CONTEXT_COUNT, &limits).unwrap();
+        let mut sink = BytesSink::default();
+        let error = if cancel {
+            ready(Type0Decoder::new(
+                &mut source,
+                span,
+                &table,
+                &mut contexts,
+                &mut sink,
+                &limits,
+                &cancelled,
+                arithmetic_budget(),
+                Type0Budget::default(),
+            ))
+            .err()
+        } else {
+            ready(Type0Decoder::new(
+                &mut source,
+                span,
+                &table,
+                &mut contexts,
+                &mut sink,
+                &limits,
+                &NeverCancel,
+                arithmetic_budget(),
+                Type0Budget::default(),
+            ))
+            .err()
+        }
+        .expect("preflight must fail");
+        assert!(sink.bytes.is_empty());
+        errors.push(error);
+    }
+    assert_eq!(errors[0].offset, 0);
+    assert!(matches!(errors[0].kind, Type0ErrorKind::Cancelled));
+    assert_eq!(errors[1].offset, 5 + DIB_BYTES);
+    assert!(matches!(
+        errors[1].kind,
+        Type0ErrorKind::Truncated("DIB and coded bytes")
+    ));
+    assert_eq!(errors[2].offset, 0);
+    assert!(matches!(
+        errors[2].kind,
+        Type0ErrorKind::LimitExceeded {
+            resource: "image span bytes",
+            limit,
+            attempted,
+        } if limit == bytes.len() as u64 - 1 && attempted == bytes.len() as u64
+    ));
+}
+
+#[test]
+fn maximal_dimensions_report_context_work_overflow_without_allocating() {
+    let bytes = image(i32::MAX as u32, i32::MAX as u32, &[]);
+    let header: &[u8; 48] = (&bytes[..48]).try_into().unwrap();
+    let unbounded = Type0Budget {
+        max_width: u32::MAX,
+        max_height: u32::MAX,
+        max_pixels: u64::MAX,
+        max_context_work: u64::MAX,
+    };
+    let error = checked_info(
+        header,
+        Type0Span {
+            record_type: 0,
+            offset: 100,
+            length: 49,
+        },
+        &Limits::default(),
+        ArithmeticBudget {
+            max_symbols: u64::MAX,
+            max_work: u64::MAX,
+        },
+        unbounded,
+    )
+    .unwrap_err();
+    assert_eq!(error.offset, 104);
+    assert!(matches!(
+        error.kind,
+        Type0ErrorKind::Malformed("context work overflows")
+    ));
+}
+
+/// Reports cancellation from the `trip_at`-th query onward and counts queries.
+struct CountingCancel {
+    queries: Cell<u64>,
+    trip_at: u64,
+}
+
+impl Cancellation for CountingCancel {
+    fn is_cancelled(&self) -> bool {
+        let query = self.queries.get() + 1;
+        self.queries.set(query);
+        query >= self.trip_at
+    }
+}
+
+fn decode_every_row<S: RangedSource, W: SequentialSink, C: Cancellation>(
+    mut decoder: Type0Decoder<'_, S, W, C>,
+) -> Type0Result<Type0Report> {
+    while ready(decoder.decode_next_row())? {}
+    ready(decoder.finish())
+}
+
+fn decode_with_checks(
+    bytes: &[u8],
+    cancel: &CountingCancel,
+) -> (Type0Result<Type0Report>, Vec<u8>) {
+    let limits = Limits {
+        io_chunk_bytes: 1,
+        ..Limits::default()
+    };
+    let table = table(1);
+    let mut contexts = ContextBank::new(CONTEXT_COUNT, &limits).unwrap();
+    let mut source = SeekableSource::new(Cursor::new(bytes.to_vec())).unwrap();
+    let mut sink = BytesSink::default();
+    let result = ready(Type0Decoder::new(
+        &mut source,
+        span_of(bytes),
+        &table,
+        &mut contexts,
+        &mut sink,
+        &limits,
+        cancel,
+        arithmetic_budget(),
+        Type0Budget::default(),
+    ))
+    .and_then(decode_every_row);
+    (result, sink.bytes)
+}
+
+#[test]
+fn cancellation_observed_at_any_check_is_reported_as_cancelled() {
+    let bytes = image(3, 2, &[0, 0, 0]);
+    let baseline = CountingCancel {
+        queries: Cell::new(0),
+        trip_at: u64::MAX,
+    };
+    let (report, output) = decode_with_checks(&bytes, &baseline);
+    assert_eq!(report.unwrap().progress.rows_written, 2);
+    assert_eq!(output, [0; 8]);
+    let checks = baseline.queries.get();
+    // Header bytes, arithmetic prefetch, rows, writes, and finalization all
+    // observe cancellation; one-byte I/O makes each a separate check.
+    assert!(checks > 48, "only {checks} cancellation checks");
+
+    let mut previous_rows = 0;
+    for trip_at in 1..=checks {
+        let cancel = CountingCancel {
+            queries: Cell::new(0),
+            trip_at,
+        };
+        let (result, output) = decode_with_checks(&bytes, &cancel);
+        let error = result.expect_err("every check point must stop the image");
+        assert!(
+            matches!(error.kind, Type0ErrorKind::Cancelled),
+            "check {trip_at} returned {error}"
+        );
+        assert!((previous_rows..=2).contains(&error.rows_written));
+        assert_eq!(error.output_bytes_written, output.len() as u64);
+        previous_rows = error.rows_written;
+    }
+    assert_eq!(previous_rows, 2);
+}
+
+struct FlushSink {
+    bytes: Vec<u8>,
+    flush_error: Option<fn() -> Error>,
+    cancel_on_flush: Option<Rc<Cell<bool>>>,
+}
+
+impl SequentialSink for FlushSink {
+    async fn write(&mut self, bytes: &[u8]) -> crate::Result<usize> {
+        self.bytes.extend_from_slice(bytes);
+        Ok(bytes.len())
+    }
+    async fn flush(&mut self) -> crate::Result<()> {
+        if let Some(flag) = &self.cancel_on_flush {
+            flag.set(true);
+        }
+        match self.flush_error {
+            Some(error) => Err(error()),
+            None => Ok(()),
+        }
+    }
+}
+
+#[test]
+fn final_flush_failure_and_late_cancellation_keep_row_progress() {
+    let bytes = image(5, 1, &[0, 0, 0]);
+    let limits = Limits::default();
+    let table = table(1);
+    let failing: fn() -> Error = || Error::InvalidInput {
+        reason: "synthetic flush failure",
+    };
+    let cancelled: fn() -> Error = || Error::Cancelled;
+    let cases = [
+        (Some(failing), false, true),
+        (Some(cancelled), false, false),
+        (None, true, false),
+    ];
+    for (flush_error, cancel_on_flush, expect_sink_error) in cases {
+        let flag = Rc::new(Cell::new(false));
+        let cancel = FlagCancel(flag.clone());
+        let mut contexts = ContextBank::new(CONTEXT_COUNT, &limits).unwrap();
+        let mut source = SeekableSource::new(Cursor::new(bytes.clone())).unwrap();
+        let mut sink = FlushSink {
+            bytes: Vec::new(),
+            flush_error,
+            cancel_on_flush: cancel_on_flush.then_some(flag),
+        };
+        let mut decoder = ready(Type0Decoder::new(
+            &mut source,
+            span_of(&bytes),
+            &table,
+            &mut contexts,
+            &mut sink,
+            &limits,
+            &cancel,
+            arithmetic_budget(),
+            Type0Budget::default(),
+        ))
+        .unwrap();
+        assert!(ready(decoder.decode_next_row()).unwrap());
+        let error = ready(decoder.finish()).unwrap_err();
+        assert_eq!((error.rows_written, error.output_bytes_written), (1, 4));
+        // The all-MPS row consumed exactly the three initialization bytes.
+        assert_eq!(error.offset, DIB_BYTES + 3);
+        if expect_sink_error {
+            assert!(matches!(
+                error.kind,
+                Type0ErrorKind::Sink(Error::InvalidInput {
+                    reason: "synthetic flush failure"
+                })
+            ));
+        } else {
+            assert!(matches!(error.kind, Type0ErrorKind::Cancelled));
+        }
+        assert_eq!(sink.bytes, [0; 4]);
+    }
+}
+
+#[test]
+fn finish_rejects_a_poisoned_decoder_and_cancellation_before_flush() {
+    let bytes = image(5, 1, &[0, 0, 0]);
+    let limits = Limits::default();
+    let table = table(1);
+    let mut contexts = ContextBank::new(CONTEXT_COUNT, &limits).unwrap();
+    let mut source = SeekableSource::new(Cursor::new(bytes.clone())).unwrap();
+    let mut sink = BytesSink {
+        fail: true,
+        ..BytesSink::default()
+    };
+    let mut decoder = ready(Type0Decoder::new(
+        &mut source,
+        span_of(&bytes),
+        &table,
+        &mut contexts,
+        &mut sink,
+        &limits,
+        &NeverCancel,
+        arithmetic_budget(),
+        Type0Budget::default(),
+    ))
+    .unwrap();
+    assert!(matches!(
+        ready(decoder.decode_next_row()).unwrap_err().kind,
+        Type0ErrorKind::Sink(_)
+    ));
+    let error = ready(decoder.finish()).unwrap_err();
+    assert!(matches!(error.kind, Type0ErrorKind::Poisoned));
+    assert_eq!(error.rows_written, 0);
+
+    let flag = Rc::new(Cell::new(false));
+    let cancel = FlagCancel(flag.clone());
+    let mut contexts = ContextBank::new(CONTEXT_COUNT, &limits).unwrap();
+    let mut source = SeekableSource::new(Cursor::new(bytes.clone())).unwrap();
+    let mut sink = FlushSink {
+        bytes: Vec::new(),
+        flush_error: Some(|| Error::InvalidInput {
+            reason: "flush must not run after cancellation",
+        }),
+        cancel_on_flush: None,
+    };
+    let mut decoder = ready(Type0Decoder::new(
+        &mut source,
+        span_of(&bytes),
+        &table,
+        &mut contexts,
+        &mut sink,
+        &limits,
+        &cancel,
+        arithmetic_budget(),
+        Type0Budget::default(),
+    ))
+    .unwrap();
+    assert!(ready(decoder.decode_next_row()).unwrap());
+    flag.set(true);
+    let error = ready(decoder.finish()).unwrap_err();
+    assert!(matches!(error.kind, Type0ErrorKind::Cancelled));
+    assert_eq!((error.rows_written, error.output_bytes_written), (1, 4));
+}

@@ -163,6 +163,33 @@ fn zero_length_id_and_symbol_array_boundary() {
 }
 
 #[test]
+fn symbol_index_errors_name_the_rejected_values() {
+    let messages = [
+        (
+            checked_symbol_index(0, 0, 0).unwrap_err(),
+            "symbol count must be nonzero",
+        ),
+        (
+            checked_symbol_index(2, 3, 2).unwrap_err(),
+            "declared 3 symbols, but the array has 2",
+        ),
+        (
+            checked_symbol_index(3, 3, 3).unwrap_err(),
+            "symbol ID 3 is outside 0..3",
+        ),
+        // Only a narrower address space can produce this from real input.
+        (
+            SymbolIdError::TooManySymbols { count: u64::MAX },
+            "symbol count 18446744073709551615 exceeds the address space",
+        ),
+    ];
+    for (error, message) in messages {
+        assert_eq!(error.to_string(), message);
+        assert!(std::error::Error::source(&error).is_none());
+    }
+}
+
+#[test]
 fn iaid_and_a2_use_distinct_adaptive_banks_on_one_stream() {
     let limits = Limits::default();
     let budget = MqBudget::default();

@@ -868,3 +868,274 @@ fn fixed_budget_mutations_terminate_and_stay_within_span() {
         }
     }
 }
+
+#[test]
+fn wide_interval_mps_in_upper_subinterval_skips_renormalization() {
+    // Hand trace with the invented table: C starts at 0x3fbf8000 and A at
+    // 0x8000. The first decision (Qe=1) is an MPS exchange that moves the
+    // context to state 2 and doubles A to 0xfffe. The second decision
+    // (Qe=0x4000) leaves A-Qe=0xbffe >= 0x8000 with C high above Qe, so it
+    // returns the MPS unchanged without shifting or reading input.
+    let limits = Limits::default();
+    let budget = MqBudget::default();
+    let state_table = table(1);
+    let mut source = Source::new(&[0x7f, 0x7f, 0xff, 0xac]);
+    let mut contexts = bank(&budget, &limits);
+    let whole = span(&source);
+    let mut decoder = ready(MqDecoder::new(
+        &mut source,
+        whole,
+        &state_table,
+        &mut contexts,
+        &limits,
+        &NeverCancel,
+        budget,
+    ))
+    .unwrap();
+    assert_eq!(decoder.snapshot().code, 0x3fbf_8000);
+    assert!(!ready(decoder.decode_bit(0)).unwrap());
+    let first = decoder.snapshot();
+    assert_eq!(
+        (first.interval, first.code, first.bit_counter),
+        (0xfffe, 0x7f7d_0000, 0)
+    );
+    assert_eq!(
+        decoder.context(0),
+        Some(MqContext {
+            state_index: 2,
+            mps: false
+        })
+    );
+
+    assert!(!ready(decoder.decode_bit(0)).unwrap());
+    let second = decoder.snapshot();
+    assert_eq!(
+        (second.interval, second.code, second.bit_counter),
+        (0xbffe, 0x3f7d_0000, 0)
+    );
+    assert_eq!(second.current_input_offset, first.current_input_offset);
+    // Only the symbol decision itself is charged.
+    assert_eq!(second.work_done, first.work_done + 1);
+    assert_eq!(
+        decoder.context(0),
+        Some(MqContext {
+            state_index: 2,
+            mps: false
+        })
+    );
+    ready(decoder.finish(2)).unwrap();
+}
+
+#[test]
+fn span_beyond_input_limit_is_rejected_before_reading() {
+    let limits = Limits {
+        max_input_bytes: 3,
+        ..Limits::default()
+    };
+    let budget = MqBudget::default();
+    let state_table = table(0x4000);
+    let mut source = Source::new(&[0, 0, 0xff, 0xac]);
+    let mut contexts = bank(&budget, &limits);
+    let error = ready(MqDecoder::new(
+        &mut source,
+        MqSpan {
+            offset: 0,
+            length: 4,
+        },
+        &state_table,
+        &mut contexts,
+        &limits,
+        &NeverCancel,
+        budget,
+    ))
+    .err()
+    .unwrap();
+    assert_eq!(error.offset, Some(0));
+    assert!(matches!(
+        error.kind,
+        MqErrorKind::Source(Error::LimitExceeded {
+            limit: 3,
+            attempted: 4,
+            ..
+        })
+    ));
+    assert!(source.seen.is_empty());
+}
+
+#[test]
+fn exhausted_work_stops_the_terminal_refill_before_reading() {
+    // One-byte refills make initialization cost exactly three work units:
+    // two fetched bytes and one byte-input event. The terminal check then
+    // needs an uncached byte with no budget left.
+    let limits = Limits {
+        io_chunk_bytes: 1,
+        ..Limits::default()
+    };
+    let budget = MqBudget {
+        max_work: 3,
+        ..MqBudget::default()
+    };
+    let state_table = table(0x4000);
+    let mut source = Source::new(&[0, 0, 0xff, 0xac]);
+    let mut contexts = bank(&budget, &limits);
+    let decoder = ready(MqDecoder::new(
+        &mut source,
+        MqSpan {
+            offset: 0,
+            length: 4,
+        },
+        &state_table,
+        &mut contexts,
+        &limits,
+        &NeverCancel,
+        budget,
+    ))
+    .unwrap();
+    assert_eq!(decoder.snapshot().work_done, 3);
+    let error = ready(decoder.finish(0)).unwrap_err();
+    assert_eq!((error.offset, error.context), (Some(1), None));
+    assert!(matches!(
+        error.kind,
+        MqErrorKind::LimitExceeded {
+            resource: "MQ work",
+            limit: 3,
+            attempted: 4
+        }
+    ));
+    assert_eq!(
+        error.to_string(),
+        "T.88 MQ decoder at source byte 1: MQ work limit 3 exceeded by 4"
+    );
+    assert_eq!(source.seen, [(0, 1), (1, 1)]);
+}
+
+#[test]
+fn a_failed_decision_poisons_the_terminal_check() {
+    let limits = Limits::default();
+    let budget = MqBudget::default();
+    let state_table = table(0x4000);
+    let mut source = Source::new(&[0, 0]);
+    let mut contexts = bank(&budget, &limits);
+    let mut decoder = ready(MqDecoder::new(
+        &mut source,
+        MqSpan {
+            offset: 0,
+            length: 2,
+        },
+        &state_table,
+        &mut contexts,
+        &limits,
+        &NeverCancel,
+        budget,
+    ))
+    .unwrap();
+    ready(decoder.decode_bit(0)).unwrap();
+    assert!(matches!(
+        ready(decoder.decode_bit(0)).unwrap_err().kind,
+        MqErrorKind::MissingTerminator
+    ));
+    let error = ready(decoder.finish(1)).unwrap_err();
+    assert!(matches!(error.kind, MqErrorKind::Poisoned));
+    assert_eq!(
+        error.to_string(),
+        format!(
+            "T.88 MQ decoder at source byte {}: decoder state is poisoned",
+            error.offset.unwrap()
+        )
+    );
+}
+
+#[test]
+fn configuration_errors_render_without_a_source_location() {
+    use caj2pdf_core::jbig2::mq::MqError;
+
+    let limits = Limits::default();
+    let budget = MqBudget::default();
+    let wrong_count = MqTable::new(Vec::new(), &limits).unwrap_err();
+    assert_eq!(
+        wrong_count.to_string(),
+        "T.88 MQ decoder: invalid table: expected exactly 47 states"
+    );
+    let zero_budget = MqContexts::new(
+        1,
+        &limits,
+        &MqBudget {
+            max_symbols: 0,
+            ..budget
+        },
+    )
+    .unwrap_err();
+    assert_eq!(
+        zero_budget.to_string(),
+        "T.88 MQ decoder: invalid MQ budget"
+    );
+    let mut contexts = bank(&budget, &limits);
+    let bad_state = contexts
+        .set(
+            0,
+            MqContext {
+                state_index: MQ_STATE_COUNT as u8,
+                mps: false,
+            },
+        )
+        .unwrap_err();
+    assert_eq!(
+        bad_state.to_string(),
+        "T.88 MQ decoder, context 0: invalid context state index"
+    );
+    let state_table = table(0x4000);
+    let mut source = Source::new(&[0, 0, 0]);
+    let short_span = ready(MqDecoder::new(
+        &mut source,
+        MqSpan {
+            offset: 1,
+            length: 1,
+        },
+        &state_table,
+        &mut contexts,
+        &limits,
+        &NeverCancel,
+        budget,
+    ))
+    .err()
+    .unwrap();
+    assert_eq!(
+        short_span.to_string(),
+        "T.88 MQ decoder at source byte 1: invalid MQ span: requires at least two terminal bytes"
+    );
+    let cancelled = ready(MqDecoder::new(
+        &mut source,
+        MqSpan {
+            offset: 0,
+            length: 3,
+        },
+        &state_table,
+        &mut contexts,
+        &limits,
+        &Flag(Rc::new(Cell::new(true))),
+        budget,
+    ))
+    .err()
+    .unwrap();
+    assert_eq!(
+        cancelled.to_string(),
+        "T.88 MQ decoder at source byte 0: cancelled"
+    );
+    assert!(source.seen.is_empty());
+
+    for (kind, detail) in [
+        (MqErrorKind::AllocationFailed, "context allocation failed"),
+        (
+            MqErrorKind::Invariant("interval"),
+            "internal invariant: interval",
+        ),
+    ] {
+        let error = MqError {
+            offset: None,
+            context: None,
+            kind,
+        };
+        assert_eq!(error.to_string(), format!("T.88 MQ decoder: {detail}"));
+        assert!(std::error::Error::source(&error).is_none());
+    }
+}
