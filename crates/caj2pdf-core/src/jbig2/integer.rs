@@ -6,7 +6,7 @@
 //! banks. Other models may use contexts after them. This module does not own
 //! an MQ byte stream, finish it, or include T.88 Table E.1 probability rows.
 
-use super::mq::{MqBudget, MqContexts, MqDecoder, MqError, MqErrorKind, MqResult};
+use super::mq::{MqBudget, MqContext, MqContexts, MqDecoder, MqError, MqErrorKind, MqResult};
 use crate::{Cancellation, Limits, RangedSource};
 
 pub const CONTEXTS_PER_PROCEDURE: usize = 512;
@@ -48,9 +48,10 @@ pub enum IntegerValue {
 
 /// Initially zeroed integer banks, optionally followed by other MQ contexts.
 ///
-/// Create one bank set for a coding unit. Keep it across integer invocations
-/// in that unit; reset only at its next segment or dictionary boundary. The
-/// borrowed MQ decoder must be dropped or finished before `reset` is called.
+/// Create one bank set for a coding unit. Keep it across integer invocations.
+/// T.88 §7.4.2.2 resets integer contexts for each new symbol dictionary but
+/// may retain appended bitmap-model contexts. The borrowed MQ decoder must
+/// be dropped or finished before either reset method is called.
 #[derive(Debug)]
 pub struct IntegerContextBanks {
     contexts: MqContexts,
@@ -77,8 +78,22 @@ impl IntegerContextBanks {
         &mut self.contexts
     }
 
-    pub fn reset(&mut self) {
+    /// Reset only the thirteen arithmetic-integer banks; keep appended models.
+    pub fn reset_integer_contexts(&mut self) -> MqResult<()> {
+        for index in 0..INTEGER_CONTEXT_COUNT {
+            self.contexts.set(index, MqContext::default())?;
+        }
+        Ok(())
+    }
+
+    /// Reset integer banks and every appended model context.
+    pub fn reset_all(&mut self) {
         self.contexts.reset();
+    }
+
+    /// Reset every context, including appended models. Prefer the named reset.
+    pub fn reset(&mut self) {
+        self.reset_all();
     }
 }
 
@@ -414,7 +429,6 @@ mod tests {
 
     #[test]
     fn bank_allocation_extra_capacity_and_explicit_reset() {
-        use super::super::mq::MqContext;
         let limits = Limits::default();
         let budget = MqBudget::default();
         let mut banks = IntegerContextBanks::with_extra_contexts(7, &limits, &budget).unwrap();
@@ -446,8 +460,33 @@ mod tests {
                 },
             )
             .unwrap();
-        banks.reset();
+        let carried = MqContext {
+            state_index: 2,
+            mps: true,
+        };
+        banks
+            .mq_contexts_mut()
+            .set(INTEGER_CONTEXT_COUNT - 1, carried)
+            .unwrap();
+        banks
+            .mq_contexts_mut()
+            .set(INTEGER_CONTEXT_COUNT, carried)
+            .unwrap();
+        banks.reset_integer_contexts().unwrap();
         assert_eq!(banks.mq_contexts_mut().get(1), Some(MqContext::default()));
+        assert_eq!(
+            banks.mq_contexts_mut().get(INTEGER_CONTEXT_COUNT - 1),
+            Some(MqContext::default())
+        );
+        assert_eq!(
+            banks.mq_contexts_mut().get(INTEGER_CONTEXT_COUNT),
+            Some(carried)
+        );
+        banks.reset_all();
+        assert_eq!(
+            banks.mq_contexts_mut().get(INTEGER_CONTEXT_COUNT),
+            Some(MqContext::default())
+        );
         let tight = MqBudget {
             max_contexts: INTEGER_CONTEXT_COUNT - 1,
             ..budget

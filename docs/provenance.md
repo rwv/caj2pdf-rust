@@ -385,6 +385,10 @@ repository. An independently measured dictionary integer trace is not yet
 available, so external integer compatibility is `NOT_RUN` with zero claimed
 cases. The official probability table's distribution question remains in
 #44; this caller-table layer does not claim symbol-dictionary decoding.
+The follow-up reset rule comes from T.88 §7.4.2.2 steps 3–5 and 7: integer
+statistics are zeroed for each symbol dictionary while generic/refinement
+bitmap statistics can be restored or retained. The new integer-only reset
+preserves appended model contexts; the full reset remains available.
 
 ## Dependency inventory and review
 
