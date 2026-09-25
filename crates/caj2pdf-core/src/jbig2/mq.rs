@@ -21,6 +21,32 @@ fn allocation_bytes(contexts: usize) -> MqResult<u64> {
         .ok_or_else(|| MqError::configuration(MqErrorKind::InvalidContext))
 }
 
+/// Count completed source reads even when a later short read or cancellation
+/// makes the enclosing checked refill fail.
+struct ProgressSource<'a, S> {
+    inner: &'a mut S,
+    fetched: &'a mut u64,
+}
+
+impl<S: RangedSource> RangedSource for ProgressSource<'_, S> {
+    fn size(&self) -> u64 {
+        self.inner.size()
+    }
+
+    async fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> crate::Result<usize> {
+        let read = self.inner.read_at(offset, destination).await?;
+        if read <= destination.len() {
+            *self.fetched = self
+                .fetched
+                .checked_add(read as u64)
+                .ok_or(Error::InvalidInput {
+                    reason: "MQ fetched-byte counter overflows u64",
+                })?;
+        }
+        Ok(read)
+    }
+}
+
 /// One caller-supplied probability state, in T.88 Table E.1 column order.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct MqState {
@@ -515,7 +541,16 @@ impl<'a, S: RangedSource, C: Cancellation> MqDecoder<'a, S, C> {
     }
 
     fn charge(&mut self, count: u64, context: Option<usize>) -> MqResult<()> {
-        let attempted = self.work_done.saturating_add(count);
+        let attempted = self.work_done.checked_add(count).ok_or_else(|| {
+            self.at(
+                context,
+                MqErrorKind::LimitExceeded {
+                    resource: "MQ work",
+                    limit: self.budget.max_work,
+                    attempted: u64::MAX,
+                },
+            )
+        })?;
         if attempted > self.budget.max_work {
             return Err(self.at(
                 context,
@@ -559,8 +594,12 @@ impl<'a, S: RangedSource, C: Cancellation> MqDecoder<'a, S, C> {
             }
             self.charge(count, context)?;
             let offset = self.span.offset + relative;
+            let mut source = ProgressSource {
+                inner: self.source,
+                fetched: &mut self.source_bytes_fetched,
+            };
             read_exact_at(
-                self.source,
+                &mut source,
                 offset,
                 &mut self.buffer[..count as usize],
                 self.limits,
@@ -585,7 +624,6 @@ impl<'a, S: RangedSource, C: Cancellation> MqDecoder<'a, S, C> {
             })?;
             self.buffer_start = relative;
             self.buffered = count as usize;
-            self.source_bytes_fetched += count;
         }
         Ok(self.buffer[(relative - self.buffer_start) as usize])
     }
@@ -604,7 +642,16 @@ impl<'a, S: RangedSource, C: Cancellation> MqDecoder<'a, S, C> {
                         kind: MqErrorKind::InvalidMarker(next_byte),
                     });
                 }
-                let attempted = self.terminal_inputs.saturating_add(1);
+                let attempted = self.terminal_inputs.checked_add(1).ok_or_else(|| {
+                    self.at(
+                        context,
+                        MqErrorKind::LimitExceeded {
+                            resource: "MQ terminal inputs",
+                            limit: self.budget.max_terminal_inputs,
+                            attempted: u64::MAX,
+                        },
+                    )
+                })?;
                 if attempted > self.budget.max_terminal_inputs {
                     return Err(self.at(
                         context,
@@ -701,5 +748,78 @@ impl<'a, S: RangedSource, C: Cancellation> MqDecoder<'a, S, C> {
         self.renormalize(context).await?;
         self.contexts.states[context] = updated;
         Ok(bit)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{NeverCancel, native::SeekableSource};
+    use std::{
+        future::Future,
+        io::Cursor,
+        pin::pin,
+        task::{Context, Poll, Waker},
+    };
+
+    fn ready<F: Future>(future: F) -> F::Output {
+        let mut future = pin!(future);
+        let mut context = Context::from_waker(Waker::noop());
+        match future.as_mut().poll(&mut context) {
+            Poll::Ready(value) => value,
+            Poll::Pending => panic!("in-memory source unexpectedly yielded"),
+        }
+    }
+
+    #[test]
+    fn work_and_terminal_counters_reject_u64_max_overflow() {
+        let limits = Limits::default();
+        let budget = MqBudget {
+            max_work: u64::MAX,
+            max_terminal_inputs: u64::MAX,
+            ..MqBudget::default()
+        };
+        let states = vec![
+            MqState {
+                qe: 0x4000,
+                next_mps: 0,
+                next_lps: 0,
+                switch_mps: false,
+            };
+            MQ_STATE_COUNT
+        ];
+        let table = MqTable::new(states, &limits).unwrap();
+        let mut contexts = MqContexts::new(1, &limits, &budget).unwrap();
+        let mut source = SeekableSource::new(Cursor::new(vec![0, 0xff, 0xac])).unwrap();
+        let mut decoder = ready(MqDecoder::new(
+            &mut source,
+            MqSpan {
+                offset: 0,
+                length: 3,
+            },
+            &table,
+            &mut contexts,
+            &limits,
+            &NeverCancel,
+            budget,
+        ))
+        .unwrap();
+        decoder.work_done = u64::MAX;
+        assert!(matches!(
+            decoder.charge(1, None).unwrap_err().kind,
+            MqErrorKind::LimitExceeded {
+                resource: "MQ work",
+                ..
+            }
+        ));
+        decoder.work_done = 0;
+        decoder.terminal_inputs = u64::MAX;
+        assert!(matches!(
+            ready(decoder.byte_in(None)).unwrap_err().kind,
+            MqErrorKind::LimitExceeded {
+                resource: "MQ terminal inputs",
+                ..
+            }
+        ));
     }
 }

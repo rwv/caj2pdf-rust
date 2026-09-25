@@ -340,6 +340,37 @@ fn short_zero_and_overreported_reads_are_checked() {
     assert_eq!(error.offset, Some(1));
     assert!(std::error::Error::source(&error).is_some());
 
+    let one_byte_limits = Limits {
+        io_chunk_bytes: 1,
+        ..limits
+    };
+    let mut late_truncation = Source::new(&[0, 0]);
+    late_truncation.advertised = 4;
+    let mut contexts = bank(&budget, &one_byte_limits);
+    let late_table = table(0x5000);
+    let mut decoder = ready(MqDecoder::new(
+        &mut late_truncation,
+        MqSpan {
+            offset: 0,
+            length: 4,
+        },
+        &late_table,
+        &mut contexts,
+        &one_byte_limits,
+        &NeverCancel,
+        budget,
+    ))
+    .unwrap();
+    ready(decoder.decode_bit(0)).unwrap();
+    let error = ready(decoder.decode_bit(0)).unwrap_err();
+    assert!(matches!(
+        error.kind,
+        MqErrorKind::Source(Error::TruncatedInput { .. })
+    ));
+    assert_eq!(error.offset, Some(2));
+    assert_eq!(decoder.snapshot().source_bytes_fetched, 2);
+    assert!(decoder.snapshot().poisoned);
+
     let mut overreport = Source::new(&[0, 0, 0xff, 0xac]);
     overreport.overreport = true;
     let mut contexts = bank(&budget, &limits);
