@@ -391,12 +391,13 @@ fn three_line_context(
 }
 
 /// Checks that need no source bytes: shared limits, cancellation, the outer
-/// record type, and the span's containment in the source.
-fn check_span<S: RangedSource, C: Cancellation>(
-    source: &S,
+/// record type, and the span's containment in the source. Not generic, so
+/// every source and cancellation type shares one copy.
+fn check_span(
+    source_size: u64,
     image: Type0Span,
     limits: &Limits,
-    cancellation: &C,
+    cancellation: &dyn Cancellation,
 ) -> Type0Result<()> {
     limits
         .validate()
@@ -422,7 +423,7 @@ fn check_span<S: RangedSource, C: Cancellation>(
     if image.length <= DIB_BYTES {
         return Err(at(end, Type0ErrorKind::Truncated("DIB and coded bytes")));
     }
-    if end > source.size() {
+    if end > source_size {
         return Err(at(
             image.offset,
             Type0ErrorKind::InvalidSpan("outside source size"),
@@ -489,7 +490,7 @@ pub async fn read_type0_info<S: RangedSource, C: Cancellation>(
     arithmetic_budget: ArithmeticBudget,
     budget: Type0Budget,
 ) -> Type0Result<Type0Info> {
-    check_span(source, image, limits, cancellation)?;
+    check_span(source.size(), image, limits, cancellation)?;
     read_info(
         source,
         image,
@@ -532,7 +533,7 @@ impl<'a, S: RangedSource, W: SequentialSink, C: Cancellation> Type0Decoder<'a, S
         arithmetic_budget: ArithmeticBudget,
         budget: Type0Budget,
     ) -> Type0Result<Self> {
-        check_span(source, image, limits, cancellation)?;
+        check_span(source.size(), image, limits, cancellation)?;
         if contexts.state(CONTEXT_COUNT - 1).is_none() || contexts.state(CONTEXT_COUNT).is_some() {
             return Err(malformed(
                 image.offset,
