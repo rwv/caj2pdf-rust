@@ -107,11 +107,11 @@ pub(crate) async fn inspect_link_destination_candidate<S: RangedSource, C: Cance
     }
 
     let likely_link = is_link_with_destination(&head);
-    let likely_array = head
+    let array_page = head
         .scalar
         .as_ref()
-        .is_some_and(|span| destination_page(&head.bytes[span.clone()]).is_some());
-    if !likely_link && !likely_array {
+        .and_then(|span| destination_page(&head.bytes[span.clone()]));
+    if !likely_link && array_page.is_none() {
         return Ok(None);
     }
 
@@ -125,13 +125,8 @@ pub(crate) async fn inspect_link_destination_candidate<S: RangedSource, C: Cance
             attempted: range.length,
         });
     }
-    let length = usize::try_from(range.length).map_err(|_| Error::PdfLimitExceeded {
-        offset: range.offset,
-        object: Some((reference.number, reference.generation)),
-        resource: "PDF link repair object bytes",
-        limit: usize::MAX as u64,
-        attempted: range.length,
-    })?;
+    // `maximum` is at most the 4 MiB object syntax limit.
+    let length = usize::try_from(range.length).expect("object syntax limit fits usize");
     let complete = reader.bytes(0, length).await?;
     if !complete.starts_with(&head.bytes) {
         return Err(reader.malformed(
@@ -142,20 +137,13 @@ pub(crate) async fn inspect_link_destination_candidate<S: RangedSource, C: Cance
     }
     let complete = parse_object_head(complete)
         .map_err(|issue| reader.parse_issue(0, Some(reference), issue))?;
-    if complete.reference != reference {
-        return Err(reader.malformed(
-            0,
-            Some(reference),
-            "link repair object header changed while reading",
-        ));
-    }
-    let ObjectTail::EndObject { end } = complete.tail else {
-        return Err(reader.malformed(
-            0,
-            Some(reference),
-            "link repair candidate changed into a stream",
-        ));
-    };
+    // `complete` extends `head.bytes`, which parsed to this reference with its
+    // `endobj` keyword inside those bytes. Every earlier token is delimited
+    // within the shared prefix, so a successful parse of the longer buffer
+    // reads the same header, value, and tail; only a byte glued to `endobj`
+    // can differ, and that fails the parse above.
+    debug_assert_eq!(complete.reference, reference);
+    debug_assert!(matches!(complete.tail, ObjectTail::EndObject { end: tail } if tail == end));
     if !Syntax::new(&complete.bytes[end..]).at_end() {
         return Err(reader.malformed(
             end as u64,
@@ -164,7 +152,8 @@ pub(crate) async fn inspect_link_destination_candidate<S: RangedSource, C: Cance
         ));
     }
 
-    if is_link_with_destination(&complete) {
+    debug_assert_eq!(is_link_with_destination(&complete), likely_link);
+    if likely_link {
         let dictionary = complete.dictionary.as_ref().expect("classified dictionary");
         reader.reject_duplicate_names(dictionary, 0, Some(reference))?;
         let destination = dictionary.entry(b"Dest").expect("classified destination");
@@ -186,24 +175,15 @@ pub(crate) async fn inspect_link_destination_candidate<S: RangedSource, C: Cance
             }
             LinkDestinationTarget::DirectPage(_) => false,
         };
+        // The parser records the dictionary at `dictionary_start` in
+        // `complete.bytes` and each entry's nonempty pair relative to it, so
+        // the absolute pair lies inside the object.
         let dictionary_start = complete
             .dictionary_start
             .expect("classified dictionary offset");
-        let failure =
-            reader.malformed(0, Some(reference), "link destination pair offset overflows");
-        let pair_start = dictionary_start
-            .checked_add(destination.pair.start)
-            .ok_or(failure)?;
-        let pair_end = dictionary_start
-            .checked_add(destination.pair.end)
-            .ok_or(reader.malformed(0, Some(reference), "link destination pair end overflows"))?;
-        if pair_start >= pair_end || pair_end > complete.bytes.len() {
-            return Err(reader.malformed(
-                0,
-                Some(reference),
-                "link destination pair lies outside object",
-            ));
-        }
+        let pair_start = dictionary_start + destination.pair.start;
+        let pair_end = dictionary_start + destination.pair.end;
+        debug_assert!(pair_start < pair_end && pair_end <= complete.bytes.len());
         let mut replacement = Vec::new();
         let refused = Error::PdfLimitExceeded {
             offset: range.offset,
@@ -225,22 +205,12 @@ pub(crate) async fn inspect_link_destination_candidate<S: RangedSource, C: Cance
         }));
     }
 
-    let Some(scalar) = complete.scalar.as_ref() else {
-        return Ok(None);
-    };
-    let Some(page) = destination_page(&complete.bytes[scalar.clone()]) else {
-        return Ok(None);
-    };
+    let page = array_page.expect("classified destination array");
+    // At most 29 bytes for a 32-bit object number. The parsed destination
+    // object needs more than one byte, so `syntax_limit` came from
+    // `max_allocation_bytes / 32` and the allocation limit is at least 64.
     let replacement = format!("{} 0 obj\nnull\nendobj\n", reference.number).into_bytes();
-    if replacement.len() as u64 > limits.max_allocation_bytes {
-        return Err(Error::PdfLimitExceeded {
-            offset: range.offset,
-            object: Some((reference.number, reference.generation)),
-            resource: "PDF link repair allocation",
-            limit: limits.max_allocation_bytes,
-            attempted: replacement.len() as u64,
-        });
-    }
+    debug_assert!(replacement.len() as u64 <= limits.max_allocation_bytes);
     Ok(Some(LinkRepairCandidate {
         object: reference,
         kind: LinkRepairKind::ScalarDestination,
