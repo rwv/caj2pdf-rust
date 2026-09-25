@@ -448,18 +448,13 @@ fn checked_object_number(count: usize) -> Result<u32> {
 mod tests {
     use super::*;
     use crate::NeverCancel;
+    use crate::native::WriteSink;
     use crate::test_support::run;
 
-    struct CountSink;
-
-    impl SequentialSink for CountSink {
-        async fn write(&mut self, bytes: &[u8]) -> Result<usize> {
-            Ok(bytes.len())
-        }
-
-        async fn flush(&mut self) -> Result<()> {
-            Ok(())
-        }
+    /// Every test uses this one sink type, so their paths share one
+    /// instantiation of the generic writer.
+    fn vec_sink() -> WriteSink<Vec<u8>> {
+        WriteSink::new(Vec::new())
     }
 
     #[test]
@@ -494,7 +489,7 @@ mod tests {
     #[test]
     fn output_ceiling_is_checked_before_writing() {
         run(async {
-            let mut sink = CountSink;
+            let mut sink = vec_sink();
             let limits = Limits::default();
             let mut pdf = PdfWriter::new(&mut sink, &limits, &NeverCancel).await?;
             let object = pdf.reserve_object()?;
@@ -515,7 +510,7 @@ mod tests {
     #[test]
     fn stream_integer_limit_is_checked_before_writing() {
         run(async {
-            let mut sink = CountSink;
+            let mut sink = vec_sink();
             let limits = Limits::default();
             let mut pdf = PdfWriter::new(&mut sink, &limits, &NeverCancel).await?;
             let stream = pdf.reserve_object()?;
@@ -539,7 +534,7 @@ mod tests {
 
     #[test]
     fn minimal_pdf_byte_count_includes_xref_and_trailer() {
-        let mut sink = crate::native::WriteSink::new(Vec::new());
+        let mut sink = vec_sink();
         let written = run(async {
             let limits = Limits::default();
             let mut pdf = PdfWriter::new(&mut sink, &limits, &NeverCancel).await?;
@@ -562,7 +557,7 @@ mod tests {
     #[test]
     fn finish_requires_a_written_catalog() {
         run(async {
-            let mut sink = CountSink;
+            let mut sink = vec_sink();
             let limits = Limits::default();
             let mut pdf = PdfWriter::new(&mut sink, &limits, &NeverCancel).await?;
             let catalog = pdf.reserve_object()?;
@@ -578,9 +573,52 @@ mod tests {
     }
 
     #[test]
+    fn finish_requires_every_reserved_object_and_fits_the_output_limit() {
+        let mut sink = vec_sink();
+        let limits = Limits::default();
+        run(async {
+            let mut pdf = PdfWriter::new(&mut sink, &limits, &NeverCancel).await?;
+            let catalog = pdf.reserve_object()?;
+            pdf.reserve_object()?;
+            pdf.write_object(catalog, b"<< >>").await?;
+            assert!(matches!(
+                pdf.finish(catalog).await,
+                Err(Error::InvalidInput {
+                    reason: "a reserved PDF object has not been written"
+                })
+            ));
+            Ok::<(), Error>(())
+        })
+        .unwrap();
+
+        let mut sink = vec_sink();
+        let limits = Limits {
+            max_output_bytes: 100,
+            ..Limits::default()
+        };
+        let written = run(async {
+            let mut pdf = PdfWriter::new(&mut sink, &limits, &NeverCancel).await?;
+            let catalog = pdf.reserve_object()?;
+            pdf.write_object(catalog, b"<< >>").await?;
+            let written = pdf.position();
+            assert!(matches!(
+                pdf.finish(catalog).await,
+                Err(Error::LimitExceeded {
+                    resource: "output bytes",
+                    limit: 100,
+                    attempted,
+                }) if attempted > 100
+            ));
+            Ok::<u64, Error>(written)
+        })
+        .unwrap();
+        assert_eq!(sink.into_inner().len() as u64, written);
+    }
+
+    #[test]
     fn unreserved_object_numbers_are_rejected() {
         run(async {
-            let mut sink = CountSink;
+            let mut sink = vec_sink();
             let limits = Limits::default();
             let mut pdf = PdfWriter::new(&mut sink, &limits, &NeverCancel).await?;
             let reserved = pdf.reserve_object()?;
@@ -600,7 +638,7 @@ mod tests {
     #[test]
     fn xref_and_trailer_are_checked_against_the_classic_ceiling() {
         run(async {
-            let mut sink = CountSink;
+            let mut sink = vec_sink();
             let limits = Limits {
                 max_output_bytes: u64::MAX,
                 ..Limits::default()
@@ -625,7 +663,7 @@ mod tests {
     #[test]
     fn object_zero_cannot_be_referenced() {
         run(async {
-            let mut sink = CountSink;
+            let mut sink = vec_sink();
             let limits = Limits::default();
             let pdf = PdfWriter::new(&mut sink, &limits, &NeverCancel).await?;
             assert!(matches!(
