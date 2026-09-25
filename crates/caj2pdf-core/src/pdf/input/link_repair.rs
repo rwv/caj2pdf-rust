@@ -259,33 +259,41 @@ mod tests {
 
     /// Serves `first` until `switch(reads, starts)` holds for a read, then
     /// `second`. `reads` counts earlier reads; `starts` counts reads at the
-    /// object start, including this one.
-    struct SwitchingSource {
+    /// object start, including this one. One source type keeps every test on
+    /// the same generic instantiation.
+    struct Source {
         first: Vec<u8>,
         second: Vec<u8>,
         reads: usize,
         starts: usize,
         switch: fn(usize, usize) -> bool,
+        largest_request: usize,
     }
 
-    impl SwitchingSource {
-        fn new(first: Vec<u8>, second: Vec<u8>, switch: fn(usize, usize) -> bool) -> Self {
+    impl Source {
+        fn new(bytes: Vec<u8>) -> Self {
+            Self::switching(bytes, Vec::new(), |_, _| false)
+        }
+
+        fn switching(first: Vec<u8>, second: Vec<u8>, switch: fn(usize, usize) -> bool) -> Self {
             Self {
                 first,
                 second,
                 reads: 0,
                 starts: 0,
                 switch,
+                largest_request: 0,
             }
         }
     }
 
-    impl RangedSource for SwitchingSource {
+    impl RangedSource for Source {
         fn size(&self) -> u64 {
             self.first.len() as u64
         }
 
         async fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> Result<usize> {
+            self.largest_request = self.largest_request.max(destination.len());
             if offset == 0 {
                 self.starts += 1;
             }
@@ -302,32 +310,8 @@ mod tests {
         }
     }
 
-    struct Source {
-        bytes: Vec<u8>,
-        largest_request: usize,
-    }
-
-    impl RangedSource for Source {
-        fn size(&self) -> u64 {
-            self.bytes.len() as u64
-        }
-
-        async fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> Result<usize> {
-            self.largest_request = self.largest_request.max(destination.len());
-            let start = offset as usize;
-            let length = destination
-                .len()
-                .min(self.bytes.len().saturating_sub(start));
-            destination[..length].copy_from_slice(&self.bytes[start..start + length]);
-            Ok(length)
-        }
-    }
-
     fn inspect(bytes: &[u8]) -> Result<Option<LinkRepairCandidate>> {
-        let mut source = Source {
-            bytes: bytes.to_vec(),
-            largest_request: 0,
-        };
+        let mut source = Source::new(bytes.to_vec());
         let fragment = FragmentObject {
             reference: PdfRef {
                 number: 9,
@@ -441,10 +425,7 @@ mod tests {
     #[test]
     fn small_io_chunks_bound_reads() {
         let bytes = b"9 0 obj\n[6 0 R /Fit]\nendobj\n";
-        let mut source = Source {
-            bytes: bytes.to_vec(),
-            largest_request: 0,
-        };
+        let mut source = Source::new(bytes.to_vec());
         let fragment = FragmentObject {
             reference: PdfRef {
                 number: 9,
@@ -475,10 +456,7 @@ mod tests {
     fn rejects_a_large_candidate_before_buffering_its_full_span() {
         let mut bytes = b"9 0 obj\n<</Subtype/Link /Dest [6 0 R /Fit]>>\nendobj\n".to_vec();
         bytes.extend(std::iter::repeat_n(b' ', 256));
-        let mut source = Source {
-            bytes,
-            largest_request: 0,
-        };
+        let mut source = Source::new(bytes);
         let fragment = FragmentObject {
             reference: PdfRef {
                 number: 9,
@@ -511,40 +489,14 @@ mod tests {
 
     #[test]
     fn rejects_a_source_that_changes_between_candidate_reads() {
-        struct ChangingSource {
-            bytes: Vec<u8>,
-            reads: usize,
-        }
-
-        impl RangedSource for ChangingSource {
-            fn size(&self) -> u64 {
-                self.bytes.len() as u64
-            }
-
-            async fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> Result<usize> {
-                let start = offset as usize;
-                let length = destination
-                    .len()
-                    .min(self.bytes.len().saturating_sub(start));
-                destination[..length].copy_from_slice(&self.bytes[start..start + length]);
-                self.reads += 1;
-                if self.reads == 1 {
-                    let digit = self
-                        .bytes
-                        .windows(5)
-                        .position(|window| window == b"6 0 R")
-                        .unwrap();
-                    self.bytes[digit] = b'7';
-                }
-                Ok(length)
-            }
-        }
-
         let bytes = b"9 0 obj\n<</Subtype/Link /Dest [6 0 R /Fit]>>\nendobj\n";
-        let mut source = ChangingSource {
-            bytes: bytes.to_vec(),
-            reads: 0,
-        };
+        let mut changed = bytes.to_vec();
+        let digit = changed
+            .windows(5)
+            .position(|window| window == b"6 0 R")
+            .unwrap();
+        changed[digit] = b'7';
+        let mut source = Source::switching(bytes.to_vec(), changed, |reads, _| reads > 0);
         let fragment = FragmentObject {
             reference: PdfRef {
                 number: 9,
@@ -575,10 +527,7 @@ mod tests {
         let object = b"9 0 obj\n<</Subtype/Link /Dest [6 0 R /Fit]>>\nendobj\n";
         let mut bytes = prefix.to_vec();
         bytes.extend_from_slice(object);
-        let mut source = Source {
-            bytes,
-            largest_request: 0,
-        };
+        let mut source = Source::new(bytes);
         let fragment = FragmentObject {
             reference: PdfRef {
                 number: 9,
@@ -612,10 +561,7 @@ mod tests {
     #[test]
     fn nonzero_generation_is_excluded_without_reading() {
         let object = b"9 0 obj\n<</Subtype/Link /Dest [6 0 R /Fit]>>\nendobj\n";
-        let mut source = Source {
-            bytes: object.to_vec(),
-            largest_request: 0,
-        };
+        let mut source = Source::new(object.to_vec());
         let fragment = FragmentObject {
             reference: PdfRef {
                 number: 9,
@@ -647,10 +593,7 @@ mod tests {
         let mut bytes = prefix.to_vec();
         bytes.extend_from_slice(object);
         bytes.extend_from_slice(tail);
-        let mut source = Source {
-            bytes,
-            largest_request: 0,
-        };
+        let mut source = Source::new(bytes);
         let fragment = FragmentObject {
             reference: PdfRef {
                 number: 9,
@@ -689,7 +632,7 @@ mod tests {
             .unwrap();
         second[subtype..subtype + 5].copy_from_slice(b"/Null");
         // Only the first read sees the original bytes.
-        let mut source = SwitchingSource::new(first, second, |reads, _| reads > 0);
+        let mut source = Source::switching(first, second, |reads, _| reads > 0);
         let fragment = FragmentObject {
             reference: PdfRef {
                 number: 9,
@@ -726,7 +669,7 @@ mod tests {
         second[800] = b'x';
         // The tail changes once a second read restarts at the object start,
         // between the whitespace scan and the complete candidate read.
-        let mut source = SwitchingSource::new(first, second, |_, starts| starts >= 2);
+        let mut source = Source::switching(first, second, |_, starts| starts >= 2);
         let fragment = FragmentObject {
             reference: PdfRef {
                 number: 9,
@@ -779,5 +722,46 @@ mod tests {
                 .windows(10)
                 .any(|window| window == b"/AP 42 0 R")
         );
+    }
+
+    #[test]
+    fn rejects_a_keyword_glued_to_endobj_after_the_bounded_head_read() {
+        // The 512-byte head window ends exactly after `endobj`, so the head
+        // parses; the complete read then sees a byte glued to that keyword.
+        let mut object = b"9 0 obj\n[6 0 R /Fit".to_vec();
+        object.resize(512 - b"]\nendobj".len(), b' ');
+        object.extend_from_slice(b"]\nendobj");
+        assert_eq!(object.len(), 512);
+        let mut first = object.clone();
+        first.extend_from_slice(&[b' '; 16]);
+        let mut second = first.clone();
+        second[512] = b'x';
+        let mut source = Source::switching(first, second, |_, starts| starts >= 2);
+        let fragment = FragmentObject {
+            reference: PdfRef {
+                number: 9,
+                generation: 0,
+            },
+            range: PdfRange {
+                offset: 0,
+                length: source.size(),
+            },
+        };
+        let error = ready(inspect_link_destination_candidate(
+            &mut source,
+            fragment,
+            &Limits::default(),
+            &NeverCancel,
+        ))
+        .expect_err("a glued endobj keyword was accepted");
+        assert!(matches!(
+            error,
+            Error::Pdf {
+                offset: 512,
+                object: Some((9, 0)),
+                kind: PdfErrorKind::Malformed,
+                reason: "PDF keyword lacks a delimiter",
+            }
+        ));
     }
 }
