@@ -26,7 +26,9 @@ standard error replace invalid UTF-8 with U+FFFD.
 ## Formats
 
 The format comes from the first bytes of the input, never from its name.
-Some observed `.caj` files are plain PDFs.
+Some observed `.caj` files are plain PDFs. The signatures below only select a
+parser; that parser then validates the full header, so, for example, a file
+that starts with `CAJ` but lacks the CAJ header is reported as malformed.
 
 | Signature | Format | Conversion | `inspect` |
 | --- | --- | --- | --- |
@@ -37,7 +39,10 @@ Some observed `.caj` files are plain PDFs.
 | `c8 00 00 00` | C8 | **Not implemented**; exits with status 1 | Container variant and pages |
 | `TEB` | TEB | Unsupported; exits with status 1 | Format only |
 
-HN and C8 conversion needs the image decoders tracked under
+Before reporting that HN or C8 conversion is not implemented, the command
+parses the container header and page index, so a malformed container fails
+with a parse error instead. HN and C8 conversion needs the image decoders
+tracked under
 [#9](https://github.com/rwv/caj2pdf-rust/issues/9) and
 [#23](https://github.com/rwv/caj2pdf-rust/issues/23). No NH signature has been
 measured, so NH input is reported as an unrecognized format. Listing the
@@ -64,14 +69,22 @@ Output rules:
   `>> paper.caj`.
 - A path output is written to a new hidden temporary file in the output's
   directory (`.NAME.PID-N.tmp`, created exclusively with mode `0666` before
-  the umask). It is flushed, synchronized, and renamed over the target only
-  after the whole conversion succeeds. Without `--force`, the target is
-  checked again immediately before the rename. Every error path removes the
-  temporary file. A process killed by a signal can leave it behind.
+  the umask; `NAME` is cut to 200 bytes). It is flushed and synchronized
+  only after the whole conversion succeeds, and then given the target name.
+  Every error path removes the temporary file. A process killed by a signal
+  can leave it behind.
+- The existence and same-file checks are repeated at that point, because the target may change
+  during a conversion. Without `--force` the file is hard-linked to the
+  target name, which fails atomically if any entry has appeared there; only
+  on a file system without hard links does the command fall back to a
+  re-check followed by a rename, which leaves a short race window.
 - `--force` replaces the directory entry by rename. A symbolic link at the
-  output path is replaced by the new file; its target is not written.
+  output path is replaced by the new file; its target is not written. An
+  input swapped into the output path between the final same-file check and
+  the rename would still be replaced; the input's own bytes are never
+  written.
 - Standard output receives only PDF bytes. The command refuses to write PDF
-  bytes to a terminal. Bytes already written to a pipe cannot be withdrawn
+  bytes to a terminal, before it reads any input. Bytes already written to a pipe cannot be withdrawn
   when a later error occurs; the exit status reports the failure.
 
 Input rules:

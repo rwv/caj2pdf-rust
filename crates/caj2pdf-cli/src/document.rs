@@ -7,7 +7,7 @@ use crate::CliError;
 use crate::files::Input;
 use caj2pdf_core::{
     Bookmark, ConversionOptions, Error, InputFormat, Limits, NeverCancel, RangedSource, caj,
-    hnc8::{Budget, Hnc8Reader},
+    hnc8::{Budget, Header, Hnc8Reader},
     kdh::{KdhPdfSource, convert_kdh},
     native::{SeekableSource, WriteSink},
     pdf::{PdfIndex, PdfOutlineAppender, PdfRange, copy_pdf},
@@ -69,12 +69,17 @@ pub fn detect_signature(header: &[u8]) -> Option<InputFormat> {
         .map(|(_, format)| *format)
 }
 
+/// Render a core error for a diagnostic.
+fn text(error: Error) -> String {
+    error.to_string()
+}
+
 async fn detect<S: RangedSource>(source: &mut S, limits: &Limits) -> Result<InputFormat, String> {
     let mut header = [0; 8];
     let length = source.size().min(header.len() as u64) as usize;
     read_exact_at(source, 0, &mut header[..length], limits, &NeverCancel)
         .await
-        .map_err(|error| error.to_string())?;
+        .map_err(text)?;
     if length == 0 {
         return Err("input is empty".to_owned());
     }
@@ -94,7 +99,16 @@ fn unsupported(format: InputFormat) -> String {
 }
 
 fn ranged(file: &mut File) -> Result<SeekableSource<&mut File>, String> {
-    SeekableSource::new(file).map_err(|error| error.to_string())
+    SeekableSource::new(file).map_err(text)
+}
+
+/// Parse an HN or C8 container header and page index, so that a malformed
+/// file is reported as malformed rather than as merely unsupported.
+async fn hnc8_header<S: RangedSource>(source: &mut S, limits: &Limits) -> Result<Header, String> {
+    Hnc8Reader::open(source, limits, &NeverCancel, Budget::default())
+        .await
+        .map(|reader| reader.header())
+        .map_err(|error| error.to_string())
 }
 
 /// Convert one input to PDF bytes written to `writer`.
@@ -102,7 +116,6 @@ pub fn convert<W: Write>(input: &mut Input, writer: W, limits: &Limits) -> Resul
     let result = block_on(async {
         let mut source = ranged(&mut input.file)?;
         let mut sink = WriteSink::new(writer);
-        let text = |error: Error| error.to_string();
         match detect(&mut source, limits).await? {
             InputFormat::Pdf => copy_pdf(&mut source, &mut sink, limits, &NeverCancel)
                 .await
@@ -119,6 +132,10 @@ pub fn convert<W: Write>(input: &mut Input, writer: W, limits: &Limits) -> Resul
             InputFormat::Kdh => convert_kdh(&mut source, &mut sink, limits, &NeverCancel)
                 .await
                 .map_err(text),
+            format @ (InputFormat::Hn | InputFormat::C8) => {
+                hnc8_header(&mut source, limits).await?;
+                Err(unsupported(format))
+            }
             other => Err(unsupported(other)),
         }
     });
@@ -147,7 +164,7 @@ async fn index_pdf<S: RangedSource>(source: &mut S, limits: &Limits) -> Result<P
     };
     PdfIndex::open(source, range, limits, &NeverCancel)
         .await
-        .map_err(|error| error.to_string())
+        .map_err(text)
 }
 
 fn pdf_inspection(format: InputFormat, index: &PdfIndex) -> Inspection {
@@ -165,7 +182,6 @@ async fn inspect_source<S: RangedSource>(
     limits: &Limits,
 ) -> Result<Inspection, String> {
     let format = detect(source, limits).await?;
-    let text = |error: Error| error.to_string();
     Ok(match format {
         InputFormat::Pdf => pdf_inspection(format, &index_pdf(source, limits).await?),
         InputFormat::Kdh => {
@@ -187,10 +203,7 @@ async fn inspect_source<S: RangedSource>(
             }
         }
         InputFormat::Hn | InputFormat::C8 => {
-            let reader = Hnc8Reader::open(source, limits, &NeverCancel, Budget::default())
-                .await
-                .map_err(|error| error.to_string())?;
-            let header = reader.header();
+            let header = hnc8_header(source, limits).await?;
             Inspection {
                 format,
                 variant: Some(header.variant.as_str()),
@@ -233,7 +246,7 @@ pub fn add_bookmarks<W: Write>(
             InputFormat::Caj => caj::parse_metadata(&mut source, limits, &NeverCancel)
                 .await
                 .map(|metadata| metadata.bookmarks)
-                .map_err(|error| error.to_string()),
+                .map_err(text),
             other => Err(format!(
                 "expected a CAJ outline source, found {}",
                 format_name(other)

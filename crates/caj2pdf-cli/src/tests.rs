@@ -8,7 +8,8 @@ use crate::args::{Command, Endpoint, Topic, parse};
 use crate::cli::default_output;
 use crate::document::{Inspection, block_on, detect_signature, format_name};
 use crate::files::{
-    Input, NEXT_TEMP, Output, SpoolError, TEMP_ATTEMPTS, identity, open_input, open_output, spool,
+    Input, NEXT_TEMP, Output, SpoolError, TEMP_ATTEMPTS, identity, open_input, open_output,
+    refuse_terminal, spool,
 };
 use crate::json::write_string;
 use crate::report::{write_json, write_text};
@@ -460,15 +461,15 @@ fn temporary_names_are_bounded_retries() {
 
 #[test]
 fn terminal_stdout_is_refused_before_writing() {
-    let Err(error) = open_output(&Endpoint::Std, true, &[], true) else {
-        panic!("terminal output accepted");
-    };
+    let error = refuse_terminal(&Endpoint::Std, true).unwrap_err();
     assert_eq!(error.code, 1);
     assert!(error.message.contains("terminal"));
+    assert_eq!(refuse_terminal(&Endpoint::Std, false), Ok(()));
+    assert_eq!(refuse_terminal(&path("out.pdf"), true), Ok(()));
 }
 
 fn open_error(endpoint: &Endpoint, force: bool, inputs: &[&Input]) -> CliError {
-    match open_output(endpoint, force, inputs, false) {
+    match open_output(endpoint, force, inputs) {
         Err(error) => error,
         Ok(_) => panic!("output accepted"),
     }
@@ -507,7 +508,11 @@ fn output_paths_are_checked_before_staging() {
 }
 
 fn staged(target: &Path, force: bool) -> Output {
-    let mut output = open_output(&Endpoint::Path(target.to_owned()), force, &[], false).unwrap();
+    staged_for(target, force, &[])
+}
+
+fn staged_for(target: &Path, force: bool, inputs: &[&Input]) -> Output {
+    let mut output = open_output(&Endpoint::Path(target.to_owned()), force, inputs).unwrap();
     output.writer().write_all(b"%PDF-").unwrap();
     output
 }
@@ -550,6 +555,86 @@ fn staged_output_is_committed_only_on_success() {
         error.message
     );
     assert_eq!(dir.entries(), vec![OsString::from("out.pdf")]);
+}
+
+/// The single hidden temporary name in `dir`.
+fn temp_name(dir: &TempDir) -> PathBuf {
+    let names: Vec<_> = dir
+        .entries()
+        .into_iter()
+        .filter(|name| name.as_encoded_bytes().starts_with(b"."))
+        .collect();
+    let [name] = names.as_slice() else {
+        panic!("expected one temporary file, found {names:?}");
+    };
+    dir.0.join(name)
+}
+
+#[test]
+fn commit_rechecks_the_target_and_never_clobbers_without_force() {
+    let dir = TempDir::new("recheck");
+    let source = dir.0.join("in.caj");
+    fs::write(&source, b"CAJ").unwrap();
+    let source_input = input(&source);
+    let target = dir.0.join("out.pdf");
+
+    // A target replaced by a link to an input is refused, even with --force.
+    let output = staged_for(&target, true, &[&source_input]);
+    fs::hard_link(&source, &target).unwrap();
+    let error = output.commit().unwrap_err();
+    assert!(
+        error.message.contains("same file as input"),
+        "{}",
+        error.message
+    );
+    assert_eq!(fs::read(&source).unwrap(), b"CAJ");
+    fs::remove_file(&target).unwrap();
+
+    // A dangling symbolic link that appears is not replaced either.
+    let output = staged(&target, false);
+    std::os::unix::fs::symlink("nowhere", &target).unwrap();
+    assert!(
+        output
+            .commit()
+            .unwrap_err()
+            .message
+            .contains("already exists")
+    );
+    assert!(fs::symlink_metadata(&target).unwrap().is_symlink());
+    fs::remove_file(&target).unwrap();
+
+    // When linking fails for another reason, an existing target is still
+    // refused, and otherwise the rename reports the failure.
+    let output = staged(&target, false);
+    fs::remove_file(temp_name(&dir)).unwrap();
+    fs::write(&target, b"other").unwrap();
+    assert!(
+        output
+            .commit()
+            .unwrap_err()
+            .message
+            .contains("already exists")
+    );
+    fs::remove_file(&target).unwrap();
+    let output = staged(&target, false);
+    fs::remove_file(temp_name(&dir)).unwrap();
+    assert!(
+        output
+            .commit()
+            .unwrap_err()
+            .message
+            .starts_with("cannot write")
+    );
+    assert_eq!(dir.entries(), vec![OsString::from("in.caj")]);
+}
+
+#[test]
+fn long_output_names_get_a_bounded_temporary_name() {
+    let dir = TempDir::new("long");
+    let name = format!("{}.pdf", "n".repeat(251));
+    let target = dir.0.join(&name);
+    staged(&target, false).commit().unwrap();
+    assert_eq!(dir.entries(), vec![OsString::from(name)]);
 }
 
 /// Accepts `remaining` bytes, then fails every write.
