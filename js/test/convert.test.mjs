@@ -2,7 +2,7 @@
 
 // Integration tests for the public conversion API with the real WASM build.
 // Browser adapters (Blob, WritableStream) run on Node's implementations of
-// those Web APIs; no real browser runs in CI.
+// those Web APIs here; browser.test.mjs runs them in headless Chromium.
 import assert from "node:assert/strict";
 import { open, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
