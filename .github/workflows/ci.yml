@@ -74,6 +74,13 @@ jobs:
           report="$(python3 scripts/jbig2_dictionary_headers.py --json)"
           printf '%s\n' "$report"
           python3 -c 'import json, sys; result = json.loads(sys.argv[1]); assert result["status"] == "NOT_RUN" and result["metadata"]["checked_images"] == 0 and result["symbol_compatibility"]["status"] == "NOT_RUN" and result["symbol_compatibility"]["checked_cases"] == 0 and result["symbol_compatibility"]["passed"] == 0, result' "$report"
+      - name: Report external JBIG2 text-region headers as not run
+        env:
+          CAJ2PDF_CORPUS_DIR: ""
+        run: |
+          report="$(python3 scripts/jbig2_text_region_headers.py --json)"
+          printf '%s\n' "$report"
+          python3 -c 'import json, sys; result = json.loads(sys.argv[1]); text = result["text_compatibility"]; assert result["status"] == "NOT_RUN" and result["metadata"]["checked_images"] == 0 and text["status"] == "NOT_RUN" and text["checked_cases"] == 0 and text["passed"] == 0, result' "$report"
       - name: Report external JBIG2 refinement pixels as not run
         env:
           CAJ2PDF_CORPUS_DIR: ""

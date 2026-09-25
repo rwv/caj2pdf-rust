@@ -79,6 +79,40 @@ new symbols (57 zero-new cases), and 3–542 exported symbols. Its
 refinement/aggregate mode remains unsupported by this slice. These counts
 are metadata observations, not decoded-symbol or page-conversion results.
 
+## Optional JBIG2 text-region header inventory
+
+[`jbig2_text_region_headers.py`](../../scripts/jbig2_text_region_headers.py)
+is a metadata-only check of the type-6 text region #3 in all 546 HN/C8
+type-3 images. It follows
+[ITU-T T.88 (02/2000), §§7.4.1 and 7.4.3.1](https://www.itu.int/rec/T-REC-T.88-200002-S/en)
+and the [text-region header note](../../docs/t88-text-region-header.md).
+No per-image manifest is committed: the script compares each header's flags
+with the committed #43 oracle and checks pinned aggregates.
+
+```sh
+CAJ2PDF_CORPUS_DIR=/path/to/CAJSamples \
+  python3 scripts/jbig2_text_region_headers.py --json
+```
+
+The runner checks the size, SHA-256, and Git blob ID of all 27 HN/C8 sources
+before and after reading. It reuses the Rust #42 directory inventory, requires
+every image coordinate and span to match the #43 oracle, and reads only the
+observed 23-byte header of each region; it refuses Huffman and
+refinement-AT layouts rather than guessing. The pinned result has the 15-value
+flag distribution `0x840e:1`, `0x880e:90`, `0x8c0e:87`, `0x900e:89`,
+`0x940e:62`, `0x980e:61`, `0x9c0e:62`, `0xa00e:34`, `0xa40c:1`,
+`0xa40e:10`, `0xa80e:14`, `0xac0e:2`, `0xb00e:4`, `0xb80e:4`, `0xbc0e:25`;
+`SBNUMINSTANCES` from 6 to 15,576 with sum 354,063; data spans of
+64–28,634 bytes; and body spans of 41–28,611 bytes. Its single anomaly is
+flags `0xa40c` (`SBRTEMPLATE` without `SBREFINE`) in `issue-43`, page 11
+image 1, record offset 930,673. The report holds only counts, flags,
+offsets, and lengths.
+
+A clean clone reports `NOT_RUN`/0. An explicitly requested missing or changed
+corpus reports `FAIL`. The separate `text_compatibility` status is always
+`NOT_RUN` with zero cases: header metadata is not text-placement or pixel
+compatibility.
+
 ## Optional JBIG2 refinement-pixel evidence
 
 Issue [#65](https://github.com/rwv/caj2pdf-rust/issues/65) adds a bounded
