@@ -6,6 +6,7 @@
 //! reserve indirect object numbers, emit each object once, then finish with a
 //! classic cross-reference table. Only object offsets are retained in memory.
 
+use crate::fallible::{len_u64, reserve_exact};
 use crate::{Cancellation, Error, Limits, Result, SequentialSink, write_all};
 use std::mem::size_of;
 
@@ -112,18 +113,16 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfWriter<'a, W, C> {
             .ok_or(Error::InvalidInput {
                 reason: "PDF object index size overflows address space",
             })?;
-        let bytes = u64::try_from(bytes).map_err(|_| Error::InvalidInput {
-            reason: "PDF object index size exceeds 64 bits",
-        })?;
+        let bytes = len_u64(bytes);
         self.limits.check_allocation(bytes)?;
         if next_count > self.offsets.capacity() {
-            self.offsets
-                .try_reserve_exact(next_capacity - self.offsets.len())
-                .map_err(|_| Error::LimitExceeded {
-                    resource: "PDF object index allocation",
-                    limit: self.limits.max_allocation_bytes,
-                    attempted: bytes,
-                })?;
+            let refused = Error::LimitExceeded {
+                resource: "PDF object index allocation",
+                limit: self.limits.max_allocation_bytes,
+                attempted: bytes,
+            };
+            let additional = next_capacity - self.offsets.len();
+            reserve_exact(&mut self.offsets, additional, refused)?;
         }
         self.offsets.push(0);
         Ok(ObjectId(number))
@@ -223,9 +222,7 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfWriter<'a, W, C> {
             .ok_or(Error::InvalidInput {
                 reason: "PDF stream position moved backwards",
             })?;
-        let chunk_length = u64::try_from(bytes.len()).map_err(|_| Error::InvalidInput {
-            reason: "PDF stream chunk length exceeds 64 bits",
-        })?;
+        let chunk_length = len_u64(bytes.len());
         let attempted = current_length
             .checked_add(chunk_length)
             .ok_or(Error::InvalidInput {
@@ -389,9 +386,7 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfWriter<'a, W, C> {
 
     async fn write_raw(&mut self, bytes: &[u8]) -> Result<()> {
         self.ensure_healthy()?;
-        let length = u64::try_from(bytes.len()).map_err(|_| Error::InvalidInput {
-            reason: "PDF write length exceeds 64 bits",
-        })?;
+        let length = len_u64(bytes.len());
         let attempted = self
             .position
             .checked_add(length)
@@ -440,9 +435,7 @@ fn xref_entry(offset: u64) -> Result<[u8; 20]> {
 }
 
 fn checked_object_number(count: usize) -> Result<u32> {
-    let attempted = u64::try_from(count).map_err(|_| Error::InvalidInput {
-        reason: "PDF object count exceeds 64 bits",
-    })?;
+    let attempted = len_u64(count);
     if attempted > u64::from(MAX_PDF_OBJECTS) {
         return Err(Error::LimitExceeded {
             resource: "PDF object count",

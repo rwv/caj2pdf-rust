@@ -3,6 +3,7 @@
 //! Bounded page and outline assembly over the forward-only PDF writer.
 
 use super::writer::{MAX_PDF_INTEGER, ObjectId, PdfWriter};
+use crate::fallible::{len_u64, reserve_exact};
 use crate::{
     Bookmark, BookmarkVisitor, Cancellation, ConversionReport, Error, Limits, RangedSource, Result,
     SequentialSink, read_exact_at,
@@ -100,9 +101,7 @@ impl<R: RangedSource> RangedSource for CountingSource<'_, R> {
                 reason: "image source reported more bytes than requested",
             });
         }
-        let read = u64::try_from(read).map_err(|_| Error::InvalidInput {
-            reason: "image read length exceeds 64 bits",
-        })?;
+        let read = len_u64(read);
         *self.total = self.total.checked_add(read).ok_or(Error::InvalidInput {
             reason: "image input byte count overflows",
         })?;
@@ -268,10 +267,7 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
                 reason: "bookmark depth skips a parent",
             });
         }
-        let title_capacity =
-            u64::try_from(bookmark.title.capacity()).map_err(|_| Error::InvalidInput {
-                reason: "bookmark title capacity exceeds 64 bits",
-            })?;
+        let title_capacity = len_u64(bookmark.title.capacity());
         // A rejected title must leave all reserved objects and outline links
         // intact, so account for siblings that this insertion would emit first.
         let (next_titles, next_nodes) = self.preflight_outline_memory(depth, title_capacity)?;
@@ -549,13 +545,13 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
             .await?;
         let chunk_size = length.min(self.limits.io_chunk_bytes as u64) as usize;
         if self.image_buffer.len() < chunk_size {
-            self.image_buffer
-                .try_reserve_exact(chunk_size - self.image_buffer.len())
-                .map_err(|_| Error::LimitExceeded {
-                    resource: "PDF image I/O buffer",
-                    limit: self.limits.max_allocation_bytes,
-                    attempted: chunk_size as u64,
-                })?;
+            let refused = Error::LimitExceeded {
+                resource: "PDF image I/O buffer",
+                limit: self.limits.max_allocation_bytes,
+                attempted: chunk_size as u64,
+            };
+            let additional = chunk_size - self.image_buffer.len();
+            reserve_exact(&mut self.image_buffer, additional, refused)?;
             self.image_buffer.resize(chunk_size, 0);
         }
         let mut source = CountingSource {
@@ -632,9 +628,7 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
         let mut released_titles = 0_u64;
         let mut released_nodes = 0_u32;
         let mut release = |capacity: usize| -> Result<()> {
-            let capacity = u64::try_from(capacity).map_err(|_| Error::InvalidInput {
-                reason: "bookmark title capacity exceeds 64 bits",
-            })?;
+            let capacity = len_u64(capacity);
             released_titles = released_titles
                 .checked_add(capacity)
                 .ok_or(Error::InvalidInput {
@@ -925,9 +919,7 @@ fn reserve_bounded<T>(
     let needed = values.len().checked_add(1).ok_or(Error::InvalidInput {
         reason: "PDF index count overflows address space",
     })?;
-    let needed_u64 = u64::try_from(needed).map_err(|_| Error::InvalidInput {
-        reason: "PDF index count exceeds 64 bits",
-    })?;
+    let needed_u64 = len_u64(needed);
     if needed_u64 > maximum_items {
         return Err(Error::LimitExceeded {
             resource,
@@ -935,9 +927,7 @@ fn reserve_bounded<T>(
             attempted: needed_u64,
         });
     }
-    let element_bytes = u64::try_from(size_of::<T>().max(1)).map_err(|_| Error::InvalidInput {
-        reason: "PDF index element size exceeds 64 bits",
-    })?;
+    let element_bytes = len_u64(size_of::<T>().max(1));
     let needed_bytes = needed_u64
         .checked_mul(element_bytes)
         .ok_or(Error::InvalidInput {
@@ -960,13 +950,13 @@ fn reserve_bounded<T>(
             reason: "PDF index allocation overflows 64 bits",
         })?;
     limits.check_allocation(requested_bytes)?;
-    values
-        .try_reserve_exact(target - values.len())
-        .map_err(|_| Error::LimitExceeded {
-            resource,
-            limit: limits.max_allocation_bytes,
-            attempted: requested_bytes,
-        })?;
+    let refused = Error::LimitExceeded {
+        resource,
+        limit: limits.max_allocation_bytes,
+        attempted: requested_bytes,
+    };
+    let additional = target - values.len();
+    reserve_exact(values, additional, refused)?;
     // The limit covers the capacity requested here. Vec may receive extra
     // capacity from its allocator, which is outside the handler's request.
     Ok(())

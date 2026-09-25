@@ -9,6 +9,7 @@
 use super::input::PdfIndex;
 use super::types::{PdfRange, PdfRef};
 use super::writer::{MAX_CLASSIC_PDF_BYTES, MAX_PDF_OBJECTS};
+use crate::fallible::{reserve_exact, try_convert};
 use crate::{
     Bookmark, Cancellation, ConversionReport, Error, Limits, PdfErrorKind, RangedSource, Result,
     SequentialSink, read_exact_at, write_all,
@@ -243,9 +244,12 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfOutlineAppender<'a, W, C> {
                 .ok_or(Error::InvalidInput {
                     reason: "bookmark page is outside the PDF page tree",
                 })?;
-        let depth = usize::try_from(bookmark.depth).map_err(|_| Error::InvalidInput {
-            reason: "bookmark depth exceeds address space",
-        })?;
+        let depth: usize = try_convert(
+            bookmark.depth,
+            Error::InvalidInput {
+                reason: "bookmark depth exceeds address space",
+            },
+        )?;
         if depth >= MAX_OUTLINE_DEPTH {
             return Err(Error::LimitExceeded {
                 resource: "PDF outline depth",
@@ -368,11 +372,12 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfOutlineAppender<'a, W, C> {
         Ok(ConversionReport {
             input_bytes_read: self.input_bytes_read,
             output_bytes_written: self.writer.position,
-            pages_converted: self.index.pages().len().try_into().map_err(|_| {
+            pages_converted: try_convert(
+                self.index.pages().len(),
                 Error::InvalidInput {
                     reason: "PDF page count exceeds 32 bits",
-                }
-            })?,
+                },
+            )?,
             bookmarks_written: self.bookmarks_written,
         })
     }
@@ -452,15 +457,15 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfOutlineAppender<'a, W, C> {
             let cap = self.open.capacity().max(1).saturating_mul(2);
             let max = self.limits.max_bookmarks as usize;
             let next_cap = cap.min(max).max(self.open.len() + 1);
-            self.limits
-                .check_allocation((next_cap as u64) * size_of::<OpenOutline>() as u64)?;
-            self.open
-                .try_reserve_exact(next_cap - self.open.len())
-                .map_err(|_| Error::LimitExceeded {
-                    resource: "PDF bookmark stack allocation",
-                    limit: self.limits.max_allocation_bytes,
-                    attempted: (next_cap as u64) * size_of::<OpenOutline>() as u64,
-                })?;
+            let bytes = (next_cap as u64) * size_of::<OpenOutline>() as u64;
+            self.limits.check_allocation(bytes)?;
+            let refused = Error::LimitExceeded {
+                resource: "PDF bookmark stack allocation",
+                limit: self.limits.max_allocation_bytes,
+                attempted: bytes,
+            };
+            let additional = next_cap - self.open.len();
+            reserve_exact(&mut self.open, additional, refused)?;
         }
         Ok(())
     }
@@ -607,13 +612,12 @@ async fn copy_prefix<R: RangedSource, W: SequentialSink, C: Cancellation>(
     let chunk = length.min(limits.io_chunk_bytes as u64) as usize;
     limits.check_allocation(chunk as u64)?;
     let mut buffer = Vec::new();
-    buffer
-        .try_reserve_exact(chunk)
-        .map_err(|_| Error::LimitExceeded {
-            resource: "PDF copy buffer allocation",
-            limit: limits.max_allocation_bytes,
-            attempted: chunk as u64,
-        })?;
+    let refused = Error::LimitExceeded {
+        resource: "PDF copy buffer allocation",
+        limit: limits.max_allocation_bytes,
+        attempted: chunk as u64,
+    };
+    reserve_exact(&mut buffer, chunk, refused)?;
     buffer.resize(chunk, 0);
     let separator_patches = index.stream_separator_patches();
     let gap_patches = index.gap_patches();
@@ -630,13 +634,14 @@ async fn copy_prefix<R: RangedSource, W: SequentialSink, C: Cancellation>(
             if patch_at >= done + count as u64 {
                 break;
             }
-            let within =
-                usize::try_from(patch_at.checked_sub(done).ok_or(Error::InvalidInput {
+            let within: usize = try_convert(
+                patch_at.checked_sub(done).ok_or(Error::InvalidInput {
                     reason: "PDF stream separator patches are not sorted",
-                })?)
-                .map_err(|_| Error::InvalidInput {
+                })?,
+                Error::InvalidInput {
                     reason: "PDF stream separator patch exceeds chunk",
-                })?;
+                },
+            )?;
             if buffer[within] != b'\r' {
                 return Err(Error::InvalidInput {
                     reason: "PDF stream separator changed after inspection",
@@ -785,13 +790,13 @@ impl<'a, W: SequentialSink, C: Cancellation> AppendWriter<'a, W, C> {
                     reason: "PDF append xref allocation overflows",
                 })?;
             self.limits.check_allocation(bytes)?;
-            self.entries
-                .try_reserve_exact(cap - self.entries.len())
-                .map_err(|_| Error::LimitExceeded {
-                    resource: "PDF append xref allocation",
-                    limit: self.limits.max_allocation_bytes,
-                    attempted: bytes,
-                })?;
+            let refused = Error::LimitExceeded {
+                resource: "PDF append xref allocation",
+                limit: self.limits.max_allocation_bytes,
+                attempted: bytes,
+            };
+            let additional = cap - self.entries.len();
+            reserve_exact(&mut self.entries, additional, refused)?;
         }
         Ok(())
     }

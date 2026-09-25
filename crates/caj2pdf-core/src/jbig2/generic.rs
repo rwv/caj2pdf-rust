@@ -303,10 +303,16 @@ fn checked_layout(
             u64::from(height),
         ));
     }
-    x.checked_add(width)
-        .ok_or_else(|| malformed(segment, offset + 8, "region x plus width overflows"))?;
-    y.checked_add(height)
-        .ok_or_else(|| malformed(segment, offset + 12, "region y plus height overflows"))?;
+    x.checked_add(width).ok_or(malformed(
+        segment,
+        offset + 8,
+        "region x plus width overflows",
+    ))?;
+    y.checked_add(height).ok_or(malformed(
+        segment,
+        offset + 12,
+        "region y plus height overflows",
+    ))?;
     if region_flags & 0xf8 != 0 {
         return Err(malformed(segment, offset + 16, "region reserved flags"));
     }
@@ -333,7 +339,7 @@ fn checked_layout(
     }
     let pixels = u64::from(width)
         .checked_mul(u64::from(height))
-        .ok_or_else(|| malformed(segment, offset, "pixel area overflows"))?;
+        .ok_or(malformed(segment, offset, "pixel area overflows"))?;
     if pixels > budget.max_pixels {
         return Err(limit(
             segment,
@@ -352,9 +358,10 @@ fn checked_layout(
             pixels,
         ));
     }
-    let context_work = pixels
-        .checked_mul(10)
-        .ok_or_else(|| malformed(segment, offset, "context work overflows"))?;
+    let context_work =
+        pixels
+            .checked_mul(10)
+            .ok_or(malformed(segment, offset, "context work overflows"))?;
     if context_work > budget.max_context_work {
         return Err(limit(
             segment,
@@ -364,13 +371,16 @@ fn checked_layout(
             context_work,
         ));
     }
-    let stride_u64 = u64::from(width)
-        .checked_add(7)
-        .ok_or_else(|| malformed(segment, offset, "row stride overflows"))?
-        / 8;
-    let output = stride_u64
-        .checked_mul(u64::from(height))
-        .ok_or_else(|| malformed(segment, offset, "output size overflows"))?;
+    let stride_u64 = u64::from(width).checked_add(7).ok_or(malformed(
+        segment,
+        offset,
+        "row stride overflows",
+    ))? / 8;
+    let output = stride_u64.checked_mul(u64::from(height)).ok_or(malformed(
+        segment,
+        offset,
+        "output size overflows",
+    ))?;
     if output > limits.max_output_bytes {
         return Err(limit(
             segment,
@@ -391,7 +401,11 @@ fn checked_layout(
             )
         })
         .and_then(|v| v.checked_add(MQ_BUFFER_BYTES))
-        .ok_or_else(|| malformed(segment, offset, "allocation calculation overflows"))?;
+        .ok_or(malformed(
+            segment,
+            offset,
+            "allocation calculation overflows",
+        ))?;
     if rows_alloc > limits.max_allocation_bytes {
         return Err(limit(
             segment,
@@ -410,9 +424,11 @@ fn checked_layout(
             CONTEXT_COUNT as u64,
         ));
     }
-    let payload_offset = offset
-        .checked_add(HEADER_BYTES)
-        .ok_or_else(|| invalid_span(segment, offset, "MQ start overflows"))?;
+    let payload_offset = offset.checked_add(HEADER_BYTES).ok_or(invalid_span(
+        segment,
+        offset,
+        "MQ start overflows",
+    ))?;
     let mq_span = MqSpan {
         offset: payload_offset,
         length: header.data.length - HEADER_BYTES,
@@ -504,9 +520,11 @@ impl<'a, S: RangedSource, W: SequentialSink, C: Cancellation> GenericRegionDecod
                 },
             ));
         }
-        let end = offset
-            .checked_add(header.data.length)
-            .ok_or_else(|| invalid_span(segment, offset, "segment end overflows"))?;
+        let end = offset.checked_add(header.data.length).ok_or(invalid_span(
+            segment,
+            offset,
+            "segment end overflows",
+        ))?;
         if end > source.size() {
             return Err(invalid_span(segment, offset, "segment data outside source"));
         }

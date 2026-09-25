@@ -3,6 +3,7 @@
 //! CAJ to PDF conversion using bounded PDF fragment reconstruction.
 
 use super::parse_metadata;
+use crate::fallible::{reserve, reserve_exact};
 use crate::pdf::input::{
     FragmentKind, LinkDestinationTarget, LinkRepairCandidate, LinkRepairKind, PatchedSource,
     inspect_fragment_object, inspect_link_destination_candidate, scan_fragment_objects,
@@ -182,9 +183,10 @@ fn resolve_page_root(
         if steps > nodes.len().saturating_add(1) {
             return Err(malformed(body_start, "PDF page-tree parent cycle"));
         }
-        let node = nodes
-            .get(&child)
-            .ok_or_else(|| malformed(page_offset, "CAJ page object is missing or is not a Page"))?;
+        let node = nodes.get(&child).ok_or(malformed(
+            page_offset,
+            "CAJ page object is missing or is not a Page",
+        ))?;
         if let Some(root) = node.resolved_root {
             break root;
         }
@@ -246,13 +248,12 @@ fn replace_object(
             reason: "CAJ repair suffix size overflows",
         })?;
     limits.check_allocation(next_size as u64)?;
-    suffix
-        .try_reserve(candidate.replacement.len())
-        .map_err(|_| Error::LimitExceeded {
-            resource: "CAJ link repair allocation",
-            limit: limits.max_allocation_bytes,
-            attempted: next_size as u64,
-        })?;
+    let refused = Error::LimitExceeded {
+        resource: "CAJ link repair allocation",
+        limit: limits.max_allocation_bytes,
+        attempted: next_size as u64,
+    };
+    reserve(suffix, candidate.replacement.len(), refused)?;
     let old = objects
         .iter_mut()
         .find(|object| object.reference == candidate.object)
@@ -338,13 +339,13 @@ fn push_synthetic(
             reason: "CAJ synthetic page tree estimate overflows",
         })?;
     limits.check_allocation(estimated as u64)?;
-    suffix
-        .try_reserve_exact(estimated - suffix.len())
-        .map_err(|_| Error::LimitExceeded {
-            resource: "CAJ synthetic page tree allocation",
-            limit: limits.max_allocation_bytes,
-            attempted: estimated as u64,
-        })?;
+    let refused = Error::LimitExceeded {
+        resource: "CAJ synthetic page tree allocation",
+        limit: limits.max_allocation_bytes,
+        attempted: estimated as u64,
+    };
+    let additional = estimated - suffix.len();
+    reserve_exact(suffix, additional, refused)?;
     let start = suffix.len();
     let mut body = BoundedSuffix {
         bytes: suffix,
@@ -417,13 +418,12 @@ pub async fn convert_caj<S: RangedSource, W: SequentialSink, C: Cancellation>(
         (metadata.page_rows.len() as u64) * std::mem::size_of::<PdfRef>() as u64,
     )?;
     let mut page_refs = Vec::new();
-    page_refs
-        .try_reserve_exact(metadata.page_rows.len())
-        .map_err(|_| Error::LimitExceeded {
-            resource: "CAJ ordered page index allocation",
-            limit: limits.max_allocation_bytes,
-            attempted: (metadata.page_rows.len() as u64) * std::mem::size_of::<PdfRef>() as u64,
-        })?;
+    let refused = Error::LimitExceeded {
+        resource: "CAJ ordered page index allocation",
+        limit: limits.max_allocation_bytes,
+        attempted: (metadata.page_rows.len() as u64) * std::mem::size_of::<PdfRef>() as u64,
+    };
+    reserve_exact(&mut page_refs, metadata.page_rows.len(), refused)?;
     page_refs.extend(metadata.page_rows.iter().map(|row| PdfRef {
         number: row.page_object_id,
         generation: 0,
@@ -440,13 +440,12 @@ pub async fn convert_caj<S: RangedSource, W: SequentialSink, C: Cancellation>(
         })?;
     limits.check_allocation(occupied_bytes as u64)?;
     let mut occupied = Vec::<PdfRef>::new();
-    occupied
-        .try_reserve_exact(objects.len())
-        .map_err(|_| Error::LimitExceeded {
-            resource: "CAJ object reference index allocation",
-            limit: limits.max_allocation_bytes,
-            attempted: occupied_bytes as u64,
-        })?;
+    let refused = Error::LimitExceeded {
+        resource: "CAJ object reference index allocation",
+        limit: limits.max_allocation_bytes,
+        attempted: occupied_bytes as u64,
+    };
+    reserve_exact(&mut occupied, objects.len(), refused)?;
     occupied.extend(objects.iter().map(|object| object.reference));
     occupied.sort_unstable();
     let mut highest_referenced_object = occupied
@@ -500,15 +499,14 @@ pub async fn convert_caj<S: RangedSource, W: SequentialSink, C: Cancellation>(
                         attempted: attempted as u64,
                     });
                 }
-                missing_references
-                    .try_reserve(1)
-                    .map_err(|_| Error::CajLimitExceeded {
-                        offset: object.range.offset,
-                        record: None,
-                        resource: "missing PDF references",
-                        limit: limits.max_allocation_bytes,
-                        attempted: attempted as u64,
-                    })?;
+                let refused = Error::CajLimitExceeded {
+                    offset: object.range.offset,
+                    record: None,
+                    resource: "missing PDF references",
+                    limit: limits.max_allocation_bytes,
+                    attempted: attempted as u64,
+                };
+                reserve(&mut missing_references, 1, refused)?;
                 missing_references.push(MissingReference {
                     owner: object.reference,
                     target: *missing,
@@ -557,12 +555,10 @@ pub async fn convert_caj<S: RangedSource, W: SequentialSink, C: Cancellation>(
                     missing_order.push(parent);
                     MissingGroup::default()
                 });
-                group.count = group.count.checked_add(1).ok_or_else(|| {
-                    malformed(
-                        metadata.page_rows[index].offset,
-                        "CAJ page-tree count overflows",
-                    )
-                })?;
+                group.count = group.count.checked_add(1).ok_or(malformed(
+                    metadata.page_rows[index].offset,
+                    "CAJ page-tree count overflows",
+                ))?;
                 if group.seen.insert(direct_child) {
                     group.kids.push(direct_child);
                 }
@@ -599,12 +595,10 @@ pub async fn convert_caj<S: RangedSource, W: SequentialSink, C: Cancellation>(
             .fold(highest_referenced_object, |highest, reference| {
                 highest.max(reference.number)
             });
-        let number = highest.checked_add(1).ok_or_else(|| {
-            malformed(
-                metadata.body_start,
-                "CAJ synthetic page-tree object number overflows",
-            )
-        })?;
+        let number = highest.checked_add(1).ok_or(malformed(
+            metadata.body_start,
+            "CAJ synthetic page-tree object number overflows",
+        ))?;
         PdfRef {
             number,
             generation: 0,

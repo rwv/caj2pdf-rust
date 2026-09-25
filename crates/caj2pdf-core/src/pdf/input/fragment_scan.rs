@@ -149,12 +149,16 @@ pub(crate) async fn scan_fragment_objects<S: RangedSource, C: Cancellation>(
         let end = match head.tail {
             ObjectTail::EndObject { end } => start.checked_add(end as u64),
             ObjectTail::Stream { data_start } => {
-                let dictionary = head.dictionary.as_ref().ok_or_else(|| {
-                    reader.malformed(start, Some(reference), "stream has no dictionary")
-                })?;
-                let entry = dictionary.entry(b"Length").ok_or_else(|| {
-                    reader.malformed(start, Some(reference), "stream lacks Length")
-                })?;
+                let dictionary = head.dictionary.as_ref().ok_or(reader.malformed(
+                    start,
+                    Some(reference),
+                    "stream has no dictionary",
+                ))?;
+                let entry = dictionary.entry(b"Length").ok_or(reader.malformed(
+                    start,
+                    Some(reference),
+                    "stream lacks Length",
+                ))?;
                 let value = entry.value(&dictionary.bytes);
                 let length = exact_unsigned(value).ok_or_else(|| {
                     reader.problem(
@@ -164,12 +168,14 @@ pub(crate) async fn scan_fragment_objects<S: RangedSource, C: Cancellation>(
                         "CAJ fragment stream requires a direct Length",
                     )
                 })?;
-                let data_at = start.checked_add(data_start as u64).ok_or_else(|| {
-                    reader.malformed(start, Some(reference), "stream offset overflows")
-                })?;
-                let after_data = data_at.checked_add(length).ok_or_else(|| {
-                    reader.malformed(data_at, Some(reference), "stream extent overflows")
-                })?;
+                let data_at = start
+                    .checked_add(data_start as u64)
+                    .ok_or(reader.malformed(start, Some(reference), "stream offset overflows"))?;
+                let after_data = data_at.checked_add(length).ok_or(reader.malformed(
+                    data_at,
+                    Some(reference),
+                    "stream extent overflows",
+                ))?;
                 let end = match reader.check_stream_tail(after_data, Some(reference)).await {
                     Ok(end) => end,
                     Err(Error::Pdf {
@@ -189,13 +195,11 @@ pub(crate) async fn scan_fragment_objects<S: RangedSource, C: Cancellation>(
                                 "stream Length repair changes PDF object width",
                             ));
                         }
-                        let dictionary_start = head.dictionary_start.ok_or_else(|| {
-                            reader.malformed(
-                                start,
-                                Some(reference),
-                                "stream dictionary offset is missing",
-                            )
-                        })?;
+                        let dictionary_start = head.dictionary_start.ok_or(reader.malformed(
+                            start,
+                            Some(reference),
+                            "stream dictionary offset is missing",
+                        ))?;
                         let patch_offset = body_start
                             .checked_add(start)
                             .and_then(|n| n.checked_add(dictionary_start as u64))
@@ -216,7 +220,11 @@ pub(crate) async fn scan_fragment_objects<S: RangedSource, C: Cancellation>(
                 Some(end)
             }
         }
-        .ok_or_else(|| reader.malformed(start, Some(reference), "fragment object end overflows"))?;
+        .ok_or(reader.malformed(
+            start,
+            Some(reference),
+            "fragment object end overflows",
+        ))?;
         if end <= start || end > range.length {
             return Err(reader.malformed(
                 start,
@@ -245,16 +253,13 @@ pub(crate) async fn scan_fragment_objects<S: RangedSource, C: Cancellation>(
         limits
             .check_allocation(allocation)
             .map_err(|error| reader.locate_limit(start, Some(reference), error))?;
-        reserve(
-            &mut objects,
-            1,
-            reader.allocation_limit(
-                start,
-                Some(reference),
-                "PDF fragment object index allocation",
-                allocation,
-            ),
-        )?;
+        let refused = reader.allocation_limit(
+            start,
+            Some(reference),
+            "PDF fragment object index allocation",
+            allocation,
+        );
+        reserve(&mut objects, 1, refused)?;
         objects.push(FragmentObject {
             reference,
             range: PdfRange {
@@ -342,13 +347,11 @@ async fn repair_stream_length<S: RangedSource, C: Cancellation>(
         }
         found = Some((after - data_at, end));
     }
-    found.ok_or_else(|| {
-        reader.malformed(
-            declared_after,
-            Some(reference),
-            "stream Length has no unique bounded repair",
-        )
-    })
+    found.ok_or(reader.malformed(
+        declared_after,
+        Some(reference),
+        "stream Length has no unique bounded repair",
+    ))
 }
 
 #[cfg(test)]
