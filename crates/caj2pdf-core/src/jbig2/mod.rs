@@ -11,6 +11,7 @@ pub use directory::{
 };
 
 pub mod generic;
+pub mod iaid;
 pub mod integer;
 pub mod mq;
 

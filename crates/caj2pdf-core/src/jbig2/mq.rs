@@ -111,6 +111,9 @@ pub struct MqContext {
 #[derive(Debug)]
 pub struct MqContexts {
     states: Vec<MqContext>,
+    // Set only by the typed IAID owner. A raw context array cannot claim to
+    // contain an IAID model or reinterpret old statistics at a new width.
+    iaid_code_len: Option<u32>,
 }
 
 impl MqContexts {
@@ -136,7 +139,10 @@ impl MqContexts {
             .try_reserve_exact(count)
             .map_err(|_| MqError::configuration(MqErrorKind::AllocationFailed))?;
         states.resize(count, MqContext::default());
-        Ok(Self { states })
+        Ok(Self {
+            states,
+            iaid_code_len: None,
+        })
     }
 
     pub fn reset(&mut self) {
@@ -150,6 +156,10 @@ impl MqContexts {
     /// Number of independently adapted MQ contexts in this bank.
     pub fn count(&self) -> usize {
         self.states.len()
+    }
+
+    pub(super) fn bind_iaid_code_len(&mut self, code_len: u32) {
+        self.iaid_code_len = Some(code_len);
     }
 
     pub fn set(&mut self, index: usize, state: MqContext) -> MqResult<()> {
@@ -348,6 +358,17 @@ pub struct MqDecoder<'a, S: RangedSource, C: Cancellation> {
 }
 
 impl<'a, S: RangedSource, C: Cancellation> MqDecoder<'a, S, C> {
+    pub(super) fn iaid_code_len(&self) -> Option<u32> {
+        self.contexts.iaid_code_len
+    }
+
+    pub(super) fn check_ready(&self, context: Option<usize>) -> MqResult<()> {
+        if self.poisoned {
+            return Err(self.at(context, MqErrorKind::Poisoned));
+        }
+        self.check_cancelled(context)
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub async fn new(
         source: &'a mut S,
