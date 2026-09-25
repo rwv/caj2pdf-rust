@@ -408,7 +408,6 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfWriter<'a, W, C> {
     }
 }
 
-/// Fixed-width entry for a generation-zero, in-use classic xref object.
 /// Reject output that would end past the classic xref's ten-digit offsets.
 pub(crate) fn check_classic_pdf_bytes(attempted: u64) -> Result<()> {
     if attempted > MAX_CLASSIC_PDF_BYTES {
@@ -421,6 +420,7 @@ pub(crate) fn check_classic_pdf_bytes(attempted: u64) -> Result<()> {
     Ok(())
 }
 
+/// Fixed-width entry for a generation-zero, in-use classic xref object.
 fn xref_entry(offset: u64) -> Result<[u8; 20]> {
     if offset > MAX_CLASSIC_PDF_BYTES {
         return Err(Error::LimitExceeded {
