@@ -70,6 +70,15 @@ jobs:
           report="$(python3 scripts/jbig2_dictionary_headers.py --json)"
           printf '%s\n' "$report"
           python3 -c 'import json, sys; result = json.loads(sys.argv[1]); assert result["status"] == "NOT_RUN" and result["metadata"]["checked_images"] == 0 and result["symbol_compatibility"]["status"] == "NOT_RUN" and result["symbol_compatibility"]["checked_cases"] == 0 and result["symbol_compatibility"]["passed"] == 0, result' "$report"
+      - name: Report external JBIG2 refinement pixels as not run
+        env:
+          CAJ2PDF_CORPUS_DIR: ""
+          CAJ2PDF_T88_REFINEMENT_FIXTURE_FILE: ""
+          CAJ2PDF_T88_REFINEMENT_FIXTURE_SHA256: ""
+        run: |
+          report="$(python3 scripts/jbig2_refinement_oracle.py --json)"
+          printf '%s\n' "$report"
+          python3 -c 'import json, sys; result = json.loads(sys.argv[1]); ref = result["refinement_compatibility"]; assert result["status"] == "NOT_RUN" and ref["status"] == "NOT_RUN" and ref["checked_cases"] == 0 and ref["passed"] == 0 and ref["failed"] == 0, result' "$report"
       - name: Report external JBIG2 pixel oracle as not run
         env:
           CAJ2PDF_CORPUS_DIR: ""

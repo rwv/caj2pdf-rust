@@ -548,6 +548,17 @@ impl<'a, S: RangedSource, C: Cancellation> MqDecoder<'a, S, C> {
         self.contexts.get(index)
     }
 
+    /// The size of the caller-owned context bank, including other models.
+    pub(crate) fn context_count(&self) -> usize {
+        self.contexts.count()
+    }
+
+    /// An enclosing format operation failed after consuming decisions or
+    /// writing output. Reusing this coding unit would misinterpret its state.
+    pub(crate) fn poison(&mut self) {
+        self.poisoned = true;
+    }
+
     /// Verify the caller's symbol count and the exact terminal pair.
     /// This does not prove that the supplied table matches T.88 Table E.1.
     pub async fn finish(self, expected_symbols: u64) -> MqResult<()> {

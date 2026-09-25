@@ -15,6 +15,7 @@ pub mod generic;
 pub mod iaid;
 pub mod integer;
 pub mod mq;
+pub mod refinement;
 
 use crate::{Cancellation, Error, Limits, RangedSource};
 use std::{error, fmt, mem};
