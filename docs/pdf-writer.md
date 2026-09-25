@@ -44,6 +44,11 @@ reads and sink writes observe cancellation at I/O boundaries.
 - Image-only pages with caller-supplied dimensions. The initial image profile
   covers raw 8-bit grayscale/RGB samples and DCT-encoded JPEG in those color
   spaces. One image occupies each page.
+- Streamed 1 bpp images (`begin_bilevel_image`): `/DeviceGray`,
+  `/BitsPerComponent 1`, `/Decode [1 0]` (a set bit is black), with source
+  row padding beyond `ceil(width / 8)` bytes dropped. `add_page` places one or
+  more finished images, each scaled to the whole page. The
+  [HN/C8 type-0 note](hnc8-type0-pdf.md) records how the converter uses them.
 - Nested outline items with destinations to pages in the same document.
   Non-ASCII titles are serialized as UTF-16BE PDF text strings.
 

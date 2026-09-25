@@ -10,7 +10,10 @@ mod types;
 mod writer;
 
 pub use append::{PdfOutlineAppender, copy_pdf, copy_pdf_range};
-pub use document::{ImageEncoding, ImageSpec, PageSpec, PdfDocument};
+pub use document::{
+    BilevelImageSpec, BilevelImageWriter, ImageEncoding, ImageObject, ImageSpec, PageSpec,
+    PdfDocument,
+};
 pub use fragment::{
     FragmentObject, FragmentPlan, reconstruct_fragment, reconstruct_fragment_with_bookmarks,
 };

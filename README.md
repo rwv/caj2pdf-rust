@@ -32,8 +32,10 @@ rules, and the existing-outline policy.
 ## Command-line usage
 
 The `caj2pdf` Linux command converts CAJ, KDH, and PDF inputs. HN and C8
-files are recognized, but their conversion is not implemented yet; TEB is
-recognized and unsupported. Build it with `cargo build --release -p caj2pdf-cli`.
+files are recognized, but the command does not convert them yet: the core's
+[type-0 page converter](docs/hnc8-type0-pdf.md) needs a probability table
+that cannot be bundled until issue #30 is resolved. TEB is recognized and
+unsupported. Build it with `cargo build --release -p caj2pdf-cli`.
 
 ```sh
 caj2pdf paper.caj                  # writes paper.pdf next to the input

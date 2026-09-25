@@ -53,7 +53,9 @@ Only type 0 may be passed as an unchanged full DIB-plus-coded
 Types 1–3 have no codec assignment or conversion claim here. A positive
 unmeasured type produces a located unsupported error; a negative type is
 malformed. This reader does not decode images or text, determine placement,
-construct PDF pages, or provide a complete HN/C8 conversion command.
+construct PDF pages, or provide a complete HN/C8 conversion command. The
+separate [type-0 PDF note](hnc8-type0-pdf.md) describes the #28 core
+converter built on it, which still needs a caller-supplied table.
 
 ## Bounds, work, and alias policy
 
