@@ -266,14 +266,14 @@ fn checked_info(
     }
     let pixels = u64::from(width)
         .checked_mul(u64::from(height))
-        .ok_or_else(|| malformed(base + 4, "pixel area overflows"))?;
+        .ok_or(malformed(base + 4, "pixel area overflows"))?;
     if pixels > budget.max_pixels {
         return Err(limit(base + 4, "image pixels", budget.max_pixels, pixels));
     }
     let potential_symbols = u64::from(width)
         .checked_add(1)
         .and_then(|row| row.checked_mul(u64::from(height)))
-        .ok_or_else(|| malformed(base + 4, "symbol count overflows"))?;
+        .ok_or(malformed(base + 4, "symbol count overflows"))?;
     if potential_symbols > arithmetic.max_symbols {
         return Err(limit(
             base + 4,
@@ -285,7 +285,7 @@ fn checked_info(
     let context_work = pixels
         .checked_mul(10)
         .and_then(|value| value.checked_add(u64::from(height)))
-        .ok_or_else(|| malformed(base + 4, "context work overflows"))?;
+        .ok_or(malformed(base + 4, "context work overflows"))?;
     if context_work > budget.max_context_work {
         return Err(limit(
             base + 4,
@@ -297,14 +297,14 @@ fn checked_info(
     let stride_u64 = u64::from(width)
         .checked_add(31)
         .map(|value| value / 32 * 4)
-        .ok_or_else(|| malformed(base + 4, "DIB stride overflows"))?;
+        .ok_or(malformed(base + 4, "DIB stride overflows"))?;
     let visible_u64 = u64::from(width)
         .checked_add(7)
         .map(|value| value / 8)
-        .ok_or_else(|| malformed(base + 4, "visible stride overflows"))?;
+        .ok_or(malformed(base + 4, "visible stride overflows"))?;
     let output = stride_u64
         .checked_mul(u64::from(height))
-        .ok_or_else(|| malformed(base + 4, "DIB output size overflows"))?;
+        .ok_or(malformed(base + 4, "DIB output size overflows"))?;
     if output > limits.max_output_bytes {
         return Err(limit(
             base + 4,
@@ -329,7 +329,10 @@ fn checked_info(
             )
         })
         .and_then(|bytes| bytes.checked_add(QM_BUFFER_BYTES))
-        .ok_or_else(|| malformed(base + 4, "working allocation calculation overflows"))?;
+        .ok_or(malformed(
+            base + 4,
+            "working allocation calculation overflows",
+        ))?;
     if allocated > limits.max_allocation_bytes {
         return Err(limit(
             base + 4,

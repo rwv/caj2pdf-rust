@@ -7,6 +7,7 @@
 
 use super::parser::{Syntax, destination_page, exact_name, exact_reference, parse_object_head};
 use super::{FragmentObject, ObjectTail, Reader};
+use crate::fallible::reserve_exact;
 use crate::pdf::PdfRef;
 use crate::{Cancellation, Error, Limits, PdfErrorKind, RangedSource, Result};
 
@@ -188,16 +189,17 @@ pub(crate) async fn inspect_link_destination_candidate<S: RangedSource, C: Cance
         let dictionary_start = complete
             .dictionary_start
             .expect("classified dictionary offset");
-        let pair_start = dictionary_start
-            .checked_add(destination.pair.start)
-            .ok_or_else(|| {
-                reader.malformed(0, Some(reference), "link destination pair offset overflows")
-            })?;
+        let pair_start =
+            dictionary_start
+                .checked_add(destination.pair.start)
+                .ok_or(reader.malformed(
+                    0,
+                    Some(reference),
+                    "link destination pair offset overflows",
+                ))?;
         let pair_end = dictionary_start
             .checked_add(destination.pair.end)
-            .ok_or_else(|| {
-                reader.malformed(0, Some(reference), "link destination pair end overflows")
-            })?;
+            .ok_or(reader.malformed(0, Some(reference), "link destination pair end overflows"))?;
         if pair_start >= pair_end || pair_end > complete.bytes.len() {
             return Err(reader.malformed(
                 0,
@@ -206,15 +208,15 @@ pub(crate) async fn inspect_link_destination_candidate<S: RangedSource, C: Cance
             ));
         }
         let mut replacement = Vec::new();
-        replacement
-            .try_reserve_exact(complete.bytes.len() - (pair_end - pair_start))
-            .map_err(|_| Error::PdfLimitExceeded {
-                offset: range.offset,
-                object: Some((reference.number, reference.generation)),
-                resource: "PDF link repair allocation",
-                limit: limits.max_allocation_bytes,
-                attempted: complete.bytes.len() as u64,
-            })?;
+        let refused = Error::PdfLimitExceeded {
+            offset: range.offset,
+            object: Some((reference.number, reference.generation)),
+            resource: "PDF link repair allocation",
+            limit: limits.max_allocation_bytes,
+            attempted: complete.bytes.len() as u64,
+        };
+        let additional = complete.bytes.len() - (pair_end - pair_start);
+        reserve_exact(&mut replacement, additional, refused)?;
         replacement.extend_from_slice(&complete.bytes[..pair_start]);
         replacement.extend_from_slice(&complete.bytes[pair_end..]);
         return Ok(Some(LinkRepairCandidate {

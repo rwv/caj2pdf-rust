@@ -909,14 +909,8 @@ impl<'a, S: RangedSource, W: SequentialSink, C: Cancellation> DirectDictionaryDe
     }
 
     fn invalid_span(&self, reason: &'static str) -> DictionaryError {
-        self.error(
-            self.current_offset(),
-            DictionaryErrorKind::InvalidSpan(reason),
-        )
-    }
-
-    fn allocation_failed(&self) -> DictionaryError {
-        self.error(self.current_offset(), DictionaryErrorKind::AllocationFailed)
+        let kind = DictionaryErrorKind::InvalidSpan(reason);
+        self.error(self.current_offset(), kind)
     }
 
     fn current_offset(&self) -> u64 {
@@ -1117,9 +1111,11 @@ impl<'a, S: RangedSource, W: SequentialSink, C: Cancellation> DirectDictionaryDe
         bytes: u64,
     ) -> DictionaryResult<SymbolDescriptor> {
         let relative_store_offset = self.progress.stored_bitmap_bytes;
-        Self::prepare_row(&mut self.previous_two, stride).map_err(|_| self.allocation_failed())?;
-        Self::prepare_row(&mut self.previous_one, stride).map_err(|_| self.allocation_failed())?;
-        Self::prepare_row(&mut self.current, stride).map_err(|_| self.allocation_failed())?;
+        let prepared = Self::prepare_row(&mut self.previous_two, stride)
+            .and_then(|()| Self::prepare_row(&mut self.previous_one, stride))
+            .and_then(|()| Self::prepare_row(&mut self.current, stride));
+        let failed = DictionaryErrorKind::AllocationFailed;
+        prepared.map_err(|()| self.error(self.current_offset(), failed))?;
         for _ in 0..height {
             for x in 0..width {
                 self.check_cancelled()?;

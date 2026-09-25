@@ -193,7 +193,7 @@ impl HeaderCursor {
     fn check_future_header(&self, additional: u64) -> HeaderResult<()> {
         let attempted = (self.at - self.start)
             .checked_add(additional)
-            .ok_or_else(|| self.invalid_span("header length overflows"))?;
+            .ok_or(self.invalid_span("header length overflows"))?;
         if attempted > self.max_header_bytes {
             return Err(self.error(HeaderErrorKind::LimitExceeded {
                 resource: "JBIG2 header bytes",
@@ -204,7 +204,7 @@ impl HeaderCursor {
         let future = self
             .at
             .checked_add(additional)
-            .ok_or_else(|| self.invalid_span("header end overflows"))?;
+            .ok_or(self.invalid_span("header end overflows"))?;
         if future > self.end {
             return Err(HeaderError {
                 offset: self.end,
@@ -245,7 +245,7 @@ impl HeaderCursor {
             self.at = self
                 .at
                 .checked_add(len_u64(read))
-                .ok_or_else(|| self.invalid_span("read end overflows"))?;
+                .ok_or(self.invalid_span("read end overflows"))?;
             self.check_cancelled(cancellation)?;
             if read == 0 {
                 return Err(self.error(HeaderErrorKind::Truncated(field)));
@@ -330,7 +330,7 @@ pub(super) fn validate_enclosing_span<S: RangedSource>(
     let end = span
         .offset
         .checked_add(span.length)
-        .ok_or_else(|| cursor.invalid_span("end overflows 64 bits"))?;
+        .ok_or(cursor.invalid_span("end overflows 64 bits"))?;
     if end > source.size() {
         return Err(cursor.invalid_span("range extends beyond source size"));
     }
@@ -419,7 +419,7 @@ pub(super) async fn read_header_prefix<S: RangedSource, C: Cancellation>(
         let attempted = budget
             .references_used
             .checked_add(u64::from(reference_count))
-            .ok_or_else(|| cursor.invalid_span("reference total overflows"))?;
+            .ok_or(cursor.invalid_span("reference total overflows"))?;
         if attempted > budget.references_limit {
             return Err(cursor.error(HeaderErrorKind::LimitExceeded {
                 resource: "JBIG2 directory references",
@@ -438,17 +438,17 @@ pub(super) async fn read_header_prefix<S: RangedSource, C: Cancellation>(
     let association_width = if flags & 0x40 == 0 { 1_u64 } else { 4 };
     let reference_bytes = u64::from(reference_count)
         .checked_mul(reference_width)
-        .ok_or_else(|| cursor.invalid_span("reference size overflows"))?;
+        .ok_or(cursor.invalid_span("reference size overflows"))?;
     let remaining_header = retention_bytes
         .checked_sub(u64::from(short_retention.is_some()))
         .and_then(|value| value.checked_add(reference_bytes))
         .and_then(|value| value.checked_add(association_width + 4))
-        .ok_or_else(|| cursor.invalid_span("header size overflows"))?;
+        .ok_or(cursor.invalid_span("header size overflows"))?;
     cursor.check_future_header(remaining_header)?;
     let allocation_bytes = u64::from(reference_count)
         .checked_mul(mem::size_of::<u32>() as u64)
         .and_then(|value| value.checked_add(retention_bytes))
-        .ok_or_else(|| cursor.invalid_span("allocation size overflows"))?;
+        .ok_or(cursor.invalid_span("allocation size overflows"))?;
     if allocation_bytes > limits.max_allocation_bytes {
         return Err(cursor.error(HeaderErrorKind::LimitExceeded {
             resource: "JBIG2 header metadata bytes",
@@ -460,7 +460,7 @@ pub(super) async fn read_header_prefix<S: RangedSource, C: Cancellation>(
         let attempted = budget
             .metadata_used
             .checked_add(allocation_bytes)
-            .ok_or_else(|| cursor.invalid_span("metadata total overflows"))?;
+            .ok_or(cursor.invalid_span("metadata total overflows"))?;
         if attempted > budget.metadata_limit {
             return Err(cursor.error(HeaderErrorKind::LimitExceeded {
                 resource: "JBIG2 directory metadata bytes",
@@ -473,11 +473,8 @@ pub(super) async fn read_header_prefix<S: RangedSource, C: Cancellation>(
     let mut retention = Vec::new();
     let retention_length = usize::try_from(retention_bytes)
         .map_err(|_| cursor.invalid_span("retention size overflows"))?;
-    reserve_exact(
-        &mut retention,
-        retention_length,
-        cursor.error(HeaderErrorKind::AllocationFailed),
-    )?;
+    let failed = cursor.error(HeaderErrorKind::AllocationFailed);
+    reserve_exact(&mut retention, retention_length, failed)?;
     if let Some(short) = short_retention {
         retention.push(short);
         let used = (1_u8 << (reference_count + 1)) - 1;
@@ -504,11 +501,8 @@ pub(super) async fn read_header_prefix<S: RangedSource, C: Cancellation>(
     let mut referred_to = Vec::new();
     let count = usize::try_from(reference_count)
         .map_err(|_| cursor.invalid_span("reference count overflows"))?;
-    reserve_exact(
-        &mut referred_to,
-        count,
-        cursor.error(HeaderErrorKind::AllocationFailed),
-    )?;
+    let failed = cursor.error(HeaderErrorKind::AllocationFailed);
+    reserve_exact(&mut referred_to, count, failed)?;
     for _ in 0..count {
         let reference = match reference_width {
             1 => u32::from(
@@ -573,7 +567,7 @@ pub(super) async fn read_header_prefix<S: RangedSource, C: Cancellation>(
     let data_end = cursor
         .at
         .checked_add(u64::from(data_length))
-        .ok_or_else(|| cursor.invalid_span("data end overflows"))?;
+        .ok_or(cursor.invalid_span("data end overflows"))?;
     if data_end > cursor.end {
         return Err(cursor.error(HeaderErrorKind::Truncated("segment data")));
     }

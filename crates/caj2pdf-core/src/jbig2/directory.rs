@@ -222,11 +222,8 @@ fn validate_graph<C: Cancellation>(
     cancellation: &C,
 ) -> Result<()> {
     let mut index = Vec::new();
-    reserve_exact(
-        &mut index,
-        segments.len(),
-        unassigned(0, DirectoryErrorKind::AllocationFailed),
-    )?;
+    let refused = unassigned(0, DirectoryErrorKind::AllocationFailed);
+    reserve_exact(&mut index, segments.len(), refused)?;
     for (position, segment) in segments.iter().enumerate() {
         check_cancelled(cancellation, segment.header_offset())?;
         index.push(IndexEntry {
@@ -255,7 +252,7 @@ fn validate_graph<C: Cancellation>(
         if source.referred_to.len() > 1 {
             let scratch_bytes = len_u64(source.referred_to.len())
                 .checked_mul(mem::size_of::<u32>() as u64)
-                .ok_or_else(|| invalid_span(source, "scratch size overflows"))?;
+                .ok_or(invalid_span(source, "scratch size overflows"))?;
             let attempted = checked_total(metadata_bytes, scratch_bytes, source.header_offset())?;
             if attempted > limits.max_metadata_bytes {
                 return Err(at(
@@ -268,11 +265,8 @@ fn validate_graph<C: Cancellation>(
                 ));
             }
             if sorted_references.capacity() < source.referred_to.len() {
-                reserve_exact(
-                    &mut sorted_references,
-                    source.referred_to.len(),
-                    at(source, DirectoryErrorKind::AllocationFailed),
-                )?;
+                let refused = at(source, DirectoryErrorKind::AllocationFailed);
+                reserve_exact(&mut sorted_references, source.referred_to.len(), refused)?;
             }
             sorted_references.extend_from_slice(&source.referred_to);
             sorted_references.sort_unstable();
@@ -312,7 +306,7 @@ fn validate_graph<C: Cancellation>(
             if target.segment_type == 53 {
                 tables = tables
                     .checked_add(1)
-                    .ok_or_else(|| invalid_span(source, "table count overflows"))?;
+                    .ok_or(invalid_span(source, "table count overflows"))?;
                 let limit = if source.segment_type == 0 { 4 } else { 8 };
                 if tables > limit {
                     return Err(at(
@@ -420,11 +414,8 @@ pub async fn read_embedded_directory<S: RangedSource, C: Cancellation>(
                 },
             });
         }
-        reserve_exact(
-            &mut segments,
-            1,
-            unassigned(next, DirectoryErrorKind::AllocationFailed),
-        )?;
+        let refused = unassigned(next, DirectoryErrorKind::AllocationFailed);
+        reserve_exact(&mut segments, 1, refused)?;
         let budget = PrefixBudget {
             metadata_used: entry_total,
             metadata_limit: directory_limits.max_metadata_bytes,
@@ -446,7 +437,7 @@ pub async fn read_embedded_directory<S: RangedSource, C: Cancellation>(
         }
         let header_metadata = header
             .metadata_bytes()
-            .ok_or_else(|| invalid_span(&header, "metadata size overflows"))?;
+            .ok_or(invalid_span(&header, "metadata size overflows"))?;
         metadata_used = checked_total(entry_total, header_metadata, next)?;
         references_used = checked_total(references_used, len_u64(header.referred_to.len()), next)?;
         segments.push(header);

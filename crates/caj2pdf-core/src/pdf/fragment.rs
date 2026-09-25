@@ -255,17 +255,14 @@ fn build_outline_nodes(
         0,
     )?;
     let mut nodes: Vec<OutlineNode> = Vec::new();
-    reserve_exact(
-        &mut nodes,
-        bookmarks.len(),
-        pdf_limit(
-            None,
-            0,
-            "PDF outline index allocation",
-            limits.max_allocation_bytes,
-            metadata_bytes,
-        ),
-    )?;
+    let refused = pdf_limit(
+        None,
+        0,
+        "PDF outline index allocation",
+        limits.max_allocation_bytes,
+        metadata_bytes,
+    );
+    reserve_exact(&mut nodes, bookmarks.len(), refused)?;
     let mut stack: [Option<usize>; MAX_OUTLINE_DEPTH] = [None; MAX_OUTLINE_DEPTH];
     let mut first_root = None;
     let mut last_root: Option<usize> = None;
@@ -296,9 +293,11 @@ fn build_outline_nodes(
         if bookmark.title.is_empty() {
             return Err(malformed(None, 0, "bookmark title is empty"));
         }
-        let page = *pages.get(bookmark.page_index as usize).ok_or_else(|| {
-            malformed(None, 0, "bookmark destination is outside the ordered pages")
-        })?;
+        let page = *pages.get(bookmark.page_index as usize).ok_or(malformed(
+            None,
+            0,
+            "bookmark destination is outside the ordered pages",
+        ))?;
         let item_number = u32::try_from(index)
             .ok()
             .and_then(|position| position.checked_add(1))
@@ -318,7 +317,7 @@ fn build_outline_nodes(
         let parent_index: Option<usize> = if depth == 0 {
             None
         } else {
-            Some(stack[depth - 1].ok_or_else(|| malformed(None, 0, "bookmark parent is missing"))?)
+            Some(stack[depth - 1].ok_or(malformed(None, 0, "bookmark parent is missing"))?)
         };
         let previous_index = if let Some(parent_index) = parent_index {
             nodes[parent_index].last_child
@@ -606,11 +605,8 @@ pub async fn reconstruct_fragment_with_bookmarks<
         plan.objects.first().map_or(0, |object| object.range.offset),
     )?;
     let mut records = Vec::new();
-    reserve_exact(
-        &mut records,
-        requested,
-        allocation_limit("PDF object index allocation", limits, record_bytes),
-    )?;
+    let refused = allocation_limit("PDF object index allocation", limits, record_bytes);
+    reserve_exact(&mut records, requested, refused)?;
     let mut fragment_bytes = 0_u64;
     for fragment in plan.objects {
         checked_reference(fragment.reference, fragment.range.offset)?;
@@ -621,13 +617,11 @@ pub async fn reconstruct_fragment_with_bookmarks<
                 "indirect object span is empty",
             ));
         }
-        let end = fragment.range.end().ok_or_else(|| {
-            malformed(
-                Some(fragment.reference),
-                fragment.range.offset,
-                "indirect object span overflows 64-bit offset",
-            )
-        })?;
+        let end = fragment.range.end().ok_or(malformed(
+            Some(fragment.reference),
+            fragment.range.offset,
+            "indirect object span overflows 64-bit offset",
+        ))?;
         if end > source.size() {
             return Err(Error::TruncatedInput {
                 offset: fragment.range.offset,
@@ -659,13 +653,11 @@ pub async fn reconstruct_fragment_with_bookmarks<
     }
     records.sort_unstable_by_key(|record| record.range.offset);
     for pair in records.windows(2) {
-        let previous_end = pair[0].range.end().ok_or_else(|| {
-            malformed(
-                Some(pair[0].reference),
-                pair[0].range.offset,
-                "indirect object span overflows 64-bit offset",
-            )
-        })?;
+        let previous_end = pair[0].range.end().ok_or(malformed(
+            Some(pair[0].reference),
+            pair[0].range.offset,
+            "indirect object span overflows 64-bit offset",
+        ))?;
         if previous_end > pair[1].range.offset {
             return Err(pdf_error(
                 Some(pair[1].reference),
@@ -708,11 +700,8 @@ pub async fn reconstruct_fragment_with_bookmarks<
         plan.objects.first().map_or(0, |object| object.range.offset),
     )?;
     let mut sorted_pages = Vec::new();
-    reserve_exact(
-        &mut sorted_pages,
-        plan.pages.len(),
-        allocation_limit("PDF page index allocation", limits, page_index_bytes),
-    )?;
+    let refused = allocation_limit("PDF page index allocation", limits, page_index_bytes);
+    reserve_exact(&mut sorted_pages, plan.pages.len(), refused)?;
     sorted_pages.extend_from_slice(plan.pages);
     sorted_pages.sort_unstable();
     for pair in sorted_pages.windows(2) {
@@ -922,11 +911,8 @@ pub async fn reconstruct_fragment_with_bookmarks<
             .map_or(0, |record| record.range.offset),
     )?;
     let mut buffer = Vec::new();
-    reserve_exact(
-        &mut buffer,
-        limits.io_chunk_bytes,
-        allocation_limit("PDF I/O buffer allocation", limits, output_working_bytes),
-    )?;
+    let refused = allocation_limit("PDF I/O buffer allocation", limits, output_working_bytes);
+    reserve_exact(&mut buffer, limits.io_chunk_bytes, refused)?;
     buffer.resize(limits.io_chunk_bytes, 0_u8);
     emit(sink, HEADER, &mut report, limits, cancellation).await?;
     for record in records.iter_mut().filter(|record| record.range.length != 0) {
@@ -1190,11 +1176,8 @@ async fn validate_fragment_structure<R: RangedSource, C: Cancellation>(
         plan.objects.first().map_or(0, |object| object.range.offset),
     )?;
     let mut scalars = Vec::new();
-    reserve_exact(
-        &mut scalars,
-        records.len(),
-        allocation_limit("PDF scalar index allocation", limits, scalar_bytes),
-    )?;
+    let refused = allocation_limit("PDF scalar index allocation", limits, scalar_bytes);
+    reserve_exact(&mut scalars, records.len(), refused)?;
     for record in records {
         let scalar = if record.range.length == 0 {
             None
@@ -1224,18 +1207,12 @@ async fn validate_fragment_structure<R: RangedSource, C: Cancellation>(
         plan.objects.first().map_or(0, |object| object.range.offset),
     )?;
     let mut kinds = Vec::new();
-    reserve_exact(
-        &mut kinds,
-        records.len(),
-        allocation_limit("PDF structure index allocation", limits, kind_bytes),
-    )?;
+    let refused = allocation_limit("PDF structure index allocation", limits, kind_bytes);
+    reserve_exact(&mut kinds, records.len(), refused)?;
     let mut retained_structure_bytes = retained_base;
     let mut stream_flags = Vec::new();
-    reserve_exact(
-        &mut stream_flags,
-        records.len(),
-        allocation_limit("PDF stream index allocation", limits, stream_bytes),
-    )?;
+    let refused = allocation_limit("PDF stream index allocation", limits, stream_bytes);
+    reserve_exact(&mut stream_flags, records.len(), refused)?;
     let mut content_evidence = Vec::new();
     let mut destination_count = 0_u32;
     for record in records {
@@ -1411,8 +1388,11 @@ async fn validate_fragment_structure<R: RangedSource, C: Cancellation>(
         ));
     }
     if let Some(catalog) = plan.catalog {
-        let index = object_index(records, catalog)
-            .ok_or_else(|| malformed(Some(catalog), 0, "catalog object is missing"))?;
+        let index = object_index(records, catalog).ok_or(malformed(
+            Some(catalog),
+            0,
+            "catalog object is missing",
+        ))?;
         match &kinds[index] {
             Some(FragmentKind::Catalog { pages }) if *pages == plan.pages_root => {}
             _ => {
@@ -1424,13 +1404,11 @@ async fn validate_fragment_structure<R: RangedSource, C: Cancellation>(
             }
         }
     }
-    let root_index = object_index(records, plan.pages_root).ok_or_else(|| {
-        malformed(
-            Some(plan.pages_root),
-            0,
-            "page tree root is missing from the repair index",
-        )
-    })?;
+    let root_index = object_index(records, plan.pages_root).ok_or(malformed(
+        Some(plan.pages_root),
+        0,
+        "page tree root is missing from the repair index",
+    ))?;
     if records[root_index].range.length == 0 {
         for (index, kind) in kinds.iter().enumerate() {
             match kind {
@@ -1466,8 +1444,11 @@ async fn validate_fragment_structure<R: RangedSource, C: Cancellation>(
             }
         }
         for page in plan.pages {
-            let index = object_index(records, *page)
-                .ok_or_else(|| malformed(Some(*page), 0, "ordered page object is missing"))?;
+            let index = object_index(records, *page).ok_or(malformed(
+                Some(*page),
+                0,
+                "ordered page object is missing",
+            ))?;
             if !matches!(kinds[index], Some(FragmentKind::Page { .. })) {
                 return Err(malformed(
                     Some(*page),
@@ -1500,11 +1481,8 @@ fn retain_content_evidence(
     let item_bytes = checked_add(size_of::<ContentEvidence>() as u64, reference_bytes)?;
     *retained_bytes = checked_add(*retained_bytes, item_bytes)?;
     check_pdf_allocation(limits, *retained_bytes, Some(item.reference), offset)?;
-    reserve_exact(
-        evidence,
-        1,
-        allocation_limit("PDF content evidence allocation", limits, *retained_bytes),
-    )?;
+    let refused = allocation_limit("PDF content evidence allocation", limits, *retained_bytes);
+    reserve_exact(evidence, 1, refused)?;
     evidence.push(item);
     Ok(())
 }
@@ -1529,15 +1507,12 @@ fn validate_fragment_contents(
         first_offset,
     )?;
     let mut validated_arrays = Vec::new();
-    reserve_exact(
-        &mut validated_arrays,
-        evidence.len(),
-        allocation_limit(
-            "PDF content-array validation index allocation",
-            limits,
-            cache_bytes,
-        ),
-    )?;
+    let refused = allocation_limit(
+        "PDF content-array validation index allocation",
+        limits,
+        cache_bytes,
+    );
+    reserve_exact(&mut validated_arrays, evidence.len(), refused)?;
     validated_arrays.resize(evidence.len(), false);
     for item in evidence {
         let ContentEvidenceKind::Page { direct_array } = item.kind else {
@@ -1559,20 +1534,16 @@ fn validate_fragment_contents(
             }
             continue;
         }
-        let target = item.references.first().copied().ok_or_else(|| {
-            malformed(
-                Some(item.reference),
-                page_offset,
-                "Page Contents lacks an indirect target",
-            )
-        })?;
-        let target_index = object_index(records, target).ok_or_else(|| {
-            malformed(
-                Some(item.reference),
-                page_offset,
-                "Page Contents targets a missing object",
-            )
-        })?;
+        let target = item.references.first().copied().ok_or(malformed(
+            Some(item.reference),
+            page_offset,
+            "Page Contents lacks an indirect target",
+        ))?;
+        let target_index = object_index(records, target).ok_or(malformed(
+            Some(item.reference),
+            page_offset,
+            "Page Contents targets a missing object",
+        ))?;
         if stream_flags[target_index] {
             continue;
         }
@@ -1612,13 +1583,11 @@ fn require_content_stream(
     page: PdfRef,
     page_offset: u64,
 ) -> Result<()> {
-    let index = object_index(records, target).ok_or_else(|| {
-        malformed(
-            Some(page),
-            page_offset,
-            "Page Contents targets a missing object",
-        )
-    })?;
+    let index = object_index(records, target).ok_or(malformed(
+        Some(page),
+        page_offset,
+        "Page Contents targets a missing object",
+    ))?;
     if !stream_flags[index] {
         return Err(malformed(
             Some(page),
@@ -1657,15 +1626,12 @@ fn validate_existing_page_tree(
     let with_visited = checked_add(retained_bytes, visit_bytes)?;
     check_pdf_allocation(limits, with_visited, Some(plan.pages_root), root_offset)?;
     let mut visited = Vec::new();
-    reserve_exact(
-        &mut visited,
-        records.len(),
-        allocation_limit(
-            "PDF page-tree visited index allocation",
-            limits,
-            visit_bytes,
-        ),
-    )?;
+    let refused = allocation_limit(
+        "PDF page-tree visited index allocation",
+        limits,
+        visit_bytes,
+    );
+    reserve_exact(&mut visited, records.len(), refused)?;
     visited.resize(records.len(), false);
 
     let stack_capacity = records
@@ -1689,11 +1655,8 @@ fn validate_existing_page_tree(
         root_offset,
     )?;
     let mut stack = Vec::new();
-    reserve_exact(
-        &mut stack,
-        stack_capacity,
-        allocation_limit("PDF page-tree traversal allocation", limits, stack_bytes),
-    )?;
+    let refused = allocation_limit("PDF page-tree traversal allocation", limits, stack_bytes);
+    reserve_exact(&mut stack, stack_capacity, refused)?;
     stack.push(WalkStep::Enter {
         reference: plan.pages_root,
         parent: None,
@@ -1707,9 +1670,11 @@ fn validate_existing_page_tree(
                 parent,
                 inherited_media_box,
             } => {
-                let index = object_index(records, reference).ok_or_else(|| {
-                    malformed(Some(reference), 0, "page-tree child object is missing")
-                })?;
+                let index = object_index(records, reference).ok_or(malformed(
+                    Some(reference),
+                    0,
+                    "page-tree child object is missing",
+                ))?;
                 if visited[index] {
                     return Err(malformed(
                         Some(reference),
