@@ -452,3 +452,42 @@ fn error_messages_are_bounded_on_a_character_boundary() {
     assert!(message.ends_with('x'));
     assert_eq!(bounded_message(&Error::Cancelled), "operation cancelled");
 }
+
+#[test]
+fn source_reads_past_the_end_are_clamped_before_reaching_the_host() {
+    let shared = Rc::new(RefCell::new(Shared {
+        staging: vec![0; 8],
+        request: None,
+        response: None,
+        cancelled: false,
+        format: None,
+    }));
+    let mut source = BridgeSource {
+        shared: Rc::clone(&shared),
+        size: 10,
+    };
+    let mut context = Context::from_waker(Waker::noop());
+    let mut destination = [0_u8; 6];
+
+    let mut read = Box::pin(source.read_at(7, &mut destination));
+    assert!(read.as_mut().poll(&mut context).is_pending());
+    assert_eq!(
+        shared.borrow().request,
+        Some(Request::Read {
+            offset: 7,
+            length: 3
+        })
+    );
+    drop(read);
+
+    for offset in [10, 11] {
+        let result = Box::pin(source.read_at(offset, &mut destination))
+            .as_mut()
+            .poll(&mut context);
+        match (offset, result) {
+            (10, Poll::Ready(Ok(0))) => {}
+            (11, Poll::Ready(Err(Error::InvalidInput { .. }))) => {}
+            (_, other) => panic!("unexpected read at {offset}: {other:?}"),
+        }
+    }
+}
