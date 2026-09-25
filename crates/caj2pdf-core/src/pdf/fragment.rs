@@ -2909,11 +2909,12 @@ mod tests {
     #[test]
     fn page_contents_references_only_streams_or_one_indirect_stream_array() {
         run(async {
-            for case in 0..4 {
+            for case in 0..5 {
                 let mut bytes = Vec::new();
                 let contents = match case {
                     0 => b"4 0 R".as_slice(),
                     1 => b"[4 0 R]".as_slice(),
+                    4 => b"6 0 R".as_slice(),
                     _ => b"4 0 R".as_slice(),
                 };
                 let mut page_body =
@@ -2946,7 +2947,9 @@ mod tests {
                     &NeverCancel,
                 )
                 .await;
-                if case == 2 {
+                // Case 2 uses an indirect stream array; case 4 names the
+                // stream directly.
+                if case == 2 || case == 4 {
                     let report = result?;
                     assert_eq!(report.pages_converted, 1);
                     assert_eq!(report.output_bytes_written, sink.bytes.len() as u64);

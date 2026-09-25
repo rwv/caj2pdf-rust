@@ -296,6 +296,29 @@ fn rejects_unavailable_image_ranges_zero_pixels_and_empty_jpeg_before_reading() 
             .await
             .unwrap_err();
         assert!(matches!(short_range, Error::TruncatedInput { .. }));
+        // The PDF integer ceiling is checked before the source range.
+        let too_long = document
+            .add_image_page(
+                &mut source,
+                0,
+                i32::MAX as u64 + 1,
+                page(),
+                ImageSpec {
+                    pixel_width: 1,
+                    pixel_height: 1,
+                    encoding: ImageEncoding::JpegGray8,
+                },
+            )
+            .await
+            .unwrap_err();
+        assert!(matches!(
+            too_long,
+            Error::LimitExceeded {
+                resource: "PDF image stream bytes",
+                limit: 2_147_483_647,
+                attempted: 2_147_483_648,
+            }
+        ));
         Ok::<_, Error>(())
     })?;
     assert_eq!(source.reads, 0);

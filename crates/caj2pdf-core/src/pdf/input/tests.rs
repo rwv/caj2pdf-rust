@@ -1164,6 +1164,7 @@ fn fragment_inspection_rejects_invalid_roles_streams_and_tail_bytes() {
             b"1 0 obj << /Length 4 0 R >>\nstream\nabc\nendstream\nendobj",
             PdfErrorKind::Malformed,
         ),
+        (b"", PdfErrorKind::Malformed),
     ] {
         let error = inspect_raw_fragment(raw)
             .err()
@@ -1547,23 +1548,39 @@ fn pdf_error(result: Result<PdfIndex>) -> Error {
 }
 
 #[test]
-fn eof_marker_glued_to_other_bytes_is_not_the_document_end() {
-    let mut doc = build_pdf(&minimal_objects(), "");
-    let real_end = doc.len() as u64;
-    doc.extend_from_slice(b"junk%%EOF\n");
-    let error = pdf_error(open(doc));
-    assert!(
-        matches!(
-            error,
-            Error::Pdf {
-                offset,
-                kind: PdfErrorKind::AmbiguousRepair,
-                reason: "bytes after PDF EOF are not a recognized CAJ footer",
-                ..
-            } if offset == real_end
-        ),
-        "{error:?}"
-    );
+fn incomplete_trailing_eof_markers_are_not_the_document_end() {
+    // Each suffix ends in `%%EOF` without a usable `startxref` before it: the
+    // marker is glued, has no `startxref` within 128 bytes, has no offset, or
+    // has bytes after its offset.
+    let far = format!("\n{}\n%%EOF\n", " ".repeat(200));
+    for suffix in [
+        b"junk%%EOF\n".as_slice(),
+        far.as_bytes(),
+        b"\nstartxref\n\n%%EOF\n",
+        b"\nstartxref\n12 x\n%%EOF\n",
+    ] {
+        let mut doc = build_pdf(&minimal_objects(), "");
+        let real_end = doc.len() as u64;
+        doc.extend_from_slice(suffix);
+        let error = pdf_error(open(doc));
+        let whitespace = suffix
+            .iter()
+            .take_while(|byte| byte.is_ascii_whitespace())
+            .count();
+        assert!(
+            matches!(
+                error,
+                Error::Pdf {
+                    offset,
+                    kind: PdfErrorKind::AmbiguousRepair,
+                    reason: "bytes after PDF EOF are not a recognized CAJ footer",
+                    ..
+                } if offset == real_end + whitespace as u64
+            ),
+            "{:?}: {error:?}",
+            String::from_utf8_lossy(suffix)
+        );
+    }
 }
 
 #[test]
