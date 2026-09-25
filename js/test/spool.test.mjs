@@ -11,6 +11,7 @@ import { convertReadableStream, spoolToOpfs } from "../browser.mjs";
 import { convertReadable, convertSpooled, spoolToTempFile, webWritableSink } from "../node.mjs";
 import {
   collectingWriter,
+  discard,
   fixture,
   syntheticCaj,
   syntheticKdh,
@@ -36,8 +37,6 @@ async function withTempRoot(action) {
     await rm(directory, { recursive: true, force: true });
   }
 }
-
-const discard = { async writeChunk(bytes) { return bytes.length; }, async flush() {} };
 
 test("a Node Readable spools to a private temp file that dispose removes", async () => {
   await withTempRoot(async (directory) => {

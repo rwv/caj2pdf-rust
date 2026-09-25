@@ -2,8 +2,7 @@
 
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
-import { open, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { open, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Writable } from "node:stream";
 import { test } from "node:test";
@@ -13,6 +12,7 @@ import {
   webWritableSink,
 } from "../io.mjs";
 import { fileHandleSource, nodeWritableSink } from "../node.mjs";
+import { tempDirectory } from "./helpers.mjs";
 
 test("Blob source reads a slice and never calls whole-Blob arrayBuffer", async () => {
   const content = new Blob([Uint8Array.from([1, 2, 3, 4, 5])]);
@@ -74,7 +74,7 @@ test("Node source uses BigInt positioned reads beyond Number.MAX_SAFE_INTEGER", 
 });
 
 test("Node source leaves a real FileHandle open and preserves its cursor", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "caj2pdf-node-source-"));
+  const directory = await tempDirectory("node-source");
   const path = join(directory, "input.bin");
   await writeFile(path, Uint8Array.from([1, 2, 3, 4]));
   const handle = await open(path, "r");

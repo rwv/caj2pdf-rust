@@ -24,6 +24,7 @@ import {
 } from "../node.mjs";
 import {
   collectingWriter,
+  discard,
   fixture,
   largePdfBlob,
   newInstance,
@@ -173,7 +174,7 @@ test("HN, C8, and TEB inputs are recognized and rejected as unsupported", async 
 });
 
 test("malformed inputs reject with typed codes and located messages", async () => {
-  const sink = { async writeChunk(bytes) { return bytes.length; }, async flush() {} };
+  const sink = discard;
   const kdh = new Uint8Array(254);
   kdh.set(new TextEncoder().encode("KDH"));
   await assert.rejects(convert(await wasmModule(), blobSource(new Blob([kdh])), sink), {
@@ -195,7 +196,7 @@ test("malformed inputs reject with typed codes and located messages", async () =
 });
 
 test("configured limits reach the Rust engine and are validated first", async () => {
-  const sink = { async writeChunk(bytes) { return bytes.length; }, async flush() {} };
+  const sink = discard;
   const source = blobSource(new Blob([syntheticCaj()]));
   await assert.rejects(convert(await wasmModule(), source, sink, { limits: { maxPages: 1 } }), {
     code: "CAJ_LIMIT_EXCEEDED",
