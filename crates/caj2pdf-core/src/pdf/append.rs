@@ -1569,4 +1569,302 @@ mod tests {
         assert_eq!(sink.accepted, original.len());
         Ok(())
     }
+
+    /// A classic-xref PDF whose objects are numbered `1..=objects.len()`.
+    /// `gap` is inserted immediately before object `gap.0`.
+    fn classic_pdf(objects: &[&str], gap: Option<(u32, &[u8])>, trailer_extra: &str) -> Vec<u8> {
+        let mut pdf = b"%PDF-1.7\n".to_vec();
+        let mut offsets = Vec::new();
+        for (index, body) in objects.iter().enumerate() {
+            let number = index as u32 + 1;
+            if let Some((before, bytes)) = gap
+                && before == number
+            {
+                pdf.extend_from_slice(bytes);
+            }
+            offsets.push(pdf.len());
+            pdf.extend_from_slice(format!("{number} 0 obj\n{body}\nendobj\n").as_bytes());
+        }
+        let xref = pdf.len();
+        let size = objects.len() + 1;
+        pdf.extend_from_slice(format!("xref\n0 {size}\n0000000000 65535 f \n").as_bytes());
+        for offset in offsets {
+            pdf.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
+        }
+        pdf.extend_from_slice(
+            format!(
+                "trailer\n<< /Size {size} /Root 1 0 R {trailer_extra} >>\nstartxref\n{xref}\n%%EOF\n"
+            )
+            .as_bytes(),
+        );
+        pdf
+    }
+
+    const CATALOG: &str = "<< /Type /Catalog /Pages 2 0 R >>";
+    const PAGES: &str = "<< /Type /Pages /Kids [3 0 R] /Count 1 >>";
+    const PAGE: &str = "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 200] >>";
+
+    fn open_index(pdf: &[u8], limits: &Limits) -> Result<PdfIndex> {
+        let mut source = SeekableSource::new(Cursor::new(pdf))?;
+        run(PdfIndex::open(
+            &mut source,
+            PdfRange {
+                offset: 0,
+                length: pdf.len() as u64,
+            },
+            limits,
+            &NeverCancel,
+        ))
+    }
+
+    #[test]
+    fn id_parser_rejects_non_arrays_trailing_values_and_bad_strings() {
+        for raw in [
+            b"<00> <11>".as_slice(),
+            b"[<00> <11>] junk",
+            b"[<0G> <11>]",
+            b"[<00> <11",
+            br"[(ends with escape\",
+            b"[(unbalanced (nested) <11>]",
+            b"[<< >> <11>]",
+        ] {
+            assert!(
+                matches!(
+                    first_id_string(raw, 77),
+                    Err(Error::Pdf {
+                        offset: 77,
+                        object: None,
+                        kind: PdfErrorKind::UnsupportedFeature,
+                        reason: "unsupported PDF trailer ID syntax",
+                    })
+                ),
+                "accepted {raw:?}"
+            );
+        }
+        assert_eq!(
+            first_id_string(b"[(a (nested) b) < 0a 1B >]", 0).unwrap(),
+            b"(a (nested) b)"
+        );
+        assert_eq!(
+            first_id_string(b"[<00 11\n22> (x)] % trailing comment", 0).unwrap(),
+            b"<00 11\n22>"
+        );
+    }
+
+    #[test]
+    fn update_keeps_trailer_info_and_replaces_an_empty_outline_root() -> Result<()> {
+        let original = classic_pdf(
+            &[
+                "<< /Type /Catalog /Pages 2 0 R /Outlines 4 0 R /PageMode /UseNone >>",
+                PAGES,
+                PAGE,
+                "<< /Type /Outlines /Count 0 >>",
+                "<< /Producer (unit test) >>",
+            ],
+            None,
+            "/Info 5 0 R",
+        );
+        let limits = Limits::default();
+        let index = open_index(&original, &limits)?;
+        assert!(!index.has_outlines());
+        let mut source = SeekableSource::new(Cursor::new(original.as_slice()))?;
+        let mut output = WriteSink::new(Vec::<u8>::new());
+        let report = run(async {
+            let mut appender =
+                PdfOutlineAppender::begin(&mut source, &mut output, &index, &limits, &NeverCancel)
+                    .await?;
+            assert!(!appender.preserves_existing_outlines());
+            appender
+                .add_bookmark(Bookmark {
+                    depth: 0,
+                    title: "Only".into(),
+                    page_index: 0,
+                })
+                .await?;
+            appender.finish().await
+        })?;
+        assert_eq!(report.bookmarks_written, 1);
+        assert_eq!(report.input_bytes_read, original.len() as u64);
+        let pdf = output.into_inner();
+        assert_eq!(report.output_bytes_written, pdf.len() as u64);
+        assert!(pdf.starts_with(&original));
+        let update = String::from_utf8_lossy(&pdf[original.len()..]);
+        assert!(
+            update.contains(
+                "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /PageMode /UseNone /Outlines 6 0 R >>"
+            ),
+            "{update}"
+        );
+        assert!(!update.contains("/Outlines 4 0 R"), "{update}");
+        assert!(
+            update.contains("6 0 obj\n<< /Type /Outlines /First 7 0 R /Last 7 0 R /Count 1 >>")
+        );
+        let xref = original
+            .windows(5)
+            .position(|window| window == b"xref\n")
+            .unwrap();
+        assert!(
+            update.contains(&format!(
+                "trailer\n<< /Size 8 /Root 1 0 R /Prev {xref} /Info 5 0 R >>"
+            )),
+            "{update}"
+        );
+        let reopened = open_index(&pdf, &limits)?;
+        assert!(reopened.has_outlines());
+        assert_eq!(reopened.trailer_info(), index.trailer_info());
+        Ok(())
+    }
+
+    #[test]
+    fn orphan_gap_scrubbing_spans_small_copy_chunks() -> Result<()> {
+        let gap = b"4 0 obj\r<\r\n";
+        let original = classic_pdf(
+            &[CATALOG, PAGES, PAGE, "(live but unreferenced)"],
+            Some((4, gap)),
+            "",
+        );
+        let at = original
+            .windows(gap.len())
+            .position(|window| window == gap)
+            .unwrap();
+        let limits = Limits {
+            io_chunk_bytes: 4,
+            ..Limits::default()
+        };
+        let index = open_index(&original, &limits)?;
+        let [patch] = index.gap_patches() else {
+            panic!("expected one orphan gap patch");
+        };
+        // The inactive span may include separator whitespace before the
+        // aborted header; it must end at the next live object.
+        let start = patch.offset as usize;
+        let end = start + patch.original.len();
+        assert!(start <= at && patch.original.ends_with(gap));
+        assert!(original[end..].starts_with(b"4 0 obj\n("));
+        // More than two 4-byte chunks, so the scrub crosses chunk boundaries.
+        assert!(patch.original.len() > 8);
+        let mut source = SeekableSource::new(Cursor::new(original.as_slice()))?;
+        let mut output = WriteSink::new(Vec::<u8>::new());
+        let report = run(copy_pdf(&mut source, &mut output, &limits, &NeverCancel))?;
+        let mut expected = original.clone();
+        expected[start..end].fill(b' ');
+        let copied = output.into_inner();
+        assert_eq!(copied, expected);
+        assert_eq!(report.output_bytes_written, expected.len() as u64);
+        assert_eq!(report.bookmarks_written, 0);
+        assert!(
+            open_index(&copied, &Limits::default())?
+                .gap_patches()
+                .is_empty()
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn writer_refuses_new_bookmarks_after_an_output_failure() -> Result<()> {
+        let original = unoutlined_pdf()?;
+        let limits = Limits::default();
+        let index = open_index(&original, &limits)?;
+        let mut source = SeekableSource::new(Cursor::new(original.as_slice()))?;
+        let mut sink = FailingSink {
+            accepted: 0,
+            remaining: original.len() + 3,
+            fail_flush: false,
+        };
+        let poisoned = run(async {
+            let mut appender =
+                PdfOutlineAppender::begin(&mut source, &mut sink, &index, &limits, &NeverCancel)
+                    .await?;
+            let bookmark = |title: &str| Bookmark {
+                depth: 0,
+                title: title.into(),
+                page_index: 0,
+            };
+            appender.add_bookmark(bookmark("first")).await?;
+            // The second sibling emits the first item and exhausts the sink.
+            assert!(matches!(
+                appender.add_bookmark(bookmark("second")).await,
+                Err(Error::Io(_))
+            ));
+            let retry = appender.add_bookmark(bookmark("third")).await;
+            let finish = appender.finish().await;
+            Ok::<_, Error>((retry, finish))
+        })?;
+        for result in [poisoned.0.map(|_| ()), poisoned.1.map(|_| ())] {
+            assert!(matches!(
+                result,
+                Err(Error::InvalidInput {
+                    reason: "PDF append writer cannot continue after an output failure"
+                })
+            ));
+        }
+        assert_eq!(sink.accepted, original.len() + 3);
+        Ok(())
+    }
+
+    struct CountingCancel {
+        calls: std::cell::Cell<u64>,
+        cancel_from: u64,
+    }
+
+    impl Cancellation for CountingCancel {
+        fn is_cancelled(&self) -> bool {
+            let call = self.calls.get() + 1;
+            self.calls.set(call);
+            call >= self.cancel_from
+        }
+    }
+
+    #[derive(Default)]
+    struct RecordingSink {
+        bytes: Vec<u8>,
+        flushes: u32,
+    }
+
+    impl SequentialSink for RecordingSink {
+        async fn write(&mut self, bytes: &[u8]) -> Result<usize> {
+            self.bytes.extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+
+        async fn flush(&mut self) -> Result<()> {
+            self.flushes += 1;
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn cancellation_around_the_final_flush_prevents_a_success_report() -> Result<()> {
+        let original = include_bytes!("../../../../tests/fixtures/valid_nested_outline.pdf");
+        let copy = |cancel_from: u64| -> (Result<ConversionReport>, RecordingSink, u64) {
+            let mut source = SeekableSource::new(Cursor::new(original.as_slice())).unwrap();
+            let mut sink = RecordingSink::default();
+            let cancellation = CountingCancel {
+                calls: std::cell::Cell::new(0),
+                cancel_from,
+            };
+            let result = run(copy_pdf(
+                &mut source,
+                &mut sink,
+                &Limits::default(),
+                &cancellation,
+            ));
+            (result, sink, cancellation.calls.get())
+        };
+        let (result, sink, checks) = copy(u64::MAX);
+        result?;
+        assert_eq!(sink.bytes, original);
+        assert_eq!(sink.flushes, 1);
+
+        // The penultimate check precedes the flush; the last one follows it.
+        let (before_flush, sink, _) = copy(checks - 1);
+        assert!(matches!(before_flush, Err(Error::Cancelled)));
+        assert_eq!(sink.bytes, original);
+        assert_eq!(sink.flushes, 0);
+
+        let (after_flush, sink, _) = copy(checks);
+        assert!(matches!(after_flush, Err(Error::Cancelled)));
+        assert_eq!(sink.flushes, 1);
+        Ok(())
+    }
 }

@@ -729,6 +729,78 @@ mod tests {
     }
 
     #[test]
+    fn rejects_trailing_bytes_that_appear_after_the_bounded_head_read() {
+        /// Serves `first` until a second read restarts at the object start,
+        /// then serves `second`: the tail changes between the whitespace
+        /// scan and the complete candidate read.
+        struct TailChangingSource {
+            first: Vec<u8>,
+            second: Vec<u8>,
+            reads_from_start: usize,
+        }
+
+        impl RangedSource for TailChangingSource {
+            fn size(&self) -> u64 {
+                self.first.len() as u64
+            }
+
+            async fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> Result<usize> {
+                if offset == 0 {
+                    self.reads_from_start += 1;
+                }
+                let bytes = if self.reads_from_start < 2 {
+                    &self.first
+                } else {
+                    &self.second
+                };
+                let start = offset as usize;
+                let count = destination.len().min(bytes.len().saturating_sub(start));
+                destination[..count].copy_from_slice(&bytes[start..start + count]);
+                Ok(count)
+            }
+        }
+
+        let object = b"9 0 obj\n[6 0 R /Fit]\nendobj";
+        let mut first = object.to_vec();
+        first.extend(std::iter::repeat_n(b' ', 1024));
+        let mut second = first.clone();
+        // Beyond the 512-byte head window, so the head prefix still matches.
+        second[800] = b'x';
+        let mut source = TailChangingSource {
+            first,
+            second,
+            reads_from_start: 0,
+        };
+        let fragment = FragmentObject {
+            reference: PdfRef {
+                number: 9,
+                generation: 0,
+            },
+            range: PdfRange {
+                offset: 0,
+                length: source.size(),
+            },
+        };
+        let error = ready(inspect_link_destination_candidate(
+            &mut source,
+            fragment,
+            &Limits::default(),
+            &NeverCancel,
+        ))
+        .expect_err("changed trailing bytes were accepted");
+        assert!(matches!(
+            error,
+            Error::Pdf {
+                offset,
+                object: Some((9, 0)),
+                kind: PdfErrorKind::Malformed,
+                reason: "link repair object has trailing non-whitespace bytes",
+            } if offset == object.len() as u64
+        ));
+        assert_eq!(source.reads_from_start, 2);
+    }
+
+    #[test]
     fn identifies_an_indirect_destination_used_by_another_link_field() {
         let ordinary = inspect(b"9 0 obj\n<</Subtype/Link /Dest 42 0 R /AP 43 0 R>>\nendobj\n")
             .unwrap()
