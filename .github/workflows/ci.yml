@@ -167,7 +167,9 @@ jobs:
         run: bash scripts/check-source-inventory.sh
 
   coverage:
-    name: Line coverage ratchet (100% target)
+    # Branch protection requires this exact check name; the enforced floors
+    # live in scripts/check-coverage.sh.
+    name: Line coverage (90% minimum; 100% target)
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
