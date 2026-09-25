@@ -13,7 +13,7 @@ mod gb18030;
 
 pub use converter::convert_caj;
 
-use crate::fallible::reserve_exact;
+use crate::fallible::{reserve_exact, usize_from_u32};
 use crate::{Bookmark, Cancellation, Error, Limits, RangedSource, Result, read_exact_at};
 use std::mem::size_of;
 
@@ -103,7 +103,7 @@ fn check_allocation<T>(
             bytes,
         ));
     }
-    usize::try_from(count).map_err(|_| limit(offset, None, resource, usize::MAX as u64, bytes))
+    Ok(usize_from_u32(count))
 }
 
 async fn read_field<S: RangedSource, C: Cancellation>(
