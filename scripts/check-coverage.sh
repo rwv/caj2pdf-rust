@@ -8,8 +8,8 @@ set -euo pipefail
 report_dir=target/coverage
 report="$report_dir/lcov.info"
 summary="$report_dir/summary.txt"
-minimum=98.8
-file_minimum=97
+minimum=99.1
+file_minimum=98.3
 mkdir -p "$report_dir"
 
 cargo llvm-cov --workspace --all-features --locked --lcov --output-path "$report"
