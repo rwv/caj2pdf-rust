@@ -16,6 +16,7 @@ pub mod iaid;
 pub mod integer;
 pub mod mq;
 pub mod refinement;
+pub mod refinement_dictionary;
 
 use crate::{Cancellation, Error, Limits, RangedSource};
 use std::{error, fmt, mem};

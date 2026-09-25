@@ -231,6 +231,7 @@ pub struct RefinementDecoder<'a, 'mq, M: RangedSource, C: Cancellation, W: Seque
     cancellation: &'a C,
     budget: RefinementBudget,
     progress: RefinementProgress,
+    progress_observer: Option<&'a mut RefinementProgress>,
 }
 
 impl<M: RangedSource, C: Cancellation, W: SequentialSink> Drop
@@ -239,6 +240,10 @@ impl<M: RangedSource, C: Cancellation, W: SequentialSink> Drop
     fn drop(&mut self) {
         if self.progress.poisoned {
             self.mq.poison();
+        }
+        let final_progress = self.progress();
+        if let Some(observer) = &mut self.progress_observer {
+            **observer = final_progress;
         }
     }
 }
@@ -255,6 +260,22 @@ impl<'a, 'mq, M: RangedSource, C: Cancellation, W: SequentialSink>
         limits: &'a Limits,
         cancellation: &'a C,
         budget: RefinementBudget,
+    ) -> RefinementResult<Self> {
+        Self::new_observed(mq, layout, sink, limits, cancellation, budget, None)
+    }
+
+    /// Internal completion/drop monitor for a dictionary that owns this host
+    /// inside a pending async operation. It preserves physical I/O progress
+    /// when the enclosing future is abandoned.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn new_observed(
+        mq: &'a mut MqDecoder<'mq, M, C>,
+        layout: IaidLayout,
+        sink: &'a mut W,
+        limits: &'a Limits,
+        cancellation: &'a C,
+        budget: RefinementBudget,
+        progress_observer: Option<&'a mut RefinementProgress>,
     ) -> RefinementResult<Self> {
         let invalid = |kind| RefinementError {
             offset: None,
@@ -295,6 +316,7 @@ impl<'a, 'mq, M: RangedSource, C: Cancellation, W: SequentialSink>
             cancellation,
             budget,
             progress: RefinementProgress::default(),
+            progress_observer,
         })
     }
 
