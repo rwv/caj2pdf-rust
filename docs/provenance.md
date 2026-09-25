@@ -300,6 +300,26 @@ JBIG2 pixel or HN/C8 compatibility; those external checks are `NOT_RUN`.
 The T.88 Annex E numeric-state redistribution basis remains to be reviewed
 before adding an arithmetic decoder or bundling exact states under MIT.
 
+Issue #42 refactors the original header parser in
+[`jbig2/mod.rs`](../crates/caj2pdf-core/src/jbig2/mod.rs) into one bounded
+prefix reader and adds the original MIT
+[`jbig2/directory.rs`](../crates/caj2pdf-core/src/jbig2/directory.rs).
+Its segment-number, page-association, reference-type, and retention rules
+come from the English T.88 (02/2000) §§7.1–7.4 and Annex D.3. The
+independently chosen synthetic headers and assertions in
+[`jbig2_directory.rs`](../crates/caj2pdf-core/tests/jbig2_directory.rs),
+the Rust [inventory executable](../crates/caj2pdf-core/examples/jbig2_directory_inventory.rs),
+the English [directory note](jbig2-directory.md), and the read-only
+[`jbig2_directory_inventory.py`](../scripts/jbig2_directory_inventory.py)
+driver are project-owned MIT work. The Python driver reuses only the existing
+MIT `conformance.py` and `jbig1_oracle.py` helpers for pinned SHA checks and
+HN/C8 container metadata; it never loads or calls the optional external
+JBIG1 decoder. Rust checks every type-3 embedded directory. No legacy
+Python/Go converter source, private Rust source, third-party decoder source,
+official table/vector bytes, external document, or generated PDF was copied
+or committed. The 546/546 external header metadata pass is separate from
+decoded-pixel checks; pixel parity was `NOT_RUN` for this directory PR.
+
 ## Dependency inventory and review
 
 The issue #2 baseline contains three owned packages:
