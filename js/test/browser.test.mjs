@@ -23,6 +23,8 @@ let server;
 let browser;
 let page;
 
+// `after` awaits these even if `before` timed out while they were pending,
+// so a late-starting server or browser is still closed.
 before(async () => {
   if (skip) return;
   const fixtures = {
@@ -31,23 +33,25 @@ before(async () => {
     "/fixtures/input.pdf": await fixture("valid_nested_outline.pdf"),
     "/fixtures/input.hn": await fixture("truncated_hn.hn"),
     "/fixtures/input.c8": await fixture("truncated_c8.c8"),
-    "/js/caj2pdf_wasm.wasm": await readFile(wasmUrl),
+    // The fresh build, not a possibly stale js/caj2pdf_wasm.wasm copy.
+    "/caj2pdf_wasm.wasm": await readFile(wasmUrl),
     "/index.html": "<!doctype html><meta charset=utf-8><title>caj2pdf browser tests</title>",
   };
-  server = await startServer(fileURLToPath(new URL("../../", import.meta.url)), fixtures);
-  browser = await launchChrome(chrome);
-  page = await openPage(browser.cdp, `${server.origin}/index.html`);
+  // Only the package directory is served.
+  server = startServer(fileURLToPath(new URL("..", import.meta.url)), fixtures);
+  browser = launchChrome(chrome);
+  page = await openPage((await browser).cdp, `${(await server).origin}/index.html`);
 }, { timeout: 90_000 });
 
 after(async () => {
-  await browser?.close();
-  await server?.close();
+  await (await browser?.catch(() => undefined))?.close();
+  await (await server?.catch(() => undefined))?.close();
 });
 
 /** Run an exported case from `browser-cases.mjs` in the page. */
 function run(name, ...args) {
   return page.evaluate(
-    `import("/js/test/browser-cases.mjs").then((cases) => cases[${JSON.stringify(name)}](...${JSON.stringify(args)}))`,
+    `import("/test/browser-cases.mjs").then((cases) => cases[${JSON.stringify(name)}](...${JSON.stringify(args)}))`,
   );
 }
 
