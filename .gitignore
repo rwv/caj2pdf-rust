@@ -8,3 +8,4 @@ __pycache__/
 *.py[cod]
 .env
 .env.*
+/js/caj2pdf_wasm.wasm

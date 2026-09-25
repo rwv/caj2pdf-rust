@@ -158,3 +158,18 @@ test("Web Writable sink awaits writer.write and leaves the writer open", async (
   assert.equal(await pending, 2);
   await sink.flush();
 });
+
+test("an abort interrupts stalled Node sink writes and file reads", async () => {
+  const controller = new AbortController();
+  const writable = new EventEmitter();
+  writable.write = () => false;
+  const pending = nodeWritableSink(writable).writeChunk(Uint8Array.of(1), controller.signal);
+  const source = await fileHandleSource({
+    async stat() { return { size: 1n }; },
+    read: () => new Promise(() => {}),
+  });
+  const read = source.readAt(0n, 1, controller.signal);
+  controller.abort();
+  await assert.rejects(pending, { name: "AbortError" });
+  await assert.rejects(read, { name: "AbortError" });
+});

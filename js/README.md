@@ -1,80 +1,182 @@
-# JavaScript I/O proof
+# caj2pdf JavaScript package
 
-This directory demonstrates the bounded I/O contract through real Rust core
-futures. `copyRangeProof` copies a requested byte range, and
-`convertKdhProof` converts a KDH wrapper into PDF through the same core used
-by the native adapter. CAJ conversion and the public browser/Node package API
-remain separate work.
+Streaming PDF, CAJ, and KDH to PDF conversion for browsers and Node.js 22+.
+The package drives the same Rust core as the native crate through a raw,
+dependency-free WebAssembly ABI. It has no npm dependencies, and all
+project-owned JavaScript and TypeScript declarations are MIT-licensed.
 
-Build the raw WebAssembly module and run the Node.js 22+ tests from the
-repository root:
+| Input | Conversion |
+| --- | --- |
+| PDF (`%PDF-`) | Validated, repaired where the core supports it, and copied. |
+| CAJ (`CAJ`) | Reconstructed PDF with CAJ outline bookmarks. |
+| KDH (`KDH`) | Decoded PDF, then the PDF path. |
+| HN, C8, TEB | Recognized; rejected with `UnsupportedFormatError`. Image decoding is not implemented yet (issues #9 and #23). |
+| Anything else | Rejected with `UnsupportedFormatError` (`format: null`). |
+
+## Build and test
 
 ```sh
-cargo build --locked --release -p caj2pdf-wasm --target wasm32-unknown-unknown
+cargo build --locked --release --all-features -p caj2pdf-wasm --target wasm32-unknown-unknown
 node --test js/test/*.test.mjs
 ```
 
-The browser proof is in [`examples/browser.html`](examples/browser.html). After
-building, serve the repository root over HTTP (for example,
-`python3 -m http.server 8000`) and open
-`http://localhost:8000/js/examples/browser.html`. The Node proof is
-[`examples/node.mjs`](examples/node.mjs); it copies a file to a new path as a
-demonstration, without converting it.
+`npm run build:wasm` (run inside `js/`) also copies the module next to the
+entry points as `caj2pdf_wasm.wasm`, which is where `loadModule()` looks by
+default. The package is marked `private` until the release process publishes
+it with that binary.
 
-## Source and sink contract
-
-Both browser and Node sources expose:
+## Usage
 
 ```js
-{
-  size: bigint, // stable snapshot, unsigned 64-bit
-  readAt(offset: bigint, length: number, signal?: AbortSignal): Promise<Uint8Array>
+// Node.js
+import { open } from "node:fs/promises";
+import { convert, fileHandleSource, loadModule, nodeWritableSink } from "caj2pdf-rust";
+
+const module = await loadModule();
+const input = await open("paper.caj", "r");
+const output = (await open("paper.pdf", "wx")).createWriteStream();
+try {
+  const report = await convert(module, await fileHandleSource(input), nodeWritableSink(output));
+  output.end();
+  console.log(report.format, report.pagesConverted);
+} finally {
+  await input.close();
 }
 ```
 
-Each request is at most 1 MiB. The browser source awaits only
-`blob.slice(start, end).arrayBuffer()` for that range; it rejects Blob sizes
-above `Number.MAX_SAFE_INTEGER` because `Blob.slice()` takes Number offsets.
-The Node source uses a caller-owned `FileHandle`, a BigInt size from
-`stat({ bigint: true })`, and BigInt positioned reads. It never closes or
-changes the handle's current position. A changed file may cause a short-read
-error. A forward-only source needs a caller-managed, bounded temporary spool
-before it can implement this contract; this proof rejects one otherwise.
+```js
+// Browser
+import { blobSource, convert, loadModule, webWritableSink } from "caj2pdf-rust";
 
-Sinks expose `writeChunk(bytes: Uint8Array, signal?): Promise<number>` and
-`flush(signal?): Promise<void>`. The proof awaits every write result before
-requesting another read. The browser adapter accepts a caller-owned
-`WritableStreamDefaultWriter`; the Node adapter accepts a caller-owned
-`Writable`. Neither closes or ends the sink. Their `flush` is an I/O barrier,
-not an `fsync` or document finalization operation.
-The Node adapter catches errors associated with each awaited write; callers
-remain responsible for later, unrelated stream errors after a write settles.
+const module = await loadModule();
+const writer = (await (await showSaveFilePicker()).createWritable()).getWriter();
+await convert(module, blobSource(file), webWritableSink(writer), { signal });
+await writer.close();
+```
 
-`copyRangeProof(instance, source, sink, options)` and
-`convertKdhProof(instance, source, sink, options)` drive a single core future
-through the raw WASM ABI. Rust requests a range, JavaScript awaits the
-source, copies only that bounded chunk into WASM staging memory, and resumes
-the Rust future. Rust then requests a write; JavaScript passes a bounded view
-of staging memory and awaits the sink. The view stays valid until
-`writeChunk()` resolves; a custom sink that retains bytes afterward must copy
-them before resolving. The supplied Web and Node sinks make that copy. The
-configured chunk defaults to 256 KiB and cannot exceed 1 MiB. Core and
-staging each hold one chunk; the JavaScript source and supplied output sink
-each hold at most one additional chunk while awaiting I/O. No complete
-document buffer is created. The KDH proof checks the full source length,
-decrypts through positioned reads, and uses the shared bounded PDF repair
-path. The Node tests run it with both a Blob source and a positioned file
-source; the same Blob and Web Writable adapters work in a browser.
-This proof uses the core's default 8 GiB input and 16 GiB output limits;
-configurable JavaScript limits belong to the production API in issue #13.
+The `.` export resolves to `node.mjs` under the `node` condition and to
+`browser.mjs` elsewhere; `./node` and `./browser` select one explicitly. Both
+re-export the platform-neutral API in `io.mjs`. Type declarations are in
+`*.d.mts`. Runnable examples are [`examples/node.mjs`](examples/node.mjs)
+(`node js/examples/node.mjs INPUT|- OUTPUT.pdf`) and
+[`examples/browser.html`](examples/browser.html) (serve the repository root
+over HTTP and open `/js/examples/browser.html`).
 
-One WASM instance handles one proof at a time. Use a separate instance for
-concurrent proofs. `AbortSignal` is checked between awaited operations; an
-already running Blob or file read cannot be interrupted by this adapter, and
-bytes already accepted by a sink cannot be withdrawn. Both proof drivers
-reset the WASM state when they resolve or reject. The production JavaScript
-conversion API and multi-operation handles are later work.
+### API
 
-This proof uses no npm dependencies. The core's audited pure Rust Flate
-dependency is documented in [`docs/provenance.md`](../docs/provenance.md).
-All project-owned source here is MIT-licensed.
+- `convert(wasm, source, sink, options)` detects the format from at most five
+  leading bytes (or uses `options.format`) and resolves with
+  `{ format, inputBytesRead, outputBytesWritten, pagesConverted, bookmarksWritten }`.
+- `inspect(wasm, source, options)` resolves with
+  `{ format, pageCount, bookmarkCount, inputBytesRead }` without output.
+  `bookmarkCount` is counted for CAJ and `null` for PDF and KDH.
+- `wasm` is a `WebAssembly.Module` (each call instantiates its own instance,
+  so calls may run concurrently), an `Instance`, or its exports. An instance
+  runs one operation at a time and rejects a second concurrent one.
+- Options: `format` (`"auto"` by default), `limits`, `chunkSize` (bytes per
+  request, default 256 KiB, at most 1 MiB), `signal`, and
+  `includeBookmarks` (default `true`).
+- `limits`: `maxInputBytes` (8 GiB), `maxOutputBytes` (16 GiB),
+  `maxAllocationBytes` (64 MiB; at most 256 MiB and at least `chunkSize`),
+  `maxPages` and `maxBookmarks` (100,000). JavaScript validates them and the
+  Rust engine enforces them.
+- Errors are `Caj2PdfError` with a stable `code` (for example
+  `MALFORMED_CAJ`, `PDF_LIMIT_EXCEEDED`, `TRUNCATED_INPUT`) and the core's
+  located message. `UnsupportedFormatError` adds `format`. Source and sink
+  errors and abort reasons propagate unchanged.
+- `copyRange(wasm, source, sink, options)` is a bounded copy diagnostic for
+  custom sources and sinks; it is not conversion.
+
+## Sources and sinks
+
+```ts
+interface RangedSource {
+  size: bigint; // stable snapshot, unsigned 64-bit
+  readAt(offset: bigint, length: number, signal?: AbortSignal): Promise<Uint8Array>;
+}
+interface SequentialSink {
+  writeChunk(bytes: Uint8Array, signal?: AbortSignal): Promise<number>; // bytes accepted
+  flush(signal?: AbortSignal): Promise<void>;
+}
+```
+
+| Adapter | Entry | Behavior |
+| --- | --- | --- |
+| `blobSource(blob)` | both | Awaits `blob.slice(start, end).arrayBuffer()` for one range only; never reads the whole Blob. Sizes above `Number.MAX_SAFE_INTEGER` are rejected. |
+| `fileHandleSource(handle)` | Node | BigInt positioned reads on a caller-owned `FileHandle`; never closes it or moves its cursor. |
+| `webWritableSink(writer)` | both | Awaits each `writer.write()` of a copied chunk; `flush` awaits `writer.ready`. Never closes the writer. |
+| `nodeWritableSink(writable)` | Node | Awaits each write callback, so at most one chunk is queued. Never ends the stream. |
+| `convertReadable(wasm, stream, sink, options)` / `spoolToTempFile` | Node | Spools a Node `Readable`, Web `ReadableStream`, or async iterable to a private file (mode `0600`) in a fresh `mkdtemp` directory under `os.tmpdir()` (or `options.tempDirectory`). |
+| `convertReadableStream(wasm, stream, sink, options)` / `spoolToOpfs` | Browser | Spools a `ReadableStream` to a uniquely named Origin Private File System file, then reads it as a disk-backed `File`. |
+
+A plain stream has no size or random access, so it is never converted
+directly and never buffered whole in memory. The spool accepts at most
+`maxSpoolBytes` (default `limits.maxInputBytes`, 8 GiB) and rejects with
+`LIMIT_EXCEEDED` as soon as more arrives. `convertReadable` and
+`convertReadableStream` remove the spool after success, failure, sink error,
+or abort; the lower-level spool functions return `dispose()` for the caller.
+
+### Browser storage support
+
+The browser spool needs `navigator.storage.getDirectory()` and
+`FileSystemFileHandle.createWritable()` in a secure context (HTTPS or
+localhost). Chromium-based browsers and Firefox provide both on the main
+thread; Safari's support for `createWritable()` depends on its version, and
+none of this has been exercised in a real browser by the automated tests.
+When either API is missing, the spool
+rejects with `RANDOM_ACCESS_REQUIRED` instead of falling back to memory; pass
+a `Blob`/`File` (which browsers keep disk-backed) or a custom `readAt`
+source. OPFS writes count against the origin's storage quota.
+
+## Bounded memory and I/O
+
+Rust requests one range or one write at a time. JavaScript awaits the source,
+copies only that chunk into the fixed WASM staging buffer, and resumes Rust;
+for output it passes a view of staging memory and awaits the sink before
+resuming. A view is valid only until `writeChunk()` settles, so a custom sink
+that retains bytes must copy them; the supplied sinks do. Requests never
+exceed `chunkSize`. No API accepts or returns a whole-document byte array.
+Format indexes (page tables, bookmarks, object offsets) are held in WASM
+memory under `limits`.
+
+Measured on Node 22.22.2 with the release build (the
+`a larger PDF converts...` test prints these numbers): converting a
+25,186,757-byte one-page PDF with the default 256 KiB chunk grew WASM memory
+from 1,179,648 bytes after instantiation to a peak of 1,966,080 bytes
+(+768 KiB, independent of the document length). The largest read request and
+the largest write were each 262,144 bytes, over 97 writes. WASM memory never
+shrinks, so the final `memory.buffer.byteLength` is the peak.
+
+## Cancellation
+
+`AbortSignal` is checked before every poll and after every awaited read,
+write, and flush. The supplied adapters also race their pending I/O against
+the signal, so a stalled Blob read, file read, or backpressured write stops
+waiting as soon as the signal aborts. The abandoned operation may still
+finish in the background; it only touches its own copied buffer. The
+conversion rejects with `signal.reason` (an `AbortError` by default), the
+Rust future is cancelled, and the instance is reset for reuse. Bytes a sink
+already accepted are not withdrawn: callers own their output and should
+delete or discard it after a rejection (the examples do). A custom source or
+sink should honor its `signal` argument for prompt cancellation.
+
+## Tests
+
+`js/test/*.test.mjs` run with `node --test` against the real WASM build:
+
+- `convert.test.mjs` converts synthetic CAJ, KDH, and PDF inputs with Blob
+  sources plus Web sinks and FileHandle sources plus Node sinks, asserting
+  every request is within the chunk size and validating each output with
+  `qpdf --check` and `qpdf --show-npages` when `qpdf` is installed (otherwise
+  a diagnostic reports the skip; the CI WASM job installs it). It
+  also covers `inspect`, HN/C8/TEB rejection, typed errors, limits,
+  cancellation, sink and source errors, and the memory measurement above.
+- `spool.test.mjs` covers Node temp-file spooling from Node and Web streams,
+  the spool bound, cleanup after success, failure, and abort, and the OPFS
+  spool against an in-memory OPFS test double.
+- `adapters.test.mjs` and `wasm.test.mjs` cover the adapters and the raw ABI.
+
+The browser adapters run on Node's `Blob`, `ReadableStream`, and
+`WritableStream`. No real browser, and no real OPFS, runs in CI; the browser
+example is manual. The inputs are synthetic MIT fixtures from
+`tests/fixtures` or built at test time; no external corpus test runs here.

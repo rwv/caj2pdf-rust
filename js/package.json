@@ -1,12 +1,54 @@
 {
-  "name": "caj2pdf-io-proof",
+  "name": "caj2pdf-rust",
+  "version": "0.1.0",
   "private": true,
-  "type": "module",
+  "description": "Streaming CAJ, KDH, and PDF to PDF conversion for browsers and Node.js through WebAssembly",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rwv/caj2pdf-rust.git",
+    "directory": "js"
+  },
+  "type": "module",
+  "sideEffects": false,
   "engines": {
     "node": ">=22"
   },
+  "exports": {
+    ".": {
+      "node": {
+        "types": "./node.d.mts",
+        "default": "./node.mjs"
+      },
+      "default": {
+        "types": "./browser.d.mts",
+        "default": "./browser.mjs"
+      }
+    },
+    "./node": {
+      "types": "./node.d.mts",
+      "default": "./node.mjs"
+    },
+    "./browser": {
+      "types": "./browser.d.mts",
+      "default": "./browser.mjs"
+    },
+    "./caj2pdf_wasm.wasm": "./caj2pdf_wasm.wasm",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "io.mjs",
+    "io.d.mts",
+    "node.mjs",
+    "node.d.mts",
+    "browser.mjs",
+    "browser.d.mts",
+    "caj2pdf_wasm.wasm",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
+    "build:wasm": "cargo build --locked --release --all-features -p caj2pdf-wasm --target wasm32-unknown-unknown && node -e \"require('node:fs').copyFileSync('../target/wasm32-unknown-unknown/release/caj2pdf_wasm.wasm', 'caj2pdf_wasm.wasm')\"",
     "test": "node --test test/*.test.mjs"
   }
 }

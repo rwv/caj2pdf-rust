@@ -3,40 +3,69 @@
 <html lang="en">
   <head>
     <meta charset="utf-8">
-    <title>caj2pdf bounded browser I/O proof</title>
+    <title>caj2pdf browser conversion</title>
   </head>
   <body>
-    <h1>Bounded browser I/O proof</h1>
-    <p>This reads a selected file through bounded Blob slices and counts the copied bytes. It does not convert to PDF.</p>
+    <h1>Convert CAJ, KDH, or PDF in the browser</h1>
+    <p>
+      The selected file is read through bounded <code>Blob.slice()</code> ranges. The PDF is
+      streamed to a file you choose (<code>showSaveFilePicker</code>) or, where that API is
+      missing, to a private OPFS file offered as a download.
+    </p>
     <input id="file" type="file">
-    <button id="run" type="button">Run proof</button>
+    <button id="run" type="button">Convert</button>
+    <button id="cancel" type="button" disabled>Cancel</button>
     <pre id="result"></pre>
     <script type="module">
-      import { blobSource, copyRangeProof, webWritableSink } from "../io.mjs";
+      import { blobSource, convert, loadModule, webWritableSink } from "../browser.mjs";
 
       const result = document.querySelector("#result");
+      const cancel = document.querySelector("#cancel");
+      const modulePromise = loadModule(
+        new URL("../../target/wasm32-unknown-unknown/release/caj2pdf_wasm.wasm", import.meta.url),
+      );
+
+      async function openOutput(name) {
+        if (typeof window.showSaveFilePicker === "function") {
+          const handle = await window.showSaveFilePicker({ suggestedName: name });
+          return { stream: await handle.createWritable(), finish: async () => null };
+        }
+        const root = await navigator.storage.getDirectory();
+        const handle = await root.getFileHandle(`output-${crypto.randomUUID()}.pdf`, { create: true });
+        return { stream: await handle.createWritable(), finish: async () => handle.getFile() };
+      }
+
       document.querySelector("#run").addEventListener("click", async () => {
         const file = document.querySelector("#file").files[0];
         if (!file) {
           result.textContent = "Select a file first.";
           return;
         }
+        const controller = new AbortController();
+        cancel.disabled = false;
+        cancel.onclick = () => controller.abort();
+        let writer;
         try {
-          const wasmUrl = new URL("../../target/wasm32-unknown-unknown/release/caj2pdf_wasm.wasm", import.meta.url);
-          const moduleBytes = await (await fetch(wasmUrl)).arrayBuffer();
-          const { instance } = await WebAssembly.instantiate(moduleBytes);
-          let counted = 0n;
-          const writer = new WritableStream({
-            write(bytes) { counted += BigInt(bytes.byteLength); },
-          }).getWriter();
-          try {
-            const report = await copyRangeProof(instance, blobSource(file), webWritableSink(writer));
-            result.textContent = `Read ${report.inputBytesRead} bytes in bounded slices; sink counted ${counted} bytes.`;
-          } finally {
-            writer.releaseLock();
+          const output = await openOutput(file.name.replace(/\.[^.]*$/, "") + ".pdf");
+          writer = output.stream.getWriter();
+          const report = await convert(await modulePromise, blobSource(file), webWritableSink(writer), {
+            signal: controller.signal,
+          });
+          await writer.close();
+          const saved = await output.finish();
+          result.textContent = `Converted ${report.format.toUpperCase()}: ${report.pagesConverted} pages.`;
+          if (saved) {
+            const link = document.createElement("a");
+            link.href = URL.createObjectURL(saved);
+            link.download = file.name.replace(/\.[^.]*$/, "") + ".pdf";
+            link.textContent = " Download";
+            result.append(link);
           }
         } catch (error) {
-          result.textContent = `${error.name}: ${error.message}`;
+          await writer?.abort().catch(() => {});
+          result.textContent = `${error.code ?? error.name}: ${error.message}`;
+        } finally {
+          cancel.disabled = true;
         }
       });
     </script>
