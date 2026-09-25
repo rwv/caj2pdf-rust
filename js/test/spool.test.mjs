@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 
 // Forward-only stream spooling: Node temporary files and a browser OPFS
-// spool. The OPFS tests use an in-memory test double of the OPFS API; no real
-// browser storage runs in CI.
+// spool. The OPFS tests here use an in-memory test double of the OPFS API;
+// browser.test.mjs exercises the real OPFS in headless Chromium.
 import assert from "node:assert/strict";
 import { readdir, rm } from "node:fs/promises";
 import { Readable } from "node:stream";
