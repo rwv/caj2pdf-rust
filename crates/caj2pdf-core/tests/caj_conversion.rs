@@ -1433,3 +1433,196 @@ fn missing_reference_index_budget_is_checked_before_output() {
         "{error}"
     );
 }
+
+fn object_offset(input: &[u8], number: u32) -> u64 {
+    let header = format!("{number} 0 obj\n");
+    input
+        .windows(header.len())
+        .position(|window| window == header.as_bytes())
+        .expect("object header present") as u64
+}
+
+#[test]
+fn synthetic_root_number_cannot_overflow_past_the_highest_object() {
+    // Two pages under different absent parents need a new joining root, but
+    // the largest possible object number is already occupied.
+    let mut body = Vec::new();
+    object(
+        &mut body,
+        9,
+        "<< /Type /Page /Parent 5 0 R /MediaBox [0 0 72 72] >>",
+    );
+    object(
+        &mut body,
+        u32::MAX,
+        "<< /Type /Page /Parent 6 0 R /MediaBox [0 0 72 72] >>",
+    );
+    let input = fragment_caj(&body, &[9, u32::MAX]);
+    let body_start = 0x400 + 2 * 12;
+    assert_caj_error(
+        "root number overflow",
+        &input,
+        body_start,
+        None,
+        "CAJ synthetic page-tree object number overflows",
+    );
+
+    // The same layout converts when a joining root number is available.
+    let mut body = Vec::new();
+    object(
+        &mut body,
+        9,
+        "<< /Type /Page /Parent 5 0 R /MediaBox [0 0 72 72] >>",
+    );
+    object(
+        &mut body,
+        10,
+        "<< /Type /Page /Parent 6 0 R /MediaBox [0 0 72 72] >>",
+    );
+    let (output, report) = convert(
+        &fragment_caj(&body, &[9, 10]),
+        ConversionOptions::default(),
+        &Limits::default(),
+    )
+    .expect("two absent parents should be joined under a new root");
+    assert_eq!(report.pages_converted, 2);
+    let pages: Vec<u32> = inspect(&output)
+        .pages()
+        .iter()
+        .map(|page| page.number)
+        .collect();
+    assert_eq!(pages, [9, 10]);
+}
+
+#[test]
+fn joining_root_allocation_is_checked_after_every_group_node() {
+    // Each page has its own absent parent. The joining root is generated
+    // last, and its estimate covers every group node plus one slot per group.
+    const GROUPS: u32 = 35;
+    const LIMIT: u64 = 3000;
+    let pages: Vec<u32> = (1000..1000 + GROUPS).collect();
+    let root = 2000 + GROUPS;
+    let mut body = Vec::new();
+    let mut group_nodes = 0;
+    for (index, page) in pages.iter().copied().enumerate() {
+        let parent = 2000 + index as u32;
+        object(
+            &mut body,
+            page,
+            &format!("<< /Type /Page /Parent {parent} 0 R /MediaBox [0 0 72 72] >>"),
+        );
+        group_nodes += format!(
+            "{parent} 0 obj\n<< /Type /Pages /Parent {root} 0 R /Count 1 /Kids [{page} 0 R ] >>\nendobj\n"
+        )
+        .len() as u64;
+    }
+    let input = fragment_caj(&body, &pages);
+    let error = rejected_without_output(
+        &input,
+        &Limits {
+            io_chunk_bytes: 64,
+            max_allocation_bytes: LIMIT,
+            ..Limits::default()
+        },
+    );
+    let root_estimate = group_nodes + 24 * u64::from(GROUPS) + 160;
+    assert!(
+        matches!(
+            &error,
+            Error::LimitExceeded {
+                resource: "allocation bytes",
+                limit: LIMIT,
+                attempted,
+            } if *attempted == root_estimate
+        ),
+        "{error}"
+    );
+
+    let (output, report) = convert(&input, ConversionOptions::default(), &Limits::default())
+        .expect("groups join under one root with the default allocation budget");
+    assert_eq!(report.pages_converted, GROUPS);
+    let order: Vec<u32> = inspect(&output)
+        .pages()
+        .iter()
+        .map(|page| page.number)
+        .collect();
+    assert_eq!(order, pages);
+}
+
+#[test]
+fn one_object_cannot_share_two_repaired_destination_arrays() {
+    let mut body = one_page_body(
+        Some("<< /Type /Annot /Subtype /Link /Rect [0 0 20 20] /Dest 13 0 R >>"),
+        None,
+    );
+    object(&mut body, 13, "[99 0 R /Fit]");
+    object(&mut body, 15, "[98 0 R /Fit]");
+    object(&mut body, 20, "<< /First 13 0 R /Second 15 0 R >>");
+    let input = fragment_caj(&body, &[9]);
+    let error = rejected_without_output(&input, &Limits::default());
+    assert!(
+        matches!(
+            &error,
+            Error::Pdf {
+                object: Some((20, 0)),
+                reason: "indirect reference targets a missing object",
+                offset,
+                ..
+            } if *offset == object_offset(&input, 20)
+        ),
+        "{error}"
+    );
+}
+
+#[test]
+fn link_repair_budget_includes_every_link_sharing_a_destination() {
+    // One destination array is retained first; each link that shares it is
+    // retained afterwards, so the budget is exhausted on a link annotation.
+    let mut body = Vec::new();
+    object(
+        &mut body,
+        9,
+        "<< /Type /Page /Parent 5 0 R /MediaBox [0 0 72 72] /Resources << >> >>",
+    );
+    object(&mut body, 5, "<< /Type /Pages /Count 1 /Kids [9 0 R] >>");
+    object(&mut body, 13, "[99 0 R /Fit]");
+    let links: Vec<u32> = (20..40).collect();
+    for number in &links {
+        object(
+            &mut body,
+            *number,
+            "<< /Type /Annot /Subtype /Link /Rect [0 0 20 20] /Dest 13 0 R >>",
+        );
+    }
+    let input = fragment_caj(&body, &[9]);
+    let link_offsets: Vec<u64> = links
+        .iter()
+        .map(|number| object_offset(&input, *number))
+        .collect();
+    let error = rejected_without_output(
+        &input,
+        &Limits {
+            io_chunk_bytes: 64,
+            max_allocation_bytes: 3500,
+            ..Limits::default()
+        },
+    );
+    assert!(
+        matches!(
+            &error,
+            Error::CajLimitExceeded {
+                resource: "retained link repairs",
+                limit: 3500,
+                attempted,
+                offset,
+                record: None,
+            } if *attempted > 3500 && link_offsets.contains(offset)
+        ),
+        "{error}"
+    );
+
+    let (output, report) = convert(&input, ConversionOptions::default(), &Limits::default())
+        .expect("links sharing an omitted destination convert with enough budget");
+    assert_eq!(report.pages_converted, 1);
+    assert!(!output.windows(5).any(|window| window == b"/Dest"));
+}

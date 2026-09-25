@@ -2394,6 +2394,18 @@ mod tests {
     }
 
     #[test]
+    fn describes_the_failure_kind_and_title_byte_offset() {
+        assert_eq!(
+            decode(b"ok\xff").unwrap_err().to_string(),
+            "invalid GB18030 sequence at title byte 2"
+        );
+        assert_eq!(
+            decode(b"abc\x95\x32\x82").unwrap_err().to_string(),
+            "incomplete GB18030 sequence at title byte 3"
+        );
+    }
+
+    #[test]
     fn preserves_duplicate_text_and_does_not_trim_title_bytes() {
         assert_eq!(decode(b"\xd5\xaa\xd2\xaa ").unwrap(), "摘要 ");
         assert_eq!(decode(b"\0").unwrap(), "\0");

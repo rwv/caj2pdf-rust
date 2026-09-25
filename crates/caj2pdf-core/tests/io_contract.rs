@@ -2,8 +2,8 @@
 
 use caj2pdf_core::{
     Cancellation, ConversionOptions, DEFAULT_IO_CHUNK, Error, Limits, MAX_IO_CHUNK, NeverCancel,
-    RangedSource, SequentialSink, copy_range, native::SeekableSource, native::WriteSink,
-    read_exact_at, write_all,
+    PdfErrorKind, RangedSource, SequentialSink, copy_range, native::SeekableSource,
+    native::WriteSink, read_exact_at, write_all,
 };
 use std::{
     cell::Cell,
@@ -664,4 +664,100 @@ fn error_types_preserve_context_and_sources() {
         .contains("attempted 2")
     );
     assert!(ConversionOptions::default().include_bookmarks);
+}
+
+#[test]
+fn located_format_errors_name_their_offset_record_and_object() {
+    let cases = [
+        (
+            Error::Caj {
+                offset: 0x14,
+                record: None,
+                reason: "CAJ page table extends beyond source",
+            },
+            "malformed CAJ at byte 20: CAJ page table extends beyond source",
+        ),
+        (
+            Error::Caj {
+                offset: 0x114,
+                record: Some(3),
+                reason: "empty CAJ TOC title",
+            },
+            "malformed CAJ at byte 276, record 3: empty CAJ TOC title",
+        ),
+        (
+            Error::CajLimitExceeded {
+                offset: 16,
+                record: None,
+                resource: "pages",
+                limit: 2,
+                attempted: 5,
+            },
+            "CAJ pages limit exceeded at byte 16: maximum 2, attempted 5",
+        ),
+        (
+            Error::CajLimitExceeded {
+                offset: 584,
+                record: Some(2),
+                resource: "CAJ title bytes",
+                limit: 10,
+                attempted: 12,
+            },
+            "CAJ CAJ title bytes limit exceeded at byte 584, record 2: maximum 10, attempted 12",
+        ),
+        (
+            Error::Kdh {
+                offset: 0x28,
+                reason: "KDH version field is invalid",
+            },
+            "malformed KDH at byte 40: KDH version field is invalid",
+        ),
+        (
+            Error::Pdf {
+                offset: 9,
+                object: None,
+                kind: PdfErrorKind::Encrypted,
+                reason: "encrypted input",
+            },
+            "encrypted PDF at byte 9: encrypted input",
+        ),
+        (
+            Error::Pdf {
+                offset: 70,
+                object: Some((12, 1)),
+                kind: PdfErrorKind::AmbiguousRepair,
+                reason: "two candidates",
+            },
+            "ambiguous repair PDF at byte 70, object 12 1: two candidates",
+        ),
+        (
+            Error::PdfLimitExceeded {
+                offset: 3,
+                object: None,
+                resource: "output bytes",
+                limit: 128,
+                attempted: 129,
+            },
+            "PDF output bytes limit exceeded at byte 3: maximum 128, attempted 129",
+        ),
+        (
+            Error::PdfLimitExceeded {
+                offset: 44,
+                object: Some((7, 0)),
+                resource: "stream bytes",
+                limit: 4,
+                attempted: 8,
+            },
+            "PDF stream bytes limit exceeded at byte 44, object 7 0: maximum 4, attempted 8",
+        ),
+    ];
+    for (error, expected) in cases {
+        assert_eq!(error.to_string(), expected);
+        assert!(std::error::Error::source(&error).is_none());
+    }
+    assert_eq!(PdfErrorKind::Malformed.to_string(), "malformed");
+    assert_eq!(
+        PdfErrorKind::UnsupportedFeature.to_string(),
+        "unsupported feature"
+    );
 }
