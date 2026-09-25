@@ -371,8 +371,22 @@ repository's MIT MQ and I/O APIs informed the implementation. The exact
 Table E.1 rows, source CAJ documents, and PDF/PBM outputs remain external;
 no differently licensed decoder or private Rust source was read or migrated.
 The caller-supplied table's redistribution question remains open in #44.
-Two SHA-verified generic-only spots passed locally; ordinary CI marks that
-check `NOT_RUN`, and full 546-case parity remains issue #50.
+Two SHA-verified generic-only spots passed locally during #49; ordinary CI
+marks that optional two-spot check `NOT_RUN`. The full generic-only result is
+recorded below under #50.
+
+Issue #50 adds the original MIT
+[`jbig2_generic_parity.py`](../scripts/jbig2_generic_parity.py) driver,
+[`jbig2_generic_parity.rs`](../crates/caj2pdf-core/examples/jbig2_generic_parity.rs)
+native probe, and [synthetic tests](../tests/conformance/test_jbig2_generic_parity.py).
+The [parity note](jbig2-generic-parity.md) records its exact optional inputs,
+failure semantics, 546/546 generic-only Rust-to-baseline result, native
+memory and I/O measurements, and unmeasured WASM runtime memory. The work
+reuses only this repository's MIT inventory, black-box oracle, and row
+decoder. Official T.88 states are read from a SHA-pinned private `/tmp`
+fixture at test time and never bundled. External documents and generated
+PDF/PBM/pixel bytes stay outside Git. Rust generic-region hash agreement is
+not full-image or complete conversion parity; #44 still governs table rights.
 
 Issue #54 adds the original MIT Annex A.2 procedure in
 [`jbig2/integer.rs`](../crates/caj2pdf-core/src/jbig2/integer.rs) and the
