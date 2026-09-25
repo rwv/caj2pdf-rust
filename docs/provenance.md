@@ -243,6 +243,15 @@ distributed. The browser inputs are the same runtime-built synthetic CAJ and
 KDH inputs and MIT `tests/fixtures` files as the Node tests. The npm tarball
 carries the WASM build of the MIT workspace; the copy in `js/` is gitignored.
 
+The issue #13 optional JavaScript corpus runner adds original MIT
+`js/scripts/corpus.mjs` and `js/test/corpus.test.mjs`. The runner uses only
+Node built-ins and this package's public API, reads the committed
+`tests/conformance/matrix.json` (identities and page counts only), and runs
+the external `qpdf` executable, when installed, as a black-box validator. Its
+tests build a temporary synthetic corpus and matrix from the runtime-built
+CAJ and KDH inputs and the MIT `tests/fixtures` files; no CAJSamples
+document, derived PDF, or code from another converter is used or committed.
+
 Issue #22's [HN/C8 image-oracle note](jbig1-oracle.md) records independent
 container and DIB byte measurements for 27 SHA-256-pinned external files, a
 metadata-and-hash-only manifest of 1,400 type-0 images, and two secondary

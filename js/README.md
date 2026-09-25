@@ -187,10 +187,58 @@ sink should honor its `signal` argument for prompt cancellation.
   `README.md`; that `loadModule()` finds the packaged module by default; and
   that packing without a valid WASM build fails.
 - `adapters.test.mjs` and `wasm.test.mjs` cover the adapters and the raw ABI.
+- `corpus.test.mjs` runs the optional corpus runner (below) against a
+  synthetic corpus and matrix built at test time.
 
 The other tests run the browser adapters on Node's `Blob`, `ReadableStream`,
 and `WritableStream`. The inputs are synthetic MIT fixtures from
 `tests/fixtures` or built at test time; no external corpus test runs here.
+
+### Optional external corpus
+
+[`scripts/corpus.mjs`](scripts/corpus.mjs) converts the external
+[CAJSamples](https://github.com/caj2pdf/CAJSamples) documents inventoried in
+[`tests/conformance/matrix.json`](../tests/conformance/matrix.json) through
+this package. It never fetches the corpus, and no corpus file is committed:
+
+```sh
+cargo build --locked --release --all-features -p caj2pdf-wasm --target wasm32-unknown-unknown
+CAJ2PDF_CORPUS_DIR=/path/to/CAJSamples node js/scripts/corpus.mjs [--matrix PATH] [--wasm PATH]
+```
+
+For each matrix entry, in order, it:
+
+1. Refuses a path outside the corpus or a symbolic link, then streams the file
+   once through SHA-256 and the Git blob SHA-1 with one 1 MiB buffer and
+   compares both and the size with the matrix.
+2. Converts it with `fileHandleSource` into `nodeWritableSink` over a
+   private file (mode `0600`) in a fresh `mkdtemp` directory, which is
+   removed after success, failure, or timeout. Each conversion has a
+   10-minute `AbortSignal.timeout` and a 4 GiB output limit.
+3. For CAJ, KDH, and PDF entries, requires the detected format to match,
+   `pagesConverted` and `qpdf --show-npages` to equal the matrix page count
+   (`expected_pdf.page_count`, else `page_count`), and `qpdf --check` to
+   report no errors. HN, C8, and TEB entries must be rejected with
+   `UnsupportedFormatError` for that format.
+
+After all conversions it hashes every verified source again. Progress goes
+to stderr and a JSON report to stdout:
+`{ status, reason, sample_count, qpdf, checked, passed, failed, unsupported, not_run, failures }`.
+
+| Situation | `status` | Exit |
+| --- | --- | --- |
+| `CAJ2PDF_CORPUS_DIR` unset or empty | `NOT_RUN`, all counts zero | 0 |
+| Corpus missing, or any source missing, changed before or after, failing conversion, or failing validation | `FAIL` | 1 |
+| Outputs converted but `qpdf` is not installed | `NOT_RUN` (`not_run` counts them) | 0 |
+| Every CAJ/KDH/PDF entry validated | `PASS` | 0 |
+| Invalid matrix, arguments, or WASM module | setup error | 2 |
+
+`unsupported` counts HN, C8, and TEB rejections, which are expected
+behavior, not compatibility passes; `passed` counts only validated outputs.
+Page counts and `qpdf --check` do not compare rendering or outlines with the
+reference PDFs; see the [conformance notes](../tests/conformance/README.md).
+The CI WASM job runs the script with an empty `CAJ2PDF_CORPUS_DIR` and
+asserts `NOT_RUN` with zero counts.
 
 ### Real-browser tests
 
