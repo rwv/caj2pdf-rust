@@ -379,6 +379,34 @@ impl<'a, S: RangedSource, C: Cancellation> MqDecoder<'a, S, C> {
         cancellation: &'a C,
         budget: MqBudget,
     ) -> MqResult<Self> {
+        let mut ignored_fetched = 0;
+        Self::new_with_init_progress(
+            source,
+            span,
+            table,
+            contexts,
+            limits,
+            cancellation,
+            budget,
+            &mut ignored_fetched,
+        )
+        .await
+    }
+
+    /// Keep the physical prefetch count when initialization returns an error
+    /// before a decoder and its regular snapshot can be returned.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) async fn new_with_init_progress(
+        source: &'a mut S,
+        span: MqSpan,
+        table: &'a MqTable,
+        contexts: &'a mut MqContexts,
+        limits: &'a Limits,
+        cancellation: &'a C,
+        budget: MqBudget,
+        fetched: &mut u64,
+    ) -> MqResult<Self> {
+        *fetched = 0;
         limits.validate().map_err(MqError::configuration_source)?;
         budget.validate()?;
         if span.length < 2 {
@@ -446,12 +474,18 @@ impl<'a, S: RangedSource, C: Cancellation> MqDecoder<'a, S, C> {
             work_done: 0,
             poisoned: false,
         };
-        decoder.check_cancelled(None)?;
-        decoder.current_byte = decoder.read_byte(0, None).await?;
-        decoder.code = u32::from(decoder.current_byte) << 16;
-        decoder.byte_in(None).await?;
-        decoder.code <<= 7;
-        decoder.bit_counter -= 7;
+        let initialized = async {
+            decoder.check_cancelled(None)?;
+            decoder.current_byte = decoder.read_byte(0, None).await?;
+            decoder.code = u32::from(decoder.current_byte) << 16;
+            decoder.byte_in(None).await?;
+            decoder.code <<= 7;
+            decoder.bit_counter -= 7;
+            Ok::<(), MqError>(())
+        }
+        .await;
+        *fetched = decoder.source_bytes_fetched;
+        initialized?;
         Ok(decoder)
     }
 
@@ -525,6 +559,16 @@ impl<'a, S: RangedSource, C: Cancellation> MqDecoder<'a, S, C> {
     /// Verify the tail and return a snapshot including any physical bytes
     /// fetched while checking it. The semantic input offset can remain earlier.
     pub async fn finish_with_snapshot(mut self, expected_symbols: u64) -> MqResult<MqSnapshot> {
+        self.finish_with_snapshot_mut(expected_symbols).await
+    }
+
+    /// Verify the one coding-unit tail while retaining an inspectable decoder.
+    /// A failed or dropped pending check poisons this decoder; its snapshot
+    /// still reports the bytes and work reached before failure.
+    pub(crate) async fn finish_with_snapshot_mut(
+        &mut self,
+        expected_symbols: u64,
+    ) -> MqResult<MqSnapshot> {
         if self.poisoned {
             return Err(self.at(None, MqErrorKind::Poisoned));
         }
@@ -538,6 +582,7 @@ impl<'a, S: RangedSource, C: Cancellation> MqDecoder<'a, S, C> {
                 },
             ));
         }
+        self.poisoned = true;
         let tail = self.span.length - 2;
         let first = self.read_byte(tail, None).await?;
         let second = self.read_byte(tail + 1, None).await?;
@@ -556,6 +601,7 @@ impl<'a, S: RangedSource, C: Cancellation> MqDecoder<'a, S, C> {
             });
         }
         self.check_cancelled(None)?;
+        self.poisoned = false;
         Ok(self.snapshot())
     }
 

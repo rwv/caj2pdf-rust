@@ -10,6 +10,7 @@ pub use directory::{
     DirectoryError, DirectoryErrorKind, DirectoryLimits, SegmentDirectory, read_embedded_directory,
 };
 
+pub mod dictionary;
 pub mod generic;
 pub mod iaid;
 pub mod integer;

@@ -38,6 +38,47 @@ corpus must report `NOT_RUN`, never a compatibility pass.
 PDFs after validating the full matrix; its results make no claim about the
 other formats.
 
+## Optional JBIG2 dictionary header inventory
+
+[`jbig2_dictionary_headers.json`](jbig2_dictionary_headers.json) contains
+only source IDs, one-based image coordinates, numeric fields, absolute spans,
+and SHA-256/Git-blob digests. It pins the #1/#2 symbol-dictionary header
+observations in all 546 HN/C8 type-3 images. The original metadata
+measurement has SHA-256
+`e4897fcde9f0fea32471d58790bad8246776ed2ba1f1d8586f2f8b6adf65ad52`;
+the `directory_report_sha256` field identifies its separate #42 inventory.
+The header layout and flag interpretation follow
+[ITU-T T.88 (02/2000), §7.4.2.1](https://www.itu.int/rec/T-REC-T.88-200002-S/en).
+The script limits itself to the two measured flag profiles, `0x0800` and
+`0x1802`; it does not decode either dictionary's bitmaps.
+
+```sh
+CAJ2PDF_CORPUS_DIR=/path/to/CAJSamples \
+  python3 scripts/jbig2_dictionary_headers.py --json
+```
+
+The optional runner checks the size, SHA-256, and Git blob ID of **all 27**
+HN/C8 sources before and after reading records. It reuses the Rust #42
+directory inventory to locate each image and segment, then reads only the
+12-byte observed header of each dictionary. It streams SHA-256 over every
+enclosing image and both dictionary data spans: 1,638 span checks for 546
+images. It rejects any mismatch with the committed metadata and the existing
+#43 image-span oracle. The JSON `metadata` status can be `PASS` independently
+of `symbol_compatibility`, which remains `NOT_RUN` with zero checked cases
+because no independent per-symbol pixel oracle is available. An optional
+private Table E.1 fixture supports local diagnostic runs but is neither
+required by this metadata runner nor a substitute for expected symbol
+pixels. The full-image #43 and generic-only #51 hashes
+do not prove first-dictionary symbol output. A clean clone reports
+`NOT_RUN`/0 for both optional metadata and symbol compatibility; an explicitly
+requested missing or changed corpus or manifest reports `FAIL`.
+
+The pinned header inventory found #1 flags `0x0800`, AT `(2,-1)`, and 3–514
+new/exported symbols. Dictionary #2 has flags `0x1802`, AT `(2,-1)`, 0–318
+new symbols (57 zero-new cases), and 3–542 exported symbols. Its
+refinement/aggregate mode remains unsupported by this slice. These counts
+are metadata observations, not decoded-symbol or page-conversion results.
+
 ## Optional HN/C8 Rust container comparison
 
 The independent [HN/C8 type-0 manifest](jbig1_oracle.json) pins 1,400
