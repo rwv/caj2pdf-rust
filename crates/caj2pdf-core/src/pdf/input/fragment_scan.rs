@@ -512,4 +512,42 @@ mod tests {
         assert_eq!(scan.patches[0].original, b"1000");
         assert_eq!(scan.patches[0].replacement, b"1002");
     }
+
+    #[test]
+    fn an_object_extending_past_the_page_table_end_is_charged_as_input() {
+        let bytes = b"1 0 obj\nnull\nendobj\n2 0 obj\nnull\nendobj".to_vec();
+        let end = bytes.len() as u64;
+        // The page table ends inside the second object, and every single
+        // read (bounded by the 30-byte syntax window) stays within the limit.
+        let hint = 30;
+        let mut source = SeekableSource::new(Cursor::new(bytes)).unwrap();
+        let limits = Limits {
+            io_chunk_bytes: 8,
+            max_allocation_bytes: hint * 32,
+            max_input_bytes: hint,
+            ..Limits::default()
+        };
+        let Err(error) = run(scan_fragment_objects(
+            &mut source,
+            0,
+            hint,
+            &limits,
+            &NeverCancel,
+        )) else {
+            panic!("an object past the input limit was accepted");
+        };
+        assert!(
+            matches!(
+                error,
+                Error::PdfLimitExceeded {
+                    offset,
+                    object: None,
+                    resource: "input bytes",
+                    limit,
+                    attempted,
+                } if offset == end && limit == hint && attempted == end
+            ),
+            "{error:?}"
+        );
+    }
 }
