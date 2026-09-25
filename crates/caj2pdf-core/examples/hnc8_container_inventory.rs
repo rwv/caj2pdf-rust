@@ -65,17 +65,18 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let limits = Limits::default();
     let budget = Budget::default();
     let mut source = SeekableSource::new(File::open(path)?)?;
-    let header = match ready(Hnc8Reader::open(&mut source, &limits, &NeverCancel, budget)) {
-        Ok(reader) => reader.header(),
+    let mut reader = match ready(Hnc8Reader::open(&mut source, &limits, &NeverCancel, budget)) {
+        Ok(reader) => reader,
         Err(error) => {
             emit_error(&error);
             return Err(Box::new(error));
         }
     };
+    let header = reader.header();
     if diagnostic {
         for page_number in 1..=header.page_count {
-            let mut reader = match ready(Hnc8Reader::probe_at_page(
-                &mut source,
+            let mut probe = match ready(Hnc8Reader::probe_at_page(
+                reader.source_mut(),
                 &limits,
                 &NeverCancel,
                 budget,
@@ -87,12 +88,12 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                     return Err(Box::new(error));
                 }
             };
-            if let Err(error) = ready(reader.next_page()) {
+            if let Err(error) = ready(probe.next_page()) {
                 emit_error(&error);
                 continue;
             }
             loop {
-                match ready(reader.next_image()) {
+                match ready(probe.next_image()) {
                     Ok(Some(image)) => emit_image(image, header.variant.as_str()),
                     Ok(None) => break,
                     Err(error) => {
@@ -103,7 +104,6 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
     } else {
-        let mut reader = ready(Hnc8Reader::open(&mut source, &limits, &NeverCancel, budget))?;
         while ready(reader.next_page()).inspect_err(emit_error)?.is_some() {
             loop {
                 match ready(reader.next_image()) {

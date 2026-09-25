@@ -754,43 +754,24 @@ fn truncation_and_disrupted_reads_are_located() {
     page(&mut bytes, 0x50, 1, 200, 0, 1);
     image(&mut bytes, 200, 0, 240, 2);
     for (size, field) in [
-        (200, "text span"),
+        (200, "image descriptor"),
         (207, "image descriptor"),
         (241, "image payload"),
     ] {
         let mut truncated = bytes.clone();
         truncated.truncate(size);
         let mut source = Source::new(truncated);
-        let error = if size == 200 {
-            let mut reader = ready(Hnc8Reader::open(
-                &mut source,
-                &limits,
-                &NeverCancel,
-                Budget::default(),
-            ))
-            .unwrap();
-            // Empty text at the exact EOF is valid, but its descriptor is not.
-            ready(reader.next_page()).unwrap();
-            ready(reader.next_image()).unwrap_err()
-        } else {
-            let mut reader = ready(Hnc8Reader::open(
-                &mut source,
-                &limits,
-                &NeverCancel,
-                Budget::default(),
-            ))
-            .unwrap();
-            ready(reader.next_page()).unwrap();
-            ready(reader.next_image()).unwrap_err()
-        };
-        assert_eq!(
-            error.kind.field(),
-            if size == 200 {
-                "image descriptor"
-            } else {
-                field
-            }
-        );
+        let mut reader = ready(Hnc8Reader::open(
+            &mut source,
+            &limits,
+            &NeverCancel,
+            Budget::default(),
+        ))
+        .unwrap();
+        // Zero-length text may end at EOF; each case fails at a later boundary.
+        ready(reader.next_page()).unwrap();
+        let error = ready(reader.next_image()).unwrap_err();
+        assert_eq!(error.kind.field(), field);
     }
     let mut source = Source::new(c8(1));
     source.overreport = true;
