@@ -145,6 +145,14 @@ export function collectingWriter() {
   return { writer, bytes: () => new Uint8Array(Buffer.concat(chunks)) };
 }
 
+/** A sink that accepts and drops every chunk. */
+export const discard = Object.freeze({
+  async writeChunk(bytes) {
+    return bytes.byteLength;
+  },
+  async flush() {},
+});
+
 export async function tempDirectory(prefix) {
   return mkdtemp(join(tmpdir(), `caj2pdf-js-${prefix}-`));
 }

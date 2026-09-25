@@ -1,15 +1,14 @@
 // SPDX-License-Identifier: MIT
 
 import assert from "node:assert/strict";
-import { open, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { open, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Writable } from "node:stream";
 import { finished } from "node:stream/promises";
 import { test } from "node:test";
 import { blobSource, copyRange, DEFAULT_IO_CHUNK, MAX_IO_CHUNK, webWritableSink } from "../io.mjs";
 import { fileHandleSource, nodeWritableSink } from "../node.mjs";
-import { newInstance } from "./helpers.mjs";
+import { newInstance, tempDirectory } from "./helpers.mjs";
 
 test("Blob copy awaits three bounded slices through the real WASM core future", async () => {
   const payload = Uint8Array.from(
@@ -55,7 +54,7 @@ test("Blob copy awaits three bounded slices through the real WASM core future", 
 });
 
 test("Node positioned source uses the same WASM contract", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "caj2pdf-wasm-node-"));
+  const directory = await tempDirectory("wasm-node");
   const path = join(directory, "input.bin");
   const payload = Uint8Array.from({ length: 2 * 4096 + 19 }, (_, index) => index % 251);
   await writeFile(path, payload);
