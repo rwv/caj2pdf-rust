@@ -160,7 +160,7 @@ export async function tempDirectory(prefix) {
 const run = promisify(execFile);
 let qpdfAvailable;
 
-async function hasQpdf() {
+export async function hasQpdf() {
   if (qpdfAvailable === undefined) {
     try {
       await run("qpdf", ["--version"]);
