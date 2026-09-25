@@ -1027,7 +1027,7 @@ fn exhausted_work_stops_the_terminal_refill_before_reading() {
 }
 
 #[test]
-fn a_failed_decision_poisons_the_terminal_check() {
+fn a_failed_decision_poisons_later_decisions_and_the_terminal_check() {
     let limits = Limits::default();
     let budget = MqBudget::default();
     let state_table = table(0x4000);
@@ -1049,6 +1049,9 @@ fn a_failed_decision_poisons_the_terminal_check() {
         ready(decoder.decode_bit(0)).unwrap_err().kind,
         MqErrorKind::MissingTerminator
     ));
+    let next = ready(decoder.decode_bit(0)).unwrap_err();
+    assert!(matches!(next.kind, MqErrorKind::Poisoned));
+    assert_eq!(next.context, Some(0));
     let error = ready(decoder.finish(1)).unwrap_err();
     assert!(matches!(error.kind, MqErrorKind::Poisoned));
     assert_eq!(
