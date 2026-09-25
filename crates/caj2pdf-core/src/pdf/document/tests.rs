@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 use super::*;
-use crate::pdf::{PdfIndex, PdfRange};
+use crate::pdf::{MAX_CLASSIC_PDF_BYTES, PdfIndex, PdfRange};
 use crate::test_support::{CancelAfter, NEVER, run};
 use std::io;
 
@@ -413,4 +413,44 @@ fn a_refused_bookmark_leaves_earlier_outline_items_writable() {
         }
     }
     assert!(refusals_checked > 0);
+}
+
+#[test]
+fn a_bookmark_that_fails_while_closing_items_stops_the_outline() -> Result<()> {
+    let limits = Limits::default();
+    let mut source = FilledSource::new(1);
+    let mut sink = VecSink::default();
+    let (failed, retry, finish) = run(async {
+        let mut document = PdfDocument::new(&mut sink, &limits, &NEVER).await?;
+        document
+            .add_image_page(&mut source, 0, 1, page(), gray_pixels(1))
+            .await?;
+        document.add_bookmark(bookmark(0, "A")).await?;
+        document.add_bookmark(bookmark(1, "B")).await?;
+        // Writing the closed items would pass the classic xref limit, which
+        // fails before the sink sees a byte and so leaves the writer usable.
+        let position = document.writer.position();
+        document.writer.set_position_for_test(MAX_CLASSIC_PDF_BYTES);
+        let failed = document.add_bookmark(bookmark(0, "C")).await;
+        document.writer.set_position_for_test(position);
+        let retry = document.add_bookmark(bookmark(0, "D")).await;
+        Ok::<_, Error>((failed, retry, document.finish().await))
+    })?;
+    assert!(matches!(
+        failed,
+        Err(Error::LimitExceeded {
+            resource: "classic PDF file bytes",
+            ..
+        })
+    ));
+    for result in [retry, finish.map(|_| ())] {
+        assert!(matches!(
+            result,
+            Err(Error::InvalidInput {
+                reason: "PDF outline cannot continue after a failed bookmark operation"
+            })
+        ));
+    }
+    assert!(!sink.bytes.ends_with(b"%%EOF\n"));
+    Ok(())
 }

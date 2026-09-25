@@ -149,6 +149,9 @@ pub struct PdfOutlineAppender<'a, W: SequentialSink, C: Cancellation> {
     retained_titles: u64,
     retained_nodes: u32,
     input_bytes_read: u64,
+    /// Set while a bookmark insertion closes and links items, and left set
+    /// when it fails there; see `super::ensure_outline_intact`.
+    outline_failed: bool,
 }
 
 /// The source-independent preconditions of an outline append, shared by
@@ -220,6 +223,7 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfOutlineAppender<'a, W, C> {
             retained_titles: 0,
             retained_nodes: 0,
             input_bytes_read: index.logical_end(),
+            outline_failed: false,
         })
     }
 
@@ -229,11 +233,15 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfOutlineAppender<'a, W, C> {
     }
 
     /// Accept one bookmark in depth-first document order.
+    ///
+    /// A failure after validation, once earlier items may have been closed,
+    /// makes later `add_bookmark` and `finish` calls fail.
     pub async fn add_bookmark(&mut self, bookmark: Bookmark) -> Result<()> {
         if self.index.has_outlines() {
             return Ok(());
         }
         self.writer.ensure_healthy()?;
+        super::ensure_outline_intact(self.outline_failed)?;
         let next_count = self
             .bookmarks_written
             .checked_add(1)
@@ -276,6 +284,9 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfOutlineAppender<'a, W, C> {
             root
         };
         let reference = self.reserve_new_object()?;
+        // Closing pops items before writing them, so a failure from here on
+        // can lose an item that the outline already links to.
+        self.outline_failed = true;
         if let Some(previous) = self.close_outlines_to(depth).await? {
             self.emit_outline_item(previous, Some(reference)).await?;
         }
@@ -316,11 +327,17 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfOutlineAppender<'a, W, C> {
             children: ChildLinks::default(),
         });
         self.bookmarks_written = next_count;
+        self.outline_failed = false;
         Ok(())
     }
 
     /// Finish any repair and outline update, then flush the output sink.
+    ///
+    /// Fails without writing if an earlier `add_bookmark` failed after it
+    /// began closing outline items.
     pub async fn finish(mut self) -> Result<ConversionReport> {
+        self.writer.ensure_healthy()?;
+        super::ensure_outline_intact(self.outline_failed)?;
         if let Some(last_root) = self.close_outlines_to(0).await? {
             self.emit_outline_item(last_root, None).await?;
         }

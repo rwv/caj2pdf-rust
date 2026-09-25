@@ -956,3 +956,51 @@ fn copy_patches_refuse_changed_or_uncopied_bytes() {
         "PDF orphan gap patch exceeds copied prefix",
     );
 }
+
+#[test]
+fn a_bookmark_that_fails_while_closing_items_stops_the_outline() -> Result<()> {
+    let original = unoutlined_pdf()?;
+    let limits = Limits::default();
+    let index = open_index(&original, &limits)?;
+    let mut source = SeekableSource::new(Cursor::new(original.as_slice()))?;
+    let mut sink = TestSink::recording();
+    let (failed, retry, finish) = run(async {
+        let mut appender =
+            PdfOutlineAppender::begin(&mut source, &mut sink, &index, &limits, &NEVER).await?;
+        let bookmark = |depth: u32, title: &str| Bookmark {
+            depth,
+            title: title.into(),
+            page_index: 0,
+        };
+        appender.add_bookmark(bookmark(0, "A")).await?;
+        appender.add_bookmark(bookmark(1, "B")).await?;
+        // Writing the closed items would pass the classic xref limit, which
+        // fails before the sink sees a byte and so leaves the writer usable.
+        // Restoring the position afterwards makes the failure transient, as
+        // an allocator refusal would be.
+        let position = appender.writer.position;
+        appender.writer.position = MAX_CLASSIC_PDF_BYTES;
+        let failed = appender.add_bookmark(bookmark(0, "C")).await;
+        appender.writer.position = position;
+        let retry = appender.add_bookmark(bookmark(0, "D")).await;
+        Ok::<_, Error>((failed, retry, appender.finish().await))
+    })?;
+    assert!(matches!(
+        failed,
+        Err(Error::LimitExceeded {
+            resource: "classic PDF file bytes",
+            ..
+        })
+    ));
+    for result in [retry, finish.map(|_| ())] {
+        assert!(matches!(
+            result,
+            Err(Error::InvalidInput {
+                reason: "PDF outline cannot continue after a failed bookmark operation"
+            })
+        ));
+    }
+    assert_eq!(sink.flushes, 0);
+    assert_eq!(sink.bytes, original);
+    Ok(())
+}

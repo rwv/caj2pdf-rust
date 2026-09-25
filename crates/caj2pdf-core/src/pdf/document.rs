@@ -215,6 +215,9 @@ pub struct PdfDocument<'a, W: SequentialSink, C: Cancellation> {
     retained_title_bytes: u64,
     input_bytes_read: u64,
     image_buffer: Vec<u8>,
+    /// Set while a bookmark insertion closes and links items, and left set
+    /// when it fails there; see `super::ensure_outline_intact`.
+    outline_failed: bool,
 }
 
 impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
@@ -243,6 +246,7 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
             retained_title_bytes: 0,
             input_bytes_read: 0,
             image_buffer: Vec::new(),
+            outline_failed: false,
         })
     }
 
@@ -381,7 +385,11 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
     /// or direct child; a jump over a missing parent is rejected. Completed
     /// siblings and ancestors are written immediately, keeping only O(depth)
     /// titles and links in memory.
+    ///
+    /// A failure after validation, once earlier items may have been closed,
+    /// makes later `add_bookmark` and `finish` calls fail.
     pub async fn add_bookmark(&mut self, bookmark: Bookmark) -> Result<()> {
+        super::ensure_outline_intact(self.outline_failed)?;
         let destination = self
             .page_ids
             .get(bookmark.page_index as usize)
@@ -416,6 +424,9 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
             }
         };
         let id = self.writer.reserve_object()?;
+        // Closing pops items before writing them, so a failure from here on
+        // can lose an item that the outline already links to.
+        self.outline_failed = true;
         let previous_item = self.close_outlines_to(depth).await?;
         let (parent, previous) = {
             let (parent, links) = match self.open_outlines.last_mut() {
@@ -449,11 +460,16 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
         self.retained_title_bytes = next_titles;
         self.retained_outlines = next_nodes;
         self.bookmarks_written += 1;
+        self.outline_failed = false;
         Ok(())
     }
 
     /// Write the remaining page tree, outlines, catalog, xref, and trailer.
+    ///
+    /// Fails without writing if an earlier `add_bookmark` failed after it
+    /// began closing outline items.
     pub async fn finish(mut self) -> Result<ConversionReport> {
+        super::ensure_outline_intact(self.outline_failed)?;
         if self.pages_written == 0 {
             return Err(Error::InvalidInput {
                 reason: "PDF document requires at least one page",

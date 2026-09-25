@@ -30,3 +30,16 @@ fn pop_deeper_than<T>(stack: &mut Vec<T>, depth: usize) -> Option<T> {
         None
     }
 }
+
+/// Check that no earlier bookmark insertion failed after it began closing
+/// outline items. Such a failure can drop an item that its siblings or parent
+/// already link to, so the outline can no longer be finished correctly.
+fn ensure_outline_intact(failed: bool) -> crate::Result<()> {
+    if failed {
+        Err(crate::Error::InvalidInput {
+            reason: "PDF outline cannot continue after a failed bookmark operation",
+        })
+    } else {
+        Ok(())
+    }
+}
