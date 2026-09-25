@@ -50,9 +50,12 @@ and black-pixel counter. It rejects altered dimensions, padding, row count,
 pixel count, output bytes, pixel hash, black count, or source span. The
 driver requires 546 matched coordinates and rehashes all 27 source files
 after Rust finishes. A missing corpus or table on a clean clone reports
-`NOT_RUN`, zero Rust matches, and zero tool agreements. Explicitly supplied
-but invalid inputs, tool warnings, and mismatches report `FAIL`; no image is
-silently skipped.
+`NOT_RUN`, zero Rust matches, and zero tool agreements. An unavailable oracle
+tool also reports `NOT_RUN`, including an unavailable name passed with a tool
+flag. Explicitly supplied but invalid corpus or table inputs, tool warnings,
+and mismatches report `FAIL`; no image is silently skipped. Failure reports
+name the phase: `rust_failures` remains zero until Rust decoding is attempted,
+and 546 black-box agreements remain recorded if a later Rust step fails.
 
 The [synthetic Python tests](../tests/conformance/test_jbig2_generic_parity.py)
 check clean-clone status, exact span/source/profile joins, digest mismatch,
@@ -82,17 +85,20 @@ specified external corpus and generic-only profile.
 | Original #4 header-plus-data bytes | 1,948 | 6,563 | 76,030 | Maximum 76,030 |
 | Decoder source reads / bytes | 20 / 1,959 | 38 / 6,574 | 309 / 76,041 | 49,465 / 10,940,039 |
 | MQ source bytes fetched | 1,917 | 6,532 | 75,999 | At most selected span |
-| Rust case interval | 4 ms | 214 ms | 168 ms | Rust batch 90.255 s |
+| Rust case interval | 4 ms | 195 ms | 181 ms | Rust batch 102.566 s |
 
-The standalone native Rust probe reached **1,932 KiB VmHWM** as reported by
+The standalone native Rust probe reached **1,936 KiB VmHWM** as reported by
 Linux `/proc/self/status`. Its largest decoder source request was 256 bytes,
 and its largest sink write was one 312-byte row. The separate selected-span
 SHA checks use a 64 KiB buffer; their reads are excluded from the decoder
-source metrics. The batch averaged **47.24 million pixels/s**, including its
+source metrics. The batch averaged **41.57 million pixels/s**, including its
 selected-span hash checks but excluding the Python oracle and 27 whole-source
 checks. The Python plan was 243,298 bytes in this run and capped at
-2 MiB. It is removed after either outcome. The #51 external-tool stage
-measured a maximum 76,108-byte selected record, 76,766-byte PDF, and
+2 MiB. It is removed after either outcome. Each child stdout/stderr stream
+is spooled under `/tmp` and checked against a 2 MiB cap before Python reads
+it; these post-exit limits are not hard execution-time disk quotas. The #51
+external-tool stage measured a maximum 76,108-byte selected record,
+76,766-byte PDF, and
 1,098,864-byte *single* PBM raster; these are separate file maxima and do
 not constitute a hard total disk quota. External tool RSS is separate from
 the Rust process VmHWM. The Rust core uses three packed rows, 1,024 MQ

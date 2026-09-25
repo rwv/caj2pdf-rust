@@ -180,10 +180,34 @@ def rust_binary(override: Path | None) -> Path:
     if override is not None:
         return override.resolve(strict=True)
     command = ["cargo", "build", "--locked", "--release", "-p", "caj2pdf-core", "--example", "jbig2_generic_parity"]
-    result = subprocess.run(command, cwd=ROOT, capture_output=True, text=True, timeout=300, check=False)
+    result = bounded_run(command, "Rust generic parity build", 300)
     if result.returncode:
         raise ParityError(f"Rust generic parity example build failed: {result.stderr[-4096:]}")
     return ROOT / "target/release/examples/jbig2_generic_parity"
+
+
+def bounded_run(command: list[str], label: str, timeout: int) -> subprocess.CompletedProcess[str]:
+    """Spool subprocess output; never load it into Python above the cap."""
+    with tempfile.TemporaryDirectory(prefix="caj2pdf-parity-output-", dir="/tmp") as directory:
+        stdout = Path(directory) / "stdout"
+        stderr = Path(directory) / "stderr"
+        with stdout.open("wb") as output, stderr.open("wb") as errors:
+            result = subprocess.run(
+                command, cwd=ROOT, stdout=output, stderr=errors,
+                timeout=timeout, check=False,
+            )
+        captured = []
+        for path in (stdout, stderr):
+            if path.stat().st_size > MAX_RUN_OUTPUT_BYTES:
+                raise ParityError(f"{label} {path.name} exceeds 2 MiB")
+            with path.open("rb") as stream:
+                data = stream.read(MAX_RUN_OUTPUT_BYTES + 1)
+            if len(data) > MAX_RUN_OUTPUT_BYTES:
+                raise ParityError(f"{label} {path.name} exceeds 2 MiB")
+            captured.append(data.decode("utf-8", errors="replace"))
+        return subprocess.CompletedProcess(
+            command, result.returncode, captured[0], captured[1],
+        )
 
 
 def run_rust(lines: list[str], selected: list[dict], fixture: Path, binary: Path) -> dict:
@@ -192,12 +216,7 @@ def run_rust(lines: list[str], selected: list[dict], fixture: Path, binary: Path
         plan.write_text("\n".join(lines) + "\n", encoding="utf-8")
         if plan.stat().st_size > MAX_PLAN_BYTES:
             raise ParityError("bounded Rust parity metadata plan exceeds 2 MiB")
-        completed = subprocess.run(
-            [str(binary), str(fixture), str(plan)], cwd=ROOT,
-            capture_output=True, text=True, timeout=3600, check=False,
-        )
-        if len(completed.stdout.encode("utf-8")) > MAX_RUN_OUTPUT_BYTES or len(completed.stderr.encode("utf-8")) > MAX_RUN_OUTPUT_BYTES:
-            raise ParityError("Rust parity output exceeds 2 MiB")
+        completed = bounded_run([str(binary), str(fixture), str(plan)], "Rust parity", 3600)
         if completed.returncode:
             passed = sum(line.startswith("CASE\t") for line in completed.stdout.splitlines())
             raise ParityError(f"Rust parity stopped after {passed}/{EXPECTED}: {completed.stderr[-4096:]}")
@@ -211,9 +230,7 @@ def oracle_run(corpus: Path, tools: dict[str, Path]) -> dict:
         "--qpdf", str(tools["qpdf"]), "--pdfimages", str(tools["pdfimages"]),
         "--mutool", str(tools["mutool"]),
     ]
-    result = subprocess.run(command, cwd=ROOT, capture_output=True, text=True, timeout=3600, check=False)
-    if len(result.stdout.encode("utf-8")) > MAX_RUN_OUTPUT_BYTES or len(result.stderr.encode("utf-8")) > MAX_RUN_OUTPUT_BYTES:
-        raise ParityError("generic-only black-box oracle output exceeds 2 MiB")
+    result = bounded_run(command, "generic-only black-box oracle", 3600)
     try:
         report = json.loads(result.stdout)
     except json.JSONDecodeError as exc:
@@ -223,10 +240,16 @@ def oracle_run(corpus: Path, tools: dict[str, Path]) -> dict:
     return report
 
 
-def run(corpus: Path | None, fixture: Path | None, binary: Path | None, tools: dict[str, str]) -> dict:
-    report = {"status": "NOT_RUN", "expected_images": EXPECTED, "rust_matches": 0,
-              "rust_failures": 0, "rust_skips": 0, "tool_agreements": 0,
-              "source_hashes_checked_before": 0, "source_hashes_checked_after": 0}
+def initial_report() -> dict:
+    return {"status": "NOT_RUN", "phase": "preflight", "expected_images": EXPECTED,
+            "rust_matches": 0, "rust_failures": 0, "rust_skips": 0,
+            "tool_agreements": 0, "source_hashes_checked_before": 0,
+            "source_hashes_checked_after": 0}
+
+
+def run(corpus: Path | None, fixture: Path | None, binary: Path | None,
+        tools: dict[str, str], report: dict | None = None) -> dict:
+    report = initial_report() if report is None else report
     generic.validate_manifest(json.loads(MANIFEST.read_text(encoding="utf-8")))
     if corpus is None:
         return {**report, "reason": "external CAJSamples corpus is unset"}
@@ -235,6 +258,7 @@ def run(corpus: Path | None, fixture: Path | None, binary: Path | None, tools: d
     if not corpus.is_dir():
         raise ParityError("supplied CAJSamples corpus directory is unavailable")
     fixture = check_table(fixture)
+    report["phase"] = "source_precheck"
     rows, paths = full.validate_sources(full.DEFAULT_MATRIX, corpus)
     if len(rows) != 27:
         raise ParityError(f"source matrix has {len(rows)} entries, expected 27")
@@ -243,22 +267,28 @@ def run(corpus: Path | None, fixture: Path | None, binary: Path | None, tools: d
     missing = [name for name, path in resolved_tools.items() if path is None]
     if missing:
         return {**report, "reason": f"external oracle tool unavailable: {', '.join(missing)}"}
+    report["phase"] = "black_box_oracle"
     oracle = oracle_run(corpus, resolved_tools)
-    report["tool_agreements"] = oracle["tool_agreements"]
-    report["toolchain_drift"] = oracle.get("toolchain_drift", False)
     if oracle.get("source_hashes_checked") != len(rows):
         raise ParityError("generic-only oracle did not hash all 27 sources")
+    report["tool_agreements"] = oracle["tool_agreements"]
+    report["toolchain_drift"] = oracle.get("toolchain_drift", False)
+    report["phase"] = "inventory"
     inventory = full.run_directory_inventory(corpus)
     cases = full.checked_cases(inventory, rows, paths)
     baseline = json.loads(MANIFEST.read_text(encoding="utf-8"))
     lines, selected = plan_for_cases(cases, baseline)
+    report["phase"] = "rust_build"
     selected_binary = rust_binary(binary)
     rust_error = None
     metrics = None
+    report["phase"] = "rust_decode"
     try:
         metrics = run_rust(lines, selected, fixture, selected_binary)
     except (OSError, ParityError, subprocess.TimeoutExpired) as exc:
         rust_error = str(exc)
+        report["rust_failures"] = 1
+    report["phase"] = "source_postcheck"
     try:
         after, _ = full.validate_sources(full.DEFAULT_MATRIX, corpus)
         if len(after) != 27:
@@ -267,14 +297,18 @@ def run(corpus: Path | None, fixture: Path | None, binary: Path | None, tools: d
     except (OSError, full.OracleError) as exc:
         raise ParityError(f"source SHA-256 postcheck failed after Rust run: {exc}") from exc
     if rust_error:
+        report["phase"] = "rust_decode"
         raise ParityError(rust_error)
     if metrics is None or metrics["rust_matches"] != EXPECTED:
+        report["phase"] = "rust_decode"
+        report["rust_failures"] = 1
         raise ParityError("Rust generic parity lacks 546 matches")
     report.update(status="PASS", rust_matches=EXPECTED, **{key: value for key, value in metrics.items() if key != "rust_matches"})
     report["oracle_toolchain_drift"] = report.pop("toolchain_drift")
     report["oracle_max_temp_record_bytes"] = oracle["max_temp_record_bytes"]
     report["oracle_max_temp_pdf_bytes"] = oracle["max_temp_pdf_bytes"]
     report["oracle_max_single_pbm_raster_bytes"] = oracle["max_single_pbm_raster_bytes"]
+    report["phase"] = "complete"
     return report
 
 
@@ -288,14 +322,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--mutool", default="mutool")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
+    report = initial_report()
     try:
         report = run(args.corpus_dir, args.table_fixture, args.rust_bin,
-                     {name: getattr(args, name) for name in ("qpdf", "pdfimages", "mutool")})
+                     {name: getattr(args, name) for name in ("qpdf", "pdfimages", "mutool")}, report)
     except (OSError, ValueError, KeyError, full.OracleError, generic.OracleError, ParityError,
             json.JSONDecodeError, subprocess.TimeoutExpired) as exc:
-        report = {"status": "FAIL", "expected_images": EXPECTED, "rust_matches": 0,
-                  "rust_failures": 1, "rust_skips": 0, "tool_agreements": 0,
-                  "error": str(exc)}
+        report.update(status="FAIL", error=str(exc))
     if args.json:
         print(json.dumps(report, ensure_ascii=False, sort_keys=True))
     else:

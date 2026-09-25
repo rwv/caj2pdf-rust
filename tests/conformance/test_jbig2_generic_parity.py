@@ -55,6 +55,8 @@ class GenericParityTests(unittest.TestCase):
             ]), 1)
         report = json.loads(output.getvalue())
         self.assertEqual((report["status"], report["rust_matches"]), ("FAIL", 0))
+        self.assertEqual((report["phase"], report["rust_failures"], report["tool_agreements"]),
+                         ("preflight", 0, 0))
         self.assertIn("table fixture", report["error"])
 
     def test_plan_pins_exact_segments_and_rejects_drift(self) -> None:
@@ -100,31 +102,62 @@ class GenericParityTests(unittest.TestCase):
             {"status": "FAIL", "tool_agreements": 0, "failures": ["qpdf warned"]},
         ):
             with self.subTest(report=report), patch.object(
-                parity.subprocess, "run",
+                parity, "bounded_run",
                 return_value=subprocess.CompletedProcess([], 0, json.dumps(report), ""),
             ):
                 with self.assertRaisesRegex(parity.ParityError, "black-box oracle failed"):
                     parity.oracle_run(self.root, tools)
 
+    def test_bounded_process_output_is_rejected_before_loading(self) -> None:
+        temporary_directory = tempfile.TemporaryDirectory
+        with patch.object(parity, "MAX_RUN_OUTPUT_BYTES", 32), patch.object(
+            parity.tempfile, "TemporaryDirectory",
+            side_effect=lambda **_kwargs: temporary_directory(dir=self.root, prefix="outputs-"),
+        ):
+            with self.assertRaisesRegex(parity.ParityError, "stdout exceeds 2 MiB"):
+                parity.bounded_run([
+                    sys.executable, "-c", "import sys; sys.stdout.write('x' * 33)"
+                ], "synthetic child", 10)
+        self.assertEqual(list(self.root.glob("outputs-*")), [])
+
     def test_private_plan_is_removed_after_rust_failure(self) -> None:
         seen = []
 
-        def fail(command: list[str], **_kwargs):
+        def fail(command: list[str], *_args, **_kwargs):
             plan = Path(command[2])
             seen.append(plan)
             self.assertTrue(plan.exists())
             return subprocess.CompletedProcess(command, 1, "", "synthetic decoder failure")
 
-        with patch.object(parity.subprocess, "run", side_effect=fail):
+        with patch.object(parity, "bounded_run", side_effect=fail):
             with self.assertRaisesRegex(parity.ParityError, "synthetic decoder failure"):
                 parity.run_rust(["synthetic plan"], [], self.root / "table", self.root / "binary")
         self.assertEqual(len(seen), 1)
         self.assertFalse(seen[0].exists())
         self.assertFalse(seen[0].parent.exists())
 
+    def test_pre_rust_oracle_failure_has_no_rust_failure_or_tool_agreement(self) -> None:
+        rows = [{} for _ in range(27)]
+        output = StringIO()
+        with patch.object(parity.generic, "validate_manifest"), patch.object(
+            parity, "check_table", return_value=self.root / "private.fixture"
+        ), patch.object(parity.full, "validate_sources", return_value=(rows, {})), patch.object(
+            parity.full, "tool_path", side_effect=Path
+        ), patch.object(parity, "oracle_run", side_effect=parity.ParityError("qpdf warned")), patch.object(
+            parity, "run_rust"
+        ) as rust, patch("sys.stdout", output):
+            self.assertEqual(parity.main([
+                "--corpus-dir", str(self.root), "--table-fixture", str(self.root / "private.fixture"),
+                "--json",
+            ]), 1)
+        report = json.loads(output.getvalue())
+        self.assertEqual((report["phase"], report["rust_failures"], report["tool_agreements"]),
+                         ("black_box_oracle", 0, 0))
+        rust.assert_not_called()
+
     def test_source_hashes_are_postchecked_after_decoder_failure(self) -> None:
         rows = [{} for _ in range(27)]
-        tools = {name: name for name in ("qpdf", "pdfimages", "mutool")}
+        output = StringIO()
         with patch.object(parity.generic, "validate_manifest"), patch.object(
             parity, "check_table", return_value=self.root / "private.fixture"
         ), patch.object(parity.full, "validate_sources", return_value=(rows, {})) as sources, patch.object(
@@ -135,9 +168,19 @@ class GenericParityTests(unittest.TestCase):
             parity.full, "checked_cases", return_value=[]
         ), patch.object(parity, "plan_for_cases", return_value=(["row"], [])), patch.object(
             parity, "rust_binary", return_value=self.root / "binary"
-        ), patch.object(parity, "run_rust", side_effect=parity.ParityError("synthetic decoder mismatch")):
-            with self.assertRaisesRegex(parity.ParityError, "synthetic decoder mismatch"):
-                parity.run(self.root, self.root / "private.fixture", None, tools)
+        ), patch.object(parity, "run_rust", side_effect=parity.ParityError("synthetic decoder mismatch")), patch(
+            "sys.stdout", output
+        ):
+            self.assertEqual(parity.main([
+                "--corpus-dir", str(self.root), "--table-fixture", str(self.root / "private.fixture"),
+                "--json",
+            ]), 1)
+        report = json.loads(output.getvalue())
+        self.assertEqual(report["status"], "FAIL")
+        self.assertEqual((report["phase"], report["rust_failures"], report["tool_agreements"]),
+                         ("rust_decode", 1, 546))
+        self.assertEqual((report["source_hashes_checked_before"], report["source_hashes_checked_after"]),
+                         (27, 27))
         self.assertEqual(sources.call_count, 2)
 
 

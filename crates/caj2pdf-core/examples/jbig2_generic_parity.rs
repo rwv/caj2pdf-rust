@@ -46,30 +46,6 @@ fn ready<F: Future>(future: F) -> F::Output {
 fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
-fn digest_file(path: &Path, max: u64) -> Result<(String, u64), Box<dyn StdError>> {
-    let size = fs::metadata(path)?.len();
-    if size > max {
-        return Err(format!("file exceeds {max}-byte cap").into());
-    }
-    let mut file = File::open(path)?;
-    let mut digest = Sha256::new();
-    let mut buffer = [0u8; 64 * 1024];
-    let mut read_total = 0u64;
-    loop {
-        let count = file.read(&mut buffer)?;
-        if count == 0 {
-            break;
-        }
-        digest.update(&buffer[..count]);
-        read_total = read_total
-            .checked_add(count as u64)
-            .ok_or("hash input counter overflows")?;
-    }
-    if read_total != size {
-        return Err("file changed while hashing".into());
-    }
-    Ok((hex(&digest.finalize()), size))
-}
 fn digest_span(path: &Path, span: SegmentSpan) -> Result<String, Box<dyn StdError>> {
     if span.length == 0 || span.length > MAX_SEGMENT_BYTES {
         return Err("selected segment length exceeds cap".into());
@@ -101,14 +77,17 @@ fn table(path: &Path, limits: &Limits) -> Result<MqTable, Box<dyn StdError>> {
     if !canonical.starts_with("/tmp") {
         return Err("private official table fixture must stay in /tmp".into());
     }
-    let (sha, size) = digest_file(&canonical, MAX_FIXTURE_BYTES)?;
-    if sha != FIXTURE_SHA {
+    let mut bytes = Vec::new();
+    File::open(&canonical)?
+        .take(MAX_FIXTURE_BYTES + 1)
+        .read_to_end(&mut bytes)?;
+    if bytes.len() as u64 > MAX_FIXTURE_BYTES {
+        return Err("private fixture exceeds 16 KiB".into());
+    }
+    if hex(&Sha256::digest(&bytes)) != FIXTURE_SHA {
         return Err("private official table fixture SHA differs".into());
     }
-    let text = fs::read_to_string(&canonical)?;
-    if text.len() as u64 != size {
-        return Err("private fixture changed while parsing".into());
-    }
+    let text = std::str::from_utf8(&bytes)?;
     let mut lines = text.lines();
     if lines.next() != Some("T88-2000-H2") || lines.next() != Some("47") {
         return Err("private fixture framing differs".into());
