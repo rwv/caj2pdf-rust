@@ -48,7 +48,8 @@
     "LICENSE"
   ],
   "scripts": {
-    "build:wasm": "cargo build --locked --release --all-features -p caj2pdf-wasm --target wasm32-unknown-unknown && node -e \"require('node:fs').copyFileSync('../target/wasm32-unknown-unknown/release/caj2pdf_wasm.wasm', 'caj2pdf_wasm.wasm')\"",
+    "build:wasm": "cargo build --locked --release --all-features -p caj2pdf-wasm --target wasm32-unknown-unknown && node scripts/copy-wasm.mjs",
+    "prepack": "node -e \"require('node:fs').accessSync('caj2pdf_wasm.wasm')\"",
     "test": "node --test test/*.test.mjs"
   }
 }
