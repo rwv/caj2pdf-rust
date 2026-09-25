@@ -14,6 +14,16 @@ pub const INTEGER_CONTEXT_COUNT: usize = 13 * CONTEXTS_PER_PROCEDURE;
 const MAX_DECISIONS: u8 = 38;
 const BANDS: [(u8, u64); 6] = [(2, 0), (4, 4), (6, 20), (8, 84), (12, 340), (32, 4436)];
 
+// Every band has at most 32 payload bits and a base below 2^32, so a decoded
+// magnitude stays below 2^33 and fits an `i64` without checked arithmetic.
+const _: () = {
+    let mut band = 0;
+    while band < BANDS.len() {
+        assert!(BANDS[band].0 <= 32 && BANDS[band].1 < 1 << 32);
+        band += 1;
+    }
+};
+
 /// One of the thirteen Annex A.2 procedures. IAID uses Annex A.3 instead.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(usize)]
@@ -150,23 +160,16 @@ async fn decode_decisions<D: DecisionSource>(
     }
     let (payload_bits, band_base) = BANDS[band];
     let mut payload = 0u64;
-    let overflow = || MqError {
-        offset: None,
-        context: None,
-        kind: MqErrorKind::Invariant("T.88 integer magnitude exceeds i64"),
-    };
     for _ in 0..payload_bits {
         let bit = take(source, base, &mut prev, &mut decisions).await?;
-        payload = payload
-            .checked_mul(2)
-            .and_then(|value| value.checked_add(u64::from(bit)))
-            .ok_or_else(overflow)?;
+        payload = payload * 2 + u64::from(bit);
     }
-    let magnitude = band_base.checked_add(payload).ok_or_else(overflow)?;
+    // Bounded by the `BANDS` assertion above.
+    let magnitude = band_base + payload;
     if negative && magnitude == 0 {
         return Ok(IntegerValue::OutOfBand);
     }
-    let signed = i64::try_from(magnitude).map_err(|_| overflow())?;
+    let signed = magnitude as i64;
     Ok(IntegerValue::Signed(if negative {
         -signed
     } else {
@@ -198,29 +201,14 @@ pub async fn decode_integer<S: RangedSource, C: Cancellation>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::ready;
     use crate::{NeverCancel, native::SeekableSource};
-    use std::{
-        cell::Cell,
-        future::Future,
-        io::Cursor,
-        pin::pin,
-        rc::Rc,
-        task::{Context, Poll, Waker},
-    };
+    use std::{cell::Cell, io::Cursor, rc::Rc};
 
     /// Every test reads through this one source type, so their paths share
     /// one instantiation of the generic decoders.
     fn vec_source(bytes: &[u8]) -> SeekableSource<Cursor<Vec<u8>>> {
         SeekableSource::new(Cursor::new(bytes.to_vec())).unwrap()
-    }
-
-    fn ready<F: Future>(future: F) -> F::Output {
-        let mut future = pin!(future);
-        let mut task = Context::from_waker(Waker::noop());
-        match future.as_mut().poll(&mut task) {
-            Poll::Ready(result) => result,
-            Poll::Pending => panic!("in-memory test source unexpectedly yielded"),
-        }
     }
 
     struct Decisions {
@@ -231,15 +219,12 @@ mod tests {
 
     impl Decisions {
         fn from_bits(bits: &str) -> Self {
+            assert!(
+                bits.bytes().all(|byte| byte == b'0' || byte == b'1'),
+                "test decision trace must contain only 0 or 1"
+            );
             Self {
-                bits: bits
-                    .bytes()
-                    .map(|byte| match byte {
-                        b'0' => false,
-                        b'1' => true,
-                        _ => panic!("test decision trace must contain only 0 or 1"),
-                    })
-                    .collect(),
+                bits: bits.bytes().map(|byte| byte == b'1').collect(),
                 cursor: 0,
                 contexts: Vec::new(),
             }
