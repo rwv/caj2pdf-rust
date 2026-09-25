@@ -2263,7 +2263,7 @@ mod tests {
     }
 
     #[test]
-    fn output_limit_is_preflighted_before_sink_write() {
+    fn input_and_output_limits_are_preflighted_before_sink_write() {
         run(async {
             let (mut source, objects, pages) = two_page_fragment();
             let mut sink = BytesSink::default();
@@ -2284,6 +2284,32 @@ mod tests {
                     ..
                 })
             ));
+            assert!(sink.bytes.is_empty());
+
+            // The summed object spans are charged against the input limit.
+            let first = objects[0].range.length;
+            let limits = Limits {
+                max_input_bytes: first,
+                ..Limits::default()
+            };
+            let error = reconstruct_fragment(&mut source, &mut sink, &plan, &limits, &NeverCancel)
+                .await
+                .unwrap_err();
+            assert!(
+                matches!(
+                    error,
+                    Error::PdfLimitExceeded {
+                        object: Some((number, 0)),
+                        resource: "input bytes",
+                        limit,
+                        attempted,
+                        ..
+                    } if number == objects[1].reference.number
+                        && limit == first
+                        && attempted == first + objects[1].range.length
+                ),
+                "{error:?}"
+            );
             assert!(sink.bytes.is_empty());
         });
     }
