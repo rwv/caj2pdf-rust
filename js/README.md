@@ -24,9 +24,10 @@ node --test js/test/*.test.mjs
 to the entry points as `caj2pdf_wasm.wasm` (`scripts/copy-wasm.mjs`, mode
 `0644`), which is where `loadModule()` looks by default. That copy is
 gitignored and is never committed; the `files` list puts it in the tarball,
-and `prepack` refuses to pack without it. The package is marked `private`
-until the release process ([release policy](../docs/release-policy.md)) runs
-`npm run build:wasm`, removes `private`, and publishes.
+and `prepack` refuses to pack without a WebAssembly module there. The
+package is marked `private` until the release process
+([release policy](../docs/release-policy.md)) runs `npm run build:wasm`,
+removes `private`, and publishes.
 
 ## Usage
 
@@ -184,7 +185,7 @@ sink should honor its `signal` argument for prompt cancellation.
   with the WASM build and asserts the tarball holds exactly the entry points,
   declarations, `caj2pdf_wasm.wasm`, `package.json`, `LICENSE`, and
   `README.md`; that `loadModule()` finds the packaged module by default; and
-  that packing without the WASM build fails.
+  that packing without a valid WASM build fails.
 - `adapters.test.mjs` and `wasm.test.mjs` cover the adapters and the raw ABI.
 
 The other tests run the browser adapters on Node's `Blob`, `ReadableStream`,
@@ -193,12 +194,15 @@ and `WritableStream`. The inputs are synthetic MIT fixtures from
 
 ### Real-browser tests
 
-`browser.test.mjs` needs no npm packages. It serves the repository on an
-ephemeral `http://127.0.0.1` port with `node:http` (a secure context), starts
+`browser.test.mjs` needs no npm packages. It serves the `js/` directory
+read-only (GET and HEAD, no paths outside it, including through symbolic
+links) on an ephemeral `http://127.0.0.1` port with `node:http` (a secure
+context), starts
 headless Chromium with a throwaway profile and `--remote-debugging-port=0`,
 and drives it over the Chrome DevTools Protocol with Node's global
 `WebSocket` ([`browser-harness.mjs`](test/browser-harness.mjs)). The page
-imports `browser.mjs`, loads the WASM from its default URL, and runs
+imports `browser.mjs`, loads the freshly built WASM from its default URL,
+and runs
 [`browser-cases.mjs`](test/browser-cases.mjs):
 
 - `File` sources to real `WritableStream` sinks for synthetic CAJ, KDH, and
@@ -220,10 +224,11 @@ CAJ2PDF_CHROME=/path/to/chrome node --test js/test/browser.test.mjs
 ```
 
 Chromium is started with `--no-sandbox`, `--no-proxy-server`, background
-networking disabled, and host resolution restricted to `127.0.0.1`; each
-call has a 30-second timeout, and the browser is closed, killed if needed,
-and its profile removed after the run. The CI WASM job runs these tests
-with the runner's preinstalled Google Chrome on Node 22 and 24. Firefox,
-Safari, and Web Workers are not covered, and the manual
+networking disabled, and host resolution restricted to `127.0.0.1`. Every
+DevTools command has a 30-second timeout. After the run, or when the test
+process exits early or receives `SIGINT` or `SIGTERM`, the Chromium process
+group is killed and its throwaway profile removed. The CI WASM job runs
+these tests with the runner's preinstalled Google Chrome on Node 22 and 24.
+Firefox, Safari, and Web Workers are not covered, and the manual
 [`examples/browser.html`](examples/browser.html) (file picker and save
 dialog) is not automated.

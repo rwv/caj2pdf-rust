@@ -8,8 +8,8 @@
  * nothing and to skip its background services.
  */
 import { spawn } from "node:child_process";
-import { existsSync, readdirSync } from "node:fs";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { existsSync, readdirSync, rmSync } from "node:fs";
+import { mkdtemp, readFile, realpath, rm } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { extname, join, resolve, sep } from "node:path";
@@ -57,29 +57,38 @@ const TYPES = {
   ".wasm": "application/wasm",
 };
 
+function notFound() {
+  throw Object.assign(new Error("not found"), { code: "ENOENT" });
+}
+
 /**
- * Serve `root` read-only on 127.0.0.1 plus in-memory `routes`
- * (`{ "/path": Uint8Array | string }`). Paths outside `root` are refused.
+ * Serve `root` read-only (GET and HEAD) on 127.0.0.1 plus in-memory
+ * `routes` (`{ "/path": Uint8Array | string }`). Paths that resolve outside
+ * `root`, including through symbolic links, are refused.
  */
 export async function startServer(root, routes) {
-  const base = resolve(root);
+  const base = await realpath(root);
   const server = createServer(async (request, response) => {
-    let path;
+    if (request.method !== "GET" && request.method !== "HEAD") {
+      response.writeHead(405, { allow: "GET, HEAD" });
+      response.end();
+      return;
+    }
     try {
-      path = decodeURIComponent(new URL(request.url, "http://127.0.0.1").pathname);
-      let body = routes[path];
+      const path = decodeURIComponent(new URL(request.url, "http://127.0.0.1").pathname);
+      let body = Object.hasOwn(routes, path) ? routes[path] : undefined;
       if (body === undefined) {
-        const file = resolve(base, `.${path}`);
-        if (!file.startsWith(base + sep)) throw Object.assign(new Error("outside root"), { code: "ENOENT" });
+        const file = await realpath(resolve(base, `.${path}`)).catch(notFound);
+        if (!file.startsWith(base + sep)) notFound();
         body = await readFile(file);
       }
       response.writeHead(200, {
         "content-type": TYPES[extname(path)] ?? "application/octet-stream",
         "cache-control": "no-store",
       });
-      response.end(body);
+      response.end(request.method === "HEAD" ? undefined : body);
     } catch (error) {
-      response.writeHead(error.code === "ENOENT" || error.code === "EISDIR" ? 404 : 500);
+      response.writeHead(["ENOENT", "ENOTDIR", "EISDIR"].includes(error.code) ? 404 : 500);
       response.end();
     }
   });
@@ -95,6 +104,8 @@ export async function startServer(root, routes) {
     },
   };
 }
+
+const COMMAND_TIMEOUT = 30_000;
 
 function withTimeout(promise, milliseconds, what) {
   let timer;
@@ -139,12 +150,17 @@ class Cdp {
     return new Cdp(socket);
   }
 
-  send(method, params = {}, sessionId) {
+  /** Send a command; it rejects if the connection closes or `timeout` passes. */
+  send(method, params = {}, sessionId, timeout = COMMAND_TIMEOUT) {
+    if (this.#socket.readyState !== WebSocket.OPEN) {
+      return Promise.reject(new Error(`CDP ${method}: connection is not open`));
+    }
     const id = this.#nextId++;
-    return new Promise((resolve, reject) => {
+    const response = new Promise((resolve, reject) => {
       this.#pending.set(id, { resolve, reject, method });
       this.#socket.send(JSON.stringify({ id, method, params, sessionId }));
     });
+    return withTimeout(response, timeout, `CDP ${method}`).finally(() => this.#pending.delete(id));
   }
 
   /** Resolve with the first event named `method` on `sessionId`. */
@@ -192,37 +208,82 @@ export async function launchChrome(executable, { startupTimeout = 30_000 } = {})
     "--no-proxy-server",
     "--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1",
     "about:blank",
-  ], { stdio: ["ignore", "ignore", "pipe"] });
+  ], { stdio: ["ignore", "ignore", "pipe"], detached: true });
   let stderr = "";
   child.stderr.setEncoding("utf8").on("data", (text) => {
     stderr = (stderr + text).slice(-4096);
   });
-  const exited = new Promise((resolve) => child.once("exit", resolve));
-  let cdp;
-  const close = async () => {
-    if (cdp) {
-      await withTimeout(cdp.send("Browser.close"), 5_000, "Browser.close").catch(() => {});
-      cdp.close();
+  let failure;
+  child.once("error", (error) => {
+    failure = error;
+  });
+  // "close" waits for every Chromium process, since they share stderr.
+  const exited = new Promise((resolve) => child.once("close", resolve));
+  // Chromium leads its own process group so that its helper processes can
+  // be killed at once; a no-op once they have exited.
+  const kill = () => {
+    try {
+      process.kill(-child.pid, "SIGKILL");
+    } catch {
+      // Not started, or already gone.
     }
-    // Kill if Browser.close did not exit it (a no-op once it has exited).
-    child.kill("SIGKILL");
-    await withTimeout(exited, 10_000, "Chromium exit").catch(() => {});
-    await rm(profile, { recursive: true, force: true });
+  };
+  // Last resort when the test process ends without close(), e.g. after a
+  // hook timeout or on SIGINT/SIGTERM: orphaned Chromium processes and the
+  // profile would otherwise outlive it.
+  const onExit = () => {
+    kill();
+    try {
+      rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+    } catch {
+      // Best effort while exiting.
+    }
+  };
+  const onSignal = (signal) => {
+    onExit();
+    unregister();
+    process.kill(process.pid, signal);
+  };
+  const unregister = () => {
+    process.off("exit", onExit).off("SIGINT", onSignal).off("SIGTERM", onSignal);
+  };
+  process.once("exit", onExit).once("SIGINT", onSignal).once("SIGTERM", onSignal);
+  let cdp;
+  let closing;
+  const close = () => {
+    closing ??= (async () => {
+      if (cdp) {
+        await cdp.send("Browser.close", {}, undefined, 5_000).catch(() => {});
+        cdp.close();
+      }
+      kill();
+      await withTimeout(exited, 10_000, "Chromium exit").catch(() => {});
+      await rm(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+      unregister();
+    })();
+    return closing;
   };
   try {
     const portFile = join(profile, "DevToolsActivePort");
+    let waiting = true;
     const ready = (async () => {
-      for (;;) {
-        if (child.exitCode !== null || child.signalCode !== null) {
-          throw new Error(`Chromium exited early (${child.exitCode ?? child.signalCode}):\n${stderr}`);
+      while (waiting) {
+        if (failure || child.exitCode !== null || child.signalCode !== null) {
+          const reason = failure?.message ?? child.exitCode ?? child.signalCode;
+          throw new Error(`Chromium exited early (${reason}):\n${stderr}`);
         }
-        const text = await readFile(portFile, "utf8").catch(() => "");
-        const [port, path] = text.split("\n");
-        if (port && path) return `ws://127.0.0.1:${port}${path}`;
+        // "<port>\n<path>"; Chromium may still be writing it.
+        const [port, path] = (await readFile(portFile, "utf8").catch(() => "")).split("\n");
+        if (/^\d+$/.test(port) && /^\/devtools\/browser\/[\w-]+$/.test(path ?? "")) {
+          return `ws://127.0.0.1:${port}${path}`;
+        }
         await new Promise((done) => setTimeout(done, 50));
       }
     })();
-    cdp = await Cdp.connect(await withTimeout(ready, startupTimeout, "Chromium startup"));
+    const endpoint = await withTimeout(ready, startupTimeout, "Chromium startup").finally(() => {
+      waiting = false;
+    });
+    cdp = await withTimeout(Cdp.connect(endpoint), startupTimeout, "DevTools connection");
     return { cdp, close };
   } catch (error) {
     await close();
@@ -232,9 +293,10 @@ export async function launchChrome(executable, { startupTimeout = 30_000 } = {})
 
 /**
  * Open `url` in a new tab and return `evaluate(expression)`, which awaits the
- * expression's promise in the page and returns its JSON value.
+ * expression's promise in the page and returns its JSON value. Each step
+ * times out after `timeout` milliseconds.
  */
-export async function openPage(cdp, url, { timeout = 30_000 } = {}) {
+export async function openPage(cdp, url, { timeout = COMMAND_TIMEOUT } = {}) {
   const { targetId } = await cdp.send("Target.createTarget", { url: "about:blank" });
   const { sessionId } = await cdp.send("Target.attachToTarget", { targetId, flatten: true });
   const errors = [];
@@ -252,10 +314,11 @@ export async function openPage(cdp, url, { timeout = 30_000 } = {}) {
   return {
     errors,
     async evaluate(expression) {
-      const { result, exceptionDetails } = await withTimeout(
-        cdp.send("Runtime.evaluate", { expression, awaitPromise: true, returnByValue: true }, sessionId),
+      const { result, exceptionDetails } = await cdp.send(
+        "Runtime.evaluate",
+        { expression, awaitPromise: true, returnByValue: true },
+        sessionId,
         timeout,
-        "page evaluation",
       );
       if (exceptionDetails) {
         throw new Error(`page threw: ${exceptionDetails.exception?.description ?? exceptionDetails.text}`);
