@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 
+use crate::fallible::len_u64;
 use crate::{ConversionReport, Error, Limits, Result};
 use std::io;
 
@@ -50,12 +51,6 @@ fn check_cancelled<C: Cancellation>(cancellation: &C) -> Result<()> {
     }
 }
 
-fn checked_len(length: usize) -> Result<u64> {
-    u64::try_from(length).map_err(|_| Error::InvalidInput {
-        reason: "length cannot fit in a 64-bit offset",
-    })
-}
-
 fn check_range(source_size: u64, offset: u64, length: u64) -> Result<()> {
     let end = offset.checked_add(length).ok_or(Error::InvalidInput {
         reason: "range end overflows 64-bit offset",
@@ -89,12 +84,12 @@ pub async fn read_exact_at<S: RangedSource, C: Cancellation>(
     cancellation: &C,
 ) -> Result<()> {
     limits.validate()?;
-    let length = checked_len(destination.len())?;
+    let length = len_u64(destination.len());
     limits.check_input_size(length)?;
     if destination.len() > limits.io_chunk_bytes {
         return Err(Error::LimitExceeded {
             resource: "I/O request bytes",
-            limit: checked_len(limits.io_chunk_bytes)?,
+            limit: len_u64(limits.io_chunk_bytes),
             attempted: length,
         });
     }
@@ -104,7 +99,7 @@ pub async fn read_exact_at<S: RangedSource, C: Cancellation>(
     let mut done = 0;
     while done < destination.len() {
         let current = offset
-            .checked_add(checked_len(done)?)
+            .checked_add(len_u64(done))
             .ok_or(Error::InvalidInput {
                 reason: "read offset overflows 64-bit offset",
             })?;
@@ -121,7 +116,7 @@ pub async fn read_exact_at<S: RangedSource, C: Cancellation>(
             return Err(Error::TruncatedInput {
                 offset,
                 expected: length,
-                available: checked_len(done)?,
+                available: len_u64(done),
             });
         }
     }
@@ -140,7 +135,7 @@ pub async fn write_all<S: SequentialSink, C: Cancellation>(
     cancellation: &C,
 ) -> Result<()> {
     limits.validate()?;
-    let length = checked_len(bytes.len())?;
+    let length = len_u64(bytes.len());
     let attempted = output_bytes_written
         .checked_add(length)
         .ok_or(Error::InvalidInput {
@@ -175,11 +170,12 @@ pub async fn write_all<S: SequentialSink, C: Cancellation>(
             )));
         }
         done += written;
-        *output_bytes_written = output_bytes_written
-            .checked_add(checked_len(written)?)
-            .ok_or(Error::InvalidInput {
-                reason: "output byte count overflows 64 bits",
-            })?;
+        *output_bytes_written =
+            output_bytes_written
+                .checked_add(len_u64(written))
+                .ok_or(Error::InvalidInput {
+                    reason: "output byte count overflows 64 bits",
+                })?;
         check_cancelled(cancellation)?;
     }
     Ok(())
@@ -209,12 +205,12 @@ pub async fn copy_range<R: RangedSource, W: SequentialSink, C: Cancellation>(
     }
     check_cancelled(cancellation)?;
 
-    let initial_chunk = length.min(checked_len(limits.io_chunk_bytes)?) as usize;
+    let initial_chunk = length.min(len_u64(limits.io_chunk_bytes)) as usize;
     let mut buffer = vec![0; initial_chunk];
     let mut report = ConversionReport::default();
     while report.input_bytes_read < length {
         let remaining = length - report.input_bytes_read;
-        let chunk_length = remaining.min(checked_len(buffer.len())?) as usize;
+        let chunk_length = remaining.min(len_u64(buffer.len())) as usize;
         let current = offset
             .checked_add(report.input_bytes_read)
             .ok_or(Error::InvalidInput {
@@ -230,7 +226,7 @@ pub async fn copy_range<R: RangedSource, W: SequentialSink, C: Cancellation>(
         .await?;
         report.input_bytes_read = report
             .input_bytes_read
-            .checked_add(checked_len(chunk_length)?)
+            .checked_add(len_u64(chunk_length))
             .ok_or(Error::InvalidInput {
                 reason: "input byte count overflows 64 bits",
             })?;

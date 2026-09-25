@@ -449,3 +449,6 @@ pub async fn read_embedded_directory<S: RangedSource, C: Cancellation>(
     check_cancelled(cancellation, end)?;
     Ok(SegmentDirectory { span, segments })
 }
+
+#[cfg(test)]
+mod tests;

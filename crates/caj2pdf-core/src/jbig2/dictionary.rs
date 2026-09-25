@@ -253,6 +253,14 @@ fn at(header: &SegmentHeader, offset: u64, kind: DictionaryErrorKind) -> Diction
     }
 }
 
+/// A refused catalog reservation, reporting the header bytes already read.
+/// Not generic, so every decoder instantiation shares it.
+fn allocation_failed(header: &SegmentHeader, offset: u64, header_fetched: u64) -> DictionaryError {
+    let mut error = at(header, offset, DictionaryErrorKind::AllocationFailed);
+    error.progress.header_bytes_fetched = header_fetched;
+    error
+}
+
 fn limit(
     header: &SegmentHeader,
     offset: u64,
@@ -986,14 +994,10 @@ impl<'a, S: RangedSource, W: SequentialSink, C: Cancellation> DirectDictionaryDe
         let location = header.body.offset;
         let mut new_symbols = Vec::new();
         let mut exported_symbols = Vec::new();
-        new_symbols
+        let reserved = new_symbols
             .try_reserve_exact(header.new_symbols as usize)
-            .and_then(|()| exported_symbols.try_reserve_exact(header.exported_symbols as usize))
-            .map_err(|_| {
-                let mut error = at(segment, location, DictionaryErrorKind::AllocationFailed);
-                error.progress.header_bytes_fetched = header_fetched;
-                error
-            })?;
+            .and_then(|()| exported_symbols.try_reserve_exact(header.exported_symbols as usize));
+        reserved.map_err(|_| allocation_failed(segment, location, header_fetched))?;
         // No bitmap context reuse is accepted. T.88 §7.4.2.2 also resets all
         // arithmetic-integer statistics at each new dictionary.
         banks.reset_all();
@@ -1395,3 +1399,6 @@ impl<'a, S: RangedSource, W: SequentialSink, C: Cancellation> DirectDictionaryDe
         })
     }
 }
+
+#[cfg(test)]
+mod tests;

@@ -3,6 +3,7 @@
 //! Bounded, byte-oriented PDF syntax parsing outside stream payloads.
 
 use super::super::types::PdfRef;
+use crate::fallible::reserve_exact;
 use std::ops::Range;
 
 pub(super) const MAX_SYNTAX_DEPTH: u32 = 64;
@@ -454,12 +455,11 @@ impl<'a> Syntax<'a> {
         }
         if depth > 0 && entries.len() > 1 {
             let mut order = Vec::new();
-            order.try_reserve_exact(entries.len()).map_err(|_| {
-                malformed(
-                    self.pos,
-                    "PDF nested dictionary key index allocation failed",
-                )
-            })?;
+            let refused = malformed(
+                self.pos,
+                "PDF nested dictionary key index allocation failed",
+            );
+            reserve_exact(&mut order, entries.len(), refused)?;
             order.extend(0..entries.len());
             order.sort_unstable_by(|left, right| entries[*left].name.cmp(&entries[*right].name));
             if let Some(pair) = order
@@ -788,15 +788,17 @@ mod tests {
     fn stream_head_stops_at_binary_payload_with_crlf() {
         let raw = b"5 0 obj\n<< /Length 8 >>\nstream\r\nendobj!!\nendstream\nendobj";
         let head = parse_object_head(raw.to_vec()).unwrap();
-        let ObjectTail::Stream { data_start } = head.tail else {
-            panic!("stream expected")
-        };
-        assert_eq!(&head.bytes[data_start..data_start + 8], b"endobj!!");
+        assert!(matches!(
+            head.tail,
+            ObjectTail::Stream { data_start }
+                if &head.bytes[data_start..data_start + 8] == b"endobj!!"
+        ));
         let lone_cr = parse_object_head(b"5 0 obj << /Length 1 >> stream\rX".to_vec()).unwrap();
-        let ObjectTail::Stream { data_start } = lone_cr.tail else {
-            panic!("stream expected")
-        };
-        assert_eq!(&lone_cr.bytes[data_start..data_start + 1], b"X");
+        assert!(matches!(
+            lone_cr.tail,
+            ObjectTail::Stream { data_start }
+                if &lone_cr.bytes[data_start..data_start + 1] == b"X"
+        ));
         assert!(parse_object_head(b"5 0 obj << /Length 0 >> stream X".to_vec()).is_err());
     }
 
@@ -868,10 +870,9 @@ mod tests {
     }
 
     fn head_issue(raw: &[u8]) -> ParseIssue {
-        match parse_object_head(raw.to_vec()) {
-            Ok(head) => panic!("accepted malformed object {raw:?}: {head:?}"),
-            Err(issue) => issue,
-        }
+        let result = parse_object_head(raw.to_vec());
+        assert!(result.is_err(), "accepted malformed object {raw:?}");
+        result.unwrap_err()
     }
 
     #[test]
