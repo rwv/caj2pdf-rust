@@ -189,14 +189,11 @@ pub(crate) async fn inspect_link_destination_candidate<S: RangedSource, C: Cance
         let dictionary_start = complete
             .dictionary_start
             .expect("classified dictionary offset");
-        let pair_start =
-            dictionary_start
-                .checked_add(destination.pair.start)
-                .ok_or(reader.malformed(
-                    0,
-                    Some(reference),
-                    "link destination pair offset overflows",
-                ))?;
+        let failure =
+            reader.malformed(0, Some(reference), "link destination pair offset overflows");
+        let pair_start = dictionary_start
+            .checked_add(destination.pair.start)
+            .ok_or(failure)?;
         let pair_end = dictionary_start
             .checked_add(destination.pair.end)
             .ok_or(reader.malformed(0, Some(reference), "link destination pair end overflows"))?;

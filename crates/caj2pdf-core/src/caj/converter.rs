@@ -183,10 +183,8 @@ fn resolve_page_root(
         if steps > nodes.len().saturating_add(1) {
             return Err(malformed(body_start, "PDF page-tree parent cycle"));
         }
-        let node = nodes.get(&child).ok_or(malformed(
-            page_offset,
-            "CAJ page object is missing or is not a Page",
-        ))?;
+        let failure = malformed(page_offset, "CAJ page object is missing or is not a Page");
+        let node = nodes.get(&child).ok_or(failure)?;
         if let Some(root) = node.resolved_root {
             break root;
         }
@@ -555,10 +553,11 @@ pub async fn convert_caj<S: RangedSource, W: SequentialSink, C: Cancellation>(
                     missing_order.push(parent);
                     MissingGroup::default()
                 });
-                group.count = group.count.checked_add(1).ok_or(malformed(
+                let failure = malformed(
                     metadata.page_rows[index].offset,
                     "CAJ page-tree count overflows",
-                ))?;
+                );
+                group.count = group.count.checked_add(1).ok_or(failure)?;
                 if group.seen.insert(direct_child) {
                     group.kids.push(direct_child);
                 }
@@ -595,10 +594,11 @@ pub async fn convert_caj<S: RangedSource, W: SequentialSink, C: Cancellation>(
             .fold(highest_referenced_object, |highest, reference| {
                 highest.max(reference.number)
             });
-        let number = highest.checked_add(1).ok_or(malformed(
+        let failure = malformed(
             metadata.body_start,
             "CAJ synthetic page-tree object number overflows",
-        ))?;
+        );
+        let number = highest.checked_add(1).ok_or(failure)?;
         PdfRef {
             number,
             generation: 0,

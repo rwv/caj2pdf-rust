@@ -320,6 +320,7 @@ fn checked_info(
             "DIB image size differs from stride times height",
         ));
     }
+    let failure = malformed(base + 4, "working allocation calculation overflows");
     let allocated = stride_u64
         .checked_mul(3)
         .and_then(|bytes| {
@@ -329,10 +330,7 @@ fn checked_info(
             )
         })
         .and_then(|bytes| bytes.checked_add(QM_BUFFER_BYTES))
-        .ok_or(malformed(
-            base + 4,
-            "working allocation calculation overflows",
-        ))?;
+        .ok_or(failure)?;
     if allocated > limits.max_allocation_bytes {
         return Err(limit(
             base + 4,

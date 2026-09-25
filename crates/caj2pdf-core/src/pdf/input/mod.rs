@@ -518,14 +518,12 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
             let first = cursor;
             let mut offset = 0_u64;
             while cursor < eof_at && tail[cursor].is_ascii_digit() {
+                let failure =
+                    self.malformed(start + cursor as u64, None, "startxref offset overflows");
                 offset = offset
                     .checked_mul(10)
                     .and_then(|value| value.checked_add(u64::from(tail[cursor] - b'0')))
-                    .ok_or(self.malformed(
-                        start + cursor as u64,
-                        None,
-                        "startxref offset overflows",
-                    ))?;
+                    .ok_or(failure)?;
                 cursor += 1;
             }
             if cursor == first || offset >= start + eof_at as u64 {
@@ -730,11 +728,8 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                 });
             }
             for record in records {
-                let place = slots.get_mut(record.number as usize).ok_or(self.malformed(
-                    cursor,
-                    None,
-                    "xref object exceeds trailer Size",
-                ))?;
+                let failure = self.malformed(cursor, None, "xref object exceeds trailer Size");
+                let place = slots.get_mut(record.number as usize).ok_or(failure)?;
                 if place.is_none() {
                     *place = Some(record.slot);
                 }
@@ -749,11 +744,8 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                 }
                 cursor = previous;
             } else {
-                let final_trailer = latest_trailer.ok_or(self.malformed(
-                    cursor,
-                    None,
-                    "PDF xref has no trailer",
-                ))?;
+                let failure = self.malformed(cursor, None, "PDF xref has no trailer");
+                let final_trailer = latest_trailer.ok_or(failure)?;
                 return Ok((slots, final_trailer));
             }
         }
@@ -808,11 +800,8 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
             for step in 0..count {
                 let number = (start + step) as u32;
                 let line = self.bytes(cursor, 20).await?;
-                let slot = parse_xref_entry(&line).ok_or(self.malformed(
-                    cursor,
-                    None,
-                    "invalid fixed-width xref entry",
-                ))?;
+                let failure = self.malformed(cursor, None, "invalid fixed-width xref entry");
+                let slot = parse_xref_entry(&line).ok_or(failure)?;
                 if let XrefKind::InUse(offset) = slot.kind {
                     if offset >= self.range.length {
                         return Err(self.malformed(
@@ -840,11 +829,8 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
     async fn read_xref_stream(&mut self, at: u64) -> Result<(Vec<XrefRecord>, Trailer)> {
         let head = self.load_head(at, None).await?;
         let reference = head.reference;
-        let dictionary = head.dictionary.as_ref().ok_or(self.malformed(
-            at,
-            Some(reference),
-            "xref stream lacks a dictionary",
-        ))?;
+        let failure = self.malformed(at, Some(reference), "xref stream lacks a dictionary");
+        let dictionary = head.dictionary.as_ref().ok_or(failure)?;
         if reference.generation != 0
             || dictionary.value(b"Type").and_then(exact_name).as_deref() != Some(b"XRef")
         {
@@ -877,11 +863,8 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
         let mut previous_end = 0_u64;
         for pair in indices.chunks_exact(2) {
             let [start, count] = [pair[0], pair[1]];
-            let end = start.checked_add(count).ok_or(self.malformed(
-                at,
-                Some(reference),
-                "xref Index range overflows",
-            ))?;
+            let failure = self.malformed(at, Some(reference), "xref Index range overflows");
+            let end = start.checked_add(count).ok_or(failure)?;
             if count == 0 || start < previous_end || end > u64::from(trailer.size) {
                 return Err(self.malformed(
                     at,
@@ -890,17 +873,11 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                 ));
             }
             previous_end = end;
-            rows = rows.checked_add(count).ok_or(self.malformed(
-                at,
-                Some(reference),
-                "xref Index row count overflows",
-            ))?;
+            let failure = self.malformed(at, Some(reference), "xref Index row count overflows");
+            rows = rows.checked_add(count).ok_or(failure)?;
         }
-        let decoded_len = rows.checked_mul(row_width).ok_or(self.malformed(
-            at,
-            Some(reference),
-            "xref stream decoded size overflows",
-        ))?;
+        let failure = self.malformed(at, Some(reference), "xref stream decoded size overflows");
+        let decoded_len = rows.checked_mul(row_width).ok_or(failure)?;
         // Encoded and decoded buffers may coexist during inflation. Keep their
         // combined ceiling within one quarter of the configured allocation cap.
         let cap = MAX_XREF_STREAM_BYTES.min(self.limits.max_allocation_bytes / 8);
@@ -965,16 +942,10 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                 "xref stream filter is unsupported",
             ));
         }
-        let data_at = at.checked_add(data_start as u64).ok_or(self.malformed(
-            at,
-            Some(reference),
-            "xref stream offset overflows",
-        ))?;
-        let after_data = data_at.checked_add(length).ok_or(self.malformed(
-            data_at,
-            Some(reference),
-            "xref stream length overflows",
-        ))?;
+        let failure = self.malformed(at, Some(reference), "xref stream offset overflows");
+        let data_at = at.checked_add(data_start as u64).ok_or(failure)?;
+        let failure = self.malformed(data_at, Some(reference), "xref stream length overflows");
+        let after_data = data_at.checked_add(length).ok_or(failure)?;
         self.check_stream_tail(after_data, Some(reference)).await?;
         let encoded = self.bytes(data_at, length as usize).await?;
         let decoded = if filter.is_some() {
@@ -1266,16 +1237,10 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
         let end = match head.tail {
             ObjectTail::EndObject { end } => at.checked_add(end as u64),
             ObjectTail::Stream { data_start } => {
-                let dictionary = head.dictionary.as_ref().ok_or(self.malformed(
-                    at,
-                    Some(expected),
-                    "stream has no dictionary",
-                ))?;
-                let length_value = dictionary.value(b"Length").ok_or(self.malformed(
-                    at,
-                    Some(expected),
-                    "stream lacks Length",
-                ))?;
+                let failure = self.malformed(at, Some(expected), "stream has no dictionary");
+                let dictionary = head.dictionary.as_ref().ok_or(failure)?;
+                let failure = self.malformed(at, Some(expected), "stream lacks Length");
+                let length_value = dictionary.value(b"Length").ok_or(failure)?;
                 let length = if let Some(value) = exact_unsigned(length_value) {
                     value
                 } else if let Some(reference) = exact_reference(length_value) {
@@ -1283,16 +1248,10 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                 } else {
                     return Err(self.malformed(at, Some(expected), "invalid stream Length"));
                 };
-                let data_at = at.checked_add(data_start as u64).ok_or(self.malformed(
-                    at,
-                    Some(expected),
-                    "stream offset overflows",
-                ))?;
-                let after_data = data_at.checked_add(length).ok_or(self.malformed(
-                    data_at,
-                    Some(expected),
-                    "stream extent overflows",
-                ))?;
+                let failure = self.malformed(at, Some(expected), "stream offset overflows");
+                let data_at = at.checked_add(data_start as u64).ok_or(failure)?;
+                let failure = self.malformed(data_at, Some(expected), "stream extent overflows");
+                let after_data = data_at.checked_add(length).ok_or(failure)?;
                 Some(self.check_stream_tail(after_data, Some(expected)).await?)
             }
         }
@@ -1335,11 +1294,12 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                 "indirect stream Length is not an integer object",
             ));
         }
-        let scalar = head.scalar.ok_or(self.malformed(
+        let failure = self.malformed(
             offset,
             Some(reference),
             "indirect stream Length is not an integer",
-        ))?;
+        );
+        let scalar = head.scalar.ok_or(failure)?;
         exact_unsigned(&head.bytes[scalar]).ok_or(self.malformed(
             offset,
             Some(reference),
@@ -1408,14 +1368,12 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
             }
             if let ObjectTail::Stream { data_start } = &head.tail {
                 if *data_start > 0 && head.bytes[*data_start - 1] == b'\r' {
-                    let patch_at =
-                        offset
-                            .checked_add(*data_start as u64 - 1)
-                            .ok_or(self.malformed(
-                                *offset,
-                                Some(reference),
-                                "stream separator offset overflows",
-                            ))?;
+                    let failure = self.malformed(
+                        *offset,
+                        Some(reference),
+                        "stream separator offset overflows",
+                    );
+                    let patch_at = offset.checked_add(*data_start as u64 - 1).ok_or(failure)?;
                     push_bounded(
                         &mut index.stream_separator_patches,
                         patch_at,
@@ -1502,11 +1460,12 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                 )
             })?;
             let (head, _) = self.load_object(location.offset, info, slots).await?;
-            let dictionary = head.dictionary.ok_or(self.malformed(
+            let failure = self.malformed(
                 location.offset,
                 Some(info),
                 "trailer Info is not a dictionary",
-            ))?;
+            );
+            let dictionary = head.dictionary.ok_or(failure)?;
             if dictionary.value(b"Type").is_some() {
                 return Err(self.malformed(
                     location.offset,
@@ -1519,11 +1478,12 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
         let (catalog_head, _) = self
             .load_object(catalog_location.offset, index.catalog, slots)
             .await?;
-        let catalog = catalog_head.dictionary.ok_or(self.malformed(
+        let failure = self.malformed(
             catalog_location.offset,
             Some(index.catalog),
             "Catalog is not a dictionary",
-        ))?;
+        );
+        let catalog = catalog_head.dictionary.ok_or(failure)?;
         if catalog.value(b"Type").and_then(exact_name).as_deref() != Some(b"Catalog".as_slice()) {
             return Err(self.malformed(
                 catalog_location.offset,
@@ -1550,17 +1510,19 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
             })?;
             let location = index.object_location(form_ref)?;
             let (form_head, _) = self.load_object(location.offset, form_ref, slots).await?;
-            let form = form_head.dictionary.ok_or(self.malformed(
+            let failure = self.malformed(
                 location.offset,
                 Some(form_ref),
                 "AcroForm is not a dictionary",
-            ))?;
+            );
+            let form = form_head.dictionary.ok_or(failure)?;
             if let Some(flags) = form.value(b"SigFlags") {
-                let flags = exact_unsigned(flags).ok_or(self.malformed(
+                let failure = self.malformed(
                     location.offset,
                     Some(form_ref),
                     "AcroForm SigFlags is invalid",
-                ))?;
+                );
+                let flags = exact_unsigned(flags).ok_or(failure)?;
                 if flags != 0 {
                     return Err(self.problem(
                         location.offset,
@@ -1571,15 +1533,15 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                 }
             }
         }
-        let pages_root =
-            catalog
-                .value(b"Pages")
-                .and_then(exact_reference)
-                .ok_or(self.malformed(
-                    catalog_location.offset,
-                    Some(index.catalog),
-                    "Catalog lacks Pages reference",
-                ))?;
+        let failure = self.malformed(
+            catalog_location.offset,
+            Some(index.catalog),
+            "Catalog lacks Pages reference",
+        );
+        let pages_root = catalog
+            .value(b"Pages")
+            .and_then(exact_reference)
+            .ok_or(failure)?;
         let mut pages = Vec::new();
         let mut stack = Vec::new();
         push_bounded(
@@ -1656,19 +1618,21 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
             *seen = true;
             let location = index.object_location(reference)?;
             let (head, _) = self.load_object(location.offset, reference, slots).await?;
-            let dictionary = head.dictionary.ok_or(self.malformed(
+            let failure = self.malformed(
                 location.offset,
                 Some(reference),
                 "page tree object is not a dictionary",
-            ))?;
+            );
+            let dictionary = head.dictionary.ok_or(failure)?;
+            let failure = self.malformed(
+                location.offset,
+                Some(reference),
+                "page tree object lacks Type",
+            );
             let kind = dictionary
                 .value(b"Type")
                 .and_then(exact_name)
-                .ok_or(self.malformed(
-                    location.offset,
-                    Some(reference),
-                    "page tree object lacks Type",
-                ))?;
+                .ok_or(failure)?;
             let actual_parent = dictionary.value(b"Parent").map(exact_reference);
             if actual_parent == Some(None) {
                 return Err(self.malformed(
@@ -1726,26 +1690,28 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
             };
             match kind.as_slice() {
                 b"Pages" => {
+                    let failure = self.malformed(
+                        location.offset,
+                        Some(reference),
+                        "Pages node lacks valid Count",
+                    );
                     let count = dictionary
                         .value(b"Count")
                         .and_then(exact_unsigned)
                         .and_then(|count| u32::try_from(count).ok())
-                        .ok_or(self.malformed(
-                            location.offset,
-                            Some(reference),
-                            "Pages node lacks valid Count",
-                        ))?;
+                        .ok_or(failure)?;
                     self.limits.check_pages(count).map_err(|error| {
                         self.locate_limit(location.offset, Some(reference), error)
                     })?;
+                    let failure = self.malformed(
+                        location.offset,
+                        Some(reference),
+                        "Pages node lacks valid Kids",
+                    );
                     let kids = dictionary
                         .value(b"Kids")
                         .and_then(|value| reference_array(value, self.limits.max_pages as usize))
-                        .ok_or(self.malformed(
-                            location.offset,
-                            Some(reference),
-                            "Pages node lacks valid Kids",
-                        ))?;
+                        .ok_or(failure)?;
                     if kids.is_empty() || kids.len() > count as usize {
                         return Err(self.malformed(
                             location.offset,
@@ -1827,20 +1793,22 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
         index.pages = pages;
         index.catalog_dict = catalog;
         if let Some(outline_value) = index.catalog_dict.value(b"Outlines") {
-            let outline_ref = exact_reference(outline_value).ok_or(self.malformed(
+            let failure = self.malformed(
                 catalog_location.offset,
                 Some(index.catalog),
                 "invalid Catalog Outlines reference",
-            ))?;
+            );
+            let outline_ref = exact_reference(outline_value).ok_or(failure)?;
             let outline_location = index.object_location(outline_ref)?;
             let (head, _) = self
                 .load_object(outline_location.offset, outline_ref, slots)
                 .await?;
-            let outline = head.dictionary.ok_or(self.malformed(
+            let failure = self.malformed(
                 outline_location.offset,
                 Some(outline_ref),
                 "Outlines root is not a dictionary",
-            ))?;
+            );
+            let outline = head.dictionary.ok_or(failure)?;
             index.has_outlines = self
                 .validate_outline_tree(&outline, outline_ref, outline_location.offset, slots, index)
                 .await?;
@@ -1903,13 +1871,14 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                 return Ok(());
             }
             let scalar = head.scalar.as_ref().map(|range| &head.bytes[range.clone()]);
+            let failure = self.malformed(
+                page_offset,
+                Some(page),
+                "Page Contents is not a stream or stream array",
+            );
             let references = scalar
                 .and_then(|raw| reference_array(raw, slots.len()))
-                .ok_or(self.malformed(
-                    page_offset,
-                    Some(page),
-                    "Page Contents is not a stream or stream array",
-                ))?;
+                .ok_or(failure)?;
             for stream in &references {
                 self.validate_content_stream(*stream, slots, index).await?;
             }
@@ -2078,11 +2047,12 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
             let (head, _) = self
                 .load_object(location.offset, task.reference, slots)
                 .await?;
-            let item = head.dictionary.ok_or(self.malformed(
+            let failure = self.malformed(
                 location.offset,
                 Some(task.reference),
                 "outline item is not a dictionary",
-            ))?;
+            );
+            let item = head.dictionary.ok_or(failure)?;
             if !item.value(b"Title").is_some_and(valid_text_string) {
                 return Err(self.malformed(
                     location.offset,
@@ -2445,9 +2415,12 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                                 })
                             );
                             if free || next_live == Some(number) {
-                                let retained = index.retained_gap_bytes.checked_add(length).ok_or(
-                                    self.malformed(start, None, "orphan gap repair size overflows"),
-                                )?;
+                                let failure =
+                                    self.malformed(start, None, "orphan gap repair size overflows");
+                                let retained = index
+                                    .retained_gap_bytes
+                                    .checked_add(length)
+                                    .ok_or(failure)?;
                                 let cap =
                                     MAX_ORPHAN_GAP_TOTAL.min(self.limits.max_allocation_bytes / 8);
                                 if retained > cap {
@@ -2717,16 +2690,10 @@ pub(crate) async fn inspect_fragment_object<
     let end = match head.tail {
         ObjectTail::EndObject { end } => end as u64,
         ObjectTail::Stream { data_start } => {
-            let dictionary = head.dictionary.as_ref().ok_or(reader.malformed(
-                0,
-                Some(expected),
-                "stream lacks dictionary",
-            ))?;
-            let value = dictionary.value(b"Length").ok_or(reader.malformed(
-                0,
-                Some(expected),
-                "stream lacks Length",
-            ))?;
+            let failure = reader.malformed(0, Some(expected), "stream lacks dictionary");
+            let dictionary = head.dictionary.as_ref().ok_or(failure)?;
+            let failure = reader.malformed(0, Some(expected), "stream lacks Length");
+            let value = dictionary.value(b"Length").ok_or(failure)?;
             let length = exact_unsigned(value)
                 .or_else(|| exact_reference(value).and_then(&resolve_length))
                 .ok_or(reader.malformed(0, Some(expected), "stream Length does not resolve"))?;
