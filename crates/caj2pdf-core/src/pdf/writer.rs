@@ -391,13 +391,7 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfWriter<'a, W, C> {
             .ok_or(Error::InvalidInput {
                 reason: "PDF output byte count overflows 64 bits",
             })?;
-        if attempted > MAX_CLASSIC_PDF_BYTES {
-            return Err(Error::LimitExceeded {
-                resource: "classic PDF file bytes",
-                limit: MAX_CLASSIC_PDF_BYTES,
-                attempted,
-            });
-        }
+        check_classic_pdf_bytes(attempted)?;
         if let Err(error) = write_all(
             self.sink,
             bytes,
@@ -415,6 +409,18 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfWriter<'a, W, C> {
 }
 
 /// Fixed-width entry for a generation-zero, in-use classic xref object.
+/// Reject output that would end past the classic xref's ten-digit offsets.
+pub(crate) fn check_classic_pdf_bytes(attempted: u64) -> Result<()> {
+    if attempted > MAX_CLASSIC_PDF_BYTES {
+        return Err(Error::LimitExceeded {
+            resource: "classic PDF file bytes",
+            limit: MAX_CLASSIC_PDF_BYTES,
+            attempted,
+        });
+    }
+    Ok(())
+}
+
 fn xref_entry(offset: u64) -> Result<[u8; 20]> {
     if offset > MAX_CLASSIC_PDF_BYTES {
         return Err(Error::LimitExceeded {
@@ -432,7 +438,7 @@ fn xref_entry(offset: u64) -> Result<[u8; 20]> {
     Ok(entry)
 }
 
-fn checked_object_number(count: usize) -> Result<u32> {
+pub(crate) fn checked_object_number(count: usize) -> Result<u32> {
     let attempted = len_u64(count);
     if attempted > u64::from(MAX_PDF_OBJECTS) {
         return Err(Error::LimitExceeded {
@@ -467,6 +473,19 @@ mod tests {
         assert!(matches!(
             xref_entry(MAX_CLASSIC_PDF_BYTES + 1),
             Err(Error::LimitExceeded { .. })
+        ));
+    }
+
+    #[test]
+    fn classic_output_ends_within_ten_digit_offsets() {
+        assert!(check_classic_pdf_bytes(MAX_CLASSIC_PDF_BYTES).is_ok());
+        assert!(matches!(
+            check_classic_pdf_bytes(MAX_CLASSIC_PDF_BYTES + 1),
+            Err(Error::LimitExceeded {
+                resource: "classic PDF file bytes",
+                limit: MAX_CLASSIC_PDF_BYTES,
+                attempted,
+            }) if attempted == MAX_CLASSIC_PDF_BYTES + 1
         ));
     }
 
@@ -516,10 +535,13 @@ mod tests {
             let stream = pdf.reserve_object()?;
             let length = pdf.reserve_object()?;
             pdf.begin_stream(stream, length, b"").await?;
-            let State::Stream { data_start, .. } = pdf.state else {
-                panic!("stream should be open")
-            };
-            pdf.position = data_start + MAX_PDF_INTEGER;
+            assert!(
+                matches!(pdf.state, State::Stream { .. }),
+                "stream should be open"
+            );
+            if let State::Stream { data_start, .. } = pdf.state {
+                pdf.position = data_start + MAX_PDF_INTEGER;
+            }
             assert!(matches!(
                 pdf.write_stream_bytes(b"x").await,
                 Err(Error::LimitExceeded {

@@ -7,9 +7,9 @@
 //! object numbers or searches binary stream payloads for PDF delimiters.
 
 use super::input::{FragmentKind, inspect_fragment_object, inspect_fragment_scalar};
-use super::writer::MAX_PDF_OBJECTS;
+use super::writer::{MAX_PDF_OBJECTS, check_classic_pdf_bytes, checked_object_number};
 use super::{MAX_CLASSIC_PDF_BYTES, PdfRange, PdfRef};
-use crate::fallible::{len_u64, reserve_exact, try_convert};
+use crate::fallible::{len_u64, reserve_exact, usize_from_u32};
 use crate::{
     Bookmark, Cancellation, ConversionReport, Error, Limits, PdfErrorKind, RangedSource, Result,
     SequentialSink, read_exact_at, write_all,
@@ -259,16 +259,7 @@ fn build_outline_nodes(
     let mut last_root: Option<usize> = None;
     let mut previous_depth = 0;
     for (index, bookmark) in bookmarks.iter().enumerate() {
-        let depth: usize = try_convert(
-            bookmark.depth,
-            pdf_limit(
-                None,
-                0,
-                "PDF outline depth",
-                MAX_OUTLINE_DEPTH as u64,
-                u64::MAX,
-            ),
-        )?;
+        let depth = usize_from_u32(bookmark.depth);
         if depth >= MAX_OUTLINE_DEPTH {
             return Err(pdf_limit(
                 None,
@@ -436,9 +427,9 @@ async fn emit_outline_item<W: SequentialSink, C: Cancellation>(
             used += 2;
         }
     }
-    if used != 0 {
-        emit(sink, &hex[..used], report, limits, cancellation).await?;
-    }
+    // Bookmark titles are nonempty, so the final chunk is too.
+    debug_assert!(used != 0);
+    emit(sink, &hex[..used], report, limits, cancellation).await?;
     emit(
         sink,
         outline_item_suffix(node).as_bytes(),
@@ -489,25 +480,17 @@ pub async fn reconstruct_fragment_with_bookmarks<
     };
     let source = &mut counted;
     limits.validate()?;
-    let bookmark_count: u32 = try_convert(
-        bookmarks.len(),
-        pdf_limit(
-            None,
-            0,
-            "bookmarks",
-            u64::from(limits.max_bookmarks),
-            u64::MAX,
-        ),
-    )?;
-    if bookmark_count > limits.max_bookmarks {
+    if len_u64(bookmarks.len()) > u64::from(limits.max_bookmarks) {
         return Err(pdf_limit(
             None,
             0,
             "bookmarks",
             u64::from(limits.max_bookmarks),
-            u64::from(bookmark_count),
+            len_u64(bookmarks.len()),
         ));
     }
+    // At most `max_bookmarks`, a `u32`.
+    let bookmark_count = bookmarks.len() as u32;
     if bookmark_count != 0 && plan.catalog.is_some() {
         return Err(pdf_error(
             plan.catalog,
@@ -516,17 +499,7 @@ pub async fn reconstruct_fragment_with_bookmarks<
             "fragment outline import requires a synthetic Catalog",
         ));
     }
-    let page_count: u32 = try_convert(
-        plan.pages.len(),
-        pdf_limit(
-            plan.pages.first().copied(),
-            plan.objects.first().map_or(0, |object| object.range.offset),
-            "pages",
-            u64::from(limits.max_pages),
-            len_u64(plan.pages.len()),
-        ),
-    )?;
-    if page_count > limits.max_pages {
+    if len_u64(plan.pages.len()) > u64::from(limits.max_pages) {
         let first = plan.pages.first().copied();
         let offset = first
             .and_then(|reference| {
@@ -541,9 +514,11 @@ pub async fn reconstruct_fragment_with_bookmarks<
             offset,
             "pages",
             u64::from(limits.max_pages),
-            u64::from(page_count),
+            len_u64(plan.pages.len()),
         ));
     }
+    // At most `max_pages`, a `u32`.
+    let page_count = plan.pages.len() as u32;
     if page_count == 0 {
         return Err(malformed(None, 0, "fragment has no pages"));
     }
@@ -572,15 +547,14 @@ pub async fn reconstruct_fragment_with_bookmarks<
         .ok_or(Error::InvalidInput {
             reason: "PDF object count overflows address space",
         })?;
-    if requested > MAX_PDF_OBJECTS as usize {
-        return Err(pdf_limit(
-            plan.objects.first().map(|object| object.reference),
-            plan.objects.first().map_or(0, |object| object.range.offset),
-            "PDF object count",
-            u64::from(MAX_PDF_OBJECTS),
-            requested as u64,
-        ));
-    }
+    let first_object = plan.objects.first();
+    let first_offset = first_object.map_or(0, |object| object.range.offset);
+    let first_reference = first_object.map(|object| {
+        let reference = object.reference;
+        (reference.number, reference.generation)
+    });
+    checked_object_number(requested)
+        .map_err(|error| error.locate_pdf_limit(first_offset, first_reference))?;
     let record_bytes = requested
         .checked_mul(size_of::<Record>())
         .ok_or(Error::InvalidInput {
@@ -716,15 +690,9 @@ pub async fn reconstruct_fragment_with_bookmarks<
         let largest = records.last().map_or(plan.pages_root.number, |record| {
             record.reference.number.max(plan.pages_root.number)
         });
-        let number = largest.checked_add(1).ok_or_else(|| {
-            pdf_limit(
-                records.last().map(|record| record.reference),
-                records.last().map_or(0, |record| record.range.offset),
-                "PDF object number",
-                u64::from(MAX_PDF_OBJECTS),
-                u64::from(largest) + 1,
-            )
-        })?;
+        // Every record and the pages root passed `checked_reference`, so
+        // `largest <= MAX_PDF_OBJECTS` and the successor fits `u32`.
+        let number = largest + 1;
         let reference = PdfRef {
             number,
             generation: 0,
@@ -760,17 +728,9 @@ pub async fn reconstruct_fragment_with_bookmarks<
         let largest = records.last().ok_or(Error::InvalidInput {
             reason: "fragment has no PDF objects",
         })?;
-        let root_number = largest.reference.number.checked_add(1).ok_or_else(|| {
-            pdf_limit(
-                Some(largest.reference),
-                largest.range.offset,
-                "PDF object number",
-                u64::from(MAX_PDF_OBJECTS),
-                u64::from(largest.reference.number) + 1,
-            )
-        })?;
+        // Every record passed `checked_reference`, so the successor fits.
         let root = PdfRef {
-            number: root_number,
+            number: largest.reference.number + 1,
             generation: 0,
         };
         checked_reference(root, 0)?;
@@ -854,9 +814,8 @@ pub async fn reconstruct_fragment_with_bookmarks<
         "trailer\n<< /Size {xref_size} /Root {} 0 R >>\nstartxref\n{body_bytes}\n%%EOF\n",
         catalog.number
     );
-    let xref_bytes = xref_size.checked_mul(20).ok_or(Error::InvalidInput {
-        reason: "PDF xref byte count overflows 64 bits",
-    })?;
+    // `largest` is a `u32`, so this product fits `u64`.
+    let xref_bytes = xref_size * 20;
     let final_size = checked_add(
         checked_add(body_bytes, xref_header.len() as u64)?,
         checked_add(xref_bytes, trailer.len() as u64)?,
@@ -999,11 +958,12 @@ pub async fn reconstruct_fragment_with_bookmarks<
             xref_entry(record.output_offset, 0, b'n')?
         } else {
             let next_free = next_free_number(number, largest, &records, record_index);
-            xref_entry(
+            // A `u32` object number always fits the ten-digit field.
+            xref_digits(
                 u64::from(next_free),
                 if number == 0 { 65_535 } else { 0 },
                 b'f',
-            )?
+            )
         };
         if entry.len() > limits.io_chunk_bytes {
             emit(sink, &buffer, &mut report, limits, cancellation).await?;
@@ -1043,13 +1003,7 @@ async fn emit<W: SequentialSink, C: Cancellation>(
     cancellation: &C,
 ) -> Result<()> {
     let attempted = checked_add(report.output_bytes_written, bytes.len() as u64)?;
-    if attempted > MAX_CLASSIC_PDF_BYTES {
-        return Err(Error::LimitExceeded {
-            resource: "classic PDF file bytes",
-            limit: MAX_CLASSIC_PDF_BYTES,
-            attempted,
-        });
-    }
+    check_classic_pdf_bytes(attempted)?;
     write_all(
         sink,
         bytes,
@@ -1107,6 +1061,11 @@ fn xref_entry(offset: u64, generation: u16, status: u8) -> Result<[u8; 20]> {
             attempted: offset,
         });
     }
+    Ok(xref_digits(offset, generation, status))
+}
+
+/// Format an xref entry whose `offset` has at most ten decimal digits.
+fn xref_digits(offset: u64, generation: u16, status: u8) -> [u8; 20] {
     let mut entry = *b"0000000000 00000 n \n";
     let mut value = offset;
     for digit in entry[..10].iter_mut().rev() {
@@ -1119,7 +1078,7 @@ fn xref_entry(offset: u64, generation: u16, status: u8) -> Result<[u8; 20]> {
         value /= 10;
     }
     entry[17] = status;
-    Ok(entry)
+    entry
 }
 
 fn next_free_number(current: u32, largest: u32, records: &[Record], mut index: usize) -> u32 {
@@ -1225,13 +1184,8 @@ async fn validate_fragment_structure<R: RangedSource, C: Cancellation>(
                 },
             )
             .await?;
-            if inspection.reference != record.reference {
-                return Err(malformed(
-                    Some(record.reference),
-                    record.range.offset,
-                    "inspected object identity differs from the supplied span",
-                ));
-            }
+            // The inspector rejects any header other than the expected one.
+            debug_assert_eq!(inspection.reference, record.reference);
             if inspection.max_referenced_object > MAX_PDF_OBJECTS {
                 return Err(pdf_error(
                     Some(record.reference),
@@ -1798,10 +1752,10 @@ mod tests {
         }
 
         async fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> Result<usize> {
-            let start = usize::try_from(offset).map_err(|_| Error::InvalidInput {
-                reason: "test read offset overflows usize",
-            })?;
-            let available = self.0.get(start..).unwrap_or_default();
+            let available = usize::try_from(offset)
+                .ok()
+                .and_then(|start| self.0.get(start..))
+                .unwrap_or_default();
             let copied = available.len().min(destination.len()).min(7);
             destination[..copied].copy_from_slice(&available[..copied]);
             Ok(copied)
@@ -2954,16 +2908,14 @@ mod tests {
                     assert_eq!(report.pages_converted, 1);
                     assert_eq!(report.output_bytes_written, sink.bytes.len() as u64);
                 } else {
-                    assert!(
-                        matches!(
-                            result,
-                            Err(Error::Pdf {
-                                kind: PdfErrorKind::Malformed,
-                                ..
-                            })
-                        ),
-                        "case {case} was accepted"
+                    let rejected = matches!(
+                        result,
+                        Err(Error::Pdf {
+                            kind: PdfErrorKind::Malformed,
+                            ..
+                        })
                     );
+                    assert!(rejected, "case {case} was accepted");
                     assert!(sink.bytes.is_empty());
                 }
             }
@@ -3663,23 +3615,27 @@ mod tests {
                         break;
                     }
                     Err(error) => {
-                        let Error::PdfLimitExceeded {
+                        assert!(
+                            matches!(error, Error::PdfLimitExceeded { .. }),
+                            "ceiling {ceiling}: {error}"
+                        );
+                        if let Error::PdfLimitExceeded {
                             resource,
                             limit,
                             attempted,
                             ..
                         } = error
-                        else {
-                            panic!("ceiling {ceiling}: {error}");
-                        };
-                        // Parser budgets are derived from, and never exceed,
-                        // the allocation ceiling; scale the ceiling so the
-                        // failed budget would just admit the attempt.
-                        assert!(limit <= ceiling && limit > 0, "{error}");
-                        assert!(attempted > limit, "{error}");
-                        assert!(sink.bytes.is_empty(), "{error}");
-                        resources.push(resource);
-                        ceiling = (ceiling * attempted).div_ceil(limit);
+                        {
+                            // Parser budgets are derived from, and never
+                            // exceed, the allocation ceiling; scale the
+                            // ceiling so the failed budget would just admit
+                            // the attempt.
+                            assert!(limit <= ceiling && limit > 0, "{error}");
+                            assert!(attempted > limit, "{error}");
+                            assert!(sink.bytes.is_empty(), "{error}");
+                            resources.push(resource);
+                            ceiling = (ceiling * attempted).div_ceil(limit);
+                        }
                     }
                 }
             }
@@ -3795,13 +3751,13 @@ mod tests {
                 .await
                 {
                     Err(Error::Cancelled) => allowed += 1,
-                    Ok(report) => {
+                    result => {
+                        let report = result.expect("only cancellation may stop the run");
                         assert!(allowed >= 100, "only {allowed} cancellation checks");
                         assert_eq!(report.output_bytes_written, sink.bytes.len() as u64);
                         assert_eq!(report.bookmarks_written, 1);
                         break;
                     }
-                    Err(other) => panic!("query {}: unexpected {other}", allowed + 1),
                 }
             }
         });

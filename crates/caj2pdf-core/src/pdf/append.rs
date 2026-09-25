@@ -8,8 +8,8 @@
 
 use super::input::{GapPatch, PdfIndex};
 use super::types::{PdfRange, PdfRef};
-use super::writer::{MAX_CLASSIC_PDF_BYTES, MAX_PDF_OBJECTS};
-use crate::fallible::{reserve_exact, try_convert};
+use super::writer::{MAX_CLASSIC_PDF_BYTES, MAX_PDF_OBJECTS, check_classic_pdf_bytes};
+use crate::fallible::{reserve_exact, try_convert, usize_from_u32};
 use crate::{
     Bookmark, Cancellation, ConversionReport, Error, Limits, PdfErrorKind, RangedSource, Result,
     SequentialSink, read_exact_at, write_all,
@@ -252,12 +252,7 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfOutlineAppender<'a, W, C> {
                 .ok_or(Error::InvalidInput {
                     reason: "bookmark page is outside the PDF page tree",
                 })?;
-        let depth: usize = try_convert(
-            bookmark.depth,
-            Error::InvalidInput {
-                reason: "bookmark depth exceeds address space",
-            },
-        )?;
+        let depth = usize_from_u32(bookmark.depth);
         if depth >= MAX_OUTLINE_DEPTH {
             return Err(Error::LimitExceeded {
                 resource: "PDF outline depth",
@@ -415,21 +410,17 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfOutlineAppender<'a, W, C> {
     fn preflight_outline_memory(&mut self, depth: usize, title_capacity: u64) -> Result<()> {
         let mut released_titles = 0_u64;
         let mut released_nodes = 0_u32;
-        let mut release = |title: &String| -> Result<()> {
-            released_titles = released_titles.checked_add(title.capacity() as u64).ok_or(
-                Error::InvalidInput {
-                    reason: "released PDF bookmark title bytes overflow",
-                },
-            )?;
-            released_nodes = released_nodes.checked_add(1).ok_or(Error::InvalidInput {
-                reason: "released PDF bookmark count overflows",
-            })?;
-            Ok(())
+        // Released items are a subset of the retained ones, whose title
+        // capacities and count already sum to `retained_titles` and
+        // `retained_nodes` without overflow.
+        let mut release = |title: &String| {
+            released_titles += title.capacity() as u64;
+            released_nodes += 1;
         };
         for item in self.open.iter().skip(depth) {
-            release(&item.title)?;
+            release(&item.title);
             if let Some(pending) = &item.children.pending {
-                release(&pending.title)?;
+                release(&pending.title);
             }
         }
         let pending = if depth == 0 {
@@ -438,7 +429,7 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfOutlineAppender<'a, W, C> {
             self.open[depth - 1].children.pending.as_ref()
         };
         if let Some(pending) = pending {
-            release(&pending.title)?;
+            release(&pending.title);
         }
         let titles = self
             .retained_titles
@@ -528,9 +519,9 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfOutlineAppender<'a, W, C> {
                 used += 2;
             }
         }
-        if used != 0 {
-            self.writer.write_raw(&hex[..used]).await?;
-        }
+        // Bookmark titles are nonempty, so the final chunk is too.
+        debug_assert!(used != 0);
+        self.writer.write_raw(&hex[..used]).await?;
         self.writer
             .write_raw(
                 format!(
@@ -779,12 +770,8 @@ impl<'a, W: SequentialSink, C: Cancellation> AppendWriter<'a, W, C> {
                 .ok_or(Error::InvalidInput {
                     reason: "PDF appended byte count overflows",
                 })?;
-        if self.update_hash.is_some() && attempted > MAX_CLASSIC_PDF_BYTES {
-            return Err(Error::LimitExceeded {
-                resource: "classic PDF file bytes",
-                limit: MAX_CLASSIC_PDF_BYTES,
-                attempted,
-            });
+        if self.update_hash.is_some() {
+            check_classic_pdf_bytes(attempted)?;
         }
         let result = write_all(
             self.sink,
@@ -1540,13 +1527,12 @@ mod tests {
 
         async fn flush(&mut self) -> Result<()> {
             if self.fail_flush {
-                Err(Error::Io(io::Error::new(
+                return Err(Error::Io(io::Error::new(
                     io::ErrorKind::BrokenPipe,
                     "injected flush failure",
-                )))
-            } else {
-                Ok(())
+                )));
             }
+            Ok(())
         }
     }
 
@@ -1586,6 +1572,21 @@ mod tests {
             &NeverCancel,
         ));
         assert!(matches!(result, Err(Error::Io(_))));
+        assert_eq!(sink.accepted, original.len());
+
+        // The same short-write sink succeeds once its flush does.
+        let mut sink = FailingSink {
+            accepted: 0,
+            remaining: original.len(),
+            fail_flush: false,
+        };
+        let report = run(copy_pdf(
+            &mut source,
+            &mut sink,
+            &Limits::default(),
+            &NeverCancel,
+        ))?;
+        assert_eq!(report.output_bytes_written, original.len() as u64);
         assert_eq!(sink.accepted, original.len());
         Ok(())
     }
@@ -1750,9 +1751,12 @@ mod tests {
             ..Limits::default()
         };
         let index = open_index(&original, &limits)?;
-        let [patch] = index.gap_patches() else {
-            panic!("expected one orphan gap patch");
-        };
+        assert_eq!(
+            index.gap_patches().len(),
+            1,
+            "expected one orphan gap patch"
+        );
+        let patch = &index.gap_patches()[0];
         // The inactive span may include separator whitespace before the
         // aborted header; it must end at the next live object.
         let start = patch.offset as usize;

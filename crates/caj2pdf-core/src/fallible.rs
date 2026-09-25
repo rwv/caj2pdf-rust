@@ -16,6 +16,16 @@ pub(crate) const fn len_u64(value: usize) -> u64 {
     value as u64
 }
 
+// Every supported target has a pointer width of at least 32 bits, so a `u32`
+// count or index always converts to `usize` without loss.
+const _: () = assert!(usize::BITS >= 32);
+
+/// Convert a 32-bit count or index to an in-memory length or index.
+#[inline]
+pub(crate) const fn usize_from_u32(value: u32) -> usize {
+    value as usize
+}
+
 /// Convert between integer types, returning `error` when `value` does not fit.
 #[inline]
 pub(crate) fn try_convert<T: TryFrom<U>, U, E>(value: U, error: E) -> Result<T, E> {

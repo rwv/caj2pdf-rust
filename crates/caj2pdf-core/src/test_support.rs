@@ -66,3 +66,9 @@ impl Cancellation for CancelAfter {
         seen >= self.allowed
     }
 }
+
+#[test]
+#[should_panic(expected = "in-memory test future unexpectedly yielded")]
+fn ready_rejects_a_future_that_yields() {
+    ready(std::future::pending::<()>());
+}

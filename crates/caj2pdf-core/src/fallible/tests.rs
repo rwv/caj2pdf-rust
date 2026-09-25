@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: MIT
 
-use super::{len_u64, reserve, reserve_exact, try_convert};
+use super::{len_u64, reserve, reserve_exact, try_convert, usize_from_u32};
 
 #[test]
 fn length_conversion_is_lossless() {
     assert_eq!(len_u64(0), 0);
     assert_eq!(len_u64(usize::MAX), usize::MAX as u64);
+    assert_eq!(usize_from_u32(0), 0);
+    assert_eq!(usize_from_u32(u32::MAX), u32::MAX as usize);
 }
 
 #[test]
