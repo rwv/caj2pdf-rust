@@ -147,6 +147,11 @@ impl MqContexts {
         self.states.get(index).copied()
     }
 
+    /// Number of independently adapted MQ contexts in this bank.
+    pub fn count(&self) -> usize {
+        self.states.len()
+    }
+
     pub fn set(&mut self, index: usize, state: MqContext) -> MqResult<()> {
         if usize::from(state.state_index) >= MQ_STATE_COUNT {
             return Err(MqError {
@@ -490,7 +495,15 @@ impl<'a, S: RangedSource, C: Cancellation> MqDecoder<'a, S, C> {
 
     /// Verify the caller's symbol count and the exact terminal pair.
     /// This does not prove that the supplied table matches T.88 Table E.1.
-    pub async fn finish(mut self, expected_symbols: u64) -> MqResult<()> {
+    pub async fn finish(self, expected_symbols: u64) -> MqResult<()> {
+        self.finish_with_snapshot(expected_symbols)
+            .await
+            .map(|_| ())
+    }
+
+    /// Verify the tail and return a snapshot including any physical bytes
+    /// fetched while checking it. The semantic input offset can remain earlier.
+    pub async fn finish_with_snapshot(mut self, expected_symbols: u64) -> MqResult<MqSnapshot> {
         if self.poisoned {
             return Err(self.at(None, MqErrorKind::Poisoned));
         }
@@ -521,7 +534,8 @@ impl<'a, S: RangedSource, C: Cancellation> MqDecoder<'a, S, C> {
                 kind: MqErrorKind::InvalidMarker(second),
             });
         }
-        self.check_cancelled(None)
+        self.check_cancelled(None)?;
+        Ok(self.snapshot())
     }
 
     fn at(&self, context: Option<usize>, kind: MqErrorKind) -> MqError {

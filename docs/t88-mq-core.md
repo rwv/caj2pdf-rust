@@ -108,5 +108,7 @@ Table H.1 A/C/CT checkpoints, and the terminal marker. Ordinary CI leaves
 the ignored test **NOT_RUN**. Explicitly requesting it with a missing,
 changed, oversized, or malformed fixture fails. An Annex H.2 pass neither
 resolves Table E.1 redistribution in #44 nor establishes HN/C8 or CAJ
-pixel parity. A standalone or integrated pixel decoder remains blocked by
-#42, #43, #44, and #45.
+pixel parity. [Issue #49](jbig2-generic-template2.md) now uses this core for
+one bounded template-2 generic-region slice; the exact table rights gate in
+#44 and the missing symbol/text/page procedures still prevent a standalone
+or integrated production pixel decoder.
