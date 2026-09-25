@@ -79,6 +79,28 @@ new symbols (57 zero-new cases), and 3–542 exported symbols. Its
 refinement/aggregate mode remains unsupported by this slice. These counts
 are metadata observations, not decoded-symbol or page-conversion results.
 
+## Optional JBIG2 refinement-pixel evidence
+
+Issue [#65](https://github.com/rwv/caj2pdf-rust/issues/65) adds a bounded
+template-1 refinement-bitmap primitive. No independent per-symbol
+refinement-pixel oracle is available, so
+[`jbig2_refinement_oracle.py`](../../scripts/jbig2_refinement_oracle.py)
+reports `NOT_RUN` with zero compatibility cases in a clean clone and in CI.
+The #43 whole-image and #50 generic-only hashes cannot establish refinement
+pixel parity. A supplied corpus is checked against the SHA-pinned dictionary
+metadata inventory, but that remains metadata evidence only.
+
+An optional private fixture may be supplied with both
+`--fixture-file /path/to/file` and `--fixture-sha256 HEX`, or the matching
+`CAJ2PDF_T88_REFINEMENT_FIXTURE_FILE` and
+`CAJ2PDF_T88_REFINEMENT_FIXTURE_SHA256` environment variables. The file is
+read in bounded chunks with a 4 MiB cap. Missing, empty, oversized, or
+hash-mismatched material fails; a verified file still reports `NOT_RUN`/0
+because no independent refinement-pixel comparison is wired. This identity
+check is not a decoder compatibility test. A future oracle integration must
+define independent expected pixels and compare them before it can report a
+compatibility pass.
+
 ## Optional HN/C8 Rust container comparison
 
 The independent [HN/C8 type-0 manifest](jbig1_oracle.json) pins 1,400
