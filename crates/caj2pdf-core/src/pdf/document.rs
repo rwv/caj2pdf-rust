@@ -131,13 +131,13 @@ impl<W: SequentialSink, C: Cancellation> SequentialSink for BilevelImageWriter<'
         while done < bytes.len() {
             let row_left = self.stride - self.column;
             let count = row_left.min(bytes.len() - done);
-            if self.column < self.visible {
-                let kept = count.min(self.visible - self.column);
-                self.document
-                    .writer
-                    .write_stream_bytes(&bytes[done..done + kept])
-                    .await?;
-            }
+            let kept = count.min(self.visible.saturating_sub(self.column));
+            // Padding-only chunks still pass an empty slice, so a poisoned
+            // writer or cancellation is reported for them too.
+            self.document
+                .writer
+                .write_stream_bytes(&bytes[done..done + kept])
+                .await?;
             // Account for the bytes only after the document accepted them.
             self.column = (self.column + count) % self.stride;
             self.remaining -= len_u64(count);
