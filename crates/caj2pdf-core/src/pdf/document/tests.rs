@@ -373,3 +373,44 @@ fn reserve_bounded_enforces_item_and_byte_ceilings() {
     ));
     assert_eq!(wide.len(), 1);
 }
+
+#[test]
+fn a_refused_bookmark_leaves_earlier_outline_items_writable() {
+    // Walk the allocation ceiling across every refusal point of a nested
+    // outline. Whenever a bookmark is refused, the items accepted before it
+    // must still finish as a valid outline tree.
+    let titles = [(0, "A"), (1, "B"), (2, "C"), (1, "D"), (0, "E"), (1, "F")];
+    let mut refusals_checked = 0;
+    for max_allocation_bytes in (64..4096).step_by(8) {
+        let limits = Limits {
+            io_chunk_bytes: 16,
+            max_allocation_bytes,
+            ..Limits::default()
+        };
+        let mut source = FilledSource::new(1);
+        let mut sink = VecSink::default();
+        let result = run(async {
+            let mut document = PdfDocument::new(&mut sink, &limits, &NEVER).await?;
+            document
+                .add_image_page(&mut source, 0, 1, page(), gray_pixels(1))
+                .await?;
+            let mut accepted = 0;
+            for (depth, title) in titles {
+                if document.add_bookmark(bookmark(depth, title)).await.is_err() {
+                    break;
+                }
+                accepted += 1;
+            }
+            Ok::<_, Error>((accepted, document.finish().await))
+        });
+        let Ok((accepted, Ok(report))) = result else {
+            continue;
+        };
+        if (1..titles.len()).contains(&accepted) {
+            assert_eq!(report.bookmarks_written, accepted as u32);
+            assert!(index_pdf(sink.bytes).unwrap().has_outlines());
+            refusals_checked += 1;
+        }
+    }
+    assert!(refusals_checked > 0);
+}
