@@ -971,3 +971,361 @@ fn reserve_bounded<T>(
     // capacity from its allocator, which is outside the handler's request.
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::NeverCancel;
+    use crate::pdf::{PdfIndex, PdfRange};
+    use std::{
+        cell::Cell,
+        future::Future,
+        io,
+        pin::pin,
+        task::{Context, Poll, Waker},
+    };
+
+    fn run<F: Future>(future: F) -> F::Output {
+        let mut context = Context::from_waker(Waker::noop());
+        let mut future = pin!(future);
+        match future.as_mut().poll(&mut context) {
+            Poll::Ready(value) => value,
+            Poll::Pending => panic!("test I/O unexpectedly yielded"),
+        }
+    }
+
+    /// A source whose bytes are all `0x5A`, optionally claiming to have read
+    /// one byte more than the caller requested.
+    struct FilledSource {
+        size: u64,
+        over_report: bool,
+    }
+
+    impl FilledSource {
+        fn new(size: u64) -> Self {
+            Self {
+                size,
+                over_report: false,
+            }
+        }
+    }
+
+    impl RangedSource for FilledSource {
+        fn size(&self) -> u64 {
+            self.size
+        }
+
+        async fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> Result<usize> {
+            let available = self.size.saturating_sub(offset);
+            let copied = destination.len().min(available as usize);
+            destination[..copied].fill(0x5a);
+            Ok(copied + usize::from(self.over_report))
+        }
+    }
+
+    #[derive(Default)]
+    struct VecSink {
+        bytes: Vec<u8>,
+        writes: usize,
+        fail_at_write: Option<usize>,
+    }
+
+    impl SequentialSink for VecSink {
+        async fn write(&mut self, bytes: &[u8]) -> Result<usize> {
+            self.writes += 1;
+            if self.fail_at_write == Some(self.writes) {
+                return Err(Error::Io(io::Error::other("injected sink failure")));
+            }
+            self.bytes.extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+
+        async fn flush(&mut self) -> Result<()> {
+            Ok(())
+        }
+    }
+
+    /// Reports cancellation from the `trip_at`-th query onward.
+    struct CancelAfter {
+        queries: Cell<usize>,
+        trip_at: usize,
+    }
+
+    impl Cancellation for CancelAfter {
+        fn is_cancelled(&self) -> bool {
+            let query = self.queries.get() + 1;
+            self.queries.set(query);
+            query >= self.trip_at
+        }
+    }
+
+    fn page() -> PageSpec {
+        PageSpec {
+            width_points: 100.0,
+            height_points: 50.0,
+        }
+    }
+
+    fn gray_pixels(pixel_width: u32) -> ImageSpec {
+        ImageSpec {
+            pixel_width,
+            pixel_height: 1,
+            encoding: ImageEncoding::Gray8,
+        }
+    }
+
+    fn bookmark(depth: u32, title: &str) -> Bookmark {
+        Bookmark {
+            depth,
+            title: title.into(),
+            page_index: 0,
+        }
+    }
+
+    fn index_pdf(bytes: Vec<u8>) -> Result<PdfIndex> {
+        let length = bytes.len() as u64;
+        let mut source = crate::native::SeekableSource::new(io::Cursor::new(bytes))?;
+        run(PdfIndex::open(
+            &mut source,
+            PdfRange { offset: 0, length },
+            &Limits::default(),
+            &NeverCancel,
+        ))
+    }
+
+    async fn write_sample<W: SequentialSink, C: Cancellation>(
+        sink: &mut W,
+        limits: &Limits,
+        cancellation: &C,
+    ) -> Result<ConversionReport> {
+        let mut source = FilledSource::new(3);
+        let mut document = PdfDocument::new(sink, limits, cancellation).await?;
+        for _ in 0..2 {
+            document
+                .add_image_page(&mut source, 0, 3, page(), gray_pixels(3))
+                .await?;
+        }
+        document.add_bookmark(bookmark(0, "Root")).await?;
+        document.add_bookmark(bookmark(1, "Child")).await?;
+        document.add_bookmark(bookmark(0, "Next")).await?;
+        document.finish().await
+    }
+
+    #[test]
+    fn image_source_that_over_reports_is_rejected() {
+        let mut source = FilledSource {
+            over_report: true,
+            ..FilledSource::new(4)
+        };
+        let mut sink = VecSink::default();
+        let limits = Limits::default();
+        let error = run(async {
+            let mut document = PdfDocument::new(&mut sink, &limits, &NeverCancel).await?;
+            document
+                .add_image_page(&mut source, 0, 4, page(), gray_pixels(4))
+                .await
+        })
+        .unwrap_err();
+        assert!(matches!(
+            error,
+            Error::InvalidInput {
+                reason: "image source reported more bytes than requested"
+            }
+        ));
+    }
+
+    #[test]
+    fn jpeg_stream_longer_than_a_pdf_integer_is_rejected_before_reading() {
+        let length = MAX_PDF_INTEGER + 1;
+        let mut source = FilledSource::new(length);
+        let mut sink = VecSink::default();
+        let limits = Limits::default();
+        let (error, header_bytes) = run(async {
+            let mut document = PdfDocument::new(&mut sink, &limits, &NeverCancel).await?;
+            let header_bytes = document.writer.position();
+            let image = ImageSpec {
+                pixel_width: 10,
+                pixel_height: 10,
+                encoding: ImageEncoding::JpegRgb8,
+            };
+            let error = document
+                .add_image_page(&mut source, 0, length, page(), image)
+                .await
+                .unwrap_err();
+            assert_eq!(document.input_bytes_read, 0);
+            Ok::<_, Error>((error, header_bytes))
+        })
+        .unwrap();
+        assert!(matches!(
+            error,
+            Error::LimitExceeded {
+                resource: "PDF image stream bytes",
+                limit: MAX_PDF_INTEGER,
+                attempted,
+            } if attempted == length
+        ));
+        assert_eq!(sink.bytes.len() as u64, header_bytes);
+    }
+
+    #[test]
+    fn page_tree_capacity_is_checked_before_any_page_output() {
+        let mut source = FilledSource::new(1);
+        let mut sink = VecSink::default();
+        let limits = Limits {
+            max_pages: u32::MAX,
+            ..Limits::default()
+        };
+        let error = run(async {
+            let mut document = PdfDocument::new(&mut sink, &limits, &NeverCancel).await?;
+            document.pages_written = MAX_TREE_PAGES as u32;
+            document
+                .add_image_page(&mut source, 0, 1, page(), gray_pixels(1))
+                .await
+        })
+        .unwrap_err();
+        assert!(matches!(
+            error,
+            Error::LimitExceeded {
+                resource: "PDF page-tree capacity",
+                limit: MAX_TREE_PAGES,
+                attempted,
+            } if attempted == MAX_TREE_PAGES + 1
+        ));
+    }
+
+    #[test]
+    fn full_middle_node_starts_a_second_root_kid() -> Result<()> {
+        const PER_MIDDLE: usize = PAGE_TREE_FANOUT * PAGE_TREE_FANOUT;
+        const PAGES: u32 = PER_MIDDLE as u32 + 1;
+        let mut source = FilledSource::new(1);
+        let mut sink = VecSink::default();
+        let limits = Limits::default();
+        let report = run(async {
+            let mut document = PdfDocument::new(&mut sink, &limits, &NeverCancel).await?;
+            for expected in 0..PAGES {
+                let index = document
+                    .add_image_page(&mut source, 0, 1, page(), gray_pixels(1))
+                    .await?;
+                assert_eq!(index, expected);
+            }
+            assert_eq!(document.root_children.len(), 1);
+            document.finish().await
+        })?;
+        assert_eq!(report.pages_converted, PAGES);
+        assert_eq!(report.input_bytes_read, u64::from(PAGES));
+        assert_eq!(report.output_bytes_written, sink.bytes.len() as u64);
+        let text = String::from_utf8_lossy(&sink.bytes);
+        let root = text
+            .find(&format!("<< /Type /Pages /Count {PAGES} /Kids ["))
+            .expect("Pages root is written");
+        let kids = &text[root..root + text[root..].find("] >>").unwrap()];
+        assert_eq!(kids.matches(" 0 R").count(), 2);
+        assert_eq!(
+            text.matches(&format!("/Count {PER_MIDDLE} /Kids ["))
+                .count(),
+            1
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn outline_titles_are_chunked_and_empty_titles_stay_well_formed() -> Result<()> {
+        let long_title = "\u{4E2D}".repeat(3000);
+        let mut source = FilledSource::new(1);
+        let mut sink = VecSink::default();
+        let limits = Limits::default();
+        let report = run(async {
+            let mut document = PdfDocument::new(&mut sink, &limits, &NeverCancel).await?;
+            document
+                .add_image_page(&mut source, 0, 1, page(), gray_pixels(1))
+                .await?;
+            document.add_bookmark(bookmark(0, &long_title)).await?;
+            BookmarkVisitor::visit(&mut document, bookmark(1, "")).await?;
+            document.finish().await
+        })?;
+        assert_eq!(report.bookmarks_written, 2);
+        let text = String::from_utf8_lossy(&sink.bytes);
+        assert!(text.contains(&format!("/Title <FEFF{}>", "4E2D".repeat(3000))));
+        assert!(text.contains("/Title <FEFF> /Parent"));
+        assert!(text.contains(" /Count 1 >>"));
+        let index = index_pdf(sink.bytes)?;
+        assert!(index.has_outlines());
+        Ok(())
+    }
+
+    #[test]
+    fn every_sink_failure_point_returns_the_io_error() {
+        let limits = Limits::default();
+        let mut clean = VecSink::default();
+        run(write_sample(&mut clean, &limits, &NeverCancel)).unwrap();
+        assert!(clean.writes > 20);
+        for fail_at in 1..=clean.writes {
+            let mut sink = VecSink {
+                fail_at_write: Some(fail_at),
+                ..VecSink::default()
+            };
+            let result = run(write_sample(&mut sink, &limits, &NeverCancel));
+            assert!(
+                matches!(&result, Err(Error::Io(error)) if error.to_string() == "injected sink failure"),
+                "write {fail_at}: {result:?}"
+            );
+            assert_eq!(sink.writes, fail_at);
+            assert!(clean.bytes.starts_with(&sink.bytes));
+        }
+    }
+
+    #[test]
+    fn cancellation_at_every_checkpoint_never_reports_success() {
+        let limits = Limits::default();
+        let mut trip_at = 1;
+        loop {
+            let mut sink = VecSink::default();
+            let cancellation = CancelAfter {
+                queries: Cell::new(0),
+                trip_at,
+            };
+            match run(write_sample(&mut sink, &limits, &cancellation)) {
+                Err(Error::Cancelled) => trip_at += 1,
+                Ok(report) => {
+                    assert!(trip_at > 20, "only {trip_at} cancellation checks");
+                    assert_eq!(report.output_bytes_written, sink.bytes.len() as u64);
+                    break;
+                }
+                Err(other) => panic!("query {trip_at}: unexpected {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn reserve_bounded_enforces_item_and_byte_ceilings() {
+        let limits = Limits {
+            io_chunk_bytes: 16,
+            max_allocation_bytes: 64,
+            ..Limits::default()
+        };
+        let mut values: Vec<u64> = Vec::new();
+        for _ in 0..3 {
+            reserve_bounded(&mut values, 3, &limits, "test items").unwrap();
+            values.push(0);
+        }
+        assert!(matches!(
+            reserve_bounded(&mut values, 3, &limits, "test items"),
+            Err(Error::LimitExceeded {
+                resource: "test items",
+                limit: 3,
+                attempted: 4,
+            })
+        ));
+
+        let mut wide: Vec<[u8; 40]> = vec![[0; 40]];
+        assert!(matches!(
+            reserve_bounded(&mut wide, 10, &limits, "wide items"),
+            Err(Error::LimitExceeded {
+                resource: "allocation bytes",
+                limit: 64,
+                attempted: 80,
+            })
+        ));
+        assert_eq!(wide.len(), 1);
+    }
+}

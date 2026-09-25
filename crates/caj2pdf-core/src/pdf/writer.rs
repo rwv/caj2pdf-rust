@@ -560,6 +560,86 @@ mod tests {
     }
 
     #[test]
+    fn minimal_pdf_byte_count_includes_xref_and_trailer() {
+        let written = run(async {
+            let mut sink = CountSink;
+            let limits = Limits::default();
+            let mut pdf = PdfWriter::new(&mut sink, &limits, &NeverCancel).await?;
+            let catalog = pdf.reserve_object()?;
+            pdf.write_object(catalog, b"<< >>").await?;
+            assert_eq!(pdf.position(), 15 + 21);
+            pdf.finish(catalog).await
+        })
+        .unwrap();
+        // 15-byte header, 21-byte object, 9-byte xref header, two 20-byte
+        // xref rows, and a 53-byte trailer ending in `startxref\n36\n%%EOF\n`.
+        assert_eq!(written, 138);
+    }
+
+    #[test]
+    fn finish_requires_a_written_catalog() {
+        run(async {
+            let mut sink = CountSink;
+            let limits = Limits::default();
+            let mut pdf = PdfWriter::new(&mut sink, &limits, &NeverCancel).await?;
+            let catalog = pdf.reserve_object()?;
+            assert!(matches!(
+                pdf.finish(catalog).await,
+                Err(Error::InvalidInput {
+                    reason: "PDF catalog object has not been written"
+                })
+            ));
+            Ok::<(), Error>(())
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn unreserved_object_numbers_are_rejected() {
+        run(async {
+            let mut sink = CountSink;
+            let limits = Limits::default();
+            let mut pdf = PdfWriter::new(&mut sink, &limits, &NeverCancel).await?;
+            let reserved = pdf.reserve_object()?;
+            let before = pdf.position();
+            assert!(matches!(
+                pdf.begin_object(ObjectId(reserved.number() + 1)).await,
+                Err(Error::InvalidInput {
+                    reason: "PDF object number was not reserved"
+                })
+            ));
+            assert_eq!(pdf.position(), before);
+            Ok::<(), Error>(())
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn xref_and_trailer_are_checked_against_the_classic_ceiling() {
+        run(async {
+            let mut sink = CountSink;
+            let limits = Limits {
+                max_output_bytes: u64::MAX,
+                ..Limits::default()
+            };
+            let mut pdf = PdfWriter::new(&mut sink, &limits, &NeverCancel).await?;
+            let catalog = pdf.reserve_object()?;
+            pdf.write_object(catalog, b"<< >>").await?;
+            pdf.position = MAX_CLASSIC_PDF_BYTES - 20;
+            assert!(matches!(
+                pdf.finish(catalog).await,
+                Err(Error::LimitExceeded {
+                    resource: "classic PDF file bytes",
+                    limit: MAX_CLASSIC_PDF_BYTES,
+                    attempted,
+                }) if attempted > MAX_CLASSIC_PDF_BYTES
+            ));
+            Ok::<(), Error>(())
+        })
+        .unwrap();
+    }
+
+    #[test]
     fn object_zero_cannot_be_referenced() {
         run(async {
             let mut sink = CountSink;
