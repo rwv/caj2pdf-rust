@@ -35,11 +35,12 @@ another integer procedure's block.
 
 Keep one bank set across successive integers in the same coding unit so each
 procedure preserves its adaptive probabilities. For a new symbol dictionary,
-T.88 §7.4.2.2 step 5 resets **integer** statistics unconditionally; steps
-3–4 and 7 may restore or retain generic and refinement bitmap statistics.
-Call `reset_integer_contexts()` to clear only slots `0..6656` and preserve
-the appended model slots. `reset_all()` clears both integer and appended
-slots when the enclosing decoder requires a wholly fresh coding unit;
+T.88 §7.4.2.2 step 5 resets **all arithmetic-integer** statistics, including
+IAID, while steps 3–4 and 7 may restore or retain bitmap statistics.
+This A.2-only owner exposes `reset_integer_contexts()` for slots `0..6656`.
+When IAID is active, use the [typed IAID owner](t88-iaid.md) and its
+`reset_for_symbol_dictionary()` to clear A.2 plus IAID while retaining bitmap
+states. `reset_all()` clears every slot when a wholly fresh unit is required;
 the existing `reset()` remains a full-reset alias. The borrowed MQ decoder
 must be finished or dropped before any reset. A typical call sequence is:
 
@@ -95,6 +96,7 @@ an external fixture, but it contains no Annex A.2 encoded integer trace.
 The exact T.88 Table E.1 probability states and Annex H vector remain
 outside this MIT repository while [#44](https://github.com/rwv/caj2pdf-rust/issues/44)
 resolves their redistribution basis. No converter, private Rust, or external
-decoder source was used. Later work under [#9](https://github.com/rwv/caj2pdf-rust/issues/9)
-must add IAID, dictionary bitmap/refinement/aggregation models, text regions,
-page composition, and external end-to-end parity.
+decoder source was used. The separate [IAID layer](t88-iaid.md) now covers
+Annex A.3. Later work under [#9](https://github.com/rwv/caj2pdf-rust/issues/9)
+must add dictionary bitmap/refinement/aggregation models, text regions, page
+composition, and external end-to-end parity.

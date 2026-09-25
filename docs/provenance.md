@@ -17,6 +17,7 @@ checking the provenance of each imported file.
 | T.82 arithmetic SCD core and numeric states | [ITU-T T.82 (03/1993)](https://www.itu.int/rec/T-REC-T.82), §6.2.5, §6.8.2.3/Table 24, §6.8.3, and §7.1/Table 26; [ITU Software Copyright Guidelines](https://www.itu.int/dms_pub/itu-t/oth/04/04/T04040000040004PDFE.pdf) | Use the public algorithm to author original MIT Rust code. Keep Table 24's 113 exact numeric rows and the §7.1 vector outside the repository until their MIT redistribution basis is documented. The [core design](t82-arithmetic-core.md) records the external-table contract and local test procedure; standard conformance does not establish CAJ compatibility. |
 | T.88 MQ arithmetic control flow and numeric states | [ITU-T T.88 (02/2000)](https://www.itu.int/rec/T-REC-T.88-200002-S/en), Annex E.2.6/Table E.1, E.2.9–E.2.10, E.3.1–E.3.6, and H.2/Table H.1; [ITU Software Copyright Guidelines](https://www.itu.int/dms_pub/itu-t/oth/04/04/T04040000040004PDFE.pdf) | Original MIT decoder control flow with a caller-supplied 47-state table. The exact Table E.1 rows and Annex H vector/checkpoints remain outside Git, artifacts, and releases; their MIT redistribution basis remains open in [#44](https://github.com/rwv/caj2pdf-rust/issues/44). The [core note](t88-mq-core.md) records bounded API, differences from T.82, external-only fixture, and verification scope. Annex H.2 verifies arithmetic decisions, not CAJ/JBIG2 pixels. |
 | T.88 non-IAID arithmetic integers | [ITU-T T.88 (02/2000)](https://www.itu.int/rec/T-REC-T.88-200002-S/en), Annex A.1–A.2 and E.3, with symbol-dictionary usage in §§6.5 and 7.4.2 | Original MIT typed 13-bank integer decision layer over the existing caller-table MQ decoder. The [integer note](t88-arithmetic-integer.md) records its signed/OOB result, 512-context layout, 38-decision limit, and synthetic checks. No Table E.1 states, external dictionary trace, or HN/C8 compatibility claim is included. |
+| T.88 fixed-length IAID symbol IDs | [ITU-T T.88 (02/2000)](https://www.itu.int/rec/T-REC-T.88-200002-S/en), Annex A.3 and E.3, §§6.4.2, 6.4.10, 6.5.8.2.3, 7.4.2–7.4.3 | Original MIT typed context owner and IAID decision layer over the existing caller-table MQ stream. The [IAID note](t88-iaid.md) records its fixed-width context map, bounded allocation and work, reset policy, symbol-array guard, and synthetic checks. No official state rows, external trace, or HN/C8 parity claim is included. |
 | T.88 template-2 arithmetic generic regions | [ITU-T T.88 (02/2000)](https://www.itu.int/rec/T-REC-T.88-200002-S/en), §§6.2.5.2–6.2.5.4, 6.2.5.7, 7.4.1, 7.4.6.1–7.4.6.4, Table 34, Figure 5, E.3.7 | Original MIT, bounded row decoder with caller-supplied MQ table. Two external generic-only HN/C8 pixel spots passed; all 546 remain for #50. The [region note](jbig2-generic-template2.md) records the context order, bounds, and external-only verification. |
 | CAJ-family headers, pages, and outlines | [caj2pdf format notes](https://github.com/caj2pdf/caj2pdf/wiki), including [CAJ/HN identification](https://github.com/caj2pdf/caj2pdf/wiki/CAJ-%E5%92%8C-HN), [basic information and outlines](https://github.com/caj2pdf/caj2pdf/wiki/%E6%96%87%E4%BB%B6%E5%9F%BA%E6%9C%AC%E4%BF%A1%E6%81%AF%E4%B8%8E%E5%A4%A7%E7%BA%B2), and [CAJ page content](https://github.com/caj2pdf/caj2pdf/wiki/CAJ-%E6%A0%BC%E5%BC%8F%E7%9A%84%E9%A1%B5%E9%9D%A2%E5%86%85%E5%AE%B9) | Public observations, not a complete normative specification. [Repository-owned CAJ measurements](caj-format.md) pin ten successful sample digests and document TOC, page-table, and PDF-fragment exceptions independently. Do not copy parser source or pseudocode. |
 | HN page layout | [caj2pdf HN format notes](https://github.com/caj2pdf/caj2pdf/wiki/HN-%E6%A0%BC%E5%BC%8F%E7%9A%84%E9%A1%B5%E9%9D%A2%E5%86%85%E5%AE%B9) | Incomplete public observations. Derive the parser from documented facts and independent tests; mark unresolved fields explicitly. |
@@ -409,10 +410,31 @@ repository. An independently measured dictionary integer trace is not yet
 available, so external integer compatibility is `NOT_RUN` with zero claimed
 cases. The official probability table's distribution question remains in
 #44; this caller-table layer does not claim symbol-dictionary decoding.
-The follow-up reset rule comes from T.88 §7.4.2.2 steps 3–5 and 7: integer
-statistics are zeroed for each symbol dictionary while generic/refinement
-bitmap statistics can be restored or retained. The new integer-only reset
-preserves appended model contexts; the full reset remains available.
+The follow-up reset rule comes from T.88 §7.4.2.2 steps 3–5 and 7: arithmetic
+integer statistics are zeroed for each symbol dictionary while
+generic/refinement bitmap statistics can be restored or retained. The #54
+method resets its thirteen non-IAID banks and preserves appended model
+contexts; its full reset remains available. The #60 typed owner adds a
+dictionary reset that clears both those banks and IAID while preserving
+appended bitmap contexts.
+
+Issue #60 adds the original MIT Annex A.3 IAID procedure in
+[`jbig2/iaid.rs`](../crates/caj2pdf-core/src/jbig2/iaid.rs), its original
+[unit tests](../crates/caj2pdf-core/src/jbig2/iaid/tests.rs), and its
+[public API tests](../crates/caj2pdf-core/tests/jbig2_iaid.rs). The
+[IAID note](t88-iaid.md) records the exact official clauses, the fixed-width
+context map, scoped reset behavior, symbol-array guard, and memory formula.
+The official English T.88 PDF with SHA-256
+`a94850aa659f4c5267051d1e17081dc4ffd04531c3d659c6bc2835802035ec69`
+and this repository's MIT MQ/integer modules were the only implementation
+references. Its example decision bits and contexts were transcribed as facts
+for an original test; no official byte vectors, Table E.1 rows, external
+CAJSamples documents or pixels, Python/Go/private Rust source, or other
+decoder source was copied or migrated. The 47-row table and encoded bytes in
+tests are newly invented MIT fixtures. No independent IAID decision trace is
+currently available, so external IAID compatibility is `NOT_RUN` with zero
+checked cases. The exact Table E.1 rights question remains in #44. This
+primitive does not decode symbol bitmaps, text regions, or pages.
 
 ## Dependency inventory and review
 
