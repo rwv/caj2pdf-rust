@@ -8,7 +8,7 @@ import { readdir, rm } from "node:fs/promises";
 import { Readable } from "node:stream";
 import { test } from "node:test";
 import { convertReadableStream, spoolToOpfs } from "../browser.mjs";
-import { convertReadable, spoolToTempFile, webWritableSink } from "../node.mjs";
+import { convertReadable, convertSpooled, spoolToTempFile, webWritableSink } from "../node.mjs";
 import {
   collectingWriter,
   fixture,
@@ -93,6 +93,28 @@ test("the spool rejects input beyond its bound and destroys the stream", async (
   });
 });
 
+test("invalid options are rejected before the stream is spooled", async () => {
+  let pulled = false;
+  const stream = new ReadableStream({
+    pull(controller) {
+      pulled = true;
+      controller.enqueue(syntheticCaj());
+      controller.close();
+    },
+  }, { highWaterMark: 0 });
+  const spool = () => assert.fail("spool must not run");
+  for (const [wasm, sink, options, error] of [
+    [await wasmModule(), discard, { format: "docx" }, RangeError],
+    [await wasmModule(), discard, { chunkSize: 0 }, RangeError],
+    [await wasmModule(), discard, { limits: { maxPages: -1 } }, RangeError],
+    [await wasmModule(), {}, {}, TypeError],
+    [{}, discard, {}, TypeError],
+  ]) {
+    await assert.rejects(convertSpooled(spool, wasm, stream, sink, options), error);
+  }
+  assert.equal(pulled, false);
+});
+
 test("aborting a stalled stream or a running conversion removes the spool", async () => {
   await withTempRoot(async (tempDirectory) => {
     const controller = new AbortController();
@@ -145,6 +167,23 @@ test("conversion and stream failures remove the spool", async () => {
     await assert.rejects(
       convertReadable(await wasmModule(), Readable.from(["text"]), discard, { tempDirectory }),
       /must be Uint8Array/,
+    );
+  });
+  await withTempRoot(async (tempDirectory) => {
+    // The conversion error wins over a failing cleanup.
+    const failingDispose = async (stream, options) => {
+      const spooled = await spoolToTempFile(stream, { ...options, directory: tempDirectory });
+      return {
+        source: spooled.source,
+        async dispose() {
+          await spooled.dispose();
+          throw new Error("cleanup failed");
+        },
+      };
+    };
+    await assert.rejects(
+      convertSpooled(failingDispose, await wasmModule(), Readable.from([Uint8Array.of(0)]), discard),
+      { name: "UnsupportedFormatError" },
     );
   });
   await assert.rejects(spoolToTempFile({}, { maxBytes: 1n }), TypeError);
