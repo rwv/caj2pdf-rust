@@ -655,6 +655,7 @@ pub async fn convert_caj<S: RangedSource, W: SequentialSink, C: Cancellation>(
         let mut first = 0usize;
         while first < missing_references.len() {
             let owner = missing_references[first].owner;
+            let failure = || missing_reference(&objects, owner);
             let mut last = first + 1;
             while last < missing_references.len() && missing_references[last].owner == owner {
                 last += 1;
@@ -664,16 +665,16 @@ pub async fn convert_caj<S: RangedSource, W: SequentialSink, C: Cancellation>(
                 .iter()
                 .find(|object| object.reference == owner)
                 .copied()
-                .ok_or_else(|| missing_reference(&objects, owner))?;
+                .ok_or_else(failure)?;
             let candidate =
                 inspect_link_destination_candidate(&mut patched, fragment, limits, cancellation)
                     .await?
-                    .ok_or_else(|| missing_reference(&objects, owner))?;
+                    .ok_or_else(failure)?;
             let LinkDestinationTarget::DirectPage(target) = candidate.target else {
-                return Err(missing_reference(&objects, owner));
+                return Err(failure());
             };
             if targets.len() != 1 || targets[0].target != target || page_refs.contains(&target) {
-                return Err(missing_reference(&objects, owner));
+                return Err(failure());
             }
             if candidate.kind == LinkRepairKind::ScalarDestination {
                 scalar_destinations.insert(owner);
@@ -831,6 +832,49 @@ mod tests {
         ));
         assert_eq!(too_small, b"prefix");
         assert!(rejected_objects.is_empty());
+    }
+
+    #[test]
+    fn a_repeated_link_repair_is_charged_in_place_of_the_first() {
+        let object = PdfRef {
+            number: 9,
+            generation: 0,
+        };
+        let candidate = |length| LinkRepairCandidate {
+            object,
+            kind: LinkRepairKind::Link,
+            target: LinkDestinationTarget::DirectPage(PdfRef {
+                number: 3,
+                generation: 0,
+            }),
+            retains_destination_reference: false,
+            replacement: vec![b' '; length],
+        };
+        // One retained repair costs its bytes plus 128 bytes of overhead.
+        let limits = Limits {
+            io_chunk_bytes: 1,
+            max_allocation_bytes: 128 + 100,
+            ..Limits::default()
+        };
+        let mut repaired = BTreeMap::new();
+        let mut retained = 0;
+        retain_repair(&mut repaired, &mut retained, candidate(100), 0, &limits, 7).unwrap();
+        assert_eq!(retained, 100);
+        // Charged on top of the first, the second would exceed the limit.
+        retain_repair(&mut repaired, &mut retained, candidate(60), 0, &limits, 7).unwrap();
+        assert_eq!(retained, 60);
+        assert_eq!(repaired.len(), 1);
+        assert_eq!(repaired[&object].replacement.len(), 60);
+        assert!(matches!(
+            retain_repair(&mut repaired, &mut retained, candidate(101), 0, &limits, 7),
+            Err(Error::CajLimitExceeded {
+                offset: 7,
+                resource: "retained link repairs",
+                attempted: 229,
+                ..
+            })
+        ));
+        assert_eq!(retained, 60);
     }
 
     #[test]

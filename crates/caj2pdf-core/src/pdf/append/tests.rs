@@ -920,6 +920,19 @@ fn copy_patches_rewrite_verified_bytes_across_chunks() -> Result<()> {
 }
 
 #[test]
+fn an_empty_gap_patch_is_consumed_without_touching_the_chunk() -> Result<()> {
+    let gaps = [GapPatch {
+        offset: 1,
+        original: Vec::new(),
+    }];
+    let mut patches = copy_patches(&[], &gaps);
+    let mut chunk = *b"abc";
+    patches.apply(&mut chunk, 0)?;
+    assert_eq!(&chunk, b"abc");
+    patches.check_consumed()
+}
+
+#[test]
 fn copy_patches_refuse_changed_or_uncopied_bytes() {
     let expect = |result: Result<()>, reason: &'static str| {
         assert!(invalid(reason)(&result), "{result:?}");
