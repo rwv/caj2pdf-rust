@@ -112,8 +112,10 @@ limits its coding-unit decisions and work. The counter fields
 `max_flushes`) must each be at most `MAX_BUDGET_COUNT` (2^48);
 `RefinementDecoder::new` rejects a larger value as `LimitExceeded` naming the
 field. Cumulative totals, ten context probes per pixel, and per-call counters
-then fit u64 by construction. Arithmetic on caller- or input-supplied offsets
-and geometry is checked; rows are allocated fallibly. Short reads and partial writes are retried. Physical truncation,
+then fit u64 by construction. A session refuses a bitmap whose index would
+pass `u32::MAX` before any I/O. Arithmetic on caller- or input-supplied
+offsets and geometry is checked; rows are allocated fallibly. Short reads and
+partial writes are retried. Physical truncation,
 zero/overreported I/O, cancellation, MQ faults, and cap failures report typed
 errors with bitmap/row/pixel progress and a source offset when applicable.
 Reference call counts include attempted calls; fetched bytes count returned
