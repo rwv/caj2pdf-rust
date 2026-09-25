@@ -5,7 +5,7 @@
 // copied to a temporary directory so the checkout is never modified.
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { cp, readFile, rm } from "node:fs/promises";
+import { cp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -67,10 +67,15 @@ test("npm pack includes the WASM build, entry points, declarations, LICENSE, and
   }
 });
 
-test("npm pack refuses to package without the WASM build", async () => {
+test("npm pack refuses to package a missing or non-WASM caj2pdf_wasm.wasm", async () => {
   const directory = await tempDirectory("pack-missing");
   try {
     await assert.rejects(packCopy(directory), /caj2pdf_wasm\.wasm/);
+    await rm(directory, { recursive: true, force: true });
+    await assert.rejects(
+      packCopy(directory, () => writeFile(join(directory, "caj2pdf_wasm.wasm"), "not a module\n")),
+      /is not a WebAssembly module/,
+    );
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
