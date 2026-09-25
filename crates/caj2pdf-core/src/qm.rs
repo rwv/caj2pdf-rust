@@ -683,22 +683,13 @@ impl<'a, S: RangedSource, C: Cancellation> ArithmeticDecoder<'a, S, C> {
 mod tests {
     use super::*;
     use crate::NeverCancel;
+    use crate::test_support::run;
     use std::{
         cell::Cell,
         future::Future,
-        pin::pin,
         rc::Rc,
         task::{Context, Poll, Waker},
     };
-
-    fn run<F: Future>(future: F) -> F::Output {
-        let mut future = pin!(future);
-        let mut context = Context::from_waker(Waker::noop());
-        match future.as_mut().poll(&mut context) {
-            Poll::Ready(output) => output,
-            Poll::Pending => panic!("test source unexpectedly yielded"),
-        }
-    }
 
     #[derive(Debug)]
     struct MockSource {
@@ -733,9 +724,7 @@ mod tests {
             if self.overreport_at == Some(offset) {
                 return Ok(destination.len() + 1);
             }
-            let start = usize::try_from(offset).map_err(|_| Error::InvalidInput {
-                reason: "test offset cannot fit usize",
-            })?;
+            let start = usize::try_from(offset).unwrap_or(usize::MAX);
             let available = self.bytes.len().saturating_sub(start);
             let count = available.min(destination.len()).min(self.max_read);
             if count > 0 {
@@ -761,10 +750,7 @@ mod tests {
             if offset == 3 {
                 std::future::pending::<()>().await;
             }
-            let index = usize::try_from(offset).map_err(|_| Error::InvalidInput {
-                reason: "test offset cannot fit usize",
-            })?;
-            destination[0] = self.0[index];
+            destination[0] = self.0[offset as usize];
             Ok(1)
         }
     }
