@@ -852,9 +852,13 @@ mod tests {
 
     type TestDecoder<'a> = MqDecoder<'a, SeekableSource<Cursor<Vec<u8>>>, NeverCancel>;
 
-    /// Runs `test` on a decoder over a three-byte span with a flat,
-    /// single-context table and the given budget.
-    fn with_flat_decoder<R>(budget: MqBudget, test: impl FnOnce(&mut TestDecoder<'_>) -> R) -> R {
+    /// Runs `test` on the result of initializing a decoder over `bytes` with
+    /// a flat, single-context table and the given budget.
+    fn with_flat_init<R>(
+        bytes: &[u8],
+        budget: MqBudget,
+        test: impl FnOnce(MqResult<TestDecoder<'_>>) -> R,
+    ) -> R {
         let limits = Limits::default();
         let states = vec![
             MqState {
@@ -867,21 +871,86 @@ mod tests {
         ];
         let table = MqTable::new(states, &limits).unwrap();
         let mut contexts = MqContexts::new(1, &limits, &budget).unwrap();
-        let mut source = SeekableSource::new(Cursor::new(vec![0, 0xff, 0xac])).unwrap();
-        let mut decoder = ready(MqDecoder::new(
+        let mut source = SeekableSource::new(Cursor::new(bytes.to_vec())).unwrap();
+        test(ready(MqDecoder::new(
             &mut source,
             MqSpan {
                 offset: 0,
-                length: 3,
+                length: bytes.len() as u64,
             },
             &table,
             &mut contexts,
             &limits,
             &NeverCancel,
             budget,
-        ))
-        .unwrap();
-        test(&mut decoder)
+        )))
+    }
+
+    /// Runs `test` on a decoder over a three-byte span with a flat,
+    /// single-context table and the given budget.
+    fn with_flat_decoder<R>(budget: MqBudget, test: impl FnOnce(&mut TestDecoder<'_>) -> R) -> R {
+        with_flat_init(&[0, 0xff, 0xac], budget, |decoder| {
+            test(&mut decoder.unwrap())
+        })
+    }
+
+    /// The initialization error over `bytes`; the unit tests share the one
+    /// source type, so these paths belong to the same instantiation as the
+    /// counter-overflow tests below.
+    fn flat_init_error(bytes: &[u8], budget: MqBudget) -> MqErrorKind {
+        with_flat_init(bytes, budget, |decoder| {
+            decoder.err().expect("MQ initialization must fail").kind
+        })
+    }
+
+    #[test]
+    fn initialization_checks_markers_and_budgets_on_its_first_byte() {
+        assert!(matches!(
+            flat_init_error(&[0xff, 0x90], MqBudget::default()),
+            MqErrorKind::InvalidMarker(0x90)
+        ));
+        let no_terminal = MqBudget {
+            max_terminal_inputs: 0,
+            ..MqBudget::default()
+        };
+        assert!(matches!(
+            flat_init_error(&[0xff, 0xac], no_terminal),
+            MqErrorKind::LimitExceeded {
+                resource: "MQ terminal inputs",
+                limit: 0,
+                attempted: 1,
+            }
+        ));
+        // A stuffed 0xFF followed by a data byte is consumed as seven bits.
+        with_flat_init(&[0xff, 0x7f, 0xff, 0xac], MqBudget::default(), |decoder| {
+            let decoder = decoder.unwrap();
+            assert_eq!((decoder.bp, decoder.current_byte), (1, 0x7f));
+        });
+    }
+
+    #[test]
+    fn decisions_reject_unknown_contexts_excess_work_and_a_poisoned_decoder() {
+        with_flat_decoder(MqBudget::default(), |decoder| {
+            assert!(matches!(
+                ready(decoder.decode_bit(1)).unwrap_err().kind,
+                MqErrorKind::InvalidContext
+            ));
+            let limit = decoder.budget.max_work;
+            let error = decoder.charge(limit, Some(0)).unwrap_err();
+            assert!(matches!(
+                error.kind,
+                MqErrorKind::LimitExceeded {
+                    resource: "MQ work",
+                    attempted,
+                    ..
+                } if attempted > limit
+            ));
+            decoder.poisoned = true;
+            assert!(matches!(
+                ready(decoder.decode_bit(0)).unwrap_err().kind,
+                MqErrorKind::Poisoned
+            ));
+        });
     }
 
     #[test]

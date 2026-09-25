@@ -2,14 +2,17 @@
 
 //! Independent validator and renderer checks for inspected and updated PDFs.
 
+mod common;
+
 use caj2pdf_core::{
-    Bookmark, Cancellation, Error, Limits, NeverCancel, PdfErrorKind, RangedSource, SequentialSink,
+    Bookmark, Cancellation, Error, Limits, PdfErrorKind, RangedSource, SequentialSink,
     native::{SeekableSource, WriteSink},
     pdf::{
         FragmentObject, FragmentPlan, PdfIndex, PdfOutlineAppender, PdfRange, PdfRef, PdfWriter,
         copy_pdf, copy_pdf_range, reconstruct_fragment,
     },
 };
+use common::CancelAfter;
 use flate2::{Compression, write::ZlibEncoder};
 use std::{
     cell::{Cell, RefCell},
@@ -353,7 +356,7 @@ fn flate_xref_stream_copy_handles_one_byte_reads() {
         &mut source,
         &mut sink,
         &Limits::default(),
-        &NeverCancel,
+        &CancelAfter::Never,
     ))
     .unwrap();
     assert_eq!(report.pages_converted, 1);
@@ -369,7 +372,7 @@ fn unfiltered_xref_stream_copy_reopens() {
         &mut source,
         &mut WriteSink::new(&mut output.file),
         &Limits::default(),
-        &NeverCancel,
+        &CancelAfter::Never,
     ))
     .unwrap();
     output.file.flush().unwrap();
@@ -426,7 +429,7 @@ fn duplicate_page_box_in_xref_stream_pdf_is_repaired_and_reopens() {
         &mut source,
         &mut WriteSink::new(&mut output.file),
         &Limits::default(),
-        &NeverCancel,
+        &CancelAfter::Never,
     ))
     .unwrap();
     output.file.flush().unwrap();
@@ -698,6 +701,70 @@ fn xref_stream_data_corruption_and_unsupported_rows_are_located() {
     );
 }
 
+/// A three-object document indexed by an unfiltered xref stream with
+/// `/W [0 4 2]`: rows carry no type field, so each listed object defaults to
+/// in use. Returns the document and the offset of the page object.
+fn untyped_xref_stream_pdf() -> (Vec<u8>, u64) {
+    let mut pdf = b"%PDF-1.7\n".to_vec();
+    let mut rows = Vec::new();
+    for (number, body) in [
+        (
+            1,
+            "<< /Type /Pages /Count 1 /Kids [2 0 R] /MediaBox [0 0 612 792] >>",
+        ),
+        (2, "<< /Type /Page /Parent 1 0 R >>"),
+        (3, "<< /Type /Catalog /Pages 1 0 R >>"),
+    ] {
+        rows.extend_from_slice(&(pdf.len() as u32).to_be_bytes());
+        rows.extend_from_slice(&0_u16.to_be_bytes());
+        pdf.extend_from_slice(format!("{number} 0 obj\n{body}\nendobj\n").as_bytes());
+    }
+    let page_at = u64::from(u32::from_be_bytes(rows[6..10].try_into().unwrap()));
+    let xref_at = pdf.len() as u32;
+    rows.extend_from_slice(&xref_at.to_be_bytes());
+    rows.extend_from_slice(&0_u16.to_be_bytes());
+    pdf.extend_from_slice(
+        format!(
+            "4 0 obj\n<< /Type /XRef /Size 5 /Root 3 0 R /W [0 4 2] /Index [1 4] /Length {} >>\nstream\n",
+            rows.len()
+        )
+        .as_bytes(),
+    );
+    pdf.extend_from_slice(&rows);
+    pdf.extend_from_slice(format!("\nendstream\nendobj\nstartxref\n{xref_at}\n%%EOF\n").as_bytes());
+    (pdf, page_at)
+}
+
+#[test]
+fn xref_stream_rows_without_a_type_field_are_in_use() {
+    let (bytes, page_at) = untyped_xref_stream_pdf();
+    let index = inspect_bytes(bytes).unwrap();
+    let page = PdfRef {
+        number: 2,
+        generation: 0,
+    };
+    assert_eq!(index.pages(), [page]);
+    assert_eq!(index.object_location(page).unwrap().offset, page_at);
+}
+
+#[test]
+fn cancellation_at_every_flate_xref_stream_checkpoint_is_reported() {
+    let input = synthetic_xref_stream_pdf(false, false, false, b"");
+    let mut cancelled = 0;
+    for allowed in 0.. {
+        assert!(allowed < 10_000, "cancellation checkpoints never ended");
+        match inspect_bytes_with(input.clone(), &CancelAfter::new(allowed)) {
+            Ok(index) => {
+                assert_eq!(index.pages().len(), 1);
+                break;
+            }
+            Err(Error::Cancelled) => cancelled += 1,
+            Err(other) => panic!("checkpoint {allowed} failed with {other:?}"),
+        }
+    }
+    assert!(cancelled > 3, "only {cancelled} checkpoints observed");
+}
+
 #[test]
 fn xref_stream_default_index_and_nonstream_body_are_distinguished() {
     let mut implicit_index = synthetic_xref_stream_pdf(false, false, false, b"");
@@ -737,7 +804,7 @@ fn lone_cr_stream_separator_is_normalized_without_moving_offsets() {
         &mut source,
         &mut sink,
         &Limits::default(),
-        &NeverCancel,
+        &CancelAfter::Never,
     ))
     .unwrap();
     let mut expected = input;
@@ -755,7 +822,7 @@ fn stale_page_parent_is_repaired_only_from_validated_kids() {
         &mut source,
         &mut WriteSink::new(&mut output.file),
         &Limits::default(),
-        &NeverCancel,
+        &CancelAfter::Never,
     ))
     .unwrap();
     output.file.flush().unwrap();
@@ -853,7 +920,7 @@ fn short_aborted_object_prefix_is_scrubbed_but_other_gap_content_fails() {
         &mut source,
         &mut WriteSink::new(&mut output.file),
         &Limits::default(),
-        &NeverCancel,
+        &CancelAfter::Never,
     ))
     .unwrap();
     output.file.flush().unwrap();
@@ -870,7 +937,7 @@ fn short_aborted_object_prefix_is_scrubbed_but_other_gap_content_fails() {
         &mut source,
         &mut WriteSink::new(&mut output.file),
         &Limits::default(),
-        &NeverCancel,
+        &CancelAfter::Never,
     ))
     .unwrap();
     output.file.flush().unwrap();
@@ -938,8 +1005,13 @@ fn copy_rechecks_stream_and_gap_patch_bytes_after_inspection() {
             io_chunk_bytes: 16,
             ..Limits::default()
         };
-        let error = run_native(copy_pdf(&mut source, &mut sink, &limits, &NeverCancel))
-            .expect_err("changed source must fail copy");
+        let error = run_native(copy_pdf(
+            &mut source,
+            &mut sink,
+            &limits,
+            &CancelAfter::Never,
+        ))
+        .expect_err("changed source must fail copy");
         assert!(matches!(error, Error::InvalidInput { reason: actual } if actual == reason));
         assert!(!sink.written.is_empty());
     }
@@ -955,7 +1027,7 @@ fn clean_pdf_copy_is_exact_and_preserves_binary_stream_and_outlines() {
             &mut source,
             &mut WriteSink::new(&mut output.file),
             &Limits::default(),
-            &NeverCancel,
+            &CancelAfter::Never,
         ))
         .unwrap();
         output.file.flush().unwrap();
@@ -979,7 +1051,7 @@ fn indirect_media_box_is_a_valid_page_geometry_for_copy() {
         &mut source,
         &mut WriteSink::new(&mut output.file),
         &Limits::default(),
-        &NeverCancel,
+        &CancelAfter::Never,
     ))
     .unwrap();
     output.file.flush().unwrap();
@@ -1008,7 +1080,7 @@ fn known_duplicate_page_box_and_long_opaque_tail_are_normalized() {
         &mut source,
         &mut WriteSink::new(&mut output.file),
         &Limits::default(),
-        &NeverCancel,
+        &CancelAfter::Never,
     ))
     .unwrap();
     output.file.flush().unwrap();
@@ -1033,7 +1105,7 @@ fn a_valid_pdf_with_known_webfastload_suffix_copies_its_logical_bytes() {
             &mut source,
             &mut sink,
             &Limits::default(),
-            &NeverCancel,
+            &CancelAfter::Never,
         ))
         .unwrap();
         assert_eq!(report.pages_converted, 2);
@@ -1056,7 +1128,7 @@ fn unknown_suffix_and_incomplete_incremental_revision_are_not_silently_dropped()
             &mut source,
             &mut sink,
             &Limits::default(),
-            &NeverCancel,
+            &CancelAfter::Never,
         ))
         .expect_err("unknown trailing data must fail");
         assert!(matches!(error, Error::Pdf { kind: PdfErrorKind::Malformed | PdfErrorKind::AmbiguousRepair, .. }), "{error}");
@@ -1104,7 +1176,7 @@ fn incremental_xref_cannot_activate_a_live_object_after_the_pdf_end() {
         &mut source,
         &mut sink,
         &Limits::default(),
-        &NeverCancel,
+        &CancelAfter::Never,
     ))
     .expect_err("live object beyond PDF end must not be dropped");
     assert!(
@@ -1130,7 +1202,7 @@ fn permitted_whitespace_after_eof_stays_byte_identical() {
         &mut source,
         &mut sink,
         &Limits::default(),
-        &NeverCancel,
+        &CancelAfter::Never,
     ))
     .unwrap();
     assert_eq!(sink.into_inner(), input);
@@ -1151,7 +1223,7 @@ fn identical_duplicate_page_box_without_tail_is_repaired() {
         &mut source,
         &mut WriteSink::new(&mut output.file),
         &Limits::default(),
-        &NeverCancel,
+        &CancelAfter::Never,
     ))
     .unwrap();
     output.file.flush().unwrap();
@@ -1192,7 +1264,7 @@ fn write_pdf_with_catalog_page_and_content(
     let limits = Limits::default();
     let mut sink = WriteSink::new(Vec::<u8>::new());
     run_native(async {
-        let mut writer = PdfWriter::new(&mut sink, &limits, &NeverCancel).await?;
+        let mut writer = PdfWriter::new(&mut sink, &limits, &CancelAfter::Never).await?;
         let catalog = writer.reserve_object()?;
         let pages = writer.reserve_object()?;
         let page = writer.reserve_object()?;
@@ -1228,14 +1300,14 @@ fn outline_import_keeps_pages_and_rendered_content() {
             length: input.len() as u64,
         },
         &limits,
-        &NeverCancel,
+        &CancelAfter::Never,
     ))
     .unwrap();
     let mut output = TempPdf::new("outline-import");
     let report = run_native(async {
         let mut sink = WriteSink::new(&mut output.file);
         let mut appender =
-            PdfOutlineAppender::begin(&mut source, &mut sink, &index, &limits, &NeverCancel)
+            PdfOutlineAppender::begin(&mut source, &mut sink, &index, &limits, &CancelAfter::Never)
                 .await?;
         appender
             .add_bookmark(Bookmark {
@@ -1334,7 +1406,7 @@ fn fragment_rebuild_preserves_explicit_page_order_and_binary_stream() {
         &mut WriteSink::new(&mut output.file),
         &plan,
         &Limits::default(),
-        &NeverCancel,
+        &CancelAfter::Never,
     ))
     .unwrap();
     output.file.flush().unwrap();
@@ -1396,7 +1468,7 @@ fn fragment_with_unchecked_existing_outline_is_rejected_before_output() {
         &mut sink,
         &plan,
         &Limits::default(),
-        &NeverCancel,
+        &CancelAfter::Never,
     ))
     .expect_err("fragment outlines require checked import");
     assert!(
@@ -1442,7 +1514,7 @@ fn fragment_page_tree_root_rejects_a_present_non_reference_parent() {
             &mut sink,
             &plan,
             &Limits::default(),
-            &NeverCancel,
+            &CancelAfter::Never,
         ))
         .expect_err("present Pages Parent must be a reference");
         assert!(
@@ -1475,7 +1547,7 @@ fn malformed_fixture_is_located_and_never_partially_copied() {
             &mut source,
             &mut sink,
             &Limits::default(),
-            &NeverCancel,
+            &CancelAfter::Never,
         ))
         .expect_err(name);
         assert!(
@@ -1513,7 +1585,7 @@ fn conflicting_duplicate_page_box_is_not_guessed() {
         &mut source,
         &mut sink,
         &Limits::default(),
-        &NeverCancel,
+        &CancelAfter::Never,
     ))
     .unwrap_err();
     assert!(
@@ -1531,13 +1603,20 @@ fn conflicting_duplicate_page_box_is_not_guessed() {
 }
 
 fn inspect_bytes(bytes: Vec<u8>) -> caj2pdf_core::Result<PdfIndex> {
+    inspect_bytes_with(bytes, &CancelAfter::Never)
+}
+
+fn inspect_bytes_with(
+    bytes: Vec<u8>,
+    cancellation: &CancelAfter,
+) -> caj2pdf_core::Result<PdfIndex> {
     let length = bytes.len() as u64;
     let mut source = SeekableSource::new(Cursor::new(bytes))?;
     run_native(PdfIndex::open(
         &mut source,
         PdfRange { offset: 0, length },
         &Limits::default(),
-        &NeverCancel,
+        cancellation,
     ))
 }
 
@@ -1812,7 +1891,7 @@ fn embedded_pdf_error_offset_is_absolute_in_its_source() {
             length: pdf.len() as u64,
         },
         &Limits::default(),
-        &NeverCancel,
+        &CancelAfter::Never,
     ))
     .err()
     .unwrap();
@@ -1914,7 +1993,7 @@ fn fragment_without_page_media_box_fails_before_output() {
         &mut sink,
         &plan,
         &Limits::default(),
-        &NeverCancel,
+        &CancelAfter::Never,
     ))
     .expect_err("undefined MediaBox must fail");
     assert!(
@@ -1954,7 +2033,7 @@ fn fragment_page_contents_must_resolve_to_stream() {
         &mut sink,
         &plan,
         &Limits::default(),
-        &NeverCancel,
+        &CancelAfter::Never,
     ))
     .expect_err("page contents must be stream data");
     assert!(
@@ -1993,7 +2072,7 @@ fn fragment_top_level_duplicate_dictionary_key_is_rejected() {
         &mut sink,
         &plan,
         &Limits::default(),
-        &NeverCancel,
+        &CancelAfter::Never,
     ))
     .expect_err("ambiguous fragment dictionary must fail");
     assert!(
@@ -2024,7 +2103,7 @@ fn page_limit_reports_the_pdf_object_and_source_offset() {
             length: input.len() as u64,
         },
         &limits,
-        &NeverCancel,
+        &CancelAfter::Never,
     ))
     .err()
     .unwrap();
@@ -2076,7 +2155,7 @@ fn pdf_size_limits_keep_source_location_in_each_entry_point() {
         &mut source,
         &mut sink,
         &input_limits,
-        &NeverCancel,
+        &CancelAfter::Never,
     ))
     .expect_err("oversized PDF input must fail before writing");
     assert!(
@@ -2100,7 +2179,7 @@ fn pdf_size_limits_keep_source_location_in_each_entry_point() {
             length: input.len() as u64,
         },
         &Limits::default(),
-        &NeverCancel,
+        &CancelAfter::Never,
     ))
     .unwrap();
     let mut sink = WriteSink::new(Vec::<u8>::new());
@@ -2109,7 +2188,7 @@ fn pdf_size_limits_keep_source_location_in_each_entry_point() {
         &mut sink,
         &index,
         &input_limits,
-        &NeverCancel,
+        &CancelAfter::Never,
     ))
     .err()
     .unwrap();
@@ -2131,8 +2210,13 @@ fn pdf_size_limits_keep_source_location_in_each_entry_point() {
         ..Limits::default()
     };
     let mut sink = WriteSink::new(Vec::<u8>::new());
-    let error =
-        PdfOutlineAppender::begin(&mut source, &mut sink, &index, &output_limits, &NeverCancel);
+    let error = PdfOutlineAppender::begin(
+        &mut source,
+        &mut sink,
+        &index,
+        &output_limits,
+        &CancelAfter::Never,
+    );
     let error = run_native(error).err().unwrap();
     assert!(
         matches!(
@@ -2173,7 +2257,7 @@ fn pdf_size_limits_keep_source_location_in_each_entry_point() {
         &mut sink,
         &plan,
         &limits,
-        &NeverCancel,
+        &CancelAfter::Never,
     ))
     .expect_err("oversized fragment source must fail before writing");
     assert!(
@@ -2212,7 +2296,7 @@ fn embedded_pdf_limits_count_only_the_selected_range_or_fragment_spans() {
             length: pdf.len() as u64,
         },
         &limits,
-        &NeverCancel,
+        &CancelAfter::Never,
     ))
     .unwrap();
     assert_eq!(report.pages_converted, 1);
@@ -2244,7 +2328,7 @@ fn embedded_pdf_limits_count_only_the_selected_range_or_fragment_spans() {
         &mut WriteSink::new(&mut output.file),
         &plan,
         &limits,
-        &NeverCancel,
+        &CancelAfter::Never,
     ))
     .unwrap();
     output.file.flush().unwrap();
@@ -2263,7 +2347,7 @@ fn appender_rejects_a_source_that_shrank_after_inspection() {
             length: input.len() as u64,
         },
         &Limits::default(),
-        &NeverCancel,
+        &CancelAfter::Never,
     ))
     .unwrap();
     let mut shortened = SeekableSource::new(Cursor::new(&input[..input.len() - 1])).unwrap();
@@ -2273,7 +2357,7 @@ fn appender_rejects_a_source_that_shrank_after_inspection() {
         &mut sink,
         &index,
         &Limits::default(),
-        &NeverCancel,
+        &CancelAfter::Never,
     ))
     .err()
     .unwrap();
@@ -2349,7 +2433,7 @@ fn fragment_span_total_cannot_overflow_before_preflight_reads() {
         &mut sink,
         &plan,
         &limits,
-        &NeverCancel,
+        &CancelAfter::Never,
     ))
     .expect_err("sum of fragment spans overflows 64 bits");
     assert!(
@@ -2375,7 +2459,7 @@ fn pdf_copy_rejects_a_source_that_overreports_a_read() {
         &mut source,
         &mut sink,
         &Limits::default(),
-        &NeverCancel,
+        &CancelAfter::Never,
     ))
     .expect_err("overreported source bytes must fail");
     assert!(matches!(error, Error::InvalidInput { .. }), "{error}");

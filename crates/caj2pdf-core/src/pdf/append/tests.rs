@@ -421,13 +421,71 @@ fn invalid_bookmark_rejects_without_claiming_success() -> Result<()> {
     })
 }
 
-struct FailingSink {
-    accepted: usize,
-    remaining: usize,
-    fail_flush: bool,
+#[test]
+fn new_outline_objects_stop_at_the_pdf_object_number_limit() -> Result<()> {
+    let original = unoutlined_pdf()?;
+    let limits = Limits::default();
+    let index = open_index(&original, &limits)?;
+    let mut source = SeekableSource::new(Cursor::new(original.as_slice()))?;
+    let mut output = WriteSink::new(Vec::<u8>::new());
+    let result = run(async {
+        let mut appender =
+            PdfOutlineAppender::begin(&mut source, &mut output, &index, &limits, &NEVER).await?;
+        appender.next_number = Some(MAX_PDF_OBJECTS + 1);
+        Ok::<_, Error>(
+            appender
+                .add_bookmark(Bookmark {
+                    depth: 0,
+                    title: "late".into(),
+                    page_index: 0,
+                })
+                .await,
+        )
+    })?;
+    assert!(matches!(
+        result,
+        Err(Error::LimitExceeded {
+            resource: "PDF object number",
+            attempted,
+            ..
+        }) if attempted == u64::from(MAX_PDF_OBJECTS) + 1
+    ));
+    Ok(())
 }
 
-impl SequentialSink for FailingSink {
+/// The one custom sink type of these tests, so failure, short-write, and
+/// flush-recording runs share an appender instantiation. Writes accept at
+/// most `max_write` bytes and fail once `remaining` is exhausted.
+struct TestSink {
+    bytes: Vec<u8>,
+    remaining: usize,
+    max_write: usize,
+    fail_flush: bool,
+    flushes: u32,
+}
+
+impl TestSink {
+    /// Accepts `remaining` bytes in short writes, then fails.
+    fn failing(remaining: usize, fail_flush: bool) -> Self {
+        Self {
+            bytes: Vec::new(),
+            remaining,
+            max_write: 7,
+            fail_flush,
+            flushes: 0,
+        }
+    }
+
+    /// Accepts every write whole and counts flushes.
+    fn recording() -> Self {
+        Self {
+            max_write: usize::MAX,
+            ..Self::failing(usize::MAX, false)
+        }
+    }
+}
+
+impl SequentialSink for TestSink {
     async fn write(&mut self, bytes: &[u8]) -> Result<usize> {
         if self.remaining == 0 {
             return Err(Error::Io(io::Error::new(
@@ -435,9 +493,9 @@ impl SequentialSink for FailingSink {
                 "injected sink failure",
             )));
         }
-        let count = bytes.len().min(self.remaining).min(7);
+        let count = bytes.len().min(self.remaining).min(self.max_write);
         self.remaining -= count;
-        self.accepted += count;
+        self.bytes.extend_from_slice(&bytes[..count]);
         Ok(count)
     }
 
@@ -448,6 +506,7 @@ impl SequentialSink for FailingSink {
                 "injected flush failure",
             )));
         }
+        self.flushes += 1;
         Ok(())
     }
 }
@@ -456,14 +515,10 @@ impl SequentialSink for FailingSink {
 fn sink_failure_has_no_success_report() -> Result<()> {
     let original = include_bytes!("../../../../../tests/fixtures/valid_nested_outline.pdf");
     let mut source = SeekableSource::new(Cursor::new(original.as_slice()))?;
-    let mut sink = FailingSink {
-        accepted: 0,
-        remaining: 35,
-        fail_flush: false,
-    };
+    let mut sink = TestSink::failing(35, false);
     let result = run(copy_pdf(&mut source, &mut sink, &Limits::default(), &NEVER));
     assert!(matches!(result, Err(Error::Io(_))));
-    assert_eq!(sink.accepted, 35);
+    assert_eq!(sink.bytes.len(), 35);
     Ok(())
 }
 
@@ -471,24 +526,16 @@ fn sink_failure_has_no_success_report() -> Result<()> {
 fn flush_failure_has_no_success_report() -> Result<()> {
     let original = include_bytes!("../../../../../tests/fixtures/valid_nested_outline.pdf");
     let mut source = SeekableSource::new(Cursor::new(original.as_slice()))?;
-    let mut sink = FailingSink {
-        accepted: 0,
-        remaining: original.len(),
-        fail_flush: true,
-    };
+    let mut sink = TestSink::failing(original.len(), true);
     let result = run(copy_pdf(&mut source, &mut sink, &Limits::default(), &NEVER));
     assert!(matches!(result, Err(Error::Io(_))));
-    assert_eq!(sink.accepted, original.len());
+    assert_eq!(sink.bytes.len(), original.len());
 
     // The same short-write sink succeeds once its flush does.
-    let mut sink = FailingSink {
-        accepted: 0,
-        remaining: original.len(),
-        fail_flush: false,
-    };
+    let mut sink = TestSink::failing(original.len(), false);
     let report = run(copy_pdf(&mut source, &mut sink, &Limits::default(), &NEVER))?;
     assert_eq!(report.output_bytes_written, original.len() as u64);
-    assert_eq!(sink.accepted, original.len());
+    assert_eq!(sink.bytes.len(), original.len());
     Ok(())
 }
 
@@ -686,11 +733,7 @@ fn writer_refuses_new_bookmarks_after_an_output_failure() -> Result<()> {
     let limits = Limits::default();
     let index = open_index(&original, &limits)?;
     let mut source = SeekableSource::new(Cursor::new(original.as_slice()))?;
-    let mut sink = FailingSink {
-        accepted: 0,
-        remaining: original.len() + 3,
-        fail_flush: false,
-    };
+    let mut sink = TestSink::failing(original.len() + 3, false);
     let poisoned = run(async {
         let mut appender =
             PdfOutlineAppender::begin(&mut source, &mut sink, &index, &limits, &NEVER).await?;
@@ -717,34 +760,16 @@ fn writer_refuses_new_bookmarks_after_an_output_failure() -> Result<()> {
             })
         ));
     }
-    assert_eq!(sink.accepted, original.len() + 3);
+    assert_eq!(sink.bytes.len(), original.len() + 3);
     Ok(())
-}
-
-#[derive(Default)]
-struct RecordingSink {
-    bytes: Vec<u8>,
-    flushes: u32,
-}
-
-impl SequentialSink for RecordingSink {
-    async fn write(&mut self, bytes: &[u8]) -> Result<usize> {
-        self.bytes.extend_from_slice(bytes);
-        Ok(bytes.len())
-    }
-
-    async fn flush(&mut self) -> Result<()> {
-        self.flushes += 1;
-        Ok(())
-    }
 }
 
 #[test]
 fn cancellation_around_the_final_flush_prevents_a_success_report() -> Result<()> {
     let original = include_bytes!("../../../../../tests/fixtures/valid_nested_outline.pdf");
-    let copy = |allowed: u64| -> (Result<ConversionReport>, RecordingSink, u64) {
+    let copy = |allowed: u64| -> (Result<ConversionReport>, TestSink, u64) {
         let mut source = SeekableSource::new(Cursor::new(original.as_slice())).unwrap();
-        let mut sink = RecordingSink::default();
+        let mut sink = TestSink::recording();
         let cancellation = CancelAfter::new(allowed);
         let result = run(copy_pdf(
             &mut source,
@@ -778,7 +803,7 @@ fn invalid(reason: &'static str) -> impl Fn(&Result<()>) -> bool {
 #[test]
 fn append_writer_rejects_misordered_object_calls() -> Result<()> {
     let limits = Limits::default();
-    let mut sink = WriteSink::new(Vec::new());
+    let mut sink = TestSink::recording();
     let reference = PdfRef {
         number: 7,
         generation: 0,
@@ -803,7 +828,7 @@ fn append_writer_rejects_misordered_object_calls() -> Result<()> {
         assert!(open(&writer.finish_copy().await));
         writer.end_object().await
     })?;
-    assert_eq!(sink.into_inner(), b"\n7 0 obj\n\nendobj\n");
+    assert_eq!(sink.bytes, b"\n7 0 obj\n\nendobj\n");
     Ok(())
 }
 

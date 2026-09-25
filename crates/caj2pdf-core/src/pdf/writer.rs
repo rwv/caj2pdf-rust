@@ -555,6 +555,30 @@ mod tests {
     }
 
     #[test]
+    fn stream_bytes_need_an_open_stream_and_are_written_verbatim() {
+        let mut sink = vec_sink();
+        run(async {
+            let limits = Limits::default();
+            let mut pdf = PdfWriter::new(&mut sink, &limits, &NeverCancel).await?;
+            assert!(matches!(
+                pdf.write_stream_bytes(b"x").await,
+                Err(Error::InvalidInput {
+                    reason: "no PDF stream is open"
+                })
+            ));
+            let stream = pdf.reserve_object()?;
+            let length = pdf.reserve_object()?;
+            pdf.begin_stream(stream, length, b"").await?;
+            let start = pdf.position();
+            pdf.write_stream_bytes(b"endstream\0").await?;
+            assert_eq!(pdf.position(), start + 10);
+            Ok::<(), Error>(())
+        })
+        .unwrap();
+        assert!(sink.into_inner().ends_with(b"stream\nendstream\0"));
+    }
+
+    #[test]
     fn minimal_pdf_byte_count_includes_xref_and_trailer() {
         let mut sink = vec_sink();
         let written = run(async {

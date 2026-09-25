@@ -674,7 +674,17 @@ fn report_writers_propagate_every_sink_failure() {
 
 #[test]
 fn every_format_has_a_name() {
-    assert_eq!(format_name(InputFormat::Nh), "NH");
+    for (format, name) in [
+        (InputFormat::Pdf, "PDF"),
+        (InputFormat::Caj, "CAJ"),
+        (InputFormat::Kdh, "KDH"),
+        (InputFormat::Nh, "NH"),
+        (InputFormat::Hn, "HN"),
+        (InputFormat::C8, "C8"),
+        (InputFormat::Teb, "TEB"),
+    ] {
+        assert_eq!(format_name(format), name);
+    }
 }
 
 /// A future that is pending once before it completes.
