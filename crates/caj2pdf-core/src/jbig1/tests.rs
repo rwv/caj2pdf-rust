@@ -1023,7 +1023,7 @@ fn span_of(bytes: &[u8]) -> Type0Span {
 }
 
 #[test]
-fn preflight_rejects_cancelled_short_and_oversized_spans_before_reading() {
+fn preflight_rejects_invalid_limits_cancelled_short_and_oversized_spans_before_reading() {
     let bytes = image(3, 1, &[0, 0, 0]);
     let table = table(1);
     let limits = Limits::default();
@@ -1037,10 +1037,15 @@ fn preflight_rejects_cancelled_short_and_oversized_spans_before_reading() {
         offset: 5,
         length: DIB_BYTES,
     };
+    let invalid = Limits {
+        io_chunk_bytes: 0,
+        ..limits
+    };
     let cases = [
         (span_of(&bytes), limits, true),
         (short, limits, false),
         (span_of(&bytes), oversized, false),
+        (span_of(&bytes), invalid, true),
     ];
     let mut errors = Vec::new();
     for (span, limits, cancel) in cases {
@@ -1050,7 +1055,7 @@ fn preflight_rejects_cancelled_short_and_oversized_spans_before_reading() {
             stop_at: 0,
             overreport: false,
         };
-        let mut contexts = ContextBank::new(CONTEXT_COUNT, &limits).unwrap();
+        let mut contexts = ContextBank::new(CONTEXT_COUNT, &Limits::default()).unwrap();
         let mut sink = BytesSink::default();
         let cancellation = if cancel {
             CancelAfter::always()
@@ -1088,6 +1093,14 @@ fn preflight_rejects_cancelled_short_and_oversized_spans_before_reading() {
             limit,
             attempted,
         } if limit == bytes.len() as u64 - 1 && attempted == bytes.len() as u64
+    ));
+    // Invalid limits are reported before the cancellation check.
+    assert_eq!(errors[3].offset, 0);
+    assert!(matches!(
+        errors[3].kind,
+        Type0ErrorKind::Source(Error::InvalidInput {
+            reason: "I/O chunk size must be nonzero"
+        })
     ));
 }
 
