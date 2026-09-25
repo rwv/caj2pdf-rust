@@ -1459,15 +1459,16 @@ mod tests {
         loop {
             let mut sink = VecSink::default();
             let cancellation = CancelAfter::new(allowed);
-            match run(write_sample(&mut sink, &limits, &cancellation)) {
-                Err(Error::Cancelled) => allowed += 1,
-                Ok(report) => {
-                    assert!(allowed >= 20, "only {allowed} cancellation checks");
-                    assert_eq!(report.output_bytes_written, sink.bytes.len() as u64);
-                    break;
+            let report = match run(write_sample(&mut sink, &limits, &cancellation)) {
+                Err(Error::Cancelled) => {
+                    allowed += 1;
+                    continue;
                 }
-                Err(other) => panic!("query {}: unexpected {other:?}", allowed + 1),
-            }
+                result => result.expect("only cancellation may stop the run"),
+            };
+            assert!(allowed >= 20, "only {allowed} cancellation checks");
+            assert_eq!(report.output_bytes_written, sink.bytes.len() as u64);
+            break;
         }
     }
 
