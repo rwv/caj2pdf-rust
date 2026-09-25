@@ -488,6 +488,44 @@ mod tests {
     }
 
     #[test]
+    fn candidate_span_is_checked_against_the_input_limit() {
+        let bytes = b"9 0 obj\n[6 0 R /Fit]\nendobj\n";
+        let mut source = Source::new(bytes.to_vec());
+        let fragment = FragmentObject {
+            reference: PdfRef {
+                number: 9,
+                generation: 0,
+            },
+            range: PdfRange {
+                offset: 0,
+                length: bytes.len() as u64,
+            },
+        };
+        let limits = Limits {
+            max_input_bytes: 8,
+            ..Limits::default()
+        };
+        let error = ready(inspect_link_destination_candidate(
+            &mut source,
+            fragment,
+            &limits,
+            &NeverCancel,
+        ))
+        .expect_err("an oversized candidate span was read");
+        assert!(matches!(
+            error,
+            Error::PdfLimitExceeded {
+                offset: 0,
+                object: Some((9, 0)),
+                resource: "input bytes",
+                limit: 8,
+                attempted,
+            } if attempted == bytes.len() as u64
+        ));
+        assert_eq!(source.largest_request, 0);
+    }
+
+    #[test]
     fn rejects_a_source_that_changes_between_candidate_reads() {
         let bytes = b"9 0 obj\n<</Subtype/Link /Dest [6 0 R /Fit]>>\nendobj\n";
         let mut changed = bytes.to_vec();
