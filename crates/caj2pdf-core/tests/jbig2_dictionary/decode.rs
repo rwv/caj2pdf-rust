@@ -3,147 +3,7 @@
 //! Invented arithmetic states test the public dictionary model, not T.88
 //! Table E.1 or external CAJ/HN symbol-pixel compatibility.
 
-mod common;
-
-use caj2pdf_core::{
-    Limits, NeverCancel, RangedSource, SequentialSink,
-    jbig2::{
-        HeaderErrorKind, HeaderLimits, SegmentHeader, SegmentSpan,
-        dictionary::{
-            DictionaryBudget, DictionaryError, DictionaryErrorKind, DictionaryMode,
-            DirectDictionaryDecoder, SymbolDescriptor, read_dictionary_data_header,
-        },
-        integer::{INTEGER_CONTEXT_COUNT, IntegerContextBanks},
-        mq::{MQ_STATE_COUNT, MqBudget, MqContext, MqErrorKind, MqState, MqTable},
-        read_segment_header,
-    },
-};
-use common::CancelAfter;
-use std::{
-    cell::Cell,
-    future::{Future, pending},
-    io,
-    pin::pin,
-    rc::Rc,
-    task::{Context, Poll, Waker},
-};
-
-fn ready<F: Future>(future: F) -> F::Output {
-    let mut future = pin!(future);
-    match future
-        .as_mut()
-        .poll(&mut Context::from_waker(Waker::noop()))
-    {
-        Poll::Ready(value) => value,
-        Poll::Pending => panic!("unexpected pending test I/O"),
-    }
-}
-
-struct Source {
-    bytes: Vec<u8>,
-    advertised: u64,
-    max_read: usize,
-    read_calls: usize,
-    max_request_seen: usize,
-    stop_at: Option<u64>,
-    pending_at: Option<u64>,
-    overreport: bool,
-}
-
-impl Source {
-    fn new(bytes: Vec<u8>) -> Self {
-        let advertised = bytes.len() as u64;
-        Self {
-            bytes,
-            advertised,
-            max_read: usize::MAX,
-            read_calls: 0,
-            max_request_seen: 0,
-            stop_at: None,
-            pending_at: None,
-            overreport: false,
-        }
-    }
-}
-
-impl RangedSource for Source {
-    fn size(&self) -> u64 {
-        self.advertised
-    }
-    async fn read_at(
-        &mut self,
-        offset: u64,
-        destination: &mut [u8],
-    ) -> caj2pdf_core::Result<usize> {
-        self.read_calls += 1;
-        self.max_request_seen = self.max_request_seen.max(destination.len());
-        if self.overreport {
-            return Ok(destination.len() + 1);
-        }
-        if self.pending_at.is_some_and(|start| offset >= start) {
-            pending::<()>().await;
-        }
-        if self.stop_at.is_some_and(|end| offset >= end) {
-            return Ok(0);
-        }
-        let start = usize::try_from(offset).unwrap_or(usize::MAX);
-        let count = self
-            .bytes
-            .len()
-            .saturating_sub(start)
-            .min(destination.len())
-            .min(self.max_read);
-        if count > 0 {
-            destination[..count].copy_from_slice(&self.bytes[start..start + count]);
-        }
-        Ok(count)
-    }
-}
-
-#[derive(Default)]
-struct Store {
-    bytes: Vec<u8>,
-    max_write: usize,
-    fail: bool,
-    pending: bool,
-    overreport: bool,
-    cancel_after_write: Option<Rc<Cell<bool>>>,
-    flushed: bool,
-}
-
-impl SequentialSink for Store {
-    async fn write(&mut self, bytes: &[u8]) -> caj2pdf_core::Result<usize> {
-        if self.fail {
-            return Err(caj2pdf_core::Error::Io(io::Error::other(
-                "test store failure",
-            )));
-        }
-        if self.pending {
-            pending::<()>().await;
-        }
-        if self.overreport {
-            return Ok(bytes.len() + 1);
-        }
-        let count = bytes.len().min(self.max_write);
-        self.bytes.extend_from_slice(&bytes[..count]);
-        if let Some(flag) = &self.cancel_after_write {
-            flag.set(true);
-        }
-        Ok(count)
-    }
-    async fn flush(&mut self) -> caj2pdf_core::Result<()> {
-        self.flushed = true;
-        Ok(())
-    }
-}
-
-struct Flag(Rc<Cell<bool>>);
-
-impl caj2pdf_core::Cancellation for Flag {
-    fn is_cancelled(&self) -> bool {
-        self.0.get()
-    }
-}
+use super::*;
 
 fn segment(
     flags: u16,
@@ -180,48 +40,10 @@ fn segment(
     Source::new(bytes)
 }
 
-fn header(source: &mut Source) -> SegmentHeader {
-    ready(read_segment_header(
-        source,
-        SegmentSpan {
-            offset: 0,
-            length: source.advertised,
-        },
-        &Limits::default(),
-        HeaderLimits::default(),
-        &NeverCancel,
-    ))
-    .unwrap()
-}
-
-fn table() -> MqTable {
-    let mut states = vec![
-        MqState {
-            qe: 0x4000,
-            next_mps: 0,
-            next_lps: 0,
-            switch_mps: false
-        };
-        MQ_STATE_COUNT
-    ];
-    states[0].next_mps = 1;
-    states[0].next_lps = 1;
-    states[1].next_mps = 1;
-    states[1].next_lps = 1;
-    MqTable::new(states, &Limits::default()).unwrap()
-}
-
 fn banks() -> IntegerContextBanks {
     IntegerContextBanks::with_extra_contexts(1024, &Limits::default(), &MqBudget::default())
         .unwrap()
 }
-
-const ONE_SYMBOL: [u8; 14] = [
-    0xee, 0xbf, 0x41, 0xc7, 0x00, 0x54, 0x0f, 0xe4, 0x11, 0x07, 0x7f, 0x2f, 0xff, 0xac,
-];
-const TWO_SYMBOLS: [u8; 14] = [
-    0xee, 0x7d, 0xf6, 0xc9, 0x51, 0xf2, 0x81, 0xb1, 0x95, 0x2a, 0x6d, 0x8d, 0xff, 0xac,
-];
 
 fn decode_error(
     body: &[u8],
@@ -244,7 +66,7 @@ fn decode_error(
         &mut banks,
         &mut store,
         &limits,
-        &NeverCancel,
+        &CancelAfter::Never,
         MqBudget::default(),
         budget,
     )) {
@@ -284,7 +106,7 @@ fn constructor_error(
         &mut banks,
         &mut store,
         &limits,
-        &NeverCancel,
+        &CancelAfter::Never,
         MqBudget::default(),
         budget,
     )) {
@@ -301,7 +123,7 @@ fn zero_symbol_dictionary_consumes_one_zero_iaex_run_and_finishes() {
     let mut source = segment(0x0800, &[(2, -1)], &[], 0, 0, &[0xff, 0xac], &[]);
     let hdr = header(&mut source);
     source.max_read = 1;
-    source.max_request_seen = 0;
+    source.max_request = 0;
     let mut store = Store {
         max_write: 1,
         ..Store::default()
@@ -316,7 +138,7 @@ fn zero_symbol_dictionary_consumes_one_zero_iaex_run_and_finishes() {
         &mut banks,
         &mut store,
         &limits,
-        &NeverCancel,
+        &CancelAfter::Never,
         MqBudget::default(),
         DictionaryBudget::default(),
     ))
@@ -354,7 +176,7 @@ fn one_symbol_uses_a_single_mq_unit_and_stores_an_unexported_bitmap() {
     let mut source = segment(0x0800, &[(2, -1)], &[], 0, 1, &body, &[]);
     let hdr = header(&mut source);
     source.max_read = 1;
-    source.max_request_seen = 0;
+    source.max_request = 0;
     let mut store = Store {
         max_write: 1,
         ..Store::default()
@@ -372,7 +194,7 @@ fn one_symbol_uses_a_single_mq_unit_and_stores_an_unexported_bitmap() {
         &mut banks,
         &mut store,
         &limits,
-        &NeverCancel,
+        &CancelAfter::Never,
         MqBudget::default(),
         DictionaryBudget::default(),
     ))
@@ -399,7 +221,7 @@ fn one_symbol_uses_a_single_mq_unit_and_stores_an_unexported_bitmap() {
     drop(decoder);
     assert_eq!(store.bytes, [0]);
     assert!(store.flushed);
-    assert!(source.max_request_seen <= 2);
+    assert!(source.max_request <= 2);
 }
 
 #[test]
@@ -421,7 +243,7 @@ fn descriptor_offset_is_relative_to_the_first_append_in_a_prefilled_store() {
         &mut banks,
         &mut store,
         &limits,
-        &NeverCancel,
+        &CancelAfter::Never,
         MqBudget::default(),
         DictionaryBudget::default(),
     )) {
@@ -460,7 +282,7 @@ fn successive_symbols_share_bitmap_statistics_but_reset_row_history() {
         &mut banks,
         &mut store,
         &limits,
-        &NeverCancel,
+        &CancelAfter::Never,
         MqBudget::default(),
         DictionaryBudget::default(),
     ))
@@ -515,7 +337,7 @@ fn zero_length_export_run_toggles_flag_and_catalog_keeps_store_offset() {
         &mut banks,
         &mut store,
         &limits,
-        &NeverCancel,
+        &CancelAfter::Never,
         MqBudget::default(),
         DictionaryBudget::default(),
     ))
@@ -558,7 +380,7 @@ fn empty_height_class_then_zero_delta_class_decodes_one_symbol() {
         &mut banks,
         &mut store,
         &limits,
-        &NeverCancel,
+        &CancelAfter::Never,
         MqBudget::default(),
         DictionaryBudget::default(),
     ))
@@ -607,7 +429,7 @@ fn signed_negative_height_delta_can_follow_a_taller_empty_class() {
         &mut banks,
         &mut store,
         &limits,
-        &NeverCancel,
+        &CancelAfter::Never,
         MqBudget::default(),
         DictionaryBudget::default(),
     ))
@@ -655,7 +477,7 @@ fn packed_width_nine_uses_partial_writes_and_zero_padding() {
         &mut banks,
         &mut store,
         &limits,
-        &NeverCancel,
+        &CancelAfter::Never,
         MqBudget::default(),
         DictionaryBudget::default(),
     ))
@@ -706,7 +528,7 @@ fn alternating_export_runs_select_second_symbol_in_original_order() {
         &mut banks,
         &mut store,
         &limits,
-        &NeverCancel,
+        &CancelAfter::Never,
         MqBudget::default(),
         DictionaryBudget::default(),
     ))
@@ -739,7 +561,7 @@ fn refinement_header_is_classified_and_refused_before_mq_or_output() {
         &hdr,
         &Limits::default(),
         DictionaryBudget::default(),
-        &NeverCancel,
+        &CancelAfter::Never,
     ))
     .unwrap();
     assert_eq!(parsed.mode, DictionaryMode::ArithmeticRefinementAggregate);
@@ -759,7 +581,7 @@ fn refinement_header_is_classified_and_refused_before_mq_or_output() {
         &mut banks,
         &mut store,
         &Limits::default(),
-        &NeverCancel,
+        &CancelAfter::Never,
         MqBudget::default(),
         DictionaryBudget::default(),
     )) {
@@ -826,7 +648,7 @@ fn malformed_and_bounded_headers_never_enter_mq() {
             &hdr,
             &Limits::default(),
             DictionaryBudget::default(),
-            &NeverCancel,
+            &CancelAfter::Never,
         ))
         .unwrap_err();
         assert!(error.to_string().contains(expected), "{error}");
@@ -848,7 +670,7 @@ fn malformed_and_bounded_headers_never_enter_mq() {
         &hdr,
         &Limits::default(),
         budget,
-        &NeverCancel,
+        &CancelAfter::Never,
     ))
     .unwrap_err();
     assert!(matches!(
@@ -872,7 +694,7 @@ fn malformed_and_bounded_headers_never_enter_mq() {
         &hdr,
         &Limits::default(),
         budget,
-        &NeverCancel,
+        &CancelAfter::Never,
     ))
     .unwrap_err();
     assert_eq!(error.offset, hdr.data.offset + 4);
@@ -892,7 +714,7 @@ fn malformed_and_bounded_headers_never_enter_mq() {
         &hdr,
         &Limits::default(),
         budget,
-        &NeverCancel,
+        &CancelAfter::Never,
     ))
     .unwrap_err();
     assert_eq!(error.offset, hdr.data.offset + 8);
@@ -926,7 +748,7 @@ fn terminal_failure_reports_extra_physical_fetch_and_poison() {
         &mut banks,
         &mut store,
         &limits,
-        &NeverCancel,
+        &CancelAfter::Never,
         MqBudget::default(),
         DictionaryBudget::default(),
     ))
@@ -971,7 +793,7 @@ fn dropped_pending_finish_keeps_live_mq_progress_and_poison() {
         &mut banks,
         &mut store,
         &limits,
-        &NeverCancel,
+        &CancelAfter::Never,
         MqBudget::default(),
         DictionaryBudget::default(),
     ))
@@ -1021,7 +843,7 @@ fn failed_zero_and_overreported_store_writes_poison_partial_catalog() {
             &mut banks,
             &mut store,
             &limits,
-            &NeverCancel,
+            &CancelAfter::Never,
             MqBudget::default(),
             DictionaryBudget::default(),
         ))
@@ -1065,7 +887,7 @@ fn dropped_pending_store_and_cancellation_after_partial_row_are_terminal() {
         &mut banks,
         &mut store,
         &limits,
-        &NeverCancel,
+        &CancelAfter::Never,
         MqBudget::default(),
         DictionaryBudget::default(),
     ))
@@ -1092,7 +914,7 @@ fn dropped_pending_store_and_cancellation_after_partial_row_are_terminal() {
     let mut source = segment(0x0800, &[(2, -1)], &[], 0, 1, &body, &[]);
     let hdr = header(&mut source);
     let signal = Rc::new(Cell::new(false));
-    let cancellation = Flag(signal.clone());
+    let cancellation = CancelAfter::while_set(signal.clone());
     let mut store = Store {
         max_write: 1,
         cancel_after_write: Some(signal),
@@ -1148,7 +970,7 @@ fn conditional_dictionary_headers_classify_each_mode_and_field_layout() {
             &hdr,
             &Limits::default(),
             DictionaryBudget::default(),
-            &NeverCancel,
+            &CancelAfter::Never,
         ))
         .unwrap();
         assert_eq!(parsed.mode, expected_mode, "flags {flags:#06x}");
@@ -1183,7 +1005,7 @@ fn invalid_flag_combinations_are_located_at_flags_before_mq() {
             &hdr,
             &Limits::default(),
             DictionaryBudget::default(),
-            &NeverCancel,
+            &CancelAfter::Never,
         ))
         .unwrap_err();
         assert_eq!(error.offset, hdr.data.offset);
@@ -1445,7 +1267,7 @@ fn dictionary_body_limit_uses_the_parsed_body_length() {
             max_body_bytes: 13,
             ..DictionaryBudget::default()
         },
-        &NeverCancel,
+        &CancelAfter::Never,
     ))
     .unwrap_err();
     assert!(matches!(
@@ -1473,7 +1295,7 @@ fn invalid_limits_and_zero_io_request_bound_are_rejected_before_framing_io() {
             max_source_request_bytes: 0,
             ..DictionaryBudget::default()
         },
-        &NeverCancel,
+        &CancelAfter::Never,
     ))
     .unwrap_err();
     assert!(matches!(
@@ -1491,7 +1313,7 @@ fn invalid_limits_and_zero_io_request_bound_are_rejected_before_framing_io() {
             ..Limits::default()
         },
         DictionaryBudget::default(),
-        &NeverCancel,
+        &CancelAfter::Never,
     ))
     .unwrap_err();
     assert_eq!(error.offset, hdr.data.offset);
@@ -1522,7 +1344,7 @@ fn integer_decision_budget_failure_poisoned_before_any_bitmap() {
         &mut banks,
         &mut store,
         &limits,
-        &NeverCancel,
+        &CancelAfter::Never,
         MqBudget {
             max_symbols: 1,
             ..MqBudget::default()
@@ -1559,7 +1381,7 @@ fn bitmap_decision_budget_failure_reports_bitmap_context_and_no_store_bytes() {
         &mut banks,
         &mut store,
         &limits,
-        &NeverCancel,
+        &CancelAfter::Never,
         MqBudget {
             max_symbols: 8,
             ..MqBudget::default()
@@ -1698,7 +1520,7 @@ fn fewer_exported_symbols_than_declared_are_rejected_after_the_final_run() {
         &mut banks,
         &mut store,
         &limits,
-        &NeverCancel,
+        &CancelAfter::Never,
         MqBudget::default(),
         DictionaryBudget::default(),
     ))
@@ -1737,7 +1559,7 @@ fn count_field_cut_by_the_segment_length_is_truncated_before_reading_it() {
         &hdr,
         &Limits::default(),
         DictionaryBudget::default(),
-        &NeverCancel,
+        &CancelAfter::Never,
     ))
     .unwrap_err();
     assert!(
@@ -1795,7 +1617,7 @@ fn header_field_at_the_end_of_the_address_space_is_an_invalid_span() {
         },
         &Limits::default(),
         HeaderLimits::default(),
-        &NeverCancel,
+        &CancelAfter::Never,
     ))
     .unwrap();
     assert_eq!(hdr.data.offset + hdr.data.length, u64::MAX);
@@ -1804,7 +1626,7 @@ fn header_field_at_the_end_of_the_address_space_is_an_invalid_span() {
         &hdr,
         &Limits::default(),
         DictionaryBudget::default(),
-        &NeverCancel,
+        &CancelAfter::Never,
     ))
     .unwrap_err();
     assert!(

@@ -6,7 +6,7 @@
 mod common;
 
 use caj2pdf_core::{
-    Cancellation, Limits, NeverCancel, RangedSource, SequentialSink,
+    Limits, RangedSource, SequentialSink,
     jbig2::{
         HeaderLimits, SegmentHeader, SegmentSpan,
         generic::{GenericBudget, GenericError, GenericErrorKind, GenericRegionDecoder},
@@ -154,12 +154,6 @@ impl SequentialSink for Sink {
         Ok(())
     }
 }
-struct Flag(Rc<Cell<bool>>);
-impl Cancellation for Flag {
-    fn is_cancelled(&self) -> bool {
-        self.0.get()
-    }
-}
 
 fn record(
     width: u32,
@@ -190,7 +184,7 @@ fn header(source: &mut Source) -> SegmentHeader {
         },
         &Limits::default(),
         HeaderLimits::default(),
-        &NeverCancel,
+        &CancelAfter::Never,
     ))
     .unwrap()
 }
@@ -247,7 +241,7 @@ fn streams_packed_rows_and_distinguishes_semantic_from_physical_input() {
         &mut bank,
         &mut sink,
         &limits,
-        &NeverCancel,
+        &CancelAfter::Never,
         mq_budget,
         GenericBudget::default(),
     ))
@@ -292,7 +286,7 @@ fn third_row_uses_both_prior_rows_after_rotation() {
         &mut bank,
         &mut sink,
         &limits,
-        &NeverCancel,
+        &CancelAfter::Never,
         mq_budget,
         GenericBudget::default(),
     ))
@@ -335,7 +329,7 @@ fn rejects_header_modes_at_placement_and_truncation_before_mq() {
             &mut bank,
             &mut sink,
             &limits,
-            &NeverCancel,
+            &CancelAfter::Never,
             mq_budget,
             GenericBudget::default(),
         )) {
@@ -357,7 +351,7 @@ fn rejects_header_modes_at_placement_and_truncation_before_mq() {
         &mut bank,
         &mut sink,
         &limits,
-        &NeverCancel,
+        &CancelAfter::Never,
         mq_budget,
         GenericBudget::default(),
     )) {
@@ -383,7 +377,7 @@ fn rejects_header_modes_at_placement_and_truncation_before_mq() {
         &mut bank,
         &mut sink,
         &limits,
-        &NeverCancel,
+        &CancelAfter::Never,
         mq_budget,
         GenericBudget::default(),
     )) {
@@ -409,7 +403,7 @@ fn rejects_header_modes_at_placement_and_truncation_before_mq() {
         &mut bank,
         &mut sink,
         &limits,
-        &NeverCancel,
+        &CancelAfter::Never,
         mq_budget,
         GenericBudget::default(),
     )) {
@@ -512,7 +506,7 @@ fn preflights_area_output_allocation_and_input_budgets() {
             &mut bank,
             &mut sink,
             &limits,
-            &NeverCancel,
+            &CancelAfter::Never,
             mq_budget,
             region_budget,
         )) {
@@ -567,7 +561,7 @@ fn additional_constructor_bounds_and_located_source_errors() {
             &mut bank,
             &mut sink,
             &limits,
-            &NeverCancel,
+            &CancelAfter::Never,
             selected_mq_budget,
             region_budget,
         )) {
@@ -590,7 +584,7 @@ fn additional_constructor_bounds_and_located_source_errors() {
         &mut bank,
         &mut sink,
         &limits,
-        &NeverCancel,
+        &CancelAfter::Never,
         MqBudget {
             max_symbols: u64::MAX,
             ..mq_budget
@@ -622,7 +616,7 @@ fn additional_constructor_bounds_and_located_source_errors() {
         &mut bank,
         &mut sink,
         &limits,
-        &NeverCancel,
+        &CancelAfter::Never,
         mq_budget,
         GenericBudget::default(),
     )) {
@@ -646,7 +640,7 @@ fn additional_constructor_bounds_and_located_source_errors() {
         &mut bank,
         &mut sink,
         &limits,
-        &NeverCancel,
+        &CancelAfter::Never,
         mq_budget,
         GenericBudget::default(),
     )) {
@@ -670,7 +664,7 @@ fn additional_constructor_bounds_and_located_source_errors() {
         &mut bank,
         &mut sink,
         &limits,
-        &NeverCancel,
+        &CancelAfter::Never,
         mq_budget,
         GenericBudget::default(),
     )) {
@@ -690,7 +684,7 @@ fn additional_constructor_bounds_and_located_source_errors() {
         &mut bank,
         &mut sink,
         &limits,
-        &NeverCancel,
+        &CancelAfter::Never,
         mq_budget,
         GenericBudget::default(),
     )) {
@@ -705,7 +699,7 @@ fn additional_constructor_bounds_and_located_source_errors() {
     let mut source = record(3, 2, 0, 4, (2, -1), SHORT_STREAM);
     let hdr = header(&mut source);
     let flag = Rc::new(Cell::new(true));
-    let cancellation = Flag(flag);
+    let cancellation = CancelAfter::while_set(flag);
     let mut bank = contexts(&limits, &mq_budget);
     let mut sink = Sink::default();
     let err = match ready(GenericRegionDecoder::new(
@@ -741,7 +735,7 @@ fn additional_constructor_bounds_and_located_source_errors() {
             &mut bank,
             &mut sink,
             &limits,
-            &NeverCancel,
+            &CancelAfter::Never,
             mq_budget,
             GenericBudget::default(),
         )) {
@@ -781,7 +775,7 @@ fn source_short_overreported_and_sink_failure_are_typed() {
             &mut bank,
             &mut sink,
             &limits,
-            &NeverCancel,
+            &CancelAfter::Never,
             mq_budget,
             GenericBudget::default(),
         )) {
@@ -809,7 +803,7 @@ fn source_short_overreported_and_sink_failure_are_typed() {
         &mut bank,
         &mut sink,
         &limits,
-        &NeverCancel,
+        &CancelAfter::Never,
         mq_budget,
         GenericBudget::default(),
     )) {
@@ -834,7 +828,7 @@ fn source_short_overreported_and_sink_failure_are_typed() {
             &mut bank,
             &mut sink,
             &limits,
-            &NeverCancel,
+            &CancelAfter::Never,
             mq_budget,
             GenericBudget::default(),
         ))
@@ -902,7 +896,7 @@ fn cancellation_and_dropped_pending_row_poison_decoder() {
         cancel: Some(flag.clone()),
         ..Sink::default()
     };
-    let cancellation = Flag(flag);
+    let cancellation = CancelAfter::while_set(flag);
     let mut decoder = ready(GenericRegionDecoder::new(
         &mut source,
         &hdr,
@@ -936,7 +930,7 @@ fn cancellation_and_dropped_pending_row_poison_decoder() {
         &mut bank,
         &mut sink,
         &limits,
-        &NeverCancel,
+        &CancelAfter::Never,
         mq_budget,
         GenericBudget::default(),
     ))
@@ -963,7 +957,7 @@ fn cancellation_before_next_row_and_during_flush_never_reports_success() {
     let mq_budget = MqBudget::default();
     let table = table();
     let flag = Rc::new(Cell::new(false));
-    let cancellation = Flag(flag.clone());
+    let cancellation = CancelAfter::while_set(flag.clone());
     let mut source = record(3, 1, 0, 4, (2, -1), SHORT_STREAM);
     let hdr = header(&mut source);
     let mut bank = contexts(&limits, &mq_budget);
@@ -1092,7 +1086,7 @@ fn unexpected_internal_marker_keeps_the_mq_source_location() {
         &mut bank,
         &mut sink,
         &limits,
-        &NeverCancel,
+        &CancelAfter::Never,
         mq_budget,
         GenericBudget::default(),
     ))
@@ -1130,7 +1124,7 @@ fn malformed_short_mq_smoke_is_bounded() {
             &mut bank,
             &mut sink,
             &limits,
-            &NeverCancel,
+            &CancelAfter::Never,
             mq_budget,
             GenericBudget::default(),
         )) {
@@ -1220,7 +1214,7 @@ fn working_allocation_cap_counts_three_rows_at_the_exact_boundary() {
             &mut bank,
             &mut sink,
             &limits,
-            &NeverCancel,
+            &CancelAfter::Never,
             mq_budget,
             GenericBudget::default(),
         ))
@@ -1318,7 +1312,7 @@ fn span_errors_and_unreachable_allocation_failure_have_stable_messages() {
         &mut bank,
         &mut sink,
         &limits,
-        &NeverCancel,
+        &CancelAfter::Never,
         mq_budget,
         GenericBudget::default(),
     )) {

@@ -5,8 +5,10 @@
 
 mod common;
 
+use common::CancelAfter;
+
 use caj2pdf_core::{
-    Cancellation, Error, Limits, NeverCancel, RangedSource,
+    Cancellation, Error, Limits, RangedSource,
     jbig2::{
         HeaderLimits, SegmentHeader, SegmentSpan, read_segment_header,
         text::{
@@ -20,6 +22,7 @@ use std::{
     future::{Future, pending},
     io,
     pin::pin,
+    rc::Rc,
     task::{Context, Poll, Waker},
 };
 
@@ -50,6 +53,8 @@ struct Source {
     max_read: usize,
     reads: Vec<(u64, usize)>,
     fault: Fault,
+    /// Raised once this many reads have started.
+    cancel_after_reads: Option<(usize, Rc<Cell<bool>>)>,
 }
 
 impl Source {
@@ -60,6 +65,7 @@ impl Source {
             max_read: usize::MAX,
             reads: Vec::new(),
             fault: Fault::None,
+            cancel_after_reads: None,
         }
     }
 }
@@ -75,6 +81,11 @@ impl RangedSource for Source {
         destination: &mut [u8],
     ) -> caj2pdf_core::Result<usize> {
         self.reads.push((offset, destination.len()));
+        if let Some((after, flag)) = &self.cancel_after_reads {
+            if self.reads.len() >= *after {
+                flag.set(true);
+            }
+        }
         match self.fault {
             Fault::Overreport => return Ok(destination.len() + 1),
             Fault::Fail => return Err(Error::Io(io::Error::other("test source failure"))),
@@ -92,18 +103,6 @@ impl RangedSource for Source {
             .min(self.max_read);
         destination[..count].copy_from_slice(&self.bytes[start..start + count]);
         Ok(count)
-    }
-}
-
-/// Cancels once the source has served `after` read calls.
-struct CancelAfter<'a> {
-    reads: &'a Cell<usize>,
-    after: usize,
-}
-
-impl Cancellation for CancelAfter<'_> {
-    fn is_cancelled(&self) -> bool {
-        self.reads.get() >= self.after
     }
 }
 
@@ -129,7 +128,7 @@ fn parse_header(bytes: &[u8]) -> SegmentHeader {
         },
         &Limits::default(),
         HeaderLimits::default(),
-        &NeverCancel,
+        &CancelAfter::Never,
     ))
     .unwrap()
 }
@@ -219,7 +218,7 @@ fn parse(region: &Region) -> Result<TextRegionHeader, TextRegionError> {
     parse_with(
         &mut Source::new(region.segment()),
         TextRegionBudget::default(),
-        &NeverCancel,
+        &CancelAfter::Never,
     )
 }
 
@@ -498,8 +497,12 @@ fn dimensions_pixels_instances_and_body_respect_budget() {
         ..TextRegionBudget::default()
     };
     let check = |region: Region, resource: &str, offset: u64, attempted: u64| {
-        let error = parse_with(&mut Source::new(region.segment()), budget, &NeverCancel)
-            .expect_err("budget must be enforced");
+        let error = parse_with(
+            &mut Source::new(region.segment()),
+            budget,
+            &CancelAfter::Never,
+        )
+        .expect_err("budget must be enforced");
         assert_eq!(error.offset, offset, "{resource}");
         match error.kind {
             TextRegionErrorKind::LimitExceeded {
@@ -513,7 +516,7 @@ fn dimensions_pixels_instances_and_body_respect_budget() {
     parse_with(
         &mut Source::new(Region::default().segment()),
         budget,
-        &NeverCancel,
+        &CancelAfter::Never,
     )
     .unwrap();
     check(
@@ -543,7 +546,7 @@ fn dimensions_pixels_instances_and_body_respect_budget() {
     let error = parse_with(
         &mut Source::new(Region::default().segment()),
         tight,
-        &NeverCancel,
+        &CancelAfter::Never,
     )
     .unwrap_err();
     assert!(matches!(
@@ -579,7 +582,7 @@ fn dimensions_pixels_instances_and_body_respect_budget() {
     let error = parse_with(
         &mut Source::new(Region::default().segment()),
         small_header,
-        &NeverCancel,
+        &CancelAfter::Never,
     )
     .unwrap_err();
     assert!(matches!(
@@ -621,7 +624,7 @@ fn truncated_fields_and_mq_terminal_pair() {
         let error = parse_with(
             &mut Source::new(segment),
             TextRegionBudget::default(),
-            &NeverCancel,
+            &CancelAfter::Never,
         )
         .unwrap_err();
         match error.kind {
@@ -638,7 +641,7 @@ fn truncated_fields_and_mq_terminal_pair() {
     let error = parse_with(
         &mut Source::new(frame(3, 6, &[2], 1, &huffman[..20])),
         TextRegionBudget::default(),
-        &NeverCancel,
+        &CancelAfter::Never,
     )
     .unwrap_err();
     assert!(matches!(
@@ -654,7 +657,7 @@ fn truncated_fields_and_mq_terminal_pair() {
     let error = parse_with(
         &mut Source::new(frame(3, 6, &[2], 1, &adaptive[..22])),
         TextRegionBudget::default(),
-        &NeverCancel,
+        &CancelAfter::Never,
     )
     .unwrap_err();
     assert!(matches!(
@@ -677,7 +680,7 @@ fn with_header(
         &dict,
         &Limits::default(),
         TextRegionBudget::default(),
-        &NeverCancel,
+        &CancelAfter::Never,
     ))
     .unwrap_err();
     assert!(source.reads.is_empty(), "framing errors must precede reads");
@@ -756,7 +759,7 @@ fn segment_type_reference_and_page_are_checked_before_reads() {
         &dictionary(2, 0),
         &Limits::default(),
         TextRegionBudget::default(),
-        &NeverCancel,
+        &CancelAfter::Never,
     ))
     .unwrap();
 }
@@ -795,7 +798,7 @@ fn spans_are_checked_before_reads() {
             ..Limits::default()
         },
         TextRegionBudget::default(),
-        &NeverCancel,
+        &CancelAfter::Never,
     ))
     .unwrap_err();
     assert!(matches!(
@@ -825,7 +828,7 @@ fn header_near_the_end_of_a_huge_source_is_truncated_without_overflow() {
         &dictionary(2, 1),
         &Limits::default(),
         TextRegionBudget::default(),
-        &NeverCancel,
+        &CancelAfter::Never,
     ))
     .unwrap_err();
     assert!(matches!(
@@ -850,7 +853,7 @@ fn invalid_limits_and_zero_request_bound_are_rejected() {
             ..Limits::default()
         },
         TextRegionBudget::default(),
-        &NeverCancel,
+        &CancelAfter::Never,
     ))
     .unwrap_err();
     assert!(matches!(error.kind, TextRegionErrorKind::Source(_)));
@@ -861,7 +864,7 @@ fn invalid_limits_and_zero_request_bound_are_rejected() {
             max_source_request_bytes: 0,
             ..TextRegionBudget::default()
         },
-        &NeverCancel,
+        &CancelAfter::Never,
     )
     .unwrap_err();
     assert!(matches!(
@@ -880,7 +883,7 @@ fn requests_are_bounded_and_short_reads_resume() {
         max_source_request_bytes: 5,
         ..TextRegionBudget::default()
     };
-    let parsed = parse_with(&mut source, budget, &NeverCancel).unwrap();
+    let parsed = parse_with(&mut source, budget, &CancelAfter::Never).unwrap();
     assert_eq!(parsed.header_bytes, 23);
     assert!(source.reads.iter().all(|&(_, length)| length <= 5));
     // Each read serves three bytes and resumes at the next offset; the last
@@ -906,7 +909,7 @@ fn requests_are_bounded_and_short_reads_resume() {
             ..Limits::default()
         },
         TextRegionBudget::default(),
-        &NeverCancel,
+        &CancelAfter::Never,
     ))
     .unwrap();
     assert!(source.reads.iter().all(|&(_, length)| length <= 2));
@@ -934,7 +937,12 @@ fn source_faults_are_typed_and_located() {
         let mut source = Source::new(Region::default().segment());
         source.fault = fault;
         source.max_read = 5;
-        let error = parse_with(&mut source, TextRegionBudget::default(), &NeverCancel).unwrap_err();
+        let error = parse_with(
+            &mut source,
+            TextRegionBudget::default(),
+            &CancelAfter::Never,
+        )
+        .unwrap_err();
         assert!(error.to_string().contains(message), "{error}");
         assert_eq!(error.bytes_fetched, fetched);
         assert_eq!(error.offset, DATA_OFFSET + fetched);
@@ -946,16 +954,11 @@ fn cancellation_is_checked_before_and_between_reads() {
     let bytes = Region::default().segment();
     let region = parse_header(&bytes);
     for after in 0..=3 {
-        let reads = Cell::new(0);
-        let cancellation = CancelAfter {
-            reads: &reads,
-            after,
-        };
-        let mut source = CountingSource {
-            inner: Source::new(bytes.clone()),
-            reads: &reads,
-        };
-        source.inner.max_read = 7;
+        let flag = Rc::new(Cell::new(after == 0));
+        let cancellation = CancelAfter::while_set(Rc::clone(&flag));
+        let mut source = Source::new(bytes.clone());
+        source.cancel_after_reads = Some((after, flag));
+        source.max_read = 7;
         let error = ready(read_text_region_header(
             &mut source,
             &region,
@@ -969,32 +972,12 @@ fn cancellation_is_checked_before_and_between_reads() {
             matches!(error.kind, TextRegionErrorKind::Cancelled),
             "{after}"
         );
-        assert_eq!(source.inner.reads.len(), after);
+        assert_eq!(source.reads.len(), after);
         let fetched = (7 * after as u64).min(19);
         assert_eq!(
             (error.bytes_fetched, error.offset),
             (fetched, DATA_OFFSET + fetched)
         );
-    }
-}
-
-struct CountingSource<'a> {
-    inner: Source,
-    reads: &'a Cell<usize>,
-}
-
-impl RangedSource for CountingSource<'_> {
-    fn size(&self) -> u64 {
-        self.inner.size()
-    }
-
-    async fn read_at(
-        &mut self,
-        offset: u64,
-        destination: &mut [u8],
-    ) -> caj2pdf_core::Result<usize> {
-        self.reads.set(self.reads.get() + 1);
-        self.inner.read_at(offset, destination).await
     }
 }
 
@@ -1013,7 +996,7 @@ fn dropped_pending_read_leaves_no_partial_result() {
             &dict,
             &limits,
             TextRegionBudget::default(),
-            &NeverCancel,
+            &CancelAfter::Never,
         ));
         assert!(
             future
@@ -1030,7 +1013,7 @@ fn dropped_pending_read_leaves_no_partial_result() {
         &dict,
         &Limits::default(),
         TextRegionBudget::default(),
-        &NeverCancel,
+        &CancelAfter::Never,
     ))
     .unwrap();
     assert_eq!(parsed.instances, 6);
@@ -1060,7 +1043,7 @@ fn fixed_budget_mutations_never_panic_or_read_past_header() {
             &dict,
             &Limits::default(),
             TextRegionBudget::default(),
-            &NeverCancel,
+            &CancelAfter::Never,
         ));
         outcomes[usize::from(result.is_ok())] += 1;
         let end = source
