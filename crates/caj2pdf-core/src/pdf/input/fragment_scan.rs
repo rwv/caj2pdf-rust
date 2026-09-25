@@ -212,8 +212,8 @@ pub(crate) async fn scan_fragment_objects<S: RangedSource, C: Cancellation>(
         // follows an `endstream` and `endobj` read by `bytes`, which also
         // stays within it.
         debug_assert!(start < end && end <= range.length);
-        let count = next_object_count(objects.len())
-            .map_err(|error| reader.locate_limit(start, Some(reference), error))?;
+        let count =
+            next_object_count(objects.len()).map_err(reader.locator(start, Some(reference)))?;
         let allocation = (count as u64)
             .saturating_mul(std::mem::size_of::<FragmentObject>() as u64)
             .saturating_add(
@@ -222,7 +222,7 @@ pub(crate) async fn scan_fragment_objects<S: RangedSource, C: Cancellation>(
             );
         limits
             .check_allocation(allocation)
-            .map_err(|error| reader.locate_limit(start, Some(reference), error))?;
+            .map_err(reader.locator(start, Some(reference)))?;
         let refused = reader.allocation_limit(
             start,
             Some(reference),
@@ -268,7 +268,7 @@ pub(crate) async fn scan_fragment_objects<S: RangedSource, C: Cancellation>(
     let actual_length = logical_end.saturating_sub(0);
     limits
         .check_input_size(actual_length)
-        .map_err(|error| reader.locate_limit(logical_end, None, error))?;
+        .map_err(reader.locator(logical_end, None))?;
     Ok(FragmentScan { objects, patches })
 }
 

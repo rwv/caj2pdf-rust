@@ -204,7 +204,7 @@ impl PdfIndex {
             })?;
         limits
             .check_allocation(total_index_bytes as u64)
-            .map_err(|error| reader.locate_limit(xref_offset, None, error))?;
+            .map_err(reader.locator(xref_offset, None))?;
         let mut object_locations = Vec::new();
         let refused = reader.allocation_limit(
             xref_offset,
@@ -351,12 +351,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
         kind: PdfErrorKind,
         reason: &'static str,
     ) -> Error {
-        Error::Pdf {
-            offset: self.absolute(relative),
-            object: object.map(|item| (item.number, item.generation)),
-            kind,
-            reason,
-        }
+        located_problem(self.range, relative, object, kind, reason)
     }
 
     fn malformed(&self, relative: u64, object: Option<PdfRef>, reason: &'static str) -> Error {
@@ -368,6 +363,12 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
             self.absolute(relative),
             object.map(|item| (item.number, item.generation)),
         )
+    }
+
+    /// An error mapper that locates a limit error at `relative` within
+    /// `object`, for `Result::map_err` on limit checks and bounded pushes.
+    fn locator(&self, relative: u64, object: Option<PdfRef>) -> impl Fn(Error) -> Error + '_ {
+        move |error| self.locate_limit(relative, object, error)
     }
 
     /// A located error for a failed reservation within the allocation limit.
@@ -447,7 +448,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
         }
         self.limits
             .check_allocation(length_u64)
-            .map_err(|error| self.locate_limit(position, None, error))?;
+            .map_err(self.locator(position, None))?;
         let mut result = Vec::new();
         let refused =
             self.allocation_limit(position, None, "PDF read buffer allocation", length_u64);
@@ -652,7 +653,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                             (end - start) as u64
                                 + (entries.len() * std::mem::size_of::<DictEntry>()) as u64,
                         )
-                        .map_err(|error| self.locate_limit(at, None, error))?;
+                        .map_err(self.locator(at, None))?;
                     let body = bytes[start..end].to_vec();
                     return Ok((
                         Dictionary {
@@ -707,7 +708,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                     })?;
                 self.limits
                     .check_allocation(bytes as u64)
-                    .map_err(|error| self.locate_limit(cursor, None, error))?;
+                    .map_err(self.locator(cursor, None))?;
                 let refused =
                     self.allocation_limit(cursor, None, "PDF xref index allocation", bytes as u64);
                 reserve_exact(&mut slots, slots_len, refused)?;
@@ -813,7 +814,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                     self.limits.max_allocation_bytes,
                     "PDF xref records",
                 )
-                .map_err(|error| self.locate_limit(cursor, None, error))?;
+                .map_err(self.locator(cursor, None))?;
                 cursor += 20;
             }
         }
@@ -1045,7 +1046,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                     self.limits.max_allocation_bytes,
                     "PDF xref records",
                 )
-                .map_err(|error| self.locate_limit(data_at, Some(reference), error))?;
+                .map_err(self.locator(data_at, Some(reference)))?;
             }
         }
         let self_entry = records
@@ -1137,7 +1138,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
             })?;
         self.limits
             .check_allocation(bytes as u64)
-            .map_err(|error| self.locate_limit(at, object, error))?;
+            .map_err(self.locator(at, object))?;
         let mut keys = Vec::new();
         let refused = self.allocation_limit(at, object, "PDF dictionary key index", bytes as u64);
         reserve_exact(&mut keys, dictionary.entries.len(), refused)?;
@@ -1163,10 +1164,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
 
     async fn load_head(&mut self, at: u64, expected: Option<PdfRef>) -> Result<ObjectHead> {
         let maximum = min(self.syntax_limit(), self.range.length.saturating_sub(at));
-        let mut amount = min(512, maximum) as usize;
-        if amount == 0 {
-            return Err(self.malformed(at, expected, "indirect object is truncated"));
-        }
+        let mut amount = first_head_read(self.range, at, expected, maximum)?;
         loop {
             let bytes = self.bytes(at, amount).await?;
             match parse_object_head(bytes) {
@@ -1193,7 +1191,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                                 + head.references.len() * std::mem::size_of::<PdfRef>())
                                 as u64,
                         )
-                        .map_err(|error| self.locate_limit(at, expected, error))?;
+                        .map_err(self.locator(at, expected))?;
                     return Ok(head);
                 }
                 Err(issue)
@@ -1347,17 +1345,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                 ));
             }
             let (head, location) = self.load_object(*offset, reference, slots).await?;
-            if location
-                .offset
-                .checked_add(location.length)
-                .is_none_or(|end| end > index.logical_end)
-            {
-                return Err(self.malformed(
-                    *offset,
-                    Some(reference),
-                    "live PDF object extends past logical EOF",
-                ));
-            }
+            check_live_object_end(self.range, *offset, reference, location, index.logical_end)?;
             if let ObjectTail::Stream { data_start } = &head.tail {
                 if *data_start > 0 && head.bytes[*data_start - 1] == b'\r' {
                     let failure = self.malformed(
@@ -1372,7 +1360,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                         self.limits.max_allocation_bytes / 8,
                         "PDF stream separator patches",
                     )
-                    .map_err(|error| self.locate_limit(patch_at, Some(reference), error))?;
+                    .map_err(self.locator(patch_at, Some(reference)))?;
                 }
             }
             if let Some(dictionary) = &head.dictionary {
@@ -1419,7 +1407,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                             self.limits.max_allocation_bytes / 8,
                             "PDF stale page parent candidates",
                         )
-                        .map_err(|error| self.locate_limit(*offset, Some(reference), error))?;
+                        .map_err(self.locator(*offset, Some(reference)))?;
                         continue;
                     }
                     return Err(self.malformed(
@@ -1546,7 +1534,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
             self.limits.max_allocation_bytes,
             "PDF page tree stack",
         )
-        .map_err(|error| self.locate_limit(catalog_location.offset, Some(index.catalog), error))?;
+        .map_err(self.locator(catalog_location.offset, Some(index.catalog)))?;
         // `PdfIndex::open` admitted more than one byte per slot under this
         // allocation limit, so a one-byte-per-slot index fits it.
         debug_assert!(self.limits.check_allocation(slots.len() as u64).is_ok());
@@ -1686,9 +1674,9 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                         .and_then(exact_unsigned)
                         .and_then(|count| u32::try_from(count).ok())
                         .ok_or(failure)?;
-                    self.limits.check_pages(count).map_err(|error| {
-                        self.locate_limit(location.offset, Some(reference), error)
-                    })?;
+                    self.limits
+                        .check_pages(count)
+                        .map_err(self.locator(location.offset, Some(reference)))?;
                     let failure = self.malformed(
                         location.offset,
                         Some(reference),
@@ -1715,7 +1703,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                         self.limits.max_allocation_bytes,
                         "PDF page tree stack",
                     )
-                    .map_err(|error| self.locate_limit(location.offset, Some(reference), error))?;
+                    .map_err(self.locator(location.offset, Some(reference)))?;
                     for kid in kids.into_iter().rev() {
                         push_bounded(
                             &mut stack,
@@ -1727,9 +1715,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                             self.limits.max_allocation_bytes,
                             "PDF page tree stack",
                         )
-                        .map_err(|error| {
-                            self.locate_limit(location.offset, Some(reference), error)
-                        })?;
+                        .map_err(self.locator(location.offset, Some(reference)))?;
                     }
                 }
                 b"Page" => {
@@ -1757,12 +1743,10 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                         self.limits.max_allocation_bytes,
                         "PDF page index",
                     )
-                    .map_err(|error| self.locate_limit(location.offset, Some(reference), error))?;
+                    .map_err(self.locator(location.offset, Some(reference)))?;
                     self.limits
                         .check_pages(pages.len() as u32)
-                        .map_err(|error| {
-                            self.locate_limit(location.offset, Some(reference), error)
-                        })?;
+                        .map_err(self.locator(location.offset, Some(reference)))?;
                 }
                 _ => {
                     return Err(self.malformed(
@@ -1979,7 +1963,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
             })?;
         self.limits
             .check_allocation(target_bytes as u64)
-            .map_err(|error| self.locate_limit(root_offset, Some(root_ref), error))?;
+            .map_err(self.locator(root_offset, Some(root_ref)))?;
         let mut page_targets = Vec::new();
         let refused = self.allocation_limit(
             root_offset,
@@ -2004,7 +1988,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
             self.limits.max_allocation_bytes,
             "PDF outline stack",
         )
-        .map_err(|error| self.locate_limit(root_offset, Some(root_ref), error))?;
+        .map_err(self.locator(root_offset, Some(root_ref)))?;
         let mut item_count = 0_u32;
         while let Some(task) = stack.pop() {
             let location = index.object_location(task.reference)?;
@@ -2026,7 +2010,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
             })?;
             self.limits
                 .check_bookmarks(item_count)
-                .map_err(|error| self.locate_limit(location.offset, Some(task.reference), error))?;
+                .map_err(self.locator(location.offset, Some(task.reference)))?;
             let (head, _) = self
                 .load_object(location.offset, task.reference, slots)
                 .await?;
@@ -2109,7 +2093,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                     self.limits.max_allocation_bytes,
                     "PDF outline stack",
                 )
-                .map_err(|error| self.locate_limit(location.offset, Some(task.reference), error))?;
+                .map_err(self.locator(location.offset, Some(task.reference)))?;
             } else if task.reference != task.expected_last {
                 return Err(self.malformed(
                     location.offset,
@@ -2133,9 +2117,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                         self.limits.max_allocation_bytes,
                         "PDF outline stack",
                     )
-                    .map_err(|error| {
-                        self.locate_limit(location.offset, Some(task.reference), error)
-                    })?;
+                    .map_err(self.locator(location.offset, Some(task.reference)))?;
                 }
                 _ => {
                     return Err(self.malformed(
@@ -2164,7 +2146,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
             .saturating_mul(std::mem::size_of::<usize>());
         self.limits
             .check_allocation(order_bytes as u64)
-            .map_err(|error| self.locate_limit(at, Some(reference), error))?;
+            .map_err(self.locator(at, Some(reference)))?;
         let mut order = Vec::new();
         let refused = self.allocation_limit(
             at,
@@ -2306,7 +2288,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
             cap,
             "PDF repair index",
         )
-        .map_err(|error| self.locate_limit(at, Some(reference), error))?;
+        .map_err(self.locator(at, Some(reference)))?;
         *retained_repair_bytes = next_retained;
         Ok(())
     }
@@ -2325,7 +2307,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
             })?;
         self.limits
             .check_allocation(bytes as u64)
-            .map_err(|error| self.locate_limit(index.xref_offset, None, error))?;
+            .map_err(self.locator(index.xref_offset, None))?;
         let mut locations = Vec::new();
         let refused = self.allocation_limit(
             index.xref_offset,
@@ -2422,7 +2404,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                                     cap,
                                     "PDF orphan gap repair index",
                                 )
-                                .map_err(|error| self.locate_limit(start, None, error))?;
+                                .map_err(self.locator(start, None))?;
                                 index.retained_gap_bytes = retained;
                                 return Ok(());
                             }
@@ -2564,6 +2546,71 @@ fn inflate_xref<C: Cancellation>(
             return Err(InflateXrefError::Malformed);
         }
     }
+}
+
+/// A PDF error located at `relative` within `range`.
+fn located_problem(
+    range: PdfRange,
+    relative: u64,
+    object: Option<PdfRef>,
+    kind: PdfErrorKind,
+    reason: &'static str,
+) -> Error {
+    Error::Pdf {
+        offset: range.offset.saturating_add(relative),
+        object: object.map(|item| (item.number, item.generation)),
+        kind,
+        reason,
+    }
+}
+
+/// The first read of an object head at `at` that may parse at most
+/// `maximum` bytes, refusing an object with no bytes left in `range`. Not
+/// generic, so every reader instantiation shares the refusal; a whole-PDF
+/// index never reaches it, as its xref offsets lie inside the range.
+fn first_head_read(
+    range: PdfRange,
+    at: u64,
+    expected: Option<PdfRef>,
+    maximum: u64,
+) -> Result<usize> {
+    if maximum == 0 {
+        return Err(located_problem(
+            range,
+            at,
+            expected,
+            PdfErrorKind::Malformed,
+            "indirect object is truncated",
+        ));
+    }
+    Ok(min(512, maximum) as usize)
+}
+
+/// Rejects a live object whose parsed span ends past the logical EOF. The
+/// tail scan admits no `obj` marker after that EOF, so only a source whose
+/// bytes change after the scan fails here. Not generic, so every reader
+/// instantiation shares this check.
+fn check_live_object_end(
+    range: PdfRange,
+    offset: u64,
+    reference: PdfRef,
+    location: ObjectLocation,
+    logical_end: u64,
+) -> Result<()> {
+    if location
+        .offset
+        .checked_add(location.length)
+        .is_none_or(|end| end > logical_end)
+    {
+        return Err(located_problem(
+            range,
+            offset,
+            Some(reference),
+            PdfErrorKind::Malformed,
+            "live PDF object extends past logical EOF",
+        ));
+    }
+    Ok(())
 }
 
 fn push_bounded<T>(
