@@ -630,6 +630,27 @@ fn requested_object_counts_are_bounded_and_located() {
 }
 
 #[test]
+fn output_that_differs_from_its_preflight_size_is_refused() {
+    for reason in [BODY_SIZE_MISMATCH, FINAL_SIZE_MISMATCH] {
+        assert!(check_preflight_size(42, 42, reason).is_ok());
+        for written in [41, 43] {
+            assert!(matches!(
+                check_preflight_size(written, 42, reason),
+                Err(Error::InvalidInput { reason: refused }) if refused == reason
+            ));
+        }
+    }
+    assert_eq!(
+        BODY_SIZE_MISMATCH,
+        "PDF body byte count differs from its preflight size"
+    );
+    assert_eq!(
+        FINAL_SIZE_MISMATCH,
+        "PDF final byte count differs from its preflight size"
+    );
+}
+
+#[test]
 fn checked_sums_refuse_only_a_total_beyond_u64() {
     assert_eq!(checked_sum(&[]).unwrap(), 0);
     assert_eq!(checked_sum(&[u64::MAX - 3, 1, 2]).unwrap(), u64::MAX);
