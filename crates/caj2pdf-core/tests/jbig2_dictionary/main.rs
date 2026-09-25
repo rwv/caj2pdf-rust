@@ -70,7 +70,9 @@ impl Fault {
 }
 
 /// An in-memory source with injectable short reads, faults, over-reports,
-/// pending reads, and cancellation after a chosen read.
+/// pending reads, and cancellation after a chosen read. Bytes at or beyond
+/// `visible_end` or the end of `bytes` read as end of input, so a test may
+/// truncate `bytes` without also moving `visible_end`.
 struct Source {
     bytes: Vec<u8>,
     advertised: u64,
@@ -130,6 +132,7 @@ impl RangedSource for Source {
         let start = usize::try_from(offset).unwrap_or(usize::MAX);
         let count = self
             .visible_end
+            .min(self.bytes.len())
             .saturating_sub(start)
             .min(destination.len())
             .min(self.max_read);
