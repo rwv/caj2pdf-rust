@@ -63,6 +63,13 @@ jobs:
           report="$(python3 scripts/jbig2_oracle.py --json)"
           printf '%s\n' "$report"
           python3 -c 'import json, sys; result = json.loads(sys.argv[1]); assert result["status"] == "NOT_RUN" and result["tool_agreements"] == 0' "$report"
+      - name: Report external JBIG2 generic-only pixel oracle as not run
+        env:
+          CAJ2PDF_CORPUS_DIR: ""
+        run: |
+          report="$(python3 scripts/jbig2_generic_oracle.py --json)"
+          printf '%s\n' "$report"
+          python3 -c 'import json, sys; result = json.loads(sys.argv[1]); assert result["status"] == "NOT_RUN" and result["tool_agreements"] == 0' "$report"
       - name: Report external standard JBIG1 probe as not run
         run: python3 scripts/jbig1_standard_probe.py --json
       - name: Report external corpus as not run
