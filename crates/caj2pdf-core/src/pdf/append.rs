@@ -1964,23 +1964,29 @@ mod tests {
         Ok(())
     }
 
+    fn copy_patches<'a>(separators: &'a [u64], gaps: &'a [GapPatch]) -> CopyPatches<'a> {
+        CopyPatches {
+            separators,
+            gaps,
+            next_separator: 0,
+            next_gap: 0,
+        }
+    }
+
     #[test]
     fn copy_patches_rewrite_verified_bytes_across_chunks() -> Result<()> {
         let gaps = [GapPatch {
             offset: 3,
             original: b"1 0".to_vec(),
         }];
-        let mut patches = CopyPatches {
-            separators: &[1],
-            gaps: &gaps,
-            next_separator: 0,
-            next_gap: 0,
-        };
+        let mut patches = copy_patches(&[1], &gaps);
         let mut first = *b"a\rx1";
         patches.apply(&mut first, 0)?;
         assert_eq!(&first, b"a\nx ");
         // The gap continues into the next chunk and must not be skipped.
-        assert!(patches.check_consumed().is_err());
+        assert!(invalid("PDF orphan gap patch exceeds copied prefix")(
+            &patches.check_consumed()
+        ));
         let mut second = *b" 0z";
         patches.apply(&mut second, 4)?;
         assert_eq!(&second, b"  z");
@@ -1992,22 +1998,12 @@ mod tests {
         let expect = |result: Result<()>, reason: &'static str| {
             assert!(invalid(reason)(&result), "{result:?}");
         };
-        let mut patches = CopyPatches {
-            separators: &[1],
-            gaps: &[],
-            next_separator: 0,
-            next_gap: 0,
-        };
+        let mut patches = copy_patches(&[1], &[]);
         expect(
             patches.apply(&mut b"a\n".to_owned(), 0),
             "PDF stream separator changed after inspection",
         );
-        let mut patches = CopyPatches {
-            separators: &[4],
-            gaps: &[],
-            next_separator: 0,
-            next_gap: 0,
-        };
+        let mut patches = copy_patches(&[4], &[]);
         patches.apply(&mut b"abc".to_owned(), 0).unwrap();
         expect(
             patches.check_consumed(),
@@ -2018,12 +2014,7 @@ mod tests {
             offset: 1,
             original: b"xy".to_vec(),
         }];
-        let mut patches = CopyPatches {
-            separators: &[],
-            gaps: &gaps,
-            next_separator: 0,
-            next_gap: 0,
-        };
+        let mut patches = copy_patches(&[], &gaps);
         expect(
             patches.apply(&mut b"axz".to_owned(), 0),
             "PDF orphan gap changed after inspection",
@@ -2032,12 +2023,7 @@ mod tests {
             offset: 8,
             original: b"xy".to_vec(),
         }];
-        let mut patches = CopyPatches {
-            separators: &[],
-            gaps: &gaps,
-            next_separator: 0,
-            next_gap: 0,
-        };
+        let mut patches = copy_patches(&[], &gaps);
         patches.apply(&mut b"abc".to_owned(), 0).unwrap();
         expect(
             patches.check_consumed(),

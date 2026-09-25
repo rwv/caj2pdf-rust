@@ -652,8 +652,6 @@ fn long_output_names_get_a_bounded_temporary_name() {
     assert_eq!(dir.entries(), vec![OsString::from(name)]);
 }
 
-/// Accepts `remaining` bytes, then fails every write.
-
 #[test]
 fn report_writers_propagate_every_sink_failure() {
     let hn = Inspection {
