@@ -2,6 +2,7 @@
 
 //! Bounded CAJ-family type-0 rows using caller-supplied T.82 probability states.
 
+use crate::fallible::reserve_exact;
 use crate::qm::{
     ArithmeticBudget, ArithmeticDecoder, ArithmeticError, ArithmeticErrorKind, ArithmeticSnapshot,
     ContextBank, ContextState, EncodedSpan, QM_STATE_COUNT, QmState, QmTable, StripeMode,
@@ -348,10 +349,10 @@ fn checked_info(
             allocated,
         ));
     }
-    let dib_stride = usize::try_from(stride_u64)
-        .map_err(|_| malformed(base + 4, "DIB stride exceeds address space"))?;
-    let visible_bytes = usize::try_from(visible_u64)
-        .map_err(|_| malformed(base + 4, "visible stride exceeds address space"))?;
+    // A u32 width has a DIB stride of at most 2^29 + 4 bytes, which every
+    // supported (at least 32-bit) `usize` represents.
+    let dib_stride = stride_u64 as usize;
+    let visible_bytes = visible_u64 as usize;
     Ok(Type0Info {
         width,
         height,
@@ -362,8 +363,8 @@ fn checked_info(
 
 fn blank_row(stride: usize, offset: u64) -> Type0Result<Vec<u8>> {
     let mut row = Vec::new();
-    row.try_reserve_exact(stride)
-        .map_err(|_| at(offset, Type0ErrorKind::AllocationFailed))?;
+    let failed = at(offset, Type0ErrorKind::AllocationFailed);
+    reserve_exact(&mut row, stride, failed)?;
     row.resize(stride, 0);
     Ok(row)
 }

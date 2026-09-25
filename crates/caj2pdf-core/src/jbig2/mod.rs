@@ -18,7 +18,7 @@ pub mod mq;
 pub mod refinement;
 pub mod text;
 
-use crate::fallible::{len_u64, reserve_exact};
+use crate::fallible::{len_u64, reserve_exact, usize_from_u32};
 use crate::{Cancellation, Error, Limits, RangedSource};
 use std::{error, fmt, mem};
 
@@ -484,8 +484,8 @@ pub(super) async fn read_header_prefix<S: RangedSource, C: Cancellation>(
     }
 
     let mut retention = Vec::new();
-    let retention_length = usize::try_from(retention_bytes)
-        .map_err(|_| cursor.invalid_span("retention size overflows"))?;
+    // At most `(2^29 + 1).div_ceil(8)` bytes for a 29-bit reference count.
+    let retention_length = retention_bytes as usize;
     let failed = cursor.error(HeaderErrorKind::AllocationFailed);
     reserve_exact(&mut retention, retention_length, failed)?;
     if let Some(short) = short_retention {
@@ -512,8 +512,7 @@ pub(super) async fn read_header_prefix<S: RangedSource, C: Cancellation>(
     }
 
     let mut referred_to = Vec::new();
-    let count = usize::try_from(reference_count)
-        .map_err(|_| cursor.invalid_span("reference count overflows"))?;
+    let count = usize_from_u32(reference_count);
     let failed = cursor.error(HeaderErrorKind::AllocationFailed);
     reserve_exact(&mut referred_to, count, failed)?;
     for _ in 0..count {

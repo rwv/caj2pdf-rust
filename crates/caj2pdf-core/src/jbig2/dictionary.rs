@@ -19,7 +19,7 @@ use super::{
     },
     read_segment_header,
 };
-use crate::fallible::{len_u64, try_convert};
+use crate::fallible::{len_u64, reserve_exact, try_convert, usize_from_u32};
 use crate::{Cancellation, Error, Limits, RangedSource, SequentialSink};
 use std::{error, fmt, io, mem};
 
@@ -394,14 +394,12 @@ impl HeaderCursor<'_> {
             if got == 0 {
                 return Err(self.error(DictionaryErrorKind::Truncated(name)));
             }
-            self.at = self
-                .at
-                .checked_add(got as u64)
-                .ok_or_else(|| self.invalid_span("header offset overflow"))?;
-            self.fetched = self
-                .fetched
-                .checked_add(got as u64)
-                .ok_or_else(|| self.invalid_span("header read count overflow"))?;
+            // `got <= request <= bytes.len() - done`, so `at` stays at or
+            // below the checked `future`. `fetched` starts at the framing
+            // header's exact length (the reparse read each header byte once),
+            // so it stays at or below `at - header_start`.
+            self.at += got as u64;
+            self.fetched += got as u64;
             done += got;
             if cancellation.is_cancelled() {
                 return Err(self.error(DictionaryErrorKind::Cancelled));
@@ -994,10 +992,11 @@ impl<'a, S: RangedSource, W: SequentialSink, C: Cancellation> DirectDictionaryDe
         let location = header.body.offset;
         let mut new_symbols = Vec::new();
         let mut exported_symbols = Vec::new();
-        let reserved = new_symbols
-            .try_reserve_exact(header.new_symbols as usize)
-            .and_then(|()| exported_symbols.try_reserve_exact(header.exported_symbols as usize));
-        reserved.map_err(|_| allocation_failed(segment, location, header_fetched))?;
+        let failed = allocation_failed(segment, location, header_fetched);
+        reserve_exact(&mut new_symbols, usize_from_u32(header.new_symbols), failed)?;
+        let failed = allocation_failed(segment, location, header_fetched);
+        let exported_count = usize_from_u32(header.exported_symbols);
+        reserve_exact(&mut exported_symbols, exported_count, failed)?;
         // No bitmap context reuse is accepted. T.88 §7.4.2.2 also resets all
         // arithmetic-integer statistics at each new dictionary.
         banks.reset_all();
@@ -1078,13 +1077,6 @@ impl<'a, S: RangedSource, W: SequentialSink, C: Cancellation> DirectDictionaryDe
         )
     }
 
-    fn invalid_span(&self, reason: &'static str) -> DictionaryError {
-        self.error(
-            self.current_offset(),
-            DictionaryErrorKind::InvalidSpan(reason),
-        )
-    }
-
     fn current_offset(&self) -> u64 {
         self.mq.snapshot().current_input_offset
     }
@@ -1146,11 +1138,13 @@ impl<'a, S: RangedSource, W: SequentialSink, C: Cancellation> DirectDictionaryDe
         let mut done = 0;
         while done < self.current.len() {
             self.check_cancelled()?;
-            let attempted_writes = self
-                .progress
-                .sink_writes
-                .checked_add(1)
-                .ok_or_else(|| self.invalid_span("sink write count overflow"))?;
+            // Every earlier write stored at least one byte (a failed write
+            // poisons the decoder), so `sink_writes <= stored_bitmap_bytes`.
+            // At least one byte of this symbol is still pending, and the
+            // whole symbol fits `max_stored_bitmap_bytes`, so
+            // `stored_bitmap_bytes < u64::MAX` and this cannot overflow.
+            debug_assert!(self.progress.sink_writes <= self.progress.stored_bitmap_bytes);
+            let attempted_writes = self.progress.sink_writes + 1;
             self.check("sink writes", self.budget.max_sink_writes, attempted_writes)?;
             let count = (self.current.len() - done)
                 .min(self.io_limits.io_chunk_bytes)
@@ -1182,11 +1176,10 @@ impl<'a, S: RangedSource, W: SequentialSink, C: Cancellation> DirectDictionaryDe
                     ))),
                 ));
             }
-            self.progress.stored_bitmap_bytes = self
-                .progress
-                .stored_bitmap_bytes
-                .checked_add(written as u64)
-                .ok_or_else(|| self.invalid_span("stored byte count overflow"))?;
+            // `symbol_geometry` checked that this symbol's packed bytes fit
+            // `max_stored_bitmap_bytes` after every earlier symbol, and the
+            // rows written so far never exceed them.
+            self.progress.stored_bitmap_bytes += written as u64;
             done += written;
             self.check_cancelled()?;
         }
@@ -1251,22 +1244,19 @@ impl<'a, S: RangedSource, W: SequentialSink, C: Cancellation> DirectDictionaryDe
         let mut class_height = 0i64;
         while self.progress.completed_symbols < self.header.new_symbols {
             self.check_cancelled()?;
-            let classes = self
-                .progress
-                .height_classes
-                .checked_add(1)
-                .ok_or_else(|| self.invalid_span("height class count overflow"))?;
+            let classes = u64::from(self.progress.height_classes) + 1;
             self.check(
                 "height classes",
                 u64::from(self.budget.max_height_classes),
-                u64::from(classes),
+                classes,
             )?;
-            self.progress.height_classes = classes;
+            // At most `max_height_classes`, a u32.
+            self.progress.height_classes = classes as u32;
             let value = self.integer(IntegerProcedure::Iadh).await?;
             let delta = self.signed(value, "IADH out of band")?;
-            class_height = class_height
-                .checked_add(delta)
-                .ok_or_else(|| self.malformed("height class overflow"))?;
+            // `class_height` is in `0..=u32::MAX` here and every decoded
+            // integer's magnitude is below 2^33, so the sum fits i64.
+            class_height += delta;
             if class_height < 0 || class_height > i64::from(u32::MAX) {
                 return Err(self.malformed("height class dimension"));
             }
@@ -1285,9 +1275,9 @@ impl<'a, S: RangedSource, W: SequentialSink, C: Cancellation> DirectDictionaryDe
                 if self.progress.completed_symbols == self.header.new_symbols {
                     return Err(self.malformed("symbol-count overrun before width OOB"));
                 }
-                class_width = class_width
-                    .checked_add(delta)
-                    .ok_or_else(|| self.malformed("symbol width overflow"))?;
+                // A checked symbol width is in `1..=u32::MAX`, so the same
+                // integer bound applies.
+                class_width += delta;
                 let (width, height, stride, pixels, bytes) =
                     self.checked_geometry(class_width, class_height)?;
                 let descriptor = self.bitmap(width, height, stride, pixels, bytes).await?;
@@ -1305,17 +1295,10 @@ impl<'a, S: RangedSource, W: SequentialSink, C: Cancellation> DirectDictionaryDe
         // condition. Even a zero-total dictionary consumes one zero run.
         loop {
             self.check_cancelled()?;
-            let runs = self
-                .progress
-                .export_runs
-                .checked_add(1)
-                .ok_or_else(|| self.invalid_span("export run count overflow"))?;
-            self.check(
-                "export runs",
-                u64::from(self.budget.max_export_runs),
-                u64::from(runs),
-            )?;
-            self.progress.export_runs = runs;
+            let runs = u64::from(self.progress.export_runs) + 1;
+            self.check("export runs", u64::from(self.budget.max_export_runs), runs)?;
+            // At most `max_export_runs`, a u32.
+            self.progress.export_runs = runs as u32;
             let value = self.integer(IntegerProcedure::Iaex).await?;
             let length = self.signed(value, "IAEX out of band")?;
             if length < 0 {

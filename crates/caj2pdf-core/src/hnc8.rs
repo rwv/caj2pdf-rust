@@ -271,6 +271,11 @@ impl Location {
     }
 }
 
+/// Every caller passes an offset and a length below 2^42: fixed header
+/// offsets, a page index after at most `2^31` 308-byte outline records,
+/// page rows within at most `2^31` 20-byte rows, and record fields and
+/// descriptor cursors built from nonnegative i32 values. Their sum therefore
+/// fits u64.
 fn checked_span(
     source_size: u64,
     offset: u64,
@@ -278,9 +283,8 @@ fn checked_span(
     loc: Location,
     field: &'static str,
 ) -> Result<Span> {
-    let end = offset
-        .checked_add(length)
-        .ok_or_else(|| loc.malformed(field, "end overflows u64"))?;
+    debug_assert!(offset < 1 << 42 && length < 1 << 42);
+    let end = offset + length;
     if offset > source_size || end > source_size {
         return Err(loc.error(ErrorKind::Truncated {
             field,
@@ -513,9 +517,7 @@ impl<'a, S: RangedSource, C: Cancellation> Hnc8Reader<'a, S, C> {
             }
             // The count fits 32 bits, so the product fits 64 bits.
             let outline_bytes = outline_count * OUTLINE_RECORD_BYTES;
-            index_start
-                .checked_add(outline_bytes)
-                .ok_or_else(|| loc.at(0x158).malformed("page index", "start overflows"))?
+            index_start + outline_bytes
         } else {
             index_start
         };

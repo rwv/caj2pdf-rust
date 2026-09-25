@@ -10,6 +10,7 @@ use super::{
         MqTable,
     },
 };
+use crate::fallible::reserve_exact;
 use crate::{Cancellation, Error, Limits, RangedSource, SequentialSink, read_exact_at, write_all};
 use std::{error, fmt, mem};
 
@@ -193,8 +194,8 @@ fn checked_row(stride: usize, segment: u32, offset: u64) -> GenericResult<Vec<u8
     // checked_layout already caps all three rows plus table, contexts, and
     // the MQ buffer before this first reserve.
     let mut row = Vec::new();
-    row.try_reserve_exact(stride)
-        .map_err(|_| at(segment, offset, GenericErrorKind::AllocationFailed))?;
+    let failed = at(segment, offset, GenericErrorKind::AllocationFailed);
+    reserve_exact(&mut row, stride, failed)?;
     row.resize(stride, 0);
     Ok(row)
 }
@@ -379,8 +380,9 @@ fn checked_layout(
             output,
         ));
     }
-    let stride = usize::try_from(stride_u64)
-        .map_err(|_| malformed(segment, offset, "row stride exceeds address space"))?;
+    // A u32 width has a stride of at most 2^29 bytes, which every supported
+    // (at least 32-bit) `usize` represents.
+    let stride = stride_u64 as usize;
     let failure = malformed(segment, offset, "allocation calculation overflows");
     let rows_alloc = stride_u64
         .checked_mul(3)

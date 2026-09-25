@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 use caj2pdf_core::{
-    Cancellation, Limits, NeverCancel, RangedSource,
+    Cancellation, Error, Limits, NeverCancel, RangedSource,
     jbig2::{
         DirectoryError, DirectoryErrorKind, DirectoryLimits, HeaderErrorKind, HeaderLimits,
         SegmentDirectory, SegmentSpan, read_embedded_directory, read_segment_header,
@@ -319,6 +319,32 @@ fn reports_truncation_extra_bytes_and_unknown_data_length() {
     assert!(matches!(
         error.kind,
         HeaderErrorKind::Malformed("bytes follow declared segment data")
+    ));
+
+    // The enclosing span is checked against the input limit before any read.
+    let mut source = SpySource::new(PAGE);
+    let error = run(read_segment_header(
+        &mut source,
+        SegmentSpan {
+            offset: 0,
+            length: PAGE.len() as u64,
+        },
+        &Limits {
+            max_input_bytes: PAGE.len() as u64 - 1,
+            ..Limits::default()
+        },
+        HeaderLimits::default(),
+        &NeverCancel,
+    ))
+    .unwrap_err();
+    assert_eq!((error.offset, error.segment), (0, None));
+    assert!(source.ranges.is_empty());
+    assert!(matches!(
+        error.kind,
+        HeaderErrorKind::Source(Error::LimitExceeded {
+            resource: "input bytes",
+            ..
+        })
     ));
 }
 
