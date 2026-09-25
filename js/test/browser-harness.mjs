@@ -105,7 +105,8 @@ export async function startServer(root, routes) {
   };
 }
 
-const COMMAND_TIMEOUT = 30_000;
+/** Bounds Chromium startup, page loads, and each DevTools command. */
+const TIMEOUT = 30_000;
 
 function withTimeout(promise, milliseconds, what) {
   let timer;
@@ -151,7 +152,7 @@ class Cdp {
   }
 
   /** Send a command; it rejects if the connection closes or `timeout` passes. */
-  send(method, params = {}, sessionId, timeout = COMMAND_TIMEOUT) {
+  send(method, params = {}, sessionId, timeout = TIMEOUT) {
     if (this.#socket.readyState !== WebSocket.OPEN) {
       return Promise.reject(new Error(`CDP ${method}: connection is not open`));
     }
@@ -189,7 +190,7 @@ class Cdp {
  * Launch headless Chromium with a throwaway profile and connect over CDP.
  * `close()` always kills the process and removes the profile.
  */
-export async function launchChrome(executable, { startupTimeout = 30_000 } = {}) {
+export async function launchChrome(executable) {
   const profile = await mkdtemp(join(tmpdir(), "caj2pdf-chrome-"));
   const child = spawn(executable, [
     "--headless=new",
@@ -280,10 +281,10 @@ export async function launchChrome(executable, { startupTimeout = 30_000 } = {})
         await new Promise((done) => setTimeout(done, 50));
       }
     })();
-    const endpoint = await withTimeout(ready, startupTimeout, "Chromium startup").finally(() => {
+    const endpoint = await withTimeout(ready, TIMEOUT, "Chromium startup").finally(() => {
       waiting = false;
     });
-    cdp = await withTimeout(Cdp.connect(endpoint), startupTimeout, "DevTools connection");
+    cdp = await withTimeout(Cdp.connect(endpoint), TIMEOUT, "DevTools connection");
     return { cdp, close };
   } catch (error) {
     await close();
@@ -294,9 +295,9 @@ export async function launchChrome(executable, { startupTimeout = 30_000 } = {})
 /**
  * Open `url` in a new tab and return `evaluate(expression)`, which awaits the
  * expression's promise in the page and returns its JSON value. Each step
- * times out after `timeout` milliseconds.
+ * times out after 30 seconds.
  */
-export async function openPage(cdp, url, { timeout = COMMAND_TIMEOUT } = {}) {
+export async function openPage(cdp, url) {
   const { targetId } = await cdp.send("Target.createTarget", { url: "about:blank" });
   const { sessionId } = await cdp.send("Target.attachToTarget", { targetId, flatten: true });
   const errors = [];
@@ -310,7 +311,7 @@ export async function openPage(cdp, url, { timeout = COMMAND_TIMEOUT } = {}) {
   const loaded = cdp.once("Page.loadEventFired", sessionId);
   const navigation = await cdp.send("Page.navigate", { url }, sessionId);
   if (navigation.errorText) throw new Error(`navigation to ${url} failed: ${navigation.errorText}`);
-  await withTimeout(loaded, timeout, `loading ${url}`);
+  await withTimeout(loaded, TIMEOUT, `loading ${url}`);
   return {
     errors,
     async evaluate(expression) {
@@ -318,7 +319,6 @@ export async function openPage(cdp, url, { timeout = COMMAND_TIMEOUT } = {}) {
         "Runtime.evaluate",
         { expression, awaitPromise: true, returnByValue: true },
         sessionId,
-        timeout,
       );
       if (exceptionDetails) {
         throw new Error(`page threw: ${exceptionDetails.exception?.description ?? exceptionDetails.text}`);
