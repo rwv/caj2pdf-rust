@@ -19,7 +19,7 @@ use super::{
     },
     read_segment_header,
 };
-use crate::fallible::len_u64;
+use crate::fallible::{len_u64, try_convert};
 use crate::{Cancellation, Error, Limits, RangedSource, SequentialSink};
 use std::{error, fmt, io, mem};
 
@@ -830,6 +830,111 @@ fn check_direct_header(
     Ok(())
 }
 
+/// Checked dimensions of one new symbol: width, height, row stride, pixels,
+/// and packed bytes.
+type SymbolGeometry = (u32, u32, usize, u64, u64);
+
+fn check_budget(
+    resource: &'static str,
+    limit: u64,
+    attempted: u64,
+) -> Result<(), DictionaryErrorKind> {
+    if attempted > limit {
+        Err(DictionaryErrorKind::LimitExceeded {
+            resource,
+            limit,
+            attempted,
+        })
+    } else {
+        Ok(())
+    }
+}
+
+/// Validate one decoded symbol size against every budget before any bitmap
+/// work. Not generic, so every decoder instantiation shares it; the caller
+/// locates the returned error kind at the current MQ offset.
+fn symbol_geometry(
+    width: i64,
+    height: i64,
+    budget: &DictionaryBudget,
+    limits: &Limits,
+    header: &DictionaryDataHeader,
+    progress: &DictionaryProgress,
+) -> Result<SymbolGeometry, DictionaryErrorKind> {
+    if width < 0 || height < 0 {
+        return Err(DictionaryErrorKind::Malformed("negative symbol dimension"));
+    }
+    if width == 0 || height == 0 {
+        return Err(DictionaryErrorKind::Unsupported {
+            feature: "zero-dimension symbol bitmap",
+            value: 0,
+        });
+    }
+    let width = try_convert(
+        width,
+        DictionaryErrorKind::Malformed("symbol width exceeds 32 bits"),
+    )?;
+    let height = try_convert(
+        height,
+        DictionaryErrorKind::Malformed("symbol height exceeds 32 bits"),
+    )?;
+    check_budget(
+        "symbol width",
+        u64::from(budget.max_width),
+        u64::from(width),
+    )?;
+    check_budget(
+        "symbol height",
+        u64::from(budget.max_height),
+        u64::from(height),
+    )?;
+    // A product of two u32 dimensions fits u64 exactly.
+    let pixels = u64::from(width) * u64::from(height);
+    check_budget("symbol pixels", budget.max_pixels_per_symbol, pixels)?;
+    let total_pixels =
+        progress
+            .decoded_pixels
+            .checked_add(pixels)
+            .ok_or(DictionaryErrorKind::InvalidSpan(
+                "total pixel count overflow",
+            ))?;
+    check_budget("dictionary pixels", budget.max_total_pixels, total_pixels)?;
+    let stride = u64::from(width).div_ceil(8);
+    // The maximum stride is 2^29 bytes, so this product fits u64.
+    let bytes = stride * u64::from(height);
+    check_budget("symbol bytes", budget.max_bytes_per_symbol, bytes)?;
+    let stored =
+        progress
+            .stored_bitmap_bytes
+            .checked_add(bytes)
+            .ok_or(DictionaryErrorKind::InvalidSpan(
+                "stored byte count overflow",
+            ))?;
+    check_budget(
+        "stored bitmap bytes",
+        budget.max_stored_bitmap_bytes,
+        stored,
+    )?;
+    check_budget("output bytes", limits.max_output_bytes, stored)?;
+    let scratch = stride * 3;
+    check_budget("row scratch bytes", limits.max_allocation_bytes, scratch)?;
+    let metadata = (u64::from(header.new_symbols) + u64::from(header.exported_symbols))
+        * mem::size_of::<SymbolDescriptor>() as u64;
+    let working = (TOTAL_CONTEXTS * mem::size_of::<MqContext>()) as u64
+        + (MQ_STATE_COUNT * mem::size_of::<MqState>()) as u64
+        + MQ_BUFFER_BYTES
+        + metadata
+        + scratch;
+    check_budget(
+        "dictionary working bytes",
+        budget.max_working_bytes,
+        working,
+    )?;
+    // At most 2^29 bytes; even wasm32's usize can represent it.
+    let stride_usize = stride as usize;
+    Ok((width, height, stride_usize, pixels, bytes))
+}
+
 /// Stateful direct dictionary decode. The caller constructs an
 /// `IntegerContextBanks::with_extra_contexts(1024, ...)` owner; an IAID owner
 /// cannot be passed here and its bitmap range cannot alias this dictionary.
@@ -989,18 +1094,8 @@ impl<'a, S: RangedSource, W: SequentialSink, C: Cancellation> DirectDictionaryDe
     }
 
     fn check(&self, resource: &'static str, limit: u64, attempted: u64) -> DictionaryResult<()> {
-        if attempted > limit {
-            Err(self.error(
-                self.current_offset(),
-                DictionaryErrorKind::LimitExceeded {
-                    resource,
-                    limit,
-                    attempted,
-                },
-            ))
-        } else {
-            Ok(())
-        }
+        check_budget(resource, limit, attempted)
+            .map_err(|kind| self.error(self.current_offset(), kind))
     }
 
     async fn integer(&mut self, procedure: IntegerProcedure) -> DictionaryResult<IntegerValue> {
@@ -1022,87 +1117,16 @@ impl<'a, S: RangedSource, W: SequentialSink, C: Cancellation> DirectDictionaryDe
         }
     }
 
-    fn checked_geometry(
-        &self,
-        width: i64,
-        height: i64,
-    ) -> DictionaryResult<(u32, u32, usize, u64, u64)> {
-        if width < 0 || height < 0 {
-            return Err(self.malformed("negative symbol dimension"));
-        }
-        if width == 0 || height == 0 {
-            return Err(self.error(
-                self.current_offset(),
-                DictionaryErrorKind::Unsupported {
-                    feature: "zero-dimension symbol bitmap",
-                    value: 0,
-                },
-            ));
-        }
-        let width =
-            u32::try_from(width).map_err(|_| self.malformed("symbol width exceeds 32 bits"))?;
-        let height =
-            u32::try_from(height).map_err(|_| self.malformed("symbol height exceeds 32 bits"))?;
-        self.check(
-            "symbol width",
-            u64::from(self.budget.max_width),
-            u64::from(width),
-        )?;
-        self.check(
-            "symbol height",
-            u64::from(self.budget.max_height),
-            u64::from(height),
-        )?;
-        // A product of two u32 dimensions fits u64 exactly.
-        let pixels = u64::from(width) * u64::from(height);
-        self.check("symbol pixels", self.budget.max_pixels_per_symbol, pixels)?;
-        let total_pixels = self
-            .progress
-            .decoded_pixels
-            .checked_add(pixels)
-            .ok_or_else(|| self.invalid_span("total pixel count overflow"))?;
-        self.check(
-            "dictionary pixels",
-            self.budget.max_total_pixels,
-            total_pixels,
-        )?;
-        let stride = u64::from(width).div_ceil(8);
-        // The maximum stride is 2^29 bytes, so this product fits u64.
-        let bytes = stride * u64::from(height);
-        self.check("symbol bytes", self.budget.max_bytes_per_symbol, bytes)?;
-        let stored = self
-            .progress
-            .stored_bitmap_bytes
-            .checked_add(bytes)
-            .ok_or_else(|| self.invalid_span("stored byte count overflow"))?;
-        self.check(
-            "stored bitmap bytes",
-            self.budget.max_stored_bitmap_bytes,
-            stored,
-        )?;
-        self.check("output bytes", self.io_limits.max_output_bytes, stored)?;
-        let scratch = stride * 3;
-        self.check(
-            "row scratch bytes",
-            self.io_limits.max_allocation_bytes,
-            scratch,
-        )?;
-        let metadata = (u64::from(self.header.new_symbols)
-            + u64::from(self.header.exported_symbols))
-            * mem::size_of::<SymbolDescriptor>() as u64;
-        let working = (TOTAL_CONTEXTS * mem::size_of::<MqContext>()) as u64
-            + (MQ_STATE_COUNT * mem::size_of::<MqState>()) as u64
-            + MQ_BUFFER_BYTES
-            + metadata
-            + scratch;
-        self.check(
-            "dictionary working bytes",
-            self.budget.max_working_bytes,
-            working,
-        )?;
-        // At most 2^29 bytes; even wasm32's usize can represent it.
-        let stride_usize = stride as usize;
-        Ok((width, height, stride_usize, pixels, bytes))
+    fn checked_geometry(&self, width: i64, height: i64) -> DictionaryResult<SymbolGeometry> {
+        symbol_geometry(
+            width,
+            height,
+            &self.budget,
+            self.io_limits,
+            &self.header,
+            &self.progress,
+        )
+        .map_err(|kind| self.error(self.current_offset(), kind))
     }
 
     fn prepare_row(row: &mut Vec<u8>, stride: usize) -> Result<(), ()> {
