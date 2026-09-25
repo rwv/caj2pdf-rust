@@ -578,11 +578,15 @@ fn inspect_reports_every_recognized_format() {
         "Format: HN\nVariant: HN-B\nConversion: not supported\nPages: 2\nOutline: unknown\n"
     );
     scratch.write("bad.kdh", &kdh(b"not a pdf"));
+    scratch.write("broken.kdh", &kdh(&fixture("truncated_xref.pdf")));
+    scratch.write("empty", b"");
     scratch.write("bad.hn", &fixture("truncated_hn.hn"));
     scratch.write("bad.caj", b"CAJ\0");
     scratch.write("bad.pdf", &fixture("truncated_xref.pdf"));
     for (input, message) in [
         ("bad.kdh", "cannot inspect 'bad.kdh': "),
+        ("broken.kdh", "cannot inspect 'broken.kdh': "),
+        ("empty", "cannot inspect 'empty': input is empty"),
         ("bad.hn", "truncated signature"),
         ("bad.caj", "malformed CAJ"),
         ("bad.pdf", "cannot inspect 'bad.pdf': "),
@@ -686,6 +690,11 @@ fn add_bookmarks_rejects_unusable_inputs() {
             "cannot add bookmarks from 'deep.caj' to 'plain.pdf': ",
         ),
         (["missing.caj", "plain.pdf"], "cannot read 'missing.caj'"),
+        (["paper.caj", "missing.pdf"], "cannot read 'missing.pdf'"),
+        (
+            ["/dev/null", "plain.pdf"],
+            "cannot read '/dev/null': input is empty",
+        ),
     ] {
         let output = scratch.run(["add-bookmarks", args[0], args[1], "-o", "out.pdf"]);
         assert_failure(&output, 1, message);
@@ -724,19 +733,22 @@ fn pdf_bytes_are_not_written_to_a_terminal() {
     // util-linux `script` runs the command with a pseudo-terminal as stdout.
     let scratch = Scratch::new("tty");
     scratch.write("paper.caj", &caj(OUTLINE));
-    let command = format!("'{}' paper.caj -o -", env!("CARGO_BIN_EXE_caj2pdf"));
-    let output = Command::new("script")
-        .args(["-qec", &command, "/dev/null"])
-        .current_dir(&scratch.0)
-        .stdin(Stdio::null())
-        .output()
-        .unwrap();
-    assert_eq!(output.status.code(), Some(1));
-    let transcript = String::from_utf8_lossy(&output.stdout);
-    assert!(
-        transcript.contains("refusing to write binary PDF data to a terminal"),
-        "{transcript}"
-    );
-    assert!(!transcript.contains("%PDF"));
+    // `paper.pdf` does not exist: the refusal precedes opening any input.
+    for args in ["paper.caj -o -", "add-bookmarks paper.caj paper.pdf -o -"] {
+        let command = format!("'{}' {args}", env!("CARGO_BIN_EXE_caj2pdf"));
+        let output = Command::new("script")
+            .args(["-qec", &command, "/dev/null"])
+            .current_dir(&scratch.0)
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(1));
+        let transcript = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            transcript.contains("refusing to write binary PDF data to a terminal"),
+            "{transcript}"
+        );
+        assert!(!transcript.contains("%PDF"));
+    }
     assert_eq!(scratch.entries(), ["paper.caj"]);
 }
