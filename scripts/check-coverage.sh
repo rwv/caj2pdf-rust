@@ -8,8 +8,8 @@ set -euo pipefail
 report_dir=target/coverage
 report="$report_dir/lcov.info"
 summary="$report_dir/summary.txt"
-minimum=98
-file_minimum=96
+minimum=98.8
+file_minimum=97
 mkdir -p "$report_dir"
 
 cargo llvm-cov --workspace --all-features --locked --lcov --output-path "$report"
@@ -37,12 +37,12 @@ awk -F: -v root="$PWD/" -v minimum="$minimum" -v file_minimum="$file_minimum" '
       if (found[file] == 0) continue
       percent = 100 * hit[file] / found[file]
       if (percent + 0.000001 < file_minimum) {
-        printf "File below %d%%: %s %.2f%% (%d/%d)\n", file_minimum, file, percent, hit[file], found[file]
+        printf "File below %g%%: %s %.2f%% (%d/%d)\n", file_minimum, file, percent, hit[file], found[file]
         failed = 1
       }
     }
     percent = 100 * hits / lines
-    printf "Line coverage: %.2f%% (%d/%d); minimum %d%% total and %d%% per file; target 100%%.\n", \
+    printf "Line coverage: %.2f%% (%d/%d); minimum %g%% total and %g%% per file; target 100%%.\n", \
       percent, hits, lines, minimum, file_minimum
     if (percent + 0.000001 < minimum) failed = 1
     exit failed
