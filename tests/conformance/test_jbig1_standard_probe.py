@@ -295,7 +295,7 @@ class StandardProbeTests(unittest.TestCase):
 
     def test_cli_output_is_spooled_and_loaded_only_below_limit(self) -> None:
         bie = probe.standard_bie(9, 2, 2, 0, 0, b"\x12\x34", False, b"\xff\x02")
-        code, output = probe.call_cli(self.decoder, ["-"], bie, 1, 10)
+        code, output = probe.call_cli(self.decoder, ["-"], bie, 30, 10)
         self.assertIsNotNone(code)
         self.assertIsNone(output)
         self.decoder.write_text(
@@ -305,7 +305,7 @@ class StandardProbeTests(unittest.TestCase):
             "sys.stdout.buffer.write(bytes(1_000_000))\n",
             encoding="utf-8",
         )
-        code, output = probe.call_cli(self.decoder, [], b"", 1, 10)
+        code, output = probe.call_cli(self.decoder, [], b"", 30, 10)
         self.assertIsNotNone(code)
         self.assertIsNone(output)
         with patch.object(probe, "MAX_STDOUT_BYTES", 128):
