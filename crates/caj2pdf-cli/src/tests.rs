@@ -277,14 +277,50 @@ fn caj_inspection() -> Inspection {
     }
 }
 
-fn render(json: bool, info: &Inspection, list: bool) -> String {
-    let mut out = Vec::new();
-    if json {
-        write_json(&mut out, info, list).unwrap();
-    } else {
-        write_text(&mut out, info, list).unwrap();
+/// A report sink that keeps what it accepts and fails once `remaining`
+/// bytes were written. Rendering and failure tests share this one type.
+struct FailAfter {
+    bytes: Vec<u8>,
+    remaining: usize,
+}
+
+impl FailAfter {
+    fn new(remaining: usize) -> Self {
+        Self {
+            bytes: Vec::new(),
+            remaining,
+        }
     }
-    String::from_utf8(out).unwrap()
+}
+
+impl Write for FailAfter {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        if self.remaining == 0 {
+            return Err(io::Error::other("sink failed"));
+        }
+        let accepted = bytes.len().min(self.remaining);
+        self.remaining -= accepted;
+        self.bytes.extend_from_slice(&bytes[..accepted]);
+        Ok(accepted)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+fn write_report(out: &mut FailAfter, json: bool, info: &Inspection, list: bool) -> io::Result<()> {
+    if json {
+        write_json(out, info, list)
+    } else {
+        write_text(out, info, list)
+    }
+}
+
+fn render(json: bool, info: &Inspection, list: bool) -> String {
+    let mut out = FailAfter::new(usize::MAX);
+    write_report(&mut out, json, info, list).unwrap();
+    String::from_utf8(out.bytes).unwrap()
 }
 
 #[test]
@@ -617,24 +653,6 @@ fn long_output_names_get_a_bounded_temporary_name() {
 }
 
 /// Accepts `remaining` bytes, then fails every write.
-struct FailAfter {
-    remaining: usize,
-}
-
-impl Write for FailAfter {
-    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
-        if self.remaining == 0 {
-            return Err(io::Error::other("sink failed"));
-        }
-        let accepted = bytes.len().min(self.remaining);
-        self.remaining -= accepted;
-        Ok(accepted)
-    }
-
-    fn flush(&mut self) -> io::Result<()> {
-        Ok(())
-    }
-}
 
 #[test]
 fn report_writers_propagate_every_sink_failure() {
@@ -649,12 +667,7 @@ fn report_writers_propagate_every_sink_failure() {
         for json in [false, true] {
             let full = render(json, &info, true).len();
             for remaining in 0..full {
-                let mut sink = FailAfter { remaining };
-                let result = if json {
-                    write_json(&mut sink, &info, true)
-                } else {
-                    write_text(&mut sink, &info, true)
-                };
+                let result = write_report(&mut FailAfter::new(remaining), json, &info, true);
                 assert!(result.is_err(), "{remaining} of {full}");
             }
         }
