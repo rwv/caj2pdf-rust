@@ -180,6 +180,39 @@ fn checked_add(left: u64, right: u64) -> Result<u64> {
     })
 }
 
+/// The object slots a reconstruction writes: the planned objects, two
+/// synthetic objects, and, with bookmarks, an outline root plus one item per
+/// bookmark. A count beyond the PDF object limit is located at the first
+/// planned object. It takes counts, not slices, so a test reaches the limit
+/// without building millions of objects.
+fn requested_objects(
+    object_count: usize,
+    bookmark_count: usize,
+    first: Option<&FragmentObject>,
+) -> Result<usize> {
+    let outline_objects = match bookmark_count {
+        0 => Some(0),
+        count => count.checked_add(1),
+    };
+    let requested = outline_objects
+        .and_then(|outline| object_count.checked_add(2)?.checked_add(outline))
+        .ok_or(Error::InvalidInput {
+            reason: "PDF object count overflows address space",
+        })?;
+    let offset = first.map_or(0, |object| object.range.offset);
+    let reference = first.map(|object| (object.reference.number, object.reference.generation));
+    checked_object_number(requested).map_err(|error| error.locate_pdf_limit(offset, reference))?;
+    Ok(requested)
+}
+
+/// The overflow-checked sum of `values`. They are unsigned, so the sum
+/// overflows in any order exactly when it exceeds `u64::MAX`.
+fn checked_sum(values: &[u64]) -> Result<u64> {
+    values
+        .iter()
+        .try_fold(0, |sum, &value| checked_add(sum, value))
+}
+
 fn decimal_digits(mut value: u64) -> u64 {
     let mut digits = 1;
     while value >= 10 {
@@ -528,31 +561,7 @@ pub async fn reconstruct_fragment_with_bookmarks<
         return Err(Error::Cancelled);
     }
 
-    let requested = plan
-        .objects
-        .len()
-        .checked_add(2)
-        .and_then(|count| {
-            if bookmarks.is_empty() {
-                Some(count)
-            } else {
-                bookmarks
-                    .len()
-                    .checked_add(1)
-                    .and_then(|n| count.checked_add(n))
-            }
-        })
-        .ok_or(Error::InvalidInput {
-            reason: "PDF object count overflows address space",
-        })?;
-    let first_object = plan.objects.first();
-    let first_offset = first_object.map_or(0, |object| object.range.offset);
-    let first_reference = first_object.map(|object| {
-        let reference = object.reference;
-        (reference.number, reference.generation)
-    });
-    checked_object_number(requested)
-        .map_err(|error| error.locate_pdf_limit(first_offset, first_reference))?;
+    let requested = requested_objects(plan.objects.len(), bookmarks.len(), plan.objects.first())?;
     let record_bytes = requested
         .checked_mul(size_of::<Record>())
         .ok_or(Error::InvalidInput {
@@ -732,10 +741,8 @@ pub async fn reconstruct_fragment_with_bookmarks<
             generation: 0,
         };
         checked_reference(root, 0)?;
-        let retained_bytes = checked_add(
-            checked_add(record_bytes, page_index_bytes)?,
-            limits.io_chunk_bytes as u64,
-        )?;
+        let parts = [record_bytes, page_index_bytes, limits.io_chunk_bytes as u64];
+        let retained_bytes = checked_sum(&parts)?;
         let (nodes, first, last) =
             build_outline_nodes(bookmarks, plan.pages, root, limits, retained_bytes)?;
         let root_text = format!(
@@ -789,14 +796,13 @@ pub async fn reconstruct_fragment_with_bookmarks<
     if let Some((_, nodes, root_text)) = &outline {
         body_bytes = checked_add(body_bytes, root_text.len() as u64)?;
         for (bookmark, node) in bookmarks.iter().zip(nodes) {
-            let framing = checked_add(
+            let parts = [
+                body_bytes,
                 outline_item_prefix(node).len() as u64,
                 outline_item_suffix(node).len() as u64,
-            )?;
-            body_bytes = checked_add(
-                body_bytes,
-                checked_add(framing, outline_title_hex_len(&bookmark.title)?)?,
-            )?;
+                outline_title_hex_len(&bookmark.title)?,
+            ];
+            body_bytes = checked_sum(&parts)?;
         }
     }
     let largest = records
@@ -814,10 +820,13 @@ pub async fn reconstruct_fragment_with_bookmarks<
     );
     // `largest` is a `u32`, so this product fits `u64`.
     let xref_bytes = xref_size * 20;
-    let final_size = checked_add(
-        checked_add(body_bytes, xref_header.len() as u64)?,
-        checked_add(xref_bytes, trailer.len() as u64)?,
-    )?;
+    let parts = [
+        body_bytes,
+        xref_header.len() as u64,
+        xref_bytes,
+        trailer.len() as u64,
+    ];
+    let final_size = checked_sum(&parts)?;
     if final_size > MAX_CLASSIC_PDF_BYTES {
         return Err(pdf_limit(
             Some(catalog),
@@ -1144,10 +1153,8 @@ async fn validate_fragment_structure<R: RangedSource, C: Cancellation>(
         })?;
     let kind_bytes = len_u64(kind_bytes);
     let stream_bytes = len_u64(records.len());
-    let retained_base = checked_add(
-        checked_add(checked_add(index_bytes, scalar_bytes)?, kind_bytes)?,
-        stream_bytes,
-    )?;
+    let parts = [index_bytes, scalar_bytes, kind_bytes, stream_bytes];
+    let retained_base = checked_sum(&parts)?;
     check_pdf_allocation(
         limits,
         retained_base,

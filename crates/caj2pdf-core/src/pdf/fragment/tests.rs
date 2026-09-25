@@ -583,7 +583,62 @@ fn outline_count_limit_is_checked_before_writing() {
             }) if offset == outline.range.offset
         ));
         assert!(sink.bytes.is_empty());
+
+        // The same destination fits a one-bookmark limit.
+        let limits = Limits {
+            max_bookmarks: 1,
+            ..Limits::default()
+        };
+        let report = reconstruct_fragment(&mut source, &mut sink, &plan, &limits, &NEVER)
+            .await
+            .expect("one outline destination fits a one-bookmark limit");
+        assert_eq!(report.output_bytes_written, sink.bytes.len() as u64);
     });
+}
+
+#[test]
+fn requested_object_counts_are_bounded_and_located() {
+    let first = FragmentObject {
+        reference: reference(7),
+        range: PdfRange {
+            offset: 40,
+            length: 1,
+        },
+    };
+    let limit = MAX_PDF_OBJECTS as usize;
+    assert_eq!(requested_objects(5, 0, Some(&first)).unwrap(), 7);
+    assert_eq!(requested_objects(5, 3, Some(&first)).unwrap(), 11);
+    assert_eq!(requested_objects(limit - 4, 1, None).unwrap(), limit);
+    assert!(matches!(
+        requested_objects(limit - 3, 1, Some(&first)),
+        Err(Error::PdfLimitExceeded {
+            offset: 40,
+            object: Some((7, 0)),
+            resource: "PDF object count",
+            attempted,
+            ..
+        }) if attempted == u64::from(MAX_PDF_OBJECTS) + 1
+    ));
+    for (objects, bookmarks) in [(usize::MAX - 1, 0), (0, usize::MAX), (usize::MAX - 2, 1)] {
+        assert!(matches!(
+            requested_objects(objects, bookmarks, None),
+            Err(Error::InvalidInput {
+                reason: "PDF object count overflows address space"
+            })
+        ));
+    }
+}
+
+#[test]
+fn checked_sums_refuse_only_a_total_beyond_u64() {
+    assert_eq!(checked_sum(&[]).unwrap(), 0);
+    assert_eq!(checked_sum(&[u64::MAX - 3, 1, 2]).unwrap(), u64::MAX);
+    assert!(matches!(
+        checked_sum(&[u64::MAX - 3, 2, 2]),
+        Err(Error::InvalidInput {
+            reason: "PDF arithmetic overflows 64 bits"
+        })
+    ));
 }
 
 #[test]
