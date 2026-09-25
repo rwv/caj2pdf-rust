@@ -17,3 +17,15 @@ ignore = false
 [sources]
 unknown-registry = "deny"
 unknown-git = "deny"
+
+[advisories]
+yanked = "deny"
+# Every ignored advisory must carry a reason, for example
+# { id = "RUSTSEC-0000-0000", reason = "why it does not apply" }.
+ignore = []
+
+[bans]
+multiple-versions = "deny"
+wildcards = "deny"
+# Workspace path dependencies are not registry wildcards.
+allow-wildcard-paths = true

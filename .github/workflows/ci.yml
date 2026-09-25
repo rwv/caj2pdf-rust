@@ -167,7 +167,7 @@ jobs:
         run: bash scripts/check-source-inventory.sh
 
   coverage:
-    name: Line coverage (92% total and 85% per file minimum; 100% target)
+    name: Line coverage ratchet (100% target)
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
