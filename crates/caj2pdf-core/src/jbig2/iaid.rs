@@ -11,6 +11,7 @@ use super::{
     integer::{INTEGER_CONTEXT_COUNT, IntegerContextBanks},
     mq::{MqBudget, MqContext, MqDecoder, MqError, MqErrorKind, MqResult},
 };
+use crate::fallible::try_convert;
 use crate::{Cancellation, Limits, RangedSource};
 use std::{error, fmt};
 
@@ -241,11 +242,10 @@ pub fn checked_symbol_index(
     if symbol_count == 0 {
         return Err(SymbolIdError::EmptySymbolSet);
     }
-    let count = usize::try_from(symbol_count)
-        .ok()
-        .ok_or(SymbolIdError::TooManySymbols {
-            count: symbol_count,
-        })?;
+    let too_many = SymbolIdError::TooManySymbols {
+        count: symbol_count,
+    };
+    let count: usize = try_convert(symbol_count, too_many)?;
     if available_symbols != count {
         return Err(SymbolIdError::SymbolArrayLength {
             declared: symbol_count,

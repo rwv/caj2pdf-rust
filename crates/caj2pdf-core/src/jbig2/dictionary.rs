@@ -909,8 +909,10 @@ impl<'a, S: RangedSource, W: SequentialSink, C: Cancellation> DirectDictionaryDe
     }
 
     fn invalid_span(&self, reason: &'static str) -> DictionaryError {
-        let kind = DictionaryErrorKind::InvalidSpan(reason);
-        self.error(self.current_offset(), kind)
+        self.error(
+            self.current_offset(),
+            DictionaryErrorKind::InvalidSpan(reason),
+        )
     }
 
     fn current_offset(&self) -> u64 {
