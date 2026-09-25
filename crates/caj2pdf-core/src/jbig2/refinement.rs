@@ -444,11 +444,8 @@ impl<'a, 'mq, M: RangedSource, C: Cancellation, W: SequentialSink>
     ) -> RefinementResult<Geometry> {
         // One-pixel bitmaps within a MAX_BUDGET_COUNT pixel budget could
         // otherwise complete more bitmaps than the u32 index represents.
-        self.cap(
-            "completed bitmaps",
-            u64::from(u32::MAX),
-            u64::from(self.progress.completed_bitmaps) + 1,
-        )?;
+        let next = u64::from(self.progress.completed_bitmaps) + 1;
+        self.cap("completed bitmaps", u64::from(u32::MAX), next)?;
         if request.template != 1 {
             return Err(self.error(
                 RefinementErrorKind::Unsupported {

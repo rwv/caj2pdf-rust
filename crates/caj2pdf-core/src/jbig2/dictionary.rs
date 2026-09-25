@@ -1195,11 +1195,13 @@ impl<'a, S: RangedSource, W: SequentialSink, C: Cancellation> DirectDictionaryDe
         bytes: u64,
     ) -> DictionaryResult<SymbolDescriptor> {
         let relative_store_offset = self.progress.stored_bitmap_bytes;
-        let prepared = Self::prepare_row(&mut self.previous_two, stride)
+        // Built before the rows are borrowed, as the refinement and generic
+        // decoders build their refused-row errors.
+        let failed = self.error(self.current_offset(), DictionaryErrorKind::AllocationFailed);
+        Self::prepare_row(&mut self.previous_two, stride)
             .and_then(|()| Self::prepare_row(&mut self.previous_one, stride))
-            .and_then(|()| Self::prepare_row(&mut self.current, stride));
-        let failed = DictionaryErrorKind::AllocationFailed;
-        prepared.map_err(|()| self.error(self.current_offset(), failed))?;
+            .and_then(|()| Self::prepare_row(&mut self.current, stride))
+            .or(Err(failed))?;
         for _ in 0..height {
             for x in 0..width {
                 self.check_cancelled()?;
