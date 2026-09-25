@@ -7,7 +7,7 @@ use caj2pdf_core::{
     Cancellation, Limits, NeverCancel, RangedSource, SequentialSink,
     jbig2::{
         HeaderLimits, SegmentHeader, SegmentSpan,
-        generic::{GenericBudget, GenericErrorKind, GenericRegionDecoder},
+        generic::{GenericBudget, GenericError, GenericErrorKind, GenericRegionDecoder},
         mq::{MQ_STATE_COUNT, MqBudget, MqContexts, MqErrorKind, MqState, MqTable},
         read_segment_header,
     },
@@ -1065,6 +1065,8 @@ fn rejects_terminal_errors_and_incomplete_finish() {
         ready(decoder.decode_next_row()).unwrap();
         let err = ready(decoder.finish()).unwrap_err();
         assert!(matches!(err.kind, GenericErrorKind::Mq(_)), "{err}");
+        assert!(err.to_string().contains("MQ: "), "{err}");
+        assert!(std::error::Error::source(&err).is_some());
         assert!(!sink.flushed);
     }
 }
@@ -1137,4 +1139,221 @@ fn malformed_short_mq_smoke_is_bounded() {
         assert!(sink.bytes.len() <= 2);
         assert!(source.read_calls <= 64);
     }
+}
+
+/// Reports cancellation from the `remaining`-th poll onward. Sweeping this
+/// value visits every cancellation checkpoint without knowing their places.
+struct CancelAfter(Cell<u32>);
+impl Cancellation for CancelAfter {
+    fn is_cancelled(&self) -> bool {
+        match self.0.get() {
+            0 => true,
+            remaining => {
+                self.0.set(remaining - 1);
+                false
+            }
+        }
+    }
+}
+
+#[test]
+fn cancellation_at_every_checkpoint_never_reports_success() {
+    let limits = Limits::default();
+    let mq_budget = MqBudget::default();
+    let table = table();
+    let mut cancelled_runs = 0;
+    for polls in 0..10_000 {
+        let cancellation = CancelAfter(Cell::new(polls));
+        let mut source = record(3, 2, 0, 4, (2, -1), SHORT_STREAM);
+        let hdr = header(&mut source);
+        let mut bank = contexts(&limits, &mq_budget);
+        let mut sink = Sink::default();
+        let result = ready(async {
+            let mut decoder = GenericRegionDecoder::new(
+                &mut source,
+                &hdr,
+                &table,
+                &mut bank,
+                &mut sink,
+                &limits,
+                &cancellation,
+                mq_budget,
+                GenericBudget::default(),
+            )
+            .await?;
+            while decoder.decode_next_row().await? {}
+            decoder.finish().await
+        });
+        match result {
+            Ok(report) => {
+                assert_eq!(sink.bytes, [0xe0, 0xe0]);
+                assert!(sink.flushed);
+                assert_eq!(report.progress.rows_written, 2);
+                // Cancellation was observed at a checkpoint in every earlier run.
+                assert!(cancelled_runs > 10, "{cancelled_runs}");
+                return;
+            }
+            Err(err) => {
+                let cancelled = match &err.kind {
+                    GenericErrorKind::Cancelled => true,
+                    GenericErrorKind::Mq(inner) => matches!(inner.kind, MqErrorKind::Cancelled),
+                    _ => false,
+                };
+                assert!(cancelled, "poll {polls}: {err}");
+                assert!(err.output_bytes_written <= 2);
+                assert_eq!(sink.bytes.len() as u64, err.output_bytes_written);
+                cancelled_runs += 1;
+            }
+        }
+    }
+    panic!("decode never completed without cancellation");
+}
+
+#[test]
+fn working_allocation_cap_counts_three_rows_at_the_exact_boundary() {
+    let mq_budget = MqBudget::default();
+    let table = table();
+    let attempt = |width: u32, max_allocation_bytes: u64| {
+        let limits = Limits {
+            io_chunk_bytes: 16,
+            max_allocation_bytes,
+            ..Limits::default()
+        };
+        let mut source = record(width, 1, 0, 4, (2, -1), SHORT_STREAM);
+        let hdr = header(&mut source);
+        let mut bank = contexts(&Limits::default(), &mq_budget);
+        let mut sink = Sink::default();
+        let result = ready(GenericRegionDecoder::new(
+            &mut source,
+            &hdr,
+            &table,
+            &mut bank,
+            &mut sink,
+            &limits,
+            &NeverCancel,
+            mq_budget,
+            GenericBudget::default(),
+        ))
+        .map(|_| ());
+        (result, source.read_calls)
+    };
+    let required = |width| match attempt(width, 16).0 {
+        Err(err) => match err.kind {
+            GenericErrorKind::LimitExceeded {
+                resource: "region working allocation bytes",
+                limit: 16,
+                attempted,
+            } => {
+                assert_eq!(err.offset, 11);
+                attempted
+            }
+            other => panic!("unexpected error kind: {other:?}"),
+        },
+        Ok(()) => panic!("accepted a 16-byte working allocation"),
+    };
+    let one_byte_rows = required(8);
+    // Width 9 needs two bytes per row; the cap covers all three row buffers.
+    assert_eq!(required(9), one_byte_rows + 3);
+    let (at_cap, reads) = attempt(8, one_byte_rows);
+    assert!(at_cap.is_ok());
+    assert!(reads > 0);
+    let (below_cap, _) = attempt(8, one_byte_rows - 1);
+    assert!(matches!(
+        below_cap.unwrap_err().kind,
+        GenericErrorKind::LimitExceeded {
+            resource: "region working allocation bytes",
+            ..
+        }
+    ));
+}
+
+#[test]
+fn finish_after_a_dropped_row_future_is_poisoned_without_flush() {
+    let limits = Limits::default();
+    let mq_budget = MqBudget::default();
+    let table = table();
+    let mut source = record(3, 1, 0, 4, (2, -1), SHORT_STREAM);
+    let hdr = header(&mut source);
+    let mut bank = contexts(&limits, &mq_budget);
+    let mut sink = Sink {
+        pending: true,
+        ..Sink::default()
+    };
+    let mut decoder = ready(GenericRegionDecoder::new(
+        &mut source,
+        &hdr,
+        &table,
+        &mut bank,
+        &mut sink,
+        &limits,
+        &NeverCancel,
+        mq_budget,
+        GenericBudget::default(),
+    ))
+    .unwrap();
+    {
+        let mut future = pin!(decoder.decode_next_row());
+        assert!(
+            future
+                .as_mut()
+                .poll(&mut Context::from_waker(Waker::noop()))
+                .is_pending()
+        );
+    }
+    let err = ready(decoder.finish()).unwrap_err();
+    assert!(matches!(err.kind, GenericErrorKind::Poisoned));
+    assert!(err.to_string().contains("decoder state is poisoned"));
+    assert_eq!((err.rows_written, err.pixels_decoded), (0, 3));
+    assert!(!sink.flushed);
+}
+
+#[test]
+fn span_errors_and_unreachable_allocation_failure_have_stable_messages() {
+    let limits = Limits::default();
+    let mq_budget = MqBudget::default();
+    let table = table();
+    let mut source = record(3, 1, 0, 4, (2, -1), SHORT_STREAM);
+    let hdr = header(&mut source);
+    source.advertised -= 1;
+    let mut bank = contexts(&limits, &mq_budget);
+    let mut sink = Sink::default();
+    let err = match ready(GenericRegionDecoder::new(
+        &mut source,
+        &hdr,
+        &table,
+        &mut bank,
+        &mut sink,
+        &limits,
+        &NeverCancel,
+        mq_budget,
+        GenericBudget::default(),
+    )) {
+        Ok(_) => panic!("accepted a segment beyond the source"),
+        Err(err) => err,
+    };
+    assert_eq!(
+        err.to_string(),
+        "JBIG2 generic region segment 1 at source byte 11: \
+         invalid span: segment data outside source"
+    );
+    // Row reservation failure needs a real allocator failure; the message is
+    // still part of the public error contract.
+    let allocation = GenericError {
+        offset: 11,
+        segment: 1,
+        rows_written: 0,
+        pixels_decoded: 0,
+        output_bytes_written: 0,
+        kind: GenericErrorKind::AllocationFailed,
+    };
+    assert!(allocation.to_string().ends_with(": row allocation failed"));
+    assert!(std::error::Error::source(&allocation).is_none());
+    // A failing formatter is reported instead of being ignored.
+    struct Refuse;
+    impl std::fmt::Write for Refuse {
+        fn write_str(&mut self, _: &str) -> std::fmt::Result {
+            Err(std::fmt::Error)
+        }
+    }
+    assert!(std::fmt::write(&mut Refuse, format_args!("{allocation}")).is_err());
 }

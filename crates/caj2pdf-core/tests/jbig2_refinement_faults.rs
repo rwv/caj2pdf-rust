@@ -1317,3 +1317,80 @@ fn cancellation_after_completed_flush_poisoned_the_coding_unit() {
         MqErrorKind::Poisoned
     ));
 }
+
+#[test]
+fn maximal_geometry_with_disabled_caps_reports_context_work_overflow_before_io() {
+    // (2^32 - 1)^2 pixels still fits u64, but ten context probes per pixel
+    // does not. Every configurable cap is lifted so only the checked
+    // arithmetic can stop the request, before any allocation or I/O.
+    let unbounded = RefinementBudget {
+        max_width: u32::MAX,
+        max_height: u32::MAX,
+        max_reference_width: u32::MAX,
+        max_reference_height: u32::MAX,
+        max_reference_pixels_per_bitmap: u64::MAX,
+        max_reference_bytes_per_bitmap: u64::MAX,
+        max_pixels_per_bitmap: u64::MAX,
+        max_total_pixels: u64::MAX,
+        max_bytes_per_bitmap: u64::MAX,
+        max_total_output_bytes: u64::MAX,
+        max_reference_reads: u64::MAX,
+        max_reference_bytes_fetched: u64::MAX,
+        max_sink_writes: u64::MAX,
+        max_flushes: u64::MAX,
+        max_source_request_bytes: usize::MAX,
+        max_sink_request_bytes: usize::MAX,
+        max_mq_decisions: u64::MAX,
+        max_context_work: u64::MAX,
+        max_working_bytes: u64::MAX,
+    };
+    let limits = Limits {
+        max_output_bytes: u64::MAX,
+        ..Limits::default()
+    };
+    let (error, source, sink) = observe_error(
+        Source::new(&[0x80]),
+        Sink::new(),
+        request(u32::MAX, u32::MAX, reference(1, 1)),
+        unbounded,
+        limits,
+        &NeverCancel,
+    );
+    assert!(
+        matches!(
+            error.kind,
+            RefinementErrorKind::InvalidSpan("context work overflows u64")
+        ),
+        "{error}"
+    );
+    assert_eq!((error.row, error.x, error.offset), (0, 0, None));
+    assert_eq!(source.calls, 0);
+    assert_eq!(sink.calls, 0);
+    assert_eq!(error.progress.pixels_decoded, 0);
+}
+
+#[test]
+fn allocation_failure_message_and_formatter_errors_are_reported() {
+    // Row reservation failure needs a real allocator failure; the message is
+    // still part of the public error contract.
+    let error = RefinementError {
+        offset: Some(7),
+        bitmap_index: 2,
+        row: 3,
+        x: 4,
+        progress: Box::default(),
+        kind: RefinementErrorKind::AllocationFailed,
+    };
+    assert_eq!(
+        error.to_string(),
+        "JBIG2 refinement bitmap 2 row 3 x 4 at source byte 7: row allocation failed"
+    );
+    assert!(std::error::Error::source(&error).is_none());
+    struct Refuse;
+    impl std::fmt::Write for Refuse {
+        fn write_str(&mut self, _: &str) -> std::fmt::Result {
+            Err(std::fmt::Error)
+        }
+    }
+    assert!(std::fmt::write(&mut Refuse, format_args!("{error}")).is_err());
+}

@@ -1087,12 +1087,12 @@ mod tests {
             let mut above = [0u8];
             let mut current = [0u8];
             let mut reference = [vec![0], vec![0], vec![0]];
-            match plane {
-                0 => above[0] = mask,
-                1 => current[0] = mask,
-                2 => reference[row][0] = mask,
-                _ => unreachable!(),
-            }
+            let target = match plane {
+                0 => &mut above[0],
+                1 => &mut current[0],
+                _ => &mut reference[row][0],
+            };
+            *target = mask;
             let actual = template1_context(
                 &above,
                 &current,

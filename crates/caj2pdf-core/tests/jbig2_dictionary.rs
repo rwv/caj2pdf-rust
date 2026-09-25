@@ -6,7 +6,7 @@
 use caj2pdf_core::{
     Limits, NeverCancel, RangedSource, SequentialSink,
     jbig2::{
-        HeaderLimits, SegmentHeader, SegmentSpan,
+        HeaderErrorKind, HeaderLimits, SegmentHeader, SegmentSpan,
         dictionary::{
             DictionaryBudget, DictionaryError, DictionaryErrorKind, DictionaryMode,
             DirectDictionaryDecoder, SymbolDescriptor, read_dictionary_data_header,
@@ -1555,4 +1555,338 @@ fn bitmap_decision_budget_failure_reports_bitmap_context_and_no_store_bytes() {
     assert!(error.progress.poisoned);
     drop(decoder);
     assert!(store.bytes.is_empty());
+}
+
+// The following bodies were produced offline by an independently written
+// encoder for the invented constant-probability model above (every decision
+// uses Qe=0x4000 and MPS=0); only the resulting bytes are kept. Each encodes
+// IADH=1 followed by the stated IADW, which is all these tests consume.
+/// IADW = 2^32, the smallest width that no longer fits `u32`.
+const WIDTH_2_POW_32: [u8; 7] = [0xe8, 0x00, 0x00, 0x04, 0x54, 0xff, 0xac];
+/// IADW = 2^32 - 1.
+const WIDTH_U32_MAX: [u8; 8] = [0xe8, 0x00, 0x00, 0x04, 0x55, 0x3f, 0xff, 0xac];
+/// IADW = 48000: a 6000-byte packed row.
+const WIDTH_48000: [u8; 8] = [0xe8, 0x3f, 0xff, 0x6a, 0xba, 0x7f, 0xff, 0xac];
+
+#[test]
+fn decoded_width_beyond_u32_is_malformed_while_u32_max_meets_the_width_budget() {
+    let unbounded = DictionaryBudget {
+        max_width: u32::MAX,
+        ..DictionaryBudget::default()
+    };
+    let error = decode_error(&WIDTH_2_POW_32, 1, unbounded, Limits::default());
+    assert!(
+        matches!(
+            error.kind,
+            DictionaryErrorKind::Malformed("symbol width exceeds 32 bits")
+        ),
+        "{error}"
+    );
+    assert!(error.progress.poisoned);
+    assert_eq!(error.progress.completed_symbols, 0);
+    assert_eq!(error.progress.stored_bitmap_bytes, 0);
+
+    // One less is a representable width, so the configured budget decides.
+    let error = decode_error(
+        &WIDTH_U32_MAX,
+        1,
+        DictionaryBudget::default(),
+        Limits::default(),
+    );
+    assert!(
+        matches!(
+            error.kind,
+            DictionaryErrorKind::LimitExceeded {
+                resource: "symbol width",
+                limit: 32_768,
+                attempted: 4_294_967_295,
+            }
+        ),
+        "{error}"
+    );
+    let error = decode_error(&WIDTH_U32_MAX, 1, unbounded, Limits::default());
+    assert_resource(error, "symbol pixels");
+}
+
+#[test]
+fn row_scratch_allocation_limit_is_exact_and_precedes_bitmap_decisions() {
+    // Three 6000-byte rows need 18000 bytes of scratch, more than the MQ
+    // decoder's own fixed working allocation.
+    let wide = DictionaryBudget {
+        max_width: 48_000,
+        ..DictionaryBudget::default()
+    };
+    let limits = |max_allocation_bytes| Limits {
+        io_chunk_bytes: 256,
+        max_allocation_bytes,
+        ..Limits::default()
+    };
+    let error = decode_error(&WIDTH_48000, 1, wide, limits(17_999));
+    assert!(
+        matches!(
+            error.kind,
+            DictionaryErrorKind::LimitExceeded {
+                resource: "row scratch bytes",
+                limit: 17_999,
+                attempted: 18_000,
+            }
+        ),
+        "{error}"
+    );
+    assert!(error.progress.poisoned);
+    assert_eq!(error.progress.mq.unwrap().symbols_decoded, 42);
+    assert_eq!(error.progress.sink_writes, 0);
+    // With exactly enough scratch the decoder goes on to pixel decisions.
+    let error = decode_error(&WIDTH_48000, 1, wide, limits(18_000));
+    assert!(
+        !matches!(
+            error.kind,
+            DictionaryErrorKind::LimitExceeded {
+                resource: "row scratch bytes",
+                ..
+            }
+        ),
+        "{error}"
+    );
+    assert!(
+        error.progress.mq.unwrap().symbols_decoded > 42,
+        "{error}: {:?}",
+        error.progress
+    );
+}
+
+#[test]
+fn fewer_exported_symbols_than_declared_are_rejected_after_the_final_run() {
+    // ONE_SYMBOL ends with IAEX=1 while the export flag is off, so the only
+    // symbol is not exported even though the header declares one export.
+    let mut source = segment(0x0800, &[(2, -1)], &[], 1, 1, &ONE_SYMBOL, &[]);
+    let hdr = header(&mut source);
+    let mut store = Store {
+        max_write: usize::MAX,
+        ..Store::default()
+    };
+    let mut banks = banks();
+    let table = table();
+    let limits = Limits::default();
+    let mut decoder = ready(DirectDictionaryDecoder::new(
+        &mut source,
+        &hdr,
+        &table,
+        &mut banks,
+        &mut store,
+        &limits,
+        &NeverCancel,
+        MqBudget::default(),
+        DictionaryBudget::default(),
+    ))
+    .unwrap();
+    let error = ready(decoder.decode()).unwrap_err();
+    assert!(
+        matches!(
+            error.kind,
+            DictionaryErrorKind::Malformed("exported symbol total")
+        ),
+        "{error}"
+    );
+    assert_eq!(error.progress.completed_symbols, 1);
+    assert_eq!(error.progress.export_runs, 1);
+    assert!(error.progress.poisoned);
+    assert!(matches!(
+        ready(decoder.decode()).unwrap_err().kind,
+        DictionaryErrorKind::Poisoned
+    ));
+    drop(decoder);
+    assert_eq!(store.bytes, [0]);
+    assert!(!store.flushed);
+}
+
+#[test]
+fn count_field_cut_by_the_segment_length_is_truncated_before_reading_it() {
+    let mut source = segment(0x0800, &[(2, -1)], &[], 0, 0, &[], &[]);
+    // Keep flags, AT, the exported count, and two bytes of the new count.
+    source.bytes.truncate(source.bytes.len() - 2);
+    source.bytes[7..11].copy_from_slice(&10u32.to_be_bytes());
+    source.advertised = source.bytes.len() as u64;
+    let hdr = header(&mut source);
+    let reads = source.read_calls;
+    let error = ready(read_dictionary_data_header(
+        &mut source,
+        &hdr,
+        &Limits::default(),
+        DictionaryBudget::default(),
+        &NeverCancel,
+    ))
+    .unwrap_err();
+    assert!(
+        matches!(
+            error.kind,
+            DictionaryErrorKind::Truncated("new symbol count")
+        ),
+        "{error}"
+    );
+    // Data starts at byte 11; flags, AT, and the exported count were read.
+    assert_eq!(error.offset, 19);
+    assert_eq!(error.progress.header_bytes_fetched, 11 + 8);
+    assert!(source.read_calls > reads);
+}
+
+/// Places a complete segment so its data ends at the last addressable byte.
+struct AddressSpaceEnd {
+    base: u64,
+    bytes: Vec<u8>,
+}
+
+impl RangedSource for AddressSpaceEnd {
+    fn size(&self) -> u64 {
+        u64::MAX
+    }
+    async fn read_at(
+        &mut self,
+        offset: u64,
+        destination: &mut [u8],
+    ) -> caj2pdf_core::Result<usize> {
+        let start = usize::try_from(offset - self.base).unwrap();
+        let count = self
+            .bytes
+            .len()
+            .saturating_sub(start)
+            .min(destination.len());
+        destination[..count].copy_from_slice(&self.bytes[start..start + count]);
+        Ok(count)
+    }
+}
+
+#[test]
+fn header_field_at_the_end_of_the_address_space_is_an_invalid_span() {
+    let mut bytes = segment(0x0800, &[(2, -1)], &[], 0, 0, &[], &[]).bytes;
+    // One data byte: the two-byte flags field would end past u64::MAX.
+    bytes.truncate(12);
+    bytes[7..11].copy_from_slice(&1u32.to_be_bytes());
+    let base = u64::MAX - bytes.len() as u64;
+    let mut source = AddressSpaceEnd { base, bytes };
+    let hdr = ready(read_segment_header(
+        &mut source,
+        SegmentSpan {
+            offset: base,
+            length: 12,
+        },
+        &Limits::default(),
+        HeaderLimits::default(),
+        &NeverCancel,
+    ))
+    .unwrap();
+    assert_eq!(hdr.data.offset + hdr.data.length, u64::MAX);
+    let error = ready(read_dictionary_data_header(
+        &mut source,
+        &hdr,
+        &Limits::default(),
+        DictionaryBudget::default(),
+        &NeverCancel,
+    ))
+    .unwrap_err();
+    assert!(
+        matches!(
+            error.kind,
+            DictionaryErrorKind::InvalidSpan("header offset overflow")
+        ),
+        "{error}"
+    );
+    assert_eq!(error.offset, u64::MAX - 1);
+    assert_eq!(error.progress.header_bytes_fetched, 11);
+}
+
+/// Reports cancellation from the `remaining`-th poll onward. Sweeping this
+/// value visits every cancellation checkpoint without knowing their places.
+struct CancelAfter(Cell<u32>);
+
+impl caj2pdf_core::Cancellation for CancelAfter {
+    fn is_cancelled(&self) -> bool {
+        match self.0.get() {
+            0 => true,
+            remaining => {
+                self.0.set(remaining - 1);
+                false
+            }
+        }
+    }
+}
+
+#[test]
+fn cancellation_at_every_checkpoint_never_reports_a_catalog() {
+    let table = table();
+    let mut cancelled_runs = 0;
+    for polls in 0..10_000 {
+        let cancellation = CancelAfter(Cell::new(polls));
+        let mut source = segment(0x0800, &[(2, -1)], &[], 0, 1, &ONE_SYMBOL, &[]);
+        let hdr = header(&mut source);
+        let mut store = Store {
+            max_write: usize::MAX,
+            ..Store::default()
+        };
+        let mut banks = banks();
+        let limits = Limits::default();
+        let result = ready(async {
+            let mut decoder = DirectDictionaryDecoder::new(
+                &mut source,
+                &hdr,
+                &table,
+                &mut banks,
+                &mut store,
+                &limits,
+                &cancellation,
+                MqBudget::default(),
+                DictionaryBudget::default(),
+            )
+            .await?;
+            decoder.decode().await
+        });
+        match result {
+            Ok(report) => {
+                assert_eq!(report.progress.completed_symbols, 1);
+                assert_eq!(store.bytes, [0]);
+                assert!(store.flushed);
+                // Cancellation was observed at a checkpoint in every earlier run.
+                assert!(cancelled_runs > 20, "{cancelled_runs}");
+                return;
+            }
+            Err(error) => {
+                let cancelled = match &error.kind {
+                    DictionaryErrorKind::Cancelled => true,
+                    DictionaryErrorKind::Mq(inner) => matches!(inner.kind, MqErrorKind::Cancelled),
+                    DictionaryErrorKind::Header(inner) => {
+                        matches!(inner.kind, HeaderErrorKind::Cancelled)
+                    }
+                    _ => false,
+                };
+                assert!(cancelled, "poll {polls}: {error}");
+                assert!(store.bytes.len() <= 1);
+                cancelled_runs += 1;
+            }
+        }
+    }
+    panic!("decode never completed without cancellation");
+}
+
+#[test]
+fn allocation_failure_message_and_formatter_errors_are_reported() {
+    // Catalog and row reservation failures need a real allocator failure;
+    // the message is still part of the public error contract.
+    let error = DictionaryError {
+        segment: 4,
+        offset: 9,
+        progress: Box::default(),
+        kind: DictionaryErrorKind::AllocationFailed,
+    };
+    assert_eq!(
+        error.to_string(),
+        "JBIG2 symbol dictionary segment 4 at source byte 9: allocation failed"
+    );
+    assert!(std::error::Error::source(&error).is_none());
+    struct Refuse;
+    impl std::fmt::Write for Refuse {
+        fn write_str(&mut self, _: &str) -> std::fmt::Result {
+            Err(std::fmt::Error)
+        }
+    }
+    assert!(std::fmt::write(&mut Refuse, format_args!("{error}")).is_err());
 }
