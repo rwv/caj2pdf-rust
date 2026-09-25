@@ -1176,6 +1176,48 @@ fn fragment_inspection_rejects_invalid_roles_streams_and_tail_bytes() {
 }
 
 #[test]
+fn fragment_inspection_classifies_streams_outline_items_and_other_dictionaries() {
+    let page_ref = PdfRef {
+        number: 4,
+        generation: 0,
+    };
+    let stream =
+        inspect_raw_fragment(b"1 0 obj << /Length 3 >>\nstream\nabc\nendstream\nendobj").unwrap();
+    assert!(stream.is_stream);
+    assert!(matches!(stream.kind, FragmentKind::Other));
+
+    let page =
+        inspect_raw_fragment(b"1 0 obj << /Type /Page /Parent 2 0 R /Contents 4 0 R >> endobj")
+            .unwrap();
+    assert!(!page.contents_is_direct_array);
+    assert_eq!(page.contents.unwrap(), [page_ref]);
+    assert!(matches!(
+        page.kind,
+        FragmentKind::Page {
+            has_media_box: false,
+            ..
+        }
+    ));
+
+    let item = inspect_raw_fragment(b"1 0 obj << /Title (A) /Parent 2 0 R >> endobj").unwrap();
+    assert_eq!(item.destination, None);
+    assert!(matches!(item.kind, FragmentKind::Other));
+
+    let error =
+        inspect_raw_fragment(b"1 0 obj << /Type /Catalog /Pages 2 0 R /Outlines 3 0 R >> endobj")
+            .err()
+            .unwrap();
+    assert!(matches!(
+        error,
+        Error::Pdf {
+            kind: PdfErrorKind::UnsupportedFeature,
+            reason: "preexisting outline trees in PDF fragments are unsupported",
+            ..
+        }
+    ));
+}
+
+#[test]
 fn source_ranges_and_parser_limits_have_precise_error_types() {
     let doc = base_pdf(
         "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] >>",
@@ -2102,4 +2144,266 @@ fn bounded_index_growth_reports_the_attempted_capacity() {
         Err(Error::LimitExceeded { attempted: 128, .. })
     ));
     assert_eq!(items.len(), 8);
+}
+
+/// Open `bytes` with a small allocation limit and return the typed limit.
+fn index_limit(
+    bytes: Vec<u8>,
+    max_allocation_bytes: u64,
+) -> (u64, Option<(u32, u16)>, &'static str, u64) {
+    let limits = Limits {
+        io_chunk_bytes: 64,
+        max_allocation_bytes,
+        ..Limits::default()
+    };
+    match pdf_error(open_with(bytes, &limits)) {
+        Error::PdfLimitExceeded {
+            offset,
+            object,
+            resource,
+            limit,
+            ..
+        } => (offset, object, resource, limit),
+        other => panic!("unexpected error: {other:?}"),
+    }
+}
+
+/// The minimal document plus `count` copies of `body` numbered from 4.
+fn with_copies(body: &'static str, count: u32) -> Vec<(u32, &'static str)> {
+    let mut objects = minimal_objects().to_vec();
+    objects.extend((4..4 + count).map(|number| (number, body)));
+    objects
+}
+
+#[test]
+fn index_allocations_obey_the_allocation_limit() {
+    // Each limit below still admits every object's syntax window
+    // (`max_allocation_bytes / 32`), so the named index is what fails.
+    let mut objects = minimal_objects().to_vec();
+    objects.push((35, "null"));
+    let (_, object, resource, limit) = index_limit(build_pdf(&objects, ""), 1024);
+    assert_eq!((object, resource, limit), (None, "PDF xref records", 1024));
+
+    let mut objects = minimal_objects().to_vec();
+    objects.push((67, "null"));
+    let stream = xref_stream_pdf(&objects, [1, 2, 1], 0, false);
+    let (_, object, resource, _) = index_limit(stream, 2944);
+    assert_eq!((object, resource), (Some((68, 0)), "PDF xref records"));
+
+    // The xref records fit, but the combined per-object indexes do not.
+    let mut objects = minimal_objects().to_vec();
+    objects.push((103, "null"));
+    let classic = build_pdf(&objects, "");
+    let xref = find(&classic, b"xref\n");
+    assert_eq!(
+        index_limit(classic, 4096),
+        (xref, None, "allocation bytes", 4096)
+    );
+
+    let separators = with_copies("<< /Length 1 >>\nstream\rx\nendstream", 34);
+    let (_, object, resource, limit) = index_limit(build_pdf(&separators, ""), 2752);
+    assert_eq!(
+        (object, resource, limit),
+        (Some((36, 0)), "PDF stream separator patches", 2752 / 8)
+    );
+
+    // Orphan pages whose Parent is a free object below the highest number.
+    let mut stale = with_copies("<< /Type /Page /Parent 30 0 R >>", 20);
+    stale.push((31, "null"));
+    let (_, object, resource, limit) = index_limit(build_pdf(&stale, ""), 2176);
+    assert_eq!(
+        (object, resource, limit),
+        (Some((20, 0)), "PDF stale page parent candidates", 2176 / 8)
+    );
+}
+
+/// Insert `stray` immediately before the classic xref and move `startxref`.
+fn with_bytes_before_xref(mut bytes: Vec<u8>, stray: &[u8]) -> Vec<u8> {
+    let xref = find(&bytes, b"xref\n");
+    bytes.splice(xref as usize..xref as usize, stray.iter().copied());
+    replace_once(
+        &mut bytes,
+        format!("startxref\n{xref}\n").as_bytes(),
+        format!("startxref\n{}\n", xref + stray.len() as u64).as_bytes(),
+    );
+    bytes
+}
+
+#[test]
+fn document_structure_errors_have_typed_reasons() {
+    const PAGES: &str = "<< /Type /Pages /Kids [3 0 R] /Count 1 >>";
+    const CATALOG: &str = "<< /Type /Catalog /Pages 2 0 R >>";
+    let page = |extra: &str| format!("<< /Type /Page /MediaBox [0 0 1 1] {extra} >>");
+    let minimal = || build_pdf(&minimal_objects(), "");
+    let mut version = minimal();
+    replace_once(&mut version, b"%PDF-1.7", b"%PDF-1.8");
+    let mut second = minimal();
+    replace_once(&mut second, b"%PDF-1.7", b"%PDF-2.0");
+    // An orphan page whose Parent is a free object is a repair candidate
+    // only while the validated Kids also reach it.
+    let mut orphan = with_copies("<< /Type /Page /Parent 5 0 R >>", 1);
+    orphan.push((6, "null"));
+    let mut token = minimal();
+    replace_once(
+        &mut token,
+        b"xref\n0 4\n",
+        b"xref\n123456789012345678901 1\n",
+    );
+    let mut duplicate = minimal();
+    replace_once(&mut duplicate, b"/Root 1 0 R", b"/Root 1 0 R /Root 1 0 R");
+    let mut escape = minimal();
+    replace_once(&mut escape, b"/Root 1 0 R", b"/Root 1 0 R /Bad#GG 1");
+    let cases = [
+        (
+            b"%PDF-1".to_vec(),
+            PdfErrorKind::Malformed,
+            "PDF header is truncated",
+        ),
+        (
+            version,
+            PdfErrorKind::Malformed,
+            "PDF 1.0 through 1.7 header is required",
+        ),
+        (
+            second,
+            PdfErrorKind::UnsupportedFeature,
+            "PDF 2.x is outside the supported input profile",
+        ),
+        (token, PdfErrorKind::Malformed, "PDF token is too long"),
+        (
+            build_pdf(&orphan, ""),
+            PdfErrorKind::Malformed,
+            "stale page Parent is not reachable through validated Kids",
+        ),
+        (
+            duplicate,
+            PdfErrorKind::AmbiguousRepair,
+            "duplicate PDF dictionary keys have undefined value",
+        ),
+        (escape, PdfErrorKind::Malformed, "invalid PDF name escape"),
+        (
+            with_bytes_before_xref(minimal(), b"4 0 obj\n0\nendobj\n"),
+            PdfErrorKind::Malformed,
+            "unindexed bytes between PDF objects",
+        ),
+        (
+            base_pdf(&page("/Parent 2 0 R /Foo 9 0 R"), PAGES, CATALOG),
+            PdfErrorKind::Malformed,
+            "PDF object contains a dangling indirect reference",
+        ),
+        (
+            base_pdf(&page(""), PAGES, CATALOG),
+            PdfErrorKind::Malformed,
+            "page tree Parent link disagrees with Kids",
+        ),
+        (
+            base_pdf(&page("/Parent 1 0 R"), PAGES, CATALOG),
+            PdfErrorKind::Malformed,
+            "page tree Parent link disagrees with Kids",
+        ),
+        (
+            base_pdf(
+                &page("/Parent 2 0 R"),
+                "<< /Type /Pages /Parent 3 0 R /Kids [3 0 R] /Count 1 >>",
+                CATALOG,
+            ),
+            PdfErrorKind::Malformed,
+            "page tree Parent link disagrees with Kids",
+        ),
+        (
+            base_pdf(
+                &page("/Parent 2 0 R"),
+                PAGES,
+                "<< /Type /Catalog /Pages 2 0 R /Perms << >> >>",
+            ),
+            PdfErrorKind::UnsupportedFeature,
+            "signed PDF edits are unsupported",
+        ),
+    ];
+    for (bytes, kind, reason) in cases {
+        let error = pdf_error(open(bytes));
+        assert!(
+            matches!(
+                error,
+                Error::Pdf { kind: found, reason: actual, .. } if found == kind && actual == reason
+            ),
+            "{reason}: {error:?}"
+        );
+    }
+}
+
+#[test]
+fn declared_page_count_is_checked_against_the_page_limit() {
+    let limits = Limits {
+        max_pages: 0,
+        ..Limits::default()
+    };
+    let error = pdf_error(open_with(build_pdf(&minimal_objects(), ""), &limits));
+    assert!(
+        matches!(
+            error,
+            Error::PdfLimitExceeded {
+                object: Some((2, 0)),
+                resource: "pages",
+                limit: 0,
+                attempted: 1,
+                ..
+            }
+        ),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn range_beyond_the_source_is_truncated_input() {
+    let bytes = build_pdf(&minimal_objects(), "");
+    let length = bytes.len() as u64;
+    let mut source = SeekableSource::new(Cursor::new(bytes)).unwrap();
+    let range = PdfRange { offset: 1, length };
+    let error = pdf_error(run(PdfIndex::open(
+        &mut source,
+        range,
+        &Limits::default(),
+        &NeverCancel,
+    )));
+    assert!(
+        matches!(
+            error,
+            Error::TruncatedInput {
+                offset: 1,
+                expected,
+                available,
+            } if expected == length && available == length - 1
+        ),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn long_trailer_dictionary_grows_its_window_up_to_the_syntax_limit() {
+    let padding = format!("/Pad ({})", "x".repeat(600));
+    let doc = build_pdf(&minimal_objects(), &padding);
+    assert_eq!(open(doc.clone()).unwrap().pages().len(), 1);
+
+    // A 300-byte syntax window still fits every object but not the trailer.
+    let limits = Limits {
+        io_chunk_bytes: 64,
+        max_allocation_bytes: 300 * 32,
+        ..Limits::default()
+    };
+    let trailer = find(&doc, b"<< /Size");
+    let error = pdf_error(open_with(doc, &limits));
+    assert!(
+        matches!(
+            error,
+            Error::PdfLimitExceeded {
+                offset,
+                object: None,
+                resource: "PDF dictionary syntax bytes",
+                limit: 300,
+                attempted: 301,
+            } if offset == trailer
+        ),
+        "{error:?}"
+    );
 }
