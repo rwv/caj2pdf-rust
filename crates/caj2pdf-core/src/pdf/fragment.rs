@@ -1162,7 +1162,8 @@ async fn validate_fragment_structure<R: RangedSource, C: Cancellation>(
     let refused = limits.allocation_refused("PDF stream index allocation", stream_bytes);
     reserve_exact(&mut stream_flags, records.len(), refused)?;
     let mut content_evidence = Vec::new();
-    let mut destination_count = 0_u32;
+    // At most one destination per record, so a `u64` count cannot overflow.
+    let mut destination_count = 0_u64;
     for record in records {
         let kind = if record.range.length == 0 {
             None
@@ -1211,19 +1212,14 @@ async fn validate_fragment_structure<R: RangedSource, C: Cancellation>(
                         "outline destination does not target an ordered Page object",
                     ));
                 }
-                destination_count =
-                    destination_count
-                        .checked_add(1)
-                        .ok_or(Error::InvalidInput {
-                            reason: "PDF outline destination count overflows 32 bits",
-                        })?;
-                if destination_count > limits.max_bookmarks {
+                destination_count += 1;
+                if destination_count > u64::from(limits.max_bookmarks) {
                     return Err(pdf_limit(
                         Some(record.reference),
                         record.range.offset,
                         "bookmarks",
                         u64::from(limits.max_bookmarks),
-                        u64::from(destination_count),
+                        destination_count,
                     ));
                 }
             }
