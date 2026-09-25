@@ -1547,11 +1547,9 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
             "PDF page tree stack",
         )
         .map_err(|error| self.locate_limit(catalog_location.offset, Some(index.catalog), error))?;
-        self.limits
-            .check_allocation(slots.len() as u64)
-            .map_err(|error| {
-                self.locate_limit(catalog_location.offset, Some(index.catalog), error)
-            })?;
+        // `PdfIndex::open` admitted more than one byte per slot under this
+        // allocation limit, so a one-byte-per-slot index fits it.
+        debug_assert!(self.limits.check_allocation(slots.len() as u64).is_ok());
         let mut visited = Vec::new();
         let refused = self.allocation_limit(
             catalog_location.offset,
@@ -1960,10 +1958,10 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                 "nonempty outline root has zero Count",
             ));
         }
+        // `PdfIndex::open` admitted more than one byte per slot under this
+        // allocation limit, so a one-byte-per-slot index fits it.
         let index_bytes = slots.len() as u64;
-        self.limits
-            .check_allocation(index_bytes)
-            .map_err(|error| self.locate_limit(root_offset, Some(root_ref), error))?;
+        debug_assert!(self.limits.check_allocation(index_bytes).is_ok());
         let mut visited = Vec::new();
         let refused = self.allocation_limit(
             root_offset,

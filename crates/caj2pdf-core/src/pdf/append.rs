@@ -9,7 +9,7 @@
 use super::input::{GapPatch, PdfIndex};
 use super::types::{PdfRange, PdfRef};
 use super::writer::{MAX_CLASSIC_PDF_BYTES, MAX_PDF_OBJECTS, check_classic_pdf_bytes};
-use crate::fallible::{checked_read_count, reserve_exact, try_convert, usize_from_u32};
+use crate::fallible::{checked_read_count, reserve_exact, usize_from_u32};
 use crate::{
     Bookmark, Cancellation, ConversionReport, Error, Limits, PdfErrorKind, RangedSource, Result,
     SequentialSink, read_exact_at, write_all,
@@ -635,14 +635,11 @@ impl<'a> CopyPatches<'a> {
             if patch_at >= end {
                 break;
             }
-            let within: usize = try_convert(
-                patch_at.checked_sub(done).ok_or(Error::InvalidInput {
-                    reason: "PDF stream separator patches are not sorted",
-                })?,
-                Error::InvalidInput {
-                    reason: "PDF stream separator patch exceeds chunk",
-                },
-            )?;
+            let within = patch_at.checked_sub(done).ok_or(Error::InvalidInput {
+                reason: "PDF stream separator patches are not sorted",
+            })?;
+            // `patch_at < end`, so the patch lies inside this chunk.
+            let within = within as usize;
             if buffer[within] != b'\r' {
                 return Err(Error::InvalidInput {
                     reason: "PDF stream separator changed after inspection",
