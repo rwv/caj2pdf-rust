@@ -251,7 +251,9 @@ impl<S: RangedSource, C: Cancellation> Cursor<'_, S, C> {
 
     /// Read exactly `N` header bytes with bounded requests.
     async fn read<const N: usize>(&mut self, field: &'static str) -> TextRegionResult<[u8; N]> {
-        // `at <= end` and `end` fits u64, so neither sum can overflow.
+        // `start <= at <= end`, so the consumed count is at most the data
+        // length and adding a field width cannot overflow; `end - at` avoids
+        // overflowing `at + N` when the source advertises a size near u64::MAX.
         let attempted = self.at - self.start + N as u64;
         if attempted > self.max_header_bytes {
             return Err(self.error(TextRegionErrorKind::LimitExceeded {
@@ -260,7 +262,7 @@ impl<S: RangedSource, C: Cancellation> Cursor<'_, S, C> {
                 attempted,
             }));
         }
-        if self.at + N as u64 > self.end {
+        if N as u64 > self.end - self.at {
             return Err(self.error(TextRegionErrorKind::Truncated(field)));
         }
         let mut bytes = [0u8; N];
@@ -407,10 +409,12 @@ pub async fn read_text_region_header<S: RangedSource, C: Cancellation>(
     };
     let start = header.data.offset;
     let prefix: [u8; PREFIX_BYTES] = cursor.read("text region header").await?;
-    let region = parse_region(&prefix, start, &cursor, budget)?;
-    let flags_offset = start + REGION_INFO_BYTES as u64;
-    let flags = parse_flags(u16::from_be_bytes([prefix[17], prefix[18]]))
-        .map_err(|kind| cursor.error_at(flags_offset, kind))?;
+    let region = parse_region(&prefix, &cursor, budget)?;
+    let flags = parse_flags(u16::from_be_bytes([
+        prefix[REGION_INFO_BYTES],
+        prefix[REGION_INFO_BYTES + 1],
+    ]))
+    .map_err(|kind| cursor.error_at(start + REGION_INFO_BYTES as u64, kind))?;
 
     let huffman_flags = if flags.huffman {
         let offset = cursor.at;
@@ -465,21 +469,20 @@ pub async fn read_text_region_header<S: RangedSource, C: Cancellation>(
 
 fn parse_region<S: RangedSource, C: Cancellation>(
     bytes: &[u8; PREFIX_BYTES],
-    start: u64,
     cursor: &Cursor<'_, S, C>,
     budget: TextRegionBudget,
 ) -> TextRegionResult<RegionInfo> {
+    let start = cursor.start;
     let (width, height) = (be32(&bytes[0..4]), be32(&bytes[4..8]));
     let (x, y) = (be32(&bytes[8..12]), be32(&bytes[12..16]));
-    let region_flags = bytes[16];
     let flags_offset = start + 16;
-    if region_flags & 0xf8 != 0 {
+    if bytes[16] & 0xf8 != 0 {
         return Err(cursor.error_at(
             flags_offset,
             TextRegionErrorKind::Malformed("reserved region segment flags"),
         ));
     }
-    let combination = match region_flags & 7 {
+    let combination = match bytes[16] & 7 {
         0 => RegionCombination::Or,
         1 => RegionCombination::And,
         2 => RegionCombination::Xor,
@@ -492,19 +495,19 @@ fn parse_region<S: RangedSource, C: Cancellation>(
             ));
         }
     };
-    if width == 0 || height == 0 {
-        return Err(cursor.error_at(
-            start,
-            TextRegionErrorKind::Unsupported {
-                feature: "empty text region",
-                value: u64::from(width) * u64::from(height),
-            },
-        ));
-    }
     for (resource, limit, attempted, offset) in [
         ("text region width", budget.max_width, width, start),
         ("text region height", budget.max_height, height, start + 4),
     ] {
+        if attempted == 0 {
+            return Err(cursor.error_at(
+                offset,
+                TextRegionErrorKind::Unsupported {
+                    feature: "empty text region",
+                    value: 0,
+                },
+            ));
+        }
         if attempted > limit {
             return Err(cursor.error_at(
                 offset,
