@@ -159,6 +159,13 @@ jobs:
         run: cargo build --locked --release --all-features -p caj2pdf-wasm --target wasm32-unknown-unknown
       - name: Test the JavaScript API, packaging, and headless Chromium on Node 22
         run: node --test js/test/*.test.mjs
+      - name: Report external JavaScript corpus conversion as not run
+        env:
+          CAJ2PDF_CORPUS_DIR: ""
+        run: |
+          report="$(node js/scripts/corpus.mjs)"
+          printf '%s\n' "$report"
+          node -e 'const r = JSON.parse(process.argv[1]); if (r.status !== "NOT_RUN" || r.checked || r.passed || r.failed || r.unsupported || r.not_run) throw new Error("expected NOT_RUN with zero counts")' "$report"
       - name: Set up Node.js 24
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
