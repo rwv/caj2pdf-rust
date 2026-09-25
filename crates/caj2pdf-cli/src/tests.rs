@@ -8,8 +8,8 @@ use crate::args::{Command, Endpoint, Topic, parse};
 use crate::cli::default_output;
 use crate::document::{Inspection, block_on, format_name};
 use crate::files::{
-    Input, NEXT_TEMP, Output, SpoolError, TEMP_ATTEMPTS, open_input, open_output, refuse_terminal,
-    spool,
+    Input, NEXT_TEMP, Output, SpoolError, TEMP_ATTEMPTS, open_input, open_input_spooling_in,
+    open_output, refuse_terminal, spool,
 };
 use crate::json::write_string;
 use crate::report::{write_json, write_text};
@@ -462,7 +462,7 @@ fn temporary_names_are_bounded_retries() {
     // Occupy every name the next attempts can pick, including counter values
     // consumed concurrently by other tests.
     let first = NEXT_TEMP.load(Ordering::Relaxed);
-    for counter in first..first + 4096 {
+    for counter in first..first + 256 {
         let name = format!(".caj2pdf-spool.{}-{counter}.tmp", std::process::id());
         File::create(dir.0.join(name)).unwrap();
     }
@@ -471,7 +471,7 @@ fn temporary_names_are_bounded_retries() {
         panic!("expected an I/O error");
     };
     assert_eq!(error.kind(), io::ErrorKind::AlreadyExists);
-    const { assert!(TEMP_ATTEMPTS < 4096) };
+    const { assert!(TEMP_ATTEMPTS < 256) };
 }
 
 #[test]
@@ -717,6 +717,41 @@ fn a_forward_only_input_is_bounded_while_spooling() {
         Ok(_) => panic!("unbounded input accepted"),
     };
     assert_eq!(error.message, "'/dev/zero' exceeds the 10-byte input limit");
+}
+
+#[test]
+fn an_unusable_spool_directory_is_a_read_failure() {
+    let scratch = TempDir::new("missing-spool");
+    let missing = scratch.0.join("missing");
+    let error = match open_input_spooling_in(&path("/dev/zero"), 10, &missing) {
+        Err(error) => error,
+        Ok(_) => panic!("spooled into a missing directory"),
+    };
+    assert!(
+        error.message.starts_with("cannot read '/dev/zero': "),
+        "{}",
+        error.message
+    );
+    assert!(scratch.entries().is_empty());
+}
+
+#[test]
+fn a_staged_output_whose_final_flush_fails_is_not_committed() {
+    let scratch = TempDir::new("flush");
+    let target = scratch.0.join("out.pdf");
+    let mut output = open_output(&Endpoint::Path(target.clone()), false, &[]).unwrap();
+    // Buffered bytes reach the file only when commit flushes them.
+    *output.writer() = io::BufWriter::new(File::options().write(true).open("/dev/full").unwrap());
+    output.writer().write_all(b"%PDF-").unwrap();
+    let error = output.commit().unwrap_err();
+    assert!(
+        error
+            .message
+            .starts_with(&format!("cannot write '{}': ", target.display())),
+        "{}",
+        error.message
+    );
+    assert!(scratch.entries().is_empty());
 }
 
 #[test]

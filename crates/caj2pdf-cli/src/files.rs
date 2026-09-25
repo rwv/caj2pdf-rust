@@ -50,6 +50,15 @@ fn duplicate<F: AsFd>(handle: F) -> io::Result<File> {
 /// and other forward-only files are spooled to an anonymous temporary file
 /// of at most `limit` bytes.
 pub fn open_input(endpoint: &Endpoint, limit: u64) -> Result<Input, CliError> {
+    open_input_spooling_in(endpoint, limit, &std::env::temp_dir())
+}
+
+/// [`open_input`] with forward-only inputs spooled in `spool_directory`.
+pub fn open_input_spooling_in(
+    endpoint: &Endpoint,
+    limit: u64,
+    spool_directory: &Path,
+) -> Result<Input, CliError> {
     let name = describe(endpoint);
     let fail = |error: io::Error| CliError::runtime(format!("cannot read {name}: {error}"));
     let file = match endpoint {
@@ -64,7 +73,7 @@ pub fn open_input(endpoint: &Endpoint, limit: u64) -> Result<Input, CliError> {
     let file = if metadata.is_file() {
         file
     } else {
-        spool(file, limit, &std::env::temp_dir()).map_err(|error| match error {
+        spool(file, limit, spool_directory).map_err(|error| match error {
             SpoolError::Io(error) => fail(error),
             SpoolError::TooLarge => {
                 CliError::runtime(format!("{name} exceeds the {limit}-byte input limit"))
