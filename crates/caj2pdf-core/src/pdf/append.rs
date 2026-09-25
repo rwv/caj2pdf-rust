@@ -652,11 +652,10 @@ impl<'a> CopyPatches<'a> {
             if patch_at >= end {
                 break;
             }
+            // `patch_at < end`, so the patch lies inside this chunk.
             let within = patch_at.checked_sub(done).ok_or(Error::InvalidInput {
                 reason: "PDF stream separator patches are not sorted",
-            })?;
-            // `patch_at < end`, so the patch lies inside this chunk.
-            let within = within as usize;
+            })? as usize;
             if buffer[within] != b'\r' {
                 return Err(Error::InvalidInput {
                     reason: "PDF stream separator changed after inspection",
