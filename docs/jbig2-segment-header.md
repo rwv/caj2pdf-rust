@@ -47,19 +47,21 @@ bounded by the configured header and reference limits; retained memory is
 
 ## Deliberate boundary
 
-This reader does not parse a standalone JBIG2 file header, discover segment
-boundaries, support unknown-length termination, build a segment directory,
-verify that a referenced segment exists or belongs to an allowed page, or
-decode any segment data. T.88 Annex D allows standalone random-access files
-whose headers and data are stored separately; those files cannot be passed
-as one contiguous segment span without a format-aware adapter. HN/C8 record
-framing, mode inventory, and page composition belong to later work.
+This single-header API does not parse a standalone JBIG2 file header,
+discover segment boundaries, support unknown-length termination, validate
+cross-segment references, or decode segment data. The companion
+[embedded-directory reader](jbig2-directory.md) indexes an exact contiguous
+span and checks cross-segment header rules. T.88 Annex D allows standalone
+random-access files whose headers and data are stored separately; those
+files cannot be passed as one contiguous segment span without a format-aware
+adapter. HN/C8 record framing and page composition remain separate.
 
-The [external corpus matrix](../tests/conformance/README.md) does not yet
-identify JBIG2 HN/C8 segment spans or provide an independent JBIG2 pixel
-oracle. The corpus check for this reader is therefore **NOT_RUN** and no HN/C8
-pixel compatibility is claimed. Issue #9 remains open. Arithmetic decoding
-would also need a separate provenance decision before any exact T.88 Annex E
+The optional [directory inventory](jbig2-directory.md#optional-external-metadata-inventory)
+checks the pinned HN/C8 type-3 segment spans through the Rust directory API
+when the external corpus is supplied. A clean clone reports **NOT_RUN**.
+Neither this header API nor the directory inventory runs a decoded-pixel
+oracle, so neither makes an HN/C8 pixel-parity claim. Issue #9 remains open.
+Arithmetic decoding would also need a separate provenance decision before any exact T.88 Annex E
 numeric-state table enters MIT source or released artifacts; the existing
 [#30 decision](https://github.com/rwv/caj2pdf-rust/issues/30) concerns T.82
 Table 24 instead.

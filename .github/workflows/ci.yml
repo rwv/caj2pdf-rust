@@ -51,6 +51,11 @@ jobs:
           CAJ2PDF_CORPUS_DIR: ""
           CAJ2PDF_JBIG1_ORACLE_LIB: ""
         run: python3 scripts/jbig1_oracle.py --json
+      - name: Report external JBIG2 directory inventory as not run
+        env:
+          CAJ2PDF_CORPUS_DIR: ""
+        run: |
+          python3 scripts/jbig2_directory_inventory.py --json | python3 -c 'import json, sys; report = json.load(sys.stdin); print(json.dumps(report)); assert report["status"] == "NOT_RUN" and report["checked_images"] == 0, report'
       - name: Report external standard JBIG1 probe as not run
         run: python3 scripts/jbig1_standard_probe.py --json
       - name: Report external corpus as not run

@@ -19,9 +19,10 @@ python3 -m unittest discover -s tests/fixtures -p 'test_*.py'
 python3 -m unittest discover -s tests/conformance -p 'test_*.py'
 python3 scripts/conformance.py
 python3 scripts/jbig1_oracle.py --json
+python3 scripts/jbig2_directory_inventory.py --json
 ```
 
-Both optional commands print `NOT_RUN` for external checks when their
+The optional commands print `NOT_RUN` for external checks when their
 inputs are absent. The PDF command prints `NOT_RUN` for the external corpus when
 `CAJ2PDF_CORPUS_DIR` is unset. This is a visible skip, never a compatibility
 pass. To request an inventory run, point the variable at a local checkout of
@@ -30,6 +31,11 @@ the pinned CAJSamples revision:
 ```sh
 CAJ2PDF_CORPUS_DIR=/path/to/CAJSamples python3 scripts/conformance.py --json
 ```
+
+The [JBIG2 directory inventory](jbig2-directory.md#optional-external-metadata-inventory)
+uses the same pinned corpus to check the HN/C8 type-3 segment headers through
+the Rust core API. It reports `NOT_RUN` when the corpus is absent and does
+not claim decoded-pixel compatibility.
 
 The runner checks all canonical files, including size and Git blob hash, using
 bounded reads. A missing file, changed hash, unreadable file, or path escaping

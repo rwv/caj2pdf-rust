@@ -1,9 +1,14 @@
 // SPDX-License-Identifier: MIT
 
-//! Bounded header reading for one contiguous T.88 JBIG2 segment.
+//! Bounded header and embedded-directory reading for T.88 JBIG2 segments.
 //!
-//! This module does not parse a JBIG2 file header, build a segment directory,
-//! decode segment data, or interpret an HN/C8 container.
+//! This module does not parse a standalone JBIG2 file header, decode segment
+//! data, or interpret an HN/C8 container.
+
+mod directory;
+pub use directory::{
+    DirectoryError, DirectoryErrorKind, DirectoryLimits, SegmentDirectory, read_embedded_directory,
+};
 
 use crate::{Cancellation, Error, Limits, RangedSource};
 use std::{error, fmt, mem};
@@ -62,6 +67,17 @@ impl SegmentHeader {
     fn retained_bit(&self, bit: usize) -> bool {
         (self.retention[bit / 8] >> (bit % 8)) & 1 != 0
     }
+
+    pub(super) fn metadata_bytes(&self) -> Option<u64> {
+        u64::try_from(self.referred_to.len())
+            .ok()?
+            .checked_mul(mem::size_of::<u32>() as u64)?
+            .checked_add(u64::try_from(self.retention.len()).ok()?)
+    }
+
+    pub(super) fn header_offset(&self) -> u64 {
+        self.data.offset - self.header_length
+    }
 }
 
 /// A located failure while reading a JBIG2 segment header.
@@ -93,6 +109,14 @@ pub enum HeaderErrorKind {
 }
 
 pub type HeaderResult<T> = std::result::Result<T, HeaderError>;
+
+#[derive(Clone, Copy)]
+pub(super) struct PrefixBudget {
+    pub metadata_used: u64,
+    pub metadata_limit: u64,
+    pub references_used: u64,
+    pub references_limit: u64,
+}
 
 impl fmt::Display for HeaderError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -278,38 +302,52 @@ fn valid_page_association(kind: u8, page: u32) -> bool {
     }
 }
 
-/// Read only the header of one exact, contiguous header-plus-data span.
-///
-/// Source reads never pass the supplied span. Returned data bytes are not read
-/// or decoded. References to other headers and their page associations are
-/// checked by a later segment directory, not by this single-header reader.
-pub async fn read_segment_header<S: RangedSource, C: Cancellation>(
-    source: &mut S,
+pub(super) fn validate_enclosing_span<S: RangedSource>(
+    source: &S,
     span: SegmentSpan,
     limits: &Limits,
-    header_limits: HeaderLimits,
-    cancellation: &C,
-) -> HeaderResult<SegmentHeader> {
-    let mut cursor = HeaderCursor {
+) -> HeaderResult<u64> {
+    let cursor = HeaderCursor {
         start: span.offset,
         at: span.offset,
         end: span.offset,
-        max_header_bytes: header_limits.max_header_bytes,
+        max_header_bytes: 0,
         segment: None,
     };
     limits
         .validate()
         .and_then(|()| limits.check_input_size(span.length))
         .map_err(|error| cursor.error(HeaderErrorKind::Source(error)))?;
-    cursor.end = span
+    let end = span
         .offset
         .checked_add(span.length)
         .ok_or_else(|| cursor.error(HeaderErrorKind::InvalidSpan("end overflows 64 bits")))?;
-    if cursor.end > source.size() {
+    if end > source.size() {
         return Err(cursor.error(HeaderErrorKind::InvalidSpan(
             "range extends beyond source size",
         )));
     }
+    Ok(end)
+}
+
+// One parser serves both an exact segment span and a bounded embedded scan.
+// The caller validates the enclosing span before calling this function.
+pub(super) async fn read_header_prefix<S: RangedSource, C: Cancellation>(
+    source: &mut S,
+    start: u64,
+    end: u64,
+    limits: &Limits,
+    header_limits: HeaderLimits,
+    budget: Option<PrefixBudget>,
+    cancellation: &C,
+) -> HeaderResult<(SegmentHeader, u64)> {
+    let mut cursor = HeaderCursor {
+        start,
+        at: start,
+        end,
+        max_header_bytes: header_limits.max_header_bytes,
+        segment: None,
+    };
     cursor.check_cancelled(cancellation)?;
 
     let number = u32::from_be_bytes(
@@ -370,6 +408,21 @@ pub async fn read_segment_header<S: RangedSource, C: Cancellation>(
             attempted: u64::from(reference_count),
         }));
     }
+    if let Some(budget) = budget {
+        let attempted = budget
+            .references_used
+            .checked_add(u64::from(reference_count))
+            .ok_or_else(|| {
+                cursor.error(HeaderErrorKind::InvalidSpan("reference total overflows"))
+            })?;
+        if attempted > budget.references_limit {
+            return Err(cursor.error(HeaderErrorKind::LimitExceeded {
+                resource: "JBIG2 directory references",
+                limit: budget.references_limit,
+                attempted,
+            }));
+        }
+    }
     let reference_width = if number <= 256 {
         1_u64
     } else if number <= 65_536 {
@@ -397,6 +450,21 @@ pub async fn read_segment_header<S: RangedSource, C: Cancellation>(
             limit: limits.max_allocation_bytes,
             attempted: allocation_bytes,
         }));
+    }
+    if let Some(budget) = budget {
+        let attempted = budget
+            .metadata_used
+            .checked_add(allocation_bytes)
+            .ok_or_else(|| {
+                cursor.error(HeaderErrorKind::InvalidSpan("metadata total overflows"))
+            })?;
+        if attempted > budget.metadata_limit {
+            return Err(cursor.error(HeaderErrorKind::LimitExceeded {
+                resource: "JBIG2 directory metadata bytes",
+                limit: budget.metadata_limit,
+                attempted,
+            }));
+        }
     }
 
     let mut retention = Vec::new();
@@ -502,23 +570,53 @@ pub async fn read_segment_header<S: RangedSource, C: Cancellation>(
     if data_end > cursor.end {
         return Err(cursor.error(HeaderErrorKind::Truncated("segment data")));
     }
-    if data_end < cursor.end {
-        return Err(cursor.error(HeaderErrorKind::Malformed(
-            "bytes follow declared segment data",
-        )));
-    }
     cursor.check_cancelled(cancellation)?;
-    Ok(SegmentHeader {
-        number,
-        segment_type,
-        deferred_non_retain: flags & 0x80 != 0,
-        page_association,
-        referred_to,
-        data: SegmentSpan {
-            offset: cursor.at,
-            length: u64::from(data_length),
+    Ok((
+        SegmentHeader {
+            number,
+            segment_type,
+            deferred_non_retain: flags & 0x80 != 0,
+            page_association,
+            referred_to,
+            data: SegmentSpan {
+                offset: cursor.at,
+                length: u64::from(data_length),
+            },
+            header_length: cursor.at - cursor.start,
+            retention,
         },
-        header_length: cursor.at - cursor.start,
-        retention,
-    })
+        data_end,
+    ))
+}
+
+/// Read only the header of one exact, contiguous header-plus-data span.
+///
+/// Source reads never pass the supplied span. Returned data bytes are not read
+/// or decoded. Cross-segment rules are checked by [`read_embedded_directory`].
+pub async fn read_segment_header<S: RangedSource, C: Cancellation>(
+    source: &mut S,
+    span: SegmentSpan,
+    limits: &Limits,
+    header_limits: HeaderLimits,
+    cancellation: &C,
+) -> HeaderResult<SegmentHeader> {
+    let end = validate_enclosing_span(source, span, limits)?;
+    let (header, next) = read_header_prefix(
+        source,
+        span.offset,
+        end,
+        limits,
+        header_limits,
+        None,
+        cancellation,
+    )
+    .await?;
+    if next != end {
+        return Err(HeaderError {
+            offset: header.data.offset,
+            segment: Some(header.number),
+            kind: HeaderErrorKind::Malformed("bytes follow declared segment data"),
+        });
+    }
+    Ok(header)
 }
