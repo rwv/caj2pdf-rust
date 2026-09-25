@@ -1773,4 +1773,139 @@ mod tests {
             "at least one input bit must affect the decoded symbols"
         );
     }
+
+    #[test]
+    fn configuration_and_state_errors_have_distinct_messages() {
+        let limits = Limits::default();
+        let table = synthetic_table();
+        let state = QmState {
+            qe: 1,
+            next_lps: 0,
+            next_mps: 0,
+            switch_mps: false,
+        };
+        let wrong_count = QmTable::new(vec![state; 1]).unwrap_err();
+        assert_eq!(
+            wrong_count.to_string(),
+            "T.82 arithmetic decoder: invalid Qm table: expected exactly 113 states"
+        );
+        let mut contexts = ContextBank::new(2, &limits).unwrap();
+        let bad_state = contexts
+            .set(
+                0,
+                ContextState {
+                    state_index: u8::MAX,
+                    mps: true,
+                },
+            )
+            .unwrap_err();
+        assert_eq!(
+            bad_state.to_string(),
+            "T.82 arithmetic decoder, context 0: invalid context state index"
+        );
+
+        let mut source = MockSource::new(&[0, 0, 0]);
+        let unready = run(ArithmeticDecoder::new(
+            &mut source,
+            span(3),
+            &table,
+            &mut contexts,
+            StripeMode::Carry,
+            &limits,
+            &NeverCancel,
+            budget(),
+        ))
+        .err()
+        .unwrap();
+        assert_eq!(
+            unready.to_string(),
+            "T.82 arithmetic decoder: carry requires a completed previous stripe"
+        );
+        let zero_budget = run(ArithmeticDecoder::new(
+            &mut source,
+            span(3),
+            &table,
+            &mut contexts,
+            StripeMode::Reset,
+            &limits,
+            &NeverCancel,
+            ArithmeticBudget {
+                max_symbols: 1,
+                max_work: 0,
+            },
+        ))
+        .err()
+        .unwrap();
+        assert_eq!(
+            zero_budget.to_string(),
+            "T.82 arithmetic decoder: invalid arithmetic work budget"
+        );
+        let cancelled = run(ArithmeticDecoder::new(
+            &mut source,
+            span(3),
+            &table,
+            &mut contexts,
+            StripeMode::Reset,
+            &limits,
+            &Flag(Rc::new(Cell::new(true))),
+            budget(),
+        ))
+        .err()
+        .unwrap();
+        assert_eq!(
+            cancelled.to_string(),
+            "T.82 arithmetic decoder at source byte 0: cancelled"
+        );
+        assert_eq!(source.calls, 0);
+
+        for (kind, message) in [
+            (
+                ArithmeticErrorKind::Poisoned,
+                "decoder is poisoned after an error",
+            ),
+            (
+                ArithmeticErrorKind::Invariant("register"),
+                "internal invariant: register",
+            ),
+        ] {
+            let error = ArithmeticError {
+                offset: Some(9),
+                context: Some(4),
+                kind,
+            };
+            assert_eq!(
+                error.to_string(),
+                format!("T.82 arithmetic decoder at source byte 9, context 4: {message}")
+            );
+            assert!(std::error::Error::source(&error).is_none());
+        }
+    }
+
+    #[test]
+    fn an_empty_context_bank_is_rejected_before_input() {
+        // `ContextBank::new` never builds an empty bank; the decoder still
+        // refuses one rather than indexing it.
+        let mut empty = ContextBank {
+            states: Vec::new(),
+            ready_for_carry: true,
+        };
+        let table = synthetic_table();
+        let mut source = MockSource::new(&[0, 0, 0]);
+        let error = run(ArithmeticDecoder::new(
+            &mut source,
+            span(3),
+            &table,
+            &mut empty,
+            StripeMode::Carry,
+            &Limits::default(),
+            &NeverCancel,
+            budget(),
+        ))
+        .err()
+        .unwrap();
+        assert!(matches!(error.kind, ArithmeticErrorKind::InvalidContext));
+        assert_eq!((error.offset, error.context), (None, None));
+        assert_eq!(source.calls, 0);
+        assert!(empty.ready_for_carry);
+    }
 }
