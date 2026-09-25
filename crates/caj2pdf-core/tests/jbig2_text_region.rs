@@ -468,12 +468,13 @@ fn region_information_is_validated() {
         operator.kind,
         TextRegionErrorKind::Malformed("region combination operator")
     ));
-    for (width, height) in [(0, 5), (5, 0)] {
+    for (width, height, offset) in [(0, 5, DATA_OFFSET), (5, 0, DATA_OFFSET + 4)] {
         let empty = error(&Region {
             width,
             height,
             ..Region::default()
         });
+        assert_eq!(empty.offset, offset);
         assert!(matches!(
             empty.kind,
             TextRegionErrorKind::Unsupported {
@@ -814,6 +815,33 @@ fn spans_are_checked_before_reads() {
 }
 
 #[test]
+fn header_near_the_end_of_a_huge_source_is_truncated_without_overflow() {
+    let bytes = Region::default().segment();
+    let mut region = parse_header(&bytes);
+    region.data = SegmentSpan {
+        offset: u64::MAX - 5,
+        length: 5,
+    };
+    let mut source = Source::new(bytes);
+    source.advertised = u64::MAX;
+    let error = ready(read_text_region_header(
+        &mut source,
+        &region,
+        &dictionary(2, 1),
+        &Limits::default(),
+        TextRegionBudget::default(),
+        &NeverCancel,
+    ))
+    .unwrap_err();
+    assert!(matches!(
+        error.kind,
+        TextRegionErrorKind::Truncated("text region header")
+    ));
+    assert_eq!((error.offset, error.bytes_fetched), (u64::MAX - 5, 0));
+    assert!(source.reads.is_empty());
+}
+
+#[test]
 fn invalid_limits_and_zero_request_bound_are_rejected() {
     let bytes = Region::default().segment();
     let region = parse_header(&bytes);
@@ -860,18 +888,34 @@ fn requests_are_bounded_and_short_reads_resume() {
     let parsed = parse_with(&mut source, budget, &NeverCancel).unwrap();
     assert_eq!(parsed.header_bytes, 23);
     assert!(source.reads.iter().all(|&(_, length)| length <= 5));
-    let fetched: u64 = source
-        .reads
-        .iter()
-        .map(|&(_, length)| length.min(3) as u64)
-        .sum();
-    assert_eq!(fetched, 23, "the body is never read");
-    assert!(
-        source
-            .reads
-            .iter()
-            .all(|&(offset, _)| offset < DATA_OFFSET + 23)
-    );
+    // Each read serves three bytes and resumes at the next offset; the last
+    // read of each field asks only for what remains, so no body byte is read.
+    let offsets: Vec<u64> = source.reads.iter().map(|&(offset, _)| offset).collect();
+    let expected: Vec<u64> = (0..7)
+        .map(|index| DATA_OFFSET + 3 * index)
+        .chain([DATA_OFFSET + 19, DATA_OFFSET + 22])
+        .collect();
+    assert_eq!(offsets, expected);
+    assert_eq!(source.reads.last(), Some(&(DATA_OFFSET + 22, 1)));
+
+    // `Limits::io_chunk_bytes` also caps each request.
+    let bytes = Region::default().segment();
+    let header = parse_header(&bytes);
+    let mut source = Source::new(bytes);
+    ready(read_text_region_header(
+        &mut source,
+        &header,
+        &dictionary(2, 1),
+        &Limits {
+            io_chunk_bytes: 2,
+            ..Limits::default()
+        },
+        TextRegionBudget::default(),
+        &NeverCancel,
+    ))
+    .unwrap();
+    assert!(source.reads.iter().all(|&(_, length)| length <= 2));
+    assert_eq!(source.reads.len(), 12);
 }
 
 #[test]
@@ -931,6 +975,11 @@ fn cancellation_is_checked_before_and_between_reads() {
             "{after}"
         );
         assert_eq!(source.inner.reads.len(), after);
+        let fetched = (7 * after as u64).min(19);
+        assert_eq!(
+            (error.bytes_fetched, error.offset),
+            (fetched, DATA_OFFSET + fetched)
+        );
     }
 }
 
