@@ -34,10 +34,14 @@ There is no caller-selected per-integer offset that can accidentally choose
 another integer procedure's block.
 
 Keep one bank set across successive integers in the same coding unit so each
-procedure preserves its adaptive probabilities. Call `reset` or construct a
-fresh bank set at the next symbol-dictionary or segment boundary prescribed
-by the enclosing decoder. The borrowed MQ decoder must be finished or dropped
-before reset. A typical call sequence is:
+procedure preserves its adaptive probabilities. For a new symbol dictionary,
+T.88 §7.4.2.2 step 5 resets **integer** statistics unconditionally; steps
+3–4 and 7 may restore or retain generic and refinement bitmap statistics.
+Call `reset_integer_contexts()` to clear only slots `0..6656` and preserve
+the appended model slots. `reset_all()` clears both integer and appended
+slots when the enclosing decoder requires a wholly fresh coding unit;
+the existing `reset()` remains a full-reset alias. The borrowed MQ decoder
+must be finished or dropped before any reset. A typical call sequence is:
 
 ```rust
 let mut banks = IntegerContextBanks::new(limits, &budget)?;
@@ -48,7 +52,7 @@ let delta_width = decode_integer(&mut mq, IntegerProcedure::Iadw).await?;
 // Decode all other fields in the same MQ stream before finishing it.
 let decisions = mq.snapshot().symbols_decoded;
 mq.finish(decisions).await?;
-banks.reset(); // Only when beginning the next coding unit.
+banks.reset_integer_contexts()?; // Next dictionary; appended models survive.
 ```
 
 The example uses the caller's already validated `MqSpan`, caller-provided
