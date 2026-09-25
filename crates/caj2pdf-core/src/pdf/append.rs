@@ -6,7 +6,7 @@
 //! indexes the input first; the appender copies its PDF prefix and writes only
 //! changed dictionaries, new outline items, a sparse xref, and a new trailer.
 
-use super::input::PdfIndex;
+use super::input::{GapPatch, PdfIndex};
 use super::types::{PdfRange, PdfRef};
 use super::writer::{MAX_CLASSIC_PDF_BYTES, MAX_PDF_OBJECTS};
 use crate::fallible::{reserve_exact, try_convert};
@@ -154,6 +154,40 @@ pub struct PdfOutlineAppender<'a, W: SequentialSink, C: Cancellation> {
     input_bytes_read: u64,
 }
 
+/// The source-independent preconditions of an outline append, shared by
+/// every source, sink, and cancellation type.
+fn check_append_range(index: &PdfIndex, limits: &Limits, source_size: u64) -> Result<()> {
+    limits.validate()?;
+    let range = index.range();
+    if range.length > limits.max_input_bytes {
+        return Err(Error::PdfLimitExceeded {
+            offset: range.offset,
+            object: Some((index.catalog().number, index.catalog().generation)),
+            resource: "input bytes",
+            limit: limits.max_input_bytes,
+            attempted: range.length,
+        });
+    }
+    let range_end = range.end().ok_or(Error::InvalidInput {
+        reason: "PDF source range end overflows",
+    })?;
+    if range_end > source_size || index.logical_end() > range.length {
+        return Err(Error::InvalidInput {
+            reason: "PDF index range exceeds source",
+        });
+    }
+    if index.logical_end() > limits.max_output_bytes {
+        return Err(Error::PdfLimitExceeded {
+            offset: range.offset.saturating_add(index.xref_offset()),
+            object: Some((index.catalog().number, index.catalog().generation)),
+            resource: "output bytes",
+            limit: limits.max_output_bytes,
+            attempted: index.logical_end(),
+        });
+    }
+    Ok(())
+}
+
 impl<'a, W: SequentialSink, C: Cancellation> PdfOutlineAppender<'a, W, C> {
     /// Inspect before calling this method, then retain the index until finish.
     pub async fn begin<R: RangedSource>(
@@ -163,34 +197,8 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfOutlineAppender<'a, W, C> {
         limits: &'a Limits,
         cancellation: &'a C,
     ) -> Result<Self> {
-        limits.validate()?;
+        check_append_range(index, limits, source.size())?;
         let range = index.range();
-        if range.length > limits.max_input_bytes {
-            return Err(Error::PdfLimitExceeded {
-                offset: range.offset,
-                object: Some((index.catalog().number, index.catalog().generation)),
-                resource: "input bytes",
-                limit: limits.max_input_bytes,
-                attempted: range.length,
-            });
-        }
-        let range_end = range.end().ok_or(Error::InvalidInput {
-            reason: "PDF source range end overflows",
-        })?;
-        if range_end > source.size() || index.logical_end() > range.length {
-            return Err(Error::InvalidInput {
-                reason: "PDF index range exceeds source",
-            });
-        }
-        if index.logical_end() > limits.max_output_bytes {
-            return Err(Error::PdfLimitExceeded {
-                offset: range.offset.saturating_add(index.xref_offset()),
-                object: Some((index.catalog().number, index.catalog().generation)),
-                resource: "output bytes",
-                limit: limits.max_output_bytes,
-                attempted: index.logical_end(),
-            });
-        }
         let mut writer = AppendWriter::new(sink, limits, cancellation);
         copy_prefix(
             source,
@@ -613,19 +621,47 @@ async fn copy_prefix<R: RangedSource, W: SequentialSink, C: Cancellation>(
     let refused = limits.allocation_refused("PDF copy buffer allocation", chunk as u64);
     reserve_exact(&mut buffer, chunk, refused)?;
     buffer.resize(chunk, 0);
-    let separator_patches = index.stream_separator_patches();
-    let gap_patches = index.gap_patches();
+    let mut patches = CopyPatches::new(index);
     let mut done = 0;
-    let mut next_patch = 0;
-    let mut next_gap = 0;
     while done < length {
         let count = (length - done).min(chunk as u64) as usize;
         let at = offset.checked_add(done).ok_or(Error::InvalidInput {
             reason: "PDF copy offset overflows",
         })?;
         read_exact_at(source, at, &mut buffer[..count], limits, cancellation).await?;
-        while let Some(&patch_at) = separator_patches.get(next_patch) {
-            if patch_at >= done + count as u64 {
+        patches.apply(&mut buffer[..count], done)?;
+        writer.write_raw(&buffer[..count]).await?;
+        done = done.checked_add(count as u64).ok_or(Error::InvalidInput {
+            reason: "PDF copied-byte count overflows",
+        })?;
+    }
+    patches.check_consumed()
+}
+
+/// The recorded source patches applied while copying a PDF prefix. The
+/// patching needs no I/O, so it is shared by every source and sink type.
+struct CopyPatches<'a> {
+    separators: &'a [u64],
+    gaps: &'a [GapPatch],
+    next_separator: usize,
+    next_gap: usize,
+}
+
+impl<'a> CopyPatches<'a> {
+    fn new(index: &'a PdfIndex) -> Self {
+        Self {
+            separators: index.stream_separator_patches(),
+            gaps: index.gap_patches(),
+            next_separator: 0,
+            next_gap: 0,
+        }
+    }
+
+    /// Patch one copied chunk that starts `done` bytes into the prefix.
+    fn apply(&mut self, buffer: &mut [u8], done: u64) -> Result<()> {
+        let end = done + buffer.len() as u64;
+        while let Some(&patch_at) = self.separators.get(self.next_separator) {
+            if patch_at >= end {
                 break;
             }
             let within: usize = try_convert(
@@ -642,20 +678,20 @@ async fn copy_prefix<R: RangedSource, W: SequentialSink, C: Cancellation>(
                 });
             }
             buffer[within] = b'\n';
-            next_patch += 1;
+            self.next_separator += 1;
         }
-        while let Some(gap) = gap_patches.get(next_gap) {
+        while let Some(gap) = self.gaps.get(self.next_gap) {
             let gap_end =
                 gap.offset
                     .checked_add(gap.original.len() as u64)
                     .ok_or(Error::InvalidInput {
                         reason: "PDF orphan gap patch overflows",
                     })?;
-            if gap.offset >= done + count as u64 {
+            if gap.offset >= end {
                 break;
             }
             let overlap_start = gap.offset.max(done);
-            let overlap_end = gap_end.min(done + count as u64);
+            let overlap_end = gap_end.min(end);
             if overlap_start < overlap_end {
                 let source_start = (overlap_start - done) as usize;
                 let source_end = (overlap_end - done) as usize;
@@ -668,27 +704,27 @@ async fn copy_prefix<R: RangedSource, W: SequentialSink, C: Cancellation>(
                 }
                 buffer[source_start..source_end].fill(b' ');
             }
-            if gap_end > done + count as u64 {
+            if gap_end > end {
                 break;
             }
-            next_gap += 1;
+            self.next_gap += 1;
         }
-        writer.write_raw(&buffer[..count]).await?;
-        done = done.checked_add(count as u64).ok_or(Error::InvalidInput {
-            reason: "PDF copied-byte count overflows",
-        })?;
+        Ok(())
     }
-    if next_patch != separator_patches.len() {
-        return Err(Error::InvalidInput {
-            reason: "PDF stream separator patch exceeds copied prefix",
-        });
+
+    fn check_consumed(&self) -> Result<()> {
+        if self.next_separator != self.separators.len() {
+            return Err(Error::InvalidInput {
+                reason: "PDF stream separator patch exceeds copied prefix",
+            });
+        }
+        if self.next_gap != self.gaps.len() {
+            return Err(Error::InvalidInput {
+                reason: "PDF orphan gap patch exceeds copied prefix",
+            });
+        }
+        Ok(())
     }
-    if next_gap != gap_patches.len() {
-        return Err(Error::InvalidInput {
-            reason: "PDF orphan gap patch exceeds copied prefix",
-        });
-    }
-    Ok(())
 }
 
 struct AppendWriter<'a, W: SequentialSink, C: Cancellation> {
@@ -1841,7 +1877,7 @@ mod tests {
     #[test]
     fn append_writer_rejects_misordered_object_calls() -> Result<()> {
         let limits = Limits::default();
-        let mut sink = RecordingSink::default();
+        let mut sink = WriteSink::new(Vec::new());
         let reference = PdfRef {
             number: 7,
             generation: 0,
@@ -1866,7 +1902,7 @@ mod tests {
             assert!(open(&writer.finish_copy().await));
             writer.end_object().await
         })?;
-        assert_eq!(sink.bytes, b"\n7 0 obj\n\nendobj\n");
+        assert_eq!(sink.into_inner(), b"\n7 0 obj\n\nendobj\n");
         Ok(())
     }
 
@@ -1878,7 +1914,7 @@ mod tests {
             number: 4,
             generation: 0,
         };
-        let mut sink = RecordingSink::default();
+        let mut sink = WriteSink::new(Vec::new());
         run(async {
             let mut writer = AppendWriter::new(&mut sink, &limits, &NeverCancel);
             writer.begin_object(reference).await?;
@@ -1894,7 +1930,7 @@ mod tests {
             Ok::<_, Error>(())
         })?;
 
-        let mut sink = RecordingSink::default();
+        let mut sink = WriteSink::new(Vec::new());
         let oversized = run(async {
             let mut writer = AppendWriter::new(&mut sink, &limits, &NeverCancel);
             writer.position = MAX_CLASSIC_PDF_BYTES + 1;
@@ -1909,7 +1945,7 @@ mod tests {
             }) if attempted == MAX_CLASSIC_PDF_BYTES + 1
         ));
 
-        let mut sink = RecordingSink::default();
+        let mut sink = WriteSink::new(Vec::new());
         let far_object = run(async {
             let mut writer = AppendWriter::new(&mut sink, &limits, &NeverCancel);
             writer.entries.push(XrefEntry {
@@ -1926,5 +1962,86 @@ mod tests {
             })
         ));
         Ok(())
+    }
+
+    #[test]
+    fn copy_patches_rewrite_verified_bytes_across_chunks() -> Result<()> {
+        let gaps = [GapPatch {
+            offset: 3,
+            original: b"1 0".to_vec(),
+        }];
+        let mut patches = CopyPatches {
+            separators: &[1],
+            gaps: &gaps,
+            next_separator: 0,
+            next_gap: 0,
+        };
+        let mut first = *b"a\rx1";
+        patches.apply(&mut first, 0)?;
+        assert_eq!(&first, b"a\nx ");
+        // The gap continues into the next chunk and must not be skipped.
+        assert!(patches.check_consumed().is_err());
+        let mut second = *b" 0z";
+        patches.apply(&mut second, 4)?;
+        assert_eq!(&second, b"  z");
+        patches.check_consumed()
+    }
+
+    #[test]
+    fn copy_patches_refuse_changed_or_uncopied_bytes() {
+        let expect = |result: Result<()>, reason: &'static str| {
+            assert!(invalid(reason)(&result), "{result:?}");
+        };
+        let mut patches = CopyPatches {
+            separators: &[1],
+            gaps: &[],
+            next_separator: 0,
+            next_gap: 0,
+        };
+        expect(
+            patches.apply(&mut b"a\n".to_owned(), 0),
+            "PDF stream separator changed after inspection",
+        );
+        let mut patches = CopyPatches {
+            separators: &[4],
+            gaps: &[],
+            next_separator: 0,
+            next_gap: 0,
+        };
+        patches.apply(&mut b"abc".to_owned(), 0).unwrap();
+        expect(
+            patches.check_consumed(),
+            "PDF stream separator patch exceeds copied prefix",
+        );
+
+        let gaps = [GapPatch {
+            offset: 1,
+            original: b"xy".to_vec(),
+        }];
+        let mut patches = CopyPatches {
+            separators: &[],
+            gaps: &gaps,
+            next_separator: 0,
+            next_gap: 0,
+        };
+        expect(
+            patches.apply(&mut b"axz".to_owned(), 0),
+            "PDF orphan gap changed after inspection",
+        );
+        let gaps = [GapPatch {
+            offset: 8,
+            original: b"xy".to_vec(),
+        }];
+        let mut patches = CopyPatches {
+            separators: &[],
+            gaps: &gaps,
+            next_separator: 0,
+            next_gap: 0,
+        };
+        patches.apply(&mut b"abc".to_owned(), 0).unwrap();
+        expect(
+            patches.check_consumed(),
+            "PDF orphan gap patch exceeds copied prefix",
+        );
     }
 }
