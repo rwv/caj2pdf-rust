@@ -20,10 +20,13 @@ cargo build --locked --release --all-features -p caj2pdf-wasm --target wasm32-un
 node --test js/test/*.test.mjs
 ```
 
-`npm run build:wasm` (run inside `js/`) also copies the module next to the
-entry points as `caj2pdf_wasm.wasm`, which is where `loadModule()` looks by
-default. The package is marked `private` until the release process publishes
-it with that binary.
+`npm run build:wasm` (run inside `js/`) builds the module and copies it next
+to the entry points as `caj2pdf_wasm.wasm` (`scripts/copy-wasm.mjs`, mode
+`0644`), which is where `loadModule()` looks by default. That copy is
+gitignored and is never committed; the `files` list puts it in the tarball,
+and `prepack` refuses to pack without it. The package is marked `private`
+until the release process ([release policy](../docs/release-policy.md)) runs
+`npm run build:wasm`, removes `private`, and publishes.
 
 ## Usage
 
@@ -121,8 +124,10 @@ or abort; the lower-level spool functions return `dispose()` for the caller.
 The browser spool needs `navigator.storage.getDirectory()` and
 `FileSystemFileHandle.createWritable()` in a secure context (HTTPS or
 localhost). Chromium-based browsers and Firefox provide both on the main
-thread; Safari's support for `createWritable()` depends on its version, and
-none of this has been exercised in a real browser by the automated tests.
+thread; Safari's support for `createWritable()` depends on its version. The
+automated tests confirm the spool, its bound, and its cleanup against the
+real OPFS of headless Chromium on the main thread; Firefox, Safari, and
+workers are not tested automatically.
 When either API is missing, the spool
 rejects with `RANDOM_ACCESS_REQUIRED` instead of falling back to memory; pass
 a `Blob`/`File` (which browsers keep disk-backed) or a custom `readAt`
@@ -174,9 +179,51 @@ sink should honor its `signal` argument for prompt cancellation.
 - `spool.test.mjs` covers Node temp-file spooling from Node and Web streams,
   the spool bound, cleanup after success, failure, and abort, and the OPFS
   spool against an in-memory OPFS test double.
+- `browser.test.mjs` runs `browser.mjs` in headless Chromium (below).
+- `package.test.mjs` dry-runs `npm pack` on a temporary copy of the package
+  with the WASM build and asserts the tarball holds exactly the entry points,
+  declarations, `caj2pdf_wasm.wasm`, `package.json`, `LICENSE`, and
+  `README.md`; that `loadModule()` finds the packaged module by default; and
+  that packing without the WASM build fails.
 - `adapters.test.mjs` and `wasm.test.mjs` cover the adapters and the raw ABI.
 
-The browser adapters run on Node's `Blob`, `ReadableStream`, and
-`WritableStream`. No real browser, and no real OPFS, runs in CI; the browser
-example is manual. The inputs are synthetic MIT fixtures from
+The other tests run the browser adapters on Node's `Blob`, `ReadableStream`,
+and `WritableStream`. The inputs are synthetic MIT fixtures from
 `tests/fixtures` or built at test time; no external corpus test runs here.
+
+### Real-browser tests
+
+`browser.test.mjs` needs no npm packages. It serves the repository on an
+ephemeral `http://127.0.0.1` port with `node:http` (a secure context), starts
+headless Chromium with a throwaway profile and `--remote-debugging-port=0`,
+and drives it over the Chrome DevTools Protocol with Node's global
+`WebSocket` ([`browser-harness.mjs`](test/browser-harness.mjs)). The page
+imports `browser.mjs`, loads the WASM from its default URL, and runs
+[`browser-cases.mjs`](test/browser-cases.mjs):
+
+- `File` sources to real `WritableStream` sinks for synthetic CAJ, KDH, and
+  PDF inputs, with every read and write at most the 4 KiB chunk size. The
+  outputs return to Node (base64 plus a SHA-256 computed with
+  `crypto.subtle`) for `qpdf --check` and page counts.
+- HN and C8 rejection with `UnsupportedFormatError`.
+- `AbortSignal` cancellation while a `WritableStream` write is stalled.
+- `convertReadableStream` through the real OPFS: one `caj2pdf-spool-*` file
+  exists during conversion and none after success, the `maxSpoolBytes`
+  bound, an unsupported input, or an abort.
+
+Chromium is found through `CAJ2PDF_CHROME`, then `/usr/bin/google-chrome`,
+`/usr/bin/chromium`, and Playwright's `/opt/pw-browsers` directory. Without
+one the tests are skipped locally and fail when `CI` is set:
+
+```sh
+CAJ2PDF_CHROME=/path/to/chrome node --test js/test/browser.test.mjs
+```
+
+Chromium is started with `--no-sandbox`, `--no-proxy-server`, background
+networking disabled, and host resolution restricted to `127.0.0.1`; each
+call has a 30-second timeout, and the browser is closed, killed if needed,
+and its profile removed after the run. The CI WASM job runs these tests
+with the runner's preinstalled Google Chrome on Node 22 and 24. Firefox,
+Safari, and Web Workers are not covered, and the manual
+[`examples/browser.html`](examples/browser.html) (file picker and save
+dialog) is not automated.

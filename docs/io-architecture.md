@@ -136,10 +136,10 @@ The JavaScript tests instantiate the actual WASM module. They convert
 synthetic PDF, CAJ, and KDH inputs through bounded `Blob.slice()` reads and a
 real Node file handle, and exercise partial I/O, backpressure, spooling,
 cancellation, and typed errors. The browser adapters run on Node's Blob and
-Web Streams implementations. [The JavaScript package guide](../js/README.md)
-includes a browser example that can be run manually; automated
-browser-runtime testing is still needed. No fixture here is an external CAJ
-document.
+Web Streams implementations, and `js/test/browser.test.mjs` also runs the
+browser entry point in headless Chromium, including the real OPFS spool (see
+[the JavaScript package guide](../js/README.md)). Firefox and Safari are not
+tested automatically. No fixture here is an external CAJ document.
 
 Memory budgets for format engines must include retained indexes, bookmarks,
 and decoder state in addition to the I/O chunk.

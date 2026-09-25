@@ -231,6 +231,18 @@ reuse the MIT fixtures in `tests/fixtures`; the OPFS tests use an original
 in-memory test double. No code was taken from the Python or Go converters,
 a private Rust module, or an npm package.
 
+The issue #13 real-browser tests add original MIT
+`js/test/{browser.test,browser-harness,browser-cases,package.test}.mjs` and
+`js/scripts/copy-wasm.mjs`. The harness is a minimal Chrome DevTools
+Protocol client written for this project over Node's built-in `node:http`,
+`node:child_process`, and global `WebSocket`; no Playwright, Puppeteer, or
+other npm package, and no code from one, is used. Chromium or Google Chrome
+is an external test-only executable found on the machine (the CI runner's
+preinstalled Google Chrome); it is not downloaded, vendored, linked, or
+distributed. The browser inputs are the same runtime-built synthetic CAJ and
+KDH inputs and MIT `tests/fixtures` files as the Node tests. The npm tarball
+carries the WASM build of the MIT workspace; the copy in `js/` is gitignored.
+
 Issue #22's [HN/C8 image-oracle note](jbig1-oracle.md) records independent
 container and DIB byte measurements for 27 SHA-256-pinned external files, a
 metadata-and-hash-only manifest of 1,400 type-0 images, and two secondary
