@@ -293,22 +293,20 @@ fn build_outline_nodes(
         if bookmark.title.is_empty() {
             return Err(malformed(None, 0, "bookmark title is empty"));
         }
-        let page = *pages.get(bookmark.page_index as usize).ok_or(malformed(
-            None,
+        let failure = malformed(None, 0, "bookmark destination is outside the ordered pages");
+        let page = *pages.get(bookmark.page_index as usize).ok_or(failure)?;
+        let failure = pdf_limit(
+            Some(root),
             0,
-            "bookmark destination is outside the ordered pages",
-        ))?;
+            "PDF object number",
+            u64::from(MAX_PDF_OBJECTS),
+            u64::MAX,
+        );
         let item_number = u32::try_from(index)
             .ok()
             .and_then(|position| position.checked_add(1))
             .and_then(|position| root.number.checked_add(position))
-            .ok_or(pdf_limit(
-                Some(root),
-                0,
-                "PDF object number",
-                u64::from(MAX_PDF_OBJECTS),
-                u64::MAX,
-            ))?;
+            .ok_or(failure)?;
         let reference = PdfRef {
             number: item_number,
             generation: 0,
@@ -617,11 +615,12 @@ pub async fn reconstruct_fragment_with_bookmarks<
                 "indirect object span is empty",
             ));
         }
-        let end = fragment.range.end().ok_or(malformed(
+        let failure = malformed(
             Some(fragment.reference),
             fragment.range.offset,
             "indirect object span overflows 64-bit offset",
-        ))?;
+        );
+        let end = fragment.range.end().ok_or(failure)?;
         if end > source.size() {
             return Err(Error::TruncatedInput {
                 offset: fragment.range.offset,
@@ -653,11 +652,12 @@ pub async fn reconstruct_fragment_with_bookmarks<
     }
     records.sort_unstable_by_key(|record| record.range.offset);
     for pair in records.windows(2) {
-        let previous_end = pair[0].range.end().ok_or(malformed(
+        let failure = malformed(
             Some(pair[0].reference),
             pair[0].range.offset,
             "indirect object span overflows 64-bit offset",
-        ))?;
+        );
+        let previous_end = pair[0].range.end().ok_or(failure)?;
         if previous_end > pair[1].range.offset {
             return Err(pdf_error(
                 Some(pair[1].reference),
@@ -1388,11 +1388,8 @@ async fn validate_fragment_structure<R: RangedSource, C: Cancellation>(
         ));
     }
     if let Some(catalog) = plan.catalog {
-        let index = object_index(records, catalog).ok_or(malformed(
-            Some(catalog),
-            0,
-            "catalog object is missing",
-        ))?;
+        let failure = malformed(Some(catalog), 0, "catalog object is missing");
+        let index = object_index(records, catalog).ok_or(failure)?;
         match &kinds[index] {
             Some(FragmentKind::Catalog { pages }) if *pages == plan.pages_root => {}
             _ => {
@@ -1404,11 +1401,12 @@ async fn validate_fragment_structure<R: RangedSource, C: Cancellation>(
             }
         }
     }
-    let root_index = object_index(records, plan.pages_root).ok_or(malformed(
+    let failure = malformed(
         Some(plan.pages_root),
         0,
         "page tree root is missing from the repair index",
-    ))?;
+    );
+    let root_index = object_index(records, plan.pages_root).ok_or(failure)?;
     if records[root_index].range.length == 0 {
         for (index, kind) in kinds.iter().enumerate() {
             match kind {
@@ -1444,11 +1442,8 @@ async fn validate_fragment_structure<R: RangedSource, C: Cancellation>(
             }
         }
         for page in plan.pages {
-            let index = object_index(records, *page).ok_or(malformed(
-                Some(*page),
-                0,
-                "ordered page object is missing",
-            ))?;
+            let failure = malformed(Some(*page), 0, "ordered page object is missing");
+            let index = object_index(records, *page).ok_or(failure)?;
             if !matches!(kinds[index], Some(FragmentKind::Page { .. })) {
                 return Err(malformed(
                     Some(*page),
@@ -1534,16 +1529,18 @@ fn validate_fragment_contents(
             }
             continue;
         }
-        let target = item.references.first().copied().ok_or(malformed(
+        let failure = malformed(
             Some(item.reference),
             page_offset,
             "Page Contents lacks an indirect target",
-        ))?;
-        let target_index = object_index(records, target).ok_or(malformed(
+        );
+        let target = item.references.first().copied().ok_or(failure)?;
+        let failure = malformed(
             Some(item.reference),
             page_offset,
             "Page Contents targets a missing object",
-        ))?;
+        );
+        let target_index = object_index(records, target).ok_or(failure)?;
         if stream_flags[target_index] {
             continue;
         }
@@ -1583,11 +1580,12 @@ fn require_content_stream(
     page: PdfRef,
     page_offset: u64,
 ) -> Result<()> {
-    let index = object_index(records, target).ok_or(malformed(
+    let failure = malformed(
         Some(page),
         page_offset,
         "Page Contents targets a missing object",
-    ))?;
+    );
+    let index = object_index(records, target).ok_or(failure)?;
     if !stream_flags[index] {
         return Err(malformed(
             Some(page),
@@ -1670,11 +1668,8 @@ fn validate_existing_page_tree(
                 parent,
                 inherited_media_box,
             } => {
-                let index = object_index(records, reference).ok_or(malformed(
-                    Some(reference),
-                    0,
-                    "page-tree child object is missing",
-                ))?;
+                let failure = malformed(Some(reference), 0, "page-tree child object is missing");
+                let index = object_index(records, reference).ok_or(failure)?;
                 if visited[index] {
                     return Err(malformed(
                         Some(reference),

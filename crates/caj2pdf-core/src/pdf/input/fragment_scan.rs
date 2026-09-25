@@ -146,19 +146,15 @@ pub(crate) async fn scan_fragment_objects<S: RangedSource, C: Cancellation>(
                 "CAJ PDF fragment has a nonzero object generation",
             ));
         }
+        let end_overflow =
+            reader.malformed(start, Some(reference), "fragment object end overflows");
         let end = match head.tail {
             ObjectTail::EndObject { end } => start.checked_add(end as u64),
             ObjectTail::Stream { data_start } => {
-                let dictionary = head.dictionary.as_ref().ok_or(reader.malformed(
-                    start,
-                    Some(reference),
-                    "stream has no dictionary",
-                ))?;
-                let entry = dictionary.entry(b"Length").ok_or(reader.malformed(
-                    start,
-                    Some(reference),
-                    "stream lacks Length",
-                ))?;
+                let failure = reader.malformed(start, Some(reference), "stream has no dictionary");
+                let dictionary = head.dictionary.as_ref().ok_or(failure)?;
+                let failure = reader.malformed(start, Some(reference), "stream lacks Length");
+                let entry = dictionary.entry(b"Length").ok_or(failure)?;
                 let value = entry.value(&dictionary.bytes);
                 let length = exact_unsigned(value).ok_or_else(|| {
                     reader.problem(
@@ -171,11 +167,8 @@ pub(crate) async fn scan_fragment_objects<S: RangedSource, C: Cancellation>(
                 let data_at = start
                     .checked_add(data_start as u64)
                     .ok_or(reader.malformed(start, Some(reference), "stream offset overflows"))?;
-                let after_data = data_at.checked_add(length).ok_or(reader.malformed(
-                    data_at,
-                    Some(reference),
-                    "stream extent overflows",
-                ))?;
+                let failure = reader.malformed(data_at, Some(reference), "stream extent overflows");
+                let after_data = data_at.checked_add(length).ok_or(failure)?;
                 let end = match reader.check_stream_tail(after_data, Some(reference)).await {
                     Ok(end) => end,
                     Err(Error::Pdf {
@@ -195,11 +188,12 @@ pub(crate) async fn scan_fragment_objects<S: RangedSource, C: Cancellation>(
                                 "stream Length repair changes PDF object width",
                             ));
                         }
-                        let dictionary_start = head.dictionary_start.ok_or(reader.malformed(
+                        let failure = reader.malformed(
                             start,
                             Some(reference),
                             "stream dictionary offset is missing",
-                        ))?;
+                        );
+                        let dictionary_start = head.dictionary_start.ok_or(failure)?;
                         let patch_offset = body_start
                             .checked_add(start)
                             .and_then(|n| n.checked_add(dictionary_start as u64))
@@ -220,11 +214,7 @@ pub(crate) async fn scan_fragment_objects<S: RangedSource, C: Cancellation>(
                 Some(end)
             }
         }
-        .ok_or(reader.malformed(
-            start,
-            Some(reference),
-            "fragment object end overflows",
-        ))?;
+        .ok_or(end_overflow)?;
         if end <= start || end > range.length {
             return Err(reader.malformed(
                 start,

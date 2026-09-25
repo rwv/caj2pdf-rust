@@ -387,10 +387,11 @@ pub async fn read_embedded_directory<S: RangedSource, C: Cancellation>(
     let mut metadata_used = 0_u64;
     while next < end {
         check_cancelled(cancellation, next)?;
-        let count = len_u64(segments.len()).checked_add(1).ok_or(unassigned(
+        let failure = unassigned(
             next,
             DirectoryErrorKind::InvalidSpan("segment count overflows"),
-        ))?;
+        );
+        let count = len_u64(segments.len()).checked_add(1).ok_or(failure)?;
         if count > u64::from(directory_limits.max_segments) {
             return Err(DirectoryError {
                 offset: next,
