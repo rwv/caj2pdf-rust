@@ -442,6 +442,13 @@ impl<'a, 'mq, M: RangedSource, C: Cancellation, W: SequentialSink>
         reference_source: &R,
         request: RefinementRequest,
     ) -> RefinementResult<Geometry> {
+        // One-pixel bitmaps within a MAX_BUDGET_COUNT pixel budget could
+        // otherwise complete more bitmaps than the u32 index represents.
+        self.cap(
+            "completed bitmaps",
+            u64::from(u32::MAX),
+            u64::from(self.progress.completed_bitmaps) + 1,
+        )?;
         if request.template != 1 {
             return Err(self.error(
                 RefinementErrorKind::Unsupported {
@@ -882,6 +889,7 @@ impl<'a, 'mq, M: RangedSource, C: Cancellation, W: SequentialSink>
             relative_store_offset: start_offset,
             stored_bytes: geometry.bytes,
         };
+        // `geometry` refused a bitmap that would pass u32::MAX.
         self.progress.completed_bitmaps += 1;
         debug_assert_eq!(
             self.progress.output_bytes_written - start_offset,
@@ -996,7 +1004,82 @@ fn template1_context(
 
 #[cfg(test)]
 mod tests {
-    use super::template1_context;
+    use super::*;
+    use crate::jbig2::iaid::IaidContextBanks;
+    use crate::jbig2::mq::{MqBudget, MqSpan, MqTable};
+    use crate::native::{SeekableSource, WriteSink};
+    use crate::test_support::ready;
+    use crate::{MAX_BUDGET_COUNT, NeverCancel};
+    use std::io::Cursor;
+
+    #[test]
+    fn the_bitmap_index_cannot_pass_u32_max() {
+        let limits = Limits::default();
+        let mq_budget = MqBudget::default();
+        let state = MqState {
+            qe: 0x4000,
+            next_mps: 0,
+            next_lps: 0,
+            switch_mps: false,
+        };
+        let table = MqTable::new(vec![state; MQ_STATE_COUNT], &limits).unwrap();
+        let mut banks =
+            IaidContextBanks::with_bitmap_contexts(1, CONTEXT_COUNT, &limits, &mq_budget).unwrap();
+        let layout = banks.layout();
+        let mut source = SeekableSource::new(Cursor::new(vec![0, 0xff, 0xac])).unwrap();
+        let mut mq = ready(MqDecoder::new(
+            &mut source,
+            MqSpan {
+                offset: 0,
+                length: 3,
+            },
+            &table,
+            banks.mq_contexts_mut(),
+            &limits,
+            &NeverCancel,
+            mq_budget,
+        ))
+        .unwrap();
+        let mut sink = WriteSink::new(Vec::new());
+        let budget = RefinementBudget {
+            max_total_pixels: MAX_BUDGET_COUNT,
+            ..RefinementBudget::default()
+        };
+        let mut decoder =
+            RefinementDecoder::new(&mut mq, layout, &mut sink, &limits, &NeverCancel, budget)
+                .unwrap();
+        decoder.progress.completed_bitmaps = u32::MAX;
+        let symbol = SymbolDescriptor {
+            width: 1,
+            height: 1,
+            row_stride: 1,
+            relative_store_offset: 0,
+            stored_bytes: 1,
+        };
+        let request = RefinementRequest {
+            width: 1,
+            height: 1,
+            template: 1,
+            typical_prediction: false,
+            reference_dx: 0,
+            reference_dy: 0,
+            reference: RefinementReference {
+                store_base: 0,
+                symbol,
+            },
+        };
+        let mut reference = SeekableSource::new(Cursor::new(vec![0])).unwrap();
+        let error = ready(decoder.decode_bitmap(&mut reference, request)).unwrap_err();
+        assert_eq!(error.bitmap_index, u32::MAX);
+        assert!(matches!(
+            error.kind,
+            RefinementErrorKind::LimitExceeded {
+                resource: "completed bitmaps",
+                limit,
+                attempted,
+            } if limit == u64::from(u32::MAX) && attempted == limit + 1
+        ));
+    }
 
     #[test]
     fn figure_13_each_of_ten_pixels_has_one_distinct_context_bit() {
