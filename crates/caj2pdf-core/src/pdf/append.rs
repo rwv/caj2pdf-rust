@@ -105,7 +105,6 @@ impl<R: RangedSource> RangedSource for CountingSource<'_, R> {
 struct ChildLinks {
     first: Option<PdfRef>,
     last: Option<PdfRef>,
-    pending: Option<ClosedOutline>,
 }
 
 struct OpenOutline {
@@ -277,15 +276,7 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfOutlineAppender<'a, W, C> {
             root
         };
         let reference = self.reserve_new_object()?;
-        while self.open.len() > depth {
-            self.close_outline().await?;
-        }
-        let links = if depth == 0 {
-            &mut self.root_links
-        } else {
-            &mut self.open[depth - 1].children
-        };
-        if let Some(previous) = links.pending.take() {
+        if let Some(previous) = self.close_outlines_to(depth).await? {
             self.emit_outline_item(previous, Some(reference)).await?;
         }
         let parent = if depth == 0 {
@@ -330,10 +321,7 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfOutlineAppender<'a, W, C> {
 
     /// Finish any repair and outline update, then flush the output sink.
     pub async fn finish(mut self) -> Result<ConversionReport> {
-        while !self.open.is_empty() {
-            self.close_outline().await?;
-        }
-        if let Some(last_root) = self.root_links.pending.take() {
+        if let Some(last_root) = self.close_outlines_to(0).await? {
             self.emit_outline_item(last_root, None).await?;
         }
         if let Some(root) = self.outline_root {
@@ -373,12 +361,9 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfOutlineAppender<'a, W, C> {
         Ok(ConversionReport {
             input_bytes_read: self.input_bytes_read,
             output_bytes_written: self.writer.position,
-            pages_converted: try_convert(
-                self.index.pages().len(),
-                Error::InvalidInput {
-                    reason: "PDF page count exceeds 32 bits",
-                },
-            )?,
+            // `PdfIndex::open` visits each page object once, and object
+            // numbers are at most `MAX_PDF_OBJECTS`, so the count fits `u32`.
+            pages_converted: self.index.pages().len() as u32,
             bookmarks_written: self.bookmarks_written,
         })
     }
@@ -415,19 +400,10 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfOutlineAppender<'a, W, C> {
             released_titles += title.capacity() as u64;
             released_nodes += 1;
         };
+        // Every item that inserting at `depth` closes is written before the
+        // new item is retained; no other closed item is ever held unwritten.
         for item in self.open.iter().skip(depth) {
             release(&item.title);
-            if let Some(pending) = &item.children.pending {
-                release(&pending.title);
-            }
-        }
-        let pending = if depth == 0 {
-            self.root_links.pending.as_ref()
-        } else {
-            self.open[depth - 1].children.pending.as_ref()
-        };
-        if let Some(pending) = pending {
-            release(&pending.title);
         }
         let titles = self
             .retained_titles
@@ -465,11 +441,28 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfOutlineAppender<'a, W, C> {
         Ok(())
     }
 
-    async fn close_outline(&mut self) -> Result<()> {
-        let mut item = self.open.pop().ok_or(Error::InvalidInput {
-            reason: "no open PDF bookmark to close",
-        })?;
-        if let Some(last_child) = item.children.pending.take() {
+    /// Close every open item deeper than `depth` and return the last one
+    /// closed, which is the item at `depth` itself when one was open.
+    ///
+    /// Each closed item is the last child of the next item closed, which
+    /// writes it; the caller writes the returned item once its `/Next` link
+    /// is known. Because the only unwritten closed item is carried here
+    /// rather than stored on its parent's links, a sibling can never be
+    /// left unwritten.
+    async fn close_outlines_to(&mut self, depth: usize) -> Result<Option<ClosedOutline>> {
+        let mut closed = None;
+        while let Some(item) = super::pop_deeper_than(&mut self.open, depth) {
+            closed = Some(self.close_outline(item, closed).await?);
+        }
+        Ok(closed)
+    }
+
+    async fn close_outline(
+        &mut self,
+        item: OpenOutline,
+        last_child: Option<ClosedOutline>,
+    ) -> Result<ClosedOutline> {
+        if let Some(last_child) = last_child {
             self.emit_outline_item(last_child, None).await?;
         }
         let descendants =
@@ -478,7 +471,7 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfOutlineAppender<'a, W, C> {
                 .ok_or(Error::InvalidInput {
                     reason: "PDF bookmark descendant count underflows",
                 })?;
-        let closed = ClosedOutline {
+        Ok(ClosedOutline {
             reference: item.reference,
             parent: item.parent,
             previous: item.previous,
@@ -487,18 +480,7 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfOutlineAppender<'a, W, C> {
             first_child: item.children.first,
             last_child: item.children.last,
             descendants,
-        };
-        let links = match self.open.last_mut() {
-            Some(parent) => &mut parent.children,
-            None => &mut self.root_links,
-        };
-        if links.pending.is_some() {
-            return Err(Error::InvalidInput {
-                reason: "previous PDF bookmark sibling was not emitted",
-            });
-        }
-        links.pending = Some(closed);
-        Ok(())
+        })
     }
 
     async fn emit_outline_item(&mut self, item: ClosedOutline, next: Option<PdfRef>) -> Result<()> {

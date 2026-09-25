@@ -55,7 +55,6 @@ struct PageNode {
 struct ChildLinks {
     first: Option<ObjectId>,
     last: Option<ObjectId>,
-    pending: Option<ClosedOutline>,
 }
 
 struct OpenOutline {
@@ -194,7 +193,7 @@ impl<R: RangedSource> RangedSource for CountingSource<'_, R> {
 ///
 /// Pages are emitted as they arrive. The writer retains one page object ID per
 /// page for outline destinations, at most one active group at each page-tree
-/// level, and one pending outline item per active outline depth. A caller may
+/// level, and one open outline item per active outline depth. A caller may
 /// add a bookmark only after its destination page has been emitted. A document
 /// with no pages is rejected by `finish`.
 pub struct PdfDocument<'a, W: SequentialSink, C: Cancellation> {
@@ -406,10 +405,8 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
         // A rejected title must leave all reserved objects and outline links
         // intact, so account for siblings that this insertion would emit first.
         let (next_titles, next_nodes) = self.preflight_outline_memory(depth, title_capacity)?;
-        while self.open_outlines.len() > depth {
-            self.close_outline().await?;
-        }
-
+        // Reserve before closing anything, so a refused reservation leaves
+        // every open item and link untouched.
         let outline_root = match self.outline_root_id {
             Some(id) => id,
             None => {
@@ -419,20 +416,20 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
             }
         };
         let id = self.writer.reserve_object()?;
-        let (parent, previous, pending) = {
+        let previous_item = self.close_outlines_to(depth).await?;
+        let (parent, previous) = {
             let (parent, links) = match self.open_outlines.last_mut() {
                 Some(active) => (active.id, &mut active.children),
                 None => (outline_root, &mut self.outline_root_children),
             };
             let previous = links.last;
-            let pending = links.pending.take();
             if links.first.is_none() {
                 links.first = Some(id);
             }
             links.last = Some(id);
-            (parent, previous, pending)
+            (parent, previous)
         };
-        if let Some(previous_item) = pending {
+        if let Some(previous_item) = previous_item {
             self.emit_outline_item(previous_item, Some(id)).await?;
         }
         self.open_outlines.push(OpenOutline {
@@ -738,19 +735,10 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
             })?;
             Ok(())
         };
+        // Every item that inserting at `depth` closes is written before the
+        // new item is retained; no other closed item is ever held unwritten.
         for item in self.open_outlines.iter().skip(depth) {
             release(item.title.capacity())?;
-            if let Some(pending) = &item.children.pending {
-                release(pending.title.capacity())?;
-            }
-        }
-        let sibling = if depth == 0 {
-            self.outline_root_children.pending.as_ref()
-        } else {
-            self.open_outlines[depth - 1].children.pending.as_ref()
-        };
-        if let Some(pending) = sibling {
-            release(pending.title.capacity())?;
         }
         let next_titles = self
             .retained_title_bytes
@@ -788,11 +776,28 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
         Ok((next_titles, next_nodes))
     }
 
-    async fn close_outline(&mut self) -> Result<()> {
-        let mut item = self.open_outlines.pop().ok_or(Error::InvalidInput {
-            reason: "no open bookmark to close",
-        })?;
-        if let Some(last_child) = item.children.pending.take() {
+    /// Close every open item deeper than `depth` and return the last one
+    /// closed, which is the item at `depth` itself when one was open.
+    ///
+    /// Each closed item is the last child of the next item closed, which
+    /// writes it; the caller writes the returned item once its `/Next` link
+    /// is known. Because the only unwritten closed item is carried here
+    /// rather than stored on its parent's links, a sibling can never be
+    /// left unwritten.
+    async fn close_outlines_to(&mut self, depth: usize) -> Result<Option<ClosedOutline>> {
+        let mut closed = None;
+        while let Some(item) = super::pop_deeper_than(&mut self.open_outlines, depth) {
+            closed = Some(self.close_outline(item, closed).await?);
+        }
+        Ok(closed)
+    }
+
+    async fn close_outline(
+        &mut self,
+        item: OpenOutline,
+        last_child: Option<ClosedOutline>,
+    ) -> Result<ClosedOutline> {
+        if let Some(last_child) = last_child {
             self.emit_outline_item(last_child, None).await?;
         }
         let descendants =
@@ -801,7 +806,7 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
                 .ok_or(Error::InvalidInput {
                     reason: "bookmark descendant count underflows",
                 })?;
-        let closed = ClosedOutline {
+        Ok(ClosedOutline {
             id: item.id,
             parent: item.parent,
             previous: item.previous,
@@ -810,25 +815,11 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
             first_child: item.children.first,
             last_child: item.children.last,
             descendants,
-        };
-        let parent_links = match self.open_outlines.last_mut() {
-            Some(parent) => &mut parent.children,
-            None => &mut self.outline_root_children,
-        };
-        if parent_links.pending.is_some() {
-            return Err(Error::InvalidInput {
-                reason: "previous sibling bookmark was not emitted",
-            });
-        }
-        parent_links.pending = Some(closed);
-        Ok(())
+        })
     }
 
     async fn close_outlines(&mut self) -> Result<()> {
-        while !self.open_outlines.is_empty() {
-            self.close_outline().await?;
-        }
-        if let Some(last_root) = self.outline_root_children.pending.take() {
+        if let Some(last_root) = self.close_outlines_to(0).await? {
             self.emit_outline_item(last_root, None).await?;
         }
         if let Some(root) = self.outline_root_id {
