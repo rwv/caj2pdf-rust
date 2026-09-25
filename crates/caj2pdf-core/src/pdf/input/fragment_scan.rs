@@ -215,25 +215,12 @@ pub(crate) async fn scan_fragment_objects<S: RangedSource, C: Cancellation>(
             }
         }
         .ok_or(end_overflow)?;
-        if end <= start || end > range.length {
-            return Err(reader.malformed(
-                start,
-                Some(reference),
-                "fragment object extends beyond the bounded body",
-            ));
-        }
-        let count = objects.len().saturating_add(1);
-        if count > MAX_PDF_OBJECTS as usize {
-            return Err(reader.locate_limit(
-                start,
-                Some(reference),
-                Error::LimitExceeded {
-                    resource: "PDF fragment objects",
-                    limit: MAX_PDF_OBJECTS as u64,
-                    attempted: count as u64,
-                },
-            ));
-        }
+        // `load_head` reads only within the bounded range, and a stream end
+        // follows an `endstream` and `endobj` read by `bytes`, which also
+        // stays within it.
+        debug_assert!(start < end && end <= range.length);
+        let count = next_object_count(objects.len())
+            .map_err(|error| reader.locate_limit(start, Some(reference), error))?;
         let allocation = (count as u64)
             .saturating_mul(std::mem::size_of::<FragmentObject>() as u64)
             .saturating_add(
@@ -290,6 +277,19 @@ pub(crate) async fn scan_fragment_objects<S: RangedSource, C: Cancellation>(
         .check_input_size(actual_length)
         .map_err(|error| reader.locate_limit(logical_end, None, error))?;
     Ok(FragmentScan { objects, patches })
+}
+
+/// The object count after indexing one more fragment object.
+fn next_object_count(indexed: usize) -> Result<usize> {
+    let count = indexed.saturating_add(1);
+    if count > MAX_PDF_OBJECTS as usize {
+        return Err(Error::LimitExceeded {
+            resource: "PDF fragment objects",
+            limit: MAX_PDF_OBJECTS as u64,
+            attempted: count as u64,
+        });
+    }
+    Ok(count)
 }
 
 async fn repair_stream_length<S: RangedSource, C: Cancellation>(
@@ -441,6 +441,22 @@ mod tests {
         ))
         .unwrap();
         assert_eq!(&length, b"41");
+        // An empty read inside a patch overlaps none of its bytes.
+        assert_eq!(run(patched.read_at(patch.offset + 1, &mut [])).unwrap(), 0);
+    }
+
+    #[test]
+    fn the_object_count_is_limited_to_the_pdf_object_limit() {
+        let limit = MAX_PDF_OBJECTS as usize;
+        assert_eq!(next_object_count(limit - 1).unwrap(), limit);
+        assert!(matches!(
+            next_object_count(limit),
+            Err(Error::LimitExceeded {
+                resource: "PDF fragment objects",
+                limit: 8_388_607,
+                attempted: 8_388_608,
+            })
+        ));
     }
 
     #[test]
