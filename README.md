@@ -44,7 +44,7 @@ caj2pdf add-bookmarks paper.caj scan.pdf -o scan-with-outline.pdf
 ```
 
 Existing outputs are kept unless `--force` is given, an input is never
-overwritten, and a path output is renamed into place only after conversion
+overwritten, and a path output is moved into place only after conversion
 succeeds. Exit status is 0 on success, 2 for invalid arguments, and 1 for
 other failures. The [CLI reference](docs/cli.md) documents every rule and the
 `inspect` JSON schema.
