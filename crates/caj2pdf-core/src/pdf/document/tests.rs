@@ -227,26 +227,39 @@ impl SequentialSink for PageTreeSink {
     }
 }
 
+/// A one-pixel image that many pages can share, which keeps documents with
+/// full page-tree nodes cheap to build.
+async fn shared_image<W: SequentialSink>(
+    document: &mut PdfDocument<'_, W, CancelAfter>,
+) -> Result<ImageObject> {
+    let mut writer = document
+        .begin_bilevel_image(BilevelImageSpec {
+            pixel_width: 1,
+            pixel_height: 1,
+            row_stride: 1,
+        })
+        .await?;
+    writer.write(&[0]).await?;
+    writer.finish().await
+}
+
 #[test]
 fn full_middle_node_starts_a_second_root_kid() -> Result<()> {
     const PER_MIDDLE: usize = PAGE_TREE_FANOUT * PAGE_TREE_FANOUT;
     const PAGES: u32 = PER_MIDDLE as u32 + 1;
-    let mut source = FilledSource::new(1);
     let mut sink = PageTreeSink::default();
     let limits = Limits::default();
     let report = run(async {
         let mut document = PdfDocument::new(&mut sink, &limits, &NEVER).await?;
+        let image = shared_image(&mut document).await?;
         for expected in 0..PAGES {
-            let index = document
-                .add_image_page(&mut source, 0, 1, page(), gray_pixels(1))
-                .await?;
+            let index = document.add_page(page(), &[image]).await?;
             assert_eq!(index, expected);
         }
         assert_eq!(document.root_children.len(), 1);
         document.finish().await
     })?;
     assert_eq!(report.pages_converted, PAGES);
-    assert_eq!(report.input_bytes_read, u64::from(PAGES));
     assert_eq!(report.output_bytes_written, sink.written);
     // 257 leaves, two middle nodes, and the root.
     assert_eq!(sink.page_nodes.len(), 257 + 2 + 1);
@@ -272,6 +285,47 @@ fn full_middle_node_starts_a_second_root_kid() -> Result<()> {
         })
         .count();
     assert_eq!(full_middles, 1);
+    Ok(())
+}
+
+#[test]
+fn page_nodes_lost_to_failed_writes_make_finish_fail() -> Result<()> {
+    const PER_MIDDLE: usize = PAGE_TREE_FANOUT * PAGE_TREE_FANOUT;
+    let mut sink = PageTreeSink::default();
+    let limits = Limits::default();
+    let (leaf_failure, middle_failure, finish) = run(async {
+        let mut document = PdfDocument::new(&mut sink, &limits, &NEVER).await?;
+        let image = shared_image(&mut document).await?;
+        for _ in 0..PER_MIDDLE {
+            document.add_page(page(), &[image]).await?;
+        }
+        // Writing a closed node would pass the classic xref limit, which
+        // fails before the sink sees a byte and leaves the writer usable.
+        let position = document.writer.position();
+        document.writer.set_position_for_test(MAX_CLASSIC_PDF_BYTES);
+        // The full leaf is detached before its write fails, and on the
+        // next page the full middle node is.
+        let leaf_failure = document.add_page(page(), &[image]).await;
+        let middle_failure = document.add_page(page(), &[image]).await;
+        document.writer.set_position_for_test(position);
+        Ok::<_, Error>((leaf_failure, middle_failure, document.finish().await))
+    })?;
+    for failure in [leaf_failure.map(|_| ()), middle_failure.map(|_| ())] {
+        assert!(matches!(
+            failure,
+            Err(Error::LimitExceeded {
+                resource: "classic PDF file bytes",
+                ..
+            })
+        ));
+    }
+    // Neither lost node is written, so no PDF with dangling kids completes.
+    assert!(matches!(
+        finish,
+        Err(Error::InvalidInput {
+            reason: "a reserved PDF object has not been written"
+        })
+    ));
     Ok(())
 }
 

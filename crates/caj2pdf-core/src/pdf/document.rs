@@ -14,6 +14,10 @@ const MAX_TREE_PAGES: u64 = (PAGE_TREE_FANOUT as u64).pow(3);
 const MAX_PAGE_POINTS: f64 = 14_400.0;
 const MIN_PAGE_POINTS: f64 = 0.000_001;
 const HEX: &[u8; 16] = b"0123456789ABCDEF";
+const LEAF_CHILDREN: &str = "PDF page-tree leaf children";
+const MIDDLE_CHILDREN: &str = "PDF page-tree middle children";
+const ROOT_CHILDREN: &str = "PDF page-tree root children";
+const OUTLINE_STACK: &str = "bookmark stack allocation";
 
 /// A page's visible size in PDF points.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -349,13 +353,7 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
         let leaf = self.leaf.as_mut().ok_or(Error::InvalidInput {
             reason: "PDF page-tree leaf is missing",
         })?;
-        reserve_bounded(
-            &mut leaf.children,
-            PAGE_TREE_FANOUT as u64,
-            self.limits,
-            "PDF page-tree leaf children",
-        )?;
-        leaf.children.push(page_id);
+        push_child(&mut leaf.children, page_id, self.limits, LEAF_CHILDREN)?;
         leaf.page_count = leaf.page_count.checked_add(1).ok_or(Error::InvalidInput {
             reason: "PDF leaf page count overflows",
         })?;
@@ -557,13 +555,7 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
             if let Some(middle) = self.middle.take() {
                 let id = middle.id;
                 self.emit_page_node(middle).await?;
-                reserve_bounded(
-                    &mut self.root_children,
-                    PAGE_TREE_FANOUT as u64,
-                    self.limits,
-                    "PDF page-tree root children",
-                )?;
-                self.root_children.push(id);
+                push_child(&mut self.root_children, id, self.limits, ROOT_CHILDREN)?;
             }
             let id = self.writer.reserve_object()?;
             self.middle = Some(PageNode {
@@ -577,13 +569,7 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
             reason: "PDF page-tree middle node is missing",
         })?;
         let id = self.writer.reserve_object()?;
-        reserve_bounded(
-            &mut middle.children,
-            PAGE_TREE_FANOUT as u64,
-            self.limits,
-            "PDF page-tree middle children",
-        )?;
-        middle.children.push(id);
+        push_child(&mut middle.children, id, self.limits, MIDDLE_CHILDREN)?;
         self.leaf = Some(PageNode {
             id,
             parent: middle.id,
@@ -600,13 +586,7 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
         if let Some(middle) = self.middle.take() {
             let id = middle.id;
             self.emit_page_node(middle).await?;
-            reserve_bounded(
-                &mut self.root_children,
-                PAGE_TREE_FANOUT as u64,
-                self.limits,
-                "PDF page-tree root children",
-            )?;
-            self.root_children.push(id);
+            push_child(&mut self.root_children, id, self.limits, ROOT_CHILDREN)?;
         }
         self.writer.begin_object(self.pages_root_id).await?;
         self.writer
@@ -782,12 +762,11 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
             })?;
         self.limits.check_allocation(attempted)?;
         if depth == self.open_outlines.len() {
-            reserve_bounded(
-                &mut self.open_outlines,
-                u64::from(self.limits.max_bookmarks),
-                self.limits,
-                "bookmark stack allocation",
-            )?;
+            // `add_bookmark` checked the bookmark count, and `attempted`
+            // covers every retained item including this one, so only an
+            // allocator refusal fails this reservation.
+            let maximum = u64::from(self.limits.max_bookmarks);
+            reserve_bounded(&mut self.open_outlines, maximum, self.limits, OUTLINE_STACK)?;
         }
         Ok((next_titles, next_nodes))
     }
@@ -1081,6 +1060,24 @@ fn pdf_page_number(value: f64) -> Result<String> {
         });
     }
     Ok(format!("{value:.6}"))
+}
+
+/// Append `child` to a page-tree node's kids, of which there are at most
+/// [`PAGE_TREE_FANOUT`].
+///
+/// A node never holds more kids than pages were written, and every page
+/// first reserved its slot in the page index of the same element type, so
+/// the item and byte ceilings already passed; only an allocator refusal
+/// fails here.
+fn push_child(
+    children: &mut Vec<ObjectId>,
+    child: ObjectId,
+    limits: &Limits,
+    resource: &'static str,
+) -> Result<()> {
+    reserve_bounded(children, PAGE_TREE_FANOUT as u64, limits, resource)?;
+    children.push(child);
+    Ok(())
 }
 
 fn reserve_bounded<T>(
