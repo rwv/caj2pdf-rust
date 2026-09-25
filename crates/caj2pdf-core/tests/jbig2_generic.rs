@@ -3,6 +3,8 @@
 //! Invented MQ probabilities and bytes test bounded image-model behavior only.
 //! They do not establish T.88 Table E.1 or CAJ/HN pixel compatibility.
 
+mod common;
+
 use caj2pdf_core::{
     Cancellation, Limits, NeverCancel, RangedSource, SequentialSink,
     jbig2::{
@@ -12,6 +14,7 @@ use caj2pdf_core::{
         read_segment_header,
     },
 };
+use common::CancelAfter;
 use std::{
     cell::Cell,
     future::Future,
@@ -1141,21 +1144,6 @@ fn malformed_short_mq_smoke_is_bounded() {
     }
 }
 
-/// Reports cancellation from the `remaining`-th poll onward. Sweeping this
-/// value visits every cancellation checkpoint without knowing their places.
-struct CancelAfter(Cell<u32>);
-impl Cancellation for CancelAfter {
-    fn is_cancelled(&self) -> bool {
-        match self.0.get() {
-            0 => true,
-            remaining => {
-                self.0.set(remaining - 1);
-                false
-            }
-        }
-    }
-}
-
 #[test]
 fn cancellation_at_every_checkpoint_never_reports_success() {
     let limits = Limits::default();
@@ -1163,7 +1151,7 @@ fn cancellation_at_every_checkpoint_never_reports_success() {
     let table = table();
     let mut cancelled_runs = 0;
     for polls in 0..10_000 {
-        let cancellation = CancelAfter(Cell::new(polls));
+        let cancellation = CancelAfter::new(polls);
         let mut source = record(3, 2, 0, 4, (2, -1), SHORT_STREAM);
         let hdr = header(&mut source);
         let mut bank = contexts(&limits, &mq_budget);
@@ -1237,19 +1225,20 @@ fn working_allocation_cap_counts_three_rows_at_the_exact_boundary() {
         .map(|_| ());
         (result, source.read_calls)
     };
-    let required = |width| match attempt(width, 16).0 {
-        Err(err) => match err.kind {
-            GenericErrorKind::LimitExceeded {
-                resource: "region working allocation bytes",
-                limit: 16,
-                attempted,
-            } => {
-                assert_eq!(err.offset, 11);
-                attempted
-            }
-            other => panic!("unexpected error kind: {other:?}"),
-        },
-        Ok(()) => panic!("accepted a 16-byte working allocation"),
+    let required = |width| {
+        let Err(err) = attempt(width, 16).0 else {
+            panic!("accepted a 16-byte working allocation");
+        };
+        let GenericErrorKind::LimitExceeded {
+            resource: "region working allocation bytes",
+            limit: 16,
+            attempted,
+        } = err.kind
+        else {
+            panic!("unexpected error kind: {:?}", err.kind);
+        };
+        assert_eq!(err.offset, 11);
+        attempted
     };
     let one_byte_rows = required(8);
     // Width 9 needs two bytes per row; the cap covers all three row buffers.
@@ -1348,12 +1337,5 @@ fn span_errors_and_unreachable_allocation_failure_have_stable_messages() {
     };
     assert!(allocation.to_string().ends_with(": row allocation failed"));
     assert!(std::error::Error::source(&allocation).is_none());
-    // A failing formatter is reported instead of being ignored.
-    struct Refuse;
-    impl std::fmt::Write for Refuse {
-        fn write_str(&mut self, _: &str) -> std::fmt::Result {
-            Err(std::fmt::Error)
-        }
-    }
-    assert!(std::fmt::write(&mut Refuse, format_args!("{allocation}")).is_err());
+    common::assert_display_propagates_fmt_error(&allocation);
 }

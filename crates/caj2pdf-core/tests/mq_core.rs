@@ -936,12 +936,10 @@ fn span_beyond_input_limit_is_rejected_before_reading() {
     let state_table = table(0x4000);
     let mut source = Source::new(&[0, 0, 0xff, 0xac]);
     let mut contexts = bank(&budget, &limits);
+    let whole = span(&source);
     let error = ready(MqDecoder::new(
         &mut source,
-        MqSpan {
-            offset: 0,
-            length: 4,
-        },
+        whole,
         &state_table,
         &mut contexts,
         &limits,
@@ -978,12 +976,10 @@ fn exhausted_work_stops_the_terminal_refill_before_reading() {
     let state_table = table(0x4000);
     let mut source = Source::new(&[0, 0, 0xff, 0xac]);
     let mut contexts = bank(&budget, &limits);
+    let whole = span(&source);
     let decoder = ready(MqDecoder::new(
         &mut source,
-        MqSpan {
-            offset: 0,
-            length: 4,
-        },
+        whole,
         &state_table,
         &mut contexts,
         &limits,
@@ -1016,12 +1012,10 @@ fn a_failed_decision_poisons_the_terminal_check() {
     let state_table = table(0x4000);
     let mut source = Source::new(&[0, 0]);
     let mut contexts = bank(&budget, &limits);
+    let whole = span(&source);
     let mut decoder = ready(MqDecoder::new(
         &mut source,
-        MqSpan {
-            offset: 0,
-            length: 2,
-        },
+        whole,
         &state_table,
         &mut contexts,
         &limits,

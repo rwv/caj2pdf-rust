@@ -3,48 +3,26 @@
 use super::*;
 use crate::NeverCancel;
 use crate::native::SeekableSource;
-use std::future::Future;
+use crate::test_support::{CancelAfter, run};
 use std::io::Cursor;
-use std::pin::pin;
-use std::task::{Context, Poll, Waker};
 
-fn run<F: Future>(future: F) -> F::Output {
-    let mut context = Context::from_waker(Waker::noop());
-    let mut future = pin!(future);
-    match future.as_mut().poll(&mut context) {
-        Poll::Ready(value) => value,
-        Poll::Pending => panic!("in-memory native source yielded unexpectedly"),
-    }
-}
-
+/// A classic-xref PDF with a binary-marker header comment and a trailer of
+/// `/Size`, `/Root 1 0 R`, and `trailer_extra`.
 fn build_pdf(objects: &[(u32, &str)], trailer_extra: &str) -> Vec<u8> {
     let highest = objects.iter().map(|(number, _)| *number).max().unwrap_or(0);
-    let mut bytes = b"%PDF-1.7\n%\x80\x81\x82\x83\n".to_vec();
-    let mut offsets = vec![None; highest as usize + 1];
-    for &(number, body) in objects {
-        offsets[number as usize] = Some(bytes.len());
-        bytes.extend_from_slice(format!("{number} 0 obj\n{body}\nendobj\n").as_bytes());
-    }
-    let xref = bytes.len();
-    bytes.extend_from_slice(format!("xref\n0 {}\n0000000000 65535 f \n", highest + 1).as_bytes());
-    for offset in offsets.into_iter().skip(1) {
-        if let Some(offset) = offset {
-            bytes.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
-        } else {
-            bytes.extend_from_slice(b"0000000000 00000 f \n");
-        }
-    }
-    bytes.extend_from_slice(
-        format!(
-            "trailer\n<< /Size {} /Root 1 0 R {trailer_extra} >>\nstartxref\n{xref}\n%%EOF\n",
-            highest + 1
-        )
-        .as_bytes(),
-    );
-    bytes
+    let trailer = format!("<< /Size {} /Root 1 0 R {trailer_extra} >>", highest + 1);
+    pdf_with_header(
+        b"%PDF-1.7\n%\x80\x81\x82\x83\n",
+        &ungapped(objects),
+        &trailer,
+    )
 }
 
-fn open_with(bytes: Vec<u8>, limits: &Limits) -> Result<PdfIndex> {
+fn open_cancellable(
+    bytes: Vec<u8>,
+    limits: &Limits,
+    cancellation: &impl Cancellation,
+) -> Result<PdfIndex> {
     let len = bytes.len() as u64;
     let mut source = SeekableSource::new(Cursor::new(bytes))?;
     run(PdfIndex::open(
@@ -54,8 +32,12 @@ fn open_with(bytes: Vec<u8>, limits: &Limits) -> Result<PdfIndex> {
             length: len,
         },
         limits,
-        &NeverCancel,
+        cancellation,
     ))
+}
+
+fn open_with(bytes: Vec<u8>, limits: &Limits) -> Result<PdfIndex> {
+    open_cancellable(bytes, limits, &NeverCancel)
 }
 
 fn open(bytes: Vec<u8>) -> Result<PdfIndex> {
@@ -67,10 +49,7 @@ fn base_pdf(page: &str, pages: &str, catalog: &str) -> Vec<u8> {
 }
 
 fn expect_pdf_error(bytes: Vec<u8>, kind: PdfErrorKind) {
-    let error = match open(bytes) {
-        Err(error) => error,
-        Ok(_) => panic!("malformed PDF was accepted"),
-    };
+    let error = pdf_error(open(bytes));
     assert!(
         matches!(error, Error::Pdf { kind: found, .. } if found == kind),
         "{error:?}"
@@ -1391,12 +1370,16 @@ fn scalar_fragment_requires_exact_framing() {
 /// Assemble a classic-xref PDF from `(number, gap_before, body)` parts with a
 /// caller-supplied trailer dictionary. Missing numbers become free entries.
 fn assemble_pdf(objects: &[(u32, &str, &str)], trailer: &str) -> Vec<u8> {
+    pdf_with_header(b"%PDF-1.7\n", objects, trailer)
+}
+
+fn pdf_with_header(header: &[u8], objects: &[(u32, &str, &str)], trailer: &str) -> Vec<u8> {
     let highest = objects
         .iter()
         .map(|(number, ..)| *number)
         .max()
         .unwrap_or(0);
-    let mut bytes = b"%PDF-1.7\n".to_vec();
+    let mut bytes = header.to_vec();
     let mut offsets = vec![None; highest as usize + 1];
     for &(number, gap, body) in objects {
         bytes.extend_from_slice(gap.as_bytes());
@@ -1415,11 +1398,16 @@ fn assemble_pdf(objects: &[(u32, &str, &str)], trailer: &str) -> Vec<u8> {
     bytes
 }
 
+/// `(number, body)` objects with no bytes before each object.
+fn ungapped<'a>(objects: &[(u32, &'a str)]) -> Vec<(u32, &'static str, &'a str)> {
+    objects
+        .iter()
+        .map(|&(number, body)| (number, "", body))
+        .collect()
+}
+
 fn replace_once(bytes: &mut Vec<u8>, from: &[u8], to: &[u8]) {
-    let at = bytes
-        .windows(from.len())
-        .position(|window| window == from)
-        .unwrap_or_else(|| panic!("fixture lacks {:?}", String::from_utf8_lossy(from)));
+    let at = find(bytes, from) as usize;
     bytes.splice(at..at + from.len(), to.iter().copied());
 }
 
@@ -1606,10 +1594,7 @@ fn malformed_trailer_dictionary_syntax_is_located() {
 
 #[test]
 fn trailer_size_root_info_and_prev_values_must_have_the_right_types() {
-    let objects: Vec<_> = minimal_objects()
-        .into_iter()
-        .map(|(number, body)| (number, "", body))
-        .collect();
+    let objects: Vec<_> = ungapped(&minimal_objects());
     for (trailer, reason) in [
         ("<< /Size /Bad /Root 1 0 R >>", "invalid PDF trailer Size"),
         ("<< /Size 0 /Root 1 0 R >>", "invalid PDF trailer Size"),
@@ -1669,37 +1654,14 @@ fn xref_stream_without_a_type_field_defaults_rows_to_in_use() {
     assert_eq!(index.object_location(page).unwrap().offset, page_at);
 }
 
-struct CancelAfter {
-    checks: std::cell::Cell<usize>,
-    allowed: usize,
-}
-
-impl Cancellation for CancelAfter {
-    fn is_cancelled(&self) -> bool {
-        let seen = self.checks.get();
-        self.checks.set(seen + 1);
-        seen >= self.allowed
-    }
-}
-
 #[test]
 fn cancellation_at_every_checkpoint_of_a_flate_xref_stream_is_reported() {
     let doc = xref_stream_pdf(&minimal_objects(), [1, 4, 2], 0, true);
-    let length = doc.len() as u64;
     let mut cancelled = 0;
     for allowed in 0.. {
         assert!(allowed < 10_000, "cancellation checkpoints never ended");
-        let cancellation = CancelAfter {
-            checks: std::cell::Cell::new(0),
-            allowed,
-        };
-        let mut source = SeekableSource::new(Cursor::new(doc.clone())).unwrap();
-        let result = run(PdfIndex::open(
-            &mut source,
-            PdfRange { offset: 0, length },
-            &Limits::default(),
-            &cancellation,
-        ));
+        let cancellation = CancelAfter::new(allowed);
+        let result = open_cancellable(doc.clone(), &Limits::default(), &cancellation);
         match result {
             Ok(index) => {
                 assert_eq!(index.pages().len(), 1);
@@ -1714,12 +1676,8 @@ fn cancellation_at_every_checkpoint_of_a_flate_xref_stream_is_reported() {
 
 #[test]
 fn live_object_inside_the_caj_footer_is_rejected() {
-    let objects = [
-        (1, "<< /Type /Catalog /Pages 2 0 R >>"),
-        (2, "<< /Type /Pages /Kids [3 0 R] /Count 1 >>"),
-        (3, "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] >>"),
-        (4, "null"),
-    ];
+    let mut objects = minimal_objects().to_vec();
+    objects.push((4, "null"));
     let mut doc = build_pdf(&objects, "");
     let object4_at = find(&doc, b"4 0 obj\n");
     let footer_at = doc.len() as u64;
@@ -1846,10 +1804,7 @@ fn comments_between_objects_are_not_orphan_repairs() {
 /// Objects 1-3 form a one-page tree, object 4 is free, and objects 5.. are
 /// inert fillers, each preceded by `gap`.
 fn gapped_pdf(fillers: u32, gap: &str) -> Vec<u8> {
-    let mut objects: Vec<(u32, &str, &str)> = minimal_objects()
-        .into_iter()
-        .map(|(number, body)| (number, "", body))
-        .collect();
+    let mut objects: Vec<(u32, &str, &str)> = ungapped(&minimal_objects());
     for number in 5..5 + fillers {
         objects.push((number, gap, "null"));
     }
@@ -2085,14 +2040,6 @@ fn orphan_gap_grammar_accepts_only_aborted_object_prefixes() {
     }
 }
 
-struct AlwaysCancelled;
-
-impl Cancellation for AlwaysCancelled {
-    fn is_cancelled(&self) -> bool {
-        true
-    }
-}
-
 #[test]
 fn xref_inflation_requires_exact_complete_streams() {
     let decoded = (0..=255).collect::<Vec<u8>>();
@@ -2102,7 +2049,7 @@ fn xref_inflation_requires_exact_complete_streams() {
         Some(decoded.clone())
     );
     assert!(matches!(
-        inflate_xref(&encoded, decoded.len(), 7, &AlwaysCancelled),
+        inflate_xref(&encoded, decoded.len(), 7, &CancelAfter::always()),
         Err(InflateXrefError::Cancelled)
     ));
     assert!(matches!(

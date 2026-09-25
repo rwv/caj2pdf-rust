@@ -1059,26 +1059,13 @@ fn skip_pdf_string(raw: &[u8], cursor: &mut usize) -> Option<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::{CancelAfter, run};
     use crate::{
         NeverCancel,
         native::{SeekableSource, WriteSink},
         pdf::{ImageEncoding, ImageSpec, PageSpec, PdfDocument},
     };
-    use std::{
-        future::Future,
-        io::{self, Cursor},
-        pin::pin,
-        task::{Context, Poll, Waker},
-    };
-
-    fn run<F: Future>(future: F) -> F::Output {
-        let mut future = pin!(future);
-        let mut context = Context::from_waker(Waker::noop());
-        match future.as_mut().poll(&mut context) {
-            Poll::Ready(result) => result,
-            Poll::Pending => panic!("native test adapters unexpectedly yielded"),
-        }
-    }
+    use std::io::{self, Cursor};
 
     fn unoutlined_pdf() -> Result<Vec<u8>> {
         let mut image = SeekableSource::new(Cursor::new(vec![0x7f]))?;
@@ -1577,9 +1564,7 @@ mod tests {
         let mut offsets = Vec::new();
         for (index, body) in objects.iter().enumerate() {
             let number = index as u32 + 1;
-            if let Some((before, bytes)) = gap
-                && before == number
-            {
+            if let Some((_, bytes)) = gap.filter(|(before, _)| *before == number) {
                 pdf.extend_from_slice(bytes);
             }
             offsets.push(pdf.len());
@@ -1802,19 +1787,6 @@ mod tests {
         Ok(())
     }
 
-    struct CountingCancel {
-        calls: std::cell::Cell<u64>,
-        cancel_from: u64,
-    }
-
-    impl Cancellation for CountingCancel {
-        fn is_cancelled(&self) -> bool {
-            let call = self.calls.get() + 1;
-            self.calls.set(call);
-            call >= self.cancel_from
-        }
-    }
-
     #[derive(Default)]
     struct RecordingSink {
         bytes: Vec<u8>,
@@ -1836,20 +1808,17 @@ mod tests {
     #[test]
     fn cancellation_around_the_final_flush_prevents_a_success_report() -> Result<()> {
         let original = include_bytes!("../../../../tests/fixtures/valid_nested_outline.pdf");
-        let copy = |cancel_from: u64| -> (Result<ConversionReport>, RecordingSink, u64) {
+        let copy = |allowed: u64| -> (Result<ConversionReport>, RecordingSink, u64) {
             let mut source = SeekableSource::new(Cursor::new(original.as_slice())).unwrap();
             let mut sink = RecordingSink::default();
-            let cancellation = CountingCancel {
-                calls: std::cell::Cell::new(0),
-                cancel_from,
-            };
+            let cancellation = CancelAfter::new(allowed);
             let result = run(copy_pdf(
                 &mut source,
                 &mut sink,
                 &Limits::default(),
                 &cancellation,
             ));
-            (result, sink, cancellation.calls.get())
+            (result, sink, cancellation.queries())
         };
         let (result, sink, checks) = copy(u64::MAX);
         result?;
@@ -1857,12 +1826,12 @@ mod tests {
         assert_eq!(sink.flushes, 1);
 
         // The penultimate check precedes the flush; the last one follows it.
-        let (before_flush, sink, _) = copy(checks - 1);
+        let (before_flush, sink, _) = copy(checks - 2);
         assert!(matches!(before_flush, Err(Error::Cancelled)));
         assert_eq!(sink.bytes, original);
         assert_eq!(sink.flushes, 0);
 
-        let (after_flush, sink, _) = copy(checks);
+        let (after_flush, sink, _) = copy(checks - 1);
         assert!(matches!(after_flush, Err(Error::Cancelled)));
         assert_eq!(sink.flushes, 1);
         Ok(())

@@ -21,6 +21,8 @@ pub mod native;
 mod operations;
 pub mod pdf;
 pub mod qm;
+#[cfg(test)]
+pub(crate) mod test_support;
 
 pub use error::{Error, PdfErrorKind, Result};
 pub use io::{

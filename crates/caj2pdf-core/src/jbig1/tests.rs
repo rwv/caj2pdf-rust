@@ -1,24 +1,15 @@
 // SPDX-License-Identifier: MIT
 
 use super::*;
+use crate::test_support::{CancelAfter, ready};
 use crate::{NeverCancel, native::SeekableSource};
 use std::{
     cell::Cell,
-    future::Future,
     io::Cursor,
     pin::pin,
     rc::Rc,
-    task::{Context, Poll, Waker},
+    task::{Context, Waker},
 };
-
-fn ready<F: Future>(future: F) -> F::Output {
-    let mut future = pin!(future);
-    let mut context = Context::from_waker(Waker::noop());
-    match future.as_mut().poll(&mut context) {
-        Poll::Ready(result) => result,
-        Poll::Pending => panic!("in-memory test unexpectedly yielded"),
-    }
-}
 
 fn image(width: u32, height: u32, coded: &[u8]) -> Vec<u8> {
     let mut bytes = vec![0; DIB_BYTES as usize];
@@ -59,6 +50,8 @@ struct BytesSink {
     bytes: Vec<u8>,
     max_write: usize,
     fail: bool,
+    flush_error: Option<fn() -> Error>,
+    cancel_on_flush: Option<Rc<Cell<bool>>>,
 }
 
 impl SequentialSink for BytesSink {
@@ -73,7 +66,13 @@ impl SequentialSink for BytesSink {
         Ok(n)
     }
     async fn flush(&mut self) -> crate::Result<()> {
-        Ok(())
+        if let Some(flag) = &self.cancel_on_flush {
+            flag.set(true);
+        }
+        match self.flush_error {
+            Some(error) => Err(error()),
+            None => Ok(()),
+        }
     }
 }
 
@@ -1028,7 +1027,6 @@ fn preflight_rejects_cancelled_short_and_oversized_spans_before_reading() {
     let bytes = image(3, 1, &[0, 0, 0]);
     let table = table(1);
     let limits = Limits::default();
-    let cancelled = FlagCancel(Rc::new(Cell::new(true)));
     let oversized = Limits {
         max_input_bytes: bytes.len() as u64 - 1,
         ..limits
@@ -1054,33 +1052,23 @@ fn preflight_rejects_cancelled_short_and_oversized_spans_before_reading() {
         };
         let mut contexts = ContextBank::new(CONTEXT_COUNT, &limits).unwrap();
         let mut sink = BytesSink::default();
-        let error = if cancel {
-            ready(Type0Decoder::new(
-                &mut source,
-                span,
-                &table,
-                &mut contexts,
-                &mut sink,
-                &limits,
-                &cancelled,
-                arithmetic_budget(),
-                Type0Budget::default(),
-            ))
-            .err()
+        let cancellation = if cancel {
+            CancelAfter::always()
         } else {
-            ready(Type0Decoder::new(
-                &mut source,
-                span,
-                &table,
-                &mut contexts,
-                &mut sink,
-                &limits,
-                &NeverCancel,
-                arithmetic_budget(),
-                Type0Budget::default(),
-            ))
-            .err()
-        }
+            CancelAfter::never()
+        };
+        let error = ready(Type0Decoder::new(
+            &mut source,
+            span,
+            &table,
+            &mut contexts,
+            &mut sink,
+            &limits,
+            &cancellation,
+            arithmetic_budget(),
+            Type0Budget::default(),
+        ))
+        .err()
         .expect("preflight must fail");
         assert!(sink.bytes.is_empty());
         errors.push(error);
@@ -1135,20 +1123,6 @@ fn maximal_dimensions_report_context_work_overflow_without_allocating() {
     ));
 }
 
-/// Reports cancellation from the `trip_at`-th query onward and counts queries.
-struct CountingCancel {
-    queries: Cell<u64>,
-    trip_at: u64,
-}
-
-impl Cancellation for CountingCancel {
-    fn is_cancelled(&self) -> bool {
-        let query = self.queries.get() + 1;
-        self.queries.set(query);
-        query >= self.trip_at
-    }
-}
-
 fn decode_every_row<S: RangedSource, W: SequentialSink, C: Cancellation>(
     mut decoder: Type0Decoder<'_, S, W, C>,
 ) -> Type0Result<Type0Report> {
@@ -1156,10 +1130,7 @@ fn decode_every_row<S: RangedSource, W: SequentialSink, C: Cancellation>(
     ready(decoder.finish())
 }
 
-fn decode_with_checks(
-    bytes: &[u8],
-    cancel: &CountingCancel,
-) -> (Type0Result<Type0Report>, Vec<u8>) {
+fn decode_with_checks(bytes: &[u8], cancel: &CancelAfter) -> (Type0Result<Type0Report>, Vec<u8>) {
     let limits = Limits {
         io_chunk_bytes: 1,
         ..Limits::default()
@@ -1186,57 +1157,30 @@ fn decode_with_checks(
 #[test]
 fn cancellation_observed_at_any_check_is_reported_as_cancelled() {
     let bytes = image(3, 2, &[0, 0, 0]);
-    let baseline = CountingCancel {
-        queries: Cell::new(0),
-        trip_at: u64::MAX,
-    };
+    let baseline = CancelAfter::never();
     let (report, output) = decode_with_checks(&bytes, &baseline);
     assert_eq!(report.unwrap().progress.rows_written, 2);
     assert_eq!(output, [0; 8]);
-    let checks = baseline.queries.get();
+    let checks = baseline.queries();
     // Header bytes, arithmetic prefetch, rows, writes, and finalization all
     // observe cancellation; one-byte I/O makes each a separate check.
     assert!(checks > 48, "only {checks} cancellation checks");
 
     let mut previous_rows = 0;
-    for trip_at in 1..=checks {
-        let cancel = CountingCancel {
-            queries: Cell::new(0),
-            trip_at,
-        };
+    for allowed in 0..checks {
+        let cancel = CancelAfter::new(allowed);
         let (result, output) = decode_with_checks(&bytes, &cancel);
         let error = result.expect_err("every check point must stop the image");
         assert!(
             matches!(error.kind, Type0ErrorKind::Cancelled),
-            "check {trip_at} returned {error}"
+            "check {} returned {error}",
+            allowed + 1
         );
         assert!((previous_rows..=2).contains(&error.rows_written));
         assert_eq!(error.output_bytes_written, output.len() as u64);
         previous_rows = error.rows_written;
     }
     assert_eq!(previous_rows, 2);
-}
-
-struct FlushSink {
-    bytes: Vec<u8>,
-    flush_error: Option<fn() -> Error>,
-    cancel_on_flush: Option<Rc<Cell<bool>>>,
-}
-
-impl SequentialSink for FlushSink {
-    async fn write(&mut self, bytes: &[u8]) -> crate::Result<usize> {
-        self.bytes.extend_from_slice(bytes);
-        Ok(bytes.len())
-    }
-    async fn flush(&mut self) -> crate::Result<()> {
-        if let Some(flag) = &self.cancel_on_flush {
-            flag.set(true);
-        }
-        match self.flush_error {
-            Some(error) => Err(error()),
-            None => Ok(()),
-        }
-    }
 }
 
 #[test]
@@ -1258,10 +1202,11 @@ fn final_flush_failure_and_late_cancellation_keep_row_progress() {
         let cancel = FlagCancel(flag.clone());
         let mut contexts = ContextBank::new(CONTEXT_COUNT, &limits).unwrap();
         let mut source = SeekableSource::new(Cursor::new(bytes.clone())).unwrap();
-        let mut sink = FlushSink {
-            bytes: Vec::new(),
+        let mut sink = BytesSink {
+            max_write: usize::MAX,
             flush_error,
             cancel_on_flush: cancel_on_flush.then_some(flag),
+            ..BytesSink::default()
         };
         let mut decoder = ready(Type0Decoder::new(
             &mut source,
@@ -1329,12 +1274,12 @@ fn finish_rejects_a_poisoned_decoder_and_cancellation_before_flush() {
     let cancel = FlagCancel(flag.clone());
     let mut contexts = ContextBank::new(CONTEXT_COUNT, &limits).unwrap();
     let mut source = SeekableSource::new(Cursor::new(bytes.clone())).unwrap();
-    let mut sink = FlushSink {
-        bytes: Vec::new(),
+    let mut sink = BytesSink {
+        max_write: usize::MAX,
         flush_error: Some(|| Error::InvalidInput {
             reason: "flush must not run after cancellation",
         }),
-        cancel_on_flush: None,
+        ..BytesSink::default()
     };
     let mut decoder = ready(Type0Decoder::new(
         &mut source,

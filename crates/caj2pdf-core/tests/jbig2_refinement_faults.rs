@@ -2,6 +2,8 @@
 
 //! Adversarial tests of the public refinement host and its caller-owned I/O.
 
+mod common;
+
 use caj2pdf_core::{
     Cancellation, Error, Limits, NeverCancel, RangedSource, SequentialSink,
     jbig2::{
@@ -1386,11 +1388,5 @@ fn allocation_failure_message_and_formatter_errors_are_reported() {
         "JBIG2 refinement bitmap 2 row 3 x 4 at source byte 7: row allocation failed"
     );
     assert!(std::error::Error::source(&error).is_none());
-    struct Refuse;
-    impl std::fmt::Write for Refuse {
-        fn write_str(&mut self, _: &str) -> std::fmt::Result {
-            Err(std::fmt::Error)
-        }
-    }
-    assert!(std::fmt::write(&mut Refuse, format_args!("{error}")).is_err());
+    common::assert_display_propagates_fmt_error(&error);
 }

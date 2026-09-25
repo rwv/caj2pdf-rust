@@ -457,20 +457,7 @@ fn checked_object_number(count: usize) -> Result<u32> {
 mod tests {
     use super::*;
     use crate::NeverCancel;
-    use std::{
-        future::Future,
-        pin::pin,
-        task::{Context, Poll, Waker},
-    };
-
-    fn run<F: Future>(future: F) -> F::Output {
-        let mut context = Context::from_waker(Waker::noop());
-        let mut future = pin!(future);
-        match future.as_mut().poll(&mut context) {
-            Poll::Ready(value) => value,
-            Poll::Pending => panic!("test sink unexpectedly yielded"),
-        }
-    }
+    use crate::test_support::run;
 
     struct CountSink;
 
@@ -561,8 +548,8 @@ mod tests {
 
     #[test]
     fn minimal_pdf_byte_count_includes_xref_and_trailer() {
+        let mut sink = crate::native::WriteSink::new(Vec::new());
         let written = run(async {
-            let mut sink = CountSink;
             let limits = Limits::default();
             let mut pdf = PdfWriter::new(&mut sink, &limits, &NeverCancel).await?;
             let catalog = pdf.reserve_object()?;
@@ -571,9 +558,14 @@ mod tests {
             pdf.finish(catalog).await
         })
         .unwrap();
-        // 15-byte header, 21-byte object, 9-byte xref header, two 20-byte
-        // xref rows, and a 53-byte trailer ending in `startxref\n36\n%%EOF\n`.
-        assert_eq!(written, 138);
+        let output = sink.into_inner();
+        assert_eq!(written, output.len() as u64);
+        let xref = output
+            .windows(b"\nxref\n".len())
+            .position(|window| window == b"\nxref\n")
+            .unwrap()
+            + 1;
+        assert!(output.ends_with(format!("\nstartxref\n{xref}\n%%EOF\n").as_bytes()));
     }
 
     #[test]
