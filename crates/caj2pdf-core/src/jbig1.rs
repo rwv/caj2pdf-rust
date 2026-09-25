@@ -390,6 +390,117 @@ fn three_line_context(
     cx
 }
 
+/// Checks that need no source bytes: shared limits, cancellation, the outer
+/// record type, and the span's containment in the source.
+fn check_span<S: RangedSource, C: Cancellation>(
+    source: &S,
+    image: Type0Span,
+    limits: &Limits,
+    cancellation: &C,
+) -> Type0Result<()> {
+    limits
+        .validate()
+        .map_err(|error| at(image.offset, Type0ErrorKind::Source(error)))?;
+    if cancellation.is_cancelled() {
+        return Err(at(image.offset, Type0ErrorKind::Cancelled));
+    }
+    if image.record_type != 0 {
+        return Err(at(
+            image.offset,
+            Type0ErrorKind::Unsupported {
+                field: "HN/C8 image record type",
+                value: u64::from(image.record_type),
+            },
+        ));
+    }
+    let end = image.offset.checked_add(image.length).ok_or_else(|| {
+        at(
+            image.offset,
+            Type0ErrorKind::InvalidSpan("end overflows u64"),
+        )
+    })?;
+    if image.length <= DIB_BYTES {
+        return Err(at(end, Type0ErrorKind::Truncated("DIB and coded bytes")));
+    }
+    if end > source.size() {
+        return Err(at(
+            image.offset,
+            Type0ErrorKind::InvalidSpan("outside source size"),
+        ));
+    }
+    if image.length > limits.max_input_bytes {
+        return Err(limit(
+            image.offset,
+            "image span bytes",
+            limits.max_input_bytes,
+            image.length,
+        ));
+    }
+    Ok(())
+}
+
+async fn read_info<S: RangedSource, C: Cancellation>(
+    source: &mut S,
+    image: Type0Span,
+    limits: &Limits,
+    cancellation: &C,
+    arithmetic_budget: ArithmeticBudget,
+    budget: Type0Budget,
+) -> Type0Result<Type0Info> {
+    let mut header = [0_u8; DIB_BYTES as usize];
+    let mut done = 0;
+    while done < header.len() {
+        let count = (header.len() - done).min(limits.io_chunk_bytes);
+        let absolute = image.offset + done as u64;
+        read_exact_at(
+            source,
+            absolute,
+            &mut header[done..done + count],
+            limits,
+            cancellation,
+        )
+        .await
+        .map_err(|error| {
+            at(
+                absolute,
+                match error {
+                    Error::Cancelled => Type0ErrorKind::Cancelled,
+                    other => Type0ErrorKind::Source(other),
+                },
+            )
+        })?;
+        done += count;
+    }
+    checked_info(&header, image, limits, arithmetic_budget, budget)
+}
+
+/// Validate one type-0 span and its 48-byte DIB wrapper without decoding.
+///
+/// This performs the same checks, in the same order, as the header part of
+/// [`Type0Decoder::new`], except that it needs no context bank or sink. A
+/// caller can use the returned geometry to prepare a destination (for
+/// example a PDF image dictionary) before constructing the decoder. It reads
+/// only the 48 wrapper bytes, in chunks of at most `Limits::io_chunk_bytes`.
+pub async fn read_type0_info<S: RangedSource, C: Cancellation>(
+    source: &mut S,
+    image: Type0Span,
+    limits: &Limits,
+    cancellation: &C,
+    arithmetic_budget: ArithmeticBudget,
+    budget: Type0Budget,
+) -> Type0Result<Type0Info> {
+    check_span(source, image, limits, cancellation)?;
+    read_info(
+        source,
+        image,
+        limits,
+        cancellation,
+        arithmetic_budget,
+        budget,
+    )
+    .await
+}
+
 /// One image with one arithmetic SCD. A failed or dropped row future poisons
 /// this object; the caller must discard any partial sink output.
 pub struct Type0Decoder<'a, S: RangedSource, W: SequentialSink, C: Cancellation> {
@@ -421,75 +532,22 @@ impl<'a, S: RangedSource, W: SequentialSink, C: Cancellation> Type0Decoder<'a, S
         arithmetic_budget: ArithmeticBudget,
         budget: Type0Budget,
     ) -> Type0Result<Self> {
-        limits
-            .validate()
-            .map_err(|error| at(image.offset, Type0ErrorKind::Source(error)))?;
-        if cancellation.is_cancelled() {
-            return Err(at(image.offset, Type0ErrorKind::Cancelled));
-        }
-        if image.record_type != 0 {
-            return Err(at(
-                image.offset,
-                Type0ErrorKind::Unsupported {
-                    field: "HN/C8 image record type",
-                    value: u64::from(image.record_type),
-                },
-            ));
-        }
-        let end = image.offset.checked_add(image.length).ok_or_else(|| {
-            at(
-                image.offset,
-                Type0ErrorKind::InvalidSpan("end overflows u64"),
-            )
-        })?;
-        if image.length <= DIB_BYTES {
-            return Err(at(end, Type0ErrorKind::Truncated("DIB and coded bytes")));
-        }
-        if end > source.size() {
-            return Err(at(
-                image.offset,
-                Type0ErrorKind::InvalidSpan("outside source size"),
-            ));
-        }
-        if image.length > limits.max_input_bytes {
-            return Err(limit(
-                image.offset,
-                "image span bytes",
-                limits.max_input_bytes,
-                image.length,
-            ));
-        }
+        check_span(source, image, limits, cancellation)?;
         if contexts.state(CONTEXT_COUNT - 1).is_none() || contexts.state(CONTEXT_COUNT).is_some() {
             return Err(malformed(
                 image.offset,
                 "expected exactly 1024 arithmetic contexts",
             ));
         }
-        let mut header = [0_u8; DIB_BYTES as usize];
-        let mut done = 0;
-        while done < header.len() {
-            let count = (header.len() - done).min(limits.io_chunk_bytes);
-            let absolute = image.offset + done as u64;
-            read_exact_at(
-                source,
-                absolute,
-                &mut header[done..done + count],
-                limits,
-                cancellation,
-            )
-            .await
-            .map_err(|error| {
-                at(
-                    absolute,
-                    match error {
-                        Error::Cancelled => Type0ErrorKind::Cancelled,
-                        other => Type0ErrorKind::Source(other),
-                    },
-                )
-            })?;
-            done += count;
-        }
-        let info = checked_info(&header, image, limits, arithmetic_budget, budget)?;
+        let info = read_info(
+            source,
+            image,
+            limits,
+            cancellation,
+            arithmetic_budget,
+            budget,
+        )
+        .await?;
         let previous_two = blank_row(info.dib_stride, image.offset)?;
         let previous = blank_row(info.dib_stride, image.offset)?;
         let current = blank_row(info.dib_stride, image.offset)?;
