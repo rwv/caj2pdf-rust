@@ -14,6 +14,32 @@ pub enum InputFormat {
     Teb,
 }
 
+/// Leading bytes that [`detect_format`] needs to recognize every signature.
+pub const SIGNATURE_BYTES: usize = 5;
+
+/// Recognize an input family from its leading bytes, never from a file name:
+/// some observed `.caj` files are plain PDFs.
+///
+/// `prefix` should hold the first `min(SIGNATURE_BYTES, size)` bytes; extra
+/// bytes are ignored. The signatures are those recorded in
+/// `tests/fixtures/README.md`, `docs/caj-format.md`, `docs/kdh-format.md`,
+/// and `docs/hnc8-container.md`. Recognition does not imply support; the
+/// selected reader validates the complete header.
+pub fn detect_format(prefix: &[u8]) -> Option<InputFormat> {
+    const SIGNATURES: [(&[u8], InputFormat); 6] = [
+        (b"%PDF-", InputFormat::Pdf),
+        (b"CAJ", InputFormat::Caj),
+        (b"KDH", InputFormat::Kdh),
+        (b"HN", InputFormat::Hn),
+        (b"\xc8\0\0\0", InputFormat::C8),
+        (b"TEB", InputFormat::Teb),
+    ];
+    SIGNATURES
+        .iter()
+        .find(|(signature, _)| prefix.starts_with(signature))
+        .map(|&(_, format)| format)
+}
+
 /// Bounded summary returned by inspection.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DocumentInfo {
@@ -106,4 +132,39 @@ pub trait DocumentOperations {
         limits: &Limits,
         cancellation: &C,
     ) -> Result<ConversionReport>;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{InputFormat, SIGNATURE_BYTES, detect_format};
+
+    #[test]
+    fn detects_observed_signatures_only_at_the_start() {
+        let cases: [(&[u8], Option<InputFormat>); 12] = [
+            (b"%PDF-1.7", Some(InputFormat::Pdf)),
+            (b"CAJ\0", Some(InputFormat::Caj)),
+            (b"KDH 2.00", Some(InputFormat::Kdh)),
+            (b"HN\0\0", Some(InputFormat::Hn)),
+            (b"\xc8\0\0\0\x01", Some(InputFormat::C8)),
+            (b"TEB", Some(InputFormat::Teb)),
+            (b"%PDF", None),
+            (b"\xc8\0\0", None),
+            (b"NH\0\0", None),
+            (b" %PDF-", None),
+            (b"caj", None),
+            (b"", None),
+        ];
+        for (prefix, expected) in cases {
+            assert_eq!(detect_format(prefix), expected, "{prefix:?}");
+        }
+    }
+
+    #[test]
+    fn signature_bytes_cover_the_longest_signature() {
+        assert_eq!(
+            detect_format(&b"%PDF-1.7"[..SIGNATURE_BYTES]),
+            Some(InputFormat::Pdf)
+        );
+        assert_eq!(detect_format(&b"%PDF-"[..SIGNATURE_BYTES - 1]), None);
+    }
 }

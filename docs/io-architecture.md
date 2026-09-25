@@ -27,7 +27,8 @@ drives a pinned Rust future through a dependency-free raw WASM ABI: it polls
 until Rust requests a read, write, or flush, awaits that operation, supplies
 its bounded result, and polls again. The platform-neutral
 [`engine`](../crates/caj2pdf-wasm/src/engine.rs) owns that future: it detects
-the input format from its leading signature and runs the core PDF, CAJ, or
+the input format from its leading signature with the core's
+`detect_format` (shared with the CLI) and runs the core PDF, CAJ, or
 KDH engine (issue #13). A native caller
 can drive its future with an executor of its choice; the core does not choose
 an executor.

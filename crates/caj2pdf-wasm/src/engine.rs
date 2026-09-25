@@ -13,9 +13,9 @@
 
 use caj2pdf_core::{
     Cancellation, ConversionOptions, ConversionReport, DocumentInfo, Error, InputFormat, Limits,
-    PdfErrorKind, RangedSource, Result, SequentialSink,
+    PdfErrorKind, RangedSource, Result, SIGNATURE_BYTES, SequentialSink,
     caj::{convert_caj, parse_metadata},
-    copy_range,
+    copy_range, detect_format,
     kdh::{KdhPdfSource, convert_kdh},
     pdf::{PdfIndex, PdfRange, copy_pdf},
     read_exact_at,
@@ -30,8 +30,6 @@ use std::{
 
 /// Largest single allocation a caller may permit inside 32-bit WASM memory.
 pub const MAX_ALLOCATION_LIMIT: u64 = 256 * 1024 * 1024;
-/// Bytes inspected for automatic format detection.
-pub const SIGNATURE_BYTES: usize = 5;
 /// Longest error message kept for the host, in bytes.
 pub const MAX_MESSAGE_BYTES: usize = 1024;
 
@@ -106,27 +104,6 @@ pub fn format_from_code(code: u32) -> Option<Option<InputFormat>> {
         7 => Some(InputFormat::Nh),
         _ => return None,
     })
-}
-
-/// Recognize a format from at most [`SIGNATURE_BYTES`] leading bytes.
-///
-/// The prefixes are the observed signatures recorded in
-/// `tests/fixtures/README.md`, `docs/caj-format.md`, `docs/kdh-format.md`,
-/// and `docs/hnc8-container.md`. Recognition does not imply support; the
-/// selected engine validates the complete header.
-pub fn detect_format(prefix: &[u8]) -> Option<InputFormat> {
-    const SIGNATURES: [(&[u8], InputFormat); 6] = [
-        (b"%PDF-", InputFormat::Pdf),
-        (b"CAJ", InputFormat::Caj),
-        (b"KDH", InputFormat::Kdh),
-        (b"HN", InputFormat::Hn),
-        (&[0xc8, 0, 0, 0], InputFormat::C8),
-        (b"TEB", InputFormat::Teb),
-    ];
-    SIGNATURES
-        .iter()
-        .find(|(signature, _)| prefix.starts_with(signature))
-        .map(|&(_, format)| format)
 }
 
 /// Stable numeric error category shared with JavaScript (1..=15).
