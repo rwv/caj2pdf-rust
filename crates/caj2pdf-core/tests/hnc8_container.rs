@@ -1146,3 +1146,88 @@ fn independent_page_probe_can_report_later_errors_without_recovery() {
         );
     }
 }
+
+/// Reports cancellation from the given poll onwards, counting from one.
+struct CancelFromPoll {
+    polls: Cell<usize>,
+    first_cancelled: usize,
+}
+
+impl Cancellation for CancelFromPoll {
+    fn is_cancelled(&self) -> bool {
+        self.polls.set(self.polls.get() + 1);
+        self.polls.get() >= self.first_cancelled
+    }
+}
+
+#[test]
+fn invalid_shared_limits_are_reported_as_a_located_source_error() {
+    let mut source = Source::new(c8(1));
+    let limits = Limits {
+        io_chunk_bytes: 0,
+        ..Limits::default()
+    };
+    let error = ready(Hnc8Reader::open(
+        &mut source,
+        &limits,
+        &NeverCancel,
+        Budget::default(),
+    ))
+    .err()
+    .unwrap();
+    assert_eq!((error.variant, error.offset), (None, 0));
+    assert_eq!(
+        (error.kind.field(), error.kind.as_str()),
+        ("limits", "source")
+    );
+    assert!(matches!(
+        StdError::source(&error).and_then(|cause| cause.downcast_ref::<caj2pdf_core::Error>()),
+        Some(caj2pdf_core::Error::InvalidInput { .. })
+    ));
+    assert_eq!(source.reads, 0);
+}
+
+#[test]
+fn cancellation_inside_a_fixed_read_and_before_a_page_row_is_located() {
+    // Poll 1 is the open-time check; poll 2 is inside the signature read.
+    let mut source = Source::new(c8(1));
+    let cancellation = CancelFromPoll {
+        polls: Cell::new(0),
+        first_cancelled: 2,
+    };
+    let limits = Limits::default();
+    let error = ready(Hnc8Reader::open(
+        &mut source,
+        &limits,
+        &cancellation,
+        Budget::default(),
+    ))
+    .err()
+    .unwrap();
+    assert!(matches!(error.kind, ErrorKind::Cancelled));
+    assert_eq!((error.variant, error.offset), (None, 0));
+    assert_eq!(source.reads, 0);
+
+    let mut bytes = c8(1);
+    page(&mut bytes, 0x50, 1, 200, 0, 0);
+    let mut source = Source::new(bytes);
+    let flag = Flag(Cell::new(false));
+    let mut reader = ready(Hnc8Reader::open(
+        &mut source,
+        &limits,
+        &flag,
+        Budget::default(),
+    ))
+    .unwrap();
+    flag.0.set(true);
+    let error = ready(reader.next_page()).unwrap_err();
+    assert!(matches!(error.kind, ErrorKind::Cancelled));
+    assert_eq!(
+        (error.variant, error.offset, error.page),
+        (Some(Variant::C8), 0x50, Some(1))
+    );
+    // Cancellation before the row read does not poison the cursor.
+    flag.0.set(false);
+    let page = ready(reader.next_page()).unwrap().unwrap();
+    assert_eq!((page.page_number, page.image_count), (1, 0));
+}

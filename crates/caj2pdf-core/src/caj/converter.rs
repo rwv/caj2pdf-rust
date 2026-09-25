@@ -848,4 +848,59 @@ mod tests {
         assert_eq!(too_small, b"prefix");
         assert!(rejected_objects.is_empty());
     }
+
+    fn ready<F: std::future::Future>(future: F) -> F::Output {
+        let mut future = std::pin::pin!(future);
+        let mut context = std::task::Context::from_waker(std::task::Waker::noop());
+        match future.as_mut().poll(&mut context) {
+            std::task::Poll::Ready(value) => value,
+            std::task::Poll::Pending => panic!("in-memory source unexpectedly pending"),
+        }
+    }
+
+    struct Bytes(&'static [u8]);
+
+    impl RangedSource for Bytes {
+        fn size(&self) -> u64 {
+            self.0.len() as u64
+        }
+
+        async fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> Result<usize> {
+            let start = offset as usize;
+            let count = destination.len().min(self.0.len() - start);
+            destination[..count].copy_from_slice(&self.0[start..start + count]);
+            Ok(count)
+        }
+    }
+
+    #[test]
+    fn extended_source_splits_reads_at_the_suffix_and_ends_cleanly() {
+        let mut base = Bytes(b"abc");
+        let suffix = b"XYZ";
+        let mut extended = ExtendedSource::new(&mut base, suffix).unwrap();
+        assert_eq!(extended.size(), 6);
+
+        let mut buffer = [0u8; 8];
+        // A read crossing the boundary stops at the immutable source end.
+        assert_eq!(ready(extended.read_at(1, &mut buffer)).unwrap(), 2);
+        assert_eq!(&buffer[..2], b"bc");
+        assert_eq!(ready(extended.read_at(4, &mut buffer)).unwrap(), 2);
+        assert_eq!(&buffer[..2], b"YZ");
+        assert_eq!(ready(extended.read_at(6, &mut buffer)).unwrap(), 0);
+        assert_eq!(ready(extended.read_at(u64::MAX, &mut buffer)).unwrap(), 0);
+    }
+
+    #[test]
+    fn bounded_suffix_refuses_text_past_its_reserved_length() {
+        let mut bytes = b"12".to_vec();
+        let mut suffix = BoundedSuffix {
+            bytes: &mut bytes,
+            maximum_len: 5,
+        };
+        suffix.write_str("345").unwrap();
+        assert!(suffix.write_str("6").is_err());
+        assert!(write!(&mut suffix, "{}", 7).is_err());
+        suffix.write_str("").unwrap();
+        assert_eq!(bytes, b"12345");
+    }
 }

@@ -57,6 +57,7 @@ struct MeasuredSource {
     max_return: usize,
     reads: Rc<Cell<usize>>,
     fail_reads: Rc<Cell<bool>>,
+    overreport: Rc<Cell<bool>>,
 }
 
 impl MeasuredSource {
@@ -68,6 +69,7 @@ impl MeasuredSource {
             max_return: usize::MAX,
             reads: Rc::new(Cell::new(0)),
             fail_reads: Rc::new(Cell::new(false)),
+            overreport: Rc::new(Cell::new(false)),
         }
     }
 }
@@ -86,6 +88,9 @@ impl RangedSource for MeasuredSource {
         self.reads.set(self.reads.get() + 1);
         if self.fail_reads.get() {
             return Ok(0);
+        }
+        if self.overreport.get() {
+            return Ok(destination.len() + 1);
         }
         let count = (self.size() - offset)
             .min(destination.len() as u64)
@@ -437,4 +442,115 @@ fn pdf_output_limit_preserves_kdh_absolute_error_location() {
         "{error}"
     );
     assert!(output.is_empty());
+}
+
+fn open_lengths(bytes: Vec<u8>) -> Result<(u64, u64), Error> {
+    let mut source = MeasuredSource::new(bytes);
+    let decoded = run(KdhPdfSource::open(
+        &mut source,
+        &Limits::default(),
+        &NeverCancel,
+    ))?;
+    Ok((decoded.pdf_len(), decoded.trailing_len()))
+}
+
+#[test]
+fn pdf_end_includes_only_the_line_ending_after_eof() {
+    let pdf = fixture_pdf();
+    assert!(pdf.ends_with(b"%%EOF\n"));
+    let bare = &pdf[..pdf.len() - 1];
+
+    let mut crlf = bare.to_vec();
+    crlf.extend_from_slice(b"\r\n");
+    assert_eq!(
+        open_lengths(kdh_bytes(&crlf, b"")).unwrap(),
+        (crlf.len() as u64, 0)
+    );
+    assert_eq!(
+        open_lengths(kdh_bytes(bare, b"")).unwrap(),
+        (bare.len() as u64, 0)
+    );
+    assert_eq!(
+        open_lengths(kdh_bytes(bare, b"XY\n")).unwrap(),
+        (bare.len() as u64, 3)
+    );
+}
+
+#[test]
+fn malformed_trailing_end_markers_do_not_move_the_pdf_end() {
+    let pdf = fixture_pdf();
+    let len = pdf.len();
+    // Each tail starts at a plausible xref table or object; only the marker
+    // syntax, the object header, or the target's position disqualifies it.
+    let tails = [
+        "xref\n0 1\nstartxref\n0\n%%EOF\n".to_string(),
+        format!("xref\n0 1\nstartxref\n{len}\nX%%EOF\n"),
+        format!("xref\n0 1\nXstartxref\n{len}\n%%EOF\n"),
+        format!("xref\n0 1\nstartxref\n{len} 0\n%%EOF\n"),
+        "xref\n0 1\nstartxref\n\n%%EOF\n".to_string(),
+        "xref\n0 1\nstartxref\n99999999999999999999999\n%%EOF\n".to_string(),
+        format!("7 0 objx\nendobj\nstartxref\n{len}\n%%EOF\n"),
+        format!("7 x obj\nendobj\nstartxref\n{len}\n%%EOF\n"),
+        format!("x 0 obj\nendobj\nstartxref\n{len}\n%%EOF\n"),
+        format!("7 0 ob\nendobj\nstartxref\n{len}\n%%EOF\n"),
+    ];
+    for tail in tails {
+        assert_eq!(
+            open_lengths(kdh_bytes(&pdf, tail.as_bytes())).unwrap(),
+            (len as u64, tail.len() as u64),
+            "{tail:?}"
+        );
+    }
+}
+
+#[test]
+fn a_trailing_object_target_is_a_plausible_second_end() {
+    let pdf = fixture_pdf();
+    let tail = format!(
+        "7\t0  obj\n<< /Type /XRef >>\nendobj\nstartxref\n{}\n%%EOF\n",
+        pdf.len()
+    );
+    let bytes = kdh_bytes(&pdf, tail.as_bytes());
+    let marker = bytes.len() as u64 - 6;
+    assert!(matches!(
+        open_lengths(bytes),
+        Err(Error::Kdh {
+            offset,
+            reason: "ambiguous PDF end in KDH trailer",
+        }) if offset == marker
+    ));
+}
+
+#[test]
+fn decoded_reads_are_bounded_by_the_pdf_end_and_the_source_contract() {
+    let pdf = fixture_pdf();
+    let mut source = MeasuredSource::new(kdh_bytes(&pdf, b"tail bytes"));
+    let overreport = Rc::clone(&source.overreport);
+    let mut decoded = run(KdhPdfSource::open(
+        &mut source,
+        &Limits::default(),
+        &NeverCancel,
+    ))
+    .unwrap();
+    let end = decoded.pdf_len();
+    assert_eq!(decoded.size(), pdf.len() as u64);
+
+    let mut buffer = [0_u8; 16];
+    assert_eq!(run(decoded.read_at(end - 3, &mut buffer)).unwrap(), 3);
+    assert_eq!(&buffer[..3], &pdf[pdf.len() - 3..]);
+    assert_eq!(run(decoded.read_at(end, &mut buffer)).unwrap(), 0);
+    assert!(matches!(
+        run(decoded.read_at(end + 1, &mut buffer)),
+        Err(Error::InvalidInput {
+            reason: "KDH PDF read starts beyond payload end"
+        })
+    ));
+
+    overreport.set(true);
+    assert!(matches!(
+        run(decoded.read_at(0, &mut buffer)),
+        Err(Error::InvalidInput {
+            reason: "KDH source reported more bytes than requested"
+        })
+    ));
 }
