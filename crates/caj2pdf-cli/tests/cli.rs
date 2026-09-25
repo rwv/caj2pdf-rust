@@ -412,6 +412,7 @@ fn malformed_and_unsupported_inputs_leave_no_output() {
     scratch.write("unknown.caj", b"GIF89a");
     scratch.write("c8.c8", &c8());
     scratch.write("hn.hn", &hn());
+    scratch.write("short.hn", &fixture("truncated_hn.hn"));
     scratch.write("teb.teb", &fixture("truncated_teb.teb"));
     scratch.write("broken.pdf", &fixture("invalid_xref_offset.pdf"));
     fs::create_dir(scratch.path("folder.caj")).unwrap();
@@ -426,6 +427,11 @@ fn malformed_and_unsupported_inputs_leave_no_output() {
         (
             "hn.hn",
             "HN input is recognized, but HN/C8 image decoding is not implemented yet",
+        ),
+        // A malformed container is reported as such, not as unsupported.
+        (
+            "short.hn",
+            "cannot convert 'short.hn': HN/C8 at byte 0: truncated",
         ),
         (
             "teb.teb",
@@ -447,6 +453,7 @@ fn malformed_and_unsupported_inputs_leave_no_output() {
             "empty.caj",
             "folder.caj",
             "hn.hn",
+            "short.hn",
             "teb.teb",
             "truncated.caj",
             "unknown.caj"

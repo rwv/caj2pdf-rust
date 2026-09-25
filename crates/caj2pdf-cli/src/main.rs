@@ -49,10 +49,10 @@ impl CliError {
 mod cli {
     use crate::CliError;
     use crate::args::{self, Command, Endpoint};
-    use crate::files::{open_input, open_output, stdout_is_terminal};
+    use crate::files::{open_input, open_output, refuse_terminal};
     use crate::{document, report};
     use caj2pdf_core::Limits;
-    use std::io::{self, Write};
+    use std::io::{self, IsTerminal, Write};
 
     /// The output used when `-o` is absent: stdout for stdin, otherwise the
     /// input's sibling `.pdf`, which must not be the input path itself.
@@ -96,8 +96,9 @@ mod cli {
                     Some(output) => output,
                     None => default_output(&input)?,
                 };
+                refuse_terminal(&output, io::stdout().is_terminal())?;
                 let mut input = open_input(&input, limits.max_input_bytes)?;
-                let mut output = open_output(&output, force, &[&input], stdout_is_terminal())?;
+                let mut output = open_output(&output, force, &[&input])?;
                 document::convert(&mut input, output.writer(), &limits)?;
                 output.commit()
             }
@@ -122,10 +123,10 @@ mod cli {
                 output,
                 force,
             } => {
+                refuse_terminal(&output, io::stdout().is_terminal())?;
                 let mut outline = open_input(&outline, limits.max_input_bytes)?;
                 let mut pdf = open_input(&pdf, limits.max_input_bytes)?;
-                let mut output =
-                    open_output(&output, force, &[&outline, &pdf], stdout_is_terminal())?;
+                let mut output = open_output(&output, force, &[&outline, &pdf])?;
                 document::add_bookmarks(&mut outline, &mut pdf, output.writer(), &limits)?;
                 output.commit()
             }

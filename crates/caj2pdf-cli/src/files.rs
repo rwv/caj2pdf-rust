@@ -5,10 +5,11 @@
 
 use crate::CliError;
 use crate::args::Endpoint;
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::fs::{self, File, Metadata, OpenOptions};
-use std::io::{self, BufWriter, IsTerminal, Read, Seek, Write};
+use std::io::{self, BufWriter, Read, Seek, Write};
 use std::os::fd::AsFd;
+use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -150,6 +151,8 @@ pub struct Staged {
     temp: PathBuf,
     target: PathBuf,
     force: bool,
+    /// Inputs the target must not become between staging and commit.
+    inputs: Vec<(Identity, String)>,
 }
 
 impl Output {
@@ -160,31 +163,53 @@ impl Output {
         }
     }
 
-    /// Flush the output and, for a path, rename it over the target.
+    /// Flush the output and, for a path, move it to the target.
     pub fn commit(self) -> Result<(), CliError> {
         match self {
             Self::Stdout(mut writer) => writer.flush().map_err(stdout_error),
-            Self::Staged(mut staged) => {
-                let target = staged.target.display().to_string();
-                let fail = |error: io::Error| {
-                    CliError::runtime(format!("cannot write '{target}': {error}"))
-                };
-                let file = staged
-                    .writer
-                    .take()
-                    .expect("uncommitted output")
-                    .into_inner()
-                    .map_err(|error| fail(error.into_error()))?;
-                file.sync_all().map_err(fail)?;
-                drop(file);
-                if !staged.force && fs::symlink_metadata(&staged.target).is_ok() {
-                    return Err(exists_error(&staged.target));
+            Self::Staged(staged) => staged.commit(),
+        }
+    }
+}
+
+impl Staged {
+    /// Synchronize the staged file and give it the target name. The same-file
+    /// and existence checks are repeated here because the target may have
+    /// changed during conversion. Without `--force` the file is hard-linked,
+    /// which fails atomically when the target exists; a file system without
+    /// hard links falls back to a re-check and rename, leaving a short race.
+    /// With `--force` a target swapped for an input between the re-check and
+    /// the rename is still replaced. Drop removes the temporary name.
+    fn commit(mut self) -> Result<(), CliError> {
+        let target = self.target.display().to_string();
+        let fail =
+            |error: io::Error| CliError::runtime(format!("cannot write '{target}': {error}"));
+        let file = self
+            .writer
+            .take()
+            .expect("uncommitted output")
+            .into_inner()
+            .map_err(|error| fail(error.into_error()))?;
+        file.sync_all().map_err(fail)?;
+        drop(file);
+        if let Ok(metadata) = fs::metadata(&self.target) {
+            check_distinct(&metadata, &self.inputs, &format!("output '{target}'"))?;
+        }
+        if !self.force {
+            match fs::hard_link(&self.temp, &self.target) {
+                Ok(()) => return Ok(()),
+                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+                    return Err(exists_error(&self.target));
                 }
-                fs::rename(&staged.temp, &staged.target).map_err(fail)?;
-                staged.temp = PathBuf::new();
-                Ok(())
+                Err(_) if fs::symlink_metadata(&self.target).is_ok() => {
+                    return Err(exists_error(&self.target));
+                }
+                Err(_) => {}
             }
         }
+        fs::rename(&self.temp, &self.target).map_err(fail)?;
+        self.temp = PathBuf::new();
+        Ok(())
     }
 }
 
@@ -208,41 +233,55 @@ fn exists_error(path: &Path) -> CliError {
 }
 
 /// Check that `metadata` does not belong to any input file.
-fn check_distinct(metadata: &Metadata, inputs: &[&Input], output: &str) -> Result<(), CliError> {
-    match inputs
-        .iter()
-        .find(|input| input.identity == identity(metadata))
-    {
-        Some(input) => Err(CliError::runtime(format!(
-            "{output} is the same file as input {}; refusing to overwrite an input",
-            input.name
+fn check_distinct(
+    metadata: &Metadata,
+    inputs: &[(Identity, String)],
+    output: &str,
+) -> Result<(), CliError> {
+    match inputs.iter().find(|(id, _)| *id == identity(metadata)) {
+        Some((_, name)) => Err(CliError::runtime(format!(
+            "{output} is the same file as input {name}; refusing to overwrite an input"
         ))),
         None => Ok(()),
     }
 }
 
-/// Validate and open an output endpoint. `stdout_is_terminal` is injected so
-/// the terminal refusal can be tested without a pseudo-terminal.
+/// Refuse PDF output to a terminal. It is checked before any input is opened,
+/// so standard input is not spooled first. `stdout_is_terminal` is injected so
+/// the refusal can be tested without a pseudo-terminal.
+pub fn refuse_terminal(endpoint: &Endpoint, stdout_is_terminal: bool) -> Result<(), CliError> {
+    if *endpoint == Endpoint::Std && stdout_is_terminal {
+        Err(CliError::runtime(
+            "refusing to write binary PDF data to a terminal; redirect standard output or use -o FILE",
+        ))
+    } else {
+        Ok(())
+    }
+}
+
+/// Longest output file name kept in a temporary name, leaving room for the
+/// prefix and suffix within the usual 255-byte name limit.
+const TEMP_STEM_BYTES: usize = 200;
+
+/// Validate and open an output endpoint.
 pub fn open_output(
     endpoint: &Endpoint,
     force: bool,
     inputs: &[&Input],
-    stdout_is_terminal: bool,
 ) -> Result<Output, CliError> {
+    let inputs: Vec<_> = inputs
+        .iter()
+        .map(|input| (input.identity, input.name.clone()))
+        .collect();
     let path = match endpoint {
         Endpoint::Std => {
-            if stdout_is_terminal {
-                return Err(CliError::runtime(
-                    "refusing to write binary PDF data to a terminal; redirect standard output or use -o FILE",
-                ));
-            }
             // Rust reopens a closed descriptor 1 as /dev/null at startup, so
             // duplicating it fails only when descriptors are exhausted.
             let (metadata, stdout) = duplicate(io::stdout())
                 .and_then(|file| Ok((file.metadata()?, file)))
                 .map_err(stdout_error)?;
             if metadata.is_file() {
-                check_distinct(&metadata, inputs, "standard output")?;
+                check_distinct(&metadata, &inputs, "standard output")?;
             }
             return Ok(Output::Stdout(BufWriter::with_capacity(
                 OUTPUT_BUFFER,
@@ -253,7 +292,7 @@ pub fn open_output(
     };
     let shown = format!("output '{}'", path.display());
     if let Ok(metadata) = fs::metadata(path) {
-        check_distinct(&metadata, inputs, &shown)?;
+        check_distinct(&metadata, &inputs, &shown)?;
         if metadata.is_dir() {
             return Err(CliError::runtime(format!("{shown} is a directory")));
         }
@@ -268,8 +307,9 @@ pub fn open_output(
         Some(parent) if !parent.as_os_str().is_empty() => parent,
         _ => Path::new("."),
     };
+    let name = file_name.as_bytes();
     let mut stem = OsString::from(".");
-    stem.push(file_name);
+    stem.push(OsStr::from_bytes(&name[..name.len().min(TEMP_STEM_BYTES)]));
     let (temp, file) = create_unique(directory, &stem, 0o666).map_err(|error| {
         CliError::runtime(format!(
             "cannot create a temporary file in '{}': {error}",
@@ -281,10 +321,6 @@ pub fn open_output(
         temp,
         target: path.clone(),
         force,
+        inputs,
     }))
-}
-
-/// Whether the process's standard output is a terminal.
-pub fn stdout_is_terminal() -> bool {
-    io::stdout().is_terminal()
 }
