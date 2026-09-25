@@ -3,31 +3,28 @@
 //! Optional, external-only metrics for one SHA-pinned large #1 dictionary.
 //! No official table states or CAJ bytes are embedded or distributed.
 
+#[path = "support/mod.rs"]
+#[allow(dead_code)] // The second diagnostic example uses the remaining helpers.
+mod support;
+
 use caj2pdf_core::{
     Limits, NeverCancel,
     jbig2::{
         HeaderLimits, SegmentSpan,
         dictionary::{DictionaryBudget, DirectDictionaryDecoder},
         integer::IntegerContextBanks,
-        mq::{MQ_STATE_COUNT, MqBudget, MqState, MqTable},
+        mq::MqBudget,
         read_segment_header,
     },
     native::{SeekableSource, WriteSink},
 };
-use sha2::{Digest, Sha256};
-#[cfg(unix)]
-use std::os::unix::fs::MetadataExt;
 use std::{
     env,
     error::Error as StdError,
-    fs::{self, File, OpenOptions},
-    future::Future,
-    io::{Read, Seek, SeekFrom},
-    path::{Path, PathBuf},
-    pin::pin,
-    task::{Context, Poll, Waker},
-    time::{SystemTime, UNIX_EPOCH},
+    fs::{self, File},
+    path::Path,
 };
+use support::{TempStore, allocated_disk_bytes, digest_file, peak_rss_kib, ready, table};
 
 const SAMPLE: &str = "pull-72/碳_碳复合材料多重环境下的氧化机理研究_李龙.caj";
 const SOURCE_SIZE: u64 = 18_200_390;
@@ -36,119 +33,6 @@ const DATA_OFFSET: u64 = 13_229_976;
 const DATA_LENGTH: u64 = 9_959;
 const DATA_SHA: &str = "48312efc04ca4b43fed872f3e4de9108a08b74ccf339545a40860fa121133baa";
 const HEADER_OFFSET: u64 = DATA_OFFSET - 11;
-const TABLE_SHA: &str = "bdf6eeeca3bc5d5a8dc1a13acc7698ec356c886b27f6526f3e09fc2c8520ac57";
-
-fn ready<F: Future>(future: F) -> F::Output {
-    let mut future = pin!(future);
-    match future
-        .as_mut()
-        .poll(&mut Context::from_waker(Waker::noop()))
-    {
-        Poll::Ready(value) => value,
-        Poll::Pending => panic!("native file unexpectedly yielded"),
-    }
-}
-
-fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
-}
-
-fn digest_file(path: &Path, range: Option<(u64, u64)>) -> Result<String, Box<dyn StdError>> {
-    let mut file = File::open(path)?;
-    let length = file.metadata()?.len();
-    let (start, count) = range.unwrap_or((0, length));
-    if start.checked_add(count).is_none_or(|end| end > length) {
-        return Err("digest range escapes source".into());
-    }
-    file.seek(SeekFrom::Start(start))?;
-    let mut remaining = count;
-    let mut buffer = [0u8; 64 * 1024];
-    let mut hash = Sha256::new();
-    while remaining > 0 {
-        let requested = remaining.min(buffer.len() as u64) as usize;
-        let got = file.read(&mut buffer[..requested])?;
-        if got == 0 {
-            return Err("source shortened while hashing".into());
-        }
-        hash.update(&buffer[..got]);
-        remaining -= got as u64;
-    }
-    Ok(hex(&hash.finalize()))
-}
-
-fn table(path: &Path, limits: &Limits) -> Result<MqTable, Box<dyn StdError>> {
-    let canonical = path.canonicalize()?;
-    if !canonical.starts_with("/tmp") {
-        return Err("private table fixture must stay in /tmp".into());
-    }
-    let mut bytes = Vec::new();
-    File::open(&canonical)?
-        .take(16 * 1024 + 1)
-        .read_to_end(&mut bytes)?;
-    if bytes.len() > 16 * 1024 || hex(&Sha256::digest(&bytes)) != TABLE_SHA {
-        return Err("private table fixture size or SHA differs".into());
-    }
-    let text = std::str::from_utf8(&bytes)?;
-    let mut lines = text.lines();
-    if lines.next() != Some("T88-2000-H2") || lines.next() != Some("47") {
-        return Err("private table framing differs".into());
-    }
-    let mut states = Vec::new();
-    states.try_reserve_exact(MQ_STATE_COUNT)?;
-    for _ in 0..MQ_STATE_COUNT {
-        let row = lines.next().ok_or("missing table row")?;
-        let parts: Vec<_> = row.split_whitespace().collect();
-        if parts.len() != 4 {
-            return Err("table row width differs".into());
-        }
-        let switch: u8 = parts[3].parse()?;
-        if switch > 1 {
-            return Err("table switch differs".into());
-        }
-        states.push(MqState {
-            qe: parts[0].parse()?,
-            next_mps: parts[1].parse()?,
-            next_lps: parts[2].parse()?,
-            switch_mps: switch == 1,
-        });
-    }
-    MqTable::new(states, limits).map_err(Into::into)
-}
-
-struct TempStore(PathBuf);
-
-impl TempStore {
-    fn create() -> Result<(Self, File), Box<dyn StdError>> {
-        let nonce = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
-        let path = env::temp_dir().join(format!(
-            "caj2pdf-dictionary-metrics-{}-{nonce}.bin",
-            std::process::id()
-        ));
-        let file = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&path)?;
-        Ok((Self(path), file))
-    }
-}
-
-impl Drop for TempStore {
-    fn drop(&mut self) {
-        let _ = fs::remove_file(&self.0);
-    }
-}
-
-fn peak_rss_kib() -> Option<u64> {
-    let status = fs::read_to_string("/proc/self/status").ok()?;
-    status
-        .lines()
-        .find(|line| line.starts_with("VmHWM:"))?
-        .split_whitespace()
-        .nth(1)?
-        .parse()
-        .ok()
-}
-
 fn run() -> Result<(), Box<dyn StdError>> {
     let mut arguments = env::args_os();
     let _ = arguments.next();
@@ -189,7 +73,7 @@ fn run() -> Result<(), Box<dyn StdError>> {
     {
         return Err("selected #1 segment header differs".into());
     }
-    let (temporary, file) = TempStore::create()?;
+    let (temporary, file) = TempStore::create("caj2pdf-dictionary-metrics")?;
     let mut sink = WriteSink::new(file);
     let mut banks = IntegerContextBanks::with_extra_contexts(1024, &limits, &mq_budget)?;
     let mut decoder = ready(DirectDictionaryDecoder::new(
@@ -208,10 +92,7 @@ fn run() -> Result<(), Box<dyn StdError>> {
     let file = sink.into_inner();
     let metadata = file.metadata()?;
     let stored = metadata.len();
-    #[cfg(unix)]
-    let allocated = metadata.blocks().saturating_mul(512);
-    #[cfg(not(unix))]
-    let allocated = 0;
+    let allocated = allocated_disk_bytes(&metadata);
     drop(file);
     if report.catalog.new_symbols.len() != 310
         || report.catalog.exported_symbols.len() != 310

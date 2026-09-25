@@ -19,7 +19,8 @@ checking the provenance of each imported file.
 | T.88 non-IAID arithmetic integers | [ITU-T T.88 (02/2000)](https://www.itu.int/rec/T-REC-T.88-200002-S/en), Annex A.1–A.2 and E.3, with symbol-dictionary usage in §§6.5 and 7.4.2 | Original MIT typed 13-bank integer decision layer over the existing caller-table MQ decoder. The [integer note](t88-arithmetic-integer.md) records its signed/OOB result, 512-context layout, 38-decision limit, and synthetic checks. No Table E.1 states, external dictionary trace, or HN/C8 compatibility claim is included. |
 | T.88 fixed-length IAID symbol IDs | [ITU-T T.88 (02/2000)](https://www.itu.int/rec/T-REC-T.88-200002-S/en), Annex A.3 and E.3, §§6.4.2, 6.4.10, 6.5.8.2.3, 7.4.2–7.4.3 | Original MIT typed context owner and IAID decision layer over the existing caller-table MQ stream. The [IAID note](t88-iaid.md) records its fixed-width context map, bounded allocation and work, reset policy, symbol-array guard, and synthetic checks. No official state rows, external trace, or HN/C8 parity claim is included. |
 | T.88 direct-coded arithmetic symbol dictionaries | [ITU-T T.88 (02/2000)](https://www.itu.int/rec/T-REC-T.88-200002-S/en), §§6.2.5, 6.5.1–6.5.10, 7.4.2.1–7.4.2.2, Tables 16 and 28, Annex A.2 and E.3.7–E.3.8; [repository-owned header inventory](../tests/conformance/jbig2_dictionary_headers.json) | Original MIT, bounded caller-table first-dictionary primitive. The [dictionary note](t88-symbol-dictionary-direct.md) records classification, MQ/context ownership, store contract, limits, and optional evidence. The observed second refinement/aggregate dictionary remains typed unsupported. Exact Table E.1 rows remain external under #44; metadata checks do not establish symbol pixel parity. |
-| T.88 template-1 generic refinement bitmaps | [ITU-T T.88 (02/2000)](https://www.itu.int/rec/T-REC-T.88-200002-S/en), §§6.3.2–6.3.5, Table 6, Figure 13, §6.5.8.2/Table 18 | Original MIT, bounded caller-table single-reference bitmap primitive. The [refinement note](t88-refinement-template1.md) records the ten-pixel context mapping, typed IAID/GR context ownership, ranged reference store, row memory, poison/error contract, and synthetic tests. The observed `0x1802` dictionary is still not decoded. No external symbol-pixel oracle exists: refinement compatibility is `NOT_RUN`, zero cases. Exact Table E.1 rows remain external under #44. |
+| T.88 template-1 generic refinement bitmaps | [ITU-T T.88 (02/2000)](https://www.itu.int/rec/T-REC-T.88-200002-S/en), §§6.3.2–6.3.5, Table 6, Figure 13, §6.5.8.2/Table 18 | Original MIT, bounded caller-table single-reference bitmap primitive. The [refinement note](t88-refinement-template1.md) records the ten-pixel context mapping, typed IAID/GR context ownership, ranged reference store, row memory, poison/error contract, and synthetic tests. The bitmap primitive alone does not decode a `0x1802` dictionary; #66 integrates its one-reference path. No external symbol-pixel oracle exists: refinement compatibility is `NOT_RUN`, zero cases. Exact Table E.1 rows remain external under #44. |
+| T.88 arithmetic single-reference symbol dictionaries | [ITU-T T.88 (02/2000)](https://www.itu.int/rec/T-REC-T.88-200002-S/en), §§6.4.10–6.4.11, 6.5.5–6.5.10, 7.4.2.1–7.4.2.2, Tables 17–18, Annex A; [repository-owned header inventory](../tests/conformance/jbig2_dictionary_headers.json) | Original MIT, bounded caller-table decoder of the observed `0x1802` second dictionary when every IAAI is one. The [integration note](t88-refinement-dictionary.md) records imported/new stores, ordered export handles, MQ state, limits, typed zero/aggregate refusals, and synthetic tests. The private 546-case trace is diagnostic; independent symbol-pixel compatibility remains `NOT_RUN`, zero proven cases. Exact Table E.1 rows remain external under #44. |
 | T.88 template-2 arithmetic generic regions | [ITU-T T.88 (02/2000)](https://www.itu.int/rec/T-REC-T.88-200002-S/en), §§6.2.5.2–6.2.5.4, 6.2.5.7, 7.4.1, 7.4.6.1–7.4.6.4, Table 34, Figure 5, E.3.7 | Original MIT, bounded row decoder with caller-supplied MQ table. Two external generic-only HN/C8 pixel spots passed; all 546 remain for #50. The [region note](jbig2-generic-template2.md) records the context order, bounds, and external-only verification. |
 | CAJ-family headers, pages, and outlines | [caj2pdf format notes](https://github.com/caj2pdf/caj2pdf/wiki), including [CAJ/HN identification](https://github.com/caj2pdf/caj2pdf/wiki/CAJ-%E5%92%8C-HN), [basic information and outlines](https://github.com/caj2pdf/caj2pdf/wiki/%E6%96%87%E4%BB%B6%E5%9F%BA%E6%9C%AC%E4%BF%A1%E6%81%AF%E4%B8%8E%E5%A4%A7%E7%BA%B2), and [CAJ page content](https://github.com/caj2pdf/caj2pdf/wiki/CAJ-%E6%A0%BC%E5%BC%8F%E7%9A%84%E9%A1%B5%E9%9D%A2%E5%86%85%E5%AE%B9) | Public observations, not a complete normative specification. [Repository-owned CAJ measurements](caj-format.md) pin ten successful sample digests and document TOC, page-table, and PDF-fragment exceptions independently. Do not copy parser source or pseudocode. |
 | HN page layout | [caj2pdf HN format notes](https://github.com/caj2pdf/caj2pdf/wiki/HN-%E6%A0%BC%E5%BC%8F%E7%9A%84%E9%A1%B5%E9%9D%A2%E5%86%85%E5%AE%B9) | Incomplete public observations. Derive the parser from documented facts and independent tests; mark unresolved fields explicitly. |
@@ -490,8 +491,27 @@ third-party decoder source, external symbol pixel, exact Table E.1 row, or
 Annex H byte was copied or migrated. The optional check has no independent
 refinement-pixel oracle, so clean-clone status is `NOT_RUN` with zero checked
 cases; an external diagnostic cannot upgrade that status. There is no new
-runtime or development dependency. The later `0x1802` dictionary integration
-and text/page work remain open under #9 and #66.
+runtime or development dependency. The `0x1802` dictionary integration is
+recorded below for #66; text/page work remains open under #9.
+
+Issue #66 adds the original MIT second-dictionary integration in
+[`jbig2/refinement_dictionary.rs`](../crates/caj2pdf-core/src/jbig2/refinement_dictionary.rs)
+and an internal final-progress observer in `jbig2/refinement.rs`. Its
+algorithm source was the official T.88 (02/2000) English PDF cited above;
+the external five-file inventory supplies only independent header/count
+measurements. Original synthetic unit tests use an invented 47-state MQ
+table and independently specified packed reference pixels. The optional
+diagnostic runner checks the SHA-pinned corpus and private caller-supplied
+table without copying any external document or exact Table E.1 row into
+Git. It reaches 546 complete second dictionaries and 8,642 complete
+`IAAI=1` values, with zero `IAAI=0` or `IAAI>1` on that pinned corpus.
+No independent per-symbol pixel oracle exists, so external symbol-pixel
+compatibility remains `NOT_RUN` with zero proven cases. No Python, Go,
+private Rust, third-party decoder source, corpus payload, generated bitmap,
+exact official MQ row, or Annex H byte was copied or migrated. There is no
+new Cargo dependency. Table 17 aggregation, text/page decoding, and
+independent integrated parity remain open under #9; exact table-rights
+review remains open under #44.
 
 ## Dependency inventory and review
 

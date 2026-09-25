@@ -101,6 +101,44 @@ check is not a decoder compatibility test. A future oracle integration must
 define independent expected pixels and compare them before it can report a
 compatibility pass.
 
+## Optional second-dictionary decision trace
+
+Issue [#66](https://github.com/rwv/caj2pdf-rust/issues/66) adds a native
+diagnostic for the 546 SHA-pinned HN/C8 second dictionaries. Run it with the
+external corpus and private Table E.1 fixture:
+
+```sh
+python3 scripts/jbig2_second_dictionary_diagnostic.py \
+  --corpus-dir /path/to/CAJSamples \
+  --table-fixture /tmp/private-t88-h2.fixture --json
+```
+
+The runner checks all 27 source hashes, every selected dictionary header and
+data-span hash, and the fixture's pinned SHA-256 before decoding. It checks
+the sources and fixture again afterward. A bounded native example decodes
+dictionary #1 into a temporary packed-bitmap store, then attempts dictionary
+#2 with a separate new-symbol store and one MQ coding unit. It reports only
+fully decoded `IAAI=1`, `IAAI=0`, and `IAAI>1` prefixes plus the first typed
+refusal. A typed `IAAI=0` or Table 17 aggregation refusal is a diagnostic
+observation; unexpected decode errors fail the run. Its temporary stores and
+plan stay outside the corpus and are removed after use. The runner
+limits plan and output files to 2 MiB and the decoder to its resource budgets.
+
+A clean clone reports diagnostic `NOT_RUN` with zero attempted cases; a
+missing, changed, or incomplete explicitly requested corpus or table is
+`FAIL`. Even a completed 546-case trace leaves `symbol_compatibility` at
+`NOT_RUN` with zero passed cases: no independent per-symbol pixel expectations
+exist, and the #43 and #50 page hashes are insufficient for that claim. The
+table and CAJSamples bytes must remain outside this repository.
+
+On 2026-09-25, a local run against the 27 SHA-pinned sources and the private
+table fixture pinned by the runner completed 546/546 #2 dictionaries. It
+reported 8,642 fully decoded `IAAI=1` values and zero `IAAI=0` or `IAAI>1`
+values; 8,642 also equals the sum of the pinned #2 new-symbol header counts.
+The run checked all 27 source hashes before and after decoding. This is a
+decoder control-flow observation, while independent symbol-pixel compatibility
+remains `NOT_RUN`/0.
+
 ## Optional HN/C8 Rust container comparison
 
 The independent [HN/C8 type-0 manifest](jbig1_oracle.json) pins 1,400
