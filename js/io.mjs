@@ -239,23 +239,36 @@ export async function pumpChunks(stream, consume, { maxBytes, signal } = {}) {
  * spooled copy, and always dispose the temporary storage afterwards.
  */
 export async function convertSpooled(spool, wasm, stream, sink, options = {}) {
+  // Reject a bad configuration before spooling up to gigabytes of input.
+  checkWasm(wasm);
+  requireSink(sink);
+  operationConfig(options);
   const maxBytes = toU64(
     options.maxSpoolBytes ?? options.limits?.maxInputBytes ?? DEFAULT_LIMITS.maxInputBytes,
     "maxSpoolBytes",
   );
   const spooled = await spool(stream, { maxBytes, signal: options.signal });
+  let result;
   try {
-    return await convert(wasm, spooled.source, sink, options);
-  } finally {
-    await spooled.dispose();
+    result = await convert(wasm, spooled.source, sink, options);
+  } catch (error) {
+    // A cleanup failure must not hide the conversion failure.
+    await Promise.resolve().then(() => spooled.dispose()).catch(() => {});
+    throw error;
   }
+  await spooled.dispose();
+  return result;
 }
 
 function resolveLimits(limits, chunkSize) {
   if (limits == null || typeof limits !== "object") {
     throw new TypeError("limits must be an object");
   }
-  const merged = { ...DEFAULT_LIMITS, ...limits };
+  const merged = { ...DEFAULT_LIMITS };
+  for (const [name, value] of Object.entries(limits)) {
+    // An explicit `undefined` keeps the default, as for other options.
+    if (value !== undefined) merged[name] = value;
+  }
   const resolved = {
     maxInputBytes: toU64(merged.maxInputBytes, "limits.maxInputBytes"),
     maxOutputBytes: toU64(merged.maxOutputBytes, "limits.maxOutputBytes"),
@@ -276,15 +289,20 @@ function resolveLimits(limits, chunkSize) {
  * Accept a `WebAssembly.Module` (a fresh instance per call), an `Instance`,
  * or its exports. An instance runs one operation at a time.
  */
-async function resolveExports(wasm) {
-  if (wasm instanceof WebAssembly.Module) {
-    return (await WebAssembly.instantiate(wasm, {})).exports;
-  }
+function checkWasm(wasm) {
+  if (wasm instanceof WebAssembly.Module) return wasm;
   const exports = wasm?.exports ?? wasm;
   if (!(exports?.memory instanceof WebAssembly.Memory) || typeof exports.caj2pdf_io_poll !== "function") {
     throw new TypeError("a caj2pdf WebAssembly.Module, Instance, or its exports is required");
   }
   return exports;
+}
+
+async function resolveExports(wasm) {
+  const checked = checkWasm(wasm);
+  return checked instanceof WebAssembly.Module
+    ? (await WebAssembly.instantiate(checked, {})).exports
+    : checked;
 }
 
 function requireSource(source) {
@@ -418,7 +436,8 @@ async function drive(exports, start, source, sink, chunkSize, signal, finish = r
 const OPERATION_CONVERT = 1;
 const OPERATION_INSPECT = 2;
 
-async function run(operation, wasm, source, sink, options) {
+/** Validate conversion and inspection options without side effects. */
+function operationConfig(options) {
   const {
     format = "auto",
     limits = {},
@@ -426,11 +445,20 @@ async function run(operation, wasm, source, sink, options) {
     signal,
     includeBookmarks = true,
   } = options ?? {};
+  requireChunkLength(chunkSize);
+  return {
+    code: formatCode(format),
+    resolved: resolveLimits(limits, chunkSize),
+    chunkSize,
+    signal,
+    includeBookmarks,
+  };
+}
+
+async function run(operation, wasm, source, sink, options) {
   requireSource(source);
   if (operation === OPERATION_CONVERT) requireSink(sink);
-  requireChunkLength(chunkSize);
-  const code = formatCode(format);
-  const resolved = resolveLimits(limits, chunkSize);
+  const { code, resolved, chunkSize, signal, includeBookmarks } = operationConfig(options);
   checkAbort(signal);
   const exports = await resolveExports(wasm);
   const start = () => exports.caj2pdf_start(

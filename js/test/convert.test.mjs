@@ -220,6 +220,9 @@ test("configured limits reach the Rust engine and are validated first", async ()
   await assert.rejects(convert({}, source, sink), TypeError);
   await assert.rejects(convert(await wasmModule(), {}, sink), TypeError);
   await assert.rejects(convert(await wasmModule(), source, {}), TypeError);
+  // An explicit undefined keeps the default instead of failing validation.
+  const report = await convert(await wasmModule(), source, sink, { limits: { maxPages: undefined } });
+  assert.equal(report.pagesConverted, 2);
 });
 
 test("aborting stops conversion between awaited writes and resets the instance", async () => {
