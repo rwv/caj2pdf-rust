@@ -3,7 +3,7 @@
 //! Bounded HN/C8 type-0 image pages to PDF with a caller-supplied QM table.
 
 use super::{Budget, Hnc8Error, Hnc8Reader};
-use crate::jbig1::{Type0Budget, Type0Decoder, Type0Error, read_type0_info};
+use crate::jbig1::{Type0Budget, Type0Decoder, Type0Error, Type0ErrorKind, read_type0_info};
 use crate::pdf::{BilevelImageSpec, PageSpec, PdfDocument};
 use crate::qm::{ArithmeticBudget, ArithmeticError, ContextBank, QmTable};
 use crate::{Cancellation, ConversionReport, Error, Limits, RangedSource, SequentialSink};
@@ -275,6 +275,11 @@ pub async fn convert_type0_pdf<S: RangedSource, W: SequentialSink, C: Cancellati
             let span = record.type0_span().ok_or_else(|| {
                 at.error(Type0PdfErrorKind::UnsupportedImageType(record.record_type))
             })?;
+            // Refuse a page beyond `max_pages` (reachable with separate
+            // pages) before its image is read, decoded, or written.
+            limits
+                .check_pages(u32::try_from(images + 1).unwrap_or(u32::MAX))
+                .map_err(at.pdf())?;
             let info = read_type0_info(
                 reader.source_mut(),
                 span,
@@ -306,6 +311,16 @@ pub async fn convert_type0_pdf<S: RangedSource, W: SequentialSink, C: Cancellati
             )
             .await
             .map_err(at.image())?;
+            // The decoder rereads the wrapper; a source that changed it
+            // would misalign the already written image dictionary.
+            if decoder.progress().info != info {
+                return Err(at.image()(Type0Error {
+                    offset: span.offset,
+                    rows_written: 0,
+                    output_bytes_written: 0,
+                    kind: Type0ErrorKind::Malformed("DIB wrapper that changed between reads"),
+                }));
+            }
             while decoder.decode_next_row().await.map_err(at.image())? {}
             decoder.finish().await.map_err(at.image())?;
             let object = rows.finish().await.map_err(at.pdf())?;

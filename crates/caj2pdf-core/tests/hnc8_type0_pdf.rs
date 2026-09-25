@@ -350,6 +350,8 @@ struct Source {
     bytes: Vec<u8>,
     max_read: usize,
     largest_request: usize,
+    /// After a read starting at `.0`, set byte `.1` to `.2`.
+    rewrite: Option<(u64, usize, u8)>,
 }
 
 impl Source {
@@ -358,6 +360,7 @@ impl Source {
             bytes,
             max_read: usize::MAX,
             largest_request: 0,
+            rewrite: None,
         }
     }
 }
@@ -378,6 +381,11 @@ impl RangedSource for Source {
             .min(destination.len())
             .min(self.max_read);
         destination[..count].copy_from_slice(&self.bytes[start..start + count]);
+        if let Some((trigger, index, value)) = self.rewrite {
+            if trigger == offset {
+                self.bytes[index] = value;
+            }
+        }
         Ok(count)
     }
 }
@@ -720,6 +728,83 @@ fn separate_page_policy_splits_multi_image_pages_in_record_order() {
 }
 
 #[test]
+fn separate_pages_stop_at_the_page_limit_before_reading_the_image() {
+    let rows = pattern(9, 2, 18);
+    let built = container(
+        Layout::C8,
+        &[vec![type0(&rows), type0(&rows)], vec![type0(&rows)]],
+    );
+    let descriptor = built.descriptors[1][0];
+    let limits = Limits {
+        max_pages: 2,
+        ..Limits::default()
+    };
+    let mut source = Source::new(built.bytes);
+    // Reading page 2's image wrapper would trip this rewrite of its width.
+    source.rewrite = Some((built.payloads[1][0], built.payloads[1][0] as usize + 4, 0));
+    let mut sink = Sink::default();
+    let error = convert_with(
+        &mut source,
+        &mut sink,
+        Type0PdfOptions {
+            multiple_images: MultipleImages::SeparatePages,
+            ..options()
+        },
+        &limits,
+    )
+    .unwrap_err();
+    assert!(
+        matches!(
+            error.kind,
+            Type0PdfErrorKind::Pdf(Error::LimitExceeded {
+                resource: "pages",
+                limit: 2,
+                attempted: 3
+            })
+        ),
+        "{error}"
+    );
+    assert_eq!(
+        (error.page, error.image, error.offset),
+        (Some(2), Some(1), Some(descriptor))
+    );
+    assert_eq!(image_streams(&sink.bytes).len(), 2);
+    assert_eq!(source.bytes[built.payloads[1][0] as usize + 4], 9);
+}
+
+#[test]
+fn a_wrapper_that_changes_between_reads_is_refused() {
+    // Width 9 -> 17 keeps the 4-byte DIB stride, so only this check can
+    // notice that the image dictionary no longer matches the rows.
+    let rows = pattern(9, 3, 19);
+    let built = container(Layout::HnB, &[vec![type0(&rows)]]);
+    let payload = built.payloads[0][0];
+    let mut source = Source::new(built.bytes);
+    source.rewrite = Some((payload, payload as usize + 4, 17));
+    let error = convert_with(
+        &mut source,
+        &mut Sink::default(),
+        options(),
+        &Limits::default(),
+    )
+    .unwrap_err();
+    assert!(
+        matches!(&error.kind, Type0PdfErrorKind::Image(e) if matches!(e.kind, Type0ErrorKind::Malformed(_))),
+        "{error}"
+    );
+    assert_eq!(
+        (error.page, error.image, error.offset),
+        (Some(1), Some(1), Some(payload))
+    );
+    assert!(
+        error
+            .to_string()
+            .ends_with("malformed DIB wrapper that changed between reads"),
+        "{error}"
+    );
+}
+
+#[test]
 fn resolution_scales_page_geometry_only() {
     let rows = pattern(32, 2, 7);
     let built = container(Layout::HnB, &[vec![type0(&rows)]]);
@@ -967,6 +1052,7 @@ fn every_sink_failure_is_reported_and_leaves_a_prefix() {
             other => panic!("write {fail_at}: {other:?}"),
         };
         assert_eq!(io.to_string(), "injected sink failure");
+        assert_eq!(sink.writes, fail_at, "no write follows the failure");
         assert!(clean.bytes.starts_with(&sink.bytes));
     }
 }
@@ -1240,4 +1326,24 @@ fn bilevel_writer_checks_geometry_and_row_counts() {
         Ok::<_, Error>(())
     })
     .unwrap();
+}
+
+#[test]
+fn bilevel_padding_writes_still_observe_cancellation() {
+    let limits = Limits::default();
+    for allowed in 0.. {
+        let cancellation = CancelAfter::new(allowed);
+        let mut sink = Sink::default();
+        let result = ready(async {
+            let mut document = PdfDocument::new(&mut sink, &limits, &cancellation).await?;
+            let mut image = document.begin_bilevel_image(bilevel(8, 1, 4)).await?;
+            image.write(&[0x81]).await?;
+            // The next check is reached only by this padding-only write.
+            Ok::<_, Error>(image.write(&[0, 0, 0]).await)
+        });
+        if let Ok(padding) = result {
+            assert!(matches!(padding, Err(Error::Cancelled)), "{padding:?}");
+            break;
+        }
+    }
 }

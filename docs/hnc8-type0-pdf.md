@@ -10,13 +10,13 @@ This note covers the core slice of [issue #28](https://github.com/rwv/caj2pdf-ru
 
 `Type0PdfOptions` holds the output scale (`pixels_per_inch`, default 300), the multi-image policy (default `Reject`), and three budgets: the container `Budget`, the per-image `Type0Budget`, and an `ArithmeticBudget` applied to each image separately. The default arithmetic budget allows `max_pixels + max_height` symbols and 32 work units per symbol.
 
-The row-level API from #55 is unchanged. `jbig1::read_type0_info` is new: it applies the decoder's span and 48-byte DIB checks without a context bank or sink and returns the width, height, and DIB stride. The converter uses it to write a PDF image dictionary before it constructs the decoder, which then rereads and rechecks those 48 bytes.
+The row-level API from #55 is unchanged. `jbig1::read_type0_info` is new: it applies the decoder's span and 48-byte DIB checks without a context bank or sink and returns the width, height, and DIB stride. The converter uses it to write a PDF image dictionary before it constructs the decoder, which then rereads and rechecks those 48 bytes. A wrapper whose geometry differs on the second read is a located `Malformed` image error, so the written dictionary always matches the rows.
 
 `PdfDocument` has two additive methods. `begin_bilevel_image(BilevelImageSpec)` opens a 1 bpp image stream and returns a `BilevelImageWriter`, which implements `SequentialSink`. Each input row has `row_stride` bytes; the writer keeps the first `ceil(width / 8)` bytes and drops the rest, so DIB 32-bit-aligned rows go straight in. `finish` requires exactly `row_stride × height` input bytes. `add_page(PageSpec, &[ImageObject])` then adds a page that draws each finished image over the whole page, in slice order. The existing `add_image_page` now uses the same page path.
 
 ## Conversion rules
 
-Pages are read with `Hnc8Reader::open` from page 1, in index order, and emitted in that order. Each accepted image becomes one page.
+Pages are read with `Hnc8Reader::open` from page 1, in index order, and emitted in that order. Each accepted image becomes one page. Under `SeparatePages` the PDF can have more pages than the source, so `Limits::max_pages` is checked before each image is read; the limit error names that image.
 
 | Source record | Behavior |
 | --- | --- |
