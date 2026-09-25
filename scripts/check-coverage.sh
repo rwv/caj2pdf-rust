@@ -21,7 +21,10 @@ fi
 
 # LLVM emits SF, then LF/LH, once per source file.
 awk -F: -v root="$PWD/" -v minimum="$minimum" -v file_minimum="$file_minimum" '
-  /^SF:/ { file = substr($0, 4); sub("^" root, "", file) }
+  /^SF:/ {
+    file = substr($0, 4)
+    if (index(file, root) == 1) file = substr(file, length(root) + 1)
+  }
   /^LF:/ { found[file] += $2; lines += $2 }
   /^LH:/ { hit[file] += $2; hits += $2 }
   END {
