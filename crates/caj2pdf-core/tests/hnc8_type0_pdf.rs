@@ -1052,6 +1052,7 @@ fn every_sink_failure_is_reported_and_leaves_a_prefix() {
             other => panic!("write {fail_at}: {other:?}"),
         };
         assert_eq!(io.to_string(), "injected sink failure");
+        assert!(error.source().is_some(), "write {fail_at}");
         assert_eq!(sink.writes, fail_at, "no write follows the failure");
         assert!(clean.bytes.starts_with(&sink.bytes));
     }

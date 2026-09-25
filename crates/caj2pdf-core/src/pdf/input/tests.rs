@@ -1406,6 +1406,23 @@ fn scalar_fragment_requires_exact_framing() {
             ));
         }
     }
+    // Whitespace after `endobj` is framing, not trailing content.
+    let raw = b"1 0 obj 3 endobj \n";
+    let mut source = SeekableSource::new(Cursor::new(raw.to_vec())).unwrap();
+    let length = run(inspect_fragment_scalar(
+        &mut source,
+        PdfRange {
+            offset: 0,
+            length: raw.len() as u64,
+        },
+        PdfRef {
+            number: 1,
+            generation: 0,
+        },
+        &Limits::default(),
+        &NEVER,
+    ));
+    assert_eq!(length.unwrap(), Some(3));
 }
 
 /// Assemble a classic-xref PDF from `(number, gap_before, body)` parts with a
@@ -1856,6 +1873,38 @@ fn comments_between_objects_are_not_orphan_repairs() {
     let index = open(assemble_pdf(&objects, "<< /Size 4 /Root 1 0 R >>")).unwrap();
     assert!(index.gap_patches().is_empty());
     assert_eq!(index.pages().len(), 1);
+}
+
+#[test]
+fn gaps_that_are_not_free_object_prefixes_stay_unindexed() {
+    // Neither arbitrary bytes, a prefix of a live, non-adjacent object, nor
+    // a gap longer than any orphan prefix is a repairable orphan.
+    let long = format!("{}4 0 obj\n", " ".repeat(64));
+    for gap in ["junk\n", "2 0 obj\n", &long] {
+        let error = pdf_error(open(gapped_pdf(2, gap)));
+        assert!(
+            matches!(
+                error,
+                Error::Pdf {
+                    kind: PdfErrorKind::Malformed,
+                    reason: "unindexed bytes between PDF objects",
+                    ..
+                }
+            ),
+            "{gap:?}: {error:?}"
+        );
+    }
+}
+
+#[test]
+fn duplicate_nested_page_keys_are_not_guessed() {
+    let [catalog, pages, _] = minimal_objects();
+    let page = (
+        3,
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] /Resources << /A 1 /A 2 >> >>",
+    );
+    let bytes = build_pdf(&[catalog, pages, page], "");
+    expect_pdf_error(bytes, PdfErrorKind::AmbiguousRepair);
 }
 
 /// Objects 1-3 form a one-page tree, object 4 is free, and objects 5.. are

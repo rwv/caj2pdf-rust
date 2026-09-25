@@ -2,7 +2,10 @@
 
 use caj2pdf_core::{
     Cancellation, Error, Limits, NeverCancel, RangedSource,
-    jbig2::{HeaderError, HeaderErrorKind, HeaderLimits, SegmentSpan, read_segment_header},
+    jbig2::{
+        DirectoryError, DirectoryErrorKind, DirectoryLimits, HeaderError, HeaderErrorKind,
+        HeaderLimits, SegmentDirectory, SegmentSpan, read_embedded_directory, read_segment_header,
+    },
 };
 use std::{
     cell::Cell,
@@ -755,4 +758,72 @@ fn public_errors_preserve_readable_locations_and_source_causes() {
         "JBIG2 segment header at source byte 5: source: I/O error: test I/O failure"
     );
     assert!(std::error::Error::source(&source_error).is_some());
+}
+
+/// Parses `bytes` as an embedded directory with this file's source type, so
+/// directory-budgeted header parsing shares the header tests' instantiation.
+fn parse_directory(
+    bytes: &[u8],
+    directory_limits: DirectoryLimits,
+) -> Result<SegmentDirectory, DirectoryError> {
+    let mut source = TestSource::new(bytes);
+    run(read_embedded_directory(
+        &mut source,
+        SegmentSpan {
+            offset: 0,
+            length: bytes.len() as u64,
+        },
+        &Limits::default(),
+        HeaderLimits::default(),
+        directory_limits,
+        &NeverCancel,
+    ))
+}
+
+#[test]
+fn directory_budgets_bound_each_header_before_its_references_are_read() {
+    // Segment 0 is retained; segments 1 and 2 each refer to it once.
+    let bytes = [
+        [0, 0, 0, 0, 0, 0x01, 0, 0, 0, 0, 0].as_slice(),
+        &[0, 0, 0, 1, 0, 0x23, 0, 0, 0, 0, 0, 0],
+        &[0, 0, 0, 2, 0, 0x23, 0, 0, 0, 0, 0, 0],
+    ]
+    .concat();
+    let references = DirectoryLimits {
+        max_total_references: 1,
+        ..DirectoryLimits::default()
+    };
+    assert!(matches!(
+        parse_directory(&bytes, references).unwrap_err().kind,
+        DirectoryErrorKind::Header(HeaderError {
+            kind: HeaderErrorKind::LimitExceeded {
+                resource: "JBIG2 directory references",
+                limit: 1,
+                attempted: 2,
+            },
+            ..
+        })
+    ));
+    // Some metadata cap admits the directory preflight but not a header's
+    // retention and reference storage. This does not depend on struct layout.
+    let header_failure = (1..=4096).find(|&cap| {
+        let metadata = DirectoryLimits {
+            max_metadata_bytes: cap,
+            ..DirectoryLimits::default()
+        };
+        matches!(
+            parse_directory(&bytes, metadata),
+            Err(DirectoryError {
+                kind: DirectoryErrorKind::Header(HeaderError {
+                    kind: HeaderErrorKind::LimitExceeded {
+                        resource: "JBIG2 directory metadata bytes",
+                        ..
+                    },
+                    ..
+                }),
+                ..
+            })
+        )
+    });
+    assert!(header_failure.is_some());
 }

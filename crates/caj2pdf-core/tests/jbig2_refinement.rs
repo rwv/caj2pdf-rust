@@ -9,7 +9,10 @@ use caj2pdf_core::{
         dictionary::SymbolDescriptor,
         iaid::IaidContextBanks,
         mq::{MQ_STATE_COUNT, MqBudget, MqContext, MqDecoder, MqSpan, MqState, MqTable},
-        refinement::{RefinementBudget, RefinementDecoder, RefinementReference, RefinementRequest},
+        refinement::{
+            RefinementBudget, RefinementDecoder, RefinementError, RefinementErrorKind,
+            RefinementReference, RefinementRequest,
+        },
     },
 };
 use std::{
@@ -495,4 +498,53 @@ fn exact_packed_set_and_clear_pixels_at_byte_boundaries() {
         assert_eq!(sink.bytes, expected);
         ready(mq.finish(u64::from(width))).unwrap();
     }
+}
+
+#[test]
+fn a_failed_bitmap_poisons_interleaved_mq_access() {
+    let limits = Limits::default();
+    let mq_budget = MqBudget::default();
+    let table = table(&limits);
+    let mut banks = banks(&limits, &mq_budget);
+    let layout = banks.layout();
+    let mut mq_source = Source::new(&[0xff, 0xac]);
+    let mut mq = ready(MqDecoder::new(
+        &mut mq_source,
+        MqSpan {
+            offset: 0,
+            length: 2,
+        },
+        &table,
+        banks.mq_contexts_mut(),
+        &limits,
+        &NeverCancel,
+        mq_budget,
+    ))
+    .unwrap();
+    let mut reference_source = Source::new(&[0x80]);
+    let mut sink = Sink::new(&[]);
+    sink.max_write = 0;
+    let mut host = RefinementDecoder::new(
+        &mut mq,
+        layout,
+        &mut sink,
+        &limits,
+        &NeverCancel,
+        RefinementBudget::default(),
+    )
+    .unwrap();
+    assert!(host.mq_mut().is_ok());
+    let error = ready(host.decode_bitmap(
+        &mut reference_source,
+        request(1, 1, reference(1, 1, 0, 0), 0, 0),
+    ))
+    .unwrap_err();
+    assert!(error.progress.poisoned);
+    assert!(matches!(
+        host.mq_mut(),
+        Err(RefinementError {
+            kind: RefinementErrorKind::Poisoned,
+            ..
+        })
+    ));
 }
