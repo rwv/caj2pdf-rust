@@ -401,3 +401,181 @@ async fn repair_stream_length<S: RangedSource, C: Cancellation>(
         )
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::native::SeekableSource;
+    use crate::{NeverCancel, read_exact_at};
+    use std::future::Future;
+    use std::io::{self, Cursor};
+    use std::pin::pin;
+    use std::task::{Context, Poll, Waker};
+
+    fn run<F: Future>(future: F) -> F::Output {
+        let mut context = Context::from_waker(Waker::noop());
+        let mut future = pin!(future);
+        match future.as_mut().poll(&mut context) {
+            Poll::Ready(value) => value,
+            Poll::Pending => panic!("in-memory fragment source yielded unexpectedly"),
+        }
+    }
+
+    /// A source whose bytes from `unreadable_from` onward fail with an I/O
+    /// error, as a truncated network range or failing disk sector would.
+    struct UnreadableTail {
+        bytes: Vec<u8>,
+        unreadable_from: u64,
+    }
+
+    impl RangedSource for UnreadableTail {
+        fn size(&self) -> u64 {
+            self.bytes.len() as u64
+        }
+
+        async fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> Result<usize> {
+            if offset >= self.unreadable_from {
+                return Err(Error::Io(io::Error::new(
+                    io::ErrorKind::UnexpectedEof,
+                    "injected unreadable fragment tail",
+                )));
+            }
+            let start = offset as usize;
+            let end = (self.unreadable_from.min(self.bytes.len() as u64) as usize)
+                .min(start + destination.len());
+            destination[..end - start].copy_from_slice(&self.bytes[start..end]);
+            Ok(end - start)
+        }
+    }
+
+    fn one_byte_reads() -> Limits {
+        Limits {
+            io_chunk_bytes: 1,
+            ..Limits::default()
+        }
+    }
+
+    fn expect_injected_io(result: Result<FragmentScan>) {
+        match result {
+            Err(Error::Io(error)) => {
+                assert_eq!(error.kind(), io::ErrorKind::UnexpectedEof);
+                assert_eq!(error.to_string(), "injected unreadable fragment tail");
+            }
+            Err(other) => panic!("unexpected error: {other:?}"),
+            Ok(_) => panic!("unreadable fragment bytes were accepted"),
+        }
+    }
+
+    #[test]
+    fn repair_skips_terminators_at_the_declared_end_or_without_endobj() {
+        // The first candidate sits exactly at the declared end, the second
+        // lacks `endobj`, and only the LF-separated third one is complete.
+        let payload = b"0123456789\nendstream junk\nendstream junk2";
+        let mut bytes = b"1 0 obj\n<< /Length 10 >>\nstream\n".to_vec();
+        let data_at = bytes.len() as u64;
+        bytes.extend_from_slice(payload);
+        bytes.extend_from_slice(b"\nendstream\nendobj");
+        let end = bytes.len() as u64;
+        let mut source = SeekableSource::new(Cursor::new(bytes)).unwrap();
+        let scan = run(scan_fragment_objects(
+            &mut source,
+            0,
+            end,
+            &Limits::default(),
+            &NeverCancel,
+        ))
+        .unwrap();
+        assert_eq!(scan.objects.len(), 1);
+        assert_eq!(scan.objects[0].range.length, end);
+        assert_eq!(scan.patches.len(), 1);
+        let patch = &scan.patches[0];
+        assert_eq!(patch.original, b"10");
+        assert_eq!(patch.replacement, payload.len().to_string().into_bytes());
+        assert!(patch.offset < data_at);
+
+        let mut patched = PatchedSource::new(&mut source, &scan.patches);
+        let mut length = [0_u8; 2];
+        run(read_exact_at(
+            &mut patched,
+            patch.offset,
+            &mut length,
+            &Limits::default(),
+            &NeverCancel,
+        ))
+        .unwrap();
+        assert_eq!(&length, b"41");
+    }
+
+    #[test]
+    fn repair_accepts_a_terminator_without_a_preceding_end_of_line() {
+        let mut bytes = b"1 0 obj\n<< /Length 10 >>\nstream\n0123456789ab".to_vec();
+        bytes.extend_from_slice(b"endstream\nendobj");
+        let end = bytes.len() as u64;
+        let mut source = SeekableSource::new(Cursor::new(bytes)).unwrap();
+        let scan = run(scan_fragment_objects(
+            &mut source,
+            0,
+            end,
+            &Limits::default(),
+            &NeverCancel,
+        ))
+        .unwrap();
+        assert_eq!(scan.objects[0].range.length, end);
+        assert_eq!(scan.patches.len(), 1);
+        assert_eq!(scan.patches[0].replacement, b"12");
+    }
+
+    #[test]
+    fn source_failure_after_the_declared_stream_extent_is_not_repaired() {
+        let mut bytes = b"1 0 obj\n<< /Length 2000 >>\nstream\n".to_vec();
+        let data_at = bytes.len() as u64;
+        bytes.extend(std::iter::repeat_n(b'x', 2000));
+        bytes.extend_from_slice(b"\nendstream\nendobj");
+        let size = bytes.len() as u64;
+        let mut source = UnreadableTail {
+            bytes,
+            unreadable_from: data_at + 2000,
+        };
+        expect_injected_io(run(scan_fragment_objects(
+            &mut source,
+            0,
+            size,
+            &one_byte_reads(),
+            &NeverCancel,
+        )));
+    }
+
+    #[test]
+    fn source_failure_while_checking_a_repair_candidate_is_propagated() {
+        let mut bytes = b"1 0 obj\n<< /Length 1000 >>\nstream\n".to_vec();
+        bytes.extend(std::iter::repeat_n(b'x', 1002));
+        let marker = bytes.len() as u64 + 1;
+        bytes.extend_from_slice(b"\nendstream\nendobj");
+        let size = bytes.len() as u64;
+        let mut source = UnreadableTail {
+            bytes,
+            unreadable_from: marker + 9,
+        };
+        expect_injected_io(run(scan_fragment_objects(
+            &mut source,
+            0,
+            size,
+            &one_byte_reads(),
+            &NeverCancel,
+        )));
+
+        // The same bytes repair cleanly once the tail is readable.
+        source.unreadable_from = u64::MAX;
+        let scan = run(scan_fragment_objects(
+            &mut source,
+            0,
+            size,
+            &one_byte_reads(),
+            &NeverCancel,
+        ))
+        .unwrap();
+        assert_eq!(scan.patches.len(), 1);
+        assert_eq!(scan.patches[0].original, b"1000");
+        assert_eq!(scan.patches[0].replacement, b"1002");
+    }
+}

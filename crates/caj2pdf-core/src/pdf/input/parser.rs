@@ -866,4 +866,195 @@ mod tests {
             );
         }
     }
+
+    fn head_issue(raw: &[u8]) -> ParseIssue {
+        match parse_object_head(raw.to_vec()) {
+            Ok(head) => panic!("accepted malformed object {raw:?}: {head:?}"),
+            Err(issue) => issue,
+        }
+    }
+
+    #[test]
+    fn comments_are_whitespace_between_tokens() {
+        let head = parse_object_head(
+            b"% leading comment\r\n+7 % number comment\n0 obj%\r<< /Kind /Note % trailing\n>> % tail\nendobj"
+                .to_vec(),
+        )
+        .unwrap();
+        assert_eq!(
+            head.reference,
+            PdfRef {
+                number: 7,
+                generation: 0
+            }
+        );
+        assert_eq!(
+            head.dictionary.unwrap().value(b"Kind"),
+            Some(b"/Note".as_slice())
+        );
+        assert!(matches!(head.tail, ObjectTail::EndObject { .. }));
+        assert_eq!(exact_unsigned(b" +42 % explicit sign\n"), Some(42));
+    }
+
+    #[test]
+    fn object_keywords_distinguish_truncation_from_bad_syntax() {
+        let truncated = head_issue(b"1 0 ob");
+        assert!(truncated.incomplete);
+        assert_eq!(truncated.reason, "PDF keyword is truncated");
+        assert_eq!(truncated.at, 4);
+
+        let glued = head_issue(b"1 0 objx null endobj");
+        assert!(!glued.incomplete);
+        assert_eq!(glued.reason, "PDF keyword lacks a delimiter");
+        assert_eq!(glued.at, 7);
+
+        let missing_tail = head_issue(b"1 0 obj null trailer");
+        assert!(!missing_tail.incomplete);
+        assert_eq!(missing_tail.reason, "PDF object lacks endobj or stream");
+        assert_eq!(missing_tail.at, 13);
+
+        let dangling_pair = head_issue(b"1 0 obj 5 0");
+        assert!(dangling_pair.incomplete);
+        assert_eq!(dangling_pair.reason, "PDF reference may be truncated");
+    }
+
+    #[test]
+    fn oversized_reference_components_are_not_remembered() {
+        for raw in [
+            b"1 0 obj [4294967296 0 R] endobj".as_slice(),
+            b"1 0 obj [1 65536 R] endobj",
+        ] {
+            let issue = head_issue(raw);
+            assert_eq!(issue.reason, "invalid PDF value token", "{raw:?}");
+            assert_eq!(raw[issue.at], b'R');
+        }
+        let head = parse_object_head(b"1 0 obj [4294967295 65535 R] endobj".to_vec()).unwrap();
+        assert_eq!(
+            head.references,
+            [PdfRef {
+                number: u32::MAX,
+                generation: u16::MAX
+            }]
+        );
+    }
+
+    #[test]
+    fn string_nesting_is_bounded() {
+        let nesting = MAX_SYNTAX_DEPTH as usize;
+        let mut accepted = b"1 0 obj ".to_vec();
+        accepted.extend(std::iter::repeat_n(b'(', nesting));
+        accepted.extend(std::iter::repeat_n(b')', nesting));
+        accepted.extend_from_slice(b" endobj");
+        assert!(parse_object_head(accepted).is_ok());
+
+        let mut rejected = b"1 0 obj ".to_vec();
+        rejected.extend(std::iter::repeat_n(b'(', nesting + 1));
+        rejected.extend(std::iter::repeat_n(b')', nesting + 1));
+        rejected.extend_from_slice(b" endobj");
+        let issue = head_issue(&rejected);
+        assert_eq!(
+            issue.limit,
+            Some((
+                "PDF string nesting",
+                MAX_SYNTAX_DEPTH as u64,
+                MAX_SYNTAX_DEPTH as u64 + 1
+            ))
+        );
+        assert_eq!(issue.at, 8 + nesting + 1);
+    }
+
+    #[test]
+    fn dictionary_entry_point_rejects_depth_truncation_and_wrong_tokens() {
+        let issue = Syntax::new(b"<< >>")
+            .dictionary(MAX_SYNTAX_DEPTH + 1)
+            .unwrap_err();
+        assert_eq!(
+            issue.limit,
+            Some((
+                "PDF dictionary depth",
+                MAX_SYNTAX_DEPTH as u64,
+                MAX_SYNTAX_DEPTH as u64 + 1
+            ))
+        );
+
+        let short = Syntax::new(b"<").dictionary(0).unwrap_err();
+        assert!(short.incomplete);
+        assert_eq!(short.reason, "PDF dictionary is truncated");
+
+        let array = Syntax::new(b"[1]").dictionary(0).unwrap_err();
+        assert!(!array.incomplete);
+        assert_eq!(array.reason, "expected PDF dictionary");
+        assert_eq!(array.at, 0);
+
+        let open = Syntax::new(b"<< /A 1").dictionary(0).unwrap_err();
+        assert!(open.incomplete);
+        assert_eq!(open.reason, "PDF dictionary is truncated");
+        assert_eq!(open.at, 7);
+    }
+
+    #[test]
+    fn dictionary_entry_count_is_bounded() {
+        let mut bytes = b"<<".to_vec();
+        for _ in 0..MAX_DICTIONARY_ENTRIES {
+            bytes.extend_from_slice(b"/A 1 ");
+        }
+        let mut accepted = bytes.clone();
+        accepted.extend_from_slice(b">>");
+        assert_eq!(
+            Syntax::new(&accepted).dictionary(0).unwrap().len(),
+            MAX_DICTIONARY_ENTRIES
+        );
+
+        bytes.extend_from_slice(b"/B 2 >>");
+        let issue = Syntax::new(&bytes).dictionary(0).unwrap_err();
+        assert_eq!(
+            issue.limit,
+            Some((
+                "PDF dictionary entries",
+                MAX_DICTIONARY_ENTRIES as u64,
+                MAX_DICTIONARY_ENTRIES as u64 + 1
+            ))
+        );
+        assert_eq!(&bytes[issue.at..issue.at + 2], b"/B");
+    }
+
+    #[test]
+    fn references_per_object_are_bounded() {
+        let mut bytes = b"1 0 obj [".to_vec();
+        for _ in 0..MAX_REFERENCES_PER_OBJECT {
+            bytes.extend_from_slice(b"2 0 R ");
+        }
+        let mut accepted = bytes.clone();
+        accepted.extend_from_slice(b"] endobj");
+        let head = parse_object_head(accepted).unwrap();
+        assert_eq!(head.references.len(), MAX_REFERENCES_PER_OBJECT);
+        assert_eq!(head.max_reference, 2);
+
+        bytes.extend_from_slice(b"3 0 R] endobj");
+        let issue = head_issue(&bytes);
+        assert_eq!(
+            issue.limit,
+            Some((
+                "PDF object references",
+                MAX_REFERENCES_PER_OBJECT as u64,
+                MAX_REFERENCES_PER_OBJECT as u64 + 1
+            ))
+        );
+        assert_eq!(issue.reason, "PDF syntax resource limit exceeded");
+    }
+
+    #[test]
+    fn value_helpers_reject_extra_items_and_unusable_numbers() {
+        assert_eq!(unsigned_array(b"[1 +2 3]", 3), Some(vec![1, 2, 3]));
+        assert_eq!(unsigned_array(b"[1 2 3]", 2), None);
+        assert_eq!(unsigned_array(b"[1 -2]", 2), None);
+        assert_eq!(destination_page(b"[7 0 R / 0 0 0]"), None);
+        let overflowing = format!("[0 0 1{} 1]", "0".repeat(400));
+        assert_eq!(media_box(overflowing.as_bytes()), None);
+        assert_eq!(media_box(b"[-1.5 +0 .5 2.]"), Some([-1.5, 0.0, 0.5, 2.0]));
+        assert!(valid_text_string(b"<feff00e9>"));
+        assert!(valid_text_string(b"(plain)"));
+        assert!(!valid_text_string(b"<< /Not /Text >>"));
+        assert!(!valid_text_string(b"<fg>"));
+    }
 }
