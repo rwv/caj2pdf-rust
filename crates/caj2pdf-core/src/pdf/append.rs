@@ -1841,4 +1841,98 @@ mod tests {
         assert_eq!(sink.flushes, 1);
         Ok(())
     }
+
+    fn invalid(reason: &'static str) -> impl Fn(&Result<()>) -> bool {
+        move |result| matches!(result, Err(Error::InvalidInput { reason: actual }) if *actual == reason)
+    }
+
+    #[test]
+    fn append_writer_rejects_misordered_object_calls() -> Result<()> {
+        let limits = Limits::default();
+        let mut sink = RecordingSink::default();
+        let reference = PdfRef {
+            number: 7,
+            generation: 0,
+        };
+        run(async {
+            let mut writer = AppendWriter::new(&mut sink, &limits, &NeverCancel);
+            let misuse = invalid("invalid PDF append object state or number");
+            assert!(misuse(
+                &writer
+                    .begin_object(PdfRef {
+                        number: 0,
+                        generation: 0,
+                    })
+                    .await
+            ));
+            assert!(invalid("no PDF append object is open")(
+                &writer.end_object().await
+            ));
+            writer.begin_object(reference).await?;
+            assert!(misuse(&writer.begin_object(reference).await));
+            let open = invalid("PDF append object remains open");
+            assert!(open(&writer.finish_copy().await));
+            writer.end_object().await
+        })?;
+        assert_eq!(sink.bytes, b"\n7 0 obj\n\nendobj\n");
+        Ok(())
+    }
+
+    #[test]
+    fn append_update_rejects_open_duplicate_and_oversized_state() -> Result<()> {
+        let limits = Limits::default();
+        let index = open_index(&classic_pdf(&[CATALOG, PAGES, PAGE], None, ""), &limits)?;
+        let reference = PdfRef {
+            number: 4,
+            generation: 0,
+        };
+        let mut sink = RecordingSink::default();
+        run(async {
+            let mut writer = AppendWriter::new(&mut sink, &limits, &NeverCancel);
+            writer.begin_object(reference).await?;
+            assert!(invalid("PDF append object remains open")(
+                &writer.finish_update(&index).await
+            ));
+            writer.end_object().await?;
+            writer.begin_object(reference).await?;
+            writer.end_object().await?;
+            assert!(invalid("PDF update defines an object twice")(
+                &writer.finish_update(&index).await
+            ));
+            Ok::<_, Error>(())
+        })?;
+
+        let mut sink = RecordingSink::default();
+        let oversized = run(async {
+            let mut writer = AppendWriter::new(&mut sink, &limits, &NeverCancel);
+            writer.position = MAX_CLASSIC_PDF_BYTES + 1;
+            writer.finish_update(&index).await
+        });
+        assert!(matches!(
+            oversized,
+            Err(Error::LimitExceeded {
+                resource: "classic PDF file bytes",
+                attempted,
+                ..
+            }) if attempted == MAX_CLASSIC_PDF_BYTES + 1
+        ));
+
+        let mut sink = RecordingSink::default();
+        let far_object = run(async {
+            let mut writer = AppendWriter::new(&mut sink, &limits, &NeverCancel);
+            writer.entries.push(XrefEntry {
+                reference,
+                offset: MAX_CLASSIC_PDF_BYTES + 1,
+            });
+            writer.finish_update(&index).await
+        });
+        assert!(matches!(
+            far_object,
+            Err(Error::LimitExceeded {
+                resource: "classic PDF object offset",
+                ..
+            })
+        ));
+        Ok(())
+    }
 }
