@@ -1081,6 +1081,12 @@ impl<'a, S: RangedSource, W: SequentialSink, C: Cancellation> DirectDictionaryDe
         self.mq.snapshot().current_input_offset
     }
 
+    /// An error mapper that locates a refusal at the current MQ input
+    /// offset. It builds nothing until a check fails.
+    fn at_current(&self) -> impl Fn(DictionaryErrorKind) -> DictionaryError + '_ {
+        move |kind| self.error(self.current_offset(), kind)
+    }
+
     fn check_cancelled(&self) -> DictionaryResult<()> {
         if self.cancellation.is_cancelled() {
             Err(self.error(self.current_offset(), DictionaryErrorKind::Cancelled))
@@ -1090,8 +1096,7 @@ impl<'a, S: RangedSource, W: SequentialSink, C: Cancellation> DirectDictionaryDe
     }
 
     fn check(&self, resource: &'static str, limit: u64, attempted: u64) -> DictionaryResult<()> {
-        check_budget(resource, limit, attempted)
-            .map_err(|kind| self.error(self.current_offset(), kind))
+        check_budget(resource, limit, attempted).map_err(self.at_current())
     }
 
     async fn integer(&mut self, procedure: IntegerProcedure) -> DictionaryResult<IntegerValue> {
@@ -1122,7 +1127,7 @@ impl<'a, S: RangedSource, W: SequentialSink, C: Cancellation> DirectDictionaryDe
             &self.header,
             &self.progress,
         )
-        .map_err(|kind| self.error(self.current_offset(), kind))
+        .map_err(self.at_current())
     }
 
     fn prepare_row(row: &mut Vec<u8>, stride: usize) -> Result<(), ()> {
@@ -1195,13 +1200,14 @@ impl<'a, S: RangedSource, W: SequentialSink, C: Cancellation> DirectDictionaryDe
         bytes: u64,
     ) -> DictionaryResult<SymbolDescriptor> {
         let relative_store_offset = self.progress.stored_bitmap_bytes;
-        // Built before the rows are borrowed, as the refinement and generic
-        // decoders build their refused-row errors.
-        let failed = self.error(self.current_offset(), DictionaryErrorKind::AllocationFailed);
-        Self::prepare_row(&mut self.previous_two, stride)
+        let prepared = Self::prepare_row(&mut self.previous_two, stride)
             .and_then(|()| Self::prepare_row(&mut self.previous_one, stride))
-            .and_then(|()| Self::prepare_row(&mut self.current, stride))
-            .or(Err(failed))?;
+            .and_then(|()| Self::prepare_row(&mut self.current, stride));
+        // The error is built only when a row reservation is refused, so a
+        // symbol whose rows fit allocates nothing here.
+        prepared
+            .or(Err(DictionaryErrorKind::AllocationFailed))
+            .map_err(self.at_current())?;
         for _ in 0..height {
             for x in 0..width {
                 self.check_cancelled()?;
