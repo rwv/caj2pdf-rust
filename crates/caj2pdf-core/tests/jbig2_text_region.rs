@@ -3,6 +3,8 @@
 //! Invented text-region segments test the public header parser only; they
 //! are not CAJ/HN text-placement or pixel compatibility evidence.
 
+mod common;
+
 use caj2pdf_core::{
     Cancellation, Error, Limits, NeverCancel, RangedSource,
     jbig2::{
@@ -598,17 +600,10 @@ fn dimensions_pixels_instances_and_body_respect_budget() {
 
 #[test]
 fn display_propagates_formatter_errors() {
-    struct Refuse;
-    impl std::fmt::Write for Refuse {
-        fn write_str(&mut self, _: &str) -> std::fmt::Result {
-            Err(std::fmt::Error)
-        }
-    }
-    let error = error(&Region {
+    common::assert_display_propagates_fmt_error(&error(&Region {
         flags: 0xa40c,
         ..Region::default()
-    });
-    assert!(std::fmt::Write::write_fmt(&mut Refuse, format_args!("{error}")).is_err());
+    }));
 }
 
 #[test]
