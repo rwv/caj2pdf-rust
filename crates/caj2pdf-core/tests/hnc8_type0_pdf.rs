@@ -11,7 +11,7 @@
 mod common;
 
 use caj2pdf_core::{
-    Error, Limits, NeverCancel, RangedSource, SequentialSink,
+    Error, Limits, MAX_BUDGET_COUNT, NeverCancel, RangedSource, SequentialSink,
     hnc8::{
         ErrorKind, MultipleImages, Type0PdfError, Type0PdfErrorKind, Type0PdfOptions,
         Type0PdfReport, convert_type0_pdf,
@@ -1202,6 +1202,29 @@ fn page_geometry_and_resolution_are_validated() {
             error.to_string(),
             "HN/C8 type-0 PDF conversion: invalid options: pixels per inch must be finite and positive"
         );
+    }
+    let mut accepted = options();
+    accepted.arithmetic.max_symbols = MAX_BUDGET_COUNT;
+    accepted.arithmetic.max_work = MAX_BUDGET_COUNT;
+    convert(built.bytes.clone(), accepted).unwrap();
+    for (max_symbols, max_work) in [
+        (0, 1),
+        (1, 0),
+        (MAX_BUDGET_COUNT + 1, MAX_BUDGET_COUNT),
+        (MAX_BUDGET_COUNT, MAX_BUDGET_COUNT + 1),
+    ] {
+        let mut invalid = options();
+        invalid.arithmetic.max_symbols = max_symbols;
+        invalid.arithmetic.max_work = max_work;
+        let mut source = Source::new(built.bytes.clone());
+        let mut sink = Sink::default();
+        let error = convert_with(&mut source, &mut sink, invalid, &Limits::default()).unwrap_err();
+        assert_eq!((error.page, error.image, error.offset), (None, None, None));
+        assert_eq!(
+            error.to_string(),
+            "HN/C8 type-0 PDF conversion: invalid options: arithmetic budget fields must be in 1..=MAX_BUDGET_COUNT"
+        );
+        assert!(sink.bytes.is_empty());
     }
     // Eight pixels at 0.01 ppi is 57,600 points, beyond the page profile.
     let error = convert_error(
