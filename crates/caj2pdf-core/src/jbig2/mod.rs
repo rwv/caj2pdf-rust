@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
 
-//! Bounded header and embedded-directory reading for T.88 JBIG2 segments.
+//! Bounded T.88 JBIG2 segment framing and arithmetic model primitives.
 //!
-//! This module does not parse a standalone JBIG2 file header, decode segment
-//! data, or interpret an HN/C8 container.
+//! Standalone JBIG2 file headers, HN/C8 containers, and complete page
+//! composition remain outside this module.
 
 mod directory;
 pub use directory::{
@@ -11,6 +11,7 @@ pub use directory::{
 };
 
 pub mod generic;
+pub mod integer;
 pub mod mq;
 
 use crate::{Cancellation, Error, Limits, RangedSource};
