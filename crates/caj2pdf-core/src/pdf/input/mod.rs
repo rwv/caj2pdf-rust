@@ -692,14 +692,11 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
 
     async fn read_xref_chain(&mut self, latest: u64) -> Result<(Vec<Option<XrefSlot>>, Trailer)> {
         let mut cursor = latest;
-        let mut seen_offsets = Vec::new();
         let mut slots: Vec<Option<XrefSlot>> = Vec::new();
         let mut latest_trailer = None;
+        // Each Prev must point strictly before its section, so the chain
+        // cannot revisit a section and needs no cycle check.
         for _ in 0..MAX_XREF_SECTIONS {
-            if seen_offsets.contains(&cursor) {
-                return Err(self.malformed(cursor, None, "PDF xref Prev cycle"));
-            }
-            seen_offsets.push(cursor);
             let (records, trailer) = self.read_xref_section(cursor).await?;
             if slots.is_empty() {
                 let slots_len = trailer.size as usize;
@@ -1230,8 +1227,11 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
         slots: &[Option<XrefSlot>],
     ) -> Result<(ObjectHead, ObjectLocation)> {
         let head = self.load_head(at, Some(expected)).await?;
+        // `load_head` parsed at most `range.length - at` bytes, so offsets
+        // within the head stay inside the range, and `check_stream_tail`
+        // reads its `endobj` there too.
         let end = match head.tail {
-            ObjectTail::EndObject { end } => at.checked_add(end as u64),
+            ObjectTail::EndObject { end } => at + end as u64,
             ObjectTail::Stream { data_start } => {
                 let failure = self.malformed(at, Some(expected), "stream has no dictionary");
                 let dictionary = head.dictionary.as_ref().ok_or(failure)?;
@@ -1244,17 +1244,13 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                 } else {
                     return Err(self.malformed(at, Some(expected), "invalid stream Length"));
                 };
-                let failure = self.malformed(at, Some(expected), "stream offset overflows");
-                let data_at = at.checked_add(data_start as u64).ok_or(failure)?;
+                let data_at = at + data_start as u64;
                 let failure = self.malformed(data_at, Some(expected), "stream extent overflows");
                 let after_data = data_at.checked_add(length).ok_or(failure)?;
-                Some(self.check_stream_tail(after_data, Some(expected)).await?)
+                self.check_stream_tail(after_data, Some(expected)).await?
             }
-        }
-        .ok_or(self.malformed(at, Some(expected), "object end overflows"))?;
-        if end > self.range.length {
-            return Err(self.malformed(at, Some(expected), "object extends beyond PDF range"));
-        }
+        };
+        debug_assert!(end <= self.range.length);
         Ok((
             head,
             ObjectLocation {
@@ -1597,13 +1593,10 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                     inherited_media_box,
                 } => (reference, parent, inherited_media_box),
             };
-            let Some(seen) = visited.get_mut(reference.number as usize) else {
-                return Err(self.malformed(
-                    0,
-                    Some(reference),
-                    "page tree reference is outside xref bounds",
-                ));
-            };
+            let location = index.object_location(reference)?;
+            // A resolved reference has a slot, and `visited` has one entry
+            // per slot.
+            let seen = &mut visited[reference.number as usize];
             if *seen {
                 return Err(self.malformed(
                     0,
@@ -1612,7 +1605,6 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                 ));
             }
             *seen = true;
-            let location = index.object_location(reference)?;
             let (head, _) = self.load_object(location.offset, reference, slots).await?;
             let failure = self.malformed(
                 location.offset,
@@ -1783,9 +1775,10 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                 }
             }
         }
-        if pages.is_empty() {
-            return Err(self.malformed(0, Some(pages_root), "PDF has no pages"));
-        }
+        // The walk ends without error only after the root is a Page or its
+        // Exit confirmed as many leaves as its nonzero Count, both read from
+        // the single load of each node above.
+        debug_assert!(!pages.is_empty());
         index.pages = pages;
         index.catalog_dict = catalog;
         if let Some(outline_value) = index.catalog_dict.value(b"Outlines") {
@@ -2017,13 +2010,9 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
         let mut item_count = 0_u32;
         while let Some(task) = stack.pop() {
             let location = index.object_location(task.reference)?;
-            let Some(seen) = visited.get_mut(task.reference.number as usize) else {
-                return Err(self.malformed(
-                    location.offset,
-                    Some(task.reference),
-                    "outline reference is outside xref bounds",
-                ));
-            };
+            // A resolved reference has a slot, and `visited` has one entry
+            // per slot.
+            let seen = &mut visited[task.reference.number as usize];
             if *seen {
                 return Err(self.malformed(
                     location.offset,

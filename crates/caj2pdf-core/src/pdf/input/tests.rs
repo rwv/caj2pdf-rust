@@ -1077,6 +1077,68 @@ fn inspect_raw_fragment(raw: &[u8]) -> Result<FragmentInspection> {
 }
 
 #[test]
+fn fragment_inspection_rejects_an_empty_object_range() {
+    let error = inspect_raw_fragment(b"").expect_err("an empty object range was inspected");
+    assert!(
+        matches!(
+            error,
+            Error::Pdf {
+                offset: 0,
+                object: Some((1, 0)),
+                kind: PdfErrorKind::Malformed,
+                reason: "indirect object is truncated",
+            }
+        ),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn page_walk_rejects_more_leaves_than_the_page_limit_before_counts_are_checked() {
+    // Every Pages node is within the limit, but the leaves under the root's
+    // two kids exceed it before the root's Count is compared on exit.
+    let doc = build_pdf(
+        &[
+            (1, "<< /Type /Catalog /Pages 2 0 R >>"),
+            (2, "<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>"),
+            (
+                3,
+                "<< /Type /Pages /Parent 2 0 R /Kids [5 0 R 6 0 R] /Count 2 /MediaBox [0 0 10 10] >>",
+            ),
+            (
+                4,
+                "<< /Type /Pages /Parent 2 0 R /Kids [7 0 R 8 0 R] /Count 2 /MediaBox [0 0 10 10] >>",
+            ),
+            (5, "<< /Type /Page /Parent 3 0 R >>"),
+            (6, "<< /Type /Page /Parent 3 0 R >>"),
+            (7, "<< /Type /Page /Parent 4 0 R >>"),
+            (8, "<< /Type /Page /Parent 4 0 R >>"),
+        ],
+        "",
+    );
+    let limits = Limits {
+        max_pages: 2,
+        ..Limits::default()
+    };
+    let error = open_with(doc, &limits)
+        .err()
+        .expect("a page tree over the page limit was accepted");
+    assert!(
+        matches!(
+            error,
+            Error::PdfLimitExceeded {
+                object: Some((7, 0)),
+                resource: "pages",
+                limit: 2,
+                attempted: 3,
+                ..
+            }
+        ),
+        "{error:?}"
+    );
+}
+
+#[test]
 fn fragment_inspection_rejects_invalid_roles_streams_and_tail_bytes() {
     let valid_page =
         b"1 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] /Contents [4 0 R] >>\nendobj";
@@ -1771,6 +1833,85 @@ fn live_object_inside_the_caj_footer_is_rejected() {
                 kind: PdfErrorKind::Malformed,
                 reason: "live PDF object begins after logical EOF",
             } if offset == footer_at
+        ),
+        "{error:?}"
+    );
+}
+
+/// Serves `first` until a read starts at `marker`, then `then` for that and
+/// every later read: a source whose bytes change after the tail scan.
+struct MutatesAfterMarker {
+    first: Vec<u8>,
+    then: Vec<u8>,
+    marker: u64,
+    switched: bool,
+}
+
+impl RangedSource for MutatesAfterMarker {
+    fn size(&self) -> u64 {
+        self.first.len() as u64
+    }
+
+    async fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> Result<usize> {
+        self.switched |= offset == self.marker;
+        let bytes = if self.switched {
+            &self.then
+        } else {
+            &self.first
+        };
+        let start = offset as usize;
+        let count = destination.len().min(bytes.len().saturating_sub(start));
+        destination[..count].copy_from_slice(&bytes[start..start + count]);
+        Ok(count)
+    }
+}
+
+#[test]
+fn live_object_rewritten_across_the_logical_eof_after_the_tail_scan_is_rejected() {
+    let mut objects = minimal_objects().to_vec();
+    objects.push((4, "null"));
+    let mut first = build_pdf(&objects, "");
+    let object4_at = find(&first, b"4 0 obj\n");
+    let startxref_at = find(&first, b"startxref");
+    replace_once(
+        &mut first,
+        format!("{object4_at:010} 00000 n").as_bytes(),
+        format!("{startxref_at:010} 00000 n").as_bytes(),
+    );
+    first.extend_from_slice(b"WebFastLoadP");
+    first.extend_from_slice(&[b'Z'; 64]);
+    let logical_end = find(&first, b"WebFastLoadP");
+    // After the tail scan fixed the logical EOF, object 4 appears where
+    // `startxref` was and runs on into the footer.
+    let object4 = format!("4 0 obj\nnull{}\nendobj\n", " ".repeat(40));
+    let mut then = first.clone();
+    let at = startxref_at as usize;
+    then[at..at + object4.len()].copy_from_slice(object4.as_bytes());
+    assert!(startxref_at + object4.len() as u64 > logical_end);
+    let length = first.len() as u64;
+    let mut source = MutatesAfterMarker {
+        marker: find(&first, b"xref\n"),
+        first,
+        then,
+        switched: false,
+    };
+    let error = run(PdfIndex::open(
+        &mut source,
+        PdfRange { offset: 0, length },
+        &Limits::default(),
+        &NEVER,
+    ))
+    .err()
+    .expect("an object past the scanned logical EOF was accepted");
+    assert!(
+        matches!(
+            error,
+            Error::Pdf {
+                offset,
+                object: Some((4, 0)),
+                kind: PdfErrorKind::Malformed,
+                reason: "live PDF object extends past logical EOF",
+            } if offset == startxref_at
         ),
         "{error:?}"
     );
