@@ -251,10 +251,19 @@ impl<S: RangedSource, C: Cancellation> Cursor<'_, S, C> {
 
     /// Read exactly `N` header bytes with bounded requests.
     async fn read<const N: usize>(&mut self, field: &'static str) -> TextRegionResult<[u8; N]> {
+        let mut bytes = [0u8; N];
+        self.fill(field, &mut bytes).await?;
+        Ok(bytes)
+    }
+
+    /// Fill `bytes` from the cursor. Not generic over the field width, so
+    /// every header field shares one instantiation per source type.
+    async fn fill(&mut self, field: &'static str, bytes: &mut [u8]) -> TextRegionResult<()> {
+        let count = bytes.len();
         // `start <= at <= end`, so the consumed count is at most the data
         // length and adding a field width cannot overflow; `end - at` avoids
-        // overflowing `at + N` when the source advertises a size near u64::MAX.
-        let attempted = self.at - self.start + N as u64;
+        // overflowing `at + count` when the source advertises a size near u64::MAX.
+        let attempted = self.at - self.start + count as u64;
         if attempted > self.max_header_bytes {
             return Err(self.error(TextRegionErrorKind::LimitExceeded {
                 resource: "text region header bytes",
@@ -262,14 +271,13 @@ impl<S: RangedSource, C: Cancellation> Cursor<'_, S, C> {
                 attempted,
             }));
         }
-        if N as u64 > self.end - self.at {
+        if count as u64 > self.end - self.at {
             return Err(self.error(TextRegionErrorKind::Truncated(field)));
         }
-        let mut bytes = [0u8; N];
         let mut done = 0;
-        while done < N {
+        while done < count {
             self.check_cancelled()?;
-            let request = (N - done).min(self.request_bytes);
+            let request = (count - done).min(self.request_bytes);
             let got = match self
                 .source
                 .read_at(self.at, &mut bytes[done..done + request])
@@ -290,7 +298,7 @@ impl<S: RangedSource, C: Cancellation> Cursor<'_, S, C> {
             done += got;
         }
         self.check_cancelled()?;
-        Ok(bytes)
+        Ok(())
     }
 }
 
