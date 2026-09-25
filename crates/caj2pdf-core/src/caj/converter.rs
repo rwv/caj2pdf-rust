@@ -149,6 +149,25 @@ impl std::fmt::Write for BoundedSuffix<'_> {
     }
 }
 
+/// Format one synthetic `/Pages` object. Formatting a `u32` cannot fail, so
+/// the only error is text past the suffix's reserved bound.
+fn write_page_tree(body: &mut BoundedSuffix<'_>, node: &SyntheticPageTree<'_>) -> Result<()> {
+    let mut format = || {
+        write!(body, "{} 0 obj\n<< /Type /Pages ", node.number)?;
+        if let Some(parent) = node.parent {
+            write!(body, "/Parent {parent} 0 R ")?;
+        }
+        write!(body, "/Count {} /Kids [", node.count)?;
+        for child in node.kids {
+            write!(body, "{} 0 R ", child.number)?;
+        }
+        body.write_str("] >>\nendobj\n")
+    };
+    format().map_err(|_| Error::InvalidInput {
+        reason: "CAJ synthetic page tree exceeds reserved bound",
+    })
+}
+
 fn malformed(offset: u64, reason: &'static str) -> Error {
     Error::Caj {
         offset,
@@ -342,26 +361,7 @@ fn push_synthetic(
         maximum_len: estimated,
     };
     let number = node.number;
-    write!(&mut body, "{number} 0 obj\n<< /Type /Pages ").map_err(|_| Error::InvalidInput {
-        reason: "CAJ synthetic page tree formatting failed",
-    })?;
-    if let Some(parent) = node.parent {
-        write!(&mut body, "/Parent {parent} 0 R ").map_err(|_| Error::InvalidInput {
-            reason: "CAJ synthetic page tree formatting failed",
-        })?;
-    }
-    write!(&mut body, "/Count {} /Kids [", node.count).map_err(|_| Error::InvalidInput {
-        reason: "CAJ synthetic page tree formatting failed",
-    })?;
-    for child in node.kids {
-        write!(&mut body, "{} 0 R ", child.number).map_err(|_| Error::InvalidInput {
-            reason: "CAJ synthetic page tree formatting failed",
-        })?;
-    }
-    body.write_str("] >>\nendobj\n")
-        .map_err(|_| Error::InvalidInput {
-            reason: "CAJ synthetic page tree exceeds reserved bound",
-        })?;
+    write_page_tree(&mut body, &node)?;
     let body_len = body.bytes.len() - start;
     objects.push(FragmentObject {
         reference: PdfRef {
@@ -404,14 +404,13 @@ pub async fn convert_caj<S: RangedSource, W: SequentialSink, C: Cancellation>(
     .await?;
     let mut objects = scan.objects;
     let source_object_count = objects.len();
-    limits.check_allocation(
-        (metadata.page_rows.len() as u64) * std::mem::size_of::<PdfRef>() as u64,
-    )?;
+    // `parse_metadata` admitted the larger page-row index under the same
+    // allocation limit, so this smaller index needs no second check.
+    const _: () = assert!(size_of::<PdfRef>() <= size_of::<super::CajPageRow>());
+    let page_ref_bytes = (metadata.page_rows.len() as u64) * size_of::<PdfRef>() as u64;
+    debug_assert!(limits.check_allocation(page_ref_bytes).is_ok());
     let mut page_refs = Vec::new();
-    let refused = limits.allocation_refused(
-        "CAJ ordered page index allocation",
-        (metadata.page_rows.len() as u64) * std::mem::size_of::<PdfRef>() as u64,
-    );
+    let refused = limits.allocation_refused("CAJ ordered page index allocation", page_ref_bytes);
     reserve_exact(&mut page_refs, metadata.page_rows.len(), refused)?;
     page_refs.extend(metadata.page_rows.iter().map(|row| PdfRef {
         number: row.page_object_id,
@@ -865,5 +864,42 @@ mod tests {
         assert!(write!(&mut suffix, "{}", 7).is_err());
         suffix.write_str("").unwrap();
         assert_eq!(bytes, b"12345");
+    }
+
+    #[test]
+    fn synthetic_page_tree_formatting_stops_at_the_reserved_bound() {
+        let kids = [PdfRef {
+            number: 7,
+            generation: 0,
+        }];
+        let node = SyntheticPageTree {
+            number: 9,
+            parent: Some(3),
+            kids: &kids,
+            count: 1,
+        };
+        let expected =
+            b"9 0 obj\n<< /Type /Pages /Parent 3 0 R /Count 1 /Kids [7 0 R ] >>\nendobj\n";
+        for maximum_len in [0, 20, 30, 45, 50, expected.len() - 1] {
+            let mut bytes = Vec::new();
+            let mut suffix = BoundedSuffix {
+                bytes: &mut bytes,
+                maximum_len,
+            };
+            assert!(matches!(
+                write_page_tree(&mut suffix, &node),
+                Err(Error::InvalidInput {
+                    reason: "CAJ synthetic page tree exceeds reserved bound"
+                })
+            ));
+            assert!(bytes.len() <= maximum_len);
+        }
+        let mut bytes = Vec::new();
+        let mut suffix = BoundedSuffix {
+            bytes: &mut bytes,
+            maximum_len: expected.len(),
+        };
+        write_page_tree(&mut suffix, &node).unwrap();
+        assert_eq!(bytes, expected);
     }
 }

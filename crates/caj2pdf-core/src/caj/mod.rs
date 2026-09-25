@@ -13,6 +13,7 @@ mod gb18030;
 
 pub use converter::convert_caj;
 
+use crate::fallible::reserve_exact;
 use crate::{Bookmark, Cancellation, Error, Limits, RangedSource, Result, read_exact_at};
 use std::mem::size_of;
 
@@ -296,13 +297,12 @@ pub async fn parse_metadata<S: RangedSource, C: Cancellation>(
     let page_capacity =
         check_allocation::<CajPageRow>(limits, page_count, PAGE_COUNT_OFFSET, "CAJ page metadata")?;
     let mut page_rows = Vec::new();
-    page_rows.try_reserve_exact(page_capacity).map_err(|_| {
-        malformed(
-            PAGE_COUNT_OFFSET,
-            None,
-            "CAJ page metadata allocation failed",
-        )
-    })?;
+    let refused = malformed(
+        PAGE_COUNT_OFFSET,
+        None,
+        "CAJ page metadata allocation failed",
+    );
+    reserve_exact(&mut page_rows, page_capacity, refused)?;
 
     let mut previous_end = None;
     let mut batch = [0u8; PAGE_TABLE_BATCH_BYTES];
@@ -456,15 +456,8 @@ pub async fn parse_metadata<S: RangedSource, C: Cancellation>(
                 "CAJ TOC title is not valid GB18030",
             )
         })?;
-        if title.len() as u64 > limits.max_allocation_bytes {
-            return Err(limit(
-                record_offset,
-                Some(record),
-                "CAJ title bytes",
-                limits.max_allocation_bytes,
-                title.len() as u64,
-            ));
-        }
+        // The decoded title is within the budget checked above.
+        debug_assert!(title.len() as u64 <= title_budget);
         let page_index = parse_page_number(&bytes, record_offset, record, page_count)?;
         let raw_level = i32::from_le_bytes([bytes[304], bytes[305], bytes[306], bytes[307]]);
         if raw_level <= 0 {
@@ -503,19 +496,7 @@ pub async fn parse_metadata<S: RangedSource, C: Cancellation>(
 mod tests {
     use super::*;
     use crate::NeverCancel;
-    use std::{
-        future::Future,
-        task::{Context, Poll, Waker},
-    };
-
-    fn ready<F: Future>(future: F) -> F::Output {
-        let mut future = std::pin::pin!(future);
-        let mut context = Context::from_waker(Waker::noop());
-        match future.as_mut().poll(&mut context) {
-            Poll::Ready(value) => value,
-            Poll::Pending => panic!("in-memory source unexpectedly pending"),
-        }
-    }
+    use crate::test_support::ready;
 
     struct Source {
         bytes: Vec<u8>,

@@ -90,13 +90,8 @@ pub(super) fn decode(bytes: &[u8]) -> Result<String, DecodeError> {
                 * 10)
                 + u32::from(fourth - 0x30);
             let index = FOUR_BYTE_RANGES.partition_point(|&(start, _, _)| start <= pointer);
-            let Some(&(start, end, initial)) = index.checked_sub(1).map(|i| &FOUR_BYTE_RANGES[i])
-            else {
-                return Err(DecodeError {
-                    offset: cursor,
-                    kind: DecodeErrorKind::InvalidSequence,
-                });
-            };
+            // The first range starts at pointer zero, so `index >= 1`.
+            let (start, end, initial) = FOUR_BYTE_RANGES[index - 1];
             if pointer > end {
                 return Err(DecodeError {
                     offset: cursor,
@@ -2132,6 +2127,9 @@ static TWO_BYTE_VALUES: [u16; 23_940] = [
 
 // (first pointer, last pointer, first Unicode scalar). A pointer is calculated
 // from the four input bytes in base 126/10. Missing pointers are invalid.
+// Four-byte decoding relies on the first range starting at pointer zero.
+const _: () = assert!(FOUR_BYTE_RANGES[0].0 == 0);
+
 const FOUR_BYTE_RANGES: [(u32, u32, u32); 207] = [
     (0, 35, 0x80),
     (36, 37, 0xa5),
