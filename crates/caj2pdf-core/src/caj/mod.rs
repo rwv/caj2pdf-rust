@@ -76,24 +76,14 @@ fn limit(
     }
 }
 
-fn checked_end(offset: u64, length: u64, record: Option<u32>) -> Result<u64> {
-    offset
-        .checked_add(length)
-        .ok_or_else(|| malformed(offset, record, "CAJ range end overflows"))
-}
-
-fn checked_mul(left: u64, right: u64, offset: u64) -> Result<u64> {
-    left.checked_mul(right)
-        .ok_or_else(|| malformed(offset, None, "CAJ record size overflows"))
-}
-
 fn check_allocation<T>(
     limits: &Limits,
     count: u32,
     offset: u64,
     resource: &'static str,
 ) -> Result<usize> {
-    let bytes = checked_mul(u64::from(count), size_of::<T>() as u64, offset)?;
+    // A u32 count times a small element size fits u64.
+    let bytes = u64::from(count) * size_of::<T>() as u64;
     if bytes > limits.max_allocation_bytes {
         return Err(limit(
             offset,
@@ -114,7 +104,9 @@ async fn read_field<S: RangedSource, C: Cancellation>(
     limits: &Limits,
     cancellation: &C,
 ) -> Result<()> {
-    let end = checked_end(offset, destination.len() as u64, record)?;
+    // Every CAJ field offset derives from u32 counts, offsets, and fixed
+    // record sizes, so it is below 2^42 and adding a buffer length fits u64.
+    let end = offset + destination.len() as u64;
     if end > source.size() {
         return Err(malformed(offset, record, "CAJ field extends beyond source"));
     }
@@ -261,8 +253,8 @@ pub async fn parse_metadata<S: RangedSource, C: Cancellation>(
         ));
     }
 
-    let toc_bytes = checked_mul(u64::from(toc_count), TOC_RECORD_BYTES, TOC_COUNT_OFFSET)?;
-    let toc_end = checked_end(TOC_RECORDS_OFFSET, toc_bytes, None)?;
+    // u32 counts and offsets times small fixed record sizes fit u64.
+    let toc_end = TOC_RECORDS_OFFSET + u64::from(toc_count) * TOC_RECORD_BYTES;
     if toc_end > source.size() {
         let record = ((source.size().saturating_sub(TOC_RECORDS_OFFSET) / TOC_RECORD_BYTES)
             .min(u64::from(toc_count.saturating_sub(1)))
@@ -280,8 +272,7 @@ pub async fn parse_metadata<S: RangedSource, C: Cancellation>(
             "CAJ page table overlaps the header or TOC",
         ));
     }
-    let table_bytes = checked_mul(u64::from(page_count), PAGE_ROW_BYTES, PAGE_COUNT_OFFSET)?;
-    let table_end = checked_end(table_start, table_bytes, None)?;
+    let table_end = table_start + u64::from(page_count) * PAGE_ROW_BYTES;
     if table_end > source.size() {
         return Err(malformed(
             PAGE_TABLE_POINTER_OFFSET,
@@ -345,7 +336,8 @@ pub async fn parse_metadata<S: RangedSource, C: Cancellation>(
                     "CAJ PDF body overlaps the page table",
                 ));
             }
-            let end = checked_end(offset, length, Some(record))?;
+            // Both are u32 fields.
+            let end = offset + length;
             if end > source.size() {
                 return Err(malformed(
                     row_offset + 4,
@@ -381,9 +373,8 @@ pub async fn parse_metadata<S: RangedSource, C: Cancellation>(
     let order_capacity =
         check_allocation::<(u32, u32)>(limits, page_count, PAGE_COUNT_OFFSET, "CAJ page order")?;
     let mut ordered_ids = Vec::new();
-    ordered_ids
-        .try_reserve_exact(order_capacity)
-        .map_err(|_| malformed(PAGE_COUNT_OFFSET, None, "CAJ page order allocation failed"))?;
+    let refused = malformed(PAGE_COUNT_OFFSET, None, "CAJ page order allocation failed");
+    reserve_exact(&mut ordered_ids, order_capacity, refused)?;
     for (index, row) in page_rows.iter().enumerate() {
         ordered_ids.push((row.page_object_id, index as u32));
     }
@@ -404,9 +395,8 @@ pub async fn parse_metadata<S: RangedSource, C: Cancellation>(
     let bookmark_capacity =
         check_allocation::<Bookmark>(limits, toc_count, TOC_COUNT_OFFSET, "CAJ bookmarks")?;
     let mut bookmarks = Vec::new();
-    bookmarks
-        .try_reserve_exact(bookmark_capacity)
-        .map_err(|_| malformed(TOC_COUNT_OFFSET, None, "CAJ bookmark allocation failed"))?;
+    let refused = malformed(TOC_COUNT_OFFSET, None, "CAJ bookmark allocation failed");
+    reserve_exact(&mut bookmarks, bookmark_capacity, refused)?;
     let mut previous_level = 0u32;
     for index in 0..toc_count {
         let record = index + 1;

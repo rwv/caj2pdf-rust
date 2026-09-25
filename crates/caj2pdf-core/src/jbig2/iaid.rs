@@ -11,7 +11,7 @@ use super::{
     integer::{INTEGER_CONTEXT_COUNT, IntegerContextBanks},
     mq::{MqBudget, MqContext, MqDecoder, MqError, MqErrorKind, MqResult},
 };
-use crate::fallible::try_convert;
+use crate::fallible::{len_u64, try_convert};
 use crate::{Cancellation, Limits, RangedSource};
 use std::{error, fmt};
 
@@ -79,9 +79,9 @@ impl IaidContextBanks {
     ) -> MqResult<Self> {
         let invalid = || MqError::configuration(MqErrorKind::InvalidContext);
         let count = 1usize.checked_shl(code_len).ok_or_else(invalid)?;
-        let sentinel = 1u64.checked_shl(code_len).ok_or_else(invalid)?;
-        // The final PREV and raw result must fit u64 on every target.
-        u64::try_from(count).map_err(|_| invalid())?;
+        // `code_len < usize::BITS <= 64`, so the final PREV, below
+        // `2 * sentinel`, and the raw result fit u64 on every target.
+        let sentinel = len_u64(count);
         let extra = count.checked_add(bitmap_contexts).ok_or_else(invalid)?;
         let total_contexts = INTEGER_CONTEXT_COUNT
             .checked_add(extra)
@@ -151,22 +151,13 @@ impl<S: RangedSource, C: Cancellation> DecisionSource for MqDecoder<'_, S, C> {
 async fn decode_decisions<D: DecisionSource>(source: &mut D, layout: IaidLayout) -> MqResult<u64> {
     let mut prev = 1u64;
     for _ in 0..layout.code_len {
-        // The validated count guarantees PREV fits usize before each decision.
-        let local = usize::try_from(prev)
-            .map_err(|_| MqError::configuration(MqErrorKind::InvalidContext))?;
-        let context = layout
-            .iaid_base()
-            .checked_add(local)
-            .ok_or(MqError::configuration(MqErrorKind::InvalidContext))?;
+        // Before each decision `prev < sentinel == count`, where `count` is a
+        // `usize` and `iaid_base() + count` was checked as `total_contexts`.
+        // After the last one `prev < 2 * sentinel <= 2^64`.
+        debug_assert!(prev < layout.sentinel);
+        let context = layout.iaid_base() + prev as usize;
         let bit = source.bit(context).await?;
-        prev = prev
-            .checked_mul(2)
-            .and_then(|value| value.checked_add(u64::from(bit)))
-            .ok_or(MqError {
-                offset: None,
-                context: Some(context),
-                kind: MqErrorKind::Invariant("IAID PREV exceeds u64"),
-            })?;
+        prev = prev * 2 + u64::from(bit);
     }
     Ok(prev - layout.sentinel)
 }
