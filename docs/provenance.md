@@ -593,7 +593,12 @@ cargo tree --locked --all-features --target x86_64-unknown-linux-gnu -e all
 cargo tree --locked --all-features --target wasm32-unknown-unknown -e all
 cargo deny --locked --all-features --target x86_64-unknown-linux-gnu check licenses sources
 cargo deny --locked --all-features --target wasm32-unknown-unknown check licenses sources
+cargo deny --locked --all-features check advisories bans
 ```
+
+The advisory gate denies yanked crates and known advisories; any ignored
+advisory must be listed in `deny.toml` with a reason. The bans gate denies
+duplicate package versions and registry wildcard requirements.
 
 Inspect any exceptions to the automated license gate manually, and compare
 the generated inventory with the actual distribution contents (CLI archive and

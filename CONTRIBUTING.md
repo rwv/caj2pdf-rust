@@ -65,3 +65,8 @@ per-file floor; both are ratchets that are raised as coverage improves and are
 never lowered to let a change pass. Run `bash scripts/check-coverage.sh`
 locally (it needs `cargo-llvm-cov` and the PDF validators listed in
 [the PDF writer notes](docs/pdf-writer.md)).
+
+Coverage is measured per source file, so inline `#[cfg(test)]` modules count
+toward their file's figure. Prefer a sibling `tests.rs` module (as
+`pdf/input` and `jbig1` do) for new unit tests so the per-file figure reflects
+production code.
