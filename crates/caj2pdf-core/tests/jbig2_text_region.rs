@@ -955,7 +955,7 @@ fn cancellation_is_checked_before_and_between_reads() {
     let region = parse_header(&bytes);
     for after in 0..=3 {
         let flag = Rc::new(Cell::new(after == 0));
-        let cancellation = CancelAfter::while_set(Rc::clone(&flag));
+        let cancellation = CancelAfter::While(Rc::clone(&flag));
         let mut source = Source::new(bytes.clone());
         source.cancel_after_reads = Some((after, flag));
         source.max_read = 7;

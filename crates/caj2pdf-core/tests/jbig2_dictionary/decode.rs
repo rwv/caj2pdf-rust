@@ -914,7 +914,7 @@ fn dropped_pending_store_and_cancellation_after_partial_row_are_terminal() {
     let mut source = segment(0x0800, &[(2, -1)], &[], 0, 1, &body, &[]);
     let hdr = header(&mut source);
     let signal = Rc::new(Cell::new(false));
-    let cancellation = CancelAfter::while_set(signal.clone());
+    let cancellation = CancelAfter::While(signal.clone());
     let mut store = Store {
         max_write: 1,
         cancel_after_write: Some(signal),

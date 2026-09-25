@@ -326,7 +326,7 @@ fn cancellation_after_one_header_byte_preserves_partial_progress() {
         &segment,
         &Limits::default(),
         DictionaryBudget::default(),
-        &CancelAfter::while_set(cancelled),
+        &CancelAfter::While(cancelled),
     ))
     .unwrap_err();
     assert!(matches!(error.kind, DictionaryErrorKind::Cancelled));

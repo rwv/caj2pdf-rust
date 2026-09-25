@@ -28,16 +28,6 @@ impl CancelAfter {
     pub fn new(allowed: u64) -> Self {
         Self::Polls(Cell::new(allowed))
     }
-
-    /// A signal that never trips.
-    pub fn never() -> Self {
-        Self::Never
-    }
-
-    /// A signal that is cancelled while `flag` is set.
-    pub fn while_set(flag: Rc<Cell<bool>>) -> Self {
-        Self::While(flag)
-    }
 }
 
 impl Cancellation for CancelAfter {
