@@ -46,6 +46,13 @@ jobs:
         run: python3 -m unittest discover -s tests/fixtures -p 'test_*.py' -v
       - name: Conformance harness tests
         run: python3 -m unittest discover -s tests/conformance -p 'test_*.py' -v
+      - name: Report external HN/C8 container comparison as not run
+        env:
+          CAJ2PDF_CORPUS_DIR: ""
+        run: |
+          report="$(python3 tests/conformance/hnc8_container_compare.py --json)"
+          printf '%s\n' "$report"
+          python3 -c 'import json, sys; result = json.loads(sys.argv[1]); assert result["status"] == "NOT_RUN" and result["type0"]["passed"] == 0 and result["type0"]["not_run"] == 1400, result' "$report"
       - name: Report external JBIG1 pixel oracle as not run
         env:
           CAJ2PDF_CORPUS_DIR: ""
