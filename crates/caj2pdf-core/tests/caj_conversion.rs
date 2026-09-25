@@ -845,7 +845,7 @@ fn repairs_nearby_stream_length_without_changing_page_render() {
 
 #[test]
 fn rejects_invalid_page_tree_relationships_before_writing() {
-    let cases: [(&str, &str, &[u32], &str); 4] = [
+    let cases: [(&str, &str, &[u32], &str); 5] = [
         (
             "cycle",
             "9 0 obj\n<< /Type /Page /Parent 5 0 R /MediaBox [0 0 72 72] >>\nendobj\n\
@@ -877,6 +877,12 @@ fn rejects_invalid_page_tree_relationships_before_writing() {
              5 0 obj\n<< /Type /Pages /Count 1 /Kids [9 0 R] >>\nendobj\n",
             &[9, 3],
             "mixed page-tree roots",
+        ),
+        (
+            "missing root with a nonzero generation",
+            "9 0 obj\n<< /Type /Page /Parent 7 1 R /MediaBox [0 0 72 72] >>\nendobj\n",
+            &[9],
+            "page-tree root is missing",
         ),
     ];
     for (label, body, pages, expected) in cases {
