@@ -390,14 +390,17 @@ mod tests {
     }
 
     fn expect_injected_io(result: Result<FragmentScan>) {
-        match result {
-            Err(Error::Io(error)) => {
-                assert_eq!(error.kind(), io::ErrorKind::UnexpectedEof);
-                assert_eq!(error.to_string(), "injected unreadable fragment tail");
-            }
-            Err(other) => panic!("unexpected error: {other:?}"),
-            Ok(_) => panic!("unreadable fragment bytes were accepted"),
-        }
+        let error = result
+            .err()
+            .expect("unreadable fragment bytes were accepted");
+        assert!(
+            matches!(
+                &error,
+                Error::Io(inner) if inner.kind() == io::ErrorKind::UnexpectedEof
+                    && inner.to_string() == "injected unreadable fragment tail"
+            ),
+            "{error:?}"
+        );
     }
 
     #[test]
@@ -527,15 +530,15 @@ mod tests {
             max_input_bytes: hint,
             ..Limits::default()
         };
-        let Err(error) = run(scan_fragment_objects(
+        let error = run(scan_fragment_objects(
             &mut source,
             0,
             hint,
             &limits,
             &NeverCancel,
-        )) else {
-            panic!("an object past the input limit was accepted");
-        };
+        ))
+        .err()
+        .expect("an object past the input limit was accepted");
         assert!(
             matches!(
                 error,
