@@ -491,3 +491,28 @@ fn source_reads_past_the_end_are_clamped_before_reaching_the_host() {
         }
     }
 }
+
+#[test]
+fn a_task_pending_without_a_request_reports_idle_until_it_completes() {
+    // The bridged operations always leave a request when they wait, so a
+    // hand-built task stands in for one that yields without host I/O.
+    let copy = Operation::Copy {
+        offset: 0,
+        length: 0,
+    };
+    let mut engine = Engine::start(0, limits(512), copy).unwrap();
+    let mut yielded = false;
+    engine.task = Box::pin(poll_fn(move |_| {
+        if std::mem::replace(&mut yielded, true) {
+            Poll::Ready(Ok(Outcome {
+                report: ConversionReport::default(),
+                info: None,
+            }))
+        } else {
+            Poll::Pending
+        }
+    }));
+    assert_eq!(engine.poll(), Status::Idle);
+    assert_eq!(engine.request(), None);
+    assert_eq!(engine.poll(), Status::Done);
+}
