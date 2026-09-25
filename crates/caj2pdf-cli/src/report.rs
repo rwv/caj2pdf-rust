@@ -4,7 +4,7 @@
 //! both; the JSON form is versioned by `schema_version`.
 
 use crate::document::{Inspection, conversion_supported, format_name};
-use crate::json::{write_number, write_string};
+use crate::json::{write_literal, write_string};
 use caj2pdf_core::Bookmark;
 use std::io::{self, Write};
 
@@ -20,16 +20,15 @@ fn yes_no(value: Option<bool>) -> &'static str {
 
 /// Replace control characters so that a title cannot drive the terminal.
 fn printable(title: &str) -> String {
-    title
-        .chars()
-        .map(|character| {
-            if character.is_control() {
-                format!("\\u{{{:x}}}", u32::from(character))
-            } else {
-                character.to_string()
-            }
-        })
-        .collect()
+    let mut text = String::with_capacity(title.len());
+    for character in title.chars() {
+        if character.is_control() {
+            text.push_str(&format!("\\u{{{:x}}}", u32::from(character)));
+        } else {
+            text.push(character);
+        }
+    }
+    text
 }
 
 pub fn write_text<W: Write>(out: &mut W, info: &Inspection, list: bool) -> io::Result<()> {
@@ -122,15 +121,12 @@ pub fn write_json<W: Write>(out: &mut W, info: &Inspection, list: bool) -> io::R
         ",\"conversion_supported\":{},\"page_count\":",
         conversion_supported(info.format)
     )?;
-    write_number(out, info.page_count)?;
+    write_literal(out, info.page_count)?;
     out.write_all(b",\"has_outline\":")?;
-    match info.has_outline {
-        Some(value) => write!(out, "{value}")?,
-        None => out.write_all(b"null")?,
-    }
+    write_literal(out, info.has_outline)?;
     out.write_all(b",\"bookmark_count\":")?;
     let bookmarks = info.bookmarks.as_deref();
-    write_number(out, bookmarks.map(|list| list.len() as u32))?;
+    write_literal(out, bookmarks.map(<[Bookmark]>::len))?;
     if list {
         out.write_all(b",\"bookmarks\":")?;
         match bookmarks {

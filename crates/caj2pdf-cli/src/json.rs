@@ -2,6 +2,7 @@
 
 //! Minimal JSON string encoding for the inspection report (RFC 8259 §7).
 
+use std::fmt::Display;
 use std::io::{self, Write};
 
 /// Write `value` as a quoted JSON string. Quotes, backslashes, and control
@@ -31,8 +32,9 @@ pub fn write_string<W: Write>(out: &mut W, value: &str) -> io::Result<()> {
     out.write_all(b"\"")
 }
 
-/// Write an optional unsigned number, or `null`.
-pub fn write_number<W: Write>(out: &mut W, value: Option<u32>) -> io::Result<()> {
+/// Write an optional number or boolean, or `null`. `T` must display as a
+/// JSON literal.
+pub fn write_literal<W: Write, T: Display>(out: &mut W, value: Option<T>) -> io::Result<()> {
     match value {
         Some(value) => write!(out, "{value}"),
         None => out.write_all(b"null"),
