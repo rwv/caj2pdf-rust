@@ -2682,7 +2682,8 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
             .entries
             .iter()
             .filter(|entry| entry.name != b"Parent")
-            .try_fold(4_usize + replacement.len(), |size, entry| {
+            // "<<\n" and ">>" frame the retained pairs and replacement.
+            .try_fold(5_usize + replacement.len(), |size, entry| {
                 size.checked_add(entry.pair.len() + 1)
             })
             .ok_or_else(|| {
@@ -2737,6 +2738,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
         }
         body.extend_from_slice(replacement.as_bytes());
         body.extend_from_slice(b">>");
+        debug_assert_eq!(body.len(), needed);
         push_bounded(
             &mut index.repair_objects,
             RepairObject { reference, body },
