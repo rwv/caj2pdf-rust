@@ -82,6 +82,13 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfWriter<'a, W, C> {
         self.position
     }
 
+    /// Pretend the sink has accepted `position` bytes, to reach output-size
+    /// limits without writing them.
+    #[cfg(test)]
+    pub(crate) fn set_position_for_test(&mut self, position: u64) {
+        self.position = position;
+    }
+
     /// Reserve one generation-zero object number before writing its body.
     ///
     /// The object index requests capacity within
