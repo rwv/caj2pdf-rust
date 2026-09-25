@@ -916,6 +916,65 @@ mod tests {
         let dangling_pair = head_issue(b"1 0 obj 5 0");
         assert!(dangling_pair.incomplete);
         assert_eq!(dangling_pair.reason, "PDF reference may be truncated");
+
+        let other = head_issue(b"1 0 xyz null endobj");
+        assert!(!other.incomplete);
+        assert_eq!(other.reason, "unexpected PDF keyword");
+        assert_eq!(other.at, 4);
+    }
+
+    #[test]
+    fn name_escapes_decode_or_report_their_position() {
+        let head = parse_object_head(b"1 0 obj << /A#42 /V#43 >> endobj".to_vec()).unwrap();
+        let dictionary = head.dictionary.unwrap();
+        assert_eq!(dictionary.value(b"AB"), Some(b"/V#43".as_slice()));
+        assert_eq!(exact_name(b"/V#43").as_deref(), Some(b"VC".as_slice()));
+        // Keys are decoded by `name`; values are skipped by `skip_value`.
+        for (raw, at, incomplete, reason) in [
+            (
+                b"1 0 obj << /A#4".as_slice(),
+                13,
+                true,
+                "escaped PDF name is truncated",
+            ),
+            (
+                b"1 0 obj << /A#G1 1 >> endobj",
+                14,
+                false,
+                "invalid PDF name escape",
+            ),
+            (
+                b"1 0 obj << /A#4G 1 >> endobj",
+                15,
+                false,
+                "invalid PDF name escape",
+            ),
+            (
+                b"1 0 obj << /A /V#4",
+                16,
+                true,
+                "escaped PDF name is truncated",
+            ),
+            (
+                b"1 0 obj << /A /V#G1 >> endobj",
+                17,
+                false,
+                "invalid PDF name escape",
+            ),
+            (
+                b"1 0 obj << /A /V#4G >> endobj",
+                18,
+                false,
+                "invalid PDF name escape",
+            ),
+        ] {
+            let issue = head_issue(raw);
+            assert_eq!(
+                (issue.at, issue.incomplete, issue.reason),
+                (at, incomplete, reason),
+                "{raw:?}"
+            );
+        }
     }
 
     #[test]
