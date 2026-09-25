@@ -2263,17 +2263,13 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                 .filter(|(position, entry)| keep(*position, entry))
                 .map(|(_, entry)| entry.raw_pair(&dictionary.bytes))
         };
-        let overflow = |message| self.malformed(at, Some(reference), message);
         // "<<\n" and ">>" frame the retained pairs, one newline each, and the
-        // appended bytes.
-        let needed = kept()
-            .try_fold(5_usize + appended.len(), |size, pair| {
-                size.checked_add(pair.len() + 1)
-            })
-            .ok_or_else(|| overflow("PDF repair object size overflows"))?;
-        let next_retained = retained_repair_bytes
-            .checked_add(needed as u64)
-            .ok_or_else(|| overflow("PDF repair metadata size overflows"))?;
+        // appended bytes. A saturated size cannot be allocated: it exceeds the
+        // cap below on 64-bit targets and fails the reservation on 32-bit ones.
+        let needed = kept().fold(5_usize.saturating_add(appended.len()), |size, pair| {
+            size.saturating_add(pair.len() + 1)
+        });
+        let next_retained = retained_repair_bytes.saturating_add(needed as u64);
         let cap = self.limits.max_allocation_bytes / 2;
         if next_retained > cap {
             return Err(self.locate_limit(

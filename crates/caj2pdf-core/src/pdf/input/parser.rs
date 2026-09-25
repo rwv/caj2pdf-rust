@@ -999,6 +999,24 @@ mod tests {
     }
 
     #[test]
+    fn exact_references_and_object_heads_reject_oversized_components() {
+        assert_eq!(
+            exact_reference(b"4294967295 65535 R"),
+            Some(PdfRef {
+                number: u32::MAX,
+                generation: u16::MAX
+            })
+        );
+        assert_eq!(exact_reference(b"4294967296 0 R"), None);
+        assert_eq!(exact_reference(b"1 65536 R"), None);
+        let issue = head_issue(b"1 65536 obj null endobj");
+        assert_eq!(
+            (issue.at, issue.reason),
+            (0, "PDF generation exceeds 16 bits")
+        );
+    }
+
+    #[test]
     fn string_nesting_is_bounded() {
         let nesting = MAX_SYNTAX_DEPTH as usize;
         let nested = |depth: usize| {
