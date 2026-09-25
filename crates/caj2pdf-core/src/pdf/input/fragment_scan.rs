@@ -404,22 +404,14 @@ async fn repair_stream_length<S: RangedSource, C: Cancellation>(
 
 #[cfg(test)]
 mod tests {
+    // Kept inline rather than in `../tests.rs`: several of the scanner's
+    // defensive branches are unreachable, and without these lines the file
+    // falls below the per-file coverage floor.
     use super::*;
     use crate::native::SeekableSource;
+    use crate::test_support::run;
     use crate::{NeverCancel, read_exact_at};
-    use std::future::Future;
     use std::io::{self, Cursor};
-    use std::pin::pin;
-    use std::task::{Context, Poll, Waker};
-
-    fn run<F: Future>(future: F) -> F::Output {
-        let mut context = Context::from_waker(Waker::noop());
-        let mut future = pin!(future);
-        match future.as_mut().poll(&mut context) {
-            Poll::Ready(value) => value,
-            Poll::Pending => panic!("in-memory fragment source yielded unexpectedly"),
-        }
-    }
 
     /// A source whose bytes from `unreadable_from` onward fail with an I/O
     /// error, as a truncated network range or failing disk sector would.

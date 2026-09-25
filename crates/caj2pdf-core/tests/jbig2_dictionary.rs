@@ -3,6 +3,8 @@
 //! Invented arithmetic states test the public dictionary model, not T.88
 //! Table E.1 or external CAJ/HN symbol-pixel compatibility.
 
+mod common;
+
 use caj2pdf_core::{
     Limits, NeverCancel, RangedSource, SequentialSink,
     jbig2::{
@@ -16,6 +18,7 @@ use caj2pdf_core::{
         read_segment_header,
     },
 };
+use common::CancelAfter;
 use std::{
     cell::Cell,
     future::{Future, pending},
@@ -1795,28 +1798,12 @@ fn header_field_at_the_end_of_the_address_space_is_an_invalid_span() {
     assert_eq!(error.progress.header_bytes_fetched, 11);
 }
 
-/// Reports cancellation from the `remaining`-th poll onward. Sweeping this
-/// value visits every cancellation checkpoint without knowing their places.
-struct CancelAfter(Cell<u32>);
-
-impl caj2pdf_core::Cancellation for CancelAfter {
-    fn is_cancelled(&self) -> bool {
-        match self.0.get() {
-            0 => true,
-            remaining => {
-                self.0.set(remaining - 1);
-                false
-            }
-        }
-    }
-}
-
 #[test]
 fn cancellation_at_every_checkpoint_never_reports_a_catalog() {
     let table = table();
     let mut cancelled_runs = 0;
     for polls in 0..10_000 {
-        let cancellation = CancelAfter(Cell::new(polls));
+        let cancellation = CancelAfter::new(polls);
         let mut source = segment(0x0800, &[(2, -1)], &[], 0, 1, &ONE_SYMBOL, &[]);
         let hdr = header(&mut source);
         let mut store = Store {
@@ -1882,11 +1869,5 @@ fn allocation_failure_message_and_formatter_errors_are_reported() {
         "JBIG2 symbol dictionary segment 4 at source byte 9: allocation failed"
     );
     assert!(std::error::Error::source(&error).is_none());
-    struct Refuse;
-    impl std::fmt::Write for Refuse {
-        fn write_str(&mut self, _: &str) -> std::fmt::Result {
-            Err(std::fmt::Error)
-        }
-    }
-    assert!(std::fmt::write(&mut Refuse, format_args!("{error}")).is_err());
+    common::assert_display_propagates_fmt_error(&error);
 }

@@ -846,120 +846,93 @@ impl<'a, S: RangedSource, C: Cancellation> MqDecoder<'a, S, C> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::ready;
     use crate::{NeverCancel, native::SeekableSource};
-    use std::{
-        future::Future,
-        io::Cursor,
-        pin::pin,
-        task::{Context, Poll, Waker},
-    };
+    use std::io::Cursor;
 
-    fn ready<F: Future>(future: F) -> F::Output {
-        let mut future = pin!(future);
-        let mut context = Context::from_waker(Waker::noop());
-        match future.as_mut().poll(&mut context) {
-            Poll::Ready(value) => value,
-            Poll::Pending => panic!("in-memory source unexpectedly yielded"),
-        }
+    type TestDecoder<'a> = MqDecoder<'a, SeekableSource<Cursor<Vec<u8>>>, NeverCancel>;
+
+    /// Runs `test` on a decoder over a three-byte span with a flat,
+    /// single-context table and the given budget.
+    fn with_flat_decoder<R>(budget: MqBudget, test: impl FnOnce(&mut TestDecoder<'_>) -> R) -> R {
+        let limits = Limits::default();
+        let states = vec![
+            MqState {
+                qe: 0x4000,
+                next_mps: 0,
+                next_lps: 0,
+                switch_mps: false,
+            };
+            MQ_STATE_COUNT
+        ];
+        let table = MqTable::new(states, &limits).unwrap();
+        let mut contexts = MqContexts::new(1, &limits, &budget).unwrap();
+        let mut source = SeekableSource::new(Cursor::new(vec![0, 0xff, 0xac])).unwrap();
+        let mut decoder = ready(MqDecoder::new(
+            &mut source,
+            MqSpan {
+                offset: 0,
+                length: 3,
+            },
+            &table,
+            &mut contexts,
+            &limits,
+            &NeverCancel,
+            budget,
+        ))
+        .unwrap();
+        test(&mut decoder)
     }
 
     #[test]
     fn work_and_terminal_counters_reject_u64_max_overflow() {
-        let limits = Limits::default();
         let budget = MqBudget {
             max_work: u64::MAX,
             max_terminal_inputs: u64::MAX,
             ..MqBudget::default()
         };
-        let states = vec![
-            MqState {
-                qe: 0x4000,
-                next_mps: 0,
-                next_lps: 0,
-                switch_mps: false,
-            };
-            MQ_STATE_COUNT
-        ];
-        let table = MqTable::new(states, &limits).unwrap();
-        let mut contexts = MqContexts::new(1, &limits, &budget).unwrap();
-        let mut source = SeekableSource::new(Cursor::new(vec![0, 0xff, 0xac])).unwrap();
-        let mut decoder = ready(MqDecoder::new(
-            &mut source,
-            MqSpan {
-                offset: 0,
-                length: 3,
-            },
-            &table,
-            &mut contexts,
-            &limits,
-            &NeverCancel,
-            budget,
-        ))
-        .unwrap();
-        decoder.work_done = u64::MAX;
-        assert!(matches!(
-            decoder.charge(1, None).unwrap_err().kind,
-            MqErrorKind::LimitExceeded {
-                resource: "MQ work",
-                ..
-            }
-        ));
-        decoder.work_done = 0;
-        decoder.terminal_inputs = u64::MAX;
-        assert!(matches!(
-            ready(decoder.byte_in(None)).unwrap_err().kind,
-            MqErrorKind::LimitExceeded {
-                resource: "MQ terminal inputs",
-                ..
-            }
-        ));
+        with_flat_decoder(budget, |decoder| {
+            decoder.work_done = u64::MAX;
+            assert!(matches!(
+                decoder.charge(1, None).unwrap_err().kind,
+                MqErrorKind::LimitExceeded {
+                    resource: "MQ work",
+                    ..
+                }
+            ));
+            decoder.work_done = 0;
+            decoder.terminal_inputs = u64::MAX;
+            assert!(matches!(
+                ready(decoder.byte_in(None)).unwrap_err().kind,
+                MqErrorKind::LimitExceeded {
+                    resource: "MQ terminal inputs",
+                    ..
+                }
+            ));
+        });
     }
 
     #[test]
     fn symbol_counter_rejects_u64_max_overflow_before_any_work() {
-        let limits = Limits::default();
         let budget = MqBudget {
             max_symbols: u64::MAX,
             ..MqBudget::default()
         };
-        let states = vec![
-            MqState {
-                qe: 0x4000,
-                next_mps: 0,
-                next_lps: 0,
-                switch_mps: false,
-            };
-            MQ_STATE_COUNT
-        ];
-        let table = MqTable::new(states, &limits).unwrap();
-        let mut contexts = MqContexts::new(1, &limits, &budget).unwrap();
-        let mut source = SeekableSource::new(Cursor::new(vec![0, 0xff, 0xac])).unwrap();
-        let mut decoder = ready(MqDecoder::new(
-            &mut source,
-            MqSpan {
-                offset: 0,
-                length: 3,
-            },
-            &table,
-            &mut contexts,
-            &limits,
-            &NeverCancel,
-            budget,
-        ))
-        .unwrap();
-        decoder.symbols_decoded = u64::MAX;
-        let before = decoder.snapshot();
-        let error = ready(decoder.decode_bit(0)).unwrap_err();
-        assert_eq!(error.context, Some(0));
-        assert!(matches!(
-            error.kind,
-            MqErrorKind::LimitExceeded {
-                resource: "MQ symbols",
-                limit: u64::MAX,
-                attempted: u64::MAX,
-            }
-        ));
-        // The preflight failure leaves registers, work, and poison untouched.
-        assert_eq!(decoder.snapshot(), before);
+        with_flat_decoder(budget, |decoder| {
+            decoder.symbols_decoded = u64::MAX;
+            let before = decoder.snapshot();
+            let error = ready(decoder.decode_bit(0)).unwrap_err();
+            assert_eq!(error.context, Some(0));
+            assert!(matches!(
+                error.kind,
+                MqErrorKind::LimitExceeded {
+                    resource: "MQ symbols",
+                    limit: u64::MAX,
+                    attempted: u64::MAX,
+                }
+            ));
+            // The preflight failure leaves registers, work, and poison untouched.
+            assert_eq!(decoder.snapshot(), before);
+        });
     }
 }

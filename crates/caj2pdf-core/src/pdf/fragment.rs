@@ -1934,22 +1934,8 @@ fn validate_existing_page_tree(
 mod tests {
     use super::*;
     use crate::NeverCancel;
-    use std::{
-        cell::Cell,
-        future::Future,
-        io,
-        pin::pin,
-        task::{Context, Poll, Waker},
-    };
-
-    fn run<F: Future>(future: F) -> F::Output {
-        let mut context = Context::from_waker(Waker::noop());
-        let mut future = pin!(future);
-        match future.as_mut().poll(&mut context) {
-            Poll::Ready(value) => value,
-            Poll::Pending => panic!("test I/O unexpectedly yielded"),
-        }
-    }
+    use crate::test_support::{CancelAfter, run};
+    use std::{cell::Cell, io};
 
     struct BytesSource(Vec<u8>);
 
@@ -3503,17 +3489,14 @@ mod tests {
         }
     }
 
-    /// Reports cancellation from the `trip_at`-th query onward.
-    struct CancelAfter {
-        queries: Cell<usize>,
-        trip_at: usize,
-    }
-
-    impl Cancellation for CancelAfter {
-        fn is_cancelled(&self) -> bool {
-            let query = self.queries.get() + 1;
-            self.queries.set(query);
-            query >= self.trip_at
+    /// The usual plan: `pages` under a synthetic-or-existing root 5 and no
+    /// catalog.
+    fn plan<'a>(objects: &'a [FragmentObject], pages: &'a [PdfRef]) -> FragmentPlan<'a> {
+        FragmentPlan {
+            objects,
+            pages,
+            pages_root: reference(5),
+            catalog: None,
         }
     }
 
@@ -3573,12 +3556,7 @@ mod tests {
         run(async {
             let (inner, objects, pages) = two_page_fragment();
             let mut source = OverReportingSource(inner);
-            let plan = FragmentPlan {
-                objects: &objects,
-                pages: &pages,
-                pages_root: reference(5),
-                catalog: None,
-            };
+            let plan = plan(&objects, &pages);
             let mut sink = BytesSink::default();
             assert!(matches!(
                 reconstruct_fragment(
@@ -3601,12 +3579,7 @@ mod tests {
     fn page_limit_names_the_first_ordered_page_span() {
         run(async {
             let (mut source, objects, pages) = two_page_fragment();
-            let plan = FragmentPlan {
-                objects: &objects,
-                pages: &pages,
-                pages_root: reference(5),
-                catalog: None,
-            };
+            let plan = plan(&objects, &pages);
             let limits = Limits {
                 max_pages: 1,
                 ..Limits::default()
@@ -3636,12 +3609,7 @@ mod tests {
     fn outline_depth_is_bounded_before_output() {
         run(async {
             let (mut source, objects, pages) = two_page_fragment();
-            let plan = FragmentPlan {
-                objects: &objects,
-                pages: &pages,
-                pages_root: reference(5),
-                catalog: None,
-            };
+            let plan = plan(&objects, &pages);
             let deep: Vec<Bookmark> = (0..=MAX_OUTLINE_DEPTH as u32)
                 .map(|depth| Bookmark {
                     depth,
@@ -3694,12 +3662,7 @@ mod tests {
     fn long_outline_titles_are_emitted_in_bounded_chunks() {
         run(async {
             let (mut source, objects, pages) = two_page_fragment();
-            let plan = FragmentPlan {
-                objects: &objects,
-                pages: &pages,
-                pages_root: reference(5),
-                catalog: None,
-            };
+            let plan = plan(&objects, &pages);
             let bookmarks = [Bookmark {
                 depth: 0,
                 title: "A".repeat(3000),
@@ -3730,12 +3693,7 @@ mod tests {
     fn nested_contents_and_outline_round_trip_through_the_reader() {
         run(async {
             let (mut source, objects, pages) = content_rich_fragment();
-            let plan = FragmentPlan {
-                objects: &objects,
-                pages: &pages,
-                pages_root: reference(5),
-                catalog: None,
-            };
+            let plan = plan(&objects, &pages);
             let bookmarks = alternating_bookmarks(4);
             let mut sink = BytesSink::default();
             let report = reconstruct_fragment_with_bookmarks(
@@ -3785,12 +3743,7 @@ mod tests {
             let mut expected = BytesSink::default();
             {
                 let (mut source, objects, pages) = indexed_heavy_fragment();
-                let plan = FragmentPlan {
-                    objects: &objects,
-                    pages: &pages,
-                    pages_root: reference(5),
-                    catalog: None,
-                };
+                let plan = plan(&objects, &pages);
                 reconstruct_fragment_with_bookmarks(
                     &mut source,
                     &mut expected,
@@ -3805,12 +3758,7 @@ mod tests {
             let mut resources = Vec::new();
             loop {
                 let (mut source, objects, pages) = indexed_heavy_fragment();
-                let plan = FragmentPlan {
-                    objects: &objects,
-                    pages: &pages,
-                    pages_root: reference(5),
-                    catalog: None,
-                };
+                let plan = plan(&objects, &pages);
                 let limits = Limits {
                     io_chunk_bytes: 1,
                     max_allocation_bytes: ceiling,
@@ -3873,12 +3821,7 @@ mod tests {
     fn output_buffer_is_charged_together_with_the_object_index() {
         run(async {
             let (mut source, objects, pages) = two_page_fragment();
-            let plan = FragmentPlan {
-                objects: &objects,
-                pages: &pages,
-                pages_root: reference(5),
-                catalog: None,
-            };
+            let plan = plan(&objects, &pages);
             let limits = Limits {
                 io_chunk_bytes: 4096,
                 max_allocation_bytes: 4096,
@@ -3909,12 +3852,7 @@ mod tests {
     fn page_reference_buffer_flushes_before_it_overflows_a_chunk() {
         run(async {
             let (mut source, objects, pages) = two_page_fragment();
-            let plan = FragmentPlan {
-                objects: &objects,
-                pages: &pages,
-                pages_root: reference(5),
-                catalog: None,
-            };
+            let plan = plan(&objects, &pages);
             let limits = Limits {
                 io_chunk_bytes: 10,
                 ..Limits::default()
@@ -3929,23 +3867,40 @@ mod tests {
         .unwrap();
     }
 
+    /// The smallest fragment that still reads a scalar, an indirect Contents
+    /// array, and a stream, and copies an existing page tree.
+    fn lean_content_fragment() -> (BytesSource, Vec<FragmentObject>, Vec<PdfRef>) {
+        let mut bytes = b"CAJ\0".to_vec();
+        let objects = vec![
+            add_object(
+                &mut bytes,
+                9,
+                b"<< /Type /Page /Parent 5 0 R /MediaBox [0 0 1 1] /Contents 4 0 R >>",
+            ),
+            add_object(&mut bytes, 5, b"<< /Type /Pages /Count 1 /Kids [9 0 R] >>"),
+            add_object(&mut bytes, 4, b"[6 0 R]"),
+            add_object(
+                &mut bytes,
+                6,
+                b"<< /Length 2 0 R >>\nstream\nq Q\nendstream",
+            ),
+            add_object(&mut bytes, 2, b"3"),
+        ];
+        (BytesSource(bytes), objects, vec![reference(9)])
+    }
+
     #[test]
     fn cancellation_at_every_checkpoint_never_reports_success() {
         run(async {
-            let bookmarks = alternating_bookmarks(3);
-            let mut trip_at = 1;
+            // Every query is tripped once, so the run is quadratic in the
+            // checkpoint count: keep the fixture to one of each read, copy,
+            // outline, xref, and trailer checkpoint.
+            let bookmarks = alternating_bookmarks(1);
+            let mut allowed = 0;
             loop {
-                let (mut source, objects, pages) = content_rich_fragment();
-                let plan = FragmentPlan {
-                    objects: &objects,
-                    pages: &pages,
-                    pages_root: reference(5),
-                    catalog: None,
-                };
-                let cancellation = CancelAfter {
-                    queries: Cell::new(0),
-                    trip_at,
-                };
+                let (mut source, objects, pages) = lean_content_fragment();
+                let plan = plan(&objects, &pages);
+                let cancellation = CancelAfter::new(allowed);
                 let mut sink = BytesSink::default();
                 match reconstruct_fragment_with_bookmarks(
                     &mut source,
@@ -3957,13 +3912,14 @@ mod tests {
                 )
                 .await
                 {
-                    Err(Error::Cancelled) => trip_at += 1,
+                    Err(Error::Cancelled) => allowed += 1,
                     Ok(report) => {
-                        assert!(trip_at > 100, "only {trip_at} cancellation checks");
+                        assert!(allowed >= 100, "only {allowed} cancellation checks");
                         assert_eq!(report.output_bytes_written, sink.bytes.len() as u64);
+                        assert_eq!(report.bookmarks_written, 1);
                         break;
                     }
-                    Err(other) => panic!("query {trip_at}: unexpected {other}"),
+                    Err(other) => panic!("query {}: unexpected {other}", allowed + 1),
                 }
             }
         });
@@ -4006,12 +3962,7 @@ mod tests {
                 segments,
             };
             let pages = [reference(9)];
-            let plan = FragmentPlan {
-                objects: &objects,
-                pages: &pages,
-                pages_root: reference(5),
-                catalog: None,
-            };
+            let plan = plan(&objects, &pages);
             let limits = Limits {
                 max_input_bytes: u64::MAX,
                 max_output_bytes: u64::MAX,
@@ -4060,12 +4011,7 @@ mod tests {
             let (mut source, mut objects, pages) = two_page_fragment();
             let extra = add_object(&mut source.0, 12, b"<< /Next 9000000 0 R >>");
             objects.push(extra);
-            let plan = FragmentPlan {
-                objects: &objects,
-                pages: &pages,
-                pages_root: reference(5),
-                catalog: None,
-            };
+            let plan = plan(&objects, &pages);
             let mut sink = BytesSink::default();
             let error = reconstruct_fragment(
                 &mut source,
@@ -4097,10 +4043,8 @@ mod tests {
         run(async {
             let (mut source, objects, pages) = existing_tree_fragment();
             let plan = FragmentPlan {
-                objects: &objects,
-                pages: &pages,
-                pages_root: reference(5),
                 catalog: Some(reference(1)),
+                ..plan(&objects, &pages)
             };
             let mut sink = BytesSink::default();
             let result = reconstruct_fragment_with_bookmarks(

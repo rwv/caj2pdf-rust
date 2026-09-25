@@ -941,17 +941,16 @@ mod tests {
     #[test]
     fn string_nesting_is_bounded() {
         let nesting = MAX_SYNTAX_DEPTH as usize;
-        let mut accepted = b"1 0 obj ".to_vec();
-        accepted.extend(std::iter::repeat_n(b'(', nesting));
-        accepted.extend(std::iter::repeat_n(b')', nesting));
-        accepted.extend_from_slice(b" endobj");
-        assert!(parse_object_head(accepted).is_ok());
+        let nested = |depth: usize| {
+            let mut object = b"1 0 obj ".to_vec();
+            object.extend(std::iter::repeat_n(b'(', depth));
+            object.extend(std::iter::repeat_n(b')', depth));
+            object.extend_from_slice(b" endobj");
+            object
+        };
+        assert!(parse_object_head(nested(nesting)).is_ok());
 
-        let mut rejected = b"1 0 obj ".to_vec();
-        rejected.extend(std::iter::repeat_n(b'(', nesting + 1));
-        rejected.extend(std::iter::repeat_n(b')', nesting + 1));
-        rejected.extend_from_slice(b" endobj");
-        let issue = head_issue(&rejected);
+        let issue = head_issue(&nested(nesting + 1));
         assert_eq!(
             issue.limit,
             Some((
@@ -998,13 +997,7 @@ mod tests {
         for _ in 0..MAX_DICTIONARY_ENTRIES {
             bytes.extend_from_slice(b"/A 1 ");
         }
-        let mut accepted = bytes.clone();
-        accepted.extend_from_slice(b">>");
-        assert_eq!(
-            Syntax::new(&accepted).dictionary(0).unwrap().len(),
-            MAX_DICTIONARY_ENTRIES
-        );
-
+        let full = bytes.len();
         bytes.extend_from_slice(b"/B 2 >>");
         let issue = Syntax::new(&bytes).dictionary(0).unwrap_err();
         assert_eq!(
@@ -1016,6 +1009,14 @@ mod tests {
             ))
         );
         assert_eq!(&bytes[issue.at..issue.at + 2], b"/B");
+
+        // Without the extra entry the same dictionary is accepted.
+        bytes.truncate(full);
+        bytes.extend_from_slice(b">>");
+        assert_eq!(
+            Syntax::new(&bytes).dictionary(0).unwrap().len(),
+            MAX_DICTIONARY_ENTRIES
+        );
     }
 
     #[test]
@@ -1024,12 +1025,7 @@ mod tests {
         for _ in 0..MAX_REFERENCES_PER_OBJECT {
             bytes.extend_from_slice(b"2 0 R ");
         }
-        let mut accepted = bytes.clone();
-        accepted.extend_from_slice(b"] endobj");
-        let head = parse_object_head(accepted).unwrap();
-        assert_eq!(head.references.len(), MAX_REFERENCES_PER_OBJECT);
-        assert_eq!(head.max_reference, 2);
-
+        let full = bytes.len();
         bytes.extend_from_slice(b"3 0 R] endobj");
         let issue = head_issue(&bytes);
         assert_eq!(
@@ -1041,6 +1037,13 @@ mod tests {
             ))
         );
         assert_eq!(issue.reason, "PDF syntax resource limit exceeded");
+
+        // Without the extra reference the same object is accepted.
+        bytes.truncate(full);
+        bytes.extend_from_slice(b"] endobj");
+        let head = parse_object_head(bytes).unwrap();
+        assert_eq!(head.references.len(), MAX_REFERENCES_PER_OBJECT);
+        assert_eq!(head.max_reference, 2);
     }
 
     #[test]

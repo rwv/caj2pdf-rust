@@ -977,22 +977,8 @@ mod tests {
     use super::*;
     use crate::NeverCancel;
     use crate::pdf::{PdfIndex, PdfRange};
-    use std::{
-        cell::Cell,
-        future::Future,
-        io,
-        pin::pin,
-        task::{Context, Poll, Waker},
-    };
-
-    fn run<F: Future>(future: F) -> F::Output {
-        let mut context = Context::from_waker(Waker::noop());
-        let mut future = pin!(future);
-        match future.as_mut().poll(&mut context) {
-            Poll::Ready(value) => value,
-            Poll::Pending => panic!("test I/O unexpectedly yielded"),
-        }
-    }
+    use crate::test_support::{CancelAfter, run};
+    use std::io;
 
     /// A source whose bytes are all `0x5A`, optionally claiming to have read
     /// one byte more than the caller requested.
@@ -1042,20 +1028,6 @@ mod tests {
 
         async fn flush(&mut self) -> Result<()> {
             Ok(())
-        }
-    }
-
-    /// Reports cancellation from the `trip_at`-th query onward.
-    struct CancelAfter {
-        queries: Cell<usize>,
-        trip_at: usize,
-    }
-
-    impl Cancellation for CancelAfter {
-        fn is_cancelled(&self) -> bool {
-            let query = self.queries.get() + 1;
-            self.queries.set(query);
-            query >= self.trip_at
         }
     }
 
@@ -1193,12 +1165,49 @@ mod tests {
         ));
     }
 
+    /// Counts output bytes and keeps only page-tree node objects, so a very
+    /// large document can be checked without retaining or rescanning it.
+    #[derive(Default)]
+    struct PageTreeSink {
+        written: u64,
+        object: Vec<u8>,
+        page_nodes: Vec<Vec<u8>>,
+    }
+
+    impl SequentialSink for PageTreeSink {
+        async fn write(&mut self, bytes: &[u8]) -> Result<usize> {
+            // Page-tree nodes are small; larger runs (the xref table) are
+            // never page-tree objects and need not be retained.
+            if self.object.len() > 64 * 1024 {
+                self.object.clear();
+            }
+            self.written += bytes.len() as u64;
+            self.object.extend_from_slice(bytes);
+            if self.object.ends_with(b"\nendobj\n") {
+                let body = self
+                    .object
+                    .iter()
+                    .position(|byte| *byte == b'\n')
+                    .map_or(&[][..], |header| &self.object[header + 1..]);
+                if body.starts_with(b"<< /Type /Pages ") {
+                    self.page_nodes.push(body.to_vec());
+                }
+                self.object.clear();
+            }
+            Ok(bytes.len())
+        }
+
+        async fn flush(&mut self) -> Result<()> {
+            Ok(())
+        }
+    }
+
     #[test]
     fn full_middle_node_starts_a_second_root_kid() -> Result<()> {
         const PER_MIDDLE: usize = PAGE_TREE_FANOUT * PAGE_TREE_FANOUT;
         const PAGES: u32 = PER_MIDDLE as u32 + 1;
         let mut source = FilledSource::new(1);
-        let mut sink = VecSink::default();
+        let mut sink = PageTreeSink::default();
         let limits = Limits::default();
         let report = run(async {
             let mut document = PdfDocument::new(&mut sink, &limits, &NeverCancel).await?;
@@ -1213,18 +1222,31 @@ mod tests {
         })?;
         assert_eq!(report.pages_converted, PAGES);
         assert_eq!(report.input_bytes_read, u64::from(PAGES));
-        assert_eq!(report.output_bytes_written, sink.bytes.len() as u64);
-        let text = String::from_utf8_lossy(&sink.bytes);
-        let root = text
-            .find(&format!("<< /Type /Pages /Count {PAGES} /Kids ["))
-            .expect("Pages root is written");
-        let kids = &text[root..root + text[root..].find("] >>").unwrap()];
-        assert_eq!(kids.matches(" 0 R").count(), 2);
-        assert_eq!(
-            text.matches(&format!("/Count {PER_MIDDLE} /Kids ["))
-                .count(),
-            1
-        );
+        assert_eq!(report.output_bytes_written, sink.written);
+        // 257 leaves, two middle nodes, and the root.
+        assert_eq!(sink.page_nodes.len(), 257 + 2 + 1);
+        let root_prefix = format!("<< /Type /Pages /Count {PAGES} /Kids [");
+        let roots: Vec<_> = sink
+            .page_nodes
+            .iter()
+            .filter(|node| node.starts_with(root_prefix.as_bytes()))
+            .collect();
+        assert_eq!(roots.len(), 1);
+        let root_kids = roots[0]
+            .windows(b" 0 R".len())
+            .filter(|window| *window == b" 0 R")
+            .count();
+        assert_eq!(root_kids, 2);
+        let full_middle = format!("/Count {PER_MIDDLE} /Kids [");
+        let full_middles = sink
+            .page_nodes
+            .iter()
+            .filter(|node| {
+                node.windows(full_middle.len())
+                    .any(|window| window == full_middle.as_bytes())
+            })
+            .count();
+        assert_eq!(full_middles, 1);
         Ok(())
     }
 
@@ -1277,21 +1299,18 @@ mod tests {
     #[test]
     fn cancellation_at_every_checkpoint_never_reports_success() {
         let limits = Limits::default();
-        let mut trip_at = 1;
+        let mut allowed = 0;
         loop {
             let mut sink = VecSink::default();
-            let cancellation = CancelAfter {
-                queries: Cell::new(0),
-                trip_at,
-            };
+            let cancellation = CancelAfter::new(allowed);
             match run(write_sample(&mut sink, &limits, &cancellation)) {
-                Err(Error::Cancelled) => trip_at += 1,
+                Err(Error::Cancelled) => allowed += 1,
                 Ok(report) => {
-                    assert!(trip_at > 20, "only {trip_at} cancellation checks");
+                    assert!(allowed >= 20, "only {allowed} cancellation checks");
                     assert_eq!(report.output_bytes_written, sink.bytes.len() as u64);
                     break;
                 }
-                Err(other) => panic!("query {trip_at}: unexpected {other:?}"),
+                Err(other) => panic!("query {}: unexpected {other:?}", allowed + 1),
             }
         }
     }

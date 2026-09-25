@@ -1442,22 +1442,32 @@ fn object_offset(input: &[u8], number: u32) -> u64 {
         .expect("object header present") as u64
 }
 
+fn page_numbers(pdf: &[u8]) -> Vec<u32> {
+    inspect(pdf)
+        .pages()
+        .iter()
+        .map(|page| page.number)
+        .collect()
+}
+
+/// Pages `first` and `second` under different absent parents 5 and 6.
+fn two_orphan_pages(first: u32, second: u32) -> Vec<u8> {
+    let mut body = Vec::new();
+    for (number, parent) in [(first, 5), (second, 6)] {
+        object(
+            &mut body,
+            number,
+            &format!("<< /Type /Page /Parent {parent} 0 R /MediaBox [0 0 72 72] >>"),
+        );
+    }
+    fragment_caj(&body, &[first, second])
+}
+
 #[test]
 fn synthetic_root_number_cannot_overflow_past_the_highest_object() {
     // Two pages under different absent parents need a new joining root, but
     // the largest possible object number is already occupied.
-    let mut body = Vec::new();
-    object(
-        &mut body,
-        9,
-        "<< /Type /Page /Parent 5 0 R /MediaBox [0 0 72 72] >>",
-    );
-    object(
-        &mut body,
-        u32::MAX,
-        "<< /Type /Page /Parent 6 0 R /MediaBox [0 0 72 72] >>",
-    );
-    let input = fragment_caj(&body, &[9, u32::MAX]);
+    let input = two_orphan_pages(9, u32::MAX);
     let body_start = 0x400 + 2 * 12;
     assert_caj_error(
         "root number overflow",
@@ -1468,30 +1478,14 @@ fn synthetic_root_number_cannot_overflow_past_the_highest_object() {
     );
 
     // The same layout converts when a joining root number is available.
-    let mut body = Vec::new();
-    object(
-        &mut body,
-        9,
-        "<< /Type /Page /Parent 5 0 R /MediaBox [0 0 72 72] >>",
-    );
-    object(
-        &mut body,
-        10,
-        "<< /Type /Page /Parent 6 0 R /MediaBox [0 0 72 72] >>",
-    );
     let (output, report) = convert(
-        &fragment_caj(&body, &[9, 10]),
+        &two_orphan_pages(9, 10),
         ConversionOptions::default(),
         &Limits::default(),
     )
     .expect("two absent parents should be joined under a new root");
     assert_eq!(report.pages_converted, 2);
-    let pages: Vec<u32> = inspect(&output)
-        .pages()
-        .iter()
-        .map(|page| page.number)
-        .collect();
-    assert_eq!(pages, [9, 10]);
+    assert_eq!(page_numbers(&output), [9, 10]);
 }
 
 #[test]
@@ -1541,12 +1535,7 @@ fn joining_root_allocation_is_checked_after_every_group_node() {
     let (output, report) = convert(&input, ConversionOptions::default(), &Limits::default())
         .expect("groups join under one root with the default allocation budget");
     assert_eq!(report.pages_converted, GROUPS);
-    let order: Vec<u32> = inspect(&output)
-        .pages()
-        .iter()
-        .map(|page| page.number)
-        .collect();
-    assert_eq!(order, pages);
+    assert_eq!(page_numbers(&output), pages);
 }
 
 #[test]

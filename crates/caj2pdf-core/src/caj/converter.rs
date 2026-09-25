@@ -794,6 +794,9 @@ pub async fn convert_caj<S: RangedSource, W: SequentialSink, C: Cancellation>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::native::SeekableSource;
+    use crate::test_support::ready;
+    use std::io::Cursor;
 
     #[test]
     fn synthetic_page_tree_appends_within_budget_at_maximum_object_width() {
@@ -849,33 +852,9 @@ mod tests {
         assert!(rejected_objects.is_empty());
     }
 
-    fn ready<F: std::future::Future>(future: F) -> F::Output {
-        let mut future = std::pin::pin!(future);
-        let mut context = std::task::Context::from_waker(std::task::Waker::noop());
-        match future.as_mut().poll(&mut context) {
-            std::task::Poll::Ready(value) => value,
-            std::task::Poll::Pending => panic!("in-memory source unexpectedly pending"),
-        }
-    }
-
-    struct Bytes(&'static [u8]);
-
-    impl RangedSource for Bytes {
-        fn size(&self) -> u64 {
-            self.0.len() as u64
-        }
-
-        async fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> Result<usize> {
-            let start = offset as usize;
-            let count = destination.len().min(self.0.len() - start);
-            destination[..count].copy_from_slice(&self.0[start..start + count]);
-            Ok(count)
-        }
-    }
-
     #[test]
     fn extended_source_splits_reads_at_the_suffix_and_ends_cleanly() {
-        let mut base = Bytes(b"abc");
+        let mut base = SeekableSource::new(Cursor::new(b"abc")).unwrap();
         let suffix = b"XYZ";
         let mut extended = ExtendedSource::new(&mut base, suffix).unwrap();
         assert_eq!(extended.size(), 6);

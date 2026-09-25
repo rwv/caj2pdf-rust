@@ -272,17 +272,50 @@ mod tests {
     use super::*;
     use crate::NeverCancel;
     use crate::pdf::PdfRange;
-    use std::{
-        future::Future,
-        task::{Context, Poll, Waker},
-    };
+    use crate::test_support::ready;
 
-    fn ready<F: Future>(future: F) -> F::Output {
-        let mut future = std::pin::pin!(future);
-        let mut context = Context::from_waker(Waker::noop());
-        match future.as_mut().poll(&mut context) {
-            Poll::Ready(value) => value,
-            Poll::Pending => panic!("in-memory source unexpectedly pending"),
+    /// Serves `first` until `switch(reads, starts)` holds for a read, then
+    /// `second`. `reads` counts earlier reads; `starts` counts reads at the
+    /// object start, including this one.
+    struct SwitchingSource {
+        first: Vec<u8>,
+        second: Vec<u8>,
+        reads: usize,
+        starts: usize,
+        switch: fn(usize, usize) -> bool,
+    }
+
+    impl SwitchingSource {
+        fn new(first: Vec<u8>, second: Vec<u8>, switch: fn(usize, usize) -> bool) -> Self {
+            Self {
+                first,
+                second,
+                reads: 0,
+                starts: 0,
+                switch,
+            }
+        }
+    }
+
+    impl RangedSource for SwitchingSource {
+        fn size(&self) -> u64 {
+            self.first.len() as u64
+        }
+
+        async fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> Result<usize> {
+            if offset == 0 {
+                self.starts += 1;
+            }
+            let bytes = if (self.switch)(self.reads, self.starts) {
+                &self.second
+            } else {
+                &self.first
+            };
+            let start = offset as usize;
+            let count = destination.len().min(bytes.len().saturating_sub(start));
+            destination[..count].copy_from_slice(&bytes[start..start + count]);
+            self.reads += 1;
+            Ok(count)
         }
     }
 
@@ -665,31 +698,6 @@ mod tests {
 
     #[test]
     fn rejects_changed_link_form_between_head_and_full_read() {
-        struct SwitchingSource {
-            first: Vec<u8>,
-            second: Vec<u8>,
-            reads: usize,
-        }
-
-        impl RangedSource for SwitchingSource {
-            fn size(&self) -> u64 {
-                self.first.len() as u64
-            }
-
-            async fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> Result<usize> {
-                let bytes = if self.reads == 0 {
-                    &self.first
-                } else {
-                    &self.second
-                };
-                let start = offset as usize;
-                let count = destination.len().min(bytes.len().saturating_sub(start));
-                destination[..count].copy_from_slice(&bytes[start..start + count]);
-                self.reads += 1;
-                Ok(count)
-            }
-        }
-
         let first = b"9 0 obj\n<</Subtype/Link /Dest [6 0 R /Fit]>>\nendobj\n".to_vec();
         let mut second = first.clone();
         let subtype = second
@@ -697,11 +705,8 @@ mod tests {
             .position(|window| window == b"/Link")
             .unwrap();
         second[subtype..subtype + 5].copy_from_slice(b"/Null");
-        let mut source = SwitchingSource {
-            first,
-            second,
-            reads: 0,
-        };
+        // Only the first read sees the original bytes.
+        let mut source = SwitchingSource::new(first, second, |reads, _| reads > 0);
         let fragment = FragmentObject {
             reference: PdfRef {
                 number: 9,
@@ -730,47 +735,15 @@ mod tests {
 
     #[test]
     fn rejects_trailing_bytes_that_appear_after_the_bounded_head_read() {
-        /// Serves `first` until a second read restarts at the object start,
-        /// then serves `second`: the tail changes between the whitespace
-        /// scan and the complete candidate read.
-        struct TailChangingSource {
-            first: Vec<u8>,
-            second: Vec<u8>,
-            reads_from_start: usize,
-        }
-
-        impl RangedSource for TailChangingSource {
-            fn size(&self) -> u64 {
-                self.first.len() as u64
-            }
-
-            async fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> Result<usize> {
-                if offset == 0 {
-                    self.reads_from_start += 1;
-                }
-                let bytes = if self.reads_from_start < 2 {
-                    &self.first
-                } else {
-                    &self.second
-                };
-                let start = offset as usize;
-                let count = destination.len().min(bytes.len().saturating_sub(start));
-                destination[..count].copy_from_slice(&bytes[start..start + count]);
-                Ok(count)
-            }
-        }
-
         let object = b"9 0 obj\n[6 0 R /Fit]\nendobj";
         let mut first = object.to_vec();
         first.extend(std::iter::repeat_n(b' ', 1024));
         let mut second = first.clone();
         // Beyond the 512-byte head window, so the head prefix still matches.
         second[800] = b'x';
-        let mut source = TailChangingSource {
-            first,
-            second,
-            reads_from_start: 0,
-        };
+        // The tail changes once a second read restarts at the object start,
+        // between the whitespace scan and the complete candidate read.
+        let mut source = SwitchingSource::new(first, second, |_, starts| starts >= 2);
         let fragment = FragmentObject {
             reference: PdfRef {
                 number: 9,
@@ -797,7 +770,6 @@ mod tests {
                 reason: "link repair object has trailing non-whitespace bytes",
             } if offset == object.len() as u64
         ));
-        assert_eq!(source.reads_from_start, 2);
     }
 
     #[test]
