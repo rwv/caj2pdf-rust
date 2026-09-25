@@ -6,10 +6,9 @@
 //! A normal test run must report this test as ignored. An explicit run checks
 //! every image in the pinned #22 hash catalog and fails on missing inputs.
 
-use caj2pdf_core::qm::{
-    ArithmeticBudget, ArithmeticDecoder, ContextBank, EncodedSpan, QmState, QmTable, StripeMode,
-};
-use caj2pdf_core::{Limits, NeverCancel, native::SeekableSource};
+use caj2pdf_core::jbig1::{Type0Budget, Type0Decoder, Type0Span};
+use caj2pdf_core::qm::{ArithmeticBudget, ContextBank, QmState, QmTable};
+use caj2pdf_core::{Limits, NeverCancel, SequentialSink, native::SeekableSource};
 use sha2::{Digest, Sha256};
 use std::{
     collections::HashSet,
@@ -36,7 +35,6 @@ const MAX_SOURCE_BYTES: u64 = 8 * 1024 * 1024 * 1024;
 const MAX_RAW_BYTES: u64 = 128 * 1024 * 1024;
 const MAX_ENCODED_BYTES: u64 = 64 * 1024 * 1024;
 const MAX_SYMBOLS: u64 = 12_000_000;
-const PSEUDO_CONTEXT: usize = 0b0111001001;
 const CONTEXT_COUNT: usize = 1024;
 
 struct Image {
@@ -317,32 +315,14 @@ impl Drop for Spool {
     }
 }
 
-fn bit(row: &[u8], x: isize, width: usize) -> usize {
-    if x < 0 || x >= width as isize {
-        return 0;
+impl SequentialSink for Spool {
+    async fn write(&mut self, bytes: &[u8]) -> caj2pdf_core::Result<usize> {
+        Ok(self.file().write(bytes)?)
     }
-    let x = x as usize;
-    usize::from(row[x >> 3] & (0x80 >> (x & 7)) != 0)
-}
 
-fn context(cur: &[u8], prev: &[u8], back: &[u8], x: usize, width: usize) -> usize {
-    let x = x as isize;
-    let mut index = 0;
-    for (row, dx) in [
-        (cur, -2),
-        (cur, -1),
-        (prev, -2),
-        (prev, -1),
-        (prev, 0),
-        (prev, 1),
-        (prev, 2),
-        (back, -1),
-        (back, 0),
-        (back, 1),
-    ] {
-        index = (index << 1) | bit(row, x + dx, width);
+    async fn flush(&mut self) -> caj2pdf_core::Result<()> {
+        Ok(self.file().flush()?)
     }
-    index
 }
 
 fn run_image(
@@ -394,51 +374,46 @@ fn run_image(
     let mut contexts = ContextBank::new(CONTEXT_COUNT, &limits)?;
     // Decode from the same open file whose encoded span was just hashed.
     let mut ranged = SeekableSource::new(source)?;
-    let mut decoder = run_ready(ArithmeticDecoder::new(
+    let mut decoder = run_ready(Type0Decoder::new(
         &mut ranged,
-        EncodedSpan {
-            offset: image.offset + 48,
-            length: image.length - 48,
+        Type0Span {
+            // The pinned #22 manifest contains only catalogued type-0 rows;
+            // #28's container parser must supply the actual outer type.
+            record_type: 0,
+            offset: image.offset,
+            length: image.length,
         },
         table,
         &mut contexts,
-        StripeMode::Reset,
+        &mut output,
         &limits,
         &NeverCancel,
         ArithmeticBudget {
             max_symbols,
             max_work,
         },
+        Type0Budget {
+            max_width: 10_000,
+            max_height: 20_000,
+            max_pixels: MAX_SYMBOLS,
+            max_context_work: MAX_SYMBOLS * 10 + 20_000,
+        },
     ))?;
-    let mut cur = vec![0_u8; stride];
-    let mut prev = vec![0_u8; stride];
-    let mut back = vec![0_u8; stride];
-    let mut decoded_rows = 0usize;
-    for _ in 0..height {
-        cur.fill(0);
-        let control = run_ready(decoder.decode_symbol(PSEUDO_CONTEXT))?;
-        if control {
-            cur.copy_from_slice(&prev);
-        } else {
-            decoded_rows += 1;
-            for x in 0..width {
-                let context = context(&cur, &prev, &back, x, width);
-                if run_ready(decoder.decode_symbol(context))? {
-                    cur[x >> 3] |= 0x80 >> (x & 7);
-                }
-            }
-        }
-        output.file().write_all(&cur)?;
-        std::mem::swap(&mut back, &mut prev);
-        std::mem::swap(&mut prev, &mut cur);
+    let info = decoder.progress().info;
+    if (info.width as usize, info.height as usize, info.dib_stride) != (width, height, stride) {
+        return Err("decoded DIB dimensions differ from the pinned manifest".into());
     }
-    let actual_symbols = u64::try_from(
-        height
-            .checked_add(width.checked_mul(decoded_rows).ok_or("symbol overflow")?)
-            .ok_or("symbol overflow")?,
-    )?;
-    decoder.finish(actual_symbols)?;
-    output.file().flush()?;
+    for _ in 0..height {
+        if !run_ready(decoder.decode_next_row())? {
+            return Err("row decoder ended before the declared DIB height".into());
+        }
+    }
+    let report = run_ready(decoder.finish())?;
+    if report.progress.rows_written as usize != height
+        || report.progress.output_bytes_written != raw_bytes as u64
+    {
+        return Err("row decoder output progress differs from DIB geometry".into());
+    }
 
     let mut row = vec![0_u8; stride];
     let visible_bytes = width.checked_add(7).ok_or("visible length overflows")? / 8;

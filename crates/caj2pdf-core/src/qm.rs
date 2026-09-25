@@ -14,6 +14,32 @@ use std::{error, fmt, mem};
 pub const QM_STATE_COUNT: usize = 113;
 const INPUT_BUFFER_BYTES: usize = 256;
 
+/// Count bytes actually returned by positioned reads, including prefetch and
+/// successful prefixes of a later failing refill.
+struct ProgressSource<'a, S> {
+    inner: &'a mut S,
+    fetched: &'a mut u64,
+}
+
+impl<S: RangedSource> RangedSource for ProgressSource<'_, S> {
+    fn size(&self) -> u64 {
+        self.inner.size()
+    }
+
+    async fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> crate::Result<usize> {
+        let read = self.inner.read_at(offset, destination).await?;
+        if read <= destination.len() {
+            *self.fetched = self
+                .fetched
+                .checked_add(read as u64)
+                .ok_or(Error::InvalidInput {
+                    reason: "arithmetic fetched-byte counter overflows u64",
+                })?;
+        }
+        Ok(read)
+    }
+}
+
 /// A caller-supplied probability-estimation state.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct QmState {
@@ -264,6 +290,8 @@ pub struct ArithmeticSnapshot {
     pub bit_counter: u8,
     pub next_input_offset: u64,
     pub physical_bytes_consumed: u64,
+    /// Bytes returned by source reads, including the fixed-buffer prefetch.
+    pub source_bytes_fetched: u64,
     pub virtual_zero_bytes: u64,
     pub symbols_decoded: u64,
     pub work_done: u64,
@@ -283,6 +311,7 @@ pub struct ArithmeticDecoder<'a, S: RangedSource, C: Cancellation> {
     buffered: usize,
     buffer_position: usize,
     physical_bytes_consumed: u64,
+    source_bytes_fetched: u64,
     virtual_zero_bytes: u64,
     interval: u32,
     code: u32,
@@ -363,6 +392,7 @@ impl<'a, S: RangedSource, C: Cancellation> ArithmeticDecoder<'a, S, C> {
             buffered: 0,
             buffer_position: 0,
             physical_bytes_consumed: 0,
+            source_bytes_fetched: 0,
             virtual_zero_bytes: 0,
             interval: 0x10000,
             code: 0,
@@ -432,6 +462,7 @@ impl<'a, S: RangedSource, C: Cancellation> ArithmeticDecoder<'a, S, C> {
             bit_counter: self.bit_counter,
             next_input_offset: self.span.offset + self.physical_bytes_consumed,
             physical_bytes_consumed: self.physical_bytes_consumed,
+            source_bytes_fetched: self.source_bytes_fetched,
             virtual_zero_bytes: self.virtual_zero_bytes,
             symbols_decoded: self.symbols_decoded,
             work_done: self.work_done,
@@ -523,8 +554,12 @@ impl<'a, S: RangedSource, C: Cancellation> ArithmeticDecoder<'a, S, C> {
                 .min(INPUT_BUFFER_BYTES as u64)
                 .min(self.limits.io_chunk_bytes as u64) as usize;
             let offset = self.span.offset + self.physical_bytes_consumed;
+            let mut source = ProgressSource {
+                inner: self.source,
+                fetched: &mut self.source_bytes_fetched,
+            };
             read_exact_at(
-                self.source,
+                &mut source,
                 offset,
                 &mut self.input_buffer[..count],
                 self.limits,

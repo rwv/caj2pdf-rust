@@ -12,6 +12,7 @@
 pub mod caj;
 mod error;
 mod io;
+pub mod jbig1;
 pub mod jbig2;
 pub mod kdh;
 mod limits;

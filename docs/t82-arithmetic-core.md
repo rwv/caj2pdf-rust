@@ -51,7 +51,10 @@ context. Table and context values must be validated before use, so malformed
 input produces a typed error rather than an index panic.
 
 The decoder stores small arithmetic registers and an internal input buffer
-of at most 256 bytes; it borrows the configured context bank. It reads its
+of at most 256 bytes; it borrows the configured context bank. Its snapshot
+distinguishes coded bytes consumed from bytes actually returned by source
+reads, including bounded prefetch, and from virtual zero byte-input events.
+It reads its
 span through the project's `RangedSource` contract, handles short reads, and
 requests no byte beyond the declared end. It must never read an entire CAJ
 document or image into memory.
