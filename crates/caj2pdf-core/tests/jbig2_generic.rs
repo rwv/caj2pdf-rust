@@ -44,6 +44,8 @@ struct Source {
     error_at: Option<u64>,
     cancel_at: Option<u64>,
     read_calls: usize,
+    /// The size advertised once any read has happened.
+    shrink_to: Option<u64>,
 }
 impl Source {
     fn new(bytes: Vec<u8>) -> Self {
@@ -57,12 +59,16 @@ impl Source {
             error_at: None,
             cancel_at: None,
             read_calls: 0,
+            shrink_to: None,
         }
     }
 }
 impl RangedSource for Source {
     fn size(&self) -> u64 {
-        self.advertised
+        match self.shrink_to {
+            Some(size) if self.read_calls > 0 => size,
+            _ => self.advertised,
+        }
     }
     async fn read_at(
         &mut self,
@@ -751,6 +757,42 @@ fn additional_constructor_bounds_and_located_source_errors() {
             assert!(std::error::Error::source(&err).is_some());
         }
     }
+}
+
+#[test]
+fn a_source_that_shrinks_after_the_header_read_is_rejected_before_mq() {
+    let limits = Limits::default();
+    let mq_budget = MqBudget::default();
+    let table = table();
+    let mut source = record(3, 1, 0, 4, (2, -1), SHORT_STREAM);
+    let hdr = header(&mut source);
+    // The segment fits the advertised size until the region header is read.
+    source.read_calls = 0;
+    source.shrink_to = Some(hdr.data.offset + 20);
+    let mut bank = contexts(&limits, &mq_budget);
+    let mut sink = Sink::default();
+    let err = match ready(GenericRegionDecoder::new(
+        &mut source,
+        &hdr,
+        &table,
+        &mut bank,
+        &mut sink,
+        &limits,
+        &CancelAfter::Never,
+        mq_budget,
+        GenericBudget::default(),
+    )) {
+        Ok(_) => panic!("accepted an MQ span outside the shrunken source"),
+        Err(e) => e,
+    };
+    assert!(
+        matches!(
+            err.kind,
+            GenericErrorKind::InvalidSpan("MQ span outside source")
+        ),
+        "{err}"
+    );
+    assert_eq!(err.offset, hdr.data.offset);
 }
 
 #[test]

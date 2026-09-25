@@ -631,12 +631,11 @@ impl<'a, 'mq, M: RangedSource, C: Cancellation, W: SequentialSink>
         row: &mut [u8],
         target_y: u32,
     ) -> RefinementResult<()> {
-        // row_id is validated against a u32 height, and stride <= 2^29.
-        let row_delta = row_id as u64 * geometry.reference_stride as u64;
-        let offset = geometry
-            .reference_offset
-            .checked_add(row_delta)
-            .ok_or_else(|| self.invalid_span("reference row offset overflows u64", target_y))?;
+        // `geometry` checked that `reference_offset` plus the stored
+        // reference bytes fits `u64`. This row and every byte offset within
+        // it lie below that end, because `row_id` is below the reference
+        // height and the row is one reference stride long.
+        let offset = geometry.reference_offset + row_id as u64 * geometry.reference_stride as u64;
         let mut done = 0usize;
         while done < row.len() {
             self.check_cancelled(target_y, 0)?;
@@ -671,9 +670,7 @@ impl<'a, 'mq, M: RangedSource, C: Cancellation, W: SequentialSink>
                     0,
                 ));
             }
-            let current = offset.checked_add(done as u64).ok_or_else(|| {
-                self.invalid_span("reference read offset overflows u64", target_y)
-            })?;
+            let current = offset + done as u64;
             self.progress.reference_reads = attempted;
             let read = source
                 .read_at(current, &mut row[done..done + count])
@@ -812,6 +809,8 @@ impl<'a, 'mq, M: RangedSource, C: Cancellation, W: SequentialSink>
             self.row(geometry.reference_stride)?,
             self.row(geometry.reference_stride)?,
         ];
+        // Row `r` is cached only in slot `r mod 3`, so the three consecutive
+        // rows a target row needs never evict one another.
         let mut cached: [Option<i64>; 3] = [None; 3];
         for y in 0..request.height {
             self.check_cancelled(y, 0)?;
@@ -819,18 +818,13 @@ impl<'a, 'mq, M: RangedSource, C: Cancellation, W: SequentialSink>
             let reference_y = i64::from(y) - i64::from(request.reference_dy);
             let needed = [reference_y - 1, reference_y, reference_y + 1];
             for row_id in needed {
+                let slot = cache_slot(row_id);
                 if row_id < 0
                     || row_id >= i64::from(geometry.reference_height)
-                    || cached.contains(&Some(row_id))
+                    || cached[slot] == Some(row_id)
                 {
                     continue;
                 }
-                let slot = cached
-                    .iter()
-                    .position(|entry| entry.is_none_or(|old| !needed.contains(&old)))
-                    .ok_or_else(|| {
-                        self.invalid_span("reference cache has no replaceable row", y)
-                    })?;
                 self.read_reference_row(
                     reference_source,
                     geometry,
@@ -908,10 +902,17 @@ fn reference_pixel(
     x: i64,
     y: i64,
 ) -> usize {
-    cached
-        .iter()
-        .position(|entry| *entry == Some(y))
-        .map_or(0, |slot| packed_pixel(&rows[slot], x, width))
+    let slot = cache_slot(y);
+    if cached[slot] == Some(y) {
+        packed_pixel(&rows[slot], x, width)
+    } else {
+        0
+    }
+}
+
+/// The only reference-cache slot that may hold row `y`.
+fn cache_slot(y: i64) -> usize {
+    y.rem_euclid(3) as usize
 }
 
 /// Figure 13, in reading order: target above left/center/right, target left;

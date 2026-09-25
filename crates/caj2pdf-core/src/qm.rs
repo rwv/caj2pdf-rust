@@ -624,12 +624,13 @@ impl<'a, S: RangedSource, C: Cancellation> ArithmeticDecoder<'a, S, C> {
         let current = self.contexts.states[context];
         let state = self.table.get(current.state_index);
         let qe = u32::from(state.qe);
-        let narrowed = self.interval.checked_sub(qe).ok_or_else(|| {
-            self.at(
-                Some(context),
-                ArithmeticErrorKind::Invariant("interval underflow"),
-            )
-        })?;
+        // A symbol starts with `interval` in 0x8000..=0x10000: `new` sets
+        // 0x10000, an MPS without renormalization keeps at least 0x8000,
+        // renormalization doubles it until it reaches 0x8000, and a failed
+        // renormalization poisons the decoder before another symbol. The
+        // table rejects `qe` of 0x8000 or more.
+        debug_assert!((0x8000..=0x10000).contains(&self.interval) && qe < 0x8000);
+        let narrowed = self.interval - qe;
         self.interval = narrowed;
         let high = self.code >> 16;
         let (bit, next) = if high < narrowed {
@@ -652,12 +653,8 @@ impl<'a, S: RangedSource, C: Cancellation> ArithmeticDecoder<'a, S, C> {
                 (current.mps, current)
             }
         } else {
-            self.code = self.code.checked_sub(narrowed << 16).ok_or_else(|| {
-                self.at(
-                    Some(context),
-                    ArithmeticErrorKind::Invariant("code underflow"),
-                )
-            })?;
+            // Here `narrowed <= code >> 16`, so the subtraction cannot wrap.
+            self.code -= narrowed << 16;
             self.interval = qe;
             let exchange = narrowed >= qe;
             let next = if exchange {

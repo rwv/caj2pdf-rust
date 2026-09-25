@@ -89,16 +89,22 @@ impl From<HeaderError> for DirectoryError {
 
 impl fmt::Display for DirectoryError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if let DirectoryErrorKind::Header(error) = &self.kind {
-            return write!(f, "{error}");
+        // A header error already carries its own location.
+        if !matches!(self.kind, DirectoryErrorKind::Header(_)) {
+            write!(f, "JBIG2 directory at source byte {}", self.offset)?;
+            if let Some(number) = self.segment {
+                write!(f, ", segment {number}")?;
+            }
+            f.write_str(": ")?;
         }
-        write!(f, "JBIG2 directory at source byte {}", self.offset)?;
-        if let Some(number) = self.segment {
-            write!(f, ", segment {number}")?;
-        }
-        f.write_str(": ")?;
-        match &self.kind {
-            DirectoryErrorKind::Header(_) => unreachable!(),
+        write!(f, "{}", self.kind)
+    }
+}
+
+impl fmt::Display for DirectoryErrorKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            DirectoryErrorKind::Header(error) => write!(f, "{error}"),
             DirectoryErrorKind::InvalidSpan(reason) => write!(f, "invalid span: {reason}"),
             DirectoryErrorKind::LimitExceeded {
                 resource,
@@ -433,9 +439,10 @@ pub async fn read_embedded_directory<S: RangedSource, C: Cancellation>(
             cancellation,
         )
         .await?;
-        if after <= next {
-            return Err(invalid_span(&header, "segment did not advance"));
-        }
+        // A parsed header consumes at least its fixed number, flag, count,
+        // page, and length fields, and its data end is not before them. The
+        // segment limit above bounds this loop regardless.
+        debug_assert!(after > next);
         let header_metadata = header
             .metadata_bytes()
             .ok_or(invalid_span(&header, "metadata size overflows"))?;
