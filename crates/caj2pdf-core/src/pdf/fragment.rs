@@ -213,6 +213,21 @@ fn checked_sum(values: &[u64]) -> Result<u64> {
         .try_fold(0, |sum, &value| checked_add(sum, value))
 }
 
+const BODY_SIZE_MISMATCH: &str = "PDF body byte count differs from its preflight size";
+const FINAL_SIZE_MISMATCH: &str = "PDF final byte count differs from its preflight size";
+
+/// Refuses output whose byte count differs from the size its preflight
+/// computed. That size was checked against the output limits and, for the
+/// body, written into `startxref`, so a mismatch means the output would be
+/// corrupt; the check stays on in release builds.
+fn check_preflight_size(written: u64, expected: u64, reason: &'static str) -> Result<()> {
+    if written == expected {
+        Ok(())
+    } else {
+        Err(Error::InvalidInput { reason })
+    }
+}
+
 fn decimal_digits(mut value: u64) -> u64 {
     let mut digits = 1;
     while value >= 10 {
@@ -939,11 +954,7 @@ pub async fn reconstruct_fragment_with_bookmarks<
             emit_outline_item(sink, &mut report, bookmark, node, limits, cancellation).await?;
         }
     }
-    if report.output_bytes_written != body_bytes {
-        return Err(Error::InvalidInput {
-            reason: "PDF body byte count differs from its preflight size",
-        });
-    }
+    check_preflight_size(report.output_bytes_written, body_bytes, BODY_SIZE_MISMATCH)?;
     emit(
         sink,
         xref_header.as_bytes(),
@@ -986,11 +997,7 @@ pub async fn reconstruct_fragment_with_bookmarks<
     }
     emit(sink, &buffer, &mut report, limits, cancellation).await?;
     emit(sink, trailer.as_bytes(), &mut report, limits, cancellation).await?;
-    if report.output_bytes_written != final_size {
-        return Err(Error::InvalidInput {
-            reason: "PDF final byte count differs from its preflight size",
-        });
-    }
+    check_preflight_size(report.output_bytes_written, final_size, FINAL_SIZE_MISMATCH)?;
     if cancellation.is_cancelled() {
         return Err(Error::Cancelled);
     }
