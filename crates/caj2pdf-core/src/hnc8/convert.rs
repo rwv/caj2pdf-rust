@@ -6,7 +6,9 @@ use super::{Budget, Hnc8Error, Hnc8Reader};
 use crate::jbig1::{Type0Budget, Type0Decoder, Type0Error, Type0ErrorKind, read_type0_info};
 use crate::pdf::{BilevelImageSpec, PageSpec, PdfDocument};
 use crate::qm::{ArithmeticBudget, ArithmeticError, ContextBank, QmTable};
-use crate::{Cancellation, ConversionReport, Error, Limits, RangedSource, SequentialSink};
+use crate::{
+    Cancellation, ConversionReport, Error, Limits, MAX_BUDGET_COUNT, RangedSource, SequentialSink,
+};
 use std::{error, fmt};
 
 /// The row model's fixed ten-bit context space.
@@ -238,6 +240,16 @@ pub async fn convert_type0_pdf<S: RangedSource, W: SequentialSink, C: Cancellati
     if !options.pixels_per_inch.is_finite() || options.pixels_per_inch <= 0.0 {
         return Err(At::NONE.error(Type0PdfErrorKind::InvalidOptions(
             "pixels per inch must be finite and positive",
+        )));
+    }
+    // Refuse an arithmetic budget that every image would reject, before any
+    // container read or PDF output.
+    let counters = 1..=MAX_BUDGET_COUNT;
+    if !counters.contains(&options.arithmetic.max_symbols)
+        || !counters.contains(&options.arithmetic.max_work)
+    {
+        return Err(At::NONE.error(Type0PdfErrorKind::InvalidOptions(
+            "arithmetic budget fields must be in 1..=MAX_BUDGET_COUNT",
         )));
     }
     let mut contexts = ContextBank::new(TYPE0_CONTEXTS, limits)
