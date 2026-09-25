@@ -216,6 +216,18 @@ tests construct synthetic CAJ bytes at runtime from the independently recorded
 fields in the [CAJ format note](caj-format.md), including a four-byte GB18030
 title. They do not contain CAJSamples document bytes or a reference PDF.
 
+Issue #13 adds the original MIT WASM engine and exports in
+`crates/caj2pdf-wasm/src/{lib,engine,bridge}.rs` and
+`crates/caj2pdf-wasm/src/engine/tests.rs`, and the original MIT JavaScript
+package in `js/{io,node,browser}.mjs`, its TypeScript declarations
+`js/*.d.mts`, `js/package.json`, `js/examples/`, and `js/test/`. Format
+detection uses only the signatures already recorded for the synthetic
+fixtures and in the CAJ, KDH, and HN/C8 format notes. The tests build their
+CAJ, KDH, and large PDF inputs at runtime from those recorded fields or
+reuse the MIT fixtures in `tests/fixtures`; the OPFS tests use an original
+in-memory test double. No code was taken from the Python or Go converters,
+a private Rust module, or an npm package.
+
 Issue #22's [HN/C8 image-oracle note](jbig1-oracle.md) records independent
 container and DIB byte measurements for 27 SHA-256-pinned external files, a
 metadata-and-hash-only manifest of 1,400 type-0 images, and two secondary
@@ -534,7 +546,8 @@ The issue #2 baseline contains three owned packages:
 | `caj2pdf-wasm` | WASM/JavaScript boundary | MIT | 2024 / 1.85.0 | None |
 
 The Rust standard library and compiler-provided target components are not
-third-party Cargo dependencies. There is no npm package yet. The root
+third-party Cargo dependencies. The `js/` npm package (issue #13) has no
+dependencies, dev dependencies, or install scripts. The root
 `Cargo.lock` is committed. Every future dependency change must update this
 inventory with the package name, version, purpose, resolved features, license
 expression, selected license grant, and native/WASM inclusion. For a

@@ -25,10 +25,10 @@ The core contract is asynchronous. On native Rust, adapters implement it over
 `Read + Seek` and `Write` without a browser or Node.js dependency. JavaScript
 drives a pinned Rust future through a dependency-free raw WASM ABI: it polls
 until Rust requests a read, write, or flush, awaits that operation, supplies
-its bounded result, and polls again. The current future runs `copy_range` as
-an I/O proof. Later conversion code can use the same owned-future pattern;
-the public conversion package belongs to
-[issue #13](https://github.com/rwv/caj2pdf-rust/issues/13). A native caller
+its bounded result, and polls again. The platform-neutral
+[`engine`](../crates/caj2pdf-wasm/src/engine.rs) owns that future: it detects
+the input format from its leading signature and runs the core PDF, CAJ, or
+KDH engine (issue #13). A native caller
 can drive its future with an executor of its choice; the core does not choose
 an executor.
 
@@ -39,8 +39,9 @@ awaits the sink's accepted bytes or flush before resuming. The Rust future
 owns its source and sink adapters, so it can remain pinned across polls
 without a self-referential struct or unsafe Rust code. The ABI also exposes
 cancellation, a typed error category, byte counters, and reset. Each caller
-using the raw ABI must reset the engine after completion or failure;
-`copyRangeProof` does this in a `finally` block.
+using the raw ABI must reset the engine after completion or failure; the
+JavaScript driver in [`js/io.mjs`](../js/io.mjs) does this in a `finally`
+block.
 
 ## Bounds and progress
 
@@ -70,8 +71,8 @@ it only after success.
 | Environment | Input | Output | Forward-only input |
 | --- | --- | --- | --- |
 | Native Rust | Borrowed or owned `Read + Seek` with a known size | Borrowed or owned `Write`; no output seek | Must be spooled by a caller to seekable temporary storage or rejected explicitly. |
-| Browser | `blobSource(blob)` uses `slice(start, end)` and awaits `arrayBuffer()` for that slice only | `webWritableSink(writer)` awaits each `WritableStream` write and leaves the writer open | Plain `ReadableStream` needs a bounded temporary spool supplied by the application or is rejected. |
-| Node.js 22+ | `fileHandleSource(handle)` snapshots size and uses BigInt positioned reads on a caller-owned file handle | `nodeWritableSink(writable)` awaits each write callback and leaves the stream open | A nonseekable stream needs a bounded temporary spool supplied by the application or is rejected. |
+| Browser | `blobSource(blob)` uses `slice(start, end)` and awaits `arrayBuffer()` for that slice only | `webWritableSink(writer)` awaits each `WritableStream` write and leaves the writer open | `convertReadableStream` spools to a bounded Origin Private File System file and removes it; without OPFS writes it rejects with `RANDOM_ACCESS_REQUIRED`. |
+| Node.js 22+ | `fileHandleSource(handle)` snapshots size and uses BigInt positioned reads on a caller-owned file handle | `nodeWritableSink(writable)` awaits each write callback and leaves the stream open | `convertReadable` spools a Node or Web stream to a bounded private temporary file and removes it. |
 
 Browser `Blob.slice()` produces a subset of the input; it does not require a
 whole-Blob `arrayBuffer()` call. A Blob's numeric size must fit JavaScript's
@@ -81,21 +82,23 @@ reads without converting a `u64` offset to a JavaScript number. The Node
 adapter leaves the caller's handle open. JavaScript adapters belong outside
 the core crate.
 
-`copyRangeProof` in [`js/io.mjs`](../js/io.mjs) drives the raw WASM bridge
-against a source exposing `{ size: bigint, readAt(offset, length, signal) }`
-and a sink exposing `writeChunk(bytes, signal)` and `flush(signal)`. It awaits
-each bounded read and write; no whole-document byte array crosses the WASM
-boundary. `js/node.mjs` supplies the Node adapters. These are I/O proofs, not
-a JavaScript document-conversion API. A plain forward-only stream lacks the
-required size and `readAt` method, so it is rejected unless an application
-provides seekable temporary storage. Browser `ReadableStream` spooling and
-the production conversion package are separate work.
+`convert` in [`js/io.mjs`](../js/io.mjs) drives the raw WASM bridge against
+a source exposing `{ size: bigint, readAt(offset, length, signal) }` and a
+sink exposing `writeChunk(bytes, signal)` and `flush(signal)`. It awaits each
+bounded read and write; no whole-document byte array crosses the WASM
+boundary. `js/node.mjs` and `js/browser.mjs` add platform adapters and
+spools. A plain forward-only stream lacks the required size and `readAt`
+method, so it is converted only through a bounded spool on durable
+temporary storage and is never buffered whole in memory. The
+[package guide](../js/README.md) documents the API, limits, and browser
+storage support.
 
-`AbortSignal` is checked before and after each awaited JavaScript operation.
-A `Blob.arrayBuffer()` or file read already in progress may finish before the
-abort is observed. The driver then cancels and resets the Rust engine without
-starting another I/O request. Partial output remains the caller's
-responsibility.
+`AbortSignal` is checked before and after each awaited JavaScript operation,
+and the supplied adapters race pending reads and writes against it, so a
+stalled operation stops waiting at once. The abandoned operation may still
+finish, but only into its own copied buffer. The driver then cancels and
+resets the Rust engine without starting another I/O request. Partial output
+remains the caller's responsibility.
 
 ## Error and operation contract
 
@@ -121,23 +124,24 @@ requires no output seek. Run it with
 ## Verification
 
 ```sh
-cargo test --locked -p caj2pdf-core
+cargo test --locked -p caj2pdf-core -p caj2pdf-wasm
 cargo check --locked -p caj2pdf-core --tests --examples --target wasm32-unknown-unknown
-cargo build --locked --release -p caj2pdf-wasm --target wasm32-unknown-unknown
+cargo build --locked --release --all-features -p caj2pdf-wasm --target wasm32-unknown-unknown
 node --test js/test/*.test.mjs
 ```
 
-The JavaScript tests instantiate the actual WASM module. They exercise
-bounded `Blob.slice()` reads, a real Node file handle, partial I/O,
-backpressure, cancellation, and typed errors. The Blob test uses Node's Blob
-implementation. [The JavaScript proof guide](../js/README.md) includes a
-browser example that can be run manually; automated browser-runtime testing
-is still needed for the production JavaScript package. No fixture in this
-proof is an external CAJ document.
+The Rust engine tests drive the same poll/resume state machine natively.
+The JavaScript tests instantiate the actual WASM module. They convert
+synthetic PDF, CAJ, and KDH inputs through bounded `Blob.slice()` reads and a
+real Node file handle, and exercise partial I/O, backpressure, spooling,
+cancellation, and typed errors. The browser adapters run on Node's Blob and
+Web Streams implementations. [The JavaScript package guide](../js/README.md)
+includes a browser example that can be run manually; automated
+browser-runtime testing is still needed. No fixture here is an external CAJ
+document.
 
-The format-specific parsers, PDF writer, and JavaScript conversion API will be
-built on this contract in later issues. Their memory budgets must include
-retained indexes, bookmarks, and decoder state in addition to the I/O chunk.
+Memory budgets for format engines must include retained indexes, bookmarks,
+and decoder state in addition to the I/O chunk.
 
 ## References
 
