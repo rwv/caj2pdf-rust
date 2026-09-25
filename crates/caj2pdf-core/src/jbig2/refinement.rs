@@ -1063,4 +1063,16 @@ mod tests {
         let bottom = template1_context(&above, &current, 1, &reference, &cached, 1, 0, 3, 0);
         assert_eq!(bottom & 0x3f, 1 << 5); // Only reference above-center is in row two.
     }
+
+    #[test]
+    fn the_three_rows_around_any_reference_row_use_distinct_cache_slots() {
+        // A target row `y < 2^32` with `dy` in `i32` centers on reference
+        // row `y - dy`, strictly between `-2^31` and `2^32 + 2^31`.
+        let extremes = [-(1_i64 << 31), (1_i64 << 32) + (1 << 31)];
+        for center in (-7..=7).chain(extremes) {
+            let mut slots = [center - 1, center, center + 1].map(super::cache_slot);
+            slots.sort_unstable();
+            assert_eq!(slots, [0, 1, 2], "row {center}");
+        }
+    }
 }
