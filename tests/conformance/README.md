@@ -38,6 +38,41 @@ corpus must report `NOT_RUN`, never a compatibility pass.
 PDFs after validating the full matrix; its results make no claim about the
 other formats.
 
+## Optional HN/C8 Rust container comparison
+
+The independent [HN/C8 type-0 manifest](jbig1_oracle.json) pins 1,400
+one-based page/image coordinates and absolute payload offsets and lengths.
+Run the Rust container reader against the external HN/C8 subset with:
+
+```sh
+CAJ2PDF_CORPUS_DIR=/path/to/CAJSamples \
+  python3 tests/conformance/hnc8_container_compare.py --json
+```
+
+The runner checks all 27 selected source sizes and SHA-256 values before
+invoking Rust, inventories every image record, compares all 1,400 type-0
+coordinates and spans to the manifest, and hashes all 27 files again after
+the comparison. It inventories types 1, 2, and 3 as record discriminators,
+without claiming to decode them. The three known malformed observations in
+`issue-100` are checked by a separate diagnostic page probe; the normal
+cursor must fail at its first malformed record. A missing or changed requested
+corpus is `FAIL`. With no corpus selected, the result is `NOT_RUN`, with zero
+compatibility passes. An already built native example may be supplied with
+`--rust-bin /path/to/hnc8_container_inventory`; otherwise the runner builds
+the repository's `caj2pdf-core` example. It records no external bytes, PDF,
+or bitmap in the repository.
+
+The JSON report keeps two independent invalid-record accounts. After the
+source precheck, `baseline_invalid` reports the three exact historical #22
+manifest observations, including their pinned descriptions; it is `NOT_RUN`
+when the corpus is absent. `expected_invalid` reports the Rust reader's
+diagnostic page probes. Neither account contributes type-0 compatibility
+passes. Both must match their own pinned expectations for the run to pass.
+
+For `issue-100` page 2, the Rust reader reports an unsupported, unmeasured
+image type before interpreting the descriptor's remaining fields; the #22
+manifest separately records its black-box out-of-source image observation.
+
 ## Python reference baseline
 
 All 56 inputs were tested on 2026-09-24 with the unmodified Python converter
