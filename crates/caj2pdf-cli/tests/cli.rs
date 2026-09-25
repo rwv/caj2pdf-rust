@@ -602,14 +602,11 @@ fn add_bookmarks_writes_a_new_pdf_and_keeps_the_input() {
     let plain = fs::read(scratch.path("plain.pdf")).unwrap();
     assert_eq!(validate_pdf(&scratch.path("plain.pdf")).1.trim(), "");
 
-    let output = scratch.run([
-        "add-bookmarks",
-        "paper.caj",
-        "plain.pdf",
-        "-o",
-        "marked.pdf",
-    ]);
-    assert_success(&output);
+    let add = |output: &str, force: &[&str]| {
+        let args = ["add-bookmarks", "paper.caj", "plain.pdf", "-o", output];
+        scratch.run(args.iter().chain(force))
+    };
+    assert_success(&add("marked.pdf", &[]));
     assert_eq!(fs::read(scratch.path("plain.pdf")).unwrap(), plain);
     let (pages, outline) = validate_pdf(&scratch.path("marked.pdf"));
     assert_eq!(pages, 3);
@@ -618,32 +615,17 @@ fn add_bookmarks_writes_a_new_pdf_and_keeps_the_input() {
         "{outline}"
     );
 
-    let output = scratch.run([
-        "add-bookmarks",
-        "paper.caj",
-        "plain.pdf",
-        "-o",
-        "marked.pdf",
-    ]);
-    assert_failure(&output, 1, "already exists");
-    let output = scratch.run([
-        "add-bookmarks",
-        "paper.caj",
-        "plain.pdf",
-        "-o",
-        "plain.pdf",
-        "--force",
-    ]);
-    assert_failure(&output, 1, "is the same file as input 'plain.pdf'");
-    let output = scratch.run([
-        "add-bookmarks",
-        "paper.caj",
-        "plain.pdf",
-        "-o",
-        "paper.caj",
-        "-f",
-    ]);
-    assert_failure(&output, 1, "is the same file as input 'paper.caj'");
+    assert_failure(&add("marked.pdf", &[]), 1, "already exists");
+    assert_failure(
+        &add("plain.pdf", &["--force"]),
+        1,
+        "is the same file as input 'plain.pdf'",
+    );
+    assert_failure(
+        &add("paper.caj", &["-f"]),
+        1,
+        "is the same file as input 'paper.caj'",
+    );
 
     // The PDF may come from standard input, and the result may go to stdout.
     let output = scratch

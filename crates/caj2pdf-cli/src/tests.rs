@@ -8,8 +8,8 @@ use crate::args::{Command, Endpoint, Topic, parse};
 use crate::cli::default_output;
 use crate::document::{Inspection, block_on, detect_signature, format_name};
 use crate::files::{
-    Input, NEXT_TEMP, Output, SpoolError, TEMP_ATTEMPTS, identity, open_input, open_output,
-    refuse_terminal, spool,
+    Input, NEXT_TEMP, Output, SpoolError, TEMP_ATTEMPTS, open_input, open_output, refuse_terminal,
+    spool,
 };
 use crate::json::write_string;
 use crate::report::{write_json, write_text};
@@ -63,12 +63,10 @@ impl Drop for TempDir {
 }
 
 fn input(path: &Path) -> Input {
-    let file = File::open(path).unwrap();
-    Input {
-        identity: identity(&file.metadata().unwrap()),
-        file,
-        name: format!("'{}'", path.display()),
-    }
+    let Ok(input) = open_input(&Endpoint::Path(path.to_owned()), u64::MAX) else {
+        panic!("cannot open {}", path.display());
+    };
+    input
 }
 
 #[test]

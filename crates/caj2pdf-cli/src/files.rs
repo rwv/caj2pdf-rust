@@ -20,9 +20,9 @@ pub(crate) const TEMP_ATTEMPTS: u32 = 64;
 pub(crate) static NEXT_TEMP: AtomicU32 = AtomicU32::new(0);
 
 /// A device and inode pair identifying one file.
-pub type Identity = (u64, u64);
+type Identity = (u64, u64);
 
-pub fn identity(metadata: &Metadata) -> Identity {
+fn identity(metadata: &Metadata) -> Identity {
     (metadata.dev(), metadata.ino())
 }
 
@@ -38,7 +38,7 @@ fn describe(endpoint: &Endpoint) -> String {
 pub struct Input {
     pub file: File,
     /// The identity of the file the user named; kept for same-file checks.
-    pub identity: Identity,
+    identity: Identity,
     pub name: String,
 }
 
