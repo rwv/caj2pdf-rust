@@ -80,6 +80,15 @@ jobs:
           python3 -c 'import json, sys; result = json.loads(sys.argv[1]); assert result["status"] == "NOT_RUN" and result["rust_matches"] == 0 and result["tool_agreements"] == 0, result' "$report"
       - name: Report external standard JBIG1 probe as not run
         run: python3 scripts/jbig1_standard_probe.py --json
+      - name: Assert external type-0 row API parity is not run
+        env:
+          CAJ2PDF_CORPUS_DIR: ""
+          CAJ2PDF_T82_VECTOR_FILE: ""
+        run: |
+          output="$(cargo test --locked -p caj2pdf-core --test qm_caj_oracle_external -- --nocapture 2>&1)"
+          printf '%s\n' "$output"
+          python3 -c 'import sys; assert "0 passed; 0 failed; 1 ignored" in sys.argv[1]' "$output"
+          printf 'TYPE0_ROW_COMPATIBILITY status=NOT_RUN checked_images=0\n'
       - name: Report external corpus as not run
         env:
           CAJ2PDF_CORPUS_DIR: ""
