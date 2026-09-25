@@ -49,7 +49,7 @@
   ],
   "scripts": {
     "build:wasm": "cargo build --locked --release --all-features -p caj2pdf-wasm --target wasm32-unknown-unknown && node scripts/copy-wasm.mjs",
-    "prepack": "node -e \"require('node:fs').accessSync('caj2pdf_wasm.wasm')\"",
+    "prepack": "node -e \"if (require('node:fs').readFileSync('caj2pdf_wasm.wasm').readUInt32BE(0) !== 0x0061736d) throw new Error('caj2pdf_wasm.wasm is not a WebAssembly module')\"",
     "test": "node --test test/*.test.mjs"
   }
 }
