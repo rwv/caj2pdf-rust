@@ -342,14 +342,11 @@ impl<'a, 'mq, M: RangedSource, C: Cancellation, W: SequentialSink>
 
     async fn flush_store_inner(&mut self) -> RefinementResult<()> {
         self.check_cancelled(0, 0)?;
-        let attempted = self.progress.flushes.checked_add(1).ok_or_else(|| {
-            self.error(
-                RefinementErrorKind::InvalidSpan("store flush count overflows u64"),
-                None,
-                0,
-                0,
-            )
-        })?;
+        let attempted = self
+            .progress
+            .flushes
+            .checked_add(1)
+            .ok_or_else(|| self.invalid_span("store flush count overflows u64", 0))?;
         if attempted > self.budget.max_flushes {
             return Err(self.limit("store flushes", self.budget.max_flushes, attempted, 0, 0));
         }
@@ -377,6 +374,10 @@ impl<'a, 'mq, M: RangedSource, C: Cancellation, W: SequentialSink>
             progress: Box::new(self.progress()),
             kind,
         }
+    }
+
+    fn invalid_span(&self, reason: &'static str, row: u32) -> RefinementError {
+        self.error(RefinementErrorKind::InvalidSpan(reason), None, row, 0)
     }
 
     fn limit(
@@ -511,14 +512,7 @@ impl<'a, 'mq, M: RangedSource, C: Cancellation, W: SequentialSink>
             .reference
             .store_base
             .checked_add(symbol.relative_store_offset)
-            .ok_or_else(|| {
-                self.error(
-                    RefinementErrorKind::InvalidSpan("reference offset overflows u64"),
-                    None,
-                    0,
-                    0,
-                )
-            })?;
+            .ok_or_else(|| self.invalid_span("reference offset overflows u64", 0))?;
         let reference_end = reference_offset
             .checked_add(reference_bytes)
             .ok_or_else(|| {
@@ -554,26 +548,12 @@ impl<'a, 'mq, M: RangedSource, C: Cancellation, W: SequentialSink>
             .progress
             .pixels_decoded
             .checked_add(pixels)
-            .ok_or_else(|| {
-                self.error(
-                    RefinementErrorKind::InvalidSpan("total pixels overflows u64"),
-                    None,
-                    0,
-                    0,
-                )
-            })?;
+            .ok_or_else(|| self.invalid_span("total pixels overflows u64", 0))?;
         let total_bytes = self
             .progress
             .output_bytes_written
             .checked_add(bytes)
-            .ok_or_else(|| {
-                self.error(
-                    RefinementErrorKind::InvalidSpan("total output bytes overflows u64"),
-                    None,
-                    0,
-                    0,
-                )
-            })?;
+            .ok_or_else(|| self.invalid_span("total output bytes overflows u64", 0))?;
         self.cap("total pixels", self.budget.max_total_pixels, total_pixels)?;
         self.cap(
             "total output bytes",
@@ -583,31 +563,14 @@ impl<'a, 'mq, M: RangedSource, C: Cancellation, W: SequentialSink>
             total_bytes,
         )?;
         self.cap("MQ decisions", self.budget.max_mq_decisions, total_pixels)?;
-        let work = total_pixels.checked_mul(10).ok_or_else(|| {
-            self.error(
-                RefinementErrorKind::InvalidSpan("context work overflows u64"),
-                None,
-                0,
-                0,
-            )
-        })?;
+        let work = total_pixels
+            .checked_mul(10)
+            .ok_or_else(|| self.invalid_span("context work overflows u64", 0))?;
         self.cap("context work", self.budget.max_context_work, work)?;
-        let target_stride = usize::try_from(target_stride).map_err(|_| {
-            self.error(
-                RefinementErrorKind::InvalidSpan("target stride exceeds address space"),
-                None,
-                0,
-                0,
-            )
-        })?;
-        let reference_stride = usize::try_from(reference_stride).map_err(|_| {
-            self.error(
-                RefinementErrorKind::InvalidSpan("reference stride exceeds address space"),
-                None,
-                0,
-                0,
-            )
-        })?;
+        let target_stride = usize::try_from(target_stride)
+            .map_err(|_| self.invalid_span("target stride exceeds address space", 0))?;
+        let reference_stride = usize::try_from(reference_stride)
+            .map_err(|_| self.invalid_span("reference stride exceeds address space", 0))?;
         self.limits
             .check_allocation(target_stride as u64)
             .map_err(|_| {
@@ -637,14 +600,9 @@ impl<'a, 'mq, M: RangedSource, C: Cancellation, W: SequentialSink>
         let mq_bytes = self.mq.context_count() as u64 * mem::size_of::<MqContext>() as u64
             + (MQ_STATE_COUNT * mem::size_of::<MqState>()) as u64
             + MQ_BUFFER_BYTES;
-        let working = row_bytes.checked_add(mq_bytes).ok_or_else(|| {
-            self.error(
-                RefinementErrorKind::InvalidSpan("working memory overflows u64"),
-                None,
-                0,
-                0,
-            )
-        })?;
+        let working = row_bytes
+            .checked_add(mq_bytes)
+            .ok_or_else(|| self.invalid_span("working memory overflows u64", 0))?;
         self.cap("working bytes", self.budget.max_working_bytes, working)?;
         Ok(Geometry {
             reference_offset,
@@ -678,14 +636,7 @@ impl<'a, 'mq, M: RangedSource, C: Cancellation, W: SequentialSink>
         let offset = geometry
             .reference_offset
             .checked_add(row_delta)
-            .ok_or_else(|| {
-                self.error(
-                    RefinementErrorKind::InvalidSpan("reference row offset overflows u64"),
-                    None,
-                    target_y,
-                    0,
-                )
-            })?;
+            .ok_or_else(|| self.invalid_span("reference row offset overflows u64", target_y))?;
         let mut done = 0usize;
         while done < row.len() {
             self.check_cancelled(target_y, 0)?;
@@ -696,14 +647,7 @@ impl<'a, 'mq, M: RangedSource, C: Cancellation, W: SequentialSink>
                 .progress
                 .reference_reads
                 .checked_add(1)
-                .ok_or_else(|| {
-                    self.error(
-                        RefinementErrorKind::InvalidSpan("reference read count overflows u64"),
-                        None,
-                        target_y,
-                        0,
-                    )
-                })?;
+                .ok_or_else(|| self.invalid_span("reference read count overflows u64", target_y))?;
             if attempted > self.budget.max_reference_reads {
                 return Err(self.limit(
                     "reference reads",
@@ -717,14 +661,7 @@ impl<'a, 'mq, M: RangedSource, C: Cancellation, W: SequentialSink>
                 .progress
                 .reference_bytes_fetched
                 .checked_add(count as u64)
-                .ok_or_else(|| {
-                    self.error(
-                        RefinementErrorKind::InvalidSpan("reference byte count overflows u64"),
-                        None,
-                        target_y,
-                        0,
-                    )
-                })?;
+                .ok_or_else(|| self.invalid_span("reference byte count overflows u64", target_y))?;
             if requested_bytes > self.budget.max_reference_bytes_fetched {
                 return Err(self.limit(
                     "reference bytes",
@@ -735,12 +672,7 @@ impl<'a, 'mq, M: RangedSource, C: Cancellation, W: SequentialSink>
                 ));
             }
             let current = offset.checked_add(done as u64).ok_or_else(|| {
-                self.error(
-                    RefinementErrorKind::InvalidSpan("reference read offset overflows u64"),
-                    None,
-                    target_y,
-                    0,
-                )
+                self.invalid_span("reference read offset overflows u64", target_y)
             })?;
             self.progress.reference_reads = attempted;
             let read = source
@@ -786,14 +718,11 @@ impl<'a, 'mq, M: RangedSource, C: Cancellation, W: SequentialSink>
             let count = (row.len() - done)
                 .min(self.limits.io_chunk_bytes)
                 .min(self.budget.max_sink_request_bytes);
-            let attempted = self.progress.sink_writes.checked_add(1).ok_or_else(|| {
-                self.error(
-                    RefinementErrorKind::InvalidSpan("sink write count overflows u64"),
-                    None,
-                    y,
-                    0,
-                )
-            })?;
+            let attempted = self
+                .progress
+                .sink_writes
+                .checked_add(1)
+                .ok_or_else(|| self.invalid_span("sink write count overflows u64", y))?;
             if attempted > self.budget.max_sink_writes {
                 return Err(self.limit(
                     "sink writes",
@@ -900,14 +829,7 @@ impl<'a, 'mq, M: RangedSource, C: Cancellation, W: SequentialSink>
                     .iter()
                     .position(|entry| entry.is_none_or(|old| !needed.contains(&old)))
                     .ok_or_else(|| {
-                        self.error(
-                            RefinementErrorKind::InvalidSpan(
-                                "reference cache has no replaceable row",
-                            ),
-                            None,
-                            y,
-                            0,
-                        )
+                        self.invalid_span("reference cache has no replaceable row", y)
                     })?;
                 self.read_reference_row(
                     reference_source,

@@ -6,6 +6,7 @@ use super::{
     HeaderError, HeaderLimits, PrefixBudget, SegmentHeader, SegmentSpan, read_header_prefix,
     validate_enclosing_span,
 };
+use crate::fallible::{len_u64, reserve_exact};
 use crate::{Cancellation, Limits, RangedSource};
 use std::{error, fmt, mem};
 
@@ -160,6 +161,18 @@ fn at(header: &SegmentHeader, kind: DirectoryErrorKind) -> DirectoryError {
     }
 }
 
+fn invalid_span(header: &SegmentHeader, reason: &'static str) -> DirectoryError {
+    at(header, DirectoryErrorKind::InvalidSpan(reason))
+}
+
+fn unassigned(offset: u64, kind: DirectoryErrorKind) -> DirectoryError {
+    DirectoryError {
+        offset,
+        segment: None,
+        kind,
+    }
+}
+
 fn check_cancelled<C: Cancellation>(cancellation: &C, offset: u64) -> Result<()> {
     if cancellation.is_cancelled() {
         Err(DirectoryError {
@@ -209,13 +222,11 @@ fn validate_graph<C: Cancellation>(
     cancellation: &C,
 ) -> Result<()> {
     let mut index = Vec::new();
-    index
-        .try_reserve_exact(segments.len())
-        .map_err(|_| DirectoryError {
-            offset: 0,
-            segment: None,
-            kind: DirectoryErrorKind::AllocationFailed,
-        })?;
+    reserve_exact(
+        &mut index,
+        segments.len(),
+        unassigned(0, DirectoryErrorKind::AllocationFailed),
+    )?;
     for (position, segment) in segments.iter().enumerate() {
         check_cancelled(cancellation, segment.header_offset())?;
         index.push(IndexEntry {
@@ -242,15 +253,9 @@ fn validate_graph<C: Cancellation>(
         check_cancelled(cancellation, source.header_offset())?;
         sorted_references.clear();
         if source.referred_to.len() > 1 {
-            let scratch_bytes = u64::try_from(source.referred_to.len())
-                .ok()
-                .and_then(|length| length.checked_mul(mem::size_of::<u32>() as u64))
-                .ok_or_else(|| {
-                    at(
-                        source,
-                        DirectoryErrorKind::InvalidSpan("scratch size overflows"),
-                    )
-                })?;
+            let scratch_bytes = len_u64(source.referred_to.len())
+                .checked_mul(mem::size_of::<u32>() as u64)
+                .ok_or_else(|| invalid_span(source, "scratch size overflows"))?;
             let attempted = checked_total(metadata_bytes, scratch_bytes, source.header_offset())?;
             if attempted > limits.max_metadata_bytes {
                 return Err(at(
@@ -263,9 +268,11 @@ fn validate_graph<C: Cancellation>(
                 ));
             }
             if sorted_references.capacity() < source.referred_to.len() {
-                sorted_references
-                    .try_reserve_exact(source.referred_to.len())
-                    .map_err(|_| at(source, DirectoryErrorKind::AllocationFailed))?;
+                reserve_exact(
+                    &mut sorted_references,
+                    source.referred_to.len(),
+                    at(source, DirectoryErrorKind::AllocationFailed),
+                )?;
             }
             sorted_references.extend_from_slice(&source.referred_to);
             sorted_references.sort_unstable();
@@ -303,12 +310,9 @@ fn validate_graph<C: Cancellation>(
                 ));
             }
             if target.segment_type == 53 {
-                tables = tables.checked_add(1).ok_or_else(|| {
-                    at(
-                        source,
-                        DirectoryErrorKind::InvalidSpan("table count overflows"),
-                    )
-                })?;
+                tables = tables
+                    .checked_add(1)
+                    .ok_or_else(|| invalid_span(source, "table count overflows"))?;
                 let limit = if source.segment_type == 0 { 4 } else { 8 };
                 if tables > limit {
                     return Err(at(
@@ -389,14 +393,10 @@ pub async fn read_embedded_directory<S: RangedSource, C: Cancellation>(
     let mut metadata_used = 0_u64;
     while next < end {
         check_cancelled(cancellation, next)?;
-        let count = u64::try_from(segments.len())
-            .ok()
-            .and_then(|length| length.checked_add(1))
-            .ok_or(DirectoryError {
-                offset: next,
-                segment: None,
-                kind: DirectoryErrorKind::InvalidSpan("segment count overflows"),
-            })?;
+        let count = len_u64(segments.len()).checked_add(1).ok_or(unassigned(
+            next,
+            DirectoryErrorKind::InvalidSpan("segment count overflows"),
+        ))?;
         if count > u64::from(directory_limits.max_segments) {
             return Err(DirectoryError {
                 offset: next,
@@ -420,11 +420,11 @@ pub async fn read_embedded_directory<S: RangedSource, C: Cancellation>(
                 },
             });
         }
-        segments.try_reserve_exact(1).map_err(|_| DirectoryError {
-            offset: next,
-            segment: None,
-            kind: DirectoryErrorKind::AllocationFailed,
-        })?;
+        reserve_exact(
+            &mut segments,
+            1,
+            unassigned(next, DirectoryErrorKind::AllocationFailed),
+        )?;
         let budget = PrefixBudget {
             metadata_used: entry_total,
             metadata_limit: directory_limits.max_metadata_bytes,
@@ -442,28 +442,13 @@ pub async fn read_embedded_directory<S: RangedSource, C: Cancellation>(
         )
         .await?;
         if after <= next {
-            return Err(at(
-                &header,
-                DirectoryErrorKind::InvalidSpan("segment did not advance"),
-            ));
+            return Err(invalid_span(&header, "segment did not advance"));
         }
-        let header_metadata = header.metadata_bytes().ok_or_else(|| {
-            at(
-                &header,
-                DirectoryErrorKind::InvalidSpan("metadata size overflows"),
-            )
-        })?;
+        let header_metadata = header
+            .metadata_bytes()
+            .ok_or_else(|| invalid_span(&header, "metadata size overflows"))?;
         metadata_used = checked_total(entry_total, header_metadata, next)?;
-        references_used = checked_total(
-            references_used,
-            u64::try_from(header.referred_to.len()).map_err(|_| {
-                at(
-                    &header,
-                    DirectoryErrorKind::InvalidSpan("reference count overflows"),
-                )
-            })?,
-            next,
-        )?;
+        references_used = checked_total(references_used, len_u64(header.referred_to.len()), next)?;
         segments.push(header);
         next = after;
         check_cancelled(cancellation, next)?;

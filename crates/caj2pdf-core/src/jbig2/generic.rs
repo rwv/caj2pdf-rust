@@ -152,6 +152,14 @@ impl error::Error for GenericError {
     }
 }
 
+fn malformed(segment: u32, offset: u64, reason: &'static str) -> GenericError {
+    at(segment, offset, GenericErrorKind::Malformed(reason))
+}
+
+fn invalid_span(segment: u32, offset: u64, reason: &'static str) -> GenericError {
+    at(segment, offset, GenericErrorKind::InvalidSpan(reason))
+}
+
 fn at(segment: u32, offset: u64, kind: GenericErrorKind) -> GenericError {
     GenericError {
         offset,
@@ -275,11 +283,7 @@ fn checked_layout(
     let ax = bytes[18] as i8;
     let ay = bytes[19] as i8;
     if width == 0 || height == 0 {
-        return Err(at(
-            segment,
-            offset,
-            GenericErrorKind::Malformed("zero region dimension"),
-        ));
+        return Err(malformed(segment, offset, "zero region dimension"));
     }
     if width > budget.max_width {
         return Err(limit(
@@ -299,39 +303,25 @@ fn checked_layout(
             u64::from(height),
         ));
     }
-    x.checked_add(width).ok_or_else(|| {
-        at(
-            segment,
-            offset + 8,
-            GenericErrorKind::Malformed("region x plus width overflows"),
-        )
-    })?;
-    y.checked_add(height).ok_or_else(|| {
-        at(
-            segment,
-            offset + 12,
-            GenericErrorKind::Malformed("region y plus height overflows"),
-        )
-    })?;
+    x.checked_add(width)
+        .ok_or_else(|| malformed(segment, offset + 8, "region x plus width overflows"))?;
+    y.checked_add(height)
+        .ok_or_else(|| malformed(segment, offset + 12, "region y plus height overflows"))?;
     if region_flags & 0xf8 != 0 {
-        return Err(at(
-            segment,
-            offset + 16,
-            GenericErrorKind::Malformed("region reserved flags"),
-        ));
+        return Err(malformed(segment, offset + 16, "region reserved flags"));
     }
     if region_flags & 0x07 > 4 {
-        return Err(at(
+        return Err(malformed(
             segment,
             offset + 16,
-            GenericErrorKind::Malformed("region combination operator"),
+            "region combination operator",
         ));
     }
     if ay > 0 || (ay == 0 && ax >= 0) {
-        return Err(at(
+        return Err(malformed(
             segment,
             offset + 18,
-            GenericErrorKind::Malformed("adaptive pixel references undecoded pixel"),
+            "adaptive pixel references undecoded pixel",
         ));
     }
     if (ax, ay) != (2, -1) {
@@ -343,13 +333,7 @@ fn checked_layout(
     }
     let pixels = u64::from(width)
         .checked_mul(u64::from(height))
-        .ok_or_else(|| {
-            at(
-                segment,
-                offset,
-                GenericErrorKind::Malformed("pixel area overflows"),
-            )
-        })?;
+        .ok_or_else(|| malformed(segment, offset, "pixel area overflows"))?;
     if pixels > budget.max_pixels {
         return Err(limit(
             segment,
@@ -368,13 +352,9 @@ fn checked_layout(
             pixels,
         ));
     }
-    let context_work = pixels.checked_mul(10).ok_or_else(|| {
-        at(
-            segment,
-            offset,
-            GenericErrorKind::Malformed("context work overflows"),
-        )
-    })?;
+    let context_work = pixels
+        .checked_mul(10)
+        .ok_or_else(|| malformed(segment, offset, "context work overflows"))?;
     if context_work > budget.max_context_work {
         return Err(limit(
             segment,
@@ -384,20 +364,13 @@ fn checked_layout(
             context_work,
         ));
     }
-    let stride_u64 = u64::from(width).checked_add(7).ok_or_else(|| {
-        at(
-            segment,
-            offset,
-            GenericErrorKind::Malformed("row stride overflows"),
-        )
-    })? / 8;
-    let output = stride_u64.checked_mul(u64::from(height)).ok_or_else(|| {
-        at(
-            segment,
-            offset,
-            GenericErrorKind::Malformed("output size overflows"),
-        )
-    })?;
+    let stride_u64 = u64::from(width)
+        .checked_add(7)
+        .ok_or_else(|| malformed(segment, offset, "row stride overflows"))?
+        / 8;
+    let output = stride_u64
+        .checked_mul(u64::from(height))
+        .ok_or_else(|| malformed(segment, offset, "output size overflows"))?;
     if output > limits.max_output_bytes {
         return Err(limit(
             segment,
@@ -407,13 +380,8 @@ fn checked_layout(
             output,
         ));
     }
-    let stride = usize::try_from(stride_u64).map_err(|_| {
-        at(
-            segment,
-            offset,
-            GenericErrorKind::Malformed("row stride exceeds address space"),
-        )
-    })?;
+    let stride = usize::try_from(stride_u64)
+        .map_err(|_| malformed(segment, offset, "row stride exceeds address space"))?;
     let rows_alloc = stride_u64
         .checked_mul(3)
         .and_then(|v| {
@@ -423,13 +391,7 @@ fn checked_layout(
             )
         })
         .and_then(|v| v.checked_add(MQ_BUFFER_BYTES))
-        .ok_or_else(|| {
-            at(
-                segment,
-                offset,
-                GenericErrorKind::Malformed("allocation calculation overflows"),
-            )
-        })?;
+        .ok_or_else(|| malformed(segment, offset, "allocation calculation overflows"))?;
     if rows_alloc > limits.max_allocation_bytes {
         return Err(limit(
             segment,
@@ -448,13 +410,9 @@ fn checked_layout(
             CONTEXT_COUNT as u64,
         ));
     }
-    let payload_offset = offset.checked_add(HEADER_BYTES).ok_or_else(|| {
-        at(
-            segment,
-            offset,
-            GenericErrorKind::InvalidSpan("MQ start overflows"),
-        )
-    })?;
+    let payload_offset = offset
+        .checked_add(HEADER_BYTES)
+        .ok_or_else(|| invalid_span(segment, offset, "MQ start overflows"))?;
     let mq_span = MqSpan {
         offset: payload_offset,
         length: header.data.length - HEADER_BYTES,
@@ -479,11 +437,7 @@ fn checked_layout(
         != header.data.offset.checked_add(header.data.length)
         || payload_offset + mq_span.length > source_size
     {
-        return Err(at(
-            segment,
-            offset,
-            GenericErrorKind::InvalidSpan("MQ span outside source"),
-        ));
+        return Err(invalid_span(segment, offset, "MQ span outside source"));
     }
     Ok((
         GenericRegionInfo {
@@ -550,19 +504,11 @@ impl<'a, S: RangedSource, W: SequentialSink, C: Cancellation> GenericRegionDecod
                 },
             ));
         }
-        let end = offset.checked_add(header.data.length).ok_or_else(|| {
-            at(
-                segment,
-                offset,
-                GenericErrorKind::InvalidSpan("segment end overflows"),
-            )
-        })?;
+        let end = offset
+            .checked_add(header.data.length)
+            .ok_or_else(|| invalid_span(segment, offset, "segment end overflows"))?;
         if end > source.size() {
-            return Err(at(
-                segment,
-                offset,
-                GenericErrorKind::InvalidSpan("segment data outside source"),
-            ));
+            return Err(invalid_span(segment, offset, "segment data outside source"));
         }
         if header.data.length > limits.max_input_bytes {
             return Err(limit(
@@ -593,11 +539,7 @@ impl<'a, S: RangedSource, W: SequentialSink, C: Cancellation> GenericRegionDecod
         .await?;
         let flags = bytes[17];
         if flags & 0xf0 != 0 {
-            return Err(at(
-                segment,
-                offset + 17,
-                GenericErrorKind::Malformed("generic reserved flags"),
-            ));
+            return Err(malformed(segment, offset + 17, "generic reserved flags"));
         }
         if flags & 1 != 0 {
             return Err(at(
@@ -649,10 +591,10 @@ impl<'a, S: RangedSource, W: SequentialSink, C: Cancellation> GenericRegionDecod
         let (info, mq_span, pixels) =
             checked_layout(header, source.size(), limits, &mq_budget, budget, bytes)?;
         if contexts.count() != CONTEXT_COUNT {
-            return Err(at(
+            return Err(malformed(
                 segment,
                 offset,
-                GenericErrorKind::Malformed("expected 1024 generic MQ contexts"),
+                "expected 1024 generic MQ contexts",
             ));
         }
         let previous_two = checked_row(info.row_stride, segment, offset)?;

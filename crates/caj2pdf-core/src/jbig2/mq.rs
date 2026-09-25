@@ -259,7 +259,7 @@ pub enum MqErrorKind {
 pub type MqResult<T> = std::result::Result<T, MqError>;
 
 impl MqError {
-    fn configuration(kind: MqErrorKind) -> Self {
+    pub(super) fn configuration(kind: MqErrorKind) -> Self {
         Self {
             offset: None,
             context: None,

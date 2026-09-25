@@ -19,6 +19,7 @@ use super::{
     },
     read_segment_header,
 };
+use crate::fallible::len_u64;
 use crate::{Cancellation, Error, Limits, RangedSource, SequentialSink};
 use std::{error, fmt, io, mem};
 
@@ -317,6 +318,10 @@ impl HeaderCursor<'_> {
         self.error_at(self.at, kind)
     }
 
+    fn invalid_span(&self, reason: &'static str) -> DictionaryError {
+        self.error(DictionaryErrorKind::InvalidSpan(reason))
+    }
+
     fn error_at(&self, offset: u64, kind: DictionaryErrorKind) -> DictionaryError {
         let mut error = at(self.header, offset, kind);
         error.progress.header_bytes_fetched = self.fetched;
@@ -329,11 +334,11 @@ impl HeaderCursor<'_> {
         name: &'static str,
         cancellation: &C,
     ) -> DictionaryResult<[u8; N]> {
-        let count = u64::try_from(N)
-            .map_err(|_| self.error(DictionaryErrorKind::InvalidSpan("header field length")))?;
-        let future = self.at.checked_add(count).ok_or_else(|| {
-            self.error(DictionaryErrorKind::InvalidSpan("header offset overflow"))
-        })?;
+        let count = len_u64(N);
+        let future = self
+            .at
+            .checked_add(count)
+            .ok_or_else(|| self.invalid_span("header offset overflow"))?;
         let attempted = future - self.header.data.offset;
         if attempted > self.max_data_header_bytes {
             return Err(self.error(DictionaryErrorKind::LimitExceeded {
@@ -368,14 +373,14 @@ impl HeaderCursor<'_> {
             if got == 0 {
                 return Err(self.error(DictionaryErrorKind::Truncated(name)));
             }
-            self.at = self.at.checked_add(got as u64).ok_or_else(|| {
-                self.error(DictionaryErrorKind::InvalidSpan("header offset overflow"))
-            })?;
-            self.fetched = self.fetched.checked_add(got as u64).ok_or_else(|| {
-                self.error(DictionaryErrorKind::InvalidSpan(
-                    "header read count overflow",
-                ))
-            })?;
+            self.at = self
+                .at
+                .checked_add(got as u64)
+                .ok_or_else(|| self.invalid_span("header offset overflow"))?;
+            self.fetched = self
+                .fetched
+                .checked_add(got as u64)
+                .ok_or_else(|| self.invalid_span("header read count overflow"))?;
             done += got;
             if cancellation.is_cancelled() {
                 return Err(self.error(DictionaryErrorKind::Cancelled));
@@ -896,6 +901,24 @@ impl<'a, S: RangedSource, W: SequentialSink, C: Cancellation> DirectDictionaryDe
         }
     }
 
+    fn malformed(&self, reason: &'static str) -> DictionaryError {
+        self.error(
+            self.current_offset(),
+            DictionaryErrorKind::Malformed(reason),
+        )
+    }
+
+    fn invalid_span(&self, reason: &'static str) -> DictionaryError {
+        self.error(
+            self.current_offset(),
+            DictionaryErrorKind::InvalidSpan(reason),
+        )
+    }
+
+    fn allocation_failed(&self) -> DictionaryError {
+        self.error(self.current_offset(), DictionaryErrorKind::AllocationFailed)
+    }
+
     fn current_offset(&self) -> u64 {
         self.mq.snapshot().current_input_offset
     }
@@ -948,10 +971,7 @@ impl<'a, S: RangedSource, W: SequentialSink, C: Cancellation> DirectDictionaryDe
         height: i64,
     ) -> DictionaryResult<(u32, u32, usize, u64, u64)> {
         if width < 0 || height < 0 {
-            return Err(self.error(
-                self.current_offset(),
-                DictionaryErrorKind::Malformed("negative symbol dimension"),
-            ));
+            return Err(self.malformed("negative symbol dimension"));
         }
         if width == 0 || height == 0 {
             return Err(self.error(
@@ -962,18 +982,10 @@ impl<'a, S: RangedSource, W: SequentialSink, C: Cancellation> DirectDictionaryDe
                 },
             ));
         }
-        let width = u32::try_from(width).map_err(|_| {
-            self.error(
-                self.current_offset(),
-                DictionaryErrorKind::Malformed("symbol width exceeds 32 bits"),
-            )
-        })?;
-        let height = u32::try_from(height).map_err(|_| {
-            self.error(
-                self.current_offset(),
-                DictionaryErrorKind::Malformed("symbol height exceeds 32 bits"),
-            )
-        })?;
+        let width =
+            u32::try_from(width).map_err(|_| self.malformed("symbol width exceeds 32 bits"))?;
+        let height =
+            u32::try_from(height).map_err(|_| self.malformed("symbol height exceeds 32 bits"))?;
         self.check(
             "symbol width",
             u64::from(self.budget.max_width),
@@ -991,12 +1003,7 @@ impl<'a, S: RangedSource, W: SequentialSink, C: Cancellation> DirectDictionaryDe
             .progress
             .decoded_pixels
             .checked_add(pixels)
-            .ok_or_else(|| {
-                self.error(
-                    self.current_offset(),
-                    DictionaryErrorKind::InvalidSpan("total pixel count overflow"),
-                )
-            })?;
+            .ok_or_else(|| self.invalid_span("total pixel count overflow"))?;
         self.check(
             "dictionary pixels",
             self.budget.max_total_pixels,
@@ -1010,12 +1017,7 @@ impl<'a, S: RangedSource, W: SequentialSink, C: Cancellation> DirectDictionaryDe
             .progress
             .stored_bitmap_bytes
             .checked_add(bytes)
-            .ok_or_else(|| {
-                self.error(
-                    self.current_offset(),
-                    DictionaryErrorKind::InvalidSpan("stored byte count overflow"),
-                )
-            })?;
+            .ok_or_else(|| self.invalid_span("stored byte count overflow"))?;
         self.check(
             "stored bitmap bytes",
             self.budget.max_stored_bitmap_bytes,
@@ -1059,12 +1061,11 @@ impl<'a, S: RangedSource, W: SequentialSink, C: Cancellation> DirectDictionaryDe
         let mut done = 0;
         while done < self.current.len() {
             self.check_cancelled()?;
-            let attempted_writes = self.progress.sink_writes.checked_add(1).ok_or_else(|| {
-                self.error(
-                    self.current_offset(),
-                    DictionaryErrorKind::InvalidSpan("sink write count overflow"),
-                )
-            })?;
+            let attempted_writes = self
+                .progress
+                .sink_writes
+                .checked_add(1)
+                .ok_or_else(|| self.invalid_span("sink write count overflow"))?;
             self.check("sink writes", self.budget.max_sink_writes, attempted_writes)?;
             let count = (self.current.len() - done)
                 .min(self.io_limits.io_chunk_bytes)
@@ -1085,10 +1086,7 @@ impl<'a, S: RangedSource, W: SequentialSink, C: Cancellation> DirectDictionaryDe
                     )
                 })?;
             if written > count {
-                return Err(self.error(
-                    self.current_offset(),
-                    DictionaryErrorKind::Malformed("sink write length"),
-                ));
+                return Err(self.malformed("sink write length"));
             }
             if written == 0 {
                 return Err(self.error(
@@ -1103,12 +1101,7 @@ impl<'a, S: RangedSource, W: SequentialSink, C: Cancellation> DirectDictionaryDe
                 .progress
                 .stored_bitmap_bytes
                 .checked_add(written as u64)
-                .ok_or_else(|| {
-                    self.error(
-                        self.current_offset(),
-                        DictionaryErrorKind::InvalidSpan("stored byte count overflow"),
-                    )
-                })?;
+                .ok_or_else(|| self.invalid_span("stored byte count overflow"))?;
             done += written;
             self.check_cancelled()?;
         }
@@ -1124,15 +1117,9 @@ impl<'a, S: RangedSource, W: SequentialSink, C: Cancellation> DirectDictionaryDe
         bytes: u64,
     ) -> DictionaryResult<SymbolDescriptor> {
         let relative_store_offset = self.progress.stored_bitmap_bytes;
-        Self::prepare_row(&mut self.previous_two, stride).map_err(|_| {
-            self.error(self.current_offset(), DictionaryErrorKind::AllocationFailed)
-        })?;
-        Self::prepare_row(&mut self.previous_one, stride).map_err(|_| {
-            self.error(self.current_offset(), DictionaryErrorKind::AllocationFailed)
-        })?;
-        Self::prepare_row(&mut self.current, stride).map_err(|_| {
-            self.error(self.current_offset(), DictionaryErrorKind::AllocationFailed)
-        })?;
+        Self::prepare_row(&mut self.previous_two, stride).map_err(|_| self.allocation_failed())?;
+        Self::prepare_row(&mut self.previous_one, stride).map_err(|_| self.allocation_failed())?;
+        Self::prepare_row(&mut self.current, stride).map_err(|_| self.allocation_failed())?;
         for _ in 0..height {
             for x in 0..width {
                 self.check_cancelled()?;
@@ -1177,12 +1164,11 @@ impl<'a, S: RangedSource, W: SequentialSink, C: Cancellation> DirectDictionaryDe
         let mut class_height = 0i64;
         while self.progress.completed_symbols < self.header.new_symbols {
             self.check_cancelled()?;
-            let classes = self.progress.height_classes.checked_add(1).ok_or_else(|| {
-                self.error(
-                    self.current_offset(),
-                    DictionaryErrorKind::InvalidSpan("height class count overflow"),
-                )
-            })?;
+            let classes = self
+                .progress
+                .height_classes
+                .checked_add(1)
+                .ok_or_else(|| self.invalid_span("height class count overflow"))?;
             self.check(
                 "height classes",
                 u64::from(self.budget.max_height_classes),
@@ -1191,17 +1177,11 @@ impl<'a, S: RangedSource, W: SequentialSink, C: Cancellation> DirectDictionaryDe
             self.progress.height_classes = classes;
             let value = self.integer(IntegerProcedure::Iadh).await?;
             let delta = self.signed(value, "IADH out of band")?;
-            class_height = class_height.checked_add(delta).ok_or_else(|| {
-                self.error(
-                    self.current_offset(),
-                    DictionaryErrorKind::Malformed("height class overflow"),
-                )
-            })?;
+            class_height = class_height
+                .checked_add(delta)
+                .ok_or_else(|| self.malformed("height class overflow"))?;
             if class_height < 0 || class_height > i64::from(u32::MAX) {
-                return Err(self.error(
-                    self.current_offset(),
-                    DictionaryErrorKind::Malformed("height class dimension"),
-                ));
+                return Err(self.malformed("height class dimension"));
             }
             self.check(
                 "height class",
@@ -1216,17 +1196,11 @@ impl<'a, S: RangedSource, W: SequentialSink, C: Cancellation> DirectDictionaryDe
                     IntegerValue::Signed(delta) => delta,
                 };
                 if self.progress.completed_symbols == self.header.new_symbols {
-                    return Err(self.error(
-                        self.current_offset(),
-                        DictionaryErrorKind::Malformed("symbol-count overrun before width OOB"),
-                    ));
+                    return Err(self.malformed("symbol-count overrun before width OOB"));
                 }
-                class_width = class_width.checked_add(delta).ok_or_else(|| {
-                    self.error(
-                        self.current_offset(),
-                        DictionaryErrorKind::Malformed("symbol width overflow"),
-                    )
-                })?;
+                class_width = class_width
+                    .checked_add(delta)
+                    .ok_or_else(|| self.malformed("symbol width overflow"))?;
                 let (width, height, stride, pixels, bytes) =
                     self.checked_geometry(class_width, class_height)?;
                 let descriptor = self.bitmap(width, height, stride, pixels, bytes).await?;
@@ -1244,12 +1218,11 @@ impl<'a, S: RangedSource, W: SequentialSink, C: Cancellation> DirectDictionaryDe
         // condition. Even a zero-total dictionary consumes one zero run.
         loop {
             self.check_cancelled()?;
-            let runs = self.progress.export_runs.checked_add(1).ok_or_else(|| {
-                self.error(
-                    self.current_offset(),
-                    DictionaryErrorKind::InvalidSpan("export run count overflow"),
-                )
-            })?;
+            let runs = self
+                .progress
+                .export_runs
+                .checked_add(1)
+                .ok_or_else(|| self.invalid_span("export run count overflow"))?;
             self.check(
                 "export runs",
                 u64::from(self.budget.max_export_runs),
@@ -1259,28 +1232,19 @@ impl<'a, S: RangedSource, W: SequentialSink, C: Cancellation> DirectDictionaryDe
             let value = self.integer(IntegerProcedure::Iaex).await?;
             let length = self.signed(value, "IAEX out of band")?;
             if length < 0 {
-                return Err(self.error(
-                    self.current_offset(),
-                    DictionaryErrorKind::Malformed("negative export run"),
-                ));
+                return Err(self.malformed("negative export run"));
             }
             // `length` is nonnegative i64 and `index` is u32, so the sum
             // remains below u64::MAX.
             let end = u64::from(index) + length as u64;
             if end > u64::from(self.header.new_symbols) {
-                return Err(self.error(
-                    self.current_offset(),
-                    DictionaryErrorKind::Malformed("export run overshoot"),
-                ));
+                return Err(self.malformed("export run overshoot"));
             }
             let end = end as u32;
             if flag {
                 let exports = self.catalog.exported_symbols.len() as u64 + u64::from(end - index);
                 if exports > u64::from(self.header.exported_symbols) {
-                    return Err(self.error(
-                        self.current_offset(),
-                        DictionaryErrorKind::Malformed("exported symbol total"),
-                    ));
+                    return Err(self.malformed("exported symbol total"));
                 }
                 self.catalog
                     .exported_symbols
@@ -1293,10 +1257,7 @@ impl<'a, S: RangedSource, W: SequentialSink, C: Cancellation> DirectDictionaryDe
             }
         }
         if self.catalog.exported_symbols.len() != self.header.exported_symbols as usize {
-            return Err(self.error(
-                self.current_offset(),
-                DictionaryErrorKind::Malformed("exported symbol total"),
-            ));
+            return Err(self.malformed("exported symbol total"));
         }
         Ok(())
     }

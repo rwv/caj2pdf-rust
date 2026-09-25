@@ -155,11 +155,8 @@ async fn decode_decisions<D: DecisionSource>(source: &mut D, layout: IaidLayout)
     let mut prev = 1u64;
     for _ in 0..layout.code_len {
         // The validated count guarantees PREV fits usize before each decision.
-        let local = usize::try_from(prev).map_err(|_| MqError {
-            offset: None,
-            context: None,
-            kind: MqErrorKind::InvalidContext,
-        })?;
+        let local = usize::try_from(prev)
+            .map_err(|_| MqError::configuration(MqErrorKind::InvalidContext))?;
         let context = layout.iaid_base().checked_add(local).ok_or(MqError {
             offset: None,
             context: None,
@@ -244,9 +241,11 @@ pub fn checked_symbol_index(
     if symbol_count == 0 {
         return Err(SymbolIdError::EmptySymbolSet);
     }
-    let count = usize::try_from(symbol_count).map_err(|_| SymbolIdError::TooManySymbols {
-        count: symbol_count,
-    })?;
+    let count = usize::try_from(symbol_count)
+        .ok()
+        .ok_or(SymbolIdError::TooManySymbols {
+            count: symbol_count,
+        })?;
     if available_symbols != count {
         return Err(SymbolIdError::SymbolArrayLength {
             declared: symbol_count,
@@ -259,10 +258,8 @@ pub fn checked_symbol_index(
             count: symbol_count,
         });
     }
-    usize::try_from(id).map_err(|_| SymbolIdError::OutOfRange {
-        id,
-        count: symbol_count,
-    })
+    // `id < symbol_count`, and `symbol_count` already converted to `usize`.
+    Ok(id as usize)
 }
 
 #[cfg(test)]

@@ -3,6 +3,7 @@
 //! Bounded object scanning for headerless CAJ PDF fragments.
 
 use super::{ObjectTail, Reader, exact_unsigned};
+use crate::fallible::reserve;
 use crate::pdf::writer::MAX_PDF_OBJECTS;
 use crate::pdf::{FragmentObject, PdfRange, PdfRef};
 use crate::{Cancellation, Error, Limits, PdfErrorKind, RangedSource, Result};
@@ -109,20 +110,7 @@ pub(crate) async fn scan_fragment_objects<S: RangedSource, C: Cancellation>(
     let minimum_length = minimum_end - body_start;
     limits
         .check_input_size(minimum_length)
-        .map_err(|error| match error {
-            Error::LimitExceeded {
-                resource,
-                limit,
-                attempted,
-            } => Error::CajLimitExceeded {
-                offset: body_start,
-                record: None,
-                resource,
-                limit,
-                attempted,
-            },
-            other => other,
-        })?;
+        .map_err(|error| error.locate_caj_limit(body_start, None))?;
     let scan_end = minimum_end
         .saturating_add(MAX_FRAGMENT_TAIL_EXTENSION)
         .min(source.size());
@@ -136,18 +124,15 @@ pub(crate) async fn scan_fragment_objects<S: RangedSource, C: Cancellation>(
     let mut cursor = 0_u64;
     let mut final_object_repaired = false;
     let minimum_relative = minimum_end - body_start;
+    // `minimum_end <= source.size()` was checked above, so the bounded scan
+    // range always reaches the page table's body end. A cursor that has not
+    // reached that end is therefore still inside the range; `load_head`
+    // rejects syntax that would run past it.
+    debug_assert!(minimum_relative <= range.length);
     let logical_end = loop {
         reader.skip_space(&mut cursor).await?;
         if cursor >= minimum_relative {
             break cursor;
-        }
-        if cursor >= range.length {
-            return Err(reader.problem(
-                cursor,
-                None,
-                PdfErrorKind::Malformed,
-                "CAJ PDF fragment ends before page table body end",
-            ));
         }
         let start = cursor;
         let head = reader.load_head(start, None).await?;
@@ -165,20 +150,10 @@ pub(crate) async fn scan_fragment_objects<S: RangedSource, C: Cancellation>(
             ObjectTail::EndObject { end } => start.checked_add(end as u64),
             ObjectTail::Stream { data_start } => {
                 let dictionary = head.dictionary.as_ref().ok_or_else(|| {
-                    reader.problem(
-                        start,
-                        Some(reference),
-                        PdfErrorKind::Malformed,
-                        "stream has no dictionary",
-                    )
+                    reader.malformed(start, Some(reference), "stream has no dictionary")
                 })?;
                 let entry = dictionary.entry(b"Length").ok_or_else(|| {
-                    reader.problem(
-                        start,
-                        Some(reference),
-                        PdfErrorKind::Malformed,
-                        "stream lacks Length",
-                    )
+                    reader.malformed(start, Some(reference), "stream lacks Length")
                 })?;
                 let value = entry.value(&dictionary.bytes);
                 let length = exact_unsigned(value).ok_or_else(|| {
@@ -190,20 +165,10 @@ pub(crate) async fn scan_fragment_objects<S: RangedSource, C: Cancellation>(
                     )
                 })?;
                 let data_at = start.checked_add(data_start as u64).ok_or_else(|| {
-                    reader.problem(
-                        start,
-                        Some(reference),
-                        PdfErrorKind::Malformed,
-                        "stream offset overflows",
-                    )
+                    reader.malformed(start, Some(reference), "stream offset overflows")
                 })?;
                 let after_data = data_at.checked_add(length).ok_or_else(|| {
-                    reader.problem(
-                        data_at,
-                        Some(reference),
-                        PdfErrorKind::Malformed,
-                        "stream extent overflows",
-                    )
+                    reader.malformed(data_at, Some(reference), "stream extent overflows")
                 })?;
                 let end = match reader.check_stream_tail(after_data, Some(reference)).await {
                     Ok(end) => end,
@@ -225,10 +190,9 @@ pub(crate) async fn scan_fragment_objects<S: RangedSource, C: Cancellation>(
                             ));
                         }
                         let dictionary_start = head.dictionary_start.ok_or_else(|| {
-                            reader.problem(
+                            reader.malformed(
                                 start,
                                 Some(reference),
-                                PdfErrorKind::Malformed,
                                 "stream dictionary offset is missing",
                             )
                         })?;
@@ -252,19 +216,11 @@ pub(crate) async fn scan_fragment_objects<S: RangedSource, C: Cancellation>(
                 Some(end)
             }
         }
-        .ok_or_else(|| {
-            reader.problem(
-                start,
-                Some(reference),
-                PdfErrorKind::Malformed,
-                "fragment object end overflows",
-            )
-        })?;
+        .ok_or_else(|| reader.malformed(start, Some(reference), "fragment object end overflows"))?;
         if end <= start || end > range.length {
-            return Err(reader.problem(
+            return Err(reader.malformed(
                 start,
                 Some(reference),
-                PdfErrorKind::Malformed,
                 "fragment object extends beyond the bounded body",
             ));
         }
@@ -289,17 +245,16 @@ pub(crate) async fn scan_fragment_objects<S: RangedSource, C: Cancellation>(
         limits
             .check_allocation(allocation)
             .map_err(|error| reader.locate_limit(start, Some(reference), error))?;
-        objects.try_reserve(1).map_err(|_| {
-            reader.locate_limit(
+        reserve(
+            &mut objects,
+            1,
+            reader.allocation_limit(
                 start,
                 Some(reference),
-                Error::LimitExceeded {
-                    resource: "PDF fragment object index allocation",
-                    limit: limits.max_allocation_bytes,
-                    attempted: allocation,
-                },
-            )
-        })?;
+                "PDF fragment object index allocation",
+                allocation,
+            ),
+        )?;
         objects.push(FragmentObject {
             reference,
             range: PdfRange {
@@ -314,12 +269,7 @@ pub(crate) async fn scan_fragment_objects<S: RangedSource, C: Cancellation>(
         }
     };
     if objects.is_empty() {
-        return Err(reader.problem(
-            0,
-            None,
-            PdfErrorKind::Malformed,
-            "CAJ PDF fragment has no indirect objects",
-        ));
+        return Err(reader.malformed(0, None, "CAJ PDF fragment has no indirect objects"));
     }
     if final_object_repaired {
         // A repaired final stream can otherwise stop at a fake terminator in
@@ -393,10 +343,9 @@ async fn repair_stream_length<S: RangedSource, C: Cancellation>(
         found = Some((after - data_at, end));
     }
     found.ok_or_else(|| {
-        reader.problem(
+        reader.malformed(
             declared_after,
             Some(reference),
-            PdfErrorKind::Malformed,
             "stream Length has no unique bounded repair",
         )
     })
