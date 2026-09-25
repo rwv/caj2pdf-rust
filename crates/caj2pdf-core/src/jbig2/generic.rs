@@ -191,7 +191,7 @@ fn checked_row(stride: usize, segment: u32, offset: u64) -> GenericResult<Vec<u8
     Ok(row)
 }
 
-fn template2_context(
+pub(super) fn template2_context(
     previous_two: &[u8],
     previous_one: &[u8],
     current: &[u8],

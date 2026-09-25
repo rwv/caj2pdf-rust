@@ -97,6 +97,8 @@ The exact T.88 Table E.1 probability states and Annex H vector remain
 outside this MIT repository while [#44](https://github.com/rwv/caj2pdf-rust/issues/44)
 resolves their redistribution basis. No converter, private Rust, or external
 decoder source was used. The separate [IAID layer](t88-iaid.md) now covers
-Annex A.3. Later work under [#9](https://github.com/rwv/caj2pdf-rust/issues/9)
-must add dictionary bitmap/refinement/aggregation models, text regions, page
-composition, and external end-to-end parity.
+Annex A.3. The later [direct dictionary slice](t88-symbol-dictionary-direct.md)
+uses these integer banks for the observed first dictionary. Work under
+[#9](https://github.com/rwv/caj2pdf-rust/issues/9) still needs the second
+refinement/aggregate dictionary, text regions, page composition, and
+external end-to-end parity.

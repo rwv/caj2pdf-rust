@@ -18,6 +18,7 @@ checking the provenance of each imported file.
 | T.88 MQ arithmetic control flow and numeric states | [ITU-T T.88 (02/2000)](https://www.itu.int/rec/T-REC-T.88-200002-S/en), Annex E.2.6/Table E.1, E.2.9–E.2.10, E.3.1–E.3.6, and H.2/Table H.1; [ITU Software Copyright Guidelines](https://www.itu.int/dms_pub/itu-t/oth/04/04/T04040000040004PDFE.pdf) | Original MIT decoder control flow with a caller-supplied 47-state table. The exact Table E.1 rows and Annex H vector/checkpoints remain outside Git, artifacts, and releases; their MIT redistribution basis remains open in [#44](https://github.com/rwv/caj2pdf-rust/issues/44). The [core note](t88-mq-core.md) records bounded API, differences from T.82, external-only fixture, and verification scope. Annex H.2 verifies arithmetic decisions, not CAJ/JBIG2 pixels. |
 | T.88 non-IAID arithmetic integers | [ITU-T T.88 (02/2000)](https://www.itu.int/rec/T-REC-T.88-200002-S/en), Annex A.1–A.2 and E.3, with symbol-dictionary usage in §§6.5 and 7.4.2 | Original MIT typed 13-bank integer decision layer over the existing caller-table MQ decoder. The [integer note](t88-arithmetic-integer.md) records its signed/OOB result, 512-context layout, 38-decision limit, and synthetic checks. No Table E.1 states, external dictionary trace, or HN/C8 compatibility claim is included. |
 | T.88 fixed-length IAID symbol IDs | [ITU-T T.88 (02/2000)](https://www.itu.int/rec/T-REC-T.88-200002-S/en), Annex A.3 and E.3, §§6.4.2, 6.4.10, 6.5.8.2.3, 7.4.2–7.4.3 | Original MIT typed context owner and IAID decision layer over the existing caller-table MQ stream. The [IAID note](t88-iaid.md) records its fixed-width context map, bounded allocation and work, reset policy, symbol-array guard, and synthetic checks. No official state rows, external trace, or HN/C8 parity claim is included. |
+| T.88 direct-coded arithmetic symbol dictionaries | [ITU-T T.88 (02/2000)](https://www.itu.int/rec/T-REC-T.88-200002-S/en), §§6.2.5, 6.5.1–6.5.10, 7.4.2.1–7.4.2.2, Tables 16 and 28, Annex A.2 and E.3.7–E.3.8; [repository-owned header inventory](../tests/conformance/jbig2_dictionary_headers.json) | Original MIT, bounded caller-table first-dictionary primitive. The [dictionary note](t88-symbol-dictionary-direct.md) records classification, MQ/context ownership, store contract, limits, and optional evidence. The observed second refinement/aggregate dictionary remains typed unsupported. Exact Table E.1 rows remain external under #44; metadata checks do not establish symbol pixel parity. |
 | T.88 template-2 arithmetic generic regions | [ITU-T T.88 (02/2000)](https://www.itu.int/rec/T-REC-T.88-200002-S/en), §§6.2.5.2–6.2.5.4, 6.2.5.7, 7.4.1, 7.4.6.1–7.4.6.4, Table 34, Figure 5, E.3.7 | Original MIT, bounded row decoder with caller-supplied MQ table. Two external generic-only HN/C8 pixel spots passed; all 546 remain for #50. The [region note](jbig2-generic-template2.md) records the context order, bounds, and external-only verification. |
 | CAJ-family headers, pages, and outlines | [caj2pdf format notes](https://github.com/caj2pdf/caj2pdf/wiki), including [CAJ/HN identification](https://github.com/caj2pdf/caj2pdf/wiki/CAJ-%E5%92%8C-HN), [basic information and outlines](https://github.com/caj2pdf/caj2pdf/wiki/%E6%96%87%E4%BB%B6%E5%9F%BA%E6%9C%AC%E4%BF%A1%E6%81%AF%E4%B8%8E%E5%A4%A7%E7%BA%B2), and [CAJ page content](https://github.com/caj2pdf/caj2pdf/wiki/CAJ-%E6%A0%BC%E5%BC%8F%E7%9A%84%E9%A1%B5%E9%9D%A2%E5%86%85%E5%AE%B9) | Public observations, not a complete normative specification. [Repository-owned CAJ measurements](caj-format.md) pin ten successful sample digests and document TOC, page-table, and PDF-fragment exceptions independently. Do not copy parser source or pseudocode. |
 | HN page layout | [caj2pdf HN format notes](https://github.com/caj2pdf/caj2pdf/wiki/HN-%E6%A0%BC%E5%BC%8F%E7%9A%84%E9%A1%B5%E9%9D%A2%E5%86%85%E5%AE%B9) | Incomplete public observations. Derive the parser from documented facts and independent tests; mark unresolved fields explicitly. |
@@ -449,6 +450,34 @@ tests are newly invented MIT fixtures. No independent IAID decision trace is
 currently available, so external IAID compatibility is `NOT_RUN` with zero
 checked cases. The exact Table E.1 rights question remains in #44. This
 primitive does not decode symbol bitmaps, text regions, or pages.
+
+Issue #62 adds the original MIT direct symbol-dictionary decoder in
+[`jbig2/dictionary.rs`](../crates/caj2pdf-core/src/jbig2/dictionary.rs),
+reuses this repository's MIT MQ, integer, segment-header, and template-2
+pixel-context code, and records the design in the
+[dictionary note](t88-symbol-dictionary-direct.md). Original tiny synthetic
+tests use an invented 47-state machine and independently chosen decisions.
+The original MIT
+[native metrics probe](../crates/caj2pdf-core/examples/jbig2_dictionary_metrics.rs)
+reads one SHA-pinned external first dictionary and a private caller table at
+runtime, measures resident memory and temporary storage, and removes its
+temporary file; it ships neither input nor official states.
+The [metadata-only optional runner](../scripts/jbig2_dictionary_headers.py)
+and [numeric/hash manifest](../tests/conformance/jbig2_dictionary_headers.json)
+were independently measured across 546 first/second dictionary headers in
+five type-3 source files. The runner also checks all 27 selected external
+HN/C8 source identities before and after reading. The manifest and runner
+contain no encoded segment or decoded pixel bytes. The official T.88
+(02/2000) clauses cited
+above and these repository-owned measurements were the only format sources.
+No Python/Go/private Rust converter, third-party decoder source, exact
+Table E.1 row, Annex H byte, external CAJ document, or generated output was
+copied or migrated. The production core has no new dependency. The #2
+refinement/aggregate dictionary is parsed only and returns typed unsupported;
+text regions, page composition, and independent symbol-pixel parity remain
+open. External symbol compatibility is `NOT_RUN` with zero checked cases;
+[#44](https://github.com/rwv/caj2pdf-rust/issues/44) still governs exact
+official MQ-state redistribution.
 
 ## Dependency inventory and review
 

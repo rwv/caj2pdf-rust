@@ -63,6 +63,13 @@ jobs:
           CAJ2PDF_CORPUS_DIR: ""
         run: |
           python3 scripts/jbig2_directory_inventory.py --json | python3 -c 'import json, sys; report = json.load(sys.stdin); print(json.dumps(report)); assert report["status"] == "NOT_RUN" and report["checked_images"] == 0, report'
+      - name: Report external JBIG2 dictionary headers and symbols as not run
+        env:
+          CAJ2PDF_CORPUS_DIR: ""
+        run: |
+          report="$(python3 scripts/jbig2_dictionary_headers.py --json)"
+          printf '%s\n' "$report"
+          python3 -c 'import json, sys; result = json.loads(sys.argv[1]); assert result["status"] == "NOT_RUN" and result["metadata"]["checked_images"] == 0 and result["symbol_compatibility"]["status"] == "NOT_RUN" and result["symbol_compatibility"]["checked_cases"] == 0 and result["symbol_compatibility"]["passed"] == 0, result' "$report"
       - name: Report external JBIG2 pixel oracle as not run
         env:
           CAJ2PDF_CORPUS_DIR: ""
