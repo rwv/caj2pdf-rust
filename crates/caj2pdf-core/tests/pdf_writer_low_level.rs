@@ -259,6 +259,42 @@ fn missing_duplicate_and_open_objects_are_rejected() {
 }
 
 #[test]
+fn finish_requires_a_written_catalog_reserved_by_this_writer() {
+    let limits = Limits::default();
+    let mut other_sink = ProbeSink {
+        max_write: usize::MAX,
+        ..ProbeSink::default()
+    };
+    let mut sink = ProbeSink {
+        max_write: usize::MAX,
+        ..ProbeSink::default()
+    };
+    run(async {
+        let mut other = PdfWriter::new(&mut other_sink, &limits, &NeverCancel).await?;
+        other.reserve_object()?;
+        let foreign = other.reserve_object()?;
+
+        let mut pdf = PdfWriter::new(&mut sink, &limits, &NeverCancel).await?;
+        let root = pdf.reserve_object()?;
+        assert!(matches!(
+            pdf.begin_object(foreign).await,
+            Err(Error::InvalidInput {
+                reason: "PDF object number was not reserved"
+            })
+        ));
+        assert!(matches!(
+            pdf.finish(root).await,
+            Err(Error::InvalidInput {
+                reason: "PDF catalog object has not been written"
+            })
+        ));
+        Ok::<(), Error>(())
+    })
+    .unwrap();
+    assert!(!sink.bytes.windows(5).any(|part| part == b"xref\n"));
+}
+
+#[test]
 fn xref_preflight_fails_before_emitting_any_xref_bytes() {
     let mut sink = ProbeSink {
         max_write: usize::MAX,
