@@ -91,7 +91,7 @@ pub(crate) async fn inspect_link_destination_candidate<S: RangedSource, C: Cance
     let mut reader = Reader::new(source, range, limits, cancellation)?;
     limits
         .check_input_size(range.length)
-        .map_err(|error| reader.locate_limit(0, Some(reference), error))?;
+        .map_err(reader.locator(0, Some(reference)))?;
     let head = reader.load_head(0, Some(reference)).await?;
     let ObjectTail::EndObject { end } = head.tail else {
         return Ok(None);
