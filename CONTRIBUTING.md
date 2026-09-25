@@ -54,3 +54,14 @@ otherwise demonstrably redistributable under MIT.
 Write meaningful unit tests for success, malformed input, and error paths.
 Aim for 100% coverage where practical, and report uncovered behavior rather
 than adding assertions that only mirror the implementation.
+
+## Quality gates
+
+CI requires `cargo fmt --check`, Clippy with `-D warnings`, rustdoc with
+`-D warnings`, locked native tests, the WASM build and JavaScript adapter
+tests, the MIT license/source/advisory audit, and the line-coverage gate in
+`scripts/check-coverage.sh`. The coverage gate enforces a total floor and a
+per-file floor; both are ratchets that are raised as coverage improves and are
+never lowered to let a change pass. Run `bash scripts/check-coverage.sh`
+locally (it needs `cargo-llvm-cov` and the PDF validators listed in
+[the PDF writer notes](docs/pdf-writer.md)).
