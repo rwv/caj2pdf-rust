@@ -1230,6 +1230,74 @@ fn identical_duplicate_page_box_without_tail_is_repaired() {
     check_pdf(&output.path, 2);
 }
 
+/// One page plus `orphans` unreferenced Pages nodes that each repeat an
+/// identical MediaBox, so every orphan needs a retained repair body.
+fn duplicate_box_orphans_pdf(orphans: usize) -> Vec<u8> {
+    let orphan = format!(
+        "<< /Type /Pages /MediaBox [0 0 1 1] /MediaBox [0 0 1 1] /Pad ({}) >>",
+        "x".repeat(300)
+    );
+    let mut bodies = vec![
+        "<< /Type /Pages /Count 1 /Kids [2 0 R] /MediaBox [0 0 100 100] >>".to_owned(),
+        "<< /Type /Page /Parent 1 0 R >>".to_owned(),
+        "<< /Type /Catalog /Pages 1 0 R >>".to_owned(),
+    ];
+    bodies.extend(std::iter::repeat_n(orphan, orphans));
+    let mut pdf = b"%PDF-1.7\n".to_vec();
+    let mut xref = format!("xref\n0 {}\n0000000000 65535 f \n", bodies.len() + 1);
+    for (index, body) in bodies.iter().enumerate() {
+        xref.push_str(&format!("{:010} 00000 n \n", pdf.len()));
+        pdf.extend_from_slice(format!("{} 0 obj\n{body}\nendobj\n", index + 1).as_bytes());
+    }
+    let xref_at = pdf.len();
+    pdf.extend_from_slice(xref.as_bytes());
+    pdf.extend_from_slice(
+        format!(
+            "trailer\n<< /Size {} /Root 3 0 R >>\nstartxref\n{xref_at}\n%%EOF\n",
+            bodies.len() + 1
+        )
+        .as_bytes(),
+    );
+    pdf
+}
+
+#[test]
+fn duplicate_page_box_repairs_beyond_the_budget_fail_before_output() {
+    let copy = |limits: &Limits| {
+        let mut source = SeekableSource::new(Cursor::new(duplicate_box_orphans_pdf(30))).unwrap();
+        let mut sink = WriteSink::new(Vec::<u8>::new());
+        let result = run_native(copy_pdf(
+            &mut source,
+            &mut sink,
+            limits,
+            &CancelAfter::Never,
+        ));
+        (result, sink.into_inner())
+    };
+    let (result, _) = copy(&Limits::default());
+    assert_eq!(result.unwrap().pages_converted, 1);
+    // Half of the allocation limit bounds the retained repair bodies; each
+    // orphan fits it alone, but not all thirty together.
+    let limits = Limits {
+        io_chunk_bytes: 4096,
+        max_allocation_bytes: 16 * 1024,
+        ..Limits::default()
+    };
+    let (result, output) = copy(&limits);
+    assert!(
+        matches!(
+            result,
+            Err(Error::PdfLimitExceeded {
+                resource: "PDF repair object bytes",
+                limit: 8192,
+                ..
+            })
+        ),
+        "{result:?}"
+    );
+    assert!(output.is_empty());
+}
+
 fn write_pdf_without_outlines() -> Vec<u8> {
     write_pdf_with_catalog(b"<< /Type /Catalog /Pages 2 0 R >>", None)
 }
