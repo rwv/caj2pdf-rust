@@ -506,6 +506,23 @@ copied or migrated, and no dependency was added. The inventory stores only
 counts, flags, offsets, and lengths; text compatibility is `NOT_RUN` with
 zero cases.
 
+Issue #12 replaces the placeholder `crates/caj2pdf-cli/src/main.rs` and
+removes `crates/caj2pdf-cli/tests/unimplemented.rs`. It adds the original MIT
+CLI sources `args.rs`, `document.rs`, `files.rs`, `json.rs`, `report.rs`, and
+the unit tests in `tests.rs` under `crates/caj2pdf-cli/src`, plus the
+process tests in `crates/caj2pdf-cli/tests/cli.rs`. They were written for
+this repository against the core's public API; no Python, Go, private Rust,
+or third-party CLI source was copied, transliterated, or migrated. The only
+format facts they add are the leading-signature table, taken from the
+signatures already recorded in the [fixture note](../tests/fixtures/README.md),
+the [HN/C8 container note](hnc8-container.md), and the
+[KDH note](kdh-format.md). The JSON encoder follows the published
+[RFC 8259](https://www.rfc-editor.org/rfc/rfc8259) string grammar. The
+process tests build tiny CAJ, KDH, C8, and HN containers at run time from
+those notes and use the existing MIT PDF fixtures; no binary fixture is
+added. Installed `qpdf` and MuPDF `mutool` validate generated PDFs as
+independent black-box tools, as for issue #5.
+
 ## Dependency inventory and review
 
 The issue #2 baseline contains three owned packages:
@@ -595,6 +612,11 @@ existing test graph. No package code is copied into this repository.
 
 No external official table/vector bytes or library source are vendored with
 this dependency change.
+
+Issue #12 adds no Cargo dependency. The CLI's argument parser, JSON string
+encoder, temporary-file handling, and terminal check use only the Rust
+standard library (`std::io::IsTerminal`, `std::os::unix`), so the
+`caj2pdf-cli` row above still lists no external dependency.
 
 For each pull request and release, regenerate the locked transitive inventory
 for the Linux native target and `wasm32-unknown-unknown`, including target-
