@@ -265,7 +265,13 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
         let width = pdf_page_number(page.width_points)?;
         let height = pdf_page_number(page.height_points)?;
         image.validate(length)?;
-        self.validate_image_range(source, offset, length)?;
+        validate_image_range(
+            self.limits,
+            self.input_bytes_read,
+            source.size(),
+            offset,
+            length,
+        )?;
         self.check_next_page()?;
         self.reserve_page_index_slot()?;
         self.ensure_leaf().await?;
@@ -494,40 +500,6 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
             pages_converted: self.pages_written,
             bookmarks_written: self.bookmarks_written,
         })
-    }
-
-    fn validate_image_range<R: RangedSource>(
-        &self,
-        source: &R,
-        offset: u64,
-        length: u64,
-    ) -> Result<()> {
-        self.limits.check_input_size(source.size())?;
-        if length > MAX_PDF_INTEGER {
-            return Err(Error::LimitExceeded {
-                resource: "PDF image stream bytes",
-                limit: MAX_PDF_INTEGER,
-                attempted: length,
-            });
-        }
-        if offset > source.size() {
-            return Err(Error::InvalidInput {
-                reason: "image range starts beyond source size",
-            });
-        }
-        if length > source.size() - offset {
-            return Err(Error::TruncatedInput {
-                offset,
-                expected: length,
-                available: source.size() - offset,
-            });
-        }
-        self.input_bytes_read
-            .checked_add(length)
-            .ok_or(Error::InvalidInput {
-                reason: "image input byte count overflows",
-            })?;
-        Ok(())
     }
 
     fn check_next_page(&self) -> Result<()> {
@@ -965,6 +937,43 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
                 })?;
         Ok(())
     }
+}
+
+/// Check one image payload range. Only the source size is needed, so every
+/// sink, cancellation, and source type shares this check.
+fn validate_image_range(
+    limits: &Limits,
+    input_bytes_read: u64,
+    source_size: u64,
+    offset: u64,
+    length: u64,
+) -> Result<()> {
+    limits.check_input_size(source_size)?;
+    if length > MAX_PDF_INTEGER {
+        return Err(Error::LimitExceeded {
+            resource: "PDF image stream bytes",
+            limit: MAX_PDF_INTEGER,
+            attempted: length,
+        });
+    }
+    if offset > source_size {
+        return Err(Error::InvalidInput {
+            reason: "image range starts beyond source size",
+        });
+    }
+    if length > source_size - offset {
+        return Err(Error::TruncatedInput {
+            offset,
+            expected: length,
+            available: source_size - offset,
+        });
+    }
+    input_bytes_read
+        .checked_add(length)
+        .ok_or(Error::InvalidInput {
+            reason: "image input byte count overflows",
+        })?;
+    Ok(())
 }
 
 impl<W: SequentialSink, C: Cancellation> BookmarkVisitor for PdfDocument<'_, W, C> {
