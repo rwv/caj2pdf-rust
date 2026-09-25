@@ -16,6 +16,7 @@ pub mod iaid;
 pub mod integer;
 pub mod mq;
 pub mod refinement;
+pub mod refinement_dictionary;
 pub mod text;
 
 use crate::fallible::{len_u64, reserve_exact, usize_from_u32};
