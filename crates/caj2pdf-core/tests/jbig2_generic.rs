@@ -699,7 +699,7 @@ fn additional_constructor_bounds_and_located_source_errors() {
     let mut source = record(3, 2, 0, 4, (2, -1), SHORT_STREAM);
     let hdr = header(&mut source);
     let flag = Rc::new(Cell::new(true));
-    let cancellation = CancelAfter::while_set(flag);
+    let cancellation = CancelAfter::While(flag);
     let mut bank = contexts(&limits, &mq_budget);
     let mut sink = Sink::default();
     let err = match ready(GenericRegionDecoder::new(
@@ -851,7 +851,7 @@ fn retries_partial_row_writes_and_reports_flush_failure() {
         io_chunk_bytes: 2,
         ..Limits::default()
     };
-    let never = CancelAfter::never();
+    let never = CancelAfter::Never;
     let mq_budget = MqBudget::default();
     let table = table();
     let stream = [0, 0, 0, 0, 0xff, 0xac];
@@ -896,7 +896,7 @@ fn cancellation_and_dropped_pending_row_poison_decoder() {
         cancel: Some(flag.clone()),
         ..Sink::default()
     };
-    let cancellation = CancelAfter::while_set(flag);
+    let cancellation = CancelAfter::While(flag);
     let mut decoder = ready(GenericRegionDecoder::new(
         &mut source,
         &hdr,
@@ -957,7 +957,7 @@ fn cancellation_before_next_row_and_during_flush_never_reports_success() {
     let mq_budget = MqBudget::default();
     let table = table();
     let flag = Rc::new(Cell::new(false));
-    let cancellation = CancelAfter::while_set(flag.clone());
+    let cancellation = CancelAfter::While(flag.clone());
     let mut source = record(3, 1, 0, 4, (2, -1), SHORT_STREAM);
     let hdr = header(&mut source);
     let mut bank = contexts(&limits, &mq_budget);
@@ -1019,7 +1019,7 @@ fn cancellation_before_next_row_and_during_flush_never_reports_success() {
 #[test]
 fn rejects_terminal_errors_and_incomplete_finish() {
     let limits = Limits::default();
-    let never = CancelAfter::never();
+    let never = CancelAfter::Never;
     let mq_budget = MqBudget::default();
     let table = table();
     let mut source = record(3, 1, 0, 4, (2, -1), SHORT_STREAM);
@@ -1255,7 +1255,7 @@ fn working_allocation_cap_counts_three_rows_at_the_exact_boundary() {
 #[test]
 fn rows_and_finish_after_a_dropped_row_future_are_poisoned_without_flush() {
     let limits = Limits::default();
-    let never = CancelAfter::never();
+    let never = CancelAfter::Never;
     let mq_budget = MqBudget::default();
     let table = table();
     let mut source = record(3, 1, 0, 4, (2, -1), SHORT_STREAM);
