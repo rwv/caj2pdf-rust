@@ -67,6 +67,16 @@ impl Limits {
         Ok(())
     }
 
+    /// The unlocated error for an allocation of `attempted` bytes that passed
+    /// [`Self::check_allocation`] but was refused by the allocator.
+    pub(crate) fn allocation_refused(&self, resource: &'static str, attempted: u64) -> Error {
+        Error::LimitExceeded {
+            resource,
+            limit: self.max_allocation_bytes,
+            attempted,
+        }
+    }
+
     /// Check the selected input byte count for one operation.
     pub fn check_input_size(&self, bytes: u64) -> Result<()> {
         if bytes > self.max_input_bytes {

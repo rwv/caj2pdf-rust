@@ -116,11 +116,9 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfWriter<'a, W, C> {
         let bytes = len_u64(bytes);
         self.limits.check_allocation(bytes)?;
         if next_count > self.offsets.capacity() {
-            let refused = Error::LimitExceeded {
-                resource: "PDF object index allocation",
-                limit: self.limits.max_allocation_bytes,
-                attempted: bytes,
-            };
+            let refused = self
+                .limits
+                .allocation_refused("PDF object index allocation", bytes);
             let additional = next_capacity - self.offsets.len();
             reserve_exact(&mut self.offsets, additional, refused)?;
         }

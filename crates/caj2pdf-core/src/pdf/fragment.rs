@@ -142,15 +142,6 @@ fn malformed(reference: Option<PdfRef>, offset: u64, reason: &'static str) -> Er
     pdf_error(reference, offset, PdfErrorKind::Malformed, reason)
 }
 
-/// An unlocated error for a failed reservation within the allocation limit.
-fn allocation_limit(resource: &'static str, limits: &Limits, attempted: u64) -> Error {
-    Error::LimitExceeded {
-        resource,
-        limit: limits.max_allocation_bytes,
-        attempted,
-    }
-}
-
 fn pdf_limit(
     reference: Option<PdfRef>,
     offset: u64,
@@ -603,7 +594,7 @@ pub async fn reconstruct_fragment_with_bookmarks<
         plan.objects.first().map_or(0, |object| object.range.offset),
     )?;
     let mut records = Vec::new();
-    let refused = allocation_limit("PDF object index allocation", limits, record_bytes);
+    let refused = limits.allocation_refused("PDF object index allocation", record_bytes);
     reserve_exact(&mut records, requested, refused)?;
     let mut fragment_bytes = 0_u64;
     for fragment in plan.objects {
@@ -700,7 +691,7 @@ pub async fn reconstruct_fragment_with_bookmarks<
         plan.objects.first().map_or(0, |object| object.range.offset),
     )?;
     let mut sorted_pages = Vec::new();
-    let refused = allocation_limit("PDF page index allocation", limits, page_index_bytes);
+    let refused = limits.allocation_refused("PDF page index allocation", page_index_bytes);
     reserve_exact(&mut sorted_pages, plan.pages.len(), refused)?;
     sorted_pages.extend_from_slice(plan.pages);
     sorted_pages.sort_unstable();
@@ -911,7 +902,7 @@ pub async fn reconstruct_fragment_with_bookmarks<
             .map_or(0, |record| record.range.offset),
     )?;
     let mut buffer = Vec::new();
-    let refused = allocation_limit("PDF I/O buffer allocation", limits, output_working_bytes);
+    let refused = limits.allocation_refused("PDF I/O buffer allocation", output_working_bytes);
     reserve_exact(&mut buffer, limits.io_chunk_bytes, refused)?;
     buffer.resize(limits.io_chunk_bytes, 0_u8);
     emit(sink, HEADER, &mut report, limits, cancellation).await?;
@@ -1176,7 +1167,7 @@ async fn validate_fragment_structure<R: RangedSource, C: Cancellation>(
         plan.objects.first().map_or(0, |object| object.range.offset),
     )?;
     let mut scalars = Vec::new();
-    let refused = allocation_limit("PDF scalar index allocation", limits, scalar_bytes);
+    let refused = limits.allocation_refused("PDF scalar index allocation", scalar_bytes);
     reserve_exact(&mut scalars, records.len(), refused)?;
     for record in records {
         let scalar = if record.range.length == 0 {
@@ -1207,11 +1198,11 @@ async fn validate_fragment_structure<R: RangedSource, C: Cancellation>(
         plan.objects.first().map_or(0, |object| object.range.offset),
     )?;
     let mut kinds = Vec::new();
-    let refused = allocation_limit("PDF structure index allocation", limits, kind_bytes);
+    let refused = limits.allocation_refused("PDF structure index allocation", kind_bytes);
     reserve_exact(&mut kinds, records.len(), refused)?;
     let mut retained_structure_bytes = retained_base;
     let mut stream_flags = Vec::new();
-    let refused = allocation_limit("PDF stream index allocation", limits, stream_bytes);
+    let refused = limits.allocation_refused("PDF stream index allocation", stream_bytes);
     reserve_exact(&mut stream_flags, records.len(), refused)?;
     let mut content_evidence = Vec::new();
     let mut destination_count = 0_u32;
@@ -1476,7 +1467,7 @@ fn retain_content_evidence(
     let item_bytes = checked_add(size_of::<ContentEvidence>() as u64, reference_bytes)?;
     *retained_bytes = checked_add(*retained_bytes, item_bytes)?;
     check_pdf_allocation(limits, *retained_bytes, Some(item.reference), offset)?;
-    let refused = allocation_limit("PDF content evidence allocation", limits, *retained_bytes);
+    let refused = limits.allocation_refused("PDF content evidence allocation", *retained_bytes);
     reserve_exact(evidence, 1, refused)?;
     evidence.push(item);
     Ok(())
@@ -1502,11 +1493,8 @@ fn validate_fragment_contents(
         first_offset,
     )?;
     let mut validated_arrays = Vec::new();
-    let refused = allocation_limit(
-        "PDF content-array validation index allocation",
-        limits,
-        cache_bytes,
-    );
+    let refused =
+        limits.allocation_refused("PDF content-array validation index allocation", cache_bytes);
     reserve_exact(&mut validated_arrays, evidence.len(), refused)?;
     validated_arrays.resize(evidence.len(), false);
     for item in evidence {
@@ -1624,11 +1612,7 @@ fn validate_existing_page_tree(
     let with_visited = checked_add(retained_bytes, visit_bytes)?;
     check_pdf_allocation(limits, with_visited, Some(plan.pages_root), root_offset)?;
     let mut visited = Vec::new();
-    let refused = allocation_limit(
-        "PDF page-tree visited index allocation",
-        limits,
-        visit_bytes,
-    );
+    let refused = limits.allocation_refused("PDF page-tree visited index allocation", visit_bytes);
     reserve_exact(&mut visited, records.len(), refused)?;
     visited.resize(records.len(), false);
 
@@ -1653,7 +1637,7 @@ fn validate_existing_page_tree(
         root_offset,
     )?;
     let mut stack = Vec::new();
-    let refused = allocation_limit("PDF page-tree traversal allocation", limits, stack_bytes);
+    let refused = limits.allocation_refused("PDF page-tree traversal allocation", stack_bytes);
     reserve_exact(&mut stack, stack_capacity, refused)?;
     stack.push(WalkStep::Enter {
         reference: plan.pages_root,

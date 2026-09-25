@@ -77,11 +77,7 @@ impl IaidContextBanks {
         limits: &Limits,
         budget: &MqBudget,
     ) -> MqResult<Self> {
-        let invalid = || MqError {
-            offset: None,
-            context: None,
-            kind: MqErrorKind::InvalidContext,
-        };
+        let invalid = || MqError::configuration(MqErrorKind::InvalidContext);
         let count = 1usize.checked_shl(code_len).ok_or_else(invalid)?;
         let sentinel = 1u64.checked_shl(code_len).ok_or_else(invalid)?;
         // The final PREV and raw result must fit u64 on every target.
@@ -158,11 +154,10 @@ async fn decode_decisions<D: DecisionSource>(source: &mut D, layout: IaidLayout)
         // The validated count guarantees PREV fits usize before each decision.
         let local = usize::try_from(prev)
             .map_err(|_| MqError::configuration(MqErrorKind::InvalidContext))?;
-        let context = layout.iaid_base().checked_add(local).ok_or(MqError {
-            offset: None,
-            context: None,
-            kind: MqErrorKind::InvalidContext,
-        })?;
+        let context = layout
+            .iaid_base()
+            .checked_add(local)
+            .ok_or(MqError::configuration(MqErrorKind::InvalidContext))?;
         let bit = source.bit(context).await?;
         prev = prev
             .checked_mul(2)
