@@ -184,10 +184,10 @@ async fn xref_target_is_plausible<S: RangedSource, C: Cancellation>(
     cancellation: &C,
 ) -> Result<(bool, u64)> {
     let absolute = PDF_START + relative_offset;
+    // The only caller passes a target before a complete `%%EOF` marker that
+    // it read below `size`, so at least six bytes remain.
     let count = min(size - absolute, 32) as usize;
-    if count < 5 {
-        return Ok((false, 0));
-    }
+    debug_assert!(count > 5);
     let mut prefix = [0_u8; 32];
     read_in_chunks(source, absolute, &mut prefix[..count], limits, cancellation).await?;
     xor_at(relative_offset, &mut prefix[..count]);

@@ -367,11 +367,7 @@ fn checked_layout(
             context_work,
         ));
     }
-    let stride_u64 = u64::from(width).checked_add(7).ok_or(malformed(
-        segment,
-        offset,
-        "row stride overflows",
-    ))? / 8;
+    let stride_u64 = u64::from(width).div_ceil(8);
     let failure = malformed(segment, offset, "output size overflows");
     let output = stride_u64.checked_mul(u64::from(height)).ok_or(failure)?;
     if output > limits.max_output_bytes {

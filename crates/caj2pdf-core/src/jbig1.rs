@@ -150,6 +150,15 @@ fn at(offset: u64, kind: Type0ErrorKind) -> Type0Error {
     }
 }
 
+/// Report arithmetic cancellation as image cancellation.
+fn arithmetic_kind(error: ArithmeticError) -> Type0ErrorKind {
+    if matches!(error.kind, ArithmeticErrorKind::Cancelled) {
+        Type0ErrorKind::Cancelled
+    } else {
+        Type0ErrorKind::Arithmetic(error)
+    }
+}
+
 fn malformed(offset: u64, reason: &'static str) -> Type0Error {
     at(offset, Type0ErrorKind::Malformed(reason))
 }
@@ -567,14 +576,7 @@ impl<'a, S: RangedSource, W: SequentialSink, C: Cancellation> Type0Decoder<'a, S
             arithmetic_budget,
         )
         .await
-        .map_err(|error| {
-            let offset = error.offset.unwrap_or(coded.offset);
-            if matches!(error.kind, ArithmeticErrorKind::Cancelled) {
-                at(offset, Type0ErrorKind::Cancelled)
-            } else {
-                at(offset, Type0ErrorKind::Arithmetic(error))
-            }
-        })?;
+        .map_err(|error| at(error.offset.unwrap_or(coded.offset), arithmetic_kind(error)))?;
         Ok(Self {
             arithmetic,
             sink,
@@ -618,11 +620,7 @@ impl<'a, S: RangedSource, W: SequentialSink, C: Cancellation> Type0Decoder<'a, S
     }
 
     fn arithmetic_failure(&self, error: ArithmeticError) -> Type0Error {
-        if matches!(error.kind, ArithmeticErrorKind::Cancelled) {
-            self.failed(Type0ErrorKind::Cancelled)
-        } else {
-            self.failed(Type0ErrorKind::Arithmetic(error))
-        }
+        self.failed(arithmetic_kind(error))
     }
 
     /// Decode and write exactly one display-order DIB-stride row.
@@ -702,17 +700,16 @@ impl<'a, S: RangedSource, W: SequentialSink, C: Cancellation> Type0Decoder<'a, S
         let offset = snapshot.next_input_offset;
         let rows_written = self.rows_written;
         let output_bytes_written = self.output_bytes_written;
+        // Only cancellation can fail here: the expected count is the
+        // decoder's own, and the arithmetic decoder is poisoned only inside
+        // a row, which leaves this decoder poisoned too.
         self.arithmetic
             .finish(snapshot.symbols_decoded)
             .map_err(|error| Type0Error {
                 offset: error.offset.unwrap_or(offset),
                 rows_written,
                 output_bytes_written,
-                kind: if matches!(error.kind, ArithmeticErrorKind::Cancelled) {
-                    Type0ErrorKind::Cancelled
-                } else {
-                    Type0ErrorKind::Arithmetic(error)
-                },
+                kind: arithmetic_kind(error),
             })?;
         self.sink.flush().await.map_err(|error| Type0Error {
             offset,
