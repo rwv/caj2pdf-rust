@@ -501,6 +501,27 @@ fn finish_and_context_errors_keep_public_locations() {
     .unwrap();
     assert!(matches!(error.kind, MqErrorKind::InvalidMarker(0xac)));
     assert_eq!(error.offset, Some(1));
+
+    // A terminal pair beyond the initial prefetch is checked only by finish.
+    let mut bytes = vec![0; 300];
+    bytes[298..].copy_from_slice(&[0xff, 0xab]);
+    let mut late_marker = Source::new(&bytes);
+    let decoder = ready(MqDecoder::new(
+        &mut late_marker,
+        MqSpan {
+            offset: 0,
+            length: 300,
+        },
+        &state_table,
+        &mut contexts,
+        &limits,
+        &NeverCancel,
+        budget,
+    ))
+    .unwrap();
+    let error = ready(decoder.finish(0)).unwrap_err();
+    assert!(matches!(error.kind, MqErrorKind::InvalidMarker(0xab)));
+    assert_eq!(error.offset, Some(299));
 }
 
 #[test]

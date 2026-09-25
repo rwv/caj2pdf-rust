@@ -1199,6 +1199,11 @@ fn fragment_inspection_classifies_streams_outline_items_and_other_dictionaries()
         }
     ));
 
+    let array = inspect_raw_fragment(b"1 0 obj [4 0 R] endobj").unwrap();
+    assert!(matches!(array.kind, FragmentKind::Other));
+    assert_eq!(array.destination, None);
+    assert_eq!(array.scalar_reference_array, Some(vec![page_ref]));
+
     let item = inspect_raw_fragment(b"1 0 obj << /Title (A) /Parent 2 0 R >> endobj").unwrap();
     assert_eq!(item.destination, None);
     assert!(matches!(item.kind, FragmentKind::Other));
