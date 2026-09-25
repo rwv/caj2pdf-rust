@@ -10,6 +10,8 @@ pub use directory::{
     DirectoryError, DirectoryErrorKind, DirectoryLimits, SegmentDirectory, read_embedded_directory,
 };
 
+pub mod mq;
+
 use crate::{Cancellation, Error, Limits, RangedSource};
 use std::{error, fmt, mem};
 

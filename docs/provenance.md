@@ -15,6 +15,7 @@ checking the provenance of each imported file.
 | PDF output and PDF input | [ISO 32000-1:2008](https://opensource.adobe.com/dc-acrobat-sdk-docs/pdfstandards/PDF32000_2008.pdf) and the [PDF specification archive](https://pdfa.org/resource/pdf-specification-archive/) | Published format specifications. Record the exact PDF version and clauses used for each implementation change. Link to the documents; do not copy their text into source. |
 | JBIG / JBIG2 bitstreams | [ITU-T T.82](https://www.itu.int/rec/T-REC-T.82) and [ITU-T T.88](https://www.itu.int/rec/T-REC-T.88/en) | Published coding recommendations. Implement the subset required by observed CAJ-family data as original MIT code. Do not reuse reference implementation source. |
 | T.82 arithmetic SCD core and numeric states | [ITU-T T.82 (03/1993)](https://www.itu.int/rec/T-REC-T.82), §6.2.5, §6.8.2.3/Table 24, §6.8.3, and §7.1/Table 26; [ITU Software Copyright Guidelines](https://www.itu.int/dms_pub/itu-t/oth/04/04/T04040000040004PDFE.pdf) | Use the public algorithm to author original MIT Rust code. Keep Table 24's 113 exact numeric rows and the §7.1 vector outside the repository until their MIT redistribution basis is documented. The [core design](t82-arithmetic-core.md) records the external-table contract and local test procedure; standard conformance does not establish CAJ compatibility. |
+| T.88 MQ arithmetic control flow and numeric states | [ITU-T T.88 (02/2000)](https://www.itu.int/rec/T-REC-T.88-200002-S/en), Annex E.2.6/Table E.1, E.2.9–E.2.10, E.3.1–E.3.6, and H.2/Table H.1; [ITU Software Copyright Guidelines](https://www.itu.int/dms_pub/itu-t/oth/04/04/T04040000040004PDFE.pdf) | Original MIT decoder control flow with a caller-supplied 47-state table. The exact Table E.1 rows and Annex H vector/checkpoints remain outside Git, artifacts, and releases; their MIT redistribution basis remains open in [#44](https://github.com/rwv/caj2pdf-rust/issues/44). The [core note](t88-mq-core.md) records bounded API, differences from T.82, external-only fixture, and verification scope. Annex H.2 verifies arithmetic decisions, not CAJ/JBIG2 pixels. |
 | CAJ-family headers, pages, and outlines | [caj2pdf format notes](https://github.com/caj2pdf/caj2pdf/wiki), including [CAJ/HN identification](https://github.com/caj2pdf/caj2pdf/wiki/CAJ-%E5%92%8C-HN), [basic information and outlines](https://github.com/caj2pdf/caj2pdf/wiki/%E6%96%87%E4%BB%B6%E5%9F%BA%E6%9C%AC%E4%BF%A1%E6%81%AF%E4%B8%8E%E5%A4%A7%E7%BA%B2), and [CAJ page content](https://github.com/caj2pdf/caj2pdf/wiki/CAJ-%E6%A0%BC%E5%BC%8F%E7%9A%84%E9%A1%B5%E9%9D%A2%E5%86%85%E5%AE%B9) | Public observations, not a complete normative specification. [Repository-owned CAJ measurements](caj-format.md) pin ten successful sample digests and document TOC, page-table, and PDF-fragment exceptions independently. Do not copy parser source or pseudocode. |
 | HN page layout | [caj2pdf HN format notes](https://github.com/caj2pdf/caj2pdf/wiki/HN-%E6%A0%BC%E5%BC%8F%E7%9A%84%E9%A1%B5%E9%9D%A2%E5%86%85%E5%AE%B9) | Incomplete public observations. Derive the parser from documented facts and independent tests; mark unresolved fields explicitly. |
 | HN/C8 type-0 image wrapper and pixels | [ITU-T T.82](https://www.itu.int/rec/T-REC-T.82), [Microsoft BITMAPINFOHEADER](https://learn.microsoft.com/windows/win32/api/wingdi/ns-wingdi-bitmapinfoheader), and [repository-owned oracle measurements](jbig1-oracle.md) | The standards describe public coding and DIB fields. The local corpus measurements pin the CAJ-family wrapper and output hashes. The external differently licensed native decoder is a black-box oracle only, never implementation source or a project dependency. |
@@ -298,7 +299,27 @@ Annex H vector bytes were copied into code, tests, or documentation. The
 reader consumes only a caller-delimited segment and does not establish
 JBIG2 pixel or HN/C8 compatibility; those external checks are `NOT_RUN`.
 The T.88 Annex E numeric-state redistribution basis remains to be reviewed
-before adding an arithmetic decoder or bundling exact states under MIT.
+before bundling exact states or an integrated decoder under MIT.
+
+Issue #45 adds the original MIT, table-supplied MQ control-flow module in
+[`crates/caj2pdf-core/src/jbig2/mq.rs`](../crates/caj2pdf-core/src/jbig2/mq.rs),
+original invented-state tests in
+[`mq_core.rs`](../crates/caj2pdf-core/tests/mq_core.rs), and an ignored
+[external-only Annex H.2 test](../crates/caj2pdf-core/tests/mq_t88_external.rs).
+The [T.88 MQ note](t88-mq-core.md) lists the exact official clauses, API
+limits, fixture format and digest, and local conformance result. The official
+PDF and its Table E.1/Annex H.2 extraction remain only under `/tmp`; source
+contains a SHA-256 digest but no normative row, vector, or pixel bytes. No
+Python, Go, private Rust, or differently licensed decoder source was read or
+migrated. The module borrows the MIT I/O contracts in this repository and
+adds no runtime dependency; the external harness uses the already registered
+MIT-selected `sha2` development dependency. Standard-vector agreement does
+not prove CAJ or JBIG2 image decoding. The source-distribution question for
+the exact T.88 table is unresolved in [#44](https://github.com/rwv/caj2pdf-rust/issues/44):
+the official text permits alternative implementations to reproduce normative
+output, but the currently reviewed ITU materials provide no explicit MIT
+redistribution grant for Table E.1. This is a provenance status, not a legal
+conclusion about whether numeric state rows are copyrightable.
 
 Issue #42 refactors the original header parser in
 [`jbig2/mod.rs`](../crates/caj2pdf-core/src/jbig2/mod.rs) into one bounded
