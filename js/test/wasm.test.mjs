@@ -1,35 +1,17 @@
 // SPDX-License-Identifier: MIT
 
 import assert from "node:assert/strict";
-import { open, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { open, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Writable } from "node:stream";
 import { finished } from "node:stream/promises";
 import { test } from "node:test";
-import { blobSource, convertKdhProof, copyRangeProof, DEFAULT_IO_CHUNK, MAX_IO_CHUNK, webWritableSink } from "../io.mjs";
+import { blobSource, copyRange, DEFAULT_IO_CHUNK, MAX_IO_CHUNK, webWritableSink } from "../io.mjs";
 import { fileHandleSource, nodeWritableSink } from "../node.mjs";
+import { newInstance } from "./helpers.mjs";
 
-const wasmPath = new URL("../../target/wasm32-unknown-unknown/release/caj2pdf_wasm.wasm", import.meta.url);
-
-async function newInstance() {
-  const bytes = await readFile(wasmPath);
-  return (await WebAssembly.instantiate(bytes)).instance;
-}
-
-async function syntheticKdh() {
-  const pdf = new Uint8Array(await readFile(new URL("../../tests/fixtures/valid_out_of_order_objects.pdf", import.meta.url)));
-  const wrapped = new Uint8Array(254 + pdf.length);
-  wrapped.set(new TextEncoder().encode("KDH 2.00 Copyright(C) 2000 CAJCD"));
-  wrapped.set([0, 0, 2, 0], 0x28);
-  const key = new TextEncoder().encode("FZHMEI");
-  for (let index = 0; index < pdf.length; index += 1) {
-    wrapped[254 + index] = pdf[index] ^ key[index % key.length];
-  }
-  return { pdf, wrapped };
-}
-
-test("Blob proof awaits three bounded slices through the real WASM core future", async () => {
+test("Blob copy awaits three bounded slices through the real WASM core future", async () => {
   const payload = Uint8Array.from(
     { length: 2 * DEFAULT_IO_CHUNK + 17 },
     (_, index) => index % 251,
@@ -55,7 +37,7 @@ test("Blob proof awaits three bounded slices through the real WASM core future",
       await Promise.resolve();
     },
   }).getWriter();
-  const report = await copyRangeProof(await newInstance(), source, webWritableSink(writer));
+  const report = await copyRange(await newInstance(), source, webWritableSink(writer));
   writer.releaseLock();
   assert.deepEqual(ranges, [
     [0, DEFAULT_IO_CHUNK],
@@ -64,6 +46,7 @@ test("Blob proof awaits three bounded slices through the real WASM core future",
   ]);
   assert.deepEqual([...Buffer.concat(chunks)], [...payload]);
   assert.deepEqual(report, {
+    format: null,
     inputBytesRead: BigInt(payload.length),
     outputBytesWritten: BigInt(payload.length),
     pagesConverted: 0,
@@ -87,7 +70,7 @@ test("Node positioned source uses the same WASM contract", async () => {
         setImmediate(callback);
       },
     });
-    const report = await copyRangeProof(await newInstance(), source, nodeWritableSink(writable), { chunkSize: 4096 });
+    const report = await copyRange(await newInstance(), source, nodeWritableSink(writable), { chunkSize: 4096 });
     writable.end();
     await finished(writable);
     assert.deepEqual([...Buffer.concat(chunks)], [...payload]);
@@ -98,67 +81,6 @@ test("Node positioned source uses the same WASM contract", async () => {
     await handle.close();
     await rm(directory, { recursive: true, force: true });
   }
-});
-
-test("the real WASM core converts a synthetic KDH through bounded browser I/O", async () => {
-  const { pdf, wrapped } = await syntheticKdh();
-  const chunks = [];
-  const writer = new WritableStream({
-    async write(bytes) {
-      chunks.push(bytes);
-    },
-  }).getWriter();
-  const report = await convertKdhProof(
-    await newInstance(),
-    blobSource(new Blob([wrapped])),
-    webWritableSink(writer),
-    { chunkSize: 4096 },
-  );
-  writer.releaseLock();
-  assert.deepEqual(new Uint8Array(Buffer.concat(chunks)), pdf);
-  assert.equal(report.pagesConverted, 2);
-  assert.equal(report.outputBytesWritten, BigInt(pdf.length));
-});
-
-test("the same WASM KDH core converts through positioned Node file I/O", async () => {
-  const { pdf, wrapped } = await syntheticKdh();
-  const directory = await mkdtemp(join(tmpdir(), "caj2pdf-wasm-kdh-"));
-  const path = join(directory, "input.caj");
-  await writeFile(path, wrapped);
-  const handle = await open(path, "r");
-  try {
-    const chunks = [];
-    const writable = new Writable({
-      write(chunk, _encoding, callback) {
-        chunks.push(chunk);
-        callback();
-      },
-    });
-    const report = await convertKdhProof(
-      await newInstance(),
-      await fileHandleSource(handle),
-      nodeWritableSink(writable),
-      { chunkSize: 4096 },
-    );
-    writable.end();
-    await finished(writable);
-    assert.deepEqual(new Uint8Array(Buffer.concat(chunks)), pdf);
-    assert.equal(report.pagesConverted, 2);
-  } finally {
-    await handle.close();
-    await rm(directory, { recursive: true, force: true });
-  }
-});
-
-test("the real WASM KDH entrypoint reports a typed malformed wrapper", async () => {
-  await assert.rejects(
-    convertKdhProof(
-      await newInstance(),
-      blobSource(new Blob([new Uint8Array(254)])),
-      { async writeChunk(bytes) { return bytes.length; }, async flush() {} },
-    ),
-    { code: "MALFORMED_KDH" },
-  );
 });
 
 test("WASM does not request a second read while a write is pending", async () => {
@@ -180,7 +102,7 @@ test("WASM does not request a second read while a write is pending", async () =>
     },
     async flush() {},
   };
-  const pending = copyRangeProof(await newInstance(), source, sink, { chunkSize: 4 });
+  const pending = copyRange(await newInstance(), source, sink, { chunkSize: 4 });
   await new Promise((resolve) => setImmediate(resolve));
   assert.deepEqual(reads, [[0n, 4]]);
   assert.equal(typeof release, "function");
@@ -189,7 +111,7 @@ test("WASM does not request a second read while a write is pending", async () =>
   assert.deepEqual(reads, [[0n, 4], [4n, 4]]);
 });
 
-test("a busy WASM instance rejects a second proof without cancelling the first", async () => {
+test("a busy WASM instance rejects a second operation without cancelling the first", async () => {
   const instance = await newInstance();
   let release;
   const source = {
@@ -203,10 +125,10 @@ test("a busy WASM instance rejects a second proof without cancelling the first",
     },
     async flush() {},
   };
-  const first = copyRangeProof(instance, source, sink);
+  const first = copyRange(instance, source, sink);
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(typeof release, "function");
-  await assert.rejects(copyRangeProof(instance, source, sink), /already has an active/);
+  await assert.rejects(copyRange(instance, source, sink), /already has an active/);
   release();
   assert.equal((await first).outputBytesWritten, 2n);
 });
@@ -219,7 +141,7 @@ test("WASM handles short source reads and short sink writes", async () => {
     },
   };
   const output = [];
-  const report = await copyRangeProof(await newInstance(), source, {
+  const report = await copyRange(await newInstance(), source, {
     async writeChunk(bytes) {
       output.push(bytes[0]);
       return 1;
@@ -234,35 +156,37 @@ test("WASM handles short source reads and short sink writes", async () => {
 test("WASM returns typed resource and truncation errors without panicking", async () => {
   const sink = { async writeChunk(bytes) { return bytes.length; }, async flush() {} };
   await assert.rejects(
-    copyRangeProof(await newInstance(), { size: 8n * 1024n ** 3n + 1n, async readAt() {} }, sink),
+    copyRange(await newInstance(), { size: 8n * 1024n ** 3n + 1n, async readAt() {} }, sink),
     { code: "LIMIT_EXCEEDED" },
   );
   await assert.rejects(
-    copyRangeProof(await newInstance(), { size: 2n, async readAt() { return new Uint8Array(); } }, sink),
+    copyRange(await newInstance(), { size: 2n, async readAt() { return new Uint8Array(); } }, sink),
     { code: "TRUNCATED_INPUT" },
   );
   await assert.rejects(
-    copyRangeProof(await newInstance(), blobSource(new Blob([Uint8Array.of(1)])), sink, { chunkSize: MAX_IO_CHUNK + 1 }),
+    copyRange(await newInstance(), blobSource(new Blob([Uint8Array.of(1)])), sink, { chunkSize: MAX_IO_CHUNK + 1 }),
     RangeError,
   );
 });
 
-test("the JS bridge names the KDH error category", async () => {
+test("the JS bridge names an error category without a Rust message", async () => {
   const wasm = { exports: {
     memory: new WebAssembly.Memory({ initial: 1 }),
     caj2pdf_io_start: () => 0,
     caj2pdf_io_poll: () => 5,
     caj2pdf_io_error_kind: () => 15,
+    caj2pdf_io_message_ptr: () => 0,
+    caj2pdf_io_message_len: () => 0,
     caj2pdf_io_cancel: () => {},
     caj2pdf_io_reset: () => {},
   } };
   await assert.rejects(
-    copyRangeProof(
+    copyRange(
       wasm,
       { size: 0n, async readAt() { throw new Error("unused"); } },
       { async writeChunk() { throw new Error("unused"); }, async flush() {} },
     ),
-    { code: "MALFORMED_KDH" },
+    { code: "MALFORMED_KDH", message: "conversion failed: MALFORMED_KDH" },
   );
 });
 
@@ -284,7 +208,7 @@ test("raw WASM ABI rejects oversized completions without corrupting the future",
   }
 });
 
-test("WASM proof rejects cancellation after an awaited source read", async () => {
+test("WASM copy rejects cancellation after an awaited source read", async () => {
   const controller = new AbortController();
   const source = {
     size: 1n,
@@ -294,7 +218,7 @@ test("WASM proof rejects cancellation after an awaited source read", async () =>
     },
   };
   await assert.rejects(
-    copyRangeProof(await newInstance(), source, {
+    copyRange(await newInstance(), source, {
       async writeChunk() { throw new Error("must not write"); },
       async flush() {},
     }, { signal: controller.signal }),

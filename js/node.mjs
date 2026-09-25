@@ -1,13 +1,26 @@
 // SPDX-License-Identifier: MIT
 
-/** Node.js adapters using caller-owned handles and streams. Requires Node 22+. */
+/** Node.js entry point: the shared API plus file, stream, and spool adapters. Requires Node 22+. */
+import { mkdtemp, open, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
-  checkAbort,
+  abortable,
   checkRange,
+  convertSpooled,
+  pumpChunks,
   requireChunkLength,
+  requireSinkChunk,
   requireU64,
   TruncatedInputError,
 } from "./io.mjs";
+
+export * from "./io.mjs";
+
+/** Compile the packaged WASM module (or the file at `url`) once for reuse. */
+export async function loadModule(url = new URL("./caj2pdf_wasm.wasm", import.meta.url)) {
+  return WebAssembly.compile(await readFile(url));
+}
 
 /** A positioned source over a caller-owned `node:fs/promises` FileHandle. */
 export async function fileHandleSource(handle) {
@@ -21,17 +34,16 @@ export async function fileHandleSource(handle) {
     async readAt(offset, length, signal) {
       requireChunkLength(length, { allowZero: true });
       checkRange(size, offset, BigInt(length));
-      checkAbort(signal);
+      // A fresh buffer per read, so an abandoned (aborted) read owns its memory.
       const bytes = new Uint8Array(length);
       let done = 0;
       while (done < length) {
-        const result = await handle.read({
+        const result = await abortable(handle.read({
           buffer: bytes,
           offset: done,
           length: length - done,
           position: offset + BigInt(done),
-        });
-        checkAbort(signal);
+        }), signal);
         const count = result?.bytesRead;
         if (!Number.isSafeInteger(count) || count < 0 || count > length - done) {
           throw new RangeError("FileHandle returned an invalid read count");
@@ -53,14 +65,10 @@ export function nodeWritableSink(writable) {
   }
   return Object.freeze({
     async writeChunk(bytes, signal) {
-      if (!(bytes instanceof Uint8Array)) {
-        throw new TypeError("writeChunk requires Uint8Array");
-      }
-      requireChunkLength(bytes.byteLength, { allowZero: true });
-      checkAbort(signal);
+      requireSinkChunk(bytes);
       // The stream can retain the bytes after WASM reuses its staging area.
       const owned = Buffer.from(bytes);
-      await new Promise((resolve, reject) => {
+      await abortable(new Promise((resolve, reject) => {
         let pendingError;
         let cleanupScheduled = false;
         const scheduleCleanup = () => {
@@ -90,14 +98,63 @@ export function nodeWritableSink(writable) {
           pendingError = error;
           scheduleCleanup();
         }
-      });
-      checkAbort(signal);
+      }), signal);
       return bytes.byteLength;
     },
-    async flush(signal) {
+    async flush() {
       // The last write callback is the barrier. Ownership and finish/fsync
       // remain with the caller; this adapter never ends the stream.
-      checkAbort(signal);
     },
   });
+}
+
+/**
+ * Copy a forward-only Node `Readable`, Web `ReadableStream`, or async
+ * iterable into a private temporary file (mode 0600 in a fresh `mkdtemp`
+ * directory under `os.tmpdir()`), rejecting beyond `maxBytes`. The returned
+ * `dispose()` closes and removes it; failures and aborts remove it at once.
+ */
+export async function spoolToTempFile(stream, { maxBytes, signal, directory = tmpdir() } = {}) {
+  requireU64(maxBytes, "maxBytes");
+  const folder = await mkdtemp(join(directory, "caj2pdf-spool-"));
+  let handle;
+  const dispose = async () => {
+    try {
+      await handle?.close();
+    } finally {
+      await rm(folder, { recursive: true, force: true });
+    }
+  };
+  try {
+    handle = await open(join(folder, "input"), "wx+", 0o600);
+    let position = 0;
+    await pumpChunks(stream, async (chunk) => {
+      let written = 0;
+      while (written < chunk.byteLength) {
+        const { bytesWritten } = await handle.write(chunk, written, chunk.byteLength - written, position);
+        written += bytesWritten;
+        position += bytesWritten;
+      }
+    }, { maxBytes, signal });
+    const source = await fileHandleSource(handle);
+    return { source, dispose, path: folder };
+  } catch (error) {
+    await dispose();
+    throw error;
+  }
+}
+
+/**
+ * Convert a forward-only stream through a bounded temporary file that is
+ * removed on success, failure, or abort. `maxSpoolBytes` defaults to
+ * `limits.maxInputBytes` (8 GiB unless lowered).
+ */
+export function convertReadable(wasm, stream, sink, options = {}) {
+  return convertSpooled(
+    (input, spoolOptions) => spoolToTempFile(input, { ...spoolOptions, directory: options.tempDirectory }),
+    wasm,
+    stream,
+    sink,
+    options,
+  );
 }

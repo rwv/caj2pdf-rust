@@ -1,21 +1,96 @@
 // SPDX-License-Identifier: MIT
 
-/** Platform-neutral, bounded JavaScript I/O contract and WASM proof driver. */
+/**
+ * Platform-neutral caj2pdf conversion API over the raw WASM ABI.
+ *
+ * A source is `{ size: bigint, readAt(offset, length, signal) }` and a sink
+ * is `{ writeChunk(bytes, signal), flush(signal) }`. Only one bounded chunk
+ * crosses the JavaScript/WASM boundary per awaited request.
+ */
 export const DEFAULT_IO_CHUNK = 256 * 1024;
 export const MAX_IO_CHUNK = 1024 * 1024;
 export const MAX_U64 = (1n << 64n) - 1n;
+const MAX_U32 = 0xffff_ffff;
+/** Largest `maxAllocationBytes` accepted inside 32-bit WASM memory. */
+export const MAX_ALLOCATION_LIMIT = 256n * 1024n * 1024n;
+/** Core defaults; `maxInputBytes` also bounds temporary spools by default. */
+export const DEFAULT_LIMITS = Object.freeze({
+  maxInputBytes: 8n * 1024n ** 3n,
+  maxOutputBytes: 16n * 1024n ** 3n,
+  maxAllocationBytes: 64n * 1024n * 1024n,
+  maxPages: 100_000,
+  maxBookmarks: 100_000,
+});
 
-export class TruncatedInputError extends Error {
-  constructor(message) {
+/**
+ * Format names in WASM code order. Only `pdf`, `caj`, and `kdh` convert;
+ * `hn`, `c8`, `teb`, and `nh` are rejected with `UnsupportedFormatError`.
+ */
+export const FORMATS = Object.freeze(["auto", "pdf", "caj", "kdh", "hn", "c8", "teb", "nh"]);
+
+const ERROR_CODES = [
+  "UNKNOWN",
+  "UNSUPPORTED_FORMAT",
+  "INVALID_INPUT",
+  "TRUNCATED_INPUT",
+  "LIMIT_EXCEEDED",
+  "IO",
+  "CANCELLED",
+  "RANDOM_ACCESS_REQUIRED",
+  "MALFORMED_PDF",
+  "ENCRYPTED_PDF",
+  "UNSUPPORTED_PDF_FEATURE",
+  "AMBIGUOUS_PDF_REPAIR",
+  "PDF_LIMIT_EXCEEDED",
+  "MALFORMED_CAJ",
+  "CAJ_LIMIT_EXCEEDED",
+  "MALFORMED_KDH",
+];
+
+/** A typed conversion failure. `code` is one of the stable error codes. */
+export class Caj2PdfError extends Error {
+  constructor(message, code) {
     super(message);
+    this.name = "Caj2PdfError";
+    this.code = code;
+  }
+}
+
+/** A recognized-but-unconverted (`format` set) or unrecognized input. */
+export class UnsupportedFormatError extends Caj2PdfError {
+  constructor(format) {
+    super(
+      format == null
+        ? "input signature is not a recognized PDF, CAJ, KDH, HN, C8, or TEB format"
+        : `${format.toUpperCase()} input is recognized, but converting it is not supported yet`,
+      "UNSUPPORTED_FORMAT",
+    );
+    this.name = "UnsupportedFormatError";
+    this.format = format;
+  }
+}
+
+export class TruncatedInputError extends Caj2PdfError {
+  constructor(message) {
+    super(message, "TRUNCATED_INPUT");
     this.name = "TruncatedInputError";
-    this.code = "TRUNCATED_INPUT";
   }
 }
 
 export function requireU64(value, name) {
   if (typeof value !== "bigint" || value < 0n || value > MAX_U64) {
     throw new RangeError(`${name} must be a nonnegative unsigned 64-bit BigInt`);
+  }
+  return value;
+}
+
+function toU64(value, name) {
+  return requireU64(Number.isSafeInteger(value) ? BigInt(value) : value, name);
+}
+
+function toU32(value, name) {
+  if (!Number.isSafeInteger(value) || value < 0 || value > MAX_U32) {
+    throw new RangeError(`${name} must be an integer 0..${MAX_U32}`);
   }
   return value;
 }
@@ -27,10 +102,31 @@ export function requireChunkLength(length, { allowZero = false } = {}) {
   return length;
 }
 
+function abortReason(signal) {
+  return signal.reason ?? new DOMException("Operation cancelled", "AbortError");
+}
+
 export function checkAbort(signal) {
   if (signal?.aborted) {
-    throw new DOMException("Operation cancelled", "AbortError");
+    throw abortReason(signal);
   }
+}
+
+/**
+ * Settle with `promise`, or reject as soon as `signal` aborts. An abandoned
+ * operation may still finish, so it must only touch buffers it owns.
+ */
+export function abortable(promise, signal) {
+  if (signal == null) return promise;
+  checkAbort(signal);
+  let onAbort;
+  const aborted = new Promise((_, reject) => {
+    onAbort = () => reject(abortReason(signal));
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+  return Promise.race([promise, aborted]).finally(() => {
+    signal.removeEventListener("abort", onAbort);
+  });
 }
 
 export function checkRange(size, offset, length) {
@@ -58,17 +154,22 @@ export function blobSource(blob) {
     async readAt(offset, length, signal) {
       requireChunkLength(length, { allowZero: true });
       checkRange(size, offset, BigInt(length));
-      checkAbort(signal);
       // The safe-size check above makes both Number conversions exact.
       const part = blob.slice(Number(offset), Number(offset + BigInt(length)));
-      const arrayBuffer = await part.arrayBuffer();
-      checkAbort(signal);
+      const arrayBuffer = await abortable(part.arrayBuffer(), signal);
       if (!(arrayBuffer instanceof ArrayBuffer) || arrayBuffer.byteLength !== length) {
         throw new TruncatedInputError("Blob range read returned a truncated or invalid chunk");
       }
       return new Uint8Array(arrayBuffer);
     },
   });
+}
+
+export function requireSinkChunk(bytes) {
+  if (!(bytes instanceof Uint8Array)) {
+    throw new TypeError("writeChunk requires Uint8Array");
+  }
+  requireChunkLength(bytes.byteLength, { allowZero: true });
 }
 
 /** Adapt a caller-owned WritableStreamDefaultWriter without closing it. */
@@ -78,147 +179,232 @@ export function webWritableSink(writer) {
   }
   return Object.freeze({
     async writeChunk(bytes, signal) {
-      if (!(bytes instanceof Uint8Array)) {
-        throw new TypeError("writeChunk requires Uint8Array");
-      }
-      requireChunkLength(bytes.byteLength, { allowZero: true });
-      checkAbort(signal);
-      // The writer may retain its input after the WASM staging area is reused.
-      await writer.write(bytes.slice());
-      checkAbort(signal);
+      requireSinkChunk(bytes);
+      // The copy keeps an abandoned or queued write away from reused WASM
+      // staging memory.
+      await abortable(writer.write(bytes.slice()), signal);
       return bytes.byteLength;
     },
     async flush(signal) {
-      checkAbort(signal);
       if (writer.ready != null) {
-        await writer.ready;
+        await abortable(writer.ready, signal);
       }
-      checkAbort(signal);
     },
   });
 }
 
-const ERROR_NAMES = [
-  "UNKNOWN",
-  "UNSUPPORTED_FORMAT",
-  "INVALID_INPUT",
-  "TRUNCATED_INPUT",
-  "LIMIT_EXCEEDED",
-  "IO",
-  "CANCELLED",
-  "RANDOM_ACCESS_REQUIRED",
-  "MALFORMED_PDF",
-  "ENCRYPTED_PDF",
-  "UNSUPPORTED_PDF_FEATURE",
-  "AMBIGUOUS_PDF_REPAIR",
-  "PDF_LIMIT_EXCEEDED",
-  "MALFORMED_CAJ",
-  "CAJ_LIMIT_EXCEEDED",
-  "MALFORMED_KDH",
-];
-
-function coreError(kind) {
-  const code = ERROR_NAMES[kind] ?? "UNKNOWN";
-  const error = new Error(`Rust operation failed: ${code}`);
-  error.code = code;
-  return error;
+/**
+ * Feed a Web `ReadableStream`, Node `Readable`, or async iterable of
+ * Uint8Array chunks to `consume`, awaiting each call. Rejects once more than
+ * `maxBytes` arrive and cancels the stream on any failure.
+ */
+export async function pumpChunks(stream, consume, { maxBytes, signal } = {}) {
+  requireU64(maxBytes, "maxBytes");
+  let next;
+  let stop;
+  if (typeof stream?.getReader === "function") {
+    const reader = stream.getReader();
+    next = () => reader.read();
+    stop = () => reader.cancel();
+  } else if (typeof stream?.[Symbol.asyncIterator] === "function") {
+    const iterator = stream[Symbol.asyncIterator]();
+    next = () => iterator.next();
+    stop = () => iterator.return?.();
+  } else {
+    throw new TypeError("a ReadableStream, Node Readable, or async iterable is required");
+  }
+  let total = 0n;
+  try {
+    for (;;) {
+      const { done, value } = await abortable(next(), signal);
+      if (done) return total;
+      if (!(value instanceof Uint8Array)) {
+        throw new TypeError("stream chunks must be Uint8Array or Buffer");
+      }
+      total += BigInt(value.byteLength);
+      if (total > maxBytes) {
+        throw new Caj2PdfError(`temporary spool limit of ${maxBytes} bytes exceeded`, "LIMIT_EXCEEDED");
+      }
+      await abortable(consume(value), signal);
+    }
+  } catch (error) {
+    // Not awaited: a stalled producer must not delay cleanup.
+    Promise.resolve().then(stop).catch(() => {});
+    throw error;
+  }
 }
 
 /**
- * Drive the selected Rust future through bounded JS range reads and awaited
- * writes. The range-copy operation only copies bytes; KDH converts to PDF.
- * The raw WASM instance is single-operation. Use one instance per concurrent
- * operation until the handle-based production binding is implemented.
+ * Spool a forward-only stream with a platform `spool` function, convert the
+ * spooled copy, and always dispose the temporary storage afterwards.
  */
-async function driveProof(
-  wasm,
-  source,
-  sink,
-  { offset = 0n, length, chunkSize = DEFAULT_IO_CHUNK, signal } = {},
-  kdh = false,
-) {
-  const exports = wasm?.exports ?? wasm;
-  const start = kdh ? exports?.caj2pdf_kdh_start : exports?.caj2pdf_io_start;
-  if (exports?.memory == null || typeof start !== "function") {
-    throw new TypeError("a caj2pdf WASM instance or its exports is required");
+export async function convertSpooled(spool, wasm, stream, sink, options = {}) {
+  const maxBytes = toU64(
+    options.maxSpoolBytes ?? options.limits?.maxInputBytes ?? DEFAULT_LIMITS.maxInputBytes,
+    "maxSpoolBytes",
+  );
+  const spooled = await spool(stream, { maxBytes, signal: options.signal });
+  try {
+    return await convert(wasm, spooled.source, sink, options);
+  } finally {
+    await spooled.dispose();
   }
+}
+
+function resolveLimits(limits, chunkSize) {
+  if (limits == null || typeof limits !== "object") {
+    throw new TypeError("limits must be an object");
+  }
+  const merged = { ...DEFAULT_LIMITS, ...limits };
+  const resolved = {
+    maxInputBytes: toU64(merged.maxInputBytes, "limits.maxInputBytes"),
+    maxOutputBytes: toU64(merged.maxOutputBytes, "limits.maxOutputBytes"),
+    maxAllocationBytes: toU64(merged.maxAllocationBytes, "limits.maxAllocationBytes"),
+    maxPages: toU32(merged.maxPages, "limits.maxPages"),
+    maxBookmarks: toU32(merged.maxBookmarks, "limits.maxBookmarks"),
+  };
+  if (
+    resolved.maxAllocationBytes > MAX_ALLOCATION_LIMIT ||
+    resolved.maxAllocationBytes < BigInt(chunkSize)
+  ) {
+    throw new RangeError(`limits.maxAllocationBytes must be chunkSize..${MAX_ALLOCATION_LIMIT}`);
+  }
+  return resolved;
+}
+
+/**
+ * Accept a `WebAssembly.Module` (a fresh instance per call), an `Instance`,
+ * or its exports. An instance runs one operation at a time.
+ */
+async function resolveExports(wasm) {
+  if (wasm instanceof WebAssembly.Module) {
+    return (await WebAssembly.instantiate(wasm, {})).exports;
+  }
+  const exports = wasm?.exports ?? wasm;
+  if (!(exports?.memory instanceof WebAssembly.Memory) || typeof exports.caj2pdf_io_poll !== "function") {
+    throw new TypeError("a caj2pdf WebAssembly.Module, Instance, or its exports is required");
+  }
+  return exports;
+}
+
+function requireSource(source) {
   if (source == null || typeof source.readAt !== "function") {
     throw new TypeError("source must expose size and readAt()");
   }
+  requireU64(source.size, "source.size");
+}
+
+function requireSink(sink) {
   if (sink == null || typeof sink.writeChunk !== "function" || typeof sink.flush !== "function") {
     throw new TypeError("sink must expose writeChunk() and flush()");
   }
-  requireU64(source.size, "source.size");
-  requireU64(offset, "offset");
-  length ??= source.size - offset;
-  requireU64(length, "length");
-  checkRange(source.size, offset, length);
-  requireChunkLength(chunkSize);
-  checkAbort(signal);
+}
 
-  const started = kdh
-    ? start(source.size, chunkSize)
-    : start(source.size, offset, length, chunkSize);
+function formatCode(format) {
+  const code = FORMATS.indexOf(format);
+  if (code < 0) {
+    throw new RangeError(`format must be one of: ${FORMATS.join(", ")}`);
+  }
+  return code;
+}
+
+function formatName(exports) {
+  const code = exports.caj2pdf_io_format();
+  return code === 0 ? null : FORMATS[code];
+}
+
+function engineError(exports) {
+  const code = ERROR_CODES[exports.caj2pdf_io_error_kind()] ?? "UNKNOWN";
+  if (code === "UNSUPPORTED_FORMAT") {
+    return new UnsupportedFormatError(formatName(exports));
+  }
+  const bytes = new Uint8Array(
+    exports.memory.buffer,
+    exports.caj2pdf_io_message_ptr(),
+    exports.caj2pdf_io_message_len(),
+  );
+  const message = new TextDecoder().decode(bytes) || `conversion failed: ${code}`;
+  return code === "TRUNCATED_INPUT" ? new TruncatedInputError(message) : new Caj2PdfError(message, code);
+}
+
+function report(exports) {
+  return {
+    format: formatName(exports),
+    inputBytesRead: exports.caj2pdf_io_input_bytes_read(),
+    outputBytesWritten: exports.caj2pdf_io_output_bytes_written(),
+    pagesConverted: exports.caj2pdf_io_pages_converted(),
+    bookmarksWritten: exports.caj2pdf_io_bookmarks_written(),
+  };
+}
+
+function inspection(exports) {
+  const bookmarks = exports.caj2pdf_info_bookmark_count();
+  return {
+    format: formatName(exports),
+    pageCount: exports.caj2pdf_info_page_count(),
+    bookmarkCount: bookmarks < 0n ? null : Number(bookmarks),
+    inputBytesRead: exports.caj2pdf_io_input_bytes_read(),
+  };
+}
+
+/**
+ * Drive one WASM operation to completion. Every read, write, and flush is
+ * awaited before Rust resumes; the engine is always cancelled and reset.
+ */
+async function drive(exports, start, source, sink, chunkSize, signal, finish = report) {
+  const started = start();
   if (started === 1) {
-    throw new Error("WASM instance already has an active I/O proof");
+    throw new Error("WASM instance already has an active operation");
   }
   if (started !== 0) {
-    throw new RangeError("invalid WASM I/O proof configuration");
+    throw new RangeError("invalid WASM operation configuration");
   }
-
   try {
     for (;;) {
       checkAbort(signal);
       const status = exports.caj2pdf_io_poll();
       if (status === 1) {
-        const requestedOffset = exports.caj2pdf_io_request_offset();
-        const requestedLength = exports.caj2pdf_io_request_length();
-        requireChunkLength(requestedLength);
-        if (requestedLength > chunkSize) {
+        const offset = exports.caj2pdf_io_request_offset();
+        const length = exports.caj2pdf_io_request_length();
+        if (length > chunkSize) {
           throw new Error("WASM requested more than the configured chunk size");
         }
-        checkRange(source.size, requestedOffset, BigInt(requestedLength));
-        const bytes = await source.readAt(requestedOffset, requestedLength, signal);
+        checkRange(source.size, offset, BigInt(length));
+        const bytes = await source.readAt(offset, length, signal);
         checkAbort(signal);
-        if (!(bytes instanceof Uint8Array) || bytes.byteLength > requestedLength) {
+        if (!(bytes instanceof Uint8Array) || bytes.byteLength > length) {
           throw new TypeError("source must return a bounded Uint8Array");
         }
         new Uint8Array(exports.memory.buffer, exports.caj2pdf_io_buffer_ptr(), bytes.byteLength).set(bytes);
         if (exports.caj2pdf_io_complete_read(bytes.byteLength) !== 1) {
           throw new Error("WASM rejected a read response");
         }
-      } else if (status === 2) {
-        const requestedLength = exports.caj2pdf_io_request_length();
-        requireChunkLength(requestedLength);
-        if (requestedLength > chunkSize) {
+      } else if (status === 2 && sink != null) {
+        const length = exports.caj2pdf_io_request_length();
+        if (length > chunkSize) {
           throw new Error("WASM requested an oversized write");
         }
-        const view = new Uint8Array(exports.memory.buffer, exports.caj2pdf_io_buffer_ptr(), requestedLength);
-        // Stable until this Promise resolves; retaining beyond that requires
-        // the sink to copy before resolving (the supplied adapters do so).
+        // Stable until writeChunk settles; a sink that retains bytes longer
+        // must copy them first (the supplied sinks do).
+        const view = new Uint8Array(exports.memory.buffer, exports.caj2pdf_io_buffer_ptr(), length);
         const accepted = await sink.writeChunk(view, signal);
         checkAbort(signal);
-        if (!Number.isSafeInteger(accepted) || accepted < 0 || accepted > requestedLength) {
+        if (!Number.isSafeInteger(accepted) || accepted < 0 || accepted > length) {
           throw new RangeError("sink returned an invalid byte count");
         }
         if (exports.caj2pdf_io_complete_write(accepted) !== 1) {
           throw new Error("WASM rejected a write response");
         }
-      } else if (status === 3) {
+      } else if (status === 3 && sink != null) {
         await sink.flush(signal);
         checkAbort(signal);
         if (exports.caj2pdf_io_complete_flush() !== 1) {
           throw new Error("WASM rejected a flush response");
         }
       } else if (status === 4) {
-        return {
-          inputBytesRead: exports.caj2pdf_io_input_bytes_read(),
-          outputBytesWritten: exports.caj2pdf_io_output_bytes_written(),
-          pagesConverted: kdh ? exports.caj2pdf_io_pages_converted() : 0,
-          bookmarksWritten: 0,
-        };
+        return finish(exports);
       } else if (status === 5) {
-        throw coreError(exports.caj2pdf_io_error_kind());
+        throw engineError(exports);
       } else {
         throw new Error(`unexpected WASM I/O status: ${status}`);
       }
@@ -229,11 +415,71 @@ async function driveProof(
   }
 }
 
-export function copyRangeProof(wasm, source, sink, options = {}) {
-  return driveProof(wasm, source, sink, options);
+const OPERATION_CONVERT = 1;
+const OPERATION_INSPECT = 2;
+
+async function run(operation, wasm, source, sink, options) {
+  const {
+    format = "auto",
+    limits = {},
+    chunkSize = DEFAULT_IO_CHUNK,
+    signal,
+    includeBookmarks = true,
+  } = options ?? {};
+  requireSource(source);
+  if (operation === OPERATION_CONVERT) requireSink(sink);
+  requireChunkLength(chunkSize);
+  const code = formatCode(format);
+  const resolved = resolveLimits(limits, chunkSize);
+  checkAbort(signal);
+  const exports = await resolveExports(wasm);
+  const start = () => exports.caj2pdf_start(
+    operation,
+    source.size,
+    chunkSize,
+    code,
+    includeBookmarks ? 1 : 0,
+    resolved.maxInputBytes,
+    resolved.maxOutputBytes,
+    resolved.maxAllocationBytes,
+    resolved.maxPages,
+    resolved.maxBookmarks,
+  );
+  return drive(exports, start, source, sink, chunkSize, signal, operation === OPERATION_INSPECT ? inspection : report);
 }
 
-/** Drive the native-equivalent KDH core through bounded browser or Node I/O. */
-export function convertKdhProof(wasm, source, sink, { chunkSize, signal } = {}) {
-  return driveProof(wasm, source, sink, { chunkSize, signal }, true);
+/**
+ * Convert a PDF, CAJ, or KDH source to PDF through bounded, awaited I/O.
+ * The format is detected from the leading signature unless `format` is set.
+ */
+export function convert(wasm, source, sink, options = {}) {
+  return run(OPERATION_CONVERT, wasm, source, sink, options);
+}
+
+/** Read the format, page count, and (for CAJ) bookmark count. No output. */
+export function inspect(wasm, source, options = {}) {
+  return run(OPERATION_INSPECT, wasm, source, null, options);
+}
+
+/**
+ * Copy a byte range through the same bounded bridge. This diagnostic checks
+ * a source/sink pair; it is not PDF conversion.
+ */
+export async function copyRange(wasm, source, sink, { offset = 0n, length, chunkSize = DEFAULT_IO_CHUNK, signal } = {}) {
+  requireSource(source);
+  requireSink(sink);
+  requireU64(offset, "offset");
+  length ??= source.size - offset;
+  checkRange(source.size, offset, length);
+  requireChunkLength(chunkSize);
+  checkAbort(signal);
+  const exports = await resolveExports(wasm);
+  return drive(
+    exports,
+    () => exports.caj2pdf_io_start(source.size, offset, length, chunkSize),
+    source,
+    sink,
+    chunkSize,
+    signal,
+  );
 }

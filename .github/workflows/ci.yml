@@ -141,17 +141,22 @@ jobs:
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '22'
+      - name: Install independent PDF validator for JavaScript output tests
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y qpdf
+          qpdf --version
       - name: Check workspace examples and tests for WASM
         run: cargo check --locked --workspace --all-features --all-targets --target wasm32-unknown-unknown
       - name: Build WASM boundary
         run: cargo build --locked --release --all-features -p caj2pdf-wasm --target wasm32-unknown-unknown
-      - name: Test browser and Node.js adapters on Node 22
+      - name: Test the JavaScript API and adapters on Node 22
         run: node --test js/test/*.test.mjs
       - name: Set up Node.js 24
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '24'
-      - name: Test browser and Node.js adapters on Node 24
+      - name: Test the JavaScript API and adapters on Node 24
         run: node --test js/test/*.test.mjs
 
   licenses:
