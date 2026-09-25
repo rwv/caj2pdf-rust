@@ -857,9 +857,7 @@ fn retries_partial_row_writes_and_reports_flush_failure() {
         io_chunk_bytes: 2,
         ..Limits::default()
     };
-    // The never-tripping sweep type shares one decoder instantiation with the
-    // cancellation checkpoint sweep.
-    let never = CancelAfter::new(u64::MAX);
+    let never = CancelAfter::never();
     let mq_budget = MqBudget::default();
     let table = table();
     let stream = [0, 0, 0, 0, 0xff, 0xac];
@@ -1027,9 +1025,7 @@ fn cancellation_before_next_row_and_during_flush_never_reports_success() {
 #[test]
 fn rejects_terminal_errors_and_incomplete_finish() {
     let limits = Limits::default();
-    // The never-tripping sweep type shares one decoder instantiation with the
-    // cancellation checkpoint sweep.
-    let never = CancelAfter::new(u64::MAX);
+    let never = CancelAfter::never();
     let mq_budget = MqBudget::default();
     let table = table();
     let mut source = record(3, 1, 0, 4, (2, -1), SHORT_STREAM);
@@ -1265,9 +1261,7 @@ fn working_allocation_cap_counts_three_rows_at_the_exact_boundary() {
 #[test]
 fn rows_and_finish_after_a_dropped_row_future_are_poisoned_without_flush() {
     let limits = Limits::default();
-    // The never-tripping sweep type shares one decoder instantiation with the
-    // cancellation checkpoint sweep.
-    let never = CancelAfter::new(u64::MAX);
+    let never = CancelAfter::never();
     let mq_budget = MqBudget::default();
     let table = table();
     let mut source = record(3, 1, 0, 4, (2, -1), SHORT_STREAM);

@@ -21,6 +21,13 @@ impl CancelAfter {
             remaining: Cell::new(allowed),
         }
     }
+
+    /// A signal that never trips. Tests that need no cancellation can use it
+    /// instead of `NeverCancel` to share the decoder instantiation of a
+    /// cancellation checkpoint sweep.
+    pub fn never() -> Self {
+        Self::new(u64::MAX)
+    }
 }
 
 impl Cancellation for CancelAfter {
