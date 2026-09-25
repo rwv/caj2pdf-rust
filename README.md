@@ -29,6 +29,26 @@ external corpus runner and independently generated MIT test fixtures.
 The [PDF input profile](docs/pdf-input.md) records supported syntax, repair
 rules, and the existing-outline policy.
 
+## Command-line usage
+
+The `caj2pdf` Linux command converts CAJ, KDH, and PDF inputs. HN and C8
+files are recognized, but their conversion is not implemented yet; TEB is
+recognized and unsupported. Build it with `cargo build --release -p caj2pdf-cli`.
+
+```sh
+caj2pdf paper.caj                  # writes paper.pdf next to the input
+caj2pdf paper.caj -o out.pdf       # explicit output; --force replaces a file
+caj2pdf - < paper.caj > paper.pdf  # standard input and output
+caj2pdf inspect paper.caj --json --bookmarks
+caj2pdf add-bookmarks paper.caj scan.pdf -o scan-with-outline.pdf
+```
+
+Existing outputs are kept unless `--force` is given, an input is never
+overwritten, and a path output is renamed into place only after conversion
+succeeds. Exit status is 0 on success, 2 for invalid arguments, and 1 for
+other failures. The [CLI reference](docs/cli.md) documents every rule and the
+`inspect` JSON schema.
+
 ## Versioning and development
 
 Releases use `v0.x.y` during initial development. APIs, CLI behavior, and
