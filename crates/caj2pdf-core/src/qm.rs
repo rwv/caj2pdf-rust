@@ -682,7 +682,6 @@ impl<'a, S: RangedSource, C: Cancellation> ArithmeticDecoder<'a, S, C> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::NeverCancel;
     use crate::test_support::run;
     use std::{
         cell::Cell,
@@ -755,11 +754,15 @@ mod tests {
         }
     }
 
-    struct Flag(Rc<Cell<bool>>);
+    /// The one cancellation type of these tests, so every decoder path
+    /// shares one instantiation; [`NEVER`] never trips.
+    struct Flag(Option<Rc<Cell<bool>>>);
+
+    const NEVER: Flag = Flag(None);
 
     impl Cancellation for Flag {
         fn is_cancelled(&self) -> bool {
-            self.0.get()
+            self.0.as_ref().is_some_and(|flag| flag.get())
         }
     }
 
@@ -868,7 +871,7 @@ mod tests {
             &mut contexts,
             StripeMode::Reset,
             &limits,
-            &NeverCancel,
+            &NEVER,
             budget(),
         ));
         assert!(matches!(
@@ -885,7 +888,7 @@ mod tests {
             &mut contexts,
             StripeMode::Reset,
             &limits,
-            &NeverCancel,
+            &NEVER,
             budget(),
         ))
         .err()
@@ -908,7 +911,7 @@ mod tests {
             &mut contexts,
             StripeMode::Reset,
             &small_input,
-            &NeverCancel,
+            &NEVER,
             budget(),
         ))
         .err()
@@ -926,7 +929,7 @@ mod tests {
             &mut contexts,
             StripeMode::Reset,
             &limits,
-            &NeverCancel,
+            &NEVER,
             ArithmeticBudget {
                 max_symbols: 0,
                 max_work: 1,
@@ -980,7 +983,7 @@ mod tests {
                 &mut contexts,
                 StripeMode::Reset,
                 &limits,
-                &NeverCancel,
+                &NEVER,
                 budget(),
             ))
             .err()
@@ -1027,7 +1030,7 @@ mod tests {
             &mut contexts,
             StripeMode::Reset,
             &limits,
-            &NeverCancel,
+            &NEVER,
             budget(),
         ))
         .err()
@@ -1059,7 +1062,7 @@ mod tests {
             &mut contexts,
             StripeMode::Reset,
             &limits,
-            &NeverCancel,
+            &NEVER,
             ArithmeticBudget {
                 max_symbols: 1,
                 max_work: 100,
@@ -1097,7 +1100,7 @@ mod tests {
             &mut contexts,
             StripeMode::Reset,
             &limits,
-            &NeverCancel,
+            &NEVER,
             budget(),
         ))
         .unwrap();
@@ -1119,7 +1122,7 @@ mod tests {
             &mut contexts,
             StripeMode::Carry,
             &limits,
-            &NeverCancel,
+            &NEVER,
             budget(),
         ))
         .unwrap();
@@ -1138,7 +1141,7 @@ mod tests {
             &mut contexts,
             StripeMode::Carry,
             &limits,
-            &NeverCancel,
+            &NEVER,
             budget(),
         ))
         .err()
@@ -1156,7 +1159,7 @@ mod tests {
             &mut contexts,
             StripeMode::Carry,
             &limits,
-            &NeverCancel,
+            &NEVER,
             budget(),
         ));
         assert!(matches!(
@@ -1178,7 +1181,7 @@ mod tests {
             &mut contexts,
             StripeMode::Reset,
             &limits,
-            &NeverCancel,
+            &NEVER,
             budget(),
         ))
         .unwrap();
@@ -1207,7 +1210,7 @@ mod tests {
             &mut contexts,
             StripeMode::Reset,
             &limits,
-            &NeverCancel,
+            &NEVER,
             budget(),
         ))
         .unwrap();
@@ -1240,7 +1243,7 @@ mod tests {
             &mut contexts,
             StripeMode::Reset,
             &limits,
-            &NeverCancel,
+            &NEVER,
             budget(),
         ))
         .unwrap();
@@ -1273,7 +1276,7 @@ mod tests {
             &mut contexts,
             StripeMode::Reset,
             &limits,
-            &NeverCancel,
+            &NEVER,
             budget(),
         ))
         .unwrap();
@@ -1318,7 +1321,7 @@ mod tests {
             &mut contexts,
             StripeMode::Reset,
             &limits,
-            &NeverCancel,
+            &NEVER,
             budget(),
         ))
         .unwrap();
@@ -1338,7 +1341,7 @@ mod tests {
             &mut contexts,
             StripeMode::Reset,
             &broad_limits,
-            &NeverCancel,
+            &NEVER,
             ArithmeticBudget {
                 max_symbols: 1,
                 max_work: 4,
@@ -1376,7 +1379,7 @@ mod tests {
         };
         let mut contexts = ContextBank::new(1, &limits).unwrap();
         let cancelled = Rc::new(Cell::new(true));
-        let flag = Flag(cancelled.clone());
+        let flag = Flag(Some(cancelled.clone()));
         let mut before_start = MockSource::new(&[0, 0, 0]);
         let error = run(ArithmeticDecoder::new(
             &mut before_start,
@@ -1432,7 +1435,7 @@ mod tests {
             &mut contexts,
             StripeMode::Reset,
             &limits,
-            &NeverCancel,
+            &NEVER,
             budget(),
         ))
         .unwrap();
@@ -1461,7 +1464,7 @@ mod tests {
                 &mut contexts,
                 StripeMode::Carry,
                 &limits,
-                &NeverCancel,
+                &NEVER,
                 budget(),
             ))
             .err()
@@ -1493,7 +1496,7 @@ mod tests {
             &mut contexts,
             StripeMode::Reset,
             &limits,
-            &NeverCancel,
+            &NEVER,
             budget(),
         ))
         .unwrap();
@@ -1518,7 +1521,7 @@ mod tests {
                 &mut contexts,
                 StripeMode::Carry,
                 &limits,
-                &NeverCancel,
+                &NEVER,
                 budget(),
             ))
             .err()
@@ -1541,7 +1544,7 @@ mod tests {
             &mut contexts,
             StripeMode::Reset,
             &limits,
-            &NeverCancel,
+            &NEVER,
             budget(),
         ))
         .unwrap();
@@ -1560,7 +1563,7 @@ mod tests {
             &mut contexts,
             StripeMode::Reset,
             &limits,
-            &NeverCancel,
+            &NEVER,
             ArithmeticBudget {
                 max_symbols: 1,
                 max_work: 4,
@@ -1596,7 +1599,7 @@ mod tests {
                 &mut contexts,
                 StripeMode::Carry,
                 &limits,
-                &NeverCancel,
+                &NEVER,
                 budget(),
             ))
             .err()
@@ -1614,7 +1617,7 @@ mod tests {
             &mut contexts,
             StripeMode::Reset,
             &limits,
-            &NeverCancel,
+            &NEVER,
             budget(),
         ))
         .unwrap();
@@ -1635,7 +1638,7 @@ mod tests {
                 &mut contexts,
                 StripeMode::Carry,
                 &limits,
-                &NeverCancel,
+                &NEVER,
                 budget(),
             ))
             .err()
@@ -1652,7 +1655,7 @@ mod tests {
             &mut contexts,
             StripeMode::Reset,
             &limits,
-            &NeverCancel,
+            &NEVER,
             budget(),
         ))
         .unwrap();
@@ -1672,7 +1675,7 @@ mod tests {
             &mut contexts,
             StripeMode::Carry,
             &limits,
-            &NeverCancel,
+            &NEVER,
             budget(),
         ))
         .unwrap();
@@ -1689,7 +1692,7 @@ mod tests {
             &mut contexts,
             StripeMode::Reset,
             &limits,
-            &NeverCancel,
+            &NEVER,
             budget(),
         ))
         .unwrap();
@@ -1704,7 +1707,7 @@ mod tests {
                 &mut contexts,
                 StripeMode::Carry,
                 &limits,
-                &NeverCancel,
+                &NEVER,
                 budget(),
             ))
             .err()
@@ -1730,7 +1733,7 @@ mod tests {
                 &mut contexts,
                 StripeMode::Reset,
                 &limits,
-                &NeverCancel,
+                &NEVER,
                 ArithmeticBudget {
                     max_symbols: 64,
                     max_work: 512,
@@ -1806,7 +1809,7 @@ mod tests {
             &mut contexts,
             StripeMode::Carry,
             &limits,
-            &NeverCancel,
+            &NEVER,
             budget(),
         ))
         .err()
@@ -1822,7 +1825,7 @@ mod tests {
             &mut contexts,
             StripeMode::Reset,
             &limits,
-            &NeverCancel,
+            &NEVER,
             ArithmeticBudget {
                 max_symbols: 1,
                 max_work: 0,
@@ -1841,7 +1844,7 @@ mod tests {
             &mut contexts,
             StripeMode::Reset,
             &limits,
-            &Flag(Rc::new(Cell::new(true))),
+            &Flag(Some(Rc::new(Cell::new(true)))),
             budget(),
         ))
         .err()
@@ -1892,7 +1895,7 @@ mod tests {
             &mut empty,
             StripeMode::Carry,
             &Limits::default(),
-            &NeverCancel,
+            &NEVER,
             budget(),
         ))
         .err()
