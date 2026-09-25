@@ -154,12 +154,8 @@ fn parse_page_number(
         .iter()
         .position(|byte| !byte.is_ascii_whitespace())
         .ok_or_else(|| malformed(record_offset + 280, Some(record), "empty TOC page number"))?;
-    let last = raw
-        .iter()
-        .rposition(|byte| !byte.is_ascii_whitespace())
-        .ok_or_else(|| malformed(record_offset + 280, Some(record), "empty TOC page number"))?;
     let mut page = 0u32;
-    for (index, byte) in raw[first..=last].iter().enumerate() {
+    for (index, byte) in raw[first..].trim_ascii_end().iter().enumerate() {
         if !byte.is_ascii_digit() {
             return Err(malformed(
                 record_offset + 280 + (first + index) as u64,
