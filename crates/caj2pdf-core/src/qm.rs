@@ -7,7 +7,7 @@
 //! Its input span contains arithmetic bytes after any container framing and
 //! byte unstuffing have been handled by the caller.
 
-use crate::{Cancellation, Error, Limits, RangedSource, read_exact_at};
+use crate::{Cancellation, Error, Limits, MAX_BUDGET_COUNT, RangedSource, read_exact_at};
 use std::{error, fmt, mem};
 
 /// Number of probability-estimation states in T.82 Table 24.
@@ -178,9 +178,14 @@ pub enum StripeMode {
 
 /// Per-stripe bounds. Work counts each symbol, renormalization shift, and
 /// byte input. Each byte input can cause at most one bounded 256-byte refill.
+///
+/// Both fields must be in `1..=MAX_BUDGET_COUNT`; other values are rejected
+/// as `InvalidBudget` before any I/O.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ArithmeticBudget {
+    /// In `1..=`[`MAX_BUDGET_COUNT`].
     pub max_symbols: u64,
+    /// In `1..=`[`MAX_BUDGET_COUNT`].
     pub max_work: u64,
 }
 
@@ -370,7 +375,9 @@ impl<'a, S: RangedSource, C: Cancellation> ArithmeticDecoder<'a, S, C> {
                 ArithmeticErrorKind::UnreadyCarry,
             ));
         }
-        if budget.max_symbols == 0 || budget.max_work == 0 {
+        if !(1..=MAX_BUDGET_COUNT).contains(&budget.max_symbols)
+            || !(1..=MAX_BUDGET_COUNT).contains(&budget.max_work)
+        {
             return Err(ArithmeticError::configuration(
                 ArithmeticErrorKind::InvalidBudget,
             ));
@@ -419,16 +426,8 @@ impl<'a, S: RangedSource, C: Cancellation> ArithmeticDecoder<'a, S, C> {
             return Err(self.at(Some(context), ArithmeticErrorKind::InvalidContext));
         }
         self.check_cancelled(Some(context))?;
-        let attempted = self.symbols_decoded.checked_add(1).ok_or_else(|| {
-            self.at(
-                Some(context),
-                ArithmeticErrorKind::LimitExceeded {
-                    resource: "symbols",
-                    limit: self.budget.max_symbols,
-                    attempted: u64::MAX,
-                },
-            )
-        })?;
+        // `symbols_decoded <= max_symbols <= MAX_BUDGET_COUNT`.
+        let attempted = self.symbols_decoded + 1;
         if attempted > self.budget.max_symbols {
             return Err(self.at(
                 Some(context),
@@ -512,17 +511,9 @@ impl<'a, S: RangedSource, C: Cancellation> ArithmeticDecoder<'a, S, C> {
         }
     }
 
-    fn charge(&mut self, cost: u64, context: Option<usize>) -> ArithmeticResult<()> {
-        let attempted = self.work_done.checked_add(cost).ok_or_else(|| {
-            self.at(
-                context,
-                ArithmeticErrorKind::LimitExceeded {
-                    resource: "arithmetic work",
-                    limit: self.budget.max_work,
-                    attempted: u64::MAX,
-                },
-            )
-        })?;
+    fn charge(&mut self, context: Option<usize>) -> ArithmeticResult<()> {
+        // `work_done <= max_work <= MAX_BUDGET_COUNT`.
+        let attempted = self.work_done + 1;
         if attempted > self.budget.max_work {
             return Err(self.at(
                 context,
@@ -540,12 +531,9 @@ impl<'a, S: RangedSource, C: Cancellation> ArithmeticDecoder<'a, S, C> {
     async fn next_byte(&mut self, context: Option<usize>) -> ArithmeticResult<u8> {
         self.check_cancelled(context)?;
         if self.physical_bytes_consumed == self.span.length {
-            self.virtual_zero_bytes = self.virtual_zero_bytes.checked_add(1).ok_or_else(|| {
-                self.at(
-                    context,
-                    ArithmeticErrorKind::Invariant("virtual zero count overflow"),
-                )
-            })?;
+            // Only `byte_in` reads bytes, after charging one unit of work,
+            // so this count stays below `max_work <= MAX_BUDGET_COUNT`.
+            self.virtual_zero_bytes += 1;
             return Ok(0);
         }
         if self.buffer_position == self.buffered {
@@ -592,7 +580,7 @@ impl<'a, S: RangedSource, C: Cancellation> ArithmeticDecoder<'a, S, C> {
     }
 
     async fn byte_in(&mut self, context: Option<usize>) -> ArithmeticResult<()> {
-        self.charge(1, context)?;
+        self.charge(context)?;
         let byte = self.next_byte(context).await?;
         self.code = self.code.wrapping_add(u32::from(byte) << 8);
         self.bit_counter = 8;
@@ -605,7 +593,7 @@ impl<'a, S: RangedSource, C: Cancellation> ArithmeticDecoder<'a, S, C> {
             if self.bit_counter == 0 {
                 self.byte_in(Some(context)).await?;
             }
-            self.charge(1, Some(context))?;
+            self.charge(Some(context))?;
             self.interval <<= 1;
             self.code <<= 1;
             self.bit_counter -= 1;
@@ -620,7 +608,7 @@ impl<'a, S: RangedSource, C: Cancellation> ArithmeticDecoder<'a, S, C> {
     }
 
     async fn decode_symbol_inner(&mut self, context: usize) -> ArithmeticResult<bool> {
-        self.charge(1, Some(context))?;
+        self.charge(Some(context))?;
         let current = self.contexts.states[context];
         let state = self.table.get(current.state_index);
         let qe = u32::from(state.qe);
@@ -936,7 +924,60 @@ mod tests {
             invalid_budget.err().unwrap().kind,
             ArithmeticErrorKind::InvalidBudget
         ));
+        for (max_symbols, max_work) in [(MAX_BUDGET_COUNT + 1, 1), (1, MAX_BUDGET_COUNT + 1)] {
+            let above_ceiling = run(ArithmeticDecoder::new(
+                &mut source,
+                span(3),
+                &table,
+                &mut contexts,
+                StripeMode::Reset,
+                &limits,
+                &NEVER,
+                ArithmeticBudget {
+                    max_symbols,
+                    max_work,
+                },
+            ));
+            assert!(matches!(
+                above_ceiling.err().unwrap().kind,
+                ArithmeticErrorKind::InvalidBudget
+            ));
+        }
         assert_eq!(source.calls, 0);
+        run(ArithmeticDecoder::new(
+            &mut source,
+            span(3),
+            &table,
+            &mut contexts,
+            StripeMode::Reset,
+            &limits,
+            &NEVER,
+            ArithmeticBudget {
+                max_symbols: MAX_BUDGET_COUNT,
+                max_work: MAX_BUDGET_COUNT,
+            },
+        ))
+        .unwrap();
+    }
+
+    #[test]
+    fn context_banks_beyond_the_address_space_are_refused_without_allocating() {
+        let limits = Limits {
+            max_allocation_bytes: u64::MAX,
+            ..Limits::default()
+        };
+        // The byte size of this bank overflows `usize`.
+        assert!(matches!(
+            ContextBank::new(usize::MAX, &limits).unwrap_err().kind,
+            ArithmeticErrorKind::InvalidContext
+        ));
+        // This byte size fits `usize` but exceeds `isize::MAX`, so the fallible
+        // reservation fails before the allocator is called.
+        #[cfg(target_pointer_width = "64")]
+        assert!(matches!(
+            ContextBank::new(1 << 62, &limits).unwrap_err().kind,
+            ArithmeticErrorKind::InvalidContext
+        ));
     }
 
     #[test]
@@ -1286,46 +1327,27 @@ mod tests {
         run(decoder.renormalize(0)).unwrap();
         assert_eq!(decoder.snapshot().interval, 0xfffe);
         assert_eq!(decoder.snapshot().bit_counter, 7);
-        decoder.budget.max_symbols = u64::MAX;
-        decoder.symbols_decoded = u64::MAX;
+        decoder.budget.max_symbols = MAX_BUDGET_COUNT;
+        decoder.symbols_decoded = MAX_BUDGET_COUNT;
         assert!(matches!(
             run(decoder.decode_symbol(0)).unwrap_err().kind,
             ArithmeticErrorKind::LimitExceeded {
                 resource: "symbols",
-                limit: u64::MAX,
-                attempted: u64::MAX,
-            }
+                limit: MAX_BUDGET_COUNT,
+                attempted,
+            } if attempted == MAX_BUDGET_COUNT + 1
         ));
         assert!(!decoder.snapshot().poisoned);
         decoder.symbols_decoded = 0;
-        decoder.budget.max_work = u64::MAX;
-        decoder.work_done = u64::MAX;
+        decoder.budget.max_work = MAX_BUDGET_COUNT;
+        decoder.work_done = MAX_BUDGET_COUNT;
         assert!(matches!(
-            decoder.charge(1, None).unwrap_err().kind,
+            decoder.charge(None).unwrap_err().kind,
             ArithmeticErrorKind::LimitExceeded {
                 resource: "arithmetic work",
-                limit: u64::MAX,
-                attempted: u64::MAX,
-            }
-        ));
-        decoder.finish(0).unwrap();
-
-        let mut empty = MockSource::new(&[]);
-        let mut decoder = run(ArithmeticDecoder::new(
-            &mut empty,
-            span(0),
-            &table,
-            &mut contexts,
-            StripeMode::Reset,
-            &limits,
-            &NEVER,
-            budget(),
-        ))
-        .unwrap();
-        decoder.virtual_zero_bytes = u64::MAX;
-        assert!(matches!(
-            run(decoder.byte_in(None)).unwrap_err().kind,
-            ArithmeticErrorKind::Invariant("virtual zero count overflow")
+                limit: MAX_BUDGET_COUNT,
+                attempted,
+            } if attempted == MAX_BUDGET_COUNT + 1
         ));
         decoder.finish(0).unwrap();
 

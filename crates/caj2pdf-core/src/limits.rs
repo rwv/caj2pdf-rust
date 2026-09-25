@@ -6,6 +6,16 @@ use crate::{Error, Result};
 pub const DEFAULT_IO_CHUNK: usize = 256 * 1024;
 /// Hard payload ceiling per read or write call: 1 MiB.
 pub const MAX_IO_CHUNK: usize = 1024 * 1024;
+/// Hard ceiling, 2^48, for the running-counter fields of the arithmetic
+/// decoder budgets (`MqBudget`, `ArithmeticBudget`, and `RefinementBudget`).
+///
+/// A counter never exceeds its budget field, and each step adds at most one
+/// I/O chunk (1 MiB), so a ceiling of 2^48 keeps every counter, every sum of
+/// two such counters, and every per-pixel work product (at most ten times a
+/// counter) far below `u64::MAX`. Decoders therefore use plain arithmetic on
+/// those counters. The ceiling is about 2.8 * 10^14, far above any realistic
+/// document budget; a budget above it is rejected before any I/O.
+pub const MAX_BUDGET_COUNT: u64 = 1 << 48;
 
 /// Resource limits applied before allocation and during I/O.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

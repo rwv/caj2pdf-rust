@@ -82,8 +82,12 @@ checks at regular symbol/I/O boundaries. Real reads are bounded by the
 declared SCD span; virtual padding reads consume the work budget. Exhausting
 a limit reports its resource, limit, and attempted value, plus source offset
 and context when available. These limits prevent a malformed span followed
-by virtual zeros from causing unbounded work. Numeric shifts and conversions
-must use explicit widths and checked operations.
+by virtual zeros from causing unbounded work. Both limits must be in
+`1..=MAX_BUDGET_COUNT` (2^48); other values are rejected as `InvalidBudget`
+before any read. Every counter step is then bounded by the work limit, so the
+symbol, work, and virtual-byte counters cannot overflow. Numeric shifts and
+conversions must use explicit widths, and checked operations wherever input
+values, rather than bounded counters, determine the result.
 
 `INITDEC` starts each stripe's arithmetic registers afresh. On the first
 stripe for a bit-plane/resolution layer, or after a forced reset, initialize

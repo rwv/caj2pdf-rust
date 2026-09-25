@@ -11,7 +11,8 @@ use super::{
     iaid::IaidLayout,
     mq::{MQ_STATE_COUNT, MqContext, MqDecoder, MqError, MqSnapshot, MqState},
 };
-use crate::{Cancellation, Error, Limits, RangedSource, SequentialSink};
+use crate::fallible::reserve_exact;
+use crate::{Cancellation, Error, Limits, MAX_BUDGET_COUNT, RangedSource, SequentialSink};
 use std::{error, fmt, io, mem};
 
 const CONTEXT_COUNT: usize = 1024;
@@ -19,6 +20,12 @@ const MQ_BUFFER_BYTES: u64 = 256;
 
 /// A checked bound for one refinement session. All totals include every
 /// successfully decoded bitmap in the session; MQ itself has additional caps.
+///
+/// The fields that bound running counters (`max_pixels_per_bitmap`,
+/// `max_total_pixels`, `max_total_output_bytes`, `max_reference_reads`,
+/// `max_reference_bytes_fetched`, `max_sink_writes`, and `max_flushes`) must
+/// each be at most [`MAX_BUDGET_COUNT`]. [`RefinementDecoder::new`] rejects a
+/// larger value as `LimitExceeded` before any source or sink call.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct RefinementBudget {
     pub max_width: u32,
@@ -272,6 +279,23 @@ impl<'a, 'mq, M: RangedSource, C: Cancellation, W: SequentialSink>
                 "zero I/O request cap",
             )));
         }
+        for (resource, value) in [
+            ("pixels per bitmap budget", budget.max_pixels_per_bitmap),
+            ("total pixels budget", budget.max_total_pixels),
+            ("total output bytes budget", budget.max_total_output_bytes),
+            ("reference reads budget", budget.max_reference_reads),
+            ("reference bytes budget", budget.max_reference_bytes_fetched),
+            ("sink writes budget", budget.max_sink_writes),
+            ("store flushes budget", budget.max_flushes),
+        ] {
+            if value > MAX_BUDGET_COUNT {
+                return Err(invalid(RefinementErrorKind::LimitExceeded {
+                    resource,
+                    limit: MAX_BUDGET_COUNT,
+                    attempted: value,
+                }));
+            }
+        }
         let context_base = layout.bitmap_base();
         if mq.iaid_code_len() != Some(layout.code_len())
             || layout.total_contexts() != mq.context_count()
@@ -342,11 +366,8 @@ impl<'a, 'mq, M: RangedSource, C: Cancellation, W: SequentialSink>
 
     async fn flush_store_inner(&mut self) -> RefinementResult<()> {
         self.check_cancelled(0, 0)?;
-        let attempted = self
-            .progress
-            .flushes
-            .checked_add(1)
-            .ok_or_else(|| self.invalid_span("store flush count overflows u64", 0))?;
+        // `flushes <= max_flushes <= MAX_BUDGET_COUNT`.
+        let attempted = self.progress.flushes + 1;
         if attempted > self.budget.max_flushes {
             return Err(self.limit("store flushes", self.budget.max_flushes, attempted, 0, 0));
         }
@@ -544,16 +565,14 @@ impl<'a, 'mq, M: RangedSource, C: Cancellation, W: SequentialSink>
             pixels,
         )?;
         self.cap("bytes per bitmap", self.budget.max_bytes_per_bitmap, bytes)?;
-        let total_pixels = self
-            .progress
-            .pixels_decoded
-            .checked_add(pixels)
-            .ok_or_else(|| self.invalid_span("total pixels overflows u64", 0))?;
-        let total_bytes = self
-            .progress
-            .output_bytes_written
-            .checked_add(bytes)
-            .ok_or_else(|| self.invalid_span("total output bytes overflows u64", 0))?;
+        // Every completed or failed bitmap passed these caps, so
+        // `pixels_decoded <= max_total_pixels` and `output_bytes_written <=
+        // max_total_output_bytes`, both at most MAX_BUDGET_COUNT (2^48).
+        // With `pixels <= max_pixels_per_bitmap <= 2^48` and `bytes < 2^61`
+        // (a stride of at most 2^29 times a u32 height), neither sum
+        // overflows, and ten times `total_pixels <= 2^49` fits u64 below.
+        let total_pixels = self.progress.pixels_decoded + pixels;
+        let total_bytes = self.progress.output_bytes_written + bytes;
         self.cap("total pixels", self.budget.max_total_pixels, total_pixels)?;
         self.cap(
             "total output bytes",
@@ -563,14 +582,12 @@ impl<'a, 'mq, M: RangedSource, C: Cancellation, W: SequentialSink>
             total_bytes,
         )?;
         self.cap("MQ decisions", self.budget.max_mq_decisions, total_pixels)?;
-        let work = total_pixels
-            .checked_mul(10)
-            .ok_or_else(|| self.invalid_span("context work overflows u64", 0))?;
+        let work = total_pixels * 10;
         self.cap("context work", self.budget.max_context_work, work)?;
-        let target_stride = usize::try_from(target_stride)
-            .map_err(|_| self.invalid_span("target stride exceeds address space", 0))?;
-        let reference_stride = usize::try_from(reference_stride)
-            .map_err(|_| self.invalid_span("reference stride exceeds address space", 0))?;
+        // Both strides are at most 2^29 bytes, which every supported
+        // (at least 32-bit) `usize` represents.
+        let target_stride = target_stride as usize;
+        let reference_stride = reference_stride as usize;
         self.limits
             .check_allocation(target_stride as u64)
             .map_err(|_| {
@@ -600,9 +617,9 @@ impl<'a, 'mq, M: RangedSource, C: Cancellation, W: SequentialSink>
         let mq_bytes = self.mq.context_count() as u64 * mem::size_of::<MqContext>() as u64
             + (MQ_STATE_COUNT * mem::size_of::<MqState>()) as u64
             + MQ_BUFFER_BYTES;
-        let working = row_bytes
-            .checked_add(mq_bytes)
-            .ok_or_else(|| self.invalid_span("working memory overflows u64", 0))?;
+        // `row_bytes <= 5 * 2^29`, and the allocated context bank occupies
+        // at most `isize::MAX` bytes, so this sum stays below 2^64.
+        let working = row_bytes + mq_bytes;
         self.cap("working bytes", self.budget.max_working_bytes, working)?;
         Ok(Geometry {
             reference_offset,
@@ -617,8 +634,8 @@ impl<'a, 'mq, M: RangedSource, C: Cancellation, W: SequentialSink>
 
     fn row(&self, length: usize) -> RefinementResult<Vec<u8>> {
         let mut row = Vec::new();
-        row.try_reserve_exact(length)
-            .map_err(|_| self.error(RefinementErrorKind::AllocationFailed, None, 0, 0))?;
+        let failed = self.error(RefinementErrorKind::AllocationFailed, None, 0, 0);
+        reserve_exact(&mut row, length, failed)?;
         row.resize(length, 0);
         Ok(row)
     }
@@ -642,11 +659,8 @@ impl<'a, 'mq, M: RangedSource, C: Cancellation, W: SequentialSink>
             let count = (row.len() - done)
                 .min(self.limits.io_chunk_bytes)
                 .min(self.budget.max_source_request_bytes);
-            let attempted = self
-                .progress
-                .reference_reads
-                .checked_add(1)
-                .ok_or_else(|| self.invalid_span("reference read count overflows u64", target_y))?;
+            // `reference_reads <= max_reference_reads <= MAX_BUDGET_COUNT`.
+            let attempted = self.progress.reference_reads + 1;
             if attempted > self.budget.max_reference_reads {
                 return Err(self.limit(
                     "reference reads",
@@ -656,11 +670,9 @@ impl<'a, 'mq, M: RangedSource, C: Cancellation, W: SequentialSink>
                     0,
                 ));
             }
-            let requested_bytes = self
-                .progress
-                .reference_bytes_fetched
-                .checked_add(count as u64)
-                .ok_or_else(|| self.invalid_span("reference byte count overflows u64", target_y))?;
+            // The fetched count is at most `max_reference_bytes_fetched <=
+            // MAX_BUDGET_COUNT`, and `count` is at most one I/O chunk.
+            let requested_bytes = self.progress.reference_bytes_fetched + count as u64;
             if requested_bytes > self.budget.max_reference_bytes_fetched {
                 return Err(self.limit(
                     "reference bytes",
@@ -715,11 +727,8 @@ impl<'a, 'mq, M: RangedSource, C: Cancellation, W: SequentialSink>
             let count = (row.len() - done)
                 .min(self.limits.io_chunk_bytes)
                 .min(self.budget.max_sink_request_bytes);
-            let attempted = self
-                .progress
-                .sink_writes
-                .checked_add(1)
-                .ok_or_else(|| self.invalid_span("sink write count overflows u64", y))?;
+            // `sink_writes <= max_sink_writes <= MAX_BUDGET_COUNT`.
+            let attempted = self.progress.sink_writes + 1;
             if attempted > self.budget.max_sink_writes {
                 return Err(self.limit(
                     "sink writes",

@@ -6,7 +6,7 @@
 //! no published Table E.1 entries, Annex H vector, JBIG2 image model, or
 //! container parser. It is independent of the T.82 `qm` stripe decoder.
 
-use crate::{Cancellation, Error, Limits, RangedSource, read_exact_at};
+use crate::{Cancellation, Error, Limits, MAX_BUDGET_COUNT, RangedSource, read_exact_at};
 use std::{error, fmt, mem};
 
 pub const MQ_STATE_COUNT: usize = 47;
@@ -188,14 +188,21 @@ pub struct MqSpan {
 }
 
 /// Per-stream CPU, input, context, and synthesized terminal bounds.
+///
+/// `max_symbols`, `max_work`, and `max_terminal_inputs` bound running
+/// counters and must each be at most [`MAX_BUDGET_COUNT`]; a larger value is
+/// rejected as `InvalidBudget` before any I/O.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct MqBudget {
     pub max_span_bytes: u64,
     pub max_contexts: usize,
+    /// Nonzero and at most [`MAX_BUDGET_COUNT`].
     pub max_symbols: u64,
     /// Includes symbol decisions, renormalization shifts, byte-input events,
-    /// and physical bytes fetched into the fixed input buffer.
+    /// and physical bytes fetched into the fixed input buffer. Nonzero and at
+    /// most [`MAX_BUDGET_COUNT`].
     pub max_work: u64,
+    /// At most [`MAX_BUDGET_COUNT`].
     pub max_terminal_inputs: u64,
 }
 
@@ -217,6 +224,9 @@ impl MqBudget {
             || self.max_contexts == 0
             || self.max_symbols == 0
             || self.max_work == 0
+            || self.max_symbols > MAX_BUDGET_COUNT
+            || self.max_work > MAX_BUDGET_COUNT
+            || self.max_terminal_inputs > MAX_BUDGET_COUNT
         {
             return Err(MqError::configuration(MqErrorKind::InvalidBudget));
         }
@@ -497,16 +507,9 @@ impl<'a, S: RangedSource, C: Cancellation> MqDecoder<'a, S, C> {
             return Err(self.at(Some(context), MqErrorKind::InvalidContext));
         }
         self.check_cancelled(Some(context))?;
-        let attempted = self.symbols_decoded.checked_add(1).ok_or_else(|| {
-            self.at(
-                Some(context),
-                MqErrorKind::LimitExceeded {
-                    resource: "MQ symbols",
-                    limit: self.budget.max_symbols,
-                    attempted: u64::MAX,
-                },
-            )
-        })?;
+        // `symbols_decoded <= max_symbols <= MAX_BUDGET_COUNT`, so this
+        // cannot overflow.
+        let attempted = self.symbols_decoded + 1;
         if attempted > self.budget.max_symbols {
             return Err(self.at(
                 Some(context),
@@ -633,16 +636,10 @@ impl<'a, S: RangedSource, C: Cancellation> MqDecoder<'a, S, C> {
     }
 
     fn charge(&mut self, count: u64, context: Option<usize>) -> MqResult<()> {
-        let attempted = self.work_done.checked_add(count).ok_or_else(|| {
-            self.at(
-                context,
-                MqErrorKind::LimitExceeded {
-                    resource: "MQ work",
-                    limit: self.budget.max_work,
-                    attempted: u64::MAX,
-                },
-            )
-        })?;
+        // `work_done <= max_work <= MAX_BUDGET_COUNT` and every charge is at
+        // most one 256-byte refill, so this cannot overflow.
+        debug_assert!(count <= INPUT_BUFFER_BYTES as u64);
+        let attempted = self.work_done + count;
         if attempted > self.budget.max_work {
             return Err(self.at(
                 context,
@@ -734,16 +731,8 @@ impl<'a, S: RangedSource, C: Cancellation> MqDecoder<'a, S, C> {
                         kind: MqErrorKind::InvalidMarker(next_byte),
                     });
                 }
-                let attempted = self.terminal_inputs.checked_add(1).ok_or_else(|| {
-                    self.at(
-                        context,
-                        MqErrorKind::LimitExceeded {
-                            resource: "MQ terminal inputs",
-                            limit: self.budget.max_terminal_inputs,
-                            attempted: u64::MAX,
-                        },
-                    )
-                })?;
+                // Bounded by `max_terminal_inputs <= MAX_BUDGET_COUNT`.
+                let attempted = self.terminal_inputs + 1;
                 if attempted > self.budget.max_terminal_inputs {
                     return Err(self.at(
                         context,
@@ -791,10 +780,13 @@ impl<'a, S: RangedSource, C: Cancellation> MqDecoder<'a, S, C> {
         let current = self.contexts.states[context];
         let state = self.table.state(current.state_index);
         let qe = u32::from(state.qe);
-        let narrowed = self
-            .interval
-            .checked_sub(qe)
-            .ok_or_else(|| self.at(Some(context), MqErrorKind::Invariant("interval underflow")))?;
+        // A decision starts with `interval >= 0x8000`: initialization sets
+        // 0x8000, an MPS path without renormalization keeps at least 0x8000,
+        // renormalization doubles it until it reaches 0x8000, and a failed
+        // renormalization poisons the decoder before another decision. The
+        // table rejects `qe` of 0x8000 or more, so this cannot wrap.
+        debug_assert!(self.interval >= 0x8000 && qe < 0x8000);
+        let narrowed = self.interval - qe;
         self.interval = narrowed;
         let (bit, updated) = if self.code >> 16 < qe {
             self.interval = qe;
@@ -936,14 +928,15 @@ mod tests {
                 MqErrorKind::InvalidContext
             ));
             let limit = decoder.budget.max_work;
-            let error = decoder.charge(limit, Some(0)).unwrap_err();
+            decoder.work_done = limit - 1;
+            let error = decoder.charge(2, Some(0)).unwrap_err();
             assert!(matches!(
                 error.kind,
                 MqErrorKind::LimitExceeded {
                     resource: "MQ work",
                     attempted,
                     ..
-                } if attempted > limit
+                } if attempted == limit + 1
             ));
             decoder.poisoned = true;
             assert!(matches!(
@@ -954,41 +947,36 @@ mod tests {
     }
 
     #[test]
-    fn work_and_terminal_counters_reject_u64_max_overflow() {
-        let budget = MqBudget {
-            max_work: u64::MAX,
-            max_terminal_inputs: u64::MAX,
+    fn counters_at_the_budget_ceiling_report_the_exact_excess() {
+        let ceiling = MqBudget {
+            max_symbols: MAX_BUDGET_COUNT,
+            max_work: MAX_BUDGET_COUNT,
+            max_terminal_inputs: MAX_BUDGET_COUNT,
             ..MqBudget::default()
         };
-        with_flat_decoder(budget, |decoder| {
-            decoder.work_done = u64::MAX;
+        with_flat_decoder(ceiling, |decoder| {
+            decoder.work_done = MAX_BUDGET_COUNT;
             assert!(matches!(
                 decoder.charge(1, None).unwrap_err().kind,
                 MqErrorKind::LimitExceeded {
                     resource: "MQ work",
-                    ..
-                }
+                    limit: MAX_BUDGET_COUNT,
+                    attempted,
+                } if attempted == MAX_BUDGET_COUNT + 1
             ));
             decoder.work_done = 0;
-            decoder.terminal_inputs = u64::MAX;
+            decoder.terminal_inputs = MAX_BUDGET_COUNT;
             assert!(matches!(
                 ready(decoder.byte_in(None)).unwrap_err().kind,
                 MqErrorKind::LimitExceeded {
                     resource: "MQ terminal inputs",
-                    ..
-                }
+                    limit: MAX_BUDGET_COUNT,
+                    attempted,
+                } if attempted == MAX_BUDGET_COUNT + 1
             ));
         });
-    }
-
-    #[test]
-    fn symbol_counter_rejects_u64_max_overflow_before_any_work() {
-        let budget = MqBudget {
-            max_symbols: u64::MAX,
-            ..MqBudget::default()
-        };
-        with_flat_decoder(budget, |decoder| {
-            decoder.symbols_decoded = u64::MAX;
+        with_flat_decoder(ceiling, |decoder| {
+            decoder.symbols_decoded = MAX_BUDGET_COUNT;
             let before = decoder.snapshot();
             let error = ready(decoder.decode_bit(0)).unwrap_err();
             assert_eq!(error.context, Some(0));
@@ -996,9 +984,9 @@ mod tests {
                 error.kind,
                 MqErrorKind::LimitExceeded {
                     resource: "MQ symbols",
-                    limit: u64::MAX,
-                    attempted: u64::MAX,
-                }
+                    limit: MAX_BUDGET_COUNT,
+                    attempted,
+                } if attempted == MAX_BUDGET_COUNT + 1
             ));
             // The preflight failure leaves registers, work, and poison untouched.
             assert_eq!(decoder.snapshot(), before);

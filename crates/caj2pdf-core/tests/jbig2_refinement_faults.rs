@@ -5,7 +5,7 @@
 mod common;
 
 use caj2pdf_core::{
-    Cancellation, Error, Limits, NeverCancel, RangedSource, SequentialSink,
+    Cancellation, Error, Limits, MAX_BUDGET_COUNT, NeverCancel, RangedSource, SequentialSink,
     jbig2::{
         dictionary::SymbolDescriptor,
         iaid::IaidContextBanks,
@@ -1320,32 +1320,100 @@ fn cancellation_after_completed_flush_poisoned_the_coding_unit() {
     ));
 }
 
-#[test]
-fn maximal_geometry_with_disabled_caps_reports_context_work_overflow_before_io() {
-    // (2^32 - 1)^2 pixels still fits u64, but ten context probes per pixel
-    // does not. Every configurable cap is lifted so only the checked
-    // arithmetic can stop the request, before any allocation or I/O.
-    let unbounded = RefinementBudget {
+/// Every cap at its most permissive accepted value: dimensions and
+/// non-counter fields unbounded, counter fields at `MAX_BUDGET_COUNT`.
+fn ceiling_budget() -> RefinementBudget {
+    RefinementBudget {
         max_width: u32::MAX,
         max_height: u32::MAX,
         max_reference_width: u32::MAX,
         max_reference_height: u32::MAX,
         max_reference_pixels_per_bitmap: u64::MAX,
         max_reference_bytes_per_bitmap: u64::MAX,
-        max_pixels_per_bitmap: u64::MAX,
-        max_total_pixels: u64::MAX,
+        max_pixels_per_bitmap: MAX_BUDGET_COUNT,
+        max_total_pixels: MAX_BUDGET_COUNT,
         max_bytes_per_bitmap: u64::MAX,
-        max_total_output_bytes: u64::MAX,
-        max_reference_reads: u64::MAX,
-        max_reference_bytes_fetched: u64::MAX,
-        max_sink_writes: u64::MAX,
-        max_flushes: u64::MAX,
+        max_total_output_bytes: MAX_BUDGET_COUNT,
+        max_reference_reads: MAX_BUDGET_COUNT,
+        max_reference_bytes_fetched: MAX_BUDGET_COUNT,
+        max_sink_writes: MAX_BUDGET_COUNT,
+        max_flushes: MAX_BUDGET_COUNT,
         max_source_request_bytes: usize::MAX,
         max_sink_request_bytes: usize::MAX,
         max_mq_decisions: u64::MAX,
         max_context_work: u64::MAX,
         max_working_bytes: u64::MAX,
-    };
+    }
+}
+
+#[test]
+fn constructor_rejects_counter_budgets_above_the_ceiling() {
+    type Field = fn(&mut RefinementBudget) -> &mut u64;
+    let fields: [(&str, Field); 7] = [
+        ("pixels per bitmap budget", |b| &mut b.max_pixels_per_bitmap),
+        ("total pixels budget", |b| &mut b.max_total_pixels),
+        ("total output bytes budget", |b| {
+            &mut b.max_total_output_bytes
+        }),
+        ("reference reads budget", |b| &mut b.max_reference_reads),
+        ("reference bytes budget", |b| {
+            &mut b.max_reference_bytes_fetched
+        }),
+        ("sink writes budget", |b| &mut b.max_sink_writes),
+        ("store flushes budget", |b| &mut b.max_flushes),
+    ];
+    let limits = Limits::default();
+    let mq_budget = MqBudget::default();
+    let table = table(&limits);
+    for (name, field) in fields {
+        let mut banks = banks(&limits, &mq_budget);
+        let layout = banks.layout();
+        let mut mq_source = Source::new(&[0xff, 0xac]);
+        let mut mq = ready(MqDecoder::new(
+            &mut mq_source,
+            MqSpan {
+                offset: 0,
+                length: 2,
+            },
+            &table,
+            banks.mq_contexts_mut(),
+            &limits,
+            &NeverCancel,
+            mq_budget,
+        ))
+        .unwrap();
+        let mut sink = Sink::new();
+        let mut budget = ceiling_budget();
+        *field(&mut budget) = MAX_BUDGET_COUNT + 1;
+        let error =
+            match RefinementDecoder::new(&mut mq, layout, &mut sink, &limits, &NeverCancel, budget)
+            {
+                Ok(_) => panic!("accepted {name} above the ceiling"),
+                Err(error) => error,
+            };
+        assert!(
+            matches!(
+                error.kind,
+                RefinementErrorKind::LimitExceeded {
+                    resource,
+                    limit: MAX_BUDGET_COUNT,
+                    attempted,
+                } if resource == name && attempted == MAX_BUDGET_COUNT + 1
+            ),
+            "{error}"
+        );
+        assert_eq!((error.offset, error.row, error.x), (None, 0, 0));
+        assert!(!error.progress.poisoned);
+        assert_eq!(sink.calls, 0);
+        // Rejected construction leaves MQ usable.
+        ready(mq.decode_bit(layout.bitmap_base())).unwrap();
+    }
+}
+
+#[test]
+fn maximal_geometry_under_ceiling_caps_is_refused_before_io() {
+    // (2^32 - 1)^2 pixels exceed the per-bitmap pixel ceiling, which is the
+    // cap that now keeps ten context probes per pixel within u64.
     let limits = Limits {
         max_output_bytes: u64::MAX,
         ..Limits::default()
@@ -1354,14 +1422,18 @@ fn maximal_geometry_with_disabled_caps_reports_context_work_overflow_before_io()
         Source::new(&[0x80]),
         Sink::new(),
         request(u32::MAX, u32::MAX, reference(1, 1)),
-        unbounded,
+        ceiling_budget(),
         limits,
         &NeverCancel,
     );
     assert!(
         matches!(
             error.kind,
-            RefinementErrorKind::InvalidSpan("context work overflows u64")
+            RefinementErrorKind::LimitExceeded {
+                resource: "pixels per bitmap",
+                limit: MAX_BUDGET_COUNT,
+                attempted,
+            } if attempted == u64::from(u32::MAX) * u64::from(u32::MAX)
         ),
         "{error}"
     );

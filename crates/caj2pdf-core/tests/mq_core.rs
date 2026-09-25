@@ -4,7 +4,7 @@
 //! Their invented probabilities do not establish standard compatibility.
 
 use caj2pdf_core::{
-    Cancellation, Error, Limits, NeverCancel, RangedSource,
+    Cancellation, Error, Limits, MAX_BUDGET_COUNT, NeverCancel, RangedSource,
     jbig2::mq::{
         MQ_STATE_COUNT, MqBudget, MqContext, MqContexts, MqDecoder, MqErrorKind, MqSpan, MqState,
         MqTable,
@@ -116,6 +116,71 @@ impl Cancellation for Flag {
 
 fn bank(budget: &MqBudget, limits: &Limits) -> MqContexts {
     MqContexts::new(1, limits, budget).unwrap()
+}
+
+#[test]
+fn counter_budgets_above_the_ceiling_are_rejected_before_allocation() {
+    let limits = Limits::default();
+    type Field = fn(&mut MqBudget) -> &mut u64;
+    let fields: [Field; 3] = [
+        |budget| &mut budget.max_symbols,
+        |budget| &mut budget.max_work,
+        |budget| &mut budget.max_terminal_inputs,
+    ];
+    for field in fields {
+        let mut budget = MqBudget::default();
+        *field(&mut budget) = MAX_BUDGET_COUNT;
+        MqContexts::new(1, &limits, &budget).unwrap();
+        *field(&mut budget) = MAX_BUDGET_COUNT + 1;
+        assert!(matches!(
+            MqContexts::new(1, &limits, &budget).unwrap_err().kind,
+            MqErrorKind::InvalidBudget
+        ));
+        let mut contexts = bank(&MqBudget::default(), &limits);
+        let mut source = Source::new(&[0, 0, 0xff, 0xac]);
+        let error = ready(MqDecoder::new(
+            &mut source,
+            MqSpan {
+                offset: 0,
+                length: 4,
+            },
+            &table(0x4000),
+            &mut contexts,
+            &limits,
+            &NeverCancel,
+            budget,
+        ))
+        .err()
+        .unwrap();
+        assert!(matches!(error.kind, MqErrorKind::InvalidBudget));
+        assert!(source.seen.is_empty());
+    }
+}
+
+#[test]
+fn context_banks_beyond_the_address_space_are_refused_without_allocating() {
+    let limits = Limits {
+        max_allocation_bytes: u64::MAX,
+        ..Limits::default()
+    };
+    let budget = MqBudget {
+        max_contexts: usize::MAX,
+        ..MqBudget::default()
+    };
+    // The byte size of this bank overflows `usize`.
+    assert!(matches!(
+        MqContexts::new(usize::MAX / 2, &limits, &budget)
+            .unwrap_err()
+            .kind,
+        MqErrorKind::InvalidContext
+    ));
+    // This byte size fits `usize` but exceeds `isize::MAX`, so the fallible
+    // reservation fails before the allocator is called.
+    #[cfg(target_pointer_width = "64")]
+    assert!(matches!(
+        MqContexts::new(1 << 62, &limits, &budget).unwrap_err().kind,
+        MqErrorKind::AllocationFailed
+    ));
 }
 
 fn span(source: &Source) -> MqSpan {
