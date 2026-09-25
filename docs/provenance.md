@@ -16,6 +16,7 @@ checking the provenance of each imported file.
 | JBIG / JBIG2 bitstreams | [ITU-T T.82](https://www.itu.int/rec/T-REC-T.82) and [ITU-T T.88](https://www.itu.int/rec/T-REC-T.88/en) | Published coding recommendations. Implement the subset required by observed CAJ-family data as original MIT code. Do not reuse reference implementation source. |
 | T.82 arithmetic SCD core and numeric states | [ITU-T T.82 (03/1993)](https://www.itu.int/rec/T-REC-T.82), §6.2.5, §6.8.2.3/Table 24, §6.8.3, and §7.1/Table 26; [ITU Software Copyright Guidelines](https://www.itu.int/dms_pub/itu-t/oth/04/04/T04040000040004PDFE.pdf) | Use the public algorithm to author original MIT Rust code. Keep Table 24's 113 exact numeric rows and the §7.1 vector outside the repository until their MIT redistribution basis is documented. The [core design](t82-arithmetic-core.md) records the external-table contract and local test procedure; standard conformance does not establish CAJ compatibility. |
 | T.88 MQ arithmetic control flow and numeric states | [ITU-T T.88 (02/2000)](https://www.itu.int/rec/T-REC-T.88-200002-S/en), Annex E.2.6/Table E.1, E.2.9–E.2.10, E.3.1–E.3.6, and H.2/Table H.1; [ITU Software Copyright Guidelines](https://www.itu.int/dms_pub/itu-t/oth/04/04/T04040000040004PDFE.pdf) | Original MIT decoder control flow with a caller-supplied 47-state table. The exact Table E.1 rows and Annex H vector/checkpoints remain outside Git, artifacts, and releases; their MIT redistribution basis remains open in [#44](https://github.com/rwv/caj2pdf-rust/issues/44). The [core note](t88-mq-core.md) records bounded API, differences from T.82, external-only fixture, and verification scope. Annex H.2 verifies arithmetic decisions, not CAJ/JBIG2 pixels. |
+| T.88 template-2 arithmetic generic regions | [ITU-T T.88 (02/2000)](https://www.itu.int/rec/T-REC-T.88-200002-S/en), §§6.2.5.2–6.2.5.4, 6.2.5.7, 7.4.1, 7.4.6.1–7.4.6.4, Table 34, Figure 5, E.3.7 | Original MIT, bounded row decoder with caller-supplied MQ table. Two external generic-only HN/C8 pixel spots passed; all 546 remain for #50. The [region note](jbig2-generic-template2.md) records the context order, bounds, and external-only verification. |
 | CAJ-family headers, pages, and outlines | [caj2pdf format notes](https://github.com/caj2pdf/caj2pdf/wiki), including [CAJ/HN identification](https://github.com/caj2pdf/caj2pdf/wiki/CAJ-%E5%92%8C-HN), [basic information and outlines](https://github.com/caj2pdf/caj2pdf/wiki/%E6%96%87%E4%BB%B6%E5%9F%BA%E6%9C%AC%E4%BF%A1%E6%81%AF%E4%B8%8E%E5%A4%A7%E7%BA%B2), and [CAJ page content](https://github.com/caj2pdf/caj2pdf/wiki/CAJ-%E6%A0%BC%E5%BC%8F%E7%9A%84%E9%A1%B5%E9%9D%A2%E5%86%85%E5%AE%B9) | Public observations, not a complete normative specification. [Repository-owned CAJ measurements](caj-format.md) pin ten successful sample digests and document TOC, page-table, and PDF-fragment exceptions independently. Do not copy parser source or pseudocode. |
 | HN page layout | [caj2pdf HN format notes](https://github.com/caj2pdf/caj2pdf/wiki/HN-%E6%A0%BC%E5%BC%8F%E7%9A%84%E9%A1%B5%E9%9D%A2%E5%86%85%E5%AE%B9) | Incomplete public observations. Derive the parser from documented facts and independent tests; mark unresolved fields explicitly. |
 | HN/C8 type-0 image wrapper and pixels | [ITU-T T.82](https://www.itu.int/rec/T-REC-T.82), [Microsoft BITMAPINFOHEADER](https://learn.microsoft.com/windows/win32/api/wingdi/ns-wingdi-bitmapinfoheader), and [repository-owned oracle measurements](jbig1-oracle.md) | The standards describe public coding and DIB fields. The local corpus measurements pin the CAJ-family wrapper and output hashes. The external differently licensed native decoder is a black-box oracle only, never implementation source or a project dependency. |
@@ -356,6 +357,21 @@ normalized-pixel hashes, geometry, black-pixel counts, and black-box tool
 identities enter Git. The document bytes, JBIG2 bytes, PDFs, PBMs, tool
 binaries, and normative T.88 state rows remain outside the repository. A
 tool agreement is not proof of distinct backend code or Rust pixel parity.
+
+Issue #49 adds the original MIT template-2 generic-region decoder in
+[`jbig2/generic.rs`](../crates/caj2pdf-core/src/jbig2/generic.rs), its
+invented-state synthetic tests in
+[`jbig2_generic.rs`](../crates/caj2pdf-core/tests/jbig2_generic.rs), and an
+ignored [external-only two-spot test](../crates/caj2pdf-core/tests/generic_t88_external.rs).
+The [generic-region note](jbig2-generic-template2.md) records the official
+T.88 clauses, context-bit assignment, bounds, failure semantics, and local
+black-box pixel comparison. Only the official T.88 (02/2000) text and this
+repository's MIT MQ and I/O APIs informed the implementation. The exact
+Table E.1 rows, source CAJ documents, and PDF/PBM outputs remain external;
+no differently licensed decoder or private Rust source was read or migrated.
+The caller-supplied table's redistribution question remains open in #44.
+Two SHA-verified generic-only spots passed locally; ordinary CI marks that
+check `NOT_RUN`, and full 546-case parity remains issue #50.
 
 ## Dependency inventory and review
 
