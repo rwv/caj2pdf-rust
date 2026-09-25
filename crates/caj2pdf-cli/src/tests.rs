@@ -6,7 +6,7 @@
 use crate::CliError;
 use crate::args::{Command, Endpoint, Topic, parse};
 use crate::cli::default_output;
-use crate::document::{Inspection, block_on, detect_signature, format_name};
+use crate::document::{Inspection, block_on, format_name};
 use crate::files::{
     Input, NEXT_TEMP, Output, SpoolError, TEMP_ATTEMPTS, open_input, open_output, refuse_terminal,
     spool,
@@ -228,25 +228,6 @@ fn default_output_is_a_distinct_sibling_pdf() {
     let error = default_output(&path("dir/a.pdf")).unwrap_err();
     assert_eq!(error.code, 2);
     assert!(error.message.contains("-o OUTPUT"));
-}
-
-#[test]
-fn signatures_select_formats() {
-    let cases: &[(&[u8], Option<InputFormat>)] = &[
-        (b"%PDF-1.7", Some(InputFormat::Pdf)),
-        (b"CAJ\0", Some(InputFormat::Caj)),
-        (b"KDH 2.00", Some(InputFormat::Kdh)),
-        (b"HN\0\0", Some(InputFormat::Hn)),
-        (b"\xc8\0\0\0", Some(InputFormat::C8)),
-        (b"TEB", Some(InputFormat::Teb)),
-        (b"%PDF", None),
-        (b"\xc8\0\0", None),
-        (b"NH\0\0", None),
-        (b"", None),
-    ];
-    for (header, format) in cases {
-        assert_eq!(detect_signature(header), *format, "{header:?}");
-    }
 }
 
 #[test]

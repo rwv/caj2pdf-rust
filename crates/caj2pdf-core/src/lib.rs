@@ -31,5 +31,5 @@ pub use io::{
 pub use limits::{DEFAULT_IO_CHUNK, Limits, MAX_IO_CHUNK};
 pub use operations::{
     Bookmark, BookmarkVisitor, ConversionOptions, ConversionReport, DocumentInfo,
-    DocumentOperations, InputFormat,
+    DocumentOperations, InputFormat, SIGNATURE_BYTES, detect_format,
 };

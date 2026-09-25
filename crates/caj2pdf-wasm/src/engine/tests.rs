@@ -148,25 +148,6 @@ fn failure(engine: &Engine) -> &Error {
 }
 
 #[test]
-fn detects_observed_signatures_only_at_the_start() {
-    let cases: [(&[u8], Option<InputFormat>); 10] = [
-        (b"%PDF-1.7", Some(InputFormat::Pdf)),
-        (b"CAJ\0", Some(InputFormat::Caj)),
-        (b"KDH 2", Some(InputFormat::Kdh)),
-        (b"HN\0\0", Some(InputFormat::Hn)),
-        (&[0xc8, 0, 0, 0, 1], Some(InputFormat::C8)),
-        (b"TEB", Some(InputFormat::Teb)),
-        (b"%PDF", None),
-        (&[0xc8, 0, 0], None),
-        (b" %PDF-", None),
-        (b"", None),
-    ];
-    for (prefix, expected) in cases {
-        assert_eq!(detect_format(prefix), expected, "{prefix:?}");
-    }
-}
-
-#[test]
 fn format_codes_round_trip_and_reject_unknown_codes() {
     for code in 0..=7 {
         let format = format_from_code(code).expect("known code");

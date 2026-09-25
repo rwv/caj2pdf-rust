@@ -6,7 +6,8 @@
 use crate::CliError;
 use crate::files::Input;
 use caj2pdf_core::{
-    Bookmark, ConversionOptions, Error, InputFormat, Limits, NeverCancel, RangedSource, caj,
+    Bookmark, ConversionOptions, Error, InputFormat, Limits, NeverCancel, RangedSource,
+    SIGNATURE_BYTES, caj, detect_format,
     hnc8::{Budget, Header, Hnc8Reader},
     kdh::{KdhPdfSource, convert_kdh},
     native::{SeekableSource, WriteSink},
@@ -51,31 +52,13 @@ pub fn conversion_supported(format: InputFormat) -> bool {
     )
 }
 
-/// Classify input by its leading signature, never by file name: some
-/// observed `.caj` files are plain PDFs. Signatures are those recorded in
-/// `tests/fixtures/README.md`, `docs/hnc8-container.md`, and `kdh.rs`.
-pub fn detect_signature(header: &[u8]) -> Option<InputFormat> {
-    const SIGNATURES: [(&[u8], InputFormat); 6] = [
-        (b"%PDF-", InputFormat::Pdf),
-        (b"CAJ", InputFormat::Caj),
-        (b"KDH", InputFormat::Kdh),
-        (b"HN", InputFormat::Hn),
-        (b"\xc8\0\0\0", InputFormat::C8),
-        (b"TEB", InputFormat::Teb),
-    ];
-    SIGNATURES
-        .iter()
-        .find(|(signature, _)| header.starts_with(signature))
-        .map(|(_, format)| *format)
-}
-
 /// Render a core error for a diagnostic.
 fn text(error: Error) -> String {
     error.to_string()
 }
 
 async fn detect<S: RangedSource>(source: &mut S, limits: &Limits) -> Result<InputFormat, String> {
-    let mut header = [0; 8];
+    let mut header = [0; SIGNATURE_BYTES];
     let length = source.size().min(header.len() as u64) as usize;
     read_exact_at(source, 0, &mut header[..length], limits, &NeverCancel)
         .await
@@ -83,7 +66,7 @@ async fn detect<S: RangedSource>(source: &mut S, limits: &Limits) -> Result<Inpu
     if length == 0 {
         return Err("input is empty".to_owned());
     }
-    detect_signature(&header[..length]).ok_or_else(|| "unrecognized input format".to_owned())
+    detect_format(&header[..length]).ok_or_else(|| "unrecognized input format".to_owned())
 }
 
 fn unsupported(format: InputFormat) -> String {

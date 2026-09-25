@@ -220,9 +220,11 @@ Issue #13 adds the original MIT WASM engine and exports in
 `crates/caj2pdf-wasm/src/{lib,engine,bridge}.rs` and
 `crates/caj2pdf-wasm/src/engine/tests.rs`, and the original MIT JavaScript
 package in `js/{io,node,browser}.mjs`, its TypeScript declarations
-`js/*.d.mts`, `js/package.json`, `js/examples/`, and `js/test/`. Format
-detection uses only the signatures already recorded for the synthetic
-fixtures and in the CAJ, KDH, and HN/C8 format notes. The tests build their
+`js/*.d.mts`, `js/package.json`, `js/examples/`, and `js/test/`. It moves
+the CLI's leading-signature table into `caj2pdf_core::detect_format` so that
+the CLI and the WASM engine share one detector; the table is unchanged and
+uses only the signatures already recorded for the synthetic fixtures and in
+the CAJ, KDH, and HN/C8 format notes. The tests build their
 CAJ, KDH, and large PDF inputs at runtime from those recorded fields or
 reuse the MIT fixtures in `tests/fixtures`; the OPFS tests use an original
 in-memory test double. No code was taken from the Python or Go converters,
