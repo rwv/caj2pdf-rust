@@ -3,32 +3,8 @@
 //! Adversarial public API tests with invented MQ states and synthetic segments.
 //! These bytes are test inputs, not T.88 Table E.1 or external document data.
 
-use caj2pdf_core::jbig2::{
-    HeaderErrorKind, HeaderLimits, SegmentHeader, SegmentSpan,
-    dictionary::{
-        DictionaryBudget, DictionaryError, DictionaryErrorKind, DictionaryReport,
-        DirectDictionaryDecoder, read_dictionary_data_header,
-    },
-    integer::IntegerContextBanks,
-    mq::{MQ_STATE_COUNT, MqBudget, MqErrorKind, MqState, MqTable},
-    read_segment_header,
-};
-use caj2pdf_core::{Cancellation, Limits, NeverCancel, RangedSource, SequentialSink};
-use std::{
-    cell::Cell,
-    future::Future,
-    io,
-    pin::pin,
-    rc::Rc,
-    task::{Context, Poll, Waker},
-};
+use super::*;
 
-const ONE_SYMBOL: [u8; 14] = [
-    0xee, 0xbf, 0x41, 0xc7, 0x00, 0x54, 0x0f, 0xe4, 0x11, 0x07, 0x7f, 0x2f, 0xff, 0xac,
-];
-const TWO_SYMBOLS: [u8; 14] = [
-    0xee, 0x7d, 0xf6, 0xc9, 0x51, 0xf2, 0x81, 0xb1, 0x95, 0x2a, 0x6d, 0x8d, 0xff, 0xac,
-];
 const NEGATIVE_WIDTH: [u8; 14] = [
     0xe6, 0xd9, 0x3b, 0xda, 0xe3, 0x82, 0x89, 0xb7, 0xd5, 0x17, 0xef, 0xc7, 0xff, 0xac,
 ];
@@ -38,110 +14,6 @@ const NEGATIVE_HEIGHT: [u8; 14] = [
 const WIDTH_NINE: [u8; 14] = [
     0xeb, 0x44, 0x77, 0xe9, 0x24, 0x1c, 0x8a, 0x3b, 0xa2, 0xf0, 0xad, 0xf4, 0xff, 0xac,
 ];
-
-fn ready<F: Future>(future: F) -> F::Output {
-    let mut future = pin!(future);
-    match future
-        .as_mut()
-        .poll(&mut Context::from_waker(Waker::noop()))
-    {
-        Poll::Ready(value) => value,
-        Poll::Pending => panic!("unexpected pending test I/O"),
-    }
-}
-
-#[derive(Clone, Copy)]
-enum Fault {
-    Io,
-    Cancelled,
-}
-
-impl Fault {
-    fn error(self) -> caj2pdf_core::Error {
-        match self {
-            Self::Io => caj2pdf_core::Error::Io(io::Error::other("injected I/O failure")),
-            Self::Cancelled => caj2pdf_core::Error::Cancelled,
-        }
-    }
-}
-
-struct Source {
-    bytes: Vec<u8>,
-    size_override: Option<u64>,
-    visible_end: usize,
-    max_read: usize,
-    overreport_from: Option<u64>,
-    fault_from: Option<(u64, Fault)>,
-    cancel_after_read: Option<(u64, Rc<Cell<bool>>)>,
-    max_request: usize,
-    max_offset: u64,
-    read_calls: usize,
-}
-
-impl RangedSource for Source {
-    fn size(&self) -> u64 {
-        self.size_override.unwrap_or(self.bytes.len() as u64)
-    }
-
-    async fn read_at(
-        &mut self,
-        offset: u64,
-        destination: &mut [u8],
-    ) -> caj2pdf_core::Result<usize> {
-        self.read_calls += 1;
-        self.max_request = self.max_request.max(destination.len());
-        self.max_offset = self.max_offset.max(offset);
-        if let Some((from, fault)) = self.fault_from {
-            if offset >= from {
-                return Err(fault.error());
-            }
-        }
-        if self.overreport_from.is_some_and(|from| offset >= from) {
-            return Ok(destination.len() + 1);
-        }
-        let start = usize::try_from(offset).unwrap_or(usize::MAX);
-        let count = self
-            .visible_end
-            .saturating_sub(start)
-            .min(destination.len())
-            .min(self.max_read);
-        if count != 0 {
-            destination[..count].copy_from_slice(&self.bytes[start..start + count]);
-            if let Some((from, flag)) = &self.cancel_after_read {
-                if offset >= *from {
-                    flag.set(true);
-                }
-            }
-        }
-        Ok(count)
-    }
-}
-
-#[derive(Default)]
-struct Store {
-    bytes: Vec<u8>,
-    flushed: bool,
-    write_fault: Option<Fault>,
-    flush_fault: Option<Fault>,
-}
-
-impl SequentialSink for Store {
-    async fn write(&mut self, bytes: &[u8]) -> caj2pdf_core::Result<usize> {
-        if let Some(fault) = self.write_fault {
-            return Err(fault.error());
-        }
-        self.bytes.extend_from_slice(bytes);
-        Ok(bytes.len())
-    }
-
-    async fn flush(&mut self) -> caj2pdf_core::Result<()> {
-        if let Some(fault) = self.flush_fault {
-            return Err(fault.error());
-        }
-        self.flushed = true;
-        Ok(())
-    }
-}
 
 fn source(body: &[u8], new_symbols: u32, page: u8, at: (i8, i8), references: &[u8]) -> Source {
     let mut data = vec![0x08, 0x00, at.0 as u8, at.1 as u8];
@@ -160,49 +32,7 @@ fn source(body: &[u8], new_symbols: u32, page: u8, at: (i8, i8), references: &[u
     bytes.push(page);
     bytes.extend_from_slice(&(data.len() as u32).to_be_bytes());
     bytes.extend_from_slice(&data);
-    Source {
-        visible_end: bytes.len(),
-        bytes,
-        size_override: None,
-        max_read: usize::MAX,
-        overreport_from: None,
-        fault_from: None,
-        cancel_after_read: None,
-        max_request: 0,
-        max_offset: 0,
-        read_calls: 0,
-    }
-}
-
-fn header(source: &mut Source) -> SegmentHeader {
-    ready(read_segment_header(
-        source,
-        SegmentSpan {
-            offset: 0,
-            length: source.size(),
-        },
-        &Limits::default(),
-        HeaderLimits::default(),
-        &NeverCancel,
-    ))
-    .unwrap()
-}
-
-fn table() -> MqTable {
-    let mut states = vec![
-        MqState {
-            qe: 0x4000,
-            next_mps: 0,
-            next_lps: 0,
-            switch_mps: false
-        };
-        MQ_STATE_COUNT
-    ];
-    states[0].next_mps = 1;
-    states[0].next_lps = 1;
-    states[1].next_mps = 1;
-    states[1].next_lps = 1;
-    MqTable::new(states, &Limits::default()).unwrap()
+    Source::new(bytes)
 }
 
 struct Observation {
@@ -230,7 +60,7 @@ fn observe(
         limits,
         mq_budget,
         budget,
-        Store::default(),
+        Store::unbounded(),
         1024,
     )
 }
@@ -258,7 +88,7 @@ fn observe_custom(
         &mut banks,
         &mut store,
         limits,
-        &NeverCancel,
+        &CancelAfter::Never,
         mq_budget,
         budget,
     ));
@@ -419,7 +249,7 @@ fn framing_reparse_faults_preserve_location_and_fetched_progress() {
 fn stale_source_size_and_forged_segment_spans_fail_before_io() {
     let mut input = source(&ONE_SYMBOL, 1, 1, (2, -1), &[]);
     let segment = header(&mut input);
-    input.size_override = Some(input.bytes.len() as u64 - 1);
+    input.advertised = input.bytes.len() as u64 - 1;
     input.read_calls = 0;
     let observation = defaults(input, &segment);
     let error = observation.result.unwrap_err();
@@ -463,22 +293,6 @@ fn stale_source_size_and_forged_segment_spans_fail_before_io() {
     assert_eq!(observation.source.read_calls, 0);
 }
 
-struct CancelNow;
-
-impl Cancellation for CancelNow {
-    fn is_cancelled(&self) -> bool {
-        true
-    }
-}
-
-struct Flag(Rc<Cell<bool>>);
-
-impl Cancellation for Flag {
-    fn is_cancelled(&self) -> bool {
-        self.0.get()
-    }
-}
-
 #[test]
 fn cancellation_at_dictionary_entry_reads_no_header_or_body() {
     let mut input = source(&ONE_SYMBOL, 1, 1, (2, -1), &[]);
@@ -489,7 +303,7 @@ fn cancellation_at_dictionary_entry_reads_no_header_or_body() {
         &segment,
         &Limits::default(),
         DictionaryBudget::default(),
-        &CancelNow,
+        &CancelAfter::new(0),
     ))
     .unwrap_err();
     assert!(matches!(error.kind, DictionaryErrorKind::Cancelled));
@@ -512,7 +326,7 @@ fn cancellation_after_one_header_byte_preserves_partial_progress() {
         &segment,
         &Limits::default(),
         DictionaryBudget::default(),
-        &Flag(cancelled),
+        &CancelAfter::while_set(cancelled),
     ))
     .unwrap_err();
     assert!(matches!(error.kind, DictionaryErrorKind::Cancelled));
@@ -562,7 +376,7 @@ fn context_bank_count_is_checked_before_arithmetic_or_output() {
         &Limits::default(),
         MqBudget::default(),
         DictionaryBudget::default(),
-        Store::default(),
+        Store::unbounded(),
         0,
     );
     let error = observation.result.unwrap_err();
@@ -589,7 +403,7 @@ fn sink_flush_failure_and_cancellation_poison_completed_bitmap() {
             DictionaryBudget::default(),
             Store {
                 flush_fault: Some(fault),
-                ..Store::default()
+                ..Store::unbounded()
             },
             1024,
         );
@@ -622,7 +436,7 @@ fn sink_write_cancellation_does_not_claim_a_completed_bitmap() {
         DictionaryBudget::default(),
         Store {
             write_fault: Some(Fault::Cancelled),
-            ..Store::default()
+            ..Store::unbounded()
         },
         1024,
     );

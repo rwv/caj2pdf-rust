@@ -5,39 +5,53 @@
 #![allow(dead_code)]
 
 use caj2pdf_core::Cancellation;
-use std::cell::Cell;
 use std::fmt::{self, Display};
+use std::{cell::Cell, rc::Rc};
 
-/// Allows the first `allowed` cancellation polls and reports cancellation
-/// from then on. Sweeping `allowed` visits every cancellation checkpoint
-/// without knowing where they are.
-pub struct CancelAfter {
-    remaining: Cell<u64>,
+/// The cancellation signal of these tests. One type serves ordinary runs,
+/// checkpoint sweeps, and event-driven cancellation, so they all share one
+/// decoder instantiation.
+pub enum CancelAfter {
+    /// Never trips. `&CancelAfter::Never` is a `'static` constant, so it can
+    /// stand wherever `&NeverCancel` would.
+    Never,
+    /// Allows the given number of polls and reports cancellation from then
+    /// on. Sweeping the count visits every cancellation checkpoint without
+    /// knowing where they are.
+    Polls(Cell<u64>),
+    /// Reports cancellation while the shared flag is set, so a test source or
+    /// sink can cancel at a chosen event.
+    While(Rc<Cell<bool>>),
 }
 
 impl CancelAfter {
     pub fn new(allowed: u64) -> Self {
-        Self {
-            remaining: Cell::new(allowed),
-        }
+        Self::Polls(Cell::new(allowed))
     }
 
-    /// A signal that never trips. Tests that need no cancellation can use it
-    /// instead of `NeverCancel` to share the decoder instantiation of a
-    /// cancellation checkpoint sweep.
+    /// A signal that never trips.
     pub fn never() -> Self {
-        Self::new(u64::MAX)
+        Self::Never
+    }
+
+    /// A signal that is cancelled while `flag` is set.
+    pub fn while_set(flag: Rc<Cell<bool>>) -> Self {
+        Self::While(flag)
     }
 }
 
 impl Cancellation for CancelAfter {
     fn is_cancelled(&self) -> bool {
-        match self.remaining.get() {
-            0 => true,
-            remaining => {
-                self.remaining.set(remaining - 1);
-                false
-            }
+        match self {
+            Self::Never => false,
+            Self::Polls(remaining) => match remaining.get() {
+                0 => true,
+                left => {
+                    remaining.set(left - 1);
+                    false
+                }
+            },
+            Self::While(flag) => flag.get(),
         }
     }
 }
