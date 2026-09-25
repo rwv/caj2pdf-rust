@@ -3,7 +3,7 @@
 //! Bounded page and outline assembly over the forward-only PDF writer.
 
 use super::writer::{MAX_PDF_INTEGER, ObjectId, PdfWriter};
-use crate::fallible::{checked_read_count, len_u64, reserve_exact};
+use crate::fallible::{checked_read_count, len_u64, reserve_exact, usize_from_u32};
 use crate::{
     Bookmark, BookmarkVisitor, Cancellation, ConversionReport, Error, Limits, RangedSource, Result,
     SequentialSink, read_exact_at,
@@ -396,9 +396,7 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
                     reason: "bookmark count overflows",
                 },
             )?)?;
-        let depth = usize::try_from(bookmark.depth).map_err(|_| Error::InvalidInput {
-            reason: "bookmark depth exceeds address space",
-        })?;
+        let depth = usize_from_u32(bookmark.depth);
         if depth > self.open_outlines.len() {
             return Err(Error::InvalidInput {
                 reason: "bookmark depth skips a parent",
