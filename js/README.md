@@ -196,49 +196,78 @@ and `WritableStream`. The inputs are synthetic MIT fixtures from
 
 ### Optional external corpus
 
-[`scripts/corpus.mjs`](scripts/corpus.mjs) converts the external
+[`scripts/corpus.mjs`](scripts/corpus.mjs) runs the external
 [CAJSamples](https://github.com/caj2pdf/CAJSamples) documents inventoried in
 [`tests/conformance/matrix.json`](../tests/conformance/matrix.json) through
 this package. It never fetches the corpus, and no corpus file is committed:
 
 ```sh
 cargo build --locked --release --all-features -p caj2pdf-wasm --target wasm32-unknown-unknown
-CAJ2PDF_CORPUS_DIR=/path/to/CAJSamples node js/scripts/corpus.mjs [--matrix PATH] [--wasm PATH]
+CAJ2PDF_CORPUS_DIR=/path/to/CAJSamples node js/scripts/corpus.mjs \
+  [--matrix PATH] [--wasm PATH] [--qpdf PATH]
 ```
+
+The repository records no per-sample Rust outcome, so each entry's
+expectation comes from the API's format contract and the matrix's
+`expected_outcome`, classified as
+[`scripts/conformance.py`](../scripts/conformance.py) does:
+
+| Entry | `expectation` | Requirement | Outcome when met |
+| --- | --- | --- | --- |
+| HN, C8, or TEB (any reference outcome) | `unsupported` | `UnsupportedFormatError` for that format | `unsupported` |
+| CAJ, KDH, or PDF; reference `success` | `convert` | Output validated with the reference output page count | `passed` |
+| CAJ, KDH, or PDF; reference `error` or `unsupported` | `excluded` | None recorded; conversion runs and is reported as `observed` | `excluded` |
+| CAJ, KDH, or PDF; reference `unknown` | `not_run` | None recorded; conversion runs and is reported as `observed` | `not_run` |
 
 For each matrix entry, in order, it:
 
-1. Refuses a path outside the corpus or a symbolic link, then streams the file
-   once through SHA-256 and the Git blob SHA-1 with one 1 MiB buffer and
-   compares both and the size with the matrix.
-2. Converts it with `fileHandleSource` into `nodeWritableSink` over a
-   private file (mode `0600`) in a fresh `mkdtemp` directory, which is
-   removed after success, failure, or timeout. Each conversion has a
-   10-minute `AbortSignal.timeout` and a 4 GiB output limit.
-3. For CAJ, KDH, and PDF entries, requires the detected format to match,
-   `pagesConverted` and `qpdf --show-npages` to equal the matrix page count
-   (`expected_pdf.page_count`, else `page_count`), and `qpdf --check` to
-   report no errors. HN, C8, and TEB entries must be rejected with
-   `UnsupportedFormatError` for that format.
+1. Checks every path component with `lstat` and refuses a symbolic link as
+   the file or any parent directory (matrix paths have no `..` components),
+   opens the file without following links, and requires the inode it
+   checked. It then streams the file once through SHA-256 and the Git blob
+   SHA-1 with one 1 MiB buffer and compares both and the size with the matrix.
+2. Converts the same handle with `fileHandleSource` into `nodeWritableSink`
+   over a private file (mode `0600`) in a fresh `mkdtemp` directory, which is
+   removed after success, failure, timeout, or interruption. Each conversion
+   has a 10-minute `AbortSignal.timeout` and a 4 GiB output limit.
+3. When a conversion succeeds, requires the detected format to match,
+   `qpdf --check` to exit 0 with no `WARNING:` line, and
+   `qpdf --show-npages` to equal `pagesConverted`. A `convert` entry also
+   requires the matrix page count (`expected_pdf.page_count`, else
+   `page_count`). Each qpdf call has the same timeout and 1 MiB of captured
+   output.
 
-After all conversions it hashes every verified source again. Progress goes
-to stderr and a JSON report to stdout:
-`{ status, reason, sample_count, qpdf, checked, passed, failed, unsupported, not_run, failures }`.
+A failed requirement is `failed`. For `excluded` and `not_run` entries, a
+typed input rejection (`Caj2PdfError` other than `CANCELLED`, `IO`,
+`LIMIT_EXCEEDED`, or `UNKNOWN`) or a validated output is recorded in
+`observed`; a timeout, I/O error, WASM trap, or invalid output still fails.
+A qpdf warning fails, as in `check_qpdf_log` in
+[`scripts/jbig2_oracle.py`](../scripts/jbig2_oracle.py) and the Rust KDH
+corpus test. After all conversions it re-verifies every source by path.
+
+Progress goes to stderr and a JSON report to stdout:
+`{ status, reason, sample_count, qpdf, checked, passed, failed, unsupported, excluded, not_run, failures, results }`.
+Each `results` row has `id`, `format`, `reference` (`expected_outcome`),
+`expectation`, `outcome`, `stage`, `reason`, and `observed`.
 
 | Situation | `status` | Exit |
 | --- | --- | --- |
 | `CAJ2PDF_CORPUS_DIR` unset or empty | `NOT_RUN`, all counts zero | 0 |
-| Corpus missing, or any source missing, changed before or after, failing conversion, or failing validation | `FAIL` | 1 |
-| Outputs converted but `qpdf` is not installed | `NOT_RUN` (`not_run` counts them) | 0 |
-| Every CAJ/KDH/PDF entry validated | `PASS` | 0 |
+| Corpus missing, or any `failed` entry | `FAIL` | 1 |
+| No failure, but a `not_run` entry (including outputs not validated because `qpdf` is missing) or no `passed` entry | `NOT_RUN` | 0 |
+| No failure or `not_run` entry, at least one `passed` | `PASS` | 0 |
 | Invalid matrix, arguments, or WASM module | setup error | 2 |
+| SIGINT or SIGTERM | interrupted after cleanup; no report | 130 |
 
-`unsupported` counts HN, C8, and TEB rejections, which are expected
-behavior, not compatibility passes; `passed` counts only validated outputs.
-Page counts and `qpdf --check` do not compare rendering or outlines with the
-reference PDFs; see the [conformance notes](../tests/conformance/README.md).
-The CI WASM job runs the script with an empty `CAJ2PDF_CORPUS_DIR` and
-asserts `NOT_RUN` with zero counts.
+`unsupported` and `excluded` are never passes and, as in `conformance.py`,
+do not block `PASS`. Page counts and `qpdf --check` do not compare page
+order, rendering, or outlines with the reference PDFs, so the known
+reference differences (`issue-40`/`issue-44` page order and
+`issue-49`/`issue-73` outlines; see [CAJ format notes](../docs/caj-format.md))
+are outside this check. A timeout aborts at the next I/O call; a WASM loop
+that never returns to I/O is not interrupted. The CI WASM job runs the
+script with an empty `CAJ2PDF_CORPUS_DIR` and asserts `NOT_RUN` with zero
+counts.
 
 ### Real-browser tests
 

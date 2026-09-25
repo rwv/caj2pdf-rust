@@ -40,22 +40,26 @@ other formats.
 
 ## Optional JavaScript API conversion
 
-[`js/scripts/corpus.mjs`](../../js/scripts/corpus.mjs) converts every CAJ,
-KDH, and PDF entry of this matrix through the public JavaScript API and
-expects HN, C8, and TEB entries to be rejected as unsupported:
+[`js/scripts/corpus.mjs`](../../js/scripts/corpus.mjs) runs every entry of
+this matrix through the public JavaScript API:
 
 ```sh
 CAJ2PDF_CORPUS_DIR=/path/to/CAJSamples node js/scripts/corpus.mjs
 ```
 
+HN, C8, and TEB entries must be rejected as unsupported. For CAJ, KDH, and
+PDF entries it uses the same `expected_outcome` classes as
+`scripts/conformance.py`: a reference `success` must convert to a PDF that
+passes `qpdf --check` without warnings and has the reference output page
+count; reference `error` or `unsupported` entries are `excluded` and
+`unknown` entries are `not_run`, because no Rust outcome is recorded for
+them. Their conversions still run, and the observed result is reported.
 It checks each source's size, SHA-256, and Git blob ID before converting and
-again after all conversions, writes each output to a temporary file that it
-removes, and validates it with `qpdf --check` and the matrix page count. An
-unset corpus reports `NOT_RUN` with zero counts; a missing or changed
-requested corpus reports `FAIL` and exits 1. Unsupported rejections are
-counted separately and are never passes, and outputs that could not be
-validated because `qpdf` is missing are `NOT_RUN`. Details are in the
-[JavaScript README](../../js/README.md#optional-external-corpus).
+again after all conversions, refuses symbolic links, and removes each
+temporary output. An unset corpus reports `NOT_RUN` with zero counts; a
+missing or changed requested corpus reports `FAIL` and exits 1. Unsupported
+and excluded entries are counted separately and are never passes. Details
+are in the [JavaScript README](../../js/README.md#optional-external-corpus).
 
 ## Optional JBIG2 dictionary header inventory
 
