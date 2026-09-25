@@ -1458,6 +1458,14 @@ mod tests {
             ArithmeticErrorKind::Source(Error::TruncatedInput { .. })
         ));
         assert!(decoder.snapshot().poisoned);
+        assert!(matches!(
+            run(decoder.decode_symbol(0)).unwrap_err().kind,
+            ArithmeticErrorKind::Poisoned
+        ));
+        assert!(matches!(
+            decoder.finish(1).unwrap_err().kind,
+            ArithmeticErrorKind::Poisoned
+        ));
         let mut next = MockSource::new(&[]);
         assert!(matches!(
             run(ArithmeticDecoder::new(

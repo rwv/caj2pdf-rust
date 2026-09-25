@@ -857,6 +857,9 @@ fn retries_partial_row_writes_and_reports_flush_failure() {
         io_chunk_bytes: 2,
         ..Limits::default()
     };
+    // The never-tripping sweep type shares one decoder instantiation with the
+    // cancellation checkpoint sweep.
+    let never = CancelAfter::new(u64::MAX);
     let mq_budget = MqBudget::default();
     let table = table();
     let stream = [0, 0, 0, 0, 0xff, 0xac];
@@ -875,7 +878,7 @@ fn retries_partial_row_writes_and_reports_flush_failure() {
         &mut bank,
         &mut sink,
         &limits,
-        &NeverCancel,
+        &never,
         mq_budget,
         GenericBudget::default(),
     ))
@@ -1024,6 +1027,9 @@ fn cancellation_before_next_row_and_during_flush_never_reports_success() {
 #[test]
 fn rejects_terminal_errors_and_incomplete_finish() {
     let limits = Limits::default();
+    // The never-tripping sweep type shares one decoder instantiation with the
+    // cancellation checkpoint sweep.
+    let never = CancelAfter::new(u64::MAX);
     let mq_budget = MqBudget::default();
     let table = table();
     let mut source = record(3, 1, 0, 4, (2, -1), SHORT_STREAM);
@@ -1037,7 +1043,7 @@ fn rejects_terminal_errors_and_incomplete_finish() {
         &mut bank,
         &mut sink,
         &limits,
-        &NeverCancel,
+        &never,
         mq_budget,
         GenericBudget::default(),
     ))
@@ -1060,7 +1066,7 @@ fn rejects_terminal_errors_and_incomplete_finish() {
             &mut bank,
             &mut sink,
             &limits,
-            &NeverCancel,
+            &never,
             mq_budget,
             GenericBudget::default(),
         ))
@@ -1257,8 +1263,11 @@ fn working_allocation_cap_counts_three_rows_at_the_exact_boundary() {
 }
 
 #[test]
-fn finish_after_a_dropped_row_future_is_poisoned_without_flush() {
+fn rows_and_finish_after_a_dropped_row_future_are_poisoned_without_flush() {
     let limits = Limits::default();
+    // The never-tripping sweep type shares one decoder instantiation with the
+    // cancellation checkpoint sweep.
+    let never = CancelAfter::new(u64::MAX);
     let mq_budget = MqBudget::default();
     let table = table();
     let mut source = record(3, 1, 0, 4, (2, -1), SHORT_STREAM);
@@ -1275,7 +1284,7 @@ fn finish_after_a_dropped_row_future_is_poisoned_without_flush() {
         &mut bank,
         &mut sink,
         &limits,
-        &NeverCancel,
+        &never,
         mq_budget,
         GenericBudget::default(),
     ))
@@ -1289,6 +1298,8 @@ fn finish_after_a_dropped_row_future_is_poisoned_without_flush() {
                 .is_pending()
         );
     }
+    let err = ready(decoder.decode_next_row()).unwrap_err();
+    assert!(matches!(err.kind, GenericErrorKind::Poisoned));
     let err = ready(decoder.finish()).unwrap_err();
     assert!(matches!(err.kind, GenericErrorKind::Poisoned));
     assert!(err.to_string().contains("decoder state is poisoned"));

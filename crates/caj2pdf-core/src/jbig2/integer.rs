@@ -208,6 +208,12 @@ mod tests {
         task::{Context, Poll, Waker},
     };
 
+    /// Every test reads through this one source type, so their paths share
+    /// one instantiation of the generic decoders.
+    fn vec_source(bytes: &[u8]) -> SeekableSource<Cursor<Vec<u8>>> {
+        SeekableSource::new(Cursor::new(bytes.to_vec())).unwrap()
+    }
+
     fn ready<F: Future>(future: F) -> F::Output {
         let mut future = pin!(future);
         let mut task = Context::from_waker(Waker::noop());
@@ -524,7 +530,7 @@ mod tests {
         let table = invented_table(&limits);
         let mut banks = IntegerContextBanks::new(&limits, &budget).unwrap();
         let bytes = vec![0x80, 0, 0, 0, 0, 0, 0xff, 0xac];
-        let mut source = SeekableSource::new(Cursor::new(bytes.clone())).unwrap();
+        let mut source = vec_source(&bytes);
         let mut decoder = ready(MqDecoder::new(
             &mut source,
             super::super::mq::MqSpan {
@@ -573,7 +579,7 @@ mod tests {
         let table = invented_table(&limits);
         let mut contexts = MqContexts::new(INTEGER_CONTEXT_COUNT - 1, &limits, &budget).unwrap();
         let bytes = [0x80, 0, 0xff, 0xac];
-        let mut source = SeekableSource::new(Cursor::new(bytes)).unwrap();
+        let mut source = vec_source(&bytes);
         let mut decoder = ready(MqDecoder::new(
             &mut source,
             super::super::mq::MqSpan {
@@ -612,7 +618,7 @@ mod tests {
             ..MqBudget::default()
         };
         let mut banks = IntegerContextBanks::new(&limits, &budget).unwrap();
-        let mut source = SeekableSource::new(Cursor::new(bytes)).unwrap();
+        let mut source = vec_source(&bytes);
         let mut decoder = ready(MqDecoder::new(
             &mut source,
             super::super::mq::MqSpan {
@@ -640,7 +646,7 @@ mod tests {
         let flag = Flag(cancelled.clone());
         let budget = MqBudget::default();
         let mut banks = IntegerContextBanks::new(&limits, &budget).unwrap();
-        let mut source = SeekableSource::new(Cursor::new(bytes)).unwrap();
+        let mut source = vec_source(&bytes);
         let mut decoder = ready(MqDecoder::new(
             &mut source,
             super::super::mq::MqSpan {
@@ -663,7 +669,7 @@ mod tests {
             0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0x90,
         ];
         let mut banks = IntegerContextBanks::new(&limits, &budget).unwrap();
-        let mut source = SeekableSource::new(Cursor::new(invalid)).unwrap();
+        let mut source = vec_source(&invalid);
         let mut decoder = ready(MqDecoder::new(
             &mut source,
             super::super::mq::MqSpan {
@@ -684,7 +690,7 @@ mod tests {
 
         let short = [0x80, 0];
         let mut banks = IntegerContextBanks::new(&limits, &budget).unwrap();
-        let mut source = SeekableSource::new(Cursor::new(short)).unwrap();
+        let mut source = vec_source(&short);
         let mut decoder = ready(MqDecoder::new(
             &mut source,
             super::super::mq::MqSpan {

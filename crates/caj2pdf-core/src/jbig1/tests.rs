@@ -1197,6 +1197,49 @@ fn cancellation_observed_at_any_check_is_reported_as_cancelled() {
 }
 
 #[test]
+fn early_and_poisoned_finish_are_refused_before_the_terminal_check() {
+    // The same source, sink, and cancellation types as the checkpoint sweep.
+    let bytes = image(3, 2, &[0, 0, 0]);
+    let limits = Limits::default();
+    let table = table(1);
+    let cancel = CancelAfter::never();
+    let decoder = |fail: bool| {
+        let mut contexts = ContextBank::new(CONTEXT_COUNT, &limits).unwrap();
+        let mut source = SeekableSource::new(Cursor::new(bytes.clone())).unwrap();
+        let mut sink = BytesSink {
+            fail,
+            ..BytesSink::default()
+        };
+        let mut decoder = ready(Type0Decoder::new(
+            &mut source,
+            span_of(&bytes),
+            &table,
+            &mut contexts,
+            &mut sink,
+            &limits,
+            &cancel,
+            arithmetic_budget(),
+            Type0Budget::default(),
+        ))
+        .unwrap();
+        let row = ready(decoder.decode_next_row());
+        (
+            row.map_err(|error| error.kind),
+            ready(decoder.finish()).unwrap_err(),
+        )
+    };
+    let (row, incomplete) = decoder(false);
+    assert!(matches!(row, Ok(true)));
+    assert!(matches!(incomplete.kind, Type0ErrorKind::Incomplete));
+    assert_eq!(incomplete.rows_written, 1);
+
+    let (row, poisoned) = decoder(true);
+    assert!(matches!(row, Err(Type0ErrorKind::Sink(_))));
+    assert!(matches!(poisoned.kind, Type0ErrorKind::Poisoned));
+    assert_eq!(poisoned.rows_written, 0);
+}
+
+#[test]
 fn final_flush_failure_and_late_cancellation_keep_row_progress() {
     let bytes = image(5, 1, &[0, 0, 0]);
     let limits = Limits::default();
