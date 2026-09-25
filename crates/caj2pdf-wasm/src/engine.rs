@@ -169,6 +169,20 @@ impl RangedSource for BridgeSource {
     }
 
     async fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> Result<usize> {
+        // The host rejects any request outside the source, while the
+        // `RangedSource` contract allows a read that runs past the end. Clamp
+        // such a read here so it becomes a short read, as on native sources.
+        let Some(remaining) = self.size.checked_sub(offset) else {
+            return Err(Error::InvalidInput {
+                reason: "read starts beyond source size",
+            });
+        };
+        let wanted = usize::try_from(remaining).map_or(destination.len(), |remaining| {
+            remaining.min(destination.len())
+        });
+        if wanted == 0 {
+            return Ok(0);
+        }
         poll_fn(|_| {
             let mut shared = self.shared.borrow_mut();
             if shared.cancelled {
@@ -180,7 +194,7 @@ impl RangedSource for BridgeSource {
                 destination[..length].copy_from_slice(&shared.staging[..length]);
                 return Poll::Ready(Ok(length));
             }
-            let length = destination.len().min(shared.staging.len());
+            let length = wanted.min(shared.staging.len());
             shared.request = Some(Request::Read { offset, length });
             Poll::Pending
         })
