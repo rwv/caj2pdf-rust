@@ -9,6 +9,7 @@
 use super::input::{FragmentKind, inspect_fragment_object, inspect_fragment_scalar};
 use super::writer::MAX_PDF_OBJECTS;
 use super::{MAX_CLASSIC_PDF_BYTES, PdfRange, PdfRef};
+use crate::fallible::{len_u64, reserve_exact, try_convert};
 use crate::{
     Bookmark, Cancellation, ConversionReport, Error, Limits, PdfErrorKind, RangedSource, Result,
     SequentialSink, read_exact_at, write_all,
@@ -137,6 +138,19 @@ fn pdf_error(
     }
 }
 
+fn malformed(reference: Option<PdfRef>, offset: u64, reason: &'static str) -> Error {
+    pdf_error(reference, offset, PdfErrorKind::Malformed, reason)
+}
+
+/// An unlocated error for a failed reservation within the allocation limit.
+fn allocation_limit(resource: &'static str, limits: &Limits, attempted: u64) -> Error {
+    Error::LimitExceeded {
+        resource,
+        limit: limits.max_allocation_bytes,
+        attempted,
+    }
+}
+
 fn pdf_limit(
     reference: Option<PdfRef>,
     offset: u64,
@@ -188,10 +202,9 @@ fn decimal_digits(mut value: u64) -> u64 {
 
 fn checked_reference(reference: PdfRef, offset: u64) -> Result<()> {
     if reference.number == 0 {
-        return Err(pdf_error(
+        return Err(malformed(
             Some(reference),
             offset,
-            PdfErrorKind::Malformed,
             "object zero cannot be referenced",
         ));
     }
@@ -231,7 +244,7 @@ fn build_outline_nodes(
     let metadata_bytes = bookmarks
         .len()
         .checked_mul(size_of::<OutlineNode>())
-        .and_then(|bytes| u64::try_from(bytes).ok())
+        .map(len_u64)
         .ok_or(Error::InvalidInput {
             reason: "PDF outline index allocation overflows 64 bits",
         })?;
@@ -242,29 +255,32 @@ fn build_outline_nodes(
         0,
     )?;
     let mut nodes: Vec<OutlineNode> = Vec::new();
-    nodes.try_reserve_exact(bookmarks.len()).map_err(|_| {
+    reserve_exact(
+        &mut nodes,
+        bookmarks.len(),
         pdf_limit(
             None,
             0,
             "PDF outline index allocation",
             limits.max_allocation_bytes,
             metadata_bytes,
-        )
-    })?;
+        ),
+    )?;
     let mut stack: [Option<usize>; MAX_OUTLINE_DEPTH] = [None; MAX_OUTLINE_DEPTH];
     let mut first_root = None;
     let mut last_root: Option<usize> = None;
     let mut previous_depth = 0;
     for (index, bookmark) in bookmarks.iter().enumerate() {
-        let depth = usize::try_from(bookmark.depth).map_err(|_| {
+        let depth: usize = try_convert(
+            bookmark.depth,
             pdf_limit(
                 None,
                 0,
                 "PDF outline depth",
                 MAX_OUTLINE_DEPTH as u64,
                 u64::MAX,
-            )
-        })?;
+            ),
+        )?;
         if depth >= MAX_OUTLINE_DEPTH {
             return Err(pdf_limit(
                 None,
@@ -275,42 +291,25 @@ fn build_outline_nodes(
             ));
         }
         if index == 0 && depth != 0 || index != 0 && depth > previous_depth + 1 {
-            return Err(pdf_error(
-                None,
-                0,
-                PdfErrorKind::Malformed,
-                "bookmark depth skips a parent",
-            ));
+            return Err(malformed(None, 0, "bookmark depth skips a parent"));
         }
         if bookmark.title.is_empty() {
-            return Err(pdf_error(
-                None,
-                0,
-                PdfErrorKind::Malformed,
-                "bookmark title is empty",
-            ));
+            return Err(malformed(None, 0, "bookmark title is empty"));
         }
         let page = *pages.get(bookmark.page_index as usize).ok_or_else(|| {
-            pdf_error(
-                None,
-                0,
-                PdfErrorKind::Malformed,
-                "bookmark destination is outside the ordered pages",
-            )
+            malformed(None, 0, "bookmark destination is outside the ordered pages")
         })?;
         let item_number = u32::try_from(index)
             .ok()
             .and_then(|position| position.checked_add(1))
             .and_then(|position| root.number.checked_add(position))
-            .ok_or_else(|| {
-                pdf_limit(
-                    Some(root),
-                    0,
-                    "PDF object number",
-                    u64::from(MAX_PDF_OBJECTS),
-                    u64::MAX,
-                )
-            })?;
+            .ok_or(pdf_limit(
+                Some(root),
+                0,
+                "PDF object number",
+                u64::from(MAX_PDF_OBJECTS),
+                u64::MAX,
+            ))?;
         let reference = PdfRef {
             number: item_number,
             generation: 0,
@@ -319,14 +318,7 @@ fn build_outline_nodes(
         let parent_index: Option<usize> = if depth == 0 {
             None
         } else {
-            Some(stack[depth - 1].ok_or_else(|| {
-                pdf_error(
-                    None,
-                    0,
-                    PdfErrorKind::Malformed,
-                    "bookmark parent is missing",
-                )
-            })?)
+            Some(stack[depth - 1].ok_or_else(|| malformed(None, 0, "bookmark parent is missing"))?)
         };
         let previous_index = if let Some(parent_index) = parent_index {
             nodes[parent_index].last_child
@@ -421,9 +413,7 @@ fn outline_item_suffix(node: &OutlineNode) -> String {
 }
 
 fn outline_title_hex_len(title: &str) -> Result<u64> {
-    let units = u64::try_from(title.encode_utf16().count()).map_err(|_| Error::InvalidInput {
-        reason: "PDF outline title length exceeds 64 bits",
-    })?;
+    let units = len_u64(title.encode_utf16().count());
     units.checked_mul(4).ok_or(Error::InvalidInput {
         reason: "PDF outline title hex length overflows 64 bits",
     })
@@ -511,15 +501,16 @@ pub async fn reconstruct_fragment_with_bookmarks<
     };
     let source = &mut counted;
     limits.validate()?;
-    let bookmark_count = u32::try_from(bookmarks.len()).map_err(|_| {
+    let bookmark_count: u32 = try_convert(
+        bookmarks.len(),
         pdf_limit(
             None,
             0,
             "bookmarks",
             u64::from(limits.max_bookmarks),
             u64::MAX,
-        )
-    })?;
+        ),
+    )?;
     if bookmark_count > limits.max_bookmarks {
         return Err(pdf_limit(
             None,
@@ -537,15 +528,16 @@ pub async fn reconstruct_fragment_with_bookmarks<
             "fragment outline import requires a synthetic Catalog",
         ));
     }
-    let page_count = u32::try_from(plan.pages.len()).map_err(|_| {
+    let page_count: u32 = try_convert(
+        plan.pages.len(),
         pdf_limit(
             plan.pages.first().copied(),
             plan.objects.first().map_or(0, |object| object.range.offset),
             "pages",
             u64::from(limits.max_pages),
-            u64::try_from(plan.pages.len()).unwrap_or(u64::MAX),
-        )
-    })?;
+            len_u64(plan.pages.len()),
+        ),
+    )?;
     if page_count > limits.max_pages {
         let first = plan.pages.first().copied();
         let offset = first
@@ -565,12 +557,7 @@ pub async fn reconstruct_fragment_with_bookmarks<
         ));
     }
     if page_count == 0 {
-        return Err(pdf_error(
-            None,
-            0,
-            PdfErrorKind::Malformed,
-            "fragment has no pages",
-        ));
+        return Err(malformed(None, 0, "fragment has no pages"));
     }
     checked_reference(plan.pages_root, 0)?;
     if let Some(catalog) = plan.catalog {
@@ -611,9 +598,7 @@ pub async fn reconstruct_fragment_with_bookmarks<
         .ok_or(Error::InvalidInput {
             reason: "PDF object index allocation overflows address space",
         })?;
-    let record_bytes = u64::try_from(record_bytes).map_err(|_| Error::InvalidInput {
-        reason: "PDF object index allocation exceeds 64 bits",
-    })?;
+    let record_bytes = len_u64(record_bytes);
     check_pdf_allocation(
         limits,
         record_bytes,
@@ -621,29 +606,25 @@ pub async fn reconstruct_fragment_with_bookmarks<
         plan.objects.first().map_or(0, |object| object.range.offset),
     )?;
     let mut records = Vec::new();
-    records
-        .try_reserve_exact(requested)
-        .map_err(|_| Error::LimitExceeded {
-            resource: "PDF object index allocation",
-            limit: limits.max_allocation_bytes,
-            attempted: record_bytes,
-        })?;
+    reserve_exact(
+        &mut records,
+        requested,
+        allocation_limit("PDF object index allocation", limits, record_bytes),
+    )?;
     let mut fragment_bytes = 0_u64;
     for fragment in plan.objects {
         checked_reference(fragment.reference, fragment.range.offset)?;
         if fragment.range.length == 0 {
-            return Err(pdf_error(
+            return Err(malformed(
                 Some(fragment.reference),
                 fragment.range.offset,
-                PdfErrorKind::Malformed,
                 "indirect object span is empty",
             ));
         }
         let end = fragment.range.end().ok_or_else(|| {
-            pdf_error(
+            malformed(
                 Some(fragment.reference),
                 fragment.range.offset,
-                PdfErrorKind::Malformed,
                 "indirect object span overflows 64-bit offset",
             )
         })?;
@@ -679,10 +660,9 @@ pub async fn reconstruct_fragment_with_bookmarks<
     records.sort_unstable_by_key(|record| record.range.offset);
     for pair in records.windows(2) {
         let previous_end = pair[0].range.end().ok_or_else(|| {
-            pdf_error(
+            malformed(
                 Some(pair[0].reference),
                 pair[0].range.offset,
-                PdfErrorKind::Malformed,
                 "indirect object span overflows 64-bit offset",
             )
         })?;
@@ -709,12 +689,7 @@ pub async fn reconstruct_fragment_with_bookmarks<
     for page in plan.pages {
         checked_reference(*page, 0)?;
         if object_index(&records, *page).is_none() {
-            return Err(pdf_error(
-                Some(*page),
-                0,
-                PdfErrorKind::Malformed,
-                "ordered page object is missing",
-            ));
+            return Err(malformed(Some(*page), 0, "ordered page object is missing"));
         }
     }
     // Check duplicate destinations with a bounded, sorted page-ref index.
@@ -725,9 +700,7 @@ pub async fn reconstruct_fragment_with_bookmarks<
             .ok_or(Error::InvalidInput {
                 reason: "PDF page index allocation overflows address space",
             })?;
-    let page_index_bytes = u64::try_from(page_index_bytes).map_err(|_| Error::InvalidInput {
-        reason: "PDF page index allocation exceeds 64 bits",
-    })?;
+    let page_index_bytes = len_u64(page_index_bytes);
     check_pdf_allocation(
         limits,
         checked_add(record_bytes, page_index_bytes)?,
@@ -735,13 +708,11 @@ pub async fn reconstruct_fragment_with_bookmarks<
         plan.objects.first().map_or(0, |object| object.range.offset),
     )?;
     let mut sorted_pages = Vec::new();
-    sorted_pages
-        .try_reserve_exact(plan.pages.len())
-        .map_err(|_| Error::LimitExceeded {
-            resource: "PDF page index allocation",
-            limit: limits.max_allocation_bytes,
-            attempted: page_index_bytes,
-        })?;
+    reserve_exact(
+        &mut sorted_pages,
+        plan.pages.len(),
+        allocation_limit("PDF page index allocation", limits, page_index_bytes),
+    )?;
     sorted_pages.extend_from_slice(plan.pages);
     sorted_pages.sort_unstable();
     for pair in sorted_pages.windows(2) {
@@ -758,12 +729,7 @@ pub async fn reconstruct_fragment_with_bookmarks<
     let synthetic_pages = object_index(&records, plan.pages_root).is_none();
     let catalog = if let Some(reference) = plan.catalog {
         if object_index(&records, reference).is_none() {
-            return Err(pdf_error(
-                Some(reference),
-                0,
-                PdfErrorKind::Malformed,
-                "catalog object is missing",
-            ));
+            return Err(malformed(Some(reference), 0, "catalog object is missing"));
         }
         reference
     } else {
@@ -956,13 +922,11 @@ pub async fn reconstruct_fragment_with_bookmarks<
             .map_or(0, |record| record.range.offset),
     )?;
     let mut buffer = Vec::new();
-    buffer
-        .try_reserve_exact(limits.io_chunk_bytes)
-        .map_err(|_| Error::LimitExceeded {
-            resource: "PDF I/O buffer allocation",
-            limit: limits.max_allocation_bytes,
-            attempted: output_working_bytes,
-        })?;
+    reserve_exact(
+        &mut buffer,
+        limits.io_chunk_bytes,
+        allocation_limit("PDF I/O buffer allocation", limits, output_working_bytes),
+    )?;
     buffer.resize(limits.io_chunk_bytes, 0_u8);
     emit(sink, HEADER, &mut report, limits, cancellation).await?;
     for record in records.iter_mut().filter(|record| record.range.length != 0) {
@@ -1218,9 +1182,7 @@ async fn validate_fragment_structure<R: RangedSource, C: Cancellation>(
             .ok_or(Error::InvalidInput {
                 reason: "PDF scalar index allocation overflows address space",
             })?;
-    let scalar_bytes = u64::try_from(scalar_bytes).map_err(|_| Error::InvalidInput {
-        reason: "PDF scalar index allocation exceeds 64 bits",
-    })?;
+    let scalar_bytes = len_u64(scalar_bytes);
     check_pdf_allocation(
         limits,
         checked_add(index_bytes, scalar_bytes)?,
@@ -1228,13 +1190,11 @@ async fn validate_fragment_structure<R: RangedSource, C: Cancellation>(
         plan.objects.first().map_or(0, |object| object.range.offset),
     )?;
     let mut scalars = Vec::new();
-    scalars
-        .try_reserve_exact(records.len())
-        .map_err(|_| Error::LimitExceeded {
-            resource: "PDF scalar index allocation",
-            limit: limits.max_allocation_bytes,
-            attempted: scalar_bytes,
-        })?;
+    reserve_exact(
+        &mut scalars,
+        records.len(),
+        allocation_limit("PDF scalar index allocation", limits, scalar_bytes),
+    )?;
     for record in records {
         let scalar = if record.range.length == 0 {
             None
@@ -1251,12 +1211,8 @@ async fn validate_fragment_structure<R: RangedSource, C: Cancellation>(
         .ok_or(Error::InvalidInput {
             reason: "PDF structure index allocation overflows address space",
         })?;
-    let kind_bytes = u64::try_from(kind_bytes).map_err(|_| Error::InvalidInput {
-        reason: "PDF structure index allocation exceeds 64 bits",
-    })?;
-    let stream_bytes = u64::try_from(records.len()).map_err(|_| Error::InvalidInput {
-        reason: "PDF stream index exceeds 64 bits",
-    })?;
+    let kind_bytes = len_u64(kind_bytes);
+    let stream_bytes = len_u64(records.len());
     let retained_base = checked_add(
         checked_add(checked_add(index_bytes, scalar_bytes)?, kind_bytes)?,
         stream_bytes,
@@ -1268,22 +1224,18 @@ async fn validate_fragment_structure<R: RangedSource, C: Cancellation>(
         plan.objects.first().map_or(0, |object| object.range.offset),
     )?;
     let mut kinds = Vec::new();
-    kinds
-        .try_reserve_exact(records.len())
-        .map_err(|_| Error::LimitExceeded {
-            resource: "PDF structure index allocation",
-            limit: limits.max_allocation_bytes,
-            attempted: kind_bytes,
-        })?;
+    reserve_exact(
+        &mut kinds,
+        records.len(),
+        allocation_limit("PDF structure index allocation", limits, kind_bytes),
+    )?;
     let mut retained_structure_bytes = retained_base;
     let mut stream_flags = Vec::new();
-    stream_flags
-        .try_reserve_exact(records.len())
-        .map_err(|_| Error::LimitExceeded {
-            resource: "PDF stream index allocation",
-            limit: limits.max_allocation_bytes,
-            attempted: stream_bytes,
-        })?;
+    reserve_exact(
+        &mut stream_flags,
+        records.len(),
+        allocation_limit("PDF stream index allocation", limits, stream_bytes),
+    )?;
     let mut content_evidence = Vec::new();
     let mut destination_count = 0_u32;
     for record in records {
@@ -1306,10 +1258,9 @@ async fn validate_fragment_structure<R: RangedSource, C: Cancellation>(
             )
             .await?;
             if inspection.reference != record.reference {
-                return Err(pdf_error(
+                return Err(malformed(
                     Some(record.reference),
                     record.range.offset,
-                    PdfErrorKind::Malformed,
                     "inspected object identity differs from the supplied span",
                 ));
             }
@@ -1324,10 +1275,9 @@ async fn validate_fragment_structure<R: RangedSource, C: Cancellation>(
             for reference in inspection.references {
                 checked_reference(reference, record.range.offset)?;
                 if object_index(records, reference).is_none() {
-                    return Err(pdf_error(
+                    return Err(malformed(
                         Some(record.reference),
                         record.range.offset,
-                        PdfErrorKind::Malformed,
                         "indirect reference targets a missing object",
                     ));
                 }
@@ -1335,10 +1285,9 @@ async fn validate_fragment_structure<R: RangedSource, C: Cancellation>(
             if let Some(destination) = inspection.destination {
                 checked_reference(destination, record.range.offset)?;
                 if sorted_pages.binary_search(&destination).is_err() {
-                    return Err(pdf_error(
+                    return Err(malformed(
                         Some(record.reference),
                         record.range.offset,
-                        PdfErrorKind::Malformed,
                         "outline destination does not target an ordered Page object",
                     ));
                 }
@@ -1362,7 +1311,7 @@ async fn validate_fragment_structure<R: RangedSource, C: Cancellation>(
                 let kids_bytes = kids
                     .len()
                     .checked_mul(size_of::<PdfRef>())
-                    .and_then(|bytes| u64::try_from(bytes).ok())
+                    .map(len_u64)
                     .ok_or(Error::InvalidInput {
                         reason: "PDF page-tree child allocation overflows 64 bits",
                     })?;
@@ -1455,39 +1404,30 @@ async fn validate_fragment_structure<R: RangedSource, C: Cancellation>(
     if (plan.catalog.is_some() && found_catalogs != 1)
         || (plan.catalog.is_none() && found_catalogs != 0)
     {
-        return Err(pdf_error(
+        return Err(malformed(
             plan.catalog,
             0,
-            PdfErrorKind::Malformed,
             "catalog object has the wrong type",
         ));
     }
     if let Some(catalog) = plan.catalog {
-        let index = object_index(records, catalog).ok_or_else(|| {
-            pdf_error(
-                Some(catalog),
-                0,
-                PdfErrorKind::Malformed,
-                "catalog object is missing",
-            )
-        })?;
+        let index = object_index(records, catalog)
+            .ok_or_else(|| malformed(Some(catalog), 0, "catalog object is missing"))?;
         match &kinds[index] {
             Some(FragmentKind::Catalog { pages }) if *pages == plan.pages_root => {}
             _ => {
-                return Err(pdf_error(
+                return Err(malformed(
                     Some(catalog),
                     records[index].range.offset,
-                    PdfErrorKind::Malformed,
                     "catalog does not reference the selected page tree",
                 ));
             }
         }
     }
     let root_index = object_index(records, plan.pages_root).ok_or_else(|| {
-        pdf_error(
+        malformed(
             Some(plan.pages_root),
             0,
-            PdfErrorKind::Malformed,
             "page tree root is missing from the repair index",
         )
     })?;
@@ -1507,10 +1447,9 @@ async fn validate_fragment_structure<R: RangedSource, C: Cancellation>(
                         ));
                     }
                     if !has_media_box {
-                        return Err(pdf_error(
+                        return Err(malformed(
                             Some(records[index].reference),
                             records[index].range.offset,
-                            PdfErrorKind::Malformed,
                             "Page has no MediaBox and the synthesized root cannot provide one",
                         ));
                     }
@@ -1527,19 +1466,12 @@ async fn validate_fragment_structure<R: RangedSource, C: Cancellation>(
             }
         }
         for page in plan.pages {
-            let index = object_index(records, *page).ok_or_else(|| {
-                pdf_error(
-                    Some(*page),
-                    0,
-                    PdfErrorKind::Malformed,
-                    "ordered page object is missing",
-                )
-            })?;
+            let index = object_index(records, *page)
+                .ok_or_else(|| malformed(Some(*page), 0, "ordered page object is missing"))?;
             if !matches!(kinds[index], Some(FragmentKind::Page { .. })) {
-                return Err(pdf_error(
+                return Err(malformed(
                     Some(*page),
                     records[index].range.offset,
-                    PdfErrorKind::Malformed,
                     "ordered page reference is not a Page object",
                 ));
             }
@@ -1561,20 +1493,18 @@ fn retain_content_evidence(
         .references
         .len()
         .checked_mul(size_of::<PdfRef>())
-        .and_then(|bytes| u64::try_from(bytes).ok())
+        .map(len_u64)
         .ok_or(Error::InvalidInput {
             reason: "PDF content reference allocation overflows 64 bits",
         })?;
     let item_bytes = checked_add(size_of::<ContentEvidence>() as u64, reference_bytes)?;
     *retained_bytes = checked_add(*retained_bytes, item_bytes)?;
     check_pdf_allocation(limits, *retained_bytes, Some(item.reference), offset)?;
-    evidence
-        .try_reserve_exact(1)
-        .map_err(|_| Error::LimitExceeded {
-            resource: "PDF content evidence allocation",
-            limit: limits.max_allocation_bytes,
-            attempted: *retained_bytes,
-        })?;
+    reserve_exact(
+        evidence,
+        1,
+        allocation_limit("PDF content evidence allocation", limits, *retained_bytes),
+    )?;
     evidence.push(item);
     Ok(())
 }
@@ -1586,9 +1516,7 @@ fn validate_fragment_contents(
     retained_bytes: u64,
     limits: &Limits,
 ) -> Result<()> {
-    let cache_bytes = u64::try_from(evidence.len()).map_err(|_| Error::InvalidInput {
-        reason: "PDF content-array validation index exceeds 64 bits",
-    })?;
+    let cache_bytes = len_u64(evidence.len());
     let first = evidence.first();
     let first_offset = first
         .and_then(|item| object_index(records, item.reference))
@@ -1601,13 +1529,15 @@ fn validate_fragment_contents(
         first_offset,
     )?;
     let mut validated_arrays = Vec::new();
-    validated_arrays
-        .try_reserve_exact(evidence.len())
-        .map_err(|_| Error::LimitExceeded {
-            resource: "PDF content-array validation index allocation",
-            limit: limits.max_allocation_bytes,
-            attempted: cache_bytes,
-        })?;
+    reserve_exact(
+        &mut validated_arrays,
+        evidence.len(),
+        allocation_limit(
+            "PDF content-array validation index allocation",
+            limits,
+            cache_bytes,
+        ),
+    )?;
     validated_arrays.resize(evidence.len(), false);
     for item in evidence {
         let ContentEvidenceKind::Page { direct_array } = item.kind else {
@@ -1630,18 +1560,16 @@ fn validate_fragment_contents(
             continue;
         }
         let target = item.references.first().copied().ok_or_else(|| {
-            pdf_error(
+            malformed(
                 Some(item.reference),
                 page_offset,
-                PdfErrorKind::Malformed,
                 "Page Contents lacks an indirect target",
             )
         })?;
         let target_index = object_index(records, target).ok_or_else(|| {
-            pdf_error(
+            malformed(
                 Some(item.reference),
                 page_offset,
-                PdfErrorKind::Malformed,
                 "Page Contents targets a missing object",
             )
         })?;
@@ -1655,10 +1583,9 @@ fn validate_fragment_contents(
             .and_then(|index| evidence.get(index).map(|candidate| (index, candidate)))
             .filter(|(_, candidate)| matches!(candidate.kind, ContentEvidenceKind::ScalarArray))
         else {
-            return Err(pdf_error(
+            return Err(malformed(
                 Some(item.reference),
                 page_offset,
-                PdfErrorKind::Malformed,
                 "Page Contents target is neither a stream nor a stream reference array",
             ));
         };
@@ -1686,18 +1613,16 @@ fn require_content_stream(
     page_offset: u64,
 ) -> Result<()> {
     let index = object_index(records, target).ok_or_else(|| {
-        pdf_error(
+        malformed(
             Some(page),
             page_offset,
-            PdfErrorKind::Malformed,
             "Page Contents targets a missing object",
         )
     })?;
     if !stream_flags[index] {
-        return Err(pdf_error(
+        return Err(malformed(
             Some(page),
             page_offset,
-            PdfErrorKind::Malformed,
             "Page Contents array contains a non-stream object",
         ));
     }
@@ -1728,19 +1653,19 @@ fn validate_existing_page_tree(
     let root_offset = object_index(records, plan.pages_root)
         .and_then(|index| records.get(index))
         .map_or(0, |record| record.range.offset);
-    let visit_bytes = u64::try_from(records.len()).map_err(|_| Error::InvalidInput {
-        reason: "PDF page-tree visited index exceeds 64 bits",
-    })?;
+    let visit_bytes = len_u64(records.len());
     let with_visited = checked_add(retained_bytes, visit_bytes)?;
     check_pdf_allocation(limits, with_visited, Some(plan.pages_root), root_offset)?;
     let mut visited = Vec::new();
-    visited
-        .try_reserve_exact(records.len())
-        .map_err(|_| Error::LimitExceeded {
-            resource: "PDF page-tree visited index allocation",
-            limit: limits.max_allocation_bytes,
-            attempted: visit_bytes,
-        })?;
+    reserve_exact(
+        &mut visited,
+        records.len(),
+        allocation_limit(
+            "PDF page-tree visited index allocation",
+            limits,
+            visit_bytes,
+        ),
+    )?;
     visited.resize(records.len(), false);
 
     let stack_capacity = records
@@ -1756,9 +1681,7 @@ fn validate_existing_page_tree(
             .ok_or(Error::InvalidInput {
                 reason: "PDF page-tree traversal allocation overflows address space",
             })?;
-    let stack_bytes = u64::try_from(stack_bytes).map_err(|_| Error::InvalidInput {
-        reason: "PDF page-tree traversal allocation exceeds 64 bits",
-    })?;
+    let stack_bytes = len_u64(stack_bytes);
     check_pdf_allocation(
         limits,
         checked_add(with_visited, stack_bytes)?,
@@ -1766,13 +1689,11 @@ fn validate_existing_page_tree(
         root_offset,
     )?;
     let mut stack = Vec::new();
-    stack
-        .try_reserve_exact(stack_capacity)
-        .map_err(|_| Error::LimitExceeded {
-            resource: "PDF page-tree traversal allocation",
-            limit: limits.max_allocation_bytes,
-            attempted: stack_bytes,
-        })?;
+    reserve_exact(
+        &mut stack,
+        stack_capacity,
+        allocation_limit("PDF page-tree traversal allocation", limits, stack_bytes),
+    )?;
     stack.push(WalkStep::Enter {
         reference: plan.pages_root,
         parent: None,
@@ -1787,18 +1708,12 @@ fn validate_existing_page_tree(
                 inherited_media_box,
             } => {
                 let index = object_index(records, reference).ok_or_else(|| {
-                    pdf_error(
-                        Some(reference),
-                        0,
-                        PdfErrorKind::Malformed,
-                        "page-tree child object is missing",
-                    )
+                    malformed(Some(reference), 0, "page-tree child object is missing")
                 })?;
                 if visited[index] {
-                    return Err(pdf_error(
+                    return Err(malformed(
                         Some(reference),
                         records[index].range.offset,
-                        PdfErrorKind::Malformed,
                         "page tree contains a repeated child or cycle",
                     ));
                 }
@@ -1809,18 +1724,16 @@ fn validate_existing_page_tree(
                         has_media_box,
                     }) => {
                         if Some(*actual) != parent {
-                            return Err(pdf_error(
+                            return Err(malformed(
                                 Some(reference),
                                 records[index].range.offset,
-                                PdfErrorKind::Malformed,
                                 "Page /Parent link does not match the page tree",
                             ));
                         }
                         if !has_media_box && !inherited_media_box {
-                            return Err(pdf_error(
+                            return Err(malformed(
                                 Some(reference),
                                 records[index].range.offset,
-                                PdfErrorKind::Malformed,
                                 "Page has no direct or inherited MediaBox",
                             ));
                         }
@@ -1841,18 +1754,16 @@ fn validate_existing_page_tree(
                         has_media_box,
                     }) => {
                         if *actual != parent {
-                            return Err(pdf_error(
+                            return Err(malformed(
                                 Some(reference),
                                 records[index].range.offset,
-                                PdfErrorKind::Malformed,
                                 "Pages /Parent link does not match the page tree",
                             ));
                         }
                         if *count == 0 || kids.is_empty() {
-                            return Err(pdf_error(
+                            return Err(malformed(
                                 Some(reference),
                                 records[index].range.offset,
-                                PdfErrorKind::Malformed,
                                 "Pages node is empty",
                             ));
                         }
@@ -1894,10 +1805,9 @@ fn validate_existing_page_tree(
                         }
                     }
                     _ => {
-                        return Err(pdf_error(
+                        return Err(malformed(
                             Some(reference),
                             records[index].range.offset,
-                            PdfErrorKind::Malformed,
                             "page-tree child has neither Page nor Pages type",
                         ));
                     }
@@ -1909,10 +1819,9 @@ fn validate_existing_page_tree(
                 declared_count,
             } => {
                 if leaves - leaves_before != declared_count as usize {
-                    return Err(pdf_error(
+                    return Err(malformed(
                         Some(reference),
                         0,
-                        PdfErrorKind::Malformed,
                         "Pages /Count differs from descendant page count",
                     ));
                 }

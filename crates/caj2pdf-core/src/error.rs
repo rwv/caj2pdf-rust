@@ -186,3 +186,46 @@ impl From<io::Error> for Error {
         Self::Io(error)
     }
 }
+
+impl Error {
+    /// Attach a CAJ location to an unlocated resource-limit error. Every other
+    /// error is returned unchanged.
+    pub(crate) fn locate_caj_limit(self, offset: u64, record: Option<u32>) -> Self {
+        match self {
+            Self::LimitExceeded {
+                resource,
+                limit,
+                attempted,
+            } => Self::CajLimitExceeded {
+                offset,
+                record,
+                resource,
+                limit,
+                attempted,
+            },
+            other => other,
+        }
+    }
+
+    /// Attach a PDF location to an unlocated resource-limit error. Every other
+    /// error is returned unchanged.
+    pub(crate) fn locate_pdf_limit(self, offset: u64, object: Option<(u32, u16)>) -> Self {
+        match self {
+            Self::LimitExceeded {
+                resource,
+                limit,
+                attempted,
+            } => Self::PdfLimitExceeded {
+                offset,
+                object,
+                resource,
+                limit,
+                attempted,
+            },
+            other => other,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests;

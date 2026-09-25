@@ -98,10 +98,9 @@ pub(crate) async fn inspect_link_destination_candidate<S: RangedSource, C: Cance
     let mut rest = end as u64;
     reader.skip_space(&mut rest).await?;
     if rest != range.length {
-        return Err(reader.problem(
+        return Err(reader.malformed(
             rest,
             Some(reference),
-            PdfErrorKind::Malformed,
             "link repair object has trailing non-whitespace bytes",
         ));
     }
@@ -134,36 +133,32 @@ pub(crate) async fn inspect_link_destination_candidate<S: RangedSource, C: Cance
     })?;
     let complete = reader.bytes(0, length).await?;
     if !complete.starts_with(&head.bytes) {
-        return Err(reader.problem(
+        return Err(reader.malformed(
             0,
             Some(reference),
-            PdfErrorKind::Malformed,
             "link repair source changed while reading",
         ));
     }
     let complete = parse_object_head(complete)
         .map_err(|issue| reader.parse_issue(0, Some(reference), issue))?;
     if complete.reference != reference {
-        return Err(reader.problem(
+        return Err(reader.malformed(
             0,
             Some(reference),
-            PdfErrorKind::Malformed,
             "link repair object header changed while reading",
         ));
     }
     let ObjectTail::EndObject { end } = complete.tail else {
-        return Err(reader.problem(
+        return Err(reader.malformed(
             0,
             Some(reference),
-            PdfErrorKind::Malformed,
             "link repair candidate changed into a stream",
         ));
     };
     if !Syntax::new(&complete.bytes[end..]).at_end() {
-        return Err(reader.problem(
+        return Err(reader.malformed(
             end as u64,
             Some(reference),
-            PdfErrorKind::Malformed,
             "link repair object has trailing non-whitespace bytes",
         ));
     }
@@ -196,28 +191,17 @@ pub(crate) async fn inspect_link_destination_candidate<S: RangedSource, C: Cance
         let pair_start = dictionary_start
             .checked_add(destination.pair.start)
             .ok_or_else(|| {
-                reader.problem(
-                    0,
-                    Some(reference),
-                    PdfErrorKind::Malformed,
-                    "link destination pair offset overflows",
-                )
+                reader.malformed(0, Some(reference), "link destination pair offset overflows")
             })?;
         let pair_end = dictionary_start
             .checked_add(destination.pair.end)
             .ok_or_else(|| {
-                reader.problem(
-                    0,
-                    Some(reference),
-                    PdfErrorKind::Malformed,
-                    "link destination pair end overflows",
-                )
+                reader.malformed(0, Some(reference), "link destination pair end overflows")
             })?;
         if pair_start >= pair_end || pair_end > complete.bytes.len() {
-            return Err(reader.problem(
+            return Err(reader.malformed(
                 0,
                 Some(reference),
-                PdfErrorKind::Malformed,
                 "link destination pair lies outside object",
             ));
         }

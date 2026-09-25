@@ -150,6 +150,10 @@ fn at(offset: u64, kind: Type0ErrorKind) -> Type0Error {
     }
 }
 
+fn malformed(offset: u64, reason: &'static str) -> Type0Error {
+    at(offset, Type0ErrorKind::Malformed(reason))
+}
+
 fn limit(offset: u64, resource: &'static str, maximum: u64, attempted: u64) -> Type0Error {
     at(
         offset,
@@ -194,10 +198,7 @@ fn checked_info(
     let width_i = i32::from_le_bytes([header[4], header[5], header[6], header[7]]);
     let height_i = i32::from_le_bytes([header[8], header[9], header[10], header[11]]);
     if width_i <= 0 || height_i <= 0 {
-        return Err(at(
-            base + 4,
-            Type0ErrorKind::Malformed("nonpositive DIB dimensions"),
-        ));
+        return Err(malformed(base + 4, "nonpositive DIB dimensions"));
     }
     let width = width_i as u32;
     let height = height_i as u32;
@@ -265,19 +266,14 @@ fn checked_info(
     }
     let pixels = u64::from(width)
         .checked_mul(u64::from(height))
-        .ok_or_else(|| at(base + 4, Type0ErrorKind::Malformed("pixel area overflows")))?;
+        .ok_or_else(|| malformed(base + 4, "pixel area overflows"))?;
     if pixels > budget.max_pixels {
         return Err(limit(base + 4, "image pixels", budget.max_pixels, pixels));
     }
     let potential_symbols = u64::from(width)
         .checked_add(1)
         .and_then(|row| row.checked_mul(u64::from(height)))
-        .ok_or_else(|| {
-            at(
-                base + 4,
-                Type0ErrorKind::Malformed("symbol count overflows"),
-            )
-        })?;
+        .ok_or_else(|| malformed(base + 4, "symbol count overflows"))?;
     if potential_symbols > arithmetic.max_symbols {
         return Err(limit(
             base + 4,
@@ -289,12 +285,7 @@ fn checked_info(
     let context_work = pixels
         .checked_mul(10)
         .and_then(|value| value.checked_add(u64::from(height)))
-        .ok_or_else(|| {
-            at(
-                base + 4,
-                Type0ErrorKind::Malformed("context work overflows"),
-            )
-        })?;
+        .ok_or_else(|| malformed(base + 4, "context work overflows"))?;
     if context_work > budget.max_context_work {
         return Err(limit(
             base + 4,
@@ -306,22 +297,14 @@ fn checked_info(
     let stride_u64 = u64::from(width)
         .checked_add(31)
         .map(|value| value / 32 * 4)
-        .ok_or_else(|| at(base + 4, Type0ErrorKind::Malformed("DIB stride overflows")))?;
+        .ok_or_else(|| malformed(base + 4, "DIB stride overflows"))?;
     let visible_u64 = u64::from(width)
         .checked_add(7)
         .map(|value| value / 8)
-        .ok_or_else(|| {
-            at(
-                base + 4,
-                Type0ErrorKind::Malformed("visible stride overflows"),
-            )
-        })?;
-    let output = stride_u64.checked_mul(u64::from(height)).ok_or_else(|| {
-        at(
-            base + 4,
-            Type0ErrorKind::Malformed("DIB output size overflows"),
-        )
-    })?;
+        .ok_or_else(|| malformed(base + 4, "visible stride overflows"))?;
+    let output = stride_u64
+        .checked_mul(u64::from(height))
+        .ok_or_else(|| malformed(base + 4, "DIB output size overflows"))?;
     if output > limits.max_output_bytes {
         return Err(limit(
             base + 4,
@@ -332,9 +315,9 @@ fn checked_info(
     }
     let declared_size = u64::from(le_u32(header, 20));
     if declared_size != 0 && declared_size != output {
-        return Err(at(
+        return Err(malformed(
             base + 20,
-            Type0ErrorKind::Malformed("DIB image size differs from stride times height"),
+            "DIB image size differs from stride times height",
         ));
     }
     let allocated = stride_u64
@@ -346,12 +329,7 @@ fn checked_info(
             )
         })
         .and_then(|bytes| bytes.checked_add(QM_BUFFER_BYTES))
-        .ok_or_else(|| {
-            at(
-                base + 4,
-                Type0ErrorKind::Malformed("working allocation calculation overflows"),
-            )
-        })?;
+        .ok_or_else(|| malformed(base + 4, "working allocation calculation overflows"))?;
     if allocated > limits.max_allocation_bytes {
         return Err(limit(
             base + 4,
@@ -360,18 +338,10 @@ fn checked_info(
             allocated,
         ));
     }
-    let dib_stride = usize::try_from(stride_u64).map_err(|_| {
-        at(
-            base + 4,
-            Type0ErrorKind::Malformed("DIB stride exceeds address space"),
-        )
-    })?;
-    let visible_bytes = usize::try_from(visible_u64).map_err(|_| {
-        at(
-            base + 4,
-            Type0ErrorKind::Malformed("visible stride exceeds address space"),
-        )
-    })?;
+    let dib_stride = usize::try_from(stride_u64)
+        .map_err(|_| malformed(base + 4, "DIB stride exceeds address space"))?;
+    let visible_bytes = usize::try_from(visible_u64)
+        .map_err(|_| malformed(base + 4, "visible stride exceeds address space"))?;
     Ok(Type0Info {
         width,
         height,
@@ -489,9 +459,9 @@ impl<'a, S: RangedSource, W: SequentialSink, C: Cancellation> Type0Decoder<'a, S
             ));
         }
         if contexts.state(CONTEXT_COUNT - 1).is_none() || contexts.state(CONTEXT_COUNT).is_some() {
-            return Err(at(
+            return Err(malformed(
                 image.offset,
-                Type0ErrorKind::Malformed("expected exactly 1024 arithmetic contexts"),
+                "expected exactly 1024 arithmetic contexts",
             ));
         }
         let mut header = [0_u8; DIB_BYTES as usize];

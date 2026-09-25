@@ -19,6 +19,7 @@ use super::FragmentObject;
 use super::types::{PdfRange, PdfRef};
 use super::writer::MAX_PDF_OBJECTS;
 use crate::error::PdfErrorKind;
+use crate::fallible::{len_u64, reserve_exact};
 use crate::{Cancellation, Error, Limits, RangedSource, Result, read_exact_at};
 use flate2::{Decompress, FlushDecompress, Status};
 use parser::{
@@ -171,20 +172,7 @@ impl PdfIndex {
         limits.validate()?;
         limits
             .check_input_size(range.length)
-            .map_err(|error| match error {
-                Error::LimitExceeded {
-                    resource,
-                    limit,
-                    attempted,
-                } => Error::PdfLimitExceeded {
-                    offset: range.offset,
-                    object: None,
-                    resource,
-                    limit,
-                    attempted,
-                },
-                other => other,
-            })?;
+            .map_err(|error| error.locate_pdf_limit(range.offset, None))?;
         let end = range.end().ok_or(Error::InvalidInput {
             reason: "PDF source range overflows",
         })?;
@@ -218,19 +206,16 @@ impl PdfIndex {
             .check_allocation(total_index_bytes as u64)
             .map_err(|error| reader.locate_limit(xref_offset, None, error))?;
         let mut object_locations = Vec::new();
-        object_locations
-            .try_reserve_exact(slots.len())
-            .map_err(|_| {
-                reader.locate_limit(
-                    xref_offset,
-                    None,
-                    Error::LimitExceeded {
-                        resource: "PDF object location index allocation",
-                        limit: limits.max_allocation_bytes,
-                        attempted: location_bytes as u64,
-                    },
-                )
-            })?;
+        reserve_exact(
+            &mut object_locations,
+            slots.len(),
+            reader.allocation_limit(
+                xref_offset,
+                None,
+                "PDF object location index allocation",
+                location_bytes as u64,
+            ),
+        )?;
         object_locations.resize(slots.len(), None);
         let mut index = Self {
             range,
@@ -260,10 +245,9 @@ impl PdfIndex {
         reader.read_structure(&slots, &mut index).await?;
         if let Some((reference, _)) = index.stale_page_parents.first() {
             let location = index.object_location(*reference)?;
-            return Err(reader.problem(
+            return Err(reader.malformed(
                 location.offset,
                 Some(*reference),
-                PdfErrorKind::Malformed,
                 "stale page Parent is not reachable through validated Kids",
             ));
         }
@@ -378,21 +362,34 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
         }
     }
 
+    fn malformed(&self, relative: u64, object: Option<PdfRef>, reason: &'static str) -> Error {
+        self.problem(relative, object, PdfErrorKind::Malformed, reason)
+    }
+
     fn locate_limit(&self, relative: u64, object: Option<PdfRef>, error: Error) -> Error {
-        match error {
+        error.locate_pdf_limit(
+            self.absolute(relative),
+            object.map(|item| (item.number, item.generation)),
+        )
+    }
+
+    /// A located error for a failed reservation within the allocation limit.
+    fn allocation_limit(
+        &self,
+        relative: u64,
+        object: Option<PdfRef>,
+        resource: &'static str,
+        attempted: u64,
+    ) -> Error {
+        self.locate_limit(
+            relative,
+            object,
             Error::LimitExceeded {
                 resource,
-                limit,
-                attempted,
-            } => Error::PdfLimitExceeded {
-                offset: self.absolute(relative),
-                object: object.map(|item| (item.number, item.generation)),
-                resource,
-                limit,
+                limit: self.limits.max_allocation_bytes,
                 attempted,
             },
-            other => other,
-        }
+        )
     }
 
     fn parse_issue(
@@ -448,35 +445,22 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
     }
 
     async fn bytes(&mut self, position: u64, length: usize) -> Result<Vec<u8>> {
-        let length_u64 = u64::try_from(length).map_err(|_| Error::InvalidInput {
-            reason: "PDF read length exceeds 64 bits",
-        })?;
+        let length_u64 = len_u64(length);
         if position
             .checked_add(length_u64)
             .is_none_or(|end| end > self.range.length)
         {
-            return Err(self.problem(
-                position,
-                None,
-                PdfErrorKind::Malformed,
-                "PDF range ends inside required syntax",
-            ));
+            return Err(self.malformed(position, None, "PDF range ends inside required syntax"));
         }
         self.limits
             .check_allocation(length_u64)
             .map_err(|error| self.locate_limit(position, None, error))?;
         let mut result = Vec::new();
-        result.try_reserve_exact(length).map_err(|_| {
-            self.locate_limit(
-                position,
-                None,
-                Error::LimitExceeded {
-                    resource: "PDF read buffer allocation",
-                    limit: self.limits.max_allocation_bytes,
-                    attempted: length_u64,
-                },
-            )
-        })?;
+        reserve_exact(
+            &mut result,
+            length,
+            self.allocation_limit(position, None, "PDF read buffer allocation", length_u64),
+        )?;
         result.resize(length, 0);
         let mut done = 0;
         while done < length {
@@ -497,7 +481,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
 
     async fn check_header(&mut self) -> Result<()> {
         if self.range.length < 8 {
-            return Err(self.problem(0, None, PdfErrorKind::Malformed, "PDF header is truncated"));
+            return Err(self.malformed(0, None, "PDF header is truncated"));
         }
         let header = self.bytes(0, 8).await?;
         if header.starts_with(b"%PDF-2.") && header[7].is_ascii_digit() {
@@ -509,12 +493,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
             ));
         }
         if !header.starts_with(b"%PDF-1.") || !matches!(header[7], b'0'..=b'7') {
-            return Err(self.problem(
-                0,
-                None,
-                PdfErrorKind::Malformed,
-                "PDF 1.0 through 1.7 header is required",
-            ));
+            return Err(self.malformed(0, None, "PDF 1.0 through 1.7 header is required"));
         }
         Ok(())
     }
@@ -548,12 +527,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                     .checked_mul(10)
                     .and_then(|value| value.checked_add(u64::from(tail[cursor] - b'0')))
                     .ok_or_else(|| {
-                        self.problem(
-                            start + cursor as u64,
-                            None,
-                            PdfErrorKind::Malformed,
-                            "startxref offset overflows",
-                        )
+                        self.malformed(start + cursor as u64, None, "startxref offset overflows")
                     })?;
                 cursor += 1;
             }
@@ -599,10 +573,9 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
             }
             return Ok((offset, logical_end));
         }
-        Err(self.problem(
+        Err(self.malformed(
             self.range.length.saturating_sub(take as u64),
             None,
-            PdfErrorKind::Malformed,
             "PDF startxref and EOF were not found in bounded tail",
         ))
     }
@@ -637,18 +610,13 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                 break;
             }
             if result.len() == maximum {
-                return Err(self.problem(
-                    start,
-                    None,
-                    PdfErrorKind::Malformed,
-                    "PDF token is too long",
-                ));
+                return Err(self.malformed(start, None, "PDF token is too long"));
             }
             result.push(byte);
             *cursor += 1;
         }
         if result.is_empty() {
-            return Err(self.problem(start, None, PdfErrorKind::Malformed, "expected PDF token"));
+            return Err(self.malformed(start, None, "expected PDF token"));
         }
         Ok(result)
     }
@@ -657,26 +625,14 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
         let start = *cursor;
         let word = self.word(cursor, 20).await?;
         if !word.iter().all(u8::is_ascii_digit) {
-            return Err(self.problem(
-                start,
-                None,
-                PdfErrorKind::Malformed,
-                "expected nonnegative PDF integer",
-            ));
+            return Err(self.malformed(start, None, "expected nonnegative PDF integer"));
         }
         let mut value = 0_u64;
         for digit in word {
             value = value
                 .checked_mul(10)
                 .and_then(|n| n.checked_add(u64::from(digit - b'0')))
-                .ok_or_else(|| {
-                    self.problem(
-                        start,
-                        None,
-                        PdfErrorKind::Malformed,
-                        "PDF integer overflows",
-                    )
-                })?;
+                .ok_or_else(|| self.malformed(start, None, "PDF integer overflows"))?;
         }
         Ok(value)
     }
@@ -684,12 +640,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
     async fn dictionary_at(&mut self, at: u64, maximum: u64) -> Result<(Dictionary, u64)> {
         let mut amount = min(512, min(maximum, self.range.length.saturating_sub(at))) as usize;
         if amount == 0 {
-            return Err(self.problem(
-                at,
-                None,
-                PdfErrorKind::Malformed,
-                "PDF dictionary is truncated",
-            ));
+            return Err(self.malformed(at, None, "PDF dictionary is truncated"));
         }
         loop {
             let bytes = self.bytes(at, amount).await?;
@@ -755,12 +706,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
         let mut latest_trailer = None;
         for _ in 0..MAX_XREF_SECTIONS {
             if seen_offsets.contains(&cursor) {
-                return Err(self.problem(
-                    cursor,
-                    None,
-                    PdfErrorKind::Malformed,
-                    "PDF xref Prev cycle",
-                ));
+                return Err(self.malformed(cursor, None, "PDF xref Prev cycle"));
             }
             seen_offsets.push(cursor);
             let (records, trailer) = self.read_xref_section(cursor).await?;
@@ -774,17 +720,11 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                 self.limits
                     .check_allocation(bytes as u64)
                     .map_err(|error| self.locate_limit(cursor, None, error))?;
-                slots.try_reserve_exact(slots_len).map_err(|_| {
-                    self.locate_limit(
-                        cursor,
-                        None,
-                        Error::LimitExceeded {
-                            resource: "PDF xref index allocation",
-                            limit: self.limits.max_allocation_bytes,
-                            attempted: bytes as u64,
-                        },
-                    )
-                })?;
+                reserve_exact(
+                    &mut slots,
+                    slots_len,
+                    self.allocation_limit(cursor, None, "PDF xref index allocation", bytes as u64),
+                )?;
                 slots.resize(slots_len, None);
                 latest_trailer = Some(Trailer {
                     size: trailer.size,
@@ -796,12 +736,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
             }
             for record in records {
                 let place = slots.get_mut(record.number as usize).ok_or_else(|| {
-                    self.problem(
-                        cursor,
-                        None,
-                        PdfErrorKind::Malformed,
-                        "xref object exceeds trailer Size",
-                    )
+                    self.malformed(cursor, None, "xref object exceeds trailer Size")
                 })?;
                 if place.is_none() {
                     *place = Some(record.slot);
@@ -809,32 +744,20 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
             }
             if let Some(previous) = trailer.prev {
                 if previous >= cursor {
-                    return Err(self.problem(
+                    return Err(self.malformed(
                         previous,
                         None,
-                        PdfErrorKind::Malformed,
                         "xref Prev must point to an earlier section",
                     ));
                 }
                 cursor = previous;
             } else {
-                let final_trailer = latest_trailer.ok_or_else(|| {
-                    self.problem(
-                        cursor,
-                        None,
-                        PdfErrorKind::Malformed,
-                        "PDF xref has no trailer",
-                    )
-                })?;
+                let final_trailer = latest_trailer
+                    .ok_or_else(|| self.malformed(cursor, None, "PDF xref has no trailer"))?;
                 return Ok((slots, final_trailer));
             }
         }
-        Err(self.problem(
-            cursor,
-            None,
-            PdfErrorKind::Malformed,
-            "PDF xref revision limit exceeded",
-        ))
+        Err(self.malformed(cursor, None, "PDF xref revision limit exceeded"))
     }
 
     async fn read_xref_section(&mut self, at: u64) -> Result<(Vec<XrefRecord>, Trailer)> {
@@ -856,12 +779,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                     .windows(2)
                     .any(|pair| pair[0].number == pair[1].number)
                 {
-                    return Err(self.problem(
-                        at,
-                        None,
-                        PdfErrorKind::Malformed,
-                        "duplicate xref entry in one revision",
-                    ));
+                    return Err(self.malformed(at, None, "duplicate xref entry in one revision"));
                 }
                 return Ok((records, trailer));
             }
@@ -869,10 +787,9 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
             let start = self.unsigned(&mut cursor).await?;
             let count = self.unsigned(&mut cursor).await?;
             if count == 0 || start.checked_add(count).is_none() {
-                return Err(self.problem(
+                return Err(self.malformed(
                     subsection_at,
                     None,
-                    PdfErrorKind::Malformed,
                     "invalid PDF xref subsection range",
                 ));
             }
@@ -892,22 +809,16 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                 let number = (start + step) as u32;
                 let line = self.bytes(cursor, 20).await?;
                 let slot = parse_xref_entry(&line).ok_or_else(|| {
-                    self.problem(
-                        cursor,
-                        None,
-                        PdfErrorKind::Malformed,
-                        "invalid fixed-width xref entry",
-                    )
+                    self.malformed(cursor, None, "invalid fixed-width xref entry")
                 })?;
                 if let XrefKind::InUse(offset) = slot.kind {
                     if offset >= self.range.length {
-                        return Err(self.problem(
+                        return Err(self.malformed(
                             cursor,
                             Some(PdfRef {
                                 number,
                                 generation: slot.generation,
                             }),
-                            PdfErrorKind::Malformed,
                             "xref object offset exceeds PDF range",
                         ));
                     }
@@ -927,104 +838,59 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
     async fn read_xref_stream(&mut self, at: u64) -> Result<(Vec<XrefRecord>, Trailer)> {
         let head = self.load_head(at, None).await?;
         let reference = head.reference;
-        let dictionary = head.dictionary.as_ref().ok_or_else(|| {
-            self.problem(
-                at,
-                Some(reference),
-                PdfErrorKind::Malformed,
-                "xref stream lacks a dictionary",
-            )
-        })?;
+        let dictionary = head
+            .dictionary
+            .as_ref()
+            .ok_or_else(|| self.malformed(at, Some(reference), "xref stream lacks a dictionary"))?;
         if reference.generation != 0
             || dictionary.value(b"Type").and_then(exact_name).as_deref() != Some(b"XRef")
         {
-            return Err(self.problem(
+            return Err(self.malformed(
                 at,
                 Some(reference),
-                PdfErrorKind::Malformed,
                 "startxref does not point to an xref table or stream",
             ));
         }
         let ObjectTail::Stream { data_start } = head.tail else {
-            return Err(self.problem(
-                at,
-                Some(reference),
-                PdfErrorKind::Malformed,
-                "xref object is not a stream",
-            ));
+            return Err(self.malformed(at, Some(reference), "xref object is not a stream"));
         };
         let trailer = self.parse_trailer(dictionary, at)?;
         let widths = dictionary
             .value(b"W")
             .and_then(|value| unsigned_array(value, 3))
             .filter(|values| values.len() == 3 && values.iter().all(|width| *width <= 8))
-            .ok_or_else(|| {
-                self.problem(
-                    at,
-                    Some(reference),
-                    PdfErrorKind::Malformed,
-                    "xref stream has invalid W",
-                )
-            })?;
+            .ok_or_else(|| self.malformed(at, Some(reference), "xref stream has invalid W"))?;
         let row_width = widths.iter().sum::<u64>();
         if row_width == 0 {
-            return Err(self.problem(
-                at,
-                Some(reference),
-                PdfErrorKind::Malformed,
-                "xref stream has empty W",
-            ));
+            return Err(self.malformed(at, Some(reference), "xref stream has empty W"));
         }
         let indices = match dictionary.value(b"Index") {
             Some(value) => unsigned_array(value, MAX_XREF_INDEX_VALUES),
             None => Some(vec![0, u64::from(trailer.size)]),
         }
         .filter(|values| !values.is_empty() && values.len() % 2 == 0)
-        .ok_or_else(|| {
-            self.problem(
-                at,
-                Some(reference),
-                PdfErrorKind::Malformed,
-                "xref stream has invalid Index",
-            )
-        })?;
+        .ok_or_else(|| self.malformed(at, Some(reference), "xref stream has invalid Index"))?;
         let mut rows = 0_u64;
         let mut previous_end = 0_u64;
         for pair in indices.chunks_exact(2) {
             let [start, count] = [pair[0], pair[1]];
-            let end = start.checked_add(count).ok_or_else(|| {
-                self.problem(
-                    at,
-                    Some(reference),
-                    PdfErrorKind::Malformed,
-                    "xref Index range overflows",
-                )
-            })?;
+            let end = start
+                .checked_add(count)
+                .ok_or_else(|| self.malformed(at, Some(reference), "xref Index range overflows"))?;
             if count == 0 || start < previous_end || end > u64::from(trailer.size) {
-                return Err(self.problem(
+                return Err(self.malformed(
                     at,
                     Some(reference),
-                    PdfErrorKind::Malformed,
                     "xref Index ranges overlap or exceed Size",
                 ));
             }
             previous_end = end;
             rows = rows.checked_add(count).ok_or_else(|| {
-                self.problem(
-                    at,
-                    Some(reference),
-                    PdfErrorKind::Malformed,
-                    "xref Index row count overflows",
-                )
+                self.malformed(at, Some(reference), "xref Index row count overflows")
             })?;
         }
         let decoded_len = rows.checked_mul(row_width).ok_or_else(|| {
-            self.problem(
-                at,
-                Some(reference),
-                PdfErrorKind::Malformed,
-                "xref stream decoded size overflows",
-            )
+            self.malformed(at, Some(reference), "xref stream decoded size overflows")
         })?;
         // Encoded and decoded buffers may coexist during inflation. Keep their
         // combined ceiling within one quarter of the configured allocation cap.
@@ -1090,21 +956,11 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                 "xref stream filter is unsupported",
             ));
         }
-        let data_at = at.checked_add(data_start as u64).ok_or_else(|| {
-            self.problem(
-                at,
-                Some(reference),
-                PdfErrorKind::Malformed,
-                "xref stream offset overflows",
-            )
-        })?;
+        let data_at = at
+            .checked_add(data_start as u64)
+            .ok_or_else(|| self.malformed(at, Some(reference), "xref stream offset overflows"))?;
         let after_data = data_at.checked_add(length).ok_or_else(|| {
-            self.problem(
-                data_at,
-                Some(reference),
-                PdfErrorKind::Malformed,
-                "xref stream length overflows",
-            )
+            self.malformed(data_at, Some(reference), "xref stream length overflows")
         })?;
         self.check_stream_tail(after_data, Some(reference)).await?;
         let encoded = self.bytes(data_at, length as usize).await?;
@@ -1128,10 +984,9 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                     ));
                 }
                 Err(InflateXrefError::Malformed) => {
-                    return Err(self.problem(
+                    return Err(self.malformed(
                         data_at,
                         Some(reference),
-                        PdfErrorKind::Malformed,
                         "xref stream Flate data is invalid",
                     ));
                 }
@@ -1139,10 +994,9 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
             }
         } else {
             if encoded.len() != decoded_len as usize {
-                return Err(self.problem(
+                return Err(self.malformed(
                     data_at,
                     Some(reference),
-                    PdfErrorKind::Malformed,
                     "xref stream length disagrees with W and Index",
                 ));
             }
@@ -1161,12 +1015,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                 // geometry, but still reject any future parser drift safely.
                 let mut field = |width| {
                     read_be(&decoded, &mut position, width).ok_or_else(|| {
-                        self.problem(
-                            data_at,
-                            Some(reference),
-                            PdfErrorKind::Malformed,
-                            "xref stream row is truncated",
-                        )
+                        self.malformed(data_at, Some(reference), "xref stream row is truncated")
                     })
                 };
                 let kind = if widths[0] == 0 {
@@ -1180,10 +1029,9 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                     0 => XrefKind::Free,
                     1 => {
                         if field2 >= self.range.length {
-                            return Err(self.problem(
+                            return Err(self.malformed(
                                 data_at,
                                 Some(reference),
-                                PdfErrorKind::Malformed,
                                 "xref object offset exceeds PDF range",
                             ));
                         }
@@ -1207,12 +1055,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                     }
                 };
                 let generation = u16::try_from(field3).map_err(|_| {
-                    self.problem(
-                        data_at,
-                        Some(reference),
-                        PdfErrorKind::Malformed,
-                        "xref generation exceeds 16 bits",
-                    )
+                    self.malformed(data_at, Some(reference), "xref generation exceeds 16 bits")
                 })?;
                 push_bounded(
                     &mut records,
@@ -1230,7 +1073,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
             .iter()
             .find(|record| record.number == reference.number);
         if !self_entry.is_some_and(|record| matches!(record.slot, XrefSlot { generation: 0, kind: XrefKind::InUse(offset) } if offset == at)) {
-            return Err(self.problem(at, Some(reference), PdfErrorKind::Malformed, "xref stream has no valid self entry"));
+            return Err(self.malformed(at, Some(reference), "xref stream has no valid self entry"));
         }
         Ok((records, trailer))
     }
@@ -1240,7 +1083,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
         let required = |name: &[u8], reason: &'static str| {
             dictionary
                 .value(name)
-                .ok_or_else(|| self.problem(at, None, PdfErrorKind::Malformed, reason))
+                .ok_or_else(|| self.malformed(at, None, reason))
         };
         if dictionary.value(b"Encrypt").is_some() {
             return Err(self.problem(
@@ -1258,22 +1101,10 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                 "hybrid xref streams are unsupported",
             ));
         }
-        let size_raw =
-            exact_unsigned(required(b"Size", "PDF trailer lacks Size")?).ok_or_else(|| {
-                self.problem(
-                    at,
-                    None,
-                    PdfErrorKind::Malformed,
-                    "invalid PDF trailer Size",
-                )
-            })?;
+        let size_raw = exact_unsigned(required(b"Size", "PDF trailer lacks Size")?)
+            .ok_or_else(|| self.malformed(at, None, "invalid PDF trailer Size"))?;
         if size_raw == 0 {
-            return Err(self.problem(
-                at,
-                None,
-                PdfErrorKind::Malformed,
-                "invalid PDF trailer Size",
-            ));
+            return Err(self.malformed(at, None, "invalid PDF trailer Size"));
         }
         if size_raw > u64::from(MAX_PDF_OBJECTS) + 1 {
             return Err(self.locate_limit(
@@ -1287,48 +1118,22 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
             ));
         }
         let size = size_raw as u32;
-        let root =
-            exact_reference(required(b"Root", "PDF trailer lacks Root")?).ok_or_else(|| {
-                self.problem(
-                    at,
-                    None,
-                    PdfErrorKind::Malformed,
-                    "invalid PDF trailer Root",
-                )
-            })?;
+        let root = exact_reference(required(b"Root", "PDF trailer lacks Root")?)
+            .ok_or_else(|| self.malformed(at, None, "invalid PDF trailer Root"))?;
         let info = dictionary
             .value(b"Info")
             .map(exact_reference)
             .transpose_option()
-            .ok_or_else(|| {
-                self.problem(
-                    at,
-                    None,
-                    PdfErrorKind::Malformed,
-                    "invalid PDF trailer Info",
-                )
-            })?;
+            .ok_or_else(|| self.malformed(at, None, "invalid PDF trailer Info"))?;
         let id = dictionary.value(b"ID").map(|value| value.to_vec());
         if id.as_deref().is_some_and(|value| !valid_id_array(value)) {
-            return Err(self.problem(
-                at,
-                None,
-                PdfErrorKind::Malformed,
-                "PDF trailer ID must be an array of two strings",
-            ));
+            return Err(self.malformed(at, None, "PDF trailer ID must be an array of two strings"));
         }
         let prev = dictionary
             .value(b"Prev")
             .map(exact_unsigned)
             .transpose_option()
-            .ok_or_else(|| {
-                self.problem(
-                    at,
-                    None,
-                    PdfErrorKind::Malformed,
-                    "invalid PDF trailer Prev",
-                )
-            })?;
+            .ok_or_else(|| self.malformed(at, None, "invalid PDF trailer Prev"))?;
         Ok(Trailer {
             size,
             root,
@@ -1355,18 +1160,11 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
             .check_allocation(bytes as u64)
             .map_err(|error| self.locate_limit(at, object, error))?;
         let mut keys = Vec::new();
-        keys.try_reserve_exact(dictionary.entries.len())
-            .map_err(|_| {
-                self.locate_limit(
-                    at,
-                    object,
-                    Error::LimitExceeded {
-                        resource: "PDF dictionary key index",
-                        limit: self.limits.max_allocation_bytes,
-                        attempted: bytes as u64,
-                    },
-                )
-            })?;
+        reserve_exact(
+            &mut keys,
+            dictionary.entries.len(),
+            self.allocation_limit(at, object, "PDF dictionary key index", bytes as u64),
+        )?;
         keys.extend(0..dictionary.entries.len());
         keys.sort_unstable_by(|left, right| {
             dictionary.entries[*left]
@@ -1391,22 +1189,16 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
         let maximum = min(self.syntax_limit(), self.range.length.saturating_sub(at));
         let mut amount = min(512, maximum) as usize;
         if amount == 0 {
-            return Err(self.problem(
-                at,
-                expected,
-                PdfErrorKind::Malformed,
-                "indirect object is truncated",
-            ));
+            return Err(self.malformed(at, expected, "indirect object is truncated"));
         }
         loop {
             let bytes = self.bytes(at, amount).await?;
             match parse_object_head(bytes) {
                 Ok(head) => {
                     if expected.is_some_and(|reference| reference != head.reference) {
-                        return Err(self.problem(
+                        return Err(self.malformed(
                             at,
                             expected,
-                            PdfErrorKind::Malformed,
                             "xref points to a different object header",
                         ));
                     }
@@ -1463,67 +1255,30 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
             ObjectTail::EndObject { end } => at.checked_add(end as u64),
             ObjectTail::Stream { data_start } => {
                 let dictionary = head.dictionary.as_ref().ok_or_else(|| {
-                    self.problem(
-                        at,
-                        Some(expected),
-                        PdfErrorKind::Malformed,
-                        "stream has no dictionary",
-                    )
+                    self.malformed(at, Some(expected), "stream has no dictionary")
                 })?;
-                let length_value = dictionary.value(b"Length").ok_or_else(|| {
-                    self.problem(
-                        at,
-                        Some(expected),
-                        PdfErrorKind::Malformed,
-                        "stream lacks Length",
-                    )
-                })?;
+                let length_value = dictionary
+                    .value(b"Length")
+                    .ok_or_else(|| self.malformed(at, Some(expected), "stream lacks Length"))?;
                 let length = if let Some(value) = exact_unsigned(length_value) {
                     value
                 } else if let Some(reference) = exact_reference(length_value) {
                     self.resolve_length(reference, slots).await?
                 } else {
-                    return Err(self.problem(
-                        at,
-                        Some(expected),
-                        PdfErrorKind::Malformed,
-                        "invalid stream Length",
-                    ));
+                    return Err(self.malformed(at, Some(expected), "invalid stream Length"));
                 };
-                let data_at = at.checked_add(data_start as u64).ok_or_else(|| {
-                    self.problem(
-                        at,
-                        Some(expected),
-                        PdfErrorKind::Malformed,
-                        "stream offset overflows",
-                    )
-                })?;
+                let data_at = at
+                    .checked_add(data_start as u64)
+                    .ok_or_else(|| self.malformed(at, Some(expected), "stream offset overflows"))?;
                 let after_data = data_at.checked_add(length).ok_or_else(|| {
-                    self.problem(
-                        data_at,
-                        Some(expected),
-                        PdfErrorKind::Malformed,
-                        "stream extent overflows",
-                    )
+                    self.malformed(data_at, Some(expected), "stream extent overflows")
                 })?;
                 Some(self.check_stream_tail(after_data, Some(expected)).await?)
             }
         }
-        .ok_or_else(|| {
-            self.problem(
-                at,
-                Some(expected),
-                PdfErrorKind::Malformed,
-                "object end overflows",
-            )
-        })?;
+        .ok_or_else(|| self.malformed(at, Some(expected), "object end overflows"))?;
         if end > self.range.length {
-            return Err(self.problem(
-                at,
-                Some(expected),
-                PdfErrorKind::Malformed,
-                "object extends beyond PDF range",
-            ));
+            return Err(self.malformed(at, Some(expected), "object extends beyond PDF range"));
         }
         Ok((
             head,
@@ -1545,38 +1300,30 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                 kind: XrefKind::InUse(offset),
             }) if generation == reference.generation => offset,
             _ => {
-                return Err(self.problem(
+                return Err(self.malformed(
                     0,
                     Some(reference),
-                    PdfErrorKind::Malformed,
                     "indirect stream Length does not resolve",
                 ));
             }
         };
         let head = self.load_head(offset, Some(reference)).await?;
         if !matches!(head.tail, ObjectTail::EndObject { .. }) {
-            return Err(self.problem(
+            return Err(self.malformed(
                 offset,
                 Some(reference),
-                PdfErrorKind::Malformed,
                 "indirect stream Length is not an integer object",
             ));
         }
         let scalar = head.scalar.ok_or_else(|| {
-            self.problem(
+            self.malformed(
                 offset,
                 Some(reference),
-                PdfErrorKind::Malformed,
                 "indirect stream Length is not an integer",
             )
         })?;
         exact_unsigned(&head.bytes[scalar]).ok_or_else(|| {
-            self.problem(
-                offset,
-                Some(reference),
-                PdfErrorKind::Malformed,
-                "invalid indirect stream Length",
-            )
+            self.malformed(offset, Some(reference), "invalid indirect stream Length")
         })
     }
 
@@ -1593,22 +1340,12 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
             _ => {}
         }
         if self.bytes(cursor, 9).await?.as_slice() != b"endstream" {
-            return Err(self.problem(
-                cursor,
-                object,
-                PdfErrorKind::Malformed,
-                "stream Length does not end at endstream",
-            ));
+            return Err(self.malformed(cursor, object, "stream Length does not end at endstream"));
         }
         cursor += 9;
         self.skip_space(&mut cursor).await?;
         if self.bytes(cursor, 6).await?.as_slice() != b"endobj" {
-            return Err(self.problem(
-                cursor,
-                object,
-                PdfErrorKind::Malformed,
-                "stream lacks endobj",
-            ));
+            return Err(self.malformed(cursor, object, "stream lacks endobj"));
         }
         Ok(cursor + 6)
     }
@@ -1631,10 +1368,9 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                 generation: *generation,
             };
             if *offset >= index.logical_end {
-                return Err(self.problem(
+                return Err(self.malformed(
                     *offset,
                     Some(reference),
-                    PdfErrorKind::Malformed,
                     "live PDF object begins after logical EOF",
                 ));
             }
@@ -1644,20 +1380,18 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                 .checked_add(location.length)
                 .is_none_or(|end| end > index.logical_end)
             {
-                return Err(self.problem(
+                return Err(self.malformed(
                     *offset,
                     Some(reference),
-                    PdfErrorKind::Malformed,
                     "live PDF object extends past logical EOF",
                 ));
             }
             if let ObjectTail::Stream { data_start } = &head.tail {
                 if *data_start > 0 && head.bytes[*data_start - 1] == b'\r' {
                     let patch_at = offset.checked_add(*data_start as u64 - 1).ok_or_else(|| {
-                        self.problem(
+                        self.malformed(
                             *offset,
                             Some(reference),
-                            PdfErrorKind::Malformed,
                             "stream separator offset overflows",
                         )
                     })?;
@@ -1717,10 +1451,9 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                         .map_err(|error| self.locate_limit(*offset, Some(reference), error))?;
                         continue;
                     }
-                    return Err(self.problem(
+                    return Err(self.malformed(
                         *offset,
                         Some(reference),
-                        PdfErrorKind::Malformed,
                         "PDF object contains a dangling indirect reference",
                     ));
                 }
@@ -1741,27 +1474,24 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
     ) -> Result<()> {
         if let Some(info) = index.trailer_info {
             let location = index.object_location(info).map_err(|_| {
-                self.problem(
+                self.malformed(
                     index.xref_offset,
                     Some(info),
-                    PdfErrorKind::Malformed,
                     "trailer Info does not resolve to a live object",
                 )
             })?;
             let (head, _) = self.load_object(location.offset, info, slots).await?;
             let dictionary = head.dictionary.ok_or_else(|| {
-                self.problem(
+                self.malformed(
                     location.offset,
                     Some(info),
-                    PdfErrorKind::Malformed,
                     "trailer Info is not a dictionary",
                 )
             })?;
             if dictionary.value(b"Type").is_some() {
-                return Err(self.problem(
+                return Err(self.malformed(
                     location.offset,
                     Some(info),
-                    PdfErrorKind::Malformed,
                     "trailer Info references a typed non-information dictionary",
                 ));
             }
@@ -1771,18 +1501,16 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
             .load_object(catalog_location.offset, index.catalog, slots)
             .await?;
         let catalog = catalog_head.dictionary.ok_or_else(|| {
-            self.problem(
+            self.malformed(
                 catalog_location.offset,
                 Some(index.catalog),
-                PdfErrorKind::Malformed,
                 "Catalog is not a dictionary",
             )
         })?;
         if catalog.value(b"Type").and_then(exact_name).as_deref() != Some(b"Catalog".as_slice()) {
-            return Err(self.problem(
+            return Err(self.malformed(
                 catalog_location.offset,
                 Some(index.catalog),
-                PdfErrorKind::Malformed,
                 "trailer Root is not a Catalog",
             ));
         }
@@ -1806,19 +1534,17 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
             let location = index.object_location(form_ref)?;
             let (form_head, _) = self.load_object(location.offset, form_ref, slots).await?;
             let form = form_head.dictionary.ok_or_else(|| {
-                self.problem(
+                self.malformed(
                     location.offset,
                     Some(form_ref),
-                    PdfErrorKind::Malformed,
                     "AcroForm is not a dictionary",
                 )
             })?;
             if let Some(flags) = form.value(b"SigFlags") {
                 let flags = exact_unsigned(flags).ok_or_else(|| {
-                    self.problem(
+                    self.malformed(
                         location.offset,
                         Some(form_ref),
-                        PdfErrorKind::Malformed,
                         "AcroForm SigFlags is invalid",
                     )
                 })?;
@@ -1836,10 +1562,9 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
             .value(b"Pages")
             .and_then(exact_reference)
             .ok_or_else(|| {
-                self.problem(
+                self.malformed(
                     catalog_location.offset,
                     Some(index.catalog),
-                    PdfErrorKind::Malformed,
                     "Catalog lacks Pages reference",
                 )
             })?;
@@ -1862,32 +1587,28 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                 self.locate_limit(catalog_location.offset, Some(index.catalog), error)
             })?;
         let mut visited = Vec::new();
-        visited.try_reserve_exact(slots.len()).map_err(|_| {
-            self.locate_limit(
+        reserve_exact(
+            &mut visited,
+            slots.len(),
+            self.allocation_limit(
                 catalog_location.offset,
                 Some(index.catalog),
-                Error::LimitExceeded {
-                    resource: "PDF page tree visited index",
-                    limit: self.limits.max_allocation_bytes,
-                    attempted: slots.len() as u64,
-                },
-            )
-        })?;
+                "PDF page tree visited index",
+                slots.len() as u64,
+            ),
+        )?;
         visited.resize(slots.len(), false);
         let mut contents_validated = Vec::new();
-        contents_validated
-            .try_reserve_exact(slots.len())
-            .map_err(|_| {
-                self.locate_limit(
-                    catalog_location.offset,
-                    Some(index.catalog),
-                    Error::LimitExceeded {
-                        resource: "PDF page content validation index",
-                        limit: self.limits.max_allocation_bytes,
-                        attempted: slots.len() as u64,
-                    },
-                )
-            })?;
+        reserve_exact(
+            &mut contents_validated,
+            slots.len(),
+            self.allocation_limit(
+                catalog_location.offset,
+                Some(index.catalog),
+                "PDF page content validation index",
+                slots.len() as u64,
+            ),
+        )?;
         contents_validated.resize(slots.len(), false);
         while let Some(task) = stack.pop() {
             let (reference, parent, inherited_media_box) = match task {
@@ -1898,10 +1619,9 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                 } => {
                     if pages.len().saturating_sub(first_leaf) != declared_count as usize {
                         let location = index.object_location(reference)?;
-                        return Err(self.problem(
+                        return Err(self.malformed(
                             location.offset,
                             Some(reference),
-                            PdfErrorKind::Malformed,
                             "Pages Count does not equal leaf descendants",
                         ));
                     }
@@ -1914,18 +1634,16 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                 } => (reference, parent, inherited_media_box),
             };
             let Some(seen) = visited.get_mut(reference.number as usize) else {
-                return Err(self.problem(
+                return Err(self.malformed(
                     0,
                     Some(reference),
-                    PdfErrorKind::Malformed,
                     "page tree reference is outside xref bounds",
                 ));
             };
             if *seen {
-                return Err(self.problem(
+                return Err(self.malformed(
                     0,
                     Some(reference),
-                    PdfErrorKind::Malformed,
                     "page tree contains a cycle or duplicate child",
                 ));
             }
@@ -1933,10 +1651,9 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
             let location = index.object_location(reference)?;
             let (head, _) = self.load_object(location.offset, reference, slots).await?;
             let dictionary = head.dictionary.ok_or_else(|| {
-                self.problem(
+                self.malformed(
                     location.offset,
                     Some(reference),
-                    PdfErrorKind::Malformed,
                     "page tree object is not a dictionary",
                 )
             })?;
@@ -1944,19 +1661,17 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                 .value(b"Type")
                 .and_then(exact_name)
                 .ok_or_else(|| {
-                    self.problem(
+                    self.malformed(
                         location.offset,
                         Some(reference),
-                        PdfErrorKind::Malformed,
                         "page tree object lacks Type",
                     )
                 })?;
             let actual_parent = dictionary.value(b"Parent").map(exact_reference);
             if actual_parent == Some(None) {
-                return Err(self.problem(
+                return Err(self.malformed(
                     location.offset,
                     Some(reference),
-                    PdfErrorKind::Malformed,
                     "page tree Parent is not a reference",
                 ));
             }
@@ -1978,26 +1693,23 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                             )?;
                             index.stale_page_parents.swap_remove(candidate);
                         } else {
-                            return Err(self.problem(
+                            return Err(self.malformed(
                                 location.offset,
                                 Some(reference),
-                                PdfErrorKind::Malformed,
                                 "page tree Parent link disagrees with Kids",
                             ));
                         }
                     } else {
-                        return Err(self.problem(
+                        return Err(self.malformed(
                             location.offset,
                             Some(reference),
-                            PdfErrorKind::Malformed,
                             "page tree Parent link disagrees with Kids",
                         ));
                     }
                 } else {
-                    return Err(self.problem(
+                    return Err(self.malformed(
                         location.offset,
                         Some(reference),
-                        PdfErrorKind::Malformed,
                         "page tree Parent link disagrees with Kids",
                     ));
                 }
@@ -2017,10 +1729,9 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                         .and_then(exact_unsigned)
                         .and_then(|count| u32::try_from(count).ok())
                         .ok_or_else(|| {
-                            self.problem(
+                            self.malformed(
                                 location.offset,
                                 Some(reference),
-                                PdfErrorKind::Malformed,
                                 "Pages node lacks valid Count",
                             )
                         })?;
@@ -2031,18 +1742,16 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                         .value(b"Kids")
                         .and_then(|value| reference_array(value, self.limits.max_pages as usize))
                         .ok_or_else(|| {
-                            self.problem(
+                            self.malformed(
                                 location.offset,
                                 Some(reference),
-                                PdfErrorKind::Malformed,
                                 "Pages node lacks valid Kids",
                             )
                         })?;
                     if kids.is_empty() || kids.len() > count as usize {
-                        return Err(self.problem(
+                        return Err(self.malformed(
                             location.offset,
                             Some(reference),
-                            PdfErrorKind::Malformed,
                             "Pages Count/Kids are inconsistent",
                         ));
                     }
@@ -2075,10 +1784,9 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                 }
                 b"Page" => {
                     if !has_media_box {
-                        return Err(self.problem(
+                        return Err(self.malformed(
                             location.offset,
                             Some(reference),
-                            PdfErrorKind::Malformed,
                             "Page lacks inherited MediaBox",
                         ));
                     }
@@ -2107,31 +1815,24 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                         })?;
                 }
                 _ => {
-                    return Err(self.problem(
+                    return Err(self.malformed(
                         location.offset,
                         Some(reference),
-                        PdfErrorKind::Malformed,
                         "Kids entry is not Page or Pages",
                     ));
                 }
             }
         }
         if pages.is_empty() {
-            return Err(self.problem(
-                0,
-                Some(pages_root),
-                PdfErrorKind::Malformed,
-                "PDF has no pages",
-            ));
+            return Err(self.malformed(0, Some(pages_root), "PDF has no pages"));
         }
         index.pages = pages;
         index.catalog_dict = catalog;
         if let Some(outline_value) = index.catalog_dict.value(b"Outlines") {
             let outline_ref = exact_reference(outline_value).ok_or_else(|| {
-                self.problem(
+                self.malformed(
                     catalog_location.offset,
                     Some(index.catalog),
-                    PdfErrorKind::Malformed,
                     "invalid Catalog Outlines reference",
                 )
             })?;
@@ -2140,10 +1841,9 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                 .load_object(outline_location.offset, outline_ref, slots)
                 .await?;
             let outline = head.dictionary.ok_or_else(|| {
-                self.problem(
+                self.malformed(
                     outline_location.offset,
                     Some(outline_ref),
-                    PdfErrorKind::Malformed,
                     "Outlines root is not a dictionary",
                 )
             })?;
@@ -2176,19 +1876,13 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
             {
                 return Ok(());
             }
-            return Err(self.problem(
+            return Err(self.malformed(
                 location.offset,
                 Some(reference),
-                PdfErrorKind::Malformed,
                 "indirect MediaBox is not a valid rectangle array",
             ));
         }
-        Err(self.problem(
-            owner_offset,
-            Some(owner),
-            PdfErrorKind::Malformed,
-            "page tree MediaBox is invalid",
-        ))
+        Err(self.malformed(owner_offset, Some(owner), "page tree MediaBox is invalid"))
     }
 
     async fn validate_page_contents(
@@ -2218,10 +1912,9 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
             let references = scalar
                 .and_then(|raw| reference_array(raw, slots.len()))
                 .ok_or_else(|| {
-                    self.problem(
+                    self.malformed(
                         page_offset,
                         Some(page),
-                        PdfErrorKind::Malformed,
                         "Page Contents is not a stream or stream array",
                     )
                 })?;
@@ -2232,10 +1925,9 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
             return Ok(());
         } else {
             reference_array(value, slots.len()).ok_or_else(|| {
-                self.problem(
+                self.malformed(
                     page_offset,
                     Some(page),
-                    PdfErrorKind::Malformed,
                     "Page Contents must be a stream reference or reference array",
                 )
             })?
@@ -2256,10 +1948,9 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
         let location = index.object_location(reference)?;
         let (head, _) = self.load_object(location.offset, reference, slots).await?;
         if !matches!(head.tail, ObjectTail::Stream { .. }) {
-            return Err(self.problem(
+            return Err(self.malformed(
                 location.offset,
                 Some(reference),
-                PdfErrorKind::Malformed,
                 "Page Contents array member is not a stream",
             ));
         }
@@ -2278,10 +1969,9 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
             .value(b"Type")
             .is_some_and(|value| exact_name(value).as_deref() != Some(b"Outlines"))
         {
-            return Err(self.problem(
+            return Err(self.malformed(
                 root_offset,
                 Some(root_ref),
-                PdfErrorKind::Malformed,
                 "outline root Type is invalid",
             ));
         }
@@ -2289,10 +1979,9 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
         let last = root.value(b"Last").map(exact_reference);
         let root_count = root.value(b"Count").map(exact_unsigned);
         if root_count == Some(None) {
-            return Err(self.problem(
+            return Err(self.malformed(
                 root_offset,
                 Some(root_ref),
-                PdfErrorKind::Malformed,
                 "outline root Count is invalid",
             ));
         }
@@ -2302,27 +1991,24 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
         ) else {
             if first.is_none() && last.is_none() {
                 if root_count.flatten().unwrap_or(0) != 0 {
-                    return Err(self.problem(
+                    return Err(self.malformed(
                         root_offset,
                         Some(root_ref),
-                        PdfErrorKind::Malformed,
                         "empty outline root has nonzero Count",
                     ));
                 }
                 return Ok(false);
             }
-            return Err(self.problem(
+            return Err(self.malformed(
                 root_offset,
                 Some(root_ref),
-                PdfErrorKind::Malformed,
                 "outline root First and Last must be valid references",
             ));
         };
         if root_count.flatten() == Some(0) {
-            return Err(self.problem(
+            return Err(self.malformed(
                 root_offset,
                 Some(root_ref),
-                PdfErrorKind::Malformed,
                 "nonempty outline root has zero Count",
             ));
         }
@@ -2331,17 +2017,16 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
             .check_allocation(index_bytes)
             .map_err(|error| self.locate_limit(root_offset, Some(root_ref), error))?;
         let mut visited = Vec::new();
-        visited.try_reserve_exact(slots.len()).map_err(|_| {
-            self.locate_limit(
+        reserve_exact(
+            &mut visited,
+            slots.len(),
+            self.allocation_limit(
                 root_offset,
                 Some(root_ref),
-                Error::LimitExceeded {
-                    resource: "PDF outline visited index",
-                    limit: self.limits.max_allocation_bytes,
-                    attempted: index_bytes,
-                },
-            )
-        })?;
+                "PDF outline visited index",
+                index_bytes,
+            ),
+        )?;
         visited.resize(slots.len(), false);
         let target_bytes = slots
             .len()
@@ -2353,17 +2038,16 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
             .check_allocation(target_bytes as u64)
             .map_err(|error| self.locate_limit(root_offset, Some(root_ref), error))?;
         let mut page_targets = Vec::new();
-        page_targets.try_reserve_exact(slots.len()).map_err(|_| {
-            self.locate_limit(
+        reserve_exact(
+            &mut page_targets,
+            slots.len(),
+            self.allocation_limit(
                 root_offset,
                 Some(root_ref),
-                Error::LimitExceeded {
-                    resource: "PDF outline destination index",
-                    limit: self.limits.max_allocation_bytes,
-                    attempted: target_bytes as u64,
-                },
-            )
-        })?;
+                "PDF outline destination index",
+                target_bytes as u64,
+            ),
+        )?;
         page_targets.resize(slots.len(), None);
         for page in &index.pages {
             page_targets[page.number as usize] = Some(page.generation);
@@ -2385,18 +2069,16 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
         while let Some(task) = stack.pop() {
             let location = index.object_location(task.reference)?;
             let Some(seen) = visited.get_mut(task.reference.number as usize) else {
-                return Err(self.problem(
+                return Err(self.malformed(
                     location.offset,
                     Some(task.reference),
-                    PdfErrorKind::Malformed,
                     "outline reference is outside xref bounds",
                 ));
             };
             if *seen {
-                return Err(self.problem(
+                return Err(self.malformed(
                     location.offset,
                     Some(task.reference),
-                    PdfErrorKind::Malformed,
                     "outline tree contains a cycle or repeated item",
                 ));
             }
@@ -2413,35 +2095,31 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                 .load_object(location.offset, task.reference, slots)
                 .await?;
             let item = head.dictionary.ok_or_else(|| {
-                self.problem(
+                self.malformed(
                     location.offset,
                     Some(task.reference),
-                    PdfErrorKind::Malformed,
                     "outline item is not a dictionary",
                 )
             })?;
             if !item.value(b"Title").is_some_and(valid_text_string) {
-                return Err(self.problem(
+                return Err(self.malformed(
                     location.offset,
                     Some(task.reference),
-                    PdfErrorKind::Malformed,
                     "outline item lacks a valid text Title",
                 ));
             }
             if item.value(b"Parent").and_then(exact_reference) != Some(task.parent) {
-                return Err(self.problem(
+                return Err(self.malformed(
                     location.offset,
                     Some(task.reference),
-                    PdfErrorKind::Malformed,
                     "outline item Parent link is invalid",
                 ));
             }
             let previous = item.value(b"Prev").map(exact_reference);
             if previous == Some(None) || previous.flatten() != task.previous {
-                return Err(self.problem(
+                return Err(self.malformed(
                     location.offset,
                     Some(task.reference),
-                    PdfErrorKind::Malformed,
                     "outline item Prev link is invalid",
                 ));
             }
@@ -2465,10 +2143,9 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                 if page_targets.get(page.number as usize).copied().flatten()
                     != Some(page.generation)
                 {
-                    return Err(self.problem(
+                    return Err(self.malformed(
                         location.offset,
                         Some(task.reference),
-                        PdfErrorKind::Malformed,
                         "outline destination does not target a page",
                     ));
                 }
@@ -2476,10 +2153,9 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
             let next = item.value(b"Next").map(exact_reference);
             let next = match next {
                 Some(None) => {
-                    return Err(self.problem(
+                    return Err(self.malformed(
                         location.offset,
                         Some(task.reference),
-                        PdfErrorKind::Malformed,
                         "outline Next reference is invalid",
                     ));
                 }
@@ -2500,10 +2176,9 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                 )
                 .map_err(|error| self.locate_limit(location.offset, Some(task.reference), error))?;
             } else if task.reference != task.expected_last {
-                return Err(self.problem(
+                return Err(self.malformed(
                     location.offset,
                     Some(task.reference),
-                    PdfErrorKind::Malformed,
                     "outline Last link disagrees with sibling chain",
                 ));
             }
@@ -2528,10 +2203,9 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                     })?;
                 }
                 _ => {
-                    return Err(self.problem(
+                    return Err(self.malformed(
                         location.offset,
                         Some(task.reference),
-                        PdfErrorKind::Malformed,
                         "outline child First and Last must be valid references",
                     ));
                 }
@@ -2557,19 +2231,16 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
             .check_allocation(order_bytes as u64)
             .map_err(|error| self.locate_limit(at, Some(reference), error))?;
         let mut order = Vec::new();
-        order
-            .try_reserve_exact(dictionary.entries.len())
-            .map_err(|_| {
-                self.locate_limit(
-                    at,
-                    Some(reference),
-                    Error::LimitExceeded {
-                        resource: "PDF dictionary key index",
-                        limit: self.limits.max_allocation_bytes,
-                        attempted: order_bytes as u64,
-                    },
-                )
-            })?;
+        reserve_exact(
+            &mut order,
+            dictionary.entries.len(),
+            self.allocation_limit(
+                at,
+                Some(reference),
+                "PDF dictionary key index",
+                order_bytes as u64,
+            ),
+        )?;
         order.extend(0..dictionary.entries.len());
         order.sort_unstable_by(|left, right| {
             dictionary.entries[*left]
@@ -2660,8 +2331,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                 .filter(|(position, entry)| keep(*position, entry))
                 .map(|(_, entry)| entry.raw_pair(&dictionary.bytes))
         };
-        let overflow =
-            |message| self.problem(at, Some(reference), PdfErrorKind::Malformed, message);
+        let overflow = |message| self.malformed(at, Some(reference), message);
         // "<<\n" and ">>" frame the retained pairs, one newline each, and the
         // appended bytes.
         let needed = kept()
@@ -2685,7 +2355,9 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
             ));
         }
         let mut body = Vec::new();
-        body.try_reserve_exact(needed).map_err(|_| {
+        reserve_exact(
+            &mut body,
+            needed,
             self.locate_limit(
                 at,
                 Some(reference),
@@ -2694,8 +2366,8 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                     limit: cap,
                     attempted: needed as u64,
                 },
-            )
-        })?;
+            ),
+        )?;
         body.extend_from_slice(b"<<\n");
         for pair in kept() {
             body.extend_from_slice(pair);
@@ -2730,17 +2402,16 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
             .check_allocation(bytes as u64)
             .map_err(|error| self.locate_limit(index.xref_offset, None, error))?;
         let mut locations = Vec::new();
-        locations.try_reserve_exact(object_count).map_err(|_| {
-            self.locate_limit(
+        reserve_exact(
+            &mut locations,
+            object_count,
+            self.allocation_limit(
                 index.xref_offset,
                 None,
-                Error::LimitExceeded {
-                    resource: "PDF object span index",
-                    limit: self.limits.max_allocation_bytes,
-                    attempted: bytes as u64,
-                },
-            )
-        })?;
+                "PDF object span index",
+                bytes as u64,
+            ),
+        )?;
         locations.extend(
             index
                 .object_locations
@@ -2752,12 +2423,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
         let mut previous_end = 0_u64;
         for (number, location) in locations {
             if location.offset < previous_end {
-                return Err(self.problem(
-                    location.offset,
-                    None,
-                    PdfErrorKind::Malformed,
-                    "PDF objects overlap",
-                ));
+                return Err(self.malformed(location.offset, None, "PDF objects overlap"));
             }
             if check_gaps && previous_end != 0 {
                 self.validate_gap(previous_end, location.offset, Some(number), slots, index)
@@ -2810,10 +2476,9 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                                     .retained_gap_bytes
                                     .checked_add(length)
                                     .ok_or_else(|| {
-                                        self.problem(
+                                        self.malformed(
                                             start,
                                             None,
-                                            PdfErrorKind::Malformed,
                                             "orphan gap repair size overflows",
                                         )
                                     })?;
@@ -2845,10 +2510,9 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                             }
                         }
                     }
-                    return Err(self.problem(
+                    return Err(self.malformed(
                         cursor,
                         None,
-                        PdfErrorKind::Malformed,
                         "unindexed bytes between PDF objects",
                     ));
                 }
@@ -2944,9 +2608,7 @@ fn inflate_xref<C: Cancellation>(
 ) -> std::result::Result<Vec<u8>, InflateXrefError> {
     let length = expected.checked_add(1).ok_or(InflateXrefError::TooLong)?;
     let mut decoded = Vec::new();
-    decoded
-        .try_reserve_exact(length)
-        .map_err(|_| InflateXrefError::TooLong)?;
+    reserve_exact(&mut decoded, length, InflateXrefError::TooLong)?;
     decoded.resize(length, 0);
     let mut inflater = Decompress::new(true);
     loop {
@@ -3010,13 +2672,16 @@ fn push_bounded<T>(
                 attempted: attempted as u64,
             });
         }
-        items
-            .try_reserve_exact(target - items.len())
-            .map_err(|_| Error::LimitExceeded {
+        let additional = target - items.len();
+        reserve_exact(
+            items,
+            additional,
+            Error::LimitExceeded {
                 resource,
                 limit: max_bytes,
                 attempted: attempted as u64,
-            })?;
+            },
+        )?;
     }
     items.push(item);
     Ok(())
@@ -3089,50 +2754,30 @@ pub(crate) async fn inspect_fragment_object<
     let end = match head.tail {
         ObjectTail::EndObject { end } => end as u64,
         ObjectTail::Stream { data_start } => {
-            let dictionary = head.dictionary.as_ref().ok_or_else(|| {
-                reader.problem(
-                    0,
-                    Some(expected),
-                    PdfErrorKind::Malformed,
-                    "stream lacks dictionary",
-                )
-            })?;
-            let value = dictionary.value(b"Length").ok_or_else(|| {
-                reader.problem(
-                    0,
-                    Some(expected),
-                    PdfErrorKind::Malformed,
-                    "stream lacks Length",
-                )
-            })?;
+            let dictionary = head
+                .dictionary
+                .as_ref()
+                .ok_or_else(|| reader.malformed(0, Some(expected), "stream lacks dictionary"))?;
+            let value = dictionary
+                .value(b"Length")
+                .ok_or_else(|| reader.malformed(0, Some(expected), "stream lacks Length"))?;
             let length = exact_unsigned(value)
                 .or_else(|| exact_reference(value).and_then(&resolve_length))
                 .ok_or_else(|| {
-                    reader.problem(
-                        0,
-                        Some(expected),
-                        PdfErrorKind::Malformed,
-                        "stream Length does not resolve",
-                    )
+                    reader.malformed(0, Some(expected), "stream Length does not resolve")
                 })?;
-            let after_data = (data_start as u64).checked_add(length).ok_or_else(|| {
-                reader.problem(
-                    0,
-                    Some(expected),
-                    PdfErrorKind::Malformed,
-                    "stream extent overflows",
-                )
-            })?;
+            let after_data = (data_start as u64)
+                .checked_add(length)
+                .ok_or_else(|| reader.malformed(0, Some(expected), "stream extent overflows"))?;
             reader.check_stream_tail(after_data, Some(expected)).await?
         }
     };
     let mut rest = end;
     reader.skip_space(&mut rest).await?;
     if rest != range.length {
-        return Err(reader.problem(
+        return Err(reader.malformed(
             rest,
             Some(expected),
-            PdfErrorKind::Malformed,
             "fragment has trailing non-whitespace bytes",
         ));
     }
@@ -3190,10 +2835,9 @@ pub(crate) async fn inspect_fragment_object<
                 ));
             }
             Some(_) if name == b"Page" || name == b"Pages" => {
-                return Err(reader.problem(
+                return Err(reader.malformed(
                     0,
                     Some(expected),
-                    PdfErrorKind::Malformed,
                     "fragment page tree MediaBox is invalid",
                 ));
             }
@@ -3207,10 +2851,9 @@ pub(crate) async fn inspect_fragment_object<
                     } else {
                         contents_is_direct_array = true;
                         reference_array(value, head.references.len()).ok_or_else(|| {
-                            reader.problem(
+                            reader.malformed(
                                 0,
                                 Some(expected),
-                                PdfErrorKind::Malformed,
                                 "fragment Page Contents is not a reference array",
                             )
                         })?
@@ -3221,24 +2864,16 @@ pub(crate) async fn inspect_fragment_object<
                     parent: dictionary
                         .value(b"Parent")
                         .and_then(exact_reference)
-                        .ok_or_else(|| {
-                            reader.problem(
-                                0,
-                                Some(expected),
-                                PdfErrorKind::Malformed,
-                                "Page lacks Parent",
-                            )
-                        })?,
+                        .ok_or_else(|| reader.malformed(0, Some(expected), "Page lacks Parent"))?,
                     has_media_box,
                 }
             }
             b"Pages" => FragmentKind::Pages {
                 parent: match dictionary.value(b"Parent") {
                     Some(value) => Some(exact_reference(value).ok_or_else(|| {
-                        reader.problem(
+                        reader.malformed(
                             0,
                             Some(expected),
-                            PdfErrorKind::Malformed,
                             "fragment Pages Parent is not a reference",
                         )
                     })?),
@@ -3248,26 +2883,12 @@ pub(crate) async fn inspect_fragment_object<
                     .value(b"Count")
                     .and_then(exact_unsigned)
                     .and_then(|n| u32::try_from(n).ok())
-                    .ok_or_else(|| {
-                        reader.problem(
-                            0,
-                            Some(expected),
-                            PdfErrorKind::Malformed,
-                            "Pages lacks Count",
-                        )
-                    })?,
+                    .ok_or_else(|| reader.malformed(0, Some(expected), "Pages lacks Count"))?,
                 has_media_box,
                 kids: dictionary
                     .value(b"Kids")
                     .and_then(|v| reference_array(v, limits.max_pages as usize))
-                    .ok_or_else(|| {
-                        reader.problem(
-                            0,
-                            Some(expected),
-                            PdfErrorKind::Malformed,
-                            "Pages lacks Kids",
-                        )
-                    })?,
+                    .ok_or_else(|| reader.malformed(0, Some(expected), "Pages lacks Kids"))?,
             },
             b"Catalog" => {
                 if dictionary.value(b"Outlines").is_some() {
@@ -3283,12 +2904,7 @@ pub(crate) async fn inspect_fragment_object<
                         .value(b"Pages")
                         .and_then(exact_reference)
                         .ok_or_else(|| {
-                            reader.problem(
-                                0,
-                                Some(expected),
-                                PdfErrorKind::Malformed,
-                                "Catalog lacks Pages",
-                            )
+                            reader.malformed(0, Some(expected), "Catalog lacks Pages")
                         })?,
                 }
             }
@@ -3327,12 +2943,7 @@ pub(crate) async fn inspect_fragment_scalar<S: RangedSource, C: Cancellation>(
     let mut rest = end as u64;
     reader.skip_space(&mut rest).await?;
     if rest != range.length {
-        return Err(reader.problem(
-            rest,
-            Some(expected),
-            PdfErrorKind::Malformed,
-            "integer fragment has trailing bytes",
-        ));
+        return Err(reader.malformed(rest, Some(expected), "integer fragment has trailing bytes"));
     }
     Ok(head
         .scalar
