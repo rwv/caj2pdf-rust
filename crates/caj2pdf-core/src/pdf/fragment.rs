@@ -3460,6 +3460,638 @@ mod tests {
         });
     }
 
+    struct OverReportingSource(BytesSource);
+
+    impl RangedSource for OverReportingSource {
+        fn size(&self) -> u64 {
+            self.0.size()
+        }
+
+        async fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> Result<usize> {
+            self.0.read_at(offset, destination).await?;
+            Ok(destination.len() + 1)
+        }
+    }
+
+    /// A large virtual source: zero bytes except for a few placed segments.
+    struct SparseSource {
+        size: u64,
+        segments: Vec<(u64, Vec<u8>)>,
+    }
+
+    impl RangedSource for SparseSource {
+        fn size(&self) -> u64 {
+            self.size
+        }
+
+        async fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> Result<usize> {
+            let length = destination
+                .len()
+                .min(self.size.saturating_sub(offset) as usize);
+            let end = offset + length as u64;
+            destination[..length].fill(0);
+            for (start, bytes) in &self.segments {
+                let segment_end = start + bytes.len() as u64;
+                let from = offset.max(*start);
+                let to = end.min(segment_end);
+                if from < to {
+                    destination[(from - offset) as usize..(to - offset) as usize]
+                        .copy_from_slice(&bytes[(from - start) as usize..(to - start) as usize]);
+                }
+            }
+            Ok(length)
+        }
+    }
+
+    /// Reports cancellation from the `trip_at`-th query onward.
+    struct CancelAfter {
+        queries: Cell<usize>,
+        trip_at: usize,
+    }
+
+    impl Cancellation for CancelAfter {
+        fn is_cancelled(&self) -> bool {
+            let query = self.queries.get() + 1;
+            self.queries.set(query);
+            query >= self.trip_at
+        }
+    }
+
+    /// Nested page tree, an indirect Contents array shared through a scalar
+    /// array object, a direct Contents array, and an indirect stream Length.
+    fn content_rich_fragment() -> (BytesSource, Vec<FragmentObject>, Vec<PdfRef>) {
+        let mut bytes = b"CAJ\0content fragments\n".to_vec();
+        let objects = vec![
+            add_object(
+                &mut bytes,
+                9,
+                b"<< /Type /Page /Parent 5 0 R /MediaBox [0 0 200 300] /Contents 4 0 R >>",
+            ),
+            add_object(
+                &mut bytes,
+                3,
+                b"<< /Type /Page /Parent 7 0 R /Contents [6 0 R 8 0 R] >>",
+            ),
+            add_object(
+                &mut bytes,
+                7,
+                b"<< /Type /Pages /Parent 5 0 R /Count 1 /Kids [3 0 R] /MediaBox [0 0 400 250] >>",
+            ),
+            add_object(
+                &mut bytes,
+                5,
+                b"<< /Type /Pages /Count 2 /Kids [9 0 R 7 0 R] >>",
+            ),
+            add_object(&mut bytes, 4, b"[6 0 R 8 0 R]"),
+            add_object(
+                &mut bytes,
+                6,
+                b"<< /Length 2 0 R >>\nstream\nq Q\nendstream",
+            ),
+            add_object(&mut bytes, 8, b"<< /Length 0 >>\nstream\nendstream"),
+            add_object(&mut bytes, 2, b"3"),
+        ];
+        (
+            BytesSource(bytes),
+            objects,
+            vec![reference(9), reference(3)],
+        )
+    }
+
+    fn alternating_bookmarks(count: u32) -> Vec<Bookmark> {
+        (0..count)
+            .map(|index| Bookmark {
+                depth: index % 2,
+                title: format!("Item {index}"),
+                page_index: index % 2,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn source_that_over_reports_reads_is_rejected() {
+        run(async {
+            let (inner, objects, pages) = two_page_fragment();
+            let mut source = OverReportingSource(inner);
+            let plan = FragmentPlan {
+                objects: &objects,
+                pages: &pages,
+                pages_root: reference(5),
+                catalog: None,
+            };
+            let mut sink = BytesSink::default();
+            assert!(matches!(
+                reconstruct_fragment(
+                    &mut source,
+                    &mut sink,
+                    &plan,
+                    &Limits::default(),
+                    &NeverCancel,
+                )
+                .await,
+                Err(Error::InvalidInput {
+                    reason: "PDF source reported more bytes than requested"
+                })
+            ));
+            assert!(sink.bytes.is_empty());
+        });
+    }
+
+    #[test]
+    fn page_limit_names_the_first_ordered_page_span() {
+        run(async {
+            let (mut source, objects, pages) = two_page_fragment();
+            let plan = FragmentPlan {
+                objects: &objects,
+                pages: &pages,
+                pages_root: reference(5),
+                catalog: None,
+            };
+            let limits = Limits {
+                max_pages: 1,
+                ..Limits::default()
+            };
+            let mut sink = BytesSink::default();
+            let error = reconstruct_fragment(&mut source, &mut sink, &plan, &limits, &NeverCancel)
+                .await
+                .unwrap_err();
+            assert!(
+                matches!(
+                    error,
+                    Error::PdfLimitExceeded {
+                        resource: "pages",
+                        object: Some((9, 0)),
+                        offset,
+                        limit: 1,
+                        attempted: 2,
+                    } if offset == objects[0].range.offset
+                ),
+                "{error}"
+            );
+            assert!(sink.bytes.is_empty());
+        });
+    }
+
+    #[test]
+    fn outline_depth_is_bounded_before_output() {
+        run(async {
+            let (mut source, objects, pages) = two_page_fragment();
+            let plan = FragmentPlan {
+                objects: &objects,
+                pages: &pages,
+                pages_root: reference(5),
+                catalog: None,
+            };
+            let deep: Vec<Bookmark> = (0..=MAX_OUTLINE_DEPTH as u32)
+                .map(|depth| Bookmark {
+                    depth,
+                    title: format!("Level {depth}"),
+                    page_index: 0,
+                })
+                .collect();
+            let mut sink = BytesSink::default();
+            let error = reconstruct_fragment_with_bookmarks(
+                &mut source,
+                &mut sink,
+                &plan,
+                &deep,
+                &Limits::default(),
+                &NeverCancel,
+            )
+            .await
+            .unwrap_err();
+            assert!(
+                matches!(
+                    error,
+                    Error::PdfLimitExceeded {
+                        resource: "PDF outline depth",
+                        limit: 256,
+                        attempted: 257,
+                        ..
+                    }
+                ),
+                "{error}"
+            );
+            assert!(sink.bytes.is_empty());
+
+            let report = reconstruct_fragment_with_bookmarks(
+                &mut source,
+                &mut sink,
+                &plan,
+                &deep[..MAX_OUTLINE_DEPTH],
+                &Limits::default(),
+                &NeverCancel,
+            )
+            .await?;
+            assert_eq!(report.bookmarks_written, 256);
+            assert_eq!(report.output_bytes_written, sink.bytes.len() as u64);
+            Ok::<(), Error>(())
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn long_outline_titles_are_emitted_in_bounded_chunks() {
+        run(async {
+            let (mut source, objects, pages) = two_page_fragment();
+            let plan = FragmentPlan {
+                objects: &objects,
+                pages: &pages,
+                pages_root: reference(5),
+                catalog: None,
+            };
+            let bookmarks = [Bookmark {
+                depth: 0,
+                title: "A".repeat(3000),
+                page_index: 1,
+            }];
+            let mut sink = BytesSink::default();
+            let report = reconstruct_fragment_with_bookmarks(
+                &mut source,
+                &mut sink,
+                &plan,
+                &bookmarks,
+                &Limits::default(),
+                &NeverCancel,
+            )
+            .await?;
+            assert_eq!(report.output_bytes_written, sink.bytes.len() as u64);
+            let text = String::from_utf8_lossy(&sink.bytes);
+            assert!(text.contains(&format!(
+                "<< /Title <FEFF{}> /Parent 11 0 R /Dest [3 0 R /XYZ null null null] >>",
+                "0041".repeat(3000)
+            )));
+            Ok::<(), Error>(())
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn nested_contents_and_outline_round_trip_through_the_reader() {
+        run(async {
+            let (mut source, objects, pages) = content_rich_fragment();
+            let plan = FragmentPlan {
+                objects: &objects,
+                pages: &pages,
+                pages_root: reference(5),
+                catalog: None,
+            };
+            let bookmarks = alternating_bookmarks(4);
+            let mut sink = BytesSink::default();
+            let report = reconstruct_fragment_with_bookmarks(
+                &mut source,
+                &mut sink,
+                &plan,
+                &bookmarks,
+                &Limits::default(),
+                &NeverCancel,
+            )
+            .await?;
+            assert_eq!(report.pages_converted, 2);
+            assert_eq!(report.bookmarks_written, 4);
+            let mut output = BytesSource(sink.bytes);
+            let output_size = output.size();
+            let inspected = super::super::input::PdfIndex::open(
+                &mut output,
+                PdfRange {
+                    offset: 0,
+                    length: output_size,
+                },
+                &Limits::default(),
+                &NeverCancel,
+            )
+            .await?;
+            assert_eq!(inspected.pages(), pages);
+            assert!(inspected.has_outlines());
+            Ok::<(), Error>(())
+        })
+        .unwrap();
+    }
+
+    /// The content-rich fragment plus many tiny unreferenced objects, so the
+    /// reconstruction indexes outweigh the per-object parser budget.
+    fn indexed_heavy_fragment() -> (BytesSource, Vec<FragmentObject>, Vec<PdfRef>) {
+        let (mut source, mut objects, pages) = content_rich_fragment();
+        for number in 100..220 {
+            objects.push(add_object(&mut source.0, number, b"0"));
+        }
+        (source, objects, pages)
+    }
+
+    #[test]
+    fn allocation_ceiling_fails_closed_until_the_reported_need_fits() {
+        run(async {
+            let bookmarks = alternating_bookmarks(200);
+            let mut expected = BytesSink::default();
+            {
+                let (mut source, objects, pages) = indexed_heavy_fragment();
+                let plan = FragmentPlan {
+                    objects: &objects,
+                    pages: &pages,
+                    pages_root: reference(5),
+                    catalog: None,
+                };
+                reconstruct_fragment_with_bookmarks(
+                    &mut source,
+                    &mut expected,
+                    &plan,
+                    &bookmarks,
+                    &Limits::default(),
+                    &NeverCancel,
+                )
+                .await?;
+            }
+            let mut ceiling = 1_u64;
+            let mut resources = Vec::new();
+            loop {
+                let (mut source, objects, pages) = indexed_heavy_fragment();
+                let plan = FragmentPlan {
+                    objects: &objects,
+                    pages: &pages,
+                    pages_root: reference(5),
+                    catalog: None,
+                };
+                let limits = Limits {
+                    io_chunk_bytes: 1,
+                    max_allocation_bytes: ceiling,
+                    ..Limits::default()
+                };
+                let mut sink = BytesSink::default();
+                match reconstruct_fragment_with_bookmarks(
+                    &mut source,
+                    &mut sink,
+                    &plan,
+                    &bookmarks,
+                    &limits,
+                    &NeverCancel,
+                )
+                .await
+                {
+                    Ok(report) => {
+                        assert_eq!(sink.bytes, expected.bytes);
+                        assert_eq!(report.bookmarks_written, 200);
+                        break;
+                    }
+                    Err(error) => {
+                        let Error::PdfLimitExceeded {
+                            resource,
+                            limit,
+                            attempted,
+                            ..
+                        } = error
+                        else {
+                            panic!("ceiling {ceiling}: {error}");
+                        };
+                        // Parser budgets are derived from, and never exceed,
+                        // the allocation ceiling; scale the ceiling so the
+                        // failed budget would just admit the attempt.
+                        assert!(limit <= ceiling && limit > 0, "{error}");
+                        assert!(attempted > limit, "{error}");
+                        assert!(sink.bytes.is_empty(), "{error}");
+                        resources.push(resource);
+                        ceiling = (ceiling * attempted).div_ceil(limit);
+                    }
+                }
+            }
+            // The object index, page index, scalar and structure indexes,
+            // page-tree kids, content evidence, traversal stack, and outline
+            // nodes each tighten the requirement once; with many small
+            // objects the per-object parser budget never binds first.
+            assert!(resources.len() >= 10, "{resources:?}");
+            assert!(
+                resources
+                    .iter()
+                    .all(|resource| *resource == "PDF allocation bytes"),
+                "{resources:?}"
+            );
+            Ok::<(), Error>(())
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn output_buffer_is_charged_together_with_the_object_index() {
+        run(async {
+            let (mut source, objects, pages) = two_page_fragment();
+            let plan = FragmentPlan {
+                objects: &objects,
+                pages: &pages,
+                pages_root: reference(5),
+                catalog: None,
+            };
+            let limits = Limits {
+                io_chunk_bytes: 4096,
+                max_allocation_bytes: 4096,
+                ..Limits::default()
+            };
+            let mut sink = BytesSink::default();
+            let error = reconstruct_fragment(&mut source, &mut sink, &plan, &limits, &NeverCancel)
+                .await
+                .unwrap_err();
+            assert!(
+                matches!(
+                    error,
+                    Error::PdfLimitExceeded {
+                        resource: "PDF allocation bytes",
+                        object: Some((5, 0)),
+                        offset: 0,
+                        limit: 4096,
+                        attempted,
+                    } if attempted == 4096 + 6 * size_of::<Record>() as u64
+                ),
+                "{error}"
+            );
+            assert!(sink.bytes.is_empty());
+        });
+    }
+
+    #[test]
+    fn page_reference_buffer_flushes_before_it_overflows_a_chunk() {
+        run(async {
+            let (mut source, objects, pages) = two_page_fragment();
+            let plan = FragmentPlan {
+                objects: &objects,
+                pages: &pages,
+                pages_root: reference(5),
+                catalog: None,
+            };
+            let limits = Limits {
+                io_chunk_bytes: 10,
+                ..Limits::default()
+            };
+            let mut sink = BytesSink::default();
+            let report =
+                reconstruct_fragment(&mut source, &mut sink, &plan, &limits, &NeverCancel).await?;
+            assert_eq!(report.output_bytes_written, sink.bytes.len() as u64);
+            assert!(String::from_utf8_lossy(&sink.bytes).contains("/Kids [9 0 R 3 0 R ]"));
+            Ok::<(), Error>(())
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn cancellation_at_every_checkpoint_never_reports_success() {
+        run(async {
+            let bookmarks = alternating_bookmarks(3);
+            let mut trip_at = 1;
+            loop {
+                let (mut source, objects, pages) = content_rich_fragment();
+                let plan = FragmentPlan {
+                    objects: &objects,
+                    pages: &pages,
+                    pages_root: reference(5),
+                    catalog: None,
+                };
+                let cancellation = CancelAfter {
+                    queries: Cell::new(0),
+                    trip_at,
+                };
+                let mut sink = BytesSink::default();
+                match reconstruct_fragment_with_bookmarks(
+                    &mut source,
+                    &mut sink,
+                    &plan,
+                    &bookmarks,
+                    &Limits::default(),
+                    &cancellation,
+                )
+                .await
+                {
+                    Err(Error::Cancelled) => trip_at += 1,
+                    Ok(report) => {
+                        assert!(trip_at > 100, "only {trip_at} cancellation checks");
+                        assert_eq!(report.output_bytes_written, sink.bytes.len() as u64);
+                        break;
+                    }
+                    Err(other) => panic!("query {trip_at}: unexpected {other}"),
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn spans_beyond_the_classic_xref_ceiling_fail_before_output() {
+        run(async {
+            const STREAM_BYTES: u64 = 2_100_000_000;
+            let mut segments = Vec::new();
+            let mut objects = Vec::new();
+            let page = b"9 0 obj\n<< /Type /Page /Parent 5 0 R /MediaBox [0 0 1 1] >>\nendobj\n";
+            objects.push(FragmentObject {
+                reference: reference(9),
+                range: PdfRange {
+                    offset: 0,
+                    length: page.len() as u64,
+                },
+            });
+            segments.push((0, page.to_vec()));
+            let mut cursor = page.len() as u64;
+            for number in 20..25 {
+                let head = format!("{number} 0 obj\n<< /Length {STREAM_BYTES} >>\nstream\n");
+                let tail = b"\nendstream\nendobj\n";
+                let tail_offset = cursor + head.len() as u64 + STREAM_BYTES;
+                let end = tail_offset + tail.len() as u64;
+                objects.push(FragmentObject {
+                    reference: reference(number),
+                    range: PdfRange {
+                        offset: cursor,
+                        length: end - cursor,
+                    },
+                });
+                segments.push((cursor, head.into_bytes()));
+                segments.push((tail_offset, tail.to_vec()));
+                cursor = end;
+            }
+            let mut source = SparseSource {
+                size: cursor,
+                segments,
+            };
+            let pages = [reference(9)];
+            let plan = FragmentPlan {
+                objects: &objects,
+                pages: &pages,
+                pages_root: reference(5),
+                catalog: None,
+            };
+            let limits = Limits {
+                max_input_bytes: u64::MAX,
+                max_output_bytes: u64::MAX,
+                ..Limits::default()
+            };
+            let mut sink = BytesSink::default();
+            let error = reconstruct_fragment(&mut source, &mut sink, &plan, &limits, &NeverCancel)
+                .await
+                .unwrap_err();
+            assert!(
+                matches!(
+                    error,
+                    Error::PdfLimitExceeded {
+                        resource: "classic PDF file bytes",
+                        object: Some((25, 0)),
+                        limit: MAX_CLASSIC_PDF_BYTES,
+                        attempted,
+                        ..
+                    } if attempted > cursor
+                ),
+                "{error}"
+            );
+            assert!(sink.bytes.is_empty());
+        });
+    }
+
+    #[test]
+    fn xref_offsets_are_limited_to_ten_digits() {
+        assert_eq!(
+            xref_entry(MAX_CLASSIC_PDF_BYTES, 0, b'n').unwrap(),
+            *b"9999999999 00000 n \n"
+        );
+        assert!(matches!(
+            xref_entry(MAX_CLASSIC_PDF_BYTES + 1, 0, b'n'),
+            Err(Error::LimitExceeded {
+                resource: "classic PDF xref offset",
+                limit: MAX_CLASSIC_PDF_BYTES,
+                attempted,
+            }) if attempted == MAX_CLASSIC_PDF_BYTES + 1
+        ));
+    }
+
+    #[test]
+    fn references_beyond_the_object_profile_are_unsupported() {
+        run(async {
+            let (mut source, mut objects, pages) = two_page_fragment();
+            let extra = add_object(&mut source.0, 12, b"<< /Next 9000000 0 R >>");
+            objects.push(extra);
+            let plan = FragmentPlan {
+                objects: &objects,
+                pages: &pages,
+                pages_root: reference(5),
+                catalog: None,
+            };
+            let mut sink = BytesSink::default();
+            let error = reconstruct_fragment(
+                &mut source,
+                &mut sink,
+                &plan,
+                &Limits::default(),
+                &NeverCancel,
+            )
+            .await
+            .unwrap_err();
+            assert!(
+                matches!(
+                    error,
+                    Error::Pdf {
+                        kind: PdfErrorKind::UnsupportedFeature,
+                        object: Some((12, 0)),
+                        offset,
+                        reason: "indirect reference exceeds the supported PDF profile",
+                    } if offset == extra.range.offset
+                ),
+                "{error}"
+            );
+            assert!(sink.bytes.is_empty());
+        });
+    }
+
     #[test]
     fn fragment_outline_requires_synthetic_catalog() {
         run(async {
