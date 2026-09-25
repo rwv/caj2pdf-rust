@@ -334,7 +334,21 @@ impl HeaderCursor<'_> {
         name: &'static str,
         cancellation: &C,
     ) -> DictionaryResult<[u8; N]> {
-        let count = len_u64(N);
+        let mut bytes = [0u8; N];
+        self.fill(source, name, cancellation, &mut bytes).await?;
+        Ok(bytes)
+    }
+
+    /// Fill `bytes` from the cursor. Not generic over the field width, so
+    /// every header field shares one instantiation per source type.
+    async fn fill<S: RangedSource, C: Cancellation>(
+        &mut self,
+        source: &mut S,
+        name: &'static str,
+        cancellation: &C,
+        bytes: &mut [u8],
+    ) -> DictionaryResult<()> {
+        let count = len_u64(bytes.len());
         let future = self
             .at
             .checked_add(count)
@@ -350,13 +364,12 @@ impl HeaderCursor<'_> {
         if future > self.end {
             return Err(self.error(DictionaryErrorKind::Truncated(name)));
         }
-        let mut bytes = [0u8; N];
         let mut done = 0;
-        while done < N {
+        while done < bytes.len() {
             if cancellation.is_cancelled() {
                 return Err(self.error(DictionaryErrorKind::Cancelled));
             }
-            let request = (N - done).min(self.request_bytes);
+            let request = (bytes.len() - done).min(self.request_bytes);
             let got = source
                 .read_at(self.at, &mut bytes[done..done + request])
                 .await
@@ -386,21 +399,20 @@ impl HeaderCursor<'_> {
                 return Err(self.error(DictionaryErrorKind::Cancelled));
             }
         }
-        Ok(bytes)
+        Ok(())
     }
 }
 
-/// Parse only the dictionary segment-data header, including conditional AT
-/// fields, within `header.data`. This never initializes MQ or writes output.
-/// `ArithmeticRefinementAggregate` includes the observed `0x1802` mode and is
-/// a classifier result, not a promise that the mode is decoded here.
-pub async fn read_dictionary_data_header<S: RangedSource, C: Cancellation>(
-    source: &mut S,
+/// The source-independent checks that precede the framing reparse. Keeping
+/// them outside the generic reader shares one copy across every source and
+/// cancellation type. Returns the data end and the framing header start.
+fn data_header_bounds(
     header: &SegmentHeader,
     limits: &Limits,
     budget: DictionaryBudget,
-    cancellation: &C,
-) -> DictionaryResult<DictionaryDataHeader> {
+    cancellation: &dyn Cancellation,
+    source_size: u64,
+) -> DictionaryResult<(u64, u64)> {
     limits
         .validate()
         .map_err(|e| at(header, header.data.offset, DictionaryErrorKind::Source(e)))?;
@@ -446,7 +458,7 @@ pub async fn read_dictionary_data_header<S: RangedSource, C: Cancellation>(
                 DictionaryErrorKind::InvalidSpan("data end overflow"),
             )
         })?;
-    if end > source.size() {
+    if end > source_size {
         return Err(at(
             header,
             header.data.offset,
@@ -464,6 +476,51 @@ pub async fn read_dictionary_data_header<S: RangedSource, C: Cancellation>(
                 DictionaryErrorKind::InvalidSpan("segment header start underflow"),
             )
         })?;
+    Ok((end, header_start))
+}
+
+/// Compare the framing reparse with the caller's header, outside the generic
+/// reader so every instantiation shares it.
+fn check_reparsed_header(
+    header: &SegmentHeader,
+    verified: Result<SegmentHeader, HeaderError>,
+    header_start: u64,
+    framing_fetched: u64,
+) -> DictionaryResult<()> {
+    let verified = verified.map_err(|error| {
+        let mut located = at(
+            header,
+            error.offset,
+            DictionaryErrorKind::Header(Box::new(error)),
+        );
+        located.progress.header_bytes_fetched = framing_fetched;
+        located
+    })?;
+    if &verified != header {
+        let mut located = at(
+            header,
+            header_start,
+            DictionaryErrorKind::Malformed("segment header metadata mismatch"),
+        );
+        located.progress.header_bytes_fetched = framing_fetched;
+        return Err(located);
+    }
+    Ok(())
+}
+
+/// Parse only the dictionary segment-data header, including conditional AT
+/// fields, within `header.data`. This never initializes MQ or writes output.
+/// `ArithmeticRefinementAggregate` includes the observed `0x1802` mode and is
+/// a classifier result, not a promise that the mode is decoded here.
+pub async fn read_dictionary_data_header<S: RangedSource, C: Cancellation>(
+    source: &mut S,
+    header: &SegmentHeader,
+    limits: &Limits,
+    budget: DictionaryBudget,
+    cancellation: &C,
+) -> DictionaryResult<DictionaryDataHeader> {
+    let (end, header_start) =
+        data_header_bounds(header, limits, budget, cancellation, source.size())?;
     // `header_length <= data.offset`, and the checked data end fits u64;
     // therefore header_length + data.length also fits.
     let complete_length = header.header_length + header.data.length;
@@ -490,24 +547,7 @@ pub async fn read_dictionary_data_header<S: RangedSource, C: Cancellation>(
     )
     .await;
     let framing_fetched = framing_source.fetched;
-    let verified = verified_result.map_err(|error| {
-        let mut located = at(
-            header,
-            error.offset,
-            DictionaryErrorKind::Header(Box::new(error)),
-        );
-        located.progress.header_bytes_fetched = framing_fetched;
-        located
-    })?;
-    if &verified != header {
-        let mut located = at(
-            header,
-            header_start,
-            DictionaryErrorKind::Malformed("segment header metadata mismatch"),
-        );
-        located.progress.header_bytes_fetched = framing_fetched;
-        return Err(located);
-    }
+    check_reparsed_header(header, verified_result, header_start, framing_fetched)?;
     let mut cursor = HeaderCursor {
         header,
         at: header.data.offset,
@@ -667,6 +707,129 @@ pub async fn read_dictionary_data_header<S: RangedSource, C: Cancellation>(
     })
 }
 
+/// The source-independent checks between the data header and MQ
+/// initialization, shared by every decoder instantiation.
+fn check_direct_header(
+    segment: &SegmentHeader,
+    header: &DictionaryDataHeader,
+    context_count: usize,
+    limits: &Limits,
+    budget: DictionaryBudget,
+) -> DictionaryResult<()> {
+    let location = header.body.offset;
+    let header_fetched = segment.header_length + header.header_bytes;
+    let after_header = |offset, kind| {
+        let mut error = at(segment, offset, kind);
+        error.progress.header_bytes_fetched = header_fetched;
+        error
+    };
+    let check_after_header = |resource, maximum, attempted| {
+        check_limit(segment, location, resource, maximum, attempted).map_err(|mut error| {
+            error.progress.header_bytes_fetched = header_fetched;
+            error
+        })
+    };
+    let unsupported = |feature, value| {
+        after_header(
+            location,
+            DictionaryErrorKind::Unsupported { feature, value },
+        )
+    };
+    match header.mode {
+        DictionaryMode::ArithmeticDirect => {}
+        DictionaryMode::ArithmeticRefinementAggregate => {
+            return Err(unsupported(
+                "symbol dictionary refinement/aggregation",
+                u64::from(header.flags),
+            ));
+        }
+        DictionaryMode::HuffmanDirect | DictionaryMode::HuffmanRefinementAggregate => {
+            return Err(unsupported(
+                "Huffman symbol dictionary",
+                u64::from(header.flags),
+            ));
+        }
+    }
+    if header.template != 2 {
+        return Err(unsupported(
+            "dictionary generic template",
+            u64::from(header.template),
+        ));
+    }
+    if header.bitmap_context_used || header.bitmap_context_retained {
+        return Err(unsupported(
+            "bitmap context carry",
+            u64::from(header.flags & 0x300),
+        ));
+    }
+    if segment.page_association != 1 {
+        return Err(unsupported(
+            "dictionary page association",
+            u64::from(segment.page_association),
+        ));
+    }
+    if !segment.referred_to.is_empty() {
+        return Err(unsupported(
+            "imported dictionary references",
+            segment.referred_to.len() as u64,
+        ));
+    }
+    // A nonempty reference list was rejected above; this slice's fixed
+    // imported-symbol limit is `MAX_IMPORTED_SYMBOLS` (zero).
+    // The parsed template-2 AT was already checked as backwards-only.
+    if header.at[0] != (2, -1) {
+        return Err(after_header(
+            segment.data.offset + 2,
+            DictionaryErrorKind::UnsupportedAt {
+                x: header.at[0].0,
+                y: header.at[0].1,
+            },
+        ));
+    }
+    if header.exported_symbols > header.new_symbols {
+        return Err(after_header(
+            location,
+            DictionaryErrorKind::Malformed("exported count exceeds available symbols"),
+        ));
+    }
+    if context_count != TOTAL_CONTEXTS {
+        return Err(after_header(
+            location,
+            DictionaryErrorKind::Malformed("expected exactly 7680 integer and bitmap MQ contexts"),
+        ));
+    }
+    // Both counts are u32. Even their sum times the fixed descriptor
+    // size is far below u64::MAX on every supported target.
+    let descriptor_count = u64::from(header.new_symbols) + u64::from(header.exported_symbols);
+    let catalog_bytes = descriptor_count * mem::size_of::<SymbolDescriptor>() as u64;
+    check_after_header(
+        "catalog metadata bytes",
+        budget.max_catalog_bytes,
+        catalog_bytes,
+    )?;
+    check_after_header(
+        "catalog allocation bytes",
+        limits.max_allocation_bytes,
+        catalog_bytes,
+    )?;
+    let base_working = (TOTAL_CONTEXTS * mem::size_of::<MqContext>()) as u64
+        + (MQ_STATE_COUNT * mem::size_of::<MqState>()) as u64
+        + MQ_BUFFER_BYTES
+        + catalog_bytes;
+    check_after_header(
+        "dictionary working bytes",
+        budget.max_working_bytes,
+        base_working,
+    )?;
+    let mq_request = limits.io_chunk_bytes.min(MQ_BUFFER_BYTES as usize);
+    check_after_header(
+        "MQ source request bytes",
+        budget.max_source_request_bytes as u64,
+        mq_request as u64,
+    )?;
+    Ok(())
+}
+
 /// Stateful direct dictionary decode. The caller constructs an
 /// `IntegerContextBanks::with_extra_contexts(1024, ...)` owner; an IAID owner
 /// cannot be passed here and its bitmap range cannot alias this dictionary.
@@ -707,127 +870,25 @@ impl<'a, S: RangedSource, W: SequentialSink, C: Cancellation> DirectDictionaryDe
     ) -> DictionaryResult<Self> {
         let header =
             read_dictionary_data_header(source, segment, limits, budget, cancellation).await?;
-        let location = header.body.offset;
         let header_fetched = segment.header_length + header.header_bytes;
-        let after_header = |offset, kind| {
-            let mut error = at(segment, offset, kind);
-            error.progress.header_bytes_fetched = header_fetched;
-            error
-        };
-        let check_after_header = |resource, maximum, attempted| {
-            check_limit(segment, location, resource, maximum, attempted).map_err(|mut error| {
-                error.progress.header_bytes_fetched = header_fetched;
-                error
-            })
-        };
-        let unsupported = |feature, value| {
-            after_header(
-                location,
-                DictionaryErrorKind::Unsupported { feature, value },
-            )
-        };
-        match header.mode {
-            DictionaryMode::ArithmeticDirect => {}
-            DictionaryMode::ArithmeticRefinementAggregate => {
-                return Err(unsupported(
-                    "symbol dictionary refinement/aggregation",
-                    u64::from(header.flags),
-                ));
-            }
-            DictionaryMode::HuffmanDirect | DictionaryMode::HuffmanRefinementAggregate => {
-                return Err(unsupported(
-                    "Huffman symbol dictionary",
-                    u64::from(header.flags),
-                ));
-            }
-        }
-        if header.template != 2 {
-            return Err(unsupported(
-                "dictionary generic template",
-                u64::from(header.template),
-            ));
-        }
-        if header.bitmap_context_used || header.bitmap_context_retained {
-            return Err(unsupported(
-                "bitmap context carry",
-                u64::from(header.flags & 0x300),
-            ));
-        }
-        if segment.page_association != 1 {
-            return Err(unsupported(
-                "dictionary page association",
-                u64::from(segment.page_association),
-            ));
-        }
-        if !segment.referred_to.is_empty() {
-            return Err(unsupported(
-                "imported dictionary references",
-                segment.referred_to.len() as u64,
-            ));
-        }
-        // A nonempty reference list was rejected above; this slice's fixed
-        // imported-symbol limit is `MAX_IMPORTED_SYMBOLS` (zero).
-        // The parsed template-2 AT was already checked as backwards-only.
-        if header.at[0] != (2, -1) {
-            return Err(after_header(
-                segment.data.offset + 2,
-                DictionaryErrorKind::UnsupportedAt {
-                    x: header.at[0].0,
-                    y: header.at[0].1,
-                },
-            ));
-        }
-        if header.exported_symbols > header.new_symbols {
-            return Err(after_header(
-                location,
-                DictionaryErrorKind::Malformed("exported count exceeds available symbols"),
-            ));
-        }
-        if banks.mq_contexts_mut().count() != TOTAL_CONTEXTS {
-            return Err(after_header(
-                location,
-                DictionaryErrorKind::Malformed(
-                    "expected exactly 7680 integer and bitmap MQ contexts",
-                ),
-            ));
-        }
-        // Both counts are u32. Even their sum times the fixed descriptor
-        // size is far below u64::MAX on every supported target.
-        let descriptor_count = u64::from(header.new_symbols) + u64::from(header.exported_symbols);
-        let catalog_bytes = descriptor_count * mem::size_of::<SymbolDescriptor>() as u64;
-        check_after_header(
-            "catalog metadata bytes",
-            budget.max_catalog_bytes,
-            catalog_bytes,
+        check_direct_header(
+            segment,
+            &header,
+            banks.mq_contexts_mut().count(),
+            limits,
+            budget,
         )?;
-        check_after_header(
-            "catalog allocation bytes",
-            limits.max_allocation_bytes,
-            catalog_bytes,
-        )?;
-        let base_working = (TOTAL_CONTEXTS * mem::size_of::<MqContext>()) as u64
-            + (MQ_STATE_COUNT * mem::size_of::<MqState>()) as u64
-            + MQ_BUFFER_BYTES
-            + catalog_bytes;
-        check_after_header(
-            "dictionary working bytes",
-            budget.max_working_bytes,
-            base_working,
-        )?;
-        let mq_request = limits.io_chunk_bytes.min(MQ_BUFFER_BYTES as usize);
-        check_after_header(
-            "MQ source request bytes",
-            budget.max_source_request_bytes as u64,
-            mq_request as u64,
-        )?;
+        let location = header.body.offset;
         let mut new_symbols = Vec::new();
+        let mut exported_symbols = Vec::new();
         new_symbols
             .try_reserve_exact(header.new_symbols as usize)
-            .map_err(|_| after_header(location, DictionaryErrorKind::AllocationFailed))?;
-        let mut exported_symbols = Vec::new();
-        exported_symbols
-            .try_reserve_exact(header.exported_symbols as usize)
-            .map_err(|_| after_header(location, DictionaryErrorKind::AllocationFailed))?;
+            .and_then(|()| exported_symbols.try_reserve_exact(header.exported_symbols as usize))
+            .map_err(|_| {
+                let mut error = at(segment, location, DictionaryErrorKind::AllocationFailed);
+                error.progress.header_bytes_fetched = header_fetched;
+                error
+            })?;
         // No bitmap context reuse is accepted. T.88 §7.4.2.2 also resets all
         // arithmetic-integer statistics at each new dictionary.
         banks.reset_all();

@@ -126,6 +126,39 @@ pub(super) struct PrefixBudget {
     pub references_limit: u64,
 }
 
+// Kept outside the generic prefix reader so every source type shares them.
+impl PrefixBudget {
+    fn check_references(&self, cursor: &HeaderCursor, reference_count: u32) -> HeaderResult<()> {
+        let attempted = self
+            .references_used
+            .checked_add(u64::from(reference_count))
+            .ok_or(cursor.invalid_span("reference total overflows"))?;
+        if attempted > self.references_limit {
+            return Err(cursor.error(HeaderErrorKind::LimitExceeded {
+                resource: "JBIG2 directory references",
+                limit: self.references_limit,
+                attempted,
+            }));
+        }
+        Ok(())
+    }
+
+    fn check_metadata(&self, cursor: &HeaderCursor, allocation_bytes: u64) -> HeaderResult<()> {
+        let attempted = self
+            .metadata_used
+            .checked_add(allocation_bytes)
+            .ok_or(cursor.invalid_span("metadata total overflows"))?;
+        if attempted > self.metadata_limit {
+            return Err(cursor.error(HeaderErrorKind::LimitExceeded {
+                resource: "JBIG2 directory metadata bytes",
+                limit: self.metadata_limit,
+                attempted,
+            }));
+        }
+        Ok(())
+    }
+}
+
 impl fmt::Display for HeaderError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "JBIG2 segment header at source byte {}", self.offset)?;
@@ -416,17 +449,7 @@ pub(super) async fn read_header_prefix<S: RangedSource, C: Cancellation>(
         }));
     }
     if let Some(budget) = budget {
-        let attempted = budget
-            .references_used
-            .checked_add(u64::from(reference_count))
-            .ok_or(cursor.invalid_span("reference total overflows"))?;
-        if attempted > budget.references_limit {
-            return Err(cursor.error(HeaderErrorKind::LimitExceeded {
-                resource: "JBIG2 directory references",
-                limit: budget.references_limit,
-                attempted,
-            }));
-        }
+        budget.check_references(&cursor, reference_count)?;
     }
     let reference_width = if number <= 256 {
         1_u64
@@ -457,17 +480,7 @@ pub(super) async fn read_header_prefix<S: RangedSource, C: Cancellation>(
         }));
     }
     if let Some(budget) = budget {
-        let attempted = budget
-            .metadata_used
-            .checked_add(allocation_bytes)
-            .ok_or(cursor.invalid_span("metadata total overflows"))?;
-        if attempted > budget.metadata_limit {
-            return Err(cursor.error(HeaderErrorKind::LimitExceeded {
-                resource: "JBIG2 directory metadata bytes",
-                limit: budget.metadata_limit,
-                attempted,
-            }));
-        }
+        budget.check_metadata(&cursor, allocation_bytes)?;
     }
 
     let mut retention = Vec::new();

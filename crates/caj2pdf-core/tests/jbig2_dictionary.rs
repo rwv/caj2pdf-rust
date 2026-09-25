@@ -1461,7 +1461,7 @@ fn dictionary_body_limit_uses_the_parsed_body_length() {
 }
 
 #[test]
-fn zero_io_request_bound_is_rejected_before_framing_io() {
+fn invalid_limits_and_zero_io_request_bound_are_rejected_before_framing_io() {
     let mut source = segment(0x0800, &[(2, -1)], &[], 0, 1, &ONE_SYMBOL, &[]);
     let hdr = header(&mut source);
     let before = source.read_calls;
@@ -1482,6 +1482,26 @@ fn zero_io_request_bound_is_rejected_before_framing_io() {
     ));
     assert_eq!(source.read_calls, before);
     assert_eq!(error.progress.header_bytes_fetched, 0);
+
+    let error = ready(read_dictionary_data_header(
+        &mut source,
+        &hdr,
+        &Limits {
+            io_chunk_bytes: 0,
+            ..Limits::default()
+        },
+        DictionaryBudget::default(),
+        &NeverCancel,
+    ))
+    .unwrap_err();
+    assert_eq!(error.offset, hdr.data.offset);
+    assert!(matches!(
+        error.kind,
+        DictionaryErrorKind::Source(caj2pdf_core::Error::InvalidInput {
+            reason: "I/O chunk size must be nonzero"
+        })
+    ));
+    assert_eq!(source.read_calls, before);
 }
 
 #[test]
