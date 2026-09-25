@@ -279,6 +279,13 @@ fn argument_errors_exit_with_status_two() {
         assert_failure(&output, 2, message);
         assert!(stderr(&output).ends_with("\nTry 'caj2pdf --help' for more information.\n"));
     }
+    // An unwritable standard error does not change the exit status.
+    let status = scratch
+        .command(["--bogus"])
+        .stderr(File::create("/dev/full").unwrap())
+        .status()
+        .unwrap();
+    assert_eq!(status.code(), Some(2));
     assert!(scratch.entries().is_empty());
 }
 

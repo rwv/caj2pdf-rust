@@ -49,7 +49,7 @@ impl CliError {
 mod cli {
     use crate::CliError;
     use crate::args::{self, Command, Endpoint};
-    use crate::files::{open_input, open_output, refuse_terminal};
+    use crate::files::{open_input, open_output, refuse_terminal, stdout_error};
     use crate::{document, report};
     use caj2pdf_core::Limits;
     use std::io::{self, IsTerminal, Write};
@@ -79,7 +79,7 @@ mod cli {
         let mut stdout = io::stdout().lock();
         write(&mut stdout)
             .and_then(|()| stdout.flush())
-            .map_err(|error| CliError::runtime(format!("cannot write standard output: {error}")))
+            .map_err(stdout_error)
     }
 
     pub fn run(command: Command) -> Result<(), CliError> {
@@ -140,13 +140,22 @@ mod cli {
 
 #[cfg(unix)]
 fn main() -> ExitCode {
+    use std::io::Write;
+
     match cli::main() {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            eprintln!("caj2pdf: error: {}", error.message);
-            if error.code == 2 {
-                eprintln!("Try 'caj2pdf --help' for more information.");
-            }
+            // A failure to write the diagnostic must not replace the status.
+            let hint = if error.code == 2 {
+                "Try 'caj2pdf --help' for more information.\n"
+            } else {
+                ""
+            };
+            let _ = write!(
+                std::io::stderr(),
+                "caj2pdf: error: {}\n{hint}",
+                error.message
+            );
             ExitCode::from(error.code)
         }
     }

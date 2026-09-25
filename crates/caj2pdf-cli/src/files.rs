@@ -221,7 +221,7 @@ impl Drop for Staged {
     }
 }
 
-fn stdout_error(error: io::Error) -> CliError {
+pub fn stdout_error(error: io::Error) -> CliError {
     CliError::runtime(format!("cannot write standard output: {error}"))
 }
 
