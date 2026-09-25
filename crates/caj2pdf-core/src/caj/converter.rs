@@ -246,11 +246,7 @@ fn replace_object(
             reason: "CAJ repair suffix size overflows",
         })?;
     limits.check_allocation(next_size as u64)?;
-    let refused = Error::LimitExceeded {
-        resource: "CAJ link repair allocation",
-        limit: limits.max_allocation_bytes,
-        attempted: next_size as u64,
-    };
+    let refused = limits.allocation_refused("CAJ link repair allocation", next_size as u64);
     reserve(suffix, candidate.replacement.len(), refused)?;
     let old = objects
         .iter_mut()
@@ -337,11 +333,7 @@ fn push_synthetic(
             reason: "CAJ synthetic page tree estimate overflows",
         })?;
     limits.check_allocation(estimated as u64)?;
-    let refused = Error::LimitExceeded {
-        resource: "CAJ synthetic page tree allocation",
-        limit: limits.max_allocation_bytes,
-        attempted: estimated as u64,
-    };
+    let refused = limits.allocation_refused("CAJ synthetic page tree allocation", estimated as u64);
     let additional = estimated - suffix.len();
     reserve_exact(suffix, additional, refused)?;
     let start = suffix.len();
@@ -416,11 +408,10 @@ pub async fn convert_caj<S: RangedSource, W: SequentialSink, C: Cancellation>(
         (metadata.page_rows.len() as u64) * std::mem::size_of::<PdfRef>() as u64,
     )?;
     let mut page_refs = Vec::new();
-    let refused = Error::LimitExceeded {
-        resource: "CAJ ordered page index allocation",
-        limit: limits.max_allocation_bytes,
-        attempted: (metadata.page_rows.len() as u64) * std::mem::size_of::<PdfRef>() as u64,
-    };
+    let refused = limits.allocation_refused(
+        "CAJ ordered page index allocation",
+        (metadata.page_rows.len() as u64) * std::mem::size_of::<PdfRef>() as u64,
+    );
     reserve_exact(&mut page_refs, metadata.page_rows.len(), refused)?;
     page_refs.extend(metadata.page_rows.iter().map(|row| PdfRef {
         number: row.page_object_id,
@@ -438,11 +429,10 @@ pub async fn convert_caj<S: RangedSource, W: SequentialSink, C: Cancellation>(
         })?;
     limits.check_allocation(occupied_bytes as u64)?;
     let mut occupied = Vec::<PdfRef>::new();
-    let refused = Error::LimitExceeded {
-        resource: "CAJ object reference index allocation",
-        limit: limits.max_allocation_bytes,
-        attempted: occupied_bytes as u64,
-    };
+    let refused = limits.allocation_refused(
+        "CAJ object reference index allocation",
+        occupied_bytes as u64,
+    );
     reserve_exact(&mut occupied, objects.len(), refused)?;
     occupied.extend(objects.iter().map(|object| object.reference));
     occupied.sort_unstable();

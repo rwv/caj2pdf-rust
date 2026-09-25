@@ -381,11 +381,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
         self.locate_limit(
             relative,
             object,
-            Error::LimitExceeded {
-                resource,
-                limit: self.limits.max_allocation_bytes,
-                attempted,
-            },
+            self.limits.allocation_refused(resource, attempted),
         )
     }
 

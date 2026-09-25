@@ -459,11 +459,9 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfOutlineAppender<'a, W, C> {
             let next_cap = cap.min(max).max(self.open.len() + 1);
             let bytes = (next_cap as u64) * size_of::<OpenOutline>() as u64;
             self.limits.check_allocation(bytes)?;
-            let refused = Error::LimitExceeded {
-                resource: "PDF bookmark stack allocation",
-                limit: self.limits.max_allocation_bytes,
-                attempted: bytes,
-            };
+            let refused = self
+                .limits
+                .allocation_refused("PDF bookmark stack allocation", bytes);
             let additional = next_cap - self.open.len();
             reserve_exact(&mut self.open, additional, refused)?;
         }
@@ -612,11 +610,7 @@ async fn copy_prefix<R: RangedSource, W: SequentialSink, C: Cancellation>(
     let chunk = length.min(limits.io_chunk_bytes as u64) as usize;
     limits.check_allocation(chunk as u64)?;
     let mut buffer = Vec::new();
-    let refused = Error::LimitExceeded {
-        resource: "PDF copy buffer allocation",
-        limit: limits.max_allocation_bytes,
-        attempted: chunk as u64,
-    };
+    let refused = limits.allocation_refused("PDF copy buffer allocation", chunk as u64);
     reserve_exact(&mut buffer, chunk, refused)?;
     buffer.resize(chunk, 0);
     let separator_patches = index.stream_separator_patches();
@@ -790,11 +784,9 @@ impl<'a, W: SequentialSink, C: Cancellation> AppendWriter<'a, W, C> {
                     reason: "PDF append xref allocation overflows",
                 })?;
             self.limits.check_allocation(bytes)?;
-            let refused = Error::LimitExceeded {
-                resource: "PDF append xref allocation",
-                limit: self.limits.max_allocation_bytes,
-                attempted: bytes,
-            };
+            let refused = self
+                .limits
+                .allocation_refused("PDF append xref allocation", bytes);
             let additional = cap - self.entries.len();
             reserve_exact(&mut self.entries, additional, refused)?;
         }

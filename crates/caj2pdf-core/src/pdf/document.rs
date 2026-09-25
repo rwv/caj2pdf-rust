@@ -545,11 +545,9 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
             .await?;
         let chunk_size = length.min(self.limits.io_chunk_bytes as u64) as usize;
         if self.image_buffer.len() < chunk_size {
-            let refused = Error::LimitExceeded {
-                resource: "PDF image I/O buffer",
-                limit: self.limits.max_allocation_bytes,
-                attempted: chunk_size as u64,
-            };
+            let refused = self
+                .limits
+                .allocation_refused("PDF image I/O buffer", chunk_size as u64);
             let additional = chunk_size - self.image_buffer.len();
             reserve_exact(&mut self.image_buffer, additional, refused)?;
             self.image_buffer.resize(chunk_size, 0);
@@ -950,11 +948,7 @@ fn reserve_bounded<T>(
             reason: "PDF index allocation overflows 64 bits",
         })?;
     limits.check_allocation(requested_bytes)?;
-    let refused = Error::LimitExceeded {
-        resource,
-        limit: limits.max_allocation_bytes,
-        attempted: requested_bytes,
-    };
+    let refused = limits.allocation_refused(resource, requested_bytes);
     let additional = target - values.len();
     reserve_exact(values, additional, refused)?;
     // The limit covers the capacity requested here. Vec may receive extra

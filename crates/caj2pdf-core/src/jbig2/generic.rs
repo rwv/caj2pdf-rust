@@ -303,6 +303,8 @@ fn checked_layout(
             u64::from(height),
         ));
     }
+    // The only caller read these header bytes at `offset` within the source,
+    // so field offsets cannot overflow even when built before their checks.
     let failure = malformed(segment, offset + 8, "region x plus width overflows");
     x.checked_add(width).ok_or(failure)?;
     let failure = malformed(segment, offset + 12, "region y plus height overflows");
