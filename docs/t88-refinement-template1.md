@@ -106,9 +106,14 @@ output bytes, context work, MQ decisions,
 reference calls and physical bytes, source/sink request sizes, sink calls,
 explicit flush calls,
 single-row allocations, and combined working bytes. MQ's own budget also
-limits its coding-unit decisions and work. All arithmetic for offsets,
-geometry, row locations, and aggregate sizes is checked; rows are allocated
-fallibly. Short reads and partial writes are retried. Physical truncation,
+limits its coding-unit decisions and work. The counter fields
+(`max_pixels_per_bitmap`, `max_total_pixels`, `max_total_output_bytes`,
+`max_reference_reads`, `max_reference_bytes_fetched`, `max_sink_writes`, and
+`max_flushes`) must each be at most `MAX_BUDGET_COUNT` (2^48);
+`RefinementDecoder::new` rejects a larger value as `LimitExceeded` naming the
+field. Cumulative totals, ten context probes per pixel, and per-call counters
+then fit u64 by construction. Arithmetic on caller- or input-supplied offsets
+and geometry is checked; rows are allocated fallibly. Short reads and partial writes are retried. Physical truncation,
 zero/overreported I/O, cancellation, MQ faults, and cap failures report typed
 errors with bitmap/row/pixel progress and a source offset when applicable.
 Reference call counts include attempted calls; fetched bytes count returned

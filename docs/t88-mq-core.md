@@ -58,7 +58,10 @@ context bank. Working memory is `O(context_count + 256)`, independent of
 the source document and decoded image area. The work budget charges symbol
 decisions, renormalization shifts, byte-input operations, and every physical
 byte fetched into the buffer. Separate caps cover span length, contexts,
-symbols, work, and repeated synthetic terminal inputs. Short reads are
+symbols, work, and repeated synthetic terminal inputs. The symbol, work, and
+terminal-input caps must each be at most `MAX_BUDGET_COUNT` (2^48); a larger
+value is rejected as `InvalidBudget` before any I/O, so the running counters
+use plain arithmetic that provably cannot overflow. Short reads are
 retried within the declared span. A zero read or physical truncation within
 it is a located source error; a request past its end is a terminal error.
 `0xFF` followed by a nonterminal marker or by `0xAC` before the span tail

@@ -29,7 +29,7 @@ pub use error::{Error, PdfErrorKind, Result};
 pub use io::{
     Cancellation, NeverCancel, RangedSource, SequentialSink, copy_range, read_exact_at, write_all,
 };
-pub use limits::{DEFAULT_IO_CHUNK, Limits, MAX_IO_CHUNK};
+pub use limits::{DEFAULT_IO_CHUNK, Limits, MAX_BUDGET_COUNT, MAX_IO_CHUNK};
 pub use operations::{
     Bookmark, BookmarkVisitor, ConversionOptions, ConversionReport, DocumentInfo,
     DocumentOperations, InputFormat, SIGNATURE_BYTES, detect_format,
