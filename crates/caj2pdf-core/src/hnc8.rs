@@ -2,6 +2,14 @@
 
 //! Bounded metadata traversal for the three independently measured HN/C8
 //! container profiles. Image payloads and text are never loaded here.
+//! [`convert_type0_pdf`] builds bounded PDF pages from type-0 records.
+
+mod convert;
+
+pub use convert::{
+    MultipleImages, Type0PdfError, Type0PdfErrorKind, Type0PdfOptions, Type0PdfReport,
+    convert_type0_pdf,
+};
 
 use crate::jbig1::Type0Span;
 use crate::{Cancellation, Error, Limits, RangedSource, read_exact_at};

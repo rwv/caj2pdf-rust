@@ -79,9 +79,92 @@ struct ClosedOutline {
     descendants: u32,
 }
 
-#[derive(Clone, Copy)]
-struct ImagePlacement {
+/// A 1 bit-per-component image whose rows the caller streams in order.
+///
+/// Each supplied row has `row_stride` bytes and is packed most significant
+/// bit first. Only its first `ceil(pixel_width / 8)` bytes enter the PDF;
+/// the remaining bytes are source row padding and are dropped, so a DIB
+/// 32-bit-aligned row can be passed unchanged. Unused low bits of the last
+/// kept byte are PDF row padding, which readers ignore. The first supplied
+/// row is the top of the image. A set bit is black and a clear bit is white:
+/// the XObject is `/DeviceGray` with `/BitsPerComponent 1` and
+/// `/Decode [1 0]`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct BilevelImageSpec {
+    pub pixel_width: u32,
+    pub pixel_height: u32,
+    pub row_stride: usize,
+}
+
+/// A completely written image XObject that can be placed on a page with
+/// [`PdfDocument::add_page`]. It is valid only in the document that wrote it.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ImageObject {
     object: ObjectId,
+}
+
+/// Streams one bilevel image's rows into an open PDF image stream.
+///
+/// Obtain it from [`PdfDocument::begin_bilevel_image`], write exactly
+/// `row_stride * pixel_height` bytes through [`SequentialSink::write`], then
+/// call [`BilevelImageWriter::finish`]. Writes may split or join rows. Only
+/// row-position state is retained; image bytes are passed straight to the
+/// document sink. Dropping the writer before `finish` leaves the document's
+/// stream open, so every later document operation fails.
+pub struct BilevelImageWriter<'d, 'a, W: SequentialSink, C: Cancellation> {
+    document: &'d mut PdfDocument<'a, W, C>,
+    object: ObjectId,
+    visible: usize,
+    stride: usize,
+    column: usize,
+    remaining: u64,
+}
+
+impl<W: SequentialSink, C: Cancellation> SequentialSink for BilevelImageWriter<'_, '_, W, C> {
+    async fn write(&mut self, bytes: &[u8]) -> Result<usize> {
+        if len_u64(bytes.len()) > self.remaining {
+            return Err(Error::InvalidInput {
+                reason: "bilevel image rows exceed the declared height",
+            });
+        }
+        let mut done = 0;
+        while done < bytes.len() {
+            let row_left = self.stride - self.column;
+            let count = row_left.min(bytes.len() - done);
+            if self.column < self.visible {
+                let kept = count.min(self.visible - self.column);
+                self.document
+                    .writer
+                    .write_stream_bytes(&bytes[done..done + kept])
+                    .await?;
+            }
+            // Account for the bytes only after the document accepted them.
+            self.column = (self.column + count) % self.stride;
+            self.remaining -= len_u64(count);
+            done += count;
+        }
+        Ok(bytes.len())
+    }
+
+    /// Rows are flushed with the whole PDF by [`PdfDocument::finish`].
+    async fn flush(&mut self) -> Result<()> {
+        Ok(())
+    }
+}
+
+impl<W: SequentialSink, C: Cancellation> BilevelImageWriter<'_, '_, W, C> {
+    /// Close the image stream after exactly the declared rows were written.
+    pub async fn finish(self) -> Result<ImageObject> {
+        if self.remaining != 0 {
+            return Err(Error::InvalidInput {
+                reason: "bilevel image ended before its declared height",
+            });
+        }
+        self.document.writer.end_stream().await?;
+        Ok(ImageObject {
+            object: self.object,
+        })
+    }
 }
 
 struct CountingSource<'a, R> {
@@ -190,6 +273,63 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
         let image_id = self
             .emit_image_xobject(source, offset, length, image)
             .await?;
+        self.push_page(&width, &height, &[ImageObject { object: image_id }])
+            .await
+    }
+
+    /// Start a 1 bpp image XObject whose rows the caller streams.
+    ///
+    /// The dimensions, row stride, and PDF stream length are checked before
+    /// any output. No page is added; place the finished image with
+    /// [`PdfDocument::add_page`]. The image must be finished before any other
+    /// document operation.
+    pub async fn begin_bilevel_image(
+        &mut self,
+        image: BilevelImageSpec,
+    ) -> Result<BilevelImageWriter<'_, 'a, W, C>> {
+        let (visible, remaining) = image.validate()?;
+        let object = self.writer.reserve_object()?;
+        let length_id = self.writer.reserve_object()?;
+        let dictionary = format!(
+            "/Type /XObject\n/Subtype /Image\n/Width {}\n/Height {}\n/ColorSpace /DeviceGray\n/BitsPerComponent 1\n/Decode [1 0]\n",
+            image.pixel_width, image.pixel_height
+        );
+        self.writer
+            .begin_stream(object, length_id, dictionary.as_bytes())
+            .await?;
+        Ok(BilevelImageWriter {
+            document: self,
+            object,
+            visible,
+            stride: image.row_stride,
+            column: 0,
+            remaining,
+        })
+    }
+
+    /// Add a page showing previously finished images and return its zero-based
+    /// page index. Each image is scaled to fill the whole page, drawn in
+    /// slice order, so a later image paints over an earlier one.
+    pub async fn add_page(&mut self, page: PageSpec, images: &[ImageObject]) -> Result<u32> {
+        if images.is_empty() {
+            return Err(Error::InvalidInput {
+                reason: "PDF page requires at least one image",
+            });
+        }
+        let width = pdf_page_number(page.width_points)?;
+        let height = pdf_page_number(page.height_points)?;
+        self.check_next_page()?;
+        self.reserve_page_index_slot()?;
+        self.ensure_leaf().await?;
+        self.push_page(&width, &height, images).await
+    }
+
+    async fn push_page(
+        &mut self,
+        width: &str,
+        height: &str,
+        images: &[ImageObject],
+    ) -> Result<u32> {
         let parent = self
             .leaf
             .as_ref()
@@ -197,14 +337,7 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
                 reason: "PDF page-tree leaf is missing",
             })?
             .id;
-        let page_id = self
-            .emit_page(
-                parent,
-                &width,
-                &height,
-                &[ImagePlacement { object: image_id }],
-            )
-            .await?;
+        let page_id = self.emit_page(parent, width, height, images).await?;
 
         let leaf = self.leaf.as_mut().ok_or(Error::InvalidInput {
             reason: "PDF page-tree leaf is missing",
@@ -586,7 +719,7 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
         parent: ObjectId,
         width: &str,
         height: &str,
-        images: &[ImagePlacement],
+        images: &[ImageObject],
     ) -> Result<ObjectId> {
         let content_id = self.writer.reserve_object()?;
         let content_length_id = self.writer.reserve_object()?;
@@ -842,23 +975,7 @@ impl<W: SequentialSink, C: Cancellation> BookmarkVisitor for PdfDocument<'_, W, 
 
 impl ImageSpec {
     fn validate(self, length: u64) -> Result<()> {
-        if self.pixel_width == 0 || self.pixel_height == 0 {
-            return Err(Error::InvalidInput {
-                reason: "image width and height must be nonzero",
-            });
-        }
-        for (resource, value) in [
-            ("PDF image width", self.pixel_width),
-            ("PDF image height", self.pixel_height),
-        ] {
-            if u64::from(value) > MAX_PDF_INTEGER {
-                return Err(Error::LimitExceeded {
-                    resource,
-                    limit: MAX_PDF_INTEGER,
-                    attempted: u64::from(value),
-                });
-            }
-        }
+        check_image_dimensions(self.pixel_width, self.pixel_height)?;
         let channels = match self.encoding {
             ImageEncoding::Gray8 | ImageEncoding::JpegGray8 => 1_u64,
             ImageEncoding::Rgb8 | ImageEncoding::JpegRgb8 => 3_u64,
@@ -897,6 +1014,52 @@ impl ImageSpec {
             self.pixel_width, self.pixel_height
         )
     }
+}
+
+impl BilevelImageSpec {
+    /// Return the kept bytes per row and the total input bytes after
+    /// checking every PDF size.
+    fn validate(self) -> Result<(usize, u64)> {
+        check_image_dimensions(self.pixel_width, self.pixel_height)?;
+        let visible = self.pixel_width.div_ceil(8);
+        if len_u64(self.row_stride) < u64::from(visible) {
+            return Err(Error::InvalidInput {
+                reason: "bilevel row stride is shorter than the packed row",
+            });
+        }
+        let stream = u64::from(visible) * u64::from(self.pixel_height);
+        if stream > MAX_PDF_INTEGER {
+            return Err(Error::LimitExceeded {
+                resource: "PDF image stream bytes",
+                limit: MAX_PDF_INTEGER,
+                attempted: stream,
+            });
+        }
+        let input = len_u64(self.row_stride)
+            .checked_mul(u64::from(self.pixel_height))
+            .ok_or(Error::InvalidInput {
+                reason: "bilevel input byte count overflows",
+            })?;
+        Ok((visible as usize, input))
+    }
+}
+
+fn check_image_dimensions(width: u32, height: u32) -> Result<()> {
+    if width == 0 || height == 0 {
+        return Err(Error::InvalidInput {
+            reason: "image width and height must be nonzero",
+        });
+    }
+    for (resource, value) in [("PDF image width", width), ("PDF image height", height)] {
+        if u64::from(value) > MAX_PDF_INTEGER {
+            return Err(Error::LimitExceeded {
+                resource,
+                limit: MAX_PDF_INTEGER,
+                attempted: u64::from(value),
+            });
+        }
+    }
+    Ok(())
 }
 
 fn pdf_page_number(value: f64) -> Result<String> {
