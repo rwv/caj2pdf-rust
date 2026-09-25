@@ -2600,71 +2600,19 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
             }
         }
         if duplicate_media_box {
-            let mut needed = 5_usize;
-            let mut seen_media_box = false;
-            for entry in &dictionary.entries {
-                if entry.name == b"MediaBox" {
-                    if seen_media_box {
-                        continue;
-                    }
-                    seen_media_box = true;
-                }
-                needed = needed
-                    .checked_add(entry.pair.len() + 1)
-                    .ok_or(Error::InvalidInput {
-                        reason: "PDF repair object size overflows",
-                    })?;
-            }
-            let next_retained =
-                retained_repair_bytes
-                    .checked_add(needed as u64)
-                    .ok_or(Error::InvalidInput {
-                        reason: "PDF repair metadata size overflows",
-                    })?;
-            if next_retained > self.limits.max_allocation_bytes / 2 {
-                return Err(self.locate_limit(
-                    at,
-                    Some(reference),
-                    Error::LimitExceeded {
-                        resource: "PDF repair object bytes",
-                        limit: self.limits.max_allocation_bytes / 2,
-                        attempted: next_retained,
-                    },
-                ));
-            }
-            let mut body = Vec::new();
-            body.try_reserve_exact(needed).map_err(|_| {
-                self.locate_limit(
-                    at,
-                    Some(reference),
-                    Error::LimitExceeded {
-                        resource: "PDF repair object allocation",
-                        limit: self.limits.max_allocation_bytes,
-                        attempted: needed as u64,
-                    },
-                )
-            })?;
-            body.extend_from_slice(b"<<\n");
-            let mut media_box_written = false;
-            for entry in &dictionary.entries {
-                if entry.name == b"MediaBox" {
-                    if media_box_written {
-                        continue;
-                    }
-                    media_box_written = true;
-                }
-                body.extend_from_slice(entry.raw_pair(&dictionary.bytes));
-                body.push(b'\n');
-            }
-            body.extend_from_slice(b">>");
-            push_bounded(
+            let first_media_box = dictionary
+                .entries
+                .iter()
+                .position(|entry| entry.name == b"MediaBox");
+            self.push_repair_body(
+                dictionary,
+                reference,
+                at,
+                |position, entry| entry.name != b"MediaBox" || Some(position) == first_media_box,
+                b"",
                 repairs,
-                RepairObject { reference, body },
-                self.limits.max_allocation_bytes / 2,
-                "PDF repair index",
-            )
-            .map_err(|error| self.locate_limit(at, Some(reference), error))?;
-            *retained_repair_bytes = next_retained;
+                retained_repair_bytes,
+            )?;
         }
         Ok(())
     }
@@ -2678,33 +2626,52 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
         index: &mut PdfIndex,
     ) -> Result<()> {
         let replacement = format!("/Parent {} {} R\n", parent.number, parent.generation);
-        let needed = dictionary
-            .entries
-            .iter()
-            .filter(|entry| entry.name != b"Parent")
-            // "<<\n" and ">>" frame the retained pairs and replacement.
-            .try_fold(5_usize + replacement.len(), |size, entry| {
-                size.checked_add(entry.pair.len() + 1)
+        self.push_repair_body(
+            dictionary,
+            reference,
+            at,
+            |_, entry| entry.name != b"Parent",
+            replacement.as_bytes(),
+            &mut index.repair_objects,
+            &mut index.retained_repair_bytes,
+        )
+    }
+
+    /// Records a repaired dictionary body built from the entries accepted by
+    /// `keep`, followed by `appended`, charging exactly the bytes it retains
+    /// against the repair budget. The size and the body come from the same
+    /// entry list, so they cannot disagree.
+    #[allow(clippy::too_many_arguments)]
+    fn push_repair_body(
+        &self,
+        dictionary: &Dictionary,
+        reference: PdfRef,
+        at: u64,
+        keep: impl Fn(usize, &DictEntry) -> bool,
+        appended: &[u8],
+        repairs: &mut Vec<RepairObject>,
+        retained_repair_bytes: &mut u64,
+    ) -> Result<()> {
+        let kept = || {
+            dictionary
+                .entries
+                .iter()
+                .enumerate()
+                .filter(|(position, entry)| keep(*position, entry))
+                .map(|(_, entry)| entry.raw_pair(&dictionary.bytes))
+        };
+        let overflow =
+            |message| self.problem(at, Some(reference), PdfErrorKind::Malformed, message);
+        // "<<\n" and ">>" frame the retained pairs, one newline each, and the
+        // appended bytes.
+        let needed = kept()
+            .try_fold(5_usize + appended.len(), |size, pair| {
+                size.checked_add(pair.len() + 1)
             })
-            .ok_or_else(|| {
-                self.problem(
-                    at,
-                    Some(reference),
-                    PdfErrorKind::Malformed,
-                    "page Parent repair size overflows",
-                )
-            })?;
-        let next_retained = index
-            .retained_repair_bytes
+            .ok_or_else(|| overflow("PDF repair object size overflows"))?;
+        let next_retained = retained_repair_bytes
             .checked_add(needed as u64)
-            .ok_or_else(|| {
-                self.problem(
-                    at,
-                    Some(reference),
-                    PdfErrorKind::Malformed,
-                    "PDF repair metadata size overflows",
-                )
-            })?;
+            .ok_or_else(|| overflow("PDF repair metadata size overflows"))?;
         let cap = self.limits.max_allocation_bytes / 2;
         if next_retained > cap {
             return Err(self.locate_limit(
@@ -2730,23 +2697,20 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
             )
         })?;
         body.extend_from_slice(b"<<\n");
-        for entry in &dictionary.entries {
-            if entry.name != b"Parent" {
-                body.extend_from_slice(entry.raw_pair(&dictionary.bytes));
-                body.push(b'\n');
-            }
+        for pair in kept() {
+            body.extend_from_slice(pair);
+            body.push(b'\n');
         }
-        body.extend_from_slice(replacement.as_bytes());
+        body.extend_from_slice(appended);
         body.extend_from_slice(b">>");
-        debug_assert_eq!(body.len(), needed);
         push_bounded(
-            &mut index.repair_objects,
+            repairs,
             RepairObject { reference, body },
             cap,
             "PDF repair index",
         )
         .map_err(|error| self.locate_limit(at, Some(reference), error))?;
-        index.retained_repair_bytes = next_retained;
+        *retained_repair_bytes = next_retained;
         Ok(())
     }
 

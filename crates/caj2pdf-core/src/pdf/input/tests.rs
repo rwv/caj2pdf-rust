@@ -1930,6 +1930,7 @@ fn duplicate_media_box_and_stale_parent_repairs_share_one_budget() {
     let page_repair = repairs.last().unwrap();
     assert_eq!(page_repair.reference.number, 3);
     assert!(page_repair.body.ends_with(b"/Parent 2 0 R\n>>"));
+    let page_bytes = page_repair.body.len() as u64;
     let orphan_bytes: u64 = repairs[..orphans as usize]
         .iter()
         .map(|repair| {
@@ -1959,11 +1960,21 @@ fn duplicate_media_box_and_stale_parent_repairs_share_one_budget() {
                 object: Some((3, 0)),
                 resource: "PDF repair object bytes",
                 limit,
+                attempted,
                 ..
-            } if limit == orphan_bytes
+            } if limit == orphan_bytes && attempted == orphan_bytes + page_bytes
         ),
         "{error:?}"
     );
+
+    // The page repair charges exactly its body length: that budget suffices.
+    let limits = Limits {
+        io_chunk_bytes: 4096,
+        max_allocation_bytes: (orphan_bytes + page_bytes) * 2,
+        ..Limits::default()
+    };
+    let index = open_with(repair_budget_pdf(orphans), &limits).unwrap();
+    assert_eq!(index.repair_objects().len(), orphans as usize + 1);
 
     // One byte less and the last MediaBox repair itself is refused.
     let limits = Limits {
