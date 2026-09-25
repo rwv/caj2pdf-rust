@@ -32,6 +32,20 @@ pub(crate) fn try_convert<T: TryFrom<U>, U, E>(value: U, error: E) -> Result<T, 
     T::try_from(value).map_err(|_| error)
 }
 
+/// Accept a source's reported read count, rejecting one larger than the
+/// `requested` destination length with `InvalidInput { reason }`.
+#[inline]
+pub(crate) fn checked_read_count(
+    read: usize,
+    requested: usize,
+    reason: &'static str,
+) -> crate::Result<usize> {
+    if read > requested {
+        return Err(crate::Error::InvalidInput { reason });
+    }
+    Ok(read)
+}
+
 /// Reserve exactly `additional` more elements, returning `error` when the
 /// request overflows the capacity or the allocator refuses it.
 #[inline]

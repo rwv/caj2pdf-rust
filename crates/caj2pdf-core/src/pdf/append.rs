@@ -9,7 +9,7 @@
 use super::input::{GapPatch, PdfIndex};
 use super::types::{PdfRange, PdfRef};
 use super::writer::{MAX_CLASSIC_PDF_BYTES, MAX_PDF_OBJECTS, check_classic_pdf_bytes};
-use crate::fallible::{reserve_exact, try_convert, usize_from_u32};
+use crate::fallible::{checked_read_count, reserve_exact, try_convert, usize_from_u32};
 use crate::{
     Bookmark, Cancellation, ConversionReport, Error, Limits, PdfErrorKind, RangedSource, Result,
     SequentialSink, read_exact_at, write_all,
@@ -76,6 +76,8 @@ pub async fn copy_pdf_range<R: RangedSource, W: SequentialSink, C: Cancellation>
     Ok(report)
 }
 
+const OVERREAD: &str = "PDF source reported more bytes than requested";
+
 struct CountingSource<'a, R> {
     inner: &'a mut R,
     bytes_read: u64,
@@ -88,11 +90,7 @@ impl<R: RangedSource> RangedSource for CountingSource<'_, R> {
 
     async fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> Result<usize> {
         let read = self.inner.read_at(offset, destination).await?;
-        if read > destination.len() {
-            return Err(Error::InvalidInput {
-                reason: "PDF source reported more bytes than requested",
-            });
-        }
+        let read = checked_read_count(read, destination.len(), OVERREAD)?;
         self.bytes_read = self
             .bytes_read
             .checked_add(read as u64)
@@ -1079,9 +1077,8 @@ fn skip_pdf_string(raw: &[u8], cursor: &mut usize) -> Option<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::{CancelAfter, run};
+    use crate::test_support::{CancelAfter, NEVER, run};
     use crate::{
-        NeverCancel,
         native::{SeekableSource, WriteSink},
         pdf::{ImageEncoding, ImageSpec, PageSpec, PdfDocument},
     };
@@ -1092,7 +1089,7 @@ mod tests {
         let mut output = WriteSink::new(Vec::<u8>::new());
         let limits = Limits::default();
         run(async {
-            let mut pdf = PdfDocument::new(&mut output, &limits, &NeverCancel).await?;
+            let mut pdf = PdfDocument::new(&mut output, &limits, &NEVER).await?;
             pdf.add_image_page(
                 &mut image,
                 0,
@@ -1141,11 +1138,11 @@ mod tests {
                     length: pdf.len() as u64,
                 },
                 &limits,
-                &NeverCancel,
+                &NEVER,
             )
             .await?;
             let mut appender =
-                PdfOutlineAppender::begin(&mut source, &mut output, &index, &limits, &NeverCancel)
+                PdfOutlineAppender::begin(&mut source, &mut output, &index, &limits, &NEVER)
                     .await?;
             appender
                 .add_bookmark(Bookmark {
@@ -1220,7 +1217,7 @@ mod tests {
             &mut source,
             &mut output,
             &Limits::default(),
-            &NeverCancel,
+            &NEVER,
         ))?;
         assert_eq!(output.into_inner(), original);
         assert_eq!(report.output_bytes_written, original.len() as u64);
@@ -1244,11 +1241,11 @@ mod tests {
                     length: original.len() as u64,
                 },
                 &limits,
-                &NeverCancel,
+                &NEVER,
             )
             .await?;
             let mut appender =
-                PdfOutlineAppender::begin(&mut source, &mut output, &index, &limits, &NeverCancel)
+                PdfOutlineAppender::begin(&mut source, &mut output, &index, &limits, &NEVER)
                     .await?;
             assert!(appender.preserves_existing_outlines());
             appender
@@ -1282,7 +1279,7 @@ mod tests {
                 length: original.len() as u64,
             },
             &Limits::default(),
-            &NeverCancel,
+            &NEVER,
         ))?;
         assert_eq!(output.into_inner(), original);
         assert_eq!(report.pages_converted, 2);
@@ -1316,11 +1313,11 @@ mod tests {
                     length: original.len() as u64,
                 },
                 &limits,
-                &NeverCancel,
+                &NEVER,
             )
             .await?;
             let mut appender =
-                PdfOutlineAppender::begin(&mut source, &mut output, &index, &limits, &NeverCancel)
+                PdfOutlineAppender::begin(&mut source, &mut output, &index, &limits, &NEVER)
                     .await?;
             for (depth, title) in [
                 (0, "Root".to_owned()),
@@ -1352,7 +1349,7 @@ mod tests {
                 length: pdf.len() as u64,
             },
             &limits,
-            &NeverCancel,
+            &NEVER,
         ))?;
         assert!(index.has_outlines());
         assert_eq!(index.pages().len(), 1);
@@ -1377,11 +1374,11 @@ mod tests {
                     length: original.len() as u64,
                 },
                 &limits,
-                &NeverCancel,
+                &NEVER,
             )
             .await?;
             let mut appender =
-                PdfOutlineAppender::begin(&mut source, &mut output, &index, &limits, &NeverCancel)
+                PdfOutlineAppender::begin(&mut source, &mut output, &index, &limits, &NEVER)
                     .await?;
             assert!(matches!(
                 appender
@@ -1460,7 +1457,7 @@ mod tests {
             ..Limits::default()
         };
         assert!(matches!(
-            run(copy_pdf(&mut source, &mut output, &limits, &NeverCancel)),
+            run(copy_pdf(&mut source, &mut output, &limits, &NEVER)),
             Err(Error::PdfLimitExceeded {
                 resource: "output bytes",
                 object: Some((1, 0)),
@@ -1485,11 +1482,11 @@ mod tests {
                     length: original.len() as u64,
                 },
                 &limits,
-                &NeverCancel,
+                &NEVER,
             )
             .await?;
             let mut appender =
-                PdfOutlineAppender::begin(&mut source, &mut output, &index, &limits, &NeverCancel)
+                PdfOutlineAppender::begin(&mut source, &mut output, &index, &limits, &NEVER)
                     .await?;
             assert!(matches!(
                 appender
@@ -1545,12 +1542,7 @@ mod tests {
             remaining: 35,
             fail_flush: false,
         };
-        let result = run(copy_pdf(
-            &mut source,
-            &mut sink,
-            &Limits::default(),
-            &NeverCancel,
-        ));
+        let result = run(copy_pdf(&mut source, &mut sink, &Limits::default(), &NEVER));
         assert!(matches!(result, Err(Error::Io(_))));
         assert_eq!(sink.accepted, 35);
         Ok(())
@@ -1565,12 +1557,7 @@ mod tests {
             remaining: original.len(),
             fail_flush: true,
         };
-        let result = run(copy_pdf(
-            &mut source,
-            &mut sink,
-            &Limits::default(),
-            &NeverCancel,
-        ));
+        let result = run(copy_pdf(&mut source, &mut sink, &Limits::default(), &NEVER));
         assert!(matches!(result, Err(Error::Io(_))));
         assert_eq!(sink.accepted, original.len());
 
@@ -1580,12 +1567,7 @@ mod tests {
             remaining: original.len(),
             fail_flush: false,
         };
-        let report = run(copy_pdf(
-            &mut source,
-            &mut sink,
-            &Limits::default(),
-            &NeverCancel,
-        ))?;
+        let report = run(copy_pdf(&mut source, &mut sink, &Limits::default(), &NEVER))?;
         assert_eq!(report.output_bytes_written, original.len() as u64);
         assert_eq!(sink.accepted, original.len());
         Ok(())
@@ -1632,7 +1614,7 @@ mod tests {
                 length: pdf.len() as u64,
             },
             limits,
-            &NeverCancel,
+            &NEVER,
         ))
     }
 
@@ -1690,7 +1672,7 @@ mod tests {
         let mut output = WriteSink::new(Vec::<u8>::new());
         let report = run(async {
             let mut appender =
-                PdfOutlineAppender::begin(&mut source, &mut output, &index, &limits, &NeverCancel)
+                PdfOutlineAppender::begin(&mut source, &mut output, &index, &limits, &NEVER)
                     .await?;
             assert!(!appender.preserves_existing_outlines());
             appender
@@ -1767,7 +1749,7 @@ mod tests {
         assert!(patch.original.len() > 8);
         let mut source = SeekableSource::new(Cursor::new(original.as_slice()))?;
         let mut output = WriteSink::new(Vec::<u8>::new());
-        let report = run(copy_pdf(&mut source, &mut output, &limits, &NeverCancel))?;
+        let report = run(copy_pdf(&mut source, &mut output, &limits, &NEVER))?;
         let mut expected = original.clone();
         expected[start..end].fill(b' ');
         let copied = output.into_inner();
@@ -1795,8 +1777,7 @@ mod tests {
         };
         let poisoned = run(async {
             let mut appender =
-                PdfOutlineAppender::begin(&mut source, &mut sink, &index, &limits, &NeverCancel)
-                    .await?;
+                PdfOutlineAppender::begin(&mut source, &mut sink, &index, &limits, &NEVER).await?;
             let bookmark = |title: &str| Bookmark {
                 depth: 0,
                 title: title.into(),
@@ -1887,7 +1868,7 @@ mod tests {
             generation: 0,
         };
         run(async {
-            let mut writer = AppendWriter::new(&mut sink, &limits, &NeverCancel);
+            let mut writer = AppendWriter::new(&mut sink, &limits, &NEVER);
             let misuse = invalid("invalid PDF append object state or number");
             assert!(misuse(
                 &writer
@@ -1920,7 +1901,7 @@ mod tests {
         };
         let mut sink = WriteSink::new(Vec::new());
         run(async {
-            let mut writer = AppendWriter::new(&mut sink, &limits, &NeverCancel);
+            let mut writer = AppendWriter::new(&mut sink, &limits, &NEVER);
             writer.begin_object(reference).await?;
             assert!(invalid("PDF append object remains open")(
                 &writer.finish_update(&index).await
@@ -1936,7 +1917,7 @@ mod tests {
 
         let mut sink = WriteSink::new(Vec::new());
         let oversized = run(async {
-            let mut writer = AppendWriter::new(&mut sink, &limits, &NeverCancel);
+            let mut writer = AppendWriter::new(&mut sink, &limits, &NEVER);
             writer.position = MAX_CLASSIC_PDF_BYTES + 1;
             writer.finish_update(&index).await
         });
@@ -1951,7 +1932,7 @@ mod tests {
 
         let mut sink = WriteSink::new(Vec::new());
         let far_object = run(async {
-            let mut writer = AppendWriter::new(&mut sink, &limits, &NeverCancel);
+            let mut writer = AppendWriter::new(&mut sink, &limits, &NEVER);
             writer.entries.push(XrefEntry {
                 reference,
                 offset: MAX_CLASSIC_PDF_BYTES + 1,

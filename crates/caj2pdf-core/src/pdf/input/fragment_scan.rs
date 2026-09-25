@@ -3,7 +3,7 @@
 //! Bounded object scanning for headerless CAJ PDF fragments.
 
 use super::{ObjectTail, Reader, exact_unsigned};
-use crate::fallible::reserve;
+use crate::fallible::{checked_read_count, reserve};
 use crate::pdf::writer::MAX_PDF_OBJECTS;
 use crate::pdf::{FragmentObject, PdfRange, PdfRef};
 use crate::{Cancellation, Error, Limits, PdfErrorKind, RangedSource, Result};
@@ -23,6 +23,8 @@ pub(crate) struct FragmentScan {
     pub objects: Vec<FragmentObject>,
     pub patches: Vec<LengthPatch>,
 }
+
+const OVERREAD: &str = "source reported more bytes than requested";
 
 /// Apply verified same-width stream length repairs while forwarding ranged
 /// reads. This adapter never buffers an object or stream payload.
@@ -44,11 +46,7 @@ impl<S: RangedSource> RangedSource for PatchedSource<'_, S> {
 
     async fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> Result<usize> {
         let count = self.source.read_at(offset, destination).await?;
-        if count > destination.len() {
-            return Err(Error::InvalidInput {
-                reason: "source reported more bytes than requested",
-            });
-        }
+        let count = checked_read_count(count, destination.len(), OVERREAD)?;
         let end = offset.saturating_add(count as u64);
         // The fragment scan records patches in ascending source order. Most
         // reads overlap no patch, so seek directly to the first possible one.
@@ -169,47 +167,42 @@ pub(crate) async fn scan_fragment_objects<S: RangedSource, C: Cancellation>(
                     .ok_or(reader.malformed(start, Some(reference), "stream offset overflows"))?;
                 let failure = reader.malformed(data_at, Some(reference), "stream extent overflows");
                 let after_data = data_at.checked_add(length).ok_or(failure)?;
-                let end = match reader.check_stream_tail(after_data, Some(reference)).await {
-                    Ok(end) => end,
-                    Err(Error::Pdf {
-                        kind: PdfErrorKind::Malformed,
-                        ..
-                    }) => {
-                        let (corrected_length, corrected_end) =
-                            repair_stream_length(&mut reader, after_data, data_at, reference)
-                                .await?;
-                        let original = value.to_vec();
-                        let replacement = corrected_length.to_string().into_bytes();
-                        if original.len() != replacement.len() {
-                            return Err(reader.problem(
-                                after_data,
-                                Some(reference),
-                                PdfErrorKind::UnsupportedFeature,
-                                "stream Length repair changes PDF object width",
-                            ));
-                        }
-                        let failure = reader.malformed(
-                            start,
+                let tail = reader.check_stream_tail(after_data, Some(reference)).await;
+                let end = if is_malformed(&tail) {
+                    let (corrected_length, corrected_end) =
+                        repair_stream_length(&mut reader, after_data, data_at, reference).await?;
+                    let original = value.to_vec();
+                    let replacement = corrected_length.to_string().into_bytes();
+                    if original.len() != replacement.len() {
+                        return Err(reader.problem(
+                            after_data,
                             Some(reference),
-                            "stream dictionary offset is missing",
-                        );
-                        let dictionary_start = head.dictionary_start.ok_or(failure)?;
-                        let patch_offset = body_start
-                            .checked_add(start)
-                            .and_then(|n| n.checked_add(dictionary_start as u64))
-                            .and_then(|n| n.checked_add(entry.value.start as u64))
-                            .ok_or(Error::InvalidInput {
-                                reason: "stream Length offset overflows",
-                            })?;
-                        patches.push(LengthPatch {
-                            offset: patch_offset,
-                            original,
-                            replacement,
-                        });
-                        object_repaired = true;
-                        corrected_end
+                            PdfErrorKind::UnsupportedFeature,
+                            "stream Length repair changes PDF object width",
+                        ));
                     }
-                    Err(other) => return Err(other),
+                    let failure = reader.malformed(
+                        start,
+                        Some(reference),
+                        "stream dictionary offset is missing",
+                    );
+                    let dictionary_start = head.dictionary_start.ok_or(failure)?;
+                    let patch_offset = body_start
+                        .checked_add(start)
+                        .and_then(|n| n.checked_add(dictionary_start as u64))
+                        .and_then(|n| n.checked_add(entry.value.start as u64))
+                        .ok_or(Error::InvalidInput {
+                            reason: "stream Length offset overflows",
+                        })?;
+                    patches.push(LengthPatch {
+                        offset: patch_offset,
+                        original,
+                        replacement,
+                    });
+                    object_repaired = true;
+                    corrected_end
+                } else {
+                    tail?
                 };
                 Some(end)
             }
@@ -292,6 +285,18 @@ fn next_object_count(indexed: usize) -> Result<usize> {
     Ok(count)
 }
 
+/// Whether a stream-tail check failed on malformed syntax, which a bounded
+/// Length repair may correct, rather than on a source or limit error.
+fn is_malformed(result: &Result<u64>) -> bool {
+    matches!(
+        result,
+        Err(Error::Pdf {
+            kind: PdfErrorKind::Malformed,
+            ..
+        })
+    )
+}
+
 async fn repair_stream_length<S: RangedSource, C: Cancellation>(
     reader: &mut Reader<'_, S, C>,
     declared_after: u64,
@@ -319,14 +324,11 @@ async fn repair_stream_length<S: RangedSource, C: Cancellation>(
         if after <= declared_after || after < data_at {
             continue;
         }
-        let end = match reader.check_stream_tail(after, Some(reference)).await {
-            Ok(end) => end,
-            Err(Error::Pdf {
-                kind: PdfErrorKind::Malformed,
-                ..
-            }) => continue,
-            Err(other) => return Err(other),
-        };
+        let tail = reader.check_stream_tail(after, Some(reference)).await;
+        if is_malformed(&tail) {
+            continue;
+        }
+        let end = tail?;
         if found.is_some() {
             return Err(reader.problem(
                 marker,
@@ -351,8 +353,8 @@ mod tests {
     // falls below the per-file coverage floor.
     use super::*;
     use crate::native::SeekableSource;
-    use crate::test_support::run;
-    use crate::{NeverCancel, read_exact_at};
+    use crate::read_exact_at;
+    use crate::test_support::{NEVER, run};
     use std::io::{self, Cursor};
 
     /// A source whose bytes from `unreadable_from` onward fail with an I/O
@@ -419,7 +421,7 @@ mod tests {
             0,
             end,
             &Limits::default(),
-            &NeverCancel,
+            &NEVER,
         ))
         .unwrap();
         assert_eq!(scan.objects.len(), 1);
@@ -437,7 +439,7 @@ mod tests {
             patch.offset,
             &mut length,
             &Limits::default(),
-            &NeverCancel,
+            &NEVER,
         ))
         .unwrap();
         assert_eq!(&length, b"41");
@@ -470,7 +472,7 @@ mod tests {
             0,
             end,
             &Limits::default(),
-            &NeverCancel,
+            &NEVER,
         ))
         .unwrap();
         assert_eq!(scan.objects[0].range.length, end);
@@ -494,7 +496,7 @@ mod tests {
             0,
             size,
             &one_byte_reads(),
-            &NeverCancel,
+            &NEVER,
         )));
     }
 
@@ -514,7 +516,7 @@ mod tests {
             0,
             size,
             &one_byte_reads(),
-            &NeverCancel,
+            &NEVER,
         )));
 
         // The same bytes repair cleanly once the tail is readable.
@@ -524,7 +526,7 @@ mod tests {
             0,
             size,
             &one_byte_reads(),
-            &NeverCancel,
+            &NEVER,
         ))
         .unwrap();
         assert_eq!(scan.patches.len(), 1);
@@ -546,15 +548,9 @@ mod tests {
             max_input_bytes: hint,
             ..Limits::default()
         };
-        let error = run(scan_fragment_objects(
-            &mut source,
-            0,
-            hint,
-            &limits,
-            &NeverCancel,
-        ))
-        .err()
-        .expect("an object past the input limit was accepted");
+        let error = run(scan_fragment_objects(&mut source, 0, hint, &limits, &NEVER))
+            .err()
+            .expect("an object past the input limit was accepted");
         assert!(
             matches!(
                 error,

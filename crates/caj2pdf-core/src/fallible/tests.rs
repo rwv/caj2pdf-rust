@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 
-use super::{len_u64, reserve, reserve_exact, try_convert, usize_from_u32};
+use super::{checked_read_count, len_u64, reserve, reserve_exact, try_convert, usize_from_u32};
+use crate::Error;
 
 #[test]
 fn length_conversion_is_lossless() {
@@ -15,6 +16,16 @@ fn conversions_return_the_supplied_error_when_out_of_range() {
     assert_eq!(try_convert::<u8, _, _>(255_u32, "unused"), Ok(255_u8));
     assert_eq!(try_convert::<u8, _, _>(256_u32, "range"), Err("range"));
     assert_eq!(try_convert::<u32, _, _>(u64::MAX, "range"), Err("range"));
+}
+
+#[test]
+fn read_counts_may_not_exceed_the_request() {
+    assert!(matches!(checked_read_count(0, 0, "unused"), Ok(0)));
+    assert!(matches!(checked_read_count(4, 4, "unused"), Ok(4)));
+    assert!(matches!(
+        checked_read_count(5, 4, "overread"),
+        Err(Error::InvalidInput { reason: "overread" })
+    ));
 }
 
 #[test]
