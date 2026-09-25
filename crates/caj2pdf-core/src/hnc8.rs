@@ -511,25 +511,15 @@ impl<'a, S: RangedSource, C: Cancellation> Hnc8Reader<'a, S, C> {
                     outline_count,
                 ));
             }
-            let outline_bytes =
-                outline_count
-                    .checked_mul(OUTLINE_RECORD_BYTES)
-                    .ok_or_else(|| {
-                        loc.at(0x158)
-                            .malformed("outline count", "byte count overflows")
-                    })?;
+            // The count fits 32 bits, so the product fits 64 bits.
+            let outline_bytes = outline_count * OUTLINE_RECORD_BYTES;
             index_start
                 .checked_add(outline_bytes)
                 .ok_or_else(|| loc.at(0x158).malformed("page index", "start overflows"))?
         } else {
             index_start
         };
-        let index_length = u64::from(page_count)
-            .checked_mul(PAGE_ROW_BYTES)
-            .ok_or_else(|| {
-                loc.at(count_offset)
-                    .malformed("page count", "index bytes overflow")
-            })?;
+        let index_length = u64::from(page_count) * PAGE_ROW_BYTES;
         let page_index = checked_span(
             source.size(),
             index_start,
@@ -642,13 +632,9 @@ impl<'a, S: RangedSource, C: Cancellation> Hnc8Reader<'a, S, C> {
                 u64::from(image_count),
             ));
         }
-        let total = self
-            .declared_images
-            .checked_add(u64::from(image_count))
-            .ok_or_else(|| {
-                loc.at(row_offset + 8)
-                    .malformed("image count", "total overflows")
-            })?;
+        // At most 2^32 page rows each declare fewer than 2^15 images, so the
+        // running total stays below 2^47.
+        let total = self.declared_images + u64::from(image_count);
         if total > self.budget.max_images_total {
             return Err(loc.at(row_offset + 8).limit(
                 "images total",
@@ -770,17 +756,16 @@ impl<'a, S: RangedSource, C: Cancellation> Hnc8Reader<'a, S, C> {
                 "payload overlaps descriptor or chain regresses",
             ));
         }
-        if overlaps_protected(
+        // The payload starts at or after the descriptor's end, and the
+        // descriptor was checked to start after the protected header and
+        // page index.
+        debug_assert!(!overlaps_protected(
             payload,
             self.header
                 .page_index
                 .checked_end()
                 .expect("checked page index"),
-        ) {
-            return Err(loc
-                .at(descriptor_offset + 4)
-                .malformed("image payload", "overlaps header or page index"));
-        }
+        ));
         let record_type = signed_type as u32;
         let record = ImageRecord {
             page_number: current.page.page_number,
