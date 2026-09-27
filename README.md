@@ -44,6 +44,9 @@ backing. Exact table-state redistribution remains unresolved under issue #44.
 The [HN/C8 layout oracle](docs/hnc8-layout-oracle.md) records opt-in,
 metadata-only source-page and reference-PDF measurements for future page
 composition; it does not enable HN/C8 conversion.
+The [text-framing investigation](docs/hnc8-text-source.md) isolates the
+page-text component and positive-valued x/y fields with fixed-row diagnostic
+controls; units, signedness and the complete placement rule remain unverified.
 
 ```sh
 caj2pdf paper.caj                  # writes paper.pdf next to the input

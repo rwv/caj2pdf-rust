@@ -730,6 +730,30 @@ index-row address/length component**, not for any individual coordinate
 field or a validated compositor. The copies, reports and PDFs remain
 external. No external converter implementation supplied code or pseudocode.
 
+Issue #111 independently recognizes a complete zlib frame at text-relative
+`+24`, a little-endian decoded-length field at `+20`, and an observed
+decompressed record layout in the two #107 HN-A/C8 documents. The
+[text-framing note](hnc8-text-source.md) records the corpus scope and exact
+predeclared fixed-row controls. RFC 1950/1951 are functional framing
+references; no RFC sample code, external converter parser, raw document text,
+or private prefix bytes are copied. The original MIT diagnostic scripts use
+the installed Python standard-library zlib module only for optional test
+measurements; its implementation is not vendored, linked into the Rust/JS
+runtime, or shipped as an asset. Synthetic text frames and rejection cases
+are independently authored. Private decoded text, source copies and PDFs
+remain external; committed format facts and hashes do not establish a
+general placement rule or enable HN/C8 conversion.
+
+The two fixed-row content controls isolate decoded text from row address and
+length. A separately predeclared six-copy batch changes four individual
+two-byte tail fields or only the RFC 1950 FLEVEL/FCHECK wrapper bits. The
+four coordinate changes produce only the predicted selected-axis movement;
+the two wrapper controls reproduce the baseline PDFs. These are independent
+black-box interventions on two source documents, not independent-document
+validation or a source-unit specification. The measured `240/2473` factor
+was selected retrospectively from public reference geometry. Signedness,
+negative coordinates and general applicability remain unresolved under #112.
+
 ## Dependency inventory and review
 
 The workspace contains three owned packages. The dependency column lists

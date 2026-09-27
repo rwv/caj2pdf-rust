@@ -131,6 +131,64 @@ Retain this failure separately from later successful comparisons. Retry the
 unchanged two-case plan above, still bounded at two copies/four conversions;
 no additional mutation or compression recipe is permitted.
 
+## Fixed-row content batch result
+
+The unchanged two-case plan ran at diagnostic revision `922e13b` after that
+preflight correction. Both fixed-row source copies passed strict text-frame,
+marker, container, image-identity and every-byte diff checks. Each was
+accepted twice by the pinned converter; all four PDFs were repeatable and
+qpdf, MuPDF and Poppler agreed. Their PDF hashes equal the earlier #110
+compound transplants even though the original index rows stay unchanged.
+All five target supplemental x/y translations exactly equal the donor
+translations, while target scales, first-image CTMs, image bytes and all
+73 non-target pages' geometry stay fixed. Thus the decoded text-content
+component controls these placements independently of index-row address or
+length on these two targets.
+
+| Case | Mutated PDF SHA-256 | Changed source bytes / runs | Donor translation matches |
+| --- | --- | --- | ---: |
+| C8 fixed-row content | `81d684dd092727fb794426145e5bac5b48caf8985b8957bee991cea153c0f170` | 14,457 / 68 | 4/4 |
+| HN-A fixed-row content | `9e4f111c9ef5c07698240aa5d33de7a1fb665e8758e23312344143c1afd98aae` | 7,442 / 38 | 1/1 |
+
+The mutated source hashes equal the frozen plan above. Successful-batch
+counts are planned/attempted/completed/passing/repeatable 2, failing/skipped/
+unsupported 0, returned converter runs 4 and text-content effects 2. The
+separate failed protocol preflight remains recorded above and is not a
+compatibility match. All 27 sources, six baseline PDFs, matrix, oracle,
+reference report and full pinned environment passed before/after audit.
+The external report has SHA-256
+`a8f580ec8ea1c5da4b130963febd60ab194f9d4075defbb2ecf024553d1104d3`;
+it retains every ordered CTM/image identity and exact source diff run.
+Maximum source range/copy request was 65,536 bytes, hash requests 1 MiB,
+harness VmHWM 25,784 KiB, converter child VmHWM 40,904 KiB, PDF-tool RSS
+42,680 KiB, tool output 322,609 bytes and temporary-session size
+34,481,126 bytes (30,376,912 retained). Timeout was 180 seconds; none
+occurred. The placement rule remained `UNKNOWN_TEXT_CONTENT_ONLY` at this
+stage; that component result alone identifies no individual field.
+
+## Bounded frame diagnostic result
+
+The original MIT [frame diagnostic](../scripts/hnc8_text_frame.py) validated
+all 75 HN-A/C8 source text spans in the two reference documents under its
+1 MiB span/output limits and 64 KiB read/output chunks. It checks prefix
+and marker fingerprints, complete zlib EOF/Adler/no-tail, exact declared
+length and the `8+16*N+4+28*I` layout. It returns constant-size section
+metadata and hashes, with a scoped validated disk-spool callback when
+needed; it returns no decoded document bytes by default. The standalone
+CLI requires a full input SHA-256, verifies it before/after in bounded
+chunks and caps the source at 1 GiB. `VALIDATED` means frame-profile
+validation only; converter compatibility remains `NOT_RUN`.
+
+The optional read-only run at parser revision `80e08d3` reports 75 attempted,
+completed and structurally passing frames, 0 failing/skipped, 27-source
+before/after matches, and 0 converter launches. Six HN-B rows were not
+attempted under this different profile. Its metadata-only external report
+SHA-256 is `fec27e7a926ca5625a379cc1d4a7ed44c56181dadd09c173b0f48b5bbdb145d5`.
+Measured maximum parser source request was 14,522 bytes, decoder output
+chunk/logical spool 33,688 bytes, allocated spool blocks 36,864 bytes, and
+harness VmHWM 21,948 KiB. Source hashing used at most 1 MiB per request.
+Each spool was closed before the next page; no decoded bytes were retained.
+
 ## Read-only coordinate candidate
 
 Independent bounded reads found a stronger candidate in the decoded tail.
@@ -154,6 +212,12 @@ No counterexample appears in these two documents, but these observations
 provide no independently established physical source unit or general rule.
 The remaining 24 bytes of each image record stay opaque; `+4/+6` correlate
 with dimensions and must not be used as decoded image pixel sizes.
+An additional read-only check compared those two slots with pixel width/height
+times `2473/1000`, rounded down, nearest or up. Across 250 dimension components,
+the three candidates matched only 75, 84 and 91, respectively; the largest
+unrounded error was 3.8 source units. This supplies no exact size interpretation
+or independent physical-unit definition. All 27 source hashes were unchanged;
+no mutation or converter run was made for that check.
 
 The external metadata-only read-only report has SHA-256
 `b27ff8d4b5b3dacb60e7de5aadc4bfaedfc521b9f3c8e3d0ffa5474b553c391b`.
@@ -235,3 +299,70 @@ All also fit positive signed 16-bit integers: signedness when bit 15 is set,
 negative source coordinates and physical units remain untested. Keep the
 complete placement rule `PARTIAL` and #112 blocking production composition
 until its range, parsing and validation gates pass.
+
+## Individual-field batch result
+
+The six-copy plan ran once at diagnostic revision `2e0fb46`, after plan
+commit `031766a` and independent pre-execution review. Every source hash
+matched the frozen plan. All six copies passed strict frame, marker, logical
+decoded-byte and full-source diff checks; each converted twice with identical
+PDF hashes. qpdf, MuPDF and Poppler agreed on the outputs. All four field
+cases changed only the selected image's selected translation, while every
+other CTM component, draw, MediaBox, image dimension/order/raw-stream hash,
+original index row and source byte outside the allowed span stayed fixed.
+
+| Case | Selected PDF translation before → after (pt) | Changed source bytes / runs | Repeated PDF SHA-256 |
+| --- | --- | --- | --- |
+| C8 p1/i2 x | 580.1537 → 589.8585 | 14,010 / 92 | `3c4857b991b3d643a1de5508c60f209454527bb11d614d5586c872e8b3884646` |
+| C8 p1/i2 y | 644.8658 → 635.1610 | 5 / 3 | `071bf232060066f8c379f2ac3909a24c4a9dee60d853e46f25015bf78e944d15` |
+| HN-A p16/i2 x | 46.7772 → 56.4820 | 18 / 2 | `6c1b5a5e8fce275a9423c233b09e7ce19b8e994e8f89012e8302ab2f7f2602b1` |
+| HN-A p16/i2 y | 293.4759 → 283.7711 | 6,875 / 37 | `7eba465c50497ea219916238f7c5d345eba23258c6b8fcbcefeac6db8ce3feb4` |
+| C8 p1 FLEVEL | All geometry unchanged | 1 / 1 | `acbd822358c08713a795f8c0ad82c6f23c4b43d9e137d515c3210114ca1bc885` |
+| HN-A p16 FLEVEL | All geometry unchanged | 1 / 1 | `833f0c40881f0baf7f76f3505b6679e2dfa0b16c0e469dfbf10f791e687dec40` |
+
+All four absolute before/after predictions agree within 0.00005 pt. The
+largest absolute residual among these eight positions is 0.000040477153 pt.
+Each field source differs at only one logical two-byte slot after decoding;
+recompression explains the larger encoded source diffs. Each wrapper source
+differs at exactly the predeclared single byte, with identical decoded bytes,
+DEFLATE payload and Adler-32. Both wrapper PDF hashes equal their original
+baselines. This is a negative control for FLEVEL/FCHECK information only.
+
+The external report has SHA-256
+`27a7ec1244c24b40ae6ad0f08e99b2c4b2eeadc3dd35370ec384cdd410372fd5`.
+It retains every ordered six-component CTM and image identity for every run,
+exact source diff runs, predicted positions and residuals. Counts are
+planned/attempted/completed/passing/repeatable 6, failing/skipped/unsupported
+0, returned runs and converter-runner launches 12, isolated coordinate-field
+effects 4 and unchanged wrapper controls 2. All 27 sources, six baseline PDFs,
+matrix, oracle, reference report, clean reference revision and pinned
+environment passed before/after audits. None of the 180-second converter
+timeouts expired. Maximum source range/copy request was 65,536 bytes, hash
+request 1 MiB, harness VmHWM 28,056 KiB, converter child VmHWM 41,100 KiB,
+PDF-tool RSS 42,732 KiB, captured tool output 322,609 bytes, and observed
+temporary-session size 91,130,766 bytes (all retained externally). These
+resource observations describe the optional diagnostic and external tools,
+not a Rust runtime memory bound.
+
+## Final finding and remaining gate
+
+Overall result: **PARTIAL**. Complete zlib framing and decoded-length/layout
+invariants are **IDENTIFIED for the 75 HN-A/C8 pages in two documents**. The
+fixed-row content controls separate their placement effects from row address
+and length. The second batch **identifies the positive-valued x/y roles** of
+the trailing-record slots on both targets by repeated one-variable movements.
+Across the two successful batches, eight copies completed with 16 converter
+launches; none failed, skipped or was unsupported. The earlier zero-converter
+protocol preflight failure remains separately recorded. HN-B was not tested
+under this text profile; optional clean-clone runs remain `NOT_RUN`.
+
+The full source-derived placement rule remains **UNKNOWN** outside this
+observed profile. All reference draws and the fitted scale were inspected
+retrospectively, and the new interventions use the same two documents. They
+do not establish bit-15 signedness, negative-coordinate behavior, source
+physical units, valid ranges, or unseen document layouts. [#112](https://github.com/rwv/caj2pdf-rust/issues/112)
+must resolve or explicitly bound those questions, add a bounded original MIT
+native parser and source-derived transforms, and pass its frozen validation
+and platform gates before #10 can enable supplemental-image composition.
+This issue adds original MIT diagnostics and synthetic tests only; production
+conversion behavior remains unchanged.

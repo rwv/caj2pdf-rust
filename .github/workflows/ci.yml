@@ -79,6 +79,12 @@ jobs:
       - name: Report external HN/C8 text-component probes as not run
         run: |
           python3 scripts/hnc8_text_transplant.py --json | python3 -c 'import json, sys; r = json.load(sys.stdin); counts = r["counts"]; assert r["status"] == "NOT_RUN" and r["placement_rule_status"] == "UNKNOWN_NOT_TESTED" and counts["probes_planned"] == 2 and all(value == 0 for key, value in counts.items() if key != "probes_planned") and r["probes"] == [] and r["source_audit"]["before_checked"] == r["source_audit"]["after_checked"] == r["input_audit"]["before_checked"] == r["input_audit"]["after_checked"] == 0 and r["environment_audit"]["status"] == "NOT_RUN" and r["errors"] == [], r'
+      - name: Report external HN/C8 text-frame, content and field controls as not run
+        run: |
+          python3 scripts/hnc8_text_frame.py --json | python3 -c 'import json, sys; r = json.load(sys.stdin); assert r == {"status": "NOT_RUN", "private_comparisons": 0}, r'
+          for batch in content fields; do
+            python3 scripts/hnc8_text_content.py --batch "$batch" --json | python3 -c 'import json, sys; r = json.load(sys.stdin); counts = r["counts"]; planned = {"content": 2, "fields": 6}[r["batch"]]; assert r["status"] == "NOT_RUN" and r["placement_rule_status"] == "UNKNOWN_NOT_TESTED" and counts["probes_planned"] == planned and all(value == 0 for key, value in counts.items() if key != "probes_planned") and r["probes"] == [] and r["source_audit"]["before_checked"] == r["source_audit"]["after_checked"] == r["input_audit"]["before_checked"] == r["input_audit"]["after_checked"] == 0 and r["environment_audit"]["status"] == "NOT_RUN" and r["errors"] == [], r'
+          done
       - name: Report external JBIG1 pixel oracle as not run
         env:
           CAJ2PDF_CORPUS_DIR: ""
