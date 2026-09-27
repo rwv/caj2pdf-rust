@@ -128,6 +128,20 @@ upward rather than stacking downward. A possible coordinate lattice was
 noticed only after inspecting all 50 outcomes; it is post hoc, has no source
 field, and is not treated as validation evidence or a placement rule.
 
+One bounded feasibility run assembled a 132,124-byte, one-page C8 temporary
+source from the pinned C8 page-1 index row and its text/descriptor/image
+chain, using at most 65,536 bytes per copy request. The row's absolute spans
+were retained; unknown header space was zeroed. The independent source reader
+confirmed the original text hash and five image hashes/dimensions, and the
+pinned black-box converter produced a one-page, five-draw PDF accepted by
+qpdf, MuPDF and Poppler. The temporary source/PDF hashes were
+`13e4ff97b0969ceade7449455c59199fba30b0b7f31b0df384ca1b317746aa2b`
+and `8d576e41d5888274593519ac64886b13884ca4a1bb86a760bdbc0b232578072c`.
+The converted source reused text, image bytes and unknown row values from the
+same pinned document, so this is a structural feasibility check and **not**
+independent-document validation or a new placement-rule test. Both temporary
+files were deleted after the run.
+
 ## Measurements and decision rule
 
 For every requested input, pin and check the #22/#61 matrix, #107 oracle,
