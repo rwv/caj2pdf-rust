@@ -712,6 +712,16 @@ artifacts. The [layout note](hnc8-layout-oracle.md) records exact hashes,
 versions, scope, resource measurements, controlled perturbations and the
 unresolved image-placement rule. #30 and #44 rights questions remain open.
 
+Issue #110's [predeclared placement plan](hnc8-placement-experiments.md)
+records read-only structural checks on the same two SHA-pinned HN-A/C8
+sources and the public #107 CTMs. The observed JPEG APP0 fields are identical
+across 50 additional images and cannot distinguish their x/y positions;
+limited text-span encoding scans and simple geometry-only models also found
+no rule. These observations are correlations or negative checks, not a
+source-field interpretation. Four exact JFIF metadata probes are declared
+before any new black-box run. Private bytes and generated PDFs remain outside
+Git. No external converter implementation supplied code or pseudocode.
+
 ## Dependency inventory and review
 
 The workspace contains three owned packages. The dependency column lists
