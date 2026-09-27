@@ -1419,6 +1419,36 @@ fn composition_errors_have_stable_messages_and_nested_causes() {
 }
 
 #[test]
+fn composition_error_display_propagates_partial_writer_failure() {
+    #[derive(Default)]
+    struct FailOnSecondWrite(usize);
+
+    impl std::fmt::Write for FailOnSecondWrite {
+        fn write_str(&mut self, chunk: &str) -> std::fmt::Result {
+            if chunk.is_empty() {
+                return Ok(());
+            }
+            self.0 += 1;
+            if self.0 == 2 {
+                Err(std::fmt::Error)
+            } else {
+                Ok(())
+            }
+        }
+    }
+
+    let error = TextComposeError {
+        segment: 3,
+        offset: 12,
+        progress: Box::new(TextComposeProgress::default()),
+        kind: TextComposeErrorKind::Cancelled,
+    };
+    let mut writer = FailOnSecondWrite::default();
+    assert!(std::fmt::write(&mut writer, format_args!("{error}")).is_err());
+    assert_eq!(writer.0, 2);
+}
+
+#[test]
 fn constructor_rejects_invalid_header_stream_identity_stores_and_limits() {
     let symbol = stored(SymbolStore::Imported, descriptor(1, 1, 0));
     for case in 0..13 {

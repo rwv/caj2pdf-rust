@@ -52,18 +52,20 @@ absent do not count as corpus validation. Record memory measurements for changes
 to buffering, decoding, or PDF output. Keep new test fixtures synthetic or
 otherwise demonstrably redistributable under MIT.
 Write meaningful unit tests for success, malformed input, and error paths.
-Aim for 100% coverage where practical, and report uncovered behavior rather
-than adding assertions that only mirror the implementation.
+The required native line-coverage gate is 100% for every source file in its
+LCOV report. Exercise real behavior and error propagation; do not add
+assertions that only mirror the implementation or hide uncovered lines.
 
 ## Quality gates
 
 CI requires `cargo fmt --check`, Clippy with `-D warnings`, rustdoc with
 `-D warnings`, locked native tests, the WASM build and JavaScript adapter
 tests, the MIT license/source/advisory audit, and the line-coverage gate in
-`scripts/check-coverage.sh`. The coverage gate enforces a total floor and a
-per-file floor; both are ratchets that are raised as coverage improves and are
-never lowered to let a change pass. Run `bash scripts/check-coverage.sh`
-locally (it needs `cargo-llvm-cov` and the PDF validators listed in
+`scripts/check-coverage.sh`. The gate requires every unique instrumented Rust
+source line in the native LCOV report to be covered, both in total and in each
+reported file; it fails on any uncovered line even when a rounded percentage
+displays 100%. Run `bash scripts/check-coverage.sh` locally (it needs
+`cargo-llvm-cov` and the PDF validators listed in
 [the PDF writer notes](docs/pdf-writer.md)).
 
 Coverage is measured per source file, so inline `#[cfg(test)]` modules count
