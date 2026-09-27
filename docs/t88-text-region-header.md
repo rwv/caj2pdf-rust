@@ -78,9 +78,9 @@ measured corpus has one violation: raw flags `0xa40c` in HN `issue-43`,
 page 11 image 1, record offset 930,673. The parser does not correct the bit.
 It returns `MalformedFlags { field: "SBRTEMPLATE without SBREFINE", raw }`
 located at the flags field, and the optional inventory records the raw value
-and coordinate. A later text-instance decoder must make an explicit
-compatibility decision for this image; this parser does not weaken the
-standard's validation.
+and coordinate. The [text-instance decoder](t88-text-instances.md) preserves
+this strict refusal. A separate interoperability policy would need its own
+review; this parser does not weaken the standard's validation.
 
 ## Measured boundary and optional inventory
 
@@ -101,9 +101,9 @@ stays `NOT_RUN` with zero cases.
 
 ## Remaining work
 
-Symbol-instance decoding (§6.4, Table 9), strip and reference-corner
-placement, refinement of instances against #66's cross-store exported
-catalog, row composition, the `0xa40c` compatibility decision, page
-composition, and independent pixel parity remain open under
+The [#86 text-instance decoder](t88-text-instances.md) now emits checked
+placements and refined bitmap handles. Row composition, a separate
+`0xa40c` compatibility decision, page composition, and independent pixel
+parity remain open under
 [#9](https://github.com/rwv/caj2pdf-rust/issues/9). Exact Table E.1 states
 remain governed by [#44](https://github.com/rwv/caj2pdf-rust/issues/44).
