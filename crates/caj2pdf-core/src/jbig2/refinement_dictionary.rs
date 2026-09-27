@@ -1055,6 +1055,12 @@ impl<C: Cancellation> Session<'_, C> {
                     RefinementDictionaryErrorKind::InvalidSpan("stored byte count overflow"),
                 )
             })?;
+        self.new_base.checked_add(future_bytes).ok_or_else(|| {
+            self.error(
+                host,
+                RefinementDictionaryErrorKind::InvalidSpan("new store absolute end overflow"),
+            )
+        })?;
         self.cap(
             host,
             "dictionary pixels",

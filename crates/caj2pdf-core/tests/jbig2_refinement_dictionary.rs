@@ -92,15 +92,21 @@ impl RangedSource for Bytes {
 struct SharedSource {
     bytes: Rc<RefCell<Vec<u8>>>,
     calls: usize,
+    advertised_size: Option<u64>,
 }
 impl SharedSource {
     fn new(bytes: Rc<RefCell<Vec<u8>>>) -> Self {
-        Self { bytes, calls: 0 }
+        Self {
+            bytes,
+            calls: 0,
+            advertised_size: None,
+        }
     }
 }
 impl RangedSource for SharedSource {
     fn size(&self) -> u64 {
-        self.bytes.borrow().len() as u64
+        self.advertised_size
+            .unwrap_or_else(|| self.bytes.borrow().len() as u64)
     }
     async fn read_at(
         &mut self,
@@ -620,6 +626,51 @@ fn a_new_export_retains_the_new_store_identity() {
         0
     );
     assert_eq!(observed.output, vec![0x80]);
+}
+
+#[test]
+fn new_store_absolute_end_overflow_is_rejected_before_writing() {
+    let (imported_header, imported_report, mut imported_source) = imported(1, 1, &[0x80]);
+    let (mut source, header) = segment(2, Some(1), 0x1802, 1, 1, &READ_REFERENCE_AND_EXPORT_NEW);
+    let store = Rc::new(RefCell::new(Vec::new()));
+    let mut new_source = SharedSource::new(store.clone());
+    new_source.advertised_size = Some(u64::MAX);
+    let mut new_sink = SharedSink(store.clone());
+    let table = table();
+    let limits = Limits::default();
+    let mut banks =
+        IaidContextBanks::with_bitmap_contexts(1, 1024, &limits, &MqBudget::default()).unwrap();
+    let mut decoder = ready(RefinementDictionaryDecoder::new(
+        &mut source,
+        &header,
+        &imported_header,
+        &imported_report,
+        &mut imported_source,
+        0,
+        &mut new_source,
+        &mut new_sink,
+        u64::MAX,
+        &table,
+        &mut banks,
+        &limits,
+        &NeverCancel,
+        MqBudget::default(),
+        DictionaryBudget::default(),
+        RefinementBudget::default(),
+        RefinementDictionaryBudget::default(),
+    ))
+    .unwrap();
+    let error = ready(decoder.decode()).unwrap_err();
+    assert!(matches!(
+        error.kind,
+        RefinementDictionaryErrorKind::InvalidSpan("new store absolute end overflow")
+    ));
+    assert_eq!(error.progress.iaai.single_reference, 0);
+    assert_eq!(error.progress.completed_symbols, 0);
+    assert!(error.progress.poisoned);
+    assert_eq!(error.segment, 2);
+    assert!(error.offset >= header.data.offset);
+    assert!(store.borrow().is_empty());
 }
 
 #[test]

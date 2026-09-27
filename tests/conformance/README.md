@@ -179,7 +179,9 @@ fully decoded `IAAI=1`, `IAAI=0`, and `IAAI>1` prefixes plus the first typed
 refusal. A typed `IAAI=0` or Table 17 aggregation refusal is a diagnostic
 observation; unexpected decode errors fail the run. Its temporary stores and
 plan stay outside the corpus and are removed after use. The runner
-limits plan and output files to 2 MiB and the decoder to its resource budgets.
+limits the plan to 2 MiB, spools process output to temporary files, and
+rejects output above 2 MiB after the process exits. A timeout and the
+decoder's resource budgets bound execution.
 
 A clean clone reports diagnostic `NOT_RUN` with zero attempted cases; a
 missing, changed, or incomplete explicitly requested corpus or table is
