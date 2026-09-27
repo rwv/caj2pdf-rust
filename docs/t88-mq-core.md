@@ -14,7 +14,7 @@ redistribution status.
 The primary reference is the [official T.88 (02/2000) edition](https://www.itu.int/rec/T-REC-T.88-200002-S/en).
 The local official English PDF used for this implementation had SHA-256
 `a94850aa659f4c5267051d1e17081dc4ffd04531c3d659c6bc2835802035ec69`.
-Annex E.2.6/Table E.1 specifies the caller-supplied state fields. Annex
+Annex E.2.5/Table E.1 specifies the caller-supplied state fields. Annex
 E.2.9–E.2.10 describes FLUSH, trimming, and the terminal marker. Annex
 E.3.1–E.3.5 specifies the decoder registers, decision exchanges,
 renormalization, byte input, and initialization. Annex H.2/Table H.1 provides
