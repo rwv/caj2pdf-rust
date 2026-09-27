@@ -57,6 +57,16 @@ jobs:
           report="$(python3 tests/conformance/hnc8_container_compare.py --json)"
           printf '%s\n' "$report"
           python3 -c 'import json, sys; result = json.loads(sys.argv[1]); assert result["status"] == "NOT_RUN" and result["type0"]["passed"] == 0 and result["type0"]["not_run"] == 1400, result' "$report"
+      - name: Report external HN/C8 page-layout generation as not run
+        run: |
+          report="$(python3 scripts/hnc8_layout_reference.py --json)"
+          printf '%s\n' "$report"
+          python3 -c 'import json, sys; r = json.loads(sys.argv[1]); assert r["status"] == "NOT_RUN" and all(v == 0 for v in r["counts"].values()) and r["source_audit"]["before_checked"] == 0 and r["source_audit"]["after_checked"] == 0 and r["perturbations"]["status"] == "NOT_RUN", r' "$report"
+      - name: Report external HN/C8 page-layout parity as not run
+        run: |
+          report="$(python3 scripts/hnc8_layout_parity.py --json)"
+          printf '%s\n' "$report"
+          python3 -c 'import json, sys; r = json.loads(sys.argv[1]); assert r["status"] == "NOT_RUN" and all(r[k] == 0 for k in ("source_pages_checked", "output_pages_checked", "draws_checked", "existing_pages_matched", "existing_draws_matched", "malformed_checked", "mismatched_pages", "mismatched_draws", "placement_unknown_extra_draws", "failed", "skipped", "unsupported")) and r["source_hashes_before"] == {} and r["source_hashes_after"] == {} and r["pdf_hashes_before"] == {} and r["pdf_hashes_after"] == {}, r' "$report"
       - name: Report external JBIG1 pixel oracle as not run
         env:
           CAJ2PDF_CORPUS_DIR: ""
