@@ -41,6 +41,9 @@ for one checked HN/C8 image at a time; it does not compose a source page.
 The [selected type-3 JBIG2 PDF diagnostic](docs/hnc8-type3-pdf.md) similarly
 emits one checked image with a caller-supplied MQ table and bounded temporary
 backing. Exact table-state redistribution remains unresolved under issue #44.
+The [HN/C8 layout oracle](docs/hnc8-layout-oracle.md) records opt-in,
+metadata-only source-page and reference-PDF measurements for future page
+composition; it does not enable HN/C8 conversion.
 
 ```sh
 caj2pdf paper.caj                  # writes paper.pdf next to the input

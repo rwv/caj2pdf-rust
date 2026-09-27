@@ -169,6 +169,19 @@ does not establish multi-image HN/C8 page placement or independence of the
 external oracle's decoder backends; [#107](https://github.com/rwv/caj2pdf-rust/issues/107)
 tracks source-page layout measurement.
 
+## HN/C8 source-page layout metadata
+
+The [#107 layout oracle](hnc8-layout-oracle.md) is an opt-in, metadata-only
+black-box comparison against a fixed Python reference revision. It checks
+27 SHA-pinned HN/C8 sources, three deterministic reference PDFs, the original
+75 pages/125 ordered image draws and a separate two-page HN-B omission case.
+qpdf, MuPDF and Poppler independently check boxes, image order, transforms,
+types and encoded-stream hashes. The committed oracle contains coordinates,
+dimensions and hashes only; no private documents, PDFs, text or pixels. A
+clean clone reports `NOT_RUN` and zero layout matches. The 50 extra-image
+placements are measured, but their source-field rule remains unknown, so
+this is not a full-page conversion compatibility claim.
+
 ## Reference behavior
 
 The [Python converter](https://github.com/rwv/caj2pdf) is a black-box
