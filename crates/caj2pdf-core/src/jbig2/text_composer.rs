@@ -164,6 +164,9 @@ pub struct TextComposeProgress {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct TextComposeReport {
+    /// Complete source header used by this composer. Page composition binds
+    /// every placement and decoding field to its preflighted #3 segment.
+    pub header: TextRegionHeader,
     pub width: u32,
     pub height: u32,
     pub row_stride: u32,
@@ -443,6 +446,11 @@ where
         if instances.segment() != segment || instances.header() != header {
             return Err(bad(TextComposeErrorKind::Malformed(
                 "instance stream segment or header differs",
+            )));
+        }
+        if header.segment != segment {
+            return Err(bad(TextComposeErrorKind::Malformed(
+                "text header segment differs from composer",
             )));
         }
         if header.region.width == 0 || header.region.height == 0 {
@@ -1286,6 +1294,7 @@ where
             ));
         }
         Ok(TextComposeReport {
+            header: self.header,
             text_flags_raw: self.header.flags.raw,
             header_anomaly: self.header.anomaly,
             width: self.header.region.width,

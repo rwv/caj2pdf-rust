@@ -133,6 +133,10 @@ pub enum TextHeaderAnomaly {
 /// Parsed text region data header. `body` is an exact absolute source range.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct TextRegionHeader {
+    /// The immediate text segment and its single dictionary reference.
+    pub segment: u32,
+    pub page_association: u32,
+    pub dictionary_segment: u32,
     pub region: RegionInfo,
     pub flags: TextRegionFlags,
     /// `None` for strictly valid headers; retains an accepted deviation.
@@ -505,6 +509,9 @@ pub async fn read_text_region_header_with_policy<S: RangedSource, C: Cancellatio
         return Err(cursor.error(TextRegionErrorKind::Truncated("MQ body terminal pair")));
     }
     Ok(TextRegionHeader {
+        segment: header.number,
+        page_association: header.page_association,
+        dictionary_segment: header.referred_to[0],
         region,
         flags,
         anomaly,

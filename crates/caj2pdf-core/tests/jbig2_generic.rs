@@ -9,7 +9,10 @@ use caj2pdf_core::{
     Limits, RangedSource, SequentialSink,
     jbig2::{
         HeaderLimits, SegmentHeader, SegmentSpan,
-        generic::{GenericBudget, GenericError, GenericErrorKind, GenericRegionDecoder},
+        generic::{
+            GenericBudget, GenericError, GenericErrorKind, GenericHeaderSink, GenericRegionDecoder,
+            GenericRegionHeader, VerifiedGenericHeader, read_generic_region_header,
+        },
         mq::{MQ_STATE_COUNT, MqBudget, MqContexts, MqErrorKind, MqState, MqTable},
         read_segment_header,
     },
@@ -161,6 +164,45 @@ impl SequentialSink for Sink {
     }
 }
 
+struct HeaderGate {
+    output: Sink,
+    expected: GenericRegionHeader,
+    armed: bool,
+    fail_arm: bool,
+}
+
+impl SequentialSink for HeaderGate {
+    async fn write(&mut self, bytes: &[u8]) -> caj2pdf_core::Result<usize> {
+        if !self.armed {
+            return Err(caj2pdf_core::Error::InvalidInput {
+                reason: "generic header gate is unarmed",
+            });
+        }
+        self.output.write(bytes).await
+    }
+
+    async fn flush(&mut self) -> caj2pdf_core::Result<()> {
+        if !self.armed {
+            return Err(caj2pdf_core::Error::InvalidInput {
+                reason: "generic header gate is unarmed",
+            });
+        }
+        self.output.flush().await
+    }
+}
+
+impl GenericHeaderSink for HeaderGate {
+    fn arm_checked_header(&mut self, header: VerifiedGenericHeader) -> caj2pdf_core::Result<()> {
+        if self.fail_arm || header.header() != self.expected {
+            return Err(caj2pdf_core::Error::InvalidInput {
+                reason: "generic header gate rejected metadata",
+            });
+        }
+        self.armed = true;
+        Ok(())
+    }
+}
+
 fn record(
     width: u32,
     height: u32,
@@ -215,6 +257,170 @@ fn contexts(limits: &Limits, budget: &MqBudget) -> MqContexts {
     MqContexts::new(1024, limits, budget).unwrap()
 }
 const SHORT_STREAM: &[u8] = &[0, 0, 0, 0xff, 0xac];
+
+#[test]
+fn page_preflight_detects_a_changed_generic_header_before_any_output() {
+    let limits = Limits::default();
+    let mq_budget = MqBudget::default();
+    let mut source = record(3, 2, 0, 4, (2, -1), SHORT_STREAM);
+    let hdr = header(&mut source);
+    let inspected = ready(read_generic_region_header(
+        &mut source,
+        &hdr,
+        &limits,
+        &CancelAfter::Never,
+        mq_budget,
+        GenericBudget::default(),
+    ))
+    .expect("read-only header preflight");
+    assert_eq!(inspected.info.width, 3);
+
+    let table = table();
+    let mut bank = contexts(&limits, &mq_budget);
+    let mut sink = Sink::default();
+    let same = ready(GenericRegionDecoder::new(
+        &mut source,
+        &hdr,
+        &table,
+        &mut bank,
+        &mut sink,
+        &limits,
+        &CancelAfter::Never,
+        mq_budget,
+        GenericBudget::default(),
+    ))
+    .expect("same checked header");
+    assert_eq!(same.checked_header(), inspected);
+    drop(same);
+    assert!(sink.bytes.is_empty());
+
+    source.bytes[hdr.data.offset as usize + 3] = 4;
+    let changed = ready(GenericRegionDecoder::new(
+        &mut source,
+        &hdr,
+        &table,
+        &mut bank,
+        &mut sink,
+        &limits,
+        &CancelAfter::Never,
+        mq_budget,
+        GenericBudget::default(),
+    ))
+    .expect("changed but still valid header");
+    assert_ne!(changed.checked_header(), inspected);
+    drop(changed);
+    assert!(sink.bytes.is_empty());
+}
+
+#[test]
+fn page_output_arming_compares_actual_header_and_poisoned_failures_emit_nothing() {
+    let limits = Limits::default();
+    let mq_budget = MqBudget::default();
+    let table = table();
+    let mut source = record(3, 2, 0, 4, (2, -1), SHORT_STREAM);
+    let hdr = header(&mut source);
+    let inspected = ready(read_generic_region_header(
+        &mut source,
+        &hdr,
+        &limits,
+        &CancelAfter::Never,
+        mq_budget,
+        GenericBudget::default(),
+    ))
+    .unwrap();
+
+    let mut bank = contexts(&limits, &mq_budget);
+    let mut gate = HeaderGate {
+        output: Sink::default(),
+        expected: inspected,
+        armed: false,
+        fail_arm: false,
+    };
+    let mut decoder = ready(GenericRegionDecoder::new(
+        &mut source,
+        &hdr,
+        &table,
+        &mut bank,
+        &mut gate,
+        &limits,
+        &CancelAfter::Never,
+        mq_budget,
+        GenericBudget::default(),
+    ))
+    .unwrap();
+    decoder.arm_page_output(inspected).unwrap();
+    assert!(ready(decoder.decode_next_row()).unwrap());
+    assert!(matches!(
+        decoder.arm_page_output(inspected).unwrap_err().kind,
+        GenericErrorKind::Poisoned
+    ));
+    assert!(matches!(
+        ready(decoder.decode_next_row()).unwrap_err().kind,
+        GenericErrorKind::Poisoned
+    ));
+    drop(decoder);
+    assert_eq!(gate.output.bytes.len(), 1);
+
+    source.bytes[hdr.data.offset as usize + 3] = 4;
+    let mut gate = HeaderGate {
+        output: Sink::default(),
+        expected: inspected,
+        armed: false,
+        fail_arm: false,
+    };
+    let mut decoder = ready(GenericRegionDecoder::new(
+        &mut source,
+        &hdr,
+        &table,
+        &mut bank,
+        &mut gate,
+        &limits,
+        &CancelAfter::Never,
+        mq_budget,
+        GenericBudget::default(),
+    ))
+    .unwrap();
+    assert!(matches!(
+        decoder.arm_page_output(inspected).unwrap_err().kind,
+        GenericErrorKind::Malformed("generic header differs from page preflight")
+    ));
+    assert!(matches!(
+        ready(decoder.decode_next_row()).unwrap_err().kind,
+        GenericErrorKind::Poisoned
+    ));
+    drop(decoder);
+    assert!(gate.output.bytes.is_empty());
+
+    source.bytes[hdr.data.offset as usize + 3] = 3;
+    let mut gate = HeaderGate {
+        output: Sink::default(),
+        expected: inspected,
+        armed: false,
+        fail_arm: true,
+    };
+    let mut decoder = ready(GenericRegionDecoder::new(
+        &mut source,
+        &hdr,
+        &table,
+        &mut bank,
+        &mut gate,
+        &limits,
+        &CancelAfter::Never,
+        mq_budget,
+        GenericBudget::default(),
+    ))
+    .unwrap();
+    assert!(matches!(
+        decoder.arm_page_output(inspected).unwrap_err().kind,
+        GenericErrorKind::Sink(_)
+    ));
+    assert!(matches!(
+        ready(decoder.decode_next_row()).unwrap_err().kind,
+        GenericErrorKind::Poisoned
+    ));
+    drop(decoder);
+    assert!(gate.output.bytes.is_empty());
+}
 
 #[test]
 fn streams_packed_rows_and_distinguishes_semantic_from_physical_input() {

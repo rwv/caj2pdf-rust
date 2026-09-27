@@ -35,6 +35,9 @@ fn header(
     combination: SymbolCombination,
 ) -> TextRegionHeader {
     TextRegionHeader {
+        segment: 3,
+        page_association: 1,
+        dictionary_segment: 2,
         anomaly: None,
         region: RegionInfo {
             width,
@@ -1418,7 +1421,7 @@ fn composition_errors_have_stable_messages_and_nested_causes() {
 #[test]
 fn constructor_rejects_invalid_header_stream_identity_stores_and_limits() {
     let symbol = stored(SymbolStore::Imported, descriptor(1, 1, 0));
-    for case in 0..12 {
+    for case in 0..13 {
         let mut h = header(3, 2, 1, false, SymbolCombination::Or);
         let mut stream = Manual::new(h, vec![event(0, 0, 1, 1, TextBitmap::Stored(symbol))]);
         let mut imported = Bytes::new(&[0x80]);
@@ -1443,7 +1446,8 @@ fn constructor_rejects_invalid_header_stream_identity_stores_and_limits() {
             8 => imported_base = 2,
             9 => scratch.data.push(0),
             10 => h.flags.refine = true,
-            _ => stream.header = Some(header(4, 2, 1, false, SymbolCombination::Or)),
+            11 => stream.header = Some(header(4, 2, 1, false, SymbolCombination::Or)),
+            _ => h.segment = 4,
         }
         if case != 11 {
             stream.header = Some(h);
