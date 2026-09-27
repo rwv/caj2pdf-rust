@@ -23,6 +23,7 @@ import zlib
 HEADER_BYTES = 24
 PREFIX_BYTES = 20
 IO_CHUNK = 64 * 1024
+MAX_SOURCE_BYTES = 1024 * 1024 * 1024
 
 
 class FrameError(ValueError):
@@ -37,8 +38,11 @@ class FrameLimits:
     chunk_bytes: int = IO_CHUNK
 
     def validate(self) -> None:
-        if min(self.max_span_bytes, self.max_decoded_bytes,
-               self.max_records, self.chunk_bytes) <= 0:
+        values = (self.max_span_bytes, self.max_decoded_bytes,
+                  self.max_records, self.chunk_bytes)
+        if any(type(value) is not int for value in values):
+            raise FrameError("all frame limits must be integers, excluding bool")
+        if min(values) <= 0:
             raise FrameError("all frame limits must be positive")
         if self.chunk_bytes > IO_CHUNK:
             raise FrameError("read/output chunk exceeds the 64 KiB diagnostic cap")
@@ -100,6 +104,8 @@ def _read_exact(source: BinaryIO, length: int, chunk_bytes: int = IO_CHUNK) -> b
     while len(result) < length:
         remaining = min(length - len(result), chunk_bytes)
         part = source.read(remaining)
+        if not isinstance(part, bytes):
+            raise FrameError("source read must return bytes")
         if not part:
             raise FrameError("text span is truncated")
         if len(part) > remaining:
@@ -206,6 +212,7 @@ def inspect_frame(source: BinaryIO, *, offset: int, length: int,
     callback receives the validated private spool at position zero; it is
     closed as soon as the callback returns. Metadata describes its original
     contents. Callers must keep any copied document bytes outside Git.
+    The caller is responsible for pinning and rechecking source identity.
     """
     limits.validate()
     _check_range(source, offset, length, limits)
@@ -246,33 +253,92 @@ def inspect_frame(source: BinaryIO, *, offset: int, length: int,
         return result
 
 
+def _file_sha256(path: Path) -> str:
+    """Hash a bounded full input with at most 64 KiB per read request."""
+    size = path.stat().st_size
+    if size > MAX_SOURCE_BYTES:
+        raise FrameError("source file exceeds the 1 GiB diagnostic limit")
+    digest = hashlib.sha256()
+    total = 0
+    with path.open("rb") as source:
+        while block := source.read(IO_CHUNK):
+            total += len(block)
+            if total > MAX_SOURCE_BYTES:
+                raise FrameError("source file grew beyond the 1 GiB diagnostic limit")
+            digest.update(block)
+    if total != size or path.stat().st_size != total:
+        raise FrameError("source file size changed during hashing")
+    return digest.hexdigest()
+
+
+def _sha256_argument(value: str) -> str:
+    if len(value) != 64 or any(character not in "0123456789abcdefABCDEF" for character in value):
+        raise argparse.ArgumentTypeError("SHA-256 must contain exactly 64 hexadecimal digits")
+    return value.lower()
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input", type=Path, help="external source file")
+    parser.add_argument("--input-sha256", type=_sha256_argument,
+                        help="required full-file SHA-256, checked before and after parsing")
     parser.add_argument("--variant", choices=sorted(PROFILES))
     parser.add_argument("--offset", type=int, help="absolute page-text offset")
     parser.add_argument("--length", type=int, help="page-text span length")
     parser.add_argument("--image-count", type=int, help="declared image count")
     parser.add_argument("--json", action="store_true", help="emit compact JSON instead of indented JSON")
     args = parser.parse_args()
-    values = (args.input, args.variant, args.offset, args.length, args.image_count)
+    values = (args.input, args.input_sha256, args.variant,
+              args.offset, args.length, args.image_count)
     if all(value is None for value in values):
         print(json.dumps({"status": "NOT_RUN", "private_comparisons": 0},
                          sort_keys=True, indent=None if args.json else 2))
         return 0
     if any(value is None for value in values):
-        parser.error("--input, --variant, --offset, --length and --image-count are required together")
+        parser.error("--input, --input-sha256, --variant, --offset, --length and --image-count are required together")
+    before_hash = after_hash = None
+    result = None
+    parse_attempted = False
+    errors = []
     try:
+        before_hash = _file_sha256(args.input)
+        if before_hash != args.input_sha256:
+            raise FrameError("full-source SHA-256 differs before parsing")
+        parse_attempted = True
         with args.input.open("rb") as source:
             result = inspect_frame(source, offset=args.offset, length=args.length,
                                    image_count=args.image_count, profile=PROFILES[args.variant])
     except (OSError, FrameError) as exc:
-        print(json.dumps({"status": "FAIL", "error": str(exc)},
-                         sort_keys=True, indent=None if args.json else 2))
-        return 1
-    print(json.dumps({"status": "PASS", "frame": asdict(result)},
+        errors.append(str(exc))
+    try:
+        after_hash = _file_sha256(args.input)
+        if after_hash != args.input_sha256:
+            raise FrameError("full-source SHA-256 differs after parsing")
+    except (OSError, FrameError) as exc:
+        errors.append(str(exc))
+    identity_valid = before_hash == after_hash == args.input_sha256
+    structural_status = ("PASS" if identity_valid else "INVALIDATED") if result is not None else (
+        "FAIL" if parse_attempted else "NOT_RUN")
+    report = {
+        "status": "FAIL" if errors else "VALIDATED",
+        "scope": "FRAME_PROFILE_ONLY",
+        "structural_validation": structural_status,
+        "converter_compatibility": "NOT_RUN",
+        "private_comparisons": 0,
+        "source_audit": {
+            "status": "PASS" if identity_valid else "FAIL",
+            "expected_sha256": args.input_sha256,
+            "before_sha256": before_hash, "after_sha256": after_hash,
+            "max_hash_request_bytes": IO_CHUNK,
+            "max_source_bytes": MAX_SOURCE_BYTES,
+        },
+        "errors": errors,
+    }
+    if result is not None and not errors:
+        report["frame"] = asdict(result)
+    print(json.dumps(report,
                      sort_keys=True, indent=None if args.json else 2))
-    return 0
+    return 1 if errors else 0
 
 
 if __name__ == "__main__":

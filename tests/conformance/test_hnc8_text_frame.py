@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: MIT
 """Original synthetic checks of the bounded page-text frame diagnostic."""
 
-from dataclasses import asdict
+from contextlib import redirect_stderr, redirect_stdout
+from dataclasses import asdict, replace
 import gzip
 import hashlib
 import io
@@ -10,7 +11,10 @@ from pathlib import Path
 import struct
 import subprocess
 import sys
+import tempfile
+from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -271,6 +275,136 @@ class TextFrameTests(unittest.TestCase):
                 with self.assertRaisesRegex(frame.FrameError, error):
                     frame.inspect_frame(source, offset=0, length=len(data),
                                         image_count=2, profile=SYNTHETIC)
+
+    def test_noninteger_limits_and_nonbytes_reads_are_clean_errors(self) -> None:
+        data = text_frame(decoded_bytes())
+        for field in ("max_span_bytes", "max_decoded_bytes", "max_records", "chunk_bytes"):
+            for value in (True, 1.5, "1024", None):
+                with self.subTest(field=field, value=value):
+                    with self.assertRaisesRegex(frame.FrameError, "must be integers"):
+                        self.inspect(data, limits=replace(frame.FrameLimits(), **{field: value}))
+
+        class NonBytes(io.BytesIO):
+            def __init__(self, value):
+                super().__init__(data)
+                self.value = value
+
+            def read(self, _length=-1):
+                return self.value
+
+        for value in (None, "", "text", 0, bytearray(b"a"), memoryview(b"a")):
+            with self.subTest(value_type=type(value).__name__):
+                with self.assertRaisesRegex(frame.FrameError, "must return bytes"):
+                    frame.inspect_frame(NonBytes(value), offset=0, length=len(data),
+                                        image_count=2, profile=SYNTHETIC)
+
+    def run_cli(self, source: Path, digest: str | None) -> tuple[int, dict]:
+        arguments = ["hnc8_text_frame", "--input", str(source), "--variant", "c8",
+                     "--offset", "0", "--length", str(len(text_frame(decoded_bytes()))),
+                     "--image-count", "2", "--json"]
+        if digest is not None:
+            arguments.extend(["--input-sha256", digest])
+        output = io.StringIO()
+        with patch.object(sys, "argv", arguments), patch.dict(frame.PROFILES, {"c8": SYNTHETIC}), \
+                redirect_stdout(output):
+            code = frame.main()
+        return code, json.loads(output.getvalue())
+
+    def test_cli_requires_a_full_source_pin_and_rejects_mismatch_before_parse(self) -> None:
+        data = text_frame(decoded_bytes())
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "synthetic.caj"
+            source.write_bytes(data)
+            error = io.StringIO()
+            with redirect_stderr(error), patch.object(frame, "_file_sha256") as audit:
+                with self.assertRaises(SystemExit) as failure:
+                    self.run_cli(source, None)
+                self.assertEqual(failure.exception.code, 2)
+                audit.assert_not_called()
+            self.assertIn("--input-sha256", error.getvalue())
+            with patch.object(frame, "inspect_frame") as parse:
+                code, report = self.run_cli(source, "0" * 64)
+                parse.assert_not_called()
+            self.assertEqual(code, 1)
+            self.assertEqual(report["status"], "FAIL")
+            self.assertEqual(report["structural_validation"], "NOT_RUN")
+            actual_hash = hashlib.sha256(data).hexdigest()
+            self.assertEqual(report["source_audit"]["before_sha256"], actual_hash)
+            self.assertEqual(report["source_audit"]["after_sha256"], actual_hash)
+            self.assertEqual(report["source_audit"]["status"], "FAIL")
+
+    def test_cli_hashes_before_after_in_chunks_and_reports_structure_only(self) -> None:
+        data = text_frame(decoded_bytes()) + b"outside-text-frame" * 10_000
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "synthetic.caj"
+            source.write_bytes(data)
+            readers = []
+
+            def open_synthetic(*_args, **_kwargs):
+                reader = ShortReads(data, short_limit=frame.IO_CHUNK)
+                readers.append(reader)
+                return reader
+
+            expected = hashlib.sha256(data).hexdigest()
+            with patch.object(Path, "open", side_effect=open_synthetic):
+                code, report = self.run_cli(source, expected.upper())
+            self.assertEqual(code, 0)
+            self.assertEqual(report["status"], "VALIDATED")
+            self.assertEqual(report["scope"], "FRAME_PROFILE_ONLY")
+            self.assertEqual(report["structural_validation"], "PASS")
+            self.assertEqual(report["converter_compatibility"], "NOT_RUN")
+            self.assertEqual(report["private_comparisons"], 0)
+            self.assertEqual(report["source_audit"]["status"], "PASS")
+            self.assertEqual(report["source_audit"]["before_sha256"], expected)
+            self.assertEqual(report["source_audit"]["after_sha256"], expected)
+            self.assertEqual(len(readers), 3)
+            self.assertEqual(max(request for reader in readers for request in reader.requests),
+                             frame.IO_CHUNK)
+            self.assertTrue(all(reader.closed for reader in readers))
+            self.assertIn("frame", report)
+
+    def test_cli_post_parse_mutation_invalidates_metadata(self) -> None:
+        data = text_frame(decoded_bytes())
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "synthetic.caj"
+            source.write_bytes(data)
+            inspect = frame.inspect_frame
+
+            def mutate_after_parse(*args, **kwargs):
+                metadata = inspect(*args, **kwargs)
+                source.write_bytes(data + b"outside mutation")
+                return metadata
+
+            expected = hashlib.sha256(data).hexdigest()
+            with patch.object(frame, "inspect_frame", side_effect=mutate_after_parse):
+                code, report = self.run_cli(source, expected)
+            self.assertEqual(code, 1)
+            self.assertEqual(report["status"], "FAIL")
+            self.assertEqual(report["structural_validation"], "INVALIDATED")
+            self.assertEqual(report["source_audit"]["before_sha256"], expected)
+            self.assertNotEqual(report["source_audit"]["after_sha256"], expected)
+            self.assertNotIn("frame", report)
+
+    def test_cli_rechecks_identity_after_a_frame_rejection(self) -> None:
+        data = bytearray(text_frame(decoded_bytes()))
+        data[-1] ^= 1
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "synthetic.caj"
+            source.write_bytes(data)
+            expected = hashlib.sha256(data).hexdigest()
+            code, report = self.run_cli(source, expected)
+            self.assertEqual(code, 1)
+            self.assertEqual(report["structural_validation"], "FAIL")
+            self.assertEqual(report["source_audit"]["status"], "PASS")
+            self.assertEqual(report["source_audit"]["after_sha256"], expected)
+            self.assertNotIn("frame", report)
+
+    def test_full_source_hash_rejects_oversize_before_opening(self) -> None:
+        with patch.object(Path, "stat", return_value=SimpleNamespace(
+                st_size=frame.MAX_SOURCE_BYTES + 1)), patch.object(Path, "open") as opening:
+            with self.assertRaisesRegex(frame.FrameError, "1 GiB diagnostic limit"):
+                frame._file_sha256(Path("synthetic.caj"))
+            opening.assert_not_called()
 
     def test_clean_cli_is_not_a_private_compatibility_pass(self) -> None:
         result = subprocess.run([sys.executable, str(ROOT / "scripts/hnc8_text_frame.py"),
