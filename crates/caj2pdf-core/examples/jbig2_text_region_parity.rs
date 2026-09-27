@@ -11,7 +11,7 @@ mod text_case;
 use text_case::*;
 
 use caj2pdf_core::{
-    Error, Limits, MAX_IO_CHUNK, NeverCancel, RangedSource,
+    Error, Limits, MAX_IO_CHUNK, NeverCancel, RangedSource, SequentialSink,
     jbig2::{
         HeaderLimits, SegmentHeader, SegmentSpan,
         dictionary::{DictionaryBudget, DirectDictionaryDecoder},
@@ -22,7 +22,7 @@ use caj2pdf_core::{
         refinement_dictionary::{RefinementDictionaryBudget, RefinementDictionaryDecoder},
         text::{TextRegionBudget, TextRegionErrorKind, read_text_region_header},
         text_composer::{
-            BitmapStore, RandomAccessScratch, TextComposeBudget, TextComposeError,
+            BitmapStore, BitmapView, RandomAccessScratch, TextComposeBudget, TextComposeError,
             TextComposeErrorKind, TextComposer,
         },
         text_instances::{
@@ -33,11 +33,13 @@ use caj2pdf_core::{
 };
 use sha2::{Digest, Sha256};
 use std::{
+    cell::Cell,
     env,
     error::Error as StdError,
     fs::{self, File, OpenOptions},
     io::{Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
+    rc::Rc,
 };
 use support::{TempStore, digest_file, hex, peak_rss_kib, ready, table};
 
@@ -79,8 +81,8 @@ fn header_outcome(status: &'static str, refusal: &'static str, offset: u64) -> C
 struct FileScratch(File);
 
 impl RandomAccessScratch for FileScratch {
-    fn size(&self) -> u64 {
-        self.0.metadata().map_or(0, |metadata| metadata.len())
+    fn size(&self) -> caj2pdf_core::Result<u64> {
+        Ok(self.0.metadata()?.len())
     }
 
     async fn set_len(&mut self, bytes: u64) -> caj2pdf_core::Result<()> {
@@ -123,6 +125,59 @@ impl RandomAccessScratch for FileScratch {
     }
 }
 
+/// The source handle is read-only; only the matching producer advances its
+/// revision. The producer has exclusive ownership of a private temp file.
+struct TrackedSource<S> {
+    inner: S,
+    revision: Rc<Cell<u64>>,
+}
+
+impl<S: RangedSource> RangedSource for TrackedSource<S> {
+    fn size(&self) -> u64 {
+        self.inner.size()
+    }
+
+    async fn read_at(
+        &mut self,
+        offset: u64,
+        destination: &mut [u8],
+    ) -> caj2pdf_core::Result<usize> {
+        self.inner.read_at(offset, destination).await
+    }
+}
+
+impl<S: RangedSource> BitmapView for TrackedSource<S> {
+    fn revision(&self) -> caj2pdf_core::Result<u64> {
+        Ok(self.revision.get())
+    }
+}
+
+struct TrackedSink<W> {
+    inner: W,
+    revision: Rc<Cell<u64>>,
+}
+
+impl<W: SequentialSink> SequentialSink for TrackedSink<W> {
+    async fn write(&mut self, bytes: &[u8]) -> caj2pdf_core::Result<usize> {
+        let next = self
+            .revision
+            .get()
+            .checked_add(1)
+            .ok_or(Error::InvalidInput {
+                reason: "refined bitmap-store revision exhausted",
+            })?;
+        let written = self.inner.write(bytes).await?;
+        if written > 0 {
+            self.revision.set(next);
+        }
+        Ok(written)
+    }
+
+    async fn flush(&mut self) -> caj2pdf_core::Result<()> {
+        self.inner.flush().await
+    }
+}
+
 fn host_error_kind(error: &Error) -> &'static str {
     match error {
         Error::TruncatedInput { .. } => "truncated_input",
@@ -131,6 +186,14 @@ fn host_error_kind(error: &Error) -> &'static str {
         Error::Io(_) => "io",
         Error::Cancelled => "cancelled",
         _ => "other",
+    }
+}
+
+fn bitmap_store_tag(store: BitmapStore) -> &'static str {
+    match store {
+        BitmapStore::Imported => "imported",
+        BitmapStore::New => "new",
+        BitmapStore::Refined => "refined",
     }
 }
 
@@ -145,12 +208,14 @@ fn compose_refusal_kind(error: &TextComposeErrorKind) -> String {
             format!("instance_{}", refusal_kind(&error.kind))
         }
         TextComposeErrorKind::Source { store, error } => {
-            let store = match store {
-                BitmapStore::Imported => "imported",
-                BitmapStore::New => "new",
-                BitmapStore::Refined => "refined",
-            };
-            format!("{store}_source_{}", host_error_kind(error))
+            format!(
+                "{}_source_{}",
+                bitmap_store_tag(*store),
+                host_error_kind(error)
+            )
+        }
+        TextComposeErrorKind::StoreMutation { store, .. } => {
+            format!("{}_store_mutation", bitmap_store_tag(*store))
         }
         TextComposeErrorKind::Scratch(error) => {
             format!("scratch_{}", host_error_kind(error))
@@ -366,7 +431,11 @@ fn one_case(
         IaidContextBanks::with_bitmap_contexts(code_len, 1024, &limits, &mq_budget)?;
     let mut new_store = SeekableSource::new(File::open(second_store.path())?)?;
     let (temporary_store, temporary_file) = TempStore::create("caj2pdf-text-refined")?;
-    let mut temporary_sink = WriteSink::new(temporary_file);
+    let refined_revision = Rc::new(Cell::new(0));
+    let mut temporary_sink = TrackedSink {
+        inner: WriteSink::new(temporary_file),
+        revision: Rc::clone(&refined_revision),
+    };
     let mut text_decoder = match ready(TextInstanceDecoder::new(
         &mut source,
         &third,
@@ -391,9 +460,26 @@ fn one_case(
         Ok(decoder) => decoder,
         Err(error) => return Ok(instance_refusal(error)),
     };
-    let mut imported_for_compose = SeekableSource::new(File::open(first_store.path())?)?;
-    let mut new_for_compose = SeekableSource::new(File::open(second_store.path())?)?;
-    let mut refined_for_compose = GrowingFileSource(File::open(temporary_store.path())?);
+    let mut imported_for_compose = TrackedSource {
+        inner: SeekableSource::new(File::open(first_store.path())?)?,
+        revision: Rc::new(Cell::new(0)),
+    };
+    let mut new_for_compose = TrackedSource {
+        inner: SeekableSource::new(File::open(second_store.path())?)?,
+        revision: Rc::new(Cell::new(0)),
+    };
+    let mut refined_for_compose = TrackedSource {
+        inner: GrowingFileSource(File::open(temporary_store.path())?),
+        revision: Rc::clone(&refined_revision),
+    };
+    #[cfg(unix)]
+    for path in [
+        first_store.path(),
+        second_store.path(),
+        temporary_store.path(),
+    ] {
+        fs::remove_file(path)?;
+    }
     let (scratch_store, scratch_file) = TempStore::create("caj2pdf-text-region-scratch")?;
     drop(scratch_file);
     let mut scratch = FileScratch(
@@ -402,6 +488,8 @@ fn one_case(
             .write(true)
             .open(scratch_store.path())?,
     );
+    #[cfg(unix)]
+    fs::remove_file(scratch_store.path())?;
     let (pixel_store, pixel_file) = TempStore::create("caj2pdf-text-region-pixels")?;
     let mut output = WriteSink::new(pixel_file);
     let composed = {
@@ -423,13 +511,13 @@ fn one_case(
             TextComposeBudget::default(),
         ) {
             Ok(composer) => composer,
-            Err(error) => return Ok(compose_refusal(error, scratch.size())),
+            Err(error) => return Ok(compose_refusal(error, scratch.size()?)),
         };
         ready(composer.compose())
     };
     let region = match composed {
         Ok(region) => region,
-        Err(error) => return Ok(compose_refusal(error, scratch.size())),
+        Err(error) => return Ok(compose_refusal(error, scratch.size()?)),
     };
     drop(output);
     let (pixel_sha, black_pixels, output_bytes) =
@@ -558,6 +646,13 @@ mod tests {
             "refined_source_truncated_input"
         );
         assert_eq!(
+            compose_refusal_kind(&TextComposeErrorKind::StoreMutation {
+                store: BitmapStore::Imported,
+                reason: "test",
+            }),
+            "imported_store_mutation"
+        );
+        assert_eq!(
             compose_refusal_kind(&TextComposeErrorKind::Output(Error::Cancelled)),
             "output_cancelled"
         );
@@ -575,7 +670,7 @@ mod tests {
                 .unwrap(),
         );
         ready(scratch.set_len(2)).unwrap();
-        assert_eq!(scratch.size(), 2);
+        assert_eq!(scratch.size().unwrap(), 2);
         assert_eq!(
             ready(scratch.write_at(0, &[0b1010_0000, 0b0100_0000])).unwrap(),
             2
@@ -589,5 +684,20 @@ mod tests {
         assert_eq!((black, bytes), (3, 2));
         ready(scratch.write_at(1, &[0b0100_0001])).unwrap();
         assert!(pixel_metrics(store.path(), 3, 2).is_err());
+    }
+
+    #[test]
+    fn refined_writer_advances_revision_only_after_written_bytes() {
+        let revision = Rc::new(Cell::new(0));
+        let mut sink = TrackedSink {
+            inner: WriteSink::new(Vec::new()),
+            revision: Rc::clone(&revision),
+        };
+        assert_eq!(ready(sink.write(&[1, 2, 3])).unwrap(), 3);
+        assert_eq!(revision.get(), 1);
+        ready(sink.flush()).unwrap();
+        assert_eq!(revision.get(), 1);
+        assert_eq!(ready(sink.write(&[])).unwrap(), 0);
+        assert_eq!(revision.get(), 1);
     }
 }

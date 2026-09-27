@@ -210,7 +210,7 @@ On 2026-09-27 UTC, a local run attempted 546 cases, completed and matched
 all 545 standards-valid text-only images, refused the one anomalous header,
 and had zero standard failures or skips. Its largest temporary bitmap was
 1,098,864 bytes, largest I/O request 312 bytes, and process peak RSS
-2,736,128 bytes. A clean clone without the optional inputs reports
+2,711,552 bytes. A clean clone without the optional inputs reports
 `NOT_RUN`/0; explicitly missing, changed, or malformed inputs fail. No
 external document, decoded bitmap, or exact MQ table is committed. This
 comparison does not establish full-page/PDF parity.

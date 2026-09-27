@@ -624,7 +624,9 @@ clean-clone tests, and the optional
 [`jbig2_text_region_parity.py`](../scripts/jbig2_text_region_parity.py)
 with a native example. It follows the official T.88 clauses in the format
 table and consumes the checked #86 stream; it does not copy or translate an
-external compositor. The local private run matched both hash and black-pixel
+external compositor. Bitmap views carry content revisions to detect same-size
+changes, and the caller owns the scratch store exclusively. The local private
+run matched both hash and black-pixel
 count for all 545 standards-valid text-only regions; it separately refused
 the one malformed header. All 27 source hashes and the private table hash
 matched before and after. The external documents, exact Table E.1 states,

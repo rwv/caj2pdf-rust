@@ -16,7 +16,7 @@ Table E.1 states remain caller supplied and outside this repository pending
 
 `TextComposer::new` accepts the validated text header, an ordered
 `TextInstanceSource` (normally `TextInstanceDecoder`), the exported symbol
-catalog, caller-owned ranged views of the imported, new, and refined bitmap
+catalog, caller-owned `BitmapView` ranged views of the imported, new, and refined bitmap
 stores, an empty caller-owned `RandomAccessScratch`, a final
 `SequentialSink`, limits, cancellation, and a composition budget. Each
 bitmap handle retains its store identity, base, dimensions, row stride, and
@@ -27,16 +27,32 @@ exported dictionary catalog. The caller must connect each ranged view to the
 store that produced its handles. Opaque adapters cannot prove that two
 handles refer to the same physical file.
 
-The scratch adapter reports its size, sets an exact length, supports
+A `BitmapView` supplies a content revision that advances on every byte or
+extent change. The imported and new stores must be frozen once composition
+begins. The refined store may only append between decoded instances; its
+existing prefix must remain unchanged. The composer checks revisions and
+sizes around positioned reads and reports a located source mutation if
+either changes unexpectedly. The adapter must enforce its revision promise;
+a filesystem timestamp or cached file length alone cannot detect an
+equal-length rewrite. The optional native diagnostic closes the dictionary
+writers before composition, tracks refined writes with a shared monotonic
+revision, and unlinks its private temporary paths on Unix once all handles
+are open.
+
+The scratch adapter reports its size fallibly, sets an exact length, supports
 positioned reads and writes that may return a partial prefix, and flushes
 buffered writes. Completed writes must be visible to later reads through
 the same adapter. `set_len` must not expose uninitialized bytes. The composer
-explicitly initializes every row to `SBDEFPIXEL`, with unused low padding
+must be the scratch store's sole writer for the session; an adapter that
+allows an unrelated writer to rewrite bytes at the same length violates this
+ownership contract. Size-query failures and unexpected extent changes are
+located errors. The composer explicitly initializes every row to
+`SBDEFPIXEL`, with unused low padding
 bits cleared, before it reads an instance. It flushes scratch after
 initialization and after all instances, then reads rows in ascending order
 and writes each packed row to the final sink. The final sink is flushed only
 after all rows are written. A short successful I/O call is retried; zero
-progress, overreporting, truncation, mutation, cancellation, and failed
+progress, overreporting, truncation, observable mutation, cancellation, and failed
 flushes are located typed errors. Any failed or abandoned session poisons
 the partial scratch and final output, which the caller must discard.
 
@@ -115,6 +131,6 @@ refusals, mismatches, or skipped cases. The sole raw `0xa40c` header was
 refused at its expected source byte. All 27 source hashes and the private
 table hash matched before and after. The largest scratch bitmap was
 1,098,864 bytes, the largest observed I/O request was 312 bytes, and peak
-process RSS was 2,736,128 bytes. A 2496 × 3522 page used 1,098,864 bytes
+process RSS was 2,711,552 bytes. A 2496 × 3522 page used 1,098,864 bytes
 of scratch and matched the text-only oracle. These measurements are for
 this private run and machine, not universal runtime bounds.
