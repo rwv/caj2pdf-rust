@@ -19,17 +19,36 @@ if [[ ! -f "$report" ]]; then
   exit 1
 fi
 
-# LLVM emits SF, then LF/LH, once per source file.
+# Count the actual source-line DA records. With generic async Rust functions,
+# LLVM's LF/LH summary can include extra uncovered instantiation lines that
+# have no DA record or uncovered line in the annotated source report. Dedup
+# repeated source-line records before applying the unchanged coverage floors.
 awk -F: -v root="$PWD/" -v minimum="$minimum" -v file_minimum="$file_minimum" '
   /^SF:/ {
     file = substr($0, 4)
     if (index(file, root) == 1) file = substr(file, length(root) + 1)
   }
-  /^LF:/ { found[file] += $2; lines += $2 }
-  /^LH:/ { hit[file] += $2; hits += $2 }
+  /^DA:/ {
+    parts = split(substr($0, 4), data, ",")
+    if (file == "" || parts < 2 || data[1] !~ /^[0-9]+$/ || data[2] !~ /^[0-9]+$/) {
+      malformed = 1
+      next
+    }
+    key = file SUBSEP data[1]
+    if (!(key in seen)) {
+      seen[key] = 1
+      found[file]++
+      lines++
+    }
+    if (data[2] > 0 && !(key in covered)) {
+      covered[key] = 1
+      hit[file]++
+      hits++
+    }
+  }
   END {
-    if (lines == 0) {
-      print "Line coverage: no coverable lines reported; the coverage gate cannot pass."
+    if (malformed || lines == 0) {
+      print "Line coverage: malformed or empty DA records; the coverage gate cannot pass."
       exit 1
     }
     failed = 0
