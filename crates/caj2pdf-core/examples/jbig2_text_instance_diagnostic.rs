@@ -13,13 +13,13 @@ use caj2pdf_core::{
         HeaderLimits, SegmentHeader, SegmentSpan,
         dictionary::{DictionaryBudget, DirectDictionaryDecoder},
         iaid::IaidContextBanks,
-        mq::MqBudget,
+        mq::{MqBudget, MqErrorKind},
         read_segment_header,
-        refinement::RefinementBudget,
+        refinement::{RefinementBudget, RefinementErrorKind},
         refinement_dictionary::{
             RefinementDictionaryBudget, RefinementDictionaryDecoder, SymbolStore,
         },
-        text::{TextRegionBudget, read_text_region_header},
+        text::{TextRegionBudget, TextRegionErrorKind, read_text_region_header},
         text_instances::{
             TextBitmap, TextInstance, TextInstanceBudget, TextInstanceDecoder,
             TextInstanceErrorKind,
@@ -68,6 +68,20 @@ struct CaseOutcome {
     offset: u64,
     decision: String,
     trace_sha: String,
+}
+
+fn header_outcome(status: &'static str, refusal: &'static str, offset: u64) -> CaseOutcome {
+    CaseOutcome {
+        status,
+        completed: 0,
+        ri_zero: 0,
+        ri_one: 0,
+        strips: 0,
+        refusal,
+        offset,
+        decision: "Header".to_owned(),
+        trace_sha: hex(&Sha256::digest([])),
+    }
 }
 
 struct TextPin {
@@ -243,6 +257,74 @@ fn checked_text_segment(
     Ok(header)
 }
 
+fn mq_refusal_kind(error: &MqErrorKind) -> &'static str {
+    match error {
+        MqErrorKind::InvalidTable(_) => "mq_invalid_table",
+        MqErrorKind::InvalidContext => "mq_invalid_context",
+        MqErrorKind::InvalidState => "mq_invalid_state",
+        MqErrorKind::InvalidSpan(_) => "mq_invalid_span",
+        MqErrorKind::InvalidBudget => "mq_invalid_budget",
+        MqErrorKind::MissingTerminator => "mq_missing_terminator",
+        MqErrorKind::InvalidMarker(_) => "mq_invalid_marker",
+        MqErrorKind::LimitExceeded { .. } => "mq_limit_exceeded",
+        MqErrorKind::AllocationFailed => "mq_allocation_failed",
+        MqErrorKind::Cancelled => "mq_cancelled",
+        MqErrorKind::Source(Error::TruncatedInput { .. }) => "mq_source_truncated_input",
+        MqErrorKind::Source(Error::InvalidInput { .. }) => "mq_source_invalid_input",
+        MqErrorKind::Source(Error::Io(_)) => "mq_source_io",
+        MqErrorKind::Source(_) => "mq_source_other",
+        MqErrorKind::Poisoned => "mq_poisoned",
+        MqErrorKind::Invariant(_) => "mq_invariant",
+        MqErrorKind::WrongSymbolCount { .. } => "mq_wrong_symbol_count",
+    }
+}
+
+fn refinement_refusal_kind(error: &RefinementErrorKind) -> &'static str {
+    match error {
+        RefinementErrorKind::Malformed(_) => "refinement_malformed",
+        RefinementErrorKind::InvalidSpan(_) => "refinement_invalid_span",
+        RefinementErrorKind::TruncatedReference => "refinement_truncated_reference",
+        RefinementErrorKind::Unsupported { .. } => "refinement_unsupported",
+        RefinementErrorKind::LimitExceeded { .. } => "refinement_limit_exceeded",
+        RefinementErrorKind::AllocationFailed => "refinement_allocation_failed",
+        RefinementErrorKind::Cancelled => "refinement_cancelled",
+        RefinementErrorKind::ReferenceSource(Error::TruncatedInput { .. }) => {
+            "refinement_source_truncated_input"
+        }
+        RefinementErrorKind::ReferenceSource(Error::InvalidInput { .. }) => {
+            "refinement_source_invalid_input"
+        }
+        RefinementErrorKind::ReferenceSource(Error::Io(_)) => "refinement_source_io",
+        RefinementErrorKind::ReferenceSource(_) => "refinement_source_other",
+        RefinementErrorKind::Sink(Error::TruncatedInput { .. }) => {
+            "refinement_sink_truncated_input"
+        }
+        RefinementErrorKind::Sink(Error::InvalidInput { .. }) => "refinement_sink_invalid_input",
+        RefinementErrorKind::Sink(Error::Io(_)) => "refinement_sink_io",
+        RefinementErrorKind::Sink(_) => "refinement_sink_other",
+        RefinementErrorKind::Mq(error) => mq_refusal_kind(&error.kind),
+        RefinementErrorKind::Poisoned => "refinement_poisoned",
+    }
+}
+
+fn header_refusal_kind(error: &TextRegionErrorKind) -> &'static str {
+    match error {
+        TextRegionErrorKind::InvalidSpan(_) => "header_invalid_span",
+        TextRegionErrorKind::Truncated(_) => "header_truncated",
+        TextRegionErrorKind::Malformed(_) => "header_malformed",
+        TextRegionErrorKind::MalformedFlags { .. } => "header_malformed_flags",
+        TextRegionErrorKind::Unsupported { .. } => "header_unsupported",
+        TextRegionErrorKind::LimitExceeded { .. } => "header_limit_exceeded",
+        TextRegionErrorKind::Cancelled => "header_cancelled",
+        TextRegionErrorKind::Source(Error::TruncatedInput { .. }) => {
+            "header_source_truncated_input"
+        }
+        TextRegionErrorKind::Source(Error::InvalidInput { .. }) => "header_source_invalid_input",
+        TextRegionErrorKind::Source(Error::Io(_)) => "header_source_io",
+        TextRegionErrorKind::Source(_) => "header_source_other",
+    }
+}
+
 fn refusal_kind(error: &TextInstanceErrorKind) -> &'static str {
     match error {
         TextInstanceErrorKind::InvalidSpan(_) => "invalid_span",
@@ -250,9 +332,9 @@ fn refusal_kind(error: &TextInstanceErrorKind) -> &'static str {
         TextInstanceErrorKind::Unsupported { .. } => "unsupported",
         TextInstanceErrorKind::LimitExceeded { .. } => "limit_exceeded",
         TextInstanceErrorKind::Cancelled => "cancelled",
-        TextInstanceErrorKind::Header(_) => "header",
-        TextInstanceErrorKind::Mq(_) => "mq",
-        TextInstanceErrorKind::Refinement(_) => "refinement",
+        TextInstanceErrorKind::Header(error) => header_refusal_kind(&error.kind),
+        TextInstanceErrorKind::Mq(error) => mq_refusal_kind(&error.kind),
+        TextInstanceErrorKind::Refinement(error) => refinement_refusal_kind(&error.kind),
         TextInstanceErrorKind::Poisoned => "poisoned",
     }
 }
@@ -322,20 +404,26 @@ fn one_case(
             if error.offset != third.data.offset + 17 {
                 return Err("strict text-header refusal has the wrong flags offset".into());
             }
-            return Ok(CaseOutcome {
-                status: "HEADER_REFUSED",
-                completed: 0,
-                ri_zero: 0,
-                ri_one: 0,
-                strips: 0,
-                refusal: "malformed_text_header",
-                offset: error.offset,
-                decision: "Header".to_owned(),
-                trace_sha: hex(&Sha256::digest([])),
-            });
+            return Ok(header_outcome(
+                "HEADER_REFUSED",
+                "malformed_text_header",
+                error.offset,
+            ));
         }
-        Ok(_) => return Err("text header instance count or anomaly classification differs".into()),
-        Err(error) => return Err(error.into()),
+        Ok(_) => {
+            return Ok(header_outcome(
+                "REFUSED",
+                "header_classification_or_count",
+                third.data.offset + 19,
+            ));
+        }
+        Err(error) => {
+            return Ok(header_outcome(
+                "REFUSED",
+                header_refusal_kind(&error.kind),
+                error.offset,
+            ));
+        }
     };
     let (first_store, first_file) = TempStore::create("caj2pdf-dictionary-first")?;
     let mut first_sink = WriteSink::new(first_file);
@@ -537,5 +625,53 @@ fn main() {
     if let Err(error) = run() {
         eprintln!("jbig2 text instance diagnostic: {error}");
         std::process::exit(1);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn refusal_tags_keep_nested_failure_categories() {
+        assert_eq!(
+            mq_refusal_kind(&MqErrorKind::MissingTerminator),
+            "mq_missing_terminator"
+        );
+        assert_eq!(
+            mq_refusal_kind(&MqErrorKind::InvalidMarker(0x00)),
+            "mq_invalid_marker"
+        );
+        assert_eq!(
+            mq_refusal_kind(&MqErrorKind::Source(Error::TruncatedInput {
+                offset: 7,
+                expected: 2,
+                available: 1,
+            })),
+            "mq_source_truncated_input"
+        );
+        assert_eq!(
+            mq_refusal_kind(&MqErrorKind::Source(Error::InvalidInput {
+                reason: "overreported read",
+            })),
+            "mq_source_invalid_input"
+        );
+        assert_eq!(
+            refinement_refusal_kind(&RefinementErrorKind::TruncatedReference),
+            "refinement_truncated_reference"
+        );
+        assert_eq!(
+            refinement_refusal_kind(&RefinementErrorKind::Sink(Error::Io(
+                std::io::Error::other("test"),
+            ))),
+            "refinement_sink_io"
+        );
+        assert_eq!(
+            header_refusal_kind(&TextRegionErrorKind::MalformedFlags {
+                field: "test",
+                raw: 0xa40c,
+            }),
+            "header_malformed_flags"
+        );
     }
 }

@@ -271,6 +271,11 @@ impl PreflightSite {
     }
 }
 
+fn catalog_metadata_bytes(new_symbols: u64, exported_symbols: u64) -> u128 {
+    u128::from(new_symbols) * mem::size_of::<SymbolDescriptor>() as u128
+        + u128::from(exported_symbols) * mem::size_of::<StoredSymbol>() as u128
+}
+
 fn validate_descriptor(
     site: PreflightSite,
     stored: StoredSymbol,
@@ -307,7 +312,11 @@ fn validate_descriptor(
 }
 
 fn cap_coordinate(value: i64, magnitude: i64) -> Result<i64, TextInstanceErrorKind> {
-    if value.unsigned_abs() > magnitude as u64 {
+    if i32::try_from(value).is_err() {
+        Err(TextInstanceErrorKind::Malformed(
+            "text coordinate outside T.88 signed 32-bit range",
+        ))
+    } else if value.unsigned_abs() > magnitude as u64 {
         Err(TextInstanceErrorKind::LimitExceeded {
             resource: "signed text coordinate magnitude",
             limit: magnitude as u64,
@@ -617,6 +626,22 @@ impl<'a, S: RangedSource, RI: RangedSource, RN: RangedSource, W: SequentialSink,
                 "dictionary store base outside ranged source",
             )));
         }
+        // Bound caller-owned catalog work before walking any descriptors. A
+        // completed dictionary report may contain unexported new symbols.
+        let metadata_count = catalog_metadata_bytes(
+            dictionary.catalog.new_symbols.len() as u64,
+            dictionary.catalog.exported_symbols.len() as u64,
+        );
+        if metadata_count > u128::from(budget.max_metadata_bytes) {
+            return Err(bad(TextInstanceErrorKind::LimitExceeded {
+                resource: "catalog metadata bytes",
+                limit: budget.max_metadata_bytes,
+                attempted: metadata_count.min(u128::from(u64::MAX)) as u64,
+            }));
+        }
+        // The preceding cap proves this conversion safe even if the caller
+        // chooses the largest representable metadata budget.
+        let metadata_count = metadata_count as u64;
         let mut last_catalog_end = 0u64;
         for descriptor in &dictionary.catalog.new_symbols {
             if descriptor.relative_store_offset < last_catalog_end {
@@ -713,33 +738,22 @@ impl<'a, S: RangedSource, RI: RangedSource, RN: RangedSource, W: SequentialSink,
                 "IAID width or GR context layout mismatch",
             )));
         }
-        let metadata_count = dictionary.catalog.new_symbols.len() as u64
-            * mem::size_of::<SymbolDescriptor>() as u64
-            + count * mem::size_of::<StoredSymbol>() as u64;
-        preflight_cap(
-            segment.number,
-            at,
-            fetched,
-            "catalog metadata bytes",
-            budget.max_metadata_bytes,
-            metadata_count,
-        )?;
         let target_row = u64::from(refinement_budget.max_width).div_ceil(8);
         let reference_row = u64::from(refinement_budget.max_reference_width).div_ceil(8);
-        let working = layout.total_contexts() as u64 * mem::size_of::<MqContext>() as u64
-            + (MQ_STATE_COUNT * mem::size_of::<MqState>()) as u64
-            + MQ_BUFFER_BYTES
-            + metadata_count
-            + 2 * target_row
-            + 3 * reference_row;
-        preflight_cap(
-            segment.number,
-            at,
-            fetched,
-            "resident text working bytes",
-            budget.max_working_bytes.min(limits.max_allocation_bytes),
-            working,
-        )?;
+        let working = layout.total_contexts() as u128 * mem::size_of::<MqContext>() as u128
+            + (MQ_STATE_COUNT * mem::size_of::<MqState>()) as u128
+            + u128::from(MQ_BUFFER_BYTES)
+            + u128::from(metadata_count)
+            + 2 * u128::from(target_row)
+            + 3 * u128::from(reference_row);
+        let working_cap = budget.max_working_bytes.min(limits.max_allocation_bytes);
+        if working > u128::from(working_cap) {
+            return Err(bad(TextInstanceErrorKind::LimitExceeded {
+                resource: "resident text working bytes",
+                limit: working_cap,
+                attempted: working.min(u128::from(u64::MAX)) as u64,
+            }));
+        }
         let refinement_budget = RefinementBudget {
             max_total_output_bytes: refinement_budget
                 .max_total_output_bytes

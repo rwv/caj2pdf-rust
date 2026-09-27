@@ -252,6 +252,18 @@ const ONE_PIXEL: SymbolDescriptor = SymbolDescriptor {
     stored_bytes: 1,
 };
 
+const TWO_EXPORTED_REFINED_BODY: [u8; 14] = [
+    153, 141, 235, 153, 191, 232, 238, 189, 166, 16, 4, 200, 255, 172,
+];
+
+const DIAGONAL_2X2: SymbolDescriptor = SymbolDescriptor {
+    width: 2,
+    height: 2,
+    row_stride: 1,
+    relative_store_offset: 0,
+    stored_bytes: 2,
+};
+
 struct Fixture {
     source: Bytes,
     text_segment: SegmentHeader,
@@ -488,6 +500,11 @@ fn located_error_variants_and_progress_are_inspectable() {
         error.kind,
         TextInstanceErrorKind::LimitExceeded { attempted: 3, .. }
     ));
+    assert_eq!(
+        catalog_metadata_bytes(2, 3),
+        2 * mem::size_of::<SymbolDescriptor>() as u128 + 3 * mem::size_of::<StoredSymbol>() as u128
+    );
+    assert!(catalog_metadata_bytes(u64::MAX, u64::MAX) > u128::from(u64::MAX));
 }
 
 #[test]
@@ -590,12 +607,41 @@ fn descriptor_preflight_refuses_identity_geometry_and_store_bounds() {
         cap_coordinate(-11, 10),
         Err(TextInstanceErrorKind::LimitExceeded { attempted: 11, .. })
     ));
+    assert_eq!(
+        cap_coordinate(i32::MIN as i64, i64::MAX).unwrap(),
+        i32::MIN as i64
+    );
+    assert_eq!(
+        cap_coordinate(i32::MAX as i64, i64::MAX).unwrap(),
+        i32::MAX as i64
+    );
+    for value in [i32::MIN as i64 - 1, i32::MAX as i64 + 1] {
+        assert!(matches!(
+            cap_coordinate(value, i64::MAX),
+            Err(TextInstanceErrorKind::Malformed(
+                "text coordinate outside T.88 signed 32-bit range"
+            ))
+        ));
+    }
 }
 
 #[test]
 fn parser_and_report_preflight_refuse_forged_metadata_before_mq() {
     const BODY: &[u8] = &[0, 0, 0, 0, 0, 0xff, 0xac];
     let make = || Fixture::new(0x10, 1, BODY, &[ONE_PIXEL]);
+
+    let mut f = make();
+    f.dictionary.catalog.new_symbols = vec![
+        SymbolDescriptor {
+            width: 0,
+            ..ONE_PIXEL
+        };
+        32
+    ];
+    f.dictionary.header.new_symbols = 32;
+    f.dictionary.progress.completed_symbols = 32;
+    f.budget.max_metadata_bytes = 1;
+    preflight_reject(f, "catalog metadata bytes");
 
     let mut f = make();
     f.parsed.region.width += 1;
@@ -1441,6 +1487,183 @@ fn real_mq_refinement_reads_reference_and_writes_packed_rows() {
     );
     drop(decoder);
     assert_eq!(temporary.0, [0xe0, 0x70, 0x50, 0x10]);
+}
+
+#[test]
+fn a_text_region_resets_dirty_integer_iaid_and_gr_statistics() {
+    const BODY: [u8; 14] = [
+        235, 233, 217, 144, 134, 94, 12, 87, 10, 58, 12, 111, 255, 172,
+    ];
+    let mut f = Fixture::new(0x8012, 1, &BODY, &[ONE_PIXEL]);
+    let limits = Limits::default();
+    let table = table_with_qe(&limits, 0x4000);
+    let mut banks =
+        IaidContextBanks::with_bitmap_contexts(0, GR_CONTEXTS, &limits, &f.mq_budget).unwrap();
+    let layout = banks.layout();
+    let indices = [0, layout.iaid_base(), layout.bitmap_base()];
+    for index in indices {
+        banks
+            .mq_contexts_mut()
+            .set(
+                index,
+                MqContext {
+                    state_index: 1,
+                    mps: true,
+                },
+            )
+            .unwrap();
+    }
+    let mut decoder = ready(TextInstanceDecoder::new(
+        &mut f.source,
+        &f.text_segment,
+        f.parsed,
+        &f.dictionary_segment,
+        &f.dictionary,
+        &mut f.imported,
+        0,
+        &mut f.fresh,
+        0,
+        &mut f.temporary,
+        0,
+        &table,
+        &mut banks,
+        &limits,
+        &NeverCancel,
+        f.mq_budget,
+        f.header_budget,
+        f.refinement_budget,
+        f.budget,
+    ))
+    .unwrap();
+    for index in indices {
+        assert_eq!(decoder.mq.context(index), Some(MqContext::default()));
+    }
+    assert!(ready(decoder.next()).unwrap().unwrap().ri);
+    assert!(ready(decoder.next()).unwrap().is_none());
+}
+
+#[test]
+fn public_mq_negative_half_deltas_and_contexts_continue_across_refined_instances() {
+    let second = SymbolDescriptor {
+        relative_store_offset: 2,
+        ..DIAGONAL_2X2
+    };
+    let mut f = Fixture::new(
+        0x8012,
+        2,
+        &TWO_EXPORTED_REFINED_BODY,
+        &[DIAGONAL_2X2, second],
+    );
+    f.imported.data = vec![0x80, 0x40, 0x40, 0x80];
+    let limits = Limits::default();
+    // Every invented state has the same Qe and MPS, so decisions stay the
+    // same as the flat fixture while state indices record repeated use.
+    let states = (0..MQ_STATE_COUNT)
+        .map(|index| MqState {
+            qe: 0x4000,
+            next_mps: (index + 1).min(MQ_STATE_COUNT - 1) as u8,
+            next_lps: (index + 1).min(MQ_STATE_COUNT - 1) as u8,
+            switch_mps: false,
+        })
+        .collect();
+    let table = MqTable::new(states, &limits).unwrap();
+    let mut banks =
+        IaidContextBanks::with_bitmap_contexts(1, GR_CONTEXTS, &limits, &f.mq_budget).unwrap();
+    let iaid_base = banks.layout().iaid_base();
+    let gr_base = banks.layout().bitmap_base();
+    let mut decoder = ready(TextInstanceDecoder::new(
+        &mut f.source,
+        &f.text_segment,
+        f.parsed,
+        &f.dictionary_segment,
+        &f.dictionary,
+        &mut f.imported,
+        0,
+        &mut f.fresh,
+        0,
+        &mut f.temporary,
+        0,
+        &table,
+        &mut banks,
+        &limits,
+        &NeverCancel,
+        f.mq_budget,
+        f.header_budget,
+        f.refinement_budget,
+        f.budget,
+    ))
+    .unwrap();
+    let first = ready(decoder.next()).unwrap().unwrap();
+    assert!(first.ri);
+    assert_eq!(first.symbol_id, 1);
+    assert_eq!(
+        (first.x, first.y, first.width, first.height),
+        (2, -53, 1, 1)
+    );
+    assert_eq!(
+        first.bitmap,
+        TextBitmap::Refined {
+            store_base: 0,
+            symbol: SymbolDescriptor {
+                width: 1,
+                height: 1,
+                row_stride: 1,
+                relative_store_offset: 0,
+                stored_bytes: 1,
+            },
+        }
+    );
+    // Independently traced IARDW/H=-1, IARDX/Y=0. Table 12 requires
+    // floor(-1/2)=-1 on both axes. GR context 6706 is reached with that
+    // offset; truncation toward zero would use context 6664 instead.
+    assert_eq!(decoder.mq.context(6706).unwrap().state_index, 1);
+    assert_eq!(decoder.mq.context(6664).unwrap().state_index, 0);
+    let integer_after_first: Vec<_> = (0..iaid_base)
+        .map(|index| decoder.mq.context(index).unwrap())
+        .collect();
+    let iaid_after_first = decoder.mq.context(iaid_base + 1).unwrap();
+    let gr_after_first: Vec<_> = (gr_base..gr_base + GR_CONTEXTS)
+        .map(|index| decoder.mq.context(index).unwrap())
+        .collect();
+    assert!(
+        integer_after_first
+            .iter()
+            .any(|state| state.state_index > 0)
+    );
+    assert!(iaid_after_first.state_index > 0);
+    assert!(gr_after_first.iter().any(|state| state.state_index > 0));
+
+    let second = ready(decoder.next()).unwrap().unwrap();
+    assert!(second.ri);
+    assert_eq!(second.symbol_id, 1);
+    assert_eq!(
+        (second.x, second.y, second.width, second.height),
+        (-1, -53, 3, 7)
+    );
+    assert_eq!(
+        second.bitmap,
+        TextBitmap::Refined {
+            store_base: 0,
+            symbol: SymbolDescriptor {
+                width: 3,
+                height: 7,
+                row_stride: 1,
+                relative_store_offset: 1,
+                stored_bytes: 7,
+            },
+        }
+    );
+    assert!((0..iaid_base).any(|index| {
+        decoder.mq.context(index).unwrap().state_index > integer_after_first[index].state_index
+    }));
+    assert!(decoder.mq.context(iaid_base + 1).unwrap().state_index > iaid_after_first.state_index);
+    assert!((0..GR_CONTEXTS).any(|index| {
+        decoder.mq.context(gr_base + index).unwrap().state_index > gr_after_first[index].state_index
+    }));
+    assert!(ready(decoder.next()).unwrap().is_none());
+    assert_eq!(decoder.progress().ri_one, 2);
+    drop(decoder);
+    assert_eq!(f.temporary.0, [0, 160, 224, 224, 192, 192, 96, 96]);
 }
 
 #[test]

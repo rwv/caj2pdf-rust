@@ -122,6 +122,16 @@ class TextInstanceDiagnosticTests(unittest.TestCase):
         self.assertEqual(report["first_standard_refusal"]["kind"], "marker_exhausted")
         self.assertEqual(report["first_standard_refusal"]["semantic_decision"], "SymbolId")
 
+        lines = output_lines()
+        lines[1] = ("CASE\tpinned.caj\t2\t1\tREFUSED\t0\t0\t0\t0"
+                    "\theader_malformed_flags\t1234\tHeader\t"
+                    + hashlib.sha256(b"").hexdigest())
+        report = diagnostic.parse_output("\n".join([*lines, "TOTAL\t546"]), selected())
+        self.assertEqual(report["attempted_cases"], 546)
+        self.assertEqual(report["first_standard_refusal"]["kind"], "header_malformed_flags")
+        self.assertEqual(report["first_standard_refusal"]["source_byte_offset"], 1234)
+        self.assertEqual(report["status"], "INCOMPLETE")
+
     def test_plan_rejects_missing_cases(self) -> None:
         with self.assertRaises(diagnostic.DiagnosticError):
             diagnostic.plan_for_cases([], {}, {}, {})

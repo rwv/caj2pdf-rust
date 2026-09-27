@@ -62,16 +62,21 @@ symbol's final size determines T.88's pre-placement
 and post-placement `CURS` updates. All four reference corners and transpose
 modes are supported. Negative deltas, negative or overlapping placements,
 and parts outside the region are valid events; clipping belongs to the
-later composer. Empty strips and arithmetic work have independent caps.
+later composer. Table 11's signed 32-bit coordinate domain is checked
+independently of the caller's smaller coordinate-magnitude budget. Empty
+strips and arithmetic work have independent caps.
 
 The decoder rejects Huffman, refinement template 0, malformed header
 constraints, absent symbols for nonzero instances, invalid IDs or T offsets,
 unexpected OOB, invalid geometry, overflow, exceeded budgets, invalid I/O,
 truncation, MQ marker/terminal failures, and cancellation as located typed
-errors. Progress includes completed instance and RI counts, strip count,
-the next semantic decision, physical MQ and refinement I/O, and temporary
-bytes. Budgets bound symbols, instances, strips, coordinates, per-instance
-and cumulative pixels, metadata and resident memory, store spans, temporary
+errors. The optional diagnostic keeps stable nested failure tags for
+header, MQ, refinement, and host I/O errors, and continues after a
+standard-region header refusal. Progress includes completed instance and RI
+counts, strip count, the next semantic decision, physical MQ and refinement
+I/O, and temporary bytes. Budgets bound symbols, instances, strips,
+coordinates, per-instance and cumulative pixels, metadata and resident
+memory, store spans, temporary
 bytes, row/request size, reference reads, output writes, and MQ work.
 Forward-only inputs can be spooled by a platform adapter; the core requires
 seekable or ranged views. Browser and Node.js adapters remain separate from
@@ -80,7 +85,9 @@ these conversion rules.
 ## Evidence and remaining work
 
 The required clean-clone unit tests use small independently chosen symbol
-bitmaps and an invented 47-state MQ table; they contain no Table E.1 states,
+bitmaps and invented 47-state MQ tables. They cover dirty context reset,
+integer/IAID/GR state retention over two RI=1 instances, and real-MQ
+negative odd refinement size deltas. They contain no Table E.1 states,
 Annex H bytes, or external document payload. The optional diagnostic runs
 against 27 separately held SHA-pinned CAJSamples files and a private table
 under `/tmp`:
