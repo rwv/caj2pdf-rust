@@ -9,7 +9,7 @@
 use super::{
     dictionary::SymbolDescriptor,
     refinement_dictionary::{StoredSymbol, SymbolStore},
-    text::{SymbolCombination, TextRegionHeader},
+    text::{SymbolCombination, TextHeaderAnomaly, TextRegionHeader},
     text_instances::{
         TextBitmap, TextInstance, TextInstanceDecoder, TextInstanceError, TextInstanceResult,
     },
@@ -168,6 +168,10 @@ pub struct TextComposeReport {
     pub height: u32,
     pub row_stride: u32,
     pub packed_bytes: u64,
+    /// Encoded Figure 36 flags, including any accepted nonconforming bit.
+    pub text_flags_raw: u16,
+    /// An accepted deviation, or `None` for a strictly valid text header.
+    pub header_anomaly: Option<TextHeaderAnomaly>,
     pub progress: TextComposeProgress,
 }
 
@@ -1282,6 +1286,8 @@ where
             ));
         }
         Ok(TextComposeReport {
+            text_flags_raw: self.header.flags.raw,
+            header_anomaly: self.header.anomaly,
             width: self.header.region.width,
             height: self.header.region.height,
             row_stride: self.row_stride as u32,

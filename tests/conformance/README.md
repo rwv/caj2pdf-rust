@@ -215,6 +215,33 @@ and had zero standard failures or skips. Its largest temporary bitmap was
 external document, decoded bitmap, or exact MQ table is committed. This
 comparison does not establish full-page/PDF parity.
 
+Issue [#88](https://github.com/rwv/caj2pdf-rust/issues/88) adds an explicit
+HN/C8 text-header policy for the single nonconforming `0xa40c` header. Run
+the same SHA-pinned diagnostic with the additional option:
+
+```sh
+python3 scripts/jbig2_text_region_parity.py \
+  --corpus-dir /path/to/CAJSamples \
+  --table-fixture /tmp/private-t88-table.fixture \
+  --text-header-policy hn-c8-unused-refinement-template --json
+```
+
+The `opt_in_anomaly` result counts one text-only pixel match separately from
+the 545 strict-valid cases. Its typed marker and raw flags remain visible;
+strict mode still reports one located header refusal. A missing or changed
+explicit input fails, while a clean clone remains `NOT_RUN`/0. The
+[policy note](../../docs/t88-text-header-compatibility.md) records the
+normative violation, source coordinate and hashes, and HN/C8 integration
+boundary.
+
+On 2026-09-27 UTC, the private opt-in run matched all 545 standards-valid
+text-only outputs and the one separately counted `0xa40c` output against
+the #85 pixel hash and black-pixel count. There were zero failures or skips;
+all 27 source hashes and the private table hash matched before and after.
+The anomaly completed 234 instances and 3,431 rows. Across all cases the
+largest scratch bitmap was 1,098,864 bytes, largest request 312 bytes, and
+peak process RSS 2,764,800 bytes on that machine. This is text-only evidence.
+
 ## Optional JBIG2 refinement-pixel evidence
 
 Issue [#65](https://github.com/rwv/caj2pdf-rust/issues/65) adds a bounded

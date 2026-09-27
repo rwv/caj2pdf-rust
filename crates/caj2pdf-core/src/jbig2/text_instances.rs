@@ -21,8 +21,8 @@ use super::{
     },
     refinement_dictionary::{RefinementDictionaryReport, StoredSymbol, SymbolStore},
     text::{
-        ReferenceCorner, TextRegionBudget, TextRegionError, TextRegionHeader,
-        read_text_region_header,
+        ReferenceCorner, TextHeaderPolicy, TextRegionBudget, TextRegionError, TextRegionHeader,
+        read_text_region_header_with_policy,
     },
 };
 use crate::{Cancellation, Limits, MAX_BUDGET_COUNT, RangedSource, SequentialSink};
@@ -486,13 +486,64 @@ impl<'a, S: RangedSource, RI: RangedSource, RN: RangedSource, W: SequentialSink,
         refinement_budget: RefinementBudget,
         budget: TextInstanceBudget,
     ) -> TextInstanceResult<Self> {
-        let checked = read_text_region_header(
+        Self::new_with_header_policy(
+            source,
+            segment,
+            parsed,
+            dictionary_segment,
+            dictionary,
+            imported_source,
+            imported_store_base,
+            new_source,
+            new_store_base,
+            temporary_sink,
+            temporary_store_base,
+            table,
+            banks,
+            limits,
+            cancellation,
+            mq_budget,
+            header_budget,
+            refinement_budget,
+            budget,
+            TextHeaderPolicy::Strict,
+        )
+        .await
+    }
+
+    /// Revalidate a text header using an explicit HN/C8 compatibility policy.
+    /// The original `new` constructor always keeps strict T.88 validation.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn new_with_header_policy(
+        source: &'a mut S,
+        segment: &SegmentHeader,
+        parsed: TextRegionHeader,
+        dictionary_segment: &SegmentHeader,
+        dictionary: &'a RefinementDictionaryReport,
+        imported_source: &'a mut RI,
+        imported_store_base: u64,
+        new_source: &'a mut RN,
+        new_store_base: u64,
+        temporary_sink: &'a mut W,
+        temporary_store_base: u64,
+        table: &'a MqTable,
+        banks: &'a mut IaidContextBanks,
+        limits: &'a Limits,
+        cancellation: &'a C,
+        mq_budget: MqBudget,
+        header_budget: TextRegionBudget,
+        refinement_budget: RefinementBudget,
+        budget: TextInstanceBudget,
+        policy: TextHeaderPolicy,
+    ) -> TextInstanceResult<Self> {
+        let checked = read_text_region_header_with_policy(
             source,
             segment,
             dictionary_segment,
             limits,
             header_budget,
             cancellation,
+            policy,
         )
         .await
         .map_err(|error| {

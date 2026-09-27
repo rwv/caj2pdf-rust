@@ -105,8 +105,11 @@ values are in the manifest. Backend implementation independence is
 `UNVERIFIED`; agreement is independent of the Rust decoder but may involve
 shared underlying code. The separate [#87 Rust composer
 diagnostic](t88-text-composer.md) matched all 545 standards-valid text-only
-regions; this does not make the external backends independent.
+regions; this does not make the external backends independent. The later
+[#88 opt-in diagnostic](t88-text-header-compatibility.md) also matched the
+separately labeled `0xa40c` text-only output through the Rust arithmetic and
+composer path.
 
 The [#9 parent](https://github.com/rwv/caj2pdf-rust/issues/9) remains open
-for page composition, a separate anomaly policy, and the exact-state rights decision under
+for page composition and the exact-state rights decision under
 [#44](https://github.com/rwv/caj2pdf-rust/issues/44).

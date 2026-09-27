@@ -24,10 +24,15 @@ the validated header of the dictionary it refers to, a caller-owned
 `RangedSource`, `Limits`, a `TextRegionBudget`, and cancellation. It returns a
 `TextRegionHeader`:
 
+The plain function uses `TextHeaderPolicy::Strict`. The separate
+`read_text_region_header_with_policy` entry point requires an explicit
+policy argument for the narrow [HN/C8 exception](t88-text-header-compatibility.md).
+
 | Field | Meaning |
 | --- | --- |
 | `region` | Width, height, X/Y location, and external combination operator (§7.4.1). |
 | `flags` | Every Figure 36 field: `SBHUFF`, `SBREFINE`, `LOGSBSTRIPS` (`strips()` gives `SBSTRIPS`), `REFCORNER`, `TRANSPOSED`, `SBCOMBOP`, `SBDEFPIXEL`, signed five-bit `SBDSOFFSET`, `SBRTEMPLATE`, and the raw value. |
+| `anomaly` | `None` for standard headers; the typed unused-refinement-template marker only after explicit opt-in acceptance. |
 | `huffman_flags` | Figure 37 selections, present only when `SBHUFF` is 1. |
 | `refinement_at` | Two signed AT pairs, present only when `SBREFINE` is 1 and `SBRTEMPLATE` is 0. |
 | `instances` | `SBNUMINSTANCES`. |
@@ -79,8 +84,10 @@ page 11 image 1, record offset 930,673. The parser does not correct the bit.
 It returns `MalformedFlags { field: "SBRTEMPLATE without SBREFINE", raw }`
 located at the flags field, and the optional inventory records the raw value
 and coordinate. The [text-instance decoder](t88-text-instances.md) preserves
-this strict refusal. A separate interoperability policy would need its own
-review; this parser does not weaken the standard's validation.
+this strict refusal by default. The separately reviewed
+[#88 compatibility policy](t88-text-header-compatibility.md) requires an
+explicit named caller choice, retains the raw flags and typed anomaly, and
+accepts only this narrow HN/C8 condition.
 
 ## Measured boundary and optional inventory
 
@@ -101,9 +108,8 @@ stays `NOT_RUN` with zero cases.
 
 ## Remaining work
 
-The [#86 text-instance decoder](t88-text-instances.md) now emits checked
-placements and refined bitmap handles. Row composition, a separate
-`0xa40c` compatibility decision, page composition, and independent pixel
-parity remain open under
+The [#86 text-instance decoder](t88-text-instances.md) and
+[#87 composer](t88-text-composer.md) now produce text-only regions for the
+standards-valid cases. Page composition and PDF integration remain open under
 [#9](https://github.com/rwv/caj2pdf-rust/issues/9). Exact Table E.1 states
 remain governed by [#44](https://github.com/rwv/caj2pdf-rust/issues/44).
