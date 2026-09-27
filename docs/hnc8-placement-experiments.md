@@ -2,7 +2,8 @@
 
 # Additional-image placement experiments
 
-This is the pre-experiment plan for [#110](https://github.com/rwv/caj2pdf-rust/issues/110).
+This is the predeclared plan and measured result for
+[#110](https://github.com/rwv/caj2pdf-rust/issues/110).
 The [#107 metadata oracle](hnc8-layout-oracle.md) measures 50 additional
 type-2 JPEG draws on HN-A/C8 pages, but their x/y source fields remain
 unknown. A measured PDF transform is an outcome, never an input to a
@@ -118,9 +119,27 @@ text-span partner within its variant for a simple whole-span swap.
 
 Simple geometry-only controls also failed. At 0.001 pt tolerance over all six
 CTM components, top-left, centered and bottom-right placement each matched
-0/36 discovery and 0/14 validation additional draws. A separately fitted
-variant-specific affine expression using image width, height and draw index
-matched 1/36 discovery and 0/14 validation; that lone match is overfitting.
+0/36 discovery and 0/14 validation additional draws. A retrospective
+variant-specific affine expression uses only JPEG pixel width `w`, pixel
+height `h`, and one-based draw number `i`:
+`x = β₀ + β₁w + β₂h + β₃i`, with a separate coefficient vector for `y`.
+The remaining CTM components are `[w×72/300, 0, 0, -h×72/300]`. Ordinary
+least squares fits each vector on the 36 discovery draws only; validation
+reuses those coefficients. The computed coefficients are:
+
+| Variant / output | β₀ | β₁ (`w`) | β₂ (`h`) | β₃ (`i`) |
+| --- | ---: | ---: | ---: | ---: |
+| C8 x | 499.54367644554884 | -0.2342786638436198 | 0.12029400596313929 | -15.256771580555622 |
+| C8 y | 1032.3700193799978 | 0.01738695836590306 | 0.05412705732686148 | -183.73081714821825 |
+| HN-A x | 227.11615316952532 | -0.08675835704195259 | 0.0017835050083312549 | -8.7737314319072 |
+| HN-A y | 456.97996500655796 | 0.24606990275329801 | 0.07909983241260023 | -194.95851145614705 |
+
+It matched 1/36 discovery and 0/14 validation draws. Maximum absolute
+six-component errors were 353.8228193744678 pt and 326.6941849475608 pt,
+respectively. This is a **retrospective negative exploration**: validation
+CTMs were already public and inspected, so even its held-out scores are
+descriptive and cannot support a new independent validation claim. The
+isolated discovery match provides no placement rule.
 For example, HN-A pages 32 and 33 have similar supplemental JPEG sizes
 (1,887×1,717 and 1,872×1,712 pixels), but their x/y origins differ by
 25.2326/134.7028 pt. The first three additional draws on C8 page 1 move
@@ -131,8 +150,10 @@ The committed-oracle-only [analysis runner](../scripts/hnc8_placement_analysis.p
 records the full prediction, observed CTM, six component errors and a
 counterexample for every draw in each frozen split. Its maximum component
 errors (discovery/validation, in pt) are 757.461/760.178 for top-left,
-376.821/379.538 for center, and 648.507/525.378 for bottom-right. These
-large errors describe failed controls, not an estimated coordinate range.
+376.821/379.538 for center, and 648.507/525.378 for bottom-right. The
+machine report also includes the affine candidate's full six-component
+predictions, errors and counterexamples. These large errors describe failed
+controls, not an estimated coordinate range.
 
 One bounded feasibility run assembled a 132,124-byte, one-page C8 temporary
 source from the pinned C8 page-1 index row and its text/descriptor/image
@@ -233,9 +254,18 @@ before/after SHA-256 audits.
 
 In each case, the target additional-image **x/y translations exactly equal
 the donor page's translations in the same draw positions**: 5/5 draws at
-the PDF extractor's recorded decimal precision. The target JPEG sizes and
-scales stayed with the target images, so this correspondence is not an image
-size match. The changed input comprises both the opaque text bytes and the
+the PDF extractor's recorded decimal precision. This equality was checked
+after the conversion by comparing the recorded target CTMs in the external
+report (SHA-256
+`ca3ea76ea961015ecee00af0da7062d6f0ba4e1de3bb3167517a1b4671c0bd50`)
+with the donor CTMs in the committed #107 oracle. The external derived
+metadata-only comparison (SHA-256
+`6048d2167c11374b06cc4945bf1c09d9301c06f716ac58db04c9b9b2ffde890e`)
+records 5/5 exact matches; no additional black-box conversion was run.
+The diagnostic now includes this donor comparison in future machine reports.
+The target JPEG sizes and scales stayed with the target images, so this
+correspondence is not explained by matching image sizes. The changed input
+comprises both the opaque text bytes and the
 index row's text address/length. It provides causal evidence that this
 **combined component** influences supplemental placement; it does not
 identify the coordinate encoding, units, origin, axis, rounding, valid
@@ -280,4 +310,7 @@ unchanged, or newly generated independent HN-A/C8 documents reserved until
 the formula is frozen. Report exact supported variants, image types and
 document counts. If no rule survives, report `UNKNOWN` with attempted,
 passing, failing, skipped and unsupported counts. Keep #10 blocked and add
-no guessed compositor.
+no guessed compositor. The remaining source-field isolation is tracked by
+[#111](https://github.com/rwv/caj2pdf-rust/issues/111), and exact rule
+validation by [#112](https://github.com/rwv/caj2pdf-rust/issues/112); #112
+blocks #10.

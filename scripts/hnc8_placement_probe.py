@@ -65,12 +65,16 @@ def _report() -> dict[str, Any]:
         "status": "NOT_RUN",
         "placement_rule_status": "UNKNOWN_NOT_TESTED",
         "status_semantics": (
-            "PASS means the four declared probes completed with audited repeatable outcomes; "
+            "PASS means all four declared probes completed with audited, repeatable, "
+            "independently parsed PDF outcomes; "
             "a converter rejection is recorded as CONVERSION_FAILED and never counts as "
-            "placement evidence. PARTIAL means PDF metadata could not be independently checked."
+            "placement evidence. PARTIAL means at least one conversion or independent "
+            "PDF metadata check failed."
         ),
         "count_semantics": (
             "attempted counts probes at launch; completed counts probes with two recorded runs; "
+            "probe_runs counts returned run records from completed probes, not all "
+            "converter launches; "
             "passing means repeatable, independently parsed PDF outcomes; failing includes "
             "converter rejection, unsupported PDF metadata, nondeterminism, or probe protocol errors; "
             "skipped counts unstarted probes"
@@ -694,7 +698,7 @@ def run(paths: Mapping[str, Path] | None = None,
                 raise ProbeError("probe produced nondeterministic repeated conversions")
         if report["counts"]["probes_attempted"] != len(PROBES):
             raise ProbeError("not all predeclared JFIF probes were attempted")
-        report["status"] = "PASS" if report["counts"]["unsupported_probes"] == 0 else "PARTIAL"
+        report["status"] = "PASS" if report["counts"]["probes_failing"] == 0 else "PARTIAL"
         report["placement_rule_status"] = "UNKNOWN_JFIF_DEPENDENCY_ONLY"
         report["baseline_reference_report_status"] = baseline_report["status"]
     except (reference.ReferenceError, ProbeError, OSError, ValueError, KeyError,

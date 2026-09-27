@@ -303,6 +303,19 @@ def compare_pdf(baseline: dict, mutant: dict, probe: Transplant,
     if len(baseline["pages"][probe.page - 1]["draws"]) != len(
             mutant["pages"][probe.page - 1]["draws"]):
         failures.append("target page draw count changed")
+    donor_draws = baseline["pages"][probe.donor_page - 1]["draws"]
+    target_draws = mutant["pages"][probe.page - 1]["draws"]
+    donor_comparisons = []
+    for index, target_draw in enumerate(target_draws[1:], start=1):
+        donor_xy = donor_draws[index]["pdf_ctm"][4:] if index < len(donor_draws) else None
+        target_xy = target_draw["pdf_ctm"][4:]
+        donor_comparisons.append({
+            "draw_number": index + 1, "donor_xy": donor_xy, "target_after_xy": target_xy,
+            "matched_at_recorded_precision": donor_xy is not None and donor_xy == target_xy,
+        })
+    result["donor_translation_comparisons"] = donor_comparisons
+    result["donor_translation_matches"] = sum(
+        row["matched_at_recorded_precision"] for row in donor_comparisons)
     result["component_placement_effect"] = bool(result["changed_ctms"]) and not failures
     result["outcome"] = "UNSUPPORTED" if failures else (
         "TEXT_ROW_COMPONENT_DEPENDENCY" if result["component_placement_effect"]

@@ -216,10 +216,14 @@ class PlacementProbeTests(unittest.TestCase):
             other = {**first, "outcome": "OTHER_PDF_CHANGE"}
             probe_call.side_effect = [first, rejected, unsupported, other]
             fully_observed = placement.run(paths, reference_report)
-        self.assertEqual(probe_call.call_count, 7)
+            probe_call.side_effect = [rejected] * len(placement.PROBES)
+            all_rejected = placement.run(paths, reference_report)
+        self.assertEqual(probe_call.call_count, 11)
         self.assertEqual(first_failed["status"], "FAIL")
         self.assertEqual(first_failed["counts"]["probes_attempted"], 1)
         self.assertEqual(first_failed["counts"]["probes_completed"], 0)
+        self.assertEqual(first_failed["counts"]["probe_runs"], 0)
+        self.assertIn("not all converter launches", first_failed["count_semantics"])
         self.assertEqual(first_failed["counts"]["probes_passing"], 0)
         self.assertEqual(first_failed["counts"]["probes_failing"], 1)
         self.assertEqual(first_failed["counts"]["skipped_probes"], 3)
@@ -240,6 +244,11 @@ class PlacementProbeTests(unittest.TestCase):
         self.assertEqual(fully_observed["counts"]["skipped_probes"], 0)
         self.assertEqual(fully_observed["source_audit"]["status"], "PASS")
         self.assertEqual(fully_observed["environment_audit"]["status"], "PASS")
+        self.assertEqual(all_rejected["status"], "PARTIAL")
+        self.assertEqual(all_rejected["counts"]["probes_completed"], 4)
+        self.assertEqual(all_rejected["counts"]["probes_failing"], 4)
+        self.assertEqual(all_rejected["counts"]["conversion_failed_probes"], 4)
+        self.assertEqual(all_rejected["counts"]["unsupported_probes"], 0)
 
     def test_copy_changes_exactly_one_jfif_byte_and_keeps_source(self) -> None:
         source = self.root / "source.caj"

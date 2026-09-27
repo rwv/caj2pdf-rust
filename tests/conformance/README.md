@@ -52,7 +52,9 @@ python3 scripts/hnc8_placement_analysis.py --mode validation --json
 ```
 
 The three simple placement hypotheses match 0/36 and 0/14 additional JPEG
-draws at 0.001 pt six-component tolerance; the rule remains `UNKNOWN`.
+draws at 0.001 pt six-component tolerance. A retrospective variant-specific
+width/height/order fit matches 1/36 and 0/14; it is not independent
+validation. The source-derived rule remains `UNKNOWN`.
 `hnc8_placement_probe.py` runs four predeclared JFIF APP0 edits only when all
 pinned external corpus, reference, tool, artifact and #107 report paths are
 explicitly supplied. With no paths it reports `NOT_RUN` and zero private

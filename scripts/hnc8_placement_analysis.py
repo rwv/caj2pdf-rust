@@ -27,6 +27,8 @@ DPI = 300
 POINTS_PER_INCH = 72
 TOLERANCE_PT = 0.001
 HYPOTHESES = ("top-left", "center", "bottom-right")
+AFFINE_HYPOTHESIS = "variant-affine-width-height-order"
+AFFINE_FEATURES = ("intercept", "JPEG pixel width", "JPEG pixel height", "draw number")
 PAGE_SPLITS = {
     "discovery": {
         "hn_a": (16, 22, 26, 29, 30, 31, 32, 33, 34, 35, 36, 41, 47, 48, 50),
@@ -55,7 +57,8 @@ def initial_report(mode: str | None) -> dict[str, Any]:
         "matrix_sha256": MATRIX_SHA256,
         "tolerance_pt": TOLERANCE_PT,
         "scale_dpi": DPI,
-        "candidate_inputs": ["MediaBox", "JPEG pixel width", "JPEG pixel height", "fixed 300 dpi"],
+        "candidate_inputs": ["MediaBox", "JPEG pixel width", "JPEG pixel height",
+                             "draw number", "fixed 300 dpi", "HN-A/C8 variant"],
         "excluded_candidate_inputs": ["source ID", "page number", "image hash", "observed CTM"],
         "counts": {"private_comparisons": 0, "oracle_pages_compared": 0,
                    "oracle_additional_draws_compared": 0},
@@ -122,6 +125,65 @@ def predict(hypothesis: str, media_box: list[float], width: int,
     return [draw_width, 0.0, 0.0, -draw_height, x, y]
 
 
+def _solve_four(matrix: list[list[float]], target: list[float]) -> list[float]:
+    """Solve a four-column normal system by partial pivoting on scaled features."""
+    system = [row[:] + [value] for row, value in zip(matrix, target)]
+    for column in range(4):
+        pivot = max(range(column, 4), key=lambda row: abs(system[row][column]))
+        if abs(system[pivot][column]) < 1e-12:
+            raise AnalysisError("affine discovery features are rank deficient")
+        system[column], system[pivot] = system[pivot], system[column]
+        for row in range(column + 1, 4):
+            factor = system[row][column] / system[column][column]
+            for index in range(column, 5):
+                system[row][index] -= factor * system[column][index]
+    solution = [0.0] * 4
+    for row in range(3, -1, -1):
+        solution[row] = (system[row][4] - math.fsum(
+            system[row][column] * solution[column] for column in range(row + 1, 4)
+        )) / system[row][row]
+    return solution
+
+
+def fit_variant_affine(rows: list[dict]) -> dict[str, list[float]]:
+    """Fit discovery x/y only; identifiers and hashes never enter features."""
+    if len(rows) < 4:
+        raise AnalysisError("affine discovery fit requires at least four draws")
+    triples = [(row["width"], row["height"], row["draw_number"]) for row in rows]
+    means = [math.fsum(values) / len(values) for values in zip(*triples)]
+    scales = [max(abs(value - mean) for value in values)
+              for values, mean in zip(zip(*triples), means)]
+    if any(scale <= 0 for scale in scales):
+        raise AnalysisError("affine discovery features are rank deficient")
+    features = [[1.0, *(float(value - mean) / scale
+                        for value, mean, scale in zip(triple, means, scales))]
+                for triple in triples]
+    normal = [[math.fsum(feature[i] * feature[j] for feature in features)
+               for j in range(4)] for i in range(4)]
+    coefficients = {}
+    for coordinate, component in (("x", 4), ("y", 5)):
+        rhs = [math.fsum(feature[index] * row["observed_ctm"][component]
+                         for feature, row in zip(features, rows)) for index in range(4)]
+        centered = _solve_four(normal, rhs)
+        slopes = [centered[index] / scales[index - 1] for index in range(1, 4)]
+        intercept = centered[0] - math.fsum(
+            slope * mean for slope, mean in zip(slopes, means))
+        coefficients[coordinate] = [intercept, *slopes]
+    return coefficients
+
+
+def predict_variant_affine(coefficients: dict[str, list[float]],
+                           width: int, height: int, draw_number: int) -> list[float]:
+    """Apply one variant's frozen fitted coefficients without outcome lookups."""
+    if any(type(value) is not int or value <= 0 for value in (width, height, draw_number)):
+        raise AnalysisError("affine predictor dimensions/order are invalid")
+    features = (1, width, height, draw_number)
+    x = math.fsum(a * b for a, b in zip(coefficients["x"], features))
+    y = math.fsum(a * b for a, b in zip(coefficients["y"], features))
+    return [width * POINTS_PER_INCH / DPI, 0.0, 0.0,
+            -height * POINTS_PER_INCH / DPI, x, y]
+
+
 def _selected_draws(cases: dict[str, dict], mode: str) -> tuple[list[dict], int]:
     if mode not in PAGE_SPLITS:
         raise AnalysisError("mode must be discovery or validation")
@@ -172,12 +234,37 @@ def evaluate(mode: str, cases: dict[str, dict]) -> dict[str, Any]:
     rows, page_count = _selected_draws(cases, mode)
     report["counts"]["oracle_pages_compared"] = page_count
     report["counts"]["oracle_additional_draws_compared"] = len(rows)
-    for hypothesis in HYPOTHESES:
+    discovery_rows, discovery_pages = _selected_draws(cases, "discovery")
+    variants = ("HN-A", "C8")
+    coefficients = {variant: fit_variant_affine(
+        [row for row in discovery_rows if row["source_variant"] == variant])
+        for variant in variants}
+    report["affine_fit"] = {
+        "training_mode": "discovery", "training_pages": discovery_pages,
+        "training_additional_draws": len(discovery_rows),
+        "evidence_label": (
+            "retrospective negative exploration; validation CTMs were already public and "
+            "inspected, so held-out scores are descriptive, not independent validation"
+        ),
+        "method": "ordinary least squares; centered/scaled features, four-column normal equations with pivoting",
+        "features": list(AFFINE_FEATURES),
+        "formula": (
+            "CTM=[width*72/300,0,0,-height*72/300,x,y]; "
+            "x=beta_x[0]+beta_x[1]*width+beta_x[2]*height+beta_x[3]*draw_number; "
+            "y=beta_y[0]+beta_y[1]*width+beta_y[2]*height+beta_y[3]*draw_number"
+        ),
+        "coefficients_by_variant": coefficients,
+        "validation_fit_policy": "fit discovery only; held-out CTMs are comparison targets",
+    }
+    for hypothesis in (*HYPOTHESES, AFFINE_HYPOTHESIS):
         comparisons = []
         passing = 0
         largest_error = 0.0
         for row in rows:
-            predicted = predict(hypothesis, row["media_box"], row["width"], row["height"])
+            predicted = (predict_variant_affine(
+                coefficients[row["source_variant"]], row["width"], row["height"],
+                row["draw_number"]) if hypothesis == AFFINE_HYPOTHESIS else
+                predict(hypothesis, row["media_box"], row["width"], row["height"]))
             error = [abs(a - b) for a, b in zip(predicted, row["observed_ctm"])]
             maximum = max(error)
             matched = maximum <= TOLERANCE_PT
@@ -195,6 +282,10 @@ def evaluate(mode: str, cases: dict[str, dict]) -> dict[str, Any]:
             "attempted": len(rows), "passing": passing,
             "failing": len(rows) - passing,
             "max_absolute_error_pt": largest_error,
+            "evidence_label": (
+                "retrospective negative exploration; not independent validation"
+                if hypothesis == AFFINE_HYPOTHESIS else "fixed geometry-only control"
+            ),
             "comparisons": comparisons,
             "counterexamples": [
                 {"source_variant": row["source_variant"],

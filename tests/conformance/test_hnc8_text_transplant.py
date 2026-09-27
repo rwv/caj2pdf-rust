@@ -190,6 +190,28 @@ class TextTransplantTests(unittest.TestCase):
                 self.assertEqual(result["outcome"], "UNSUPPORTED")
                 self.assertTrue(result["guard_failures"])
 
+    def test_donor_translation_correspondence_is_measured_separately(self) -> None:
+        probe = synthetic_probe()
+        baseline = pdf_pages()
+        donor_draw = copy.deepcopy(baseline["pages"][0]["draws"][1])
+        donor_draw["pdf_ctm"][4:] = [5.125, 9.0]
+        baseline["pages"][1]["draws"].append(donor_draw)
+        baseline["draw_count"] = 4
+        mutant = copy.deepcopy(baseline)
+        mutant["pages"][0]["draws"][1]["pdf_ctm"][4] = 5.125
+        matched = transplant.compare_pdf(baseline, mutant, probe, 2, 4)
+        self.assertEqual(matched["outcome"], "TEXT_ROW_COMPONENT_DEPENDENCY")
+        self.assertEqual(matched["donor_translation_matches"], 1)
+        self.assertEqual(matched["donor_translation_comparisons"], [{
+            "draw_number": 2, "donor_xy": [5.125, 9.0],
+            "target_after_xy": [5.125, 9.0],
+            "matched_at_recorded_precision": True,
+        }])
+        mutant["pages"][0]["draws"][1]["pdf_ctm"][4] = 5.126
+        unmatched = transplant.compare_pdf(baseline, mutant, probe, 2, 4)
+        self.assertEqual(unmatched["outcome"], "TEXT_ROW_COMPONENT_DEPENDENCY")
+        self.assertEqual(unmatched["donor_translation_matches"], 0)
+
     def test_probe_runs_twice_and_rechecks_mutated_source(self) -> None:
         probe = synthetic_probe()
         case = self.case()

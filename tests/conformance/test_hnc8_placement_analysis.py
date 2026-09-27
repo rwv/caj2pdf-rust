@@ -6,6 +6,7 @@ import copy
 import io
 import inspect
 import json
+import math
 from pathlib import Path
 import sys
 import tempfile
@@ -109,6 +110,65 @@ class PlacementAnalysisTests(unittest.TestCase):
         altered["c8"]["pdf_pages"][0]["draws"][1]["pdf_ctm"][3] = float("nan")
         with self.assertRaisesRegex(analysis.AnalysisError, "CTM"):
             analysis.evaluate("discovery", altered)
+
+    def test_variant_affine_fits_known_synthetic_coefficients(self) -> None:
+        x_coefficients = [1.0, 0.5, -0.25, 2.0]
+        y_coefficients = [-3.0, 1.2, 0.4, -0.5]
+        triples = [(10, 20, 2), (15, 20, 2), (10, 25, 2),
+                   (10, 20, 3), (17, 26, 4)]
+        rows = []
+        for width, height, order in triples:
+            features = (1, width, height, order)
+            rows.append({"width": width, "height": height, "draw_number": order,
+                         "observed_ctm": [0, 0, 0, 0,
+                                          math.fsum(a * b for a, b in zip(x_coefficients, features)),
+                                          math.fsum(a * b for a, b in zip(y_coefficients, features))]})
+        fitted = analysis.fit_variant_affine(rows)
+        for observed, expected in zip(fitted["x"], x_coefficients):
+            self.assertAlmostEqual(observed, expected, places=9)
+        for observed, expected in zip(fitted["y"], y_coefficients):
+            self.assertAlmostEqual(observed, expected, places=9)
+        predicted = analysis.predict_variant_affine(fitted, 12, 22, 3)
+        self.assertAlmostEqual(predicted[4], 1 + 0.5 * 12 - 0.25 * 22 + 2 * 3)
+        self.assertAlmostEqual(predicted[5], -3 + 1.2 * 12 + 0.4 * 22 - 0.5 * 3)
+        self.assertEqual(predicted[:4], [2.88, 0.0, 0.0, -5.28])
+        with self.assertRaisesRegex(analysis.AnalysisError, "at least four"):
+            analysis.fit_variant_affine(rows[:3])
+
+    def test_variant_affine_validation_uses_discovery_coefficients_only(self) -> None:
+        cases = analysis._load_oracle()
+        discovery = analysis.evaluate("discovery", cases)
+        validation = analysis.evaluate("validation", cases)
+        key = analysis.AFFINE_HYPOTHESIS
+        self.assertEqual((discovery["hypotheses"][key]["attempted"],
+                          discovery["hypotheses"][key]["passing"],
+                          discovery["hypotheses"][key]["failing"]), (36, 1, 35))
+        self.assertEqual((validation["hypotheses"][key]["attempted"],
+                          validation["hypotheses"][key]["passing"],
+                          validation["hypotheses"][key]["failing"]), (14, 0, 14))
+        self.assertEqual(discovery["affine_fit"]["coefficients_by_variant"],
+                         validation["affine_fit"]["coefficients_by_variant"])
+        self.assertEqual(validation["affine_fit"]["training_additional_draws"], 36)
+        self.assertIn("retrospective negative exploration",
+                      validation["affine_fit"]["evidence_label"])
+        self.assertIn("not independent validation",
+                      validation["hypotheses"][key]["evidence_label"])
+        altered = copy.deepcopy(cases)
+        for case_name, page_numbers in analysis.PAGE_SPLITS["validation"].items():
+            for page_number in page_numbers:
+                for draw in altered[case_name]["pdf_pages"][page_number - 1]["draws"][1:]:
+                    draw["pdf_ctm"][4] += 1000
+                    draw["pdf_ctm"][5] -= 1000
+        changed_validation = analysis.evaluate("validation", altered)
+        self.assertEqual(validation["affine_fit"]["coefficients_by_variant"],
+                         changed_validation["affine_fit"]["coefficients_by_variant"])
+        before_predictions = [row["predicted_ctm"]
+                              for row in validation["hypotheses"][key]["comparisons"]]
+        after_predictions = [row["predicted_ctm"]
+                             for row in changed_validation["hypotheses"][key]["comparisons"]]
+        self.assertEqual(before_predictions, after_predictions)
+        self.assertNotEqual(validation["hypotheses"][key]["max_absolute_error_pt"],
+                            changed_validation["hypotheses"][key]["max_absolute_error_pt"])
 
     def test_modified_oracle_fails_hash_pin_without_private_comparison(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

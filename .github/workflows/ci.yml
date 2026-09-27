@@ -74,7 +74,7 @@ jobs:
         run: |
           python3 scripts/hnc8_placement_analysis.py --json | python3 -c 'import json, sys; r = json.load(sys.stdin); assert r["status"] == "NOT_RUN" and all(value == 0 for value in r["counts"].values()) and r["hypotheses"] == {}, r'
           for mode in discovery validation; do
-            python3 scripts/hnc8_placement_analysis.py --mode "$mode" --json | python3 -c 'import json, sys; r = json.load(sys.stdin); expected = {"discovery": (20, 36), "validation": (9, 14)}[r["mode"]]; assert r["status"] == "UNKNOWN" and r["counts"]["private_comparisons"] == 0 and (r["counts"]["oracle_pages_compared"], r["counts"]["oracle_additional_draws_compared"]) == expected and all((h["attempted"], h["passing"], h["failing"]) == (expected[1], 0, expected[1]) for h in r["hypotheses"].values()), r'
+            python3 scripts/hnc8_placement_analysis.py --mode "$mode" --json | python3 -c 'import json, sys; r = json.load(sys.stdin); pages, draws = {"discovery": (20, 36), "validation": (9, 14)}[r["mode"]]; passing = {"top-left": 0, "center": 0, "bottom-right": 0, "variant-affine-width-height-order": int(r["mode"] == "discovery")}; assert r["status"] == "UNKNOWN" and r["counts"]["private_comparisons"] == 0 and (r["counts"]["oracle_pages_compared"], r["counts"]["oracle_additional_draws_compared"]) == (pages, draws) and set(r["hypotheses"]) == set(passing) and all((h["attempted"], h["passing"], h["failing"]) == (draws, passing[name], draws - passing[name]) for name, h in r["hypotheses"].items()), r'
           done
       - name: Report external HN/C8 text-component probes as not run
         run: |
