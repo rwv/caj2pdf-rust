@@ -8,6 +8,8 @@ This note covers the core slice of [issue #28](https://github.com/rwv/caj2pdf-ru
 
 `hnc8::convert_type0_pdf(source, sink, table, options, limits, cancellation)` takes any `RangedSource`, a `SequentialSink`, a validated `QmTable`, `Type0PdfOptions`, the shared `Limits`, and a `Cancellation`. It returns a `Type0PdfReport` (the usual `ConversionReport`, the declared source page count, and the number of images) or a `Type0PdfError`.
 
+`hnc8::convert_type0_image_pdf(source, sink, table, selection, options, limits, cancellation)` emits exactly one checked source image as a one-page PDF. `Type0ImageSelection` names a one-based `page_number` and `image_number`. Its `Type0SelectedPdfReport` returns the `ConversionReport`, source variant, declared page count, and the actual `ImageRecord` (including descriptor offset and payload span). A conformance caller can compare this checked record with an independent manifest. The selected and full-document APIs use the same row decoder and PDF image-writing function.
+
 `Type0PdfOptions` holds the output scale (`pixels_per_inch`, default 300), the multi-image policy (default `Reject`), and three budgets: the container `Budget`, the per-image `Type0Budget`, and an `ArithmeticBudget` applied to each image separately. The default arithmetic budget allows `max_pixels + max_height` symbols and 32 work units per symbol. Both arithmetic fields must be in `1..=MAX_BUDGET_COUNT` (2^48); `convert_type0_pdf` rejects other values as invalid options before any source read or PDF output.
 
 The row-level API from #55 is unchanged. `jbig1::read_type0_info` is new: it applies the decoder's span and 48-byte DIB checks without a context bank or sink and returns the width, height, and DIB stride. The converter uses it to write a PDF image dictionary before it constructs the decoder, which then rereads and rechecks those 48 bytes. A wrapper whose geometry differs on the second read is a located `Malformed` image error, so the written dictionary always matches the rows.
@@ -17,6 +19,8 @@ The row-level API from #55 is unchanged. `jbig1::read_type0_info` is new: it app
 ## Conversion rules
 
 Pages are read with `Hnc8Reader::open` from page 1, in index order, and emitted in that order. Each accepted image becomes one page. Under `SeparatePages` the PDF can have more pages than the source, so `Limits::max_pages` is checked before each image is read; the limit error names that image.
+
+The selected-image entry point uses `Hnc8Reader::probe_at_page`: it checks the header and selected page-index row, intentionally skipping earlier page rows and their descriptors. On the selected page, it checks the descriptor chain through the requested image but does not decode preceding image payloads. Neighboring type 1–3 records therefore do not prevent selection of a valid type-0 record. It stops at the selected record; later descriptors are not read or represented in the PDF. Selection emits exactly one image and therefore ignores `options.multiple_images`; the full-document `MultipleImages::Reject`, `NoImages`, and unsupported-image behavior below remains unchanged. A selected diagnostic is not evidence that skipped records were converted or valid.
 
 | Source record | Behavior |
 | --- | --- |
@@ -45,6 +49,10 @@ Each page is `width × 72 / pixels_per_inch` by `height × 72 / pixels_per_inch`
 
 `Type0PdfError` carries the one-based source `page` and `image`, when known, and an absolute source `offset`. Container errors copy the reader's page, image, and offset. Image errors use the decoder's offset: a DIB field, a coded byte, or the span end. PDF errors use the image descriptor's offset. `Type0PdfErrorKind` separates invalid options, container, image, PDF output, context-bank allocation, unsupported type, multiple-image, and no-image failures. Nested errors are available through `std::error::Error::source`.
 
+The selected API additionally rejects zero identities and an image number beyond the selected page's image count as `InvalidSelection`, with the selected page-row offset when available. An out-of-range source page is a container error with the requested identity and the reader's absolute page-index offset. Once a real image descriptor has been checked, PDF initialization, decoding, and finalization failures include its page and image identity. A decoder failure retains its more specific absolute coded-byte or DIB-field offset.
+
+For v0.x callers that exhaustively match the public `Type0PdfErrorKind`, adding `InvalidSelection` is a source-level breaking change: handle that variant when upgrading. `convert_type0_pdf` itself does not emit it.
+
 ## Memory and I/O
 
 The converter retains:
@@ -67,15 +75,15 @@ A local release-mode probe (not committed) converted synthetic HN-B documents wi
 - multiple pages and page order, the multi-image policies, resolution scaling, and one-byte ranged reads;
 - no-image pages, types 1–3, container errors, truncated spans, corrupt DIB fields, and impossible dimensions, each with its location;
 - a sink failure at every write, cancellation at every check, and the shared, container, image, and arithmetic limits;
+- selected first, middle, and last images across C8, HN-A, and HN-B; checked actual descriptor identity and one-page PDF bytes; an intentionally skipped malformed earlier page; invalid identities, damaged descriptors, a mutated wrapper, short reads, cancellation, limits, and sink failures;
 - the bilevel writer's split writes, stride checks, row-count checks, and unfinished-stream state.
 
 `qpdf --check` validates the rendered cases. Poppler `pdftoppm -mono` and MuPDF `mutool draw` independently render every page, and the test compares the black pixels bit for bit. MuPDF renders at 72 dpi (one device pixel per image pixel). Poppler smooths a 1:1 bilevel blit, so it renders at 720 dpi and the test samples the centre of each 10 × 10 block. The local tool versions were qpdf 11.9.0, MuPDF 1.23.10, and Poppler 24.02.0. Missing tools fail the test.
 
-These synthetic tests prove the integration and PDF encoding, not Table 24 compatibility. The optional #22 corpus comparison through this PDF path has not been run in a clean clone: it is `NOT_RUN`, zero cases, and not a PASS.
+These synthetic tests prove the integration and PDF encoding, not Table 24 compatibility. The later [#100 private caller-table comparison](hnc8-type0-pdf-parity.md) matched the PDF-extracted pixels for all 1,400 pinned type-0 images and rendered fixed HN, C8, and multi-image selections independently. A clean clone remains `NOT_RUN` with zero private-corpus cases; no Table 24 states are bundled or released.
 
 ## Remaining #28 work
 
 - Table 24 provenance (#30) and then CLI and browser/Node.js WASM wiring, including forward-only spooling for HN/C8 input.
-- An opt-in corpus run through this PDF path that compares all 1,400 image hashes and renders selected HN and C8 pages, including multi-image pages.
 - Measured placement for pages with several images, and any policy for pages without images.
 - Codecs for record types 1–3.

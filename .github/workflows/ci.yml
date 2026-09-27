@@ -62,6 +62,14 @@ jobs:
           CAJ2PDF_CORPUS_DIR: ""
           CAJ2PDF_JBIG1_ORACLE_LIB: ""
         run: python3 scripts/jbig1_oracle.py --json
+      - name: Report external HN/C8 type-0 PDF parity as not run
+        env:
+          CAJ2PDF_CORPUS_DIR: ""
+          CAJ2PDF_T82_VECTOR_FILE: ""
+        run: |
+          report="$(cargo test -p caj2pdf-core --test hnc8_type0_pdf_external --locked -- --nocapture)"
+          printf '%s\n' "$report"
+          python3 -c 'import sys; report = sys.argv[1]; assert "NOT_RUN\tchecked=0\tmatched=0\tunsupported=0\tskipped=0\tfailed=0" in report and "1 ignored" in report, report' "$report"
       - name: Report external JBIG2 directory inventory as not run
         env:
           CAJ2PDF_CORPUS_DIR: ""

@@ -2,7 +2,7 @@
 
 //! Bounded HN/C8 type-0 image pages to PDF with a caller-supplied QM table.
 
-use super::{Budget, Hnc8Error, Hnc8Reader};
+use super::{Budget, ErrorKind, Hnc8Error, Hnc8Reader, ImageRecord, Variant};
 use crate::jbig1::{Type0Budget, Type0Decoder, Type0Error, Type0ErrorKind, read_type0_info};
 use crate::pdf::{BilevelImageSpec, PageSpec, PdfDocument};
 use crate::qm::{ArithmeticBudget, ArithmeticError, ContextBank, QmTable};
@@ -66,9 +66,28 @@ pub struct Type0PdfReport {
     pub images: u64,
 }
 
+/// One checked source image and the completed one-page PDF conversion.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct Type0SelectedPdfReport {
+    pub conversion: ConversionReport,
+    pub source_variant: Variant,
+    pub source_pages: u32,
+    /// The actual descriptor and type-0 span validated by `Hnc8Reader`.
+    pub image: ImageRecord,
+}
+
+/// One-based identity of a source type-0 image. Selection is diagnostic:
+/// pages before `page_number` are intentionally not traversed.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct Type0ImageSelection {
+    pub page_number: u32,
+    pub image_number: u32,
+}
+
 #[derive(Debug)]
 pub enum Type0PdfErrorKind {
     InvalidOptions(&'static str),
+    InvalidSelection(&'static str),
     Container(Box<Hnc8Error>),
     Image(Box<Type0Error>),
     Pdf(Error),
@@ -107,6 +126,9 @@ impl fmt::Display for Type0PdfError {
         f.write_str(": ")?;
         match &self.kind {
             Type0PdfErrorKind::InvalidOptions(reason) => write!(f, "invalid options: {reason}"),
+            Type0PdfErrorKind::InvalidSelection(reason) => {
+                write!(f, "invalid selection: {reason}")
+            }
             Type0PdfErrorKind::Container(error) => write!(f, "{error}"),
             Type0PdfErrorKind::Image(error) => write!(f, "{error}"),
             Type0PdfErrorKind::Pdf(error) => write!(f, "PDF output: {error}"),
@@ -181,6 +203,19 @@ fn container(error: Hnc8Error) -> Type0PdfError {
     }
 }
 
+fn selected_container(error: Hnc8Error, selection: Type0ImageSelection) -> Type0PdfError {
+    let mut converted = container(error);
+    if matches!(
+        &converted.kind,
+        Type0PdfErrorKind::Container(inner)
+            if matches!(inner.kind, ErrorKind::Malformed { field: "page number", .. })
+    ) {
+        converted.page = Some(selection.page_number);
+        converted.image = Some(selection.image_number);
+    }
+    converted
+}
+
 /// Counts bytes returned by every source read for the report.
 struct CountingSource<'a, S> {
     inner: &'a mut S,
@@ -207,6 +242,110 @@ fn page_spec(width: u32, height: u32, pixels_per_inch: f64) -> PageSpec {
         width_points: f64::from(width) * scale,
         height_points: f64::from(height) * scale,
     }
+}
+
+fn validate_options(options: Type0PdfOptions) -> Result<(), Type0PdfError> {
+    if !options.pixels_per_inch.is_finite() || options.pixels_per_inch <= 0.0 {
+        return Err(At::NONE.error(Type0PdfErrorKind::InvalidOptions(
+            "pixels per inch must be finite and positive",
+        )));
+    }
+    // Refuse an arithmetic budget that every image would reject, before any
+    // container read or PDF output.
+    let counters = 1..=MAX_BUDGET_COUNT;
+    if !counters.contains(&options.arithmetic.max_symbols)
+        || !counters.contains(&options.arithmetic.max_work)
+    {
+        return Err(At::NONE.error(Type0PdfErrorKind::InvalidOptions(
+            "arithmetic budget fields must be in 1..=MAX_BUDGET_COUNT",
+        )));
+    }
+    Ok(())
+}
+
+struct Type0PageSettings<'a, C> {
+    table: &'a QmTable,
+    options: Type0PdfOptions,
+    limits: &'a Limits,
+    cancellation: &'a C,
+}
+
+async fn emit_type0_image<S: RangedSource, W: SequentialSink, C: Cancellation>(
+    reader: &mut Hnc8Reader<'_, S, C>,
+    document: &mut PdfDocument<'_, W, C>,
+    record: ImageRecord,
+    output_page: u32,
+    contexts: &mut ContextBank,
+    settings: Type0PageSettings<'_, C>,
+) -> Result<(), Type0PdfError> {
+    let Type0PageSettings {
+        table,
+        options,
+        limits,
+        cancellation,
+    } = settings;
+    let at = At {
+        page: Some(record.page_number),
+        image: Some(record.image_number),
+        offset: Some(record.descriptor_offset),
+    };
+    let span = record
+        .type0_span()
+        .ok_or_else(|| at.error(Type0PdfErrorKind::UnsupportedImageType(record.record_type)))?;
+    // Refuse a page beyond `max_pages` before its image is read, decoded, or written.
+    limits.check_pages(output_page).map_err(at.pdf())?;
+    let info = read_type0_info(
+        reader.source_mut(),
+        span,
+        limits,
+        cancellation,
+        options.arithmetic,
+        options.image,
+    )
+    .await
+    .map_err(at.image())?;
+    let mut rows = document
+        .begin_bilevel_image(BilevelImageSpec {
+            pixel_width: info.width,
+            pixel_height: info.height,
+            row_stride: info.dib_stride,
+        })
+        .await
+        .map_err(at.pdf())?;
+    let mut decoder = Type0Decoder::new(
+        reader.source_mut(),
+        span,
+        table,
+        contexts,
+        &mut rows,
+        limits,
+        cancellation,
+        options.arithmetic,
+        options.image,
+    )
+    .await
+    .map_err(at.image())?;
+    // The decoder rereads the wrapper; a source that changed it would
+    // misalign the already written image dictionary.
+    if decoder.progress().info != info {
+        return Err(at.image()(Type0Error {
+            offset: span.offset,
+            rows_written: 0,
+            output_bytes_written: 0,
+            kind: Type0ErrorKind::Malformed("DIB wrapper that changed between reads"),
+        }));
+    }
+    while decoder.decode_next_row().await.map_err(at.image())? {}
+    decoder.finish().await.map_err(at.image())?;
+    let object = rows.finish().await.map_err(at.pdf())?;
+    document
+        .add_page(
+            page_spec(info.width, info.height, options.pixels_per_inch),
+            &[object],
+        )
+        .await
+        .map_err(at.pdf())?;
+    Ok(())
 }
 
 /// Convert every page of a measured HN/C8 container whose images are all
@@ -237,21 +376,7 @@ pub async fn convert_type0_pdf<S: RangedSource, W: SequentialSink, C: Cancellati
     limits: &Limits,
     cancellation: &C,
 ) -> Result<Type0PdfReport, Type0PdfError> {
-    if !options.pixels_per_inch.is_finite() || options.pixels_per_inch <= 0.0 {
-        return Err(At::NONE.error(Type0PdfErrorKind::InvalidOptions(
-            "pixels per inch must be finite and positive",
-        )));
-    }
-    // Refuse an arithmetic budget that every image would reject, before any
-    // container read or PDF output.
-    let counters = 1..=MAX_BUDGET_COUNT;
-    if !counters.contains(&options.arithmetic.max_symbols)
-        || !counters.contains(&options.arithmetic.max_work)
-    {
-        return Err(At::NONE.error(Type0PdfErrorKind::InvalidOptions(
-            "arithmetic budget fields must be in 1..=MAX_BUDGET_COUNT",
-        )));
-    }
+    validate_options(options)?;
     let mut contexts = ContextBank::new(TYPE0_CONTEXTS, limits)
         .map_err(|error| At::NONE.error(Type0PdfErrorKind::Contexts(Box::new(error))))?;
     let mut source = CountingSource {
@@ -279,70 +404,20 @@ pub async fn convert_type0_pdf<S: RangedSource, W: SequentialSink, C: Cancellati
             }
         }
         while let Some(record) = reader.next_image().await.map_err(container)? {
-            let at = At {
-                page: Some(page.page_number),
-                image: Some(record.image_number),
-                offset: Some(record.descriptor_offset),
-            };
-            let span = record.type0_span().ok_or_else(|| {
-                at.error(Type0PdfErrorKind::UnsupportedImageType(record.record_type))
-            })?;
-            // Refuse a page beyond `max_pages` (reachable with separate
-            // pages) before its image is read, decoded, or written.
-            limits
-                .check_pages(u32::try_from(images + 1).unwrap_or(u32::MAX))
-                .map_err(at.pdf())?;
-            let info = read_type0_info(
-                reader.source_mut(),
-                span,
-                limits,
-                cancellation,
-                options.arithmetic,
-                options.image,
-            )
-            .await
-            .map_err(at.image())?;
-            let mut rows = document
-                .begin_bilevel_image(BilevelImageSpec {
-                    pixel_width: info.width,
-                    pixel_height: info.height,
-                    row_stride: info.dib_stride,
-                })
-                .await
-                .map_err(at.pdf())?;
-            let mut decoder = Type0Decoder::new(
-                reader.source_mut(),
-                span,
-                table,
+            emit_type0_image(
+                &mut reader,
+                &mut document,
+                record,
+                u32::try_from(images + 1).unwrap_or(u32::MAX),
                 &mut contexts,
-                &mut rows,
-                limits,
-                cancellation,
-                options.arithmetic,
-                options.image,
+                Type0PageSettings {
+                    table,
+                    options,
+                    limits,
+                    cancellation,
+                },
             )
-            .await
-            .map_err(at.image())?;
-            // The decoder rereads the wrapper; a source that changed it
-            // would misalign the already written image dictionary.
-            if decoder.progress().info != info {
-                return Err(at.image()(Type0Error {
-                    offset: span.offset,
-                    rows_written: 0,
-                    output_bytes_written: 0,
-                    kind: Type0ErrorKind::Malformed("DIB wrapper that changed between reads"),
-                }));
-            }
-            while decoder.decode_next_row().await.map_err(at.image())? {}
-            decoder.finish().await.map_err(at.image())?;
-            let object = rows.finish().await.map_err(at.pdf())?;
-            document
-                .add_page(
-                    page_spec(info.width, info.height, options.pixels_per_inch),
-                    &[object],
-                )
-                .await
-                .map_err(at.pdf())?;
+            .await?;
             images += 1;
         }
     }
@@ -353,5 +428,110 @@ pub async fn convert_type0_pdf<S: RangedSource, W: SequentialSink, C: Cancellati
         conversion,
         source_pages,
         images,
+    })
+}
+
+/// Convert one checked HN/C8 type-0 image record to a one-page PDF.
+///
+/// This diagnostic entry point deliberately skips source pages before
+/// `selection.page_number`, including their descriptors and image codecs.
+/// Within the selected page, preceding image descriptors are checked in
+/// chain order; their payloads are not decoded. Neighboring image records
+/// are not represented in the resulting PDF. Selection ignores
+/// `options.multiple_images`; the full-document converter's
+/// no-image, multi-image, and unsupported-type rejection policy is unchanged.
+/// The same bounded decoder and PDF writer emit the selected image. Output
+/// already accepted by the sink on failure must be discarded.
+pub async fn convert_type0_image_pdf<S: RangedSource, W: SequentialSink, C: Cancellation>(
+    source: &mut S,
+    sink: &mut W,
+    table: &QmTable,
+    selection: Type0ImageSelection,
+    options: Type0PdfOptions,
+    limits: &Limits,
+    cancellation: &C,
+) -> Result<Type0SelectedPdfReport, Type0PdfError> {
+    validate_options(options)?;
+    if selection.page_number == 0 || selection.image_number == 0 {
+        return Err(At::NONE.error(Type0PdfErrorKind::InvalidSelection(
+            "page and image numbers must be one-based",
+        )));
+    }
+    let mut contexts = ContextBank::new(TYPE0_CONTEXTS, limits)
+        .map_err(|error| At::NONE.error(Type0PdfErrorKind::Contexts(Box::new(error))))?;
+    let mut source = CountingSource {
+        inner: source,
+        read: 0,
+    };
+    let mut reader = Hnc8Reader::probe_at_page(
+        &mut source,
+        limits,
+        cancellation,
+        options.container,
+        selection.page_number,
+    )
+    .await
+    .map_err(|error| selected_container(error, selection))?;
+    let header = reader.header();
+    let page = reader
+        .next_page()
+        .await
+        .map_err(container)?
+        .expect("probe validated the selected page");
+    if selection.image_number > page.image_count {
+        return Err(At {
+            page: Some(page.page_number),
+            image: Some(selection.image_number),
+            offset: Some(page.row_offset + 8),
+        }
+        .error(Type0PdfErrorKind::InvalidSelection(
+            "image number exceeds page image count",
+        )));
+    }
+    // Every descriptor up to the selected one is checked. Earlier image
+    // types can be unsupported; only the chosen record is decoded.
+    let mut record = reader
+        .next_image()
+        .await
+        .map_err(container)?
+        .expect("selected image count was checked");
+    for _ in 1..selection.image_number {
+        record = reader
+            .next_image()
+            .await
+            .map_err(container)?
+            .expect("selected image count was checked");
+    }
+    debug_assert_eq!(record.page_number, selection.page_number);
+    debug_assert_eq!(record.image_number, selection.image_number);
+    let at = At {
+        page: Some(record.page_number),
+        image: Some(record.image_number),
+        offset: Some(record.descriptor_offset),
+    };
+    let mut document = PdfDocument::new(sink, limits, cancellation)
+        .await
+        .map_err(at.pdf())?;
+    emit_type0_image(
+        &mut reader,
+        &mut document,
+        record,
+        1,
+        &mut contexts,
+        Type0PageSettings {
+            table,
+            options,
+            limits,
+            cancellation,
+        },
+    )
+    .await?;
+    let mut conversion = document.finish().await.map_err(at.pdf())?;
+    conversion.input_bytes_read = source.read;
+    Ok(Type0SelectedPdfReport {
+        conversion,
+        source_variant: header.variant,
+        source_pages: header.page_count,
+        image: record,
     })
 }
