@@ -5,8 +5,9 @@
 This [issue #85](https://github.com/rwv/caj2pdf-rust/issues/85) baseline
 measures what the original JBIG2 page-information segment #0, symbol
 dictionaries #1–#2, and immediate text region #3 render **without** generic
-region #4. It supplies a later Rust text-instance decoder with per-image
-reference hashes. It is neither Rust text parity nor a full-image comparison.
+region #4. It supplies the Rust text-region composer with per-image
+reference hashes. The external oracle itself is neither Rust parity nor a
+full-image comparison.
 
 The format reference is [ITU-T T.88 (02/2000)](https://www.itu.int/rec/T-REC-T.88-200002-S/en),
 especially §§6.4 and 7.4.3. The consulted English PDF has SHA-256
@@ -102,9 +103,10 @@ record was 30,293 bytes, temporary PDF 30,951 bytes, and single expected
 PBM raster 1,098,864 bytes. The three tool identities and binary SHA-256
 values are in the manifest. Backend implementation independence is
 `UNVERIFIED`; agreement is independent of the Rust decoder but may involve
-shared underlying code. Rust text-instance parity remains `NOT_RUN`/0.
+shared underlying code. The separate [#87 Rust composer
+diagnostic](t88-text-composer.md) matched all 545 standards-valid text-only
+regions; this does not make the external backends independent.
 
 The [#9 parent](https://github.com/rwv/caj2pdf-rust/issues/9) remains open
-for Rust text-instance decoding, text-region and page composition, a separate
-anomaly policy, and the exact-state rights decision under
+for page composition, a separate anomaly policy, and the exact-state rights decision under
 [#44](https://github.com/rwv/caj2pdf-rust/issues/44).

@@ -22,7 +22,8 @@ checking the provenance of each imported file.
 | T.88 template-1 generic refinement bitmaps | [ITU-T T.88 (02/2000)](https://www.itu.int/rec/T-REC-T.88-200002-S/en), §§6.3.2–6.3.5, Table 6, Figure 13, §6.5.8.2/Table 18 | Original MIT, bounded caller-table single-reference bitmap primitive. The [refinement note](t88-refinement-template1.md) records the ten-pixel context mapping, typed IAID/GR context ownership, ranged reference store, row memory, poison/error contract, and synthetic tests. The bitmap primitive alone does not decode a `0x1802` dictionary; #66 integrates its one-reference path. No external symbol-pixel oracle exists: refinement compatibility is `NOT_RUN`, zero cases. Exact Table E.1 rows remain external under #44. |
 | T.88 arithmetic single-reference symbol dictionaries | [ITU-T T.88 (02/2000)](https://www.itu.int/rec/T-REC-T.88-200002-S/en), §§6.4.10–6.4.11, 6.5.5–6.5.10, 7.4.2.1–7.4.2.2, Tables 17–18, Annex A; [repository-owned header inventory](../tests/conformance/jbig2_dictionary_headers.json) | Original MIT, bounded caller-table decoder of the observed `0x1802` second dictionary when every IAAI is one. The [integration note](t88-refinement-dictionary.md) records imported/new stores, ordered export handles, MQ state, limits, typed zero/aggregate refusals, and synthetic tests. The private 546-case trace is diagnostic; independent symbol-pixel compatibility remains `NOT_RUN`, zero proven cases. Exact Table E.1 rows remain external under #44. |
 | T.88 text-region data headers | [ITU-T T.88 (02/2000)](https://www.itu.int/rec/T-REC-T.88-200002-S/en), §§7.4.1, 7.4.3.1–7.4.3.1.4, Figures 28–29 and 35–38; committed #43 oracle text flags | Original MIT, bounded header parser with no body reads. The [text-region note](t88-text-region-header.md) records validation order, typed classification, the `0xa40c` anomaly policy, and the optional metadata inventory. Its metadata results establish neither placement nor pixel compatibility. |
-| T.88 arithmetic text instances | [ITU-T T.88 (02/2000)](https://www.itu.int/rec/T-REC-T.88-200002-S/en), §§6.4.5–6.4.11, 7.4.3.1–7.4.3.2, Table 12, Annex A and E.3.7; [#85 hash-only text oracle](jbig2-text-oracle.md) | Original MIT, bounded caller-table pull decoder and optional SHA-pinned control-flow diagnostic. The [instance note](t88-text-instances.md) records context ownership, strip/RI decisions, store handles, limits, failure contract, 545 complete strict-region traces, and one strict anomaly refusal. Placement and pixel parity remain `NOT_RUN`/0; #44 governs exact Table E.1 rights. |
+| T.88 arithmetic text instances | [ITU-T T.88 (02/2000)](https://www.itu.int/rec/T-REC-T.88-200002-S/en), §§6.4.5–6.4.11, 7.4.3.1–7.4.3.2, Table 12, Annex A and E.3.7; [#85 hash-only text oracle](jbig2-text-oracle.md) | Original MIT, bounded caller-table pull decoder and optional SHA-pinned control-flow diagnostic. The [instance note](t88-text-instances.md) records context ownership, strip/RI decisions, store handles, limits, failure contract, 545 complete strict-region traces, and one strict anomaly refusal. Its event fingerprint is not independent pixel evidence; #87 supplies a separate text-only pixel comparison. #44 governs exact Table E.1 rights. |
+| T.88 text-region composition | [ITU-T T.88 (02/2000)](https://www.itu.int/rec/T-REC-T.88-200002-S/en), §§6.4.1–6.4.5 and 7.4.3.2, Tables 9–11; [#85 hash-only text oracle](jbig2-text-oracle.md) | Original MIT composition of checked #86 instances into caller-owned bounded random-access scratch, followed by sequential packed-row output. The [composer note](t88-text-composer.md) records clipping, combination, adapter ownership, limits, and optional private pixel comparison. No external decoder code, document bytes, decoded bitmap, or exact Table E.1 states are committed. |
 | T.88 template-2 arithmetic generic regions | [ITU-T T.88 (02/2000)](https://www.itu.int/rec/T-REC-T.88-200002-S/en), §§6.2.5.2–6.2.5.4, 6.2.5.7, 7.4.1, 7.4.6.1–7.4.6.4, Table 34, Figure 5, E.3.7 | Original MIT, bounded row decoder with caller-supplied MQ table. Two external generic-only HN/C8 pixel spots passed; all 546 remain for #50. The [region note](jbig2-generic-template2.md) records the context order, bounds, and external-only verification. |
 | CAJ-family headers, pages, and outlines | [caj2pdf format notes](https://github.com/caj2pdf/caj2pdf/wiki), including [CAJ/HN identification](https://github.com/caj2pdf/caj2pdf/wiki/CAJ-%E5%92%8C-HN), [basic information and outlines](https://github.com/caj2pdf/caj2pdf/wiki/%E6%96%87%E4%BB%B6%E5%9F%BA%E6%9C%AC%E4%BF%A1%E6%81%AF%E4%B8%8E%E5%A4%A7%E7%BA%B2), and [CAJ page content](https://github.com/caj2pdf/caj2pdf/wiki/CAJ-%E6%A0%BC%E5%BC%8F%E7%9A%84%E9%A1%B5%E9%9D%A2%E5%86%85%E5%AE%B9) | Public observations, not a complete normative specification. [Repository-owned CAJ measurements](caj-format.md) pin ten successful sample digests and document TOC, page-table, and PDF-fragment exceptions independently. Do not copy parser source or pseudocode. |
 | HN page layout | [caj2pdf HN format notes](https://github.com/caj2pdf/caj2pdf/wiki/HN-%E6%A0%BC%E5%BC%8F%E7%9A%84%E9%A1%B5%E9%9D%A2%E5%86%85%E5%AE%B9) | Incomplete public observations. Derive the parser from documented facts and independent tests; mark unresolved fields explicitly. |
@@ -593,8 +594,9 @@ new external observations are black-box hashes, counts, and tool identities
 for temporary #0–#3 renderings of the SHA-pinned corpus. The 2026-09-27 UTC
 run found 546/546 Poppler/MuPDF agreements (545 standard headers, one
 separately labeled `0xa40c` interoperability case), 27 source hashes before
-and after, zero failures, and zero skipped cases. Backend independence and
-Rust text parity remain unverified and `NOT_RUN`/0 respectively. No CAJSamples
+and after, zero failures, and zero skipped cases. Backend independence
+remains unverified; the later #87 Rust text-only comparison matched all 545
+standards-valid cases. No CAJSamples
 document, encoded segment, PDF, PBM, Python/Go/private Rust source, or exact
 Table E.1 state was committed.
 
@@ -613,7 +615,21 @@ optional private run completed 545 strict-valid region control traces with
 source SHA-256 hashes and the private table hash matched before and after.
 Only event fingerprints and counts enter the diagnostic report; the
 external documents, exact Table E.1 rows, and decoded bitmaps stay outside
-Git. Independent placement and pixel compatibility remain `NOT_RUN`/0.
+Git. Its placement fingerprint is not an independent placement oracle; the
+later #87 text-only pixel comparison is recorded below.
+
+Issue #87 adds the original MIT
+[`jbig2/text_composer.rs`](../crates/caj2pdf-core/src/jbig2/text_composer.rs),
+clean-clone tests, and the optional
+[`jbig2_text_region_parity.py`](../scripts/jbig2_text_region_parity.py)
+with a native example. It follows the official T.88 clauses in the format
+table and consumes the checked #86 stream; it does not copy or translate an
+external compositor. The local private run matched both hash and black-pixel
+count for all 545 standards-valid text-only regions; it separately refused
+the one malformed header. All 27 source hashes and the private table hash
+matched before and after. The external documents, exact Table E.1 states,
+and decoded bitmaps remain outside Git. Generic-region combination,
+full-page rendering, and PDF integration remain open under #9.
 
 Issue #12 replaces the placeholder `crates/caj2pdf-cli/src/main.rs` and
 removes `crates/caj2pdf-cli/tests/unimplemented.rs`. It adds the original MIT

@@ -114,10 +114,10 @@ The one raw `0xa40c` header was rejected by the strict parser because
 There were zero standard-region refusals. Source hashes passed 27/27 before
 and after, and the private table hash passed both checks. This establishes
 a complete decoder control trace for these inputs, not correct placement or
-pixels. Both placement and Rust pixel compatibility remain **NOT_RUN/0**
-until the region composer compares output against the independent [#85
-text-only baseline](jbig2-text-oracle.md). Page composition and PDF
-integration remain under [#9](https://github.com/rwv/caj2pdf-rust/issues/9).
+pixels. The later [#87 composer](t88-text-composer.md) matched the independent
+[#85 text-only pixel baseline](jbig2-text-oracle.md) for all 545
+standards-valid regions. Page composition and PDF integration remain under
+[#9](https://github.com/rwv/caj2pdf-rust/issues/9).
 
 A clean clone without either optional input reports `NOT_RUN` and zero
 checked cases. An explicitly supplied missing, changed, or malformed
