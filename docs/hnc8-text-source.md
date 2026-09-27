@@ -165,3 +165,73 @@ Maximum source-range request was 14,546 bytes, inflated output 33,688 bytes
 under a 1 MiB ceiling, and observed harness VmHWM 22,584 KiB. Hash requests
 were bounded at 1 MiB. This report is evidence for a future predeclared
 field intervention; it does not enable composition.
+
+## Second black-box batch: individual fields and wrapper controls
+
+The successful fixed-row content experiment justifies a narrower batch.
+Predeclare exactly **six** source copies, each converted twice (12 conversions
+maximum), with no source or field search during execution. Four copies change
+one decoded two-byte candidate value by `+100`; two change only a recognized
+zlib wrapper field while keeping every decoded byte identical. Use the same
+two discovery target pages, image number 2, fixed original rows/spans and
+before/after audits as the first batch. No new document or unannounced
+validation subset is introduced.
+
+| Field case | Decoded two-byte span | Old → new value | One-shot level / memLevel | Expected mutated source SHA-256 |
+| --- | --- | --- | --- | --- |
+| C8 p1/i2 x | `[33576,33578)` | 5,978 → 6,078 | 9 / 8 | `4121247ecc7b4d3d3b86329f1d8504fffcc7f5768f2f3d67ce8dd3d268795a6a` |
+| C8 p1/i2 y | `[33578,33580)` | 1,479 → 1,579 | 9 / 8 | `73ff3275dcbbe74c39e278e12ed43280f8570f6c473340425d4fa129dfcf3228` |
+| HN-A p16/i2 x | `[17048,17050)` | 482 → 582 | 8 / 7 | `779ea5d1b13c147776171e23f61a9f925df8ea520424c03a17f3d09e15f38336` |
+| HN-A p16/i2 y | `[17050,17052)` | 5,446 → 5,546 | 8 / 7 | `5dc6763070234b7b4a1d854949c14e4e5ee08d689f35e0ddbb40f2e63a628ed2` |
+
+These offsets are **decoded offsets**, not direct source offsets. Require
+each to equal the independently validated trailing-record base plus `+0`
+or `+2`, with the original value exactly as shown. Every other decoded byte
+must remain identical. Preserve the outer 24 text bytes, original source
+length and all bytes outside `[244,14766)` for C8 or `[953344,960821)` for
+HN-A. Recompress with zlib 1.3.1, `Z_DEFAULT_STRATEGY`, windowBits 15 and
+one final `Z_FINISH`; no intermediate flush, extra frame, padding or tail.
+Require the original 14,522/7,477-byte capacities and frozen full-source
+hashes. The external read-only one-shot feasibility report SHA-256 is
+`42a79d17e7af3a5233e40d69458c43531e5537ecefe2d23046be506a4c2d158c`;
+its virtual checks ran zero converters and created no source copy.
+
+For both wrapper controls, preserve CMF `0x78` and change FLG `0xDA` to
+`0x01`: FLEVEL 3 becomes 0 and FCHECK is recomputed so the two-byte header is
+divisible by 31. FDICT stays zero. This is the informational compression
+level described by RFC 1950, not a changed DEFLATE coding or decoded field.
+
+| Wrapper case | Sole changed absolute source byte | Expected mutated source SHA-256 |
+| --- | ---: | --- |
+| C8 p1 FLEVEL | 245 (`0xDA` → `0x01`) | `736bb4100fa4b6dd20110370ae14a3c0f7e4e738441ea9929330043b5202a974` |
+| HN-A p16 FLEVEL | 953,345 (`0xDA` → `0x01`) | `2c017e210bd5f9e6845cc2242270c6674ad5cfdbf01bb40d9c66d4f9da275541` |
+
+Require wrapper controls' DEFLATE payload, Adler-32, complete decoded hash,
+row/span and every other source byte to be identical. Predict unchanged
+ordered PDF image identity and all six CTM components for every draw. This
+tests wrapper information only. A read-only bounded search found no altered,
+exact-length representation among 450 one-shot recompression recipes per
+variant; do not broaden that search or call these controls general
+DEFLATE-representation invariance.
+
+For x/y cases, freeze the empirical absolute prediction above with new
+field value and unchanged baseline MediaBox. Expect only selected-image x
+to increase or y to decrease by `100*240/2473 = 9.704811969268096 pt`.
+Absolute predicted positions must match within 0.00005 pt (the reference's
+four-decimal output precision). The selected other translation and first
+four affine components, every other target draw, all non-target pages,
+MediaBoxes, image dimensions/order/raw-stream hashes must be exactly
+unchanged. Keep all ordered geometry and identities in each run's external
+report, alongside full source diff runs and two repeat outcomes. A movement
+in any other field/draw or an invalid/nonrepeatable conversion is
+`UNSUPPORTED`. A wrapper-only movement invalidates the intended narrow
+interpretation and blocks a field claim.
+
+Passing predicted one-variable movements under these guards identifies
+the two decoded slots' x/y role for these positive-valued profiles. It does
+not establish all remaining record semantics or a universal unit/range.
+Observed x/y values span 0–952/0–6,497 for HN-A and 0–6,007/0–7,833 for C8.
+All also fit positive signed 16-bit integers: signedness when bit 15 is set,
+negative source coordinates and physical units remain untested. Keep the
+complete placement rule `PARTIAL` and #112 blocking production composition
+until its range, parsing and validation gates pass.
