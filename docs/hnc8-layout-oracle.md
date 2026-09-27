@@ -221,3 +221,15 @@ reads, aliasing, cancellation and limits; PDF draw order, repeated XObjects,
 nested CTMs, malformed page boxes and CTMs, tool disagreement, timeout and
 changed files; clean-clone and altered metadata-oracle behavior. Private
 source/PDF compatibility is counted only by the explicit opt-in runs above.
+
+## Subsequent placement investigation
+
+[Issue #110's experiment note](hnc8-placement-experiments.md) freezes a
+36-draw discovery and 14-draw validation split for the additional HN-A/C8
+JPEGs. The geometry-only controls match none of those draws at 0.001 pt
+six-component tolerance. Four separately predeclared JFIF header probes,
+each repeated twice, change only the target JPEG stream in the reference
+PDF and do not change placement. A text-component batch is predeclared in
+that note. The source coordinate fields and rule remain unknown, so this
+oracle remains a measurement rather than a production page-composition
+specification.

@@ -38,6 +38,28 @@ corpus must report `NOT_RUN`, never a compatibility pass.
 PDFs after validating the full matrix; its results make no claim about the
 other formats.
 
+## Optional HN/C8 placement diagnostics
+
+The [#107 layout oracle](hnc8_layout_oracle.json) contains ordered source and
+PDF image metadata. The original MIT [#110 experiment note](../../docs/hnc8-placement-experiments.md)
+records a frozen 36-draw discovery and 14-draw validation split, negative
+geometry controls, and two black-box experiment batches. Inspect the
+committed-oracle geometry controls without private inputs:
+
+```sh
+python3 scripts/hnc8_placement_analysis.py --mode discovery --json
+python3 scripts/hnc8_placement_analysis.py --mode validation --json
+```
+
+The three simple placement hypotheses match 0/36 and 0/14 additional JPEG
+draws at 0.001 pt six-component tolerance; the rule remains `UNKNOWN`.
+`hnc8_placement_probe.py` runs four predeclared JFIF APP0 edits only when all
+pinned external corpus, reference, tool, artifact and #107 report paths are
+explicitly supplied. With no paths it reports `NOT_RUN` and zero private
+comparisons. The [experiment note](../../docs/hnc8-placement-experiments.md)
+gives exact probes, hashes, outcomes and evidence limits. No private source,
+PDF or image bytes are included in this repository.
+
 ## Optional JavaScript API conversion
 
 [`js/scripts/corpus.mjs`](../../js/scripts/corpus.mjs) runs every entry of

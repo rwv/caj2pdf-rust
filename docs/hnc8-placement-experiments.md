@@ -127,6 +127,12 @@ For example, HN-A pages 32 and 33 have similar supplemental JPEG sizes
 upward rather than stacking downward. A possible coordinate lattice was
 noticed only after inspecting all 50 outcomes; it is post hoc, has no source
 field, and is not treated as validation evidence or a placement rule.
+The committed-oracle-only [analysis runner](../scripts/hnc8_placement_analysis.py)
+records the full prediction, observed CTM, six component errors and a
+counterexample for every draw in each frozen split. Its maximum component
+errors (discovery/validation, in pt) are 757.461/760.178 for top-left,
+376.821/379.538 for center, and 648.507/525.378 for bottom-right. These
+large errors describe failed controls, not an estimated coordinate range.
 
 One bounded feasibility run assembled a 132,124-byte, one-page C8 temporary
 source from the pinned C8 page-1 index row and its text/descriptor/image
