@@ -158,8 +158,9 @@ headers from the `0xa40c` `INTEROPERABILITY_NONCONFORMING` case. A clean clone
 without the optional corpus reports `NOT_RUN` with zero checked cases. An
 explicitly supplied missing, changed, or malformed corpus or manifest, a
 renderer disagreement, or semantic manifest drift is `FAIL`. This is
-black-box tool agreement, not Rust text parity; the latter remains
-`NOT_RUN`/0. Backend implementation independence is `UNVERIFIED`.
+black-box tool agreement; the separate [#87 comparison](../../docs/t88-text-composer.md)
+checks Rust text-only output against it. Backend implementation independence
+is `UNVERIFIED`.
 The [scope and limits](../../docs/jbig2-text-oracle.md) include reproduction
 details, resource caps, and the measured 546/546 run.
 
@@ -182,9 +183,37 @@ execution. The output has one trace per region with completed instance,
 RI=0, RI=1, and strip counts plus an ordered event fingerprint. A local
 run completed all 545 strict-valid regions: 353,829 instances, including
 243,728 RI=0 and 110,101 RI=1; the remaining raw `0xa40c` header received
-the expected strict refusal. This is decoder control flow only. Placement
-and pixel compatibility remain `NOT_RUN`/0. A clean clone reports
+the expected strict refusal. This is decoder control flow only; the separate
+[#87 comparison](../../docs/t88-text-composer.md) checks composed pixels.
+A clean clone reports
 `NOT_RUN`/0, whereas explicitly absent or changed inputs fail.
+
+## Optional JBIG2 text-region pixel comparison
+
+[`jbig2_text_region_parity.py`](../../scripts/jbig2_text_region_parity.py)
+drives the [#87 bounded composer](../../docs/t88-text-composer.md) over the
+same pinned 546 type-3 records. It takes the separately held T.88 state table
+and uses the [#85 text-only manifest](jbig2_text_oracle.json) as an expected
+hash and black-pixel baseline. Expected pixels are compared in Python and
+never passed to the Rust example.
+
+```sh
+python3 scripts/jbig2_text_region_parity.py \
+  --corpus-dir /path/to/CAJSamples \
+  --table-fixture /tmp/private-t88-table.fixture --json
+```
+
+All 27 source hashes and the private table hash are checked before and after
+the run. The report records attempted, completed, matching, failing, and
+skipped standard cases; the strict raw `0xa40c` header refusal is separate.
+On 2026-09-27 UTC, a local run attempted 546 cases, completed and matched
+all 545 standards-valid text-only images, refused the one anomalous header,
+and had zero standard failures or skips. Its largest temporary bitmap was
+1,098,864 bytes, largest I/O request 312 bytes, and process peak RSS
+2,711,552 bytes. A clean clone without the optional inputs reports
+`NOT_RUN`/0; explicitly missing, changed, or malformed inputs fail. No
+external document, decoded bitmap, or exact MQ table is committed. This
+comparison does not establish full-page/PDF parity.
 
 ## Optional JBIG2 refinement-pixel evidence
 

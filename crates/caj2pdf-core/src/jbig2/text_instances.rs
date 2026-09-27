@@ -828,6 +828,16 @@ impl<'a, S: RangedSource, RI: RangedSource, RN: RangedSource, W: SequentialSink,
         progress
     }
 
+    /// The validated region header owned by this instance stream.
+    pub fn header(&self) -> TextRegionHeader {
+        self.header
+    }
+
+    /// The type-6 segment number associated with this validated stream.
+    pub fn segment(&self) -> u32 {
+        self.segment
+    }
+
     fn error(&self, kind: TextInstanceErrorKind) -> TextInstanceError {
         TextInstanceError {
             segment: self.segment,
