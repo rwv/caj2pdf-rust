@@ -932,6 +932,39 @@ fn forged_handles_and_geometry_fail_before_any_symbol_read() {
 }
 
 #[test]
+fn catalog_store_base_must_match_the_caller_view() {
+    for store in [SymbolStore::Imported, SymbolStore::New] {
+        let symbol = StoredSymbol {
+            store,
+            store_base: 1,
+            symbol: descriptor(1, 1, 0),
+        };
+        let mut imported = Bytes::new(&[0x80, 0x80]);
+        let mut new = Bytes::new(&[0x80, 0x80]);
+        let mut refined = Bytes::new(&[]);
+        let mut scratch = Scratch::new();
+        let mut output = Sink::new();
+        let error = compose_manual(
+            header(3, 2, 1, false, SymbolCombination::Or),
+            &[symbol],
+            vec![event(0, 0, 0, 0, TextBitmap::Stored(symbol))],
+            &mut imported,
+            &mut new,
+            &mut refined,
+            &mut scratch,
+            &mut output,
+            TextComposeBudget::default(),
+        )
+        .unwrap_err();
+        assert!(matches!(
+            error.kind,
+            TextComposeErrorKind::Malformed("bitmap handle store base differs from view")
+        ));
+        assert_eq!(imported.calls + new.calls, 0);
+    }
+}
+
+#[test]
 fn region_and_runtime_budgets_refuse_before_excess_work() {
     let mut checks: Vec<(TextComposeBudget, &str, TextComposeStage)> = Vec::new();
     let default = TextComposeBudget::default();
@@ -1601,7 +1634,11 @@ fn descriptor_spans_and_source_row_cap_are_checked_before_reading() {
             2 => (descriptor(1, 1, 2), 0, None),
             _ => (descriptor(9, 1, 0), 0, None),
         };
-        let symbol = stored(SymbolStore::Imported, descriptor);
+        let symbol = StoredSymbol {
+            store: SymbolStore::Imported,
+            store_base: base,
+            symbol: descriptor,
+        };
         let mut stream = Manual::new(
             header(3, 2, 1, false, SymbolCombination::Or),
             vec![event(0, 0, 0, 0, TextBitmap::Stored(symbol))],

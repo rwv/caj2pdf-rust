@@ -872,6 +872,18 @@ where
             })?;
         let (store, base, descriptor, size) = match instance.bitmap {
             TextBitmap::Stored(stored) if !instance.ri && stored == *reference => {
+                let expected_base = match stored.store {
+                    SymbolStore::Imported => self.imported_base,
+                    SymbolStore::New => self.new_base,
+                };
+                if stored.store_base != expected_base {
+                    return Err(self.error(
+                        0,
+                        TextComposeErrorKind::Malformed(
+                            "bitmap handle store base differs from view",
+                        ),
+                    ));
+                }
                 match stored.store {
                     SymbolStore::Imported => (
                         BitmapStore::Imported,
