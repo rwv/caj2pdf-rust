@@ -222,6 +222,9 @@ class TextContentTests(unittest.TestCase):
         self.assertTrue(moved["text_content_effect"])
         self.assertEqual(moved["donor_translation_matches"], 1)
         self.assertEqual(moved["non_target_pages_checked"], 1)
+        self.assertEqual(moved["ordered_pages_before"][1], moved["ordered_pages_after"][1])
+        self.assertEqual(moved["ordered_pages_after"][0]["draws"][1]["pdf_ctm"][4], 5.0)
+        self.assertEqual(sum(len(page["draws"]) for page in moved["ordered_pages_after"]), 4)
         unchanged = content.compare_pdf(baseline, baseline, self.probe, 2, 4)
         self.assertEqual(unchanged["outcome"], "NO_PLACEMENT_CHANGE")
         for kind in ("image", "first", "scale", "other", "box", "count"):

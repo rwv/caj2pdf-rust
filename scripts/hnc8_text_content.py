@@ -339,6 +339,8 @@ def compare_pdf(baseline: dict, mutant: dict, probe: ContentProbe,
     if result["outcome"] == "TEXT_ROW_COMPONENT_DEPENDENCY":
         result["outcome"] = "TEXT_CONTENT_DEPENDENCY"
     result["text_content_effect"] = result.pop("component_placement_effect")
+    result["ordered_pages_before"] = [shared._page_summary(page) for page in baseline["pages"]]
+    result["ordered_pages_after"] = [shared._page_summary(page) for page in mutant["pages"]]
     return result
 
 
