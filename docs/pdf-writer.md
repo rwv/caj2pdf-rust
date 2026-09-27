@@ -43,7 +43,11 @@ reads and sink writes observe cancellation at I/O boundaries.
   a catalog, and a page tree.
 - Image-only pages with caller-supplied dimensions. The initial image profile
   covers raw 8-bit grayscale/RGB samples and DCT-encoded JPEG in those color
-  spaces. One image occupies each page.
+  spaces. Three-component JPEG images explicitly use DCT `/ColorTransform 1`,
+  matching the PDF 1.7 default for that component count; grayscale JPEGs use
+  the default zero transform. The caller must establish the encoded JPEG's
+  color interpretation, as the [HN/C8 selected type-2 diagnostic](hnc8-type2-pdf.md)
+  does for its measured JFIF subset. One image occupies each page.
 - Streamed 1 bpp images (`begin_bilevel_image`): `/DeviceGray`,
   `/BitsPerComponent 1`, `/Decode [1 0]` (a set bit is black), with source
   row padding beyond `ceil(width / 8)` bytes dropped. `add_page` places one or

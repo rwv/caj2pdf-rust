@@ -1000,8 +1000,15 @@ impl ImageSpec {
             ImageEncoding::Gray8 | ImageEncoding::Rgb8 => "",
             ImageEncoding::JpegGray8 | ImageEncoding::JpegRgb8 => "/Filter /DCTDecode\n",
         };
+        // PDF 1.7 section 3.3.7 defaults to the YCbCr-to-RGB transform for
+        // three-component DCT data. State it explicitly for JFIF callers;
+        // callers must reject JPEGs with uncertain or conflicting color.
+        let decode_parms = match self.encoding {
+            ImageEncoding::JpegRgb8 => "/DecodeParms << /ColorTransform 1 >>\n",
+            _ => "",
+        };
         format!(
-            "/Type /XObject\n/Subtype /Image\n/Width {}\n/Height {}\n/ColorSpace /{color}\n/BitsPerComponent 8\n{filter}",
+            "/Type /XObject\n/Subtype /Image\n/Width {}\n/Height {}\n/ColorSpace /{color}\n/BitsPerComponent 8\n{filter}{decode_parms}",
             self.pixel_width, self.pixel_height
         )
     }
