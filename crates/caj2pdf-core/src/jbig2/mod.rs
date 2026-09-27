@@ -2,8 +2,9 @@
 
 //! Bounded T.88 JBIG2 segment framing and arithmetic model primitives.
 //!
-//! Standalone JBIG2 file headers, HN/C8 containers, and complete page
-//! composition remain outside this module.
+//! Standalone JBIG2 file headers, HN/C8 containers, and general page
+//! composition remain outside this module. The narrow observed HN/C8
+//! full-page OR profile has its own checked composition primitive.
 
 mod directory;
 pub use directory::{
@@ -15,6 +16,9 @@ pub mod generic;
 pub mod iaid;
 pub mod integer;
 pub mod mq;
+pub mod page_compose;
+pub mod page_info;
+pub mod page_profile;
 pub mod refinement;
 pub mod refinement_dictionary;
 pub mod text;

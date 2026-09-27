@@ -50,6 +50,40 @@ pub struct GenericRegionInfo {
     pub row_stride: usize,
 }
 
+/// Checked metadata that can be inspected before attaching the final page
+/// sink. The decoder reparses the same header, and `arm_page_output` compares
+/// it with this preflight value before emitting any row.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct GenericRegionHeader {
+    pub segment: u32,
+    pub page_association: u32,
+    pub reference_count: usize,
+    pub data: SegmentSpan,
+    pub info: GenericRegionInfo,
+    pub mq_span: MqSpan,
+    pub pixels: u64,
+}
+
+/// Proof that a generic decoder compared its parsed header with the caller's
+/// preflight header before emitting a row. Only the decoder can create one.
+#[derive(Debug)]
+pub struct VerifiedGenericHeader {
+    header: GenericRegionHeader,
+}
+
+impl VerifiedGenericHeader {
+    pub fn header(self) -> GenericRegionHeader {
+        self.header
+    }
+}
+
+/// A sequential sink that requires the decoder's verified header before it
+/// accepts rows. Page composition uses this to bind preflight metadata to the
+/// actual decoder before the first final-output byte.
+pub trait GenericHeaderSink: SequentialSink {
+    fn arm_checked_header(&mut self, header: VerifiedGenericHeader) -> crate::Result<()>;
+}
+
 /// Progress includes the semantic MQ input byte and physical fetched bytes
 /// separately. Prefetch and terminal lookahead can make these differ.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -304,8 +338,8 @@ fn checked_layout(
             u64::from(height),
         ));
     }
-    // The only caller read these header bytes at `offset` within the source,
-    // so field offsets cannot overflow even when built before their checks.
+    // Both callers read these header bytes at `offset` within the source, so
+    // field offsets cannot overflow even when built before their checks.
     let failure = malformed(segment, offset + 8, "region x plus width overflows");
     x.checked_add(width).ok_or(failure)?;
     let failure = malformed(segment, offset + 12, "region y plus height overflows");
@@ -454,6 +488,132 @@ fn checked_layout(
     ))
 }
 
+/// Read and validate only the observed template-2 generic-region header.
+/// This is a bounded preflight for page composition; it does not initialize
+/// MQ contexts, read compressed decisions, or emit a pixel. The row decoder
+/// uses this same parser, so supported flags and limits cannot drift.
+pub async fn read_generic_region_header<S: RangedSource, C: Cancellation>(
+    source: &mut S,
+    header: &SegmentHeader,
+    limits: &Limits,
+    cancellation: &C,
+    mq_budget: MqBudget,
+    budget: GenericBudget,
+) -> GenericResult<GenericRegionHeader> {
+    let segment = header.number;
+    let offset = header.data.offset;
+    limits
+        .validate()
+        .map_err(|e| at(segment, offset, GenericErrorKind::Source(e)))?;
+    if cancellation.is_cancelled() {
+        return Err(at(segment, offset, GenericErrorKind::Cancelled));
+    }
+    if header.segment_type != 38 {
+        return Err(at(
+            segment,
+            offset,
+            GenericErrorKind::Unsupported {
+                feature: "segment type",
+                value: u64::from(header.segment_type),
+            },
+        ));
+    }
+    let failure = invalid_span(segment, offset, "segment end overflows");
+    let end = offset.checked_add(header.data.length).ok_or(failure)?;
+    if end > source.size() {
+        return Err(invalid_span(segment, offset, "segment data outside source"));
+    }
+    if header.data.length > limits.max_input_bytes {
+        return Err(limit(
+            segment,
+            offset,
+            "input bytes",
+            limits.max_input_bytes,
+            header.data.length,
+        ));
+    }
+    if header.data.length < 18 {
+        return Err(at(
+            segment,
+            end,
+            GenericErrorKind::Truncated("generic flags"),
+        ));
+    }
+    let mut bytes = [0; 20];
+    read_field(
+        source,
+        offset,
+        &mut bytes[..18],
+        "region and generic flags",
+        segment,
+        limits,
+        cancellation,
+    )
+    .await?;
+    let flags = bytes[17];
+    if flags & 0xf0 != 0 {
+        return Err(malformed(segment, offset + 17, "generic reserved flags"));
+    }
+    if flags & 1 != 0 {
+        return Err(at(
+            segment,
+            offset + 17,
+            GenericErrorKind::Unsupported {
+                feature: "MMR generic coding",
+                value: 1,
+            },
+        ));
+    }
+    if (flags >> 1) & 3 != 2 {
+        return Err(at(
+            segment,
+            offset + 17,
+            GenericErrorKind::Unsupported {
+                feature: "generic template",
+                value: u64::from((flags >> 1) & 3),
+            },
+        ));
+    }
+    if flags & 8 != 0 {
+        return Err(at(
+            segment,
+            offset + 17,
+            GenericErrorKind::Unsupported {
+                feature: "typical prediction",
+                value: 1,
+            },
+        ));
+    }
+    if header.data.length < HEADER_BYTES {
+        return Err(at(
+            segment,
+            end,
+            GenericErrorKind::Truncated("template-2 adaptive pixel"),
+        ));
+    }
+    read_field(
+        source,
+        offset + 18,
+        &mut bytes[18..],
+        "template-2 adaptive pixel",
+        segment,
+        limits,
+        cancellation,
+    )
+    .await?;
+    let (info, mq_span, pixels) =
+        checked_layout(header, source.size(), limits, &mq_budget, budget, bytes)?;
+    Ok(GenericRegionHeader {
+        segment: header.number,
+        page_association: header.page_association,
+        reference_count: header.referred_to.len(),
+        data: header.data,
+        info,
+        mq_span,
+        pixels,
+    })
+}
+
 /// Stateful row decoder. A failed or dropped row future poisons this object;
 /// partial sink output must be discarded by the caller.
 pub struct GenericRegionDecoder<'a, S: RangedSource, W: SequentialSink, C: Cancellation> {
@@ -462,6 +622,8 @@ pub struct GenericRegionDecoder<'a, S: RangedSource, W: SequentialSink, C: Cance
     limits: &'a Limits,
     cancellation: &'a C,
     segment: u32,
+    page_association: u32,
+    reference_count: usize,
     data: SegmentSpan,
     mq_span: MqSpan,
     info: GenericRegionInfo,
@@ -489,107 +651,12 @@ impl<'a, S: RangedSource, W: SequentialSink, C: Cancellation> GenericRegionDecod
     ) -> GenericResult<Self> {
         let segment = header.number;
         let offset = header.data.offset;
-        limits
-            .validate()
-            .map_err(|e| at(segment, offset, GenericErrorKind::Source(e)))?;
-        if cancellation.is_cancelled() {
-            return Err(at(segment, offset, GenericErrorKind::Cancelled));
-        }
-        if header.segment_type != 38 {
-            return Err(at(
-                segment,
-                offset,
-                GenericErrorKind::Unsupported {
-                    feature: "segment type",
-                    value: u64::from(header.segment_type),
-                },
-            ));
-        }
-        let failure = invalid_span(segment, offset, "segment end overflows");
-        let end = offset.checked_add(header.data.length).ok_or(failure)?;
-        if end > source.size() {
-            return Err(invalid_span(segment, offset, "segment data outside source"));
-        }
-        if header.data.length > limits.max_input_bytes {
-            return Err(limit(
-                segment,
-                offset,
-                "input bytes",
-                limits.max_input_bytes,
-                header.data.length,
-            ));
-        }
-        if header.data.length < 18 {
-            return Err(at(
-                segment,
-                end,
-                GenericErrorKind::Truncated("generic flags"),
-            ));
-        }
-        let mut bytes = [0; 20];
-        read_field(
-            source,
-            offset,
-            &mut bytes[..18],
-            "region and generic flags",
-            segment,
-            limits,
-            cancellation,
-        )
-        .await?;
-        let flags = bytes[17];
-        if flags & 0xf0 != 0 {
-            return Err(malformed(segment, offset + 17, "generic reserved flags"));
-        }
-        if flags & 1 != 0 {
-            return Err(at(
-                segment,
-                offset + 17,
-                GenericErrorKind::Unsupported {
-                    feature: "MMR generic coding",
-                    value: 1,
-                },
-            ));
-        }
-        if (flags >> 1) & 3 != 2 {
-            return Err(at(
-                segment,
-                offset + 17,
-                GenericErrorKind::Unsupported {
-                    feature: "generic template",
-                    value: u64::from((flags >> 1) & 3),
-                },
-            ));
-        }
-        if flags & 8 != 0 {
-            return Err(at(
-                segment,
-                offset + 17,
-                GenericErrorKind::Unsupported {
-                    feature: "typical prediction",
-                    value: 1,
-                },
-            ));
-        }
-        if header.data.length < HEADER_BYTES {
-            return Err(at(
-                segment,
-                end,
-                GenericErrorKind::Truncated("template-2 adaptive pixel"),
-            ));
-        }
-        read_field(
-            source,
-            offset + 18,
-            &mut bytes[18..],
-            "template-2 adaptive pixel",
-            segment,
-            limits,
-            cancellation,
-        )
-        .await?;
-        let (info, mq_span, pixels) =
-            checked_layout(header, source.size(), limits, &mq_budget, budget, bytes)?;
+        let checked =
+            read_generic_region_header(source, header, limits, cancellation, mq_budget, budget)
+                .await?;
+        let info = checked.info;
+        let mq_span = checked.mq_span;
+        let pixels = checked.pixels;
         if contexts.count() != CONTEXT_COUNT {
             return Err(malformed(
                 segment,
@@ -624,6 +691,8 @@ impl<'a, S: RangedSource, W: SequentialSink, C: Cancellation> GenericRegionDecod
             limits,
             cancellation,
             segment,
+            page_association: checked.page_association,
+            reference_count: checked.reference_count,
             data: header.data,
             mq_span,
             info,
@@ -647,6 +716,47 @@ impl<'a, S: RangedSource, W: SequentialSink, C: Cancellation> GenericRegionDecod
             mq,
             poisoned: self.poisoned || mq.poisoned,
         }
+    }
+
+    /// Metadata rechecked by this decoder before any row was emitted.
+    /// Compare with `read_generic_region_header` if source bytes could have
+    /// changed between preflight and decoder construction.
+    pub fn checked_header(&self) -> GenericRegionHeader {
+        GenericRegionHeader {
+            segment: self.segment,
+            page_association: self.page_association,
+            reference_count: self.reference_count,
+            data: self.data,
+            info: self.info,
+            mq_span: self.mq_span,
+            pixels: self.pixels,
+        }
+    }
+
+    /// Bind a pre-inspected header to a sink that rejects all writes until
+    /// armed. A mismatch or failed sink validation poisons this decoder; no
+    /// row can be emitted after the failure.
+    pub fn arm_page_output(&mut self, expected: GenericRegionHeader) -> GenericResult<()>
+    where
+        W: GenericHeaderSink,
+    {
+        if self.poisoned || self.rows_written != 0 {
+            self.poisoned = true;
+            return Err(self.error(GenericErrorKind::Poisoned));
+        }
+        let checked = self.checked_header();
+        if checked != expected {
+            self.poisoned = true;
+            return Err(self.error(GenericErrorKind::Malformed(
+                "generic header differs from page preflight",
+            )));
+        }
+        self.sink
+            .arm_checked_header(VerifiedGenericHeader { header: checked })
+            .map_err(|error| {
+                self.poisoned = true;
+                self.error(GenericErrorKind::Sink(error))
+            })
     }
 
     fn error(&self, kind: GenericErrorKind) -> GenericError {
