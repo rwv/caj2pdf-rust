@@ -67,6 +67,20 @@ changing image bytes; the exact source fields and placement rule remain
 unknown. No private source, PDF or image bytes are included in this
 repository.
 
+The [#111 text-source note](../../docs/hnc8-text-source.md) identifies complete
+zlib framing on the two #107 HN-A/C8 reference documents and records valid
+fixed-row controls that isolate text-content placement effects.
+`hnc8_text_frame.py` validates a declared frame with bounded chunks and an
+ephemeral decoded spool; it returns metadata and hashes, never default text
+bytes. Its explicitly requested CLI input requires a before/after SHA-256
+check. `hnc8_text_content.py` shares the #110 pinned external protocol and
+reports `NOT_RUN`/zero comparisons with no paths. Its default `--batch content`
+selects two donor-content controls; explicit `--batch fields` selects four
+individual decoded-field probes and two informational-wrapper controls.
+Each batch has its own committed plan, frozen source hashes and run ceiling.
+Both clean-clone modes remain `NOT_RUN`, including every converter counter.
+These diagnostic results do not enable production HN/C8 conversion.
+
 ## Optional JavaScript API conversion
 
 [`js/scripts/corpus.mjs`](../../js/scripts/corpus.mjs) runs every entry of
