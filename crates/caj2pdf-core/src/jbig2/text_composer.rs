@@ -25,13 +25,26 @@ use std::{error, fmt};
 /// Reads and writes may complete a nonempty prefix. An adapter must never
 /// report more bytes than supplied. The composer initializes every byte, so
 /// sparse allocation must not expose uninitialized pixels.
+/// The caller grants this handle exclusive access for the session: no other
+/// writer may change the scratch bytes, including same-length rewrites.
 #[allow(async_fn_in_trait)]
 pub trait RandomAccessScratch {
-    fn size(&self) -> u64;
+    fn size(&self) -> crate::Result<u64>;
     async fn set_len(&mut self, bytes: u64) -> crate::Result<()>;
     async fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> crate::Result<usize>;
     async fn write_at(&mut self, offset: u64, bytes: &[u8]) -> crate::Result<usize>;
     async fn flush(&mut self) -> crate::Result<()>;
+}
+
+/// A bitmap store view whose revision detects mutations, including writes
+/// that leave its length unchanged. The token must increase on every byte or
+/// extent mutation and must not wrap during one composition session. Imported
+/// and new dictionary views are immutable after construction. A refined view
+/// may append between `TextInstanceSource::next` calls, but must never rewrite
+/// existing bytes. Adapters must provide exclusive ownership or an equivalent
+/// reliable mutation signal; file length or timestamps alone are insufficient.
+pub trait BitmapView: RangedSource {
+    fn revision(&self) -> crate::Result<u64>;
 }
 
 /// An ordered #86 instance stream. `None` must mean its count and MQ terminal
@@ -169,6 +182,7 @@ pub enum BitmapStore {
 struct CheckedEvent {
     store: BitmapStore,
     source_size: u64,
+    source_revision: u64,
     descriptor: SymbolDescriptor,
     x0: u64,
     y0: u64,
@@ -180,6 +194,10 @@ struct CheckedEvent {
 pub enum TextComposeErrorKind {
     InvalidSpan(&'static str),
     Malformed(&'static str),
+    StoreMutation {
+        store: BitmapStore,
+        reason: &'static str,
+    },
     LimitExceeded {
         resource: &'static str,
         limit: u64,
@@ -209,6 +227,43 @@ pub struct TextComposeError {
 
 pub type TextComposeResult<T> = Result<T, TextComposeError>;
 
+fn source_error_kind(store: BitmapStore, error: Error) -> TextComposeErrorKind {
+    match error {
+        Error::Cancelled => TextComposeErrorKind::Cancelled,
+        other => TextComposeErrorKind::Source {
+            store,
+            error: other,
+        },
+    }
+}
+
+fn scratch_error_kind(error: Error) -> TextComposeErrorKind {
+    match error {
+        Error::Cancelled => TextComposeErrorKind::Cancelled,
+        other => TextComposeErrorKind::Scratch(other),
+    }
+}
+
+fn view_snapshot<V: BitmapView>(
+    view: &V,
+    store: BitmapStore,
+) -> Result<(u64, u64), TextComposeErrorKind> {
+    let before = view
+        .revision()
+        .map_err(|error| source_error_kind(store, error))?;
+    let size = view.size();
+    let after = view
+        .revision()
+        .map_err(|error| source_error_kind(store, error))?;
+    if after != before {
+        return Err(TextComposeErrorKind::StoreMutation {
+            store,
+            reason: "revision changed while sampled",
+        });
+    }
+    Ok((size, after))
+}
+
 impl fmt::Display for TextComposeError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
@@ -219,6 +274,9 @@ impl fmt::Display for TextComposeError {
         match &self.kind {
             TextComposeErrorKind::InvalidSpan(reason) => write!(f, "invalid span: {reason}"),
             TextComposeErrorKind::Malformed(reason) => write!(f, "malformed {reason}"),
+            TextComposeErrorKind::StoreMutation { store, reason } => {
+                write!(f, "{store:?} bitmap store mutation: {reason}")
+            }
             TextComposeErrorKind::LimitExceeded {
                 resource,
                 limit,
@@ -298,9 +356,9 @@ fn padding_mask(width: u32) -> u8 {
 pub struct TextComposer<
     'a,
     I: TextInstanceSource,
-    RI: RangedSource,
-    RN: RangedSource,
-    RT: RangedSource,
+    RI: BitmapView,
+    RN: BitmapView,
+    RT: BitmapView,
     T: RandomAccessScratch,
     W: SequentialSink,
     C: Cancellation,
@@ -312,11 +370,15 @@ pub struct TextComposer<
     imported: &'a mut RI,
     imported_base: u64,
     imported_size: u64,
+    imported_revision: u64,
     new: &'a mut RN,
     new_base: u64,
     new_size: u64,
+    new_revision: u64,
     refined: &'a mut RT,
     refined_base: u64,
+    refined_size: u64,
+    refined_revision: u64,
     scratch: &'a mut T,
     output: &'a mut W,
     limits: &'a Limits,
@@ -333,9 +395,9 @@ pub struct TextComposer<
 impl<'a, I, RI, RN, RT, T, W, C> TextComposer<'a, I, RI, RN, RT, T, W, C>
 where
     I: TextInstanceSource,
-    RI: RangedSource,
-    RN: RangedSource,
-    RT: RangedSource,
+    RI: BitmapView,
+    RN: BitmapView,
+    RT: BitmapView,
     T: RandomAccessScratch,
     W: SequentialSink,
     C: Cancellation,
@@ -453,13 +515,21 @@ where
                 "invalid composition request cap",
             )));
         }
-        if imported_base > imported.size() || new_base > new.size() || refined_base > refined.size()
-        {
+        let (imported_size, imported_revision) =
+            view_snapshot(imported, BitmapStore::Imported).map_err(&bad)?;
+        let (new_size, new_revision) = view_snapshot(new, BitmapStore::New).map_err(&bad)?;
+        let (refined_size, refined_revision) =
+            view_snapshot(refined, BitmapStore::Refined).map_err(&bad)?;
+        if imported_base > imported_size || new_base > new_size || refined_base > refined_size {
             return Err(bad(TextComposeErrorKind::InvalidSpan(
                 "bitmap store base beyond source",
             )));
         }
-        if scratch.size() != 0 {
+        if scratch
+            .size()
+            .map_err(|error| bad(scratch_error_kind(error)))?
+            != 0
+        {
             return Err(bad(TextComposeErrorKind::Malformed(
                 "scratch store must be empty",
             )));
@@ -471,14 +541,18 @@ where
             segment,
             catalog,
             instances,
-            imported_size: imported.size(),
+            imported_size,
+            imported_revision,
             imported,
             imported_base,
-            new_size: new.size(),
+            new_size,
+            new_revision,
             new,
             new_base,
             refined,
             refined_base,
+            refined_size,
+            refined_revision,
             scratch,
             output,
             limits,
@@ -517,13 +591,7 @@ where
     }
 
     fn scratch_error(&self, offset: u64, error: Error) -> TextComposeError {
-        self.error(
-            offset,
-            match error {
-                Error::Cancelled => TextComposeErrorKind::Cancelled,
-                other => TextComposeErrorKind::Scratch(other),
-            },
-        )
+        self.error(offset, scratch_error_kind(error))
     }
 
     fn output_error(&self, offset: u64, error: Error) -> TextComposeError {
@@ -537,16 +605,92 @@ where
     }
 
     fn source_error(&self, offset: u64, store: BitmapStore, error: Error) -> TextComposeError {
-        self.error(
-            offset,
-            match error {
-                Error::Cancelled => TextComposeErrorKind::Cancelled,
-                other => TextComposeErrorKind::Source {
+        self.error(offset, source_error_kind(store, error))
+    }
+
+    fn scratch_size(&self, offset: u64) -> TextComposeResult<u64> {
+        self.scratch
+            .size()
+            .map_err(|error| self.scratch_error(offset, error))
+    }
+
+    fn view_state(&self, store: BitmapStore, offset: u64) -> TextComposeResult<(u64, u64)> {
+        let state = match store {
+            BitmapStore::Imported => view_snapshot(self.imported, store),
+            BitmapStore::New => view_snapshot(self.new, store),
+            BitmapStore::Refined => view_snapshot(self.refined, store),
+        };
+        state.map_err(|kind| self.error(offset, kind))
+    }
+
+    fn ensure_view(
+        &self,
+        store: BitmapStore,
+        expected_size: u64,
+        expected_revision: u64,
+        offset: u64,
+    ) -> TextComposeResult<()> {
+        let (size, revision) = self.view_state(store, offset)?;
+        if size != expected_size {
+            return Err(self.error(
+                offset,
+                TextComposeErrorKind::StoreMutation {
                     store,
-                    error: other,
+                    reason: "size changed",
                 },
-            },
-        )
+            ));
+        }
+        if revision != expected_revision {
+            return Err(self.error(
+                offset,
+                TextComposeErrorKind::StoreMutation {
+                    store,
+                    reason: "revision changed",
+                },
+            ));
+        }
+        Ok(())
+    }
+
+    fn check_views_after_next(&mut self) -> TextComposeResult<()> {
+        self.ensure_view(
+            BitmapStore::Imported,
+            self.imported_size,
+            self.imported_revision,
+            0,
+        )?;
+        self.ensure_view(BitmapStore::New, self.new_size, self.new_revision, 0)?;
+        let (size, revision) = self.view_state(BitmapStore::Refined, 0)?;
+        if size < self.refined_size || revision < self.refined_revision {
+            return Err(self.error(
+                0,
+                TextComposeErrorKind::StoreMutation {
+                    store: BitmapStore::Refined,
+                    reason: "shrank or revision regressed",
+                },
+            ));
+        }
+        if size == self.refined_size && revision != self.refined_revision {
+            return Err(self.error(
+                0,
+                TextComposeErrorKind::StoreMutation {
+                    store: BitmapStore::Refined,
+                    reason: "revision changed without append",
+                },
+            ));
+        }
+        if size > self.refined_size && revision == self.refined_revision {
+            return Err(self.error(
+                0,
+                TextComposeErrorKind::StoreMutation {
+                    store: BitmapStore::Refined,
+                    reason: "append has no new revision",
+                },
+            ));
+        }
+        self.refined_size = size;
+        self.refined_revision = revision;
+        Ok(())
     }
 
     fn check_cap(
@@ -607,7 +751,7 @@ where
     }
 
     async fn scratch_write(&mut self, offset: u64, bytes: &[u8]) -> TextComposeResult<()> {
-        if self.scratch.size() != self.packed_bytes {
+        if self.scratch_size(offset)? != self.packed_bytes {
             return Err(self.error(
                 offset,
                 TextComposeErrorKind::Malformed("scratch size changed"),
@@ -653,7 +797,7 @@ where
             done += written;
             self.progress.scratch_bytes_written += written as u64;
             self.check_cancelled(at + written as u64)?;
-            if self.scratch.size() != self.packed_bytes {
+            if self.scratch_size(at)? != self.packed_bytes {
                 return Err(self.error(at, TextComposeErrorKind::Malformed("scratch size changed")));
             }
         }
@@ -661,7 +805,7 @@ where
     }
 
     async fn scratch_read(&mut self, offset: u64, bytes: &mut [u8]) -> TextComposeResult<()> {
-        if self.scratch.size() != self.packed_bytes {
+        if self.scratch_size(offset)? != self.packed_bytes {
             return Err(self.error(
                 offset,
                 TextComposeErrorKind::Malformed("scratch size changed"),
@@ -708,7 +852,7 @@ where
             done += read;
             self.progress.scratch_bytes_read += read as u64;
             self.check_cancelled(at + read as u64)?;
-            if self.scratch.size() != self.packed_bytes {
+            if self.scratch_size(at)? != self.packed_bytes {
                 return Err(self.error(at, TextComposeErrorKind::Malformed("scratch size changed")));
             }
         }
@@ -719,6 +863,7 @@ where
         &mut self,
         store: BitmapStore,
         expected_size: u64,
+        expected_revision: u64,
         offset: u64,
         bytes: &mut [u8],
     ) -> TextComposeResult<()> {
@@ -726,17 +871,7 @@ where
         while done < bytes.len() {
             let at = offset + done as u64;
             self.check_cancelled(at)?;
-            let size = match store {
-                BitmapStore::Imported => self.imported.size(),
-                BitmapStore::New => self.new.size(),
-                BitmapStore::Refined => self.refined.size(),
-            };
-            if size != expected_size {
-                return Err(self.error(
-                    at,
-                    TextComposeErrorKind::Malformed("bitmap store size changed"),
-                ));
-            }
+            self.ensure_view(store, expected_size, expected_revision, at)?;
             let len = (bytes.len() - done).min(self.budget.max_request_bytes);
             self.check_cap(
                 "source read calls",
@@ -784,17 +919,7 @@ where
             done += read;
             self.progress.source_bytes_read += read as u64;
             self.check_cancelled(at + read as u64)?;
-            let after_size = match store {
-                BitmapStore::Imported => self.imported.size(),
-                BitmapStore::New => self.new.size(),
-                BitmapStore::Refined => self.refined.size(),
-            };
-            if after_size != expected_size {
-                return Err(self.error(
-                    at,
-                    TextComposeErrorKind::Malformed("bitmap store size changed"),
-                ));
-            }
+            self.ensure_view(store, expected_size, expected_revision, at + read as u64)?;
         }
         Ok(())
     }
@@ -870,7 +995,7 @@ where
                     TextComposeErrorKind::Malformed("symbol ID outside catalog"),
                 )
             })?;
-        let (store, base, descriptor, size) = match instance.bitmap {
+        let (store, base, descriptor, size, revision) = match instance.bitmap {
             TextBitmap::Stored(stored) if !instance.ri && stored == *reference => {
                 let expected_base = match stored.store {
                     SymbolStore::Imported => self.imported_base,
@@ -890,12 +1015,14 @@ where
                         self.imported_base,
                         stored.symbol,
                         self.imported_size,
+                        self.imported_revision,
                     ),
                     SymbolStore::New => (
                         BitmapStore::New,
                         self.new_base,
                         stored.symbol,
                         self.new_size,
+                        self.new_revision,
                     ),
                 }
             }
@@ -906,7 +1033,8 @@ where
                     BitmapStore::Refined,
                     self.refined_base,
                     symbol,
-                    self.refined.size(),
+                    self.refined_size,
+                    self.refined_revision,
                 )
             }
             _ => {
@@ -918,17 +1046,7 @@ where
                 ));
             }
         };
-        let current_size = match store {
-            BitmapStore::Imported => self.imported.size(),
-            BitmapStore::New => self.new.size(),
-            BitmapStore::Refined => self.refined.size(),
-        };
-        if current_size != size {
-            return Err(self.error(
-                0,
-                TextComposeErrorKind::Malformed("bitmap store size changed"),
-            ));
-        }
+        self.ensure_view(store, size, revision, 0)?;
         if descriptor.width != instance.width || descriptor.height != instance.height {
             return Err(self.error(
                 0,
@@ -983,6 +1101,7 @@ where
         Ok(Some(CheckedEvent {
             store,
             source_size: size,
+            source_revision: revision,
             descriptor,
             x0,
             y0,
@@ -1001,6 +1120,7 @@ where
         let Some(CheckedEvent {
             store,
             source_size,
+            source_revision,
             descriptor,
             x0,
             y0,
@@ -1025,6 +1145,7 @@ where
             self.source_read(
                 store,
                 source_size,
+                source_revision,
                 source_offset,
                 &mut source[..source_stride],
             )
@@ -1063,7 +1184,7 @@ where
             .set_len(self.packed_bytes)
             .await
             .map_err(|error| self.scratch_error(0, error))?;
-        if self.scratch.size() != self.packed_bytes {
+        if self.scratch_size(0)? != self.packed_bytes {
             return Err(self.error(
                 0,
                 TextComposeErrorKind::Malformed("scratch set_len size differs"),
@@ -1098,6 +1219,7 @@ where
                 let offset = error.offset;
                 self.error(offset, TextComposeErrorKind::Instance(Box::new(error)))
             })?;
+            self.check_views_after_next()?;
             match event {
                 Some(instance) => {
                     self.compose_event(instance, &mut target, &mut source)
@@ -1142,7 +1264,7 @@ where
             .await
             .map_err(|error| self.output_error(self.packed_bytes, error))?;
         self.check_cancelled(self.packed_bytes)?;
-        if self.scratch.size() != self.packed_bytes {
+        if self.scratch_size(self.packed_bytes)? != self.packed_bytes {
             return Err(self.error(
                 self.packed_bytes,
                 TextComposeErrorKind::Malformed("scratch size changed"),
