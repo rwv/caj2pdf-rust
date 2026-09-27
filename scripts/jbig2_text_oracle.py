@@ -613,15 +613,13 @@ def main(argv: list[str] | None = None) -> int:
                 report = result
                 if report["status"] == "PASS":
                     validate_manifest(manifest)
-                    if args.write_manifest:
-                        manifest_to_write = manifest
-                    elif baseline is None:
-                        raise OracleError("metadata manifest is absent; use --write-manifest")
-                    else:
+                    if baseline is not None:
                         report["toolchain_drift"] = manifest["toolchains"] != baseline["toolchains"]
                         differences = compare_manifest(manifest, baseline)
                         if differences:
                             report.update(status="FAIL", manifest_differences=differences)
+                    if report["status"] == "PASS" and args.write_manifest:
+                        manifest_to_write = manifest
             finally:
                 if source_checked:
                     try:
@@ -637,8 +635,9 @@ def main(argv: list[str] | None = None) -> int:
                 temporary.replace(args.manifest)
     except (OSError, ValueError, TypeError, KeyError, conformance.ConformanceError,
             full.OracleError, headers.InventoryError, json.JSONDecodeError) as exc:
+        # This is an operation failure, not a failed image-rendering attempt.
+        # Preserve mutually exclusive completed/failed/skipped case counts.
         report.update(status="FAIL", error=str(exc))
-        report["failed"] = max(report["failed"], 1)
     if args.json:
         print(json.dumps(report, ensure_ascii=False, sort_keys=True))
     else:

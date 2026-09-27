@@ -270,9 +270,48 @@ class TextOracleTests(unittest.TestCase):
                           report["checked_images"]), (0, "NOT_RUN", 0, 0))
         exit_code, report = call(["--corpus-dir=" + str(self.root / "missing")])
         self.assertEqual((exit_code, report["status"]), (1, "FAIL"))
+        self.assertEqual((report["completed"], report["failed"], report["skipped"]),
+                         (0, 0, text_oracle.EXPECTED_IMAGES))
         exit_code, report = call(["--manifest=" + str(self.root / "missing.json"),
                                   "--write-manifest"])
         self.assertEqual((exit_code, report["status"]), (1, "FAIL"))
+
+    def test_write_manifest_refuses_existing_pixel_drift(self) -> None:
+        observed = json.loads(text_oracle.DEFAULT_MANIFEST.read_text(encoding="utf-8"))
+        changed = json.loads(json.dumps(observed))
+        changed["samples"][0]["images"][0]["normalized_pixel_sha256"] = "b" * 64
+        text_oracle.validate_manifest(changed)
+        destination = self.root / "changed-manifest.json"
+        destination.write_text(json.dumps(changed), encoding="utf-8")
+        before = destination.read_bytes()
+        case_report = {
+            "status": "PASS", "expected_images": text_oracle.EXPECTED_IMAGES,
+            "checked_images": text_oracle.EXPECTED_IMAGES,
+            "tool_agreements": text_oracle.EXPECTED_IMAGES,
+            "completed": text_oracle.EXPECTED_IMAGES, "failed": 0, "skipped": 0,
+            "source_hashes_before": 27, "source_hashes_after": 0,
+        }
+        output = StringIO()
+        with (
+            patch.dict(os.environ, {"CAJ2PDF_CORPUS_DIR": ""}),
+            patch("sys.stdout", output),
+            patch.object(full, "validate_sources", return_value=([None] * 27, {})),
+            patch.object(full, "tool_path", return_value=Path("/bin/true")),
+            patch.object(full, "run_directory_inventory", return_value={}),
+            patch.object(full, "checked_cases", return_value=[]),
+            patch.object(text_oracle, "preflight", return_value=[]),
+            patch.object(text_oracle, "manifest_for_cases", return_value=(observed, case_report)),
+        ):
+            exit_code = text_oracle.main([
+                "--corpus-dir", str(self.root), "--manifest", str(destination),
+                "--write-manifest", "--json",
+            ])
+        report = json.loads(output.getvalue())
+        self.assertEqual((exit_code, report["status"]), (1, "FAIL"))
+        self.assertIn("manifest_differences", report)
+        self.assertEqual(destination.read_bytes(), before)
+        self.assertEqual((report["completed"], report["failed"], report["skipped"]),
+                         (text_oracle.EXPECTED_IMAGES, 0, 0))
 
     def test_committed_manifest_covers_all_coordinates(self) -> None:
         manifest = json.loads(text_oracle.DEFAULT_MANIFEST.read_text(encoding="utf-8"))

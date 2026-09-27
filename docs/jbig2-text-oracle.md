@@ -72,11 +72,17 @@ The first run may create the manifest after all 546 cases agree:
 python3 scripts/jbig2_text_oracle.py --corpus-dir /path/to/CAJSamples --write-manifest --json
 ```
 
+When a manifest already exists, write mode still compares every semantic
+result before replacing it; changed pixel hashes or counts fail. A matching
+manifest may be rewritten to record the current external tool identities.
+
 A clean clone without the optional corpus reports `NOT_RUN`, zero checked
 cases, and zero tool agreements. An explicitly supplied missing, changed,
 malformed, or out-of-profile corpus or manifest fails. A supplied corpus
-requires all three tools. The clean-clone synthetic tests verify these
-reporting rules but are never counted as external compatibility cases.
+requires all three tools. Setup and manifest errors set `FAIL` separately;
+`completed`, `failed`, and `skipped` count image attempts and remain mutually
+exclusive. The clean-clone synthetic tests verify these reporting rules but
+are never counted as external compatibility cases.
 
 Python reads source spans and PBM pixels in bounded chunks or rows. Per case,
 the selected record is capped at 64 MiB, the PDF at 64 MiB plus 4 KiB, and
