@@ -136,6 +136,33 @@ corpus reports `FAIL`. The separate `text_compatibility` status is always
 `NOT_RUN` with zero cases: header metadata is not text-placement or pixel
 compatibility.
 
+## Optional JBIG2 text-only pixel oracle
+
+[`jbig2_text_oracle.json`](jbig2_text_oracle.json) is the hash-only baseline
+for [issue #85](https://github.com/rwv/caj2pdf-rust/issues/85). The
+[`jbig2_text_oracle.py`](../../scripts/jbig2_text_oracle.py) runner forms one
+temporary DIB plus original segments #0–#3 for each of the 546 pinned HN/C8
+type-3 records; it omits generic region #4. Poppler `pdfimages` and MuPDF
+`mutool` must agree on normalized P4 pixel SHA-256 and black-pixel count after
+`qpdf --check` accepts the temporary PDF without warnings.
+
+```sh
+python3 scripts/jbig2_text_oracle.py --corpus-dir /path/to/CAJSamples --json
+```
+
+The runner rehashes all 27 HN/C8 sources before and after, requires a fresh
+Rust #42 directory inventory, validates #43 source/profile hashes and #69
+text-header aggregates, and checks every selected source span against the
+manifest before rendering. The manifest distinguishes 545 `STANDARD_VALID`
+headers from the `0xa40c` `INTEROPERABILITY_NONCONFORMING` case. A clean clone
+without the optional corpus reports `NOT_RUN` with zero checked cases. An
+explicitly supplied missing, changed, or malformed corpus or manifest, a
+renderer disagreement, or semantic manifest drift is `FAIL`. This is
+black-box tool agreement, not Rust text parity; the latter remains
+`NOT_RUN`/0. Backend implementation independence is `UNVERIFIED`.
+The [scope and limits](../../docs/jbig2-text-oracle.md) include reproduction
+details, resource caps, and the measured 546/546 run.
+
 ## Optional JBIG2 refinement-pixel evidence
 
 Issue [#65](https://github.com/rwv/caj2pdf-rust/issues/65) adds a bounded
