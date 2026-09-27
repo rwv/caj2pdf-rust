@@ -52,7 +52,8 @@ reads and sink writes observe cancellation at I/O boundaries.
   `/BitsPerComponent 1`, `/Decode [1 0]` (a set bit is black), with source
   row padding beyond `ceil(width / 8)` bytes dropped. `add_page` places one or
   more finished images, each scaled to the whole page. The
-  [HN/C8 type-0 note](hnc8-type0-pdf.md) records how the converter uses them.
+  [HN/C8 type-0 note](hnc8-type0-pdf.md) and
+  [selected type-3 note](hnc8-type3-pdf.md) record how the converters use them.
 - Nested outline items with destinations to pages in the same document.
   Non-ASCII titles are serialized as UTF-16BE PDF text strings.
 

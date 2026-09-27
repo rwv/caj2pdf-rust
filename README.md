@@ -38,6 +38,9 @@ that cannot be bundled until issue #30 is resolved. TEB is recognized and
 unsupported. Build it with `cargo build --release -p caj2pdf-cli`.
 The core also has a [selected type-2 JPEG PDF diagnostic](docs/hnc8-type2-pdf.md)
 for one checked HN/C8 image at a time; it does not compose a source page.
+The [selected type-3 JBIG2 PDF diagnostic](docs/hnc8-type3-pdf.md) similarly
+emits one checked image with a caller-supplied MQ table and bounded temporary
+backing. Exact table-state redistribution remains unresolved under issue #44.
 
 ```sh
 caj2pdf paper.caj                  # writes paper.pdf next to the input

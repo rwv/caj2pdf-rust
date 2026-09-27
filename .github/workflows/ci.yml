@@ -160,6 +160,16 @@ jobs:
             printf '%s\n' "$report"
             python3 -c 'import json, sys; report = json.loads(sys.argv[1]); counts = ("attempted", "completed", "matching", "failing", "skipped", "unsupported"); assert report["status"] == "NOT_RUN" and report["submitted_cases"] == 0 and all(report[key]["status"] == "NOT_RUN" and all(report[key][count] == 0 for count in counts) for key in ("compatibility", "opt_in_anomaly")) and report["source_hashes_before"] == {} and report["source_hashes_after"] == {} and report["table_sha256_before"] is None and report["table_sha256_after"] is None and report["rust_binary_sha256_before"] is None and report["rust_binary_sha256_after"] is None and report["strict_header_refusals"] == 0, report' "$report"
           done
+      - name: Report external selected type-3 PDF parity as not run
+        env:
+          CAJ2PDF_CORPUS_DIR: ""
+          CAJ2PDF_T88_H2_FIXTURE_FILE: ""
+        run: |
+          for policy in strict hn-c8-unused-refinement-template; do
+            report="$(python3 scripts/jbig2_page_pdf_parity.py --text-header-policy "$policy" --json)"
+            printf '%s\n' "$report"
+            python3 -c 'import json, sys; r = json.loads(sys.argv[1]); assert r["status"] == "NOT_RUN" and all(r[k] == 0 for k in ("attempted", "completed", "matching", "strict_anomaly_refusals", "opt_in_anomaly_matches", "failed", "skipped", "unsupported")) and r["source_hashes_before"] == {} and r["source_hashes_after"] == {} and r["table_sha256_before"] is None and r["table_sha256_after"] is None and r["rust_binary_sha256_before"] is None and r["rust_binary_sha256_after"] is None, r' "$report"
+          done
       - name: Report external IAID compatibility as not run
         run: printf 'IAID_COMPATIBILITY status=NOT_RUN checked_cases=0\n'
       - name: Report external standard JBIG1 probe as not run
