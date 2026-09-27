@@ -93,6 +93,9 @@ class TextContentTests(unittest.TestCase):
             "synthetic", digest(b"MIT synthetic header"), digest(b"A0B1C2"))})
         profiles.start()
         self.addCleanup(profiles.stop)
+        runtime = patch.object(content, "ZLIB_RUNTIME_VERSION", content.zlib.ZLIB_RUNTIME_VERSION)
+        runtime.start()
+        self.addCleanup(runtime.stop)
 
     def case(self) -> dict:
         with FileInput(self.source) as source:
@@ -256,9 +259,14 @@ class TextContentTests(unittest.TestCase):
 
     def test_repeated_probe_checks_pdf_hashes_tools_and_sources(self) -> None:
         profile = content.reference.Profile("c8", "synthetic.caj", "0" * 64, 2, 4, 1)
+        # The committed #107 oracle retains these fields, not the source
+        # extractor's additional image_count/row metadata.
+        case = {"source_pages": [{key: page[key] for key in (
+            "images", "page_number", "text_length", "text_offset", "text_sha256")}
+            for page in self.case()["source_pages"]]}
         with patch.object(content.reference, "run_converter", side_effect=self._converter), \
                 patch.object(content.reference, "pdf_metadata", side_effect=self._metadata):
-            result = content._run_probe(self.probe, profile, self.source, self.case(),
+            result = content._run_probe(self.probe, profile, self.source, case,
                                         pdf_pages(), self.root, {}, digest(self.original),
                                         content._report()["resources"])
         self.assertEqual(result["outcome"], "TEXT_CONTENT_DEPENDENCY")

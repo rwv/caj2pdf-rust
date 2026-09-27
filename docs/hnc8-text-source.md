@@ -3,8 +3,9 @@
 # HN-A/C8 text framing and placement controls
 
 This is the predeclared diagnostic plan for [issue #111](https://github.com/rwv/caj2pdf-rust/issues/111).
-The source format observations below were made by bounded, read-only analysis of
-the 27 SHA-pinned documents in the [#107 matrix](../tests/conformance/matrix.json).
+The source format observations below were made by bounded, read-only analysis
+of two #107 reference documents, with all 27 SHA-pinned HN/C8 sources in the
+[matrix](../tests/conformance/matrix.json) audited before and after.
 They are empirical invariants of that corpus, not a published HN/C8
 specification or proof that the same layout holds for arbitrary documents.
 No external converter source was inspected or copied. Private documents,
@@ -14,7 +15,8 @@ decoded text, modified sources and PDFs remain outside this repository.
 
 The old [#110 note](hnc8-placement-experiments.md) tested zlib starts at text
 offsets 0, 20, 26, 28 and 32; it did not test `+24`. All 75 HN-A/C8 pages in
-the #107 oracle have one complete RFC 1950 zlib stream at text-relative `+24`,
+the #107 oracle have one complete [RFC 1950](https://www.rfc-editor.org/rfc/rfc1950.html)
+zlib stream at text-relative `+24`,
 ending exactly at the row-declared text end, with a valid Adler-32 check.
 The little-endian unsigned value at `[+20,+24)` equals the decompressed byte
 count. The first 20 bytes are constant within each variant and differ between
@@ -26,7 +28,8 @@ little-endian marker values, `0x8070`, `0x8071` and `0x8001`, recur at
 offsets `8+16*k`, `12+16*k` and `16+16*k` for every `k` in `[0,N)`.
 This covers 63,977 repeated records. The largest observed HN-A text
 span/frame/inflated output was 11,710/11,686/29,768 bytes; the C8 maxima
-were 14,546/14,522/33,688 bytes. The final `4+28*I` bytes may contain image-related data, but no
+were 14,546/14,522/33,688 bytes. The final `4+28*I` bytes may contain
+image-related data, but no
 field semantics are established by size or adjacency alone. The bounded
 diagnostic validates framing, lengths, marker positions and resource ceilings;
 it does not construct a PDF or expose a production text API.
@@ -34,7 +37,11 @@ it does not construct a PDF or expose a production text API.
 The former proposed whole-donor overwrite at the beginning of the longer
 target text span is invalid. Its zlib end would leave a suffix inside the
 row-declared text span. It must not be submitted to the converter or counted
-as a negative placement test. The #110 full-span donor transplant changed
+as a negative placement test. Virtual validation leaves 3,856 unused bytes
+for C8 and 2,157 for HN-A; both candidates are `INVALID_FRAMING` with zero
+mutations/converter runs. The external metadata-only validity report has
+SHA-256 `c83cb86c5e336fb12ba610041eb1227f3aa3bc81ba414f0f963b0dfdf901966a`.
+The #110 full-span donor transplant changed
 the text bytes **and** index-row text address/length, so its 5/5 donor
 translation matches implicate only that combined component.
 
@@ -108,3 +115,53 @@ blocking HN/C8 supplemental-image composition. The diagnostic introduces no
 production compositor or public API behavior. Release policy still requires
 MIT provenance, synthetic tests, native/WASM/browser/Node/quality/license
 gates, exact 100% Rust LCOV, independent review and simplification.
+
+## Protocol preflight correction
+
+The initial optional harness request passed every before/after source,
+environment and baseline-input audit, then failed while obtaining a page's
+image count. The compact #107 oracle intentionally has an `images` list,
+not the independent source extractor's extra `image_count` key. The harness
+now uses the validated list length; its synthetic repeated-probe test uses
+the same compact oracle schema. This failed request created **zero source
+copies and zero converter runs**. Its external report SHA-256 is
+`81cb76191f22492d85711fab0f5310c178e4c23c59c2ba3f4a04f9f72cf37e39`:
+protocol attempts 1, completed 0, failing 1, skipped 1, private conversions 0.
+Retain this failure separately from later successful comparisons. Retry the
+unchanged two-case plan above, still bounded at two copies/four conversions;
+no additional mutation or compression recipe is permitted.
+
+## Read-only coordinate candidate
+
+Independent bounded reads found a stronger candidate in the decoded tail.
+For one-based source image number `i`, its 28-byte record starts at
+`base = decoded_length - 28*image_count + 28*(i-1)`. The little-endian
+unsigned 16-bit values at `base+0` and `base+2` correlate with PDF x/y:
+
+```text
+x_pdf = x_u16 * 240 / 2473
+y_pdf = MediaBox.height - y_u16 * 240 / 2473
+```
+
+The factor is a **retrospectively selected empirical candidate**. A fit
+using the 36 discovery draws gives a nonempty four-decimal rounding interval;
+`240/2473` is the simplest fraction with denominator at most 10,000 in that
+interval. All reference transforms, including the 14 same-document
+validation draws, were already public and inspected. All 100 supplemental
+x/y components agree within 0.00005 pt, with maximum error
+0.000049130611 pt; all 150 first-image x/y components also agree.
+No counterexample appears in these two documents, but these observations
+provide no independently established physical source unit or general rule.
+The remaining 24 bytes of each image record stay opaque; `+4/+6` correlate
+with dimensions and must not be used as decoded image pixel sizes.
+
+The external metadata-only read-only report has SHA-256
+`b27ff8d4b5b3dacb60e7de5aadc4bfaedfc521b9f3c8e3d0ffa5474b553c391b`.
+It records the 75 complete frames, 63,977 marker sets, 125 draw predictions,
+all per-component residuals, the split, field offsets and 27-source
+before/after audits. It ran zero black-box conversions, wrote no private-byte
+artifacts and skipped the six HN-B rows as outside this observed framing.
+Maximum source-range request was 14,546 bytes, inflated output 33,688 bytes
+under a 1 MiB ceiling, and observed harness VmHWM 22,584 KiB. Hash requests
+were bounded at 1 MiB. This report is evidence for a future predeclared
+field intervention; it does not enable composition.

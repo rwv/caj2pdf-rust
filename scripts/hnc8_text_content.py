@@ -354,7 +354,7 @@ def _run_probe(probe: ContentProbe, profile: reference.Profile, source: Path,
     pinned_donor = case["source_pages"][probe.donor_page - 1]
     copy = copy_content(source, directory / "copy", probe, expected_source_sha256,
                         pinned_target["text_sha256"], pinned_donor["text_sha256"],
-                        pinned_target["image_count"])
+                        len(pinned_target["images"]))
     mutant = Path(copy["path"])
     request = _check_source(mutant, profile.source_id, case, probe,
                             mutated_text_sha256=copy["mutated_text_sha256"])
