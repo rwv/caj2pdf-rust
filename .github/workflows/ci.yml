@@ -76,6 +76,9 @@ jobs:
           for mode in discovery validation; do
             python3 scripts/hnc8_placement_analysis.py --mode "$mode" --json | python3 -c 'import json, sys; r = json.load(sys.stdin); expected = {"discovery": (20, 36), "validation": (9, 14)}[r["mode"]]; assert r["status"] == "UNKNOWN" and r["counts"]["private_comparisons"] == 0 and (r["counts"]["oracle_pages_compared"], r["counts"]["oracle_additional_draws_compared"]) == expected and all((h["attempted"], h["passing"], h["failing"]) == (expected[1], 0, expected[1]) for h in r["hypotheses"].values()), r'
           done
+      - name: Report external HN/C8 text-component probes as not run
+        run: |
+          python3 scripts/hnc8_text_transplant.py --json | python3 -c 'import json, sys; r = json.load(sys.stdin); counts = r["counts"]; assert r["status"] == "NOT_RUN" and r["placement_rule_status"] == "UNKNOWN_NOT_TESTED" and counts["probes_planned"] == 2 and all(value == 0 for key, value in counts.items() if key != "probes_planned") and r["probes"] == [] and r["source_audit"]["before_checked"] == r["source_audit"]["after_checked"] == r["input_audit"]["before_checked"] == r["input_audit"]["after_checked"] == 0 and r["environment_audit"]["status"] == "NOT_RUN" and r["errors"] == [], r'
       - name: Report external JBIG1 pixel oracle as not run
         env:
           CAJ2PDF_CORPUS_DIR: ""

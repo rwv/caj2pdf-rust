@@ -117,6 +117,29 @@ class PlacementProbeTests(unittest.TestCase):
         with self.assertRaisesRegex(placement.ProbeError, "lacks required"):
             placement._environment_record({**environment, "binaries": {}}, "BEFORE_PASS")
 
+    def test_layout_oracle_parser_uses_the_same_bytes_it_hashed(self) -> None:
+        pinned = placement.ORACLE.read_bytes()
+
+        class RacingOracle:
+            def __init__(self) -> None:
+                self.opens = 0
+                self.second_reads = 0
+
+            def open(self, _mode: str) -> io.BytesIO:
+                self.opens += 1
+                return io.BytesIO(pinned)
+
+            def read_text(self, **_kwargs: object) -> str:
+                self.second_reads += 1
+                return "{}"  # Simulate replacement after the digest read.
+
+        racing = RacingOracle()
+        with patch.object(placement, "ORACLE", racing):
+            cases = placement._load_oracle()
+        self.assertEqual(set(cases), {"hn_a", "c8", "hn_b"})
+        self.assertEqual(racing.opens, 1)
+        self.assertEqual(racing.second_reads, 0)
+
     def test_mid_batch_failure_counts_launched_completed_failing_and_skipped(self) -> None:
         corpus = self.root / "corpus"
         corpus.mkdir()

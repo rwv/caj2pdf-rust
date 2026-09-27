@@ -229,7 +229,9 @@ source/PDF compatibility is counted only by the explicit opt-in runs above.
 JPEGs. The geometry-only controls match none of those draws at 0.001 pt
 six-component tolerance. Four separately predeclared JFIF header probes,
 each repeated twice, change only the target JPEG stream in the reference
-PDF and do not change placement. A text-component batch is predeclared in
-that note. The source coordinate fields and rule remain unknown, so this
-oracle remains a measurement rather than a production page-composition
+PDF and do not change placement. Two separately predeclared text-component
+transplants copy the donor pages' translations to five target supplemental
+draws while retaining the target images and all non-target geometry. The
+exact source coordinate fields and rule remain unknown, so this oracle
+remains a measurement rather than a production page-composition
 specification.

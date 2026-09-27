@@ -721,10 +721,14 @@ PDF; none changed a CTM. The original MIT diagnostic checks all 27 source
 hashes, six baseline PDF hashes, executable/package hashes, command and
 environment before and after. Its source copies and PDFs stay outside Git.
 The committed-oracle-only geometry controls and limited text-span encoding
-scans also found no placement rule. These are negative tests and structural
-observations, not source-field semantics or a validated compositor. A second
-bounded text-component batch was declared before conversion. No external
-converter implementation supplied code or pseudocode.
+scans also found no placement rule. A separately predeclared C8/HN-A
+text-component transplant batch ran twice per variant: all five target
+additional-image translations copied the donor page's values while every
+image byte, target scale, first-image placement and non-target page geometry
+stayed fixed. That is causal evidence for the **combined opaque text and
+index-row address/length component**, not for any individual coordinate
+field or a validated compositor. The copies, reports and PDFs remain
+external. No external converter implementation supplied code or pseudocode.
 
 ## Dependency inventory and review
 

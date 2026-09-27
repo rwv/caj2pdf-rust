@@ -215,6 +215,44 @@ draw count, changed image identity or nonlocal geometry is `UNSUPPORTED` for
 placement inference. The positional rule remains `UNKNOWN` until an exact
 field and formula pass the independent validation requirement.
 
+## Text-component batch result
+
+Both predeclared source copies passed the independent container checks and
+were accepted by the pinned black-box converter twice each. The four PDFs
+were repeatable. The two target pages retained their original MediaBoxes,
+first-image CTMs, ordered image identities, dimensions and raw-stream
+hashes; all 73 non-target pages across the two documents retained their
+MediaBoxes and every image CTM. qpdf, MuPDF and Poppler agreed on the
+parsed outputs. Both source copies and all 27 pinned corpus files passed
+before/after SHA-256 audits.
+
+| Probe | Mutated source SHA-256 | Mutated PDF SHA-256 | Changed bytes / coalesced offset runs | Target supplemental CTMs |
+| --- | --- | --- | --- | --- |
+| C8 p1 ← p2 text | `68622f983ed8e403df81fb666ffd0a06b0f57a7c28228ae0109b7509636eb777` | `81d684dd092727fb794426145e5bac5b48caf8985b8957bee991cea153c0f170` | 10,652 / 45 (4 row, 10,648 text) | 4/4 translations changed |
+| HN-A p16 ← p22 text | `5df8bc22927ba44afad994e93548c4ac7cdbac80e02a2fa37ca90644df415008` | `9e4f111c9ef5c07698240aa5d33de7a1fb665e8758e23312344143c1afd98aae` | 5,324 / 27 (4 row, 5,320 text) | 1/1 translation changed |
+
+In each case, the target additional-image **x/y translations exactly equal
+the donor page's translations in the same draw positions**: 5/5 draws at
+the PDF extractor's recorded decimal precision. The target JPEG sizes and
+scales stayed with the target images, so this correspondence is not an image
+size match. The changed input comprises both the opaque text bytes and the
+index row's text address/length. It provides causal evidence that this
+**combined component** influences supplemental placement; it does not
+identify the coordinate encoding, units, origin, axis, rounding, valid
+range or a formula. It cannot satisfy the two *one-variable field* probes or
+independent-document validation required for a general rule.
+
+Batch counts: planned 2, attempted 2, completed 2, passing 2, failing 0,
+skipped 0, unsupported 0, repeatable 2, component placement effects 2.
+Six baseline PDF hashes, the matrix, oracle, reference report and full
+pinned environment passed before/after audit. Maximum ranged source read
+was 65,536 bytes, and file hashing used at most 1 MiB per request. Observed
+peaks were harness VmHWM 25,764 KiB, converter child VmHWM 41,320 KiB,
+PDF-tool RSS 42,708 KiB, tool output 322,609 bytes, and temporary session
+size 30,393,217 bytes (30,376,912 bytes retained at completion). The
+converter timeout was 180 seconds; no timeout occurred. The machine report,
+changed-offset runs and private artifacts remain outside Git.
+
 ## Measurements and decision rule
 
 For every requested input, pin and check the #22/#61 matrix, #107 oracle,

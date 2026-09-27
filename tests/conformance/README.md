@@ -56,9 +56,14 @@ draws at 0.001 pt six-component tolerance; the rule remains `UNKNOWN`.
 `hnc8_placement_probe.py` runs four predeclared JFIF APP0 edits only when all
 pinned external corpus, reference, tool, artifact and #107 report paths are
 explicitly supplied. With no paths it reports `NOT_RUN` and zero private
-comparisons. The [experiment note](../../docs/hnc8-placement-experiments.md)
-gives exact probes, hashes, outcomes and evidence limits. No private source,
-PDF or image bytes are included in this repository.
+comparisons. `hnc8_text_transplant.py` has the same opt-in boundary for the
+separately predeclared C8/HN-A full-text component probes. The
+[experiment note](../../docs/hnc8-placement-experiments.md) gives exact
+spans, hashes, outcomes and evidence limits. Both text-component probes
+changed target supplemental translations to the donor values without
+changing image bytes; the exact source fields and placement rule remain
+unknown. No private source, PDF or image bytes are included in this
+repository.
 
 ## Optional JavaScript API conversion
 

@@ -146,9 +146,23 @@ def _environment_record(environment: dict, status: str) -> dict:
 
 
 def _load_oracle() -> dict[str, dict]:
-    if _file_digest(ORACLE, limit=MAX_REPORT_BYTES) != ORACLE_SHA256:
+    digest = hashlib.sha256()
+    data = bytearray()
+    try:
+        with ORACLE.open("rb") as source:
+            while block := source.read(COPY_CHUNK):
+                data.extend(block)
+                if len(data) > MAX_REPORT_BYTES:
+                    raise ProbeError("committed #107 layout oracle exceeds size limit")
+                digest.update(block)
+    except OSError as exc:
+        raise ProbeError("committed #107 layout oracle is unavailable") from exc
+    if digest.hexdigest() != ORACLE_SHA256:
         raise ProbeError("committed #107 layout oracle differs from pinned SHA-256")
-    document = json.loads(ORACLE.read_text(encoding="utf-8"))
+    try:
+        document = json.loads(data)
+    except (UnicodeError, json.JSONDecodeError) as exc:
+        raise ProbeError("committed #107 layout oracle is malformed") from exc
     if (document.get("schema_version") != 1 or
             document.get("matrix_sha256") != reference.MATRIX_SHA256 or
             document.get("pdf_tool_hashes") != {
