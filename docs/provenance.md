@@ -35,6 +35,7 @@ checking the provenance of each imported file.
 | HN/C8 type-0 PDF pages | [ITU-T T.82 (03/1993)](https://www.itu.int/rec/T-REC-T.82-199303-I/en) §6.8 (interval convention for the test-only encoder), [Adobe PDF Reference 1.7](https://opensource.adobe.com/dc-acrobat-sdk-docs/pdfstandards/pdfreference1.7old.pdf) §4.8 (1 bpp image samples, `/Decode`), and the repository's [#22](jbig1-oracle.md)/[#27](jbig1-bitstream-investigation.md) palette and orientation observations | The [#28 core converter](hnc8-type0-pdf.md) is original MIT glue between the existing reader, row decoder, and PDF writer, with a caller-supplied table. Its polarity and top-down placement follow the repository's own measurements. The invented-table test encoder is original test code. No Table 24 rows, corpus bytes, pixels, or external decoder source are included. |
 | HN/C8 selected type-0 PDF pixel diagnostic | [#22 hash-only image oracle](jbig1-oracle.md), [#100 optional PDF comparison](hnc8-type0-pdf-parity.md), and the original [#28 PDF writer path](hnc8-type0-pdf.md) | Original MIT selected-record API and synthetic tests reuse the caller-table decoder and PDF writer. The optional harness checks private source and image-span SHA-256 identities, reopens each temporary PDF with qpdf, extracts one-bit pixels with Poppler, and renders selected images with Poppler and MuPDF. The final-source private run matched 1,400/1,400 PDF-extracted visible/raw image hashes, verified all 27 source hashes before and after, and had zero failed/skipped/unsupported images; three fixed independent renders passed. The external corpus, exact T.82 Table 24 rows, official vector, output PDFs, and extracted pixels remain outside Git and releases. A clean clone reports `NOT_RUN` with zero corpus images. #30 still blocks bundling the table and standalone HN/C8 conversion. |
 | HN/C8 type-2 JPEG marker profile | [CCITT/ISO T.81 Annex B](https://www.w3.org/Graphics/JPEG/itu-t81.pdf), [ITU T.81 catalog](https://www.itu.int/rec/T-REC-T.81), [ITU/ISO T.871 JFIF](https://www.itu.int/rec/T-REC-T.871-201105-I/en), and the original [#22/#61 container observations](hnc8-container.md) | Original MIT marker/profile reader over a checked type-2 HN/C8 descriptor and bounded ranged input. It derives only functional marker syntax from the standards, with no copied tables, figures, examples, tests, or decoder software. The [profile note](hnc8-type2-jpeg.md) records the observed JFIF 1.01 compatibility subset and separates marker classification from JPEG entropy decoding and PDF color/placement. The final-source private run matched 1,085/1,085 pinned type-2 descriptors and headers, with 27/27 unchanged source identities and zero failed/unsupported/skipped records; this is no pixel or PDF parity claim. Private CAJSamples sources and JPEG payload bytes stay external; clean-clone corpus compatibility is `NOT_RUN`/zero. |
+| HN/C8 selected type-2 JPEG PDF diagnostic | [CCITT/ISO T.81 Annex B](https://www.w3.org/Graphics/JPEG/itu-t81.pdf), [ITU/ISO T.871 JFIF](https://www.itu.int/rec/T-REC-T.871-201105-I/en), [Adobe PDF Reference 1.7](https://opensource.adobe.com/dc-acrobat-sdk-docs/pdfstandards/pdfreference1.7old.pdf) §§3.3.7 and 4.8, and the original [#102 marker profile](hnc8-type2-jpeg.md) | Original MIT selected-record glue reuses the bounded HN/C8 reader and PDF writer. The three-component JFIF path explicitly selects PDF DCT `ColorTransform 1`; a bounded SHA-256 comparison binds the selected marker preflight to the streamed PDF image bytes. The [#104 final-source private run](hnc8-type2-pdf.md) matched 1,085/1,085 embedded JPEG streams, all 1,085 direct-JPEG versus `pdfimages` decoded and MuPDF page rasters pointwise, and 1,085/1,085 Poppler pages under a separately disclosed zero-slack 3×3 local-sampling rule; 27/27 source identities stayed unchanged and no image failed, skipped, or was unsupported. Poppler raw page pixels were not pointwise exact. These are one-selected-image diagnostic results, not HN/C8 page composition or standalone CLI/JS support. No external JPEG/PDF decoder source, corpus document or image bytes, or differently licensed converter implementation is included. |
 | HN/C8 type-3 JBIG2 profile and pixels | [ITU-T T.88 (02/2000)](https://www.itu.int/rec/T-REC-T.88-200002-S/en), [Microsoft BITMAPINFOHEADER](https://learn.microsoft.com/windows/win32/api/wingdi/ns-wingdi-bitmapinfoheader), and [repository-owned oracle measurements](jbig2-oracle.md) | Five SHA-pinned external documents contain 546 type-3 image records. Their original MIT metadata inventory and optional pixel-hash runner record tool agreement only. Poppler, MuPDF, qpdf, documents, PDFs, bitmaps, and decoder code are not runtime or shipped dependencies. |
 | HN/C8 type-38 generic-only JBIG2 pixels | [ITU-T T.88 (02/2000)](https://www.itu.int/rec/T-REC-T.88-200002-S/en) §§7.3, 7.4.1, 7.4.6, and 7.4.8 and [repository-owned generic-only measurements](jbig2-generic-oracle.md) | For the same 546 SHA-pinned type-3 records, original MIT tooling measures page-information segment #0 plus generic-region segment #4 alone. The hash-only manifest records black-box tool agreement, not Rust decoder parity or independent decoder implementations. No external source or generated bytes are distributed. |
 | HN/C8 type-6 text-only JBIG2 pixels | [ITU-T T.88 (02/2000)](https://www.itu.int/rec/T-REC-T.88-200002-S/en) §§6.4 and 7.4.3 and [repository-owned text-only measurements](jbig2-text-oracle.md) | Original MIT tooling measures segments #0–#3 without generic region #4 for the same 546 SHA-pinned records. The hash-only manifest separates 545 standard text headers from one `0xa40c` interoperability case. Rust matched all 545 strict-valid cases in #87 and the separately opted-in anomaly in #88; neither result verifies external decoder backend independence or full-page parity. No external source or generated bytes are distributed. |
@@ -409,8 +410,8 @@ PDF and its Table E.1/Annex H.2 extraction remain only under `/tmp`; source
 contains a SHA-256 digest but no normative row, vector, or pixel bytes. No
 Python, Go, private Rust, or differently licensed decoder source was read or
 migrated. The module borrows the MIT I/O contracts in this repository and
-adds no runtime dependency; the external harness uses the already registered
-MIT-selected `sha2` development dependency. Standard-vector agreement does
+added no runtime dependency at the time; the external harness uses the already
+registered MIT-selected `sha2` dependency. Standard-vector agreement does
 not prove CAJ or JBIG2 image decoding. The source-distribution question for
 the exact T.88 table is unresolved in [#44](https://github.com/rwv/caj2pdf-rust/issues/44):
 the official text permits alternative implementations to reproduce normative
@@ -681,11 +682,12 @@ independent black-box tools, as for issue #5.
 
 ## Dependency inventory and review
 
-The issue #2 baseline contains three owned packages:
+The workspace contains three owned packages. The dependency column lists
+direct third-party Cargo dependencies in the current graph:
 
 | Package | Role | License | Edition / minimum Rust | External dependencies |
 | --- | --- | --- | --- | --- |
-| `caj2pdf-core` | Platform-neutral library | MIT | 2024 / 1.85.0 | None |
+| `caj2pdf-core` | Platform-neutral library | MIT | 2024 / 1.85.0 | `flate2`, `sha2` (direct) |
 | `caj2pdf-cli` | Linux executable | MIT | 2024 / 1.85.0 | None |
 | `caj2pdf-wasm` | WASM/JavaScript boundary | MIT | 2024 / 1.85.0 | None |
 
@@ -722,28 +724,35 @@ integration tests invoke installed `qpdf`, MuPDF `mutool`, and Poppler
 linked, vendored, or distributed with this project. The local baseline used
 `qpdf` 12.2.0, `mutool` 1.25.1, Poppler 25.03.0, and libjpeg-turbo 2.1.5.
 Required CI installs them and prints their versions before tests and coverage.
+Issue #104 also uses the installed Poppler `pdftoppm` and libjpeg-turbo
+`djpeg` executables for optional rendered-pixel comparisons. These remain
+test-only black-box tools; no decoder or renderer code is linked or shipped.
 
-Issue #26 adds `sha2` as a **dev dependency only** for the ignored
+Issue #26 initially added `sha2` as a development dependency for the ignored
 [`qm_official_external.rs`](../crates/caj2pdf-core/tests/qm_official_external.rs)
 test. It rejects a separately supplied T.82 fixture above 16 KiB and checks
-its pinned SHA-256 before parsing. The selected grant for each package below
-is **MIT** from its distributed `LICENSE-MIT`; every inspected
+its pinned SHA-256 before parsing. Issue #104 moves the same locked `sha2`
+version into the normal core dependency graph to compare the selected JPEG
+bytes read during marker preflight with the bytes streamed into a PDF image
+object. The hash retains fixed-size state and no image-sized allocation. The
+selected grant for each package below is **MIT** from its distributed
+`LICENSE-MIT`; every inspected
 package manifest says `MIT OR Apache-2.0`. The versions are pinned in
 [`Cargo.lock`](../Cargo.lock). Feature and target scopes were checked with
 `cargo tree --locked -p caj2pdf-core -e features` for Linux x86_64 and
-`wasm32-unknown-unknown` on 2026-09-24.
+`wasm32-unknown-unknown` on 2026-09-27.
 
 | Package | Purpose and resolved features | License / selected grant | Inclusion |
 | --- | --- | --- | --- |
-| `sha2` 0.11.0 | SHA-256 of the external test fixture; direct `default-features = false`. | `MIT OR Apache-2.0` / MIT | Dev/test graph only; absent from normal core, CLI, and WASM artifacts. |
-| `block-buffer` 0.12.1 | Digest block buffering; `default`. | `MIT OR Apache-2.0` / MIT | Transitive test graph, Linux x86_64 and WASM test builds. |
-| `cfg-if` 1.0.5 | Hash implementation configuration; `default`. | `MIT OR Apache-2.0` / MIT | Transitive test graph, Linux x86_64 and WASM test builds. |
-| `cpufeatures` 0.3.1 | CPU feature selection; `default`. | `MIT OR Apache-2.0` / MIT | Transitive native x86_64 test graph; absent from wasm32 test graph. |
-| `crypto-common` 0.2.2 | Shared digest primitives; `default`. | `MIT OR Apache-2.0` / MIT | Transitive test graph, Linux x86_64 and WASM test builds. |
-| `digest` 0.11.3 | Digest traits and block API; `default`, `block-api`. | `MIT OR Apache-2.0` / MIT | Transitive test graph, Linux x86_64 and WASM test builds. |
-| `hybrid-array` 0.4.15 | Fixed-size digest storage; `default`. | `MIT OR Apache-2.0` / MIT | Transitive test graph, Linux x86_64 and WASM test builds. |
+| `sha2` 0.11.0 | SHA-256 of selected JPEG preflight/copy bytes and external test fixtures; direct `default-features = false`. | `MIT OR Apache-2.0` / MIT | Normal core, CLI, and WASM graphs. |
+| `block-buffer` 0.12.1 | Digest block buffering; `default`. | `MIT OR Apache-2.0` / MIT | Transitive normal core, CLI, and WASM graphs. |
+| `cfg-if` 1.0.5 | Hash implementation configuration; `default`. | `MIT OR Apache-2.0` / MIT | Transitive normal core, CLI, and WASM graphs; also used by `flate2`. |
+| `cpufeatures` 0.3.1 | CPU feature selection; `default`. | `MIT OR Apache-2.0` / MIT | Transitive native x86_64 graph; absent from wasm32 graph. |
+| `crypto-common` 0.2.2 | Shared digest primitives; `default`. | `MIT OR Apache-2.0` / MIT | Transitive normal core, CLI, and WASM graphs. |
+| `digest` 0.11.3 | Digest traits and block API; `default`, `block-api`. | `MIT OR Apache-2.0` / MIT | Transitive normal core, CLI, and WASM graphs. |
+| `hybrid-array` 0.4.15 | Fixed-size digest storage; `default`. | `MIT OR Apache-2.0` / MIT | Transitive normal core, CLI, and WASM graphs. |
 | `libc` 0.2.189 | OS interfaces for `cpufeatures` on selected architectures; default features disabled through that dependency. | `MIT OR Apache-2.0` / MIT | Locked target-specific transitive package; absent from Linux x86_64 and wasm32 graphs. |
-| `typenum` 1.20.1 | Type-level block sizes; `default`, `const-generics`. | `MIT OR Apache-2.0` / MIT | Transitive test graph, Linux x86_64 and WASM test builds. |
+| `typenum` 1.20.1 | Type-level block sizes; `default`, `const-generics`. | `MIT OR Apache-2.0` / MIT | Transitive normal core, CLI, and WASM graphs. |
 
 The native and WASM license gates passed with `cargo-deny` 0.20.2. In the
 local registry source scan, `libc` alone has a Rust `build.rs`; none of these

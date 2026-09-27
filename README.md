@@ -36,6 +36,8 @@ files are recognized, but the command does not convert them yet: the core's
 [type-0 page converter](docs/hnc8-type0-pdf.md) needs a probability table
 that cannot be bundled until issue #30 is resolved. TEB is recognized and
 unsupported. Build it with `cargo build --release -p caj2pdf-cli`.
+The core also has a [selected type-2 JPEG PDF diagnostic](docs/hnc8-type2-pdf.md)
+for one checked HN/C8 image at a time; it does not compose a source page.
 
 ```sh
 caj2pdf paper.caj                  # writes paper.pdf next to the input

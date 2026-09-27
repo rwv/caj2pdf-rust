@@ -3,13 +3,19 @@
 //! Bounded metadata traversal for the three independently measured HN/C8
 //! container profiles. Image payloads and text are never loaded here.
 //! [`convert_type0_pdf`] builds bounded PDF pages from type-0 records.
+//! [`convert_type2_image_pdf`] streams one checked type-2 JPEG to PDF.
 
 mod convert;
+mod convert_jpeg;
 mod jpeg;
 
 pub use convert::{
     MultipleImages, Type0ImageSelection, Type0PdfError, Type0PdfErrorKind, Type0PdfOptions,
     Type0PdfReport, Type0SelectedPdfReport, convert_type0_image_pdf, convert_type0_pdf,
+};
+pub use convert_jpeg::{
+    Type2ImageSelection, Type2PdfError, Type2PdfErrorKind, Type2PdfOptions, Type2SelectedPdfReport,
+    convert_type2_image_pdf,
 };
 pub use jpeg::{JpegBudget, JpegColor, JpegInfo, read_type2_jpeg_info};
 
