@@ -3,6 +3,8 @@
 //! Original small dictionaries and invented MQ states. The source bytes here
 //! are synthetic test controls, not a T.88 table or external document data.
 
+mod common;
+
 use caj2pdf_core::jbig2::{
     HeaderLimits, SegmentHeader, SegmentSpan,
     dictionary::{
@@ -10,7 +12,8 @@ use caj2pdf_core::jbig2::{
         SymbolDescriptor, read_dictionary_data_header,
     },
     iaid::IaidContextBanks,
-    mq::{MQ_STATE_COUNT, MqBudget, MqContext, MqSnapshot, MqState, MqTable},
+    integer::{INTEGER_CONTEXT_COUNT, IntegerProcedure, IntegerValue, decode_integer},
+    mq::{MQ_STATE_COUNT, MqBudget, MqContext, MqDecoder, MqSnapshot, MqSpan, MqState, MqTable},
     read_segment_header,
     refinement::{RefinementBudget, RefinementErrorKind},
     refinement_dictionary::{
@@ -19,7 +22,9 @@ use caj2pdf_core::jbig2::{
         SymbolStore,
     },
 };
-use caj2pdf_core::{Cancellation, Error, Limits, NeverCancel, RangedSource, SequentialSink};
+use caj2pdf_core::{
+    Cancellation, Error, Limits, MAX_BUDGET_COUNT, NeverCancel, RangedSource, SequentialSink,
+};
 use std::{
     cell::{Cell, RefCell},
     future::{Future, pending},
@@ -42,6 +47,7 @@ fn ready<F: Future>(future: F) -> F::Output {
 
 struct Bytes {
     bytes: Vec<u8>,
+    advertised_size: Option<u64>,
     calls: usize,
     max_read: usize,
     fail_after_calls: Option<usize>,
@@ -51,6 +57,7 @@ impl Bytes {
     fn new(bytes: Vec<u8>) -> Self {
         Self {
             bytes,
+            advertised_size: None,
             calls: 0,
             max_read: usize::MAX,
             fail_after_calls: None,
@@ -60,7 +67,7 @@ impl Bytes {
 
 impl RangedSource for Bytes {
     fn size(&self) -> u64 {
-        self.bytes.len() as u64
+        self.advertised_size.unwrap_or(self.bytes.len() as u64)
     }
     async fn read_at(
         &mut self,
@@ -202,6 +209,31 @@ fn table() -> MqTable {
     MqTable::new(states, &Limits::default()).unwrap()
 }
 
+fn integer_prefix(body: &[u8], procedures: &[IntegerProcedure]) -> Option<Vec<IntegerValue>> {
+    let mut source = Bytes::new(body.to_vec());
+    let limits = Limits::default();
+    let budget = MqBudget::default();
+    let table = table();
+    let mut banks = IaidContextBanks::with_bitmap_contexts(1, 1024, &limits, &budget).ok()?;
+    let mut mq = ready(MqDecoder::new(
+        &mut source,
+        MqSpan {
+            offset: 0,
+            length: body.len() as u64,
+        },
+        &table,
+        banks.mq_contexts_mut(),
+        &limits,
+        &NeverCancel,
+        budget,
+    ))
+    .ok()?;
+    procedures
+        .iter()
+        .map(|&procedure| ready(decode_integer(&mut mq, procedure)).ok())
+        .collect()
+}
+
 fn imported(count: u32, width: u32, row: &[u8]) -> (SegmentHeader, DictionaryReport, Bytes) {
     assert_eq!(row.len(), width.div_ceil(8) as usize);
     let (mut source, header) = segment(1, None, 0x0800, count, count, &[0xff, 0xac]);
@@ -268,6 +300,8 @@ fn run_with_imported_io(
     dict_budget: DictionaryBudget,
     refinement_budget: RefinementBudget,
     second_budget: RefinementDictionaryBudget,
+    cancellation: &impl Cancellation,
+    mq_budget: MqBudget,
     max_read: usize,
 ) -> Observation {
     let (imported_header, imported_report, mut imported_source) =
@@ -287,7 +321,7 @@ fn run_with_imported_io(
         32 - (total - 1).leading_zeros()
     };
     let mut banks =
-        IaidContextBanks::with_bitmap_contexts(width, 1024, &limits, &MqBudget::default()).unwrap();
+        IaidContextBanks::with_bitmap_contexts(width, 1024, &limits, &mq_budget).unwrap();
     let created = ready(RefinementDictionaryDecoder::new(
         &mut source,
         &header,
@@ -301,8 +335,8 @@ fn run_with_imported_io(
         &table,
         &mut banks,
         &limits,
-        &NeverCancel,
-        MqBudget::default(),
+        cancellation,
+        mq_budget,
         dict_budget,
         refinement_budget,
         second_budget,
@@ -350,6 +384,8 @@ fn run_with_imported(
         dict_budget,
         refinement_budget,
         second_budget,
+        &NeverCancel,
+        MqBudget::default(),
         usize::MAX,
     )
 }
@@ -591,6 +627,8 @@ fn short_framing_body_and_imported_row_reads_preserve_physical_counters() {
         DictionaryBudget::default(),
         RefinementBudget::default(),
         RefinementDictionaryBudget::default(),
+        &NeverCancel,
+        MqBudget::default(),
         1,
     );
     let report = observed.result.unwrap();
@@ -674,6 +712,97 @@ fn new_store_absolute_end_overflow_is_rejected_before_writing() {
 }
 
 #[test]
+fn invalid_refinement_work_budget_is_located_before_bitmap_output() {
+    let budget = RefinementBudget {
+        max_reference_reads: MAX_BUDGET_COUNT + 1,
+        ..RefinementBudget::default()
+    };
+    let observed = run(
+        &COMPLETE_ONE,
+        1,
+        1,
+        0,
+        DictionaryBudget::default(),
+        budget,
+        RefinementDictionaryBudget::default(),
+    );
+    let error = observed.result.unwrap_err();
+    assert!(matches!(
+        error.kind,
+        RefinementDictionaryErrorKind::Refinement(ref nested)
+            if matches!(nested.kind, RefinementErrorKind::LimitExceeded {
+                resource: "reference reads budget",
+                limit: MAX_BUDGET_COUNT,
+                attempted,
+            } if attempted == MAX_BUDGET_COUNT + 1)
+    ));
+    assert!(error.progress.poisoned);
+    assert!(observed.output.is_empty());
+}
+
+#[test]
+fn one_mq_symbol_budget_covers_integer_and_iaid_decisions() {
+    let mut integer_limit = false;
+    let mut iaid_limit = false;
+    for max_symbols in 1..64 {
+        let observed = run_with_imported_io(
+            &COMPLETE_ONE,
+            1,
+            1,
+            &[0x80],
+            1,
+            0,
+            DictionaryBudget::default(),
+            RefinementBudget::default(),
+            RefinementDictionaryBudget::default(),
+            &NeverCancel,
+            MqBudget {
+                max_symbols,
+                ..MqBudget::default()
+            },
+            usize::MAX,
+        );
+        let Err(error) = observed.result else {
+            continue;
+        };
+        if let RefinementDictionaryErrorKind::Mq(mq) = &error.kind {
+            if let Some(context) = mq.context {
+                integer_limit |= context < INTEGER_CONTEXT_COUNT;
+                iaid_limit |=
+                    context >= INTEGER_CONTEXT_COUNT && error.progress.iaai.single_reference == 1;
+            }
+        }
+        if integer_limit && iaid_limit {
+            break;
+        }
+    }
+    assert!(integer_limit, "integer decisions must share the MQ cap");
+    assert!(iaid_limit, "IAID decisions must share the same MQ cap");
+}
+
+#[test]
+fn declared_catalog_allocation_is_checked_before_mq_or_store_access() {
+    let setup = PreflightCase {
+        new: 1_000,
+        limits: Limits {
+            io_chunk_bytes: 256,
+            max_allocation_bytes: 20_000,
+            ..Limits::default()
+        },
+        ..PreflightCase::default()
+    };
+    let error = preflight_error(setup, |_, _| {});
+    assert!(matches!(
+        error.kind,
+        RefinementDictionaryErrorKind::LimitExceeded {
+            resource: "catalog allocation bytes",
+            limit: 20_000,
+            attempted,
+        } if attempted > 20_000
+    ));
+}
+
+#[test]
 fn one_iaex_view_exports_imported_then_new_with_distinct_store_owners() {
     let observed = run(
         &COMPLETE_BOTH_EXPORTS,
@@ -730,6 +859,10 @@ fn two_refined_symbols_retain_one_gr_context_bank_until_dictionary_failure() {
     assert_eq!(error.progress.completed_symbols, 2, "{error}");
     assert_eq!(error.progress.iaai.single_reference, 2);
     assert_eq!(error.progress.refinement.completed_bitmaps, 2);
+    // One height class of height one and two decoded pixels means both
+    // symbol widths are one; the second IADW is zero.
+    assert_eq!(error.progress.height_classes, 1);
+    assert_eq!(error.progress.refinement.pixels_decoded, 2);
     assert_eq!(observed.output.len(), 2);
     assert_eq!(observed.gr_contexts, vec![0]);
     assert_eq!(observed.gr_state_zero, 2);
@@ -812,6 +945,60 @@ fn header_and_contexts_are_read_through_public_decoder() {
                 .exported_symbols
                 .iter()
                 .all(|symbol| matches!(symbol.store, SymbolStore::Imported | SymbolStore::New))
+        );
+    }
+}
+
+#[test]
+fn second_dictionary_clears_integer_iaid_and_gr_statistics_before_mq_work() {
+    let (imported_header, imported_report, mut imported_source) = imported(1, 1, &[0x80]);
+    let (mut source, header) = segment(2, Some(1), 0x1802, 1, 0, &[0xff, 0xac]);
+    let store = Rc::new(RefCell::new(Vec::new()));
+    let mut new_source = SharedSource::new(store.clone());
+    let mut new_sink = SharedSink(store);
+    let limits = Limits::default();
+    let table = table();
+    let mut banks =
+        IaidContextBanks::with_bitmap_contexts(0, 1024, &limits, &MqBudget::default()).unwrap();
+    let layout = banks.layout();
+    let touched = [0, layout.iaid_base(), layout.bitmap_base()];
+    for index in touched {
+        banks
+            .mq_contexts_mut()
+            .set(
+                index,
+                MqContext {
+                    state_index: 1,
+                    mps: true,
+                },
+            )
+            .unwrap();
+    }
+    let decoder = ready(RefinementDictionaryDecoder::new(
+        &mut source,
+        &header,
+        &imported_header,
+        &imported_report,
+        &mut imported_source,
+        0,
+        &mut new_source,
+        &mut new_sink,
+        0,
+        &table,
+        &mut banks,
+        &limits,
+        &NeverCancel,
+        MqBudget::default(),
+        DictionaryBudget::default(),
+        RefinementBudget::default(),
+        RefinementDictionaryBudget::default(),
+    ))
+    .unwrap();
+    drop(decoder);
+    for index in touched {
+        assert_eq!(
+            banks.mq_contexts_mut().get(index),
+            Some(MqContext::default())
         );
     }
 }
@@ -1012,11 +1199,13 @@ struct PreflightCase {
     new: u32,
     exported: u32,
     imported_base: u64,
+    imported_size: Option<u64>,
     new_base: u64,
     bank_width: Option<u32>,
     dictionary_budget: DictionaryBudget,
     refinement_budget: RefinementBudget,
     second_budget: RefinementDictionaryBudget,
+    limits: Limits,
 }
 
 impl Default for PreflightCase {
@@ -1030,11 +1219,13 @@ impl Default for PreflightCase {
             new: 0,
             exported: 0,
             imported_base: 0,
+            imported_size: None,
             new_base: 0,
             bank_width: None,
             dictionary_budget: DictionaryBudget::default(),
             refinement_budget: RefinementBudget::default(),
             second_budget: RefinementDictionaryBudget::default(),
+            limits: Limits::default(),
         }
     }
 }
@@ -1056,6 +1247,7 @@ fn preflight_result(
         let (header, report, source) = imported(1, 1, &[0x80]);
         (source, header, report)
     };
+    imported_source.advertised_size = setup.imported_size;
     mutate_imported(&mut imported_header, &mut report);
     let (mut source, header) = segment_on_page(
         2,
@@ -1072,7 +1264,7 @@ fn preflight_result(
     let store = Rc::new(RefCell::new(Vec::new()));
     let mut new_source = SharedSource::new(store.clone());
     let mut new_sink = SharedSink(store);
-    let limits = Limits::default();
+    let limits = setup.limits;
     let table = table();
     let total = setup.new + 1;
     let width = setup.bank_width.unwrap_or(if total <= 1 {
@@ -1165,6 +1357,62 @@ fn forged_imported_reports_fail_before_mq_and_store_access() {
         RefinementDictionaryErrorKind::Malformed(
             "imported dictionary is not a complete direct report"
         )
+    ));
+}
+
+#[test]
+fn forged_imported_span_overflows_fail_before_arithmetic_or_store_io() {
+    for (mutate, reason) in [
+        (
+            (|header: &mut SegmentHeader, _: &mut DictionaryReport| {
+                header.data.offset = u64::MAX;
+            }) as fn(&mut SegmentHeader, &mut DictionaryReport),
+            "imported dictionary body offset overflow",
+        ),
+        (
+            |_: &mut SegmentHeader, report: &mut DictionaryReport| {
+                report.header.body.offset = u64::MAX;
+            },
+            "imported dictionary body end overflow",
+        ),
+        (
+            |header: &mut SegmentHeader, _: &mut DictionaryReport| {
+                header.data.length = u64::MAX;
+            },
+            "imported segment data end overflow",
+        ),
+    ] {
+        let error = preflight_error(PreflightCase::default(), mutate);
+        assert!(
+            matches!(error.kind, RefinementDictionaryErrorKind::Malformed(found) if found == reason),
+            "{error}"
+        );
+    }
+
+    let error = forged_error(
+        1,
+        |report| {
+            report.catalog.exported_symbols[0].relative_store_offset = u64::MAX;
+            report.catalog.new_symbols[0].relative_store_offset = u64::MAX;
+        },
+        RefinementDictionaryBudget::default(),
+    );
+    assert!(matches!(
+        error.kind,
+        RefinementDictionaryErrorKind::Malformed("imported descriptor end overflow")
+    ));
+
+    let error = preflight_error(
+        PreflightCase {
+            imported_base: u64::MAX,
+            imported_size: Some(u64::MAX),
+            ..PreflightCase::default()
+        },
+        |_, _| {},
+    );
+    assert!(matches!(
+        error.kind,
+        RefinementDictionaryErrorKind::Malformed("imported store absolute end overflow")
     ));
 }
 
@@ -1676,6 +1924,7 @@ fn public_error_messages_keep_locations_and_nested_sources() {
     for (error, has_source) in cases {
         let display = error.to_string();
         assert!(display.contains("dictionary 2 at source byte"), "{display}");
+        common::assert_display_propagates_fmt_error(&error);
         assert_eq!(
             std::error::Error::source(&error).is_some(),
             has_source,
@@ -2089,4 +2338,300 @@ fn truncated_terminal_after_complete_exports_is_located_and_poisoned() {
     assert!(error.progress.poisoned);
     assert!(error.offset > 0);
     assert_eq!(observed.output.len(), 1);
+}
+
+#[test]
+fn signed_height_class_deltas_reach_the_next_symbol_control() {
+    // The real MQ and Annex A.2 decoders produce +2, width OOB, then -1 or
+    // zero. The public dictionary decoder accepts each second class before
+    // encountering an independently checked later control value.
+    let negative = [
+        0xd7, 0x6e, 0xbf, 0x46, 0xfa, 0x2a, 0x9b, 0xf0, 0xca, 0x45, 0xa7, 0x7b, 0xff, 0xac,
+    ];
+    let zero = [
+        0xd7, 0xf0, 0xbf, 0x46, 0xfa, 0x2a, 0x9b, 0xf0, 0xca, 0x45, 0xa7, 0x7b, 0xff, 0xac,
+    ];
+    let procedures = [
+        IntegerProcedure::Iadh,
+        IntegerProcedure::Iadw,
+        IntegerProcedure::Iadh,
+    ];
+    for (body, expected_delta) in [
+        (negative.as_slice(), IntegerValue::Signed(-1)),
+        (zero.as_slice(), IntegerValue::Signed(0)),
+    ] {
+        assert_eq!(
+            integer_prefix(body, &procedures).unwrap(),
+            [
+                IntegerValue::Signed(2),
+                IntegerValue::OutOfBand,
+                expected_delta
+            ]
+        );
+        let observed = run(
+            body,
+            1,
+            1,
+            0,
+            DictionaryBudget::default(),
+            RefinementBudget::default(),
+            RefinementDictionaryBudget::default(),
+        );
+        let error = observed.result.unwrap_err();
+        assert_eq!(error.progress.height_classes, 2);
+        assert_eq!(error.progress.completed_symbols, 0);
+        assert!(error.progress.poisoned);
+        assert!(observed.output.is_empty());
+        match expected_delta {
+            IntegerValue::Signed(-1) => assert!(matches!(
+                error.kind,
+                RefinementDictionaryErrorKind::Unsupported {
+                    feature: "REFAGGNINST aggregation",
+                    value: 4,
+                }
+            )),
+            IntegerValue::Signed(0) => assert!(matches!(
+                error.kind,
+                RefinementDictionaryErrorKind::Malformed("negative symbol dimension")
+            )),
+            _ => unreachable!(),
+        }
+    }
+}
+
+#[test]
+fn cancellation_checkpoints_preserve_typed_progress_through_exports() {
+    let mut saw_host = false;
+    let mut saw_mq = false;
+    let mut saw_completed_prefix = false;
+    for allowed in 0..180 {
+        let cancellation = common::CancelAfter::new(allowed);
+        let observed = run_with_imported_io(
+            &COMPLETE_ONE,
+            1,
+            1,
+            &[0x80],
+            1,
+            0,
+            DictionaryBudget::default(),
+            RefinementBudget::default(),
+            RefinementDictionaryBudget::default(),
+            &cancellation,
+            MqBudget::default(),
+            usize::MAX,
+        );
+        if let Err(error) = observed.result {
+            assert!(observed.output.len() <= 1);
+            match &error.kind {
+                RefinementDictionaryErrorKind::Cancelled => {
+                    assert!(error.progress.poisoned, "allowed {allowed}");
+                    saw_completed_prefix |=
+                        error.progress.completed_symbols == 1 && error.progress.export_runs == 1;
+                }
+                RefinementDictionaryErrorKind::Refinement(nested)
+                    if matches!(nested.kind, RefinementErrorKind::Cancelled) =>
+                {
+                    saw_host = true
+                }
+                RefinementDictionaryErrorKind::Mq(mq)
+                    if matches!(mq.kind, caj2pdf_core::jbig2::mq::MqErrorKind::Cancelled) =>
+                {
+                    saw_mq = true;
+                }
+                _ => {}
+            }
+        }
+    }
+    assert!(saw_host);
+    assert!(saw_mq);
+    assert!(saw_completed_prefix);
+}
+
+#[test]
+fn negative_width_delta_reaches_a_positive_second_symbol_geometry() {
+    let mut body = TWO_REFINEMENTS_PREFIX;
+    body[0] = 0xed;
+    body[2] = 0;
+    assert_eq!(
+        integer_prefix(&body, &[IntegerProcedure::Iadh, IntegerProcedure::Iadw]).unwrap(),
+        [IntegerValue::Signed(1), IntegerValue::Signed(2)]
+    );
+    let budget = DictionaryBudget {
+        max_width: 2,
+        max_height: 1,
+        max_total_pixels: 3,
+        ..DictionaryBudget::default()
+    };
+    let observed = run(
+        &body,
+        1,
+        2,
+        0,
+        budget,
+        RefinementBudget::default(),
+        RefinementDictionaryBudget::default(),
+    );
+    let error = observed.result.unwrap_err();
+    assert_eq!(error.progress.height_classes, 1);
+    assert_eq!(error.progress.completed_symbols, 1);
+    assert_eq!(error.progress.refinement.pixels_decoded, 2);
+    assert_eq!(observed.output.len(), 1);
+    assert!(
+        matches!(
+            error.kind,
+            RefinementDictionaryErrorKind::Unsupported {
+                feature: "REFAGGNINST aggregation",
+                value: 40,
+            }
+        ),
+        "{error:?}"
+    );
+
+    // A two-pixel cap stops at the second geometry; a three-pixel cap reaches
+    // IAAI. The first symbol has width two and both heights are one, so the
+    // accepted second width is one and its signed IADW is -1.
+    let observed = run(
+        &body,
+        1,
+        2,
+        0,
+        DictionaryBudget {
+            max_total_pixels: 2,
+            ..budget
+        },
+        RefinementBudget::default(),
+        RefinementDictionaryBudget::default(),
+    );
+    let error = observed.result.unwrap_err();
+    assert!(matches!(
+        error.kind,
+        RefinementDictionaryErrorKind::LimitExceeded {
+            resource: "dictionary pixels",
+            attempted: 3,
+            ..
+        }
+    ));
+}
+
+#[test]
+fn negative_initial_width_delta_is_rejected_before_bitmap_io() {
+    let body = [
+        0xc6, 0xd7, 0xe6, 0xab, 0x92, 0x55, 0xc9, 0xaa, 0xe5, 0xd0, 0x01, 0xf1, 0x72, 0x74, 0xff,
+        0xac,
+    ];
+    assert_eq!(
+        integer_prefix(&body, &[IntegerProcedure::Iadh, IntegerProcedure::Iadw]).unwrap(),
+        [IntegerValue::Signed(3), IntegerValue::Signed(-1)]
+    );
+    let observed = run(
+        &body,
+        1,
+        1,
+        0,
+        DictionaryBudget::default(),
+        RefinementBudget::default(),
+        RefinementDictionaryBudget::default(),
+    );
+    let error = observed.result.unwrap_err();
+    assert!(matches!(
+        error.kind,
+        RefinementDictionaryErrorKind::Malformed("negative symbol dimension")
+    ));
+    assert!(observed.output.is_empty());
+}
+
+#[test]
+fn reference_row_caches_are_charged_after_preflight_working_memory() {
+    let error = preflight_error(
+        PreflightCase {
+            new: 1,
+            second_budget: RefinementDictionaryBudget {
+                max_working_bytes: 0,
+                ..RefinementDictionaryBudget::default()
+            },
+            ..PreflightCase::default()
+        },
+        |_, _| {},
+    );
+    let base_working = match error.kind {
+        RefinementDictionaryErrorKind::LimitExceeded {
+            resource: "dictionary working bytes",
+            attempted,
+            ..
+        } => attempted,
+        other => panic!("unexpected preflight result: {other:?}"),
+    };
+    let observed = run(
+        &COMPLETE_ONE,
+        1,
+        1,
+        0,
+        DictionaryBudget::default(),
+        RefinementBudget::default(),
+        RefinementDictionaryBudget {
+            max_working_bytes: base_working,
+            ..RefinementDictionaryBudget::default()
+        },
+    );
+    let error = observed.result.unwrap_err();
+    assert!(matches!(
+        error.kind,
+        RefinementDictionaryErrorKind::LimitExceeded {
+            resource: "dictionary working bytes",
+            attempted,
+            ..
+        } if attempted > base_working
+    ));
+    assert!(error.progress.mq.is_some());
+    assert_eq!(error.progress.completed_symbols, 0);
+    assert!(observed.output.is_empty());
+}
+
+#[test]
+fn height_class_oob_is_a_located_refusal_before_bitmap_output() {
+    let body = [0x70, 0xff, 0xac];
+    assert_eq!(
+        integer_prefix(&body, &[IntegerProcedure::Iadh]).unwrap(),
+        [IntegerValue::OutOfBand]
+    );
+    let observed = run(
+        &body,
+        1,
+        1,
+        0,
+        DictionaryBudget::default(),
+        RefinementBudget::default(),
+        RefinementDictionaryBudget::default(),
+    );
+    let error = observed.result.unwrap_err();
+    assert!(matches!(
+        error.kind,
+        RefinementDictionaryErrorKind::Malformed("IADH out of band")
+    ));
+    assert_eq!(error.progress.height_classes, 1);
+    assert_eq!(error.progress.completed_symbols, 0);
+    assert!(observed.output.is_empty());
+}
+
+#[test]
+fn final_iaex_count_mismatch_rejects_an_underexported_import() {
+    // IAEX skips the sole imported symbol, while the header requires one
+    // export. The mismatch is detected after consuming the complete run.
+    let observed = run(
+        &[0xe0, 0xff, 0xac],
+        1,
+        0,
+        1,
+        DictionaryBudget::default(),
+        RefinementBudget::default(),
+        RefinementDictionaryBudget::default(),
+    );
+    let error = observed.result.unwrap_err();
+    assert!(matches!(
+        error.kind,
+        RefinementDictionaryErrorKind::Malformed("exported symbol total")
+    ));
+    assert_eq!(error.progress.export_runs, 1);
+    assert!(error.progress.poisoned);
+    assert!(observed.output.is_empty());
 }

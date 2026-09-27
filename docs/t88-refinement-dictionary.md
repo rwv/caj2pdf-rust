@@ -88,9 +88,10 @@ reference dimensions, reads and fetched bytes, target/reference row scratch,
 GR decisions/work, output writes, explicit flushes, and per-request sizes.
 `MqBudget` limits the single coding unit's contexts, decisions, work, and
 terminal access. `Limits` supplies overall input/output/allocation and I/O
-caps. All descriptor, span, row, cumulative, and signed-displacement
-arithmetic is checked, including the absolute end of the caller's new-symbol
-store before each bitmap write. The resident bound includes the complete MQ bank,
+caps. Descriptor, span, row, cumulative, and signed-displacement arithmetic
+is checked or bounded by earlier validated limits, including the absolute
+end of the caller's new-symbol store before each bitmap write. The resident
+bound includes the complete MQ bank,
 caller table, 256-byte input buffer, imported/new/exported descriptors, two
 target rows, and three reference rows. Imported and new packed-bitmap stores
 are separate temporary-space costs; no whole dictionary or image body is

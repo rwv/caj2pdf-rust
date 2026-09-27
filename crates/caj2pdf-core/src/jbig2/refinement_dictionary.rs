@@ -21,7 +21,7 @@ use super::{
         RefinementReference, RefinementRequest,
     },
 };
-use crate::{Cancellation, Error, Limits, RangedSource, SequentialSink};
+use crate::{Cancellation, Error, Limits, MAX_BUDGET_COUNT, RangedSource, SequentialSink};
 use std::{error, fmt, mem};
 
 const GR_CONTEXTS: usize = 1024;
@@ -231,6 +231,93 @@ fn checked_cap(
     }
 }
 
+#[derive(Clone, Copy)]
+struct PreflightSite {
+    segment: u32,
+    offset: u64,
+    header_fetched: u64,
+    max_allocation_bytes: u64,
+}
+
+impl PreflightSite {
+    fn error(self, kind: RefinementDictionaryErrorKind) -> RefinementDictionaryError {
+        RefinementDictionaryError {
+            segment: self.segment,
+            offset: self.offset,
+            progress: Box::new(RefinementDictionaryProgress {
+                header_bytes_fetched: self.header_fetched,
+                ..RefinementDictionaryProgress::default()
+            }),
+            kind,
+        }
+    }
+}
+
+fn reserve_catalog<T>(count: usize, site: PreflightSite) -> RefinementDictionaryResult<Vec<T>> {
+    let mut entries = Vec::new();
+    entries
+        .try_reserve_exact(count)
+        .map_err(|_| site.error(RefinementDictionaryErrorKind::AllocationFailed))?;
+    Ok(entries)
+}
+
+fn reserve_catalogs(
+    counts: (usize, usize),
+    site: PreflightSite,
+    allocation_bytes: u64,
+) -> RefinementDictionaryResult<(Vec<SymbolDescriptor>, Vec<StoredSymbol>)> {
+    if allocation_bytes > site.max_allocation_bytes {
+        return Err(site.error(RefinementDictionaryErrorKind::LimitExceeded {
+            resource: "catalog allocation bytes",
+            limit: site.max_allocation_bytes,
+            attempted: allocation_bytes,
+        }));
+    }
+    Ok((
+        reserve_catalog(counts.0, site)?,
+        reserve_catalog(counts.1, site)?,
+    ))
+}
+
+fn checked_dimensions(
+    width: i64,
+    height: i64,
+) -> Result<(u32, u32), RefinementDictionaryErrorKind> {
+    if width < 0 || height < 0 {
+        return Err(RefinementDictionaryErrorKind::Malformed(
+            "negative symbol dimension",
+        ));
+    }
+    if width == 0 || height == 0 {
+        return Err(RefinementDictionaryErrorKind::Unsupported {
+            feature: "zero-dimension symbol bitmap",
+            value: 0,
+        });
+    }
+    let width = u32::try_from(width)
+        .map_err(|_| RefinementDictionaryErrorKind::Malformed("symbol width exceeds 32 bits"))?;
+    let height = u32::try_from(height)
+        .map_err(|_| RefinementDictionaryErrorKind::Malformed("symbol height exceeds 32 bits"))?;
+    Ok((width, height))
+}
+
+fn next_count(
+    value: u32,
+    field: &'static str,
+    segment: u32,
+    offset: u64,
+    progress: RefinementDictionaryProgress,
+) -> RefinementDictionaryResult<u32> {
+    value
+        .checked_add(1)
+        .ok_or_else(|| RefinementDictionaryError {
+            segment,
+            offset,
+            progress: Box::new(progress),
+            kind: RefinementDictionaryErrorKind::InvalidSpan(field),
+        })
+}
+
 #[allow(clippy::too_many_arguments)]
 fn validate_imported(
     segment: &SegmentHeader,
@@ -390,19 +477,20 @@ fn validate_imported(
                 value,
             )?;
         }
-        total_bytes = total_bytes
-            .checked_add(bytes)
-            .ok_or_else(|| bad("imported byte total overflow"))?;
+        // A descriptor is at most u32-by-u32 packed pixels (<2^61 bytes),
+        // while every prior total was capped below 2^48 on this loop.
+        total_bytes += bytes;
+        checked_cap(
+            segment,
+            segment.data.offset,
+            header_fetched,
+            "imported bitmap bytes",
+            budget.max_imported_bitmap_bytes.min(MAX_BUDGET_COUNT),
+            total_bytes,
+        )?;
         previous_end = relative_end;
     }
-    checked_cap(
-        segment,
-        segment.data.offset,
-        header_fetched,
-        "imported bitmap bytes",
-        budget.max_imported_bitmap_bytes,
-        total_bytes,
-    )
+    Ok(())
 }
 
 /// One coding unit over the exact second dictionary body. The imported source
@@ -583,14 +671,6 @@ impl<'a, S: RangedSource, RI: RangedSource, RN: RangedSource, W: SequentialSink,
                 .min(dictionary_budget.max_catalog_bytes),
             metadata,
         )?;
-        checked_cap(
-            segment,
-            location,
-            fetched,
-            "catalog allocation bytes",
-            limits.max_allocation_bytes,
-            new_metadata + export_metadata,
-        )?;
         // The caller's context bank is already allocated. Its byte count is
         // bounded by isize::MAX; the u32-limited metadata cannot overflow u64.
         let base_working = layout.total_contexts() as u64 * mem::size_of::<MqContext>() as u64
@@ -615,23 +695,21 @@ impl<'a, S: RangedSource, RI: RangedSource, RN: RangedSource, W: SequentialSink,
             dictionary_budget.max_source_request_bytes as u64,
             limits.io_chunk_bytes.min(MQ_BUFFER_BYTES as usize) as u64,
         )?;
-        let mut new_symbols = Vec::new();
-        new_symbols
-            .try_reserve_exact(header.new_symbols as usize)
-            .map_err(|_| bad(RefinementDictionaryErrorKind::AllocationFailed))?;
-        let mut exported_symbols = Vec::new();
-        exported_symbols
-            .try_reserve_exact(header.exported_symbols as usize)
-            .map_err(|_| bad(RefinementDictionaryErrorKind::AllocationFailed))?;
-        banks
-            .reset_for_symbol_dictionary()
-            .map_err(|error| bad(RefinementDictionaryErrorKind::Mq(Box::new(error))))?;
-        for index in layout.bitmap_base()..layout.total_contexts() {
-            banks
-                .mq_contexts_mut()
-                .set(index, MqContext::default())
-                .map_err(|error| bad(RefinementDictionaryErrorKind::Mq(Box::new(error))))?;
-        }
+        let counts = (
+            header.new_symbols as usize,
+            header.exported_symbols as usize,
+        );
+        let site = PreflightSite {
+            segment: segment.number,
+            offset: location,
+            header_fetched: fetched,
+            max_allocation_bytes: limits.max_allocation_bytes,
+        };
+        let allocation_bytes = new_metadata + export_metadata;
+        let (new_symbols, exported_symbols) = reserve_catalogs(counts, site, allocation_bytes)?;
+        // This profile never carries bitmap contexts, so a single reset
+        // clears integer, IAID, and GR statistics at the dictionary boundary.
+        banks.mq_contexts_mut().reset();
         let mut initial_fetched = 0;
         let mq = MqDecoder::new_with_init_progress(
             source,
@@ -759,7 +837,6 @@ impl<'a, S: RangedSource, RI: RangedSource, RN: RangedSource, W: SequentialSink,
             imported_base: self.imported_base,
             new_base: self.new_base,
             layout: self.layout,
-            limits: self.limits,
             cancellation: self.cancellation,
             dictionary_budget: self.dictionary_budget,
             budget: self.budget,
@@ -840,7 +917,6 @@ struct Session<'a, C: Cancellation> {
     imported_base: u64,
     new_base: u64,
     layout: IaidLayout,
-    limits: &'a Limits,
     cancellation: &'a C,
     dictionary_budget: DictionaryBudget,
     budget: RefinementDictionaryBudget,
@@ -885,6 +961,28 @@ impl<C: Cancellation> Session<'_, C> {
         }
     }
 
+    fn refinement_error<M: RangedSource, W: SequentialSink>(
+        &self,
+        host: &RefinementDecoder<'_, '_, M, C, W>,
+        error: RefinementError,
+    ) -> RefinementDictionaryError {
+        self.error(
+            host,
+            RefinementDictionaryErrorKind::Refinement(Box::new(error)),
+        )
+    }
+
+    fn mq_error<M: RangedSource, W: SequentialSink>(
+        &self,
+        host: &RefinementDecoder<'_, '_, M, C, W>,
+        error: MqError,
+    ) -> RefinementDictionaryError {
+        let offset = error.offset;
+        let mut located = self.error(host, RefinementDictionaryErrorKind::Mq(Box::new(error)));
+        located.offset = offset.unwrap_or(located.offset);
+        located
+    }
+
     fn cap<M: RangedSource, W: SequentialSink>(
         &self,
         host: &RefinementDecoder<'_, '_, M, C, W>,
@@ -924,20 +1022,10 @@ impl<C: Cancellation> Session<'_, C> {
     ) -> RefinementDictionaryResult<IntegerValue> {
         let mq = match host.mq_mut() {
             Ok(mq) => mq,
-            Err(error) => {
-                return Err(self.error(
-                    host,
-                    RefinementDictionaryErrorKind::Refinement(Box::new(error)),
-                ));
-            }
+            Err(error) => return Err(self.refinement_error(host, error)),
         };
         let result = decode_integer(mq, procedure).await;
-        result.map_err(|error| {
-            let offset = error.offset;
-            let mut located = self.error(host, RefinementDictionaryErrorKind::Mq(Box::new(error)));
-            located.offset = offset.unwrap_or(located.offset);
-            located
-        })
+        result.map_err(|error| self.mq_error(host, error))
     }
 
     async fn iaid<M: RangedSource, W: SequentialSink>(
@@ -946,20 +1034,10 @@ impl<C: Cancellation> Session<'_, C> {
     ) -> RefinementDictionaryResult<u64> {
         let mq = match host.mq_mut() {
             Ok(mq) => mq,
-            Err(error) => {
-                return Err(self.error(
-                    host,
-                    RefinementDictionaryErrorKind::Refinement(Box::new(error)),
-                ));
-            }
+            Err(error) => return Err(self.refinement_error(host, error)),
         };
         let result = decode_iaid(mq, self.layout).await;
-        result.map_err(|error| {
-            let offset = error.offset;
-            let mut located = self.error(host, RefinementDictionaryErrorKind::Mq(Box::new(error)));
-            located.offset = offset.unwrap_or(located.offset);
-            located
-        })
+        result.map_err(|error| self.mq_error(host, error))
     }
 
     fn signed<M: RangedSource, W: SequentialSink>(
@@ -982,79 +1060,38 @@ impl<C: Cancellation> Session<'_, C> {
         width: i64,
         height: i64,
     ) -> RefinementDictionaryResult<(u32, u32, u64, u64)> {
-        if width < 0 || height < 0 {
-            return Err(self.error(
-                host,
-                RefinementDictionaryErrorKind::Malformed("negative symbol dimension"),
-            ));
-        }
-        if width == 0 || height == 0 {
-            return Err(self.error(
-                host,
-                RefinementDictionaryErrorKind::Unsupported {
-                    feature: "zero-dimension symbol bitmap",
-                    value: 0,
-                },
-            ));
-        }
-        let width = u32::try_from(width).map_err(|_| {
-            self.error(
-                host,
-                RefinementDictionaryErrorKind::Malformed("symbol width exceeds 32 bits"),
-            )
-        })?;
-        let height = u32::try_from(height).map_err(|_| {
-            self.error(
-                host,
-                RefinementDictionaryErrorKind::Malformed("symbol height exceeds 32 bits"),
-            )
-        })?;
+        let (width, height) =
+            checked_dimensions(width, height).map_err(|kind| self.error(host, kind))?;
         self.cap(
             host,
             "symbol width",
             u64::from(self.dictionary_budget.max_width),
             u64::from(width),
         )?;
-        self.cap(
-            host,
-            "symbol height",
-            u64::from(self.dictionary_budget.max_height),
-            u64::from(height),
-        )?;
+        // Every symbol in a height class shares the class height, which was
+        // capped before its first width delta was decoded.
         let pixels = u64::from(width) * u64::from(height);
         let bytes = u64::from(width).div_ceil(8) * u64::from(height);
         self.cap(
             host,
             "symbol pixels",
-            self.dictionary_budget.max_pixels_per_symbol,
+            self.dictionary_budget
+                .max_pixels_per_symbol
+                .min(MAX_BUDGET_COUNT),
             pixels,
         )?;
         self.cap(
             host,
             "symbol bytes",
-            self.dictionary_budget.max_bytes_per_symbol,
+            self.dictionary_budget
+                .max_bytes_per_symbol
+                .min(MAX_BUDGET_COUNT),
             bytes,
         )?;
-        let future_pixels = host
-            .progress()
-            .pixels_decoded
-            .checked_add(pixels)
-            .ok_or_else(|| {
-                self.error(
-                    host,
-                    RefinementDictionaryErrorKind::InvalidSpan("total pixel count overflow"),
-                )
-            })?;
-        let future_bytes = host
-            .progress()
-            .output_bytes_written
-            .checked_add(bytes)
-            .ok_or_else(|| {
-                self.error(
-                    host,
-                    RefinementDictionaryErrorKind::InvalidSpan("stored byte count overflow"),
-                )
-            })?;
+        // The host caps prior totals at MAX_BUDGET_COUNT, and each candidate
+        // was capped above, so neither sum can overflow u64.
+        let future_pixels = host.progress().pixels_decoded + pixels;
+        let future_bytes = host.progress().output_bytes_written + bytes;
         self.new_base.checked_add(future_bytes).ok_or_else(|| {
             self.error(
                 host,
@@ -1073,12 +1110,7 @@ impl<C: Cancellation> Session<'_, C> {
             self.dictionary_budget.max_stored_bitmap_bytes,
             future_bytes,
         )?;
-        self.cap(
-            host,
-            "output bytes",
-            self.limits.max_output_bytes,
-            future_bytes,
-        )?;
+        // The refinement host also caps output against Limits before writes.
         Ok((width, height, pixels, bytes))
     }
 
@@ -1156,12 +1188,13 @@ impl<C: Cancellation> Session<'_, C> {
         let mut class_height = 0i64;
         while self.progress.completed_symbols < self.header.new_symbols {
             self.check_cancelled(host)?;
-            let classes = self.progress.height_classes.checked_add(1).ok_or_else(|| {
-                self.error(
-                    host,
-                    RefinementDictionaryErrorKind::InvalidSpan("height class count overflow"),
-                )
-            })?;
+            let classes = next_count(
+                self.progress.height_classes,
+                "height class count overflow",
+                self.segment,
+                self.offset(host),
+                self.snapshot(host),
+            )?;
             self.cap(
                 host,
                 "height classes",
@@ -1170,14 +1203,9 @@ impl<C: Cancellation> Session<'_, C> {
             )?;
             self.progress.height_classes = classes;
             let delta = self.integer(host, IntegerProcedure::Iadh).await?;
-            class_height = class_height
-                .checked_add(self.signed(host, delta, "IADH out of band")?)
-                .ok_or_else(|| {
-                    self.error(
-                        host,
-                        RefinementDictionaryErrorKind::Malformed("height class overflow"),
-                    )
-                })?;
+            // Each prior class height is at most u32::MAX, while Annex A.2
+            // integer magnitudes stay below 2^33, so this fits i64.
+            class_height += self.signed(host, delta, "IADH out of band")?;
             if class_height < 0 || class_height > i64::from(u32::MAX) {
                 return Err(self.error(
                     host,
@@ -1205,12 +1233,9 @@ impl<C: Cancellation> Session<'_, C> {
                         ),
                     ));
                 }
-                class_width = class_width.checked_add(delta).ok_or_else(|| {
-                    self.error(
-                        host,
-                        RefinementDictionaryErrorKind::Malformed("symbol width overflow"),
-                    )
-                })?;
+                // The preceding accepted width is at most u32::MAX and an
+                // Annex A.2 signed delta has magnitude below 2^33.
+                class_width += delta;
                 let (width, height, _, _) = self.geometry(host, class_width, class_height)?;
                 let instances = self.integer(host, IntegerProcedure::Iaai).await?;
                 let instances = self.signed(host, instances, "REFAGGNINST OOB")?;
@@ -1312,12 +1337,13 @@ impl<C: Cancellation> Session<'_, C> {
         let mut export = false;
         loop {
             self.check_cancelled(host)?;
-            let runs = self.progress.export_runs.checked_add(1).ok_or_else(|| {
-                self.error(
-                    host,
-                    RefinementDictionaryErrorKind::InvalidSpan("export run count overflow"),
-                )
-            })?;
+            let runs = next_count(
+                self.progress.export_runs,
+                "export run count overflow",
+                self.segment,
+                self.offset(host),
+                self.snapshot(host),
+            )?;
             self.cap(
                 host,
                 "export runs",
@@ -1383,3 +1409,7 @@ impl<C: Cancellation> Session<'_, C> {
         Ok(())
     }
 }
+
+#[cfg(test)]
+#[path = "refinement_dictionary/tests.rs"]
+mod tests;
