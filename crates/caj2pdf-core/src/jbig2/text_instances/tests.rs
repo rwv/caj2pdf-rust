@@ -808,6 +808,27 @@ fn zero_instances_and_zero_symbols_still_validate_initial_iadt_and_terminal() {
 }
 
 #[test]
+fn mq_initialization_bytes_are_counted_once_with_or_without_a_snapshot() {
+    const BODY: &[u8] = &[0, 0, 0, 0, 0, 0xff, 0xac];
+    let mut successful = Fixture::new(0x10, 0, BODY, &[]);
+    let progress = successful.attempt().unwrap();
+    assert_eq!(progress.header_bytes_fetched, 23);
+    assert_eq!(progress.mq_initialization_bytes_fetched, 0);
+    assert_eq!(progress.mq.unwrap().source_bytes_fetched, BODY.len() as u64);
+    assert_eq!(progress.source_bytes_fetched(), 23 + BODY.len() as u64);
+
+    let mut failed = Fixture::new(0x10, 0, BODY, &[]);
+    failed.source.max_read = 1;
+    failed.source.fault = Some((failed.parsed.body.offset + 1, ReadFault::Zero));
+    let error = failed.attempt().unwrap_err();
+    assert!(matches!(error.kind, TextInstanceErrorKind::Mq(_)));
+    assert_eq!(error.progress.header_bytes_fetched, 23);
+    assert_eq!(error.progress.mq_initialization_bytes_fetched, 1);
+    assert!(error.progress.mq.is_none());
+    assert_eq!(error.progress.source_bytes_fetched(), 24);
+}
+
+#[test]
 fn short_reads_succeed_but_zero_and_overreported_mq_reads_are_located() {
     const BODY: &[u8] = &[0, 0, 0, 0, 0, 0xff, 0xac];
     let mut short = Fixture::new(0x10, 1, BODY, &[ONE_PIXEL]);

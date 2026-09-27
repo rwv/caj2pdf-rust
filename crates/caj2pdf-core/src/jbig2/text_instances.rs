@@ -122,6 +122,8 @@ pub struct TextInstanceProgress {
     pub total_instance_pixels: u64,
     pub decision: TextDecision,
     pub header_bytes_fetched: u64,
+    /// MQ bytes fetched only if initialization failed before a snapshot existed.
+    /// Zero after construction because `mq` already includes the prefetch.
     pub mq_initialization_bytes_fetched: u64,
     pub refinement: RefinementProgress,
     pub mq: Option<MqSnapshot>,
