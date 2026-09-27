@@ -65,7 +65,8 @@ positions, and recheck source SHA-256 after conversion. Keep all copies and
 PDFs outside Git and release artifacts.
 
 The first causal-dependency batch is predeclared as four JFIF APP0 header
-edits. Independent read-only marker checks found a baseline JFIF 1.1 segment
+edits. Independent read-only marker checks found a baseline JFIF 1.01 APP0
+segment whose two-byte JPEG length field has value 16
 at the start of the second image on C8 page 1 and HN-A page 16, with unitless
 1×1 density and no thumbnail. These are recognized JPEG metadata fields, not
 inferred coordinate fields. The unit edit changes the single JFIF units byte
@@ -82,8 +83,11 @@ unknown before the run; a PDF change does not itself establish an x/y rule.
 
 Run each probe twice in fresh directories using the same pinned reference
 environment and compare its PDF SHA-256, page count, MediaBoxes, image order,
-stream hashes and ordered CTMs with the unmodified reference. A structurally
-valid marker is required before launching the converter. This batch tests
+stream hashes and ordered CTMs with the unmodified reference. The selected
+JPEG's encoded-stream SHA-256 must change by construction; check that its
+descriptor/order and pixel dimensions stay fixed and all other image streams
+remain unchanged. Validate the mutated JPEG from SOI through APP0, SOF, SOS
+and EOI before launching the converter. This batch tests
 whether these two JPEG fields influence output; it does not test a rule
 derived from the high-entropy text span.
 
@@ -100,8 +104,9 @@ offsets 0, 20, 26, 28 or 32 under a 1 MiB output cap. This does not identify
 the text codec or prove that coordinates are absent.
 
 None of the 50 additional JPEGs has APP1–APP15 or COM metadata. Each has the
-same 16-byte JFIF APP0 marker before its scan, with version 1.1, unitless
-1×1 density and no thumbnail; its payload SHA-256 is
+same JFIF APP0 segment (length field 16) before its scan, with version 1.01, unitless
+1×1 density and no thumbnail. The 14-byte APP0 data after the length field
+has SHA-256
 `1fb2a1c85b30a2d812c0c54aa6662cee809224a2ee52ff70bfe57604a3e7a2c8`.
 Therefore the observed APP0 fields cannot distinguish the 50 placements.
 Bounded scans found no exact nonzero x/y coordinate representation in the
