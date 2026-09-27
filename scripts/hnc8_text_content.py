@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
-"""Opt-in, fixed-row HN/C8 text-content controls for issue #111.
+"""Opt-in, fixed-row HN/C8 text controls for issue #111.
 
-The two declared controls replace a complete framed text component while
-preserving its source span and page-index row. The external converter is used
-only as a black box. A clean clone makes zero private comparisons.
+The default content batch has two donor controls. The explicit fields batch
+has four decoded-field controls and two zlib-wrapper controls. All preserve
+the source span and page-index row. The external converter is used only as a
+black box. A clean clone makes zero private comparisons.
 """
 
 from __future__ import annotations
@@ -32,6 +33,8 @@ MAX_TEXT_BYTES = 64 * 1024
 MAX_INFLATED_BYTES = 64 * 1024
 FRAME_HEADER_BYTES = 24
 ZLIB_RUNTIME_VERSION = "1.3.1"
+COORDINATE_SCALE = 240 / 2473
+COORDINATE_TOLERANCE = 0.00005
 
 
 class ContentError(ValueError):
@@ -55,43 +58,125 @@ class ContentProbe:
     strategy: int
     chunk_size: int
     expected_mutated_source_sha256: str | None = None
+    kind: str = "donor"
+    field_offset: int | None = None
+    axis: str | None = None
+    original_value: int | None = None
+    new_value: int | None = None
+    image_number: int = 2
 
 
 PROBES = (
     ContentProbe(
-        "c8-row-fixed-text", "c8", 1, 2, 80, 220, 14546, 132124, 10690,
-        14766, 6, 8, zlib.Z_DEFAULT_STRATEGY, 384,
-        "1a2eff7b1dffc3b81f559bed1c9c405fed552c5e966a1b62e6a90866d492f95f",
+        name="c8-row-fixed-text", profile="c8", page=1, donor_page=2,
+        row_offset=80, target_offset=220, target_length=14546,
+        donor_offset=132124, donor_length=10690, first_descriptor=14766,
+        level=6, mem_level=8, strategy=zlib.Z_DEFAULT_STRATEGY, chunk_size=384,
+        expected_mutated_source_sha256=(
+            "1a2eff7b1dffc3b81f559bed1c9c405fed552c5e966a1b62e6a90866d492f95f"),
     ),
     ContentProbe(
-        "hn-a-row-fixed-text", "hn_a", 16, 22, 16664, 953320, 7501,
-        1354683, 5344, 960821, 1, 1, zlib.Z_FIXED, 488,
-        "2f7b01ad1beaa619f5722cc88bde30ad8739423cdea2e90bbbbf5459934bc1e1",
+        name="hn-a-row-fixed-text", profile="hn_a", page=16, donor_page=22,
+        row_offset=16664, target_offset=953320, target_length=7501,
+        donor_offset=1354683, donor_length=5344, first_descriptor=960821,
+        level=1, mem_level=1, strategy=zlib.Z_FIXED, chunk_size=488,
+        expected_mutated_source_sha256=(
+            "2f7b01ad1beaa619f5722cc88bde30ad8739423cdea2e90bbbbf5459934bc1e1"),
     ),
 )
 
 
-def _report() -> dict[str, Any]:
+FIELD_PROBES = (
+    ContentProbe(
+        name="c8-x-field", profile="c8", page=1, donor_page=1,
+        row_offset=80, target_offset=220, target_length=14546,
+        donor_offset=220, donor_length=14546, first_descriptor=14766,
+        level=9, mem_level=8, strategy=zlib.Z_DEFAULT_STRATEGY,
+        chunk_size=MAX_INFLATED_BYTES, kind="field", field_offset=33576,
+        axis="x", original_value=5978, new_value=6078,
+        expected_mutated_source_sha256=(
+            "4121247ecc7b4d3d3b86329f1d8504fffcc7f5768f2f3d67ce8dd3d268795a6a"),
+    ),
+    ContentProbe(
+        name="c8-y-field", profile="c8", page=1, donor_page=1,
+        row_offset=80, target_offset=220, target_length=14546,
+        donor_offset=220, donor_length=14546, first_descriptor=14766,
+        level=9, mem_level=8, strategy=zlib.Z_DEFAULT_STRATEGY,
+        chunk_size=MAX_INFLATED_BYTES, kind="field", field_offset=33578,
+        axis="y", original_value=1479, new_value=1579,
+        expected_mutated_source_sha256=(
+            "73ff3275dcbbe74c39e278e12ed43280f8570f6c473340425d4fa129dfcf3228"),
+    ),
+    ContentProbe(
+        name="hn-a-x-field", profile="hn_a", page=16, donor_page=16,
+        row_offset=16664, target_offset=953320, target_length=7501,
+        donor_offset=953320, donor_length=7501, first_descriptor=960821,
+        level=8, mem_level=7, strategy=zlib.Z_DEFAULT_STRATEGY,
+        chunk_size=MAX_INFLATED_BYTES, kind="field", field_offset=17048,
+        axis="x", original_value=482, new_value=582,
+        expected_mutated_source_sha256=(
+            "779ea5d1b13c147776171e23f61a9f925df8ea520424c03a17f3d09e15f38336"),
+    ),
+    ContentProbe(
+        name="hn-a-y-field", profile="hn_a", page=16, donor_page=16,
+        row_offset=16664, target_offset=953320, target_length=7501,
+        donor_offset=953320, donor_length=7501, first_descriptor=960821,
+        level=8, mem_level=7, strategy=zlib.Z_DEFAULT_STRATEGY,
+        chunk_size=MAX_INFLATED_BYTES, kind="field", field_offset=17050,
+        axis="y", original_value=5446, new_value=5546,
+        expected_mutated_source_sha256=(
+            "5dc6763070234b7b4a1d854949c14e4e5ee08d689f35e0ddbb40f2e63a628ed2"),
+    ),
+    ContentProbe(
+        name="c8-zlib-wrapper", profile="c8", page=1, donor_page=1,
+        row_offset=80, target_offset=220, target_length=14546,
+        donor_offset=220, donor_length=14546, first_descriptor=14766,
+        level=9, mem_level=8, strategy=zlib.Z_DEFAULT_STRATEGY,
+        chunk_size=MAX_INFLATED_BYTES, kind="wrapper",
+        original_value=218, new_value=1,
+        expected_mutated_source_sha256=(
+            "736bb4100fa4b6dd20110370ae14a3c0f7e4e738441ea9929330043b5202a974"),
+    ),
+    ContentProbe(
+        name="hn-a-zlib-wrapper", profile="hn_a", page=16, donor_page=16,
+        row_offset=16664, target_offset=953320, target_length=7501,
+        donor_offset=953320, donor_length=7501, first_descriptor=960821,
+        level=8, mem_level=7, strategy=zlib.Z_DEFAULT_STRATEGY,
+        chunk_size=MAX_INFLATED_BYTES, kind="wrapper",
+        original_value=218, new_value=1,
+        expected_mutated_source_sha256=(
+            "2c017e210bd5f9e6845cc2242270c6674ad5cfdbf01bb40d9c66d4f9da275541"),
+    ),
+)
+BATCHES = {"content": PROBES, "fields": FIELD_PROBES}
+
+
+def _report(batch: str = "content") -> dict[str, Any]:
+    probes = BATCHES[batch]
     return {
         "schema_version": 1,
-        "protocol": "hnc8-row-fixed-text-content-v1",
+        "protocol": f"hnc8-row-fixed-text-{batch}-v1",
+        "batch": batch,
         "status": "NOT_RUN",
         "placement_rule_status": "UNKNOWN_NOT_TESTED",
         "status_semantics": (
-            "PASS means both declared controls produced repeatable, independently parsed "
+            "PASS means all declared controls produced repeatable, independently parsed "
             "PDF outcomes under every geometry guard. A rejected or unsupported conversion "
             "is PARTIAL, and changed or missing explicit inputs are FAIL."
         ),
         "interpretation": (
             "A guarded target supplemental-image translation change isolates framed "
-            "text content from unchanged index-row text address/length. It does not "
-            "identify a coordinate field or placement formula. Conversion rejection "
-            "or unrelated geometry is UNSUPPORTED for placement inference."
+            "text content from unchanged index-row text address/length. The fields batch "
+            "tests four exact decoded u16 candidates and two wrapper controls; its "
+            "240/2473 prediction is retrospective and has no independent unit rationale. "
+            "Conversion rejection or unrelated geometry is UNSUPPORTED. These two "
+            "documents cannot establish a general placement rule."
         ),
         "count_semantics": (
             "Attempted counts probe launches; completed counts probes returning two run "
-            "records; probe_runs counts returned records, not all converter launches. "
-            "Skipped counts unstarted probes."
+            "records; probe_runs counts returned records from completed probes. "
+            "converter_launches counts converter-runner calls before invocation, including "
+            "calls raising protocol errors. Skipped counts unstarted probes."
         ),
         "matrix_sha256": reference.MATRIX_SHA256,
         "layout_oracle_sha256": shared.ORACLE_SHA256,
@@ -104,10 +189,11 @@ def _report() -> dict[str, Any]:
             "private_source_checks_before": 0, "private_source_checks_after": 0,
             "baseline_pdf_checks_before": 0, "baseline_pdf_checks_after": 0,
             "baseline_pdf_metadata_compared": 0,
-            "probes_planned": len(PROBES), "probes_attempted": 0,
+            "probes_planned": len(probes), "probes_attempted": 0,
             "probes_completed": 0, "probes_passing": 0, "probes_failing": 0,
-            "probe_runs": 0, "repeatable_probes": 0,
+            "probe_runs": 0, "converter_launches": 0, "repeatable_probes": 0,
             "text_content_effect_probes": 0, "unsupported_probes": 0,
+            "coordinate_field_effect_probes": 0, "wrapper_unchanged_probes": 0,
             "conversion_failed_probes": 0, "skipped_probes": 0,
         },
         "probes": [], "errors": [],
@@ -140,11 +226,31 @@ def _check_plan(probe: ContentProbe) -> None:
             probe.expected_mutated_source_sha256 is not None and
             len(probe.expected_mutated_source_sha256) != 64):
         raise ContentError("invalid fixed-row text-content plan")
+    if probe.kind not in ("donor", "field", "wrapper"):
+        raise ContentError("unknown fixed-row text control kind")
+    if probe.kind != "donor" and (
+            probe.donor_page != probe.page or probe.donor_offset != probe.target_offset or
+            probe.donor_length != probe.target_length):
+        raise ContentError("non-donor control must use only the target text")
+    if probe.kind == "field" and (
+            probe.axis not in ("x", "y") or probe.field_offset is None or
+            probe.field_offset < 0 or probe.image_number < 2 or
+            type(probe.original_value) is not int or type(probe.new_value) is not int or
+            not 0 <= probe.original_value < probe.new_value <= 65535 or
+            probe.new_value - probe.original_value != 100 or
+            probe.chunk_size != MAX_INFLATED_BYTES or
+            probe.strategy != zlib.Z_DEFAULT_STRATEGY):
+        raise ContentError("invalid exact decoded u16 field control")
+    if probe.kind == "wrapper" and (
+            probe.field_offset is not None or probe.axis is not None or
+            probe.original_value != 218 or probe.new_value != 1):
+        raise ContentError("invalid zlib FLEVEL wrapper control")
 
 
 def _frame(text: bytes, *, image_count: int = 1,
-           profile: text_frame.FrameProfile | None = None) -> tuple[bytes, text_frame.FrameMetadata]:
-    """Reuse the bounded frame diagnostic; copy one validated private spool."""
+           profile: text_frame.FrameProfile | None = None,
+           retain_plain: bool = True) -> tuple[bytes, text_frame.FrameMetadata]:
+    """Reuse the bounded frame diagnostic; retain plaintext only when needed."""
     plain = bytearray()
 
     def receive(spool, metadata: text_frame.FrameMetadata) -> None:
@@ -161,7 +267,7 @@ def _frame(text: bytes, *, image_count: int = 1,
             profile=profile or text_frame.FrameProfile("synthetic"),
             limits=text_frame.FrameLimits(max_span_bytes=MAX_TEXT_BYTES,
                                           max_decoded_bytes=MAX_INFLATED_BYTES),
-            decoded_callback=receive)
+            decoded_callback=receive if retain_plain else None)
     except text_frame.FrameError as exc:
         raise ContentError(f"invalid text frame: {exc}") from exc
     return bytes(plain), metadata
@@ -211,18 +317,21 @@ def _check_source(source: Path, source_id: str, case: dict, probe: ContentProbe,
                   *, mutated_text_sha256: str | None = None) -> int:
     _check_plan(probe)
     target, first_request = _page(source, source_id, probe.page)
-    donor, second_request = _page(source, source_id, probe.donor_page)
     pinned_target = case["source_pages"][probe.page - 1]
-    pinned_donor = case["source_pages"][probe.donor_page - 1]
-    if not previous._oracle_page_matches(donor, pinned_donor):
-        raise ContentError("donor page differs from pinned #107 metadata")
     if (pinned_target["text_offset"] != probe.target_offset or
-            pinned_target["text_length"] != probe.target_length or
-            pinned_donor["text_offset"] != probe.donor_offset or
-            pinned_donor["text_length"] != probe.donor_length):
+            pinned_target["text_length"] != probe.target_length):
         raise ContentError("declared text spans differ from #107 metadata")
-    if not pinned_target["images"] or len(pinned_target["images"]) != len(pinned_donor["images"]):
-        raise ContentError("target and donor image counts differ or are empty")
+    if not pinned_target["images"]:
+        raise ContentError("target image chain is empty")
+    second_request = 0
+    if probe.kind == "donor":
+        donor, second_request = _page(source, source_id, probe.donor_page)
+        pinned_donor = case["source_pages"][probe.donor_page - 1]
+        if (not previous._oracle_page_matches(donor, pinned_donor) or
+                pinned_donor["text_offset"] != probe.donor_offset or
+                pinned_donor["text_length"] != probe.donor_length or
+                len(pinned_target["images"]) != len(pinned_donor["images"])):
+            raise ContentError("donor text or image count differs from pinned #107 metadata")
     expected = {**pinned_target, "text_sha256": (
         mutated_text_sha256 if mutated_text_sha256 is not None
         else pinned_target["text_sha256"])}
@@ -236,8 +345,11 @@ def _check_source(source: Path, source_id: str, case: dict, probe: ContentProbe,
 def _audit_diff(source: Path, mutant: Path, probe: ContentProbe) -> dict:
     if source.stat().st_size != mutant.stat().st_size:
         raise ContentError("text-content copy changed source length")
-    allowed_start = probe.target_offset + 20
+    allowed_start = probe.target_offset + (20 if probe.kind == "donor" else 24)
     allowed_end = probe.first_descriptor
+    if probe.kind == "wrapper":
+        allowed_start = probe.target_offset + 25
+        allowed_end = allowed_start + 1
     changed = 0
     runs: list[list[int]] = []
     with source.open("rb") as old, mutant.open("rb") as new:
@@ -264,29 +376,107 @@ def _audit_diff(source: Path, mutant: Path, probe: ContentProbe) -> dict:
             "allowed_changed_spans": [[allowed_start, allowed_end - allowed_start]]}
 
 
+def _replacement_text(original_text: bytes, donor_text: bytes | None,
+                      probe: ContentProbe, image_count: int) -> tuple[bytes, dict]:
+    """Prepare and validate one complete frame without retaining extra plaintext."""
+    profile = text_frame.PROFILES[probe.profile]
+    original_plain, original_frame = _frame(
+        original_text, image_count=image_count, profile=profile,
+        retain_plain=probe.kind == "field")
+    frames = [original_frame]
+    details: dict[str, Any] = {}
+    if probe.kind == "donor":
+        if donor_text is None or original_text[:20] != donor_text[:20]:
+            raise ContentError("variant text header differs between target and donor")
+        donor_plain, donor_frame = _frame(donor_text, image_count=image_count, profile=profile)
+        frames.append(donor_frame)
+        replacement = (original_text[:20] + donor_frame.decoded_length.to_bytes(4, "little") +
+                       _compressed(donor_plain, probe))
+        expected_decoded_sha = donor_frame.decoded_sha256
+        expected_decoded_length = donor_frame.decoded_length
+        details.update({"donor_inflated_sha256": expected_decoded_sha,
+                        "donor_inflated_length": expected_decoded_length})
+    elif probe.kind == "field":
+        records = original_frame.trailing_records
+        expected_offset = records.first_offset + records.stride * (probe.image_number - 1)
+        expected_offset += 0 if probe.axis == "x" else 2
+        if (probe.image_number > records.count or probe.field_offset != expected_offset or
+                int.from_bytes(original_plain[expected_offset:expected_offset + 2], "little")
+                != probe.original_value):
+            raise ContentError("decoded coordinate field differs from the exact declared slot/value")
+        modified = bytearray(original_plain)
+        modified[expected_offset:expected_offset + 2] = probe.new_value.to_bytes(2, "little")
+        replacement = original_text[:FRAME_HEADER_BYTES] + _compressed(modified, probe)
+        expected_decoded_sha = hashlib.sha256(modified).hexdigest()
+        expected_decoded_length = len(original_plain)
+        changed_positions = [index for index in range(len(original_plain))
+                             if original_plain[index] != modified[index]]
+        if not changed_positions or any(
+                not expected_offset <= index < expected_offset + 2 for index in changed_positions):
+            raise ContentError("decoded bytes changed outside the declared logical field")
+        details["logical_field"] = {
+            "decoded_span": [expected_offset, 2], "image_number": probe.image_number,
+            "axis": probe.axis, "original_value": probe.original_value,
+            "new_value": probe.new_value, "delta": 100,
+            "decoded_changed_positions": changed_positions,
+            "all_other_decoded_bytes_unchanged": True,
+        }
+    else:
+        cmf, old_flag = original_text[24:26]
+        # RFC 1950 FCHECK covers CMF/FLG. FDICT stays clear; FLEVEL is advisory.
+        new_flag = (-(cmf << 8)) % 31
+        if (cmf != 120 or old_flag != probe.original_value or
+                new_flag != probe.new_value or old_flag & 32):
+            raise ContentError("zlib wrapper differs from predeclared CMF/FLEVEL/FCHECK")
+        replacement = original_text[:25] + bytes([new_flag]) + original_text[26:]
+        expected_decoded_sha = original_frame.decoded_sha256
+        expected_decoded_length = original_frame.decoded_length
+        details["wrapper_control"] = {
+            "source_flag_span": [probe.target_offset + 25, 1], "cmf": cmf,
+            "old_flag": old_flag, "new_flag": new_flag,
+            "old_flevel": old_flag >> 6, "new_flevel": new_flag >> 6,
+            "fcheck_verified": (cmf * 256 + new_flag) % 31 == 0,
+            "deflate_and_adler_bytes_unchanged": True,
+            "all_decoded_bytes_unchanged": True,
+        }
+    _, replacement_frame = _frame(replacement, image_count=image_count, profile=profile,
+                                   retain_plain=False)
+    frames.append(replacement_frame)
+    if (len(replacement) != probe.target_length or
+            replacement_frame.decoded_sha256 != expected_decoded_sha or
+            replacement_frame.decoded_length != expected_decoded_length):
+        raise ContentError("replacement is not the complete declared plaintext frame")
+    if probe.kind != "donor" and replacement[:FRAME_HEADER_BYTES] != original_text[:FRAME_HEADER_BYTES]:
+        raise ContentError("non-donor control changed opaque header or decoded length")
+    details["frame_checks"] = {
+        "target_decoded_sha256": original_frame.decoded_sha256,
+        "target_decoded_length": original_frame.decoded_length,
+        "mutant_decoded_sha256": replacement_frame.decoded_sha256,
+        "mutant_decoded_length": replacement_frame.decoded_length,
+        "max_source_read_request_bytes": max(frame.max_source_read_request_bytes for frame in frames),
+        "max_decoder_output_chunk_bytes": max(frame.max_decoder_output_chunk_bytes for frame in frames),
+        "max_decoded_spool_bytes": max(frame.decoded_spool_bytes for frame in frames),
+        "complete_no_tail_length_marker_profile": "PASS",
+    }
+    if probe.kind == "donor":
+        details["frame_checks"]["donor_decoded_sha256"] = expected_decoded_sha
+    return replacement, details
+
+
 def copy_content(source: Path, directory: Path, probe: ContentProbe,
                  expected_source_sha256: str, target_text_sha256: str,
-                 donor_text_sha256: str, image_count: int) -> dict:
-    """Write one bounded copy with a complete, exact-size donor text frame."""
+                 donor_text_sha256: str | None, image_count: int) -> dict:
+    """Write one bounded copy using the selected complete, exact-size control."""
     _check_plan(probe)
     if zlib.ZLIB_RUNTIME_VERSION != ZLIB_RUNTIME_VERSION:
         raise ContentError("local zlib runtime differs from predeclared compression runtime")
     original_text = _text(source, probe.target_offset, probe.target_length)
-    donor_text = _text(source, probe.donor_offset, probe.donor_length)
+    donor_text = (_text(source, probe.donor_offset, probe.donor_length)
+                  if probe.kind == "donor" else None)
     if (hashlib.sha256(original_text).hexdigest() != target_text_sha256 or
-            hashlib.sha256(donor_text).hexdigest() != donor_text_sha256):
+            donor_text is not None and hashlib.sha256(donor_text).hexdigest() != donor_text_sha256):
         raise ContentError("target or donor text differs from pinned #107 oracle")
-    profile = text_frame.PROFILES[probe.profile]
-    _, original_frame = _frame(original_text, image_count=image_count, profile=profile)
-    donor_plain, donor_frame = _frame(donor_text, image_count=image_count, profile=profile)
-    if original_text[:20] != donor_text[:20]:
-        raise ContentError("variant text header differs between target and donor")
-    replacement = (original_text[:20] + len(donor_plain).to_bytes(4, "little") +
-                   _compressed(donor_plain, probe))
-    replacement_plain, replacement_frame = _frame(
-        replacement, image_count=image_count, profile=profile)
-    if len(replacement) != probe.target_length or replacement_plain != donor_plain:
-        raise ContentError("replacement is not the complete donor plaintext frame")
+    replacement, details = _replacement_text(original_text, donor_text, probe, image_count)
     replacement_sha = hashlib.sha256(replacement).hexdigest()
     directory.mkdir(parents=False, exist_ok=False)
     mutant = directory / "source-mutated.caj"
@@ -315,21 +505,8 @@ def copy_content(source: Path, directory: Path, probe: ContentProbe,
             "mutated_text_sha256": replacement_sha,
             "target_text_sha256": target_text_sha256,
             "donor_text_sha256": donor_text_sha256,
-            "donor_inflated_sha256": hashlib.sha256(donor_plain).hexdigest(),
-            "donor_inflated_length": len(donor_plain),
             "target_frame_length": probe.target_length - FRAME_HEADER_BYTES,
-            "frame_checks": {
-                "target_decoded_sha256": original_frame.decoded_sha256,
-                "donor_decoded_sha256": donor_frame.decoded_sha256,
-                "mutant_decoded_sha256": replacement_frame.decoded_sha256,
-                "max_source_read_request_bytes": max(frame.max_source_read_request_bytes
-                    for frame in (original_frame, donor_frame, replacement_frame)),
-                "max_decoder_output_chunk_bytes": max(frame.max_decoder_output_chunk_bytes
-                    for frame in (original_frame, donor_frame, replacement_frame)),
-                "max_decoded_spool_bytes": max(frame.decoded_spool_bytes
-                    for frame in (original_frame, donor_frame, replacement_frame)),
-                "complete_no_tail_length_marker_profile": "PASS",
-            },
+            **details,
             **diff}
 
 
@@ -341,40 +518,106 @@ def compare_pdf(baseline: dict, mutant: dict, probe: ContentProbe,
     result["text_content_effect"] = result.pop("component_placement_effect")
     result["ordered_pages_before"] = [shared._page_summary(page) for page in baseline["pages"]]
     result["ordered_pages_after"] = [shared._page_summary(page) for page in mutant["pages"]]
+    if probe.kind == "donor":
+        return result
+    result.pop("donor_translation_comparisons", None)
+    result.pop("donor_translation_matches", None)
+    failures = result["guard_failures"]
+    if probe.kind == "wrapper":
+        if result["changed_ctms"]:
+            failures.append("zlib-wrapper control changed ordered image geometry")
+        result["outcome"] = "UNSUPPORTED" if failures else "NO_PLACEMENT_CHANGE"
+        result["text_content_effect"] = False
+        result["wrapper_placement_unchanged"] = not failures
+        return result
+    if "target_page_before" not in result:
+        return result
+    before_page = baseline["pages"][probe.page - 1]
+    after_page = mutant["pages"][probe.page - 1]
+    if min(len(before_page["draws"]), len(after_page["draws"])) < probe.image_number:
+        failures.append("declared coordinate-field image draw is absent")
+    else:
+        old_ctm = before_page["draws"][probe.image_number - 1]["pdf_ctm"]
+        new_ctm = after_page["draws"][probe.image_number - 1]["pdf_ctm"]
+        component = 4 if probe.axis == "x" else 5
+        height = before_page["media_box"][3] - before_page["media_box"][1]
+        old_prediction = COORDINATE_SCALE * probe.original_value
+        new_prediction = COORDINATE_SCALE * probe.new_value
+        if probe.axis == "y":
+            old_prediction, new_prediction = height - old_prediction, height - new_prediction
+        residual_before = old_ctm[component] - old_prediction
+        residual_after = new_ctm[component] - new_prediction
+        if not abs(residual_before) <= COORDINATE_TOLERANCE:
+            failures.append("baseline selected coordinate differs from absolute field prediction")
+        if not abs(residual_after) <= COORDINATE_TOLERANCE:
+            failures.append("mutated selected coordinate differs from absolute field prediction")
+        for change in result["changed_ctms"]:
+            if ((change["page_number"], change["draw_number"]) !=
+                    (probe.page, probe.image_number) or
+                    any(left != right for index, (left, right) in enumerate(
+                        zip(change["before"], change["after"])) if index != component)):
+                failures.append("decoded-field control changed another draw or CTM component")
+        result["field_prediction"] = {
+            "decoded_field_span": [probe.field_offset, 2], "axis": probe.axis,
+            "image_number": probe.image_number, "old_value": probe.original_value,
+            "new_value": probe.new_value, "scale_numerator": 240, "scale_denominator": 2473,
+            "expected_delta_points": new_prediction - old_prediction,
+            "expected_component_before": old_prediction,
+            "expected_component_after": new_prediction,
+            "observed_component_before": old_ctm[component],
+            "observed_component_after": new_ctm[component],
+            "residual_before": residual_before, "residual_after": residual_after,
+            "tolerance_points": COORDINATE_TOLERANCE,
+            "scope": "retrospective empirical candidate; source units and general rule unverified",
+        }
+    result["outcome"] = "UNSUPPORTED" if failures else "COORDINATE_FIELD_EFFECT"
+    result["text_content_effect"] = not failures
     return result
 
 
 def _run_probe(probe: ContentProbe, profile: reference.Profile, source: Path,
                case: dict, baseline: dict, session: Path, paths: Mapping[str, Path],
-               expected_source_sha256: str, resources: dict) -> dict:
+               expected_source_sha256: str, resources: dict,
+               *, counts: dict | None = None) -> dict:
     request = _check_source(source, profile.source_id, case, probe)
     resources["max_ranged_request_bytes"] = max(resources["max_ranged_request_bytes"], request)
     directory = Path(tempfile.mkdtemp(prefix=f"{probe.name}-", dir=session))
     pinned_target = case["source_pages"][probe.page - 1]
-    pinned_donor = case["source_pages"][probe.donor_page - 1]
+    pinned_donor = (case["source_pages"][probe.donor_page - 1]
+                    if probe.kind == "donor" else None)
     copy = copy_content(source, directory / "copy", probe, expected_source_sha256,
-                        pinned_target["text_sha256"], pinned_donor["text_sha256"],
+                        pinned_target["text_sha256"],
+                        pinned_donor["text_sha256"] if pinned_donor is not None else None,
                         len(pinned_target["images"]))
     mutant = Path(copy["path"])
     request = _check_source(mutant, profile.source_id, case, probe,
                             mutated_text_sha256=copy["mutated_text_sha256"])
-    resources["max_ranged_request_bytes"] = max(resources["max_ranged_request_bytes"], request)
+    resources["max_ranged_request_bytes"] = max(
+        resources["max_ranged_request_bytes"], request, probe.target_length,
+        probe.donor_length if probe.kind == "donor" else 0)
     result: dict[str, Any] = {
         "name": probe.name, "profile": probe.profile, "source_id": profile.source_id,
-        "target_page": probe.page, "donor_page": probe.donor_page,
+        "kind": probe.kind, "target_page": probe.page,
+        "donor_page": probe.donor_page if probe.kind == "donor" else None,
         "unchanged_target_row_span": [probe.row_offset, 20],
         "original_text_span": [probe.target_offset, probe.target_length],
-        "donor_text_span": [probe.donor_offset, probe.donor_length],
+        "donor_text_span": ([probe.donor_offset, probe.donor_length]
+                            if probe.kind == "donor" else None),
         "mutant_text_span": [probe.target_offset, probe.target_length],
         "first_descriptor": probe.first_descriptor,
         "compression": {"level": probe.level, "mem_level": probe.mem_level,
                         "strategy": probe.strategy, "chunk_size": probe.chunk_size,
-                        "flush": "Z_FULL_FLUSH between nonempty chunks",
+                        "flush": ("Z_FULL_FLUSH between nonempty chunks" if probe.kind == "donor"
+                                  else "Z_FINISH only" if probe.kind == "field"
+                                  else "wrapper flag only; no recompression"),
                         "runtime_version": zlib.ZLIB_RUNTIME_VERSION},
         **{key: value for key, value in copy.items() if key != "path"},
-        "runs": [], "repeatable": False, "outcome": "NOT_RUN",
+        "runs": [], "converter_launches": 0, "repeatable": False, "outcome": "NOT_RUN",
     }
     for index in (1, 2):
+        result["converter_launches"] += 1
+        if counts is not None:
+            counts["converter_launches"] += 1
         conversion = reference.run_converter(mutant, session, paths,
                                              label=f"{probe.name}-run{index}")
         if (shared._file_digest(source) != copy["source_sha256"] or
@@ -428,13 +671,16 @@ def _run_probe(probe: ContentProbe, profile: reference.Profile, source: Path,
 
 
 def run(paths: Mapping[str, Path] | None = None,
-        reference_report: Path | None = None) -> dict[str, Any]:
-    report = _report()
+        reference_report: Path | None = None, *, batch: str = "content") -> dict[str, Any]:
+    if batch not in BATCHES:
+        raise ContentError("unknown text-control batch")
+    probes = BATCHES[batch]
+    report = _report(batch)
     if paths is None and reference_report is None:
         return report
     if paths is None or reference_report is None:
         report["status"] = "FAIL"
-        report["counts"]["skipped_probes"] = len(PROBES)
+        report["counts"]["skipped_probes"] = len(probes)
         report["errors"].append("all external paths and --reference-report are required together")
         return report
     rows = before_sources = before_environment = before_inputs = None
@@ -500,31 +746,39 @@ def run(paths: Mapping[str, Path] | None = None,
             report["resources"]["max_pdf_tool_child_rss_kib"] = max(
                 report["resources"]["max_pdf_tool_child_rss_kib"], parsed["resources"]["max_child_rss_kib"])
         source_rows = {row["id"]: row for row in rows}
-        for probe in PROBES:
+        for probe in probes:
             profile = profiles[probe.profile]
             source = (resolved["corpus"] / source_rows[profile.source_id]["path"]).resolve(strict=True)
             if not source.is_relative_to(resolved["corpus"]):
                 raise ContentError("probe source escaped audited corpus root")
             report["counts"]["probes_attempted"] += 1
+            launches_before = report["counts"]["converter_launches"]
             try:
                 result = _run_probe(probe, profile, source, oracle[probe.profile],
                                     baselines[probe.profile], session, resolved,
-                                    source_rows[profile.source_id]["sha256"], report["resources"])
+                                    source_rows[profile.source_id]["sha256"], report["resources"],
+                                    counts=report["counts"])
                 if len(result["runs"]) != 2 or result["outcome"] not in (
                         "NO_PLACEMENT_CHANGE", "TEXT_CONTENT_DEPENDENCY",
+                        "COORDINATE_FIELD_EFFECT",
                         "UNSUPPORTED", "CONVERSION_FAILED", "NONDETERMINISTIC"):
                     raise ContentError("probe did not return two classified conversion runs")
             except (reference.ReferenceError, ContentError, OSError, ValueError,
                     KeyError, TypeError) as exc:
                 report["counts"]["probes_failing"] += 1
                 report["probes"].append({"name": probe.name, "profile": probe.profile,
-                                         "outcome": "PROBE_PROTOCOL_FAILED", "error_kind": type(exc).__name__})
+                                         "outcome": "PROBE_PROTOCOL_FAILED", "error_kind": type(exc).__name__,
+                                         "converter_launches": (
+                                             report["counts"]["converter_launches"] - launches_before)})
                 raise
             report["probes"].append(result)
             report["counts"]["probes_completed"] += 1
             report["counts"]["probe_runs"] += len(result["runs"])
             report["counts"]["repeatable_probes"] += result["repeatable"]
             report["counts"]["text_content_effect_probes"] += result["outcome"] == "TEXT_CONTENT_DEPENDENCY"
+            report["counts"]["coordinate_field_effect_probes"] += result["outcome"] == "COORDINATE_FIELD_EFFECT"
+            report["counts"]["wrapper_unchanged_probes"] += (
+                probe.kind == "wrapper" and result["outcome"] == "NO_PLACEMENT_CHANGE")
             report["counts"]["conversion_failed_probes"] += result["outcome"] == "CONVERSION_FAILED"
             report["counts"]["unsupported_probes"] += result["outcome"] in (
                 "CONVERSION_FAILED", "UNSUPPORTED", "NONDETERMINISTIC")
@@ -535,14 +789,15 @@ def run(paths: Mapping[str, Path] | None = None,
             if result["outcome"] == "NONDETERMINISTIC":
                 raise ContentError("probe produced nondeterministic repeated conversions")
         report["status"] = "PASS" if report["counts"]["unsupported_probes"] == 0 else "PARTIAL"
-        report["placement_rule_status"] = "UNKNOWN_TEXT_CONTENT_ONLY"
+        report["placement_rule_status"] = ("UNKNOWN_TEXT_CONTENT_ONLY" if batch == "content"
+                                            else "UNKNOWN_COORDINATE_FIELDS_EMPIRICAL_ONLY")
         report["baseline_reference_report_status"] = baseline_report["status"]
     except (reference.ReferenceError, ContentError, OSError, ValueError,
             KeyError, TypeError, json.JSONDecodeError) as exc:
         report["status"] = "FAIL"
         report["errors"].append(str(exc))
     finally:
-        report["counts"]["skipped_probes"] = max(0, len(PROBES) - report["counts"]["probes_attempted"])
+        report["counts"]["skipped_probes"] = max(0, len(probes) - report["counts"]["probes_attempted"])
         if resolved is not None and rows is not None and before_sources is not None:
             try:
                 after_sources = reference.audit_sources(resolved["corpus"], rows)
@@ -594,14 +849,15 @@ def main(argv: list[str] | None = None) -> int:
                  "jbig-lib", "artifact-dir", "reference-report", "git", "qpdf",
                  "mutool", "pdfinfo", "pdfimages"):
         parser.add_argument(f"--{name}", type=Path)
+    parser.add_argument("--batch", choices=tuple(BATCHES), default="content")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
     try:
-        report = run(reference._paths(args), args.reference_report)
+        report = run(reference._paths(args), args.reference_report, batch=args.batch)
     except reference.ReferenceError as exc:
-        report = _report()
+        report = _report(args.batch)
         report["status"] = "FAIL"
-        report["counts"]["skipped_probes"] = len(PROBES)
+        report["counts"]["skipped_probes"] = len(BATCHES[args.batch])
         report["errors"].append(str(exc))
     if args.json:
         print(json.dumps(report, ensure_ascii=False, sort_keys=True, separators=(",", ":")))
