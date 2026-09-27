@@ -2,7 +2,24 @@
 
 //! Shared native-only SHA-pinned plan and refusal helpers for text diagnostics.
 
-use super::*;
+use crate::support::{digest_file, ready};
+use caj2pdf_core::{
+    Error, Limits, MAX_IO_CHUNK, NeverCancel, RangedSource,
+    jbig2::mq::MqErrorKind,
+    jbig2::refinement::RefinementErrorKind,
+    jbig2::text::TextRegionErrorKind,
+    jbig2::text_instances::TextInstanceErrorKind,
+    jbig2::{HeaderLimits, SegmentHeader, SegmentSpan, read_segment_header},
+};
+use std::{
+    error::Error as StdError,
+    fs::{self, File},
+    io::{Read, Seek, SeekFrom},
+    path::{Path, PathBuf},
+};
+
+pub(crate) const MAX_PLAN_BYTES: u64 = 2 * 1024 * 1024;
+pub(crate) const EXPECTED_CASES: usize = 546;
 
 pub(super) struct SpanPin {
     pub(super) offset: u64,
@@ -65,42 +82,7 @@ pub(super) fn parse_plan(path: &Path) -> Result<Vec<Case>, Box<dyn StdError>> {
     cases.try_reserve_exact(EXPECTED_CASES)?;
     for line in text.lines() {
         let fields: Vec<&str> = line.split('\t').collect();
-        if fields.len() != 19 || fields[0].is_empty() || fields[3].is_empty() {
-            return Err("diagnostic plan line has invalid fields".into());
-        }
-        if fields[16].len() != 64 || !fields[16].bytes().all(|b| b.is_ascii_hexdigit()) {
-            return Err("text segment SHA is invalid".into());
-        }
-        let classification = fields[18];
-        if classification != "STANDARD_VALID" && classification != "INTEROPERABILITY_NONCONFORMING"
-        {
-            return Err("text header classification is invalid".into());
-        }
-        let case = Case {
-            id: fields[0].to_owned(),
-            page: fields[1].parse()?,
-            image: fields[2].parse()?,
-            source: PathBuf::from(fields[3]),
-            first: parse_pin(&fields[4..9])?,
-            second: parse_pin(&fields[9..14])?,
-            text: TextPin {
-                offset: fields[14].parse()?,
-                length: fields[15].parse()?,
-                encoded_sha: fields[16].to_ascii_lowercase(),
-                instances: fields[17].parse()?,
-                anomaly: classification == "INTEROPERABILITY_NONCONFORMING",
-            },
-        };
-        if case.page == 0
-            || case.image == 0
-            || case.first.offset >= case.second.offset
-            || case.second.offset >= case.text.offset
-            || case.text.length < 23
-            || case.text.length > 64 * 1024 * 1024
-        {
-            return Err("diagnostic plan coordinates or span order are invalid".into());
-        }
-        cases.push(case);
+        cases.push(parse_case_fields(&fields)?);
         if cases.len() > EXPECTED_CASES {
             return Err("diagnostic plan has too many cases".into());
         }
@@ -109,6 +91,45 @@ pub(super) fn parse_plan(path: &Path) -> Result<Vec<Case>, Box<dyn StdError>> {
         return Err("diagnostic plan does not contain 546 cases".into());
     }
     Ok(cases)
+}
+
+/// Parse the stable prefix shared by text-only and full-page private plans.
+pub(super) fn parse_case_fields(fields: &[&str]) -> Result<Case, Box<dyn StdError>> {
+    if fields.len() != 19 || fields[0].is_empty() || fields[3].is_empty() {
+        return Err("diagnostic plan line has invalid fields".into());
+    }
+    if fields[16].len() != 64 || !fields[16].bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err("text segment SHA is invalid".into());
+    }
+    let classification = fields[18];
+    if classification != "STANDARD_VALID" && classification != "INTEROPERABILITY_NONCONFORMING" {
+        return Err("text header classification is invalid".into());
+    }
+    let case = Case {
+        id: fields[0].to_owned(),
+        page: fields[1].parse()?,
+        image: fields[2].parse()?,
+        source: PathBuf::from(fields[3]),
+        first: parse_pin(&fields[4..9])?,
+        second: parse_pin(&fields[9..14])?,
+        text: TextPin {
+            offset: fields[14].parse()?,
+            length: fields[15].parse()?,
+            encoded_sha: fields[16].to_ascii_lowercase(),
+            instances: fields[17].parse()?,
+            anomaly: classification == "INTEROPERABILITY_NONCONFORMING",
+        },
+    };
+    if case.page == 0
+        || case.image == 0
+        || case.first.offset >= case.second.offset
+        || case.second.offset >= case.text.offset
+        || case.text.length < 23
+        || case.text.length > 64 * 1024 * 1024
+    {
+        return Err("diagnostic plan coordinates or span order are invalid".into());
+    }
+    Ok(case)
 }
 
 /// A second read handle observes the length after the sink flushes each symbol.
@@ -137,8 +158,8 @@ impl RangedSource for GrowingFileSource {
     }
 }
 
-pub(super) fn checked_header(
-    source: &mut SeekableSource<File>,
+pub(super) fn checked_header<S: RangedSource>(
+    source: &mut S,
     source_path: &Path,
     pin: &SpanPin,
     number: u32,
@@ -167,8 +188,8 @@ pub(super) fn checked_header(
     Ok(header)
 }
 
-pub(super) fn checked_text_segment(
-    source: &mut SeekableSource<File>,
+pub(super) fn checked_text_segment<S: RangedSource>(
+    source: &mut S,
     case: &Case,
     limits: &Limits,
 ) -> Result<SegmentHeader, Box<dyn StdError>> {

@@ -10,37 +10,30 @@ mod support;
 mod text_case;
 use text_case::*;
 
+#[cfg(test)]
 use caj2pdf_core::{
-    Error, Limits, MAX_IO_CHUNK, NeverCancel, RangedSource,
+    Error,
+    jbig2::{mq::MqErrorKind, refinement::RefinementErrorKind, text::TextRegionErrorKind},
+};
+use caj2pdf_core::{
+    Limits, NeverCancel,
     jbig2::{
-        HeaderLimits, SegmentHeader, SegmentSpan,
         dictionary::{DictionaryBudget, DirectDictionaryDecoder},
         iaid::IaidContextBanks,
-        mq::{MqBudget, MqErrorKind},
-        read_segment_header,
-        refinement::{RefinementBudget, RefinementErrorKind},
+        mq::MqBudget,
+        refinement::RefinementBudget,
         refinement_dictionary::{
             RefinementDictionaryBudget, RefinementDictionaryDecoder, SymbolStore,
         },
-        text::{TextRegionBudget, TextRegionErrorKind, read_text_region_header},
-        text_instances::{
-            TextBitmap, TextInstance, TextInstanceBudget, TextInstanceDecoder,
-            TextInstanceErrorKind,
-        },
+        text::{TextRegionBudget, read_text_region_header},
+        text_instances::{TextBitmap, TextInstance, TextInstanceBudget, TextInstanceDecoder},
     },
     native::{SeekableSource, WriteSink},
 };
 use sha2::{Digest, Sha256};
-use std::{
-    env,
-    error::Error as StdError,
-    fs::{self, File},
-    io::{Read, Seek, SeekFrom},
-    path::{Path, PathBuf},
-};
-use support::{TempStore, digest_file, hex, ready, table};
+use std::{env, error::Error as StdError, fs::File, path::Path};
+use support::{TempStore, hex, ready, table};
 
-const MAX_PLAN_BYTES: u64 = 2 * 1024 * 1024;
 const EXPECTED_CASES: usize = 546;
 
 struct CaseOutcome {
