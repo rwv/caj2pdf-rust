@@ -95,8 +95,10 @@ after the pull decoder has validated its MQ terminal. It never interprets
 the text region as a complete HN/C8 page: page information and generic
 region #4 still need explicit composition under
 [#9](https://github.com/rwv/caj2pdf-rust/issues/9). The malformed raw
-`0xa40c` text header remains a separate strict refusal until an explicit
-interoperability policy is chosen.
+`0xa40c` text header remains a strict refusal by default. The
+[#88 compatibility policy](t88-text-header-compatibility.md) requires an
+explicit caller choice, and the report retains its raw flags and typed
+anomaly marker when chosen.
 
 ## Verification
 
@@ -113,16 +115,26 @@ python3 scripts/jbig2_text_region_parity.py \
   --table-fixture /tmp/private-t88-table.fixture --json
 ```
 
+To measure the separately labeled `0xa40c` case through the same arithmetic
+and composition path, add
+`--text-header-policy hn-c8-unused-refinement-template`. Strict mode remains
+the default. The opt-in report counts one anomaly match separately from the
+545 standard matches; it does not add the two counts into a conformance
+claim. See the [policy note](t88-text-header-compatibility.md) for exact
+source and hash evidence.
+
 The diagnostic checks all 27 source hashes and the private MQ-table hash
 before and after execution. Its report separates completed, matching,
-failing, and skipped standard cases from the strict `0xa40c` refusal and
-records maximum request, scratch bytes, and process peak RSS. No external
+failing, and skipped standard cases from either the strict `0xa40c` refusal
+or the one separately counted opt-in anomaly result. It also records maximum
+request, scratch bytes, and process peak RSS. No external
 document, decoded bitmap, or exact MQ table row enters Git. A clean clone
 without optional inputs reports `NOT_RUN` with zero compatibility cases;
 explicitly invalid inputs fail. A pixel match establishes this text-only
 slice, not full-page/PDF parity or independence of the two external oracle
-backends. This additive `v0.x.y` API does not change an existing public
-signature; future breaking changes must be documented explicitly.
+backends. Issue #88 adds `TextRegionHeader::anomaly` and the public composer
+report's `text_flags_raw` and `header_anomaly` fields. This is an explicitly
+marked `v0.x.y` Rust struct-literal API change.
 
 On 2026-09-27 UTC, the local SHA-pinned run attempted all 546 images. All
 **545 standards-valid regions** completed and matched both the #85
@@ -134,3 +146,11 @@ table hash matched before and after. The largest scratch bitmap was
 process RSS was 2,711,552 bytes. A 2496 × 3522 page used 1,098,864 bytes
 of scratch and matched the text-only oracle. These measurements are for
 this private run and machine, not universal runtime bounds.
+
+A separate 2026-09-27 UTC [#88 opt-in run](t88-text-header-compatibility.md)
+kept the 545 standards-valid pixel matches and decoded the single
+nonconforming `0xa40c` header through the same instance and composer path.
+Its 234 instances, 3,431 rows, SHA-256, and 3,718 black pixels matched
+the #85 text-only baseline. This opt-in result is reported apart from the
+strict-valid count and does not include page-information or generic-region
+composition.

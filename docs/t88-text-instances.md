@@ -27,6 +27,12 @@ store that produced its dictionary handles and that the temporary sink
 appends at the supplied base. The core can validate ranges and identities
 but cannot prove two opaque adapters name the same physical file.
 
+`new` uses the strict text-header parser. The separate
+`new_with_header_policy` constructor requires an explicit policy argument
+and reparses the same source under that policy. It is used for the narrow
+[#88 HN/C8 exception](t88-text-header-compatibility.md); the caller cannot
+pass an opted-in parsed header to the strict constructor.
+
 The consumer repeatedly awaits `next()` and handles one `TextInstance` at a
 time. An event contains a checked top-left `(x, y)` in region-local
 coordinates, symbol ID, strip index, RI bit, size, and a bitmap handle.
@@ -111,6 +117,9 @@ standards-valid regions completed their MQ terminal: **353,829 instances**,
 including **243,728 RI=0** and **110,101 RI=1**, across **58,220 strips**.
 The one raw `0xa40c` header was rejected by the strict parser because
 `SBRTEMPLATE=1` while `SBREFINE=0`; no bit is cleared or reinterpreted.
+The later [#88 opt-in policy](t88-text-header-compatibility.md) permits an
+explicitly named HN/C8 caller to pass this exact header through the same
+source-checked instance path. The historical run here remains strict.
 There were zero standard-region refusals. Source hashes passed 27/27 before
 and after, and the private table hash passed both checks. This establishes
 a complete decoder control trace for these inputs, not correct placement or

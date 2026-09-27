@@ -113,11 +113,30 @@ impl TextRegionFlags {
     }
 }
 
+/// Caller-selected validation for a documented HN/C8 header defect.
+/// The default parser always uses `Strict`.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum TextHeaderPolicy {
+    #[default]
+    Strict,
+    /// Accept only raw flags `0xa40c`: an unused `SBRTEMPLATE` bit with
+    /// `SBREFINE=0`. All other header validation remains strict.
+    HnC8UnusedRefinementTemplate,
+}
+
+/// A nonconforming header accepted under an explicit caller policy.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TextHeaderAnomaly {
+    UnusedRefinementTemplate,
+}
+
 /// Parsed text region data header. `body` is an exact absolute source range.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct TextRegionHeader {
     pub region: RegionInfo,
     pub flags: TextRegionFlags,
+    /// `None` for strictly valid headers; retains an accepted deviation.
+    pub anomaly: Option<TextHeaderAnomaly>,
     /// Figure 37 Huffman table selections, present only when `SBHUFF` is 1.
     pub huffman_flags: Option<u16>,
     /// `SBRATX1, SBRATY1, SBRATX2, SBRATY2`, present only when `SBREFINE` is 1
@@ -319,6 +338,30 @@ pub async fn read_text_region_header<S: RangedSource, C: Cancellation>(
     budget: TextRegionBudget,
     cancellation: &C,
 ) -> TextRegionResult<TextRegionHeader> {
+    read_text_region_header_with_policy(
+        source,
+        header,
+        dictionary,
+        limits,
+        budget,
+        cancellation,
+        TextHeaderPolicy::Strict,
+    )
+    .await
+}
+
+/// Parse a text-region header with an explicit interoperability policy.
+/// `HnC8UnusedRefinementTemplate` accepts only raw `0xa40c`; it does not
+/// normalize the returned flags or skip any framing, size, or body checks.
+pub async fn read_text_region_header_with_policy<S: RangedSource, C: Cancellation>(
+    source: &mut S,
+    header: &SegmentHeader,
+    dictionary: &SegmentHeader,
+    limits: &Limits,
+    budget: TextRegionBudget,
+    cancellation: &C,
+    policy: TextHeaderPolicy,
+) -> TextRegionResult<TextRegionHeader> {
     let fail = |kind| TextRegionError {
         segment: header.number,
         offset: header.data.offset,
@@ -418,10 +461,10 @@ pub async fn read_text_region_header<S: RangedSource, C: Cancellation>(
     let start = header.data.offset;
     let prefix: [u8; PREFIX_BYTES] = cursor.read("text region header").await?;
     let region = parse_region(&prefix, &cursor, budget)?;
-    let flags = parse_flags(u16::from_be_bytes([
-        prefix[REGION_INFO_BYTES],
-        prefix[REGION_INFO_BYTES + 1],
-    ]))
+    let (flags, anomaly) = parse_flags(
+        u16::from_be_bytes([prefix[REGION_INFO_BYTES], prefix[REGION_INFO_BYTES + 1]]),
+        policy,
+    )
     .map_err(|kind| cursor.error_at(start + REGION_INFO_BYTES as u64, kind))?;
 
     let huffman_flags = if flags.huffman {
@@ -464,6 +507,7 @@ pub async fn read_text_region_header<S: RangedSource, C: Cancellation>(
     Ok(TextRegionHeader {
         region,
         flags,
+        anomaly,
         huffman_flags,
         refinement_at,
         instances,
@@ -547,39 +591,51 @@ fn parse_region<S: RangedSource, C: Cancellation>(
     })
 }
 
-fn parse_flags(raw: u16) -> Result<TextRegionFlags, TextRegionErrorKind> {
+fn parse_flags(
+    raw: u16,
+    policy: TextHeaderPolicy,
+) -> Result<(TextRegionFlags, Option<TextHeaderAnomaly>), TextRegionErrorKind> {
     let refine = raw & 2 != 0;
     let refinement_template = (raw >> 15) as u8;
-    if !refine && refinement_template != 0 {
-        return Err(TextRegionErrorKind::MalformedFlags {
-            field: "SBRTEMPLATE without SBREFINE",
-            raw,
-        });
-    }
+    let anomaly = if !refine && refinement_template != 0 {
+        if policy == TextHeaderPolicy::HnC8UnusedRefinementTemplate && raw == 0xa40c {
+            Some(TextHeaderAnomaly::UnusedRefinementTemplate)
+        } else {
+            return Err(TextRegionErrorKind::MalformedFlags {
+                field: "SBRTEMPLATE without SBREFINE",
+                raw,
+            });
+        }
+    } else {
+        None
+    };
     // Sign-extend the five-bit SBDSOFFSET in bits 10-14.
     let ds_offset = (((raw >> 10) & 0x1f) as i8) << 3 >> 3;
-    Ok(TextRegionFlags {
-        raw,
-        huffman: raw & 1 != 0,
-        refine,
-        log_strips: ((raw >> 2) & 3) as u8,
-        reference_corner: match (raw >> 4) & 3 {
-            0 => ReferenceCorner::BottomLeft,
-            1 => ReferenceCorner::TopLeft,
-            2 => ReferenceCorner::BottomRight,
-            _ => ReferenceCorner::TopRight,
+    Ok((
+        TextRegionFlags {
+            raw,
+            huffman: raw & 1 != 0,
+            refine,
+            log_strips: ((raw >> 2) & 3) as u8,
+            reference_corner: match (raw >> 4) & 3 {
+                0 => ReferenceCorner::BottomLeft,
+                1 => ReferenceCorner::TopLeft,
+                2 => ReferenceCorner::BottomRight,
+                _ => ReferenceCorner::TopRight,
+            },
+            transposed: raw & 0x40 != 0,
+            combination: match (raw >> 7) & 3 {
+                0 => SymbolCombination::Or,
+                1 => SymbolCombination::And,
+                2 => SymbolCombination::Xor,
+                _ => SymbolCombination::Xnor,
+            },
+            default_pixel: raw & 0x200 != 0,
+            ds_offset,
+            refinement_template,
         },
-        transposed: raw & 0x40 != 0,
-        combination: match (raw >> 7) & 3 {
-            0 => SymbolCombination::Or,
-            1 => SymbolCombination::And,
-            2 => SymbolCombination::Xor,
-            _ => SymbolCombination::Xnor,
-        },
-        default_pixel: raw & 0x200 != 0,
-        ds_offset,
-        refinement_template,
-    })
+        anomaly,
+    ))
 }
 
 /// Figure 37 constraints: bit 15 reserved, selector value 2 forbidden for

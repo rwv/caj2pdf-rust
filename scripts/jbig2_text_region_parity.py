@@ -4,6 +4,8 @@
 
 The private MQ table and external CAJSamples files stay outside Git. Rust
 receives no expected pixel hash: this script compares its completed output.
+Strict T.88 decoding is the default; the single HN/C8 header anomaly requires
+an explicit compatibility policy and is reported separately.
 """
 
 from __future__ import annotations
@@ -25,15 +27,19 @@ EXPECTED = instances.EXPECTED
 STANDARD = instances.STANDARD
 MAX_REQUEST_BYTES = 256 * 1024
 EMPTY_SHA256 = hashlib.sha256(b"").hexdigest()
+STRICT_POLICY = "strict"
+HN_C8_POLICY = "hn-c8-unused-refinement-template"
+ANOMALY_MARKER = "HN_C8_UNUSED_REFINEMENT_TEMPLATE"
 
 
 class ParityError(instances.DiagnosticError):
     """A pinned input, bounded decoder result, or pixel comparison failed."""
 
 
-def initial_report() -> dict:
+def initial_report(policy: str = STRICT_POLICY) -> dict:
     return {
         "status": "NOT_RUN", "phase": "preflight", "expected_images": EXPECTED,
+        "text_header_policy": policy,
         "source_hashes_before": 0, "source_hashes_after": 0,
         "table_hashes_before": 0, "table_hashes_after": 0,
         "compatibility": {
@@ -43,6 +49,13 @@ def initial_report() -> dict:
             "first_pixel_mismatch": None, "cases": [],
         },
         "strict_header_refusals": 0,
+        "opt_in_anomaly": {
+            "status": "NOT_RUN", "attempted": 0, "completed": 0,
+            "matching": 0, "failing": 0, "skipped": 0,
+            "marker": ANOMALY_MARKER, "raw_flags": "0xa40c",
+            "case": None, "first_typed_refusal": None,
+            "first_pixel_mismatch": None,
+        },
         "resources": {
             "peak_resident_bytes": 0, "max_request_bytes": 0,
             "max_temporary_bytes": 0, "large_page": None,
@@ -77,19 +90,24 @@ def plan_for_cases(cases: list[dict], recorded: dict, dictionary_manifest: dict,
     return lines, selected
 
 
-def parse_output(output: str, selected: list[dict]) -> tuple[dict, int, dict]:
+def parse_output(output: str, selected: list[dict],
+                 policy: str = STRICT_POLICY) -> tuple[dict, int, dict, dict]:
+    if policy not in (STRICT_POLICY, HN_C8_POLICY):
+        raise ParityError("unknown text-header compatibility policy")
     lines = output.splitlines()
     if len(selected) != EXPECTED or len(lines) != EXPECTED + 1:
         raise ParityError(f"Rust emitted {len(lines)} lines, expected {EXPECTED + 1}")
-    report = initial_report()["compatibility"]
-    resources = initial_report()["resources"]
+    blank = initial_report(policy)
+    report = blank["compatibility"]
+    anomaly = blank["opt_in_anomaly"]
+    resources = blank["resources"]
     report.update(status="FAIL", attempted=EXPECTED, standard_attempted=STANDARD,
                   skipped=0)
     strict_header_refusals = 0
     largest_area = -1
     for number, (line, expected) in enumerate(zip(lines[:-1], selected)):
         fields = line.split("\t")
-        if len(fields) != 16 or fields[0] != "CASE":
+        if len(fields) != (16 if policy == STRICT_POLICY else 17) or fields[0] != "CASE":
             raise ParityError(f"Rust case line {number} has invalid fields")
         try:
             coordinate = (fields[1], int(fields[2]), int(fields[3]))
@@ -98,6 +116,7 @@ def parse_output(output: str, selected: list[dict]) -> tuple[dict, int, dict]:
         except ValueError as exc:
             raise ParityError(f"Rust case line {number} has invalid numbers") from exc
         status, pixel_sha, refusal, stage = fields[4], fields[9], fields[13], fields[15]
+        marker = "-" if policy == STRICT_POLICY else fields[16]
         width, height = expected["width"], expected["height"]
         raster_bytes = ((width + 7) // 8) * height
         if (coordinate != expected["coordinate"]
@@ -114,14 +133,49 @@ def parse_output(output: str, selected: list[dict]) -> tuple[dict, int, dict]:
                  "pixel_sha256": pixel_sha, "temporary_bytes": scratch,
                  "max_request_bytes": request, "peak_resident_bytes": resident}
         if expected["classification"] == oracle.ANOMALY:
-            if (status != "HEADER_REFUSED" or completed or rows or output_bytes or black
-                    or scratch or request or pixel_sha != EMPTY_SHA256
-                    or refusal != "malformed_text_header" or stage != "Header"
-                    or offset != expected["flags_offset"]):
-                raise ParityError("0xa40c did not fail as a strict header")
-            strict_header_refusals += 1
+            if policy == STRICT_POLICY:
+                if (status != "HEADER_REFUSED" or completed or rows or output_bytes or black
+                        or scratch or request or pixel_sha != EMPTY_SHA256
+                        or refusal != "malformed_text_header" or stage != "Header"
+                        or offset != expected["flags_offset"]):
+                    raise ParityError("0xa40c did not fail as a strict header")
+                strict_header_refusals += 1
+            else:
+                anomaly.update(status="FAIL", attempted=1)
+                entry["anomaly_marker"] = marker
+                anomaly["case"] = entry
+                if status == "COMPLETE":
+                    if (marker != ANOMALY_MARKER or refusal != "-" or stage != "Complete"
+                            or completed != expected["instances"] or rows != height
+                            or output_bytes != raster_bytes or scratch != raster_bytes):
+                        raise ParityError("0xa40c completion lacks its marker or full output")
+                    anomaly["completed"] = 1
+                    if (pixel_sha == expected["pixel_sha256"]
+                            and black == expected["black_pixels"]):
+                        anomaly.update(status="PASS", matching=1)
+                        entry["pixel_match"] = True
+                    else:
+                        entry["pixel_match"] = False
+                        anomaly["failing"] = 1
+                        anomaly["first_pixel_mismatch"] = {
+                            "coordinate": coordinate, "expected_sha256": expected["pixel_sha256"],
+                            "actual_sha256": pixel_sha,
+                            "expected_black": expected["black_pixels"], "actual_black": black,
+                        }
+                elif status in ("REFUSED", "HEADER_REFUSED"):
+                    if (marker not in ("-", ANOMALY_MARKER) or refusal == "-"
+                            or not refusal or any(char.isspace() for char in refusal)):
+                        raise ParityError("0xa40c refusal lacks a typed location")
+                    anomaly["failing"] = 1
+                    anomaly["first_typed_refusal"] = {
+                        "coordinate": coordinate, "kind": refusal,
+                        "source_byte_offset": offset, "stage": stage,
+                        "completed_instances": completed, "completed_rows": rows,
+                    }
+                else:
+                    raise ParityError(f"0xa40c has invalid status {status!r}")
         elif status == "COMPLETE":
-            if (refusal != "-" or stage != "Complete"
+            if (marker != "-" or refusal != "-" or stage != "Complete"
                     or completed != expected["instances"] or rows != height
                     or output_bytes != raster_bytes or scratch != raster_bytes):
                 raise ParityError(f"Rust complete case {number} has incomplete output")
@@ -139,7 +193,8 @@ def parse_output(output: str, selected: list[dict]) -> tuple[dict, int, dict]:
                         "actual_black": black,
                     }
         elif status == "REFUSED":
-            if not refusal or refusal == "-" or any(char.isspace() for char in refusal):
+            if (marker != "-" or not refusal or refusal == "-"
+                    or any(char.isspace() for char in refusal)):
                 raise ParityError(f"Rust case {number} lacks a typed refusal")
             failure = {"coordinate": coordinate, "kind": refusal,
                        "source_byte_offset": offset, "stage": stage,
@@ -165,9 +220,12 @@ def parse_output(output: str, selected: list[dict]) -> tuple[dict, int, dict]:
     if lines[-1].split("\t") != ["TOTAL", str(EXPECTED)]:
         raise ParityError("Rust total does not acknowledge all 546 attempts")
     report["failing"] = STANDARD - report["matching"]
-    if report["matching"] == STANDARD and strict_header_refusals == 1:
+    if (report["matching"] == STANDARD
+            and ((policy == STRICT_POLICY and strict_header_refusals == 1)
+                 or (policy == HN_C8_POLICY and anomaly["matching"] == 1
+                     and strict_header_refusals == 0))):
         report["status"] = "PASS"
-    return report, strict_header_refusals, resources
+    return report, strict_header_refusals, anomaly, resources
 
 
 def build_binary(override: Path | None) -> Path:
@@ -182,20 +240,27 @@ def build_binary(override: Path | None) -> Path:
     return instances.ROOT / "target/release/examples/jbig2_text_region_parity"
 
 
-def run_binary(binary: Path, fixture: Path, lines: list[str], selected: list[dict]) -> tuple[dict, int, dict]:
+def run_binary(binary: Path, fixture: Path, lines: list[str], selected: list[dict],
+               policy: str) -> tuple[dict, int, dict, dict]:
     with tempfile.TemporaryDirectory(prefix="caj2pdf-text-region-parity-", dir="/tmp") as temp:
         plan = Path(temp) / "plan.tsv"
         plan.write_text("\n".join(lines) + "\n", encoding="utf-8")
         if plan.stat().st_size > instances.MAX_PLAN_BYTES:
             raise ParityError("written text-region parity plan exceeds 2 MiB")
-        output = instances.bounded_decode([str(binary), str(fixture), str(plan)])
-        return parse_output(output, selected)
+        arguments = [str(binary), str(fixture), str(plan)]
+        if policy == HN_C8_POLICY:
+            arguments.append(policy)
+        output = instances.bounded_decode(arguments)
+        return parse_output(output, selected, policy)
 
 
 def run(corpus: Path | None, fixture: Path | None, binary: Path | None = None,
         manifest_path: Path = oracle.DEFAULT_MANIFEST,
-        report: dict | None = None) -> dict:
-    report = initial_report() if report is None else report
+        report: dict | None = None, policy: str = STRICT_POLICY) -> dict:
+    if policy not in (STRICT_POLICY, HN_C8_POLICY):
+        raise ParityError("unknown text-header compatibility policy")
+    report = initial_report(policy) if report is None else report
+    report["text_header_policy"] = policy
     text_manifest = instances.load_text_manifest(manifest_path)
     if corpus is None and fixture is None:
         report["reason"] = "external corpus and private T.88 state table are unset"
@@ -218,9 +283,10 @@ def run(corpus: Path | None, fixture: Path | None, binary: Path | None = None,
         report["phase"] = "rust_build"
         selected_binary = build_binary(binary)
         report["phase"] = "rust_decode"
-        compatibility, strict, resources = run_binary(selected_binary, fixture, lines, selected)
+        compatibility, strict, anomaly, resources = run_binary(
+            selected_binary, fixture, lines, selected, policy)
         report.update(compatibility=compatibility, strict_header_refusals=strict,
-                      resources=resources)
+                      opt_in_anomaly=anomaly, resources=resources)
     finally:
         active_phase = report["phase"]
         report["phase"] = "source_postcheck"
@@ -242,7 +308,7 @@ def run(corpus: Path | None, fixture: Path | None, binary: Path | None = None,
         report.update(status="PASS", phase="complete")
     else:
         report.update(status="FAIL", phase="complete",
-                      error="one or more standard text-region pixels did not match #85")
+                      error="standard or opt-in anomaly text-region pixels did not match #85")
     return report
 
 
@@ -256,11 +322,14 @@ def main(argv: list[str] | None = None) -> int:
                         if os.environ.get("CAJ2PDF_T88_H2_FIXTURE_FILE") else None)
     parser.add_argument("--manifest", type=Path, default=oracle.DEFAULT_MANIFEST)
     parser.add_argument("--rust-bin", type=Path)
+    parser.add_argument("--text-header-policy", choices=(STRICT_POLICY, HN_C8_POLICY),
+                        default=STRICT_POLICY)
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
-    report = initial_report()
+    report = initial_report(args.text_header_policy)
     try:
-        report = run(args.corpus_dir, args.table_fixture, args.rust_bin, args.manifest, report)
+        report = run(args.corpus_dir, args.table_fixture, args.rust_bin, args.manifest,
+                     report, args.text_header_policy)
     except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError,
             subprocess.TimeoutExpired, instances.dictionaries.InventoryError,
             instances.headers.InventoryError, instances.full.OracleError,

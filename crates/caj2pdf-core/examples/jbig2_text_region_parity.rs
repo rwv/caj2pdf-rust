@@ -20,7 +20,10 @@ use caj2pdf_core::{
         read_segment_header,
         refinement::{RefinementBudget, RefinementErrorKind},
         refinement_dictionary::{RefinementDictionaryBudget, RefinementDictionaryDecoder},
-        text::{TextRegionBudget, TextRegionErrorKind, read_text_region_header},
+        text::{
+            TextHeaderAnomaly, TextHeaderPolicy, TextRegionBudget, TextRegionErrorKind,
+            read_text_region_header_with_policy,
+        },
         text_composer::{
             BitmapStore, BitmapView, RandomAccessScratch, TextComposeBudget, TextComposeError,
             TextComposeErrorKind, TextComposer,
@@ -45,6 +48,8 @@ use support::{TempStore, digest_file, hex, peak_rss_kib, ready, table};
 
 const MAX_PLAN_BYTES: u64 = 2 * 1024 * 1024;
 const EXPECTED_CASES: usize = 546;
+const COMPATIBILITY_ARG: &str = "hn-c8-unused-refinement-template";
+const COMPATIBILITY_MARKER: &str = "HN_C8_UNUSED_REFINEMENT_TEMPLATE";
 
 struct CaseOutcome {
     status: &'static str,
@@ -59,6 +64,7 @@ struct CaseOutcome {
     refusal: String,
     offset: u64,
     stage: String,
+    anomaly: &'static str,
 }
 
 fn header_outcome(status: &'static str, refusal: &'static str, offset: u64) -> CaseOutcome {
@@ -75,6 +81,7 @@ fn header_outcome(status: &'static str, refusal: &'static str, offset: u64) -> C
         refusal: refusal.to_owned(),
         offset,
         stage: "Header".to_owned(),
+        anomaly: "-",
     }
 }
 
@@ -279,6 +286,7 @@ fn instance_refusal(error: TextInstanceError) -> CaseOutcome {
         refusal: format!("instance_{}", refusal_kind(&error.kind)),
         offset: error.offset,
         stage: format!("{:?}", progress.decision),
+        anomaly: "-",
     }
 }
 
@@ -297,12 +305,14 @@ fn compose_refusal(error: TextComposeError, scratch_bytes: u64) -> CaseOutcome {
         refusal: compose_refusal_kind(&error.kind),
         offset: error.offset,
         stage: format!("{:?}", progress.stage),
+        anomaly: "-",
     }
 }
 
 fn one_case(
     case: &Case,
     table: &caj2pdf_core::jbig2::mq::MqTable,
+    policy: TextHeaderPolicy,
 ) -> Result<CaseOutcome, Box<dyn StdError>> {
     let limits = Limits::default();
     let mq_budget = MqBudget::default();
@@ -311,16 +321,30 @@ fn one_case(
     let first = checked_header(&mut source, &case.source, &case.first, 1, &limits)?;
     let second = checked_header(&mut source, &case.source, &case.second, 2, &limits)?;
     let third = checked_text_segment(&mut source, case, &limits)?;
-    let text_header = ready(read_text_region_header(
+    let text_header = ready(read_text_region_header_with_policy(
         &mut source,
         &third,
         &second,
         &limits,
         TextRegionBudget::default(),
         &NeverCancel,
+        policy,
     ));
     let text_header = match text_header {
-        Ok(header) if !case.text.anomaly && header.instances == case.text.instances => header,
+        Ok(header)
+            if header.instances == case.text.instances
+                && header.anomaly
+                    == if case.text.anomaly
+                        && policy == TextHeaderPolicy::HnC8UnusedRefinementTemplate
+                    {
+                        Some(TextHeaderAnomaly::UnusedRefinementTemplate)
+                    } else {
+                        None
+                    }
+                && (!case.text.anomaly || policy != TextHeaderPolicy::Strict) =>
+        {
+            header
+        }
         Err(error)
             if case.text.anomaly
                 && matches!(
@@ -436,7 +460,7 @@ fn one_case(
         inner: WriteSink::new(temporary_file),
         revision: Rc::clone(&refined_revision),
     };
-    let mut text_decoder = match ready(TextInstanceDecoder::new(
+    let mut text_decoder = match ready(TextInstanceDecoder::new_with_header_policy(
         &mut source,
         &third,
         text_header,
@@ -456,6 +480,7 @@ fn one_case(
         TextRegionBudget::default(),
         RefinementBudget::default(),
         TextInstanceBudget::default(),
+        policy,
     )) {
         Ok(decoder) => decoder,
         Err(error) => return Ok(instance_refusal(error)),
@@ -525,6 +550,11 @@ fn one_case(
     if output_bytes != region.packed_bytes || region.progress.output_bytes_written != output_bytes {
         return Err("composed pixel byte count differs from final file".into());
     }
+    if region.text_flags_raw != text_header.flags.raw
+        || region.header_anomaly != text_header.anomaly
+    {
+        return Err("composed report differs from validated text-header policy".into());
+    }
     Ok(CaseOutcome {
         status: "COMPLETE",
         completed: region.progress.completed_instances,
@@ -538,6 +568,11 @@ fn one_case(
         refusal: "-".to_owned(),
         offset: 0,
         stage: format!("{:?}", region.progress.stage),
+        anomaly: if region.header_anomaly == Some(TextHeaderAnomaly::UnusedRefinementTemplate) {
+            COMPATIBILITY_MARKER
+        } else {
+            "-"
+        },
     })
 }
 
@@ -546,20 +581,31 @@ fn run() -> Result<(), Box<dyn StdError>> {
     let _ = args.next();
     let fixture = args.next().ok_or("usage: EXAMPLE PRIVATE_TABLE PLAN.tsv")?;
     let plan = args.next().ok_or("usage: EXAMPLE PRIVATE_TABLE PLAN.tsv")?;
+    let policy = match args.next() {
+        None => TextHeaderPolicy::Strict,
+        Some(value) if value == COMPATIBILITY_ARG => TextHeaderPolicy::HnC8UnusedRefinementTemplate,
+        _ => {
+            return Err(
+                "usage: EXAMPLE PRIVATE_TABLE PLAN.tsv [hn-c8-unused-refinement-template]".into(),
+            );
+        }
+    };
     if args.next().is_some() {
-        return Err("usage: EXAMPLE PRIVATE_TABLE PLAN.tsv".into());
+        return Err(
+            "usage: EXAMPLE PRIVATE_TABLE PLAN.tsv [hn-c8-unused-refinement-template]".into(),
+        );
     }
     let cases = parse_plan(Path::new(&plan))?;
     let limits = Limits::default();
     let table = table(Path::new(&fixture), &limits)?;
     for case in cases {
-        let outcome = one_case(&case, &table).map_err(|error| {
+        let outcome = one_case(&case, &table, policy).map_err(|error| {
             format!(
                 "{} page {} image {}: {error}",
                 case.id, case.page, case.image
             )
         })?;
-        println!(
+        let mut row = format!(
             "CASE\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
             case.id,
             case.page,
@@ -577,6 +623,11 @@ fn run() -> Result<(), Box<dyn StdError>> {
             outcome.offset,
             outcome.stage,
         );
+        if policy != TextHeaderPolicy::Strict {
+            row.push('\t');
+            row.push_str(outcome.anomaly);
+        }
+        println!("{row}");
     }
     println!("TOTAL\t{EXPECTED_CASES}");
     Ok(())

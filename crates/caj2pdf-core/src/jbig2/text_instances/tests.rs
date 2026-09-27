@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 
+use super::super::text::{TextHeaderAnomaly, read_text_region_header};
 use super::super::{
     SegmentSpan, dictionary::DictionaryDataHeader,
     refinement_dictionary::RefinementDictionaryCatalog,
@@ -364,6 +365,13 @@ impl Fixture {
     }
 
     fn decode_all(&mut self) -> TextInstanceResult<(Vec<TextInstance>, TextInstanceProgress)> {
+        self.decode_all_with_policy(TextHeaderPolicy::Strict)
+    }
+
+    fn decode_all_with_policy(
+        &mut self,
+        policy: TextHeaderPolicy,
+    ) -> TextInstanceResult<(Vec<TextInstance>, TextInstanceProgress)> {
         let limits = Limits::default();
         let table = table_with_qe(&limits, self.qe);
         let mut banks = IaidContextBanks::with_bitmap_contexts(
@@ -373,7 +381,7 @@ impl Fixture {
             &self.mq_budget,
         )
         .unwrap();
-        let mut decoder = ready(TextInstanceDecoder::new(
+        let mut decoder = ready(TextInstanceDecoder::new_with_header_policy(
             &mut self.source,
             &self.text_segment,
             self.parsed,
@@ -393,6 +401,7 @@ impl Fixture {
             self.header_budget,
             self.refinement_budget,
             self.budget,
+            policy,
         ))?;
         let mut instances = Vec::new();
         while let Some(instance) = ready(decoder.next())? {
@@ -720,6 +729,55 @@ fn parser_and_report_preflight_refuse_forged_metadata_before_mq() {
     let mut f = make();
     f.budget.max_working_bytes = 0;
     preflight_reject(f, "working bytes");
+}
+
+#[test]
+fn hn_c8_unused_template_policy_decodes_same_instances_as_canonical_header() {
+    const BODY: &[u8] = &[0, 0, 0, 0, 0, 0xff, 0xac];
+    let mut canonical = Fixture::new(0x240c, 1, BODY, &[ONE_PIXEL]);
+    let expected = canonical.decode_all().unwrap();
+    assert_eq!(expected.0.len(), 1);
+
+    let mut anomaly = Fixture::new(0x240c, 1, BODY, &[ONE_PIXEL]);
+    anomaly.source.data[17..19].copy_from_slice(&0xa40cu16.to_be_bytes());
+    anomaly.parsed = ready(read_text_region_header_with_policy(
+        &mut anomaly.source,
+        &anomaly.text_segment,
+        &anomaly.dictionary_segment,
+        &Limits::default(),
+        anomaly.header_budget,
+        &NeverCancel,
+        TextHeaderPolicy::HnC8UnusedRefinementTemplate,
+    ))
+    .unwrap();
+    assert_eq!(anomaly.parsed.flags.raw, 0xa40c);
+    assert_eq!(
+        anomaly.parsed.anomaly,
+        Some(TextHeaderAnomaly::UnusedRefinementTemplate)
+    );
+    let actual = anomaly
+        .decode_all_with_policy(TextHeaderPolicy::HnC8UnusedRefinementTemplate)
+        .unwrap();
+    assert_eq!(actual.0, expected.0);
+    assert_eq!(actual.1, expected.1);
+
+    let mut default_strict = Fixture::new(0x240c, 1, BODY, &[ONE_PIXEL]);
+    default_strict.source.data[17..19].copy_from_slice(&0xa40cu16.to_be_bytes());
+    default_strict.parsed = anomaly.parsed;
+    let error = default_strict.attempt().unwrap_err();
+    assert!(matches!(error.kind, TextInstanceErrorKind::Header(_)));
+    assert_eq!(default_strict.source.body_reads, 0);
+
+    let mut forged = Fixture::new(0x240c, 1, BODY, &[ONE_PIXEL]);
+    forged.parsed.anomaly = Some(TextHeaderAnomaly::UnusedRefinementTemplate);
+    let error = forged
+        .decode_all_with_policy(TextHeaderPolicy::HnC8UnusedRefinementTemplate)
+        .unwrap_err();
+    assert!(matches!(
+        error.kind,
+        TextInstanceErrorKind::Malformed("supplied text header differs from source")
+    ));
+    assert_eq!(forged.source.body_reads, 0);
 }
 
 #[test]

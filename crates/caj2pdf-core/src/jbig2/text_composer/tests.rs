@@ -35,6 +35,7 @@ fn header(
     combination: SymbolCombination,
 ) -> TextRegionHeader {
     TextRegionHeader {
+        anomaly: None,
         region: RegionInfo {
             width,
             height,
@@ -433,6 +434,31 @@ fn compose_manual(
         budget,
     )?;
     ready(composer.compose())
+}
+
+#[test]
+fn completed_report_retains_explicit_header_anomaly() {
+    let symbol = stored(SymbolStore::Imported, descriptor(1, 1, 0));
+    let mut parsed = header(1, 1, 1, false, SymbolCombination::Or);
+    parsed.flags.raw = 0xa40c;
+    parsed.flags.refinement_template = 1;
+    parsed.flags.log_strips = 3;
+    parsed.flags.ds_offset = 9;
+    parsed.anomaly = Some(TextHeaderAnomaly::UnusedRefinementTemplate);
+    let report = compose_manual(
+        parsed,
+        &[symbol],
+        vec![event(0, 0, 0, 0, TextBitmap::Stored(symbol))],
+        &mut Bytes::new(&[0x80]),
+        &mut Bytes::new(&[]),
+        &mut Bytes::new(&[]),
+        &mut Scratch::new(),
+        &mut Sink::new(),
+        TextComposeBudget::default(),
+    )
+    .unwrap();
+    assert_eq!(report.text_flags_raw, 0xa40c);
+    assert_eq!(report.header_anomaly, parsed.anomaly);
 }
 
 #[test]

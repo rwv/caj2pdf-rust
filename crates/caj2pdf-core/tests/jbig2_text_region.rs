@@ -12,8 +12,9 @@ use caj2pdf_core::{
     jbig2::{
         HeaderLimits, SegmentHeader, SegmentSpan, read_segment_header,
         text::{
-            ReferenceCorner, RegionCombination, SymbolCombination, TextRegionBudget,
-            TextRegionError, TextRegionErrorKind, TextRegionHeader, read_text_region_header,
+            ReferenceCorner, RegionCombination, SymbolCombination, TextHeaderAnomaly,
+            TextHeaderPolicy, TextRegionBudget, TextRegionError, TextRegionErrorKind,
+            TextRegionHeader, read_text_region_header, read_text_region_header_with_policy,
         },
     },
 };
@@ -226,6 +227,23 @@ fn error(region: &Region) -> TextRegionError {
     parse(region).expect_err("header must be rejected")
 }
 
+fn parse_policy(
+    region: &Region,
+    policy: TextHeaderPolicy,
+) -> Result<TextRegionHeader, TextRegionError> {
+    let mut source = Source::new(region.segment());
+    let header = parse_header(&source.bytes);
+    ready(read_text_region_header_with_policy(
+        &mut source,
+        &header,
+        &dictionary(2, 1),
+        &Limits::default(),
+        TextRegionBudget::default(),
+        &CancelAfter::Never,
+        policy,
+    ))
+}
+
 const DATA_OFFSET: u64 = 12;
 
 #[test]
@@ -376,6 +394,151 @@ fn measured_refinement_template_conflict_is_located_with_raw_flags() {
         error.to_string(),
         "JBIG2 text region segment 3 at source byte 29: malformed SBRTEMPLATE without SBREFINE (flags 0xa40c)"
     );
+}
+
+#[test]
+fn explicit_hn_c8_policy_retains_raw_anomaly_and_canonical_body() {
+    let malformed = Region {
+        flags: 0xa40c,
+        ..Region::default()
+    };
+    let accepted =
+        parse_policy(&malformed, TextHeaderPolicy::HnC8UnusedRefinementTemplate).unwrap();
+    let canonical = parse(&Region {
+        flags: 0x240c,
+        ..Region::default()
+    })
+    .unwrap();
+    assert_eq!(accepted.flags.raw, 0xa40c);
+    assert_eq!(
+        accepted.anomaly,
+        Some(TextHeaderAnomaly::UnusedRefinementTemplate)
+    );
+    assert_eq!(canonical.anomaly, None);
+    assert!(!accepted.flags.refine && !canonical.flags.refine);
+    assert_eq!(
+        (accepted.header_bytes, accepted.body, accepted.instances),
+        (canonical.header_bytes, canonical.body, canonical.instances)
+    );
+    assert_eq!(accepted.flags.ds_offset, canonical.flags.ds_offset);
+    assert_eq!(accepted.flags.strips(), canonical.flags.strips());
+    assert_eq!(
+        accepted.flags.reference_corner,
+        canonical.flags.reference_corner
+    );
+    assert_eq!(accepted.flags.combination, canonical.flags.combination);
+    assert!(matches!(
+        parse_policy(&malformed, TextHeaderPolicy::Strict)
+            .unwrap_err()
+            .kind,
+        TextRegionErrorKind::MalformedFlags { raw: 0xa40c, .. }
+    ));
+}
+
+#[test]
+fn hn_c8_policy_rejects_adjacent_invalid_flags_and_changed_framing() {
+    for raw in [0xa40d, 0xa408, 0xa44c, 0x840c, 0xa00c] {
+        let error = parse_policy(
+            &Region {
+                flags: raw,
+                ..Region::default()
+            },
+            TextHeaderPolicy::HnC8UnusedRefinementTemplate,
+        )
+        .unwrap_err();
+        assert_eq!(error.offset, DATA_OFFSET + 17);
+        assert!(
+            matches!(error.kind, TextRegionErrorKind::MalformedFlags { raw: found, .. } if found == raw)
+        );
+    }
+    let valid_refinement = parse_policy(
+        &Region {
+            flags: 0xa40e,
+            ..Region::default()
+        },
+        TextHeaderPolicy::HnC8UnusedRefinementTemplate,
+    )
+    .unwrap();
+    assert_eq!(valid_refinement.anomaly, None);
+
+    let bytes = Region {
+        flags: 0xa40c,
+        ..Region::default()
+    }
+    .segment();
+    let mut source = Source::new(bytes.clone());
+    let mut segment = parse_header(&bytes);
+    segment.referred_to[0] = 1;
+    let error = ready(read_text_region_header_with_policy(
+        &mut source,
+        &segment,
+        &dictionary(2, 1),
+        &Limits::default(),
+        TextRegionBudget::default(),
+        &CancelAfter::Never,
+        TextHeaderPolicy::HnC8UnusedRefinementTemplate,
+    ))
+    .unwrap_err();
+    assert!(matches!(
+        error.kind,
+        TextRegionErrorKind::Malformed("reference differs from the supplied dictionary")
+    ));
+    assert!(source.reads.is_empty());
+
+    let error = parse_policy(
+        &Region {
+            flags: 0xa40c,
+            region_flags: 0x80,
+            ..Region::default()
+        },
+        TextHeaderPolicy::HnC8UnusedRefinementTemplate,
+    )
+    .unwrap_err();
+    assert!(matches!(
+        error.kind,
+        TextRegionErrorKind::Malformed("reserved region segment flags")
+    ));
+
+    let mut source = Source::new(bytes.clone());
+    let mut segment = parse_header(&bytes);
+    segment.segment_type = 7;
+    let error = ready(read_text_region_header_with_policy(
+        &mut source,
+        &segment,
+        &dictionary(2, 1),
+        &Limits::default(),
+        TextRegionBudget::default(),
+        &CancelAfter::Never,
+        TextHeaderPolicy::HnC8UnusedRefinementTemplate,
+    ))
+    .unwrap_err();
+    assert!(matches!(
+        error.kind,
+        TextRegionErrorKind::Unsupported {
+            feature: "text region segment type",
+            value: 7
+        }
+    ));
+    assert!(source.reads.is_empty());
+
+    let mut source = Source::new(bytes.clone());
+    let mut segment = parse_header(&bytes);
+    segment.page_association = 0;
+    let error = ready(read_text_region_header_with_policy(
+        &mut source,
+        &segment,
+        &dictionary(2, 1),
+        &Limits::default(),
+        TextRegionBudget::default(),
+        &CancelAfter::Never,
+        TextHeaderPolicy::HnC8UnusedRefinementTemplate,
+    ))
+    .unwrap_err();
+    assert!(matches!(
+        error.kind,
+        TextRegionErrorKind::Malformed("immediate region without a page")
+    ));
+    assert!(source.reads.is_empty());
 }
 
 #[test]
