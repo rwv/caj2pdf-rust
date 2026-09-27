@@ -50,7 +50,9 @@ A common byte prefix inside an encoded payload is not one.
 The measured types are 0, 1, 2, and 3. All four are enumerated as metadata.
 Only type 0 may be passed as an unchanged full DIB-plus-coded
 `Type0Span { record_type: 0, offset, length }` to the row API from #55.
-Types 1–3 have no codec assignment or conversion claim here. A positive
+The later [type-2 JPEG marker reader](hnc8-type2-jpeg.md) accepts a checked
+type-2 `ImageRecord`; it does not decode pixels or convert the document.
+Types 1 and 3 remain metadata here. A positive
 unmeasured type produces a located unsupported error; a negative type is
 malformed. This reader does not decode images or text, determine placement,
 construct PDF pages, or provide a complete HN/C8 conversion command. The

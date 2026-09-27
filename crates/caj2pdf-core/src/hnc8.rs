@@ -5,11 +5,13 @@
 //! [`convert_type0_pdf`] builds bounded PDF pages from type-0 records.
 
 mod convert;
+mod jpeg;
 
 pub use convert::{
     MultipleImages, Type0ImageSelection, Type0PdfError, Type0PdfErrorKind, Type0PdfOptions,
     Type0PdfReport, Type0SelectedPdfReport, convert_type0_image_pdf, convert_type0_pdf,
 };
+pub use jpeg::{JpegBudget, JpegColor, JpegInfo, read_type2_jpeg_info};
 
 use crate::jbig1::Type0Span;
 use crate::{Cancellation, Error, Limits, RangedSource, read_exact_at};
