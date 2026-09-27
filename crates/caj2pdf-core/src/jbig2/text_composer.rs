@@ -652,7 +652,7 @@ where
         Ok(())
     }
 
-    fn check_views_after_next(&mut self) -> TextComposeResult<()> {
+    fn check_views_after_next(&mut self, event: Option<&TextInstance>) -> TextComposeResult<()> {
         self.ensure_view(
             BitmapStore::Imported,
             self.imported_size,
@@ -676,6 +676,17 @@ where
                 TextComposeErrorKind::StoreMutation {
                     store: BitmapStore::Refined,
                     reason: "revision changed without append",
+                },
+            ));
+        }
+        // The decoder flushes a refined bitmap before returning its RI=1
+        // event. An RI=0 event or the terminal cannot append to this store.
+        if size > self.refined_size && !event.is_some_and(|instance| instance.ri) {
+            return Err(self.error(
+                0,
+                TextComposeErrorKind::StoreMutation {
+                    store: BitmapStore::Refined,
+                    reason: "append without refined instance",
                 },
             ));
         }
@@ -1219,7 +1230,7 @@ where
                 let offset = error.offset;
                 self.error(offset, TextComposeErrorKind::Instance(Box::new(error)))
             })?;
-            self.check_views_after_next()?;
+            self.check_views_after_next(event.as_ref())?;
             match event {
                 Some(instance) => {
                     self.compose_event(instance, &mut target, &mut source)

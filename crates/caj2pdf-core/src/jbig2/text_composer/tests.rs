@@ -1828,13 +1828,38 @@ fn revision_snapshot_and_refined_append_rules_are_checked_between_events() {
         TextComposeBudget::default(),
     )
     .unwrap();
+    let unrefined_event = event(0, 0, 0, 0, TextBitmap::Stored(symbol));
+    let refined_event = event(
+        0,
+        0,
+        0,
+        0,
+        TextBitmap::Refined {
+            store_base: 0,
+            symbol: descriptor(1, 1, 0),
+        },
+    );
     composer.refined.data.push(0x80);
     composer.refined.changed();
-    composer.check_views_after_next().unwrap();
+    for event in [None, Some(&unrefined_event)] {
+        let error = composer.check_views_after_next(event).unwrap_err();
+        assert!(matches!(
+            error.kind,
+            TextComposeErrorKind::StoreMutation {
+                store: BitmapStore::Refined,
+                reason: "append without refined instance"
+            }
+        ));
+    }
+    composer
+        .check_views_after_next(Some(&refined_event))
+        .unwrap();
     assert_eq!((composer.refined_size, composer.refined_revision), (1, 1));
     composer.refined.data[0] ^= 0x80;
     composer.refined.changed();
-    let error = composer.check_views_after_next().unwrap_err();
+    let error = composer
+        .check_views_after_next(Some(&refined_event))
+        .unwrap_err();
     assert!(matches!(
         error.kind,
         TextComposeErrorKind::StoreMutation {
@@ -1845,7 +1870,9 @@ fn revision_snapshot_and_refined_append_rules_are_checked_between_events() {
 
     composer.refined.data.clear();
     composer.refined.changed();
-    let error = composer.check_views_after_next().unwrap_err();
+    let error = composer
+        .check_views_after_next(Some(&refined_event))
+        .unwrap_err();
     assert!(matches!(
         error.kind,
         TextComposeErrorKind::StoreMutation {
@@ -1856,7 +1883,9 @@ fn revision_snapshot_and_refined_append_rules_are_checked_between_events() {
 
     composer.refined.data.extend_from_slice(&[0x80, 0x80]);
     composer.refined.revision.set(composer.refined_revision);
-    let error = composer.check_views_after_next().unwrap_err();
+    let error = composer
+        .check_views_after_next(Some(&refined_event))
+        .unwrap_err();
     assert!(matches!(
         error.kind,
         TextComposeErrorKind::StoreMutation {
@@ -1903,7 +1932,7 @@ fn fixed_bitmap_view_rewrite_between_events_is_rejected() {
         };
         view.data[0] ^= 0x80;
         view.changed();
-        let error = composer.check_views_after_next().unwrap_err();
+        let error = composer.check_views_after_next(None).unwrap_err();
         assert!(matches!(
             error.kind,
             TextComposeErrorKind::StoreMutation {
