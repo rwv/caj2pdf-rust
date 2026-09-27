@@ -4,14 +4,21 @@
 //! container profiles. Image payloads and text are never loaded here.
 //! [`convert_type0_pdf`] builds bounded PDF pages from type-0 records.
 //! [`convert_type2_image_pdf`] streams one checked type-2 JPEG to PDF.
+//! [`convert_type3_image_pdf`] decodes one observed type-3 JBIG2 image with a
+//! caller-supplied MQ table and bounded stores.
 
 mod convert;
+mod convert_jbig2;
 mod convert_jpeg;
 mod jpeg;
 
 pub use convert::{
     MultipleImages, Type0ImageSelection, Type0PdfError, Type0PdfErrorKind, Type0PdfOptions,
     Type0PdfReport, Type0SelectedPdfReport, convert_type0_image_pdf, convert_type0_pdf,
+};
+pub use convert_jbig2::{
+    Type3ImageSelection, Type3PdfError, Type3PdfErrorKind, Type3PdfOptions, Type3RefinedStore,
+    Type3SelectedPdfReport, Type3Stage, Type3Store, Type3Workspaces, convert_type3_image_pdf,
 };
 pub use convert_jpeg::{
     Type2ImageSelection, Type2PdfError, Type2PdfErrorKind, Type2PdfOptions, Type2SelectedPdfReport,

@@ -54,7 +54,9 @@ The later [type-2 JPEG marker reader](hnc8-type2-jpeg.md) accepts a checked
 type-2 `ImageRecord`; it does not decode pixels or convert the document.
 The [selected type-2 PDF diagnostic](hnc8-type2-pdf.md) streams one checked
 JPEG record to a one-page PDF and verifies its narrower output boundary.
-Types 1 and 3 remain metadata here. A positive
+The [selected type-3 PDF diagnostic](hnc8-type3-pdf.md) accepts one checked
+type-3 record with caller-supplied MQ states and bounded intermediate storage;
+the reader itself still treats it as metadata. Type 1 remains metadata. A positive
 unmeasured type produces a located unsupported error; a negative type is
 malformed. This reader does not decode images or text, determine placement,
 construct PDF pages, or provide a complete HN/C8 conversion command. The

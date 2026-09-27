@@ -152,6 +152,23 @@ report is `INCONCLUSIVE_NO_DECODABLE_SETTINGS` and exits nonzero. The
 positive controls, refuted hypotheses, row-order evidence, and unresolved
 CAJ-specific rules. Neither result claims full JBIG1 compatibility.
 
+## Selected HN/C8 type-3 PDF pixels
+
+The [#106 selected type-3 PDF diagnostic](hnc8-type3-pdf.md) converts one
+checked HN/C8 JBIG2 image record into one bilevel PDF page with a
+caller-supplied, privately held T.88 MQ table. The optional
+[`jbig2_page_pdf_parity.py`](../scripts/jbig2_page_pdf_parity.py) runner
+requires the pinned external CAJSamples corpus and private table, then checks
+each selected PDF using `qpdf`, Poppler, and fixed MuPDF/Poppler render
+canaries against the [#43 hash-only pixel oracle](jbig2-oracle.md). It keeps
+strict-valid image matches separate from the single named opt-in `0xa40c`
+case, and reports the expected strict refusal separately. A clean clone
+reports `NOT_RUN` and zero PDF pixel compatibility matches. Source documents,
+MQ state rows, generated PDFs, and bitmaps are never committed. This check
+does not establish multi-image HN/C8 page placement or independence of the
+external oracle's decoder backends; [#107](https://github.com/rwv/caj2pdf-rust/issues/107)
+tracks source-page layout measurement.
+
 ## Reference behavior
 
 The [Python converter](https://github.com/rwv/caj2pdf) is a black-box
