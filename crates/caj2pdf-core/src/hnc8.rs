@@ -7,8 +7,8 @@
 mod convert;
 
 pub use convert::{
-    MultipleImages, Type0PdfError, Type0PdfErrorKind, Type0PdfOptions, Type0PdfReport,
-    convert_type0_pdf,
+    MultipleImages, Type0ImageSelection, Type0PdfError, Type0PdfErrorKind, Type0PdfOptions,
+    Type0PdfReport, Type0SelectedPdfReport, convert_type0_image_pdf, convert_type0_pdf,
 };
 
 use crate::jbig1::Type0Span;
@@ -387,7 +387,8 @@ impl<'a, S: RangedSource, C: Cancellation> Hnc8Reader<'a, S, C> {
     ///
     /// This deliberately skips earlier pages so that malformed pages can be
     /// inspected independently. Its total-image budget covers only the
-    /// selected suffix, not the whole document. Conversion must use `open`.
+    /// selected suffix, not the whole document. Full-document conversion
+    /// must use `open`; `convert_type0_image_pdf` uses this diagnostic cursor.
     pub async fn probe_at_page(
         source: &'a mut S,
         limits: &'a Limits,

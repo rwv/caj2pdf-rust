@@ -13,8 +13,9 @@ mod common;
 use caj2pdf_core::{
     Error, Limits, MAX_BUDGET_COUNT, NeverCancel, RangedSource, SequentialSink,
     hnc8::{
-        ErrorKind, MultipleImages, Type0PdfError, Type0PdfErrorKind, Type0PdfOptions,
-        Type0PdfReport, convert_type0_pdf,
+        ErrorKind, MultipleImages, Type0ImageSelection, Type0PdfError, Type0PdfErrorKind,
+        Type0PdfOptions, Type0PdfReport, Type0SelectedPdfReport, Variant, convert_type0_image_pdf,
+        convert_type0_pdf,
     },
     jbig1::Type0ErrorKind,
     pdf::{BilevelImageSpec, PageSpec, PdfDocument},
@@ -453,6 +454,44 @@ fn convert_error(bytes: Vec<u8>, options: Type0PdfOptions) -> Type0PdfError {
     convert(bytes, options).map(|_| ()).unwrap_err()
 }
 
+fn select_with(
+    source: &mut Source,
+    sink: &mut Sink,
+    selection: Type0ImageSelection,
+    options: Type0PdfOptions,
+    limits: &Limits,
+) -> Result<Type0SelectedPdfReport, Type0PdfError> {
+    ready(convert_type0_image_pdf(
+        source,
+        sink,
+        &table(),
+        selection,
+        options,
+        limits,
+        &NeverCancel,
+    ))
+}
+
+fn select(
+    bytes: Vec<u8>,
+    selection: Type0ImageSelection,
+) -> Result<(Type0SelectedPdfReport, Vec<u8>), Type0PdfError> {
+    let mut source = Source::new(bytes);
+    let mut sink = Sink::default();
+    let report = select_with(
+        &mut source,
+        &mut sink,
+        selection,
+        options(),
+        &Limits::default(),
+    )?;
+    assert_eq!(
+        report.conversion.output_bytes_written,
+        sink.bytes.len() as u64
+    );
+    Ok((report, sink.bytes))
+}
+
 // ---------------------------------------------------------------------------
 // PDF inspection helpers.
 
@@ -840,6 +879,401 @@ fn one_byte_ranged_reads_produce_identical_output() {
         report.conversion.output_bytes_written,
         expected.len() as u64
     );
+}
+
+// ---------------------------------------------------------------------------
+// One-image diagnostics use the same decoder and PDF writer as full conversion.
+
+fn selection(page_number: u32, image_number: u32) -> Type0ImageSelection {
+    Type0ImageSelection {
+        page_number,
+        image_number,
+    }
+}
+
+#[test]
+fn selected_first_middle_and_last_images_have_checked_identity_and_one_pdf_page() {
+    let first = pattern(7, 3, 31);
+    let middle = pattern(9, 4, 32);
+    let last = pattern(33, 2, 33);
+    for layout in LAYOUTS {
+        let built = container(
+            layout,
+            &[
+                vec![type0(&first)],
+                vec![
+                    type0(&first),
+                    Record {
+                        kind: 1,
+                        payload: vec![0xaa],
+                    },
+                    type0(&middle),
+                    type0(&last),
+                ],
+                vec![type0(&last)],
+            ],
+        );
+        for (identity, rows) in [
+            (selection(1, 1), &first),
+            (selection(2, 3), &middle),
+            (selection(2, 4), &last),
+            (selection(3, 1), &last),
+        ] {
+            let (report, pdf) = select(built.bytes.clone(), identity).unwrap();
+            let page = identity.page_number as usize - 1;
+            let image = identity.image_number as usize - 1;
+            assert_eq!(
+                report.source_variant,
+                match layout {
+                    Layout::C8 => Variant::C8,
+                    Layout::HnA => Variant::HnA,
+                    Layout::HnB => Variant::HnB,
+                }
+            );
+            assert_eq!(report.source_pages, 3);
+            assert_eq!(report.conversion.pages_converted, 1);
+            assert_eq!(report.image.page_number, identity.page_number);
+            assert_eq!(report.image.image_number, identity.image_number);
+            assert_eq!(
+                report.image.descriptor_offset,
+                built.descriptors[page][image]
+            );
+            assert_eq!(report.image.payload.offset, built.payloads[page][image]);
+            assert_eq!(
+                report.image.payload.length,
+                type0_payload(rows).len() as u64
+            );
+            assert_eq!(report.image.record_type, 0);
+            let span = report.image.type0_span().unwrap();
+            assert_eq!(
+                (span.offset, span.length),
+                (report.image.payload.offset, report.image.payload.length)
+            );
+            assert_eq!(
+                image_streams(&pdf),
+                [(rows[0].len() as u32, rows.len() as u32, packed(rows))]
+            );
+            let media_box = format!(
+                "/MediaBox [0 0 {}.000000 {}.000000]",
+                rows[0].len(),
+                rows.len()
+            );
+            assert!(find(&pdf, media_box.as_bytes(), 0).is_some());
+            // The full converter still rejects the multi-image page by default.
+            if identity.page_number == 2 {
+                let error = convert_error(built.bytes.clone(), options());
+                assert!(matches!(error.kind, Type0PdfErrorKind::MultipleImages(4)));
+            }
+        }
+    }
+}
+
+#[test]
+fn selected_probe_skips_an_unreadable_earlier_page_and_renders_target() {
+    let rows = pattern(9, 4, 34);
+    let mut built = container(Layout::C8, &[vec![type0(&rows)], vec![type0(&rows)]]);
+    built.bytes[0x50 + 8..0x50 + 10].copy_from_slice(&(-1_i16).to_le_bytes());
+    let (report, pdf) = select(built.bytes, selection(2, 1)).unwrap();
+    assert_eq!(
+        (report.image.page_number, report.image.image_number),
+        (2, 1)
+    );
+    assert_eq!(report.conversion.pages_converted, 1);
+    check_renders(&pdf, &[&rows]);
+}
+
+#[test]
+fn selected_identity_rejections_are_located_before_pdf_output() {
+    let rows = pattern(8, 2, 35);
+    let built = container(Layout::HnB, &[vec![type0(&rows)], vec![type0(&rows)]]);
+    for identity in [selection(0, 1), selection(1, 0)] {
+        let mut source = Source::new(built.bytes.clone());
+        let mut sink = Sink::default();
+        let error = select_with(
+            &mut source,
+            &mut sink,
+            identity,
+            options(),
+            &Limits::default(),
+        )
+        .unwrap_err();
+        assert!(matches!(error.kind, Type0PdfErrorKind::InvalidSelection(_)));
+        assert_eq!(
+            error.to_string(),
+            "HN/C8 type-0 PDF conversion: invalid selection: page and image numbers must be one-based"
+        );
+        assert_eq!(error.offset, None);
+        assert!(sink.bytes.is_empty());
+        assert_eq!(source.largest_request, 0);
+    }
+    let mut source = Source::new(built.bytes.clone());
+    let mut sink = Sink::default();
+    let error = select_with(
+        &mut source,
+        &mut sink,
+        selection(3, 1),
+        options(),
+        &Limits::default(),
+    )
+    .unwrap_err();
+    assert!(
+        matches!(&error.kind, Type0PdfErrorKind::Container(inner) if matches!(inner.kind, ErrorKind::Malformed { field: "page number", .. }))
+    );
+    assert_eq!((error.page, error.image), (Some(3), Some(1)));
+    assert_eq!(error.offset, Some(0xd8));
+    assert!(sink.bytes.is_empty());
+
+    for identity in [selection(1, 2), selection(2, 9)] {
+        let mut source = Source::new(built.bytes.clone());
+        let mut sink = Sink::default();
+        let error = select_with(
+            &mut source,
+            &mut sink,
+            identity,
+            options(),
+            &Limits::default(),
+        )
+        .unwrap_err();
+        assert!(matches!(error.kind, Type0PdfErrorKind::InvalidSelection(_)));
+        assert_eq!(
+            (error.page, error.image),
+            (Some(identity.page_number), Some(identity.image_number))
+        );
+        assert_eq!(
+            error.offset,
+            Some(0xd8 + u64::from(identity.page_number - 1) * 20 + 8)
+        );
+        assert!(sink.bytes.is_empty());
+    }
+}
+
+#[test]
+fn selected_wrong_type_and_damaged_descriptors_keep_source_location() {
+    let rows = pattern(9, 2, 36);
+    let unknown = Record {
+        kind: 2,
+        payload: vec![1, 2, 3],
+    };
+    let built = container(Layout::HnA, &[vec![type0(&rows), unknown]]);
+    let error = select(built.bytes, selection(1, 2)).unwrap_err();
+    assert!(matches!(
+        error.kind,
+        Type0PdfErrorKind::UnsupportedImageType(2)
+    ));
+    assert_eq!(
+        (error.page, error.image, error.offset),
+        (Some(1), Some(2), Some(built.descriptors[0][1]))
+    );
+
+    let mut built = container(Layout::C8, &[vec![type0(&rows), type0(&rows)]]);
+    let descriptor = built.descriptors[0][1] as usize;
+    built.bytes[descriptor + 8..descriptor + 12].copy_from_slice(&u32::MAX.to_le_bytes());
+    let error = select(built.bytes, selection(1, 2)).unwrap_err();
+    assert!(
+        matches!(&error.kind, Type0PdfErrorKind::Container(inner) if matches!(inner.kind, ErrorKind::Malformed { field: "image length", .. }))
+    );
+    assert_eq!(
+        (error.page, error.image, error.offset),
+        (Some(1), Some(2), Some(descriptor as u64 + 8))
+    );
+
+    let mut built = container(Layout::C8, &[vec![type0(&rows), type0(&rows)]]);
+    let descriptor = built.descriptors[0][1] as usize;
+    built.bytes.truncate(descriptor + 4);
+    let error = select(built.bytes, selection(1, 2)).unwrap_err();
+    assert!(
+        matches!(&error.kind, Type0PdfErrorKind::Container(inner) if matches!(inner.kind, ErrorKind::Truncated { field: "image descriptor", .. }))
+    );
+    assert_eq!(
+        (error.page, error.image, error.offset),
+        (Some(1), Some(2), Some(descriptor as u64))
+    );
+}
+
+#[test]
+fn selected_image_rejects_a_wrapper_mutated_between_reads() {
+    let rows = pattern(9, 3, 37);
+    let built = container(Layout::HnB, &[vec![type0(&rows), type0(&rows)]]);
+    let payload = built.payloads[0][1];
+    let mut source = Source::new(built.bytes);
+    source.rewrite = Some((payload, payload as usize + 4, 17));
+    let mut sink = Sink::default();
+    let error = select_with(
+        &mut source,
+        &mut sink,
+        selection(1, 2),
+        options(),
+        &Limits::default(),
+    )
+    .unwrap_err();
+    assert!(
+        matches!(&error.kind, Type0PdfErrorKind::Image(e) if matches!(e.kind, Type0ErrorKind::Malformed(_)))
+    );
+    assert_eq!(
+        (error.page, error.image, error.offset),
+        (Some(1), Some(2), Some(payload))
+    );
+    assert!(error.to_string().contains("changed between reads"));
+}
+
+#[test]
+fn selected_image_observes_short_reads_and_per_image_limits() {
+    let rows = pattern(33, 5, 38);
+    let built = container(Layout::C8, &[vec![type0(&rows), type0(&rows)]]);
+    let identity = selection(1, 2);
+    let (_, expected) = select(built.bytes.clone(), identity).unwrap();
+    let limits = Limits {
+        io_chunk_bytes: 1,
+        ..Limits::default()
+    };
+    let mut source = Source::new(built.bytes.clone());
+    source.max_read = 1;
+    let mut sink = Sink::default();
+    let report = select_with(&mut source, &mut sink, identity, options(), &limits).unwrap();
+    assert_eq!(sink.bytes, expected);
+    assert_eq!(source.largest_request, 1);
+    assert_eq!(report.conversion.pages_converted, 1);
+
+    let mut small = options();
+    small.image.max_pixels = 100;
+    let error = select_with(
+        &mut Source::new(built.bytes.clone()),
+        &mut Sink::default(),
+        identity,
+        small,
+        &Limits::default(),
+    )
+    .unwrap_err();
+    assert!(
+        matches!(&error.kind, Type0PdfErrorKind::Image(e) if matches!(e.kind, Type0ErrorKind::LimitExceeded { resource: "image pixels", .. }))
+    );
+    assert_eq!((error.page, error.image), (Some(1), Some(2)));
+
+    let mut limited = options();
+    limited.container.max_images_per_page = 1;
+    let error = select_with(
+        &mut Source::new(built.bytes.clone()),
+        &mut Sink::default(),
+        identity,
+        limited,
+        &Limits::default(),
+    )
+    .unwrap_err();
+    assert!(
+        matches!(&error.kind, Type0PdfErrorKind::Container(e) if matches!(e.kind, ErrorKind::LimitExceeded { resource: "images per page", .. }))
+    );
+    assert_eq!(error.page, Some(1));
+
+    let error = select_with(
+        &mut Source::new(built.bytes),
+        &mut Sink::default(),
+        identity,
+        options(),
+        &Limits {
+            max_output_bytes: 1,
+            ..Limits::default()
+        },
+    )
+    .unwrap_err();
+    assert!(matches!(
+        &error.kind,
+        Type0PdfErrorKind::Pdf(Error::LimitExceeded {
+            resource: "output bytes",
+            ..
+        })
+    ));
+    assert_eq!(
+        (error.page, error.image, error.offset),
+        (Some(1), Some(2), Some(built.descriptors[0][1]))
+    );
+}
+
+#[test]
+fn selected_image_cancellation_never_reports_success_before_completion() {
+    let rows = pattern(9, 3, 39);
+    let built = container(Layout::HnA, &[vec![type0(&rows), type0(&rows)]]);
+    let table = table();
+    let mut saw_located = false;
+    let mut completed = false;
+    for allowed in 0..300 {
+        let mut source = Source::new(built.bytes.clone());
+        let mut sink = Sink::default();
+        let cancellation = CancelAfter::new(allowed);
+        match ready(convert_type0_image_pdf(
+            &mut source,
+            &mut sink,
+            &table,
+            selection(1, 2),
+            options(),
+            &Limits::default(),
+            &cancellation,
+        )) {
+            Ok(report) => {
+                assert!(allowed > 20);
+                assert_eq!(report.conversion.pages_converted, 1);
+                completed = true;
+                break;
+            }
+            Err(error) => {
+                saw_located |= error.page == Some(1) && error.image == Some(2);
+                assert!(
+                    matches!(&error.kind,
+                        Type0PdfErrorKind::Container(inner) if matches!(inner.kind, ErrorKind::Cancelled)
+                    ) || matches!(&error.kind,
+                        Type0PdfErrorKind::Image(inner) if matches!(inner.kind, Type0ErrorKind::Cancelled)
+                    ) || matches!(&error.kind, Type0PdfErrorKind::Pdf(Error::Cancelled)),
+                    "check {allowed}: {error}"
+                );
+            }
+        }
+    }
+    assert!(saw_located);
+    assert!(completed);
+}
+
+#[test]
+fn selected_image_sink_failures_name_the_checked_record() {
+    let rows = pattern(9, 3, 40);
+    let built = container(Layout::C8, &[vec![type0(&rows), type0(&rows)]]);
+    let identity = selection(1, 2);
+    let mut clean_source = Source::new(built.bytes.clone());
+    let mut clean = Sink::default();
+    select_with(
+        &mut clean_source,
+        &mut clean,
+        identity,
+        options(),
+        &Limits::default(),
+    )
+    .unwrap();
+    assert!(clean.writes > 10);
+    for fail_at in 1..=clean.writes {
+        let mut source = Source::new(built.bytes.clone());
+        let mut sink = Sink {
+            fail_at: Some(fail_at),
+            ..Sink::default()
+        };
+        let error = select_with(
+            &mut source,
+            &mut sink,
+            identity,
+            options(),
+            &Limits::default(),
+        )
+        .unwrap_err();
+        let is_sink = matches!(&error.kind, Type0PdfErrorKind::Pdf(Error::Io(_)))
+            || matches!(&error.kind, Type0PdfErrorKind::Image(inner) if matches!(inner.kind, Type0ErrorKind::Sink(Error::Io(_))));
+        assert!(is_sink, "write {fail_at}: {error}");
+        assert_eq!((error.page, error.image), (Some(1), Some(2)));
+        if matches!(error.kind, Type0PdfErrorKind::Pdf(_)) {
+            assert_eq!(error.offset, Some(built.descriptors[0][1]));
+        } else {
+            assert!(error.offset.unwrap() >= built.payloads[0][1]);
+            assert!(error.offset.unwrap() <= built.bytes.len() as u64);
+        }
+        assert_eq!(sink.writes, fail_at);
+        assert!(clean.bytes.starts_with(&sink.bytes));
+    }
 }
 
 // ---------------------------------------------------------------------------
