@@ -142,6 +142,73 @@ same pinned document, so this is a structural feasibility check and **not**
 independent-document validation or a new placement-rule test. Both temporary
 files were deleted after the run.
 
+## JFIF batch result
+
+The four predeclared edits above were run twice each against the pinned
+black-box reference. All eight conversions succeeded and were repeatable.
+Independent qpdf, MuPDF and Poppler inspection agreed with the #107 baseline
+on page count, MediaBoxes, ordered image identity and every CTM. Each edited
+PDF changed exactly the selected JPEG stream; no other stream or page geometry
+changed. Thus these APP0 fields show no placement dependence for the two
+tested source pages. They cannot establish an x/y rule for the other pages.
+
+| Probe | Mutated source SHA-256 | Mutated PDF SHA-256 | CTM changes |
+| --- | --- | --- | ---: |
+| C8 units | `dde74e6a5c7957ec058e3bbb868e280d43331b702ce0fc246c394ae0120eceeb` | `402751b6d076876d5850a5eb35ff95ba851a18b4c30e50c9acb462e8115b108d` | 0 |
+| C8 Xdensity | `1ed6af1f274f2b3a82052c355e82ee3e18c7e9bc1b4d6e026ce2b38ff7580b8f` | `c2649201894383900b68d36d6eed34799d45d5e3ab2b426a5b2e41c4fbf5f164` | 0 |
+| HN-A units | `e25c487a0d20e46330036494e738b4887de684da3f88e1fb33c0c544348be9ba` | `ef4554e1122fe46e8fd309e5be1cab1461e6e36e0d8f99f5a99fb8f884b1963a` | 0 |
+| HN-A Xdensity | `0b645926148f2fe86db6398f3fe12566e58385412ed66bf2d483f3a382b799d1` | `250fa57bc96a2b13cdef6e2f43ac9b5754d0a08ee3c8144439f497b6b26e592d` | 0 |
+
+Batch counts: planned 4, attempted 4, completed 4, repeatable 4, passing
+4, failing 0, skipped 0, unsupported 0, placement changes 0, causal
+candidates 0. The 27 source files, six baseline PDFs, matrix, oracle,
+reference report and pinned environment passed before/after audit. Maximum
+ranged source read was 65,536 bytes; the hash auditor used at most 1 MiB per
+read. Peak observed harness VmHWM was 26,692 KiB, converter child VmHWM
+41,260 KiB, PDF-tool RSS 42,636 KiB, PDF-tool output 790,923 bytes, and
+retained temporary session size 60,753,844 bytes. The converter timeout was
+180 seconds; no timeout occurred. These are measured peaks of this batch,
+not resource limits for arbitrary documents. The machine report and all
+private artifacts remain outside Git.
+
+## Text-component batch, predeclared before conversion
+
+The JFIF batch leaves the opaque per-page text span as the leading source
+component to test. The next batch has **two** temporary source copies, one
+per variant, each converted twice in fresh directories (four conversions
+maximum). A whole text-span transplant requires changing the row's text
+offset and length too; it is therefore a **component test**, not a
+one-variable coordinate-field probe. No individual text byte or row field
+will be assigned coordinate meaning from its outcome.
+
+| Probe | Target row and original text | Donor text | Write donor to target | New target-row `+0/+4` | First descriptor |
+| --- | --- | --- | --- | --- | ---: |
+| C8-text | p1 row `[80,100)`, text `[220,14766)` | p2 `[132124,142814)` (10,690 bytes) | `[4076,14766)` | `[80,88)` = LE i32 `(4076,10690)` | 14,766 |
+| HN-A-text | p16 row `[16664,16684)`, text `[953320,960821)` | p22 `[1354683,1360027)` (5,344 bytes) | `[955477,960821)` | `[16664,16672)` = LE i32 `(955477,5344)` | 960,821 |
+
+The row spans and text offsets/lengths are independently checked container
+metadata from #61/#107. For each copy, preserve the target row's remaining
+12 bytes, all other rows, the first descriptor address, every image
+descriptor and payload, and total source length. Before conversion, require
+the new target text hash to equal the #107 donor text hash and require the
+independent source reader to find the target's unchanged image count,
+offsets, hashes, dimensions and order. Audit the entire original and mutated
+source hash before and after both conversions. Copy and hash with at most
+64 KiB and 1 MiB read requests respectively; retain no source bytes or PDFs
+in Git.
+
+For a placement-informative outcome, the converter must retain HN-A's
+68 pages/91 ordered draws or C8's 7 pages/34 ordered draws, the target
+page's 2 or 5 draws, baseline MediaBox and first-image CTM, all image raw
+stream hashes/dimensions/order, and every non-target page's MediaBox and six
+CTM components. Require qpdf, MuPDF and Poppler to agree and both runs to be
+repeatable. Changed target supplemental CTMs under these guards would show
+that the **combined text/row-address component** affects placement. No
+change is only a negative result for these donor pages. Rejection, changed
+draw count, changed image identity or nonlocal geometry is `UNSUPPORTED` for
+placement inference. The positional rule remains `UNKNOWN` until an exact
+field and formula pass the independent validation requirement.
+
 ## Measurements and decision rule
 
 For every requested input, pin and check the #22/#61 matrix, #107 oracle,
