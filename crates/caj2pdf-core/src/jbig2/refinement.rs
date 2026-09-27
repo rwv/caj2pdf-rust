@@ -344,6 +344,39 @@ impl<'a, 'mq, M: RangedSource, C: Cancellation, W: SequentialSink>
         })
     }
 
+    /// Resume the same append-only temporary store after a completed bitmap.
+    /// The enclosing pull decoder owns the MQ unit and keeps this progress
+    /// between calls; it must bind the same sink each time.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn new_continuing(
+        mq: &'a mut MqDecoder<'mq, M, C>,
+        layout: IaidLayout,
+        sink: &'a mut W,
+        limits: &'a Limits,
+        cancellation: &'a C,
+        budget: RefinementBudget,
+        previous: RefinementProgress,
+        progress_observer: &'a mut RefinementProgress,
+    ) -> RefinementResult<Self> {
+        let mut host = Self::new_observed(
+            mq,
+            layout,
+            sink,
+            limits,
+            cancellation,
+            budget,
+            Some(progress_observer),
+        )?;
+        if previous.poisoned
+            || previous.output_bytes_written > budget.max_total_output_bytes
+            || previous.pixels_decoded > budget.max_total_pixels
+        {
+            return Err(host.error(RefinementErrorKind::Poisoned, None, 0, 0));
+        }
+        host.progress = previous;
+        Ok(host)
+    }
+
     pub fn progress(&self) -> RefinementProgress {
         let mut progress = self.progress;
         progress.mq = Some(self.mq.snapshot());

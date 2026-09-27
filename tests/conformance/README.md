@@ -163,6 +163,29 @@ black-box tool agreement, not Rust text parity; the latter remains
 The [scope and limits](../../docs/jbig2-text-oracle.md) include reproduction
 details, resource caps, and the measured 546/546 run.
 
+## Optional JBIG2 text-instance control trace
+
+[`jbig2_text_instance_diagnostic.py`](../../scripts/jbig2_text_instance_diagnostic.py)
+drives the [#86 pull decoder](../../docs/t88-text-instances.md) with a
+separately held T.88 table and CAJSamples corpus. It requires the #42/#43,
+#66, #69, and #85 pinned metadata and SHA values before invoking Rust.
+
+```sh
+python3 scripts/jbig2_text_instance_diagnostic.py \
+  --corpus-dir /path/to/CAJSamples \
+  --table-fixture /tmp/private-t88-table.fixture --json
+```
+
+The table fixture must be under `/tmp` and match the pinned private-table
+SHA-256. All 27 sources and the table are hashed again after bounded
+execution. The output has one trace per region with completed instance,
+RI=0, RI=1, and strip counts plus an ordered event fingerprint. A local
+run completed all 545 strict-valid regions: 353,829 instances, including
+243,728 RI=0 and 110,101 RI=1; the remaining raw `0xa40c` header received
+the expected strict refusal. This is decoder control flow only. Placement
+and pixel compatibility remain `NOT_RUN`/0. A clean clone reports
+`NOT_RUN`/0, whereas explicitly absent or changed inputs fail.
+
 ## Optional JBIG2 refinement-pixel evidence
 
 Issue [#65](https://github.com/rwv/caj2pdf-rust/issues/65) adds a bounded
