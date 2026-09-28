@@ -23,8 +23,9 @@ The coordinate factor is measured, not an authoritative physical source unit.
 Unknown text profiles and unsupported draws are errors, never omissions.
 
 The separately observed HN-B path accepts exactly one checked type-2 JPEG
-on each image-bearing row. Its page box derives from JPEG dimensions and its
-CTM is `[width * .24, 0, 0, -height * .24, 0, height * .24]`. HN-B text is not
+on each image-bearing row. Its page box derives from JPEG dimensions, with
+`W = f64(width) * 72.0 / 300.0` and `H = f64(height) * 72.0 / 300.0`; its
+CTM is `[W, 0, 0, -H, 0, H]`. HN-B text is not
 sent through the HN-A/C8 parser. Every HN-B row without an image produces a
 visitor event with no PDF page and increments `no_image_pages`. The measured
 six-row source therefore has the output-to-source mapping `[1, 6]`, with four
@@ -119,8 +120,13 @@ with zero compatibility passes. Synthetic I/O/layout success and selected JPEG
 stream parity do not substitute for complete-page compatibility.
 
 The [recorded complete-page evidence](hnc8-page-composition-evidence.md)
-passes all 75 HN-A/C8 pages and 74 padded Type0 arrays. The controlled rerun
-remains FAIL at HN-B's first page, where the reference and native JPEG color
-declarations differ. [Child #122](https://github.com/rwv/caj2pdf-rust/issues/122)
-blocks the remaining HN-B reference-validity/page criterion. This API's
-production family exposure remains gated.
+passes all 77 output pages, 74 padded Type0 arrays and 154 complete two-renderer
+page comparisons on the revised native binary. HN-A/C8 use the pinned Python
+references; HN-B uses an explicitly corrected Gray reference that preserves
+all objects/streams except the two invalid legacy RGB declarations. All four
+HN-B source/PDF Gray sample pairs also pass. The original legacy HN-B
+comparison and historical failed attempts remain FAIL. The measured scope,
+intentional legacy deviation and immutable receipts are recorded under
+[child #122](https://github.com/rwv/caj2pdf-rust/issues/122). Official CAJViewer
+image/text fixtures are a separate validation strategy. This API's production
+family exposure remains gated.

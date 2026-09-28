@@ -202,3 +202,147 @@ changes require new exact-head gates and final independent review.
 Clean-clone CI reports the optional document comparison as **NOT_RUN** with
 zero actual work and zero compatibility passes. Parent #10, table-rights
 gates and production CLI/JavaScript family routing remain open.
+
+## Final rational-dimension full rerun
+
+The independently reviewed [full-rerun plan](hnc8-page-composition-rational-rerun.md)
+was frozen and committed at `0bdd7f25e274d0a569f8cd3faf403b2bad93d9da`
+before one direct, no-retry invocation. Its SHA-256 is
+`47e6e0e1e632f80733d4e999d22e6160a6f5d4d40db4ab98cc084690bb6f39c0`.
+The original external adapter is 57,754 bytes, SHA-256
+`117f7f3d0139b7cc63ea256896c77c12116e8bb63d6ab737424150c97a642cb9`.
+Its ten original controls passed separately for the author, root and independent
+reviewer; each self-test invocation made 85 original child calls, zero private
+native/converter calls, and explicitly mocked the three-profile events. Those
+public fixtures are separate from the following private execution counts.
+
+The new native binary is 940,680 bytes, SHA-256
+`e76f557009fea368714fc5866b996dc13b660df52a44598c640d89e0a844cb90`;
+its 139-file Rust/Cargo fingerprint is
+`aa85136b67cc450957d610476c97aab76eb86b6c9a4730f7e261cdbbc5a9cb53`.
+Checked pixel dimensions use `f64(pixel_count) * 72.0 / 300.0`, rounding the
+rational dimension once instead of multiplying a rounded binary factor.
+The empirical placement model and caller-defined affine PDF API remain those
+of the reviewed source implementation. All three profiles were rerun against
+this new binary; previous passes do not substitute for this execution.
+
+The result is **PASS in the explicitly corrected-reference scope**. The
+measured comparison basis is the pinned Python-converter PDF set. HN-A/C8
+use its unchanged legacy references. HN-B uses only the separately pinned
+826,724-byte Gray reference above. The new preflight again proved all nine
+objects and four complete raw streams preserved, allowing only original image
+objects 7/9 to change DeviceRGB to DeviceGray. All six legacy repeat PDFs
+remain separate unchanged audit inputs. The public oracle is unchanged; only
+the two declared in-memory comparison color facts use the corrected basis.
+
+| Required work | Attempted | Passing | Failing / skipped / unsupported |
+| --- | ---: | ---: | ---: |
+| Fresh native profiles | 3 | 3 | 0 / 0 / 0 |
+| Source rows | 81 | 81 | 0 / 0 / 0 |
+| Output pages/boxes | 77 | 77 | 0 / 0 / 0 |
+| Ordered image draws | 127 | 127 | 0 / 0 / 0 |
+| Encoded JPEG streams | 53 | 53 | 0 / 0 / 0 |
+| JPEG ColorSpace checks | 53 | 53 | 0 / 0 / 0 |
+| Complete padded Type0 arrays | 74 | 74 | 0 / 0 / 0 |
+| Complete page/renderer pairs | 154 | 154 | 0 / 0 / 0 |
+| Preserved objects / raw streams | 9 / 4 | 9 / 4 | 0 / 0 / 0 |
+| Direct HN-B source decodes | 2 | 2 | 0 / 0 / 0 |
+| Complete HN-B Gray sample pairs | 4 | 4 | 0 / 0 / 0 |
+| Located legacy rejection control | 1 | 1 | 0 / 0 / 0 |
+
+HN-A covers all 68 pages, 91 draws and 136 complete renderer pairs; C8 covers
+all seven pages, 34 draws and 14 pairs. HN-B accounts for all six source rows,
+two pages/two JPEG draws and four pairs, with mapping `[1,6]` and explicit
+no-image rows `[2,3,4,5]`. Every Type0 padding bit and row participates.
+The maximum box residual is zero; the maximum residual over all six CTM
+components is 0.0000491306105914191 pt, within the unchanged 0.00005 pt gate.
+
+Every full page has identical same-renderer dimensions, exact payload length,
+whole-file size/SHA, payload SHA and every RGB channel. All changed-pixel,
+changed-channel, absolute/mean difference and maximum difference metrics are
+zero. The 154 pairs compare 1,207,408,247 pixels / 3,622,224,741 channels;
+none of the observed pages is all white. The complete nominal N or N+1 canvas
+is checked, including any extra edge. No cropping or tolerance was introduced.
+The four HN-B grids demonstrate the declared renderer-specific admission:
+
+| HN-B output/source page | Renderer | Complete compared grid | Nonwhite pixels |
+| --- | --- | --- | ---: |
+| 1 / 1 | MuPDF | 2071 × 153 | 73186 |
+| 1 / 1 | Poppler | 2071 × 154 | 102133 |
+| 2 / 6 | MuPDF | 2222 × 3276 | 1794221 |
+| 2 / 6 | Poppler | 2223 × 3276 | 2451475 |
+
+Both new native HN-B image dictionaries require the observed Gray8 DCT profile
+without Decode/DecodeParms/masks and retain the two source payload identities.
+Two direct source decodes and four full PDF/source comparisons pass, covering
+316,863 samples for source page 1 and 7,279,272 for source page 6 per pair.
+Their source arrays are variable and nonwhite; extracted RGB expansion is
+accepted only after all three channels are exactly equal. `djpeg` and
+`pdfimages` share the recorded installed libjpeg backend, so these are
+independently run checks rather than decoder-implementation independence.
+The untouched legacy RGB basis is rejected specifically at page 1/image 1
+`jpeg_color_spaces`; unrelated geometry or unsupported failures cannot satisfy
+that control. **Legacy HN-B page parity and every historical FAIL remain FAIL.**
+
+### Immutable execution records
+
+The external session is
+`/home/hzc/.cache/caj2pdf-issue117-rational-validation/rational-full-vhuua60h`.
+Only safe metadata is summarized here; the files and all document, state,
+sample, PDF and raster artifacts remain outside Git.
+
+| Record in that session | Bytes | SHA-256 |
+| --- | ---: | --- |
+| `probe-report.json` | 909540 | `f9a399c0dd10d5cdeb758e1e18dda55e9019e68ad9795f11cfdbc05e576d7d67` |
+| `execution-receipt.json` | 77088 | `2f30772a6b6b6deb40a30de04a558b85a15598c843067eb0d8190324f9ed99ae` |
+| `main-composition-report.json` | 1853509 | `b29c01f24e7749b9892b90cd631cfc3f85d40ba369af012d43c4302fb8dea48b` |
+| `main/hnc8-composition-hr6top6y/execution-receipt.json` | 28055 | `88611680e5c185f497fadf2a6f8db7ebe6068992465e9a5ec11611207891db8e` |
+
+All four identities were verified from bounded JSON metadata reads. The outer
+receipt binds code, tools, new native/source fingerprints, effective child
+environment and canonical startup libraries before private byte audits. The
+inner receipt also binds its exact native invocations and explicit corrected
+reference. All 27 sources, six legacy PDFs, corrected PDF, table, historical
+reports/receipts, code/helpers/tests/tools/environment/libraries, generated
+inventories, three fresh outputs and both execution receipts agree before and
+after. The 1,847 compact main-attempt references match the separately retained
+full commands/record hashes; all 1,883 actual child records have consecutive
+global numbers, successful exits and wait4 RSS measurements.
+
+### Measured bounded resources and scope
+
+Three native calls and 1,880 validators made 1,883 child launches; the
+validators include 308 renders and the declared startup probes. Adding the
+one invoking runner gives 1,884 aggregate launches, below 2,048. Converter
+calls are zero. The measured `run()` phase, including final audits and report
+persistence, completed in 225.210934 seconds against 1,800 seconds;
+interpreter imports and pre-freeze public work are outside that timing scope.
+
+Native wait4 peaks are HN-A 29,448 KiB, C8 31,684 KiB and HN-B 32,392 KiB.
+Validators peak at 76,296 KiB; maximum 20-ms sampled child RSS is 76,400 KiB.
+The outer harness self high-water mark is 47,232 KiB, separately measured
+from child RSS. Full owned storage peaks at 129,663,823 bytes against 512 MiB.
+The inner run peaks at 129,581,640 bytes and retains 79,436,428 bytes of
+safe metadata and PDFs after successful sample/raster cleanup. Its streamed
+child stdout totals 7,574,135,250 bytes; fixed full-pixel comparison buffers
+are 131,072 bytes. These process/storage measurements are distinct from
+checked native allocation and decoder accounting.
+
+Native source/sink/scratch requests are at most 4,096 bytes. Maximum retained
+page metadata is 1,632 bytes, accounted text working space 143,380 bytes and
+temporary row storage 1,064,340 bytes. HN-B needs no row store. The additional
+two source JPEG spools fetch 825,381 bytes in 203 requests, each at most 4,096;
+all opaque audit/sample reads remain bounded at 65,536 bytes. Successful
+decoded arrays and renders were removed. No private file bytes or table
+values are committed.
+
+The source revision's four hosted gates passed at
+`8194264c048206b5f49b8c55714e06b6b1bd7cea`; its Rust LCOV report records
+27,413/27,413 lines in 54 files, each at 100%. Examples are compiled/checked
+and remain outside that standard coverage report. This measured three-source
+diagnostic satisfies the declared corrected-reference compatibility scope;
+it does not establish unseen HN variants, type-1/type-3 composition, HN-B
+text/multiple-image rules, table distribution rights, outlines, production
+CLI/JavaScript routing or a release. A vendor-application oracle remains a
+separate validation strategy. Final evidence review and exact-head merge gates
+remain separate.
