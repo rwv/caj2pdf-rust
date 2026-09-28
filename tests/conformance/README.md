@@ -54,7 +54,8 @@ python3 scripts/hnc8_placement_analysis.py --mode validation --json
 The three simple placement hypotheses match 0/36 and 0/14 additional JPEG
 draws at 0.001 pt six-component tolerance. A retrospective variant-specific
 width/height/order fit matches 1/36 and 0/14; it is not independent
-validation. The source-derived rule remains `UNKNOWN`.
+validation. These #110 controls leave source-derived placement `UNKNOWN`;
+the subsequent #112 evidence is described below.
 `hnc8_placement_probe.py` runs four predeclared JFIF APP0 edits only when all
 pinned external corpus, reference, tool, artifact and #107 report paths are
 explicitly supplied. With no paths it reports `NOT_RUN` and zero private
@@ -64,8 +65,8 @@ separately predeclared C8/HN-A full-text component probes. The
 spans, hashes, outcomes and evidence limits. Both text-component probes
 changed target supplemental translations to the donor values without
 changing image bytes; the exact source fields and placement rule remain
-unknown. No private source, PDF or image bytes are included in this
-repository.
+unknown within that compound-control investigation. No private source, PDF
+or image bytes are included in this repository.
 
 The [#111 text-source note](../../docs/hnc8-text-source.md) identifies complete
 zlib framing on the two #107 HN-A/C8 reference documents and records valid
@@ -77,9 +78,41 @@ check. `hnc8_text_content.py` shares the #110 pinned external protocol and
 reports `NOT_RUN`/zero comparisons with no paths. Its default `--batch content`
 selects two donor-content controls; explicit `--batch fields` selects four
 individual decoded-field probes and two informational-wrapper controls.
-Each batch has its own committed plan, frozen source hashes and run ceiling.
-Both clean-clone modes remain `NOT_RUN`, including every converter counter.
+Explicit `--batch highbit` selects four #112 unsigned-versus-signed controls,
+with the exact recipes/hashes and eight-run ceiling frozen in the
+[placement-profile note](../../docs/hnc8-placement-rule.md). It audits the
+actual mapped libz and Python binaries before and after execution. Each
+batch has its own committed plan, frozen source hashes and run ceiling.
+All three clean-clone modes remain `NOT_RUN`, including every converter
+counter.
 These diagnostic results do not enable production HN/C8 conversion.
+
+`hnc8_placement_rule.py` verifies a previously built source-only Rust
+metadata example. Supply all pinned external paths together with
+`--native-tool`, `--native-sha256` and `--native-source-sha256`; the note
+documents the exact build/pin commands. The runner compares raw words,
+strict frame/stream hashes and image order/dimensions against independent
+source metadata, then page boxes and all six transforms against reference
+PDFs rechecked with qpdf, MuPDF and Poppler. Reference CTMs never enter the
+native calculation. All 27 source hashes, six PDF identities, input hashes,
+reference/tool environment, native binary and bounded Rust/Cargo manifest
+are audited before/after, including available audits after failure. Native
+stdout has a 1 MiB cap and each subprocess has a 30-second timeout and
+1 GiB virtual-address ceiling. The independent Python frame check uses a
+bounded ephemeral decoded spool; native parsing uses no decoded spool.
+
+The 2026-09-28 UTC optional run matched 75/75 frames, 125/125 source images,
+75/75 page boxes, 75/75 first draws, 36/36 discovery and 14/14 validation
+supplemental transforms at 0.00005 pt. It launched two native processes and
+zero reference converters, with zero failed/skipped comparisons. HN-B's
+six source rows remain separately unsupported and were not executed.
+The report's `EMPIRICAL_PROFILE_VALIDATED_SAME_DOCUMENTS` status describes
+the two already inspected documents. The native peak request/owned-buffer/
+accounted-working values were 4,096/8,212/143,380 bytes, with zero native
+temporary disk. Full report hashes, causal controls and distinct child-RSS,
+decoder-reservation and Python-spool measurements are in the note. Clean
+clones and CI report `NOT_RUN` with every work counter zero; absence of
+external files is never a compatibility pass.
 
 ## Optional JavaScript API conversion
 

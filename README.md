@@ -46,7 +46,11 @@ metadata-only source-page and reference-PDF measurements for future page
 composition; it does not enable HN/C8 conversion.
 The [text-framing investigation](docs/hnc8-text-source.md) isolates the
 page-text component and positive-valued x/y fields with fixed-row diagnostic
-controls; units, signedness and the complete placement rule remain unverified.
+controls. The [source-derived placement profile](docs/hnc8-placement-rule.md)
+adds a bounded native text parser and pure unsigned-coordinate evaluator:
+36/36 discovery and 14/14 validation supplemental transforms match in the
+two inspected HN-A/C8 documents. Its factor is empirical; other layouts and
+full-page conversion remain pending under #10.
 
 ```sh
 caj2pdf paper.caj                  # writes paper.pdf next to the input

@@ -752,7 +752,50 @@ the two wrapper controls reproduce the baseline PDFs. These are independent
 black-box interventions on two source documents, not independent-document
 validation or a source-unit specification. The measured `240/2473` factor
 was selected retrospectively from public reference geometry. Signedness,
-negative coordinates and general applicability remain unresolved under #112.
+negative coordinates and general applicability were unresolved when #111
+closed; #112's subsequent evidence is scoped below.
+
+Issue #112 adds an independently authored MIT native text-frame reader and
+pure empirical placement evaluator. Prefix digests, marker values and field
+offsets are format observations from #111, not converter implementation.
+The parser streams the opaque sections and retains only bounded raw words
+in source image order. Its synthetic tests substitute an invented prefix
+digest through a private helper; the public parser keeps the observed
+fingerprints strict, and no private prefix/text bytes are retained as fixtures.
+The existing locked flate2 Rust backend and sha2 dependencies are reused
+under their accepted MIT grants. No codec code or arithmetic-state tables
+are copied or migrated.
+
+The [placement-profile plan](hnc8-placement-rule.md) freezes the calibrated
+`240/2473` factor, `0.24` point pixel scale and first-type-0 DIB stride width
+before new field interventions or native comparisons. These observations
+are scoped to the two HN-A/C8 reference documents, not an authoritative
+physical-unit specification. The metadata-only native example consumes
+source paths and independently checked bytes; reference CTMs, source IDs,
+page indices and image hashes are never used as geometry lookup inputs.
+Optional protocol reports and all private source copies/text/PDFs remain
+external. Pure helpers and diagnostics do not enable production composition.
+
+Four predeclared #112 high-bit/boundary controls distinguish unsigned words
+from signed i16 on both coordinate axes and both inspected variants. Three
+toggle only decoded bit 15; the C8 y control changes one two-byte logical
+slot to 32,768. All other decoded bytes, original index rows/spans, image
+bytes and unrelated output geometry are fixed. Eight repeatable black-box
+runs match unsigned predictions, including off-page positions. The report
+has SHA-256 `201e5ee16b8435777b8d2b14808747b876d9f58b4b11a3f7498476586e927b94`.
+
+The source-only native diagnostic independently predicts all 75 page boxes,
+75 first draws and 50 supplemental all-six transforms in those documents;
+its report has SHA-256
+`6d892bc3d41f23f71d503c689411d2bc2f9f30ecd0fb8bcd61b1c95ec5a10048`.
+The binary, all 133 Rust/Cargo files, original sources, reference PDFs and
+runtime/tool identities pass before/after audits. HN-B's six source rows are
+counted separately as unsupported by this framing profile. The evaluator's
+full raw-u16 mathematical domain and original synthetic endpoint tests do
+not establish every possible vendor coordinate range or unseen layout.
+Physical units and general document applicability remain unproven. No
+private text/prefix bytes, source copies, reference converter code, decoded
+pixels or arithmetic tables are introduced by these diagnostics.
 
 ## Dependency inventory and review
 
