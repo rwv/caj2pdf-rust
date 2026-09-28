@@ -7,10 +7,12 @@ import io
 import json
 from pathlib import Path
 import random
+import shutil
 import sys
 import tempfile
 import unittest
 from unittest.mock import patch
+import zlib
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts"))
@@ -51,6 +53,32 @@ def fixture():
     case = {"source_variant": "HN-B", "source_id": "invented", "source_pages": source,
             "output_page_to_source_page": [1, 6], "pdf_pages": outputs, "pdf_sha256": digest}
     return {"variant": "HN-B", "pages": pages}, {"pages": outputs}, case, ("\n".join(lines)+"\n").encode()
+
+
+def original_binary_pdf(path, bits):
+    """Original 32x3 top-row-first indexed image, including five padded columns."""
+    encoded = zlib.compress(bits)
+    content = b"q\n32 0 0 3 0 0 cm\n/Im0 Do\nQ\n"
+    image = (b"/Type /XObject /Subtype /Image /Width 32 /Height 3 /BitsPerComponent 1 "
+             b"/ColorSpace [/Indexed /DeviceRGB 1 <ffffff000000>] /Filter /FlateDecode "
+             b"/DecodeParms << /BitsPerComponent 1 /Colors 1 /Columns 32 /Predictor 1 >>")
+    objects = [b"<< /Type /Catalog /Pages 2 0 R >>",
+               b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+               b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 32 3] /Resources << /XObject << /Im0 5 0 R >> >> /Contents 4 0 R >>",
+               b"<< /Length " + str(len(content)).encode() + b" >>\nstream\n" + content + b"endstream",
+               b"<< " + image + b" /Length " + str(len(encoded)).encode() + b" >>\nstream\n" + encoded + b"\nendstream"]
+    data = bytearray(b"%PDF-1.4\n")
+    offsets = []
+    for index, obj in enumerate(objects, 1):
+        offsets.append(len(data))
+        data.extend(f"{index} 0 obj\n".encode() + obj + b"\nendobj\n")
+    xref = len(data)
+    data.extend(b"xref\n0 6\n0000000000 65535 f \n")
+    for offset in offsets:
+        data.extend(f"{offset:010} 00000 n \n".encode())
+    data.extend(f"trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n".encode())
+    path.write_bytes(data)
+    return path
 
 
 class SyntheticComposition(unittest.TestCase):
@@ -99,6 +127,19 @@ class SyntheticComposition(unittest.TestCase):
         with patch.object(subject, "file_identity", return_value={"sha256": "0"*64, "size_bytes": 1}), \
                 self.assertRaisesRegex(subject.CompositionError, "frozen hash/size"):
             subject._audit({}, baselines, [], {}, {}, "0"*64, "0"*64)
+
+    def test_preserved_metadata_and_original_native_pins_are_required(self):
+        original = {"status": "FAIL", "native_audit": {"status": "PASS", "after_status": "PASS",
+                    "binary": {"sha256": "0"*64}, "source": {"sha256": "1"*64}}}
+        with patch.object(subject, "_pinned_json", return_value=original):
+            subject._require_original_native("0"*64, "1"*64)
+            with self.assertRaises(subject.CompositionError):
+                subject._require_original_native("2"*64, "1"*64)
+            with self.assertRaises(subject.CompositionError):
+                subject._require_original_native("0"*64, "2"*64)
+        with patch.object(subject, "file_identity", return_value={"sha256": "0"*64, "size_bytes": 1}), \
+                self.assertRaises(subject.CompositionError):
+            subject._preserved_inputs()
 
     def test_native_rows_mapping_and_summary(self):
         native, _, _, data = fixture()
@@ -244,6 +285,69 @@ class SyntheticComposition(unittest.TestCase):
             with self.assertRaises(subject.CompositionError):
                 subject._sample_dictionary(bad, 32, 3)
 
+    def test_explicit_no_prediction_parameters_and_strict_refusals(self):
+        head = (b"<< /Subtype /Image /Width 32 /Height 3 /BitsPerComponent 1 "
+                b"/Filter /FlateDecode /ColorSpace [/Indexed /DeviceRGB 1 <ffffff000000>] ")
+        parameters = b"/DecodeParms << /BitsPerComponent 1 /Colors 1 /Columns 32 /Predictor 1 >>"
+        self.assertFalse(subject._sample_dictionary(head+parameters+b" >>", 32, 3))
+        self.assertFalse(subject._sample_dictionary(head+parameters+b" /Decode [0 1] >>", 32, 3))
+        alternatives = (parameters.replace(b"/Predictor 1", b"/Predictor 2"),
+                        parameters.replace(b"/Predictor 1", b"/Predictor 12"),
+                        parameters.replace(b"/Columns 32", b"/Columns 31"),
+                        parameters.replace(b"/Colors 1", b"/Colors 2"),
+                        parameters.replace(b"/BitsPerComponent 1", b"/BitsPerComponent 8"),
+                        parameters.replace(b"/Predictor 1", b"/Predictor 1 /Predictor 1"),
+                        parameters.replace(b"/Predictor 1", b"/Predictor 1 /Unknown 0"),
+                        parameters.replace(b"/Predictor 1", b"/Predictor << /Nested 1 >>"),
+                        parameters.replace(b"/Columns 32", b"/Columns 4 0 R"),
+                        parameters.replace(b"/Columns 32", b"/Columns "+b"9"*10000),
+                        parameters+b" "+parameters, b"/DecodeParms 4 0 R", b"/DecodeParms []", b"/DecodeParms << >>",
+                        parameters+b" /Mask [0 1]", parameters+b" /ImageMask false", parameters+b" /SMask 4 0 R")
+        for altered in alternatives:
+            with self.subTest(parameters=altered[:80]), self.assertRaises(subject.CompositionUnsupported):
+                subject._sample_dictionary(head+altered+b" >>", 32, 3)
+        with self.assertRaises(subject.CompositionUnsupported):
+            subject._sample_dictionary((head+parameters+b" >>").replace(b"/FlateDecode", b"/DCTDecode"), 32, 3)
+
+    def test_actual_qpdf_and_poppler_full_original_no_prediction_bits(self):
+        tools = {}
+        for name in ("qpdf", "pdfimages"):
+            executable = shutil.which(name)
+            self.assertIsNotNone(executable, f"mandatory original-fixture validator is missing: {name}")
+            tools[name] = Path(executable)
+        bits = bytes([0x80,0,0,1, 0,0x80,0,0x10, 0,0,0,0x84])
+        document = original_binary_pdf(self.root/"original-padded.pdf", bits)
+        commands, report = self.commands()
+        draw = {"bits_per_component": 1, "width": 32, "height": 3, "draw_number": 1, "object_id": 5}
+        qpdf_bits = commands.session/"qpdf.bits"
+        subject._qpdf_samples(commands, document, draw, qpdf_bits, tools)
+        extracted = subject._poppler_samples(commands, document, 1, [draw], commands.session/"poppler", tools)
+        self.assertEqual(qpdf_bits.read_bytes(), bits)
+        self.assertEqual(extracted[1].read_bytes(), bits)
+        full = subject.compare_samples(qpdf_bits, extracted[1], 32, 3)
+        self.assertEqual((full["status"], full["compared_bytes"]), ("PASS", 12))
+        self.assertEqual(report["counts"]["validator_launches"], 3)
+        self.assertTrue(all(attempt["status"] == "PASS" for attempt in report["attempts"]))
+        altered = commands.session/"one-padded-bit.bits"
+        changed = bytearray(bits)
+        changed[3] ^= 1
+        altered.write_bytes(changed)
+        self.assertEqual(subject.compare_samples(qpdf_bits, altered, 32, 3)["changed_bits"], 1)
+        altered.write_bytes(bits[8:]+bits[4:8]+bits[:4])
+        self.assertTrue(subject.compare_samples(qpdf_bits, altered, 32, 3)["reverse_only_match"])
+
+    def test_unsupported_required_comparison_is_failed_and_never_passing(self):
+        for error in (subject.CompositionUnsupported("invented dictionary profile"),
+                      subject.pdf.PdfMetadataUnsupported("invented metadata profile"),
+                      subject.CompositionError("invented ordinary error")):
+            counts, progress = subject._report()["counts"], []
+            with self.subTest(error=type(error).__name__), self.assertRaises(type(error)):
+                with subject._comparison(counts, "type0_arrays", progress):
+                    raise error
+            self.assertEqual((counts["type0_arrays_attempted"], counts["type0_arrays_failing"], counts["type0_arrays_passing"]), (1, 1, 0))
+            self.assertEqual(counts["type0_arrays_unsupported"], int(subject._unsupported(error)))
+            self.assertEqual(progress[0]["status"], "FAIL")
+
     def test_process_success_digest_and_failed_launch_are_counted(self):
         commands, report = self.commands()
         usage = subject.pdf._Usage()
@@ -351,7 +455,10 @@ class SyntheticComposition(unittest.TestCase):
     def test_end_to_end_timeout_including_post_audits_fails(self):
         self._end_to_end(False, expired=True)
 
-    def _end_to_end(self, mutate, *, pixel_failure=False, expired=False):
+    def test_end_to_end_unsupported_metadata_remains_failure_with_post_audits(self):
+        self._end_to_end(False, unsupported=True)
+
+    def _end_to_end(self, mutate, *, pixel_failure=False, expired=False, unsupported=False):
         """Exercise runner control flow using only invented files/observations.
 
         The compact oracle has three artificial profiles sharing the six-row
@@ -434,6 +541,8 @@ class SyntheticComposition(unittest.TestCase):
             self.assertEqual(limits.max_draws_per_page, 256)
             self.assertEqual(allow_raw_bilevel, "-run1" not in _path.stem)
             calls.append(set(tools))
+            if unsupported:
+                raise subject.pdf.PdfMetadataUnsupported("invented required metadata profile")
             return deepcopy(document)
         expected = {"source_rows": 18, "output_pages": 6, "draws": 6,
                     "type0_arrays": 0, "jpeg_streams": 6, "page_renderer_pairs": 12}
@@ -442,6 +551,7 @@ class SyntheticComposition(unittest.TestCase):
         with patch.object(subject, "_pinned_json", side_effect=pinned), \
                 patch.object(subject, "_baselines", side_effect=baselines_after_receipt), \
                 patch.object(subject, "_execution_receipt", side_effect=receipt), \
+                patch.object(subject, "_require_original_native", return_value=None), \
                 patch.object(subject, "_audit", side_effect=audit), \
                 patch.object(subject.Commands, "run", command), \
                 patch.object(subject.pdf, "extract_pdf_metadata", side_effect=metadata), \
@@ -449,13 +559,20 @@ class SyntheticComposition(unittest.TestCase):
                 patch.object(subject, "RENDER_LAUNCH_LIMIT", 24), \
                 patch.object(subject.time, "monotonic", side_effect=lambda: now[0]):
             result = subject.run(paths, native_sha256="0"*64, native_source_sha256="1"*64)
-        self.assertEqual(len(calls), 2 if pixel_failure else 6)
+        self.assertEqual(len(calls), 1 if unsupported else 2 if pixel_failure else 6)
         self.assertEqual(len(snapshots), 2)
         self.assertNotIn("versions", snapshots[0]["environment_audit"])
-        self.assertEqual(result["counts"]["native_launches"], 1 if pixel_failure else 3)
-        self.assertEqual(result["counts"]["render_launches"], 2 if pixel_failure else 24)
+        self.assertEqual(result["counts"]["native_launches"], 1 if pixel_failure or unsupported else 3)
+        self.assertEqual(result["counts"]["render_launches"], 0 if unsupported else 2 if pixel_failure else 24)
         self.assertEqual(result["counts"]["converter_launches"], 0)
-        if pixel_failure:
+        if unsupported:
+            self.assertEqual(result["status"], "FAIL")
+            self.assertEqual([result["counts"][key] for key in ("profiles_attempted", "profiles_failing", "profiles_unsupported", "profiles_skipped")], [1, 1, 1, 2])
+            self.assertEqual([result["counts"][key] for key in ("metadata_groups_attempted", "metadata_groups_failing", "metadata_groups_unsupported", "metadata_groups_passing")], [1, 1, 1, 0])
+            self.assertEqual(result["counts"]["source_rows_attempted"], 0)
+            self.assertEqual(result["counts"]["source_checks_after"], 27)
+            self.assertEqual(result["counts"]["baseline_checks_after"], 6)
+        elif pixel_failure:
             self.assertEqual(result["status"], "FAIL")
             self.assertEqual([result["counts"][key] for key in ("profiles_attempted", "profiles_failing", "profiles_skipped", "native_completed")], [1,1,2,1])
             self.assertEqual([result["counts"][key] for key in ("page_renderer_pairs_attempted", "page_renderer_pairs_failing", "page_renderer_pairs_skipped")], [1,1,11])

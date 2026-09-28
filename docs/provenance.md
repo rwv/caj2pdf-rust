@@ -839,6 +839,20 @@ are `NOT_RUN` with zero compatibility passes. Private documents, text, state
 values, samples, PDFs, renders and execution artifacts remain outside Git;
 only reviewed metadata and outcome hashes belong in the evidence record.
 
+The first comparison remains a recorded failure at the reference sample-
+dictionary guard. A separately predeclared
+[dictionary-only probe](hnc8-page-composition-dictionary-probe.md) observed
+explicit Flate identity parameters, without converting, extracting samples
+or rendering pages. The [controlled comparison amendment](hnc8-page-composition-identity-params-rerun.md)
+accepts only that direct four-field, one-bit, one-color, Predictor=1 profile.
+Its interpretation follows the linked Adobe PDF reference and qpdf inspection
+documentation, not converter source. Original asymmetric runtime PDFs test
+every padded bit through independent tools. The original failure and probe
+metadata are pinned and audited; the native executable and Rust/Cargo source
+must remain identical to the first attempt. Unsupported required comparisons
+are explicit failing subsets, never compatibility passes. Full-page and
+full-array evidence remains required.
+
 ## Dependency inventory and review
 
 The workspace contains three owned packages. The dependency column lists

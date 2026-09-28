@@ -70,6 +70,17 @@ BASELINE_PINS = {
     "c8": (2759609, "acbd822358c08713a795f8c0ad82c6f23c4b43d9e137d515c3210114ca1bc885"),
     "hn_b": (826645, "b058b38be3efc3915f69bb79d6160d7a54c4ef47ac529ebe963214eb697d2a51"),
 }
+PROTOCOL_PINS = {
+    "protocol": ("docs/hnc8-page-composition-protocol.md", "6b423115b903521ffc7d99f2ce592c45e1933649e941afd485fe6a51aa292c93"),
+    "dictionary_probe_protocol": ("docs/hnc8-page-composition-dictionary-probe.md", "abb348a40495a5ff12e1f38f8dc7f568f3596dc49f9041c70e313a40398f08fb"),
+    "identity_params_protocol": ("docs/hnc8-page-composition-identity-params-rerun.md", "7cfe8b87430f94bb3cc291e88739d1214ad6e69ec7390c623d8941251539a133"),
+}
+PRESERVED_PINS = {
+    "first_failed_report": (Path("/home/hzc/.cache/caj2pdf-issue117-validation/composition-report.json"), 733091,
+                            "7e9d0e6d43d1f0f3e428da636f82566f7fcac44e4868347093edd652735816e5"),
+    "dictionary_probe_report": (Path("/home/hzc/.cache/caj2pdf-issue117-dictionary-probe/dictionary-srrp1_nc/probe-report.json"), 21470,
+                                "ec6a38adda35e156ad5b67857471414a1208953c9aa8c7d3d50e0675ca513fa4"),
+}
 EXPECTED = {"source_rows": 81, "output_pages": 77, "draws": 127,
             "type0_arrays": 74, "jpeg_streams": 53, "page_renderer_pairs": 154}
 REQUIRED = {"corpus", "reference_report", "table", "artifact_root", "native_tool"}
@@ -80,6 +91,14 @@ WHITE_RUNS = re.compile(b"\xff{3,}")
 
 class CompositionError(Exception):
     """Requested validation, provenance, resource or protocol failure."""
+
+
+class CompositionUnsupported(CompositionError):
+    """A requested validator profile is unsupported; required work still fails."""
+
+
+def _unsupported(error: BaseException) -> bool:
+    return isinstance(error, (CompositionUnsupported, pdf.PdfMetadataUnsupported))
 
 
 def _integer(value: str | int, label: str, minimum: int = 0,
@@ -145,6 +164,31 @@ def _pinned_json(path: Path, expected: str) -> dict:
     if not isinstance(result, dict):
         raise CompositionError("pinned metadata root is not an object")
     return result
+
+
+def _protocol_inputs() -> dict:
+    inputs = {name: file_identity(ROOT/relative, MIB) for name, (relative, _) in PROTOCOL_PINS.items()}
+    if any(inputs[name]["sha256"] != pin for name, (_, pin) in PROTOCOL_PINS.items()):
+        raise CompositionError("frozen composition protocol or amendment digest differs")
+    return inputs
+
+
+def _preserved_inputs() -> dict:
+    inputs = {name: file_identity(path, MIB) for name, (path, _, _) in PRESERVED_PINS.items()}
+    if any(inputs[name]["size_bytes"] != size or inputs[name]["sha256"] != pin
+           for name, (_, size, pin) in PRESERVED_PINS.items()):
+        raise CompositionError("preserved first-failure or dictionary-probe metadata identity differs")
+    return inputs
+
+
+def _require_original_native(native_sha: str, source_sha: str) -> None:
+    path, _, pin = PRESERVED_PINS["first_failed_report"]
+    report = _pinned_json(path, pin)
+    audit = report.get("native_audit", {})
+    if (report.get("status") != "FAIL" or audit.get("status") != "PASS" or
+            audit.get("after_status") != "PASS" or audit.get("binary", {}).get("sha256") != native_sha or
+            audit.get("source", {}).get("sha256") != source_sha):
+        raise CompositionError("rerun native executable or Rust/Cargo identity differs from the preserved first attempt")
 
 
 def _environment(session: Path) -> dict[str, str]:
@@ -663,10 +707,13 @@ def _comparison(counts: dict | None, kind: str, progress: list | None = None, **
         progress.append(entry)
     try:
         yield
-    except (Exception, KeyboardInterrupt):
+    except (Exception, KeyboardInterrupt) as exc:
         entry["status"] = "FAIL"
+        entry["unsupported"] = _unsupported(exc)
         if counts is not None:
             counts[f"{kind}_failing"] += 1
+            if _unsupported(exc):
+                counts[f"{kind}_unsupported"] += 1
         raise
     else:
         entry["status"] = "PASS"
@@ -736,36 +783,51 @@ def compare_metadata(native: dict, baseline: dict, candidate: dict, case: dict,
 def _sample_dictionary(data: bytes, width: int, height: int) -> bool:
     """Validate only the two explicitly understood binary sample dictionaries.
 
-    Return whether bit inversion is needed to obtain black=1. No Predictor,
-    mask, indirect color palette or arbitrary color/decode profile is guessed.
+    Return whether bit inversion is needed to obtain black=1. Explicit Flate
+    Predictor=1 with exact declared one-bit/one-color row metadata applies no
+    prediction. Masks, indirect parameters and other predictors are refused.
     """
-    if len(data) > 65536 or any(token in data for token in (b"/DecodeParms", b"/SMask", b"/Mask", b"/ImageMask")):
-        raise CompositionError("Type0 dictionary uses an unsupported sample interpretation")
-    for key, expected in ((b"Width", width), (b"Height", height), (b"BitsPerComponent", 1)):
-        found = re.findall(rb"/" + key + rb"\s+(\d+)\b", data)
-        if len(found) != 1 or int(found[0]) != expected:
-            raise CompositionError("Type0 dictionary sample dimensions/depth differ")
-    if len(re.findall(rb"/Subtype\s+/Image\b", data)) != 1:
-        raise CompositionError("Type0 dictionary is not an image")
+    if len(data) > 65536:
+        raise CompositionError("Type0 dictionary exceeds its byte cap")
+    if any(re.search(token+rb"\b", data) for token in (b"/SMask", b"/Mask", b"/ImageMask")):
+        raise CompositionUnsupported("Type0 dictionary uses an unsupported sample interpretation")
     filters = re.findall(rb"/Filter\s+(/\w+|\[[^]]*\])", data)
     if re.search(rb"/Filter\b", data) and filters != [b"/FlateDecode"]:
-        raise CompositionError("Type0 dictionary filter is unsupported")
+        raise CompositionUnsupported("Type0 dictionary filter is unsupported")
+    parameters = re.findall(rb"/DecodeParms\s*<<(.*?)>>", data, re.DOTALL)
+    if re.search(rb"/DecodeParms\b", data):
+        if filters != [b"/FlateDecode"] or len(re.findall(rb"/DecodeParms\b", data)) != 1 or len(parameters) != 1:
+            raise CompositionUnsupported("Type0 prediction parameters require one direct Flate dictionary")
+        fields = re.findall(rb"/(BitsPerComponent|Colors|Columns|Predictor)\s+((?:0|[1-9][0-9]{0,9}))\b", parameters[0])
+        remainder = re.sub(rb"/(BitsPerComponent|Colors|Columns|Predictor)\s+(?:0|[1-9][0-9]{0,9})\b", b"", parameters[0])
+        if (remainder.strip() or len(fields) != 4 or
+                {key: int(value) for key, value in fields} !=
+                {b"BitsPerComponent": 1, b"Colors": 1, b"Columns": width, b"Predictor": 1}):
+            raise CompositionUnsupported("Type0 prediction parameters are outside the explicit no-prediction profile")
+    # Parameter BPC describes Flate's row profile, not another image field.
+    properties = re.sub(rb"/DecodeParms\s*<<.*?>>", b"", data, flags=re.DOTALL)
+    for key, expected in ((b"Width", width), (b"Height", height), (b"BitsPerComponent", 1)):
+        found = re.findall(rb"/" + key + rb"\s+(\d+)\b", properties)
+        if len(found) != 1 or len(found[0]) > 10 or int(found[0]) != expected:
+            raise CompositionError("Type0 dictionary sample dimensions/depth differ")
+    if len(re.findall(rb"/Subtype\s+/Image\b", properties)) != 1:
+        raise CompositionError("Type0 dictionary is not an image")
     decode = re.findall(rb"/Decode\s*\[\s*([01])\s+([01])\s*\]", data)
-    if b"/Decode" in data and not decode:
-        raise CompositionError("Type0 dictionary decode array is unsupported")
+    if re.search(rb"/Decode\b", data) and not decode:
+        raise CompositionUnsupported("Type0 dictionary decode array is unsupported")
     if len(decode) > 1:
         raise CompositionError("Type0 dictionary has duplicate decode arrays")
     if re.search(rb"/ColorSpace\s+/DeviceGray\b", data):
-        if decode != [(b"1", b"0")]:
-            raise CompositionError("native binary gray dictionary lacks explicit black=1 decode")
+        if parameters or decode != [(b"1", b"0")]:
+            raise CompositionUnsupported("native binary gray dictionary lacks the explicit inverse-gray profile")
         return False
     indexed = re.search(rb"/ColorSpace\s*\[\s*/Indexed\s+/DeviceRGB\s+1\s+"
                         rb"<([0-9A-Fa-f\s]+)>\s*\]", data)
     if not indexed or decode not in ([], [(b"0", b"1")]):
-        raise CompositionError("reference binary palette/decode is unsupported")
+        raise CompositionUnsupported("reference binary palette/decode is unsupported")
     palette = re.sub(rb"\s", b"", indexed[1]).lower()
     if palette not in (b"ffffff000000", b"000000ffffff"):
-        raise CompositionError("reference palette is not proven binary black/white")
+        raise CompositionUnsupported("reference palette is not proven binary black/white")
     return palette == b"000000ffffff"
 
 
@@ -924,15 +986,16 @@ def _report() -> dict:
     return {"schema_version": 1, "protocol": "hnc8-source-page-composition-v1", "status": "NOT_RUN",
             "scope": "three previously observed source documents; image-only caller-table diagnostic",
             "production_composition": "NOT_ENABLED", "tolerance_pt": TOLERANCE,
+            "unsupported_count_scope": "subset of failing requested-profile comparisons: explicit sample-dictionary or metadata-validator refusals; never a passing compatibility check",
             "pixel_tolerance": {"maximum_channel_difference": 0, "changed_pixels": 0},
             "planned": {"profiles": 3, "source_audit_rows": 27, "baseline_pdf_files": 6,
                         "native_launches": 3, "render_launches": 308, "converter_launches": 0, **EXPECTED},
             "counts": {**{key: 0 for key in ("native_launches", "native_completed", "native_failed",
                                             "converter_launches", "validator_launches", "render_launches",
-                                            "metadata_groups_attempted", "metadata_groups_passing", "metadata_groups_failing",
-                                            "profiles_attempted", "profiles_passing", "profiles_failing", "profiles_skipped",
+                                            "metadata_groups_attempted", "metadata_groups_passing", "metadata_groups_failing", "metadata_groups_skipped", "metadata_groups_unsupported",
+                                            "profiles_attempted", "profiles_passing", "profiles_failing", "profiles_skipped", "profiles_unsupported",
                                             "source_checks_before", "source_checks_after", "baseline_checks_before", "baseline_checks_after")},
-                       **{f"{kind}_{outcome}": 0 for kind in EXPECTED for outcome in ("attempted", "passing", "failing", "skipped")}},
+                       **{f"{kind}_{outcome}": 0 for kind in EXPECTED for outcome in ("attempted", "passing", "failing", "skipped", "unsupported")}},
             **{name: {"status": "NOT_RUN"} for name in ("source_audit", "baseline_audit", "table_audit",
                                                        "environment_audit", "input_audit", "native_audit")},
             "resources": {"read_request_limit_bytes": CHUNK, "native_request_limit_bytes": 4096,
@@ -970,7 +1033,8 @@ def _audit(paths: dict, baselines: dict, rows: list[dict], tools: dict,
     inputs["reference_report"] = file_identity(paths["reference_report"], MIB)
     if inputs["reference_report"]["sha256"] != REFERENCE_SHA:
         raise CompositionError("reference-report pin changed before/during the experiment")
-    inputs["protocol"] = file_identity(ROOT / "docs/hnc8-page-composition-protocol.md", MIB)
+    inputs.update(_protocol_inputs())
+    inputs.update(_preserved_inputs())
     for name in ("hnc8_page_composition.py", "hnc8_layout_pdf.py", "hnc8_placement_rule.py", "hnc8_layout_reference.py"):
         inputs[name] = file_identity(ROOT / "scripts" / name, MIB)
     inputs["synthetic_tests"] = file_identity(ROOT / "tests/conformance/test_hnc8_page_composition.py", MIB)
@@ -1028,8 +1092,9 @@ def _execution_receipt(paths: dict, tools: dict, oracle: dict, rows: list[dict],
     fingerprint = placement.source_fingerprint(ROOT)
     if binary["sha256"] != native_sha or fingerprint["sha256"] != source_sha:
         raise CompositionError("internal execution receipt native/source pin differs")
+    _protocol_inputs()
     files = {name: file_identity(ROOT/name, MIB) for name in (
-        "docs/hnc8-page-composition-protocol.md", "scripts/hnc8_page_composition.py",
+        *(entry[0] for entry in PROTOCOL_PINS.values()), "scripts/hnc8_page_composition.py",
         "scripts/hnc8_layout_pdf.py", "scripts/hnc8_layout_reference.py",
         "scripts/hnc8_placement_rule.py", "tests/conformance/test_hnc8_page_composition.py")}
     selected = {row["id"]: row for row in rows}
@@ -1045,6 +1110,7 @@ def _execution_receipt(paths: dict, tools: dict, oracle: dict, rows: list[dict],
     receipt = {"schema_version": 1, "protocol": "hnc8-source-page-composition-v1",
                "phase": "BEFORE_PRIVATE_BYTE_AUDITS", "native": binary,
                "rust_cargo_source": fingerprint, "harness_files": files,
+               "preserved_metadata_files": _preserved_inputs(),
                "tools": {name: file_identity(path, 256*MIB) for name, path in tools.items()},
                "effective_environment": _environment_identity(commands.environment),
                "roots": {name: str(paths[name]) for name in REQUIRED},
@@ -1069,6 +1135,9 @@ def _verify_receipt(identity: dict) -> None:
     for name, expected in receipt["harness_files"].items():
         if file_identity(ROOT/name, MIB) != expected:
             raise CompositionError("protocol, runner, helper or test changed from the internal execution receipt")
+    for expected in receipt.get("preserved_metadata_files", {}).values():
+        if file_identity(Path(expected["path"]), MIB) != expected:
+            raise CompositionError("preserved failure/probe metadata changed from the internal execution receipt")
 
 
 def run(paths: Mapping[str, Path] | None = None, *, native_sha256: str | None = None,
@@ -1105,6 +1174,7 @@ def run(paths: Mapping[str, Path] | None = None, *, native_sha256: str | None = 
         report["internal_execution_receipt"] = _execution_receipt(
             resolved, tools, oracle, rows, commands, expected_binary, expected_source)
         _verify_receipt(report["internal_execution_receipt"])
+        _require_original_native(expected_binary, expected_source)
         baseline_paths = _baselines(reference_report, oracle)
         before = _audit(resolved, baseline_paths, rows, tools, commands.environment,
                         expected_binary, expected_source)
@@ -1170,21 +1240,26 @@ def run(paths: Mapping[str, Path] | None = None, *, native_sha256: str | None = 
                 check_pixels(commands, baseline_path, output, original["pages"], tools, result)
                 result["status"] = "PASS"
                 report["counts"]["profiles_passing"] += 1
-            except (Exception, KeyboardInterrupt):
+            except (Exception, KeyboardInterrupt) as exc:
                 result["status"] = "FAIL"
                 report["counts"]["profiles_failing"] += 1
+                if _unsupported(exc):
+                    result["unsupported"] = True
+                    report["counts"]["profiles_unsupported"] += 1
                 if report["counts"]["native_completed"] < report["counts"]["native_launches"]:
                     report["counts"]["native_failed"] += 1
                 raise
         for kind, expected in EXPECTED.items():
             if (report["counts"][f"{kind}_passing"] != expected or
                     report["counts"][f"{kind}_attempted"] != expected or
-                    report["counts"][f"{kind}_failing"]):
+                    report["counts"][f"{kind}_failing"] or report["counts"][f"{kind}_unsupported"]):
                 raise CompositionError("complete required comparison count differs")
         if (report["counts"]["native_launches"] != 3 or report["counts"]["native_completed"] != 3 or
                 report["counts"]["native_failed"] or report["counts"]["converter_launches"] or
                 report["counts"]["render_launches"] != RENDER_LAUNCH_LIMIT or report["counts"]["profiles_passing"] != 3 or
-                report["counts"]["profiles_failing"]):
+                report["counts"]["profiles_failing"] or report["counts"]["profiles_unsupported"] or
+                report["counts"]["metadata_groups_unsupported"] or report["counts"]["metadata_groups_failing"] or
+                report["counts"]["metadata_groups_attempted"] != 3 or report["counts"]["metadata_groups_passing"] != 3):
             raise CompositionError("complete required launch/profile count differs")
         if time.monotonic() > commands.deadline:
             raise CompositionError("whole experiment deadline exceeded")
@@ -1214,6 +1289,7 @@ def run(paths: Mapping[str, Path] | None = None, *, native_sha256: str | None = 
                         report[name]["after_status"] = "NOT_COMPLETED"
                         report[name]["status"] = "PARTIAL"
         report["counts"]["profiles_skipped"] = max(0, 3-report["counts"]["profiles_attempted"])
+        report["counts"]["metadata_groups_skipped"] = max(0, 3-report["counts"]["metadata_groups_attempted"])
         for kind, expected in EXPECTED.items():
             report["counts"][f"{kind}_skipped"] = max(0, expected-report["counts"][f"{kind}_attempted"])
         if commands is not None:
