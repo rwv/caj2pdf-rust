@@ -3,11 +3,12 @@
 # Original PDF controls and Linux startup canary
 
 This is work toward [#124](https://github.com/rwv/caj2pdf-rust/issues/124).
-The offline image is prepared. The first startup pair lost its tmpfs diagnostics;
-the reviewed transport amendment collected the next pair's detailed records.
-Both later launcher attempts failed with exit 127 and a missing `libxslt.so.1`
-diagnostic. **Full-page and text compatibility remain NOT_RUN, zero passes.**
-The capability issue remains open; four reported launcher attempts are retained.
+The first startup pair lost its tmpfs diagnostics. The transport amendment
+collected two loader failures with missing `libxslt.so.1`. After adding the
+measured provider, two more attempts exited 153 with a file-size-limit
+diagnostic; the affected file/child is unknown. **Full-page and text
+compatibility remain NOT_RUN, zero passes.** The capability issue remains
+open; all six reported launcher attempts and failures are retained.
 The [fixture plan](cajviewer-fixtures.md) and issue acceptance criteria govern
 the later image/text capability probes and private acquisition.
 
@@ -143,6 +144,7 @@ No build/pull/profile/flag/backend retry occurs during this phase.
 | Container | UID/GID 1000, read-only root/inputs, offline network, init, dropped capabilities, no new privileges, no host display/home/socket. |
 | Memory / swap / CPU / PID | 1536 MiB entire cgroup; memory+swap also 1536 MiB; 2 CPUs; 256 concurrent tasks/threads. These are not Rust RSS or cumulative descendant-start counts. |
 | Bounded writable storage | Home 64 MiB, `/tmp` 64 MiB, runtime 8 MiB, output 32 MiB, shared memory 64 MiB. |
+| Current file-limit investigation | Supervisor/query soft 1 MiB, supervisor hard 64 MiB; child-only application soft/hard 64 MiB; capture soft 6 MiB. Core dumps disabled. This amended source requires a separately frozen startup phase; earlier sessions inherited soft 1 MiB/hard 6 MiB. |
 | Display | Dedicated Xvfb `:99`, 1600 × 1200, depth 24, requested 96 DPI; X11 RGB masks/stride are measured. Vendor DPR/Qt/backend stay UNKNOWN. |
 | Persistent helpers | One Xvfb and one openbox attempt; at most 400 controlled metadata helper attempts. |
 | Stage time | X11 readiness 10 s; title search 30 s; helper primary deadlines 2 s, plus bounded reap allowances. Query sleeps do not prove readiness. |
@@ -237,10 +239,59 @@ not list libxslt and is not a complete dynamic-loader contract. Debian
 Public signed snapshot preparation resolved `libxslt1.1=1.1.35-1+deb12u1`.
 The recipe adds that measured missing-library provider and the separately
 declared icon dependency `hicolor-icon-theme=0.17-2`.
-Build and inventory this new preparation profile publicly before defining a
-new finite startup budget. Preserve both earlier protocols/failures and freeze
-the new exact source, image, runtime, actions and cumulative-attempt ceiling
-for independent review before any further app launch.
+The public build and opaque inventory succeeded with zero app launches. The
+new image is
+`sha256:cd6c06786977df1dbb1556309b43e713349eed52ced1e702b7b027cacf1f1c21`
+(1,424,924,931 bytes). Its 518,665-byte runtime inventory has SHA-256
+`527427bd2538308053a10a1486582503fe9555330e805b652bf73b73596762e4`.
+Independent review verified that these are the only added installed packages;
+all 832 opaque vendor entries, original installed modules and public tool
+identities remained unchanged.
+
+## Preserved file-size-limit failure and original process controls
+
+The third startup protocol froze source
+`50880751c75e6e3c7a0cedc7e2e24b97f572f228`, the new image and inventory,
+12,758 protocol bytes with SHA-256
+`1f2a85d784467635d38da8da784c0a39754072a7c1b5357751777164b022bcc0`,
+and exactly two fresh names. Its explicit cumulative reported-attempt ceiling
+was six; no UI, document, backend or other environment action was added.
+An app-zero protocol-preparation failure is also retained: no-follow host
+hashing correctly refused the Python symlink. The amendment recorded its
+resolved binary path while verifying the previous binary bytes unchanged.
+
+Both app attempts exited 153 with a 25-byte `File size limit exceeded` log,
+SHA-256 `912456ad93f80e531567561305bf88e56c769ddeb2dbcde00410659837121374`.
+This is consistent with Linux SIGXFSZ; the diagnostic does not identify its
+target file or child. No matching window was observed. Both 30-second title
+queries used 293 helpers and each host attempt used 38 Docker clients. The
+61,995-byte run receipt has SHA-256
+`789f80e8900ab338bda70eb269ae9bdf9b8f9db5d6acdb9ba1048fbb03b6fd37`.
+Whole-cgroup memory peaks were 146,976,768 and 65,839,104 bytes, with zero
+OOM-kill deltas. All group/container cleanups, final declared source audits and
+11 additional historical metadata pins passed independent verification.
+Both viewport payloads still matched the previous diagnostic desktop hash;
+this proves artifact integrity only, with no document-page or text result.
+
+The inherited application soft file-size limit was 1 MiB. The current source
+prepares a 64 MiB parent hard allowance and sets application soft/hard 64 MiB
+in its single-threaded fork child before exec. The official launcher argv
+stays unchanged. Supervisor/query children retain soft 1 MiB and the capture
+retains soft 6 MiB. Core dumps are disabled; no host/system ulimit is changed.
+Before-launch supervisor limits and bounded `/proc` process-limit snapshots
+are recorded separately from the declared policy. A file can still exhaust
+its original bounded tmpfs. Application logging now has the application
+ceiling: an oversized log still fails the unchanged 6 MiB-per-file/32 MiB
+aggregate diagnostic collection. Do not claim its log remains capped at 1 MiB.
+
+Three original Python child controls demonstrate the previous 1 MiB refusal,
+successful bounded writing beyond 1 MiB under the child allowance, and refusal
+past 64 MiB without allocating a 65 MiB fixture. Parent limits remain unchanged
+and mock integration verifies only the application receives the pre-exec
+action. These controls do not prove that CAJViewer can initialize. Build and
+inventory the amended source, then freeze exact pins and a new finite budget
+for independent review before any additional app activity. Preserve every
+earlier phase and its original ceiling; do not retry automatically.
 
 ## Public tests and remaining acceptance work
 

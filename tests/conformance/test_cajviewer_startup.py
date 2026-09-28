@@ -8,6 +8,7 @@ import io
 import json
 import os
 from pathlib import Path
+import resource
 import sys
 import tempfile
 import tarfile
@@ -30,6 +31,84 @@ DRIVER = load("original_startup_driver", ROOT / "tools/cajviewer/run.py")
 
 
 class StartupFailureTests(unittest.TestCase):
+    def test_original_process_limits_are_observed_and_disappeared_process_is_omitted(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            process = root / "123"
+            process.mkdir()
+            command = process / "cmdline"
+            command.write_bytes(b"original-app\0original.pdf\0")
+            (process / "limits").write_bytes(b"Limit Soft Limit Hard Limit Units\n"
+                                             b"Max file size 67108864 67108864 bytes\n")
+            paths = [command, root / "124" / "cmdline"]
+            with mock.patch.object(SESSION, "Path", return_value=mock.Mock(glob=mock.Mock(return_value=paths))):
+                observations = SESSION.process_metadata()
+            self.assertEqual(observations, [{"pid": 123, "argv": ["original-app", "original.pdf"],
+                                             "observed_file_size_limit": "Max file size 67108864 67108864 bytes"}])
+
+    def test_oversized_process_limit_metadata_fails_without_truncating(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            process = Path(temporary) / "123"
+            process.mkdir()
+            command = process / "cmdline"
+            command.write_bytes(b"original-app\0")
+            (process / "limits").write_bytes(b"x" * 8193)
+            with mock.patch.object(SESSION, "Path", return_value=mock.Mock(glob=mock.Mock(return_value=[command]))):
+                with self.assertRaisesRegex(SESSION.CanaryError, "limits metadata over limit"):
+                    SESSION.process_metadata()
+
+    def test_original_child_file_limit_preserves_parent_and_refuses_over_limit(self):
+        # Three original Python processes, no Docker/vendor invocation. The
+        # file operations prove the inherited rejection and amended ceiling.
+        script = r'''
+import errno, importlib.util, json, os, resource, signal, sys
+from pathlib import Path
+root = Path(sys.argv[1])
+sys.path.insert(0, str(root / "scripts"))
+spec = importlib.util.spec_from_file_location("original_session", root / "tools/cajviewer/cajviewer_session.py")
+session = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(session)
+resource.setrlimit(resource.RLIMIT_FSIZE, (1024 ** 2, session.APPLICATION_FILE_LIMIT))
+if sys.argv[2] != "inherited":
+    session.application_file_limit()
+signal.signal(signal.SIGXFSZ, signal.SIG_IGN)
+target = Path(sys.argv[3])
+refused = False
+with target.open("xb") as file:
+    try:
+        if sys.argv[2] == "positive":
+            for _ in range(16):
+                file.write(b"x" * 65536)
+            file.write(b"x")
+            file.flush()
+        else:
+            size = 1024 ** 2 + 1 if sys.argv[2] == "inherited" else session.APPLICATION_FILE_LIMIT + 1
+            os.ftruncate(file.fileno(), size)
+    except OSError as error:
+        if error.errno != errno.EFBIG:
+            raise
+        refused = True
+print(json.dumps({"refused": refused, "size": target.stat().st_size,
+                  "limits": resource.getrlimit(resource.RLIMIT_FSIZE)}))
+'''
+        parent_limits = resource.getrlimit(resource.RLIMIT_FSIZE)
+        with tempfile.TemporaryDirectory() as temporary:
+            results = {}
+            for mode in ("inherited", "positive", "over-limit"):
+                observed = DRIVER.run_bounded([sys.executable, "-c", script, str(ROOT), mode,
+                                               str(Path(temporary) / mode)],
+                                              deadline_seconds=5, output_limit=4096)
+                self.assertEqual(observed["status"], "PASS", observed)
+                results[mode] = json.loads(observed["stdout"])
+        self.assertTrue(results["inherited"]["refused"])
+        self.assertEqual(results["inherited"]["size"], 0)
+        self.assertEqual(results["inherited"]["limits"], [1024 ** 2, SESSION.APPLICATION_FILE_LIMIT])
+        self.assertEqual(results["positive"], {"refused": False, "size": 1024 ** 2 + 1,
+                                              "limits": [SESSION.APPLICATION_FILE_LIMIT] * 2})
+        self.assertTrue(results["over-limit"]["refused"])
+        self.assertEqual(results["over-limit"]["size"], 0)
+        self.assertEqual(resource.getrlimit(resource.RLIMIT_FSIZE), parent_limits)
+
     def test_original_transport_streams_known_files_and_refuses_unsafe_entries(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -97,7 +176,7 @@ class StartupFailureTests(unittest.TestCase):
                     mock.patch.object(SESSION, "run_bounded", side_effect=command), \
                     mock.patch.object(SESSION, "cgroup_metrics", return_value={"memory.peak": "12", "memory.events": "oom_kill 0\n"}), \
                     mock.patch.object(SESSION, "process_metadata", return_value=[]), \
-                    mock.patch.object(SESSION.subprocess, "Popen", side_effect=children), \
+                    mock.patch.object(SESSION.subprocess, "Popen", side_effect=children) as launch, \
                     mock.patch.object(SESSION.os, "killpg") as kill, \
                     mock.patch.object(SESSION.time, "monotonic", side_effect=now), \
                     mock.patch.object(SESSION.time, "sleep", side_effect=sleep), \
@@ -110,6 +189,9 @@ class StartupFailureTests(unittest.TestCase):
             self.assertEqual(report["vendor_passes"], 0)
             self.assertEqual(kill.call_count, 3)
             self.assertTrue((output / "ready").is_file())
+            self.assertNotIn("preexec_fn", launch.call_args_list[0].kwargs)
+            self.assertNotIn("preexec_fn", launch.call_args_list[1].kwargs)
+            self.assertIs(launch.call_args_list[2].kwargs["preexec_fn"], SESSION.application_file_limit)
 
     def test_failed_create_client_still_cleans_daemon_container_by_known_name(self):
         def result(status="PASS", code=0, stdout=b"", stderr=b""):

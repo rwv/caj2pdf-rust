@@ -192,10 +192,11 @@ The planned [vendor fixture protocol](cajviewer-fixtures.md), tracked by
 version-scoped Linux CAJViewer baseline for complete-page images and local
 standard-copy text. Vendor compatibility is **`NOT_RUN`, zero passes**. The
 first pair lost its tmpfs diagnostics; the reviewed transport amendment
-collected a second pair, both failing initial loading with exit 127 and an
-unavailable `libxslt.so.1`. Document opening remains unverified. The
-[startup note](cajviewer-linux-startup.md) retains all four failures, exact
-receipts and public runtime preparation. No private vendor fixture has been acquired, and no supported Linux
+collected a second pair failing on `libxslt.so.1`. With the measured provider
+added, a third pair exited 153 with a file-size-limit diagnostic; its target
+file is unknown. Document opening remains unverified. The
+[startup note](cajviewer-linux-startup.md) retains all six failures, exact
+receipts and original child-limit controls. No private vendor fixture has been acquired, and no supported Linux
 export CLI or headless API has been proven. The existing Python-converter
 regressions and [#117 composition evidence](hnc8-page-composition-evidence.md),
 including the explicit corrected grayscale HN-B basis, remain distinct.

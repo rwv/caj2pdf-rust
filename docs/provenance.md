@@ -18,6 +18,9 @@ grant is inferred. The experimental Debian image omits installer hooks and
 all bundled document entries. Public package dependencies are not relabeled
 MIT. The [startup note](cajviewer-linux-startup.md) records exact preparation
 pins, first metadata failure, scope and the unattempted capability requirements.
+Child-only POSIX file limits and process-limit metadata use Python's public
+`resource`/`subprocess` APIs and Linux `/proc`; original Python writer controls
+test them without vendor execution or copied implementation.
 
 This register records the information sources, test material, and code origins
 used by `caj2pdf-rust`. It is part of the acceptance evidence for
