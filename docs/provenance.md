@@ -797,6 +797,20 @@ Physical units and general document applicability remain unproven. No
 private text/prefix bytes, source copies, reference converter code, decoded
 pixels or arithmetic tables are introduced by these diagnostics.
 
+Issue #116 extends the existing original MIT PDF writer with reusable
+raw/JPEG image handles and ordered affine placements in `pdf/document.rs`,
+`pdf/mod.rs` and `pdf/writer.rs`. The document identity, fixed-capacity decimal
+formatter and object-index preflight are independently authored standard
+library glue; no PDF library, converter implementation or new dependency is
+copied or introduced. The functional PDF matrix/image/stream rules come from
+the PDF 1.7 sections already referenced in the [writer note](pdf-writer.md).
+Original source-only unit fixtures and `pdf_placement_bounds.rs` /
+`pdf_placement_render.rs` generate tiny asymmetric images at runtime. Installed
+qpdf, MuPDF, Poppler and libjpeg-turbo are independent test-only black boxes,
+not linked or distributed assets. No HN factors, private source/image/PDF
+bytes, arithmetic states or external document compatibility results are added
+by this generic PDF primitive.
+
 ## Dependency inventory and review
 
 The workspace contains three owned packages. The dependency column lists

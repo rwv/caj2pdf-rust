@@ -94,15 +94,25 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfWriter<'a, W, C> {
     /// The object index requests capacity within
     /// `Limits::max_allocation_bytes`; no object content is stored in it.
     pub fn reserve_object(&mut self) -> Result<ObjectId> {
+        self.prepare_objects(1)?;
+        let number = checked_object_number(self.offsets.len() + 1)?;
+        self.offsets.push(0);
+        Ok(ObjectId(number))
+    }
+
+    /// Preflight/reserve index capacity without minting object numbers or
+    /// writing bytes. A document uses this before a page-tree rollover so a
+    /// known object/count budget refusal cannot follow partially written nodes.
+    pub(crate) fn prepare_objects(&mut self, additional_objects: usize) -> Result<()> {
         self.ensure_healthy()?;
-        let next_count = self
-            .offsets
-            .len()
-            .checked_add(1)
-            .ok_or(Error::InvalidInput {
-                reason: "PDF object count overflows address space",
-            })?;
-        let number = checked_object_number(next_count)?;
+        let next_count =
+            self.offsets
+                .len()
+                .checked_add(additional_objects)
+                .ok_or(Error::InvalidInput {
+                    reason: "PDF object count overflows address space",
+                })?;
+        checked_object_number(next_count)?;
         let max_slots = (self.limits.max_allocation_bytes / size_of::<u64>() as u64)
             .min(u64::from(MAX_PDF_OBJECTS));
         let next_capacity = if next_count > self.offsets.capacity() {
@@ -129,8 +139,7 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfWriter<'a, W, C> {
             let additional = next_capacity - self.offsets.len();
             reserve_exact(&mut self.offsets, additional, refused)?;
         }
-        self.offsets.push(0);
-        Ok(ObjectId(number))
+        Ok(())
     }
 
     /// Begin one previously reserved object. Follow with `write_bytes` and
@@ -354,7 +363,7 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfWriter<'a, W, C> {
         }
     }
 
-    fn ensure_idle(&self) -> Result<()> {
+    pub(crate) fn ensure_idle(&self) -> Result<()> {
         self.ensure_healthy()?;
         if self.state != State::Idle {
             return Err(Error::InvalidInput {
@@ -468,6 +477,25 @@ mod tests {
     /// instantiation of the generic writer.
     fn vec_sink() -> WriteSink<Vec<u8>> {
         WriteSink::new(Vec::new())
+    }
+
+    #[test]
+    fn preflighted_objects_do_not_mint_ids_and_overflow_is_recoverable() {
+        let mut sink = vec_sink();
+        let limits = Limits::default();
+        let mut writer = run(PdfWriter::new(&mut sink, &limits, &NeverCancel)).unwrap();
+        let before = writer.position();
+        writer.prepare_objects(5).unwrap();
+        assert!(writer.offsets.is_empty());
+        assert_eq!(writer.position(), before);
+        assert_eq!(writer.reserve_object().unwrap().number(), 1);
+        assert!(matches!(
+            writer.prepare_objects(usize::MAX),
+            Err(Error::InvalidInput { .. })
+        ));
+        assert_eq!(writer.offsets.len(), 1);
+        assert_eq!(writer.position(), before);
+        assert_eq!(writer.reserve_object().unwrap().number(), 2);
     }
 
     #[test]

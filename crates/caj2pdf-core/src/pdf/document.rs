@@ -8,6 +8,8 @@ use crate::{
     Bookmark, BookmarkVisitor, Cancellation, ConversionReport, Error, Limits, RangedSource, Result,
     SequentialSink, read_exact_at,
 };
+use std::fmt::{self, Write as _};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 const PAGE_TREE_FANOUT: usize = 256;
 const MAX_TREE_PAGES: u64 = (PAGE_TREE_FANOUT as u64).pow(3);
@@ -18,6 +20,18 @@ const LEAF_CHILDREN: &str = "PDF page-tree leaf children";
 const MIDDLE_CHILDREN: &str = "PDF page-tree middle children";
 const ROOT_CHILDREN: &str = "PDF page-tree root children";
 const OUTLINE_STACK: &str = "bookmark stack allocation";
+static NEXT_DOCUMENT_ID: AtomicUsize = AtomicUsize::new(1);
+
+/// Maximum draws accepted by [`PdfDocument::add_placed_page`].
+///
+/// This bounds validation and page-emission work independently of the caller's
+/// slice size. The legacy [`PdfDocument::add_page`] keeps its existing limits.
+pub const MAX_PAGE_IMAGE_PLACEMENTS: usize = 8192;
+
+// Shortest decimal f64 display needs at most 327 bytes, including the sign
+// and leading fractional zeros of a subnormal. Leave headroom per component;
+// no image data or whole-page content is held in this fixed scratch buffer.
+const MATRIX_TEXT_BYTES: usize = 6 * 352 + 5;
 
 /// A page's visible size in PDF points.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -99,11 +113,53 @@ pub struct BilevelImageSpec {
     pub row_stride: usize,
 }
 
-/// A completely written image XObject that can be placed on a page with
-/// [`PdfDocument::add_page`]. It is valid only in the document that wrote it.
+/// A completely written image XObject that can be reused on pages with
+/// [`PdfDocument::add_page`] or [`PdfDocument::add_placed_page`].
+///
+/// It is valid only in the document that wrote it. A private, nonreused
+/// document identity lets page validation reject a foreign handle even if
+/// the two documents assigned the same PDF object number. No image registry
+/// or image payload is retained by a handle.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ImageObject {
     object: ObjectId,
+    document_id: usize,
+}
+
+/// One image draw with the PDF affine matrix `[a, b, c, d, e, f]`.
+///
+/// The matrix maps the image's unit square to page coordinates in PDF points:
+/// `x' = a*x + c*y + e`, `y' = b*x + d*y + f`. Negative components, rotation,
+/// shear, fractional translations and off-page content are allowed. Each
+/// component must be finite and have magnitude at most `i32::MAX`.
+/// Zero/singular matrices are allowed and may produce no visible pixels;
+/// the writer neither substitutes a transform nor reverses image rows.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ImagePlacement {
+    pub image: ImageObject,
+    pub transform: [f64; 6],
+}
+
+#[derive(Clone, Copy)]
+enum PageImages<'p> {
+    Full(&'p [ImageObject]),
+    Placed(&'p [ImagePlacement]),
+}
+
+impl PageImages<'_> {
+    fn len(self) -> usize {
+        match self {
+            Self::Full(images) => images.len(),
+            Self::Placed(placements) => placements.len(),
+        }
+    }
+
+    fn image(self, index: usize) -> ImageObject {
+        match self {
+            Self::Full(images) => images[index],
+            Self::Placed(placements) => placements[index].image,
+        }
+    }
 }
 
 /// Streams one bilevel image's rows into an open PDF image stream.
@@ -166,6 +222,7 @@ impl<W: SequentialSink, C: Cancellation> BilevelImageWriter<'_, '_, W, C> {
         self.document.writer.end_stream().await?;
         Ok(ImageObject {
             object: self.object,
+            document_id: self.document.document_id,
         })
     }
 }
@@ -202,6 +259,7 @@ impl<R: RangedSource> RangedSource for CountingSource<'_, R> {
 /// with no pages is rejected by `finish`.
 pub struct PdfDocument<'a, W: SequentialSink, C: Cancellation> {
     writer: PdfWriter<'a, W, C>,
+    document_id: usize,
     limits: &'a Limits,
     cancellation: &'a C,
     catalog_id: ObjectId,
@@ -222,17 +280,22 @@ pub struct PdfDocument<'a, W: SequentialSink, C: Cancellation> {
     /// Set while a bookmark insertion closes and links items, and left set
     /// when it fails there; see `super::ensure_outline_intact`.
     outline_failed: bool,
+    /// New reusable-image/affine-page operations become unrecoverable once
+    /// emission starts and fails. Partial output must then be discarded.
+    image_page_failed: bool,
 }
 
 impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
     /// Write the PDF header and reserve the catalog and Pages root.
     pub async fn new(sink: &'a mut W, limits: &'a Limits, cancellation: &'a C) -> Result<Self> {
         limits.validate()?;
+        let document_id = next_document_id(&NEXT_DOCUMENT_ID)?;
         let mut writer = PdfWriter::new(sink, limits, cancellation).await?;
         let catalog_id = writer.reserve_object()?;
         let pages_root_id = writer.reserve_object()?;
         Ok(Self {
             writer,
+            document_id,
             limits,
             cancellation,
             catalog_id,
@@ -251,14 +314,15 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
             input_bytes_read: 0,
             image_buffer: Vec::new(),
             outline_failed: false,
+            image_page_failed: false,
         })
     }
 
     /// Add one image that fills a new page, returning its zero-based page index.
     ///
     /// The input is read by checked ranges and never collected into a complete
-    /// image buffer. More image placements can reuse the private page emission
-    /// path in a later format handler.
+    /// image buffer. For reuse and explicit transforms, use [`Self::add_image`]
+    /// followed by [`Self::add_placed_page`].
     pub async fn add_image_page<R: RangedSource>(
         &mut self,
         source: &mut R,
@@ -267,6 +331,7 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
         page: PageSpec,
         image: ImageSpec,
     ) -> Result<u32> {
+        self.ensure_image_page_intact()?;
         let width = pdf_page_number(page.width_points)?;
         let height = pdf_page_number(page.height_points)?;
         image.validate(length)?;
@@ -284,8 +349,60 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
         let image_id = self
             .emit_image_xobject(source, offset, length, image)
             .await?;
-        self.push_page(&width, &height, &[ImageObject { object: image_id }])
-            .await
+        self.push_page(
+            &width,
+            &height,
+            PageImages::Full(&[ImageObject {
+                object: image_id,
+                document_id: self.document_id,
+            }]),
+        )
+        .await
+    }
+
+    /// Stream one raw/JPEG image XObject without adding a page.
+    ///
+    /// Place the returned handle any number of times with [`Self::add_page`]
+    /// or [`Self::add_placed_page`]; reuse does not read or embed the bytes
+    /// again. Raw lengths, source ranges and cumulative ranged-image input
+    /// bytes are checked before emission. JPEG validity, dimensions and color
+    /// interpretation remain the caller's responsibility (see [`ImageEncoding`]).
+    /// One reused image buffer grows up to `Limits::io_chunk_bytes`; each
+    /// source request is at most the remaining length and that chunk ceiling.
+    ///
+    /// A preflight refusal leaves the output unchanged and permits a corrected
+    /// request. A failure once emission starts requires discarding the partial
+    /// PDF; every subsequent document operation, including `finish`, refuses.
+    pub async fn add_image<R: RangedSource>(
+        &mut self,
+        source: &mut R,
+        offset: u64,
+        length: u64,
+        image: ImageSpec,
+    ) -> Result<ImageObject> {
+        self.ensure_image_page_intact()?;
+        image.validate(length)?;
+        validate_image_range(
+            self.limits,
+            self.input_bytes_read,
+            source.size(),
+            offset,
+            length,
+        )?;
+        // The range preflight has already checked this addition.
+        self.limits
+            .check_input_size(self.input_bytes_read + length)?;
+        self.writer.ensure_idle()?;
+        self.writer.prepare_objects(2)?;
+        self.image_page_failed = true;
+        let object = self
+            .emit_image_xobject(source, offset, length, image)
+            .await?;
+        self.image_page_failed = false;
+        Ok(ImageObject {
+            object,
+            document_id: self.document_id,
+        })
     }
 
     /// Start a 1 bpp image XObject whose rows the caller streams.
@@ -298,6 +415,7 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
         &mut self,
         image: BilevelImageSpec,
     ) -> Result<BilevelImageWriter<'_, 'a, W, C>> {
+        self.ensure_image_page_intact()?;
         let (visible, remaining) = image.validate()?;
         let object = self.writer.reserve_object()?;
         let length_id = self.writer.reserve_object()?;
@@ -322,6 +440,7 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
     /// page index. Each image is scaled to fill the whole page, drawn in
     /// slice order, so a later image paints over an earlier one.
     pub async fn add_page(&mut self, page: PageSpec, images: &[ImageObject]) -> Result<u32> {
+        self.ensure_image_page_intact()?;
         if images.is_empty() {
             return Err(Error::InvalidInput {
                 reason: "PDF page requires at least one image",
@@ -329,17 +448,104 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
         }
         let width = pdf_page_number(page.width_points)?;
         let height = pdf_page_number(page.height_points)?;
+        for image in images {
+            self.check_image_owner(*image)?;
+        }
         self.check_next_page()?;
         self.reserve_page_index_slot()?;
         self.ensure_leaf().await?;
-        self.push_page(&width, &height, images).await
+        self.push_page(&width, &height, PageImages::Full(images))
+            .await
+    }
+
+    /// Add a page drawing reusable images in slice order with explicit CTMs.
+    ///
+    /// Each draw is isolated by `q`/`Q`, so transforms do not accumulate and
+    /// later images paint over earlier ones. Repeated handles reuse the same
+    /// XObject. See [`ImagePlacement`] for matrix and degenerate-transform
+    /// policy. Components use shortest round-trip decimal syntax, without
+    /// exponents or fixed-precision rounding; negative zero is written as zero.
+    /// Reader precision for extreme numbers is implementation dependent.
+    ///
+    /// An empty slice, more than [`MAX_PAGE_IMAGE_PLACEMENTS`] draws, invalid
+    /// dimensions/matrices, foreign handles or known page/object-index budget
+    /// refusals are rejected before page bytes are written, even at a page-tree
+    /// rollover. Validation and emission use fixed per-draw scratch, without
+    /// copying the caller's placement slice. Retained metadata is the same as
+    /// for [`Self::add_page`]. Actual allocation, I/O, sink or cancellation
+    /// failures after emission starts require discarding the partial PDF.
+    pub async fn add_placed_page(
+        &mut self,
+        page: PageSpec,
+        placements: &[ImagePlacement],
+    ) -> Result<u32> {
+        self.ensure_image_page_intact()?;
+        if placements.is_empty() {
+            return Err(Error::InvalidInput {
+                reason: "PDF page requires at least one image",
+            });
+        }
+        if placements.len() > MAX_PAGE_IMAGE_PLACEMENTS {
+            return Err(Error::LimitExceeded {
+                resource: "PDF image placements per page",
+                limit: MAX_PAGE_IMAGE_PLACEMENTS as u64,
+                attempted: len_u64(placements.len()),
+            });
+        }
+        let width = pdf_page_number(page.width_points)?;
+        let height = pdf_page_number(page.height_points)?;
+        for placement in placements {
+            self.check_image_owner(placement.image)?;
+            DecimalMatrix::new(placement.transform)?;
+        }
+        self.writer.ensure_idle()?;
+        self.check_next_page()?;
+        self.reserve_page_index_slot()?;
+        let new_leaf = self
+            .leaf
+            .as_ref()
+            .is_none_or(|leaf| leaf.children.len() == PAGE_TREE_FANOUT);
+        let new_middle = new_leaf
+            && self
+                .middle
+                .as_ref()
+                .is_none_or(|middle| middle.children.len() == PAGE_TREE_FANOUT);
+        // Reserve capacity, not object numbers: a refused request must not
+        // leave unwritten objects that would prevent a later corrected page.
+        self.writer
+            .prepare_objects(3 + usize::from(new_leaf) + usize::from(new_middle))?;
+        self.image_page_failed = true;
+        self.ensure_leaf().await?;
+        let index = self
+            .push_page(&width, &height, PageImages::Placed(placements))
+            .await?;
+        self.image_page_failed = false;
+        Ok(index)
+    }
+
+    fn check_image_owner(&self, image: ImageObject) -> Result<()> {
+        if image.document_id != self.document_id {
+            return Err(Error::InvalidInput {
+                reason: "PDF image belongs to another document",
+            });
+        }
+        Ok(())
+    }
+
+    fn ensure_image_page_intact(&self) -> Result<()> {
+        if self.image_page_failed {
+            return Err(Error::InvalidInput {
+                reason: "PDF document cannot continue after a failed image or page operation",
+            });
+        }
+        Ok(())
     }
 
     async fn push_page(
         &mut self,
         width: &str,
         height: &str,
-        images: &[ImageObject],
+        images: PageImages<'_>,
     ) -> Result<u32> {
         let parent = self
             .leaf
@@ -387,6 +593,7 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
     /// A failure after validation, once earlier items may have been closed,
     /// makes later `add_bookmark` and `finish` calls fail.
     pub async fn add_bookmark(&mut self, bookmark: Bookmark) -> Result<()> {
+        self.ensure_image_page_intact()?;
         super::ensure_outline_intact(self.outline_failed)?;
         let destination = self
             .page_ids
@@ -467,6 +674,7 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
     /// Fails without writing if an earlier `add_bookmark` failed after it
     /// began closing outline items.
     pub async fn finish(mut self) -> Result<ConversionReport> {
+        self.ensure_image_page_intact()?;
         super::ensure_outline_intact(self.outline_failed)?;
         if self.pages_written == 0 {
             return Err(Error::InvalidInput {
@@ -680,7 +888,7 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
         parent: ObjectId,
         width: &str,
         height: &str,
-        images: &[ImageObject],
+        images: PageImages<'_>,
     ) -> Result<ObjectId> {
         let content_id = self.writer.reserve_object()?;
         let content_length_id = self.writer.reserve_object()?;
@@ -690,17 +898,32 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
             .begin_stream(content_id, content_length_id, b"")
             .await?;
         for index in 0..images.len() {
-            self.writer
-                .write_stream_bytes(
-                    format!("q\n{width} 0 0 {height} 0 0 cm\n/Im{index} Do\nQ\n").as_bytes(),
-                )
-                .await?;
+            match images {
+                PageImages::Full(_) => {
+                    self.writer
+                        .write_stream_bytes(
+                            format!("q\n{width} 0 0 {height} 0 0 cm\n/Im{index} Do\nQ\n")
+                                .as_bytes(),
+                        )
+                        .await?;
+                }
+                PageImages::Placed(placements) => {
+                    let matrix = DecimalMatrix::new(placements[index].transform)?;
+                    self.writer.write_stream_bytes(b"q\n").await?;
+                    self.writer.write_stream_bytes(matrix.as_bytes()).await?;
+                    self.writer.write_stream_bytes(b" cm\n").await?;
+                    self.writer
+                        .write_stream_bytes(format!("/Im{index} Do\nQ\n").as_bytes())
+                        .await?;
+                }
+            }
         }
         self.writer.end_stream().await?;
 
         self.writer.begin_object(page_id).await?;
         self.writer.write_bytes(format!("<< /Type /Page /Parent {} 0 R /MediaBox [0 0 {width} {height}] /Resources << /XObject <<", parent.number()).as_bytes()).await?;
-        for (index, image) in images.iter().enumerate() {
+        for index in 0..images.len() {
+            let image = images.image(index);
             self.writer
                 .write_bytes(format!(" /Im{index} {} 0 R", image.object.number()).as_bytes())
                 .await?;
@@ -1067,6 +1290,66 @@ fn pdf_page_number(value: f64) -> Result<String> {
         });
     }
     Ok(format!("{value:.6}"))
+}
+
+fn next_document_id(counter: &AtomicUsize) -> Result<usize> {
+    counter
+        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |next| {
+            next.checked_add(1)
+        })
+        .map_err(|_| Error::LimitExceeded {
+            resource: "PDF document identities",
+            limit: len_u64(usize::MAX - 1),
+            attempted: len_u64(usize::MAX),
+        })
+}
+
+struct DecimalMatrix {
+    bytes: [u8; MATRIX_TEXT_BYTES],
+    length: usize,
+}
+
+impl DecimalMatrix {
+    fn new(values: [f64; 6]) -> Result<Self> {
+        let mut matrix = Self {
+            bytes: [0; MATRIX_TEXT_BYTES],
+            length: 0,
+        };
+        for value in values {
+            matrix.push(value)?;
+        }
+        Ok(matrix)
+    }
+
+    /// Append one checked component. The byte ceiling is defended independently
+    /// of the six-component caller, and a failed scratch buffer is discarded.
+    fn push(&mut self, value: f64) -> Result<()> {
+        if !value.is_finite() || value.abs() > MAX_PDF_INTEGER as f64 {
+            return Err(Error::InvalidInput {
+                reason: "PDF matrix components must be finite with magnitude at most 2147483647",
+            });
+        }
+        let value = if value == 0.0 { 0.0 } else { value };
+        let separator = if self.length == 0 { "" } else { " " };
+        write!(self, "{separator}{value}").map_err(|_| Error::InvalidInput {
+            reason: "PDF matrix decimal representation exceeds fixed scratch capacity",
+        })
+    }
+
+    fn as_bytes(&self) -> &[u8] {
+        &self.bytes[..self.length]
+    }
+}
+
+impl fmt::Write for DecimalMatrix {
+    fn write_str(&mut self, value: &str) -> fmt::Result {
+        if value.len() > self.bytes.len() - self.length {
+            return Err(fmt::Error);
+        }
+        self.bytes[self.length..self.length + value.len()].copy_from_slice(value.as_bytes());
+        self.length += value.len();
+        Ok(())
+    }
 }
 
 /// Append `child` to a page-tree node's kids, of which there are at most
