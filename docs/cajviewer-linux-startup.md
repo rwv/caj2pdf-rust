@@ -196,9 +196,12 @@ requires collection inside the container's mount namespace. The narrow
 transport amendment uses its pinned Python tool to stream seven known regular
 diagnostic files through a held directory descriptor. It refuses extras and
 unstable, oversized or special files. Streaming, extraction and independent
-cleanup limits remain unchanged. Original process tests and a public tmpfs-only
-canary must verify this transport before a separately frozen/reviewed pair of
-app attempts. The first failure remains immutable; no app flag, profile, image
+cleanup limits remain unchanged. Original process tests pass. A fresh public
+tmpfs-only canary copied and verified all seven original stand-in files,
+including an exact 1600 × 1200 RGB array, in 0.446 seconds. Its final source
+audit and container cleanup passed; app launches and vendor passes were zero.
+A separately frozen/reviewed pair of app attempts is still required. The first
+failure remains immutable; no app flag, profile, image
 or rendering-backend retry is part of the amendment.
 
 ## Public tests and remaining acceptance work
