@@ -178,9 +178,54 @@ black-box comparison against a fixed Python reference revision. It checks
 qpdf, MuPDF and Poppler independently check boxes, image order, transforms,
 types and encoded-stream hashes. The committed oracle contains coordinates,
 dimensions and hashes only; no private documents, PDFs, text or pixels. A
-clean clone reports `NOT_RUN` and zero layout matches. The 50 extra-image
-placements are measured, but their source-field rule remains unknown, so
-this is not a full-page conversion compatibility claim.
+clean clone reports `NOT_RUN` and zero layout matches. That metadata-only
+phase measured 50 extra-image placements without identifying their source
+fields. Later [#112 empirical placement rules](hnc8-placement-rule.md) and
+[#117 page composition](hnc8-page-composition.md) establish a bounded
+caller-table diagnostic for the selected profiles. Their Python-reference
+basis does not establish vendor page fidelity or full-family conversion.
+
+## CAJViewer vendor fixtures
+
+The planned [vendor fixture protocol](cajviewer-fixtures.md), tracked by
+[epic #123](https://github.com/rwv/caj2pdf-rust/issues/123), adds a separate
+version-scoped Linux CAJViewer baseline for complete-page images and local
+standard-copy text. Its current status is **`NOT_RUN`**: no vendor application
+or private vendor fixture has been run for this plan, and no supported Linux
+export CLI or headless API has been proven. The existing Python-converter
+regressions and [#117 composition evidence](hnc8-page-composition-evidence.md),
+including the explicit corrected grayscale HN-B basis, remain distinct.
+
+Keep the vendor installer/runtime, private source documents, exported images,
+copied text and receipts outside the repository. Original MIT generators and
+bounded pixel/text comparators must have mandatory positive and mutation
+tests without proprietary fixtures. A clean optional invocation must report
+`NOT_RUN`, zero vendor calls and zero compatibility passes; an explicit
+request with missing inputs/tools or unavailable required capabilities fails.
+
+Image fixtures identify their canonical acquisition origin:
+`viewer-native-page-image`, `viewer-complete-page-capture`, or
+`viewer-exported-pdf-render`. Region/viewport/embedded
+image extraction cannot silently stand in for a full page. Comparisons cover
+the entire declared grid and every channel with exact dimensions and payload
+identity, without cropping, scaling, alignment or hidden color conversion.
+Raw exported-file hashes and decoded-payload hashes are separate. Legitimate
+blank pages require explicit page/content evidence, not two-empty success.
+
+Text fixtures initially identify standard-copy observations, without claiming
+native Unicode extraction. Each acquisition requires a fresh clipboard
+sentinel and verified fresh transaction/content observation; preserve raw
+encoding, Unicode, whitespace, reading order and page boundaries.
+Enhanced copy, OCR and repair are separate
+modes. This work does not add searchable HN output or OCR to the v0.1.0 scope.
+
+Freeze the finite coverage, application/environment/tool identities, modes,
+source/output page mapping, numeric limits for every stage, and immutable
+receipts before private execution. Report attempted/passing/failing/skipped/
+unsupported and unstarted work, failed calls, warnings, resources and complete
+post-audits. Vendor/Python/native disagreements remain explicit, version-scoped
+results; skipped, unknown or unsupported required work cannot complete the
+release-blocking vendor epic.
 
 ## Reference behavior
 
