@@ -8,6 +8,7 @@ execution contract is frozen. Private titles and object output stay external.
 
 from collections import Counter
 from contextlib import ExitStack
+from copy import deepcopy
 from dataclasses import dataclass
 from decimal import Decimal
 import hashlib
@@ -43,6 +44,22 @@ CLOSING_CHILDREN = 6
 TIME_LIMIT = 600.0
 ENUMERATION = "308-byte-numeric-and-terminated-title-v1"
 DISCOVERY_SHA = "33386f14fd75994c7c70c8b4578d25ee1c731d5d76bb6ad4db48be0a774495d4"
+SELECTED_SOURCE_SHA = {
+    "hn_a": DISCOVERY_SHA,
+    "c8": "35951c3775790c230c84e4312e8db7a57ca2980a04d35ff03d328806df7d622c",
+    "hn_b": "e1b17805a87f62097987c41f2821836d6b774caaf035c9846be966c965f08a49",
+}
+PRESERVED_FAILURE = {
+    "report": {"size_bytes": 41723,
+               "sha256": "e8660ffd526b06ddecf30c59e242d88ec5002f3fd8350e748815ffef221212f9"},
+    "status": "FAIL", "cause_status": "UNKNOWN",
+    "source_progress": {"planned": 27, "attempted": 2, "completed": 1,
+                        "failed": 1, "remaining": 25, "unsupported": 0},
+    "unstarted": {"pdfs": 6, "queries": 12, "discovery": 1},
+    "launches": {"validator_children": 12, "runner": 1, "aggregate": 13,
+                 "converter": 0, "native": 0, "render": 0, "vendor": 0},
+    "identity_audits": {"before_verified": 93, "after_verified": 93, "status": "PASS"},
+}
 REFERENCE_SHA = process.REFERENCE_SHA
 REFERENCE_BYTES = 40896
 CODE_PATHS = ("scripts/hnc8_outline_observation.py", "scripts/hnc8_page_composition.py",
@@ -62,6 +79,57 @@ class ObservationError(Exception):
 
 class UnsupportedObservation(ObservationError):
     """Unknown requested semantics; this never counts as a successful check."""
+
+
+class _ReadError(ObservationError):
+    """Fixed reasons for a refused read; never retain an arbitrary I/O message."""
+
+    def __init__(self, reason):
+        self.reason = reason
+        super().__init__("bounded read refused")
+
+
+class SourceObservationError(ObservationError):
+    """Only declared schema locations and fixed enums may enter public reports."""
+
+    FIELDS = frozenset(("reader_state", "signature", "variant_marker", "prefix",
+                        "page_count", "outline_count", "page_index", "text_offset",
+                        "text_length", "image_count", "text_span", "outline_record"))
+    REASONS = frozenset(("UNSUPPORTED_SIGNATURE", "UNSUPPORTED_MARKER", "INVALID_RANGE",
+                         "OUTSIDE_SOURCE", "PINNED_COUNT_MISMATCH", "DISCOVERY_WINDOW_MISMATCH",
+                         "IO_ERROR", "CANCELLED", "READ_REFUSED", "NO_PROGRESS",
+                         "OVERREPORTED_READ", "REQUEST_LIMIT", "INPUT_CHANGED",
+                         "DEADLINE", "RSS_LIMIT"))
+
+    def __init__(self, field, offset, width, reason, *, source_page=None, record_ordinal=None):
+        if field not in self.FIELDS or reason not in self.REASONS:
+            raise ObservationError("unknown source diagnostic enum")
+        integer(offset, "schema offset", 0, 128*MIB)
+        integer(width, "schema width", 0, MAX_PAGES*20)
+        if source_page is not None: integer(source_page, "source page ordinal", 1, MAX_PAGES)
+        if record_ordinal is not None: integer(record_ordinal, "record ordinal", 1, MAX_RECORDS)
+        self.location = {"field": field, "schema_offset": offset, "schema_width": width,
+                         "reason": reason, "source_page": source_page,
+                         "record_ordinal": record_ordinal}
+        super().__init__("declared source observation refused")
+
+
+class _UnsupportedSourceObservation(SourceObservationError, UnsupportedObservation):
+    pass
+
+
+def _source_read_failure(error, field, offset, width, **location):
+    reason = (error.reason if isinstance(error, _ReadError) else "CANCELLED"
+              if isinstance(error, KeyboardInterrupt) else "IO_ERROR"
+              if isinstance(error, OSError) else "READ_REFUSED")
+    error_type = _UnsupportedSourceObservation if isinstance(error, UnsupportedObservation) else SourceObservationError
+    return error_type(field, offset, width, reason, **location)
+
+
+def source_scope_contract():
+    return {"mode": "three-pinned-layout-profiles-v1", "audit_source_count": 27,
+            "field_source_sha256": dict(SELECTED_SOURCE_SHA), "discovery_source_sha256": DISCOVERY_SHA,
+            "unselected_inventory_status": "OUT_OF_SCOPE", "unselected_semantic_status": "NOT_RUN"}
 
 
 def integer(value, label, minimum=0, maximum=(1 << 31) - 1):
@@ -652,16 +720,16 @@ class FileReader:
 
     def check(self):
         if self.deadline is not None and time.monotonic() >= self.deadline:
-            raise ObservationError("whole observation deadline exceeded")
+            raise _ReadError("DEADLINE")
         if self.report.get("cancelled", lambda: False)():
             raise KeyboardInterrupt("observation cancelled")
         if _stat_identity(os.fstat(self.descriptor)) != _stat_identity(self.original):
-            raise ObservationError("input changed during its held-descriptor observation")
+            raise _ReadError("INPUT_CHANGED")
         measured = process.pdf._self_vm_hwm_kib()
         if measured is not None:
             self.report["resources"]["self_vm_hwm_kib"] = measured
             if measured > 256*1024:
-                raise ObservationError("adapter RSS ceiling exceeded")
+                raise _ReadError("RSS_LIMIT")
 
     def request(self, offset, length, scope):
         self.check()
@@ -672,14 +740,14 @@ class FileReader:
         resources = self.report["resources"]
         ceiling = MAX_HASH_REQUEST_BYTES if scope == "opaque" else MAX_FIELD_REQUEST_BYTES
         if resources[f"{scope}_bytes_requested"] + length > ceiling:
-            raise ObservationError(f"{scope} requested-read ceiling exceeded")
+            raise _ReadError("REQUEST_LIMIT")
         resources[f"{scope}_read_calls"] += 1
         resources[f"{scope}_bytes_requested"] += length
         resources[f"max_{scope}_read_request_bytes"] = max(resources[f"max_{scope}_read_request_bytes"], length)
         data = os.pread(self.descriptor, length, offset)
         resources[f"{scope}_bytes_read"] += len(data)
         if len(data) > length:
-            raise ObservationError("ranged source overreported a read")
+            raise _ReadError("OVERREPORTED_READ")
         self.check()
         return data
 
@@ -693,7 +761,7 @@ class FileReader:
         while len(result) < length:
             data = self.request(offset + len(result), min(chunk, length-len(result)), "field")
             if not data:
-                raise ObservationError("short or zero-progress source field read")
+                raise _ReadError("NO_PROGRESS")
             result.extend(data)
         return bytes(result)
 
@@ -725,8 +793,25 @@ class FileReader:
         return f"/proc/{os.getpid()}/fd/{self.descriptor}"
 
 
+def _source_window(reader, offset, width, field, *, source_page=None, record_ordinal=None):
+    """Locate the declared window, not an inferred raw value or failing byte."""
+    location = {"source_page": source_page, "record_ordinal": record_ordinal}
+    if offset > reader.original.st_size or width > reader.original.st_size-offset:
+        raise SourceObservationError(field, offset, width, "OUTSIDE_SOURCE", **location)
+    try:
+        return reader.window(offset, width, 4096 if field == "page_index" else 308)
+    except (_ReadError, ObservationError, OSError, KeyboardInterrupt) as error:
+        raise _source_read_failure(error, field, offset, width, **location) from None
+
+
+def _source_integer(value, field, offset, width, maximum, *, minimum=0, source_page=None):
+    if type(value) is not int or not minimum <= value <= maximum:
+        raise SourceObservationError(field, offset, width, "INVALID_RANGE", source_page=source_page)
+    return value
+
+
 def inventory_header(reader):
-    magic = reader.window(0, 8)
+    magic = _source_window(reader, 0, 8, "signature")
     if magic[:4] == b"\xc8\0\0\0":
         variant, prefix_size, count_at, index_at = "C8", 0x50, 8, 0x50
     elif magic[:4] == b"HN\0\0" and magic[4:] == b"\x90\x01\0\0":
@@ -734,22 +819,28 @@ def inventory_header(reader):
     elif magic[:4] == b"HN\0\0" and magic[4:] == b"\xc8\0\0\0":
         variant, prefix_size, count_at, index_at = "HN-B", 0xd8, 0x90, 0xd8
     else:
-        raise UnsupportedObservation("unmeasured HN/C8 header signature or marker")
-    prefix = reader.window(0, prefix_size)
-    pages = integer(struct.unpack_from("<i", prefix, count_at)[0], "source pages", 1, MAX_PAGES)
+        field, offset, reason = (("variant_marker", 4, "UNSUPPORTED_MARKER")
+                                 if magic[:4] == b"HN\0\0" else ("signature", 0, "UNSUPPORTED_SIGNATURE"))
+        raise _UnsupportedSourceObservation(field, offset, 4, reason)
+    prefix = _source_window(reader, 0, prefix_size, "prefix")
+    pages = _source_integer(struct.unpack_from("<i", prefix, count_at)[0], "page_count",
+                            count_at, 4, MAX_PAGES, minimum=1)
     outline_count = None
     if variant == "HN-A":
-        outline_count = integer(struct.unpack_from("<i", prefix, 0x158)[0], "outline-like count", 0, MAX_RECORDS)
+        outline_count = _source_integer(struct.unpack_from("<i", prefix, 0x158)[0], "outline_count",
+                                       0x158, 4, MAX_RECORDS)
         index_at += RECORD_BYTES * outline_count
-    index = reader.window(index_at, pages*20, 4096)
+    index = _source_window(reader, index_at, pages*20, "page_index")
     rows = []
     for ordinal in range(pages):
         offset, length, images = struct.unpack_from("<iih", index, ordinal*20)
-        integer(offset, "text span offset"); integer(length, "text span length")
-        integer(images, "page-row image count", 0, 8192)
+        at, page = index_at+ordinal*20, ordinal+1
+        _source_integer(offset, "text_offset", at, 4, (1 << 31)-1, source_page=page)
+        _source_integer(length, "text_length", at+4, 4, (1 << 31)-1, source_page=page)
+        _source_integer(images, "image_count", at+8, 2, 8192, source_page=page)
         if offset > reader.original.st_size or length > reader.original.st_size-offset:
-            raise ObservationError("declared text span is outside the source")
-        rows.append({"source_page": ordinal+1, "image_count": images})
+            raise SourceObservationError("text_span", at, 8, "OUTSIDE_SOURCE", source_page=page)
+        rows.append({"source_page": page, "image_count": images})
     return {"variant": variant, "source_pages": pages,
             "outline_like_records": outline_count,
             "outline_contents_status": "UNINTERPRETED",
@@ -759,7 +850,7 @@ def inventory_header(reader):
 
 
 def new_report(origin="pinned-external-inputs"):
-    return {"schema_version": 1, "status": "NOT_RUN", "origin": origin,
+    return {"schema_version": 2, "status": "NOT_RUN", "origin": origin,
             "compatibility_status": "UNVERIFIED", "errors": [], "attempts": [],
             "counts": {"runner": 0, "validator_launches": 0, "native_launches": 0,
                        "render_launches": 0, "converter_launches": 0, "vendor_launches": 0,
@@ -949,10 +1040,17 @@ def _load_plan(path, expected_sha, report, deadline):
     if match is None:
         raise ObservationError("frozen protocol lacks its exact execution contract")
     contract = decode_json(match[1], 256*1024)
-    if not isinstance(contract, dict) or set(contract) != {"schema_version", "stage", "enumeration", "queries", "code_sha256"}:
+    if not isinstance(contract, dict) or set(contract) != {"schema_version", "stage", "enumeration", "queries", "code_sha256", "source_scope", "preserved_failure"}:
         raise ObservationError("unexpected frozen execution contract schema")
-    if type(contract["schema_version"]) is not int or contract["schema_version"] != 1 or contract["stage"] != "A" or contract["enumeration"] != ENUMERATION or contract["queries"] != "qpdf-outlines+mutool-g-objects":
+    if type(contract["schema_version"]) is not int or contract["schema_version"] != 2 or contract["stage"] != "A" or contract["enumeration"] != ENUMERATION or contract["queries"] != "qpdf-outlines+mutool-g-objects":
         raise ObservationError("execution contract differs from implemented Stage A")
+    try:
+        declared = json_bytes({key: contract[key] for key in ("source_scope", "preserved_failure")})
+    except TypeError:
+        raise ObservationError("contract scope/failure metadata uses unsupported numeric types") from None
+    expected = json_bytes({"source_scope": source_scope_contract(), "preserved_failure": PRESERVED_FAILURE})
+    if declared != expected:
+        raise ObservationError("selected observation scope or preserved failure differs")
     pins = contract["code_sha256"]
     if not isinstance(pins, dict) or set(pins) != {str(value.relative_to(ROOT)) for value in _source_files()}:
         raise ObservationError("frozen source pin coverage differs from loaded original modules")
@@ -995,6 +1093,47 @@ def _public_inputs(report, deadline):
     if set(basis) != set(process.BASELINE_PINS):
         raise ObservationError("pinned layout profile count coverage differs")
     return inputs, rows, basis
+
+
+def _selected_sources(sources, basis):
+    """Selection is by fixed public identity, never historical success/skip labels."""
+    if (len(sources) != 27 or set(basis) != set(SELECTED_SOURCE_SHA) or set(basis) != set(process.BASELINE_PINS)
+            or SELECTED_SOURCE_SHA.get("hn_a") != DISCOVERY_SHA
+            or len(set(SELECTED_SOURCE_SHA.values())) != 3
+            or any(basis[profile]["source_sha256"] != digest
+                   for profile, digest in SELECTED_SOURCE_SHA.items())):
+        raise ObservationError("selected layout profiles or discovery identity differ")
+    profiles = {digest: profile for profile, digest in SELECTED_SOURCE_SHA.items()}
+    selected, unselected = [], []
+    for ordinal, (row, path) in enumerate(sources, 1):
+        digest = sha(row["sha256"])
+        if digest in profiles:
+            selected.append((ordinal, row, path))
+        else:
+            unselected.append({"source_inventory_ordinal": ordinal, "source_sha256": digest,
+                               "inventory_status": "OUT_OF_SCOPE", "semantic_status": "NOT_RUN",
+                               "semantic_passes": 0})
+    if len(selected) != 3 or {row["sha256"] for _, row, _ in selected} != set(profiles):
+        raise ObservationError("selected source identity coverage differs")
+    return selected, {**source_scope_contract(), "out_of_scope_sources": unselected}
+
+
+def _observe_source(reader, row):
+    """A requested source failure stays fatal and exposes no source values."""
+    try:
+        reader.check()
+        header = inventory_header(reader)
+    except SourceObservationError:
+        raise
+    except (_ReadError, ObservationError, OSError, KeyboardInterrupt) as error:
+        raise _source_read_failure(error, "reader_state", 0, 0) from None
+    if header["source_pages"] != row["page_count"]:
+        count_at = 8 if header["variant"] == "C8" else 0x90
+        raise SourceObservationError("page_count", count_at, 4, "PINNED_COUNT_MISMATCH")
+    if row["sha256"] == DISCOVERY_SHA and (header["variant"] != "HN-A"
+            or header["outline_like_records"] != 52 or header["page_index"]["offset"] != 16364):
+        raise SourceObservationError("outline_count", 0x158, 4, "DISCOVERY_WINDOW_MISMATCH")
+    return header
 
 
 def _matrix_source_path(root, row):
@@ -1058,9 +1197,11 @@ def persist_report(commands, report):
         report["status"] = "FAIL"
         report["errors"].append(type(error).__name__ + ": final report persistence refused")
         if path.exists(): path.unlink()
-        compact = {"schema_version": 1, "status": "FAIL", "origin": report["origin"],
+        compact = {"schema_version": 2, "status": "FAIL", "origin": report["origin"],
                    "errors": report["errors"], "counts": report["counts"],
                    "progress": report["progress"], "elapsed_seconds": report["elapsed_seconds"]}
+        compact.update({key: report[key] for key in ("source_scope", "source_failure", "preserved_failure")
+                        if key in report})
         data = json_bytes(compact)
         if len(data) <= MAX_QUERY_BYTES:
             try:
@@ -1128,6 +1269,8 @@ def run(paths=None, *, plan_sha256=None):
                 identity, _ = reader.identity()
             inputs.append(("codec-provider:"+str(path), path, identity, 128*MIB))
         sources = [(row, _matrix_source_path(paths["corpus"], row)) for row in rows]
+        selected_sources, report["source_scope"] = _selected_sources(sources, basis)
+        report["preserved_failure"] = deepcopy(PRESERVED_FAILURE)
         private_inputs = [("source:"+row["sha256"], path,
                            {"size_bytes": row["size_bytes"], "sha256": row["sha256"]}, 128*MIB)
                           for row, path in sources]
@@ -1139,12 +1282,13 @@ def run(paths=None, *, plan_sha256=None):
                 label = f"{profile}_{repeat}"
                 private_inputs.append((label, Path(paths[label]), {"size_bytes": size, "sha256": digest}, 128*MIB))
         inputs.extend(private_inputs)
-        report["progress"]["sources"]["planned"] = len(sources)
+        report["progress"]["sources"]["planned"] = len(selected_sources)
         report["progress"]["pdfs"]["planned"] = 6
         report["progress"]["queries"]["planned"] = 12
         report["progress"]["discovery"]["planned"] = 1
-        receipt = {"schema_version": 1, "stage": "A", "protocol": plan_identity,
+        receipt = {"schema_version": 2, "stage": "A", "protocol": plan_identity,
                    "enumeration": ENUMERATION, "paths": {key: str(Path(value).absolute()) for key, value in paths.items()},
+                   "source_scope": report["source_scope"], "preserved_failure": report["preserved_failure"],
                    "tools": {key: str(value) for key, value in tools.items()},
                    "startup": before_startup, "code_sha256": source_pins,
                    "effective_environment": commands.environment,
@@ -1162,19 +1306,20 @@ def run(paths=None, *, plan_sha256=None):
         reference_pages = _reference_basis(data, rows, basis)
         del data
         held_sources = {}
-        for row, path in sources:
+        for selected_ordinal, (source_ordinal, row, _) in enumerate(selected_sources, 1):
             progress = report["progress"]["sources"]; progress["attempted"] += 1
             try:
                 reader = held["source:"+row["sha256"]]
-                reader.check()
-                header = inventory_header(reader)
-                if header["source_pages"] != row["page_count"]:
-                    raise ObservationError("source physical page count differs from pinned metadata")
+                header = _observe_source(reader, row)
                 report["source_inventory"].append({"source_sha256": row["sha256"], **header})
                 held_sources[row["sha256"]] = (reader, header)
                 progress["completed"] += 1
             except BaseException as error:
                 progress["failed"] += 1; progress["unsupported"] += isinstance(error, UnsupportedObservation)
+                if isinstance(error, SourceObservationError):
+                    report["source_failure"] = {"stage": "source_inventory", "source_sha256": row["sha256"],
+                                                "source_inventory_ordinal": source_ordinal,
+                                                "selected_source_ordinal": selected_ordinal, **error.location}
                 raise
         observations = {}
         for profile in process.BASELINE_PINS:
@@ -1188,15 +1333,20 @@ def run(paths=None, *, plan_sha256=None):
                 report["outline_observations"].append(facts)
                 observations[profile] = facts
         reader, header = held_sources[DISCOVERY_SHA]
-        if header["variant"] != "HN-A" or header["outline_like_records"] != 52 or header["page_index"]["offset"] != 16364:
-            raise ObservationError("declared HN-A discovery record window changed")
         progress = report["progress"]["discovery"]; progress["attempted"] += 1
         try:
-            records = (reader.window(0x15c + number*RECORD_BYTES, RECORD_BYTES) for number in range(52))
+            records = (_source_window(reader, 0x15c + number*RECORD_BYTES, RECORD_BYTES,
+                                      "outline_record", record_ordinal=number+1) for number in range(52))
             report["discovery"] = enumerate_records(records, observations["hn_a"]["entries"], header["source_pages"], record_count=52)
             progress["completed"] += 1
         except BaseException as error:
             progress["failed"] += 1; progress["unsupported"] += isinstance(error, UnsupportedObservation)
+            if isinstance(error, SourceObservationError):
+                source_ordinal = next(ordinal for ordinal, row, _ in selected_sources if row["sha256"] == DISCOVERY_SHA)
+                selected_ordinal = next(number for number, (_, row, _) in enumerate(selected_sources, 1) if row["sha256"] == DISCOVERY_SHA)
+                report["source_failure"] = {"stage": "outline_discovery", "source_sha256": DISCOVERY_SHA,
+                                            "source_inventory_ordinal": source_ordinal,
+                                            "selected_source_ordinal": selected_ordinal, **error.location}
             raise
         report["status"] = "PASS" if observations["hn_a"]["entry_count"] else "BLOCKED"
         report["oracle_status"] = "POSITIVE_OUTLINE_OBSERVED" if report["status"] == "PASS" else "NO_POSITIVE_OUTLINE_ORACLE"

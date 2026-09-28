@@ -1,12 +1,15 @@
 # HN/C8 outline investigation and implementation proposal
 
-Status: **DRAFT — NOT EXECUTED.** This document is a public-data design and
-proposal for [issue #119](https://github.com/rwv/caj2pdf-rust/issues/119), a child
-of #10. Its prerequisites #112 and #117 are closed. It does not authorize a private observation, converter invocation, source
-mutation, or core outline-field implementation. The original Stage A adapter
-and public runtime controls below are preparation only.
-The parent must review and commit a complete protocol and executable pins
-before the first private-file audit. No vendor outline oracle has been run.
+Status: **DRAFT — PUBLIC PREPARATION ONLY.** This selected-source amendment
+proposes a finite Stage A for
+[issue #119](https://github.com/rwv/caj2pdf-rust/issues/119), a child of #10.
+Its prerequisites #112 and #117 are closed. The first broader Stage A ended
+FAIL and is preserved below; the amended phase has not run. The adapter refuses
+this DRAFT. The parent and independent reviewer must approve the exact amended
+document and executable pins, and the parent must commit a frozen contract
+before explicitly authorizing one invocation. Source mutation, converters,
+vendor execution, Stage B and core outline-field implementation remain outside
+this phase. No vendor outline oracle has run.
 
 ## 1. Evidence available now
 
@@ -61,6 +64,42 @@ The selected emitted mapping is HN-A source 1..68 to PDF indices 0..67;
 C8 source 1..7 to indices 0..6; HN-B source `[1,6]` to indices `[0,1]`, with
 source rows `[2,3,4,5]` omitted. Source count is not PDF count.
 
+### Preserved first Stage A failure
+
+The original protocol was committed at
+`3e1860dec485d6d359c46c32393daec63e4caa8b`: 37,544 bytes, SHA-256
+`ba5a53f3ec7a774fca52a53c9f18fe3873e7faff84919f05aa7fb774e8410dc1`.
+Its adapter was 65,006 bytes, SHA-256
+`0b967f10a707d308d748ebddf6793aa7bd48336d99e3d03b6c3336af9bd370ab`,
+and its tests were 43,362 bytes, SHA-256
+`9eab0def4f97d5f28b500230fc0fbfe8ec12f3cde9cfa9f32441a893c95964ea`.
+Those files, public preparation/input manifests, preflight and closed external
+artifacts remain unchanged in the original worktree.
+
+One authorized invocation ended **FAIL**, with compatibility **UNVERIFIED**.
+The closed mode-0400 CLI report is 41,723 bytes, SHA-256
+`e8660ffd526b06ddecf30c59e242d88ec5002f3fd8350e748815ffef221212f9`.
+It records two of 27 source inventory attempts: one completed, one failed,
+25 unstarted. All six PDFs, 12 outline queries and discovery were **NOT_RUN**.
+The second attempted source is public identity
+`3f3b9b57d6925df811247dced47fd7fb74cf0f678ab9bfda0827c827258ab39b`.
+Only the generic sanitized failure was retained, so its field/reason is
+**UNKNOWN**. A prior historical error label or separately published invalid-row
+fact cannot establish which guard failed in this invocation.
+
+The invocation made 12 public version/startup child calls plus one runner
+(aggregate 13), with zero converters, native calls, renders or vendor calls.
+Before and after, all 93 declared file identities were verified unchanged
+(93 + 93); closing runtime verification passed. It requested/read 2,300
+logical field bytes in seven calls, with no title-record discovery. These are
+the first run's actual counts, never amended-run success or expected-negative
+evidence. Preserve FAIL/cause UNKNOWN; no retry or retroactive blessing occurred.
+
+The narrower proposal below follows the already selected three pinned reference
+profiles. It does not classify other corpus inputs as valid, invalid, supported
+or incompatible. No historical skip/error label grants an exemption for a
+required selected-source failure.
+
 ## 2. Stage A: a finite, zero-converter field/oracle observation
 
 Stage A must first have an original MIT external adapter, original synthetic
@@ -72,12 +111,21 @@ receipt. Until then every count below is planned, not executed.
 
 1. All 27 sources pinned by the public matrix, opaquely hashed before/after.
    Their total size is 264,682,650 bytes; the largest is 73,763,774 bytes.
-2. Header/index observations only for all 27: after recognizing the already
-   specified signature/marker, read the prefix `[0,0x15c)` for HN-A,
+2. Header/index observations only for the exact **three source SHA-256
+   identities in the profile table above**, including issue-21 discovery.
+   After recognizing the already specified signature/marker, read the prefix
+   `[0,0x15c)` for HN-A,
    `[0,0x50)` for C8, or `[0,0xd8)` for HN-B, and the checked declared
    page-index interval of `page_count * 20` bytes. Retain safe variant,
    count, span, per-row image-count/no-image metadata and interval hashes;
    unknown header fields stay unknown.
+   The remaining 24 sources each have `inventory_status=OUT_OF_SCOPE`,
+   `semantic_status=NOT_RUN` and `semantic_passes=0`. Their opaque identity
+   before/after audits stay mandatory; a mismatch is fatal. Outcome/skip/error
+   labels never determine this scope. Inventory progress plans three selected
+   sources, while the receipt and report separately declare all 27 audit inputs
+   and the 24 excluded identities. A failed selected header, row, count or span
+   is fatal, with honest failed/unsupported/remaining counts and closing audits.
 3. Interpret exactly issue-21's 52 outline-like records: zero-based record
    `r` is the 308-byte interval `[0x15c + 308*r, 0x15c + 308*(r+1))`.
    This is 16,016 bytes, ending at 16,364; its 68-row index ends at 17,724.
@@ -95,6 +143,44 @@ at most 308 bytes; page-index reads use at most 4,096 bytes. Record requested
 bytes/calls before each read, including failures/short reads. Every exact
 field window and its SHA belongs in the external report. Never print raw
 private record bytes or decoded titles.
+
+### Safe selected-source failure locations
+
+Schema-v2 contract, receipt and report bind `three-pinned-layout-profiles-v1`,
+the exact profile/source and discovery SHA-256 identities, and the preserved
+first FAIL/report/counts above. The original schema-v1 contract cannot authorize
+this changed adapter. The receipt is sealed before any private audit, including
+all 27 sources; selecting field work never removes an identity audit.
+
+`SourceObservationError` reports only fixed stage, field and reason enums,
+the source hash, its one-based public inventory ordinal and selected-source
+ordinal, an optional one-based physical page/record ordinal, and a declared
+absolute schema offset/width. No observed raw value, private bytes/title/path,
+traceback or arbitrary exception message enters this object. A window location
+identifies the entire requested schema interval, not an inferred precise failing
+byte within a short read. `reader_state` uses offset/width `[0,0]` as a metadata
+anchor and does not claim that a particular encoded field failed.
+
+| Fixed field | Declared source location |
+| --- | --- |
+| `signature`, `variant_marker` | `[0,8)` read; unknown signature `[0,4)` or HN marker `[4,8)` |
+| `prefix` | Profile prefix interval listed above |
+| `page_count` | C8 `[8,12)`; HN `[0x90,0x94)` |
+| `outline_count` | HN-A `[0x158,0x15c)` |
+| `page_index` | Checked index start and `20 * page_count` window |
+| `text_offset`, `text_length`, `image_count` | Source row start +0/4 bytes, +4/4 bytes, +8/2 bytes |
+| `text_span` | Row start +0/8 bytes declaring the offset/length pair |
+| `outline_record` | `[0x15c + 308*r, 0x15c + 308*(r+1))`, zero-based `r` |
+
+Reasons are the fixed enums `UNSUPPORTED_SIGNATURE`, `UNSUPPORTED_MARKER`,
+`INVALID_RANGE`, `OUTSIDE_SOURCE`, `PINNED_COUNT_MISMATCH`,
+`DISCOVERY_WINDOW_MISMATCH`, `IO_ERROR`, `CANCELLED`, `READ_REFUSED`,
+`NO_PROGRESS`, `OVERREPORTED_READ`, `REQUEST_LIMIT`, `INPUT_CHANGED`,
+`DEADLINE` and `RSS_LIMIT`. `READ_REFUSED` leaves a nonclassified reader/control
+failure unknown rather than parsing its exception text. Unknown signatures or
+markers also increment required unsupported/failure counts; they never pass.
+Each selected physical page count and issue-21's discovery count/window must
+agree with its pinned declaration before PDF queries or title-window discovery.
 
 ### Two independently run PDF parsers
 
@@ -231,14 +317,34 @@ a depth-65 node is refused by both independently traversed hierarchies.
 The 24-child plan includes 12 outline queries, six before/after public version
 commands and six before/after startup-library probes for Python/qpdf/MuPDF.
 Reserve six closing slots; renders/converters/native/vendor counts stay zero.
-A stat-only multiplicity model from the approved original public runtime
-profile bounds shared opaque requests at 1,014,723,214 bytes, including every
-setup/pre/post public/code/tool/codec/plan hash, four startup-library hashes,
-two full source/six-PDF audits, three prior-report hashes and a maximum-size
-receipt. It includes the additional original generator loaded by tests, so
-is conservative for the ten-module CLI contract. Headroom is 59,018,610 bytes
-below the 1 GiB ceiling; new runtime/library/code/input identities require a
-new calculation and review, never silently increased I/O.
+A planned full-length-read multiplicity estimate for the preserved first
+protocol and its approved runtime was 1,014,697,375 requested bytes.
+It includes every setup/pre/post public/code/tool/codec/plan hash, four
+startup-library hashes, two full source/six-PDF audits, three prior-report
+hashes and a maximum-size receipt. It uses the inherited source/PDF sizes;
+this preparation did not open or stat those files. The estimate assumes each
+successful `pread` supplies its full requested length, plus the declared EOF
+checks. It leaves 59,044,449 bytes below the 1 GiB ceiling. Successful short
+reads can increase charged requests; this estimate is not an unconditional
+upper bound. The strict actual requested-byte guard governs every attempt,
+including failed reads. Exhaustion is FAIL with unverified remaining audits,
+never a partial verification pass. New runtime/library/code/input identities
+require a new calculation and review, never silently increased I/O. The
+earlier focused-test estimate, including its additional loaded generator,
+was 1,014,723,214 bytes under the same full-length-read assumption.
+For this amended source/test pair, the original stat-only control includes
+all loaded helpers, the extra original generator, a maximum-size 256 KiB
+protocol and a maximum-size receipt. Full test discovery loads further original
+helpers, so its estimate exceeds the focused invocation's ten-helper CLI
+superset. Both estimates for the reviewed runtime fit a rounded planning
+allowance of **1,017,000,000 requested bytes** (56,741,824 bytes below 1 GiB).
+The test asserts the declared 1 GiB cap, not a different limit for other active
+public-test runtimes. It opens/stats only public code, tools, codecs
+and libraries; source/PDF sizes are inherited declarations. Final amended
+runtime/protocol/code identities still need separate review and preflight
+before execution; the old external manifest/preflight does not enforce new
+pins automatically. The strict actual guard, including successful short reads,
+remains decisive.
 Do not count provenance probes as outline queries or duplicate renderer subsets.
 Original pre-freeze self-tests are separate public work, not compatibility.
 
@@ -483,15 +589,124 @@ implementation passes its acceptance gates. Required unsupported schema,
 malformed/ambiguous hierarchy or parser disagreement is FAIL. Historical and
 vendor `NOT_RUN` evidence remains separate.
 
-### Exact executable contract (DRAFT; execution disabled)
+### Completed public preparation and external invocation bindings
 
-The source pins below bind the current public review candidate. Before a
-private phase, the parent and reviewer independently verify the complete
-CLI-loaded original module/test list, record their final review and control
-results, change the status to the exact frozen phrase, and commit that final
-protocol before root's one invocation. The adapter checks
-this contract and rejects a different source topology. A hash or pin change
-requires reviewed public preparation, never a private retry.
+The original adapter and controls were independently reviewed by the parent
+and simplification reviewer before preparation PR
+[#132](https://github.com/rwv/caj2pdf-rust/pull/132) merged. Each ran all 36
+focused original tests successfully. The full original conformance suite
+passed 451 tests, and seven original fixture checks passed. One focused
+invocation made 63 process-launch attempts: 62 spawned public children and
+one expected nonexistent-executable refusal. These are public controls,
+not private compatibility or native-outline evidence.
+
+All four hosted jobs passed on exact preparation head
+`7d23f2780c9eb2bb2ce92b97540ef68510d13bb6` in
+[run 36402968249](https://github.com/rwv/caj2pdf-rust/actions/runs/36402968249).
+The downloaded LCOV payload was independently checked using all actual `DA`
+records: 54 source files, 27,413 lines, all 27,413 covered, each file 100%,
+with no exclusions. The artifact ZIP is 374,225 bytes, SHA-256
+`055b688424a90b4bf32603e3053a6dafdb4465e50bda5c39e04fe838dc440470`;
+its LCOV payload is 6,311,083 bytes, SHA-256
+`70c0559e836dbb8ce4454c0dc5864d1b1cca4c2d94ba7df545f1051c261b4048`.
+This is existing Rust line coverage, not native HN-outline implementation
+or private-title parity. Raw LLVM `LF`/`LH` counters are separate and are not
+the actual source-line denominator used by the repository gate.
+
+The preserved first frozen-protocol worktree started at merged main
+`fc0c0652f0e35be954589780bd938299415cf2f1` and changed only its protocol.
+This amendment is in a separate worktree from `3e1860dec485d6d359c46c32393daec63e4caa8b`.
+Only the adapter, original controls, this document and provenance note change.
+The eight shared helper pins remain unchanged; amended adapter/test pins are
+listed below. Nothing modifies the first worktree or its external artifacts.
+
+External `public-preparation.json` is 39,923 bytes, SHA-256
+`f38d32045baaacab6dea088ecd682993c42ca5f98c71bd33243721b2a1423847`.
+It binds the ten code identities, installed tool/version/codec identities,
+canonical startup libraries, inherited 27 source/six PDF paths and identities,
+reference-report identity and proposed CLI input paths. All private paths
+remain outside Git. Its inherited source/PDF pins are explicitly
+`INHERITED_PIN_NOT_REAUDITED`; no new source/PDF open, stat, field read or
+query was performed. The passing preparation recovered those declarations
+from the existing authorized reference JSON through one bounded same-read
+hash check.
+
+Public preparation has two preserved attempts. The first completed 12 public
+version/startup-library probes, then failed while serializing a parent
+environment without `TZ`; it is retained as a 367-byte failure record,
+SHA-256 `e2c5568b56916dc17996d1e4b6816b5eae45c2ce7f55299b136fae4b0aa2f1ef`.
+The corrected public-only metadata adapter then completed 12 probes and
+wrote the passing metadata. Thus preparation made 24 successful public
+child probes in total. They are outside the future phase's 24-child plan;
+private source/PDF observations and converters/native/vendor calls stayed
+zero. No failed private run was retried or erased.
+
+The declared executable paths are `/usr/bin/python3.13`, `/usr/bin/qpdf`,
+`/usr/bin/mutool` and `/usr/bin/ldd`. Public preparation independently pinned
+`ldd` at 5,356 bytes, SHA-256
+`7bcd61a279946cb376d36fd91f4938ab4f4aba48e793c652a9797319d23f8dd3`;
+the other three fixed hashes appear in the bounds contract above. Its
+before/after version text and startup-library identities agreed exactly.
+Codec-provider identities were hashed once for public preparation. Their
+identities were then verified unchanged in the closed first phase; no amended
+runtime audit has run. The preserved external input/argv manifest bound those
+observations to the first protocol hash. It has not been rewritten for this
+amendment. No new public preflight or private file observation is part of this
+amendment's preparation; a later frozen phase needs separately reviewed current
+bindings.
+
+Parent environment and preview child environment fingerprints are distinct.
+The preview used a public preparation session's `TMPDIR`; it is not the
+future private session's environment. Parent `TZ` may be absent, while the
+child's declared `TZ` is `UTC`. The actual run inherits the invoking
+environment and overrides `LC_ALL=C`, `TZ=UTC`, `PYTHONHASHSEED=0`,
+`PYTHONDONTWRITEBYTECODE=1`, `PYTHONNOUSERSITE=1` and its fresh scratch
+`TMPDIR`. The immutable runtime receipt binds the actual environment and
+canonical libraries after public startup preparation and **before private
+file audits**. The preview is not evidence that a future runtime stayed
+unchanged; final runtime audits must establish that separately.
+
+The parent must separately review this amended document, new executable pins
+and proposed external input/runtime bindings before freezing and committing a
+new protocol and authorizing one direct invocation. That invocation uses the original six
+legacy reference PDFs, including the original HN-B PDF, never the corrected
+Gray image reference. Stage A and all full #119 implementation/parity
+criteria remain unmet. The first FAIL is preserved; amended observations and
+all native title/encoding/hierarchy/destination implementation remain NOT_RUN.
+
+### Amended executable contract (DRAFT; no execution authorized)
+
+Public preparation for this amendment passed **42/42 focused original tests**,
+**457/457 full conformance tests**, seven original fixture tests and the fixture
+generator's `--check`. The focused invocation was independently instrumented
+at the subprocess boundary: **75 launch attempts, 74 spawned original public
+children and one expected nonexistent-executable refusal**. Its estimated
+full-length-read opaque work was 1,014,796,600 bytes; full test discovery's
+additional loaded helpers gave 1,016,430,265 bytes. Neither is a private audit
+or a guarantee for short reads. These controls are separate from the preserved
+first phase's actual 12 children + one runner and from the amended 24-child plan.
+
+The controls verify all 27 original source identities while refusing any field
+read on 24 intentionally malformed excluded originals. They also verify fatal
+selected row/span/signature/count failures despite historical error labels,
+fatal excluded identity mismatch, fixed reason/location metadata, read/error/
+cancel accounting, record-ordinal discovery failure, closing audits and actual
+no-input zero work. One earlier full-suite run failed an overly narrow planning
+assertion because test discovery loaded more helpers; its external log is
+preserved. The artificial assertion was removed, with the unchanged actual
+1 GiB guard retained. No amended private source/PDF open/stat, preflight, query,
+converter, native, vendor or application phase ran during this preparation.
+Independent final review, commit/freeze, current runtime bindings and execution
+authorization remain pending. Full native #119 criteria remain unmet.
+
+The source pins below propose the amended complete CLI-loaded original
+module/test list for independent review. The adapter checks this contract and
+rejects a different source topology. The final frozen protocol must be committed and
+execution explicitly authorized before root's one invocation. A hash or pin
+change requires reviewed public preparation, never a silent retry. Schema v2
+binds only the three selected source field profiles while retaining every
+source/PDF integrity audit, plus the first FAIL's exact immutable identity and
+counts. Selected observation failures remain fatal.
 
 <!-- execution-contract -->
 ```json
@@ -500,17 +715,64 @@ requires reviewed public preparation, never a private retry.
     "scripts/hnc8_layout_pdf.py": "5f920335514872b0a1a618bbfef4bb3d0c830ccdf9621544951b608ee42871d2",
     "scripts/hnc8_layout_reference.py": "7c3725394d999d391e770fabb1a91949a59987bd29d2f53b5fb067ddb9ad17fd",
     "scripts/hnc8_layout_source.py": "f6e150fe905ca9bb7d0079fcda6fc65824eef7bbcc60ded71b3540d5040f31dc",
-    "scripts/hnc8_outline_observation.py": "0b967f10a707d308d748ebddf6793aa7bd48336d99e3d03b6c3336af9bd370ab",
+    "scripts/hnc8_outline_observation.py": "e3aca1d0d2756c886dbaf908ea71b8eee7b4f76d654d68d84a17fffbdd75bc96",
     "scripts/hnc8_page_composition.py": "c9ec94a1577a694a19449ce208c0c4facb6fd1179f523f698cb142d267a6208b",
     "scripts/hnc8_placement_analysis.py": "e6d03d78b26443749d96cf20a690ff87b3e7878e2b5d8aadd1322af201fcb94a",
     "scripts/hnc8_placement_probe.py": "f438ba3026a96a14cd88298c731fc89b7f5471d8dc5fde4e48fb8cdc36f4f50d",
     "scripts/hnc8_placement_rule.py": "419fe68d0547f2f6ff8bc55b26daaac7bec7843e6da51441c63afa92d402bf3b",
     "scripts/hnc8_text_frame.py": "63363fc6591bc699bda0bc97897d901b25a610f6a9bb2e059ca58d4ad33edac7",
-    "tests/conformance/test_hnc8_outline_observation.py": "9eab0def4f97d5f28b500230fc0fbfe8ec12f3cde9cfa9f32441a893c95964ea"
+    "tests/conformance/test_hnc8_outline_observation.py": "1622f2fb1887d8be23e67335793425c13d4a3776df8dbeda7abaac1bc6001644"
   },
   "enumeration": "308-byte-numeric-and-terminated-title-v1",
+  "preserved_failure": {
+    "cause_status": "UNKNOWN",
+    "identity_audits": {
+      "after_verified": 93,
+      "before_verified": 93,
+      "status": "PASS"
+    },
+    "launches": {
+      "aggregate": 13,
+      "converter": 0,
+      "native": 0,
+      "render": 0,
+      "runner": 1,
+      "validator_children": 12,
+      "vendor": 0
+    },
+    "report": {
+      "sha256": "e8660ffd526b06ddecf30c59e242d88ec5002f3fd8350e748815ffef221212f9",
+      "size_bytes": 41723
+    },
+    "source_progress": {
+      "attempted": 2,
+      "completed": 1,
+      "failed": 1,
+      "planned": 27,
+      "remaining": 25,
+      "unsupported": 0
+    },
+    "status": "FAIL",
+    "unstarted": {
+      "discovery": 1,
+      "pdfs": 6,
+      "queries": 12
+    }
+  },
   "queries": "qpdf-outlines+mutool-g-objects",
-  "schema_version": 1,
+  "schema_version": 2,
+  "source_scope": {
+    "audit_source_count": 27,
+    "discovery_source_sha256": "33386f14fd75994c7c70c8b4578d25ee1c731d5d76bb6ad4db48be0a774495d4",
+    "field_source_sha256": {
+      "c8": "35951c3775790c230c84e4312e8db7a57ca2980a04d35ff03d328806df7d622c",
+      "hn_a": "33386f14fd75994c7c70c8b4578d25ee1c731d5d76bb6ad4db48be0a774495d4",
+      "hn_b": "e1b17805a87f62097987c41f2821836d6b774caaf035c9846be966c965f08a49"
+    },
+    "mode": "three-pinned-layout-profiles-v1",
+    "unselected_inventory_status": "OUT_OF_SCOPE",
+    "unselected_semantic_status": "NOT_RUN"
+  },
   "stage": "A"
 }
 ```

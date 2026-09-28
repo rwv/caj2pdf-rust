@@ -124,6 +124,8 @@ class OriginalOutlineObservation(unittest.TestCase):
         self.assertEqual(failed["status"], "FAIL")
         for value in (report, failed):
             self.assertFalse(any(value["counts"].values()))
+            self.assertFalse(any(value["resources"].values()))
+            self.assertFalse(any(number for progress in value["progress"].values() for number in progress.values()))
             self.assertFalse(value["attempts"])
             self.assertFalse(value["source_inventory"])
 
@@ -138,6 +140,8 @@ class OriginalOutlineObservation(unittest.TestCase):
             report = json.loads(result.stdout)
             self.assertEqual(report["status"], status)
             self.assertFalse(any(report["counts"].values()))
+            self.assertFalse(any(report["resources"].values()))
+            self.assertFalse(any(number for progress in report["progress"].values() for number in progress.values()))
 
     def test_duplicate_nesting_literal_and_unicode_json_refusals(self):
         malformed = [b'{"a":1,"a":2}', b"["*145+b"0"+b"]"*145,
@@ -302,6 +306,91 @@ class OriginalOutlineObservation(unittest.TestCase):
             with subject.FileReader(path, subject.new_report()) as reader, self.assertRaises(subject.ObservationError):
                 subject.inventory_header(reader)
 
+    def test_source_diagnostics_locate_fields_without_observed_values(self):
+        index=348+2*308
+        cases=[(0,b"NOPE",("signature",0,4,"UNSUPPORTED_SIGNATURE",None)),
+               (4,b"NOPE",("variant_marker",4,4,"UNSUPPORTED_MARKER",None)),
+               (144,struct.pack("<i",0),("page_count",144,4,"INVALID_RANGE",None)),
+               (344,struct.pack("<i",513),("outline_count",344,4,"INVALID_RANGE",None)),
+               (index+20,struct.pack("<i",-1),("text_offset",index+20,4,"INVALID_RANGE",2)),
+               (index+24,struct.pack("<i",-1),("text_length",index+24,4,"INVALID_RANGE",2)),
+               (index+28,struct.pack("<h",8193),("image_count",index+28,2,"INVALID_RANGE",2)),
+               (index+20,struct.pack("<i",100000),("text_span",index+20,8,"OUTSIDE_SOURCE",2))]
+        for number,(offset,value,expected) in enumerate(cases):
+            with self.subTest(field=expected[0]):
+                data=bytearray(original_source());data[offset:offset+len(value)]=value
+                path=self.file(f"source-field-{number}",data)
+                with subject.FileReader(path,subject.new_report()) as reader, self.assertRaises(subject.SourceObservationError) as caught:
+                    subject.inventory_header(reader)
+                location=caught.exception.location
+                self.assertEqual(tuple(location[key] for key in ("field","schema_offset","schema_width","reason","source_page")),expected)
+                self.assertEqual(str(caught.exception),"declared source observation refused")
+                self.assertNotIn("value",location)
+                self.assertIsNone(location["record_ordinal"])
+                self.assertEqual(isinstance(caught.exception,subject.UnsupportedObservation),number<2)
+        for length,field,offset,width in ((7,"signature",0,8),(347,"prefix",0,348),(index+39,"page_index",index,40)):
+            path=self.file(f"truncated-{length}",original_source()[:length])
+            with subject.FileReader(path,subject.new_report()) as reader, self.assertRaises(subject.SourceObservationError) as caught:
+                subject.inventory_header(reader)
+            self.assertEqual(caught.exception.location["reason"],"OUTSIDE_SOURCE")
+            self.assertEqual((caught.exception.location["field"],caught.exception.location["schema_offset"],caught.exception.location["schema_width"]),
+                             (field,offset,width))
+        path=self.file("count-disagreement",original_source())
+        with subject.FileReader(path,subject.new_report()) as reader, self.assertRaises(subject.SourceObservationError) as caught:
+            subject._observe_source(reader,{"page_count":3,"sha256":"0"*64})
+        self.assertEqual(caught.exception.location["reason"],"PINNED_COUNT_MISMATCH")
+        with patch.object(subject,"DISCOVERY_SHA","0"*64), subject.FileReader(path,subject.new_report()) as reader, self.assertRaises(subject.SourceObservationError) as caught:
+            subject._observe_source(reader,{"page_count":2,"sha256":"0"*64})
+        self.assertEqual((caught.exception.location["field"],caught.exception.location["schema_offset"],caught.exception.location["reason"]),
+                         ("outline_count",344,"DISCOVERY_WINDOW_MISMATCH"))
+        with self.assertRaises(subject.ObservationError):
+            subject.SourceObservationError("untrusted field",0,4,"IO_ERROR")
+        with self.assertRaises(subject.ObservationError):
+            subject.SourceObservationError("prefix",0,4,"untrusted reason")
+
+    def test_source_read_failure_reasons_preserve_attempts_and_hide_messages(self):
+        path=self.file("source-reader",original_source())
+        for result,reason in ((b"","NO_PROGRESS"),(b"x"*9,"OVERREPORTED_READ"),
+                              (OSError("secret filename and values"),"IO_ERROR")):
+            report=subject.new_report()
+            with subject.FileReader(path,report) as reader:
+                kwargs={"side_effect":result} if isinstance(result,Exception) else {"return_value":result}
+                with patch.object(subject.os,"pread",**kwargs), self.assertRaises(subject.SourceObservationError) as caught:
+                    subject.inventory_header(reader)
+            self.assertEqual(report["resources"]["field_read_calls"],1)
+            self.assertEqual(report["resources"]["field_bytes_requested"],8)
+            self.assertEqual(caught.exception.location["reason"],reason)
+            self.assertEqual(caught.exception.location["schema_width"],8)
+            self.assertNotIn("secret",str(caught.exception))
+        report=subject.new_report()
+        with subject.FileReader(path,report) as reader:
+            real_pread=os.pread
+            with patch.object(subject.os,"pread",side_effect=lambda fd,n,offset:real_pread(fd,min(n,2),offset)):
+                self.assertEqual(subject.inventory_header(reader)["source_pages"],2)
+            report["cancelled"]=lambda:True
+            with self.assertRaises(subject.SourceObservationError) as caught: subject.inventory_header(reader)
+            self.assertEqual(caught.exception.location["reason"],"CANCELLED")
+            report.pop("cancelled")
+            report["resources"]["field_bytes_requested"]=subject.MAX_FIELD_REQUEST_BYTES
+            with self.assertRaises(subject.SourceObservationError) as caught: subject.inventory_header(reader)
+            self.assertEqual(caught.exception.location["reason"],"REQUEST_LIMIT")
+            report["resources"]["field_bytes_requested"]=0
+            reader.deadline=0
+            with self.assertRaises(subject.SourceObservationError) as caught: subject.inventory_header(reader)
+            self.assertEqual(caught.exception.location["reason"],"DEADLINE")
+            reader.deadline=None
+            with patch.object(subject.process.pdf,"_self_vm_hwm_kib",return_value=256*1024+1), self.assertRaises(subject.SourceObservationError) as caught:
+                subject.inventory_header(reader)
+            self.assertEqual(caught.exception.location["reason"],"RSS_LIMIT")
+            path.write_bytes(b"changed original")
+            with self.assertRaises(subject.SourceObservationError) as caught: subject.inventory_header(reader)
+            self.assertEqual(caught.exception.location["reason"],"INPUT_CHANGED")
+        fresh=self.file("source-control-refusal",original_source())
+        with subject.FileReader(fresh,subject.new_report()) as reader, patch.object(reader,"window",side_effect=subject.ObservationError("secret control detail")), self.assertRaises(subject.SourceObservationError) as caught:
+            subject.inventory_header(reader)
+        self.assertEqual(caught.exception.location["reason"],"READ_REFUSED")
+        self.assertNotIn("secret",str(caught.exception))
+
     def test_streamed_candidate_enumeration_does_not_choose_fields(self):
         data = original_source(records=2)
         records = [data[348+number*308:348+(number+1)*308] for number in range(2)]
@@ -459,8 +548,10 @@ class OriginalOutlineObservation(unittest.TestCase):
     def test_protocol_freeze_source_coverage_and_schema_gates(self):
         path = self.file("plan.md", b"Status: **DRAFT.**\n")
         with self.assertRaises(subject.ObservationError): subject._load_plan(path, subject.byte_identity(path.read_bytes())["sha256"],subject.new_report(),time.monotonic()+10)
-        contract = {"schema_version":1,"stage":"A","enumeration":subject.ENUMERATION,
-                    "queries":"qpdf-outlines+mutool-g-objects","code_sha256":{}}
+        contract = {"schema_version":2,"stage":"A","enumeration":subject.ENUMERATION,
+                    "queries":"qpdf-outlines+mutool-g-objects","code_sha256":{},
+                    "source_scope":subject.source_scope_contract(),
+                    "preserved_failure":deepcopy(subject.PRESERVED_FAILURE)}
         def plan(value):
             return b"Status: **FROZEN BEFORE PRIVATE OBSERVATION.**\n<!-- execution-contract -->\n```json\n"+subject.json_bytes(value)+b"```\n"
         data=plan(contract); path.write_bytes(data)
@@ -470,6 +561,15 @@ class OriginalOutlineObservation(unittest.TestCase):
             changed=deepcopy(contract);changed["schema_version"]=True
             data=plan(changed);path.write_bytes(data)
             with self.assertRaises(subject.ObservationError): subject._load_plan(path,subject.byte_identity(data)["sha256"],subject.new_report(),time.monotonic()+10)
+            wrong_scope=deepcopy(contract);wrong_scope["source_scope"]["unselected_inventory_status"]="PASS"
+            wrong_count=deepcopy(contract);wrong_count["preserved_failure"]["launches"]["runner"]=True
+            wrong_real=deepcopy(contract);wrong_real["preserved_failure"]["launches"]["runner"]=1.0
+            old_schema=deepcopy(contract);old_schema["schema_version"]=1
+            for changed in (wrong_scope,wrong_count,wrong_real,old_schema,
+                            {**contract,"source_scope":{}},{**contract,"preserved_failure":{}}):
+                data=plan(changed);path.write_bytes(data)
+                with self.assertRaises(subject.ObservationError):
+                    subject._load_plan(path,subject.byte_identity(data)["sha256"],subject.new_report(),time.monotonic()+10)
         with self.assertRaises(subject.ObservationError): subject._matrix_source_path(self.root,{"path":"../other"})
 
     def test_startup_attempts_all_six_even_after_failed_first_version(self):
@@ -507,7 +607,7 @@ class OriginalOutlineObservation(unittest.TestCase):
         self.assertEqual(report["progress"]["queries"]["attempted"], 0)
         self.assertTrue(before["libraries"])
         self.assertEqual(set(before["versions"]), set(subject.TOOL_KEYS))
-        # A stat-only conservative bound includes every actual hash invocation:
+        # A planned stat-only full-length-read estimate includes every hash:
         # setup+pre+post for public/code/tools/codecs/plan, four for libraries,
         # twice for all sources/repeated PDFs, thrice for the reference report,
         # and once for the at-most-1MiB generated receipt. No private file read.
@@ -521,7 +621,7 @@ class OriginalOutlineObservation(unittest.TestCase):
         libraries = sum(identity["size_bytes"]+1 for identity in before["libraries"].values())
         modeled = known_private+3*(public+code+tools+codecs+256*1024+1)+4*libraries+subject.MAX_QUERY_BYTES+1
         self.assertLessEqual(modeled,subject.MAX_HASH_REQUEST_BYTES)
-        print(f"Conservative Stage A opaque request bound: {modeled} bytes",file=sys.stderr)
+        print(f"Planned full-length-read Stage A opaque estimate: {modeled} bytes",file=sys.stderr)
 
     def test_public_inventory_and_reference_counts_need_all_fixed_profiles(self):
         _, rows, basis = subject._public_inputs(subject.new_report(), time.monotonic()+10)
@@ -540,6 +640,27 @@ class OriginalOutlineObservation(unittest.TestCase):
         document["generations"][0]["source_sha256"] = basis["c8"]["source_sha256"]
         with self.assertRaises(subject.ObservationError):
             subject._reference_basis(subject.json_bytes(document), rows, basis)
+
+    def test_selected_scope_ignores_outcome_labels_and_requires_exact_profile_identities(self):
+        _,rows,basis=subject._public_inputs(subject.new_report(),time.monotonic()+10)
+        sources=[(row,self.root/str(number)) for number,row in enumerate(rows)]
+        selected,scope=subject._selected_sources(sources,basis)
+        self.assertEqual({row["sha256"] for _,row,_ in selected},set(subject.SELECTED_SOURCE_SHA.values()))
+        self.assertIn(subject.DISCOVERY_SHA,scope["field_source_sha256"].values())
+        self.assertEqual(len(scope["out_of_scope_sources"]),24)
+        changed=deepcopy(rows)
+        for row in changed: row["expected_outcome"]="error";row["python_reference"]={"convert_status":"error"}
+        selected2,scope2=subject._selected_sources([(row,path) for row,(_,path) in zip(changed,sources)],basis)
+        self.assertEqual(scope2,scope)
+        self.assertEqual([ordinal for ordinal,_,_ in selected2],[ordinal for ordinal,_,_ in selected])
+        for altered in (sources[:-1],sources+sources[:1],sources[:]):
+            if len(altered)==27:
+                index=selected[0][0]-1
+                replacement=next(item for item in sources if item[0]["sha256"] not in subject.SELECTED_SOURCE_SHA.values())
+                altered[index]=replacement
+            with self.assertRaises(subject.ObservationError): subject._selected_sources(altered,basis)
+        changed_basis=deepcopy(basis);changed_basis["hn_a"]["source_sha256"]=basis["c8"]["source_sha256"]
+        with self.assertRaises(subject.ObservationError): subject._selected_sources(sources,changed_basis)
 
     def test_unfrozen_contract_stops_before_any_private_input(self):
         plan = self.file("draft.md", b"Status: **DRAFT.**\n")
@@ -571,35 +692,60 @@ class OriginalOutlineObservation(unittest.TestCase):
         self.assertEqual(stored["status"],"FAIL")
         self.assertEqual(identity["sha256"],subject.byte_identity((commands.session/"observation-report.json").read_bytes())["sha256"])
 
-    def orchestration(self, *, mutate=None, first_header_failure=False, first_pdf_failure=False):
+    def orchestration(self, *, mutate=None, first_header_failure=False, first_pdf_failure=False,
+                      source_fault=None, wrong_page_count=False, unselected_bad_pin=False,
+                      discovery_read_failure=False):
         """Full original file/audit/receipt flow, with actual two-tool PDF calls."""
-        corpus=self.root/"corpus";corpus.mkdir()
+        flow=Path(tempfile.mkdtemp(prefix="flow-",dir=self.root))
+        corpus=flow/"corpus";corpus.mkdir()
+        def fixture(name,data):
+            path=flow/name;path.write_bytes(data);return path
         rows=[]
         for profile,variant in (("hn_a","HN-A"),("c8","C8"),("hn_b","HN-B")):
             data=original_source(variant,records=52 if variant=="HN-A" else 0)
+            if profile=="hn_a" and source_fault:
+                changed=bytearray(data);source_fault(changed);data=bytes(changed)
             path=corpus/(profile+".bin");path.write_bytes(data)
-            rows.append({"path":path.name,"sha256":hashlib.sha256(data).hexdigest(),"size_bytes":len(data),"page_count":2})
+            rows.append({"path":path.name,"sha256":hashlib.sha256(data).hexdigest(),"size_bytes":len(data),
+                         "page_count":3 if profile=="hn_a" and wrong_page_count else 2,
+                         "expected_outcome":"error"})
         pdf,_=original_pdf()
         pins={profile:(len(pdf),hashlib.sha256(pdf).hexdigest()) for profile in ("hn_a","c8","hn_b")}
         basis={profile:{"source_sha256":row["sha256"],"output_page_count":2} for profile,row in zip(pins,rows)}
+        selected_pins={profile:row["sha256"] for profile,row in zip(pins,rows)}
         reference={"status":"PASS","generations":[{"profile":profile,"source_sha256":row["sha256"],"deterministic":True,
                     "runs":[{"status":"PASS","exit_code":0,"pdf_size_bytes":len(pdf),"pdf_sha256":pins[profile][1]} for _ in (1,2)]}
                     for profile,row in zip(pins,rows)]}
+        # All 24 excluded originals are intentionally invalid as containers.
+        # Their identities still need both audits; no field read may inspect them.
+        for number in range(24):
+            data=f"Original excluded source {number}".encode()
+            path=corpus/f"excluded-{number}.bin";path.write_bytes(data)
+            rows.append({"path":path.name,"sha256":hashlib.sha256(data).hexdigest(),
+                         "size_bytes":len(data),"page_count":1,"expected_outcome":"success"})
+        if unselected_bad_pin: (corpus/rows[-1]["path"]).write_bytes(b"Changed excluded original")
         reference_data=subject.json_bytes(reference)
-        reference_path=self.file("reference.json",reference_data)
-        plan=self.file("original-plan.md",b"original synthetic coordination contract")
-        paths={"corpus":corpus,"reference_report":reference_path,"artifact_root":self.root/"artifacts","plan":plan}
+        reference_path=fixture("reference.json",reference_data)
+        plan=fixture("original-plan.md",b"original synthetic coordination contract")
+        paths={"corpus":corpus,"reference_report":reference_path,"artifact_root":flow/"artifacts","plan":plan}
         for profile in pins:
-            for repeat in (1,2): paths[f"{profile}_{repeat}"]=self.file(f"{profile}_{repeat}.pdf",pdf)
+            for repeat in (1,2): paths[f"{profile}_{repeat}"]=fixture(f"{profile}_{repeat}.pdf",pdf)
         original_run_report=subject.new_report
         original_request=subject.FileReader.request
         original_inventory=subject.inventory_header
         source_paths={corpus/row["path"] for row in rows}
+        excluded_paths={corpus/row["path"] for row in rows[3:]}
+        discovery_faulted=[False]
         def guarded_request(reader,offset,length,scope):
             if reader.path in source_paths:
                 receipts=list(paths["artifact_root"].glob("*/execution-receipt.json"))
                 self.assertEqual(len(receipts),1,"source was read before immutable receipt")
                 self.assertEqual(receipts[0].stat().st_mode & 0o777,0o400)
+                if scope=="field": self.assertNotIn(reader.path,excluded_paths)
+                if discovery_read_failure and not discovery_faulted[0] and scope=="field" and offset==348+308:
+                    discovery_faulted[0]=True
+                    with patch.object(subject.os,"pread",side_effect=OSError("private-looking original error must not leak")):
+                        return original_request(reader,offset,length,scope)
             return original_request(reader,offset,length,scope)
         def inventory(reader):
             if first_header_failure: raise KeyboardInterrupt("original interruption")
@@ -622,6 +768,7 @@ class OriginalOutlineObservation(unittest.TestCase):
             patches.enter_context(patch.object(subject,"REFERENCE_SHA",hashlib.sha256(reference_data).hexdigest()))
             patches.enter_context(patch.object(subject,"REFERENCE_BYTES",len(reference_data)))
             patches.enter_context(patch.object(subject,"DISCOVERY_SHA",rows[0]["sha256"]))
+            patches.enter_context(patch.object(subject,"SELECTED_SOURCE_SHA",selected_pins))
             patches.enter_context(patch.object(subject.FileReader,"request",guarded_request))
             patches.enter_context(patch.object(subject,"inventory_header",side_effect=inventory))
             if first_pdf_failure:
@@ -640,6 +787,17 @@ class OriginalOutlineObservation(unittest.TestCase):
         self.assertEqual(report["counts"]["validator_launches"],12)
         self.assertEqual(report["counts"]["aggregate_launches"],13)
         self.assertEqual(report["progress"]["sources"]["completed"],3)
+        scope=report["source_scope"]
+        self.assertEqual(scope["audit_source_count"],27)
+        self.assertEqual(len(scope["out_of_scope_sources"]),24)
+        for row in scope["out_of_scope_sources"]:
+            self.assertEqual((row["inventory_status"],row["semantic_status"],row["semantic_passes"]),
+                             ("OUT_OF_SCOPE","NOT_RUN",0))
+        receipt=json.loads((Path(report["session"])/"execution-receipt.json").read_bytes())
+        self.assertEqual(receipt["source_scope"],scope)
+        self.assertEqual(receipt["preserved_failure"],subject.PRESERVED_FAILURE)
+        for phase in ("before","after"):
+            self.assertEqual(sum(key.startswith("source:") for key in report["audits"][phase]["files"]),27)
         self.assertEqual(report["progress"]["pdfs"]["completed"],6)
         self.assertEqual(report["progress"]["queries"]["completed"],12)
         self.assertEqual(report["discovery"]["record_count"],52)
@@ -653,7 +811,54 @@ class OriginalOutlineObservation(unittest.TestCase):
         self.assertEqual(report["status"],"FAIL")
         self.assertEqual(report["progress"]["sources"],{"planned":3,"attempted":1,"completed":0,"failed":1,"remaining":2,"unsupported":0})
         self.assertEqual(report["counts"]["validator_launches"],0)
+        self.assertEqual(report["source_failure"]["reason"],"CANCELLED")
+        self.assertEqual(report["source_failure"]["field"],"reader_state")
         self.assertEqual(report["audits"]["after"]["attempted"],report["audits"]["before"]["attempted"])
+
+    def test_selected_source_failure_is_fatal_even_with_historical_error_labels(self):
+        mutations=[(lambda data:data.__setitem__(slice(0,4),b"NOPE"),"signature",0,1),
+                   (lambda data:struct.pack_into("<h",data,16364+8,8193),"image_count",16372,0),
+                   (lambda data:struct.pack_into("<i",data,16364,len(data)+1),"text_span",16364,0),
+                   (lambda data:struct.pack_into("<i",data,144,0),"page_count",144,0)]
+        for fault,field,offset,unsupported in mutations:
+            with self.subTest(field=field):
+                report,paths=self.orchestration(source_fault=fault)
+                self.assertEqual(report["status"],"FAIL")
+                self.assertEqual(report["progress"]["sources"],{"planned":3,"attempted":1,"completed":0,"failed":1,"remaining":2,"unsupported":unsupported})
+                self.assertEqual(report["source_failure"]["field"],field)
+                self.assertEqual(report["source_failure"]["schema_offset"],offset)
+                self.assertEqual(report["source_failure"]["source_inventory_ordinal"],1)
+                self.assertEqual(report["source_failure"]["selected_source_ordinal"],1)
+                self.assertEqual(report["counts"]["validator_launches"],0)
+                self.assertEqual(report["progress"]["pdfs"]["remaining"],6)
+                self.assertEqual(report["audits"]["after"]["status"],"PASS")
+                self.assertNotIn(str(paths["corpus"]),subject.json_bytes(report["source_failure"]).decode())
+        report,_=self.orchestration(wrong_page_count=True)
+        self.assertEqual(report["status"],"FAIL")
+        self.assertEqual(report["source_failure"]["reason"],"PINNED_COUNT_MISMATCH")
+
+    def test_excluded_source_pin_mismatch_still_fails_all_file_audits(self):
+        report,_=self.orchestration(unselected_bad_pin=True)
+        self.assertEqual(report["status"],"FAIL")
+        self.assertEqual(report["progress"]["sources"]["attempted"],0)
+        self.assertEqual(report["resources"]["field_read_calls"],0)
+        for phase in ("before","after"):
+            self.assertEqual(report["audits"][phase]["status"],"FAIL")
+            self.assertEqual(report["audits"][phase]["failed"],1)
+        self.assertEqual(report["audits"]["before"]["attempted"],report["audits"]["after"]["attempted"])
+        self.assertEqual(len(report["source_scope"]["out_of_scope_sources"]),24)
+
+    def test_discovery_read_failure_keeps_record_location_and_final_audits(self):
+        report,_=self.orchestration(discovery_read_failure=True)
+        self.assertEqual(report["status"],"FAIL")
+        self.assertEqual(report["progress"]["sources"]["completed"],3)
+        self.assertEqual(report["progress"]["discovery"]["failed"],1)
+        self.assertEqual(report["counts"]["validator_launches"],12)
+        location=report["source_failure"]
+        self.assertEqual((location["stage"],location["field"],location["schema_offset"],location["schema_width"],location["record_ordinal"],location["reason"]),
+                         ("outline_discovery","outline_record",656,308,2,"IO_ERROR"))
+        self.assertEqual(report["audits"]["after"]["status"],"PASS")
+        self.assertNotIn("private-looking",subject.json_bytes(report).decode())
 
     def test_original_pdf_protocol_failure_keeps_attempts_and_unstarted_work(self):
         report,_=self.orchestration(first_pdf_failure=True)
@@ -679,4 +884,4 @@ if __name__=="__main__":
     try:
         unittest.main()
     finally:
-        print(f"Original public child launches: {PUBLIC_CHILDREN}; private/native/converter/vendor launches: 0",file=sys.stderr)
+        print(f"Original public child launch attempts: {PUBLIC_CHILDREN}; private/native/converter/vendor launches: 0",file=sys.stderr)
