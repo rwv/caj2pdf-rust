@@ -15,10 +15,12 @@ bounded 64 MiB allowance without launching the viewer. All eight reported
 application attempts/failures from those phases are retained. The fifth pair
 kept the launcher/display alive but failed an unverified filename-based window
 predicate. Its identical complete viewport payloads show the original
-four-page PDF under manual review. All ten reported startup attempts retain
-their FAIL outcomes. An independently reviewed owner-based window observer
-is prepared; it requires a new frozen image/protocol and records document
-identity as unverified.
+four-page PDF under manual review. Those ten reported startup attempts retain
+their FAIL outcomes. The sixth independently frozen pair adds one helper
+failure and one owned-window startup observation, keeping document identity
+unverified. All twelve attempts are retained; the pair remains FAIL and its
+ceiling is exhausted. The failed search's stderr content was not retained,
+so public helper diagnostics/controls must precede a newly reviewed phase.
 No private document, complete-page acquisition,
 clipboard observation or vendor comparison has been run. The
 [startup note](cajviewer-linux-startup.md) preserves the exact phase and failure.

@@ -42,8 +42,12 @@ project-owned Python process groups and owner/framing/deadline failure cases.
 No xdotool, window-manager or vendor implementation source was used.
 The preserved fifth-phase viewport payloads agree exactly and manual review
 sees the original four-page PDF; they establish neither complete-page nor
-text parity. All ten reported startup FAIL outcomes remain intact, while the
-prepared observer records any owned window's document identity as unverified.
+text parity. All ten earlier reported startup FAIL outcomes remain intact.
+The sixth frozen pair retains one additional helper failure and one owned
+window observation, keeping document identity unverified and the pair FAIL.
+The unretained search stderr leaves its cause unknown; no vendor or X11 error
+class is inferred. All twelve reported attempts and the exhausted finite
+ceiling are recorded in the startup note.
 The public
 [Dockerfile `COPY --chmod` reference](https://docs.docker.com/reference/dockerfile/#copy---chmod)
 is a command usage reference for explicitly installing the two original

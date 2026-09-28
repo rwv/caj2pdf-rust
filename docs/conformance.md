@@ -201,9 +201,11 @@ matching-window deadline failures while its identical viewport captures
 showed the original four-page PDF under manual review. The prepared observer
 checks window PID/process-group ownership and records document identity as
 unverified; an owned window can be a dialog. The
-[startup note](cajviewer-linux-startup.md) retains all ten reported failures,
-exact receipts and original controls. Complete-page capture and text copy
-remain unattempted. No
+[startup note](cajviewer-linux-startup.md) retains all twelve reported
+attempts: ten prior failures followed by one helper failure and one owned
+window observation. The sixth pair remains FAIL; unretained helper stderr
+leaves its exact cause unknown. Complete-page capture and text copy remain
+unattempted. No
 private vendor fixture has been acquired, and no supported Linux
 export CLI or headless API has been proven. The existing Python-converter
 regressions and [#117 composition evidence](hnc8-page-composition-evidence.md),

@@ -15,8 +15,9 @@ filename-based window predicate. Its preserved, identical viewport captures
 show the original four-page PDF in the viewer. That manual opening observation
 does not satisfy complete-page capture or text acquisition.
 **Full-page and text compatibility remain NOT_RUN, zero passes.** The
-capability issue remains open; all ten reported launcher attempts and
-failures are retained.
+capability issue remains open. Twelve reported launcher attempts are retained:
+the ten prior failures, one additional helper failure and one owned-window
+startup observation. Complete-page and text compatibility remain unverified.
 The [fixture plan](cajviewer-fixtures.md) and issue acceptance criteria govern
 the later image/text capability probes and private acquisition.
 
@@ -180,8 +181,9 @@ foreign, disappeared or changed owners are refused. All queries share the
 original deadline and bounded helper accounting. No filename or localized
 title content is assumed. The first owned window can be a dialog; the receipt
 marks `document_identity: UNVERIFIED` and
-`scope: startup-owned-visible-window-only`. This source amendment has passed
-original controls but requires its own frozen image/protocol before app use.
+`scope: startup-owned-visible-window-only`. The sixth frozen pair observed
+one owned window and retained one helper failure; it did not satisfy the
+two-successful-session capability requirement.
 The diagnostic whole-screen P6
 is explicitly `viewport-diagnostic-only`, `complete_page: false`. The host
 checks the exact P6 grid, full payload length/hash and absence of tail before
@@ -451,7 +453,7 @@ It explicitly supersedes an incorrect postprocessing summary that used the
 wrong log filename/keys; both summaries and all original receipts are retained.
 No original outcome or artifact was replaced.
 
-## Prepared owned-window observation amendment
+## Reviewed owned-window observation amendment
 
 The independent source review and 33 original focused tests verify the
 owner-based observer, including two real original process groups. Controls
@@ -465,12 +467,71 @@ is a command usage reference only; no external implementation is copied.
 possible application window trees. An owned dialog cannot prove document
 identity or rendering readiness.
 
-Build and inventory this source without launching the app, then freeze exact
-source/image/runtime/control/environment pins and a new finite cumulative
-budget for independent review before further activity. The previous ten
-reported FAIL attempts remain immutable. Full-page and standard-copy probes
-require separate original-control protocols even if this startup observer
-succeeds.
+The source was built/inventoried without launching the app, then bound to the
+sixth finite independently reviewed protocol below. The previous ten reported
+FAIL attempts remain immutable. Full-page and standard-copy probes require
+separate original-control protocols even if this startup observer succeeds.
+
+## Preserved mixed sixth result and helper-diagnostic gap
+
+The sixth protocol froze source
+`5b38af5f9488469b185ab5a18542abf7ec5b32a7`, 18,429 protocol bytes with SHA-256
+`07e6ac29470a36035a84b8d409a7ea7c983d042aad59ee2d98428f9985ee6057`,
+and image
+`sha256:445831e2940c2e6eda320039680b8b3c507d9b9369cfcc6e07c573cbe53e8d7c`.
+Its 518,665-byte opaque inventory has SHA-256
+`60c1a9e84ce8e566f60e8ef913f3b0f2e7247cf44da5fe0ed21c675d12d37372`.
+The 2,731-member inventory has unchanged packages, fonts, tools and all 832
+opaque vendor entries. Only the original core helper's installed permissions
+and the original session's observer/permissions changed. Both original Python
+files are now mode 0444 in the image. Public inventory preparation passed
+with zero app launches after preserving the earlier permission failure.
+
+The pair is **FAIL**. Session one retained a `CanaryError` after a visible
+window search returned exit 1, zero stdout bytes and 254 stderr bytes. The
+receipt retains argv/status/byte counts but omits that stderr content and its
+hash, so its exact cause is unknown. Do not infer a `BadWindow`, display
+failure or vendor failure from its length. No capture was produced; the
+host's secondary missing-capture `KeyError` is preserved and establishes no
+raster integrity.
+
+Session two is **STARTUP_OBSERVED**. It measured a visible `CAJViewer` window,
+PID 27 in launcher process group 20, at (200, 200), size 851 × 800. Owner
+PID/group were checked before and after title/geometry queries. The scope
+remains `startup-owned-visible-window-only`, with document identity unverified.
+Its exact 5,760,017-byte diagnostic P6 has SHA-256
+`e97e86645d70c039981b1e17f36773fb30d16373f91a0467d7006b51f7bae78f`
+and pixel SHA-256
+`c0e5fc1ce8c727d3e75fa229cdb40a4f971cf6a8dea9ba552ec8f3d3b81d8082`.
+Full grid/payload/EOF integrity passed. This single viewport is neither a
+complete-page acquisition nor a page/image/text compatibility comparison.
+
+The closed 35,700-byte run receipt has SHA-256
+`ba7761a2359d3f25730431c51aee15b767495c3a3931a4df63afe39cff0ce183`.
+Controlled helper attempts were 17/25; Docker clients were ten per session.
+Whole-cgroup memory peaks were 155,353,088/188,903,424 bytes, concurrent task
+peaks 102/107, and OOM-kill deltas zero. Both supervisor environment snapshots
+observe the same value 1. All process/container cleanup and driver final file
+audits passed. Root's separate closing audit verified all 41 bound identities,
+including historical/preparation metadata and canonical host binaries.
+
+The safe summary is 3,108 bytes, SHA-256
+`630ac9225f548c3d8f056476d6a437d43f0a1e95f6ed13b1a35f620fb6620e74`;
+the separate 8,236-byte closing audit has SHA-256
+`49f6979bd26dc476ac3db6592f4c9c0f0c22857e2395217971bb3090f3ed188a`.
+The cumulative reported-attempt ceiling of twelve is exhausted. This phase
+does not authorize any retry, UI action or private acquisition.
+
+Before further viewer activity, make public helper failures actionable with
+bounded, retained stage/exit/byte-count/digest evidence in
+[#133](https://github.com/rwv/caj2pdf-rust/issues/133), a native child/blocker
+of #124. Use original X11
+controls to distinguish missing owners, disappearing windows, malformed
+output, arbitrary helper failure and resource faults. A normal transient
+classification needs observed public-tool evidence and a separately reviewed
+policy; unclassified failures stay FAIL. Freeze new exact source/tool/image
+identities and a finite cumulative budget before any new app phase. Two
+successful fresh sessions and all complete-page/text gates remain unmet.
 
 ## Public tests and remaining acceptance work
 

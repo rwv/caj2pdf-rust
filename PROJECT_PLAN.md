@@ -137,9 +137,12 @@ issue acceptance criteria are authoritative for each task.
    verifies a bounded allowance. The fifth pair keeps its display/launcher
    alive but fails an unverified filename-based window predicate. Identical
    viewport captures support manual original-PDF opening observation only.
-   All ten reported failures remain recorded. An independently reviewed
-   observer now checks window PID/process-group ownership, with document
-   identity unverified. The
+   The ten earlier failures remain recorded. The sixth frozen pair adds one
+   helper failure and one observed owned window after PID/process-group
+   checks; document identity stays unverified. All twelve attempts are
+   retained and the pair remains FAIL. Its helper stderr was not retained,
+   so [bounded public diagnostics/controls #133](https://github.com/rwv/caj2pdf-rust/issues/133)
+   are the next prerequisite and a native child/blocker of #124. The
    [startup records and original child-limit controls](docs/cajviewer-linux-startup.md)
    require a new exact profile and reviewed finite budget before further apps.
    Complete-page capture, physical-page navigation and fresh standard-copy
