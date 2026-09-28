@@ -200,9 +200,15 @@ issue acceptance criteria are authoritative for each task.
    original captures and distinguishes operational failure from closing success.
    Historical v9 supplied the public inventory module through a pinned
    read-only bind; its inventory describes that mounted runtime view, not bare
-   image membership. A separate DRAFT transport amendment must restore the
-   exact public bind with original controls and its own frozen profile; no
-   additional phase has run.
+   image membership. The separately frozen transport amendment's sole v12
+   phase is now CLOSED_FAIL: both original source loads passed, but the
+   fc-list helper's exit-0 result with 48 stderr bytes failed validation with
+   ValueError. The exact message and cause remain UNKNOWN; inventory did not
+   complete, all 2,731 comparisons are NOT_RUN and app/vendor counts are zero.
+   Both actual closing reviews passed preservation while operational status
+   remained FAIL. Independent native child/blocker
+   [#148: inventory-helper diagnostics](https://github.com/rwv/caj2pdf-rust/issues/148)
+   tracks the bounded original diagnostics, with #125/#133/#143 resolved.
    Further diagnostics and startup require separate exact freezes and reviews.
    The twelve historical launcher attempts and unknown helper-stderr cause
    are preserved; no new capability passed.
@@ -211,6 +217,15 @@ issue acceptance criteria are authoritative for each task.
    tracks implementation of separate document/page identity, complete-page and fresh
    standard-copy gates, with a strict collector and finite GUI discovery.
    Code completion is separate from #124's actual two-session evidence.
+   The [capability implementation](docs/cajviewer-capability-protocol.md)
+   contains the refused-default host/session, raw desktop/page/clipboard gates,
+   exact collector and original controls. The sole reviewed carrier passed
+   57 methods and 133 subtests with zero errors, failures or skips; all 112
+   ordered source audit rows and both actual closing reviews passed, exit 0.
+   One carrier parent and one controlled Python child ran, with zero additional
+   candidate forbidden effects. Code acceptance requires exact committed-head
+   reviews and the four hosted gates; app observations are NOT_RUN. Neither v11 nor v12
+   FAIL satisfies the runtime-view gate, and no operational bindings are invented.
    After successful reviewed declared runtime-view integrity, a fresh frozen
    capability profile may propose two launches (cumulative maximum fourteen),
    ten physical-page observations and four ordinary-copy attempts. No issue
