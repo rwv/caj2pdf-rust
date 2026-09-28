@@ -54,6 +54,11 @@ adds a bounded native text parser and pure unsigned-coordinate evaluator:
 36/36 discovery and 14/14 validation supplemental transforms match in the
 two inspected HN-A/C8 documents. Its factor is empirical; other layouts and
 full-page conversion remain pending under #10.
+The opt-in core [image-only source-page composer](docs/hnc8-page-composition.md)
+combines the measured type-0/type-2 profile in one PDF with bounded per-page
+metadata and caller-owned row storage. Its HN-B path reports no-image source
+rows separately. Caller-table use and this diagnostic API do not enable the
+production CLI or JavaScript HN/C8 routes.
 
 ```sh
 caj2pdf paper.caj                  # writes paper.pdf next to the input

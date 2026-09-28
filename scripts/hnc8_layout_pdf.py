@@ -421,7 +421,8 @@ def _page_box(pdf: Path, page_id: int, qpdf: Path, limits: PdfMetadataLimits,
     raise PdfMetadataError("page parent depth exceeds limit")
 
 
-def _image_resources(page: dict, page_number: int) -> dict[str, dict]:
+def _image_resources(page: dict, page_number: int, *,
+                     allow_raw_bilevel: bool = False) -> dict[str, dict]:
     rows = page.get("images")
     if not isinstance(rows, list):
         raise PdfMetadataError(f"page {page_number} lacks qpdf image metadata")
@@ -437,8 +438,10 @@ def _image_resources(page: dict, page_number: int) -> dict[str, dict]:
         height = _positive_int(row.get("height"), "image height")
         bits = _positive_int(row.get("bitspercomponent"), "image bits per component")
         filters = row.get("filter")
-        if not isinstance(filters, list) or len(filters) != 1 or filters[0] not in (
-                "/DCTDecode", "/FlateDecode"):
+        raw_bilevel = (allow_raw_bilevel and filters == [None] and
+                       row.get("colorspace") == "/DeviceGray" and bits == 1)
+        if not raw_bilevel and (not isinstance(filters, list) or len(filters) != 1 or
+                               filters[0] not in ("/DCTDecode", "/FlateDecode")):
             raise PdfMetadataUnsupported("image XObject filter is outside DCT/Flate subset")
         color = row.get("colorspace")
         if (isinstance(color, list) and len(color) == 4 and
@@ -455,9 +458,45 @@ def _image_resources(page: dict, page_number: int) -> dict[str, dict]:
             "xobject_name": name, "object_id": object_id, "generation": generation,
             "xobject_type": "Image", "width": width, "height": height,
             "bits_per_component": bits, "color_space": color_name,
-            "filter": filters[0],
+            "filter": "Raw" if raw_bilevel else filters[0],
         }
     return images
+
+
+def _check_raw_bilevel(pdf: Path, image: dict, qpdf: Path,
+                       limits: PdfMetadataLimits, usage: _Usage) -> None:
+    """Opt-in native profile: prove each raw bit maps to black=1.
+
+    qpdf's bounded object JSON avoids inferring Decode or masking semantics
+    from the incomplete page-image listing. Reject every extra dictionary key.
+    """
+    object_id = image["object_id"]
+    raw, _ = _run([str(qpdf), "--json", "--json-key=qpdf",
+                   f"--json-object={object_id}", str(pdf)],
+                  "qpdf raw bilevel dictionary", limits, usage,
+                  limits.max_page_object_bytes)
+    assert isinstance(raw, bytes)
+    try:
+        document = json.loads(raw)
+        dictionary = document["qpdf"][1][f"obj:{object_id} 0 R"]["stream"]["dict"]
+    except (UnicodeDecodeError, ValueError, KeyError, IndexError, TypeError) as exc:
+        raise PdfMetadataError("qpdf raw bilevel dictionary JSON is malformed") from exc
+    expected = {
+        "/Type": "/XObject", "/Subtype": "/Image",
+        "/Width": image["width"], "/Height": image["height"],
+        "/BitsPerComponent": 1, "/ColorSpace": "/DeviceGray", "/Decode": [1, 0],
+    }
+    if (not isinstance(dictionary, dict) or
+            set(dictionary) != {*expected, "/Length"} or
+            any(type(dictionary[key]) is not type(value) or dictionary[key] != value
+                for key, value in expected.items()) or
+            any(type(value) is not int for value in dictionary["/Decode"])):
+        raise PdfMetadataUnsupported("raw bilevel dictionary is outside the explicit inverse-gray profile")
+    length = dictionary["/Length"]
+    if type(length) is int:
+        _positive_int(length, "raw bilevel stream length")
+    else:
+        _reference(length, "raw bilevel stream length")
 
 
 def _mutool_pages(data: bytes, limits: PdfMetadataLimits) -> list[list[float]]:
@@ -572,11 +611,14 @@ def extract_pdf_metadata(
     pdf: Path, tools: Mapping[str, Path | str], *,
     limits: PdfMetadataLimits = PdfMetadataLimits(),
     cancelled: Callable[[], bool] | None = None,
+    allow_raw_bilevel: bool = False,
 ) -> dict:
     """Return checked, compact page/image metadata; fail on tool disagreement.
 
     `tools` must supply qpdf, mutool, and pdfimages executables. Stream hashes
     cover original encoded PDF image stream bytes, not decoded pixels.
+    `allow_raw_bilevel` additionally accepts the native unfiltered one-bit
+    DeviceGray profile, after checking its explicit inverse Decode and length.
     """
     try:
         pdf = Path(pdf).resolve(strict=True)
@@ -632,7 +674,10 @@ def extract_pdf_metadata(
         page_id, _ = _reference(row.get("object"), "page")
         box = _page_box(pdf, page_id, paths["qpdf"], limits, usage)
         _same_numbers(box, boxes[page_number-1], f"page {page_number} MediaBox")
-        resources = _image_resources(row, page_number)
+        resources = _image_resources(row, page_number, allow_raw_bilevel=allow_raw_bilevel)
+        for image in resources.values():
+            if image["filter"] == "Raw":
+                _check_raw_bilevel(pdf, image, paths["qpdf"], limits, usage)
         references = row.get("contents")
         if not isinstance(references, list):
             raise PdfMetadataError("qpdf page contents metadata is malformed")
@@ -702,6 +747,9 @@ def extract_pdf_metadata(
                 assert isinstance(qhash, str)
                 hashes[object_id] = (qhash, qlength)
             draw["raw_stream_sha256"], draw["raw_stream_length"] = hashes[object_id]
+            if (draw["filter"] == "Raw" and draw["raw_stream_length"] !=
+                    ((draw["width"] + 7) // 8) * draw["height"]):
+                raise PdfMetadataError("raw bilevel sample stream has a wrong exact length")
         pages.append({"page_number": page_number, "media_box": box, "draws": draws})
     if next_listed != len(listed):
         raise PdfMetadataError("pdfimages list has extra image draws")

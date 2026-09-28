@@ -4,6 +4,8 @@
 
 Status: FROZEN BEFORE EXECUTION, 2026-09-28 UTC. No private PDF extraction, rendering, source-byte inspection, table-byte inspection, or new converter call was performed while drafting and reviewing this plan. Public repository metadata and existing external JSON reports supplied the pins below. A separate execution receipt must bind the final original native example, Rust/Cargo source fingerprint, runner/tests, executable, compiler versions, effective environment and command to this committed plan before any private call.
 
+Pre-execution amendment, 2026-09-28 UTC: extend only the original development metadata extractor with an explicit `allow_raw_bilevel` keyword for native candidates. Its old default and reference extraction remain unchanged. Original synthetic PDFs and real qpdf/MuPDF/Poppler tests establish the new unfiltered one-bit DeviceGray profile, explicit inverse `Decode [1 0]`, exact raw stream length and rejection of masks, parameters and additional dictionary keys. No private input was consulted for this extension. The updated helper identity is pinned below. The external receipt binds the reviewed source commit, parent environment, command and executable/library identities; the runner also writes an immutable internal receipt binding its exact generated session, child `TMPDIR`/environment and public source/helper fingerprints before the first private baseline/source/table audit.
+
 ## Scope and independence
 
 Base: `09e77b9ff63487f7f5c7fe3512cc6dc90587aa6b` in `/tmp/caj2pdf-issue117-page-composition`.
@@ -21,7 +23,7 @@ Public files, relative to the repository:
 | `tests/conformance/matrix.json` | 237750 | `af42132133911f3597eed9318f613494c4047353cb7e15fc4d1008cf59ef44a9` |
 | `tests/conformance/hnc8_layout_oracle.json` | 99829 | `4b88befeecf9a68dd6eca4966c79ea8cdb130c43e3c6d92f4cb56fb34dfb665e` |
 | `tests/conformance/jbig1_oracle.json` | 546731 | `e88401f0d9cbd08608004c2a9e58577ab85c916b9a9891a4dd5466e346e9203a` |
-| `scripts/hnc8_layout_pdf.py` | 33560 | `b8239236a87b8c1293745cb4eab7311320ca805f5eb98327d88581da8219f67e` |
+| `scripts/hnc8_layout_pdf.py` | 36239 | `5f920335514872b0a1a618bbfef4bb3d0c830ccdf9621544951b608ee42871d2` |
 | `scripts/hnc8_layout_reference.py` | 45159 | `7c3725394d999d391e770fabb1a91949a59987bd29d2f53b5fb067ddb9ad17fd` |
 | `scripts/hnc8_placement_rule.py` | 39393 | `419fe68d0547f2f6ff8bc55b26daaac7bec7843e6da51441c63afa92d402bf3b` |
 
@@ -45,7 +47,7 @@ Baseline session: `/tmp/caj2pdf-layout-reference-final/hnc8-layout-run-mi3kj_io`
 
 Hash-audit all six PDFs before/after. Extract metadata, samples and pixels from run1 of each profile; run2 is byte-identical and remains an audit input, not extra independent evidence.
 
-Caller runtime table: `/tmp/caj26-official-vector-with-checkpoints.txt`, currently 1745 bytes, expected complete-file SHA-256 `11fe241dedbbf4faa542af4a1485566c2794fa69e5c06e2e5c8542adfe9b1ab7`, maximum16384 bytes. Read it only after plan freeze. The loader validates the existing explicit `T82-1993` checkpoint-vector syntax and constructs caller-supplied `QmTable`; retain no table values in reports, source fixtures, CI or artifacts intended for Git. Its use establishes no redistribution authorization.
+Caller runtime table: `/tmp/caj26-official-vector-with-checkpoints.txt`, currently 1745 bytes, expected complete-file SHA-256 `11fe241dedbbf4faa542af4a1485566c2794fa69e5c06e2e5c8542adfe9b1ab7`, maximum16384 bytes. Read it only after plan freeze. The loader validates the `T82-1993` header, 113 state rows and checkpoint suffix framing (count3 and six lines), then constructs caller-supplied `QmTable`. It does not interpret checkpoint values or hex vectors; the earlier dedicated arithmetic-vector test covers them, and the complete-file SHA protects this execution. Retain no table values in reports, source fixtures, CI or artifacts intended for Git. Its use establishes no redistribution authorization.
 
 Existing metadata-only placement report, available for history, not an additional oracle: `/tmp/issue112-placement-rule-report.json`, 115511 bytes, SHA-256 `6d892bc3d41f23f71d503c689411d2bc2f9f30ecd0fb8bcd61b1c95ec5a10048`. #112 observed 75 boxes,125 ordered CTMs,maximum residual4.91306109964e-5pt. It did not establish full-page pixel parity or exact original padding.
 
@@ -94,6 +96,8 @@ The native visitor streams metadata for every source row, including HN-B image-f
 
 Read the committed oracle and matrix under1MiB caps. Independently reopen all3 selected baseline PDFs and all3 native PDFs with the existing bounded qpdf/MuPDF/Poppler metadata extractor. Do not trust native visitor output alone.
 
+Reference extraction uses the unchanged DCT/Flate default. Only native extraction enables `allow_raw_bilevel`; for every such XObject, a bounded qpdf object-JSON query must prove the exact inverse-gray dictionary profile, and qpdf/MuPDF raw stream observations must agree on all bytes and the exact packed row length. This additional dictionary query counts against the same tool/deadline/resource ceilings.
+
 Require81/81 source rows accounted,77/77 output pages,127/127 ordered draws (HN-A68/91,C8 7/34,HN-B6source rows/2pages/2draws). HN-A/C8 mappings are1..68 and1..7. HN-B image counts must remain `[1,0,0,0,0,1]`, output mapping `[1,6]`, no-image source rows2..5 counted explicitly; their unsupported text is not a converted text pass.
 
 For every output page and draw, compare boxes, all6 ordered CTM components, source descriptor/payload spans, image record numbers/types, visible width, display width, height and bit depth. CTM/box tolerance0.00005pt. Expected Type0 display width is the independently observed `stride_width=ceil(visible_width/32)*32`, not a scaled visible-width image. Compare all53 JPEG raw streams exactly against their original oracle payload SHA-256/length, independent qpdf and MuPDF extraction hashes. Native object IDs/resource names may differ; compare their ordered draw association and actual stream content, not reference ID numbers. Reference Type0 Indexed white/black palette and native one-bit DeviceGray with explicit inverse decode can be different dictionaries only when independently verified to map each stored bit to the same black/white sample. Never require encoded-Flate-byte equality; require decoded sample equality.
@@ -124,6 +128,7 @@ Public boxes predict603701450 pixels across77pages. Largest page2592x3285=851472
 ## Workload and resource ceilings
 
 - Maximum native launches3; completed/passing/failed counts recorded separately. Converter launches0. Maximum render launches308. Maximum total validator/tool launches2048, including metadata, image dictionaries/streams, extraction, rendering and version probes. Counters increment **before each attempted launch**, including launch failure/timeout/cancellation.
+- External receipt preparation and closing probes are recorded separately with their actual commands/counts. The final aggregate includes these probes, the one runner launch, and its native/validator launches and must also stay within2048. Render launches are a subset of validator launches and are not counted twice.
 - Deadline for whole requested experiment1800s; native timeout180s each; metadata/sample tools45s each; page render60s each. No retry.
 - Child virtual-address limit1GiB. Native RSS ceiling128MiB and validator/renderer RSS ceiling512MiB, monitored where Linux `/proc` is available; successful or reaped failed-child `wait4` peak reported separately from20ms sampled peaks. A missing enforcement/measurement must be explicit, never presented as0. Memory accounting separates native checked handler allocations, named managed buffers/fixed codec reservations, harness working buffers, native/child RSS, table and disk. `Limits.max_allocation_bytes` is not total process RSS or total combined allocation.
 - Hash, subprocess-drain and full-array/pixel read chunks at most65536 bytes; public metadata1MiB perfile; native stdout1MiB; diagnostics32768 bytes perchild; perline2048 bytes. No raw private stdout/stderr in committed JSON; store only hashes/byte counts/status/command, and retain raw diagnostics only externally if needed.

@@ -6,7 +6,7 @@ use super::{
     Budget, Hnc8Error, Hnc8Reader, ImageRecord, JpegBudget, JpegColor, JpegInfo, Variant,
     read_type2_jpeg_info,
 };
-use crate::pdf::{ImageEncoding, ImageSpec, PageSpec, PdfDocument};
+use crate::pdf::{ImageEncoding, ImageObject, ImageSpec, PageSpec, PdfDocument};
 use crate::{Cancellation, ConversionReport, Error, Limits, RangedSource, SequentialSink};
 use sha2::{Digest, Sha256};
 use std::{error, fmt};
@@ -253,6 +253,82 @@ fn image_spec(info: JpegInfo) -> ImageSpec {
     }
 }
 
+/// The same descriptor, geometry and digest from one complete JPEG traversal.
+/// Private fields prevent callers pairing a checked hash with another span.
+#[derive(Clone, Copy, Debug)]
+pub(super) struct CheckedType2 {
+    record: ImageRecord,
+    info: JpegInfo,
+    digest: [u8; 32],
+}
+
+impl CheckedType2 {
+    pub(super) fn record(self) -> ImageRecord {
+        self.record
+    }
+
+    pub(super) fn info(self) -> JpegInfo {
+        self.info
+    }
+}
+
+pub(super) async fn preflight_type2<S: RangedSource, C: Cancellation>(
+    source: &mut S,
+    image: ImageRecord,
+    limits: &Limits,
+    cancellation: &C,
+    budget: JpegBudget,
+) -> Result<CheckedType2, Type2PdfError> {
+    let at = At {
+        page: Some(image.page_number),
+        image: Some(image.image_number),
+        offset: Some(image.payload.offset),
+    };
+    if image.record_type != 2 {
+        return Err(At {
+            offset: Some(image.descriptor_offset),
+            ..at
+        }
+        .error(Type2PdfErrorKind::UnsupportedImageType(image.record_type)));
+    }
+    let mut preflight = DigestingSource::new(source, image);
+    let info = read_type2_jpeg_info(&mut preflight, image, limits, cancellation, budget)
+        .await
+        .map_err(|error| at.jpeg(error))?;
+    Ok(CheckedType2 {
+        record: image,
+        info,
+        digest: preflight.finish(),
+    })
+}
+
+pub(super) async fn emit_type2_xobject<S: RangedSource, W: SequentialSink, C: Cancellation>(
+    source: &mut S,
+    document: &mut PdfDocument<'_, W, C>,
+    checked: CheckedType2,
+) -> Result<ImageObject, Type2PdfError> {
+    let image = checked.record();
+    let at = At {
+        page: Some(image.page_number),
+        image: Some(image.image_number),
+        offset: Some(image.payload.offset),
+    };
+    let mut copy = DigestingSource::new(source, image);
+    let object = document
+        .add_image(
+            &mut copy,
+            image.payload.offset,
+            image.payload.length,
+            image_spec(checked.info()),
+        )
+        .await
+        .map_err(|error| at.pdf(error))?;
+    if copy.finish() != checked.digest {
+        return Err(at.error(Type2PdfErrorKind::SourceChanged));
+    }
+    Ok(object)
+}
+
 /// Stream one checked HN/C8 type-2 JPEG record into a one-page PDF.
 ///
 /// Source pages before the selected page are intentionally skipped. On the
@@ -330,35 +406,23 @@ pub async fn convert_type2_image_pdf<S: RangedSource, W: SequentialSink, C: Canc
         image: Some(image.image_number),
         offset: Some(image.payload.offset),
     };
-    if image.record_type != 2 {
-        return Err(At {
-            offset: Some(image.descriptor_offset),
-            ..at
-        }
-        .error(Type2PdfErrorKind::UnsupportedImageType(image.record_type)));
-    }
-    let mut preflight = DigestingSource::new(reader.source_mut(), image);
-    let info = read_type2_jpeg_info(&mut preflight, image, limits, cancellation, options.jpeg)
-        .await
-        .map_err(|error| at.jpeg(error))?;
-    let expected_digest = preflight.finish();
+    let checked = preflight_type2(
+        reader.source_mut(),
+        image,
+        limits,
+        cancellation,
+        options.jpeg,
+    )
+    .await?;
+    let info = checked.info();
     let mut document = PdfDocument::new(sink, limits, cancellation)
         .await
         .map_err(|error| at.pdf(error))?;
-    let mut copy = DigestingSource::new(reader.source_mut(), image);
+    let object = emit_type2_xobject(reader.source_mut(), &mut document, checked).await?;
     document
-        .add_image_page(
-            &mut copy,
-            image.payload.offset,
-            image.payload.length,
-            page_spec(info, options.pixels_per_inch),
-            image_spec(info),
-        )
+        .add_page(page_spec(info, options.pixels_per_inch), &[object])
         .await
         .map_err(|error| at.pdf(error))?;
-    if copy.finish() != expected_digest {
-        return Err(at.error(Type2PdfErrorKind::SourceChanged));
-    }
     let mut conversion = document.finish().await.map_err(|error| at.pdf(error))?;
     conversion.input_bytes_read = source.read;
     Ok(Type2SelectedPdfReport {

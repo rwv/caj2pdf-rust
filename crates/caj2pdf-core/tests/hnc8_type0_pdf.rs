@@ -1302,7 +1302,7 @@ fn pages_without_images_or_with_several_are_refused_at_their_row() {
     assert!(
         error
             .to_string()
-            .ends_with("page declares 2 images; placement is not measured")
+            .ends_with("page declares 2 images; this image-page API does not compose source pages")
     );
 }
 
