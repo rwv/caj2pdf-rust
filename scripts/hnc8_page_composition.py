@@ -82,7 +82,8 @@ PRESERVED_PINS = {
                                 "ec6a38adda35e156ad5b67857471414a1208953c9aa8c7d3d50e0675ca513fa4"),
 }
 EXPECTED = {"source_rows": 81, "output_pages": 77, "draws": 127,
-            "type0_arrays": 74, "jpeg_streams": 53, "page_renderer_pairs": 154}
+            "type0_arrays": 74, "jpeg_streams": 53, "jpeg_color_spaces": 53,
+            "page_renderer_pairs": 154}
 REQUIRED = {"corpus", "reference_report", "table", "artifact_root", "native_tool"}
 _UINT = re.compile(r"^(?:0|[1-9][0-9]*)$")
 INVERSE_BITS = bytes.maketrans(bytes(range(256)), bytes(255-x for x in range(256)))
@@ -774,6 +775,14 @@ def compare_metadata(native: dict, baseline: dict, candidate: dict, case: dict,
                            draw["raw_stream_sha256"] != observed["payload_sha256"] or
                            draw["raw_stream_length"] != observed["payload_length"] for draw in (original, emitted, pinned)):
                         raise CompositionError("complete original JPEG stream identity differs")
+                with _comparison(counts, "jpeg_color_spaces", progress, page=index+1, image=image["image_number"]):
+                    colors = [draw.get("color_space") for draw in (original, emitted, pinned)]
+                    if any(color not in ("DeviceGray", "DeviceRGB") for color in colors):
+                        raise CompositionUnsupported("JPEG ColorSpace is outside the explicit Gray/RGB profile")
+                    if colors[0] != colors[2]:
+                        raise CompositionError("reference JPEG ColorSpace changed from its pinned metadata")
+                    if colors[0] != colors[1]:
+                        raise CompositionError("reference and native JPEG ColorSpace interpretations differ")
     return {"status": "PASS", "source_rows": len(source), "output_pages": len(mapping),
             "draws": sum(len(page["images"]) for page in source), "output_to_source": mapping,
             "no_image_source_rows": [page["source_page"] for page in native["pages"] if page["output_page"] is None],

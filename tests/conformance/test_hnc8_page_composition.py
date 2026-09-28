@@ -62,9 +62,14 @@ def original_binary_pdf(path, bits):
     image = (b"/Type /XObject /Subtype /Image /Width 32 /Height 3 /BitsPerComponent 1 "
              b"/ColorSpace [/Indexed /DeviceRGB 1 <ffffff000000>] /Filter /FlateDecode "
              b"/DecodeParms << /BitsPerComponent 1 /Colors 1 /Columns 32 /Predictor 1 >>")
+    return original_image_pdf(path, image, encoded, content, 32, 3)
+
+
+def original_image_pdf(path, image, encoded, content, width, height):
+    """Build one small original runtime image wrapper with an explicit xref."""
     objects = [b"<< /Type /Catalog /Pages 2 0 R >>",
                b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
-               b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 32 3] /Resources << /XObject << /Im0 5 0 R >> >> /Contents 4 0 R >>",
+               f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {width} {height}] /Resources << /XObject << /Im0 5 0 R >> >> /Contents 4 0 R >>".encode(),
                b"<< /Length " + str(len(content)).encode() + b" >>\nstream\n" + content + b"endstream",
                b"<< " + image + b" /Length " + str(len(encoded)).encode() + b" >>\nstream\n" + encoded + b"\nendstream"]
     data = bytearray(b"%PDF-1.4\n")
@@ -174,8 +179,100 @@ class SyntheticComposition(unittest.TestCase):
         result = subject.compare_metadata(native, document, deepcopy(document), case, counts, progress)
         self.assertEqual(result["output_to_source"], [1, 6])
         self.assertEqual(result["no_image_source_rows"], [2, 3, 4, 5])
-        self.assertEqual([counts[f"{kind}_passing"] for kind in ("source_rows", "output_pages", "draws", "jpeg_streams")], [6, 2, 2, 2])
+        self.assertEqual([counts[f"{kind}_passing"] for kind in ("source_rows", "output_pages", "draws", "jpeg_streams", "jpeg_color_spaces")], [6, 2, 2, 2, 2])
         self.assertTrue(all(row["status"] == "PASS" for row in progress))
+
+    def test_jpeg_color_space_mismatch_is_a_located_failure_after_stream_identity(self):
+        for changed in ("reference", "native", "pinned"):
+            with self.subTest(changed=changed):
+                native, reference, case, _ = fixture()
+                case = deepcopy(case)
+                produced = deepcopy(reference)
+                document = {"reference": reference, "native": produced,
+                            "pinned": {"pages": case["pdf_pages"]}}[changed]
+                document["pages"][0]["draws"][0]["color_space"] = "DeviceRGB"
+                counts, progress = subject._report()["counts"], []
+                with self.assertRaisesRegex(subject.CompositionError, "ColorSpace"):
+                    subject.compare_metadata(native, reference, produced, case, counts, progress)
+                self.assertEqual(counts["jpeg_streams_passing"], 1)
+                self.assertEqual(counts["jpeg_color_spaces_attempted"], 1)
+                self.assertEqual(counts["jpeg_color_spaces_failing"], 1)
+                self.assertEqual(counts["jpeg_color_spaces_passing"], 0)
+                self.assertEqual(counts["jpeg_color_spaces_unsupported"], 0)
+                self.assertEqual(progress[-1], {"kind": "jpeg_color_spaces", "status": "FAIL", "unsupported": False,
+                                               "page": 1, "image": 1})
+
+    def test_jpeg_unknown_color_space_is_unsupported_and_never_a_pass(self):
+        for color in (None, "Indexed", "DeviceCMYK", [], True):
+            with self.subTest(color=color):
+                native, reference, case, _ = fixture()
+                produced = deepcopy(reference)
+                produced["pages"][0]["draws"][0]["color_space"] = color
+                counts, progress = subject._report()["counts"], []
+                with self.assertRaises(subject.CompositionUnsupported):
+                    subject.compare_metadata(native, reference, produced, case, counts, progress)
+                self.assertEqual(counts["jpeg_color_spaces_attempted"], 1)
+                self.assertEqual(counts["jpeg_color_spaces_failing"], 1)
+                self.assertEqual(counts["jpeg_color_spaces_unsupported"], 1)
+                self.assertEqual(counts["jpeg_color_spaces_passing"], 0)
+                self.assertEqual(progress[-1]["status"], "FAIL")
+                self.assertTrue(progress[-1]["unsupported"])
+
+    def test_consistent_rgb_metadata_remains_supported(self):
+        native, reference, case, _ = fixture()
+        for page in reference["pages"]:
+            page["draws"][0]["color_space"] = "DeviceRGB"
+        case["pdf_pages"] = deepcopy(reference["pages"])
+        counts = subject._report()["counts"]
+        result = subject.compare_metadata(native, reference, deepcopy(reference), case, counts)
+        self.assertEqual(result["status"], "PASS")
+        self.assertEqual(counts["jpeg_color_spaces_passing"], 2)
+
+    def test_original_grayscale_jpeg_bytes_do_not_establish_rgb_page_parity(self):
+        commands, report = self.commands()
+        tools = {name: shutil.which(name) for name in ("cjpeg", "qpdf", "mutool", "pdftoppm")}
+        self.assertTrue(all(tools.values()), "original JPEG/PDF controls require all CI tools")
+        pgm = self.root/"original-gray.pgm"
+        pgm.write_bytes(b"P5\n8 4\n255\n"+bytes((index*73+index//8*19)%256 for index in range(32)))
+        limits = subject.pdf.PdfMetadataLimits(timeout_seconds=10)
+        encoded, _ = commands.run([tools["cjpeg"], "-quality", "90", "-grayscale", str(pgm)],
+                                  "original grayscale JPEG", limits, subject.pdf._Usage(), 65536)
+        content = b"q\n8 0 0 -4 0 4 cm\n/Im0 Do\nQ\n"
+        wrappers = {}
+        for color in ("DeviceGray", "DeviceRGB"):
+            image = (f"/Type /XObject /Subtype /Image /Width 8 /Height 4 /BitsPerComponent 8 "
+                     f"/ColorSpace /{color} /Filter /DCTDecode").encode()
+            path = original_image_pdf(self.root/f"{color}.pdf", image, encoded, content, 8, 4)
+            raw, _ = commands.run([tools["qpdf"], "--show-object=5", "--raw-stream-data", str(path)],
+                                  "original unchanged DCT stream", limits, subject.pdf._Usage(), 65536)
+            self.assertEqual(raw, encoded)
+            metadata, _ = commands.run([tools["qpdf"], "--json", "--json-key=qpdf", "--json-stream-data=none",
+                                       "--json-object=5", str(path)], "original image declaration",
+                                      limits, subject.pdf._Usage(), 65536)
+            dictionary = json.loads(metadata)["qpdf"][1]["obj:5 0 R"]["stream"]["dict"]
+            self.assertEqual(dictionary["/ColorSpace"], "/"+color)
+            wrappers[color] = path
+        commands.kind = "render"
+        for renderer in ("mutool", "pdftoppm"):
+            with self.subTest(renderer=renderer):
+                rasters = []
+                for color, path in wrappers.items():
+                    output = commands.session/f"{renderer}-{color}.ppm"
+                    if renderer == "mutool":
+                        arguments = [tools[renderer], "draw", "-q", "-r", "300", "-A", "0",
+                                     "-c", "rgb", "-F", "pnm", "-o", "-", str(path), "1"]
+                    else:
+                        arguments = [tools[renderer], "-r", "300", "-singlefile", "-aa", "no", "-aaVector", "no",
+                                     "-f", "1", "-l", "1", str(path)]
+                    subject._to_file(commands, arguments, "original whole-page color control", output, 65536, timeout=10)
+                    rasters.append(output)
+                comparison = subject.compare_pixels(*rasters, 34, 17)
+                self.assertEqual(comparison["status"], "FAIL")
+                self.assertGreater(comparison["changed_pixels"], 0)
+                self.assertGreater(comparison["baseline_nonwhite_pixels"], 0)
+        self.assertEqual(report["counts"]["native_launches"], 0)
+        self.assertEqual(report["counts"]["converter_launches"], 0)
+        self.assertEqual(report["counts"]["render_launches"], 4)
 
     def test_metadata_failure_is_granular_and_missing_blank_draw_fails(self):
         for mutation, failing, expected_draw_passes in (("draw", "output_pages", 0),
@@ -545,7 +642,8 @@ class SyntheticComposition(unittest.TestCase):
                 raise subject.pdf.PdfMetadataUnsupported("invented required metadata profile")
             return deepcopy(document)
         expected = {"source_rows": 18, "output_pages": 6, "draws": 6,
-                    "type0_arrays": 0, "jpeg_streams": 6, "page_renderer_pairs": 12}
+                    "type0_arrays": 0, "jpeg_streams": 6, "jpeg_color_spaces": 6,
+                    "page_renderer_pairs": 12}
         paths = {"corpus": corpus, "reference_report": reference_report, "table": table,
                  "artifact_root": artifacts, "native_tool": native}
         with patch.object(subject, "_pinned_json", side_effect=pinned), \

@@ -74,6 +74,53 @@ blocks the remaining reference-validity and complete HN-B page criterion.
 No reference replacement, color inversion, malformed RGB declaration or
 pixel-tolerance change follows from the recorded metadata alone.
 
+## HN-B color interpretation investigation
+
+The separately reviewed [dictionary/header plan](hnc8-page-composition-hnb-color-probe.md)
+was frozen and committed at `456fc92a051392ec23df38ee633aeedf824d2def`
+before its single execution. Its framing-only report is 74,626 bytes,
+SHA-256 `ebc1fe08e2121e5322ad2d29e3bfd821070e25580b666e0bd860be7ff401bb49`.
+Its immutable receipt is 33,225 bytes,
+SHA-256 `f8b9c097524c54874401195d4d0a29c350362cab2258c2e23e4ecd9d83c78e7d`.
+
+All four exact dictionary queries and both independently parsed marker
+headers passed. Each source JPEG has an eight-bit, one-component SOF0 and
+JFIF header; the observed SOI-through-first-SOS prefixes contain no APP14.
+Both reference dictionaries declare DeviceRGB, while both native dictionaries
+declare DeviceGray. None contains Decode, DecodeParms, ImageMask, Mask or
+SMask. The source/output mapping and encoded identities remain those of the
+preserved failed comparison.
+
+These observed declarations are inconsistent with the DCT component count:
+[PDF Reference 1.4](https://opensource.adobe.com/dc-acrobat-sdk-docs/pdfstandards/pdfreference1.4.pdf)
+§4.8.2 derives image components from ColorSpace, §3.3.7 obtains DCT components
+from encoded data, and §4.8.4 identifies inconsistent image/color entries as
+errors. DeviceGray is the valid interpretation of these one-component images.
+This establishes a retained-reference defect; **legacy page parity remains
+FAIL**. It does not establish pixels against an independently corrected
+reference.
+
+The probe made eight validator launches: four dictionary queries and four
+startup library probes. Native/converter calls, private renders and sample
+decodes were zero. Marker observations fetched 1,416 bytes in 60 exact reads,
+with a 649-byte maximum request. Separately metered opaque provenance audits
+read 86,754,185 bytes, including coded bytes without interpreting them.
+Every public/private/library/receipt audit matched before and after. An
+independent metadata-only audit confirmed all identities, counts and outcomes.
+The probe took 0.370 seconds; all eight children had wait4 RSS measurements,
+peaking at 28,176 KiB, with harness high-water mark 37,316 KiB and owned
+storage peak 110,372 bytes.
+
+Eleven original external controls passed before this probe. Both MuPDF and
+Poppler detect the intentionally incompatible RGB wrapper on the same
+original grayscale JPEG; their raw pixels are not assumed equal to each
+other. A separate source-only CI regression retains this same-stream color
+failure check. The main verifier now counts `jpeg_color_spaces` separately
+and requires agreement between reference, native and pinned DeviceGray/RGB
+declarations. Missing/other color profiles are unsupported failures. This
+narrow identity gate does not normalize arbitrary Decode, DecodeParms or
+mask semantics; complete page pixels remain a separate mandatory gate.
+
 ## Resources and audits
 
 This rerun made three native calls and zero Python converter calls. Its
