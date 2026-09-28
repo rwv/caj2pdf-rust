@@ -30,6 +30,41 @@ SOURCE_FILES = {"scripts/cajviewer_canary.py", "scripts/cajviewer_canary_fixture
 CONTROL_FILES = {"digital.pdf", "alternate-unicode.pdf", "image-only.pdf", "second-text.pdf", "controls.json"}
 SCHEDULING_DEADLINE = None
 
+# Docker cp cannot read this tmpfs mount. Run an original, finite archive
+# transport in the container's mount namespace using its pinned Python tool.
+# The sole directory is held open; only seven known regular files are eligible.
+COLLECT_PROGRAM = """import os, stat, sys, tarfile
+allowed = {'session.json', 'ready', 'startup.ppm', 'application.log',
+           'xvfb.log', 'window-manager.log', 'xdpyinfo.txt'}
+root = os.open(sys.argv[1], os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+try:
+    with tarfile.open(fileobj=sys.stdout.buffer, mode='w|') as archive:
+        directory = tarfile.TarInfo('output')
+        directory.type, directory.mode = tarfile.DIRTYPE, 0o700
+        archive.addfile(directory)
+        total = count = 0
+        with os.scandir(root) as entries:
+            for entry in entries:
+                count += 1
+                if count > 7 or entry.name not in allowed:
+                    raise RuntimeError('unexpected diagnostic file')
+                descriptor = os.open(entry.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=root)
+                with os.fdopen(descriptor, 'rb') as file:
+                    before = os.fstat(file.fileno())
+                    total += before.st_size
+                    if not stat.S_ISREG(before.st_mode) or before.st_size > 6 * 1024**2 or total > 32 * 1024**2:
+                        raise RuntimeError('diagnostic file contract exceeded')
+                    item = tarfile.TarInfo('output/' + entry.name)
+                    item.size, item.mode = before.st_size, 0o400
+                    archive.addfile(item, file)
+                    after = os.fstat(file.fileno())
+                    identity = lambda value: (value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns, value.st_ctime_ns)
+                    if identity(before) != identity(after):
+                        raise RuntimeError('diagnostic file changed during transport')
+finally:
+    os.close(root)
+"""
+
 
 class PhaseDeadline(CanaryError):
     """Stop further app scheduling; retain independent closing budgets."""
@@ -174,7 +209,7 @@ def attempt(image: str, controls: Path, directory: Path, name: str) -> dict:
             raise CanaryError("tmpfs collection lease ended before capture")
         archive = directory / "output.tar"
         with archive.open("xb") as file:
-            result = docker(["cp", name + ":/output", "-"], deadline=15,
+            result = docker(["exec", name, "python3", "-c", COLLECT_PROGRAM, "/output"], deadline=15,
                             output_limit=40 * 1024 ** 2, stdout_sink=file)
         report["output_tar_bytes_read"] = result["bytes_read"]["stdout"]
         report["output_archive"] = extract_output(archive, directory / "capture")

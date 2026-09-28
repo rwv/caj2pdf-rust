@@ -190,11 +190,19 @@ basis does not establish vendor page fidelity or full-family conversion.
 The planned [vendor fixture protocol](cajviewer-fixtures.md), tracked by
 [epic #123](https://github.com/rwv/caj2pdf-rust/issues/123), adds a separate
 version-scoped Linux CAJViewer baseline for complete-page images and local
-standard-copy text. Its current status is **`NOT_RUN`**: no vendor application
-or private vendor fixture has been run for this plan, and no supported Linux
+standard-copy text. Vendor compatibility is **`NOT_RUN`, zero passes**. The
+first two original-PDF startup attempts failed; Docker cp omitted their tmpfs
+diagnostics, so document-opening capability remains unverified. The
+[startup note](cajviewer-linux-startup.md) retains the exact failure and transport
+amendment. No private vendor fixture has been acquired, and no supported Linux
 export CLI or headless API has been proven. The existing Python-converter
 regressions and [#117 composition evidence](hnc8-page-composition-evidence.md),
 including the explicit corrected grayscale HN-B basis, remain distinct.
+
+The completed [manifest/receipt tooling](vendor-fixture-manifest.md) supplies
+bounded integrity validation, distinct image/text origins and immutable
+reviewed regeneration. Integrity PASS does not imply acquisition or parity
+PASS. Original controls run in clean-clone CI without the proprietary runtime.
 
 Keep the vendor installer/runtime, private source documents, exported images,
 copied text and receipts outside the repository. Original MIT generators and

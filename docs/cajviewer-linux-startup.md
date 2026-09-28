@@ -2,9 +2,11 @@
 
 # Original PDF controls and Linux startup canary
 
-This is preparatory work for [#124](https://github.com/rwv/caj2pdf-rust/issues/124).
-The offline image is prepared; **application startup and vendor compatibility
-are NOT_RUN, zero passes**. Do not close the capability issue on this work.
+This is work toward [#124](https://github.com/rwv/caj2pdf-rust/issues/124).
+The offline image is prepared. The first two original-PDF startup attempts
+failed; detailed capture was unavailable because the Docker cp transport
+omitted tmpfs files. **Full-page and text compatibility remain NOT_RUN, zero
+passes.** The capability issue remains open.
 The [fixture plan](cajviewer-fixtures.md) and issue acceptance criteria govern
 the later image/text capability probes and private acquisition.
 
@@ -88,6 +90,9 @@ partial directories are retained. Its final source audit also runs on failure.
 [inventory.py](../tools/cajviewer/inventory.py) hashes declared runtime roots
 opaquely, at most 8,192 entries / 4 GiB, and runs only public metadata helpers.
 It does not load vendor libraries or establish that a complete capture works.
+The first v3 inventory helper invocation failed because its mount placed it
+outside the directory containing its original MIT import. A preserved v4
+mount amendment succeeded without changing the image or app configuration.
 Freeze the actual image ID, this inventory's exact identity and all source
 file hashes together before the first application launch.
 
@@ -141,7 +146,7 @@ No build/pull/profile/flag/backend retry occurs during this phase.
 | Persistent helpers | One Xvfb and one openbox attempt; at most 400 controlled metadata helper attempts. |
 | Stage time | X11 readiness 10 s; title search 30 s; helper primary deadlines 2 s, plus bounded reap allowances. Query sleeps do not prove readiness. |
 | Host time / calls | Collection readiness 60 s / 60 polls; primary Docker calls ≤80, with three independent closing slots. Global scheduling deadline 360 s plus closing allowances. |
-| Artifact extraction | Streamed Docker cp at most 40 MiB; ≤32 archive members, 32 MiB aggregate content, ≤6 MiB per file; symlinks/special/traversal entries fail. |
+| Artifact extraction | Original in-container Python tar stream at most 40 MiB; exactly seven eligible flat diagnostic filenames, ≤32 archive members, 32 MiB aggregate content, ≤6 MiB per file; unknown names, symlinks/special/traversal entries fail. |
 
 The session matches one visible `digital.pdf` window and records its title and
 geometry. This is a startup observation only. The diagnostic whole-screen P6
@@ -167,6 +172,34 @@ mounted for the host; it does not establish application readiness. The host
 always removes its owned container by known name and audits absence, including
 when the create client fails or log collection raises. A pre-existing container
 is never removed. Final source/control/protocol/inventory audits are mandatory.
+
+## Preserved first startup failure
+
+The independently reviewed first protocol used source commit
+`56f928b52b531af0694c56bac42786748a569add`, protocol SHA-256
+`6df29f3e990152fea101d5fdcfcb4ee60639f8d9a8cde37d53ed2b5f73220229`
+(8,317 bytes), and prepared image
+`sha256:e2bb737b662f863a5a99f959bc411ce5b4e248d18b0c6a5dff191e25bcf5cf2c`.
+Its 517,977-byte runtime inventory has SHA-256
+`717022a8c0a1a8dafbcc5dc6ffd06acfc71081d6dadc9a669199586b52bfbaa0`.
+
+Both supervisor stdout records report FAIL with one launcher attempt and zero
+vendor passes. Host receipts honestly retain `UNKNOWN_AFTER_START`: Docker cp
+returned only the empty `output` directory while the container was running,
+so the detailed session receipt, application log and diagnostic pixels were
+unavailable. No application failure cause or successful document opening is
+inferred. Both owned containers were removed, absence was audited, and final
+source/control/protocol/inventory audits passed.
+
+[Docker's documented tmpfs limitation](https://docs.docker.com/reference/cli/docker/container/cp/#corner-cases)
+requires collection inside the container's mount namespace. The narrow
+transport amendment uses its pinned Python tool to stream seven known regular
+diagnostic files through a held directory descriptor. It refuses extras and
+unstable, oversized or special files. Streaming, extraction and independent
+cleanup limits remain unchanged. Original process tests and a public tmpfs-only
+canary must verify this transport before a separately frozen/reviewed pair of
+app attempts. The first failure remains immutable; no app flag, profile, image
+or rendering-backend retry is part of the amendment.
 
 ## Public tests and remaining acceptance work
 

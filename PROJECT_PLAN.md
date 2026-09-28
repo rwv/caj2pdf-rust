@@ -128,9 +128,14 @@ issue acceptance criteria are authoritative for each task.
    unsupported formats classified separately.
 5. Complete [the vendor-oracle epic #123](https://github.com/rwv/caj2pdf-rust/issues/123),
    a direct child of #1 and a blocker for the #14 release gate:
-   [capability #124](https://github.com/rwv/caj2pdf-rust/issues/124) and
-   [manifest #125](https://github.com/rwv/caj2pdf-rust/issues/125) work can proceed
-   independently. [Images #126](https://github.com/rwv/caj2pdf-rust/issues/126)
+   [manifest #125](https://github.com/rwv/caj2pdf-rust/issues/125) is complete:
+   [immutable bounded validation and regeneration](docs/vendor-fixture-manifest.md)
+   merged in [PR #131](https://github.com/rwv/caj2pdf-rust/pull/131).
+   [Capability #124](https://github.com/rwv/caj2pdf-rust/issues/124) remains open:
+   the first original-PDF startup pair failed, and the preserved
+   [tmpfs collection limitation](docs/cajviewer-linux-startup.md) requires a
+   public transport control before a new reviewed finite app phase.
+   [Images #126](https://github.com/rwv/caj2pdf-rust/issues/126)
    and [text #127](https://github.com/rwv/caj2pdf-rust/issues/127) require both;
    [diffs #128](https://github.com/rwv/caj2pdf-rust/issues/128) follow the manifest
    and acquisition contracts. [Rollout #129](https://github.com/rwv/caj2pdf-rust/issues/129)

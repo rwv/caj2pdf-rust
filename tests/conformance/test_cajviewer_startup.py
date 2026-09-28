@@ -6,9 +6,11 @@ import hashlib
 import importlib.util
 import io
 import json
+import os
 from pathlib import Path
 import sys
 import tempfile
+import tarfile
 import unittest
 from unittest import mock
 
@@ -28,6 +30,48 @@ DRIVER = load("original_startup_driver", ROOT / "tools/cajviewer/run.py")
 
 
 class StartupFailureTests(unittest.TestCase):
+    def test_original_transport_streams_known_files_and_refuses_unsafe_entries(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            output = root / "output"
+            output.mkdir()
+            (output / "session.json").write_bytes(b'{"original": true}\n')
+            (output / "ready").write_bytes(b"original-ready\n")
+            archive = root / "control.tar"
+            with archive.open("xb") as sink:
+                result = DRIVER.run_bounded([sys.executable, "-c", DRIVER.COLLECT_PROGRAM, str(output)],
+                                            deadline_seconds=5, output_limit=65536, stdout_sink=sink)
+            self.assertEqual(result["status"], "PASS", result)
+            DRIVER.extract_output(archive, root / "capture")
+            self.assertEqual((root / "capture/output/session.json").read_bytes(), b'{"original": true}\n')
+            with tarfile.open(archive) as stream:
+                self.assertEqual({member.name for member in stream}, {"output", "output/session.json", "output/ready"})
+            (output / "unexpected").write_bytes(b"original extra")
+            result = DRIVER.run_bounded([sys.executable, "-c", DRIVER.COLLECT_PROGRAM, str(output)],
+                                        deadline_seconds=5, output_limit=65536)
+            self.assertEqual(result["status"], "FAIL")
+            (output / "unexpected").unlink()
+            (output / "startup.ppm").symlink_to(root / "outside")
+            (root / "outside").write_bytes(b"original external bytes")
+            result = DRIVER.run_bounded([sys.executable, "-c", DRIVER.COLLECT_PROGRAM, str(output)],
+                                        deadline_seconds=5, output_limit=65536)
+            self.assertEqual(result["status"], "FAIL")
+
+    def test_original_transport_refuses_oversized_regular_files_and_fifos(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary)
+            file = output / "startup.ppm"
+            with file.open("wb") as sink:
+                sink.truncate(6 * 1024 ** 2 + 1)
+            result = DRIVER.run_bounded([sys.executable, "-c", DRIVER.COLLECT_PROGRAM, str(output)],
+                                        deadline_seconds=5, output_limit=65536)
+            self.assertEqual(result["status"], "FAIL")
+            file.unlink()
+            os.mkfifo(file)
+            result = DRIVER.run_bounded([sys.executable, "-c", DRIVER.COLLECT_PROGRAM, str(output)],
+                                        deadline_seconds=5, output_limit=65536)
+            self.assertEqual(result["status"], "FAIL")
+
     def test_window_observed_then_capture_failure_is_failure(self):
         with tempfile.TemporaryDirectory() as temporary:
             output = Path(temporary)
