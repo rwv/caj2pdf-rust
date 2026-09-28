@@ -2,7 +2,8 @@
 # CAJViewer Linux startup diagnostics: seventh proposed profile
 
 **Status: P1 CLOSED — PUBLIC OVERLAY PREPARATION PASS.
-P2 AND STARTUP: DRAFT — EXECUTION REFUSED.** This archival document records
+FIRST P2 CLOSED — FAIL. FURTHER DIAGNOSTICS AND STARTUP: DRAFT — EXECUTION
+REFUSED.** This archival document records
 preparation for [#124](https://github.com/rwv/caj2pdf-rust/issues/124).
 It does not authorize another build, runtime inventory, X11 query or
 application launch. The
@@ -16,7 +17,8 @@ same-process actual pending-receipt/token review preceded Docker. Root and
 the independent reviewer approved the closed result. The consumed frozen
 document, plans, wrapper, context, token and receipts stay immutable.
 Root and independent review must approve each later exact phase before it
-runs. P2 and startup cannot reuse the consumed P1 approval.
+runs. The separately frozen first P2 plan is also consumed and closed; neither
+it nor P1's approval authorizes another inventory or startup attempt.
 The frozen original runtime/helper source basis is the verified merged main
 commit `bac80ae65e3b423808ae5639be9d997c67847e25`, not the current main or
 publication basis. Later publication preserves those exact consumed source
@@ -296,8 +298,8 @@ contains the exact six old DiffIDs plus one new original COPY DiffID,
 `sha256:4ac4b68364c537fb7d166404327ef7ece509ca88a5a3b129317c504e9661196a`.
 Logical image size is 1,424,957,414 bytes, an increase of 27,047 bytes.
 This does not measure shared-daemon physical allocation or memory. The
-expected complete installed-file/runtime equality is still P2's unexecuted
-acceptance check; image lineage alone does not count as that inventory.
+expected complete installed-file/runtime equality remains unverified after
+the first P2 failure; image lineage alone does not count as that inventory.
 
 All 108 exact public file-audit rows passed: 36 declared identities in each
 of the preflight, post-token and final audits. Their shared reader recorded
@@ -308,7 +310,10 @@ joined diagnostic stream. Owned outputs were mode 0400; canonical and
 provisional receipts retained the same inode. No container phase occurred.
 Shared-daemon memory and physical disk remain unavailable.
 
-### P2. Later separately frozen opaque inventory, zero app launches
+### P2. Consumed first opaque-inventory plan, zero app launches
+
+The following boundaries describe the separately frozen first P2 plan. Its
+closed failure is recorded below; these are not instructions to rerun it.
 
 1. P1 performs no inventory. After P1 closes, separately review and freeze
    the actual image/config and a new inventory plan.
@@ -339,6 +344,72 @@ Shared-daemon memory and physical disk remain unavailable.
 6. Freeze exact inventory bytes/hash, its full receipt, comparison and
    cleanup/final audits. They are not inferred from a successful Docker
    command, the previous inventory, or the code's intended change.
+
+### Closed original P2 controls and first operational failure
+
+One separately frozen original-control runner passed **8/8 groups and 47/47
+variants**. Its 20 helper callbacks were synthetic; actual child, Docker,
+environment/tool, runtime, application, vendor and private-input action counts
+were zero. All 18 public file audits and owned-fixture cleanup passed. These
+controls establish failure/accounting behavior, not runtime capability.
+
+Root then invoked the separately reviewed, attested P2 plan once. The phase
+closed **FAIL** after **five actual Docker client attempts/spawns** and **one
+inventory attempt, zero completed inventories**. The complete 1,192-byte inline
+FAIL envelope records `FileNotFoundError`, null inventory and zero nested
+helper attempts/spawns. It records neither a source-load stage nor a missing
+path, so the specific missing-file cause remains **UNKNOWN**. Historical
+inventory membership and Docker recipe text cannot prove current installed
+file presence. Opaque hash observations are null/UNAVAILABLE; inventory and
+all **2,731 runtime comparisons remain NOT_RUN**. No application, X11,
+converter, native, vendor or compatibility action occurred.
+
+| Preserved P2 metadata | Bytes | SHA-256 |
+| --- | ---: | --- |
+| Consumed frozen original-control plan | 7,402 | `18daa73477be15f2d13b8dcdfec168b4b2c5a0339f485226e235d1eddd8cadb3` |
+| Closed original-control report | 11,391 | `763b09d33ca0105e4718deb15dc0f5d6614e328100eb7f9b0923a1e116387f9f` |
+| First operational FAIL receipt | 61,409 | `7470c1f6c1c9177752dd7798efc8c1ae960b092c8f660ae83c1761533b8ed756` |
+| Complete inline FAIL envelope | 1,192 | `d44711a779a3b59aead0df8bc978969e9b77cfe19565b768f645f9fadbb0966a` |
+| Canonical container ENV identity (retained inside inline envelope) | 349 | `b881ad049295705ece12f1613c34dece2c4ca05d782b66199b2398b89646ee87` |
+| P2 root closing review | 2,685 | `88f765f3607f7c5884a04c102d25bceda739897d2727e5b5d6280fe345c684a5` |
+
+The ENV row identifies the canonical JSON-plus-LF projection, identical before
+and after. Its 349-byte hashed projection is not a separate artifact; the
+complete retained envelope is 1,192 bytes. Raw environment values are omitted.
+
+The canonical and provisional FAIL receipts are mode 0400 and share an inode.
+All **153/153 public source/tool/history audits**, **four dynamic/environment
+closing checks** and **3/3 raw-output audits** passed; all 51 closing pins were
+unchanged. Only the verified-created owned container ID was removed, and
+final exact-name absence passed. Protected caps, environment and user closing
+passed: UID/GID 1000, two CPUs, 512 MiB memory with zero swap allowance and a
+64-task cap. Actual whole-cgroup memory peak was **10,719,232 bytes**, PID peak
+**6**, and OOM delta **0**. PID peak is not a cumulative process-launch count;
+these measurements are not Rust memory. Host requested reads were 136,259,042
+bytes, returned reads 117,320,733 bytes in 2,089 calls. Total elapsed time was
+196.669023 seconds, including review wait. Shared-daemon memory and physical
+disk remain UNAVAILABLE.
+
+The preserved root closing JSON still records the earlier independent-review
+state as PENDING. Later root and independent closing reviews passed on the
+actual failure metadata, protected closing and failure preservation; they do
+not retroactively edit that JSON or make the phase PASS. Original V4 source
+and inline bytes, V5 candidate/attested plan, control artifacts and first P2
+receipts/captures remain immutable and external, as do P1's consumed proof and
+all earlier failures. The twelve historical viewer launcher outcomes and the
+sixth startup profile's unknown helper-stderr cause are unchanged.
+
+Native child/blocker [#143](https://github.com/rwv/caj2pdf-rust/issues/143)
+requires bounded ordered accounting for exactly the two pinned original MIT
+modules, `/opt/canary/cajviewer_canary.py` and `/opt/canary/inventory.py`.
+Separate read, pin, compile and execution stages must retain attempted,
+completed and unknown outcomes, fixed reason enums and exception type only.
+Independent host validation must preserve complete valid FAIL records and
+refuse invalid framing/order/path/identity/bounds. Invented fault controls must
+cover both missing-source positions, pin/compile/execute failures, ordering,
+malformed/incomplete records and protected closing without actual runtime
+actions. This is the next diagnostic prerequisite; it authorizes no retry,
+startup, compatibility or image/text acquisition.
 
 Preparation disk use must be separately monitored across the tiny context,
 new layer and logs. The previous image occupied 1,424,930,367 logical bytes;
@@ -450,19 +521,23 @@ every attempted/unknown slot even if no session JSON was collected.
   repeats contribute zero image/text compatibility comparisons.
 - **AC7 is complete:** merged mandatory public diagnostics/fault/process
   controls are reviewed. The separately frozen original P1 controls above
-  retain their first FAIL and second PASS; they contribute zero vendor or
-  compatibility comparisons. The proposed operational P1 phase runs no tests.
+  retain their first FAIL and second PASS; the later original P2 controls also
+  contribute zero vendor or compatibility comparisons. The closed operational
+  P1/P2 phases ran no tests.
 - **AC8 remains partial:** English preparation/limits/provenance are present;
   an actual capability report awaits observations. #126/#127 remain blocked.
 
-The P1 public overlay plan is consumed and closed. Its authorization applied
-only to one public preflight and nine Docker clients; it cannot authorize
-another build, inventory or application. P2 receives its own later freeze,
-using the closed P1 identities while freshly binding its actual execution
-environment and public source/tool inputs.
+The P1 public overlay and first P2 inventory plans are consumed and closed.
+Their authorizations applied only to their exact phases. They cannot authorize
+another build, inventory or application. The first P2 failure requires the
+original source-load accounting in native child/blocker
+[#143](https://github.com/rwv/caj2pdf-rust/issues/143) and its separately frozen
+controls. A fresh runtime diagnostic phase remains subject to exact source/plan
+reviews, actual same-PID pending environment/tool/code/history receipts and its
+exact token. The consumed P2 plan is not rerun to test a missing-path guess.
 
 Before changing the **startup protocol** from DRAFT to FROZEN, record
-actual complete P1/P2 receipts,
+successful complete P1/P2 receipts,
 new image/config/inventory/comparison identities, exact observed host/effective
 environment and public tools/libraries, fresh output/name reservation,
 bounded execution/closing ledgers and source/doc/external-plan hashes.

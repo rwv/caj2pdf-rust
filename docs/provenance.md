@@ -86,8 +86,30 @@ token/receipt identities and unchanged image Config/six-layer lineage plus
 one original COPY layer are recorded in the note. No proprietary implementation,
 installer, corpus input, raw runtime/log/environment receipt, image or raster
 is added to Git. The first failures and twelve historical launcher attempts
-remain intact. Full runtime inventory and startup are separately refused DRAFT
-phases; this closed preparation supplies no new complete-page or text fixture.
+remain intact. This closed preparation supplies no new complete-page or text
+fixture.
+
+The separately frozen original inventory controls then passed eight groups
+and 47 variants in one runner, using 20 synthetic helper callbacks and zero
+actual child, Docker, environment/tool, runtime, application, vendor or
+private-input actions. The first operational P2 phase closed FAIL after five
+Docker clients and one incomplete inventory attempt. Its complete inline
+envelope reports `FileNotFoundError` without a loading stage or missing path;
+the specific cause remains UNKNOWN. Public source/tool/history, dynamic
+closing and raw-output audits, protected caps/environment/user checks and
+owned-container cleanup passed. They verify failure preservation and cleanup,
+not a successful inventory or capability. All 2,731 comparisons remain NOT_RUN.
+The archival note records the immutable metadata identities; original external
+source, receipts, runtime and vendor artifacts remain outside Git.
+
+Native child/blocker [#143](https://github.com/rwv/caj2pdf-rust/issues/143)
+requires separately authored MIT accounting for exactly two pinned original
+modules, distinguishing bounded read, pin, compile and execution attempts and
+outcomes, plus original fault controls. No implementation is added by this
+documentation update. Future controls and runtime diagnostics require their
+own reviewed immutable finite plans; no source-load result authorizes startup
+or image/text acquisition. #124's capability criteria and #126/#127 blockers
+remain unchanged.
 
 This register records the information sources, test material, and code origins
 used by `caj2pdf-rust`. It is part of the acceptance evidence for

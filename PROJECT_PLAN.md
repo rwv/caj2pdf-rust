@@ -169,9 +169,18 @@ issue acceptance criteria are authoritative for each task.
    The [closed diagnostics-overlay preparation](docs/cajviewer-startup-diagnostics-v7.md)
    completed nine Docker clients with zero app or inventory calls. Its image
    preserves the full parent Config and six layers, adding one original script
-   layer; all 108 public audit rows passed. Runtime inventory and startup remain
-   separately refused DRAFT phases. The twelve historical launcher attempts
-   and unknown helper-stderr cause are preserved; no new capability passed.
+   layer; all 108 public audit rows passed. Separately frozen inventory controls
+   passed all eight groups and 47 variants in one original runner, with zero
+   actual child, Docker, runtime or application actions. The first operational
+   P2 phase closed FAIL after five Docker clients and one incomplete inventory
+   attempt. Its complete envelope records `FileNotFoundError` without a loading
+   stage or missing path; the specific cause remains UNKNOWN. Closing audits
+   and owned-container cleanup passed; all 2,731 runtime comparisons remain
+   NOT_RUN. Original source-load accounting and fault controls are the next
+   native child/blocker [#143](https://github.com/rwv/caj2pdf-rust/issues/143).
+   Further diagnostics and startup require separate exact freezes and reviews.
+   The twelve historical launcher attempts and unknown helper-stderr cause
+   are preserved; no new capability passed.
    Complete-page capture, physical-page navigation and fresh standard-copy
    text must pass separate original controls before private acquisition.
    [Images #126](https://github.com/rwv/caj2pdf-rust/issues/126)
