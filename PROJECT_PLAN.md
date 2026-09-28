@@ -128,9 +128,26 @@ issue acceptance criteria are authoritative for each task.
    unsupported formats classified separately.
 5. Complete [the vendor-oracle epic #123](https://github.com/rwv/caj2pdf-rust/issues/123),
    a direct child of #1 and a blocker for the #14 release gate:
-   [capability #124](https://github.com/rwv/caj2pdf-rust/issues/124) and
-   [manifest #125](https://github.com/rwv/caj2pdf-rust/issues/125) work can proceed
-   independently. [Images #126](https://github.com/rwv/caj2pdf-rust/issues/126)
+   [manifest #125](https://github.com/rwv/caj2pdf-rust/issues/125) is complete:
+   [immutable bounded validation and regeneration](docs/vendor-fixture-manifest.md)
+   merged in [PR #131](https://github.com/rwv/caj2pdf-rust/pull/131).
+   [Capability #124](https://github.com/rwv/caj2pdf-rust/issues/124) remains open:
+   public tmpfs controls pass and the measured `libxslt.so.1` provider is added,
+   and an original app-zero shared-memory control isolates the Xvfb limit and
+   verifies a bounded allowance. The fifth pair keeps its display/launcher
+   alive but fails an unverified filename-based window predicate. Identical
+   viewport captures support manual original-PDF opening observation only.
+   The ten earlier failures remain recorded. The sixth frozen pair adds one
+   helper failure and one observed owned window after PID/process-group
+   checks; document identity stays unverified. All twelve attempts are
+   retained and the pair remains FAIL. Its helper stderr was not retained,
+   so [bounded public diagnostics/controls #133](https://github.com/rwv/caj2pdf-rust/issues/133)
+   are the next prerequisite and a native child/blocker of #124. The
+   [startup records and original child-limit controls](docs/cajviewer-linux-startup.md)
+   require a new exact profile and reviewed finite budget before further apps.
+   Complete-page capture, physical-page navigation and fresh standard-copy
+   text must pass separate original controls before private acquisition.
+   [Images #126](https://github.com/rwv/caj2pdf-rust/issues/126)
    and [text #127](https://github.com/rwv/caj2pdf-rust/issues/127) require both;
    [diffs #128](https://github.com/rwv/caj2pdf-rust/issues/128) follow the manifest
    and acquisition contracts. [Rollout #129](https://github.com/rwv/caj2pdf-rust/issues/129)
