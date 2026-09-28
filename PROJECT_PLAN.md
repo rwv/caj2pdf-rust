@@ -138,6 +138,10 @@ issue acceptance criteria are authoritative for each task.
    parameters explicitly; C8/HN-B applicability and omitted-row policy remain
    unknown. No converter/native/render/vendor call occurred in this discovery;
    the first FAIL and all six unmet #119 criteria remain recorded.
+   The original [Stage B design proposal](docs/hnc8-outline-stage-b-proposal.md)
+   separates positive baseline and exact-control freezes. It remains DRAFT:
+   unresolved grammar, runtime identities and calculated phase ceilings keep
+   execution disabled and satisfy no #137 acceptance criterion.
 5. Complete [the vendor-oracle epic #123](https://github.com/rwv/caj2pdf-rust/issues/123),
    a direct child of #1 and a blocker for the #14 release gate:
    [manifest #125](https://github.com/rwv/caj2pdf-rust/issues/125) is complete:
