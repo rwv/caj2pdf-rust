@@ -979,3 +979,35 @@ the generated inventory with the actual distribution contents (CLI archive and
 JS package). Record any selected MIT grant and required attribution in the
 pull request. This manual review supplements the
 checker; it cannot be replaced by a passing exit code.
+
+## Original external vendor manifest tooling (#125)
+
+[scripts/vendor_fixtures.py](../scripts/vendor_fixtures.py) and
+[tests/conformance/test_vendor_fixtures.py](../tests/conformance/test_vendor_fixtures.py)
+are original MIT schema, integrity, regeneration and runtime-control code.
+The versioned contract is documented in
+[vendor-fixture-manifest.md](vendor-fixture-manifest.md). No converter or
+proprietary implementation was read, copied, translated or linked to build
+this tooling. It adds no Cargo or Python package dependency; it uses only
+the Python standard library and POSIX file descriptors for confined I/O.
+
+The original control generator invents two asymmetric small RGB arrays,
+encoded PPM wrappers, raw/canonical/normalized Unicode byte records, and
+non-executable source/installer/library/plugin/font/tool stand-ins at runtime.
+Even its displayed build, container, commit and provenance URL are expressly
+synthetic pins. They are integrity/schema controls and never vendor or format
+compatibility evidence. None of the generated files is committed, and no
+vendor installer, viewer, container, external document or decoder is launched.
+Actual Python CLI children in its tests are reported separately as public
+controls; no-input mode has zero file, process, vendor and comparison work.
+
+The reader preserves distinct encoded artifact, raw complete-array, strict
+Unicode and named normalization identities. Acquisition origin, physical
+coverage, runtime settings and clipboard freshness remain reviewed external
+declarations, bound by the receipt's canonical observation digest; hash
+agreement alone cannot prove acquisition or pixel/text parity. Regeneration
+streams verified inputs into fresh versions, retains predecessor/failure
+history, emits a bounded redacted diff and requires exact bound review pins
+before recording a reviewed attestation. Vendor/private content and full
+receipts remain external; only reviewed safe catalog metadata may be public.
+Current official-vendor acquisition and compatibility remain `NOT_RUN`.
