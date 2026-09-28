@@ -1159,3 +1159,15 @@ is preserved. Separate held-out and one-field validation must establish the
 supported rule before original bounded native implementation. Native child
 and blocker [#137](https://github.com/rwv/caj2pdf-rust/issues/137) defines those
 separate evidence gates; #119 remains open with all six acceptance criteria unmet.
+
+The [Stage B proposal](hnc8-outline-stage-b-proposal.md) is original MIT,
+public-only protocol/design preparation for #137. It uses the reviewed closed
+Stage A report and repository-owned source, supplies no candidate field grammar,
+and adopts no executable contract or resource ceiling. The held-out identities
+and partial resource calculations are inherited declarations, not newly audited
+inputs or positive oracles. No external/private source, PDF, query output,
+converter implementation or runtime/environment metadata was inspected for this
+proposal; no tests, probes, conversions, controls or native changes were performed.
+Two future independently reviewed freezes separate bounded positive baselines
+from checksum-aware exact controls. Both remain NOT_RUN and require their own
+actual-runtime/environment review and explicit execution authorization.
