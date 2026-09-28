@@ -186,18 +186,40 @@ issue acceptance criteria are authoritative for each task.
    identity passed; invented fixtures were removed. The
    [source-load contract and evidence](docs/cajviewer-source-loading.md)
    retain cleanup-refusal controls and limited application/virtual I/O scopes.
-   Exact-head source/PR/hosted release gates remain required before closing
-   this diagnostic child. This proves neither installed source files nor a
-   completed inventory. The proposed v11 phase remains DRAFT/REFUSED and
-   requires a separately reviewed immutable profile, same-PID preflight
-   receipt and fresh two-review token.
+   [PR #145](https://github.com/rwv/caj2pdf-rust/pull/145) merged after exact-head
+   reviews and hosted native/WASM/MIT/coverage gates; #143 is closed.
+   Four separately frozen original execute-escape controls also passed, with
+   zero actual child/Docker/runtime/app work. The sole separately frozen v11
+   inventory phase then closed FAIL: five Docker clients, one admitted but
+   incomplete inventory, zero app/vendor passes and all 2,731 comparisons
+   NOT_RUN. Its first original public module loaded; the second failed at
+   `read` of `/opt/canary/inventory.py`. The specific missing filesystem
+   component and the older v10 cause remain UNKNOWN. Both actual closing
+   reviews, all 258 public audit rows and owned-container cleanup passed.
+   [The closed v11 report](docs/cajviewer-runtime-view-v11.md) preserves the
+   original captures and distinguishes operational failure from closing success.
+   Historical v9 supplied the public inventory module through a pinned
+   read-only bind; its inventory describes that mounted runtime view, not bare
+   image membership. A separate DRAFT transport amendment must restore the
+   exact public bind with original controls and its own frozen profile; no
+   additional phase has run.
    Further diagnostics and startup require separate exact freezes and reviews.
    The twelve historical launcher attempts and unknown helper-stderr cause
    are preserved; no new capability passed.
-   Complete-page capture, physical-page navigation and fresh standard-copy
-   text must pass separate original controls before private acquisition.
+   New native child/blocker
+   [#146: original capability protocol](https://github.com/rwv/caj2pdf-rust/issues/146)
+   tracks implementation of separate document/page identity, complete-page and fresh
+   standard-copy gates, with a strict collector and finite GUI discovery.
+   Code completion is separate from #124's actual two-session evidence.
+   After successful reviewed declared runtime-view integrity, a fresh frozen
+   capability profile may propose two launches (cumulative maximum fourteen),
+   ten physical-page observations and four ordinary-copy attempts. No issue
+   creation or diagnostic approval grants those launches. Whole-page boundaries,
+   repeated decoded grids, fresh clipboard transactions and actual available
+   build/render/settings observations must be established before private acquisition.
    [Images #126](https://github.com/rwv/caj2pdf-rust/issues/126)
-   and [text #127](https://github.com/rwv/caj2pdf-rust/issues/127) require both;
+   and [text #127](https://github.com/rwv/caj2pdf-rust/issues/127) require
+   #124 and #125;
    [diffs #128](https://github.com/rwv/caj2pdf-rust/issues/128) follow the manifest
    and acquisition contracts. [Rollout #129](https://github.com/rwv/caj2pdf-rust/issues/129)
    requires all five plus [production HN/C8 #10](https://github.com/rwv/caj2pdf-rust/issues/10)

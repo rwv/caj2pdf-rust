@@ -106,13 +106,17 @@ The proposed external inline entry embeds COMMON + LOADER byte-for-byte;
 the proposed external host embeds COMMON + VALIDATOR byte-for-byte. The exact
 whole-file and fragment identities must be frozen and audited before use.
 There is **no third installed module**, image change, vendor copy or library
-dependency. The proposed image and two module pins remain unchanged; their
-current installation/load outcome is still unverified.
+dependency. The proposed image and two module pins remain unchanged. Their
+declarations alone do not prove installation or loading; the later v11
+observation below records the first complete load and the second failed read.
 
-The fresh v11 proposal remains DRAFT/REFUSED: no actual preflight, environment
-probe, Docker action or runtime is authorized by this code. Any later phase
-needs its own reviewed immutable plan, actual same-PID preflight receipt and
-fresh exact token. It proposes at most one new inventory phase, with the same
+At the #143 implementation checkpoint, the fresh v11 proposal was
+DRAFT/REFUSED. The separately frozen phase is now closed FAIL, as recorded in
+[the v11 runtime-view report](cajviewer-runtime-view-v11.md). It completed the
+first source load and failed the second source's read. This diagnostic code
+alone grants no execution; any later phase needs its own reviewed immutable
+plan, actual same-PID preflight receipt and fresh exact token. The consumed
+phase retained one inventory maximum, with the same
 five client maximum, 5/10/90/15/5-second child limits, 512 MiB container limit,
 CPU 2, PID 64, 8 MiB tmpfs, offline/read-only/non-root profile, 16 KiB inline
 entry, 256 KiB host receipt and all existing closing/persistence guards.
@@ -184,13 +188,16 @@ whole interpreter lifetime or final elapsed time.
 ## Remaining gates
 
 Root and independent source/provenance/simplification and actual-control
-closing reviews passed. Closing the child additionally requires the concrete
-reviewed PR, mandatory hosted original suite, exact-head native/WASM/MIT/coverage
-gates and an actual deduplicated Rust DA recount for every file recorded in the
-LCOV report. Raw LCOV LF/LH must be reported separately. Normal
-native/WASM CI is separate from the zero runtime-experiment/native-conversion
-count above. Parent #124 capability, complete-page image, fresh standard-copy
-text, print and OCR criteria remain unmet or NOT_RUN. The proposed v11 phase
-remains DRAFT/REFUSED until its separate immutable profile, actual same-PID
-preflight and fresh token receive review. Any later diagnostic phase must
-preserve the old failure rather than overwrite it.
+closing reviews passed. [PR #145](https://github.com/rwv/caj2pdf-rust/pull/145)
+merged after its exact-head native/WASM/MIT/coverage gates passed; #143 is
+closed. The actual Rust LCOV DA recount covered 54 unique files and all
+27,413 deduplicated executable lines, with 100% total and per-file coverage;
+raw LF/LH were separately 28,272/28,205. This describes the Rust files in that
+report, not Python, JavaScript or whole-repository coverage. Optional external
+corpus tests remained NOT_RUN and contributed zero compatibility passes.
+Normal native/WASM CI is separate from the zero runtime-experiment/conversion
+counts above. Parent #124 capability, complete-page image, fresh standard-copy
+text, print and OCR criteria remain unmet or NOT_RUN. The separately consumed
+v11 phase failed and its closing reviews passed; its source-load diagnostics
+do not complete an inventory. Any later diagnostic phase must preserve both
+v10/v11 failures and receive its own exact frozen profile and reviews.

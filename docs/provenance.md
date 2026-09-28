@@ -1253,6 +1253,22 @@ Their exact input/code basis remains immutable; later English publication edits
 do not rewrite it. The limited application/virtual I/O meters do not measure
 stdlib/kernel I/O or RSS. Exact-head mandatory hosted native/WASM/MIT/coverage
 gates are separate required final-head evidence. Old frozen code, plans, reports
-and the first P2 FAIL/cause UNKNOWN remain unchanged. The future v11 phase is
-DRAFT/REFUSED and needs its own exact profile, same-PID preflight and token;
-#124 is not completed by this public diagnostic prerequisite.
+and the first P2 FAIL/cause UNKNOWN remain unchanged. The separately frozen
+v11 phase is now closed FAIL, with exact ordered source-load observations
+and successful Root/independent closing reviews, documented in
+[the runtime-view report](cajviewer-runtime-view-v11.md). #124 is not completed
+by this public diagnostic prerequisite.
+
+The v11 report and project-plan update are original MIT English metadata
+documentation. The four execute-escape controls used invented callbacks and
+no real child, Docker, viewer or private input. The later inline entry
+attempted to load exactly the two whitelisted original public modules in an
+external pinned runtime; the first loaded and the second declared module read
+failed. The host also uses original shared/process helpers; no vendor
+implementation was examined. Historical v9 evidence describes
+the original inventory module supplied through a pinned read-only bind;
+it does not prove that module was installed in the bare image. A separate
+transport amendment remains DRAFT, with no additional phase execution.
+Old failed receipts and superseded planning/reader assumptions remain external
+and unchanged. Vendor/application/runtime bytes, captures, clipboard data,
+documents, complete receipts and raw environment values are not published.

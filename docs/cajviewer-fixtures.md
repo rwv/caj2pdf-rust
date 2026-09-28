@@ -32,6 +32,22 @@ clipboard observation or vendor comparison has been run. The
 The official Linux documentation confirms reading, text copying, and printing;
 it does not establish a supported Linux export CLI or headless API.
 
+The separately frozen [v11 public runtime-view inventory](cajviewer-runtime-view-v11.md)
+closed FAIL before inventory completion; its ordered source-load diagnostic
+locates a failed read of the original public inventory module. Historical v9
+supplied that module through a pinned read-only bind. A fresh transport
+amendment remains DRAFT; bare-image membership and a mounted filesystem view
+must be distinguished. Closing audits passed, but all 2,731 runtime
+comparisons remain NOT_RUN and no viewer was launched.
+
+Native child/blocker [#146](https://github.com/rwv/caj2pdf-rust/issues/146)
+defines a separate original capability protocol: document/page identity,
+complete-page acquisition, fresh ordinary-copy transactions, finite GUI
+discovery and an exact bounded collector. Public code acceptance is separate
+from #124's actual repeated-session evidence. The existing startup-only
+protocol cannot acquire these fixtures. Complete-page images and copied text
+remain unverified until the respective operational gates pass.
+
 This work adds a separate, version-scoped vendor behavior baseline. It does not
 replace the pinned Python-converter regression baseline. The completed
 [#117 page-composition evidence](hnc8-page-composition-evidence.md) remains a
@@ -84,7 +100,7 @@ children follow this graph; issue acceptance criteria remain authoritative:
 
 | Child | Issue | Blocked by |
 | --- | --- | --- |
-| A | [#124: verify offline CAJViewer Linux container capabilities](https://github.com/rwv/caj2pdf-rust/issues/124) | [#133: terminal-helper diagnostics](https://github.com/rwv/caj2pdf-rust/issues/133), a child of #124 |
+| A | [#124: verify offline CAJViewer Linux container capabilities](https://github.com/rwv/caj2pdf-rust/issues/124) | Child prerequisites [#133](https://github.com/rwv/caj2pdf-rust/issues/133) and [#143](https://github.com/rwv/caj2pdf-rust/issues/143) are resolved; [#146: original capability protocol](https://github.com/rwv/caj2pdf-rust/issues/146) is open |
 | D | [#125: define immutable external fixture manifests and receipts](https://github.com/rwv/caj2pdf-rust/issues/125) | None within this epic |
 | B | [#126: acquire reproducible complete-page CAJViewer images](https://github.com/rwv/caj2pdf-rust/issues/126) | A (#124) and D (#125) |
 | C | [#127: capture standard-copy text and classify OCR separately](https://github.com/rwv/caj2pdf-rust/issues/127) | A (#124) and D (#125) |
