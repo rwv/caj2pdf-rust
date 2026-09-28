@@ -119,6 +119,10 @@ directly and never buffered whole in memory. The spool accepts at most
 `LIMIT_EXCEEDED` as soon as more arrives. `convertReadable` and
 `convertReadableStream` remove the spool after success, failure, sink error,
 or abort; the lower-level spool functions return `dispose()` for the caller.
+The stream pump releases its owned Web reader on EOF or failure. On failure it
+initiates cancellation before release; stalled or rejected producer cancellation
+cannot delay or replace the primary error. Node spool writes validate positive,
+in-range progress and check cancellation around each awaited partial write.
 
 ### Browser storage support
 

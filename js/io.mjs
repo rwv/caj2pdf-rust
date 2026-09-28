@@ -196,16 +196,19 @@ export function webWritableSink(writer) {
 /**
  * Feed a Web `ReadableStream`, Node `Readable`, or async iterable of
  * Uint8Array chunks to `consume`, awaiting each call. Rejects once more than
- * `maxBytes` arrive and cancels the stream on any failure.
+ * `maxBytes` arrive and cancels the stream on any failure. An acquired Web
+ * reader is released on every outcome.
  */
 export async function pumpChunks(stream, consume, { maxBytes, signal } = {}) {
   requireU64(maxBytes, "maxBytes");
   let next;
   let stop;
+  let release;
   if (typeof stream?.getReader === "function") {
     const reader = stream.getReader();
     next = () => reader.read();
     stop = () => reader.cancel();
+    release = () => reader.releaseLock();
   } else if (typeof stream?.[Symbol.asyncIterator] === "function") {
     const iterator = stream[Symbol.asyncIterator]();
     next = () => iterator.next();
@@ -214,6 +217,7 @@ export async function pumpChunks(stream, consume, { maxBytes, signal } = {}) {
     throw new TypeError("a ReadableStream, Node Readable, or async iterable is required");
   }
   let total = 0n;
+  let failed = false;
   try {
     for (;;) {
       const { done, value } = await abortable(next(), signal);
@@ -228,9 +232,19 @@ export async function pumpChunks(stream, consume, { maxBytes, signal } = {}) {
       await abortable(consume(value), signal);
     }
   } catch (error) {
-    // Not awaited: a stalled producer must not delay cleanup.
-    Promise.resolve().then(stop).catch(() => {});
+    failed = true;
+    // Initiate cancellation while we still own the reader. Do not await a
+    // stalled producer or let cleanup replace the primary failure.
+    try {
+      Promise.resolve(stop()).catch(() => {});
+    } catch {}
     throw error;
+  } finally {
+    try {
+      release?.();
+    } catch (error) {
+      if (!failed) throw error;
+    }
   }
 }
 

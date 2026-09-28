@@ -155,27 +155,38 @@ export async function opfsConvert(name) {
     },
     flush: inner.flush,
   };
-  const report = await convertReadableStream(await modulePromise, (await input(name)).stream(), watching, {
+  const stream = (await input(name)).stream();
+  const report = await convertReadableStream(await modulePromise, stream, watching, {
     chunkSize: CHUNK,
   });
   await sink.writer.close();
-  return { report: plainReport(report), during, after: await opfsEntries(), output: await encode(sink.chunks) };
+  return { report: plainReport(report), during, after: await opfsEntries(), unlocked: readerReleased(stream),
+    output: await encode(sink.chunks) };
+}
+
+function readerReleased(stream) {
+  if (stream.locked) return false;
+  const reader = stream.getReader();
+  reader.closed.catch(() => {});
+  reader.releaseLock();
+  return !stream.locked;
 }
 
 /** Bound exceeded, failed conversion, and abort all remove the OPFS spool. */
 export async function opfsFailures(name) {
   const module = await modulePromise;
+  const boundedStream = (await input(name)).stream();
   const bounded = await settle(
-    convertReadableStream(module, (await input(name)).stream(), webWritableSink(collector().writer), {
+    convertReadableStream(module, boundedStream, webWritableSink(collector().writer), {
       maxSpoolBytes: 500,
     }),
   );
   const afterBound = await opfsEntries();
-  const lowLevel = await settle(spoolToOpfs((await input(name)).stream(), { maxBytes: 10n }));
+  const lowLevelStream = (await input(name)).stream();
+  const lowLevel = await settle(spoolToOpfs(lowLevelStream, { maxBytes: 10n }));
   const afterLowLevel = await opfsEntries();
-  const unsupported = await settle(
-    convertReadableStream(module, new Blob([Uint8Array.of(1, 2, 3)]).stream(), webWritableSink(collector().writer)),
-  );
+  const unsupportedStream = new Blob([Uint8Array.of(1, 2, 3)]).stream();
+  const unsupported = await settle(convertReadableStream(module, unsupportedStream, webWritableSink(collector().writer)));
   const afterUnsupported = await opfsEntries();
   const controller = new AbortController();
   const aborting = {
@@ -185,9 +196,9 @@ export async function opfsFailures(name) {
     },
     async flush() {},
   };
-  const aborted = await settle(
-    convertReadableStream(module, (await input(name)).stream(), aborting, { signal: controller.signal }),
-  );
+  const abortedStream = (await input(name)).stream();
+  const aborted = await settle(convertReadableStream(module, abortedStream, aborting, { signal: controller.signal }));
   const afterAbort = await opfsEntries();
-  return { bounded, afterBound, lowLevel, afterLowLevel, unsupported, afterUnsupported, aborted, afterAbort };
+  return { bounded, afterBound, lowLevel, afterLowLevel, unsupported, afterUnsupported, aborted, afterAbort,
+    unlocked: [boundedStream, lowLevelStream, unsupportedStream, abortedStream].map(readerReleased) };
 }

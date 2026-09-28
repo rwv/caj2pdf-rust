@@ -5,8 +5,8 @@
 // copied to a temporary directory so the checkout is never modified.
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { cp, readFile, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
@@ -41,6 +41,7 @@ test("npm pack includes the WASM build, entry points, declarations, LICENSE, and
       "browser.d.mts",
       "browser.mjs",
       "caj2pdf_wasm.wasm",
+      "internal/spool-write.mjs",
       "io.d.mts",
       "io.mjs",
       "node.d.mts",
@@ -50,12 +51,21 @@ test("npm pack includes the WASM build, entry points, declarations, LICENSE, and
     assert.equal(files.get("caj2pdf_wasm.wasm").size, (await readFile(wasmUrl)).length);
     assert.equal(files.get("caj2pdf_wasm.wasm").mode & 0o777, 0o644);
     assert.equal(packed.name, "caj2pdf-rust");
-    // The Node entry point finds the packaged module by default.
-    const { loadModule } = await import(pathToFileURL(join(directory, "node.mjs")).href);
-    assert.ok(WebAssembly.Module.exports(await loadModule()).some(({ name }) => name === "caj2pdf_io_poll"));
+    // Import only the files selected for the tarball, so an omitted internal
+    // dependency cannot be supplied accidentally by the full checkout copy.
+    const installed = join(directory, "installed");
+    for (const { path } of packed.files) {
+      const target = join(installed, path);
+      await mkdir(dirname(target), { recursive: true });
+      await cp(join(directory, path), target);
+    }
+    const entry = await import(pathToFileURL(join(installed, "node.mjs")).href);
+    assert.ok(WebAssembly.Module.exports(await entry.loadModule()).some(({ name }) => name === "caj2pdf_io_poll"));
+    assert.equal(entry.writeSpoolChunk, undefined, "the helper is not a public entry export");
     const manifest = JSON.parse(await readFile(join(directory, "package.json"), "utf8"));
     assert.equal(manifest.license, "MIT");
     assert.equal(manifest.exports["./caj2pdf_wasm.wasm"], "./caj2pdf_wasm.wasm");
+    assert.equal(manifest.exports["./internal/spool-write.mjs"], undefined);
     for (const field of ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"]) {
       assert.equal(manifest[field], undefined, `${field} must stay empty`);
     }
