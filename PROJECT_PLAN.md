@@ -133,8 +133,10 @@ issue acceptance criteria are authoritative for each task.
    merged in [PR #131](https://github.com/rwv/caj2pdf-rust/pull/131).
    [Capability #124](https://github.com/rwv/caj2pdf-rust/issues/124) remains open:
    public tmpfs controls pass and the measured `libxslt.so.1` provider is added,
-   but the latest startup pair exits 153 on a file-size limit, target unknown.
-   All six failures remain recorded. The
+   but the latest pair loses Xvfb to signal 25 and reports a separate
+   QtWebEngine sandbox error. An original app-zero shared-memory control
+   isolates the Xvfb limit and verifies a bounded allowance. All eight
+   reported application failures remain recorded. The
    [startup records and original child-limit controls](docs/cajviewer-linux-startup.md)
    require a new exact profile and reviewed finite budget before further apps.
    [Images #126](https://github.com/rwv/caj2pdf-rust/issues/126)

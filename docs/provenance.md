@@ -21,6 +21,20 @@ pins, first metadata failure, scope and the unattempted capability requirements.
 Child-only POSIX file limits and process-limit metadata use Python's public
 `resource`/`subprocess` APIs and Linux `/proc`; original Python writer controls
 test them without vendor execution or copied implementation.
+The separately frozen external original XCB MIT-SHM control uses only the
+[public XCB API](https://xcb.freedesktop.org/manual/group__XCB__Shm__API.html)
+and [X11 MIT-SHM protocol](https://xorg.freedesktop.org/archive/X11R7.7/doc/xextproto/shm.html)
+facts. It loads absolute pinned public Debian libraries, not vendor libraries,
+and observes the display's shared-memory descriptor/failure under bounded
+POSIX file limits. No external implementation is copied or inspected. Its
+source/plan/closed receipt identities are in the startup note and its two
+sessions report zero application launches and vendor passes. The current
+session source applies the same finite child allowance to Xvfb and the app.
+The proposed experimental image explicitly sets the documented
+`QTWEBENGINE_DISABLE_SANDBOX=1` using the
+[Qt 5.15 platform documentation](https://github.com/qt/qtwebengine/blob/v5.15.2/src/webengine/doc/src/qtwebengine-platform-notes.qdoc)
+as a usage reference only. No Qt implementation is read or copied. The setting
+does not change outer Docker isolation or prove vendor runtime support.
 
 This register records the information sources, test material, and code origins
 used by `caj2pdf-rust`. It is part of the acceptance evidence for

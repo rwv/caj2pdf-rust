@@ -21,16 +21,16 @@ import time
 from cajviewer_canary import CanaryError, oom_kill_delta, run_bounded
 
 
-APPLICATION_FILE_LIMIT = 64 * 1024 ** 2
+RUNTIME_FILE_LIMIT = 64 * 1024 ** 2
 
 
-def application_file_limit():
-    """Set the single-threaded fork child's bounded limit before exec.
+def runtime_file_limit():
+    """Set the single-threaded application/display child's limit before exec.
 
     Supervisor/query children keep the smaller soft limit. Writable mounts
     and diagnostic collection retain their independent aggregate/file caps.
     """
-    resource.setrlimit(resource.RLIMIT_FSIZE, (APPLICATION_FILE_LIMIT,) * 2)
+    resource.setrlimit(resource.RLIMIT_FSIZE, (RUNTIME_FILE_LIMIT,) * 2)
 
 
 class XImage(ctypes.Structure):
@@ -127,7 +127,7 @@ def process_metadata():
 
 def main():
     started = time.monotonic()
-    resource.setrlimit(resource.RLIMIT_FSIZE, (1024 ** 2, APPLICATION_FILE_LIMIT))
+    resource.setrlimit(resource.RLIMIT_FSIZE, (1024 ** 2, RUNTIME_FILE_LIMIT))
     resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
     # The supervisor's full diagnostic raster uses the larger capture
     # allowance; row-wise output retains its known 5.76 MiB ceiling.
@@ -136,9 +136,11 @@ def main():
               "input": "/input/digital.pdf", "image_compatibility": "NOT_RUN",
               "text_compatibility": "NOT_RUN", "vendor_dpr": "UNKNOWN",
               "loaded_qt_version": "UNKNOWN", "renderer_backend": "UNKNOWN",
+              "observed_supervisor_qtwebengine_disable_sandbox": os.environ.get("QTWEBENGINE_DISABLE_SANDBOX"),
               "declared_file_size_limits_bytes": {"supervisor_soft": 1024 ** 2,
-                  "supervisor_hard": APPLICATION_FILE_LIMIT,
-                  "application_soft_and_hard": APPLICATION_FILE_LIMIT,
+                  "supervisor_hard": RUNTIME_FILE_LIMIT,
+                  "application_soft_and_hard": RUNTIME_FILE_LIMIT,
+                  "xvfb_soft_and_hard": RUNTIME_FILE_LIMIT,
                   "capture_soft": 6 * 1024 ** 2},
               "observed_supervisor_initial_file_size_limits_bytes": list(resource.getrlimit(resource.RLIMIT_FSIZE)),
               "observed_core_limits_bytes": list(resource.getrlimit(resource.RLIMIT_CORE)),
@@ -164,8 +166,10 @@ def main():
                            ("window-manager", ["openbox", "--sm-disable"])):
             log = (Path("/output") / (name + ".log")).open("xb")
             files.append(log)
-            report["actions"].append({"action": "start-helper", "argv": argv})
-            process = subprocess.Popen(argv, stdout=log, stderr=log, start_new_session=True)
+            report["actions"].append({"action": "start-helper", "argv": argv,
+                "file_size_limit_bytes": RUNTIME_FILE_LIMIT if name == "xvfb" else 1024 ** 2})
+            process = subprocess.Popen(argv, stdout=log, stderr=log, start_new_session=True,
+                                       preexec_fn=runtime_file_limit if name == "xvfb" else None)
             helpers.append(process)
             if name == "xvfb":
                 deadline = time.monotonic() + 10
@@ -193,9 +197,9 @@ def main():
         files.append(log)
         report["app_launch_attempts"] = 1
         report["actions"].append({"action": "official-desktop-launcher", "argv": argv,
-                                  "file_size_limit_bytes": APPLICATION_FILE_LIMIT})
+                                  "file_size_limit_bytes": RUNTIME_FILE_LIMIT})
         application = subprocess.Popen(argv, stdout=log, stderr=log, start_new_session=True,
-                                       preexec_fn=application_file_limit)
+                                       preexec_fn=runtime_file_limit)
         deadline = time.monotonic() + 30
         while True:
             remaining = deadline - time.monotonic()
@@ -224,7 +228,7 @@ def main():
             time.sleep(0.1)
         report["processes_sampled_before_termination"] = process_metadata()
         report["launcher_exit_code_observed"] = application.poll()
-        resource.setrlimit(resource.RLIMIT_FSIZE, (6 * 1024 ** 2, APPLICATION_FILE_LIMIT))
+        resource.setrlimit(resource.RLIMIT_FSIZE, (6 * 1024 ** 2, RUNTIME_FILE_LIMIT))
         report["diagnostic_capture"] = capture_display(Path("/output/startup.ppm"))
     except (OSError, CanaryError, UnicodeError) as error:
         report["status"] = "FAIL"

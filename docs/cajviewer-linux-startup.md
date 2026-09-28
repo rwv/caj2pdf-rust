@@ -6,9 +6,13 @@ This is work toward [#124](https://github.com/rwv/caj2pdf-rust/issues/124).
 The first startup pair lost its tmpfs diagnostics. The transport amendment
 collected two loader failures with missing `libxslt.so.1`. After adding the
 measured provider, two more attempts exited 153 with a file-size-limit
-diagnostic; the affected file/child is unknown. **Full-page and text
-compatibility remain NOT_RUN, zero passes.** The capability issue remains
-open; all six reported launcher attempts and failures are retained.
+diagnostic; the affected file/child is unknown. A separately reviewed
+application-limit pair then lost its Xvfb display to signal 25 and reported
+an additional QtWebEngine sandbox error. An original public XCB shared-memory
+control isolates the Xvfb limit failure without launching the viewer.
+**Full-page and text compatibility remain NOT_RUN, zero passes.** The
+capability issue remains open; all eight reported launcher attempts and
+failures are retained.
 The [fixture plan](cajviewer-fixtures.md) and issue acceptance criteria govern
 the later image/text capability probes and private acquisition.
 
@@ -144,7 +148,8 @@ No build/pull/profile/flag/backend retry occurs during this phase.
 | Container | UID/GID 1000, read-only root/inputs, offline network, init, dropped capabilities, no new privileges, no host display/home/socket. |
 | Memory / swap / CPU / PID | 1536 MiB entire cgroup; memory+swap also 1536 MiB; 2 CPUs; 256 concurrent tasks/threads. These are not Rust RSS or cumulative descendant-start counts. |
 | Bounded writable storage | Home 64 MiB, `/tmp` 64 MiB, runtime 8 MiB, output 32 MiB, shared memory 64 MiB. |
-| Current file-limit investigation | Supervisor/query soft 1 MiB, supervisor hard 64 MiB; child-only application soft/hard 64 MiB; capture soft 6 MiB. Core dumps disabled. This amended source requires a separately frozen startup phase; earlier sessions inherited soft 1 MiB/hard 6 MiB. |
+| Current file-limit investigation | Supervisor/query/window manager soft 1 MiB, supervisor hard 64 MiB; child-only application and Xvfb soft/hard 64 MiB; capture soft 6 MiB. Core dumps disabled. The Xvfb amendment requires a separately frozen startup phase; the fourth pair still gave Xvfb soft 1 MiB. |
+| Current QtWebEngine investigation | The experimental image sets documented `QTWEBENGINE_DISABLE_SANDBOX=1`; the session records the supervisor's observed value. Outer Docker isolation stays unchanged. This is an explicit next-profile amendment, not an observed loaded Qt version or successful startup. |
 | Display | Dedicated Xvfb `:99`, 1600 × 1200, depth 24, requested 96 DPI; X11 RGB masks/stride are measured. Vendor DPR/Qt/backend stay UNKNOWN. |
 | Persistent helpers | One Xvfb and one openbox attempt; at most 400 controlled metadata helper attempts. |
 | Stage time | X11 readiness 10 s; title search 30 s; helper primary deadlines 2 s, plus bounded reap allowances. Query sleeps do not prove readiness. |
@@ -273,11 +278,12 @@ OOM-kill deltas. All group/container cleanups, final declared source audits and
 Both viewport payloads still matched the previous diagnostic desktop hash;
 this proves artifact integrity only, with no document-page or text result.
 
-The inherited application soft file-size limit was 1 MiB. The current source
-prepares a 64 MiB parent hard allowance and sets application soft/hard 64 MiB
-in its single-threaded fork child before exec. The official launcher argv
-stays unchanged. Supervisor/query children retain soft 1 MiB and the capture
-retains soft 6 MiB. Core dumps are disabled; no host/system ulimit is changed.
+The inherited application soft file-size limit was 1 MiB. The application
+amendment prepared a 64 MiB parent hard allowance and set application
+soft/hard 64 MiB in its single-threaded fork child before exec. The official
+launcher argv stayed unchanged. Supervisor/query/window-manager/Xvfb children
+retained soft 1 MiB and the capture retained soft 6 MiB. Core dumps were
+disabled; no host/system ulimit was changed.
 Before-launch supervisor limits and bounded `/proc` process-limit snapshots
 are recorded separately from the declared policy. A file can still exhaust
 its original bounded tmpfs. Application logging now has the application
@@ -287,11 +293,82 @@ aggregate diagnostic collection. Do not claim its log remains capped at 1 MiB.
 Three original Python child controls demonstrate the previous 1 MiB refusal,
 successful bounded writing beyond 1 MiB under the child allowance, and refusal
 past 64 MiB without allocating a 65 MiB fixture. Parent limits remain unchanged
-and mock integration verifies only the application receives the pre-exec
-action. These controls do not prove that CAJViewer can initialize. Build and
-inventory the amended source, then freeze exact pins and a new finite budget
-for independent review before any additional app activity. Preserve every
-earlier phase and its original ceiling; do not retry automatically.
+and the amendment's mock integration verified only the application received
+the pre-exec action. These controls do not prove that CAJViewer can initialize.
+
+## Preserved display failure and public shared-memory control
+
+The fourth startup protocol froze source
+`7506f5b4ec2bc97ad7bf64946003a012f65849ee`, 13,278 protocol bytes with SHA-256
+`140b3f1f665e7b5fbbf4bc1d5a0e5990bcd09994addfd81b239d216cb4714d4a`,
+and prepared image
+`sha256:0b1287f4b0e720cf21295bacf5a9009320348fc9443cfafa00f7a4cb18c4bd35`.
+Its 518,665-byte runtime inventory has SHA-256
+`f3fdaeabb8fdeebc1584b3b95e3687e1e670131d0d340c4288cfa5539ba3f07b`.
+Only the original installed session module changed from the third image;
+vendor files, packages, fonts, libraries and tools stayed unchanged. The
+reviewed cumulative reported-attempt ceiling was eight.
+
+Both attempts failed: Xvfb logged `ftruncate`, caught signal 25 (file-size
+limit exceeded), and aborted with signal 6. No matching document window or
+diagnostic P6 was produced. Session capture failed after the display died;
+host validation also retained the missing-capture failure. No raster-integrity
+pass is claimed. The app logs separately reported `No usable sandbox!` from
+QtWebEngine. Its startup requirements and the loaded Qt version remain
+unverified; the driver did not disable that sandbox or alter the host kernel.
+Do not assign this fourth-phase diagnosis to the third phase's unknown child.
+
+The closed 61,473-byte run receipt has SHA-256
+`374591ebe4560ae3a7dbca005fc91b6e4c44a64ad6d768999c9ef3c3f6b74f15`.
+There were 296/297 controlled metadata helper attempts and 38 Docker clients
+per session. Whole-cgroup memory peaks were 296,407,040 and 208,154,624 bytes,
+concurrent task peaks 111, and OOM-kill deltas zero. All process-group/container
+cleanups and final declared file audits passed. Historical preparation
+metadata and the exact committed test source also passed their closing
+audit; later tests do not replace that immutable historical identity.
+
+A separately frozen original public control used the public XCB MIT-SHM ABI,
+the exact fourth image, cleared loader overrides and absolute hash-pinned
+Debian `libxcb`/`libxcb-shm` libraries. It requested one 2 MiB shared-memory
+segment per fresh Xvfb session. Under soft 1 MiB/hard 64 MiB, the request
+failed and Xvfb again logged `ftruncate` and caught signal 25 before aborting.
+Under soft/hard 64 MiB, the request returned a descriptor of exactly
+2,097,152 bytes and Xvfb remained alive. Both worker/display/container
+cleanups and final source/inventory audits passed. Eleven Docker clients
+were recorded; an exact inner readiness-helper count is not available.
+Application launches and vendor passes were zero.
+
+This 4,126-byte public-control plan has SHA-256
+`de51817cae755103f841cb9a30dc09bbc974f5962fee7a05acc076e43226b982`;
+its 7,985-byte closed receipt has SHA-256
+`b567fac19754312a1596ab9770b6a6c195ed0be5a1177dc98b54147e38fb4be0`.
+The original external probe source is 7,330 bytes, SHA-256
+`e5d6a729c80f4a2a78449f23d28dc2b08f6ee2c86d1a0b9ca2965209dcd48103`.
+It contains no vendor library loading or implementation inspection. This
+isolates the public display limit; it establishes no viewer capability.
+
+The current source reuses the same bounded child action for Xvfb and the
+application. The window manager and query children retain soft 1 MiB, the
+supervisor starts at soft 1 MiB/hard 64 MiB, and capture retains soft 6 MiB.
+Core, mount, memory, swap, PID, process, collection and cleanup caps remain
+unchanged. Both Xvfb and application logs can exceed 6 MiB under their child
+allowance; the unchanged collector then fails instead of truncating them.
+Original writer controls and mock integration verify the narrow dispatch.
+The same proposed experimental image sets `QTWEBENGINE_DISABLE_SANDBOX=1`,
+as described by the [Qt 5.15 platform documentation](https://github.com/qt/qtwebengine/blob/v5.15.2/src/webengine/doc/src/qtwebengine-platform-notes.qdoc).
+This intentionally disables QtWebEngine's inner sandbox for the original-PDF
+canary. It does not establish that this vendor build honors the setting.
+The offline/non-root/read-only/container capability, seccomp, memory/swap,
+shared-memory and storage restrictions remain in place. No host user-namespace
+setting, seccomp override, viewer flag or rendering-backend change is made.
+The session records its supervisor environment value, not whether the opaque
+launcher preserves it or the vendor runtime consumes it, while keeping the
+loaded Qt version unknown. Original mock integration checks that record and
+the unchanged official launcher argv. Treat these two changes as one explicit
+diagnostic profile; no single-variable viewer-causality claim follows.
+Build and inventory this source, then freeze exact pins and a new finite
+budget for independent review before any additional app activity. Preserve
+every earlier phase and its original ceiling; do not retry automatically.
 
 ## Public tests and remaining acceptance work
 

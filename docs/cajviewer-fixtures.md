@@ -8,7 +8,11 @@
 startup attempts lost their tmpfs diagnostics. The reviewed transport amendment
 collected two loader failures with unavailable `libxslt.so.1`. The measured
 provider amendment then collected two file-size-limit failures, exit 153;
-the affected file is unknown. All six attempts/failures are retained.
+the affected file is unknown. The application-limit pair then lost Xvfb to
+signal 25 and reported a separate QtWebEngine sandbox error. An original
+public shared-memory control confirms the Xvfb file-limit failure and a
+bounded 64 MiB allowance without launching the viewer. All eight reported
+application attempts/failures are retained.
 No private document, complete-page acquisition,
 clipboard observation or vendor comparison has been run. The
 [startup note](cajviewer-linux-startup.md) preserves the exact phase and failure.

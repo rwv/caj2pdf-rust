@@ -68,9 +68,9 @@ sys.path.insert(0, str(root / "scripts"))
 spec = importlib.util.spec_from_file_location("original_session", root / "tools/cajviewer/cajviewer_session.py")
 session = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(session)
-resource.setrlimit(resource.RLIMIT_FSIZE, (1024 ** 2, session.APPLICATION_FILE_LIMIT))
+resource.setrlimit(resource.RLIMIT_FSIZE, (1024 ** 2, session.RUNTIME_FILE_LIMIT))
 if sys.argv[2] != "inherited":
-    session.application_file_limit()
+    session.runtime_file_limit()
 signal.signal(signal.SIGXFSZ, signal.SIG_IGN)
 target = Path(sys.argv[3])
 refused = False
@@ -82,7 +82,7 @@ with target.open("xb") as file:
             file.write(b"x")
             file.flush()
         else:
-            size = 1024 ** 2 + 1 if sys.argv[2] == "inherited" else session.APPLICATION_FILE_LIMIT + 1
+            size = 1024 ** 2 + 1 if sys.argv[2] == "inherited" else session.RUNTIME_FILE_LIMIT + 1
             os.ftruncate(file.fileno(), size)
     except OSError as error:
         if error.errno != errno.EFBIG:
@@ -102,9 +102,9 @@ print(json.dumps({"refused": refused, "size": target.stat().st_size,
                 results[mode] = json.loads(observed["stdout"])
         self.assertTrue(results["inherited"]["refused"])
         self.assertEqual(results["inherited"]["size"], 0)
-        self.assertEqual(results["inherited"]["limits"], [1024 ** 2, SESSION.APPLICATION_FILE_LIMIT])
+        self.assertEqual(results["inherited"]["limits"], [1024 ** 2, SESSION.RUNTIME_FILE_LIMIT])
         self.assertEqual(results["positive"], {"refused": False, "size": 1024 ** 2 + 1,
-                                              "limits": [SESSION.APPLICATION_FILE_LIMIT] * 2})
+                                              "limits": [SESSION.RUNTIME_FILE_LIMIT] * 2})
         self.assertTrue(results["over-limit"]["refused"])
         self.assertEqual(results["over-limit"]["size"], 0)
         self.assertEqual(resource.getrlimit(resource.RLIMIT_FSIZE), parent_limits)
@@ -172,6 +172,7 @@ print(json.dumps({"refused": refused, "size": target.stat().st_size,
             for child in children:
                 child.poll.return_value = None
             with mock.patch.object(SESSION, "Path", side_effect=path), \
+                    mock.patch.dict(SESSION.os.environ, {"QTWEBENGINE_DISABLE_SANDBOX": "1"}), \
                     mock.patch.object(SESSION.resource, "setrlimit"), \
                     mock.patch.object(SESSION, "run_bounded", side_effect=command), \
                     mock.patch.object(SESSION, "cgroup_metrics", return_value={"memory.peak": "12", "memory.events": "oom_kill 0\n"}), \
@@ -187,11 +188,14 @@ print(json.dumps({"refused": refused, "size": target.stat().st_size,
             self.assertEqual(report["status"], "FAIL")
             self.assertEqual(report["observed_window"]["id"], "123")
             self.assertEqual(report["vendor_passes"], 0)
+            self.assertEqual(report["observed_supervisor_qtwebengine_disable_sandbox"], "1")
+            self.assertEqual(report["loaded_qt_version"], "UNKNOWN")
+            self.assertEqual(launch.call_args_list[2].args[0], ["/opt/cajviewer/bin/start.sh", "/input/digital.pdf"])
             self.assertEqual(kill.call_count, 3)
             self.assertTrue((output / "ready").is_file())
-            self.assertNotIn("preexec_fn", launch.call_args_list[0].kwargs)
-            self.assertNotIn("preexec_fn", launch.call_args_list[1].kwargs)
-            self.assertIs(launch.call_args_list[2].kwargs["preexec_fn"], SESSION.application_file_limit)
+            self.assertIs(launch.call_args_list[0].kwargs["preexec_fn"], SESSION.runtime_file_limit)
+            self.assertIsNone(launch.call_args_list[1].kwargs["preexec_fn"])
+            self.assertIs(launch.call_args_list[2].kwargs["preexec_fn"], SESSION.runtime_file_limit)
 
     def test_failed_create_client_still_cleans_daemon_container_by_known_name(self):
         def result(status="PASS", code=0, stdout=b"", stderr=b""):

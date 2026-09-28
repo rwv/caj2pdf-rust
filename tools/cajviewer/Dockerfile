@@ -34,5 +34,5 @@ USER 1000:1000
 WORKDIR /home/canary
 ENV HOME=/home/canary DISPLAY=:99 LANG=C.UTF-8 LC_ALL=C.UTF-8 TZ=UTC \
     XDG_RUNTIME_DIR=/runtime XDG_CONFIG_HOME=/home/canary/.config \
-    XDG_CACHE_HOME=/home/canary/.cache
+    XDG_CACHE_HOME=/home/canary/.cache QTWEBENGINE_DISABLE_SANDBOX=1
 ENTRYPOINT ["python3", "/opt/canary/cajviewer_session.py"]
