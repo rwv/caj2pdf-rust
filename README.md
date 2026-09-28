@@ -28,6 +28,9 @@ The [conformance baseline](docs/conformance.md) documents the optional
 external corpus runner and independently generated MIT test fixtures.
 The [PDF input profile](docs/pdf-input.md) records supported syntax, repair
 rules, and the existing-outline policy.
+The [forward-only PDF writer](docs/pdf-writer.md) provides streamed reusable
+image objects and ordered affine placements, with bounded page work and
+same-document handle validation.
 
 ## Command-line usage
 
