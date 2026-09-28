@@ -1,5 +1,24 @@
 # Provenance and dependency inventory
 
+## CAJViewer startup controls (#124)
+
+The original MIT source in `scripts/cajviewer_canary{,_fixtures}.py`,
+`tools/cajviewer/{Dockerfile,prepare.py,inventory.py,cajviewer_session.py,run.py}`
+and the four `test_cajviewer_*` test modules implements bounded external
+preparation/startup and original runtime controls. PDF Type 3 glyph paths,
+ToUnicode mappings, page objects, rotations and RGB controls are authored from
+ISO 32000-1:2008 §§7.7.3, 8.9, 9.6.5 and 9.10.3. No vendor, legacy converter
+or font implementation source is copied. X11 capture uses the public
+`libX11.so.6` ABI in an external development environment.
+
+The official Linux installer/manual/desktop metadata and public usage agreement
+are provenance/usage references. All vendor runtime files, binaries, manuals,
+fonts, raw UI captures and receipts remain external; no MIT redistribution
+grant is inferred. The experimental Debian image omits installer hooks and
+all bundled document entries. Public package dependencies are not relabeled
+MIT. The [startup note](cajviewer-linux-startup.md) records exact preparation
+pins, first metadata failure, scope and the unattempted capability requirements.
+
 This register records the information sources, test material, and code origins
 used by `caj2pdf-rust`. It is part of the acceptance evidence for
 [issue #2](https://github.com/rwv/caj2pdf-rust/issues/2). Update the relevant
