@@ -4,7 +4,7 @@
 
 The original MIT source in `scripts/cajviewer_canary{,_fixtures}.py`,
 `tools/cajviewer/{Dockerfile,prepare.py,inventory.py,cajviewer_session.py,run.py}`
-and the four `test_cajviewer_*` test modules implements bounded external
+and the `test_cajviewer_*` test modules implements bounded external
 preparation/startup and original runtime controls. PDF Type 3 glyph paths,
 ToUnicode mappings, page objects, rotations and RGB controls are authored from
 ISO 32000-1:2008 §§7.7.3, 8.9, 9.6.5 and 9.10.3. No vendor, legacy converter
@@ -53,6 +53,24 @@ The public
 is a command usage reference for explicitly installing the two original
 Python helpers as read-only mode 0444. This corrects a preserved app-zero
 inventory failure caused by inheriting root-only host context permissions.
+
+Issue [#133](https://github.com/rwv/caj2pdf-rust/issues/133) adds original MIT
+terminal-helper diagnostics to the same two session/host adapters and
+`tests/conformance/test_cajviewer_diagnostics.py`. It derives no new vendor
+or X11 error classification. Fixed source locations, captured-byte hashes,
+explicit incomplete prefixes and a terminal-only bounded base64 stderr
+excerpt use Python's standard `hashlib`, `base64` and `json` APIs. The existing
+256-KiB receipt limit is enforced before writing, with an explicit FAIL
+refusal for an oversized complete ledger. The host preserves the primary
+session failure when capture is absent and still requires cleanup/OOM and
+artifact checks. Original Python process fixtures and simulated boundary
+responses test this behavior without executing Docker, X11, viewer, converter
+or private inputs. No external implementation, raw historical stderr or
+vendor artifact was read, copied or embedded. All twelve earlier reported
+application attempts, the mixed sixth FAIL and its unknown helper cause
+remain preserved. The amended sources are not evidence of a new viewer
+phase or complete-page/text compatibility; any such phase requires a
+separately frozen protocol.
 No Docker implementation or vendor file is copied into project source.
 
 This register records the information sources, test material, and code origins

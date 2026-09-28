@@ -19,8 +19,13 @@ four-page PDF under manual review. Those ten reported startup attempts retain
 their FAIL outcomes. The sixth independently frozen pair adds one helper
 failure and one owned-window startup observation, keeping document identity
 unverified. All twelve attempts are retained; the pair remains FAIL and its
-ceiling is exhausted. The failed search's stderr content was not retained,
-so public helper diagnostics/controls must precede a newly reviewed phase.
+ceiling is exhausted. The failed search's stderr content was not retained.
+Original public [terminal-helper diagnostics](cajviewer-linux-startup.md#public-terminal-helper-diagnostics-133)
+now retain bounded captured-byte evidence for future failures, preserve the
+primary failure without a raster, and enforce the existing receipt limit.
+They cannot recover historical stderr or establish a new viewer success;
+another application phase needs separately reviewed frozen identities and a
+finite cumulative budget.
 No private document, complete-page acquisition,
 clipboard observation or vendor comparison has been run. The
 [startup note](cajviewer-linux-startup.md) preserves the exact phase and failure.
@@ -79,7 +84,7 @@ children follow this graph; issue acceptance criteria remain authoritative:
 
 | Child | Issue | Blocked by |
 | --- | --- | --- |
-| A | [#124: verify offline CAJViewer Linux container capabilities](https://github.com/rwv/caj2pdf-rust/issues/124) | None within this epic |
+| A | [#124: verify offline CAJViewer Linux container capabilities](https://github.com/rwv/caj2pdf-rust/issues/124) | [#133: terminal-helper diagnostics](https://github.com/rwv/caj2pdf-rust/issues/133), a child of #124 |
 | D | [#125: define immutable external fixture manifests and receipts](https://github.com/rwv/caj2pdf-rust/issues/125) | None within this epic |
 | B | [#126: acquire reproducible complete-page CAJViewer images](https://github.com/rwv/caj2pdf-rust/issues/126) | A (#124) and D (#125) |
 | C | [#127: capture standard-copy text and classify OCR separately](https://github.com/rwv/caj2pdf-rust/issues/127) | A (#124) and D (#125) |

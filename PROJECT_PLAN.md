@@ -142,7 +142,11 @@ issue acceptance criteria are authoritative for each task.
    checks; document identity stays unverified. All twelve attempts are
    retained and the pair remains FAIL. Its helper stderr was not retained,
    so [bounded public diagnostics/controls #133](https://github.com/rwv/caj2pdf-rust/issues/133)
-   are the next prerequisite and a native child/blocker of #124. The
+   implement the diagnostic prerequisite as a native child/blocker of #124.
+   Their original mandatory controls retain terminal captured-byte diagnostics,
+   preserve primary failures without a raster, and enforce the existing receipt
+   budget. They cannot recover historical stderr or establish a new viewer
+   success. The
    [startup records and original child-limit controls](docs/cajviewer-linux-startup.md)
    require a new exact profile and reviewed finite budget before further apps.
    Complete-page capture, physical-page navigation and fresh standard-copy

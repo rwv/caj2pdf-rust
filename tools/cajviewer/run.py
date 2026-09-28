@@ -117,17 +117,30 @@ def proven_absent(result, name):
 
 
 def validate_session(session, capture_dir):
-    if (session["protocol"] != "original-pdf-startup-v1" or session["input"] != "/input/digital.pdf"
-            or type(session["app_launch_attempts"]) is not int or session["app_launch_attempts"] != 1
-            or session["vendor_passes"] != 0 or session["cleanup"] != "PASS"):
+    if (not isinstance(session, dict)
+            or session.get("protocol") != "original-pdf-startup-v1" or session.get("input") != "/input/digital.pdf"
+            or type(session.get("app_launch_attempts")) is not int or session["app_launch_attempts"] not in (0, 1)
+            or session.get("vendor_passes") != 0 or session.get("cleanup") != "PASS"
+            or session.get("status") not in ("FAIL", "STARTUP_OBSERVED")
+            or (session["status"] == "STARTUP_OBSERVED" and session["app_launch_attempts"] != 1)):
         raise CanaryError("invalid original startup session contract")
+    if (not isinstance(session.get("before_metrics"), dict)
+            or not isinstance(session.get("after_helper_termination_metrics"), dict)):
+        raise CanaryError("session cgroup audit missing or malformed")
     if oom_kill_delta(session["before_metrics"], session["after_helper_termination_metrics"]):
         raise CanaryError("application cgroup observed an OOM-killed process")
+    if session.get("receipt_complete", True) is not True:
+        return {"status": "NOT_RUN", "scope": "viewport-artifact-integrity-only",
+                "reason": "session-receipt-refused", "vendor_passes": 0}
+    if "diagnostic_capture" not in session:
+        return {"status": "NOT_RUN", "scope": "viewport-artifact-integrity-only",
+                "reason": "capture-missing", "vendor_passes": 0}
     capture = session["diagnostic_capture"]
-    if (capture["origin"] != "viewport-diagnostic-only" or capture["complete_page"] is not False
-            or (capture["width"], capture["height"], capture["depth"], capture["bits_per_pixel"]) != (1600, 1200, 24, 32)):
+    if (not isinstance(capture, dict) or capture.get("origin") != "viewport-diagnostic-only"
+            or capture.get("complete_page") is not False
+            or tuple(capture.get(key) for key in ("width", "height", "depth", "bits_per_pixel")) != (1600, 1200, 24, 32)):
         raise CanaryError("diagnostic capture contract mismatch")
-    return verify_viewport_capture(capture_dir / "startup.ppm", pixel_sha256=capture["pixel_sha256"])
+    return {"status": "PASS", **verify_viewport_capture(capture_dir / "startup.ppm", pixel_sha256=capture["pixel_sha256"])}
 
 
 def attempt(image: str, controls: Path, directory: Path, name: str) -> dict:
@@ -135,6 +148,7 @@ def attempt(image: str, controls: Path, directory: Path, name: str) -> dict:
     directory.mkdir(mode=0o700)
     report = {"name": name, "status": "FAIL", "vendor_passes": 0,
               "app_launch_attempts": 0, "cleanup": "NOT_RUN", "docker_calls": 0,
+              "diagnostic_integrity": {"status": "NOT_RUN", "reason": "session-not-collected", "vendor_passes": 0},
               "docker_actions": []}
     owned = False
     def closing(stage, args, deadline):
@@ -217,10 +231,17 @@ def attempt(image: str, controls: Path, directory: Path, name: str) -> dict:
         session_payload, session_identity = read_pinned_metadata(session_path, max_bytes=256 * 1024)
         session = json.loads(session_payload)
         report["session_identity"] = session_identity
+        if not isinstance(session, dict):
+            raise CanaryError("session receipt must be an object")
         report["session_status"] = session["status"]
         report["app_launch_attempts"] = session["app_launch_attempts"]
+        if session["status"] == "FAIL":
+            report["primary_failure"] = {"origin": "session", "error_type": session.get("error_type"),
+                                         "terminal_failure": session.get("terminal_failure"),
+                                         "receipt_refusal": session.get("receipt_refusal")}
         report["diagnostic_integrity"] = validate_session(session, session_path.parent)
-        if session["status"] == "STARTUP_OBSERVED" and not status["OOMKilled"]:
+        if (session["status"] == "STARTUP_OBSERVED" and not status["OOMKilled"]
+                and report["diagnostic_integrity"]["status"] == "PASS"):
             report["status"] = "STARTUP_OBSERVED"
     except (OSError, CanaryError, tarfile.TarError, ValueError, KeyError) as error:
         report["error_type"] = type(error).__name__

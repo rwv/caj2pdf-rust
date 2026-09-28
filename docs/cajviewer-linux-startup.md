@@ -533,6 +533,89 @@ policy; unclassified failures stay FAIL. Freeze new exact source/tool/image
 identities and a finite cumulative budget before any new app phase. Two
 successful fresh sessions and all complete-page/text gates remain unmet.
 
+## Public terminal-helper diagnostics (#133)
+
+This source amendment adds diagnostic controls only. It has not launched
+Docker, X11, CAJViewer, a corpus document, a converter or a renderer. The
+sixth-phase files above are unchanged; its first helper's cause remains
+**UNKNOWN**, its pair remains **FAIL**, and all twelve reported attempts
+remain counted. New source cannot recover historically unretained stderr.
+Any later public X11 probe or application phase needs its own reviewed,
+frozen identities and finite authorization.
+
+The external `session.json` now records a fixed `terminal_failure.stage`,
+`reason` and `action_index`. Query stages distinguish display readiness,
+visible-window search, owner, title and geometry. Other fixed stages locate
+application/display launch, observation deadline, process metadata, capture,
+cleanup, memory audit and receipt refusal. The index is one-based into the
+session's complete `actions` array, including persistent-helper/application
+launch actions. It is null when no helper action was attempted, such as the
+400-helper preflight refusal. A helper that raises before returning its
+result has an indexed `helper-result-unavailable` failure with null exit,
+read counts and captures; those observations are not replaced with zeros.
+Arbitrary exception messages and tracebacks are not serialized.
+
+Every completed helper result records SHA-256 and the byte count of each
+**retained** stdout/stderr buffer. `bytes_read` separately records bytes
+actually returned by the original bounded reader. A drained PASS/FAIL
+result with no buffer loss has `complete: true` and
+`hash_scope: complete-stream`. TIMEOUT and OUTPUT_LIMIT always have
+`complete: false` and `hash_scope: captured-prefix`, even when a timeout's
+legacy `prefix_truncated` flag is false. `truncated` reports known buffer or
+limit loss; a false value does not prove completion. These hashes never
+describe unobserved bytes after termination.
+
+Only the terminal public helper's stderr is embedded, as explicitly tagged
+base64, at most 4,096 decoded bytes. Its retained count, SHA-256, completeness
+and truncation are separate from the helper's captured-stream metadata.
+For example, the existing readiness stderr allowance may exceed 4 KiB;
+the terminal excerpt then explicitly reports truncation. Helper stdout is
+not embedded in this diagnostic. Session JSON, raw application/helper logs,
+window observations, captures and receipts stay external, never in Git,
+public catalogs or release assets.
+
+An stderr-bearing exit-1 visible search remains FAIL. TIMEOUT, OUTPUT_LIMIT,
+unexpected exit codes, inconsistent success/warnings, malformed IDs/title/
+geometry and unclassified title/geometry stderr also remain FAIL. The
+existing bounded exit-1 display-readiness polling and unproved/missing-owner
+candidate outcomes retain their narrow scopes. Neither proves a transient
+X11 error class, document identity, or a successful startup. Ownership is
+still checked before and after measurement. The depth-2 search, sixteen
+eligible candidates with a seventeenth overflow sentinel, 30-second shared
+observation deadline, 4-KiB window-query cap and 400-helper cap are unchanged.
+
+The supervisor encodes a complete compact ASCII JSON receipt before writing
+it and enforces the existing **256 KiB** limit. A 400-action ledger is tested;
+large allowed process metadata can still exceed the complete receipt budget.
+That outcome emits an explicit **FAIL** refusal receipt with
+`receipt_complete: false`, the original encoded size, limit and number of
+omitted actions. It preserves the primary terminal diagnostic, protocol/input,
+application/helper attempt counts, elapsed time, cleanup, memory.events/OOM
+evidence and final measurement failures. It never claims a complete ledger.
+If even that bounded refusal cannot fit, writing the receipt fails and no
+collection-ready marker is issued. The limit is not raised, and output is
+not silently cut to fit.
+
+The host validates the session contract, cleanup and OOM evidence before
+capture handling. An absent capture or refused receipt is explicitly
+`diagnostic_integrity.status: NOT_RUN`; it cannot satisfy startup collection
+or artifact integrity. A failed session's `primary_failure` is retained
+before these checks, so missing raster metadata cannot replace it with a
+secondary missing-key error. Present rasters still require the existing
+regular-file, exact header/grid/payload/hash/EOF and stable-identity checks.
+Container removal, absence checks and final frozen-file audits remain
+independent closing actions.
+
+Mandatory original controls use simulated session/Docker responses and
+project-owned Python children only. They cover terminal stderr and exact
+hashes, timeout versus truncation, output-limit read/retained counts, indexed
+failure without exception text, missing/special/corrupt/oversized receipts,
+capture failure, OOM/cleanup refusal, the 400-action limit, exact serialization
+boundary and explicit size fallback. No-input execution remains NOT_RUN with
+zero application launches and vendor passes. These results establish
+diagnostic behavior; complete-page pixels, text/copy, print and OCR remain
+NOT_RUN.
+
 ## Public tests and remaining acceptance work
 
 ```sh

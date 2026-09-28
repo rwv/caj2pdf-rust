@@ -8,6 +8,7 @@ an undocumented switch, opens bundled documents, or claims a complete page.
 
 from __future__ import annotations
 
+import base64
 import ctypes
 import hashlib
 import json
@@ -24,6 +25,97 @@ from cajviewer_canary import CanaryError, oom_kill_delta, run_bounded
 
 RUNTIME_FILE_LIMIT = 64 * 1024 ** 2
 MAX_WINDOW_CANDIDATES = 16
+MAX_HELPER_CALLS = 400
+QUERY_BYTES = 4096
+SESSION_BYTES = 256 * 1024
+
+
+class SessionFailure(CanaryError):
+    """A fixed diagnostic location, never an arbitrary exception message."""
+
+    def __init__(self, stage, reason, result=None, action_index=None):
+        super().__init__(stage + ": " + reason.replace("-", " "))
+        self.stage, self.reason = stage, reason
+        self.result = result
+        self.action_index = action_index if result is None else result.get("action_index")
+
+
+def helper_capture(result):
+    """Hash retained bytes; aborted helpers never claim a complete stream."""
+    if (result["status"] not in ("PASS", "FAIL", "TIMEOUT", "OUTPUT_LIMIT")
+            or type(result["exit_code"]) is not int or type(result["prefix_truncated"]) is not bool):
+        raise SessionFailure("helper-result", "malformed-capture")
+    complete = result["status"] in ("PASS", "FAIL") and not result["prefix_truncated"]
+    capture = {}
+    for stream in ("stdout", "stderr"):
+        payload = result[stream]
+        read_bytes = result["bytes_read"][stream]
+        if (not isinstance(payload, bytes) or type(read_bytes) is not int
+                or read_bytes < len(payload)):
+            raise SessionFailure("helper-result", "malformed-capture")
+        stream_complete = complete and read_bytes == len(payload)
+        capture[stream] = {"captured_bytes": len(payload),
+                           "sha256": hashlib.sha256(payload).hexdigest(),
+                           "complete": stream_complete,
+                           "truncated": read_bytes > len(payload) or result["prefix_truncated"],
+                           "hash_scope": "complete-stream" if stream_complete else "captured-prefix"}
+    return capture
+
+
+def terminal_failure(error, stage):
+    diagnostic = {"stage": error.stage if isinstance(error, SessionFailure) else stage,
+                  "reason": error.reason if isinstance(error, SessionFailure) else "operation-failed",
+                  "action_index": error.action_index if isinstance(error, SessionFailure) else None}
+    if isinstance(error, SessionFailure) and error.result is not None:
+        result = error.result
+        diagnostic["helper"] = {"status": result["status"], "exit_code": result["exit_code"],
+                                "bytes_read": result["bytes_read"], "capture": helper_capture(result)}
+        if "argv" in result:
+            diagnostic["helper"]["argv"] = result["argv"]
+        # Helper stdout is not embedded in this diagnostic. Measured window
+        # observations retain their separate declared scope in this receipt.
+        stderr = result["stderr"][:QUERY_BYTES]
+        diagnostic["stderr"] = {"encoding": "base64", "data": base64.b64encode(stderr).decode("ascii"),
+                                "retained_bytes": len(stderr), "sha256": hashlib.sha256(stderr).hexdigest(),
+                                "complete": diagnostic["helper"]["capture"]["stderr"]["complete"]
+                                            and len(stderr) == len(result["stderr"]),
+                                "truncated": len(stderr) < len(result["stderr"])
+                                             or diagnostic["helper"]["capture"]["stderr"]["truncated"]}
+    elif diagnostic["action_index"] is not None:
+        diagnostic["helper"] = {"status": "UNAVAILABLE", "exit_code": None,
+                                "bytes_read": None, "capture": None}
+    return diagnostic
+
+
+def session_payload(report):
+    """Serialize completely or emit an explicit small FAIL refusal receipt."""
+    def encode(value):
+        return (json.dumps(value, ensure_ascii=True, separators=(",", ":")) + "\n").encode("ascii")
+    report.setdefault("receipt_complete", True)
+    payload = encode(report)
+    if len(payload) <= SESSION_BYTES:
+        return payload
+    # The host still receives the primary failure and mandatory cleanup/OOM
+    # evidence. The omitted ledger is declared, not silently truncated.
+    refusal = {key: report[key] for key in ("protocol", "input", "app_launch_attempts",
+               "vendor_passes", "cleanup", "controlled_helper_launches", "elapsed_seconds")}
+    refusal.update(status="FAIL", receipt_complete=False,
+                   receipt_refusal={"reason": "serialized-size-limit", "limit_bytes": SESSION_BYTES,
+                                    "unserialized_size_bytes": len(payload), "ledger_omitted": True,
+                                    "actions_omitted": len(report["actions"])})
+    refusal["terminal_failure"] = {"stage": "receipt", "reason": "serialized-size-limit", "action_index": None}
+    for key in ("terminal_failure", "error_type", "oom_kill_delta", "memory_audit_error_type",
+                "finalization_errors"):
+        if key in report:
+            refusal[key] = report[key]
+    for key in ("before_metrics", "after_helper_termination_metrics"):
+        refusal[key] = {"memory.events": report.get(key, {}).get("memory.events", "UNAVAILABLE")}
+    payload = encode(refusal)
+    if len(payload) > SESSION_BYTES:
+        raise CanaryError("bounded refusal receipt exceeds session limit")
+    report.clear()
+    report.update(refusal)
+    return payload
 
 
 def observe_owned_window(command, process_group: int, deadline: float):
@@ -33,20 +125,23 @@ def observe_owned_window(command, process_group: int, deadline: float):
     omit. An absent/stale/foreign owner cannot prove startup. Titles never
     identify the requested document, and no window is activated or changed.
     """
-    def query(argv):
+    def query(argv, stage):
         remaining = deadline - time.monotonic()
         if remaining <= 0:
-            raise CanaryError("owned-window observation deadline exceeded")
-        result = command(argv, deadline_seconds=min(2, remaining), output_limit=4096)
+            raise SessionFailure(stage, "observation-deadline")
+        result = command(argv, stage=stage, deadline_seconds=min(2, remaining), output_limit=QUERY_BYTES)
         if (result["status"] not in ("PASS", "FAIL") or result["prefix_truncated"]
                 or len(result["stdout"]) > 4096 or len(result["stderr"]) > 4096):
-            raise CanaryError("window query timeout or output limit")
+            reason = {"TIMEOUT": "timeout", "OUTPUT_LIMIT": "output-limit"}.get(result["status"], "malformed-helper-result")
+            raise SessionFailure(stage, reason, result)
         if time.monotonic() >= deadline:
-            raise CanaryError("owned-window observation deadline exceeded")
+            raise SessionFailure(stage, "observation-deadline", result)
         if result["status"] == "PASS" and (result["exit_code"] != 0 or result["stderr"]):
-            raise CanaryError("window query returned inconsistent success or warnings")
+            raise SessionFailure(stage, "inconsistent-success", result)
         if result["status"] == "FAIL" and result["exit_code"] != 1:
-            raise CanaryError("window query failed unexpectedly")
+            raise SessionFailure(stage, "unexpected-exit", result)
+        if result["status"] == "FAIL" and stage != "window-owner" and result["stderr"]:
+            raise SessionFailure(stage, "helper-failed", result)
         return result
 
     def decimal_id(data, maximum):
@@ -56,7 +151,7 @@ def observe_owned_window(command, process_group: int, deadline: float):
         return number if 0 < number <= maximum else None
 
     def owner(window):
-        result = query(["xdotool", "getwindowpid", window])
+        result = query(["xdotool", "getwindowpid", window], "window-owner")
         if result["status"] != "PASS":
             return None
         pid = decimal_id(result["stdout"].strip(), 2 ** 31 - 1)
@@ -66,48 +161,56 @@ def observe_owned_window(command, process_group: int, deadline: float):
             group = os.getpgid(pid)
         except (ProcessLookupError, PermissionError):
             return None
+        except OSError:
+            raise SessionFailure("window-owner", "owner-check-failed", result) from None
         return pid if group == process_group else None
 
     result = query(["xdotool", "search", "--onlyvisible", "--maxdepth", "2",
-                    "--limit", str(MAX_WINDOW_CANDIDATES + 1), "--name", ".*"])
+                    "--limit", str(MAX_WINDOW_CANDIDATES + 1), "--name", ".*"], "visible-window-search")
     if result["status"] != "PASS":
         if result["exit_code"] == 1 and not result["stdout"] and not result["stderr"]:
             return None
-        raise CanaryError("visible-window search failed")
+        raise SessionFailure("visible-window-search", "helper-failed", result)
     windows = result["stdout"].splitlines()
     if len(windows) > MAX_WINDOW_CANDIDATES:
-        raise CanaryError("visible-window candidate count exceeded")
+        raise SessionFailure("visible-window-search", "candidate-count-limit", result)
     identifiers = [decimal_id(window, 2 ** 32 - 1) for window in windows]
     if None in identifiers or len(set(identifiers)) != len(windows):
-        raise CanaryError("visible-window IDs malformed or repeated")
+        raise SessionFailure("visible-window-search", "malformed-window-ids", result)
     for raw_window in windows:
         window = raw_window.decode("ascii", "strict")
         pid = owner(window)
         if pid is None:
             continue
-        name = query(["xdotool", "getwindowname", window])
+        name = query(["xdotool", "getwindowname", window], "window-title")
         if name["status"] != "PASS":
             continue
-        title = name["stdout"].decode("utf-8", "strict")
+        try:
+            title = name["stdout"].decode("utf-8", "strict")
+        except UnicodeError:
+            raise SessionFailure("window-title", "malformed-title", name) from None
         if "\0" in title:
-            raise CanaryError("window title contains invalid framing")
-        geometry = query(["xdotool", "getwindowgeometry", "--shell", window])
+            raise SessionFailure("window-title", "malformed-title", name)
+        geometry = query(["xdotool", "getwindowgeometry", "--shell", window], "window-geometry")
         if geometry["status"] != "PASS":
             continue
-        geometry_text = geometry["stdout"].decode("ascii", "strict")
+        try:
+            geometry_text = geometry["stdout"].decode("ascii", "strict")
+        except UnicodeError:
+            raise SessionFailure("window-geometry", "malformed-geometry", geometry) from None
         fields = {}
         for line in geometry_text.splitlines():
             key, separator, value = line.partition("=")
             if (not separator or key in fields or len(value) > 11
                     or re.fullmatch(r"-?[0-9]+", value) is None):
-                raise CanaryError("window geometry malformed")
+                raise SessionFailure("window-geometry", "malformed-geometry", geometry)
             fields[key] = int(value)
         if (set(fields) != {"WINDOW", "X", "Y", "WIDTH", "HEIGHT", "SCREEN"}
                 or fields["WINDOW"] != int(window) or fields["SCREEN"] != 0
                 or not 0 < fields["WIDTH"] <= 65535 or not 0 < fields["HEIGHT"] <= 65535
                 or not -(2 ** 31) <= fields["X"] < 2 ** 31
                 or not -(2 ** 31) <= fields["Y"] < 2 ** 31):
-            raise CanaryError("window geometry outside measured display profile")
+            raise SessionFailure("window-geometry", "geometry-outside-profile", geometry)
         if owner(window) != pid:
             continue
         return {"id": window, "pid": pid, "process_group": process_group,
@@ -241,21 +344,35 @@ def main():
     helper_calls = 0
     application = None
     files = []
-    def command(argv, **kwargs):
+    stage = "display-start"
+    def command(argv, *, stage, **kwargs):
         nonlocal helper_calls
+        if helper_calls >= MAX_HELPER_CALLS:
+            raise SessionFailure(stage, "helper-call-limit")
         helper_calls += 1
-        if helper_calls > 400:
-            raise CanaryError("controlled helper launch limit exceeded")
-        action = {"action": "helper-command", "argv": argv}
+        action = {"action": "helper-command", "stage": stage, "argv": argv}
         report["actions"].append(action)
-        result = run_bounded(argv, **kwargs)
-        action.update(status=result["status"], exit_code=result["exit_code"],
-                      bytes_read=result["bytes_read"], prefix_truncated=result["prefix_truncated"])
+        action_index = len(report["actions"])
+        try:
+            result = run_bounded(argv, **kwargs)
+        except (Exception, KeyboardInterrupt):
+            action.update(status="FAIL", reason="helper-result-unavailable")
+            raise SessionFailure(stage, "helper-result-unavailable", action_index=action_index) from None
+        try:
+            result["action_index"] = action_index
+            result["argv"] = argv
+            action.update(status=result["status"], exit_code=result["exit_code"],
+                          bytes_read=result["bytes_read"], prefix_truncated=result["prefix_truncated"],
+                          capture=helper_capture(result))
+        except (KeyError, TypeError, SessionFailure):
+            action.update(status="FAIL", reason="malformed-helper-result")
+            raise SessionFailure(stage, "malformed-helper-result", action_index=action_index) from None
         return result
     try:
         for name, argv in (("xvfb", ["Xvfb", ":99", "-screen", "0", "1600x1200x24",
                                      "-dpi", "96", "-nolisten", "tcp", "-noreset"]),
                            ("window-manager", ["openbox", "--sm-disable"])):
+            stage = "display-start" if name == "xvfb" else "window-manager-start"
             log = (Path("/output") / (name + ".log")).open("xb")
             files.append(log)
             report["actions"].append({"action": "start-helper", "argv": argv,
@@ -264,12 +381,19 @@ def main():
                                        preexec_fn=runtime_file_limit if name == "xvfb" else None)
             helpers.append(process)
             if name == "xvfb":
+                stage = "display-readiness"
                 deadline = time.monotonic() + 10
                 while True:
                     remaining = deadline - time.monotonic()
                     if remaining <= 0:
-                        raise CanaryError("virtual display readiness deadline exceeded")
-                    ready = command(["xdpyinfo"], deadline_seconds=min(2, remaining), output_limit=256 * 1024)
+                        raise SessionFailure(stage, "readiness-deadline")
+                    ready = command(["xdpyinfo"], stage=stage, deadline_seconds=min(2, remaining), output_limit=256 * 1024)
+                    if ready["status"] in ("TIMEOUT", "OUTPUT_LIMIT"):
+                        raise SessionFailure(stage, "timeout" if ready["status"] == "TIMEOUT" else "output-limit", ready)
+                    if ((ready["status"] == "PASS" and (ready["exit_code"] != 0 or ready["stderr"]))
+                            or (ready["status"] == "FAIL" and ready["exit_code"] != 1)
+                            or ready["status"] not in ("PASS", "FAIL")):
+                        raise SessionFailure(stage, "unexpected-readiness-result", ready)
                     if ready["status"] == "PASS":
                         with Path("/output/xdpyinfo.txt").open("xb") as file:
                             file.write(ready["stdout"])
@@ -282,8 +406,9 @@ def main():
                                                       "summary": summary[:16]}
                         break
                     if process.poll() is not None or time.monotonic() >= deadline:
-                        raise CanaryError("virtual display failed its measured readiness check")
+                        raise SessionFailure(stage, "readiness-failed", ready)
                     time.sleep(0.1)
+        stage = "application-start"
         argv = ["/opt/cajviewer/bin/start.sh", "/input/digital.pdf"]
         log = (Path("/output") / "application.log").open("xb")
         files.append(log)
@@ -293,10 +418,12 @@ def main():
         application = subprocess.Popen(argv, stdout=log, stderr=log, start_new_session=True,
                                        preexec_fn=runtime_file_limit)
         deadline = time.monotonic() + 30
+        stage = "owned-window-observation"
         while True:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 report["startup_reason"] = "owned-visible-window-deadline"
+                report["terminal_failure"] = terminal_failure(SessionFailure(stage, "observation-deadline"), stage)
                 break
             observed = observe_owned_window(command, application.pid, deadline)
             if observed is not None:
@@ -305,53 +432,67 @@ def main():
                 break
             if time.monotonic() >= deadline:
                 report["startup_reason"] = "launcher-exited-or-owned-visible-window-deadline"
+                report["terminal_failure"] = terminal_failure(SessionFailure(stage, "observation-deadline"), stage)
                 break
             time.sleep(0.1)
+        stage = "process-snapshot"
         report["processes_sampled_before_termination"] = process_metadata()
         report["launcher_exit_code_observed"] = application.poll()
         resource.setrlimit(resource.RLIMIT_FSIZE, (6 * 1024 ** 2, RUNTIME_FILE_LIMIT))
+        stage = "viewport-capture"
         report["diagnostic_capture"] = capture_display(Path("/output/startup.ppm"))
-    except (OSError, CanaryError, UnicodeError) as error:
+    except (Exception, KeyboardInterrupt) as error:
         report["status"] = "FAIL"
         report["error_type"] = type(error).__name__
+        report.setdefault("terminal_failure", terminal_failure(error, stage))
     finally:
         report["cleanup"] = "PASS"
         def final_measurement(key, function):
             try:
                 report[key] = function()
-            except (OSError, CanaryError) as error:
+            except (Exception, KeyboardInterrupt) as error:
                 report["status"] = "FAIL"
                 report.setdefault("finalization_errors", []).append({"stage": key, "error_type": type(error).__name__})
+                report.setdefault("terminal_failure", {"stage": "final-measurement", "reason": "measurement-failed", "action_index": None})
         final_measurement("before_termination_metrics", cgroup_metrics)
         for process in ([application] if application is not None else []) + helpers:
             try:
                 os.killpg(process.pid, signal.SIGKILL)
             except ProcessLookupError:
                 pass
-            except OSError as error:
+            except (OSError, KeyboardInterrupt):
                 report["cleanup"] = "FAIL"
                 report["status"] = "FAIL"
+                report.setdefault("terminal_failure", {"stage": "cleanup", "reason": "process-group-kill-failed", "action_index": None})
             try:
                 process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
+            except (OSError, subprocess.TimeoutExpired, KeyboardInterrupt):
                 report["cleanup"] = "FAIL"
                 report["status"] = "FAIL"
+                report.setdefault("terminal_failure", {"stage": "cleanup", "reason": "process-reap-failed", "action_index": None})
         for file in files:
-            file.close()
+            try:
+                file.close()
+            except (OSError, KeyboardInterrupt):
+                report["cleanup"] = "FAIL"
+                report["status"] = "FAIL"
+                report.setdefault("terminal_failure", {"stage": "cleanup", "reason": "log-close-failed", "action_index": None})
         final_measurement("after_helper_termination_metrics", cgroup_metrics)
         try:
             report["oom_kill_delta"] = oom_kill_delta(report["before_metrics"], report["after_helper_termination_metrics"])
             if report["oom_kill_delta"]:
                 report["status"] = "FAIL"
+                report.setdefault("terminal_failure", {"stage": "memory-audit", "reason": "oom-kill-observed", "action_index": None})
         except (KeyError, CanaryError) as error:
             report["status"] = "FAIL"
             report["memory_audit_error_type"] = type(error).__name__
+            report.setdefault("terminal_failure", {"stage": "memory-audit", "reason": "memory-audit-unavailable", "action_index": None})
         final_measurement("processes_sampled_after_termination", process_metadata)
         report["elapsed_seconds"] = time.monotonic() - started
         report["controlled_helper_launches"] = helper_calls
-        with Path("/output/session.json").open("x") as file:
-            json.dump(report, file, indent=2)
-            file.write("\n")
+        payload = session_payload(report)
+        with Path("/output/session.json").open("xb") as file:
+            file.write(payload)
         with Path("/output/ready").open("x") as file:
             file.write("session-receipt-complete\n")
     print(json.dumps({key: report[key] for key in ("status", "app_launch_attempts", "vendor_passes")}), flush=True)

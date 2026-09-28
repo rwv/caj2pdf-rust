@@ -148,7 +148,7 @@ class WindowOwnershipTests(unittest.TestCase):
                         SESSION.observe_owned_window(command, 101, time.monotonic() + 5)
                     self.assertEqual(command.call_count, index + 1)
 
-    def test_malformed_geometry_or_title_is_failure_and_disappeared_window_is_refused(self):
+    def test_malformed_geometry_title_and_unclassified_refinement_stderr_fail(self):
         geometries = [b"WIDTH=600\nHEIGHT=400\n", self.geometry().replace(b"WINDOW=123", b"WINDOW=124"),
                       self.geometry().replace(b"WIDTH=600", b"WIDTH=0"),
                       self.geometry() + b"SCREEN=0\n", self.geometry().replace(b"X=0", b"X=unknown")]
@@ -167,7 +167,9 @@ class WindowOwnershipTests(unittest.TestCase):
             valid = [self.result(b"123\n"), self.result(b"101\n"), self.result(b"Original title\n")]
             command = mock.Mock(side_effect=valid[:stage] + [self.result(status="FAIL", code=1, stderr=b"BadWindow\n")])
             with self.subTest(stage=stage), mock.patch.object(SESSION.os, "getpgid", return_value=101):
-                self.assertIsNone(SESSION.observe_owned_window(command, 101, time.monotonic() + 5))
+                with self.assertRaises(SESSION.SessionFailure) as failure:
+                    SESSION.observe_owned_window(command, 101, time.monotonic() + 5)
+                self.assertEqual(failure.exception.reason, "helper-failed")
 
     def test_queries_share_deadline_and_do_not_reset_after_elapsed_query(self):
         command = mock.Mock(return_value=self.result(b"123\n"))
