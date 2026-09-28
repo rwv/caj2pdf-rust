@@ -132,9 +132,10 @@ issue acceptance criteria are authoritative for each task.
    [immutable bounded validation and regeneration](docs/vendor-fixture-manifest.md)
    merged in [PR #131](https://github.com/rwv/caj2pdf-rust/pull/131).
    [Capability #124](https://github.com/rwv/caj2pdf-rust/issues/124) remains open:
-   the first original-PDF startup pair failed, and the preserved
-   [tmpfs collection limitation](docs/cajviewer-linux-startup.md) requires a
-   public transport control before a new reviewed finite app phase.
+   public tmpfs transport controls pass, but the latest startup pair fails
+   initial loading on `libxslt.so.1`. The preserved
+   [startup records and runtime preparation](docs/cajviewer-linux-startup.md)
+   require a new exact profile and reviewed finite budget before further apps.
    [Images #126](https://github.com/rwv/caj2pdf-rust/issues/126)
    and [text #127](https://github.com/rwv/caj2pdf-rust/issues/127) require both;
    [diffs #128](https://github.com/rwv/caj2pdf-rust/issues/128) follow the manifest

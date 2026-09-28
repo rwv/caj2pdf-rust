@@ -191,10 +191,11 @@ The planned [vendor fixture protocol](cajviewer-fixtures.md), tracked by
 [epic #123](https://github.com/rwv/caj2pdf-rust/issues/123), adds a separate
 version-scoped Linux CAJViewer baseline for complete-page images and local
 standard-copy text. Vendor compatibility is **`NOT_RUN`, zero passes**. The
-first two original-PDF startup attempts failed; Docker cp omitted their tmpfs
-diagnostics, so document-opening capability remains unverified. The
-[startup note](cajviewer-linux-startup.md) retains the exact failure and transport
-amendment. No private vendor fixture has been acquired, and no supported Linux
+first pair lost its tmpfs diagnostics; the reviewed transport amendment
+collected a second pair, both failing initial loading with exit 127 and an
+unavailable `libxslt.so.1`. Document opening remains unverified. The
+[startup note](cajviewer-linux-startup.md) retains all four failures, exact
+receipts and public runtime preparation. No private vendor fixture has been acquired, and no supported Linux
 export CLI or headless API has been proven. The existing Python-converter
 regressions and [#117 composition evidence](hnc8-page-composition-evidence.md),
 including the explicit corrected grayscale HN-B basis, remain distinct.

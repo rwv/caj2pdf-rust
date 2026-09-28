@@ -12,7 +12,8 @@ RUN set -eu; \
       python3=3.11.2-1+b1 xvfb=2:21.1.7-3+deb12u9 \
       xdotool=1:3.20160805.1-5 xclip=0.13-2 x11-utils=7.7+5 \
       openbox=3.6.1-10 fontconfig=2.14.1-4 fonts-dejavu-core=2.37-6 \
-      libxml2=2.9.14+dfsg-1.3~deb12u1 libnss3=2:3.87.1-1+deb12u1 \
+      libxml2=2.9.14+dfsg-1.3~deb12u1 libxslt1.1=1.1.35-1+deb12u1 \
+      hicolor-icon-theme=0.17-2 libnss3=2:3.87.1-1+deb12u1 \
       libxss1=1:1.2.3-1 libasound2=1.2.8-1+b1 libglib2.0-0=2.74.6-2+deb12u6 \
       libsm6=2:1.2.3-1 libice6=2:1.0.10-1 libxkbcommon-x11-0=1.5.0-1 \
       libxcb-cursor0=0.1.4-1 libxcb-xinerama0=1.15-1 \

@@ -3,10 +3,11 @@
 # Original PDF controls and Linux startup canary
 
 This is work toward [#124](https://github.com/rwv/caj2pdf-rust/issues/124).
-The offline image is prepared. The first two original-PDF startup attempts
-failed; detailed capture was unavailable because the Docker cp transport
-omitted tmpfs files. **Full-page and text compatibility remain NOT_RUN, zero
-passes.** The capability issue remains open.
+The offline image is prepared. The first startup pair lost its tmpfs diagnostics;
+the reviewed transport amendment collected the next pair's detailed records.
+Both later launcher attempts failed with exit 127 and a missing `libxslt.so.1`
+diagnostic. **Full-page and text compatibility remain NOT_RUN, zero passes.**
+The capability issue remains open; four reported launcher attempts are retained.
 The [fixture plan](cajviewer-fixtures.md) and issue acceptance criteria govern
 the later image/text capability probes and private acquisition.
 
@@ -200,9 +201,46 @@ cleanup limits remain unchanged. Original process tests pass. A fresh public
 tmpfs-only canary copied and verified all seven original stand-in files,
 including an exact 1600 × 1200 RGB array, in 0.446 seconds. Its final source
 audit and container cleanup passed; app launches and vendor passes were zero.
-A separately frozen/reviewed pair of app attempts is still required. The first
-failure remains immutable; no app flag, profile, image
-or rendering-backend retry is part of the amendment.
+The first failure remains immutable; no app flag, profile, image or
+rendering-backend retry was part of that transport amendment.
+
+## Transport amendment result and runtime preparation
+
+The second reviewed protocol used source commit
+`ed6f9d59f42ba10dbb4743c48b4341c557bdb3fb`, protocol SHA-256
+`926e3a4ef080858c31a4117951dc67607f9e4e811d49bfd13f456b31b6ba1f90`
+(10,252 bytes), and the same prepared image. Both sessions report one launcher
+attempt, exit 127, no matching window, a 30-second title deadline and the same
+unavailable `libxslt.so.1` loader diagnostic. This establishes initial loading
+failure in that exact extraction profile; document opening and later feature
+capabilities remain unverified.
+
+The closed 61,995-byte run receipt has SHA-256
+`20a52f3134cbde5972760e09c43c5c88c3de1b99d02a91f5d5126809b12fe89d`.
+Each attempt has 38 Docker clients and 293 controlled query helpers; the outer
+phase has 77 Docker clients including image preflight. Both whole-screen P6
+artifacts are 5,760,017 bytes with exact full-payload/EOF integrity, encoded
+SHA-256 `e97e86645d70c039981b1e17f36773fb30d16373f91a0467d7006b51f7bae78f`
+and pixel SHA-256 `c0e5fc1ce8c727d3e75fa229cdb40a4f971cf6a8dea9ba552ec8f3d3b81d8082`.
+They do not contain an observed document window and establish no page parity.
+Whole-cgroup memory peaks are 55,889,920 and 55,291,904 bytes, concurrent task
+peaks are 12, and OOM-kill deltas are zero. These include the supervisor/display/
+window manager/query tree; they are not Rust or loaded application RSS.
+Both groups/container cleanups and all final declared file audits passed.
+Independent review checked the closed records, historical pins and complete
+viewport payload integrity; vendor/image/text comparison passes remain zero.
+
+The pinned [AUR static metadata](https://github.com/archlinux/aur/blob/04001d051c1f8bf7fc82c283b8b9bae4412ea1ed/.SRCINFO)
+declares glibc, gcc-libs, bash, hicolor-icon-theme and libxml2-legacy. It does
+not list libxslt and is not a complete dynamic-loader contract. Debian
+[libxslt1.1 supplies the named library](https://packages.debian.org/bookworm/amd64/libxslt1.1/filelist).
+Public signed snapshot preparation resolved `libxslt1.1=1.1.35-1+deb12u1`.
+The recipe adds that measured missing-library provider and the separately
+declared icon dependency `hicolor-icon-theme=0.17-2`.
+Build and inventory this new preparation profile publicly before defining a
+new finite startup budget. Preserve both earlier protocols/failures and freeze
+the new exact source, image, runtime, actions and cumulative-attempt ceiling
+for independent review before any further app launch.
 
 ## Public tests and remaining acceptance work
 

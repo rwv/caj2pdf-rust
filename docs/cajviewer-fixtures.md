@@ -5,8 +5,9 @@
 ## Status and scope
 
 **DRAFT — vendor compatibility is `NOT_RUN`, zero passes.** Two original-PDF
-startup attempts failed, and their detailed capture was unavailable because
-Docker cp omitted tmpfs files. No private document, complete-page acquisition,
+startup attempts lost their tmpfs diagnostics. The reviewed transport amendment
+collected two further attempts, both failing initial loading with exit 127 and
+unavailable `libxslt.so.1`. All four attempts/failures are retained. No private document, complete-page acquisition,
 clipboard observation or vendor comparison has been run. The
 [startup note](cajviewer-linux-startup.md) preserves the exact phase and failure.
 The official Linux documentation confirms reading, text copying, and printing;
