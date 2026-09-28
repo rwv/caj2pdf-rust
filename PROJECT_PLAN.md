@@ -166,6 +166,12 @@ issue acceptance criteria are authoritative for each task.
    success. The
    [startup records and original child-limit controls](docs/cajviewer-linux-startup.md)
    require a new exact profile and reviewed finite budget before further apps.
+   The [closed diagnostics-overlay preparation](docs/cajviewer-startup-diagnostics-v7.md)
+   completed nine Docker clients with zero app or inventory calls. Its image
+   preserves the full parent Config and six layers, adding one original script
+   layer; all 108 public audit rows passed. Runtime inventory and startup remain
+   separately refused DRAFT phases. The twelve historical launcher attempts
+   and unknown helper-stderr cause are preserved; no new capability passed.
    Complete-page capture, physical-page navigation and fresh standard-copy
    text must pass separate original controls before private acquisition.
    [Images #126](https://github.com/rwv/caj2pdf-rust/issues/126)
