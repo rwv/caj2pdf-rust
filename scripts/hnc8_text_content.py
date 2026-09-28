@@ -3,7 +3,8 @@
 """Opt-in, fixed-row HN/C8 text controls for issue #111.
 
 The default content batch has two donor controls. The explicit fields batch
-has four decoded-field controls and two zlib-wrapper controls. All preserve
+has four decoded-field controls and two zlib-wrapper controls. The highbit
+batch tests four unsigned-versus-signed coordinate candidates. All preserve
 the source span and page-index row. The external converter is used only as a
 black box. A clean clone makes zero private comparisons.
 """
@@ -33,6 +34,8 @@ MAX_TEXT_BYTES = 64 * 1024
 MAX_INFLATED_BYTES = 64 * 1024
 FRAME_HEADER_BYTES = 24
 ZLIB_RUNTIME_VERSION = "1.3.1"
+LIBZ_PATH = Path("/usr/lib/x86_64-linux-gnu/libz.so.1.3.1")
+LIBZ_SHA256 = "85590dd58edf5445e18bc7193e5ebc01ac5841f1ae187e97705a662e90c6421e"
 COORDINATE_SCALE = 240 / 2473
 COORDINATE_TOLERANCE = 0.00005
 
@@ -64,6 +67,7 @@ class ContentProbe:
     original_value: int | None = None
     new_value: int | None = None
     image_number: int = 2
+    field_operation: str = "add100"
 
 
 PROBES = (
@@ -148,7 +152,49 @@ FIELD_PROBES = (
             "2c017e210bd5f9e6845cc2242270c6674ad5cfdbf01bb40d9c66d4f9da275541"),
     ),
 )
-BATCHES = {"content": PROBES, "fields": FIELD_PROBES}
+HIGHBIT_PROBES = (
+    ContentProbe(
+        name="c8-x-highbit", profile="c8", page=1, donor_page=1,
+        row_offset=80, target_offset=220, target_length=14546,
+        donor_offset=220, donor_length=14546, first_descriptor=14766,
+        level=9, mem_level=8, strategy=zlib.Z_DEFAULT_STRATEGY,
+        chunk_size=MAX_INFLATED_BYTES, kind="field", field_offset=33576,
+        axis="x", original_value=5978, new_value=38746,
+        field_operation="toggle-bit15", expected_mutated_source_sha256=(
+            "0f15353f8ef1d7d7e5badc332f65be860ff05cc23115bfab484073c6a50b672d"),
+    ),
+    ContentProbe(
+        name="c8-y-boundary32768", profile="c8", page=1, donor_page=1,
+        row_offset=80, target_offset=220, target_length=14546,
+        donor_offset=220, donor_length=14546, first_descriptor=14766,
+        level=9, mem_level=8, strategy=zlib.Z_DEFAULT_STRATEGY,
+        chunk_size=MAX_INFLATED_BYTES, kind="field", field_offset=33578,
+        axis="y", original_value=1479, new_value=32768,
+        field_operation="boundary32768", expected_mutated_source_sha256=(
+            "73c3c70fcd8edcde47bf5833289f3faf01b7355b1653561c261be38a6fc25a75"),
+    ),
+    ContentProbe(
+        name="hn-a-x-highbit", profile="hn_a", page=16, donor_page=16,
+        row_offset=16664, target_offset=953320, target_length=7501,
+        donor_offset=953320, donor_length=7501, first_descriptor=960821,
+        level=8, mem_level=7, strategy=zlib.Z_DEFAULT_STRATEGY,
+        chunk_size=MAX_INFLATED_BYTES, kind="field", field_offset=17048,
+        axis="x", original_value=482, new_value=33250,
+        field_operation="toggle-bit15", expected_mutated_source_sha256=(
+            "b691aee68b4c5e26a0ace026ab86d7762f096322f2d69252d5d5958725ae6130"),
+    ),
+    ContentProbe(
+        name="hn-a-y-highbit", profile="hn_a", page=16, donor_page=16,
+        row_offset=16664, target_offset=953320, target_length=7501,
+        donor_offset=953320, donor_length=7501, first_descriptor=960821,
+        level=8, mem_level=7, strategy=zlib.Z_DEFAULT_STRATEGY,
+        chunk_size=MAX_INFLATED_BYTES, kind="field", field_offset=17050,
+        axis="y", original_value=5446, new_value=38214,
+        field_operation="toggle-bit15", expected_mutated_source_sha256=(
+            "8ed08a34876ea5b40959b429f329ebbc787fd8490f1c4f23fbc519b19adcef31"),
+    ),
+)
+BATCHES = {"content": PROBES, "fields": FIELD_PROBES, "highbit": HIGHBIT_PROBES}
 
 
 def _report(batch: str = "content") -> dict[str, Any]:
@@ -169,6 +215,8 @@ def _report(batch: str = "content") -> dict[str, Any]:
             "text content from unchanged index-row text address/length. The fields batch "
             "tests four exact decoded u16 candidates and two wrapper controls; its "
             "240/2473 prediction is retrospective and has no independent unit rationale. "
+            "The highbit batch distinguishes unsigned from signed interpretation on four "
+            "frozen target slots, including one logical-slot boundary rather than a bit-only edit. "
             "Conversion rejection or unrelated geometry is UNSUPPORTED. These two "
             "documents cannot establish a general placement rule."
         ),
@@ -184,6 +232,7 @@ def _report(batch: str = "content") -> dict[str, Any]:
         "zlib_runtime_version": zlib.ZLIB_RUNTIME_VERSION,
         "source_audit": {"status": "NOT_RUN", "before_checked": 0, "after_checked": 0},
         "environment_audit": {"status": "NOT_RUN"},
+        "zlib_audit": {"status": "NOT_RUN", "before_checked": 0, "after_checked": 0},
         "input_audit": {"status": "NOT_RUN", "before_checked": 0, "after_checked": 0},
         "counts": {
             "private_source_checks_before": 0, "private_source_checks_after": 0,
@@ -194,6 +243,7 @@ def _report(batch: str = "content") -> dict[str, Any]:
             "probe_runs": 0, "converter_launches": 0, "repeatable_probes": 0,
             "text_content_effect_probes": 0, "unsupported_probes": 0,
             "coordinate_field_effect_probes": 0, "wrapper_unchanged_probes": 0,
+            "unsigned_coordinate_field_effect_probes": 0,
             "conversion_failed_probes": 0, "skipped_probes": 0,
         },
         "probes": [], "errors": [],
@@ -203,6 +253,7 @@ def _report(batch: str = "content") -> dict[str, Any]:
             "max_inflated_buffer_bytes": MAX_INFLATED_BYTES,
             "max_ranged_request_bytes": 0,
             "max_source_hash_read_request_bytes": 0,
+            "max_runtime_hash_read_request_bytes": 0,
             "max_observed_child_vmhwm_kib": 0,
             "max_pdf_tool_output_bytes": 0,
             "max_pdf_tool_child_rss_kib": 0,
@@ -237,14 +288,74 @@ def _check_plan(probe: ContentProbe) -> None:
             probe.field_offset < 0 or probe.image_number < 2 or
             type(probe.original_value) is not int or type(probe.new_value) is not int or
             not 0 <= probe.original_value < probe.new_value <= 65535 or
-            probe.new_value - probe.original_value != 100 or
             probe.chunk_size != MAX_INFLATED_BYTES or
             probe.strategy != zlib.Z_DEFAULT_STRATEGY):
         raise ContentError("invalid exact decoded u16 field control")
+    if probe.kind == "field":
+        if probe.field_operation == "add100":
+            valid_operation = probe.new_value - probe.original_value == 100
+        elif probe.field_operation == "toggle-bit15":
+            valid_operation = (probe.original_value < 32768 and
+                               probe.new_value == (probe.original_value ^ 0x8000))
+        elif probe.field_operation == "boundary32768":
+            valid_operation = (0 < probe.original_value < 32768 and
+                               probe.new_value == 32768)
+        else:
+            valid_operation = False
+        if not valid_operation:
+            raise ContentError("invalid named decoded-field operation")
+    elif probe.field_operation != "add100":
+        raise ContentError("non-field control declares a decoded-field operation")
     if probe.kind == "wrapper" and (
             probe.field_offset is not None or probe.axis is not None or
             probe.original_value != 218 or probe.new_value != 1):
         raise ContentError("invalid zlib FLEVEL wrapper control")
+
+
+def audit_zlib_runtime() -> dict[str, Any]:
+    """Pin the optional highbit harness's actual Linux compression runtime.
+
+    This deliberately supports only the measured private Linux environment.
+    Merely importing the diagnostic or selecting a clean NOT_RUN batch does
+    not call this function or inspect runtime files.
+    """
+    if (sys.platform != "linux" or zlib.ZLIB_RUNTIME_VERSION != ZLIB_RUNTIME_VERSION or
+            zlib.ZLIB_VERSION != ZLIB_RUNTIME_VERSION):
+        raise ContentError("highbit runtime requires the pinned Linux zlib build/runtime")
+    library = LIBZ_PATH.resolve(strict=True)
+    if library != LIBZ_PATH:
+        raise ContentError("highbit libz path differs from its canonical pin")
+    mapped = bytearray()
+    with Path("/proc/self/maps").open("rb") as maps:
+        while block := maps.read(COPY_CHUNK):
+            mapped.extend(block)
+            if len(mapped) > 1024 * 1024:
+                raise ContentError("runtime mapping metadata exceeds 1 MiB")
+    mapped_libraries = sorted({
+        line.split()[-1].decode("utf-8", "strict")
+        for line in mapped.splitlines()
+        if b"/" in line and (b"libz.so" in line or b"libzlib" in line)
+    })
+    if mapped_libraries != [str(library)]:
+        raise ContentError("loaded libz differs from the pinned runtime library")
+    library_hash = shared._file_digest(library, limit=1024 * 1024)
+    if library_hash != LIBZ_SHA256:
+        raise ContentError("highbit libz binary SHA-256 differs from pin")
+    python = Path(sys.executable).resolve(strict=True)
+    python_hash = shared._file_digest(python, limit=16 * 1024 * 1024)
+    if python_hash != reference.PINNED_HASHES["python"]:
+        raise ContentError("highbit harness Python binary SHA-256 differs from pin")
+    return {
+        "libz_path": str(library), "libz_sha256": library_hash,
+        "mapped_libz_paths": mapped_libraries,
+        "python_path": str(python), "python_sha256": python_hash,
+        "python_version": sys.version,
+        "zlib_build_version": zlib.ZLIB_VERSION,
+        "zlib_runtime_version": zlib.ZLIB_RUNTIME_VERSION,
+        "zlib_module_origin": zlib.__spec__.origin,
+        "max_hash_request_bytes": COPY_CHUNK,
+        "max_mapping_bytes": 1024 * 1024,
+    }
 
 
 def _frame(text: bytes, *, image_count: int = 1,
@@ -414,10 +525,16 @@ def _replacement_text(original_text: bytes, donor_text: bytes | None,
         if not changed_positions or any(
                 not expected_offset <= index < expected_offset + 2 for index in changed_positions):
             raise ContentError("decoded bytes changed outside the declared logical field")
+        if probe.field_operation == "toggle-bit15" and (
+                changed_positions != [expected_offset + 1] or
+                modified[expected_offset + 1] != (original_plain[expected_offset + 1] ^ 0x80)):
+            raise ContentError("bit15 control changed a different decoded bit")
         details["logical_field"] = {
             "decoded_span": [expected_offset, 2], "image_number": probe.image_number,
             "axis": probe.axis, "original_value": probe.original_value,
-            "new_value": probe.new_value, "delta": 100,
+            "new_value": probe.new_value, "delta": probe.new_value - probe.original_value,
+            "field_operation": probe.field_operation,
+            "single_bit15_change": probe.field_operation == "toggle-bit15",
             "decoded_changed_positions": changed_positions,
             "all_other_decoded_bytes_unchanged": True,
         }
@@ -570,7 +687,27 @@ def compare_pdf(baseline: dict, mutant: dict, probe: ContentProbe,
             "tolerance_points": COORDINATE_TOLERANCE,
             "scope": "retrospective empirical candidate; source units and general rule unverified",
         }
-    result["outcome"] = "UNSUPPORTED" if failures else "COORDINATE_FIELD_EFFECT"
+        if probe.field_operation != "add100":
+            signed_value = probe.new_value - 65536
+            signed_prediction = COORDINATE_SCALE * signed_value
+            if probe.axis == "y":
+                signed_prediction = height - signed_prediction
+            signed_residual = new_ctm[component] - signed_prediction
+            if abs(signed_residual) <= COORDINATE_TOLERANCE:
+                failures.append("highbit outcome cannot distinguish unsigned from signed prediction")
+            result["field_prediction"].update({
+                "field_operation": probe.field_operation,
+                "unsigned_value": probe.new_value, "signed_i16_value": signed_value,
+                "unsigned_component_after": new_prediction,
+                "signed_i16_component_after": signed_prediction,
+                "signed_i16_residual_after": signed_residual,
+                "unsigned_prediction_matched": abs(residual_after) <= COORDINATE_TOLERANCE,
+                "signed_i16_prediction_matched": abs(signed_residual) <= COORDINATE_TOLERANCE,
+                "scope": "unsigned-versus-signed intervention on this target; general ranges and units unverified",
+            })
+    effect = ("COORDINATE_FIELD_EFFECT" if probe.field_operation == "add100"
+              else "UNSIGNED_COORDINATE_FIELD_EFFECT")
+    result["outcome"] = "UNSUPPORTED" if failures else effect
     result["text_content_effect"] = not failures
     return result
 
@@ -684,6 +821,7 @@ def run(paths: Mapping[str, Path] | None = None,
         report["errors"].append("all external paths and --reference-report are required together")
         return report
     rows = before_sources = before_environment = before_inputs = None
+    before_zlib = None
     resolved = session = baseline_pdfs = None
     try:
         required = {"corpus", "reference_repo", "python", "pydeps", "libjbigdec",
@@ -697,6 +835,14 @@ def run(paths: Mapping[str, Path] | None = None,
             raise ContentError("artifact directory must be outside repository, corpus and reference checkout")
         if zlib.ZLIB_RUNTIME_VERSION != ZLIB_RUNTIME_VERSION:
             raise ContentError("local zlib runtime differs from predeclared compression runtime")
+        if batch == "highbit":
+            report["zlib_audit"]["status"] = "BEFORE_CHECK"
+            before_zlib = audit_zlib_runtime()
+            report["zlib_audit"] = {
+                "status": "BEFORE_PASS", "before_checked": 2, "after_checked": 0,
+                "before": before_zlib,
+            }
+            report["resources"]["max_runtime_hash_read_request_bytes"] = COPY_CHUNK
         matrix_sha, rows = reference.load_source_rows()
         report["matrix_sha256"] = matrix_sha
         oracle = shared._load_oracle()
@@ -760,7 +906,7 @@ def run(paths: Mapping[str, Path] | None = None,
                                     counts=report["counts"])
                 if len(result["runs"]) != 2 or result["outcome"] not in (
                         "NO_PLACEMENT_CHANGE", "TEXT_CONTENT_DEPENDENCY",
-                        "COORDINATE_FIELD_EFFECT",
+                        "COORDINATE_FIELD_EFFECT", "UNSIGNED_COORDINATE_FIELD_EFFECT",
                         "UNSUPPORTED", "CONVERSION_FAILED", "NONDETERMINISTIC"):
                     raise ContentError("probe did not return two classified conversion runs")
             except (reference.ReferenceError, ContentError, OSError, ValueError,
@@ -776,7 +922,10 @@ def run(paths: Mapping[str, Path] | None = None,
             report["counts"]["probe_runs"] += len(result["runs"])
             report["counts"]["repeatable_probes"] += result["repeatable"]
             report["counts"]["text_content_effect_probes"] += result["outcome"] == "TEXT_CONTENT_DEPENDENCY"
-            report["counts"]["coordinate_field_effect_probes"] += result["outcome"] == "COORDINATE_FIELD_EFFECT"
+            report["counts"]["coordinate_field_effect_probes"] += result["outcome"] in (
+                "COORDINATE_FIELD_EFFECT", "UNSIGNED_COORDINATE_FIELD_EFFECT")
+            report["counts"]["unsigned_coordinate_field_effect_probes"] += (
+                result["outcome"] == "UNSIGNED_COORDINATE_FIELD_EFFECT")
             report["counts"]["wrapper_unchanged_probes"] += (
                 probe.kind == "wrapper" and result["outcome"] == "NO_PLACEMENT_CHANGE")
             report["counts"]["conversion_failed_probes"] += result["outcome"] == "CONVERSION_FAILED"
@@ -789,13 +938,18 @@ def run(paths: Mapping[str, Path] | None = None,
             if result["outcome"] == "NONDETERMINISTIC":
                 raise ContentError("probe produced nondeterministic repeated conversions")
         report["status"] = "PASS" if report["counts"]["unsupported_probes"] == 0 else "PARTIAL"
-        report["placement_rule_status"] = ("UNKNOWN_TEXT_CONTENT_ONLY" if batch == "content"
-                                            else "UNKNOWN_COORDINATE_FIELDS_EMPIRICAL_ONLY")
+        report["placement_rule_status"] = {
+            "content": "UNKNOWN_TEXT_CONTENT_ONLY",
+            "fields": "UNKNOWN_COORDINATE_FIELDS_EMPIRICAL_ONLY",
+            "highbit": "UNKNOWN_UNSIGNED_COORDINATES_TARGETS_ONLY",
+        }[batch]
         report["baseline_reference_report_status"] = baseline_report["status"]
     except (reference.ReferenceError, ContentError, OSError, ValueError,
             KeyError, TypeError, json.JSONDecodeError) as exc:
         report["status"] = "FAIL"
         report["errors"].append(str(exc))
+        if report["zlib_audit"]["status"] == "BEFORE_CHECK":
+            report["zlib_audit"]["status"] = "FAIL"
     finally:
         report["counts"]["skipped_probes"] = max(0, len(probes) - report["counts"]["probes_attempted"])
         if resolved is not None and rows is not None and before_sources is not None:
@@ -834,6 +988,18 @@ def run(paths: Mapping[str, Path] | None = None,
                 report["status"] = "FAIL"
                 report["input_audit"]["status"] = "FAIL"
                 report["errors"].append(f"post-run input audit: {exc}")
+        if before_zlib is not None:
+            try:
+                after_zlib = audit_zlib_runtime()
+                report["zlib_audit"]["after"] = after_zlib
+                report["zlib_audit"]["after_checked"] = 2
+                if after_zlib != before_zlib:
+                    raise ContentError("compression runtime changed between audits")
+                report["zlib_audit"]["status"] = "PASS"
+            except (ContentError, OSError, ValueError) as exc:
+                report["status"] = "FAIL"
+                report["zlib_audit"]["status"] = "FAIL"
+                report["errors"].append(f"post-run zlib audit: {exc}")
         if session is not None:
             retained = reference._tree_size(session)
             report["resources"]["retained_artifact_bytes_at_completion"] = retained
