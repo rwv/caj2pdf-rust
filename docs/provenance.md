@@ -73,6 +73,22 @@ phase or complete-page/text compatibility; any such phase requires a
 separately frozen protocol.
 No Docker implementation or vendor file is copied into project source.
 
+The [seventh-profile archival note](cajviewer-startup-diagnostics-v7.md)
+records one independently reviewed public diagnostic-overlay preparation.
+Its original MIT two-file context and finite external wrapper were authored
+from repository-owned source and public Docker command references. Two
+original synthetic-control runs retain the first overall FAIL (seven of
+eight cases passed), followed by eight of eight passed after a fixture-only
+correction. Neither is vendor compatibility evidence. The separately frozen
+public phase then completed nine Docker clients with zero application,
+inventory, X11 or vendor cases. Its exact consumed document/plan/pending/
+token/receipt identities and unchanged image Config/six-layer lineage plus
+one original COPY layer are recorded in the note. No proprietary implementation,
+installer, corpus input, raw runtime/log/environment receipt, image or raster
+is added to Git. The first failures and twelve historical launcher attempts
+remain intact. Full runtime inventory and startup are separately refused DRAFT
+phases; this closed preparation supplies no new complete-page or text fixture.
+
 This register records the information sources, test material, and code origins
 used by `caj2pdf-rust`. It is part of the acceptance evidence for
 [issue #2](https://github.com/rwv/caj2pdf-rust/issues/2). Update the relevant
