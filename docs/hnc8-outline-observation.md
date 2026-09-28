@@ -1,12 +1,13 @@
 # HN/C8 outline investigation and implementation proposal
 
-Status: **DRAFT — NOT EXECUTED.** This document is a public-data design and
-proposal for [issue #119](https://github.com/rwv/caj2pdf-rust/issues/119), a child
-of #10. Its prerequisites #112 and #117 are closed. It does not authorize a private observation, converter invocation, source
-mutation, or core outline-field implementation. The original Stage A adapter
-and public runtime controls below are preparation only.
-The parent must review and commit a complete protocol and executable pins
-before the first private-file audit. No vendor outline oracle has been run.
+Status: **FROZEN BEFORE PRIVATE OBSERVATION.** This document fixes the finite
+Stage A protocol for [issue #119](https://github.com/rwv/caj2pdf-rust/issues/119),
+a child of #10. Its prerequisites #112 and #117 are closed. Stage A has not
+run; this status alone does not authorize execution. The parent and independent
+reviewer must approve this exact frozen document and executable pins, and the
+parent must commit them before explicitly authorizing one invocation. Source
+mutation, converters, vendor execution, Stage B and core outline-field
+implementation remain outside this phase. No vendor outline oracle has run.
 
 ## 1. Evidence available now
 
@@ -231,14 +232,21 @@ a depth-65 node is refused by both independently traversed hierarchies.
 The 24-child plan includes 12 outline queries, six before/after public version
 commands and six before/after startup-library probes for Python/qpdf/MuPDF.
 Reserve six closing slots; renders/converters/native/vendor counts stay zero.
-A stat-only multiplicity model from the approved original public runtime
-profile bounds shared opaque requests at 1,014,723,214 bytes, including every
-setup/pre/post public/code/tool/codec/plan hash, four startup-library hashes,
-two full source/six-PDF audits, three prior-report hashes and a maximum-size
-receipt. It includes the additional original generator loaded by tests, so
-is conservative for the ten-module CLI contract. Headroom is 59,018,610 bytes
-below the 1 GiB ceiling; new runtime/library/code/input identities require a
-new calculation and review, never silently increased I/O.
+A planned full-length-read multiplicity estimate for the approved public
+runtime and exact ten-file CLI contract is 1,014,697,375 requested bytes.
+It includes every setup/pre/post public/code/tool/codec/plan hash, four
+startup-library hashes, two full source/six-PDF audits, three prior-report
+hashes and a maximum-size receipt. It uses the inherited source/PDF sizes;
+this preparation did not open or stat those files. The estimate assumes each
+successful `pread` supplies its full requested length, plus the declared EOF
+checks. It leaves 59,044,449 bytes below the 1 GiB ceiling. Successful short
+reads can increase charged requests; this estimate is not an unconditional
+upper bound. The strict actual requested-byte guard governs every attempt,
+including failed reads. Exhaustion is FAIL with unverified remaining audits,
+never a partial verification pass. New runtime/library/code/input identities
+require a new calculation and review, never silently increased I/O. The
+earlier focused-test estimate, including its additional loaded generator,
+was 1,014,723,214 bytes under the same full-length-read assumption.
 Do not count provenance probes as outline queries or duplicate renderer subsets.
 Original pre-freeze self-tests are separate public work, not compatibility.
 
@@ -483,15 +491,92 @@ implementation passes its acceptance gates. Required unsupported schema,
 malformed/ambiguous hierarchy or parser disagreement is FAIL. Historical and
 vendor `NOT_RUN` evidence remains separate.
 
-### Exact executable contract (DRAFT; execution disabled)
+### Completed public preparation and external invocation bindings
 
-The source pins below bind the current public review candidate. Before a
-private phase, the parent and reviewer independently verify the complete
-CLI-loaded original module/test list, record their final review and control
-results, change the status to the exact frozen phrase, and commit that final
-protocol before root's one invocation. The adapter checks
-this contract and rejects a different source topology. A hash or pin change
-requires reviewed public preparation, never a private retry.
+The original adapter and controls were independently reviewed by the parent
+and simplification reviewer before preparation PR
+[#132](https://github.com/rwv/caj2pdf-rust/pull/132) merged. Each ran all 36
+focused original tests successfully. The full original conformance suite
+passed 451 tests, and seven original fixture checks passed. One focused
+invocation made 63 process-launch attempts: 62 spawned public children and
+one expected nonexistent-executable refusal. These are public controls,
+not private compatibility or native-outline evidence.
+
+All four hosted jobs passed on exact preparation head
+`7d23f2780c9eb2bb2ce92b97540ef68510d13bb6` in
+[run 36402968249](https://github.com/rwv/caj2pdf-rust/actions/runs/36402968249).
+The downloaded LCOV payload was independently checked using all actual `DA`
+records: 54 source files, 27,413 lines, all 27,413 covered, each file 100%,
+with no exclusions. The artifact ZIP is 374,225 bytes, SHA-256
+`055b688424a90b4bf32603e3053a6dafdb4465e50bda5c39e04fe838dc440470`;
+its LCOV payload is 6,311,083 bytes, SHA-256
+`70c0559e836dbb8ce4454c0dc5864d1b1cca4c2d94ba7df545f1051c261b4048`.
+This is existing Rust line coverage, not native HN-outline implementation
+or private-title parity. Raw LLVM `LF`/`LH` counters are separate and are not
+the actual source-line denominator used by the repository gate.
+
+The frozen-protocol worktree starts at merged main
+`fc0c0652f0e35be954589780bd938299415cf2f1`. Its only proposed tracked change
+is this protocol; the adapter, controls and all ten executable contract pins
+below stay byte-identical to the reviewed preparation.
+
+External `public-preparation.json` is 39,923 bytes, SHA-256
+`f38d32045baaacab6dea088ecd682993c42ca5f98c71bd33243721b2a1423847`.
+It binds the ten code identities, installed tool/version/codec identities,
+canonical startup libraries, inherited 27 source/six PDF paths and identities,
+reference-report identity and proposed CLI input paths. All private paths
+remain outside Git. Its inherited source/PDF pins are explicitly
+`INHERITED_PIN_NOT_REAUDITED`; no new source/PDF open, stat, field read or
+query was performed. The passing preparation recovered those declarations
+from the existing authorized reference JSON through one bounded same-read
+hash check.
+
+Public preparation has two preserved attempts. The first completed 12 public
+version/startup-library probes, then failed while serializing a parent
+environment without `TZ`; it is retained as a 367-byte failure record,
+SHA-256 `e2c5568b56916dc17996d1e4b6816b5eae45c2ce7f55299b136fae4b0aa2f1ef`.
+The corrected public-only metadata adapter then completed 12 probes and
+wrote the passing metadata. Thus preparation made 24 successful public
+child probes in total. They are outside the future phase's 24-child plan;
+private source/PDF observations and converters/native/vendor calls stayed
+zero. No failed private run was retried or erased.
+
+The declared executable paths are `/usr/bin/python3.13`, `/usr/bin/qpdf`,
+`/usr/bin/mutool` and `/usr/bin/ldd`. Public preparation independently pinned
+`ldd` at 5,356 bytes, SHA-256
+`7bcd61a279946cb376d36fd91f4938ab4f4aba48e793c652a9797319d23f8dd3`;
+the other three fixed hashes appear in the bounds contract above. Its
+before/after version text and startup-library identities agreed exactly.
+Codec-provider identities were hashed once for public preparation; their
+full phase re-audits remain pending. The external input/argv manifest binds these
+observations to this exact protocol hash without repeating public probes
+or reading private files.
+
+Parent environment and preview child environment fingerprints are distinct.
+The preview used a public preparation session's `TMPDIR`; it is not the
+future private session's environment. Parent `TZ` may be absent, while the
+child's declared `TZ` is `UTC`. The actual run inherits the invoking
+environment and overrides `LC_ALL=C`, `TZ=UTC`, `PYTHONHASHSEED=0`,
+`PYTHONDONTWRITEBYTECODE=1`, `PYTHONNOUSERSITE=1` and its fresh scratch
+`TMPDIR`. The immutable runtime receipt binds the actual environment and
+canonical libraries after public startup preparation and **before private
+file audits**. The preview is not evidence that a future runtime stayed
+unchanged; final runtime audits must establish that separately.
+
+The parent will separately review the final document, external input/argv
+manifest and public preparation bindings before committing this protocol
+and authorizing one direct invocation. That invocation uses the original six
+legacy reference PDFs, including the original HN-B PDF, never the corrected
+Gray image reference. Stage A and all full #119 implementation/parity
+criteria remain unexecuted and unmet at this freeze.
+
+### Exact executable contract (frozen; private execution still pending)
+
+The source pins below bind the independently reviewed complete CLI-loaded
+original module/test list. The adapter checks this contract and rejects a
+different source topology. The final frozen protocol must be committed and
+execution explicitly authorized before root's one invocation. A hash or pin
+change requires reviewed public preparation, never a private retry.
 
 <!-- execution-contract -->
 ```json
