@@ -44,11 +44,12 @@ unchanged. Root and independent actual closing reviews passed.
 | Complete original control stdout | 5,997 | `c1557fb95a99e516911d0a9f24bb89287c71892f99cc3f2b65d021b4dedb1eec` |
 | Root actual control closing | 8,739 | `8eaa0d6a3a8d99578e44a3f468fc118082f42ccbac6deae7d2e9a55bd24bd249` |
 
-The control runner's named pre-persistence meter records 56 reads,
+The control runner's named pre-terminal meter records 56 reads,
 3,670,016 requested / 367,004 returned bytes, and four fixture writes totaling
-364 bytes. Its 0.017191362-second elapsed snapshot excludes final report
-publication and interpreter lifetime. These limited application I/O meters
-do not measure stdlib/kernel I/O, physical disk use or process RSS.
+364 bytes. Its 0.017191362-second elapsed snapshot excludes terminal stdout
+flush, Root capture/storage and interpreter lifetime. These limited
+application I/O meters do not measure stdlib/kernel I/O, physical disk use
+or process RSS.
 
 ## Frozen phase and same-process gate
 

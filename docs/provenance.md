@@ -1261,10 +1261,11 @@ by this public diagnostic prerequisite.
 
 The v11 report and project-plan update are original MIT English metadata
 documentation. The four execute-escape controls used invented callbacks and
-no real child, Docker, viewer or private input. The later inventory phase used
-only the two whitelisted original public modules and an external pinned
-runtime; no vendor implementation was examined. Its first module loaded,
-and the second declared module read failed. Historical v9 evidence describes
+no real child, Docker, viewer or private input. The later inline entry
+attempted to load exactly the two whitelisted original public modules in an
+external pinned runtime; the first loaded and the second declared module read
+failed. The host also uses original shared/process helpers; no vendor
+implementation was examined. Historical v9 evidence describes
 the original inventory module supplied through a pinned read-only bind;
 it does not prove that module was installed in the bare image. A separate
 transport amendment remains DRAFT, with no additional phase execution.

@@ -208,7 +208,7 @@ issue acceptance criteria are authoritative for each task.
    are preserved; no new capability passed.
    New native child/blocker
    [#146: original capability protocol](https://github.com/rwv/caj2pdf-rust/issues/146)
-   implements separate document/page identity, complete-page and fresh
+   tracks implementation of separate document/page identity, complete-page and fresh
    standard-copy gates, with a strict collector and finite GUI discovery.
    Code completion is separate from #124's actual two-session evidence.
    After successful reviewed declared runtime-view integrity, a fresh frozen
