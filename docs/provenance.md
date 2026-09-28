@@ -30,11 +30,20 @@ POSIX file limits. No external implementation is copied or inspected. Its
 source/plan/closed receipt identities are in the startup note and its two
 sessions report zero application launches and vendor passes. The current
 session source applies the same finite child allowance to Xvfb and the app.
-The proposed experimental image explicitly sets the documented
+The fifth experimental image explicitly sets the documented
 `QTWEBENGINE_DISABLE_SANDBOX=1` using the
 [Qt 5.15 platform documentation](https://github.com/qt/qtwebengine/blob/v5.15.2/src/webengine/doc/src/qtwebengine-platform-notes.qdoc)
 as a usage reference only. No Qt implementation is read or copied. The setting
 does not change outer Docker isolation or prove vendor runtime support.
+The owner-based visible-window observer uses the public
+[xdotool 3.20160805.1 command manual](https://github.com/jordansissel/xdotool/blob/v3.20160805.1/xdotool.pod)
+and Python's public `os.getpgid` API. Its original tests include two actual
+project-owned Python process groups and owner/framing/deadline failure cases.
+No xdotool, window-manager or vendor implementation source was used.
+The preserved fifth-phase viewport payloads agree exactly and manual review
+sees the original four-page PDF; they establish neither complete-page nor
+text parity. All ten reported startup FAIL outcomes remain intact, while the
+prepared observer records any owned window's document identity as unverified.
 
 This register records the information sources, test material, and code origins
 used by `caj2pdf-rust`. It is part of the acceptance evidence for

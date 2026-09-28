@@ -10,8 +10,12 @@ diagnostic; the affected file/child is unknown. A separately reviewed
 application-limit pair then lost its Xvfb display to signal 25 and reported
 an additional QtWebEngine sandbox error. An original public XCB shared-memory
 control isolates the Xvfb limit failure without launching the viewer.
+The fifth pair kept its display and launcher alive but failed an unverified
+filename-based window predicate. Its preserved, identical viewport captures
+show the original four-page PDF in the viewer. That manual opening observation
+does not satisfy complete-page capture or text acquisition.
 **Full-page and text compatibility remain NOT_RUN, zero passes.** The
-capability issue remains open; all eight reported launcher attempts and
+capability issue remains open; all ten reported launcher attempts and
 failures are retained.
 The [fixture plan](cajviewer-fixtures.md) and issue acceptance criteria govern
 the later image/text capability probes and private acquisition.
@@ -149,15 +153,25 @@ No build/pull/profile/flag/backend retry occurs during this phase.
 | Memory / swap / CPU / PID | 1536 MiB entire cgroup; memory+swap also 1536 MiB; 2 CPUs; 256 concurrent tasks/threads. These are not Rust RSS or cumulative descendant-start counts. |
 | Bounded writable storage | Home 64 MiB, `/tmp` 64 MiB, runtime 8 MiB, output 32 MiB, shared memory 64 MiB. |
 | Current file-limit investigation | Supervisor/query/window manager soft 1 MiB, supervisor hard 64 MiB; child-only application and Xvfb soft/hard 64 MiB; capture soft 6 MiB. Core dumps disabled. The Xvfb amendment requires a separately frozen startup phase; the fourth pair still gave Xvfb soft 1 MiB. |
-| Current QtWebEngine investigation | The experimental image sets documented `QTWEBENGINE_DISABLE_SANDBOX=1`; the session records the supervisor's observed value. Outer Docker isolation stays unchanged. This is an explicit next-profile amendment, not an observed loaded Qt version or successful startup. |
+| Current QtWebEngine investigation | The fifth image sets documented `QTWEBENGINE_DISABLE_SANDBOX=1`; both sessions record the supervisor's observed value. Outer Docker isolation stays unchanged. Vendor consumption and the loaded Qt version remain unknown. |
 | Display | Dedicated Xvfb `:99`, 1600 × 1200, depth 24, requested 96 DPI; X11 RGB masks/stride are measured. Vendor DPR/Qt/backend stay UNKNOWN. |
 | Persistent helpers | One Xvfb and one openbox attempt; at most 400 controlled metadata helper attempts. |
-| Stage time | X11 readiness 10 s; title search 30 s; helper primary deadlines 2 s, plus bounded reap allowances. Query sleeps do not prove readiness. |
+| Stage time | X11 readiness 10 s; owned-window observation shares one 30 s deadline; helper primary deadlines at most 2 s, plus bounded reap allowances. Query sleeps do not prove readiness. |
 | Host time / calls | Collection readiness 60 s / 60 polls; primary Docker calls ≤80, with three independent closing slots. Global scheduling deadline 360 s plus closing allowances. |
 | Artifact extraction | Original in-container Python tar stream at most 40 MiB; exactly seven eligible flat diagnostic filenames, ≤32 archive members, 32 MiB aggregate content, ≤6 MiB per file; unknown names, symlinks/special/traversal entries fail. |
 
-The session matches one visible `digital.pdf` window and records its title and
-geometry. This is a startup observation only. The diagnostic whole-screen P6
+The prepared session enumerates at most 16 visible X11 window candidates
+within the declared depth-2 search, using a seventeenth result as an overflow
+refusal. It
+checks each window's `_NET_WM_PID` and Linux process group against the launched
+application before and after measuring its title and geometry. Missing,
+foreign, disappeared or changed owners are refused. All queries share the
+original deadline and bounded helper accounting. No filename or localized
+title content is assumed. The first owned window can be a dialog; the receipt
+marks `document_identity: UNVERIFIED` and
+`scope: startup-owned-visible-window-only`. This source amendment has passed
+original controls but requires its own frozen image/protocol before app use.
+The diagnostic whole-screen P6
 is explicitly `viewport-diagnostic-only`, `complete_page: false`. The host
 checks the exact P6 grid, full payload length/hash and absence of tail before
 accepting artifact integrity. No image/text comparisons or vendor passes are
@@ -354,7 +368,7 @@ Core, mount, memory, swap, PID, process, collection and cleanup caps remain
 unchanged. Both Xvfb and application logs can exceed 6 MiB under their child
 allowance; the unchanged collector then fails instead of truncating them.
 Original writer controls and mock integration verify the narrow dispatch.
-The same proposed experimental image sets `QTWEBENGINE_DISABLE_SANDBOX=1`,
+The fifth experimental image sets `QTWEBENGINE_DISABLE_SANDBOX=1`,
 as described by the [Qt 5.15 platform documentation](https://github.com/qt/qtwebengine/blob/v5.15.2/src/webengine/doc/src/qtwebengine-platform-notes.qdoc).
 This intentionally disables QtWebEngine's inner sandbox for the original-PDF
 canary. It does not establish that this vendor build honors the setting.
@@ -366,9 +380,86 @@ launcher preserves it or the vendor runtime consumes it, while keeping the
 loaded Qt version unknown. Original mock integration checks that record and
 the unchanged official launcher argv. Treat these two changes as one explicit
 diagnostic profile; no single-variable viewer-causality claim follows.
-Build and inventory this source, then freeze exact pins and a new finite
-budget for independent review before any additional app activity. Preserve
-every earlier phase and its original ceiling; do not retry automatically.
+The fifth phase used these two changes as one explicit diagnostic profile.
+Preserve every earlier phase and its original ceiling; do not retry
+automatically.
+
+## Preserved fifth failure and original-PDF opening observation
+
+The fifth protocol froze source
+`b2eab06d876a2468e8396f378df6e106eb0e4196`, 15,012 protocol bytes with SHA-256
+`7864462fd77a4052f6b6e901ec898c505758f950008e2b854452062827e8cddd`,
+and image
+`sha256:f3cec80cfef700d525fe141d8e02dd963fc2deb1406dbbaf516a7683c6563083`.
+Its 518,665-byte runtime inventory has SHA-256
+`ad500f678d227e8dffe2df43404937ebe443be2f357de41a3730df1dcd7b1c46`.
+Only the original installed session changed from the previous inventory;
+vendor files, packages, fonts, libraries and tools stayed unchanged. The
+reviewed cumulative reported-attempt ceiling was ten and is now exhausted.
+
+Both sessions retained **FAIL: matching-window-deadline**. The launcher stayed
+alive through the 30-second predicate deadline. The predicate had assumed a
+visible window name containing `digital.pdf`; that title convention was never
+verified. The preserved UI has a `digital` tab and an `/input/digital.pdf`
+status path. A screenshot does not establish which X11 title property existed,
+so the revised observer records the actual title instead of inventing one.
+Both supervisor receipts observe `QTWEBENGINE_DISABLE_SANDBOX=1`. Their
+bounded logs do not contain the previously observed loader, file-limit,
+unusable-sandbox or OpenGL error classes. These observations do not establish
+the loaded Qt build or the opaque launcher's handling of the environment.
+
+The closed 62,090-byte run receipt has SHA-256
+`8c066c7d88a04b3bc149e33c99592383fe1aa0f3434376af326697a815b48167`.
+There were 282 controlled metadata helpers and 38 Docker clients per session.
+Whole-cgroup memory peaks were 336,359,424 and 313,155,584 bytes, concurrent
+task peaks 122/120, and OOM-kill deltas zero. All declared cleanup, source,
+control, protocol, inventory and additional historical-metadata closing
+audits passed. These are external startup measurements, not Rust performance.
+
+Both captures have an exact P6 header for 1600 × 1200 RGB, all 5,760,000 pixel
+bytes, and no trailing bytes. Each encoded file is 5,760,017 bytes with SHA-256
+`07cc94f8c18980addb3cca9012712c458d2924bdd66cfdd4ff87b29313eea9b2`;
+each full pixel payload has SHA-256
+`827aa6bbc25137ef52af689029f0643254dd535b6d2a29867b43a0497e10c094`.
+Root and independent review checked both complete payloads. The exact repeat
+is diagnostic viewport repeatability only: `complete_page: false` remains.
+
+An external lossless P6-to-PNG format conversion preserves that pixel hash.
+Its 46,771-byte preview has SHA-256
+`0f7ee4ddaa2de678a953d04dac72d16fbb2107a31cb99c2bce44c6e32efaffad`.
+Manual review by root and the independent reviewer sees the original four
+PDF pages in continuous layout, the known blank page, rotation, large page
+and colored controls, with an application page indicator of 1/4. This
+establishes an original-PDF opening observation only. The UI's zoom label
+does not measure capture DPI, page navigation, DPR or complete page bounds.
+No selection, copy, page export, print, OCR or private document was attempted.
+
+The corrected external summary is 4,387 bytes, SHA-256
+`0acf7dff83869e7a51bd8d4afcdcb3c1ed992cb666191d86aaf5aa19e4125dc6`.
+It explicitly supersedes an incorrect postprocessing summary that used the
+wrong log filename/keys; both summaries and all original receipts are retained.
+No original outcome or artifact was replaced.
+
+## Prepared owned-window observation amendment
+
+The independent source review and 33 original focused tests verify the
+owner-based observer, including two real original process groups. Controls
+cover foreign/missing/malformed PIDs, disappearing or inaccessible owners,
+changed PID/group after measurement, candidate overflow, malformed title and
+geometry, helper failures/output limits, and the single shared deadline.
+The public
+[xdotool 3.20160805.1 manual](https://github.com/jordansissel/xdotool/blob/v3.20160805.1/xdotool.pod)
+is a command usage reference only; no external implementation is copied.
+`--maxdepth 2` is the declared decorated-window profile, not a claim about all
+possible application window trees. An owned dialog cannot prove document
+identity or rendering readiness.
+
+Build and inventory this source without launching the app, then freeze exact
+source/image/runtime/control/environment pins and a new finite cumulative
+budget for independent review before further activity. The previous ten
+reported FAIL attempts remain immutable. Full-page and standard-copy probes
+require separate original-control protocols even if this startup observer
+succeeds.
 
 ## Public tests and remaining acceptance work
 

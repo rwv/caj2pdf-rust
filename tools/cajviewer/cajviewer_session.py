@@ -13,6 +13,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import resource
 import signal
 import subprocess
@@ -22,6 +23,97 @@ from cajviewer_canary import CanaryError, oom_kill_delta, run_bounded
 
 
 RUNTIME_FILE_LIMIT = 64 * 1024 ** 2
+MAX_WINDOW_CANDIDATES = 16
+
+
+def observe_owned_window(command, process_group: int, deadline: float):
+    """Observe startup only using visible X11 IDs and their reported owner.
+
+    xdotool's documented getwindowpid reads _NET_WM_PID, which some clients
+    omit. An absent/stale/foreign owner cannot prove startup. Titles never
+    identify the requested document, and no window is activated or changed.
+    """
+    def query(argv):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise CanaryError("owned-window observation deadline exceeded")
+        result = command(argv, deadline_seconds=min(2, remaining), output_limit=4096)
+        if (result["status"] not in ("PASS", "FAIL") or result["prefix_truncated"]
+                or len(result["stdout"]) > 4096 or len(result["stderr"]) > 4096):
+            raise CanaryError("window query timeout or output limit")
+        if time.monotonic() >= deadline:
+            raise CanaryError("owned-window observation deadline exceeded")
+        if result["status"] == "PASS" and (result["exit_code"] != 0 or result["stderr"]):
+            raise CanaryError("window query returned inconsistent success or warnings")
+        if result["status"] == "FAIL" and result["exit_code"] != 1:
+            raise CanaryError("window query failed unexpectedly")
+        return result
+
+    def decimal_id(data, maximum):
+        if not data or len(data) > 10 or not data.isdigit():
+            return None
+        number = int(data)
+        return number if 0 < number <= maximum else None
+
+    def owner(window):
+        result = query(["xdotool", "getwindowpid", window])
+        if result["status"] != "PASS":
+            return None
+        pid = decimal_id(result["stdout"].strip(), 2 ** 31 - 1)
+        if pid is None:
+            return None
+        try:
+            group = os.getpgid(pid)
+        except (ProcessLookupError, PermissionError):
+            return None
+        return pid if group == process_group else None
+
+    result = query(["xdotool", "search", "--onlyvisible", "--maxdepth", "2",
+                    "--limit", str(MAX_WINDOW_CANDIDATES + 1), "--name", ".*"])
+    if result["status"] != "PASS":
+        if result["exit_code"] == 1 and not result["stdout"] and not result["stderr"]:
+            return None
+        raise CanaryError("visible-window search failed")
+    windows = result["stdout"].splitlines()
+    if len(windows) > MAX_WINDOW_CANDIDATES:
+        raise CanaryError("visible-window candidate count exceeded")
+    identifiers = [decimal_id(window, 2 ** 32 - 1) for window in windows]
+    if None in identifiers or len(set(identifiers)) != len(windows):
+        raise CanaryError("visible-window IDs malformed or repeated")
+    for raw_window in windows:
+        window = raw_window.decode("ascii", "strict")
+        pid = owner(window)
+        if pid is None:
+            continue
+        name = query(["xdotool", "getwindowname", window])
+        if name["status"] != "PASS":
+            continue
+        title = name["stdout"].decode("utf-8", "strict")
+        if "\0" in title:
+            raise CanaryError("window title contains invalid framing")
+        geometry = query(["xdotool", "getwindowgeometry", "--shell", window])
+        if geometry["status"] != "PASS":
+            continue
+        geometry_text = geometry["stdout"].decode("ascii", "strict")
+        fields = {}
+        for line in geometry_text.splitlines():
+            key, separator, value = line.partition("=")
+            if (not separator or key in fields or len(value) > 11
+                    or re.fullmatch(r"-?[0-9]+", value) is None):
+                raise CanaryError("window geometry malformed")
+            fields[key] = int(value)
+        if (set(fields) != {"WINDOW", "X", "Y", "WIDTH", "HEIGHT", "SCREEN"}
+                or fields["WINDOW"] != int(window) or fields["SCREEN"] != 0
+                or not 0 < fields["WIDTH"] <= 65535 or not 0 < fields["HEIGHT"] <= 65535
+                or not -(2 ** 31) <= fields["X"] < 2 ** 31
+                or not -(2 ** 31) <= fields["Y"] < 2 ** 31):
+            raise CanaryError("window geometry outside measured display profile")
+        if owner(window) != pid:
+            continue
+        return {"id": window, "pid": pid, "process_group": process_group,
+                "scope": "startup-owned-visible-window-only", "document_identity": "UNVERIFIED",
+                "title": title, "geometry": geometry_text}
+    return None
 
 
 def runtime_file_limit():
@@ -204,26 +296,15 @@ def main():
         while True:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
-                report["startup_reason"] = "matching-window-deadline"
+                report["startup_reason"] = "owned-visible-window-deadline"
                 break
-            observed = command(["xdotool", "search", "--onlyvisible", "--name", "digital[.]pdf"],
-                               deadline_seconds=min(2, remaining), output_limit=4096)
-            windows = observed["stdout"].decode("ascii", "strict").split()
-            if observed["status"] == "PASS" and len(windows) == 1 and windows[0].isdigit():
-                name = command(["xdotool", "getwindowname", windows[0]],
-                               deadline_seconds=2, output_limit=4096)
-                geometry = command(["xdotool", "getwindowgeometry", "--shell", windows[0]],
-                                   deadline_seconds=2, output_limit=4096)
-                if name["status"] != "PASS" or geometry["status"] != "PASS":
-                    raise CanaryError("window measurement failed")
-                report["observed_window"] = {"id": windows[0],
-                                             "title": name["stdout"].decode("utf-8", "replace"),
-                                             "geometry": geometry["stdout"].decode("ascii")}
-                # Window title is startup evidence only, not page/render readiness.
+            observed = observe_owned_window(command, application.pid, deadline)
+            if observed is not None:
+                report["observed_window"] = observed
                 report["status"] = "STARTUP_OBSERVED"
                 break
             if time.monotonic() >= deadline:
-                report["startup_reason"] = "launcher-exited-or-matching-window-deadline"
+                report["startup_reason"] = "launcher-exited-or-owned-visible-window-deadline"
                 break
             time.sleep(0.1)
         report["processes_sampled_before_termination"] = process_metadata()

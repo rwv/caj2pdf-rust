@@ -196,9 +196,14 @@ collected a second pair failing on `libxslt.so.1`. With the measured provider
 added, a third pair exited 153 with a file-size-limit diagnostic; its target
 file is unknown. The fourth pair lost Xvfb to signal 25 and reported a separate
 QtWebEngine sandbox error. An original public shared-memory control isolates
-the display limit without launching the viewer. Document opening remains
-unverified. The [startup note](cajviewer-linux-startup.md) retains all eight
-reported failures, exact receipts and original child-limit controls. No
+the display limit without launching the viewer. The fifth pair retained
+matching-window deadline failures while its identical viewport captures
+showed the original four-page PDF under manual review. The prepared observer
+checks window PID/process-group ownership and records document identity as
+unverified; an owned window can be a dialog. The
+[startup note](cajviewer-linux-startup.md) retains all ten reported failures,
+exact receipts and original controls. Complete-page capture and text copy
+remain unattempted. No
 private vendor fixture has been acquired, and no supported Linux
 export CLI or headless API has been proven. The existing Python-converter
 regressions and [#117 composition evidence](hnc8-page-composition-evidence.md),

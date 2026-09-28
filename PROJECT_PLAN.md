@@ -133,12 +133,17 @@ issue acceptance criteria are authoritative for each task.
    merged in [PR #131](https://github.com/rwv/caj2pdf-rust/pull/131).
    [Capability #124](https://github.com/rwv/caj2pdf-rust/issues/124) remains open:
    public tmpfs controls pass and the measured `libxslt.so.1` provider is added,
-   but the latest pair loses Xvfb to signal 25 and reports a separate
-   QtWebEngine sandbox error. An original app-zero shared-memory control
-   isolates the Xvfb limit and verifies a bounded allowance. All eight
-   reported application failures remain recorded. The
+   and an original app-zero shared-memory control isolates the Xvfb limit and
+   verifies a bounded allowance. The fifth pair keeps its display/launcher
+   alive but fails an unverified filename-based window predicate. Identical
+   viewport captures support manual original-PDF opening observation only.
+   All ten reported failures remain recorded. An independently reviewed
+   observer now checks window PID/process-group ownership, with document
+   identity unverified. The
    [startup records and original child-limit controls](docs/cajviewer-linux-startup.md)
    require a new exact profile and reviewed finite budget before further apps.
+   Complete-page capture, physical-page navigation and fresh standard-copy
+   text must pass separate original controls before private acquisition.
    [Images #126](https://github.com/rwv/caj2pdf-rust/issues/126)
    and [text #127](https://github.com/rwv/caj2pdf-rust/issues/127) require both;
    [diffs #128](https://github.com/rwv/caj2pdf-rust/issues/128) follow the manifest

@@ -9,9 +9,12 @@ import json
 import os
 from pathlib import Path
 import resource
+import signal
+import subprocess
 import sys
 import tempfile
 import tarfile
+import time
 import unittest
 from unittest import mock
 
@@ -28,6 +31,156 @@ def load(name, path):
 
 SESSION = load("original_session", ROOT / "tools/cajviewer/cajviewer_session.py")
 DRIVER = load("original_startup_driver", ROOT / "tools/cajviewer/run.py")
+
+
+class WindowOwnershipTests(unittest.TestCase):
+    @staticmethod
+    def result(payload=b"", *, status="PASS", code=0, stderr=b""):
+        return {"status": status, "exit_code": code, "stdout": payload, "stderr": stderr,
+                "bytes_read": {"stdout": len(payload), "stderr": len(stderr)},
+                "prefix_truncated": status == "OUTPUT_LIMIT"}
+
+    @staticmethod
+    def geometry(window="123"):
+        return f"WINDOW={window}\nX=0\nY=0\nWIDTH=600\nHEIGHT=400\nSCREEN=0\n".encode()
+
+    def test_real_original_process_groups_prove_owned_and_refuse_foreign_windows(self):
+        children = []
+        try:
+            for _ in range(2):
+                children.append(subprocess.Popen([sys.executable, "-c", "import signal; signal.pause()"],
+                    start_new_session=True, stdin=subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
+            owned, foreign = children
+            self.assertEqual(os.getpgid(owned.pid), owned.pid)
+            self.assertNotEqual(os.getpgid(foreign.pid), owned.pid)
+            def query(argv, **kwargs):
+                if argv[1] == "search":
+                    self.assertEqual(argv, ["xdotool", "search", "--onlyvisible", "--maxdepth", "2",
+                                            "--limit", "17", "--name", ".*"])
+                    return self.result(b"122\n123\n")
+                if argv[1] == "getwindowpid":
+                    return self.result(str(foreign.pid if argv[-1] == "122" else owned.pid).encode() + b"\n")
+                self.assertEqual(argv[-1], "123")
+                return self.result(b"Original application\n" if argv[1] == "getwindowname" else self.geometry())
+            command = mock.Mock(side_effect=query)
+            observed = SESSION.observe_owned_window(command, owned.pid, time.monotonic() + 5)
+            self.assertEqual((observed["id"], observed["pid"], observed["process_group"]), ("123", owned.pid, owned.pid))
+            self.assertEqual(observed["scope"], "startup-owned-visible-window-only")
+            self.assertEqual(observed["document_identity"], "UNVERIFIED")
+            self.assertNotIn("digital.pdf", observed["title"])
+            self.assertEqual(command.call_count, 6)
+            self.assertTrue(all(0 < call.kwargs["deadline_seconds"] <= 2 for call in command.call_args_list))
+        finally:
+            for child in children:
+                try:
+                    os.killpg(child.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                child.wait(timeout=5)
+
+    def test_missing_zero_and_malformed_pid_never_measure_a_window(self):
+        outcomes = [self.result(data) for data in (b"", b"0\n", b"unknown\n", b"12 34\n", b"2147483648\n")]
+        outcomes.append(self.result(status="FAIL", code=1, stderr=b"missing _NET_WM_PID\n"))
+        for outcome in outcomes:
+            with self.subTest(outcome=outcome):
+                command = mock.Mock(side_effect=[self.result(b"123\n"), outcome])
+                with mock.patch.object(SESSION.os, "getpgid") as group:
+                    self.assertIsNone(SESSION.observe_owned_window(command, 101, time.monotonic() + 5))
+                group.assert_not_called()
+                self.assertEqual(command.call_count, 2)
+
+    def test_disappeared_or_inaccessible_process_is_not_an_owned_window(self):
+        for error in (ProcessLookupError(), PermissionError()):
+            with self.subTest(error=type(error).__name__):
+                command = mock.Mock(side_effect=[self.result(b"123\n"), self.result(b"101\n")])
+                with mock.patch.object(SESSION.os, "getpgid", side_effect=error):
+                    self.assertIsNone(SESSION.observe_owned_window(command, 101, time.monotonic() + 5))
+                self.assertEqual(command.call_count, 2)
+
+    def test_stale_pid_and_group_after_measurement_refuse_the_candidate(self):
+        for final_pid, groups in ((b"102\n", [101, 101]), (b"101\n", [101, 102]),
+                                  (b"101\n", [101, ProcessLookupError()])):
+            with self.subTest(pid=final_pid, groups=groups):
+                command = mock.Mock(side_effect=[self.result(b"123\n"), self.result(b"101\n"),
+                    self.result(b"Original title\n"), self.result(self.geometry()), self.result(final_pid)])
+                with mock.patch.object(SESSION.os, "getpgid", side_effect=groups):
+                    self.assertIsNone(SESSION.observe_owned_window(command, 101, time.monotonic() + 5))
+                self.assertEqual(command.call_count, 5)
+
+    def test_window_count_limit_is_checked_before_owner_queries(self):
+        for count in (16, 17):
+            command = mock.Mock(side_effect=[self.result(b"".join(f"{number}\n".encode() for number in range(1, count + 1)))]
+                                           + [self.result(b"0\n")] * count)
+            with self.subTest(count=count), mock.patch.object(SESSION.os, "getpgid") as group:
+                if count == 16:
+                    self.assertIsNone(SESSION.observe_owned_window(command, 101, time.monotonic() + 5))
+                    self.assertEqual(command.call_count, 17)
+                else:
+                    with self.assertRaisesRegex(SESSION.CanaryError, "candidate count"):
+                        SESSION.observe_owned_window(command, 101, time.monotonic() + 5)
+                    self.assertEqual(command.call_count, 1)
+                group.assert_not_called()
+
+    def test_search_framing_and_helper_faults_never_become_empty_searches(self):
+        invalid = [self.result(data) for data in (b"0\n", b"-1\n", b"bad\n", b"123\n123\n", b"01\n1\n", b"123\n\n")]
+        invalid += [self.result(status=status, code=-9) for status in ("TIMEOUT", "OUTPUT_LIMIT")]
+        invalid += [self.result(status="FAIL", code=1, stderr=b"display unavailable\n"),
+                    self.result(status="FAIL", code=2),
+                    self.result(stderr=b"unexpected warning\n")]
+        for outcome in invalid:
+            with self.subTest(outcome=outcome):
+                command = mock.Mock(return_value=outcome)
+                with self.assertRaises(SESSION.CanaryError):
+                    SESSION.observe_owned_window(command, 101, time.monotonic() + 5)
+                self.assertEqual(command.call_count, 1)
+        for outcome in (self.result(), self.result(status="FAIL", code=1)):
+            self.assertIsNone(SESSION.observe_owned_window(mock.Mock(return_value=outcome), 101, time.monotonic() + 5))
+
+    def test_timeout_or_output_limit_at_every_owner_measurement_is_failure(self):
+        valid = [self.result(b"123\n"), self.result(b"101\n"), self.result(b"Original title\n"),
+                 self.result(self.geometry()), self.result(b"101\n")]
+        for index in range(1, len(valid)):
+            for status in ("TIMEOUT", "OUTPUT_LIMIT"):
+                command = mock.Mock(side_effect=valid[:index] + [self.result(status=status, code=-9)])
+                with self.subTest(index=index, status=status), mock.patch.object(SESSION.os, "getpgid", return_value=101):
+                    with self.assertRaises(SESSION.CanaryError):
+                        SESSION.observe_owned_window(command, 101, time.monotonic() + 5)
+                    self.assertEqual(command.call_count, index + 1)
+
+    def test_malformed_geometry_or_title_is_failure_and_disappeared_window_is_refused(self):
+        geometries = [b"WIDTH=600\nHEIGHT=400\n", self.geometry().replace(b"WINDOW=123", b"WINDOW=124"),
+                      self.geometry().replace(b"WIDTH=600", b"WIDTH=0"),
+                      self.geometry() + b"SCREEN=0\n", self.geometry().replace(b"X=0", b"X=unknown")]
+        for payload in geometries:
+            command = mock.Mock(side_effect=[self.result(b"123\n"), self.result(b"101\n"),
+                self.result(b"Original title\n"), self.result(payload)])
+            with self.subTest(payload=payload), mock.patch.object(SESSION.os, "getpgid", return_value=101):
+                with self.assertRaises(SESSION.CanaryError):
+                    SESSION.observe_owned_window(command, 101, time.monotonic() + 5)
+        for payload in (b"bad\0title", b"\xff"):
+            command = mock.Mock(side_effect=[self.result(b"123\n"), self.result(b"101\n"), self.result(payload)])
+            with self.subTest(payload=payload), mock.patch.object(SESSION.os, "getpgid", return_value=101):
+                with self.assertRaises((SESSION.CanaryError, UnicodeError)):
+                    SESSION.observe_owned_window(command, 101, time.monotonic() + 5)
+        for stage in (2, 3):
+            valid = [self.result(b"123\n"), self.result(b"101\n"), self.result(b"Original title\n")]
+            command = mock.Mock(side_effect=valid[:stage] + [self.result(status="FAIL", code=1, stderr=b"BadWindow\n")])
+            with self.subTest(stage=stage), mock.patch.object(SESSION.os, "getpgid", return_value=101):
+                self.assertIsNone(SESSION.observe_owned_window(command, 101, time.monotonic() + 5))
+
+    def test_queries_share_deadline_and_do_not_reset_after_elapsed_query(self):
+        command = mock.Mock(return_value=self.result(b"123\n"))
+        with mock.patch.object(SESSION.time, "monotonic", side_effect=[0, 1]):
+            with self.assertRaisesRegex(SESSION.CanaryError, "deadline"):
+                SESSION.observe_owned_window(command, 101, 1)
+        self.assertEqual(command.call_count, 1)
+        self.assertEqual(command.call_args.kwargs["deadline_seconds"], 1)
+        command.reset_mock()
+        with mock.patch.object(SESSION.time, "monotonic", return_value=1):
+            with self.assertRaisesRegex(SESSION.CanaryError, "deadline"):
+                SESSION.observe_owned_window(command, 101, 1)
+        command.assert_not_called()
 
 
 class StartupFailureTests(unittest.TestCase):
@@ -164,8 +317,9 @@ print(json.dumps({"refused": refused, "size": target.stat().st_size,
             def sleep(value):
                 elapsed[0] += value
             def command(argv, **kwargs):
-                payload = (b"123\n" if "search" in argv else b"digital.pdf\n" if "getwindowname" in argv
-                           else b"WIDTH=600\nHEIGHT=400\n" if "getwindowgeometry" in argv else b"display ready\n")
+                payload = (b"123\n" if "search" in argv else b"102\n" if "getwindowpid" in argv
+                           else b"Original application\n" if "getwindowname" in argv
+                           else WindowOwnershipTests.geometry() if "getwindowgeometry" in argv else b"display ready\n")
                 return {"status": "PASS", "exit_code": 0, "stdout": payload, "stderr": b"",
                         "bytes_read": {"stdout": len(payload), "stderr": 0}, "prefix_truncated": False}
             children = [mock.Mock(pid=100 + index) for index in range(3)]
@@ -178,6 +332,7 @@ print(json.dumps({"refused": refused, "size": target.stat().st_size,
                     mock.patch.object(SESSION, "cgroup_metrics", return_value={"memory.peak": "12", "memory.events": "oom_kill 0\n"}), \
                     mock.patch.object(SESSION, "process_metadata", return_value=[]), \
                     mock.patch.object(SESSION.subprocess, "Popen", side_effect=children) as launch, \
+                    mock.patch.object(SESSION.os, "getpgid", return_value=102), \
                     mock.patch.object(SESSION.os, "killpg") as kill, \
                     mock.patch.object(SESSION.time, "monotonic", side_effect=now), \
                     mock.patch.object(SESSION.time, "sleep", side_effect=sleep), \
@@ -187,6 +342,9 @@ print(json.dumps({"refused": refused, "size": target.stat().st_size,
             report = json.loads((output / "session.json").read_text())
             self.assertEqual(report["status"], "FAIL")
             self.assertEqual(report["observed_window"]["id"], "123")
+            self.assertEqual(report["observed_window"]["pid"], 102)
+            self.assertEqual(report["observed_window"]["process_group"], 102)
+            self.assertEqual(report["observed_window"]["document_identity"], "UNVERIFIED")
             self.assertEqual(report["vendor_passes"], 0)
             self.assertEqual(report["observed_supervisor_qtwebengine_disable_sandbox"], "1")
             self.assertEqual(report["loaded_qt_version"], "UNKNOWN")
