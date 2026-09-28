@@ -176,8 +176,21 @@ issue acceptance criteria are authoritative for each task.
    attempt. Its complete envelope records `FileNotFoundError` without a loading
    stage or missing path; the specific cause remains UNKNOWN. Closing audits
    and owned-container cleanup passed; all 2,731 runtime comparisons remain
-   NOT_RUN. Original source-load accounting and fault controls are the next
-   native child/blocker [#143](https://github.com/rwv/caj2pdf-rust/issues/143).
+   NOT_RUN. Original source-load accounting and fault controls in
+   native child/blocker [#143](https://github.com/rwv/caj2pdf-rust/issues/143)
+   now preserve bounded ordered read/pin/compile/exec records for the two
+   whitelisted MIT source paths. One reviewed original runner passed all
+   25 methods (19 mandatory, four actual inline and two actual host controls),
+   with ten mocked helper callbacks and zero actual child, Docker, runtime,
+   viewer or private actions. All 24 source audit rows and the closing plan
+   identity passed; invented fixtures were removed. The
+   [source-load contract and evidence](docs/cajviewer-source-loading.md)
+   retain cleanup-refusal controls and limited application/virtual I/O scopes.
+   Exact-head source/PR/hosted release gates remain required before closing
+   this diagnostic child. This proves neither installed source files nor a
+   completed inventory. The proposed v11 phase remains DRAFT/REFUSED and
+   requires a separately reviewed immutable profile, same-PID preflight
+   receipt and fresh two-review token.
    Further diagnostics and startup require separate exact freezes and reviews.
    The twelve historical launcher attempts and unknown helper-stderr cause
    are preserved; no new capability passed.
