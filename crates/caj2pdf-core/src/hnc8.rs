@@ -6,11 +6,15 @@
 //! [`convert_type2_image_pdf`] streams one checked type-2 JPEG to PDF.
 //! [`convert_type3_image_pdf`] decodes one observed type-3 JBIG2 image with a
 //! caller-supplied MQ table and bounded stores.
+//! [`read_text_coordinates`] validates the observed text frame while retaining
+//! only raw image-coordinate words. Empirical geometry remains diagnostic.
 
 mod convert;
 mod convert_jbig2;
 mod convert_jpeg;
 mod jpeg;
+mod placement;
+mod text;
 
 pub use convert::{
     MultipleImages, Type0ImageSelection, Type0PdfError, Type0PdfErrorKind, Type0PdfOptions,
@@ -25,6 +29,15 @@ pub use convert_jpeg::{
     convert_type2_image_pdf,
 };
 pub use jpeg::{JpegBudget, JpegColor, JpegInfo, read_type2_jpeg_info};
+pub use placement::{
+    EMPIRICAL_COORDINATE_POINTS_PER_UNIT, EMPIRICAL_PIXEL_POINTS,
+    EMPIRICAL_PLACEMENT_TOLERANCE_POINTS, EmpiricalPageGeometry, empirical_image_transform,
+    empirical_page_from_pixels, empirical_page_from_type0,
+};
+pub use text::{
+    RawTextCoordinate, TEXT_DECODER_RESERVATION_BYTES, TextBudget, TextCoordinates,
+    read_text_coordinates,
+};
 
 use crate::jbig1::Type0Span;
 use crate::{Cancellation, Error, Limits, RangedSource, read_exact_at};
