@@ -70,6 +70,14 @@ BASELINE_PINS = {
     "c8": (2759609, "acbd822358c08713a795f8c0ad82c6f23c4b43d9e137d515c3210114ca1bc885"),
     "hn_b": (826645, "b058b38be3efc3915f69bb79d6160d7a54c4ef47ac529ebe963214eb697d2a51"),
 }
+# External grayscale oracle: all nine objects/four raw streams were proven
+# unchanged after only the two image ColorSpace corrections. Legacy repeats
+# stay in the six-file audit set even when this explicit diagnostic is chosen.
+CORRECTED_HNB_PIN = (826724, "2d423e1262142030b9b042a54735edc1776b132ae2fc54a3cbfc4b5f4d6f10fd")
+# The independent 72/300 dimension revision is bound to one source/binary
+# pair. Its external full-page plan must be frozen before private execution.
+RATIONAL_NATIVE_PIN = ("e76f557009fea368714fc5866b996dc13b660df52a44598c640d89e0a844cb90",
+                       "aa85136b67cc450957d610476c97aab76eb86b6c9a4730f7e261cdbbc5a9cb53")
 PROTOCOL_PINS = {
     "protocol": ("docs/hnc8-page-composition-protocol.md", "6b423115b903521ffc7d99f2ce592c45e1933649e941afd485fe6a51aa292c93"),
     "dictionary_probe_protocol": ("docs/hnc8-page-composition-dictionary-probe.md", "abb348a40495a5ff12e1f38f8dc7f568f3596dc49f9041c70e313a40398f08fb"),
@@ -182,14 +190,35 @@ def _preserved_inputs() -> dict:
     return inputs
 
 
+def _corrected_hnb_identity(path: Path) -> dict:
+    identity = file_identity(path, PDF_LIMIT)
+    if (identity["size_bytes"], identity["sha256"]) != CORRECTED_HNB_PIN:
+        raise CompositionError("corrected HN-B reference differs from its separate complete identity pin")
+    return identity
+
+
+def _corrected_hnb_case(case: dict) -> dict:
+    corrected = copy.deepcopy(case)
+    if (corrected.get("source_variant") != "HN-B" or
+            corrected.get("output_page_to_source_page") != [1, 6] or len(corrected.get("pdf_pages", [])) != 2):
+        raise CompositionError("corrected HN-B metadata basis differs from the observed two-page profile")
+    for page in corrected["pdf_pages"]:
+        draws = page.get("draws", [])
+        if len(draws) != 1 or draws[0].get("color_space") != "DeviceRGB":
+            raise CompositionError("corrected HN-B metadata basis is not the sole two-color-declaration change")
+        draws[0]["color_space"] = "DeviceGray"
+    return corrected
+
+
 def _require_original_native(native_sha: str, source_sha: str) -> None:
     path, _, pin = PRESERVED_PINS["first_failed_report"]
     report = _pinned_json(path, pin)
     audit = report.get("native_audit", {})
-    if (report.get("status") != "FAIL" or audit.get("status") != "PASS" or
-            audit.get("after_status") != "PASS" or audit.get("binary", {}).get("sha256") != native_sha or
-            audit.get("source", {}).get("sha256") != source_sha):
-        raise CompositionError("rerun native executable or Rust/Cargo identity differs from the preserved first attempt")
+    if (report.get("status") != "FAIL" or audit.get("status") != "PASS" or audit.get("after_status") != "PASS"):
+        raise CompositionError("preserved first-attempt provenance audit differs")
+    original = (audit.get("binary", {}).get("sha256"), audit.get("source", {}).get("sha256"))
+    if (native_sha, source_sha) not in (original, RATIONAL_NATIVE_PIN):
+        raise CompositionError("native/source pair is outside the declared composition revisions")
 
 
 def _environment(session: Path) -> dict[str, str]:
@@ -478,12 +507,13 @@ def pnm_header(stream: BinaryIO, *, rgb: bool = False) -> Pnm:
     return Pnm(magic, width, height, stream.tell(), row_bytes)
 
 
-def _raster(path: Path, width: int, height: int, *, rgb: bool = False) -> Pnm:
+def _raster(path: Path, width: int | None = None, height: int | None = None, *, rgb: bool = False) -> Pnm:
     if path.stat().st_size > RASTER_LIMIT:
         raise CompositionError("raster file exceeds its cap")
     with path.open("rb") as stream:
         info = pnm_header(stream, rgb=rgb)
-    if (info.width, info.height) != (width, height) or path.stat().st_size != info.offset + info.row_bytes * height:
+    if (((width is not None or height is not None) and (info.width, info.height) != (width, height)) or
+            path.stat().st_size != info.offset + info.row_bytes * info.height):
         raise CompositionError("raster dimensions or exact payload length differ")
     return info
 
@@ -530,6 +560,30 @@ def compare_pixels(baseline: Path, candidate: Path, width: int, height: int) -> 
             "maximum_channel_difference": worst, "absolute_difference_sum": absolute,
             "mean_absolute_channel_difference": absolute/(width*height*3),
             "baseline_nonwhite_pixels": nonwhite[0], "candidate_nonwhite_pixels": nonwhite[1]}
+
+
+def compare_page_pixels(baseline: Path, candidate: Path, media_box: list) -> dict:
+    """Compare every pixel of the observed zero-origin 300-DPI page profile.
+
+    Original controls demonstrate an N or N+1 canvas axis at integral device
+    boundaries. Discover the bounded renderer canvas; require both outputs to
+    have the same complete grid. This grants no pixel tolerance or cropping.
+    """
+    if (not isinstance(media_box, (list, tuple)) or len(media_box) != 4 or
+            any(type(value) not in (int, float) or abs(value) > 14400 or not math.isfinite(value) for value in media_box) or
+            media_box[:2] not in ([0, 0], (0, 0)) or any(value < 1.0 for value in media_box[2:])):
+        raise CompositionUnsupported("page raster geometry is outside the zero-origin diagnostic profile")
+    nominal = [round(value*300/72) for value in media_box[2:]]
+    if any(not 1 <= axis <= 32768 or abs(value*300/72-axis) > 1e-8
+           for value, axis in zip(media_box[2:], nominal)):
+        raise CompositionUnsupported("page raster geometry is outside the integral 300-DPI profile")
+    info = _raster(baseline, rgb=True)
+    if any(actual not in (axis, axis+1) for actual, axis in zip((info.width, info.height), nominal)):
+        raise CompositionError("complete page raster is outside the observed canvas boundary")
+    comparison = compare_pixels(baseline, candidate, info.width, info.height)
+    comparison["nominal_grid"] = nominal
+    comparison["canvas_policy"] = "complete equal grids; observed integral axis N or N+1; zero pixel tolerance"
+    return comparison
 
 
 def _nonwhite_count(data: bytes) -> int:
@@ -959,8 +1013,6 @@ def check_pixels(commands: Commands, baseline: Path, candidate: Path, pages: lis
     for page in pages:
         number = page["page_number"]
         box = page["media_box"]
-        width = math.ceil((box[2]-box[0])*300/72-1e-8)
-        height = math.ceil((box[3]-box[1])*300/72-1e-8)
         for renderer in ("mutool", "pdftoppm"):
             commands.context.update(page=number, renderer=renderer)
             with _comparison(commands.report["counts"], "page_renderer_pairs", result.setdefault("progress", []),
@@ -977,7 +1029,7 @@ def check_pixels(commands: Commands, baseline: Path, candidate: Path, pages: lis
                                      "-aaVector", "no", "-f", str(number), "-l", str(number), str(source)]
                     identities.append(_to_file(commands, arguments, "complete page RGB pixels", output, RASTER_LIMIT, timeout=60))
                     pair.append(output)
-                comparison = compare_pixels(*pair, width, height)
+                comparison = compare_page_pixels(*pair, box)
                 comparison.update(page=number, renderer=renderer)
                 comparison["whole_file_identities"] = {"baseline": identities[0], "candidate": identities[1]}
                 result["page_pixels"].append(comparison)
@@ -1003,7 +1055,8 @@ def _report() -> dict:
                                             "converter_launches", "validator_launches", "render_launches",
                                             "metadata_groups_attempted", "metadata_groups_passing", "metadata_groups_failing", "metadata_groups_skipped", "metadata_groups_unsupported",
                                             "profiles_attempted", "profiles_passing", "profiles_failing", "profiles_skipped", "profiles_unsupported",
-                                            "source_checks_before", "source_checks_after", "baseline_checks_before", "baseline_checks_after")},
+                                            "source_checks_before", "source_checks_after", "baseline_checks_before", "baseline_checks_after",
+                                            "corrected_reference_checks_before", "corrected_reference_checks_after")},
                        **{f"{kind}_{outcome}": 0 for kind in EXPECTED for outcome in ("attempted", "passing", "failing", "skipped", "unsupported")}},
             **{name: {"status": "NOT_RUN"} for name in ("source_audit", "baseline_audit", "table_audit",
                                                        "environment_audit", "input_audit", "native_audit")},
@@ -1044,6 +1097,8 @@ def _audit(paths: dict, baselines: dict, rows: list[dict], tools: dict,
         raise CompositionError("reference-report pin changed before/during the experiment")
     inputs.update(_protocol_inputs())
     inputs.update(_preserved_inputs())
+    if "corrected_hn_b" in paths:
+        inputs["corrected_hn_b_reference"] = _corrected_hnb_identity(paths["corrected_hn_b"])
     for name in ("hnc8_page_composition.py", "hnc8_layout_pdf.py", "hnc8_placement_rule.py", "hnc8_layout_reference.py"):
         inputs[name] = file_identity(ROOT / "scripts" / name, MIB)
     inputs["synthetic_tests"] = file_identity(ROOT / "tests/conformance/test_hnc8_page_composition.py", MIB)
@@ -1126,6 +1181,10 @@ def _execution_receipt(paths: dict, tools: dict, oracle: dict, rows: list[dict],
                "invocations": invocations, "table_declared_sha256": TABLE_SHA,
                "maximum_native_launches": NATIVE_LAUNCH_LIMIT,
                "maximum_converter_launches": 0, "maximum_render_launches": RENDER_LAUNCH_LIMIT}
+    if "corrected_hn_b" in paths:
+        receipt["corrected_hn_b_reference"] = {
+            "path": str(paths["corrected_hn_b"]), "size_bytes": CORRECTED_HNB_PIN[0], "sha256": CORRECTED_HNB_PIN[1]}
+        receipt["reference_policy"] = "HN-A/C8 legacy; HN-B separately pinned corrected Gray; legacy parity not claimed"
     encoded = json.dumps(receipt, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
     if len(encoded) > MIB:
         raise CompositionError("internal execution receipt exceeds its metadata cap")
@@ -1147,6 +1206,10 @@ def _verify_receipt(identity: dict) -> None:
     for expected in receipt.get("preserved_metadata_files", {}).values():
         if file_identity(Path(expected["path"]), MIB) != expected:
             raise CompositionError("preserved failure/probe metadata changed from the internal execution receipt")
+    if "corrected_hn_b_reference" in receipt:
+        expected = receipt["corrected_hn_b_reference"]
+        if _corrected_hnb_identity(Path(expected["path"])) != expected:
+            raise CompositionError("corrected HN-B reference changed from its internal execution receipt")
 
 
 def run(paths: Mapping[str, Path] | None = None, *, native_sha256: str | None = None,
@@ -1156,10 +1219,15 @@ def run(paths: Mapping[str, Path] | None = None, *, native_sha256: str | None = 
         return report
     before = commands = session = resolved = baseline_paths = rows = tools = None
     try:
-        if paths is None or not REQUIRED.issubset(paths) or set(paths)-REQUIRED-set(TOOL_PINS)-{"python"}:
+        if paths is None or not REQUIRED.issubset(paths) or set(paths)-REQUIRED-set(TOOL_PINS)-{"python", "corrected_hn_b"}:
             raise CompositionError("complete explicit external paths are required")
         expected_binary, expected_source = _sha(native_sha256), _sha(native_source_sha256)
         resolved = {name: Path(paths[name]).resolve(strict=True) for name in REQUIRED}
+        if "corrected_hn_b" in paths:
+            resolved["corrected_hn_b"] = Path(paths["corrected_hn_b"]).resolve(strict=True)
+            if resolved["corrected_hn_b"].is_relative_to(ROOT):
+                raise CompositionError("corrected HN-B reference must remain outside Git")
+            report["reference_policy"] = "HN-A/C8 legacy; HN-B separately pinned corrected Gray; legacy parity not claimed"
         if not resolved["corpus"].is_dir() or not resolved["artifact_root"].is_dir():
             raise CompositionError("corpus/artifact roots must be existing directories")
         if resolved["artifact_root"].is_relative_to(ROOT) or resolved["artifact_root"].is_relative_to(Path("/tmp")):
@@ -1191,6 +1259,7 @@ def run(paths: Mapping[str, Path] | None = None, *, native_sha256: str | None = 
         _verify_receipt(report["internal_execution_receipt"])
         report["counts"]["source_checks_before"] = 27
         report["counts"]["baseline_checks_before"] = 6
+        report["counts"]["corrected_reference_checks_before"] = int("corrected_hn_b" in resolved)
         versions = {}
         for name, path in tools.items():
             data, _ = commands.run([str(path), "--version" if name in ("qpdf", "git") else "-v"],
@@ -1207,11 +1276,15 @@ def run(paths: Mapping[str, Path] | None = None, *, native_sha256: str | None = 
         aggregate_pdf = 0
         for name in ("hn_a", "c8", "hn_b"):
             case = oracle[name]
+            corrected_hn_b = name == "hn_b" and "corrected_hn_b" in resolved
+            if corrected_hn_b:
+                case = _corrected_hnb_case(case)
             source = (resolved["corpus"] / source_by_id[case["source_id"]]["path"]).resolve(strict=True)
             output = session / f"{name}.pdf"
             result = {"profile": name, "status": "ATTEMPTED", "source_id": case["source_id"],
                       "source_sha256": source_by_id[case["source_id"]]["sha256"],
                       "type0_arrays": [], "page_pixels": []}
+            result["comparison_basis"] = "separately pinned corrected grayscale reference" if corrected_hn_b else "pinned legacy reference"
             report["profiles"].append(result)
             report["counts"]["profiles_attempted"] += 1
             commands.kind, commands.context = "native", {"profile": name}
@@ -1234,7 +1307,7 @@ def run(paths: Mapping[str, Path] | None = None, *, native_sha256: str | None = 
                     raise CompositionError("aggregate native PDF output exceeds its cap")
                 result["output_pdf"] = identity
                 commands.kind = "validator"
-                baseline_path = baseline_paths[f"{name}-run1"]
+                baseline_path = resolved["corrected_hn_b"] if corrected_hn_b else baseline_paths[f"{name}-run1"]
                 with _comparison(report["counts"], "metadata_groups", result.setdefault("progress", [])):
                     with commands.metadata_controller():
                         metadata_tools = {key: tools[key] for key in ("qpdf", "mutool", "pdfimages")}
@@ -1290,6 +1363,7 @@ def run(paths: Mapping[str, Path] | None = None, *, native_sha256: str | None = 
                     report[name]["after_status"] = "PASS"
                 report["counts"]["source_checks_after"] = 27
                 report["counts"]["baseline_checks_after"] = 6
+                report["counts"]["corrected_reference_checks_after"] = int("corrected_hn_b" in resolved)
             except (Exception, KeyboardInterrupt) as exc:
                 report["status"] = "FAIL"
                 report["errors"].append(f"post-run audit: {exc}")
@@ -1328,13 +1402,14 @@ def run(paths: Mapping[str, Path] | None = None, *, native_sha256: str | None = 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    for name in sorted(REQUIRED | (set(TOOL_PINS)-{"python"})):
+    optional_paths = (set(TOOL_PINS)-{"python"}) | {"corrected_hn_b"}
+    for name in sorted(REQUIRED | optional_paths):
         parser.add_argument("--"+name.replace("_", "-"), type=Path)
     parser.add_argument("--native-sha256")
     parser.add_argument("--native-source-sha256")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
-    supplied = {name: getattr(args, name) for name in REQUIRED | (set(TOOL_PINS)-{"python"})
+    supplied = {name: getattr(args, name) for name in REQUIRED | optional_paths
                 if getattr(args, name) is not None}
     report = run(supplied or None, native_sha256=args.native_sha256,
                  native_source_sha256=args.native_source_sha256)

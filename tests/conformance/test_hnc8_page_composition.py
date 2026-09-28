@@ -19,15 +19,16 @@ sys.path.insert(0, str(ROOT / "scripts"))
 import hnc8_page_composition as subject
 
 
-def fixture():
+def fixture(width=4, height=2):
     """Invented compact six-row metadata; no source or converter fixture."""
     pages, source, outputs, lines = [], [], [], []
-    ctm = [0.96, 0.0, 0.0, -0.48, 0.0, 0.48]
+    point_width, point_height = width*72/300, height*72/300
+    ctm = [point_width, 0.0, 0.0, -point_height, 0.0, point_height]
     digest = hashlib.sha256(b"original synthetic encoded identity").hexdigest()
     for number in range(1, 7):
         output = 1 if number == 1 else 2 if number == 6 else None
         image = {"image_number": 1, "record_type": 2, "descriptor_offset": 1000+number*20,
-                 "payload_offset": 1500+number*20, "payload_length": 12, "width": 4, "height": 2,
+                 "payload_offset": 1500+number*20, "payload_length": 12, "width": width, "height": height,
                  "payload_sha256": digest}
         images = [image] if output else []
         source.append({"page_number": number, "text_offset": 500+number*16,
@@ -35,18 +36,18 @@ def fixture():
         pages.append({"source_page": number, "row_offset": 100+(number-1)*20,
                       "text_offset": 500+number*16, "text_length": 8,
                       "image_count": len(images), "output_page": output,
-                      "media_box": [0.0, 0.0, 0.96, 0.48] if output else None,
-                      "images": [{**image, "page_number": number, "display_width": 4, "pdf_ctm": ctm}] if output else []})
+                      "media_box": [0.0, 0.0, point_width, point_height] if output else None,
+                      "images": [{**image, "page_number": number, "display_width": width, "pdf_ctm": ctm}] if output else []})
         lines.append("\t".join(map(str, ["P", number, 100+(number-1)*20, 500+number*16,
                                          8, len(images), output or 0, 0, 0,
-                                         0.96 if output else 0, 0.48 if output else 0])))
+                                         point_width if output else 0, point_height if output else 0])))
         if output:
             lines.append("\t".join(map(str, ["I", number, 1, 2, image["descriptor_offset"],
-                                             image["payload_offset"], 12, 4, 4, 2, *ctm])))
-            draw = {"draw_number": 1, "width": 4, "height": 2, "bits_per_component": 8,
+                                             image["payload_offset"], 12, width, width, height, *ctm])))
+            draw = {"draw_number": 1, "width": width, "height": height, "bits_per_component": 8,
                     "pdf_ctm": ctm, "filter": "/DCTDecode", "color_space": "DeviceGray",
                     "raw_stream_sha256": digest, "raw_stream_length": 12, "object_id": 20+output}
-            outputs.append({"page_number": output, "media_box": [0.0, 0.0, 0.96, 0.48], "draws": [draw]})
+            outputs.append({"page_number": output, "media_box": [0.0, 0.0, point_width, point_height], "draws": [draw]})
     # Seventeen numeric resource fields after the variant.
     values = [6, 2, 4, 0, 2, 256, 0, 0, 0, 0, 100, 32, 1, 1, 0, 0, 0]
     lines.append("\t".join(map(str, ["R", "HN-B", *values])))
@@ -315,6 +316,118 @@ class SyntheticComposition(unittest.TestCase):
             self.assertEqual(diff["changed_channels"], 1)
             self.assertEqual(diff["absolute_difference_sum"], 255)
 
+    def test_complete_page_canvas_boundaries_never_crop_or_relax_pixels(self):
+        box = [0, 0, 1.2, 1.68]  # An original five-by-seven nominal grid.
+        for width, height in ((5, 7), (6, 7), (5, 8), (6, 8)):
+            with self.subTest(grid=(width, height)):
+                body = bytes((i*29) % 256 for i in range(width*height*3))
+                first = self.ppm("canvas-first.ppm", width, height, body)
+                same = self.ppm("canvas-same.ppm", width, height, body)
+                result = subject.compare_page_pixels(first, same, box)
+                self.assertEqual(result["status"], "PASS")
+                self.assertEqual(result["nominal_grid"], [5, 7])
+                self.assertEqual(result["compared_channels"], width*height*3)
+                changed = self.ppm("canvas-edge.ppm", width, height, body[:-1]+bytes([body[-1]^255]))
+                self.assertEqual(subject.compare_page_pixels(first, changed, box)["changed_channels"], 1)
+                wrong = self.ppm("canvas-mismatch.ppm", width+1, height, b"\x00"*((width+1)*height*3))
+                with self.assertRaises(subject.CompositionError):
+                    subject.compare_page_pixels(first, wrong, box)
+        for width, height in ((4, 7), (7, 7), (5, 6), (5, 9)):
+            first = self.ppm("canvas-outside.ppm", width, height, b"\x00"*(width*height*3))
+            with self.subTest(grid=(width, height)), self.assertRaises(subject.CompositionError):
+                subject.compare_page_pixels(first, first, box)
+        first = self.ppm("canvas-trailing.ppm", 5, 7, b"\x00"*106)
+        with self.assertRaises(subject.CompositionError):
+            subject.compare_page_pixels(first, first, box)
+        first = self.ppm("canvas-short.ppm", 5, 7, b"\x00"*104)
+        with self.assertRaises(subject.CompositionError):
+            subject.compare_page_pixels(first, first, box)
+        for geometry in (None, [0,0,1], [1,0,1.2,1.68], [0,0,.96,1.68], [0,0,1.3,1.68],
+                         [0,0,8000,1.68], [0,0,float("nan"),1.68], [0,0,1<<2000,1.68]):
+            with self.subTest(geometry=str(geometry)[:80]), self.assertRaises(subject.CompositionUnsupported):
+                subject.compare_page_pixels(first, first, geometry)
+
+    def test_original_decimal_ctm_boundary_still_fails_complete_poppler_pixels(self):
+        commands, report = self.commands()
+        tools = {name: shutil.which(name) for name in ("mutool", "pdftoppm")}
+        self.assertTrue(all(tools.values()), "original numeric boundary controls require both renderers")
+        image = b"/Type /XObject /Subtype /Image /Width 3 /Height 2 /BitsPerComponent 8 /ColorSpace /DeviceGray"
+        samples = bytes([0, 70, 255, 240, 130, 10])
+        wrappers = []
+        for name, width in (("ratio", 2071*72/300), ("binary-factor", 2071*.24)):
+            content = f"q\n{width!r} 0 0 -36.72 0 36.72 cm\n/Im0 Do\nQ\n".encode()
+            wrappers.append(original_image_pdf(self.root/f"{name}.pdf", image, samples, content, 497.04, 36.72))
+        self.assertNotEqual(2071*72/300, 2071*.24)
+        commands.kind = "render"
+        for renderer, expected_grid in (("mutool", (2071,153)), ("pdftoppm", (2071,154))):
+            paths = []
+            for index, pdf in enumerate(wrappers):
+                output = commands.session/f"precision-{renderer}-{index}.ppm"
+                if renderer == "mutool":
+                    argv = [tools[renderer], "draw", "-q", "-r", "300", "-A", "0", "-c", "rgb", "-F", "pnm", "-o", "-", str(pdf), "1"]
+                else:
+                    argv = [tools[renderer], "-r", "300", "-singlefile", "-aa", "no", "-aaVector", "no", "-f", "1", "-l", "1", str(pdf)]
+                subject._to_file(commands, argv, "original numeric boundary full page", output, subject.RASTER_LIMIT, timeout=10)
+                paths.append(output)
+            result = subject.compare_page_pixels(*paths, [0,0,497.04,36.72])
+            self.assertEqual((result["width"], result["height"]), expected_grid)
+            self.assertGreater(result["baseline_nonwhite_pixels"], 0)
+            self.assertEqual(result["status"], "PASS" if renderer == "mutool" else "FAIL")
+            if renderer == "pdftoppm":
+                self.assertGreater(result["changed_channels"], 0)
+        self.assertEqual(report["counts"]["render_launches"], 4)
+        self.assertEqual(report["counts"]["native_launches"], 0)
+        self.assertEqual(report["counts"]["converter_launches"], 0)
+
+    def test_corrected_reference_is_separately_pinned_and_changes_only_two_colors(self):
+        _, _, case, _ = fixture()
+        for page in case["pdf_pages"]:
+            page["draws"][0]["color_space"] = "DeviceRGB"
+        legacy = deepcopy(case)
+        corrected = subject._corrected_hnb_case(case)
+        for page in corrected["pdf_pages"]:
+            self.assertEqual(page["draws"][0]["color_space"], "DeviceGray")
+            page["draws"][0]["color_space"] = "DeviceRGB"
+        self.assertEqual(corrected, legacy)
+        self.assertEqual(case, legacy)
+        for mutation in ("variant", "mapping", "pages", "draws", "color"):
+            bad = deepcopy(case)
+            if mutation == "variant": bad["source_variant"] = "C8"
+            elif mutation == "mapping": bad["output_page_to_source_page"] = [1, 2]
+            elif mutation == "pages": bad["pdf_pages"].pop()
+            elif mutation == "draws": bad["pdf_pages"][0]["draws"].append(deepcopy(bad["pdf_pages"][0]["draws"][0]))
+            else: bad["pdf_pages"][0]["draws"][0]["color_space"] = "DeviceGray"
+            with self.subTest(mutation=mutation), self.assertRaises(subject.CompositionError):
+                subject._corrected_hnb_case(bad)
+        path = self.root/"original-corrected-reference.pdf"
+        path.write_bytes(b"original invented opaque PDF identity; no private bytes")
+        identity = subject.file_identity(path, subject.PDF_LIMIT)
+        with patch.object(subject, "CORRECTED_HNB_PIN", (identity["size_bytes"], identity["sha256"])):
+            self.assertEqual(subject._corrected_hnb_identity(path), identity)
+            receipt = self.root/"original-corrected-receipt.json"
+            receipt.write_text(json.dumps({"harness_files": {}, "corrected_hn_b_reference": identity}))
+            receipt_identity = subject.file_identity(receipt, subject.MIB)
+            subject._verify_receipt(receipt_identity)
+            path.write_bytes(b"changed")
+            with self.assertRaises(subject.CompositionError):
+                subject._corrected_hnb_identity(path)
+            with self.assertRaises(subject.CompositionError):
+                subject._verify_receipt(receipt_identity)
+
+    def test_native_revision_requires_declared_pair_and_preserved_provenance(self):
+        original = ("2"*64, "3"*64)
+        report = {"status": "FAIL", "native_audit": {"status": "PASS", "after_status": "PASS",
+                  "binary": {"sha256": original[0]}, "source": {"sha256": original[1]}}}
+        with patch.object(subject, "_pinned_json", return_value=report):
+            subject._require_original_native(*original)
+            subject._require_original_native(*subject.RATIONAL_NATIVE_PIN)
+            for pair in ((original[0],subject.RATIONAL_NATIVE_PIN[1]), (subject.RATIONAL_NATIVE_PIN[0],original[1]), ("0"*64,"0"*64)):
+                with self.subTest(pair=pair), self.assertRaises(subject.CompositionError):
+                    subject._require_original_native(*pair)
+            report["native_audit"]["after_status"] = "FAIL"
+            with self.assertRaises(subject.CompositionError):
+                subject._require_original_native(*subject.RATIONAL_NATIVE_PIN)
+
     def test_exact_nonwhite_is_sample_aligned(self):
         self.assertEqual(subject._nonwhite_count(b"\xff"*30), 0)
         self.assertEqual(subject._nonwhite_count(b"\x00"*30), 10)
@@ -529,12 +642,12 @@ class SyntheticComposition(unittest.TestCase):
                 commands = subject.Commands(session, report)
                 result = {"profile": "invented", "page_pixels": []}
                 def write_pair(_commands, _args, _label, path, _limit, **_kwargs):
-                    path.write_bytes(b"P6\n1 1\n255\n"+(b"\xff\xff" if malformed else
-                                      b"\x00\x00\x00" if "candidate" in path.name else b"\xff\xff\xff"))
+                    path.write_bytes(b"P6\n5 5\n255\n"+(b"\xff"*74 if malformed else
+                                      b"\x00"*75 if "candidate" in path.name else b"\xff"*75))
                     return subject.file_identity(path, subject.RASTER_LIMIT)
                 with patch.object(subject, "_to_file", side_effect=write_pair), self.assertRaises(subject.CompositionError):
                     subject.check_pixels(commands, self.root/"ref", self.root/"candidate",
-                                         [{"page_number": 1, "media_box": [0,0,.24,.24]}],
+                                         [{"page_number": 1, "media_box": [0,0,1.2,1.2]}],
                                          {"mutool": Path("mutool")}, result)
                 self.assertEqual((report["counts"]["page_renderer_pairs_attempted"], report["counts"]["page_renderer_pairs_failing"]), (1, 1))
                 self.assertEqual(len(list(session.glob("*.ppm"))), 2)
@@ -542,6 +655,9 @@ class SyntheticComposition(unittest.TestCase):
 
     def test_end_to_end_immutable_pre_post_audits_and_exact_metadata_signature(self):
         self._end_to_end(False)
+
+    def test_end_to_end_explicit_corrected_hnb_keeps_legacy_audits_and_policy(self):
+        self._end_to_end(False, corrected_hn_b=True)
 
     def test_end_to_end_post_audit_mutation_fails(self):
         self._end_to_end(True)
@@ -555,13 +671,13 @@ class SyntheticComposition(unittest.TestCase):
     def test_end_to_end_unsupported_metadata_remains_failure_with_post_audits(self):
         self._end_to_end(False, unsupported=True)
 
-    def _end_to_end(self, mutate, *, pixel_failure=False, expired=False, unsupported=False):
+    def _end_to_end(self, mutate, *, pixel_failure=False, expired=False, unsupported=False, corrected_hn_b=False):
         """Exercise runner control flow using only invented files/observations.
 
         The compact oracle has three artificial profiles sharing the six-row
         fixture. No converter is called, and this is not compatibility data.
         """
-        _, document, case, data = fixture()
+        _, document, case, data = fixture(6, 6)
         corpus = self.root / "corpus"
         corpus.mkdir()
         artifacts = self.root / "artifacts"
@@ -572,6 +688,9 @@ class SyntheticComposition(unittest.TestCase):
         reference_report.write_text("invented reference stub")
         native = self.root / "native"
         native.write_text("invented executable stub")
+        corrected = self.root/"corrected-hnb.pdf"
+        corrected.write_bytes(b"invented corrected reference identity")
+        corrected_identity = subject.file_identity(corrected, subject.PDF_LIMIT)
         rows = []
         cases = []
         baselines = {}
@@ -580,6 +699,9 @@ class SyntheticComposition(unittest.TestCase):
             rows.append({"id": name, "path": f"{name}.caj", "detected_type": "HN",
                          "size_bytes": 4096, "sha256": "0"*64})
             cases.append({**deepcopy(case), "case": name, "source_id": name})
+            if corrected_hn_b and name == "hn_b":
+                for page in cases[-1]["pdf_pages"]:
+                    page["draws"][0]["color_space"] = "DeviceRGB"
             for repeat in (1, 2):
                 path = self.root / f"{name}-run{repeat}.pdf"
                 path.write_bytes(b"synthetic PDF stub")
@@ -595,11 +717,13 @@ class SyntheticComposition(unittest.TestCase):
                 result["environment_audit"]["invented_pin"] = 2
             if expired and snapshots:
                 now[0] = 2001.0
+            if corrected_hn_b:
+                result["input_audit"]["corrected_hn_b_reference"] = subject._corrected_hnb_identity(corrected)
             snapshots.append(deepcopy(result))
             return result
         def pinned(path, _sha):
             if path.name == "execution-receipt.json":
-                return {"harness_files": {}, "synthetic": True}
+                return json.loads(path.read_text())
             if path.name == "matrix.json":
                 return {"samples": rows}
             if path.name == "hnc8_layout_oracle.json":
@@ -614,7 +738,7 @@ class SyntheticComposition(unittest.TestCase):
             counts["validator_launches"] += 1
             if controller.kind == "render":
                 counts["render_launches"] += 1
-                pixels = b"P6\n4 2\n255\n"+b"\x00\xff\x00"*8
+                pixels = b"P6\n6 6\n255\n"+b"\x00\xff\x00"*36
                 if pixel_failure and any(Path(argument).name == "hn_a.pdf" for argument in arguments):
                     pixels = pixels[:-1]+b"\xff"
                 kwargs["consume"](pixels)
@@ -625,7 +749,10 @@ class SyntheticComposition(unittest.TestCase):
         receipts = []
         def receipt(_paths, _tools, _oracle, _rows, commands, _native_sha, _source_sha):
             path = commands.session/"execution-receipt.json"
-            path.write_text(json.dumps({"harness_files": {}, "synthetic": True}))
+            data = {"harness_files": {}, "synthetic": True}
+            if corrected_hn_b:
+                data["corrected_hn_b_reference"] = corrected_identity
+            path.write_text(json.dumps(data))
             identity = subject.file_identity(path, subject.MIB)
             receipts.append(identity)
             return identity
@@ -636,7 +763,7 @@ class SyntheticComposition(unittest.TestCase):
         def metadata(_path, tools, *, limits, allow_raw_bilevel=False):
             self.assertEqual(set(tools), {"qpdf", "mutool", "pdfimages"})
             self.assertEqual(limits.max_draws_per_page, 256)
-            self.assertEqual(allow_raw_bilevel, "-run1" not in _path.stem)
+            self.assertEqual(allow_raw_bilevel, "-run1" not in _path.stem and _path != corrected)
             calls.append(set(tools))
             if unsupported:
                 raise subject.pdf.PdfMetadataUnsupported("invented required metadata profile")
@@ -646,6 +773,8 @@ class SyntheticComposition(unittest.TestCase):
                     "page_renderer_pairs": 12}
         paths = {"corpus": corpus, "reference_report": reference_report, "table": table,
                  "artifact_root": artifacts, "native_tool": native}
+        if corrected_hn_b:
+            paths["corrected_hn_b"] = corrected
         with patch.object(subject, "_pinned_json", side_effect=pinned), \
                 patch.object(subject, "_baselines", side_effect=baselines_after_receipt), \
                 patch.object(subject, "_execution_receipt", side_effect=receipt), \
@@ -654,9 +783,17 @@ class SyntheticComposition(unittest.TestCase):
                 patch.object(subject.Commands, "run", command), \
                 patch.object(subject.pdf, "extract_pdf_metadata", side_effect=metadata), \
                 patch.object(subject, "EXPECTED", expected), \
+                patch.object(subject, "CORRECTED_HNB_PIN", (corrected_identity["size_bytes"], corrected_identity["sha256"])), \
                 patch.object(subject, "RENDER_LAUNCH_LIMIT", 24), \
                 patch.object(subject.time, "monotonic", side_effect=lambda: now[0]):
             result = subject.run(paths, native_sha256="0"*64, native_source_sha256="1"*64)
+        self.assertEqual(result["counts"]["corrected_reference_checks_before"], int(corrected_hn_b))
+        if corrected_hn_b:
+            self.assertEqual(result["counts"]["corrected_reference_checks_after"], 1)
+            self.assertIn("legacy parity not claimed", result["reference_policy"])
+            self.assertEqual(result["profiles"][-1]["comparison_basis"], "separately pinned corrected grayscale reference")
+            self.assertEqual(result["input_audit"]["corrected_hn_b_reference"], corrected_identity)
+            self.assertTrue(all(page["draws"][0]["color_space"] == "DeviceRGB" for page in cases[-1]["pdf_pages"]))
         self.assertEqual(len(calls), 1 if unsupported else 2 if pixel_failure else 6)
         self.assertEqual(len(snapshots), 2)
         self.assertNotIn("versions", snapshots[0]["environment_audit"])
