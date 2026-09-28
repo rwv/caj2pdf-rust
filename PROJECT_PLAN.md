@@ -187,6 +187,11 @@ issue acceptance criteria are authoritative for each task.
 
 6. Record peak memory, throughput, and output validity on representative
    documents; make these release gates rather than assumptions.
+   Public spooling hardening [#141](https://github.com/rwv/caj2pdf-rust/issues/141)
+   releases owned Web readers and validates cancellable ordered Node writes,
+   with original fault controls and package-import checks. Exact-head independent
+   reviews and hosted gates remain required. Parent #13 still requires supported
+   HN/C8 conversion through both targets and its unresolved provenance gates.
 
 ## Reference material
 

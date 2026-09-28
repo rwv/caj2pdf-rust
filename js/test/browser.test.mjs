@@ -108,6 +108,7 @@ test("Chromium: a ReadableStream spools through real OPFS and is removed", optio
   assert.equal(result.during.length, 1, "one OPFS spool file exists during conversion");
   assert.match(result.during[0], /^caj2pdf-spool-/);
   assert.deepEqual(result.after, []);
+  assert.equal(result.unlocked, true, "the source reader is released and can be reacquired");
   await validatePdf(t, decode(result.output), 2);
 });
 
@@ -121,6 +122,7 @@ test("Chromium: OPFS spool bound, failure, and abort remove the spool", options,
     { name: "UnsupportedFormatError", format: null },
   );
   assert.equal(result.aborted.error?.name, "AbortError");
+  assert.deepEqual(result.unlocked, [true, true, true, true]);
   for (const key of ["afterBound", "afterLowLevel", "afterUnsupported", "afterAbort"]) {
     assert.deepEqual(result[key], [], `${key}: no OPFS spool remains`);
   }

@@ -330,6 +330,18 @@ reuse the MIT fixtures in `tests/fixtures`; the OPFS tests use an original
 in-memory test double. No code was taken from the Python or Go converters,
 a private Rust module, or an npm package.
 
+Issue #141 hardens those original stream adapters and adds the original MIT
+internal `js/internal/spool-write.mjs` and controls in
+`js/test/spool-boundary.test.mjs`. The controls use invented small bytes,
+actual Web Streams and deterministic deferred write/cancellation promises.
+Reader ownership follows the [WHATWG Streams API](https://streams.spec.whatwg.org/#default-reader-release-lock);
+ordered write/progress handling follows the
+[Node FileHandle API](https://nodejs.org/api/fs.html#filehandlewritebuffer-offset-length-position).
+No implementation or dependency was copied. Package allowlist/import checks
+include the helper without adding a public entry export. This public JS slice
+leaves parent #13's HN/C8 integration and codec/provenance prerequisites unmet;
+fault controls establish no vendor compatibility or new WASM heap measurement.
+
 The issue #13 real-browser tests add original MIT
 `js/test/{browser.test,browser-harness,browser-cases,package.test}.mjs` and
 `js/scripts/copy-wasm.mjs`. The harness is a minimal Chrome DevTools

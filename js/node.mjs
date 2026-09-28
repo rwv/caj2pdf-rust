@@ -14,6 +14,7 @@ import {
   requireU64,
   TruncatedInputError,
 } from "./io.mjs";
+import { writeSpoolChunk } from "./internal/spool-write.mjs";
 
 export * from "./io.mjs";
 
@@ -129,12 +130,7 @@ export async function spoolToTempFile(stream, { maxBytes, signal, directory = tm
     handle = await open(join(folder, "input"), "wx+", 0o600);
     let position = 0;
     await pumpChunks(stream, async (chunk) => {
-      let written = 0;
-      while (written < chunk.byteLength) {
-        const { bytesWritten } = await handle.write(chunk, written, chunk.byteLength - written, position);
-        written += bytesWritten;
-        position += bytesWritten;
-      }
+      position = await writeSpoolChunk(handle, chunk, position, signal);
     }, { maxBytes, signal });
     const source = await fileHandleSource(handle);
     return { source, dispose, path: folder };
