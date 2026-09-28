@@ -1039,10 +1039,29 @@ The existing hash-pinned public matrix and prior Python-converter generation
 report provide source counts and candidate PDF identities, not an independently
 proved HN outline title/encoding/hierarchy/destination oracle. Raw private
 records, titles, PDFs, command output and receipts remain external. The
-adapter refuses DRAFT protocols and has a zero-work no-input mode. All
-currently executed controls are original public preparation, with zero
-private/native/converter/vendor activity. HN-A field semantics, C8/HN-B
-applicability, omitted destinations and native outline parity remain
-unverified. Their later observation requires an independently reviewed,
+adapter refuses DRAFT protocols and has a zero-work no-input mode. The original
+controls are public preparation, with zero private/native/converter/vendor
+activity. A separately authorized first Stage A ended FAIL before PDF queries
+or title discovery; its exact report and unknown cause are preserved in the
+protocol document. It is not successful compatibility or negative-field proof.
+HN-A field semantics, C8/HN-B applicability, omitted destinations and native
+outline parity remain unverified. Their later observation requires an
+independently reviewed,
 committed frozen executable/protocol and an immutable pre-private-audit
 receipt; no skipped or zero-title-only case counts as compatibility.
+
+The selected-source amendment is original MIT diagnostic/schema/control code,
+not core HN outline decoding. It keeps all 27 source and six reference PDF
+identity audits, but reads header/index fields only from the exact three public
+layout-profile source hashes, including the HN-A discovery source. The other
+24 are explicitly OUT_OF_SCOPE/NOT_RUN with zero semantic passes; selection
+never uses historical success/skip/error labels. Every selected failure and
+every required identity mismatch remains fatal. Fixed source-location/reason
+enums expose only schema offsets, widths, ordinals and safe source identities;
+they do not retain observed values, bytes, titles, paths or arbitrary exception
+text. Original controls invent malformed rows/signatures/counts, raised/short/
+zero/overreported reads, interruptions, out-of-scope invalid containers, and
+an excluded identity mismatch. They prove diagnostic and scope behavior only.
+This amendment has no new private observation, preflight, converter, native,
+vendor, decoder dependency or production API change. The first frozen files
+and every historical external artifact remain unchanged.
