@@ -1221,3 +1221,38 @@ proposal; no tests, probes, conversions, controls or native changes were perform
 Two future independently reviewed freezes separate bounded positive baselines
 from checksum-aware exact controls. Both remain NOT_RUN and require their own
 actual-runtime/environment review and explicit execution authorization.
+
+## CAJViewer public-module load accounting (#143)
+
+The COMMON/LOADER/VALIDATOR fragments in
+[tools/cajviewer/run.py](../tools/cajviewer/run.py) and
+[test_cajviewer_source_loading.py](../tests/conformance/test_cajviewer_source_loading.py)
+are independently authored original MIT code and controls. The
+[source-load contract](cajviewer-source-loading.md) preserves the first sealed
+P2 FAIL and its unknown missing-file cause. It permits only the two original
+public MIT module paths, complete bounded byte identities, four ordered load
+stages and fixed safe failure metadata. No proprietary, legacy-converter,
+third-party loader or decoder implementation was inspected or copied.
+
+Original controls invent module contents and receipt mutations; they do not
+contain vendor files or private source/PDF data. The separately proposed inline
+and host embed the exact reviewed repository fragments without adding an
+installed module, image change or dependency. Source hashes identify bytes,
+not format, vendor compatibility or completed inventory semantics. One
+separately frozen isolated original-control runner passed all 25 methods
+(19 mandatory, four actual inline and two actual host controls), with ten mocked
+callbacks and zero actual child, Docker, ENV/tool probe, inventory, app, vendor,
+private, native or converter actions. All 24 source audit rows and the closing
+plan identity passed. Root and independent actual closing reviews passed;
+invented fixtures were removed, with cleanup-refusal controls preserving known
+ledgers and first reasons on failure. The report is 7,112 bytes, SHA-256
+`f91f1d1930fe511d903e208006d14fd4216cac4f1cd0f89eae26090bcd016fde`,
+and its consumed plan is 9,388 bytes, SHA-256
+`6bbe1d82ec5678fa44b5f93a409417a81c61563edaf38902b53fc8a3c1bbe178`.
+Their exact input/code basis remains immutable; later English publication edits
+do not rewrite it. The limited application/virtual I/O meters do not measure
+stdlib/kernel I/O or RSS. Exact-head mandatory hosted native/WASM/MIT/coverage
+gates are separate required final-head evidence. Old frozen code, plans, reports
+and the first P2 FAIL/cause UNKNOWN remain unchanged. The future v11 phase is
+DRAFT/REFUSED and needs its own exact profile, same-PID preflight and token;
+#124 is not completed by this public diagnostic prerequisite.

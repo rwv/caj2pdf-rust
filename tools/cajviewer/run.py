@@ -18,6 +18,7 @@ import subprocess
 import sys
 import tarfile
 import time
+import types
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts"))
@@ -29,6 +30,207 @@ SOURCE_FILES = {"scripts/cajviewer_canary.py", "scripts/cajviewer_canary_fixture
                 "tools/cajviewer/prepare.py", "tools/cajviewer/inventory.py", "tools/cajviewer/Dockerfile"}
 CONTROL_FILES = {"digital.pdf", "alternate-unicode.pdf", "image-only.pdf", "second-text.pdf", "controls.json"}
 SCHEDULING_DEADLINE = None
+
+# BEGIN PUBLIC SOURCE COMMON
+# Frozen inline/host adapters embed these bytes, without another installed module.
+PUBLIC_SOURCE_PINS = (
+    ("cajviewer_canary", "process-helper", "/opt/canary/cajviewer_canary.py", 10992,
+     "ba9abc3be6285cfb7d0af3840b88197fd5aa4ec22d7277ecee109ea0eae60c77"),
+    ("inventory", "runtime-inventory", "/opt/canary/inventory.py", 2656,
+     "cb1cec2a74be10413ce628cf5320180c1d2d950212f59b5750bbad434a24d556"),
+)
+PUBLIC_SOURCE_STAGES = ("read", "pin", "compile", "exec")
+PUBLIC_SOURCE_REASONS = {"read": "PUBLIC_SOURCE_READ_FAILED", "pin": "PUBLIC_SOURCE_PIN_FAILED",
+                         "compile": "PUBLIC_SOURCE_COMPILE_FAILED", "exec": "PUBLIC_SOURCE_EXEC_FAILED"}
+PUBLIC_SOURCE_ERROR_TYPES = frozenset({
+    "FileNotFoundError", "PermissionError", "IsADirectoryError", "NotADirectoryError", "OSError",
+    "ValueError", "TypeError", "KeyError", "AttributeError", "SyntaxError", "UnicodeError",
+    "UnicodeDecodeError", "ImportError", "ModuleNotFoundError", "MemoryError", "RuntimeError",
+    "OverflowError", "KeyboardInterrupt", "SystemExit", "OTHER_ERROR_TYPE",
+})
+
+
+class SourceLoadError(ValueError):
+    """Fixed safe source-accounting refusal; no exception text is retained."""
+
+
+def _source_hex(value):
+    return type(value) is str and len(value) == 64 and all(character in "0123456789abcdef" for character in value)
+
+
+def _source_pins(pins):
+    if type(pins) is not tuple or len(pins) != 2:
+        raise SourceLoadError("source-load-pins")
+    for pin, fixed in zip(pins, PUBLIC_SOURCE_PINS):
+        if (type(pin) is not tuple or len(pin) != 5 or pin[:3] != fixed[:3]
+                or any(type(value) is not str for value in pin[:3])
+                or type(pin[3]) is not int or not 0 < pin[3] <= 65536 or not _source_hex(pin[4])):
+            raise SourceLoadError("source-load-pins")
+    return pins
+# END PUBLIC SOURCE COMMON
+
+# BEGIN PUBLIC SOURCE LOADER
+def load_public_sources(read, records, *, pins=PUBLIC_SOURCE_PINS, module_registry=None):
+    """Load two pinned MIT modules; stop and re-raise the first failure.
+
+    The reader must return complete bounded regular-file bytes through EOF,
+    or raise. See cajviewer-source-loading.md for the safe record contract.
+    """
+    pins = _source_pins(pins)
+    if type(records) is not list or records or module_registry is not None and type(module_registry) is not dict:
+        raise SourceLoadError("source-load-initial-state")
+    registry = sys.modules if module_registry is None else module_registry
+    modules = {}
+    for ordinal, (name, role, path, size, sha) in enumerate(pins, 1):
+        row = {"ordinal": ordinal, "role": role, "path": path,
+               "expected_identity": {"size_bytes": size, "sha256": sha}, "actual_identity": None,
+               "stages": {"read": "PENDING", "pin": "NOT_RUN", "compile": "NOT_RUN", "exec": "NOT_RUN"},
+               "status": "PENDING", "failure_stage": None, "reason": None, "error_type": None}
+        records.append(row)
+        stage = "read"
+        try:
+            raw = read(path, 65536)
+            if type(raw) is not bytes or len(raw) > 65536:
+                raise SourceLoadError("source-load-read-contract")
+            row["actual_identity"] = {"size_bytes": len(raw), "sha256": hashlib.sha256(raw).hexdigest()}
+            row["stages"][stage] = "PASS"
+            stage = "pin"
+            row["stages"][stage] = "PENDING"
+            if row["actual_identity"] != row["expected_identity"]:
+                raise ValueError("source-load-pin")
+            row["stages"][stage] = "PASS"
+            stage = "compile"
+            row["stages"][stage] = "PENDING"
+            code = compile(raw, path, "exec")
+            row["stages"][stage] = "PASS"
+            stage = "exec"
+            row["stages"][stage] = "PENDING"
+            module = types.ModuleType(name)
+            module.__file__ = path
+            registry[name] = module
+            exec(code, module.__dict__)
+            row["stages"][stage] = "PASS"
+            row["status"] = "PASS"
+            modules[name] = module
+        except BaseException as error:
+            kind = type(error).__name__
+            if stage == "read":
+                row["actual_identity"] = None
+            row.update(status="FAIL", failure_stage=stage, reason=PUBLIC_SOURCE_REASONS[stage],
+                       error_type=kind if kind in PUBLIC_SOURCE_ERROR_TYPES else "OTHER_ERROR_TYPE")
+            row["stages"][stage] = "FAIL"
+            raise
+    return modules
+# END PUBLIC SOURCE LOADER
+
+# BEGIN PUBLIC SOURCE VALIDATOR
+def validate_source_loads(records, *, pins=PUBLIC_SOURCE_PINS):
+    """Validate independent safe accounting, including a complete FAIL ledger.
+
+    This does not approve the outer child, inventory, environment or caps. The
+    caller must parse bounded duplicate-safe complete metadata first. Exact pin
+    equality proves byte identity only, not application or document behavior.
+    """
+    pins = _source_pins(pins)
+    if type(records) is not list or len(records) > 2:
+        raise SourceLoadError("source-load-accounting")
+    safe = []
+    keys = {"ordinal", "role", "path", "expected_identity", "actual_identity", "stages",
+            "status", "failure_stage", "reason", "error_type"}
+    for ordinal, row in enumerate(records, 1):
+        _, role, path, size, sha = pins[ordinal - 1]
+        if (type(row) is not dict or set(row) != keys or type(row["ordinal"]) is not int
+                or row["ordinal"] != ordinal or type(row["role"]) is not str or row["role"] != role
+                or type(row["path"]) is not str or row["path"] != path
+                or type(row["expected_identity"]) is not dict
+                or set(row["expected_identity"]) != {"size_bytes", "sha256"}
+                or type(row["expected_identity"]["size_bytes"]) is not int
+                or not _source_hex(row["expected_identity"]["sha256"])
+                or row["expected_identity"] != {"size_bytes": size, "sha256": sha}
+                or type(row["stages"]) is not dict or set(row["stages"]) != set(PUBLIC_SOURCE_STAGES)
+                or ordinal > 1 and safe[-1]["status"] != "PASS"):
+            raise SourceLoadError("source-load-accounting")
+        actual = row["actual_identity"]
+        if actual is not None and (type(actual) is not dict or set(actual) != {"size_bytes", "sha256"}
+                or type(actual["size_bytes"]) is not int or not 0 <= actual["size_bytes"] <= 65536
+                or not _source_hex(actual["sha256"])):
+            raise SourceLoadError("source-load-accounting")
+        states = [row["stages"][name] for name in PUBLIC_SOURCE_STAGES]
+        if (states[0] == "NOT_RUN" or any(type(value) is not str
+                or value not in ("NOT_RUN", "PENDING", "PASS", "FAIL") for value in states)):
+            raise SourceLoadError("source-load-accounting")
+        first = next((index for index, value in enumerate(states) if value != "PASS"), 4)
+        if first < 4 and any(value != "NOT_RUN" for value in states[first + 1:]):
+            raise SourceLoadError("source-load-accounting")
+        if states[0] == "PASS" and actual is None or states[1] == "PASS" and actual != row["expected_identity"]:
+            raise SourceLoadError("source-load-accounting")
+        if states[0] != "PASS" and actual is not None:
+            raise SourceLoadError("source-load-accounting")
+        if first == 4:
+            expected = ("PASS", None, None, None)
+        elif states[first] == "FAIL":
+            stage = PUBLIC_SOURCE_STAGES[first]
+            if type(row["error_type"]) is not str or row["error_type"] not in PUBLIC_SOURCE_ERROR_TYPES:
+                raise SourceLoadError("source-load-accounting")
+            expected = ("FAIL", stage, PUBLIC_SOURCE_REASONS[stage], row["error_type"])
+        else:
+            expected = ("PENDING", None, None, None)
+        if (type(row["status"]) is not str
+                or (row["status"], row["failure_stage"], row["reason"], row["error_type"]) != expected):
+            raise SourceLoadError("source-load-accounting")
+        safe.append({**row, "expected_identity": dict(row["expected_identity"]),
+                     "actual_identity": None if actual is None else dict(actual), "stages": dict(row["stages"])})
+    return {"observation": "COMPLETE_ORDERED_RECORDS", "declared_sources": 2,
+            "records_attempted": len(safe), "records_completed": sum(row["status"] == "PASS" for row in safe),
+            "records_failed": sum(row["status"] == "FAIL" for row in safe), "records_remaining": 2 - len(safe),
+            "stages": {name: {"attempted": sum(row["stages"][name] != "NOT_RUN" for row in safe),
+                              "completed": sum(row["stages"][name] == "PASS" for row in safe),
+                              "failed": sum(row["stages"][name] == "FAIL" for row in safe)} for name in PUBLIC_SOURCE_STAGES},
+            "records": safe}
+
+
+def source_loading_observation(envelope, *, complete, pins=PUBLIC_SOURCE_PINS):
+    """Retain known source stages before an outer FAIL refusal.
+
+    Prefix captures or invalid records remain UNKNOWN and cannot yield a
+    successful source count. No arbitrary envelope fields enter the result.
+    """
+    unknown = {"observation": "UNKNOWN", "declared_sources": 2, "records": None,
+               "reason": "SOURCE_CAPTURE_INCOMPLETE"}
+    if complete is not True:
+        return unknown
+    if (type(envelope) is not dict or type(envelope.get("status")) is not str
+            or envelope["status"] not in ("PASS", "FAIL")):
+        return {**unknown, "reason": "SOURCE_ACCOUNTING_MALFORMED"}
+    try:
+        observed = validate_source_loads(envelope.get("source_loads"), pins=pins)
+        if envelope["status"] == "PASS" and observed["records_completed"] != 2:
+            return {**unknown, "reason": "SOURCE_ACCOUNTING_MALFORMED"}
+        return observed
+    except SourceLoadError:
+        return {**unknown, "reason": "SOURCE_ACCOUNTING_MALFORMED"}
+# END PUBLIC SOURCE VALIDATOR
+
+
+def public_source_fragment(source, part):
+    """Extract only a named block from a separately hash-pinned runner source.
+
+    The source must be a complete bounded read. This function does not read,
+    import or execute it; the phase must audit the whole source independently.
+    """
+    if type(source) is not bytes or len(source) > 65536 or part not in ("LOADER", "VALIDATOR"):
+        raise SourceLoadError("source-load-fragment")
+    fragments = []
+    for name in ("COMMON", part):
+        start = ("# BEGIN PUBLIC SOURCE " + name + "\n").encode("ascii")
+        end = ("# END PUBLIC SOURCE " + name + "\n").encode("ascii")
+        if source.count(start) != 1 or source.count(end) != 1:
+            raise SourceLoadError("source-load-fragment")
+        left, right = source.index(start), source.index(end)
+        if right <= left or fragments and left <= source.index(b"# END PUBLIC SOURCE COMMON\n"):
+            raise SourceLoadError("source-load-fragment")
+        fragments.append(source[left:right + len(end)])
+    return b"\n".join(fragments)
 
 # Docker cp cannot read this tmpfs mount. Run an original, finite archive
 # transport in the container's mount namespace using its pinned Python tool.
