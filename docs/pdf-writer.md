@@ -129,9 +129,13 @@ bytes of inline capacity, and content/resource commands stream one draw at a
 time. No complete image, placement copy or page-content vector is allocated.
 The document retains the existing object-offset/page-ID indexes, bounded
 page-tree groups, outline depth stack and one image buffer, plus one identity
-and failure flag. `max_allocation_bytes` bounds individual dynamic requests;
-it is not a bound on combined memory, allocator overhead, compiled future/stack
-storage or process RSS.
+and failure flag. `max_allocation_bytes` checks the configured buffer/index
+allocation requests. Small bounded serialization strings from the existing
+emitter (image dictionaries, page dimensions and individual object/draw
+commands) are not charged to this ceiling; a 72-byte object-index budget can
+therefore emit an 89-byte tiny grayscale dictionary. This is not a bound on
+combined memory, those serialization strings, allocator overhead, compiled
+future/stack storage or process RSS.
 
 An actual allocator, source, sink, output-limit or cancellation failure after
 a new image/placed-page operation begins emission can leave a partial PDF.
