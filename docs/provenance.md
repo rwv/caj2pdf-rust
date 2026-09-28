@@ -1011,3 +1011,38 @@ history, emits a bounded redacted diff and requires exact bound review pins
 before recording a reviewed attestation. Vendor/private content and full
 receipts remain external; only reviewed safe catalog metadata may be public.
 Current official-vendor acquisition and compatibility remain `NOT_RUN`.
+
+## Original HN outline observation preparation (#119)
+
+[scripts/hnc8_outline_observation.py](../scripts/hnc8_outline_observation.py)
+and its [runtime controls](../tests/conformance/test_hnc8_outline_observation.py)
+are original MIT diagnostic code. The finite proposed protocol and later
+implementation gates are in [hnc8-outline-observation.md](hnc8-outline-observation.md).
+This preparation adds no core decoder, native/JavaScript API or dependency.
+It reuses only repository-owned MIT process/metadata primitives and the
+original runtime PDF wrapper generator. No Python/Go/private Rust converter,
+third-party codec/PDF implementation or proprietary application implementation
+was read, copied or translated.
+
+The controls invent all title strings, Unicode/whitespace, hierarchy,
+destinations, page objects and source record fields at runtime. The invented
+title offset differs from CAJ's established layout. They use installed public
+qpdf/MuPDF tools only on those original PDFs to establish a narrow command
+schema and expose the lossy outline-display behavior. The original MuPDF
+single-line value reader is bounded metadata grammar, not a general PDF file
+parser or stream decoder. CPython's installed strict UTF-8/GB18030/UTF-16
+codecs provide capped diagnostic hypotheses; their runtime files are pinned
+before a separately authorized observation, not copied or asserted to be the
+source format's encoding.
+
+The existing hash-pinned public matrix and prior Python-converter generation
+report provide source counts and candidate PDF identities, not an independently
+proved HN outline title/encoding/hierarchy/destination oracle. Raw private
+records, titles, PDFs, command output and receipts remain external. The
+adapter refuses DRAFT protocols and has a zero-work no-input mode. All
+currently executed controls are original public preparation, with zero
+private/native/converter/vendor activity. HN-A field semantics, C8/HN-B
+applicability, omitted destinations and native outline parity remain
+unverified. Their later observation requires an independently reviewed,
+committed frozen executable/protocol and an immutable pre-private-audit
+receipt; no skipped or zero-title-only case counts as compatibility.
