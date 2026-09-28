@@ -117,3 +117,10 @@ compares complete page metadata, all padded type-0 samples and every rendered
 page against independently pinned references. A missing corpus is `NOT_RUN`
 with zero compatibility passes. Synthetic I/O/layout success and selected JPEG
 stream parity do not substitute for complete-page compatibility.
+
+The [recorded complete-page evidence](hnc8-page-composition-evidence.md)
+passes all 75 HN-A/C8 pages and 74 padded Type0 arrays. The controlled rerun
+remains FAIL at HN-B's first page, where the reference and native JPEG color
+declarations differ. [Child #122](https://github.com/rwv/caj2pdf-rust/issues/122)
+blocks the remaining HN-B reference-validity/page criterion. This API's
+production family exposure remains gated.
