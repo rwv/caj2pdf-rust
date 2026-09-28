@@ -9,13 +9,19 @@
 //! [`read_text_coordinates`] validates the observed text frame while retaining
 //! only raw image-coordinate words. Empirical geometry remains diagnostic.
 
+mod compose;
 mod convert;
 mod convert_jbig2;
 mod convert_jpeg;
+mod image_emit;
 mod jpeg;
 mod placement;
 mod text;
 
+pub use compose::{
+    ComposeBudget, ComposeError, ComposeErrorKind, ComposeOptions, ComposePage, ComposeReport,
+    ComposeStage, ComposeVisitor, ComposedImage, convert_source_pages_pdf,
+};
 pub use convert::{
     MultipleImages, Type0ImageSelection, Type0PdfError, Type0PdfErrorKind, Type0PdfOptions,
     Type0PdfReport, Type0SelectedPdfReport, convert_type0_image_pdf, convert_type0_pdf,

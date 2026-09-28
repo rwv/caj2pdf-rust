@@ -58,6 +58,32 @@ cannot preserve the selected offsets. Evaluation returns unrounded f64
 values. Compare all six components at 0.00005 pt absolute tolerance, matching
 the reference's four-decimal serialization.
 
+## Numerical evaluation follow-up for #117
+
+The current evaluator computes each pixel dimension as `pixels * 72 / 300`,
+the exact nominal ratio `6/25` for the measured 0.24-point model. Every `u32`
+dimension's numerator is an exactly representable integer below `2^53`;
+only the division rounds. Multiplication by the already rounded binary
+constant `0.24` can instead change the shortest serialized PDF number by
+one ULP. Original three-by-two Gray controls show that this changes complete
+Poppler edge pixels at an integral device boundary, even when box/CTM values
+are well inside the metadata comparison tolerance. The pixel criterion
+continues to require exact equality. Source DPI remains unproven.
+
+The general affine PDF writer keeps its shortest round-trip number contract.
+Original controls also establish that the frozen 300-DPI renderers can
+produce different complete canvas dimensions for the same nominal integral
+grid. The diagnostic reads bounded P6 headers and accepts only the observed
+`N` or `N+1` boundary on each axis, requiring equal complete grids within
+each renderer. It compares every actual channel, including the extra edge,
+with exact payload/file lengths and zero pixel tolerance. This rule applies
+to the documented zero-origin, integral-grid profile with both page extents
+at least one point; other raster profiles are explicit unsupported failures.
+
+The historical placement and comparison evidence above retains its original
+identities. A new frozen full HN-A/C8/HN-B batch is required before accepting
+the dimension revision's complete-page results.
+
 ## Bounded native implementation
 
 Read one declared page span through `RangedSource`, with separate encoded,

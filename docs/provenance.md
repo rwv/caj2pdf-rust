@@ -811,6 +811,48 @@ not linked or distributed assets. No HN factors, private source/image/PDF
 bytes, arithmetic states or external document compatibility results are added
 by this generic PDF primitive.
 
+Issue #117 adds original MIT composition glue in `hnc8/compose.rs` and
+`hnc8/image_emit.rs`, minimal shared codec emitters in the existing owned
+type-0/JPEG adapters, and synthetic unit fixtures in `hnc8/compose/tests.rs`.
+The optional `hnc8_page_composition` native example and
+`scripts/hnc8_page_composition.py` verifier independently observe complete
+source pages. The existing scoped text parser has a private invented-prefix
+test seam only; public observed fingerprints are unchanged. No Python, Go,
+private Rust HN/JBIG or other converter implementation is inspected, copied
+or transliterated. No new Cargo/npm dependency or arithmetic table is added.
+
+The composition rule uses the independently measured #107/#112 profile:
+padded type-0 width, first-image page box, raw source words, descriptor order
+and negative-height CTMs. The existing row API supplies top-first packed rows;
+one caller-owned bounded random-access store reverses their row order while
+keeping all padding samples. JPEG payloads remain exact and SHA-revalidated.
+Original synthetic fixtures use invented QM states and a text-prefix digest,
+not external table states or opaque document bytes. Independent PDF tools
+remain runtime test-only executables, never linked or distributed code.
+
+The [predeclared protocol](hnc8-page-composition-protocol.md) was committed
+before private source/table/sample extraction, conversion or rendering. It
+requires complete ordered metadata, all padded type-0 samples and every
+pixel of all 75 HN-A/C8 and two HN-B output pages, with exact source/tool/
+reference/native identities and before/after audits. Missing optional inputs
+are `NOT_RUN` with zero compatibility passes. Private documents, text, state
+values, samples, PDFs, renders and execution artifacts remain outside Git;
+only reviewed metadata and outcome hashes belong in the evidence record.
+
+The first comparison remains a recorded failure at the reference sample-
+dictionary guard. A separately predeclared
+[dictionary-only probe](hnc8-page-composition-dictionary-probe.md) observed
+explicit Flate identity parameters, without converting, extracting samples
+or rendering pages. The [controlled comparison amendment](hnc8-page-composition-identity-params-rerun.md)
+accepts only that direct four-field, one-bit, one-color, Predictor=1 profile.
+Its interpretation follows the linked Adobe PDF reference and qpdf inspection
+documentation, not converter source. Original asymmetric runtime PDFs test
+every padded bit through independent tools. The original failure and probe
+metadata are pinned and audited; the native executable and Rust/Cargo source
+must remain identical to the first attempt. Unsupported required comparisons
+are explicit failing subsets, never compatibility passes. Full-page and
+full-array evidence remains required.
+
 ## Dependency inventory and review
 
 The workspace contains three owned packages. The dependency column lists

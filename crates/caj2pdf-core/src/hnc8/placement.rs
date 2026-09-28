@@ -16,6 +16,8 @@ use crate::{Error, Result};
 /// This does not assign an authoritative physical unit to the source word.
 pub const EMPIRICAL_COORDINATE_POINTS_PER_UNIT: f64 = 240.0 / 2473.0;
 /// Empirical PDF points per source image pixel in the measured profile.
+/// Dimension evaluation uses the exact ratio `72 / 300`: the integer product
+/// is exactly representable for every `u32`, before one floating division.
 pub const EMPIRICAL_PIXEL_POINTS: f64 = 0.24;
 /// Four-decimal reference output gives this absolute comparison tolerance.
 /// Evaluation returns full `f64` precision rather than rounding early.
@@ -173,8 +175,11 @@ fn pixel_size(pixel_width: u32, pixel_height: u32) -> Result<PageSpec> {
         });
     }
     Ok(PageSpec {
-        width_points: f64::from(pixel_width) * EMPIRICAL_PIXEL_POINTS,
-        height_points: f64::from(pixel_height) * EMPIRICAL_PIXEL_POINTS,
+        // Multiplication by an already rounded binary 0.24 can move the
+        // shortest PDF decimal across a renderer's device-pixel boundary.
+        // These products are exact integers below 2^53; round only the ratio.
+        width_points: f64::from(pixel_width) * 72.0 / 300.0,
+        height_points: f64::from(pixel_height) * 72.0 / 300.0,
     })
 }
 

@@ -3,8 +3,10 @@
 //! Bounded HN/C8 type-0 image pages to PDF with a caller-supplied QM table.
 
 use super::{Budget, ErrorKind, Hnc8Error, Hnc8Reader, ImageRecord, Variant};
-use crate::jbig1::{Type0Budget, Type0Decoder, Type0Error, Type0ErrorKind, read_type0_info};
-use crate::pdf::{BilevelImageSpec, PageSpec, PdfDocument};
+use crate::jbig1::{
+    Type0Budget, Type0Decoder, Type0Error, Type0ErrorKind, Type0Info, Type0Report, read_type0_info,
+};
+use crate::pdf::{BilevelImageSpec, ImageObject, PageSpec, PdfDocument};
 use crate::qm::{ArithmeticBudget, ArithmeticError, ContextBank, QmTable};
 use crate::{
     Cancellation, ConversionReport, Error, Limits, MAX_BUDGET_COUNT, RangedSource, SequentialSink,
@@ -15,10 +17,10 @@ use std::{error, fmt};
 const TYPE0_CONTEXTS: usize = 1024;
 const POINTS_PER_INCH: f64 = 72.0;
 
-/// What to do with a source page that declares more than one image.
+/// What the legacy type-0 image-page adapter does with a multi-image row.
 ///
-/// No placement geometry for additional images has been measured, so the
-/// converter never composes them onto one page.
+/// This API emits full-image pages. Source-page composition uses the separate
+/// [`super::convert_source_pages_pdf`] entry point and its validated profile.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MultipleImages {
     /// Fail at the page row before reading any of its image descriptors.
@@ -137,7 +139,10 @@ impl fmt::Display for Type0PdfError {
                 write!(f, "unsupported image record type {value}")
             }
             Type0PdfErrorKind::MultipleImages(count) => {
-                write!(f, "page declares {count} images; placement is not measured")
+                write!(
+                    f,
+                    "page declares {count} images; this image-page API does not compose source pages"
+                )
             }
             Type0PdfErrorKind::NoImages => f.write_str("page declares no images"),
         }
@@ -270,6 +275,85 @@ struct Type0PageSettings<'a, C> {
     cancellation: &'a C,
 }
 
+/// Shared checked row decoding; image placement remains with the caller.
+pub(super) struct Type0DecodeSettings<'a, C> {
+    pub table: &'a QmTable,
+    pub arithmetic: ArithmeticBudget,
+    pub image: Type0Budget,
+    pub limits: &'a Limits,
+    pub cancellation: &'a C,
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) async fn decode_type0_rows<S: RangedSource, R: SequentialSink, C: Cancellation>(
+    source: &mut S,
+    record: ImageRecord,
+    checked: Type0Info,
+    contexts: &mut ContextBank,
+    rows: &mut R,
+    settings: &Type0DecodeSettings<'_, C>,
+) -> Result<Type0Report, Type0PdfError> {
+    let at = At {
+        page: Some(record.page_number),
+        image: Some(record.image_number),
+        offset: Some(record.descriptor_offset),
+    };
+    let span = record
+        .type0_span()
+        .ok_or_else(|| at.error(Type0PdfErrorKind::UnsupportedImageType(record.record_type)))?;
+    let mut decoder = Type0Decoder::new(
+        source,
+        span,
+        settings.table,
+        contexts,
+        rows,
+        settings.limits,
+        settings.cancellation,
+        settings.arithmetic,
+        settings.image,
+    )
+    .await
+    .map_err(at.image())?;
+    // The destination's dimensions were chosen from this earlier wrapper.
+    // Reject changes before emitting any decoded row.
+    if decoder.progress().info != checked {
+        return Err(at.image()(Type0Error {
+            offset: span.offset,
+            rows_written: 0,
+            output_bytes_written: 0,
+            kind: Type0ErrorKind::Malformed("DIB wrapper that changed between reads"),
+        }));
+    }
+    while decoder.decode_next_row().await.map_err(at.image())? {}
+    decoder.finish().await.map_err(at.image())
+}
+
+/// The existing selected-image sample convention: visible width, top row first.
+pub(super) async fn emit_type0_xobject<S: RangedSource, W: SequentialSink, C: Cancellation>(
+    source: &mut S,
+    document: &mut PdfDocument<'_, W, C>,
+    record: ImageRecord,
+    checked: Type0Info,
+    contexts: &mut ContextBank,
+    settings: &Type0DecodeSettings<'_, C>,
+) -> Result<ImageObject, Type0PdfError> {
+    let at = At {
+        page: Some(record.page_number),
+        image: Some(record.image_number),
+        offset: Some(record.descriptor_offset),
+    };
+    let mut rows = document
+        .begin_bilevel_image(BilevelImageSpec {
+            pixel_width: checked.width,
+            pixel_height: checked.height,
+            row_stride: checked.dib_stride,
+        })
+        .await
+        .map_err(at.pdf())?;
+    decode_type0_rows(source, record, checked, contexts, &mut rows, settings).await?;
+    rows.finish().await.map_err(at.pdf())
+}
+
 async fn emit_type0_image<S: RangedSource, W: SequentialSink, C: Cancellation>(
     reader: &mut Hnc8Reader<'_, S, C>,
     document: &mut PdfDocument<'_, W, C>,
@@ -304,40 +388,21 @@ async fn emit_type0_image<S: RangedSource, W: SequentialSink, C: Cancellation>(
     )
     .await
     .map_err(at.image())?;
-    let mut rows = document
-        .begin_bilevel_image(BilevelImageSpec {
-            pixel_width: info.width,
-            pixel_height: info.height,
-            row_stride: info.dib_stride,
-        })
-        .await
-        .map_err(at.pdf())?;
-    let mut decoder = Type0Decoder::new(
+    let object = emit_type0_xobject(
         reader.source_mut(),
-        span,
-        table,
+        document,
+        record,
+        info,
         contexts,
-        &mut rows,
-        limits,
-        cancellation,
-        options.arithmetic,
-        options.image,
+        &Type0DecodeSettings {
+            table,
+            arithmetic: options.arithmetic,
+            image: options.image,
+            limits,
+            cancellation,
+        },
     )
-    .await
-    .map_err(at.image())?;
-    // The decoder rereads the wrapper; a source that changed it would
-    // misalign the already written image dictionary.
-    if decoder.progress().info != info {
-        return Err(at.image()(Type0Error {
-            offset: span.offset,
-            rows_written: 0,
-            output_bytes_written: 0,
-            kind: Type0ErrorKind::Malformed("DIB wrapper that changed between reads"),
-        }));
-    }
-    while decoder.decode_next_row().await.map_err(at.image())? {}
-    decoder.finish().await.map_err(at.image())?;
-    let object = rows.finish().await.map_err(at.pdf())?;
+    .await?;
     document
         .add_page(
             page_spec(info.width, info.height, options.pixels_per_inch),

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-//! Original calculations and caller-input checks; no external corpus values.
+//! Original calculations and caller-input checks; no document bytes or tables.
 
 use super::*;
 
@@ -20,6 +20,24 @@ fn documented_factors_and_comparison_precision_are_explicit() {
     assert_eq!(EMPIRICAL_COORDINATE_POINTS_PER_UNIT, 240.0 / 2473.0);
     assert_eq!(EMPIRICAL_PIXEL_POINTS, 0.24);
     assert_eq!(EMPIRICAL_PLACEMENT_TOLERANCE_POINTS, 0.00005);
+}
+
+#[test]
+fn image_dimensions_round_the_exact_point_ratio_once() {
+    let page = empirical_page_from_pixels(2071, 153, [0.0; 2]).unwrap();
+    // Predetermined decimal physical dimensions catch the extra rounding
+    // from multiplying the binary approximation of 0.24. That older result
+    // serializes as 497.03999999999996 and changes full-page edge pixels.
+    assert_eq!(page.size.width_points, 497.04);
+    assert_eq!(page.size.height_points, 36.72);
+    assert_ne!(page.size.width_points, 2071.0 * EMPIRICAL_PIXEL_POINTS);
+    let transform =
+        empirical_image_transform(page, 2071, 153, RawTextCoordinate { x: 0, y: 0 }).unwrap();
+    assert_eq!(transform, [497.04, 0.0, 0.0, -36.72, 0.0, 36.72]);
+    // The whole public unsigned dimension range keeps the numerator exact.
+    let largest = empirical_page_from_pixels(u32::MAX, u32::MAX, [0.0; 2]).unwrap();
+    assert_eq!(largest.size.width_points, 1_030_792_150.8);
+    assert_eq!(largest.size.height_points, 1_030_792_150.8);
 }
 
 #[test]

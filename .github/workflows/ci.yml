@@ -88,6 +88,9 @@ jobs:
       - name: Report external native HN/C8 placement verification as not run
         run: |
           python3 scripts/hnc8_placement_rule.py --json | python3 -c 'import json, sys; r = json.load(sys.stdin); assert r["status"] == "NOT_RUN" and r["placement_rule_status"] == "UNKNOWN_NOT_TESTED" and r["production_composition"] == "NOT_ENABLED" and all(value == 0 for value in r["counts"].values()) and r["profiles"] == r["unsupported_profiles"] == r["errors"] == [] and all(r[key]["status"] == "NOT_RUN" for key in ("source_audit", "environment_audit", "input_audit", "native_audit")), r'
+      - name: Report external complete HN/C8 page composition as not run
+        run: |
+          python3 scripts/hnc8_page_composition.py --json | python3 -c 'import json, sys; r = json.load(sys.stdin); assert r["status"] == "NOT_RUN" and r["production_composition"] == "NOT_ENABLED" and all(value == 0 for value in r["counts"].values()) and r["profiles"] == r["attempts"] == r["errors"] == [] and all(r[key]["status"] == "NOT_RUN" for key in ("source_audit", "baseline_audit", "table_audit", "environment_audit", "input_audit", "native_audit")), r'
       - name: Report external JBIG1 pixel oracle as not run
         env:
           CAJ2PDF_CORPUS_DIR: ""

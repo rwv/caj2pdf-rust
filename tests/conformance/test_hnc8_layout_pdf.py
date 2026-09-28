@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+import hashlib
 from pathlib import Path
 import re
 import shutil
@@ -51,6 +52,10 @@ def synthetic_pdf(path: Path, *, content: bytes = CONTENT,
                b"/ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /FlateDecode",
                green_blue),
     ]
+    return write_pdf(path, objects)
+
+
+def write_pdf(path: Path, objects: list[bytes]) -> Path:
     result = bytearray(b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n")
     offsets = [0]
     for number, obj in enumerate(objects, 1):
@@ -64,6 +69,28 @@ def synthetic_pdf(path: Path, *, content: bytes = CONTENT,
                   f"startxref\n{xref}\n%%EOF\n".encode())
     path.write_bytes(result)
     return path
+
+
+RAW_BITS = bytes.fromhex("804020100102040810204080")
+RAW_DICTIONARY = (b"/Type /XObject /Subtype /Image /Width 32 /Height 3 "
+                  b"/ColorSpace /DeviceGray /BitsPerComponent 1 /Decode [1 0]")
+
+
+def raw_bilevel_pdf(path: Path, *, dictionary: bytes = RAW_DICTIONARY,
+                    payload: bytes = RAW_BITS, indirect_length: bool = False) -> Path:
+    image = (b"<< " + dictionary + b" /Length 6 0 R >>\nstream\n" +
+             payload + b"\nendstream") if indirect_length else stream(dictionary, payload)
+    objects = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 32 3] "
+        b"/Resources << /XObject << /Im0 5 0 R >> >> /Contents 4 0 R >>",
+        stream(b"", b"q 32 0 0 -3 0 3 cm /Im0 Do Q"),
+        image,
+    ]
+    if indirect_length:
+        objects.append(str(len(payload)).encode())
+    return write_pdf(path, objects)
 
 
 class LayoutPdfParserTests(unittest.TestCase):
@@ -179,6 +206,42 @@ class LayoutPdfExternalToolTests(unittest.TestCase):
         self.assertEqual(report["pages"][0]["media_box"], [10, 20, 210, 220])
         self.assertEqual(report["pages"][0]["draws"][0]["top_left_ctm"],
                          [20, 0, 0, 12, -2, 194])
+
+    def test_raw_bilevel_requires_explicit_opt_in_and_all_tools_agree(self) -> None:
+        for indirect in (False, True):
+            with self.subTest(indirect_length=indirect):
+                raw_bilevel_pdf(self.pdf, indirect_length=indirect)
+                with self.assertRaisesRegex(layout.PdfMetadataUnsupported, "filter"):
+                    self.extract()
+                report = self.extract(allow_raw_bilevel=True)
+                self.assertEqual((report["page_count"], report["draw_count"]), (1, 1))
+                draw = report["pages"][0]["draws"][0]
+                self.assertEqual((draw["width"], draw["height"],
+                                  draw["bits_per_component"], draw["color_space"],
+                                  draw["filter"]), (32, 3, 1, "DeviceGray", "Raw"))
+                self.assertEqual(draw["pdf_ctm"], [32, 0, 0, -3, 0, 3])
+                self.assertEqual(draw["raw_stream_length"], len(RAW_BITS))
+                self.assertEqual(draw["raw_stream_sha256"], hashlib.sha256(RAW_BITS).hexdigest())
+
+    def test_raw_bilevel_rejects_unproven_sample_dictionary_profiles(self) -> None:
+        cases = (
+            RAW_DICTIONARY.replace(b"DeviceGray", b"DeviceRGB"),
+            RAW_DICTIONARY.replace(b"BitsPerComponent 1", b"BitsPerComponent 8"),
+            RAW_DICTIONARY.replace(b"/Decode [1 0]", b"/Decode [0 1]"),
+            RAW_DICTIONARY.replace(b"/Decode [1 0]", b""),
+            RAW_DICTIONARY + b" /ImageMask false",
+            RAW_DICTIONARY + b" /Mask [0 0]",
+            RAW_DICTIONARY + b" /DecodeParms << /Predictor 1 >>",
+            RAW_DICTIONARY + b" /Interpolate true",
+        )
+        for dictionary in cases:
+            with self.subTest(dictionary=dictionary):
+                raw_bilevel_pdf(self.pdf, dictionary=dictionary)
+                with self.assertRaises(layout.PdfMetadataError):
+                    self.extract(allow_raw_bilevel=True)
+        raw_bilevel_pdf(self.pdf, payload=RAW_BITS[:-1])
+        with self.assertRaisesRegex(layout.PdfMetadataError, "wrong exact length"):
+            self.extract(allow_raw_bilevel=True)
 
     def test_invalid_box_singular_matrix_and_unsupported_form_fail(self) -> None:
         cases = (

@@ -321,7 +321,7 @@ impl Accumulator {
 // A private parameter avoids retaining private document prefixes in tests:
 // synthetic fixtures substitute only their invented prefix digest and use
 // precisely this production validation/streaming/assembly implementation.
-async fn read_with_prefix<S: RangedSource, C: Cancellation>(
+pub(super) async fn read_with_prefix<S: RangedSource, C: Cancellation>(
     source: &mut S,
     header: Header,
     page: PageRecord,
