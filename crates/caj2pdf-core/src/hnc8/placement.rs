@@ -143,7 +143,7 @@ pub fn empirical_image_transform(
     pixel_height: u32,
     coordinate: RawTextCoordinate,
 ) -> Result<[f64; 6]> {
-    let [left, _, _, top] = page.media_box()?;
+    let [left, bottom, _, top] = page.media_box()?;
     let size = pixel_size(pixel_width, pixel_height)?;
     if coordinate.x > i16::MAX as u16 || coordinate.y > i16::MAX as u16 {
         return Err(Error::UnsupportedFormat);
@@ -156,6 +156,10 @@ pub fn empirical_image_transform(
     // overflow any finite f64 endpoint, even at its largest magnitude.
     if ((x - left) - x_offset).abs() > EMPIRICAL_PLACEMENT_TOLERANCE_POINTS
         || ((top - y) - y_offset).abs() > EMPIRICAL_PLACEMENT_TOLERANCE_POINTS
+        // Page-height and selected-offset rounding can each pass separately
+        // while their combined translation exceeds the same tolerance.
+        || ((y - bottom) - (page.size.height_points - y_offset)).abs()
+            > EMPIRICAL_PLACEMENT_TOLERANCE_POINTS
     {
         return Err(Error::InvalidInput {
             reason: "empirical PDF origin cannot preserve the selected coordinate precision",

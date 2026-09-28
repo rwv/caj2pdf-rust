@@ -297,6 +297,28 @@ fn noncollapsed_extreme_origins_must_preserve_dimension_and_coordinate_precision
 }
 
 #[test]
+fn page_and_offset_rounding_must_not_accumulate_beyond_translation_tolerance() {
+    let page = empirical_page_from_pixels(1, 9, [0.0, 274_877_906_944.0]).unwrap();
+    let [_, bottom, _, top] = page.media_box().unwrap();
+    let offset = 14.0 * EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
+    let rounded_y = top - offset;
+    assert!(
+        ((top - bottom) - page.size.height_points).abs() <= EMPIRICAL_PLACEMENT_TOLERANCE_POINTS
+    );
+    assert!(((top - rounded_y) - offset).abs() <= EMPIRICAL_PLACEMENT_TOLERANCE_POINTS);
+    assert!(
+        ((rounded_y - bottom) - (page.size.height_points - offset)).abs()
+            > EMPIRICAL_PLACEMENT_TOLERANCE_POINTS
+    );
+    assert!(matches!(
+        empirical_image_transform(page, 1, 1, RawTextCoordinate { x: 0, y: 14 }),
+        Err(Error::InvalidInput {
+            reason: "empirical PDF origin cannot preserve the selected coordinate precision"
+        })
+    ));
+}
+
+#[test]
 fn unverified_high_bit_words_are_not_silently_reinterpreted_as_negative() {
     let page = page();
     let boundary =
