@@ -44,6 +44,12 @@ The preserved fifth-phase viewport payloads agree exactly and manual review
 sees the original four-page PDF; they establish neither complete-page nor
 text parity. All ten reported startup FAIL outcomes remain intact, while the
 prepared observer records any owned window's document identity as unverified.
+The public
+[Dockerfile `COPY --chmod` reference](https://docs.docker.com/reference/dockerfile/#copy---chmod)
+is a command usage reference for explicitly installing the two original
+Python helpers as read-only mode 0444. This corrects a preserved app-zero
+inventory failure caused by inheriting root-only host context permissions.
+No Docker implementation or vendor file is copied into project source.
 
 This register records the information sources, test material, and code origins
 used by `caj2pdf-rust`. It is part of the acceptance evidence for

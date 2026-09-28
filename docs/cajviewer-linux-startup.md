@@ -106,6 +106,17 @@ mount amendment succeeded without changing the image or app configuration.
 Freeze the actual image ID, this inventory's exact identity and all source
 file hashes together before the first application launch.
 
+The first inventory of the owned-window image failed before vendor execution:
+the externally frozen original Python files were mode 0400, which `COPY`
+preserved for root-owned image files. UID 1000 could not import the original
+canary helper. Its five-client receipt retains the public `PermissionError`,
+successful container cleanup and source closing audit; application launches
+remain zero. The recipe now explicitly installs those two original Python
+files as read-only mode 0444 using Docker's documented
+[`COPY --chmod`](https://docs.docker.com/reference/dockerfile/#copy---chmod).
+Their image permissions no longer depend on host context permissions. Rebuild
+and inventory this amendment before freezing any additional app phase.
+
 ## Original controls
 
 [cajviewer_canary_fixtures.py](../scripts/cajviewer_canary_fixtures.py) authors

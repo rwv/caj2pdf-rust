@@ -28,8 +28,8 @@ RUN set -eu; \
 
 # Vendor documentation/sample files and all installation hooks are omitted.
 COPY vendor/opt/cajviewer/ /opt/cajviewer/
-COPY cajviewer_canary.py /opt/canary/cajviewer_canary.py
-COPY cajviewer_session.py /opt/canary/cajviewer_session.py
+COPY --chmod=0444 cajviewer_canary.py /opt/canary/cajviewer_canary.py
+COPY --chmod=0444 cajviewer_session.py /opt/canary/cajviewer_session.py
 USER 1000:1000
 WORKDIR /home/canary
 ENV HOME=/home/canary DISPLAY=:99 LANG=C.UTF-8 LC_ALL=C.UTF-8 TZ=UTC \
