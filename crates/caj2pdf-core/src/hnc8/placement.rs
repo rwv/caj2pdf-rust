@@ -130,10 +130,11 @@ pub fn empirical_page_from_type0(
 /// For type-0 rasters, pass their checked padded `dib_stride * 8` pixel width
 /// rather than the DIB's visible width. This matches the page helper above.
 ///
-/// Bit-15 source words are provisionally unsupported until their unsigned
-/// interpretation is independently established. A successful evaluation is
-/// only an empirical prediction; it does not validate framing or format
-/// applicability. Pixel ranges are supplied by the source image decoder.
+/// All raw `u16` values, including bit 15, are evaluated as unsigned without
+/// clipping. This is the evaluator's mathematical domain, not proof that
+/// every value or document layout occurs in the source format. A successful
+/// evaluation is only an empirical prediction; it does not validate framing
+/// or format applicability. Pixel ranges come from the source image decoder.
 /// A PDF origin whose magnitude loses the selected coordinate offset beyond
 /// [`EMPIRICAL_PLACEMENT_TOLERANCE_POINTS`] is rejected, even if its page
 /// rectangle is finite and noncollapsed.
@@ -145,9 +146,6 @@ pub fn empirical_image_transform(
 ) -> Result<[f64; 6]> {
     let [left, bottom, _, top] = page.media_box()?;
     let size = pixel_size(pixel_width, pixel_height)?;
-    if coordinate.x > i16::MAX as u16 || coordinate.y > i16::MAX as u16 {
-        return Err(Error::UnsupportedFormat);
-    }
     let x_offset = f64::from(coordinate.x) * EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
     let y_offset = f64::from(coordinate.y) * EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
     let x = left + x_offset;

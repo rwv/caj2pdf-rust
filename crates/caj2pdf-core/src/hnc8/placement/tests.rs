@@ -319,13 +319,11 @@ fn page_and_offset_rounding_must_not_accumulate_beyond_translation_tolerance() {
 }
 
 #[test]
-fn unverified_high_bit_words_are_not_silently_reinterpreted_as_negative() {
+fn full_raw_word_domain_is_unsigned_and_preserves_off_page_positions() {
     let page = page();
-    let boundary =
-        empirical_image_transform(page, 1, 1, RawTextCoordinate { x: 32767, y: 32767 }).unwrap();
-    close(boundary[4], -3.25 + 32767.0 * 240.0 / 2473.0);
-    close(boundary[5], 61.125 - 32767.0 * 240.0 / 2473.0);
     for coordinate in [
+        RawTextCoordinate { x: 0, y: 0 },
+        RawTextCoordinate { x: 32767, y: 32767 },
         RawTextCoordinate { x: 32768, y: 0 },
         RawTextCoordinate { x: 0, y: 32768 },
         RawTextCoordinate {
@@ -333,9 +331,14 @@ fn unverified_high_bit_words_are_not_silently_reinterpreted_as_negative() {
             y: u16::MAX,
         },
     ] {
-        assert!(matches!(
-            empirical_image_transform(page, 1, 1, coordinate),
-            Err(Error::UnsupportedFormat)
-        ));
+        let ctm = empirical_image_transform(page, 1, 1, coordinate).unwrap();
+        close(ctm[4], -3.25 + f64::from(coordinate.x) * 240.0 / 2473.0);
+        close(ctm[5], 61.125 - f64::from(coordinate.y) * 240.0 / 2473.0);
+        if coordinate.x >= 32768 {
+            assert!(ctm[4] > page.media_box().unwrap()[2]);
+        }
+        if coordinate.y >= 32768 {
+            assert!(ctm[5] < page.media_box().unwrap()[1]);
+        }
     }
 }
