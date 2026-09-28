@@ -1315,19 +1315,25 @@ impl DecimalMatrix {
             bytes: [0; MATRIX_TEXT_BYTES],
             length: 0,
         };
-        for (index, value) in values.into_iter().enumerate() {
-            if !value.is_finite() || value.abs() > MAX_PDF_INTEGER as f64 {
-                return Err(Error::InvalidInput {
-                    reason: "PDF matrix components must be finite with magnitude at most 2147483647",
-                });
-            }
-            let value = if value == 0.0 { 0.0 } else { value };
-            let separator = if index == 0 { "" } else { " " };
-            write!(matrix, "{separator}{value}").map_err(|_| Error::InvalidInput {
-                reason: "PDF matrix decimal representation exceeds fixed scratch capacity",
-            })?;
+        for value in values {
+            matrix.push(value)?;
         }
         Ok(matrix)
+    }
+
+    /// Append one checked component. The byte ceiling is defended independently
+    /// of the six-component caller, and a failed scratch buffer is discarded.
+    fn push(&mut self, value: f64) -> Result<()> {
+        if !value.is_finite() || value.abs() > MAX_PDF_INTEGER as f64 {
+            return Err(Error::InvalidInput {
+                reason: "PDF matrix components must be finite with magnitude at most 2147483647",
+            });
+        }
+        let value = if value == 0.0 { 0.0 } else { value };
+        let separator = if self.length == 0 { "" } else { " " };
+        write!(self, "{separator}{value}").map_err(|_| Error::InvalidInput {
+            reason: "PDF matrix decimal representation exceeds fixed scratch capacity",
+        })
     }
 
     fn as_bytes(&self) -> &[u8] {
