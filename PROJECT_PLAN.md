@@ -8,10 +8,10 @@ the repository, API, CLI, documentation, and diagnostics.
 
 ## Repository, license, and release model
 
-- Create a new public repository named `rwv/caj2pdf-rust` with a clean `main`
-  history. Keep the existing private `caj2pdf-rs` prototype as a reference.
+- Use the public repository `rwv/caj2pdf-rust`. Keep the existing private
+  `caj2pdf-rs` prototype as a reference.
 - Keep `main` as the integration branch. Develop each issue on a short-lived
-  branch such as `feat/4-streaming-core` and merge through a reviewed pull
+  branch such as `codex/4-streaming-core` and merge through a reviewed pull
   request; no shared long-lived release branch is required.
 - All source code committed to this repository must be MIT-licensed. Do not
   copy code from the Python or Go projects or their FreeType/LGPL-derived
@@ -43,6 +43,25 @@ the repository, API, CLI, documentation, and diagnostics.
   prototype as a migration candidate only after per-file provenance review;
   exclude its FreeType-derived JBIG/HN implementations. Record format
   observations and build or migrate only MIT-eligible code.
+
+## Vendor validation baseline
+
+- Add a separate pinned Linux CAJViewer baseline for complete-page images and
+  local standard-copy text, as described in
+  [the vendor fixture protocol](docs/cajviewer-fixtures.md). Current vendor
+  validation is `NOT_RUN`; a supported Linux export CLI has not been proven.
+- Verify capabilities with original public canaries before private fixture
+  acquisition. Keep native page export, complete-page viewer capture and
+  print/export-derived images distinct. Compare complete bounded grids and
+  preserve raw copy behavior, verified fresh clipboard transactions and page
+  mapping.
+- Keep the vendor application/runtime, private corpus and acquired images/text
+  external. All committed generators, adapters and diff code remain original
+  MIT. OCR/enhanced-copy/repair observations use separate modes; this work does
+  not expand v0.1.0 to searchable HN, pure-text HN conversion or an OCR engine.
+- Retain the Python regression baseline and its known limitations. Publish
+  vendor/Python/native disagreements as version-scoped evidence rather than
+  replacing existing expectations silently.
 
 ## Architecture and I/O
 
@@ -107,11 +126,28 @@ issue acceptance criteria are authoritative for each task.
 4. Compare page counts, bookmarks, and rendered output against the Python
    converter on its successful corpus cases. Keep known Python failures and
    unsupported formats classified separately.
-5. Record peak memory, throughput, and output validity on representative
+5. Complete [the vendor-oracle epic #123](https://github.com/rwv/caj2pdf-rust/issues/123),
+   a direct child of #1 and a blocker for the #14 release gate:
+   [capability #124](https://github.com/rwv/caj2pdf-rust/issues/124) and
+   [manifest #125](https://github.com/rwv/caj2pdf-rust/issues/125) work can proceed
+   independently. [Images #126](https://github.com/rwv/caj2pdf-rust/issues/126)
+   and [text #127](https://github.com/rwv/caj2pdf-rust/issues/127) require both;
+   [diffs #128](https://github.com/rwv/caj2pdf-rust/issues/128) follow the manifest
+   and acquisition contracts. [Rollout #129](https://github.com/rwv/caj2pdf-rust/issues/129)
+   requires all five plus [production HN/C8 #10](https://github.com/rwv/caj2pdf-rust/issues/10)
+   and [JavaScript #13](https://github.com/rwv/caj2pdf-rust/issues/13).
+   Implementation follows the native GitHub dependency graph.
+   Freeze inputs, modes, complete-stage resource caps and receipts before
+   private execution. `NOT_RUN`, skipped or unsupported work is not a vendor
+   compatibility pass.
+
+6. Record peak memory, throughput, and output validity on representative
    documents; make these release gates rather than assumptions.
 
 ## Reference material
 
+- Vendor fixture plan: [CAJViewer fixtures](docs/cajviewer-fixtures.md) and
+  [epic #123](https://github.com/rwv/caj2pdf-rust/issues/123)
 - Python converter: https://github.com/rwv/caj2pdf
 - Go prototype: https://github.com/rwv/caj2pdf-go
 - Public sample corpus (optional, not vendored):
