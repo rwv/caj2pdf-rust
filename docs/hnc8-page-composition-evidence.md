@@ -4,8 +4,8 @@
 
 [Issue #117](https://github.com/rwv/caj2pdf-rust/issues/117) and draft
 [PR #121](https://github.com/rwv/caj2pdf-rust/pull/121) remain incomplete.
-The two experiments below have separate frozen plans, immutable external
-receipts and actual counts. Neither failed experiment is a whole-profile
+The experiments below have separate frozen plans, immutable external
+receipts and actual counts. No failed experiment is a whole-profile
 compatibility pass. Source documents, states, decoded arrays, PDFs, renders
 and execution artifacts remain outside Git.
 
@@ -121,9 +121,54 @@ declarations. Missing/other color profiles are unsupported failures. This
 narrow identity gate does not normalize arbitrary Decode, DecodeParms or
 mask semantics; complete page pixels remain a separate mandatory gate.
 
+## Preserved corrected-reference attempt
+
+The separately reviewed [corrected-reference plan](hnc8-page-composition-hnb-corrected-reference.md)
+was frozen at `6a401e2afa29a4458960935907fe6eee74441813` and executed once.
+Its report is 182,160 bytes, SHA-256
+`fa2fc149139b6833d06747bbf279af1d4a100fae01a9c5f9c1783a72c342d204`;
+its immutable receipt is 62,561 bytes, SHA-256
+`fb2b01155bd5199c99931fbd82fa1de6d3a986052f58fa911b04cbebacb080b4`.
+This attempt remains **FAIL** and does not satisfy all four HN-B page pairs.
+
+The sole qpdf update changed image objects 7/9 from DeviceRGB to DeviceGray.
+A complete bijection proved preservation of all nine objects and four raw
+streams; only those two color declarations changed. The separately identified
+corrected PDF is 826,724 bytes, SHA-256
+`2d423e1262142030b9b042a54735edc1776b132ae2fc54a3cbfc4b5f4d6f10fd`.
+The original legacy PDF and all earlier failed reports remain unchanged.
+
+All six source rows, two output boxes, two ordered JPEG draws, encoded streams,
+color interpretations and mapping `[1,6]` passed; rows `[2,3,4,5]` remained
+explicit no-image rows. Two direct source decodes and all four complete
+PDF/source sample comparisons passed exact equality. Page 1 compares 316,863
+samples; source page 6 compares 7,279,272 samples. The independently run
+`djpeg` and `pdfimages` commands share the installed libjpeg backend; these
+results do not establish decoder-implementation independence.
+
+The first MuPDF complete-page pair passed: 316,863 pixels, 950,589 channels,
+73,186 nonwhite pixels, and zero differences. The following Poppler pair
+failed the exact raster-dimension/payload guard; two remaining page pairs
+were skipped. Both Poppler outputs contain 956,818 bytes, but their hashes
+also differ. Equal lengths alone do not establish pixel equality. The
+dimension guard is the first refusal, not proof of the only discrepancy.
+Any renderer-sizing or numerical-boundary investigation requires a separately
+reviewed amendment; cropping or a pixel tolerance cannot turn this into PASS.
+
+The phase used 69 validators, including four renders and twelve startup
+library probes; native/converter launches were zero. Every input/code/tool/
+environment/library/generated-input/receipt before/after audit matched.
+Two independent metadata-only audits verified these counts and identities.
+The phase took 2.916 seconds, child wait4 RSS peaked at 29,928 KiB, harness
+high-water mark at 40,260 KiB, and owned storage at 30,806,595 bytes. Exact
+JPEG spooling fetched 825,381 bytes in 203 requests, each at most 4,096 bytes.
+Twelve original-only controls passed before execution; their 138 public
+fixture launches are separate from private compatibility evidence.
+
 ## Resources and audits
 
-This rerun made three native calls and zero Python converter calls. Its
+The controlled identity-parameter rerun made three native calls and zero
+Python converter calls. Its
 1,838 validator launches include 302 renders. Adding 22 outer probes and
 one runner launch gives 1,864 aggregate launches, below the frozen 2,048
 ceiling. The two comparison attempts together made four native calls; each
