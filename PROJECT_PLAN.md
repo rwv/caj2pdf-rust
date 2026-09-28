@@ -126,6 +126,18 @@ issue acceptance criteria are authoritative for each task.
 4. Compare page counts, bookmarks, and rendered output against the Python
    converter on its successful corpus cases. Keep known Python failures and
    unsupported formats classified separately.
+   HN/C8 outline discovery is now recorded in the
+   [closed Stage A report](docs/hnc8-outline-stage-a-results.md): two HN-A
+   references agree on 52 complete entries, and a finite GB18030 candidate
+   correlates with all 52 titles. Compatibility remains UNVERIFIED. Exact
+   title field/codec, hierarchy and destination rules still need the held-out
+   and one-field validation in native child/blocker
+   [#137](https://github.com/rwv/caj2pdf-rust/issues/137) before
+   [#119](https://github.com/rwv/caj2pdf-rust/issues/119) can implement its
+   original bounded visitor and emitted-page mapping. Preserve `/XYZ` null
+   parameters explicitly; C8/HN-B applicability and omitted-row policy remain
+   unknown. No converter/native/render/vendor call occurred in this discovery;
+   the first FAIL and all six unmet #119 criteria remain recorded.
 5. Complete [the vendor-oracle epic #123](https://github.com/rwv/caj2pdf-rust/issues/123),
    a direct child of #1 and a blocker for the #14 release gate:
    [manifest #125](https://github.com/rwv/caj2pdf-rust/issues/125) is complete:
@@ -142,7 +154,8 @@ issue acceptance criteria are authoritative for each task.
    checks; document identity stays unverified. All twelve attempts are
    retained and the pair remains FAIL. Its helper stderr was not retained,
    so [bounded public diagnostics/controls #133](https://github.com/rwv/caj2pdf-rust/issues/133)
-   implement the diagnostic prerequisite as a native child/blocker of #124.
+   provide the completed diagnostic prerequisite as a native child/blocker of #124,
+   merged in [PR #136](https://github.com/rwv/caj2pdf-rust/pull/136).
    Their original mandatory controls retain terminal captured-byte diagnostics,
    preserve primary failures without a raster, and enforce the existing receipt
    budget. They cannot recover historical stderr or establish a new viewer

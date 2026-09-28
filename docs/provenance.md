@@ -1089,7 +1089,7 @@ Current official-vendor acquisition and compatibility remain `NOT_RUN`.
 
 [scripts/hnc8_outline_observation.py](../scripts/hnc8_outline_observation.py)
 and its [runtime controls](../tests/conformance/test_hnc8_outline_observation.py)
-are original MIT diagnostic code. The finite proposed protocol and later
+are original MIT diagnostic code. The preserved finite protocol and later
 implementation gates are in [hnc8-outline-observation.md](hnc8-outline-observation.md).
 This preparation adds no core decoder, native/JavaScript API or dependency.
 It reuses only repository-owned MIT process/metadata primitives and the
@@ -1108,8 +1108,9 @@ codecs provide capped diagnostic hypotheses; their runtime files are pinned
 before a separately authorized observation, not copied or asserted to be the
 source format's encoding.
 
-The existing hash-pinned public matrix and prior Python-converter generation
-report provide source counts and candidate PDF identities, not an independently
+At the preparation checkpoint, the hash-pinned public matrix and prior
+Python-converter generation report provided source counts and candidate PDF
+identities, not an independently
 proved HN outline title/encoding/hierarchy/destination oracle. Raw private
 records, titles, PDFs, command output and receipts remain external. The
 adapter refuses DRAFT protocols and has a zero-work no-input mode. The original
@@ -1135,6 +1136,26 @@ they do not retain observed values, bytes, titles, paths or arbitrary exception
 text. Original controls invent malformed rows/signatures/counts, raised/short/
 zero/overreported reads, interruptions, out-of-scope invalid containers, and
 an excluded identity mismatch. They prove diagnostic and scope behavior only.
-This amendment has no new private observation, preflight, converter, native,
-vendor, decoder dependency or production API change. The first frozen files
-and every historical external artifact remain unchanged.
+The amendment's public preparation had no new private observation, preflight,
+converter, native, vendor, decoder dependency or production API change. The
+first frozen files and every historical external artifact remain unchanged.
+
+The separately frozen selected-source Stage A is now closed with discovery
+PASS, `POSITIVE_OUTLINE_OBSERVED` and compatibility UNVERIFIED. The
+[closed report](hnc8-outline-stage-a-results.md) binds the exact frozen protocol
+and external receipts, three header/index observations, six unchanged existing
+PDFs, 12 independent qpdf/MuPDF outline queries, 24 validator children and one
+runner. All 93 before/after identity records and closing runtime audits pass.
+The positive HN-A repeats have 52 entries with identical complete fingerprints;
+strict GB18030 at record-relative start zero matches all 52 titles in the finite
+enumeration. This is retrospective correlation, not a validated field width,
+codec version, hierarchy or destination grammar. Every observed destination
+is `/XYZ [null, null, null]`; native `/Fit` emission needs explicit alignment.
+No source/title/PDF bytes, private paths or query output are published. C8/HN-B
+zero-entry references do not establish absence or omitted-page policy. The
+24 unselected sources remain OUT_OF_SCOPE/NOT_RUN with zero semantic passes;
+converter/native/render/vendor calls remain zero. The first FAIL/cause UNKNOWN
+is preserved. Separate held-out and one-field validation must establish the
+supported rule before original bounded native implementation. Native child
+and blocker [#137](https://github.com/rwv/caj2pdf-rust/issues/137) defines those
+separate evidence gates; #119 remains open with all six acceptance criteria unmet.

@@ -1,16 +1,18 @@
 # HN/C8 outline investigation and implementation proposal
 
-Status: **FROZEN BEFORE PRIVATE OBSERVATION.** This selected-source amendment
-defines a finite Stage A for
-[issue #119](https://github.com/rwv/caj2pdf-rust/issues/119), a child of #10.
-Its prerequisites #112 and #117 are closed. The first broader Stage A ended
-FAIL and is preserved below; the amended phase has not run. The parent and
-independent reviewer approved the exact amended document, executable contract
-and original source pins. One invocation remains gated by a committed frozen
-protocol, separately reviewed immutable external bindings and an explicitly
-reviewed same-PID pending receipt for the actual environment. Source mutation, converters,
-vendor execution, Stage B and core outline-field implementation remain outside
-this phase. No vendor outline oracle has run.
+Status: **CLOSED — DISCOVERY COMPLETE, COMPATIBILITY UNVERIFIED.** The single
+selected-source Stage A for
+[issue #119](https://github.com/rwv/caj2pdf-rust/issues/119), a child of #10,
+completed under its committed frozen protocol, independently reviewed immutable
+bindings and reviewed same-PID actual-environment receipt. The
+[closed results](hnc8-outline-stage-a-results.md) record a positive independently
+parsed 52-entry HN-A reference, bounded field correlations and unchanged closing
+audits. They establish no native outline compatibility pass. The first broader
+Stage A remains FAIL/cause UNKNOWN and is preserved below. The exact frozen
+document and executable contract are retained externally; this closed document
+cannot authorize another invocation. Stage B needs a separate frozen protocol
+and review. No converter, native, render or vendor call occurred in this phase;
+all six #119 acceptance criteria remain unmet.
 
 ## 1. Evidence available now
 
@@ -103,10 +105,12 @@ required selected-source failure.
 
 ## 2. Stage A: a finite, zero-converter field/oracle observation
 
-Stage A must first have an original MIT external adapter, original synthetic
+The frozen Stage A required an original MIT external adapter, original synthetic
 positive/refusal controls, independent correctness/provenance and
 simplification review, a committed frozen plan, and an immutable execution
-receipt. Until then every count below is planned, not executed.
+receipt. The following contract is preserved as the pre-execution declaration;
+actual completion and measured counts are recorded separately in the
+[closed results](hnc8-outline-stage-a-results.md).
 
 ### Exact allowed input scope
 
@@ -649,8 +653,9 @@ The declared executable paths are `/usr/bin/python3.13`, `/usr/bin/qpdf`,
 the other three fixed hashes appear in the bounds contract above. Its
 before/after version text and startup-library identities agreed exactly.
 Codec-provider identities were hashed once for public preparation. Their
-identities were then verified unchanged in the closed first phase; no amended
-runtime audit has run. The preserved external input/argv manifest bound those
+identities were then verified unchanged in the closed first phase. At this
+preparation checkpoint, no amended runtime audit had run. The preserved
+external input/argv manifest bound those
 observations to the first protocol hash. It has not been rewritten for this
 amendment. No new public preflight or private file observation is part of this
 amendment's preparation; a later frozen phase needs separately reviewed current
@@ -668,27 +673,31 @@ file audits**. The preview is not evidence that a future runtime stayed
 unchanged; final runtime audits must establish that separately.
 
 The parent and independent reviewer approved the amended document and source
-contract. The parent must commit this frozen protocol, then regenerate and
-separately review immutable external input/runtime bindings before authorizing
-one direct invocation. That invocation uses the original six
-legacy reference PDFs, including the original HN-B PDF, never the corrected
-Gray image reference. Stage A and all full #119 implementation/parity
-criteria remain unmet. The first FAIL is preserved; amended observations and
-all native title/encoding/hierarchy/destination implementation remain NOT_RUN.
+contract. The frozen protocol was committed at
+`b2e3b5f5f6e605f14d81997a980e2fae2064d74e`; immutable current input/runtime
+bindings and the actual pending receipt were independently reviewed before
+the single direct invocation. It used the original six legacy reference PDFs,
+including the original HN-B PDF. The selected discovery completed, with
+compatibility UNVERIFIED. The first FAIL remains preserved; all native
+title/encoding/hierarchy/destination implementation remains NOT_RUN, and every
+full #119 implementation/parity criterion remains unmet.
 
-The reviewed original public preflight audits the same **71 public records**
+The reviewed original public preflight audited the same **71 public records**
 before and after its explicit token, including the seven exact historical
 adapter, tests, protocol, wrapper, CLI failure report, execution receipt and
 observation report pins. It does not access source, PDF or reference-report
 paths. Its shared 512 MiB requested-read guard, two 120-second audit deadlines
-and 360-second review wait remain unchanged. The immutable pending receipt
-binds the actual parent and effective child environments; root and independent
-review must approve that exact receipt before the same-PID execution token.
-Elapsed time, an old environment receipt and this frozen document provide no
-implicit execution approval. Regenerated manifest and wrapper hashes are
-bound externally, keeping the protocol-to-manifest-to-wrapper chain acyclic.
+and 360-second review wait were unchanged. The immutable pending receipt
+bound the actual parent and effective child environments; root and independent
+review approved that exact receipt before the same-PID execution token. Both
+public audits passed. Regenerated manifest and wrapper hashes are bound
+externally, keeping the protocol-to-manifest-to-wrapper chain acyclic. The
+phase is consumed; an old receipt, elapsed wait or this document provides no
+approval for another invocation. The native child and blocker
+[#137](https://github.com/rwv/caj2pdf-rust/issues/137) defines the separate
+held-out and checksum-aware one-field validation requirements.
 
-### Amended executable contract (frozen; execution gate pending)
+### Preserved amended executable contract (consumed; no new execution)
 
 Public preparation for this amendment passed **42/42 focused original tests**,
 **457/457 full conformance tests**, seven original fixture tests and the fixture
@@ -712,13 +721,15 @@ preserved. The artificial assertion was removed, with the unchanged actual
 converter, native, vendor or application phase ran during this preparation.
 The parent and independent reviewer approved this source and protocol. The
 freeze commit, regenerated current runtime bindings and actual pending-receipt
-review remain prerequisites for execution. Full native #119 criteria remain unmet.
+review satisfied the one invocation's gates. Full native #119 criteria remain
+unmet; the [closed results](hnc8-outline-stage-a-results.md) preserve the actual
+completion without changing preparation or first-failure history.
 
-The source pins below propose the amended complete CLI-loaded original
-module/test list for independent review. The adapter checks this contract and
-rejects a different source topology. The final frozen protocol must be committed and
-execution explicitly authorized before root's one invocation. A hash or pin
-change requires reviewed public preparation, never a silent retry. Schema v2
+The source pins below preserve the amended complete CLI-loaded original
+module/test list approved by independent review. The adapter checks this contract
+and rejects a different source topology. The committed frozen protocol and
+explicitly authorized invocation are immutable history. A hash or pin change
+requires reviewed public preparation, never a silent retry. Schema v2
 binds only the three selected source field profiles while retaining every
 source/PDF integrity audit, plus the first FAIL's exact immutable identity and
 counts. Selected observation failures remain fatal.
