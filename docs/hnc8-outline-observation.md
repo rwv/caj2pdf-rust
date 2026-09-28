@@ -1,13 +1,14 @@
 # HN/C8 outline investigation and implementation proposal
 
-Status: **DRAFT — PUBLIC PREPARATION ONLY.** This selected-source amendment
-proposes a finite Stage A for
+Status: **FROZEN BEFORE PRIVATE OBSERVATION.** This selected-source amendment
+defines a finite Stage A for
 [issue #119](https://github.com/rwv/caj2pdf-rust/issues/119), a child of #10.
 Its prerequisites #112 and #117 are closed. The first broader Stage A ended
-FAIL and is preserved below; the amended phase has not run. The adapter refuses
-this DRAFT. The parent and independent reviewer must approve the exact amended
-document and executable pins, and the parent must commit a frozen contract
-before explicitly authorizing one invocation. Source mutation, converters,
+FAIL and is preserved below; the amended phase has not run. The parent and
+independent reviewer approved the exact amended document, executable contract
+and original source pins. One invocation remains gated by a committed frozen
+protocol, separately reviewed immutable external bindings and an explicitly
+reviewed same-PID pending receipt for the actual environment. Source mutation, converters,
 vendor execution, Stage B and core outline-field implementation remain outside
 this phase. No vendor outline oracle has run.
 
@@ -666,15 +667,28 @@ canonical libraries after public startup preparation and **before private
 file audits**. The preview is not evidence that a future runtime stayed
 unchanged; final runtime audits must establish that separately.
 
-The parent must separately review this amended document, new executable pins
-and proposed external input/runtime bindings before freezing and committing a
-new protocol and authorizing one direct invocation. That invocation uses the original six
+The parent and independent reviewer approved the amended document and source
+contract. The parent must commit this frozen protocol, then regenerate and
+separately review immutable external input/runtime bindings before authorizing
+one direct invocation. That invocation uses the original six
 legacy reference PDFs, including the original HN-B PDF, never the corrected
 Gray image reference. Stage A and all full #119 implementation/parity
 criteria remain unmet. The first FAIL is preserved; amended observations and
 all native title/encoding/hierarchy/destination implementation remain NOT_RUN.
 
-### Amended executable contract (DRAFT; no execution authorized)
+The reviewed original public preflight audits the same **71 public records**
+before and after its explicit token, including the seven exact historical
+adapter, tests, protocol, wrapper, CLI failure report, execution receipt and
+observation report pins. It does not access source, PDF or reference-report
+paths. Its shared 512 MiB requested-read guard, two 120-second audit deadlines
+and 360-second review wait remain unchanged. The immutable pending receipt
+binds the actual parent and effective child environments; root and independent
+review must approve that exact receipt before the same-PID execution token.
+Elapsed time, an old environment receipt and this frozen document provide no
+implicit execution approval. Regenerated manifest and wrapper hashes are
+bound externally, keeping the protocol-to-manifest-to-wrapper chain acyclic.
+
+### Amended executable contract (frozen; execution gate pending)
 
 Public preparation for this amendment passed **42/42 focused original tests**,
 **457/457 full conformance tests**, seven original fixture tests and the fixture
@@ -696,8 +710,9 @@ assertion because test discovery loaded more helpers; its external log is
 preserved. The artificial assertion was removed, with the unchanged actual
 1 GiB guard retained. No amended private source/PDF open/stat, preflight, query,
 converter, native, vendor or application phase ran during this preparation.
-Independent final review, commit/freeze, current runtime bindings and execution
-authorization remain pending. Full native #119 criteria remain unmet.
+The parent and independent reviewer approved this source and protocol. The
+freeze commit, regenerated current runtime bindings and actual pending-receipt
+review remain prerequisites for execution. Full native #119 criteria remain unmet.
 
 The source pins below propose the amended complete CLI-loaded original
 module/test list for independent review. The adapter checks this contract and
