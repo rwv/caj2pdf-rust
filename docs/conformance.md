@@ -190,11 +190,31 @@ basis does not establish vendor page fidelity or full-family conversion.
 The planned [vendor fixture protocol](cajviewer-fixtures.md), tracked by
 [epic #123](https://github.com/rwv/caj2pdf-rust/issues/123), adds a separate
 version-scoped Linux CAJViewer baseline for complete-page images and local
-standard-copy text. Its current status is **`NOT_RUN`**: no vendor application
-or private vendor fixture has been run for this plan, and no supported Linux
+standard-copy text. Vendor compatibility is **`NOT_RUN`, zero passes**. The
+first pair lost its tmpfs diagnostics; the reviewed transport amendment
+collected a second pair failing on `libxslt.so.1`. With the measured provider
+added, a third pair exited 153 with a file-size-limit diagnostic; its target
+file is unknown. The fourth pair lost Xvfb to signal 25 and reported a separate
+QtWebEngine sandbox error. An original public shared-memory control isolates
+the display limit without launching the viewer. The fifth pair retained
+matching-window deadline failures while its identical viewport captures
+showed the original four-page PDF under manual review. The prepared observer
+checks window PID/process-group ownership and records document identity as
+unverified; an owned window can be a dialog. The
+[startup note](cajviewer-linux-startup.md) retains all twelve reported
+attempts: ten prior failures followed by one helper failure and one owned
+window observation. The sixth pair remains FAIL; unretained helper stderr
+leaves its exact cause unknown. Complete-page capture and text copy remain
+unattempted. No
+private vendor fixture has been acquired, and no supported Linux
 export CLI or headless API has been proven. The existing Python-converter
 regressions and [#117 composition evidence](hnc8-page-composition-evidence.md),
 including the explicit corrected grayscale HN-B basis, remain distinct.
+
+The completed [manifest/receipt tooling](vendor-fixture-manifest.md) supplies
+bounded integrity validation, distinct image/text origins and immutable
+reviewed regeneration. Integrity PASS does not imply acquisition or parity
+PASS. Original controls run in clean-clone CI without the proprietary runtime.
 
 Keep the vendor installer/runtime, private source documents, exported images,
 copied text and receipts outside the repository. Original MIT generators and

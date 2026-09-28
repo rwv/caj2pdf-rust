@@ -1,5 +1,60 @@
 # Provenance and dependency inventory
 
+## CAJViewer startup controls (#124)
+
+The original MIT source in `scripts/cajviewer_canary{,_fixtures}.py`,
+`tools/cajviewer/{Dockerfile,prepare.py,inventory.py,cajviewer_session.py,run.py}`
+and the four `test_cajviewer_*` test modules implements bounded external
+preparation/startup and original runtime controls. PDF Type 3 glyph paths,
+ToUnicode mappings, page objects, rotations and RGB controls are authored from
+ISO 32000-1:2008 §§7.7.3, 8.9, 9.6.5 and 9.10.3. No vendor, legacy converter
+or font implementation source is copied. X11 capture uses the public
+`libX11.so.6` ABI in an external development environment.
+
+The official Linux installer/manual/desktop metadata and public usage agreement
+are provenance/usage references. All vendor runtime files, binaries, manuals,
+fonts, raw UI captures and receipts remain external; no MIT redistribution
+grant is inferred. The experimental Debian image omits installer hooks and
+all bundled document entries. Public package dependencies are not relabeled
+MIT. The [startup note](cajviewer-linux-startup.md) records exact preparation
+pins, first metadata failure, scope and the unattempted capability requirements.
+Child-only POSIX file limits and process-limit metadata use Python's public
+`resource`/`subprocess` APIs and Linux `/proc`; original Python writer controls
+test them without vendor execution or copied implementation.
+The separately frozen external original XCB MIT-SHM control uses only the
+[public XCB API](https://xcb.freedesktop.org/manual/group__XCB__Shm__API.html)
+and [X11 MIT-SHM protocol](https://xorg.freedesktop.org/archive/X11R7.7/doc/xextproto/shm.html)
+facts. It loads absolute pinned public Debian libraries, not vendor libraries,
+and observes the display's shared-memory descriptor/failure under bounded
+POSIX file limits. No external implementation is copied or inspected. Its
+source/plan/closed receipt identities are in the startup note and its two
+sessions report zero application launches and vendor passes. The current
+session source applies the same finite child allowance to Xvfb and the app.
+The fifth experimental image explicitly sets the documented
+`QTWEBENGINE_DISABLE_SANDBOX=1` using the
+[Qt 5.15 platform documentation](https://github.com/qt/qtwebengine/blob/v5.15.2/src/webengine/doc/src/qtwebengine-platform-notes.qdoc)
+as a usage reference only. No Qt implementation is read or copied. The setting
+does not change outer Docker isolation or prove vendor runtime support.
+The owner-based visible-window observer uses the public
+[xdotool 3.20160805.1 command manual](https://github.com/jordansissel/xdotool/blob/v3.20160805.1/xdotool.pod)
+and Python's public `os.getpgid` API. Its original tests include two actual
+project-owned Python process groups and owner/framing/deadline failure cases.
+No xdotool, window-manager or vendor implementation source was used.
+The preserved fifth-phase viewport payloads agree exactly and manual review
+sees the original four-page PDF; they establish neither complete-page nor
+text parity. All ten earlier reported startup FAIL outcomes remain intact.
+The sixth frozen pair retains one additional helper failure and one owned
+window observation, keeping document identity unverified and the pair FAIL.
+The unretained search stderr leaves its cause unknown; no vendor or X11 error
+class is inferred. All twelve reported attempts and the exhausted finite
+ceiling are recorded in the startup note.
+The public
+[Dockerfile `COPY --chmod` reference](https://docs.docker.com/reference/dockerfile/#copy---chmod)
+is a command usage reference for explicitly installing the two original
+Python helpers as read-only mode 0444. This corrects a preserved app-zero
+inventory failure caused by inheriting root-only host context permissions.
+No Docker implementation or vendor file is copied into project source.
+
 This register records the information sources, test material, and code origins
 used by `caj2pdf-rust`. It is part of the acceptance evidence for
 [issue #2](https://github.com/rwv/caj2pdf-rust/issues/2). Update the relevant

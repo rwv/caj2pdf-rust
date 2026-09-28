@@ -4,8 +4,26 @@
 
 ## Status and scope
 
-**DRAFT — vendor validation is `NOT_RUN`.** No CAJViewer application, private
-document, vendor export, or vendor rendering has been executed for this plan.
+**DRAFT — vendor compatibility is `NOT_RUN`, zero passes.** Two original-PDF
+startup attempts lost their tmpfs diagnostics. The reviewed transport amendment
+collected two loader failures with unavailable `libxslt.so.1`. The measured
+provider amendment then collected two file-size-limit failures, exit 153;
+the affected file is unknown. The application-limit pair then lost Xvfb to
+signal 25 and reported a separate QtWebEngine sandbox error. An original
+public shared-memory control confirms the Xvfb file-limit failure and a
+bounded 64 MiB allowance without launching the viewer. All eight reported
+application attempts/failures from those phases are retained. The fifth pair
+kept the launcher/display alive but failed an unverified filename-based window
+predicate. Its identical complete viewport payloads show the original
+four-page PDF under manual review. Those ten reported startup attempts retain
+their FAIL outcomes. The sixth independently frozen pair adds one helper
+failure and one owned-window startup observation, keeping document identity
+unverified. All twelve attempts are retained; the pair remains FAIL and its
+ceiling is exhausted. The failed search's stderr content was not retained,
+so public helper diagnostics/controls must precede a newly reviewed phase.
+No private document, complete-page acquisition,
+clipboard observation or vendor comparison has been run. The
+[startup note](cajviewer-linux-startup.md) preserves the exact phase and failure.
 The official Linux documentation confirms reading, text copying, and printing;
 it does not establish a supported Linux export CLI or headless API.
 
@@ -68,7 +86,10 @@ children follow this graph; issue acceptance criteria remain authoritative:
 | E | [#128: implement bounded pixel and text diffs with original CI fixtures](https://github.com/rwv/caj2pdf-rust/issues/128) | D (#125), B (#126) and C (#127) |
 | F | [#129: validate vendor fixtures and adjudicate conversion differences](https://github.com/rwv/caj2pdf-rust/issues/129) | A–E (#124–#128), [#10](https://github.com/rwv/caj2pdf-rust/issues/10) and [#13](https://github.com/rwv/caj2pdf-rust/issues/13) |
 
-Capability and manifest work can proceed independently. Implement the
+[The immutable manifest reader and regeneration tooling](vendor-fixture-manifest.md)
+is complete under [PR #131](https://github.com/rwv/caj2pdf-rust/pull/131);
+its original controls report no vendor work. Capability work remains open.
+Implement the
 comparators after their declared acquisition/manifest blockers are complete. Image and text acquisition are sibling
 tasks: success in one channel does not satisfy the other.
 
