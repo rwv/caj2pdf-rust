@@ -121,6 +121,72 @@ hashes, unsigned and signed predictions, unaffected-geometry guards and
 copy/run limits. No unannounced recipe search or candidate substitution is
 allowed during execution. Keep all source copies, text and PDFs external.
 
+## Predeclared high-bit black-box batch
+
+The second virtual report has SHA-256
+`725992cb7137669be92a98fadaa6c1a5c14a6ef3144311111f987a2dc71734b9`.
+All three candidates fit one exact-length frame: 391/391/441 recipes,
+1,223 total, 1,220 length mismatches and three exact frames. All 27 sources,
+matrix, oracle, Python/runtime, implementation hashes and actual libz binary
+passed before/after audits. The libz binary is
+`/usr/lib/x86_64-linux-gnu/libz.so.1.3.1`, SHA-256
+`85590dd58edf5445e18bc7193e5ebc01ac5841f1ae187e97705a662e90c6421e`.
+Maximum source range/hash request was 14,546/65,536 bytes, decoded buffer
+33,688 bytes and harness VmHWM 25,100 KiB. This was virtual feasibility only:
+zero source copies, converter launches or private-byte artifacts.
+
+Freeze **four** source copies and **eight** converter launches maximum,
+two per copy. All targets are image 2 on the same discovery pages as #111.
+Keep every original index row, source size, outer 24 text bytes, descriptors,
+image streams and every other decoded byte unchanged. Only the selected
+two-byte logical word changes. Recompress with zlib 1.3.1, windowBits 15,
+strategy 0, one final Z_FINISH and no intermediate flush, using the recipe
+and full-source hash below. Require strict frame/marker/decoded-size checks,
+original exact frame capacities and an every-byte bounded source diff audit.
+
+| Case | Decoded span | Old → new | Level / memLevel | Frozen mutated-source SHA-256 |
+| --- | --- | --- | --- | --- |
+| C8 p1/i2 x bit 15 | `[33576,33578)` | 5,978 → 38,746 | 9 / 8 | `0f15353f8ef1d7d7e5badc332f65be860ff05cc23115bfab484073c6a50b672d` |
+| C8 p1/i2 y boundary | `[33578,33580)` | 1,479 → 32,768 | 9 / 8 | `73c3c70fcd8edcde47bf5833289f3faf01b7355b1653561c261be38a6fc25a75` |
+| HN-A p16/i2 x bit 15 | `[17048,17050)` | 482 → 33,250 | 8 / 7 | `b691aee68b4c5e26a0ace026ab86d7762f096322f2d69252d5d5958725ae6130` |
+| HN-A p16/i2 y bit 15 | `[17050,17052)` | 5,446 → 38,214 | 8 / 7 | `8ed08a34876ea5b40959b429f329ebbc787fd8490f1c4f23fbc519b19adcef31` |
+
+C8 keeps row `[80,100)`, text `[220,14766)`, allowed encoded changes only
+in `[244,14766)`, first descriptor 14,766 and frame length 14,522.
+HN-A keeps row `[16664,16684)`, text `[953320,960821)`, allowed encoded
+changes only in `[953344,960821)`, first descriptor 960,821 and frame
+length 7,477. Three cases toggle only decoded bit 15; the C8 y boundary
+changes one logical two-byte value, with no single-bit claim.
+
+| Case | Unsigned candidate selected translation (pt) | Signed i16 alternative (pt) |
+| --- | ---: | ---: |
+| C8 x | 3760.226445612616 | -2599.919126566923 |
+| C8 y | -2391.672786089770 | 3968.472786089770 |
+| HN-A x | 3226.849979781642 | -3133.295592397898 |
+| HN-A y | -2886.596845936110 | 3473.548726243429 |
+
+For unsigned interpretation use the frozen formula with the new raw word;
+for the signed alternative subtract 65,536 from each new word first. The
+predictions differ by `65536*240/2473 = 6360.145572179539 pt`. Accept an
+unsigned-role result only when both runs match the unsigned absolute
+prediction within 0.00005 pt, disagree with the signed alternative, and
+change only that selected translation. Preserve images outside the page;
+do not clamp or treat their invisibility as missing source data. Require
+all page counts/boxes, image identity/order/dimensions/stream hashes, first
+four affine components, other translation, other target draws and every
+non-target page's CTMs unchanged. qpdf, MuPDF and Poppler must agree;
+metadata rejection, unrelated changes or nonrepeatability is UNSUPPORTED.
+
+Audit all original sources, matrix/oracle, six baseline PDFs/reference report,
+clean reference checkout, executable/package hashes, actual libz bytes,
+exact command/environment and 180-second timeout before and after. Report
+every attempted/completed/passing/failing/skipped/unsupported case and actual
+converter-runner calls, retaining both signed/unsigned predictions, all
+ordered CTMs and exact diff runs externally. Do not rerun or substitute any
+recipe during this batch. Its scope is field interpretation on these two
+documents; a pass would support a named empirical raw-u16 evaluator, not
+claim authoritative physical units or complete HN/C8 document conversion.
+
 ## Acceptance and remaining support boundary
 
 Follow #112's acceptance criteria and release policy: original MIT provenance,
