@@ -132,7 +132,8 @@ class InventoryDiagnosticsTests(unittest.TestCase):
         self.assertLessEqual(len(source), 65536)
         return source
 
-    def entry(self, values, *, closing_fault=None, source_failure=False, output_value=None, write_fault=None):
+    def entry(self, values, *, closing_fault=None, source_failure=False, output_value=None, write_fault=None,
+              expected_environment=None, actual_environment=None, closing_environment=None):
         """Execute the actual full entry AST with invented boundary providers.
 
         All original statement nodes, including its real finally/serialization,
@@ -171,7 +172,8 @@ def inventory():
                 if write_fault == "flush": raise KeyboardInterrupt("invented flush interruption")
                 return super().flush()
         output = OriginalOutput()
-        environment = {"LANG": "C.UTF-8"}
+        environment = {"LANG": "C.UTF-8"} if actual_environment is None else dict(actual_environment)
+        expected_environment = environment if expected_environment is None else expected_environment
         tool_sha = hashlib.sha256(b"x").hexdigest()
         tools = {name: {"path": "/original/" + name, "size_bytes": 1, "sha256": tool_sha}
                  for name in ("dpkg-query", "fc-list")}
@@ -208,7 +210,7 @@ def inventory():
             events.append("environment")
             if counts["environment"] == 2 and closing_fault in ("environment", "all"):
                 raise RuntimeError("invented closing environment failure")
-            return dict(environment)
+            return dict(closing_environment if counts["environment"] == 2 and closing_environment is not None else environment)
         def uid():
             counts["uid"] += 1
             events.append("uid")
@@ -219,7 +221,7 @@ def inventory():
         namespace.update(load_public_sources=load, caps=caps, environment_snapshot=snapshot, Path=OriginalPath,
             shutil=types.SimpleNamespace(which=lambda name: "/original/" + name),
             os=types.SimpleNamespace(getuid=uid, getgid=lambda: 1000),
-            sys=types.SimpleNamespace(argv=["original-entry", json.dumps(environment), json.dumps(tools)],
+            sys=types.SimpleNamespace(argv=["original-entry", json.dumps(expected_environment), json.dumps(tools)],
                 modules=registry, stdout=types.SimpleNamespace(buffer=output), exit=stop))
         if write_fault is not None:
             error = OSError if write_fault == "write" else KeyboardInterrupt

@@ -1383,3 +1383,31 @@ compatibility remains NOT_RUN with zero passes for this slice. A later phase
 requires separate exact frozen review and actual closing evidence. External
 vendor/corpus files, raw environment values, captures and complete runtime
 receipts remain outside Git.
+
+## CAJViewer fixed host cache profile (#151)
+
+This is independently authored original MIT source, controls and English
+documentation. Its basis is the reviewed owned #148 diagnostic API, public
+#151 contract and primary Fontconfig/XDG documentation linked in the
+[integration contract](cajviewer-inventory-diagnostics.md#fixed-host-cache-profile-151).
+No proprietary implementation, legacy converter, private HN/JBIG source,
+vendor binary or private document was inspected or copied.
+
+| File | Original ownership and basis |
+| --- | --- |
+| `tools/cajviewer/run.py` | Original pure host-only profile; copied declared ENV and exact Docker tokens are returned together outside all canonical fragments |
+| `tests/conformance/test_cajviewer_inventory_cache.py` | Original controls using invented ENV/helper results and the actual profile/full entry APIs; no runtime/private bytes |
+| `tests/conformance/test_cajviewer_inventory_diagnostics.py` | Original owned test helper gains injected expected, initial and closing ENV values; production entry/finally statements remain unchanged |
+| `docs/cajviewer-inventory-diagnostics.md` | Original English profile/integration contract and paraphrased V13 finding; raw stderr stays external |
+| `PROJECT_PLAN.md`, `docs/cajviewer-fixtures.md` | Original English checkpoint/native-prerequisite updates; source readiness remains separate from runtime/capability proof |
+| `docs/provenance.md` | Original per-file provenance and unchanged-source scope record |
+
+The API performs no filesystem, ambient environment, tool or process action.
+The canonical entry, source loader, helper/inventory modules, image recipe,
+runtime baseline and all caps remain unchanged. Actual assembly identity is a
+required original control, not inferred from helper placement. Source controls
+and hosted gates establish this child only. Parent #124's actual caller
+amendment and separately frozen inventory attempt remain unimplemented and
+NOT_RUN. No old receipt/cause is rewritten or operational phase replayed.
+The fresh V13 cache finding is paraphrased; actual stderr, ENV maps,
+vendor/corpus files and complete receipts remain external.
