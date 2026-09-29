@@ -45,6 +45,8 @@ row. Source and output page numbers are one-based. Successful image rows
 include the ordered source descriptors, visible/display dimensions and all
 six CTM components. A visitor can stream a mapping to a file or JavaScript
 adapter without retaining an entire document map. `()` is a no-op visitor.
+Verified repeated groups expose aliases rather than extra draws; see
+[the grouping rule and API migration](hnc8-repeated-groups.md).
 
 ## Samples and orientation
 
@@ -189,7 +191,9 @@ pages convert and pass qpdf. MuPDF matches 31,895,688 rendered pixels exactly.
 Poppler has one-level grayscale differences attributable to equivalent row
 orientation/CTM representations, confirmed with a separate control; it is
 not recorded as exact equality. See [the protocol and results](hnc8-direct-text.md).
-Real mixed-page compatibility and CAJViewer HN/C8 comparisons remain open.
+Selected real mixed pages now match an explicitly Gray-corrected reference;
+see [repeated groups and migration](hnc8-repeated-groups.md). CAJViewer HN/C8
+comparisons remain open.
 
 ### v0.x API migration
 

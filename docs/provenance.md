@@ -1610,3 +1610,13 @@ black-box reference revision, four-page comparison and separate Poppler
 orientation control. External documents, derived pixels, reference libraries
 and diagnostic control PDFs remain outside Git. The failed earlier run and
 the separately failed pull-72 reference attempt remain failures.
+
+## Raw compact records and repeated image groups
+
+The shared raw/direct consumer and bounded group comparison are original MIT
+code derived from external source-byte observations and black-box output.
+[The rule, sample identity and comparisons](hnc8-repeated-groups.md) distinguish
+source mapping from Python page-count and color-declaration defects. No legacy
+implementation was inspected or imported. Unit images and records use existing
+original fixture builders; documents, tables, JPEG payloads and renders remain
+external. No dependency was added.

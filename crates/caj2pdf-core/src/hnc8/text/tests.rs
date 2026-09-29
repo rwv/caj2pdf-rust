@@ -1211,3 +1211,46 @@ fn direct_frame_cancellation_and_source_faults_return_no_partial_coordinates() {
         );
     }
 }
+
+#[test]
+fn raw_image_first_records_reuse_compact_controls_with_strict_public_counts() {
+    let mut plain = direct_image(point(0xffff, 17));
+    for tag in [0x8001, 0x801c, 0x801d, 0x80ff, 0x8071, 0x8070, 0x0042] {
+        plain.extend(direct_record(tag, 42));
+    }
+    plain.extend(direct_image(point(19, 0x8004)));
+    plain.extend(direct_record(0x8004, 0));
+    plain.extend([0xff; 31]);
+    for chunk in 1..=31 {
+        let mut f = direct_fixture(plain.clone(), 2);
+        f.header.variant = Variant::HnA;
+        f.header.page_index.offset = 0x15c;
+        f.page.row_offset = 0x15c;
+        f.source.bytes.truncate(512);
+        f.source.bytes.extend(&plain);
+        f.source.size = f.source.bytes.len() as u64;
+        f.page.text.length = plain.len() as u64;
+        let out = f
+            .parse(
+                Limits {
+                    io_chunk_bytes: chunk,
+                    ..Default::default()
+                },
+                TextBudget::default(),
+                &NeverCancel,
+            )
+            .unwrap();
+        assert_eq!(out.coordinates, [point(0xffff, 17), point(19, 0x8004)]);
+        assert_eq!(out.record_count, 10);
+        assert_eq!(out.zlib_frame, None);
+        assert_eq!(out.encoded_sha256, <[u8; 32]>::from(Sha256::digest(&plain)));
+        assert_eq!(out.max_decoder_output_chunk_bytes, 0);
+        f.page.image_count = 4;
+        assert!(
+            f.normal()
+                .unwrap_err()
+                .to_string()
+                .contains("image count differs")
+        );
+    }
+}

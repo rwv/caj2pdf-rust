@@ -24,6 +24,7 @@ struct Records {
     count: u32,
     images: usize,
     coordinates: Vec<RawTextCoordinate>,
+    compact: Option<super::records::Records>,
 }
 
 impl Records {
@@ -34,6 +35,9 @@ impl Records {
         max_records: u32,
         loc: Location,
     ) -> Result<()> {
+        if let Some(compact) = &mut self.compact {
+            return compact.consume(input, &mut self.coordinates, loc);
+        }
         for (index, &byte) in input.iter().enumerate() {
             if matches!(self.stage, Stage::Done) {
                 break; // Remaining indexed bytes are opaque, but still read and hashed.
@@ -73,7 +77,7 @@ impl Records {
                     (Stage::X, 0x8070) => Stage::Y,
                     (Stage::Y, 0x8071) => Stage::Glyphs,
                     (Stage::Glyphs, 0..=0x7fff) => Stage::Glyphs,
-                    (Stage::Start | Stage::Glyphs | Stage::Images, 0x800a)
+                    (Stage::Glyphs | Stage::Images, 0x800a)
                         if self.images < self.coordinates.len() =>
                     {
                         self.needed = 28;
@@ -105,6 +109,7 @@ pub(super) async fn read<S: RangedSource, C: Cancellation>(
     cancellation: &C,
     budget: TextBudget,
     loc: Location,
+    compact: Option<super::records::Records>,
 ) -> Result<TextCoordinates> {
     let bytes = page.text.length;
     let ceiling = budget.max_decoded_bytes.min(limits.max_output_bytes);
@@ -130,6 +135,7 @@ pub(super) async fn read<S: RangedSource, C: Cancellation>(
         count: 0,
         images: 0,
         coordinates,
+        compact,
     };
     let mut offset = 0;
     let mut max_source_request_bytes = 0;
@@ -155,17 +161,21 @@ pub(super) async fn read<S: RangedSource, C: Cancellation>(
         )?;
         offset += length as u64;
     }
-    if !matches!(records.stage, Stage::Done) {
+    let record_count = if let Some(compact) = records.compact {
+        compact.finish(&mut records.coordinates, loc)?
+    } else if !matches!(records.stage, Stage::Done) {
         return Err(loc
             .at(page.text.offset + bytes)
             .malformed("raw text records", "missing image records or end marker"));
-    }
+    } else {
+        records.count
+    };
     let digest = hash.finalize().into();
     Ok(TextCoordinates {
         text: page.text,
         zlib_frame: None,
         decoded_length: bytes as u32,
-        record_count: records.count,
+        record_count,
         coordinates: records.coordinates,
         encoded_sha256: digest,
         decoded_sha256: digest,
