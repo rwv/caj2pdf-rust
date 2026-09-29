@@ -48,8 +48,10 @@ the repository, API, CLI, documentation, and diagnostics.
 
 - Add a separate pinned Linux CAJViewer baseline for complete-page images and
   local standard-copy text, as described in
-  [the vendor fixture protocol](docs/cajviewer-fixtures.md). Current vendor
-  validation is `NOT_RUN`; a supported Linux export CLI has not been proven.
+  [the vendor fixture protocol](docs/cajviewer-fixtures.md). The initial GUI
+  capture and ordinary-copy pilot is complete; see [the snapshot](docs/cajviewer-fixture-snapshot.md).
+  The #129 native PDF pilot matched two pages exactly. Formal baseline approval,
+  remaining formats and browser/Node comparisons are incomplete.
 - Verify capabilities with original public canaries before private fixture
   acquisition. Keep native page export, complete-page viewer capture and
   print/export-derived images distinct. Compare complete bounded grids and
@@ -181,3 +183,14 @@ issue acceptance criteria are authoritative for each task.
 - Semantic Versioning: https://semver.org/spec/v2.0.0.html
 - Browser Blob ranges: https://developer.mozilla.org/en-US/docs/Web/API/Blob/slice
 - Node.js positioned reads: https://nodejs.org/api/fs.html#filehandlereadbuffer-offset-length-position
+
+## Immediate implementation sequence
+
+- Continue #159's concrete CAJ compatibility failures after the merged indirect
+  Flate support; do not claim whole-document success from a partial parser fix.
+- Validate HN outline fields through the [small #137 plan](docs/hnc8-outline-stage-b-proposal.md),
+  then implement #119 with the existing bounded visitor/PDF APIs.
+- Keep complete HN/C8 conversion (#10), browser/Node support (#13), codec rights
+  and the release matrix (#14) as explicit remaining requirements.
+- Prefer a concrete failing sample or focused original test over another generic
+  proof framework. Each PR still requires review, simplification and green CI.

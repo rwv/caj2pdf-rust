@@ -1454,3 +1454,14 @@ The synthetic compressed streams, integer references, malformed targets and
 marker-containing payloads were authored for this repository. External CAJ,
 viewer screenshots and derived text remain outside Git. The observed CCITT
 stream is still unsupported; Flate progress is not document compatibility.
+
+### HN-A outline field observations (#137)
+
+[HN-A outline fields](hnc8-outline-fields.md) records two additional positive
+black-box references and fifteen original copied-input controls. No Python,
+Go or private Rust HN/parser implementation was read or copied. Only original
+control strings, located numeric observations, counts and identities are public;
+source/title/PDF/query bytes remain external. Title encoding evidence justifies
+reusing the existing original GB18030 decoder for the stated profile. Unknown
+record spans and C8/HN-B applicability remain uninterpreted. Native reader and
+PDF destination changes belong to #119 and require their own tests/review.
