@@ -1,5 +1,69 @@
 # Provenance and dependency inventory
 
+## Original capability protocol (#146)
+
+The nine new modules `tools/cajviewer/capability_protocol.py`,
+`capability_io.py`, `capability_x11.py`, `capability_clipboard.py`,
+`capability_pages.py`, `capability_session.py`, `capability_collect.py`,
+`capability_runtime.py` and `run_capabilities.py`, plus
+`tests/conformance/test_cajviewer_capabilities.py`, are independently authored
+original MIT source for this repository. Every file declares MIT. No private
+module, Python/Go converter, vendor implementation, clipboard library or
+HN/JBIG source was inspected, migrated, copied or transliterated for this work.
+
+The implementation reuses existing original bounded process execution,
+source-load validation and public PDF authoring facts. New public controls use
+fabricated runtime JSON, X11/ICCCM byte transcripts, temporary files and the
+existing original rectangle/Type3 fixture generator. They call production
+validators, adapters, transport and state transitions rather than recreating
+those implementations. Generated rasters, runtime inputs and application bytes
+remain external. They are not fixtures from the vendor or optional corpus.
+The sole reviewed original-control carrier passed 57 methods and 133 subtests
+with zero failures, errors or skips, exit 0. All 112 ordered source audit rows
+and both actual closing reviews passed. One carrier parent and one controlled
+Python child ran; additional candidate forbidden effects were zero. Application
+observations remain NOT_RUN and compatibility credit is zero. The
+[closed control evidence](cajviewer-capability-protocol.md#code-acceptance-and-original-controls)
+records artifact pins and the precise resource/measurement scope.
+
+The wire client and selection state were written from the primary
+[X.Org X11 core protocol](https://xorg.freedesktop.org/releases/X11R7.7/doc/xproto/x11protocol.html)
+and [ICCCM selection conventions](https://xorg.freedesktop.org/archive/current/doc/xorg-docs/icccm/icccm.html).
+Only protocol facts (setup/reply/event layouts, properties, images, ownership,
+TARGETS, TIMESTAMP and INCR) were used; no implementation snippets were imported.
+TIMESTAMP is not assumed to be a persistent-manager content revision. These
+sources establish no vendor headless/render/export flag or GUI binding.
+Unavailable official documentation fetches and source-authoring/read refusals
+remain in the preparation history; they are not application observations.
+The early empty-argument guard also uses the official CPython 3.13
+[argparse](https://raw.githubusercontent.com/python/cpython/v3.13.0/Lib/argparse.py)
+and [gettext](https://raw.githubusercontent.com/python/cpython/v3.13.0/Lib/gettext.py)
+fact that parser construction can consult ENV. The guard and refusing-ENV
+controls are original code; no CPython implementation was copied.
+
+[The capability design](cajviewer-capability-protocol.md) gives all eight #146
+code gates, the producer-field consumer table, finite control/resource scope
+and remaining runtime discoveries. Held-source and focused-control reviews
+passed. Code acceptance requires exact committed-head reviews and the four
+hosted gates. The three
+consumed documentation files were snapshotted after the completed run and before
+this publication; their historical byte identities remain external and unchanged.
+Parent #124 still needs two actual independently closed
+fresh sessions after a successful reviewed declared runtime view and a separate
+finite frozen profile. Current v11 FAIL, the twelve previous launch outcomes and
+unknown prior causes remain unchanged. No code completion or issue relationship
+authorizes a launch. #126/#127 remain blocked; no converter/API/format support,
+installed image or consumed plan is changed.
+The sole v12 runtime-view phase also closed FAIL despite both original
+public source loads passing. The fc-list helper exited 0 with 48 retained stderr
+bytes, then failed validation with ValueError; exact message/cause UNKNOWN.
+Both preservation reviews passed, operational status remained FAIL, inventory
+did not complete and all 2,731 comparisons are NOT_RUN. No actual successful
+runtime prerequisite or application proof exists. Independent native child and
+blocker [#148](https://github.com/rwv/caj2pdf-rust/issues/148) tracks bounded
+original inventory-helper diagnostics with resolved #125/#133/#143 prerequisites.
+It does not authorize application work or alter #146's public-code scope.
+
 ## CAJViewer startup controls (#124)
 
 The original MIT source in `scripts/cajviewer_canary{,_fixtures}.py`,

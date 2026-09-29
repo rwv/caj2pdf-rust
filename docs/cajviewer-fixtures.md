@@ -35,18 +35,31 @@ it does not establish a supported Linux export CLI or headless API.
 The separately frozen [v11 public runtime-view inventory](cajviewer-runtime-view-v11.md)
 closed FAIL before inventory completion; its ordered source-load diagnostic
 locates a failed read of the original public inventory module. Historical v9
-supplied that module through a pinned read-only bind. A fresh transport
-amendment remains DRAFT; bare-image membership and a mounted filesystem view
-must be distinguished. Closing audits passed, but all 2,731 runtime
-comparisons remain NOT_RUN and no viewer was launched.
+supplied that module through a pinned read-only bind. The sole v12 transport
+amendment is now `CLOSED_FAIL`: both public-module source loads passed, but
+the `fc-list` metadata helper completed with exit 0 and 48 bytes of stderr
+before its output validation failed with `ValueError`. The exact diagnostic
+message and cause remain `UNKNOWN`. Root and independent closing reviews
+passed as reviews of preserved failure evidence. Inventory completion is
+zero, all 2,731 runtime comparisons remain `NOT_RUN`, and application/vendor
+actions remain zero. These inventories describe the declared runtime view,
+including pinned read-only public-module mounts; they do not establish
+bare-image membership. Native child/blocker
+[#148](https://github.com/rwv/caj2pdf-rust/issues/148) adds bounded original
+inventory-helper diagnostics and remains independent of #146.
 
 Native child/blocker [#146](https://github.com/rwv/caj2pdf-rust/issues/146)
-defines a separate original capability protocol: document/page identity,
+defines the original capability protocol: document/page identity,
 complete-page acquisition, fresh ordinary-copy transactions, finite GUI
-discovery and an exact bounded collector. Public code acceptance is separate
-from #124's actual repeated-session evidence. The existing startup-only
-protocol cannot acquire these fixtures. Complete-page images and copied text
-remain unverified until the respective operational gates pass.
+discovery and an exact bounded collector. Its sole reviewed original-control
+run passed 57 methods and 133 subtests with zero skips; all 112 source audit
+rows and both actual closing reviews passed, exit 0. Code acceptance requires
+exact committed-head reviews and the four hosted gates. #124 separately requires a successful
+declared runtime-view prerequisite and two fresh document-verified sessions
+repeating the complete-page and ordinary-copy proofs, including the negative
+control. The existing startup-only protocol cannot acquire these fixtures.
+Actual capability observations remain `NOT_RUN`; complete-page images and
+copied text remain unverified.
 
 This work adds a separate, version-scoped vendor behavior baseline. It does not
 replace the pinned Python-converter regression baseline. The completed
@@ -100,7 +113,7 @@ children follow this graph; issue acceptance criteria remain authoritative:
 
 | Child | Issue | Blocked by |
 | --- | --- | --- |
-| A | [#124: verify offline CAJViewer Linux container capabilities](https://github.com/rwv/caj2pdf-rust/issues/124) | Child prerequisites [#133](https://github.com/rwv/caj2pdf-rust/issues/133) and [#143](https://github.com/rwv/caj2pdf-rust/issues/143) are resolved; [#146: original capability protocol](https://github.com/rwv/caj2pdf-rust/issues/146) is open |
+| A | [#124: verify offline CAJViewer Linux container capabilities](https://github.com/rwv/caj2pdf-rust/issues/124) | Resolved child prerequisites [#133](https://github.com/rwv/caj2pdf-rust/issues/133) and [#143](https://github.com/rwv/caj2pdf-rust/issues/143); capability-protocol prerequisite [#146](https://github.com/rwv/caj2pdf-rust/issues/146) and inventory-helper diagnostics prerequisite [#148](https://github.com/rwv/caj2pdf-rust/issues/148), whose diagnostics remain unimplemented |
 | D | [#125: define immutable external fixture manifests and receipts](https://github.com/rwv/caj2pdf-rust/issues/125) | None within this epic |
 | B | [#126: acquire reproducible complete-page CAJViewer images](https://github.com/rwv/caj2pdf-rust/issues/126) | A (#124) and D (#125) |
 | C | [#127: capture standard-copy text and classify OCR separately](https://github.com/rwv/caj2pdf-rust/issues/127) | A (#124) and D (#125) |
