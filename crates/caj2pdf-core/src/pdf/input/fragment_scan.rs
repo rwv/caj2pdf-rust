@@ -210,7 +210,6 @@ pub(crate) async fn scan_fragment_objects<S: RangedSource, C: Cancellation>(
                 let length = if let Some(length) = exact_unsigned(value) {
                     length
                 } else if let Some(target) = indirect {
-                    let before_scan = inflated_bytes;
                     let measured = match dictionary.value(b"Filter").and_then(exact_name).as_deref()
                     {
                         Some(b"FlateDecode") => {
@@ -248,7 +247,6 @@ pub(crate) async fn scan_fragment_objects<S: RangedSource, C: Cancellation>(
                             if let Some(end) =
                                 replay_end(&mut reader, start, &objects, &lengths).await?
                             {
-                                inflated_bytes = before_scan;
                                 cursor = end;
                                 continue 'objects;
                             }
@@ -600,15 +598,7 @@ async fn flate_extent<S: RangedSource, C: Cancellation>(
         let input = reader.bytes(at, amount).await?;
         let before_in = inflater.total_in();
         let before_out = inflater.total_out();
-        let status = inflater
-            .decompress(&input, &mut output, FlushDecompress::None)
-            .map_err(|_| {
-                reader.malformed(
-                    at,
-                    Some(reference),
-                    "invalid Flate stream while resolving Length",
-                )
-            })?;
+        let status = inflater.decompress(&input, &mut output, FlushDecompress::None);
         *inflated_bytes = inflated_bytes.saturating_add(inflater.total_out() - before_out);
         if *inflated_bytes > reader.limits.max_output_bytes {
             return Err(Error::LimitExceeded {
@@ -617,6 +607,13 @@ async fn flate_extent<S: RangedSource, C: Cancellation>(
                 attempted: *inflated_bytes,
             });
         }
+        let status = status.map_err(|_| {
+            reader.malformed(
+                at,
+                Some(reference),
+                "invalid Flate stream while resolving Length",
+            )
+        })?;
         if status == Status::StreamEnd {
             return Ok(inflater.total_in());
         }
@@ -1242,6 +1239,52 @@ mod tests {
             ))
             .unwrap(),
             None
+        );
+    }
+    #[test]
+    fn recovered_stream_prefixes_do_not_refund_decoding_work() {
+        use std::io::Write;
+        let plain = [b'x'; 120];
+        let mut encoder = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::none());
+        encoder.write_all(&plain).unwrap();
+        let encoded = encoder.finish().unwrap();
+        let header = b"1 0 obj\n<< /Length 2 0 R /Filter /FlateDecode >>\nstream\n";
+        let scalar = format!("2 0 obj\n{}\nendobj\n", encoded.len());
+        let mut bytes = header.to_vec();
+        bytes.extend_from_slice(&encoded);
+        bytes.extend_from_slice(b"\nendstream\nendobj\n");
+        bytes.extend_from_slice(scalar.as_bytes());
+        bytes.extend_from_slice(header);
+        bytes.extend_from_slice(&encoded[..50]);
+        bytes.push(b'\n');
+        bytes.extend_from_slice(scalar.as_bytes());
+        bytes.extend_from_slice(b"4 0 obj\n<< /Length 5 0 R /Filter /FlateDecode >>\nstream\n");
+        bytes.extend_from_slice(&encoded);
+        bytes.extend_from_slice(
+            format!("\nendstream\nendobj\n5 0 obj\n{}\nendobj\n", encoded.len()).as_bytes(),
+        );
+        assert!(
+            scan_bytes(bytes.clone()).is_ok(),
+            "fixture must recover without the work ceiling"
+        );
+        let end = bytes.len() as u64;
+        let mut source = SeekableSource::new(Cursor::new(bytes)).unwrap();
+        let limits = Limits {
+            max_output_bytes: 240,
+            ..one_byte_reads()
+        };
+        let error = run(scan_fragment_objects(&mut source, 0, end, &limits, &NEVER))
+            .err()
+            .unwrap();
+        assert!(
+            matches!(
+                error,
+                Error::LimitExceeded {
+                    resource: "CAJ Flate scan bytes",
+                    ..
+                }
+            ),
+            "{error}"
         );
     }
 }
