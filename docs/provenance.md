@@ -1599,3 +1599,14 @@ pixels remain outside the repository. That observation establishes selected
 image padding/orientation only; the full-source attempt found an unsupported
 text layout and is explicitly recorded as a failure. Original mixed-page
 fixtures and independently rendered synthetic pixels are separate evidence.
+
+## Direct compressed HN/C8 text records
+
+The additional `hnc8/text/records.rs` parser and its tests are original MIT
+code based on bounded byte observations, using the existing flate2 backend.
+It does not decode or copy document text, legacy HN parsing code or probability
+tables. [The direct-frame note](hnc8-direct-text.md) records the source identity,
+black-box reference revision, four-page comparison and separate Poppler
+orientation control. External documents, derived pixels, reference libraries
+and diagnostic control PDFs remain outside Git. The failed earlier run and
+the separately failed pull-72 reference attempt remain failures.

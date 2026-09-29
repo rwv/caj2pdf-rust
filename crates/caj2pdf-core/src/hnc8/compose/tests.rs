@@ -87,6 +87,24 @@ fn text(records: &[Record]) -> Vec<u8> {
     result
 }
 
+fn direct_text(records: &[Record]) -> Vec<u8> {
+    let mut plain = Vec::new();
+    for record in records {
+        let mut image = [0_u8; 28];
+        image[..2].copy_from_slice(&0x800a_u16.to_le_bytes());
+        image[4..6].copy_from_slice(&record.coordinate.x.to_le_bytes());
+        image[6..8].copy_from_slice(&record.coordinate.y.to_le_bytes());
+        plain.extend(image);
+    }
+    plain.extend([4, 0x80, 0, 0]);
+    let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
+    encoder.write_all(&plain).unwrap();
+    let mut result = b"COMPRESSTEXT".to_vec();
+    result.extend((plain.len() as u32).to_le_bytes());
+    result.extend(encoder.finish().unwrap());
+    result
+}
+
 fn fixture(variant: Variant, pages: &[Vec<Record>]) -> Fixture {
     fixture_with_text(variant, pages, text)
 }
@@ -2000,7 +2018,7 @@ fn type3_record(width: u32, height: u32, x: u16, y: u16) -> Record {
 fn type3_complete_mixed_pages_reuse_stores_and_keep_top_first_pixels() {
     let limits = Limits::default();
     let mq = mq_table(&limits);
-    let f = fixture(
+    let f = fixture_with_text(
         Variant::C8,
         &[
             vec![type3_record(3, 5, 0, 0)],
@@ -2011,6 +2029,7 @@ fn type3_complete_mixed_pages_reuse_stores_and_keep_top_first_pixels() {
                 Record::type0(&rows(9), 0, 20),
             ],
         ],
+        direct_text,
     );
     let mut source = Source::new(f.bytes);
     let mut sink = Sink::default();
