@@ -208,15 +208,32 @@ issue acceptance criteria are authoritative for each task.
    Both actual closing reviews passed preservation while operational status
    remained FAIL. Independent native child/blocker
    [#148: inventory-helper diagnostics](https://github.com/rwv/caj2pdf-rust/issues/148)
-   tracks the bounded original diagnostics, with #125/#133/#143 resolved.
+   completed in [PR #150](https://github.com/rwv/caj2pdf-rust/pull/150), with
+   #125/#133/#143 resolved. All 29 original controls passed without skips,
+   with 41 synthetic callbacks and no candidate child or vendor actions;
+   final-head reviews and all four hosted gates passed.
    The [source contract](docs/cajviewer-inventory-diagnostics.md) retains the
    first bounded helper diagnostic, distinguishes observed and unknown spawns,
    and preserves complete valid FAIL accounting before outer rejection.
    Its original controls and final-head gates establish source readiness;
    runtime-view completion and actual viewer observations remain separate.
-   Further diagnostics and startup require separate exact freezes and reviews.
-   The twelve historical launcher attempts and unknown helper-stderr cause
-   are preserved; no new capability passed.
+   The fresh V13 inventory then closed FAIL: Fontconfig reported no writable
+   cache directory through a complete 48-byte stderr diagnostic with reason
+   `HELPER_STDERR_NOT_EMPTY`. Five Docker clients, one incomplete inventory
+   and zero app/vendor actions leave all 2,731 comparisons NOT_RUN. Both
+   closing reviews passed for preservation, including 381 public audits,
+   four dynamic/environment checks, three output audits and verified-ID cleanup.
+   The older V12 message/cause and twelve launcher outcomes remain unchanged.
+   New native child/blocker
+   [#151: fixed temporary font-cache profile](https://github.com/rwv/caj2pdf-rust/issues/151)
+   defines a pure host-only expected-ENV copy and one exact Docker override.
+   Its [integration contract](docs/cajviewer-inventory-diagnostics.md#fixed-host-cache-profile-151)
+   requires joint consumption under the existing exact-argv gate. Actual caller
+   integration and `/tmp/fontconfig` behavior within the existing 8 MiB tmpfs
+   remain unimplemented/unproved parent #124 work. Source closure grants no
+   replay; a new caller/finite phase needs its own controls, two frozen reviews,
+   same-PID pending/token and actual closing. Only #124 AC7 is complete;
+   runtime-view, capability, image and text criteria remain unmet.
    Resolved native source child/blocker
    [#146: original capability protocol](https://github.com/rwv/caj2pdf-rust/issues/146)
    implements separate document/page identity, complete-page and fresh

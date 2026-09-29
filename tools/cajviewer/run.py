@@ -811,6 +811,21 @@ def inventory_entry_source(source):
         raise InventoryDiagnosticError("inventory-inline-size")
     return result
 
+
+def inventory_cache_profile(environment):
+    """Return jointly consumed ENV/argv copies for the fixed public profile."""
+    if (type(environment) is not dict or len(environment) > 64
+            or any(type(key) is not str or type(value) is not str or not key
+                   or "=" in key or len(key) > 128 or len(value) > 4096 or "\0" in key + value
+                   for key, value in environment.items())
+            or any(environment.get(key) != value for key, value in (
+                ("HOME", "/home/canary"), ("XDG_CONFIG_HOME", "/home/canary/.config"),
+                ("XDG_CACHE_HOME", "/home/canary/.cache")))):
+        raise InventoryDiagnosticError("inventory-cache-profile")
+    copied = environment.copy()
+    copied["XDG_CACHE_HOME"] = "/tmp"
+    return copied, ["--env", "XDG_CACHE_HOME=/tmp"]
+
 # Docker cp cannot read this tmpfs mount. Run an original, finite archive
 # transport in the container's mount namespace using its pinned Python tool.
 # The sole directory is held open; only seven known regular files are eligible.

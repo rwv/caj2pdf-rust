@@ -5,8 +5,10 @@
 ## Scope and status
 
 This is the original MIT source and control contract for
-[#148](https://github.com/rwv/caj2pdf-rust/issues/148), a native child and blocker
-of [capability issue #124](https://github.com/rwv/caj2pdf-rust/issues/124).
+[#148](https://github.com/rwv/caj2pdf-rust/issues/148), completed in
+[PR #150](https://github.com/rwv/caj2pdf-rust/pull/150), and the new
+[#151](https://github.com/rwv/caj2pdf-rust/issues/151) fixed-cache source child
+and blocker of [capability issue #124](https://github.com/rwv/caj2pdf-rust/issues/124).
 The prerequisites #125, #133 and #143 are complete. The capability-protocol
 source in #146 is a separate prerequisite; this child does not depend on it.
 
@@ -14,8 +16,8 @@ The implementation lives in [run.py](../tools/cajviewer/run.py), with mandatory
 original controls in
 [test_cajviewer_inventory_diagnostics.py](../tests/conformance/test_cajviewer_inventory_diagnostics.py).
 It retains a bounded diagnostic when an inventory metadata helper fails.
-It supplies no runtime profile and performs no image build, module installation,
-cache-policy change, viewer launch or vendor comparison.
+The #148 diagnostic slice supplies no runtime profile and performs no image
+build, module installation, cache-policy change, viewer launch or vendor comparison.
 
 The sole historical V12 inventory remains `CLOSED_FAIL`. Both original modules
 loaded; `dpkg-query` passed, and `fc-list` returned helper status PASS and typed
@@ -24,6 +26,87 @@ failed with `ValueError`. The actual stderr message and cause are unavailable.
 This implementation cannot recover them. The inventory did not complete;
 all 2,731 comparisons remain `NOT_RUN`, with zero application/vendor actions
 in that phase. Successful closing reviews preserve that failure.
+
+The fresh V13 phase subsequently retained a complete 48-byte stderr diagnostic
+reporting that Fontconfig has no writable cache directory. Raw bytes remain
+external; SHA-256 is
+`e0a46db3e7d086b6ed55477f9c8cc5ec4dbe4b6ef804e1372e9a4a6dc5a6b01a`.
+`fc-list` returned helper PASS and integer exit 0, but strict
+`HELPER_STDERR_NOT_EMPTY` validation kept the operation FAIL. The receipt is
+129,972 bytes, SHA-256
+`eb38465d59de93b45ca114768b425357ccb4fced4250b4f0e317f3c7aa26bbf3`.
+Five Docker clients, one admitted but incomplete inventory and zero app/vendor
+actions leave all 2,731 comparisons NOT_RUN. Both closing reviews passed:
+381 public audits, four dynamic/environment checks, three output audits,
+owned-ID removal, final absence and caps/ENV/UID checks. The specific filesystem
+or configuration details are not inferred from the diagnostic. V12's message
+and cause remain UNKNOWN; the twelve launcher outcomes stay unchanged.
+Parent #124 remains open with only AC7 complete.
+
+## Fixed host cache profile (#151)
+
+`inventory_cache_profile(environment)` in [run.py](../tools/cajviewer/run.py)
+is a pure host-only API outside all canonical-entry fragments. It accepts the
+already declared image ENV with the phase HOSTNAME. Exact dictionaries and
+string keys/values are required: at most 64 entries, 128 characters per key
+and 4,096 per value. These narrow profile limits match the canonical entry's
+limits; empty keys, `=` in keys and NUL characters are refused. Applicability
+requires `HOME=/home/canary`, `XDG_CONFIG_HOME=/home/canary/.config` and
+`XDG_CACHE_HOME=/home/canary/.cache` for those three keys.
+
+The returned pair contains a new expected-ENV dictionary changing only
+`XDG_CACHE_HOME` to `/tmp` and a new token list containing exactly
+`["--env", "XDG_CACHE_HOME=/tmp"]`. Input is unchanged. No ambient ENV,
+filesystem, clock, tool or process is consulted, and no cache-path option is
+exposed. This adds no installed module or inline statement.
+
+Parent #124's future external caller must consume both values: insert those
+tokens exactly once into Docker create and pass the returned ENV to the
+canonical entry and independent host observation. Preserve every other
+image/resource/user/mount argument. Its existing `future_exact_argvs` equality
+gate must reject missing, duplicate or foreign overrides before Docker.
+There is no public P2 argv builder; the actual caller amendment and its
+argument/refusal controls remain unimplemented and NOT_RUN. Do not apply this
+profile by editing the consumed V13 caller, plans or evidence.
+
+Fontconfig's documented XDG user-cache default makes `/tmp/fontconfig` a
+candidate inside the existing 8 MiB `/tmp` tmpfs. See the
+[Debian Fontconfig 2.14.1 manual](https://manpages.debian.org/bookworm/fontconfig-config/fonts-conf.5.en.html),
+[upstream Fontconfig configuration](https://fontconfig.pages.freedesktop.org/fontconfig/fontconfig-user.html)
+and [XDG base-directory specification](https://specifications.freedesktop.org/basedir/latest/).
+Actual cache creation, configuration applicability, capacity and identical
+font output remain unproved. `/tmp` is outside the six inventory roots; no
+membership exception, cache warmup, custom font configuration, writable HOME,
+image rebuild, baseline refresh, output sorting/normalization or cap increase
+is introduced.
+
+Original [profile controls](../tests/conformance/test_cajviewer_inventory_cache.py)
+exercise the actual API and unchanged full canonical entry with invented ENV
+and helper results. Wrong initial cache ENV stops before modules/helpers;
+changed closing ENV fails after helpers; stderr failure remains primary.
+The existing entry test helper only gains explicit injected ENV observations;
+all production entry/finally statement nodes still run. One original focused
+run passed all nine methods with zero skips and six synthetic helper callbacks;
+forbidden effects, additional candidate children and vendor passes were zero.
+Root and independent closing reviews passed. Its actual assembly assertion
+verified the unchanged 16,328-byte entry, SHA-256
+`8fd9503d1e4d7d8692fd3589f2dc0e6044e212c03adf438f82c5ed489e955f88`.
+The whole source is 65,260/65,536 bytes (276 bytes of headroom); assembly remains
+bounded by 16,384 bytes. These controls prove source behavior only: cache
+creation and runtime compatibility remain unproved and NOT_RUN.
+
+Source closure needs final-head Root/independent correctness, MIT provenance
+and simplification reviews, meaningful original controls and all four hosted
+gates. It supplies no runtime acceptance. A future finite caller/profile must
+retain image/config/layers, the sole read-only public-module bind, user
+1000:1000, read-only root, offline network, memory 512 MiB, memory-plus-swap
+512 MiB (effective swap zero), two CPUs, 64 PIDs, 8 MiB tmpfs and all existing
+read/output/deadline bounds. Complete empty stderr and unchanged file/tool/
+font/package comparisons remain mandatory. The new phase needs actual caller
+controls, two frozen reviews, fresh same-PID pending reviews/token and actual
+closing. Only complete successful unchanged inventory permits a separate
+reviewed GUI profile. Complete-page images and fresh ordinary-copy fixtures
+remain NOT_RUN.
 
 ## Exact terminal grammar
 
