@@ -2,6 +2,10 @@
 
 # Closed issue #119 Stage A observation report
 
+Current work follows [the revised field-validation plan](hnc8-outline-stage-b-proposal.md).
+Execution restrictions below describe the closed historical invocation, not a
+requirement for renewed user approval of subsequent authorized work.
+
 Status: **CLOSED STAGE A REPORT — ROOT AND INDEPENDENT CLOSED-METADATA REVIEW COMPLETE.**
 
 The single authorized selected-source Stage A invocation is closed. Root reports
