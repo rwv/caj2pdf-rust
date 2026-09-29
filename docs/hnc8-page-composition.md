@@ -7,14 +7,17 @@ core `hnc8::convert_source_pages_pdf` API. It combines the checked container,
 text framing, empirical geometry and image codecs in one `PdfDocument`.
 Production CLI, browser and Node.js format routing remains gated by parent
 [#10](https://github.com/rwv/caj2pdf-rust/issues/10). This slice does not add
-searchable text, outlines, type-1 images, type-3 mixed pages or general vendor
-layout support.
+searchable text, type-1 images, type-3 mixed pages or general vendor layout
+support. HN-A outlines can be requested with `include_bookmarks`; see the
+[outline API and evidence](hnc8-outline-fields.md).
 
 ## Supported profile and source mapping
 
 The HN-A/C8 path traverses the entire declared index from source page 1. Each
-image-bearing page must have the measured, SHA-fingerprinted text prefix,
-complete checksummed zlib frame, record markers and image tail. Every image
+image-bearing page must have the compressed text header tags and
+`COMPRESSTEXT` marker, a complete checksummed zlib frame, record markers and
+image tail. The two header payload words may vary across documents; see
+[compressed text framing](hnc8-compressed-text-header.md). Every image
 must be type 0 or type 2. The first checked image determines the page box.
 All raw coordinate words determine transforms in source descriptor order via
 the [empirical placement rule](hnc8-placement-rule.md); negative height,
@@ -107,9 +110,8 @@ arbitrary concurrent index/payload rewrites safe.
 ## Verification and provenance
 
 All new source and fixtures are original MIT code. No converter implementation
-or private HN/JBIG module is copied or transliterated. Synthetic tests use an
-invented text-prefix digest through a private test seam; production profile
-checks have no override. Documents, official QM states, opaque text prefixes,
+or private HN/JBIG module is copied or transliterated. Synthetic tests use invented records with valid format tags through the
+public conversion API; there is no test-only prefix override. Documents, official QM states, opaque text prefixes,
 decoded samples, PDFs and renders remain outside Git.
 
 The optional external comparison follows the

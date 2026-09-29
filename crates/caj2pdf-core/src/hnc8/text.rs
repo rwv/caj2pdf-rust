@@ -13,15 +13,6 @@ use sha2::{Digest, Sha256};
 const HEADER_BYTES: usize = 24;
 const CHUNK_BYTES: usize = 64 * 1024;
 const FIXED_WORKING_BYTES: u64 = 4096;
-const C8_PREFIX: [u8; 32] = [
-    0x07, 0x8c, 0x83, 0x0d, 0x36, 0x70, 0x8d, 0xb4, 0x1f, 0x5b, 0xdf, 0x37, 0x79, 0xe4, 0x22, 0x61,
-    0x68, 0x69, 0x09, 0x2e, 0x87, 0x9c, 0x34, 0x75, 0x2d, 0xdc, 0x91, 0x96, 0x8d, 0xd3, 0x66, 0x67,
-];
-const HN_A_PREFIX: [u8; 32] = [
-    0x1f, 0xc8, 0xa3, 0xa8, 0x38, 0xc4, 0xf3, 0xa7, 0xee, 0xaf, 0x72, 0x52, 0xcc, 0xdf, 0xe8, 0x45,
-    0x5f, 0x21, 0x84, 0x71, 0x3c, 0xe9, 0xdc, 0x38, 0x3f, 0xa9, 0x1b, 0x96, 0x93, 0x4f, 0xbb, 0x12,
-];
-
 /// Conservative working reservation for the locked flate2/miniz_oxide
 /// backend, including its 32 KiB dictionary and Huffman state. Reaudit this
 /// reservation when changing the backend or lock. Compiler call stacks and
@@ -86,7 +77,7 @@ pub struct TextCoordinates {
     pub working_memory_bytes: u64,
 }
 
-/// Validate one declared page's text using the observed variant fingerprint.
+/// Validate one declared page's compressed text framing and record structure.
 ///
 /// The caller supplies metadata from the same stable [`RangedSource`],
 /// normally [`super::Hnc8Reader`]. Public header/page values are rechecked
@@ -105,17 +96,13 @@ pub async fn read_text_coordinates<S: RangedSource, C: Cancellation>(
     cancellation: &C,
     budget: TextBudget,
 ) -> Result<TextCoordinates> {
-    let prefix = match header.variant {
-        Variant::C8 => C8_PREFIX,
-        Variant::HnA => HN_A_PREFIX,
-        Variant::HnB => {
-            return Err(location(header, page).error(ErrorKind::Unsupported {
-                field: "text framing variant",
-                value: 2,
-            }));
-        }
-    };
-    read_with_prefix(source, header, page, limits, cancellation, budget, prefix).await
+    if header.variant == Variant::HnB {
+        return Err(location(header, page).error(ErrorKind::Unsupported {
+            field: "text framing variant",
+            value: 2,
+        }));
+    }
+    read_compressed_text(source, header, page, limits, cancellation, budget).await
 }
 
 fn location(header: Header, page: PageRecord) -> Location {
@@ -175,15 +162,13 @@ fn validate_metadata(
         return Err(loc.malformed("page index", "length differs from declared row count"));
     }
     let index_end = checked_end(header.page_index, size, loc, "page index")?;
-    let index_start_valid = match header.variant {
-        Variant::C8 => header.page_index.offset == 0x50,
-        Variant::HnA => {
-            header.page_index.offset >= 0x15c
-                && (header.page_index.offset - 0x15c) % super::OUTLINE_RECORD_BYTES == 0
-                && (header.page_index.offset - 0x15c) / super::OUTLINE_RECORD_BYTES
-                    <= i32::MAX as u64
-        }
-        Variant::HnB => false,
+    let index_start_valid = if header.variant == Variant::C8 {
+        header.page_index.offset == 0x50
+    } else {
+        // HN-B was rejected before metadata validation.
+        header.page_index.offset >= 0x15c
+            && (header.page_index.offset - 0x15c) % super::OUTLINE_RECORD_BYTES == 0
+            && (header.page_index.offset - 0x15c) / super::OUTLINE_RECORD_BYTES <= i32::MAX as u64
     };
     if !index_start_valid {
         return Err(loc.malformed("page index", "start differs from observed variant layout"));
@@ -318,17 +303,13 @@ impl Accumulator {
     }
 }
 
-// A private parameter avoids retaining private document prefixes in tests:
-// synthetic fixtures substitute only their invented prefix digest and use
-// precisely this production validation/streaming/assembly implementation.
-pub(super) async fn read_with_prefix<S: RangedSource, C: Cancellation>(
+async fn read_compressed_text<S: RangedSource, C: Cancellation>(
     source: &mut S,
     header: Header,
     page: PageRecord,
     limits: &Limits,
     cancellation: &C,
     budget: TextBudget,
-    expected_prefix: [u8; 32],
 ) -> Result<TextCoordinates> {
     let loc = location(header, page);
     validate_metadata(header, page, source.size(), limits, budget, loc)?;
@@ -347,11 +328,12 @@ pub(super) async fn read_with_prefix<S: RangedSource, C: Cancellation>(
         &mut max_source_request_bytes,
     )
     .await?;
-    if <[u8; 32]>::from(Sha256::digest(&fixed[..20])) != expected_prefix {
-        return Err(loc.malformed(
-            "page text prefix",
-            "differs from observed variant fingerprint",
-        ));
+    // The two payload words at +2/+6 vary across documents and are not
+    // needed for image placement. Validate tags and compression marker,
+    // then the declared length, complete zlib frame and decoded records.
+    if fixed[..2] != [0x03, 0x80] || fixed[4..6] != [0x03, 0x80] || &fixed[8..20] != b"COMPRESSTEXT"
+    {
+        return Err(loc.malformed("page text prefix", "unsupported compressed text header"));
     }
     let decoded_length = u32::from_le_bytes(fixed[20..24].try_into().expect("fixed field width"));
     let decoded_bytes = u64::from(decoded_length);

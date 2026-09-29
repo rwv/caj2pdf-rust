@@ -1476,3 +1476,12 @@ decoder was moved to a shared core module without changing its mapping.
 No Python, Go or private HN/JBIG implementation was copied or transliterated.
 Tests contain invented records and titles; external documents, title lists,
 reference PDFs and caller-owned QM table data are not redistributed.
+
+### Compressed HN text header validation
+
+The compressed-header tags and variable-word handling were independently
+observed from inputs and two black-box controls, documented in
+[compressed text framing](hnc8-compressed-text-header.md). This original MIT
+change removes document-specific prefix hashes and the test-only override;
+synthetic tests use format tags with invented payload values. No converter
+implementation or external document payload is copied into source fixtures.

@@ -464,13 +464,6 @@ impl<S: RangedSource> RangedSource for CountingSource<'_, S> {
     }
 }
 
-#[derive(Clone, Copy)]
-enum TextProfile {
-    Observed,
-    #[cfg(test)]
-    Invented([u8; 32]),
-}
-
 /// Compose every source row of the measured image-only profiles in order.
 ///
 /// HN-A/C8 require validated text framing and types 0 or 2. HN-B accepts only
@@ -495,39 +488,6 @@ pub async fn convert_source_pages_pdf<S, W, T, V, C>(
     options: ComposeOptions,
     limits: &Limits,
     cancellation: &C,
-) -> Result<ComposeReport, ComposeError>
-where
-    S: RangedSource,
-    W: SequentialSink,
-    T: RandomAccessScratch,
-    V: ComposeVisitor,
-    C: Cancellation,
-{
-    convert_with_profile(
-        source,
-        sink,
-        table,
-        scratch,
-        visitor,
-        options,
-        limits,
-        cancellation,
-        TextProfile::Observed,
-    )
-    .await
-}
-
-#[allow(clippy::too_many_arguments)]
-async fn convert_with_profile<S, W, T, V, C>(
-    source: &mut S,
-    sink: &mut W,
-    table: Option<&QmTable>,
-    scratch: &mut T,
-    visitor: &mut V,
-    options: ComposeOptions,
-    limits: &Limits,
-    cancellation: &C,
-    profile: TextProfile,
 ) -> Result<ComposeReport, ComposeError>
 where
     S: RangedSource,
@@ -629,32 +589,15 @@ where
             .map_err(at.io(ComposeStage::Preflight))?;
         let mut coordinates = Vec::new();
         if header.variant != Variant::HnB {
-            let text = match profile {
-                TextProfile::Observed => {
-                    read_text_coordinates(
-                        reader.source_mut(),
-                        header,
-                        page,
-                        limits,
-                        cancellation,
-                        options.text,
-                    )
-                    .await
-                }
-                #[cfg(test)]
-                TextProfile::Invented(prefix) => {
-                    super::text::read_with_prefix(
-                        reader.source_mut(),
-                        header,
-                        page,
-                        limits,
-                        cancellation,
-                        options.text,
-                        prefix,
-                    )
-                    .await
-                }
-            }
+            let text = read_text_coordinates(
+                reader.source_mut(),
+                header,
+                page,
+                limits,
+                cancellation,
+                options.text,
+            )
+            .await
             .map_err(|error| container(error, ComposeStage::Text))?;
             report.peak_text_working_bytes = report
                 .peak_text_working_bytes

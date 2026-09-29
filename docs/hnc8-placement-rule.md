@@ -2,6 +2,12 @@
 
 # Source-derived HN-A/C8 placement profile
 
+Current reader update: the former document-prefix digest check has been replaced
+by structural compressed-header validation; see
+[the header note](hnc8-compressed-text-header.md). The experiments below retain
+their historical scope. No placement factor changed.
+
+
 This records the frozen plan and measured results for [#112](https://github.com/rwv/caj2pdf-rust/issues/112),
 following the [#111 text-source investigation](hnc8-text-source.md). The
 candidate below was frozen before any new private conversion. Its discovery
