@@ -427,19 +427,10 @@ fn malformed_and_unsupported_inputs_leave_no_output() {
         ("truncated.caj", "cannot convert 'truncated.caj': "),
         ("empty.caj", "input is empty"),
         ("unknown.caj", "unrecognized input format"),
-        (
-            "c8.c8",
-            "C8 input is recognized, but HN/C8 image decoding is not implemented yet",
-        ),
-        (
-            "hn.hn",
-            "HN input is recognized, but HN/C8 image decoding is not implemented yet",
-        ),
+        ("c8.c8", "outlines are only validated for HN-A"),
+        ("hn.hn", "outlines are only validated for HN-A"),
         // A malformed container is reported as such, not as unsupported.
-        (
-            "short.hn",
-            "cannot convert 'short.hn': HN/C8 at byte 0: truncated",
-        ),
+        ("short.hn", "HN/C8 at byte 0: truncated"),
         (
             "teb.teb",
             "TEB input is recognized, but TEB conversion is not supported",
@@ -551,13 +542,13 @@ fn inspect_reports_every_recognized_format() {
         (
             "doc.c8",
             format!(
-                r#"{{"schema_version":1,"format":"C8","variant":"C8",{common}false,"page_count":1,"has_outline":null,"bookmark_count":null,"bookmarks":null}}"#
+                r#"{{"schema_version":1,"format":"C8","variant":"C8",{common}true,"page_count":1,"has_outline":null,"bookmark_count":null,"bookmarks":null}}"#
             ),
         ),
         (
             "doc.hn",
             format!(
-                r#"{{"schema_version":1,"format":"HN","variant":"HN-B",{common}false,"page_count":2,"has_outline":null,"bookmark_count":null,"bookmarks":null}}"#
+                r#"{{"schema_version":1,"format":"HN","variant":"HN-B",{common}true,"page_count":2,"has_outline":null,"bookmark_count":null,"bookmarks":null}}"#
             ),
         ),
         (
@@ -575,7 +566,7 @@ fn inspect_reports_every_recognized_format() {
     assert_success(&output);
     assert_eq!(
         stdout(&output),
-        "Format: HN\nVariant: HN-B\nConversion: not supported\nPages: 2\nOutline: unknown\n"
+        "Format: HN\nVariant: HN-B\nConversion: experimental (caller codec states may be required)\nPages: 2\nOutline: unknown\n"
     );
     scratch.write("bad.kdh", &kdh(b"not a pdf"));
     scratch.write("broken.kdh", &kdh(&fixture("truncated_xref.pdf")));
@@ -751,4 +742,158 @@ fn pdf_bytes_are_not_written_to_a_terminal() {
         assert!(!transcript.contains("%PDF"));
     }
     assert_eq!(scratch.entries(), ["paper.caj"]);
+}
+
+/// Original 3x2 HN-A image shared in shape with the WASM synthetic fixture.
+/// Its invented constant probability model emits 101/010, not normative states.
+fn image_hn() -> Vec<u8> {
+    let index = 0x15c;
+    let text = index + 20;
+    let descriptor = text + 32;
+    let payload = descriptor + 12;
+    let mut bytes = vec![0; payload + 49];
+    bytes[..8].copy_from_slice(&[72, 78, 0, 0, 0x90, 1, 0, 0]);
+    put_u32(&mut bytes, 0x90, 1);
+    put_u32(&mut bytes, index, text as u32);
+    put_u32(&mut bytes, index + 4, 32);
+    bytes[index + 8] = 1;
+    bytes[text..text + 2].copy_from_slice(&0x800au16.to_le_bytes());
+    bytes[text + 28..text + 30].copy_from_slice(&0x8004u16.to_le_bytes());
+    put_u32(&mut bytes, descriptor + 4, payload as u32);
+    put_u32(&mut bytes, descriptor + 8, 49);
+    put_u32(&mut bytes, payload, 40);
+    put_u32(&mut bytes, payload + 4, 3);
+    put_u32(&mut bytes, payload + 8, 2);
+    bytes[payload + 12] = 1;
+    bytes[payload + 14] = 1;
+    put_u32(&mut bytes, payload + 32, 2);
+    bytes[payload + 40..payload + 43].fill(255);
+    bytes[payload + 48] = 0x92;
+    bytes
+}
+
+#[test]
+fn hn_converts_from_files_and_pipes_with_exact_pixels_and_no_named_scratch() {
+    let scratch = Scratch::new("hn-image");
+    let input = image_hn();
+    scratch.write("input.hn", &input);
+    scratch.write("qm.txt", "16384 0 0 0\n".repeat(113).as_bytes());
+    scratch.write("mq.txt", "16384 0 0 0\n".repeat(47).as_bytes());
+    assert_success(&scratch.run([
+        "input.hn",
+        "--qm-states",
+        "qm.txt",
+        "--mq-states=mq.txt",
+        "-o",
+        "out.pdf",
+    ]));
+    assert_eq!(validate_pdf(&scratch.path("out.pdf")).0, 1);
+    let objects = tool(
+        "mutool",
+        &[
+            OsStr::new("show"),
+            scratch.path("out.pdf").as_os_str(),
+            OsStr::new("pages/1/Resources/XObject"),
+        ],
+    );
+    let object = objects
+        .split_whitespace()
+        .find_map(|word| word.parse::<u32>().ok())
+        .unwrap();
+    let pixels = Command::new("qpdf")
+        .arg(format!("--show-object={object}"))
+        .arg("--filtered-stream-data")
+        .arg(scratch.path("out.pdf"))
+        .output()
+        .unwrap();
+    assert_success(&pixels);
+    assert_eq!(pixels.stdout, [0x40, 0, 0, 0, 0xa0, 0, 0, 0]);
+    let pipe = scratch.run_with_stdin(&["-", "--qm-states=qm.txt", "--no-bookmarks"], &input);
+    assert_success(&pipe);
+    assert_eq!(pipe.stdout, fs::read(scratch.path("out.pdf")).unwrap());
+    assert_eq!(
+        scratch.entries(),
+        ["input.hn", "mq.txt", "out.pdf", "qm.txt"]
+    );
+}
+
+#[test]
+fn hn_failures_preserve_inputs_and_existing_output_and_remove_temporary_files() {
+    let scratch = Scratch::new("hn-fail");
+    scratch.write("input.hn", &image_hn());
+    let states = "16384 0 0 0\n".repeat(113);
+    scratch.write("qm.txt", states.as_bytes());
+    scratch.write("out.pdf", b"keep original output");
+    let missing = scratch.run(["input.hn", "-o", "out.pdf", "--force"]);
+    assert_failure(&missing, 1, "table");
+    assert_eq!(
+        fs::read(scratch.path("out.pdf")).unwrap(),
+        b"keep original output"
+    );
+    for target in ["qm.txt", "state-hardlink"] {
+        if target == "state-hardlink" {
+            fs::hard_link(scratch.path("qm.txt"), scratch.path(target)).unwrap();
+        }
+        assert_failure(
+            &scratch.run(["input.hn", "--qm-states=qm.txt", "-o", target, "--force"]),
+            1,
+            "input",
+        );
+        assert_eq!(fs::read(scratch.path("qm.txt")).unwrap(), states.as_bytes());
+    }
+    let failed = scratch
+        .command(["input.hn", "--qm-states=qm.txt", "-o", "new.pdf"])
+        .env("TMPDIR", scratch.path("missing"))
+        .output()
+        .unwrap();
+    assert_failure(&failed, 1, "cannot create HN/C8 scratch");
+    assert!(!scratch.path("new.pdf").exists());
+    let mut empty = hn();
+    put_u32(&mut empty, 0x90, 1);
+    put_u32(&mut empty, 0xd8, 0xd8 + 40);
+    scratch.write("empty.hn", &empty);
+    assert_failure(
+        &scratch.run(["empty.hn", "--no-bookmarks", "-o", "new.pdf"]),
+        1,
+        "cannot omit source pages",
+    );
+    assert_eq!(fs::read_dir(scratch.path("tmp")).unwrap().count(), 0);
+}
+
+#[test]
+fn invalid_caller_tables_are_rejected_before_output_creation() {
+    let scratch = Scratch::new("state-files");
+    scratch.write("input.hn", &image_hn());
+    for (flag, bytes) in [
+        ("--qm-states", vec![255]),
+        ("--qm-states", b"1 0\n".to_vec()),
+        ("--qm-states", "0 0 0 0\n".repeat(113).into_bytes()),
+        ("--mq-states", "32768 0 0 0\n".repeat(47).into_bytes()),
+        ("--qm-states", vec![b' '; 16385]),
+    ] {
+        scratch.write("states.txt", &bytes);
+        assert_failure(
+            &scratch.run(["input.hn", flag, "states.txt", "-o", "out.pdf"]),
+            1,
+            "state",
+        );
+        assert!(!scratch.path("out.pdf").exists());
+    }
+    assert_failure(
+        &scratch.run(["input.hn", "--mq-states=missing", "-o", "out.pdf"]),
+        1,
+        "cannot read",
+    );
+    assert_eq!(fs::read_dir(scratch.path("tmp")).unwrap().count(), 0);
+}
+
+#[test]
+fn no_bookmarks_skips_caj_outline_import() {
+    let scratch = Scratch::new("no-bookmarks");
+    scratch.write("input.caj", &caj(OUTLINE));
+    assert_success(&scratch.run(["input.caj", "--no-bookmarks"]));
+    let (pages, outline) = validate_pdf(&scratch.path("input.pdf"));
+    assert_eq!(pages, 3);
+    assert!(outline.trim().is_empty(), "{outline}");
+    assert_eq!(scratch.entries(), ["input.caj", "input.pdf"]);
 }

@@ -21,6 +21,13 @@ pub enum Topic {
     AddBookmarks,
 }
 
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct ConvertOptions {
+    pub qm_states: Option<PathBuf>,
+    pub mq_states: Option<PathBuf>,
+    pub no_bookmarks: bool,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Command {
     Help(Topic),
@@ -29,6 +36,7 @@ pub enum Command {
         input: Endpoint,
         output: Option<Endpoint>,
         force: bool,
+        options: ConvertOptions,
     },
     Inspect {
         input: Endpoint,
@@ -53,12 +61,16 @@ Usage:
 
 Conversion writes INPUT's sibling .pdf file unless -o is given. Use - for
 standard input or output; standard input without -o writes to standard output.
-Supported inputs: CAJ, KDH, and PDF. HN and C8 are recognized but cannot be
-converted yet; TEB is recognized and unsupported.
+Supported inputs: CAJ, KDH, PDF, and experimental HN/C8 image pages.
+HN/C8 arithmetic images require caller state files; TEB remains unsupported.
+C8/HN-B currently require --no-bookmarks.
 
 Options:
   -o, --output OUTPUT  Write the PDF to OUTPUT (- for standard output)
   -f, --force          Replace an existing output file (never an input)
+  --no-bookmarks      Skip CAJ/HN outline import (required for C8/HN-B)
+  --qm-states FILE    Experimental QM states for HN/C8 type-0 images
+  --mq-states FILE    Experimental MQ states for arithmetic JBIG2 images
   -h, --help           Print help (also: caj2pdf COMMAND --help)
   -V, --version        Print version
 
@@ -125,6 +137,16 @@ fn set_output(output: &mut Option<OsString>, value: OsString) -> Result<(), Stri
     }
 }
 
+fn set_states(path: &mut Option<PathBuf>, value: OsString) -> Result<(), String> {
+    if value.is_empty() || value == "-" {
+        return Err("codec state files require a nonempty path, not standard input".into());
+    }
+    if path.replace(value.into()).is_some() {
+        return Err("a codec state option was given more than once".into());
+    }
+    Ok(())
+}
+
 /// Parse the arguments after the program name. An error is a usage message.
 pub fn parse<I: IntoIterator<Item = OsString>>(args: I) -> Result<Command, String> {
     let mut args = args.into_iter().peekable();
@@ -138,6 +160,7 @@ pub fn parse<I: IntoIterator<Item = OsString>>(args: I) -> Result<Command, Strin
     }
     let writes = topic != Topic::Inspect;
     let (mut output, mut force, mut json, mut bookmarks) = (None, false, false, false);
+    let mut options = ConvertOptions::default();
     let mut positionals = Vec::new();
     let mut only_positionals = false;
     while let Some(arg) = args.next() {
@@ -159,8 +182,26 @@ pub fn parse<I: IntoIterator<Item = OsString>>(args: I) -> Result<Command, Strin
                 set_output(&mut output, value)?;
             }
             "-f" | "--force" if writes => force = true,
+            "--no-bookmarks" if topic == Topic::Convert => options.no_bookmarks = true,
+            "--qm-states" | "--mq-states" if topic == Topic::Convert => {
+                let value = args
+                    .next()
+                    .ok_or_else(|| format!("option '{text}' requires a value"))?;
+                let path = if text == "--qm-states" {
+                    &mut options.qm_states
+                } else {
+                    &mut options.mq_states
+                };
+                set_states(path, value)?;
+            }
             "--json" if !writes => json = true,
             "--bookmarks" if !writes => bookmarks = true,
+            _ if topic == Topic::Convert && text.starts_with("--qm-states=") => {
+                set_states(&mut options.qm_states, text[12..].into())?;
+            }
+            _ if topic == Topic::Convert && text.starts_with("--mq-states=") => {
+                set_states(&mut options.mq_states, text[12..].into())?;
+            }
             _ => match text.strip_prefix("--output=") {
                 Some(value) if writes => set_output(&mut output, value.into())?,
                 _ => return Err(format!("unrecognized option '{text}'")),
@@ -187,6 +228,7 @@ pub fn parse<I: IntoIterator<Item = OsString>>(args: I) -> Result<Command, Strin
             input,
             output,
             force,
+            options,
         },
         Topic::Inspect => Command::Inspect {
             input,
