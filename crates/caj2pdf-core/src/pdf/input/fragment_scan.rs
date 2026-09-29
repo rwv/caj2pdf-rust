@@ -9,6 +9,8 @@ use crate::pdf::{FragmentObject, PdfRange, PdfRef};
 use crate::{Cancellation, Error, Limits, PdfErrorKind, RangedSource, Result};
 use flate2::{Decompress, FlushDecompress, Status};
 
+mod ccitt;
+
 /// An equal-width correction to an observed, understated direct `/Length`.
 /// The PDF bytes remain at their original offsets when the patch is applied.
 #[derive(Clone, Debug)]
@@ -98,8 +100,8 @@ const MAX_STREAM_LENGTH_REPAIR: u64 = 64;
 
 /// Scan indirect objects with the existing PDF syntax parser, advancing over
 /// stream payloads by `/Length` rather than searching them for object markers.
-/// Indirect lengths for a single FlateDecode filter are measured from zlib
-/// framing and verified against the referenced scalar after indexing.
+/// Supported indirect lengths are measured from zlib or Group-4 framing
+/// and verified against the referenced scalar after indexing.
 /// A narrowly bounded repair accepts a unique nearby `endstream`/`endobj`
 /// delimiter when a direct length is understated. An ambiguous marker is an
 /// error. Bytes after the complete final object are excluded from the plan.
@@ -186,18 +188,31 @@ pub(crate) async fn scan_fragment_objects<S: RangedSource, C: Cancellation>(
                 let length = if let Some(length) = exact_unsigned(value) {
                     length
                 } else if let Some(target) = indirect {
-                    if dictionary.value(b"Filter").and_then(exact_name).as_deref()
-                        != Some(b"FlateDecode")
-                    {
-                        return Err(reader.problem(
-                            start,
-                            Some(reference),
-                            PdfErrorKind::UnsupportedFeature,
-                            "indirect CAJ stream Length requires a single FlateDecode filter",
-                        ));
-                    }
-                    let length =
-                        flate_extent(&mut reader, data_at, reference, &mut inflated_bytes).await?;
+                    let length = match dictionary.value(b"Filter").and_then(exact_name).as_deref() {
+                        Some(b"FlateDecode") => {
+                            flate_extent(&mut reader, data_at, reference, &mut inflated_bytes)
+                                .await?
+                        }
+                        Some(b"CCITTFaxDecode") => {
+                            ccitt::extent(
+                                &mut reader,
+                                data_at,
+                                reference,
+                                dictionary,
+                                start + head.dictionary_start.expect("stream dictionary") as u64,
+                                &mut inflated_bytes,
+                            )
+                            .await?
+                        }
+                        _ => {
+                            return Err(reader.problem(
+                                start,
+                                Some(reference),
+                                PdfErrorKind::UnsupportedFeature,
+                                "indirect CAJ stream Length requires a supported framed filter",
+                            ));
+                        }
+                    };
                     retain_length(&mut pending_lengths, (target, length), limits)?;
                     length
                 } else {
