@@ -46,7 +46,8 @@ inspection reports outline presence rather than full outline entries;
 HN-A inspection also validates and lists its outline. C8/HN-B outline metadata
 remains unknown. Inspection needs neither state files nor scratch storage.
 The CLI bounds retained outline records plus title capacities by
-`max_allocation_bytes`; image payloads are not read.
+`max_allocation_bytes`. With a ranged input, image payloads are not read;
+stdin still follows the bounded spooling rule below.
 
 ### Experimental HN/C8 options
 
