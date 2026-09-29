@@ -3,17 +3,15 @@
 ## Unreleased — v0.1.0 preparation
 
 This is an unstable development build, not a published release. Native Rust,
-CLI, browser and Node.js APIs may break during v0.x. Codec state distribution
-(#30/#44), final release-artifact verification and publication remain pending.
+CLI, browser and Node.js APIs may break during v0.x. Final release-artifact verification and publication remain pending.
 
 ### Capabilities and limits
 
 - Bounded ranged input and sequential PDF output; forward-only input can spool
   to capped temporary storage. Platform adapters stay separate from the core.
 - CLI and browser/Node WASM convert the documented CAJ, PDF and KDH profiles.
-  HN/C8 image-page conversion is experimental and needs caller-provided states
-  for arithmetic images. Project source is MIT; those external states are not
-  bundled or relicensed by this project.
+  HN/C8 image-page conversion is experimental and includes standard QM/MQ
+  numerical states. Custom tables remain optional overrides. Project source is MIT.
 - [The support matrix](docs/conformance.md#v01-support-and-release-status)
   lists actual sample scope, page counts, bookmarks and rejected profiles.
   HN-A/C8 page-frame dimensions now match selected CAJViewer pages, but exact
@@ -21,6 +19,14 @@ CLI, browser and Node.js APIs may break during v0.x. Codec state distribution
   HN-B rows are rejected by public conversion, not silently dropped.
 - OCR, searchable HN, TEB and optional legacy Python ordering are outside v0.1.
   Missing optional corpus checks are `NOT_RUN`, never compatibility passes.
+
+### Built-in codec states
+
+HN/C8 CLI and WASM conversion now use standard QM/MQ states when overrides are
+omitted. Remove `--qm-states` / `--mq-states` for ordinary CLI conversion; in
+JavaScript use `hnc8: { scratch }`. Explicit custom tables still take precedence,
+and partial tables still fail. Missing JS scratch now reports
+`RANDOM_ACCESS_REQUIRED` rather than a missing-codec-state error.
 
 ### Migration from development snapshots
 
@@ -49,7 +55,7 @@ breaking commits on main; links retain detailed API and diagnostic scope.
 ```sh
 cargo build --locked --release -p caj2pdf-cli
 ./target/release/caj2pdf paper.caj -o paper.pdf
-./target/release/caj2pdf paper.c8 --mq-states mq.txt --no-bookmarks -o paper.pdf
+./target/release/caj2pdf paper.c8 --no-bookmarks -o paper.pdf
 ./target/release/caj2pdf inspect paper.caj --json --bookmarks
 ```
 

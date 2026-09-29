@@ -149,6 +149,8 @@ test("Chromium: multi-image HN converts with bookmarks through Worker OPFS", opt
   assert.equal(result.pages, 1);
   assert.equal(result.cleared, true);
   await validateMultiImageHn(t, new Uint8Array(result.pdf));
+  assert.equal(result.standardPages, 1);
+  await validatePdf(t, new Uint8Array(result.standardPdf), 1);
 });
 
 test("Chromium: HN/C8 inspection distinguishes validated and unknown outlines", options, async () => {

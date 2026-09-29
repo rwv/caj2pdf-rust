@@ -119,9 +119,9 @@ native sub-issue/blocking relationships are authoritative.
    sizes match, while exact pixels still differ; these remain explicit
    experimental-profile limitations. Complete corrected CLI/Node/browser outputs
    match. See [results and scope](docs/cajviewer-hnc8-kdh.md#results-after-the-source-geometry-correction).
-3. **Finish codec distribution (#8 → #30, #9 → #44).** Resolve the exact missing
-   rights evidence and wire approved state data into the implemented decoders.
-   Record an unresolved decision precisely; do not restart broad research.
+3. **Finish codec integration (#8/#9).** #189 completed the owner-directed
+   standard-state adoption (#30/#44). CLI and WASM use the built-in states by
+   default; retain explicit overrides and verify affected adapter paths.
 4. **Audit and release (#14).** Maintain one support matrix, reuse valid memory
    measurements, check packages/examples and run existing CI. Geometry must be
    fixed or explicitly limited; distribution decisions must be resolved before

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-//! Experimental HN/C8 CLI routing. State files are caller inputs, never bundled.
+//! Experimental HN/C8 CLI routing with standard states and optional overrides.
 
 use crate::{
     CliError,
@@ -49,6 +49,11 @@ impl Tables {
                     CliError::runtime(format!("invalid codec states '{}': {e}", path.display()))
                 })?,
             );
+        } else {
+            tables.qm = Some(
+                QmTable::new(caj2pdf_core::qm::STANDARD_STATES.to_vec())
+                    .expect("valid standard QM states"),
+            );
         }
         if let Some(path) = &options.mq_states {
             let rows = tables.read(path, 47)?;
@@ -67,6 +72,11 @@ impl Tables {
                 .map_err(|e| {
                     CliError::runtime(format!("invalid codec states '{}': {e}", path.display()))
                 })?,
+            );
+        } else {
+            tables.mq = Some(
+                MqTable::new(caj2pdf_core::jbig2::mq::STANDARD_STATES.to_vec(), limits)
+                    .map_err(|error| CliError::runtime(error.to_string()))?,
             );
         }
         Ok(tables)
@@ -241,6 +251,20 @@ impl caj2pdf_core::BookmarkVisitor for CollectedBookmarks {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn default_states_are_available_and_respect_mq_allocation_limits() {
+        let options = ConvertOptions::default();
+        let tables = Tables::load(&options, &Limits::default()).unwrap();
+        assert!(tables.qm.is_some());
+        assert!(tables.mq.is_some());
+        assert!(tables.inputs.is_empty());
+        let limited = Limits {
+            max_allocation_bytes: 1,
+            ..Limits::default()
+        };
+        assert!(Tables::load(&options, &limited).is_err());
+    }
 
     #[test]
     fn state_text_is_small_strict_and_uses_explicit_column_order() {

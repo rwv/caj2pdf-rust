@@ -35,8 +35,8 @@ that starts with `CAJ` but lacks the CAJ header is reported as malformed.
 | `%PDF-` | PDF | Validated copy through the core PDF reader and repair layer | Pages and outline presence |
 | `CAJ` | CAJ | Reconstructed PDF with the CAJ outline | Pages and full outline |
 | `KDH` | KDH | Decoded embedded PDF | Pages and outline presence |
-| `HN` | HN | Experimental image-page conversion with caller codec states | Variant/pages; HN-A full outline, HN-B outline unknown |
-| `c8 00 00 00` | C8 | Experimental image-page conversion with caller codec states | Container variant and pages |
+| `HN` | HN | Experimental image-page conversion with built-in standard codec states | Variant/pages; HN-A full outline, HN-B outline unknown |
+| `c8 00 00 00` | C8 | Experimental image-page conversion with built-in standard codec states | Container variant and pages |
 | `TEB` | TEB | Unsupported; exits with status 1 | Format only |
 
 HN/C8 routes use the same independently implemented core page composer as
@@ -65,8 +65,8 @@ unit. See the [controlled field checks](cajviewer-hnc8-kdh.md#controlled-geometr
 
 ### Experimental HN/C8 options
 
-- `--qm-states FILE`: caller-supplied states for type-0 images.
-- `--mq-states FILE`: caller-supplied states for arithmetic JBIG2 images.
+- `--qm-states FILE`: override the standard states for type-0 images.
+- `--mq-states FILE`: override the standard states for arithmetic JBIG2 images.
 - `--no-bookmarks`: skip CAJ/HN outline import. Required for C8/HN-B because
   their outlines are not yet validated. Existing embedded PDF/KDH outlines
   are not removed by this flag.
@@ -84,10 +84,10 @@ Each row contains four whitespace-separated decimal integers in this order:
 zero-based within the table, and switch is 0 or 1. A final newline and CRLF are
 accepted; headers, comments, blank rows and extra fields are rejected. The
 column order is explicit and differs from some standard-table presentations.
-No normative table is distributed: callers supply data they may use while
-#30/#44 remain unresolved. Valid shape alone does not prove a correct table.
+Standard T.82/T.88 states are built in. These files are optional overrides;
+valid shape alone does not prove that a custom table is correct.
 
-Only tables needed by the images must be supplied. HN-A outlines are supported;
+Omit both state flags for normal conversion. HN-A outlines are supported;
 C8/HN-B use `--no-bookmarks`. Image-less HN-B rows, pure-text/searchable HN and
 unverified profiles are rejected. Strict JBIG2 headers apply; the core's
 anomalous-header opt-in is not exposed by this command.
@@ -197,7 +197,7 @@ adding a field is not considered incompatible.
 | `schema_version` | integer | Always `1` for this schema. |
 | `format` | string | `"PDF"`, `"CAJ"`, `"KDH"`, `"HN"`, `"C8"`, or `"TEB"`. |
 | `variant` | string or null | Measured HN/C8 container layout: `"C8"`, `"HN-A"`, or `"HN-B"`; otherwise null. |
-| `conversion_supported` | boolean | Whether this build has a conversion route; HN/C8 still require runtime configuration and a supported profile. |
+| `conversion_supported` | boolean | Whether this build has a conversion route; HN/C8 still require a supported profile. |
 | `page_count` | integer or null | Declared page count; null when unknown (TEB). |
 | `has_outline` | boolean or null | Whether the document has an outline; null when unknown (HN-B, C8, TEB). |
 | `bookmark_count` | integer or null | Number of outline entries; null when this format's outline cannot be listed. |
@@ -270,7 +270,7 @@ cargo test --locked -p caj2pdf-cli
 
 Original tests convert an asymmetric 3×2 type-0 HN-A page from a file and stdin,
 reopen the PDF with qpdf and extract exact packed pixels. They also exercise
-state-file bounds/syntax, malformed input, missing state data, HN-B empty-row
+state-file bounds/syntax, malformed input, invalid state overrides, HN-B empty-row
 rejection, state-file/hardlink overwrite protection, scratch creation failure,
 existing-output preservation, anonymous-file cleanup and CAJ bookmark omission.
 

@@ -833,14 +833,47 @@ fn hn_converts_from_files_and_pipes_with_exact_pixels_and_no_named_scratch() {
 }
 
 #[test]
+fn hn_standard_states_work_without_external_files() {
+    let scratch = Scratch::new("hn-standard");
+    scratch.write("input.hn", &image_hn());
+    assert_success(&scratch.run(["input.hn", "-o", "default.pdf"]));
+    let rows = caj2pdf_core::qm::STANDARD_STATES
+        .iter()
+        .map(|state| {
+            format!(
+                "{} {} {} {}\n",
+                state.qe,
+                state.next_lps,
+                state.next_mps,
+                u8::from(state.switch_mps)
+            )
+        })
+        .collect::<String>();
+    scratch.write("qm.txt", rows.as_bytes());
+    assert_success(&scratch.run(["input.hn", "--qm-states=qm.txt", "-o", "explicit.pdf"]));
+    assert_eq!(
+        fs::read(scratch.path("default.pdf")).unwrap(),
+        fs::read(scratch.path("explicit.pdf")).unwrap()
+    );
+    assert_eq!(validate_pdf(&scratch.path("default.pdf")).0, 1);
+    assert_eq!(fs::read_dir(scratch.path("tmp")).unwrap().count(), 0);
+}
+
+#[test]
 fn hn_failures_preserve_inputs_and_existing_output_and_remove_temporary_files() {
     let scratch = Scratch::new("hn-fail");
     scratch.write("input.hn", &image_hn());
     let states = "16384 0 0 0\n".repeat(113);
     scratch.write("qm.txt", states.as_bytes());
     scratch.write("out.pdf", b"keep original output");
-    let missing = scratch.run(["input.hn", "-o", "out.pdf", "--force"]);
-    assert_failure(&missing, 1, "table");
+    let missing = scratch.run([
+        "input.hn",
+        "--qm-states=missing.txt",
+        "-o",
+        "out.pdf",
+        "--force",
+    ]);
+    assert_failure(&missing, 1, "missing.txt");
     assert_eq!(
         fs::read(scratch.path("out.pdf")).unwrap(),
         b"keep original output"

@@ -35,9 +35,8 @@ same-document handle validation.
 ## Command-line usage
 
 The `caj2pdf` Linux command converts CAJ, KDH and PDF inputs, and supports
-experimental HN/C8 image-page conversion. HN/C8 arithmetic images require
-caller-supplied QM/MQ state files while their MIT distribution decisions
-(#30/#44) remain unresolved. The same core converter is available through
+experimental HN/C8 image-page conversion. HN/C8 arithmetic images use
+built-in standard QM/MQ states; optional state files override those defaults. The same core converter is available through
 [Node and browser WASM](js/README.md), using caller-owned bounded scratch stores.
 See the [support matrix and release status](docs/conformance.md#v01-support-and-release-status)
 for verified profiles and remaining HN/C8 rendering differences.
@@ -55,7 +54,7 @@ for runtime state-file syntax and limitations. The existing
 caj2pdf paper.caj                  # writes paper.pdf next to the input
 caj2pdf paper.caj -o out.pdf       # explicit output; --force replaces a file
 caj2pdf - < paper.caj > paper.pdf  # standard input and output
-caj2pdf paper.c8 --mq-states mq.txt --no-bookmarks -o out.pdf
+caj2pdf paper.c8 --no-bookmarks -o out.pdf
 caj2pdf inspect paper.caj --json --bookmarks
 caj2pdf add-bookmarks paper.caj scan.pdf -o scan-with-outline.pdf
 ```

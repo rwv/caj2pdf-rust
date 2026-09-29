@@ -59,7 +59,7 @@ pub struct MqState {
     pub switch_mps: bool,
 }
 
-/// An owned, validated state machine; no normative values are bundled.
+/// An owned, validated state machine built from standard or custom values.
 #[derive(Debug)]
 pub struct MqTable {
     states: Box<[MqState]>,
