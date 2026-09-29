@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-//! One observed HN/C8 type-3 image as a caller-table, one-page PDF diagnostic.
+//! Shared bounded HN/C8 type-3 image emission and a selected-image PDF diagnostic.
 
 use super::{Budget, Hnc8Error, Hnc8Reader, ImageRecord, Variant};
 use crate::jbig2::{
@@ -12,7 +12,7 @@ use crate::jbig2::{
     mq::{MqBudget, MqContexts, MqTable},
     page_compose::{PageComposeBudget, PageComposeReport, PageOrSink},
     page_info::{PageInfo, PageInfoBudget, read_page_info},
-    page_profile::validate_observed_page_profile,
+    page_profile::{PageProfile, validate_observed_page_profile},
     read_embedded_directory,
     refinement::RefinementBudget,
     refinement_dictionary::{RefinementDictionaryBudget, RefinementDictionaryDecoder},
@@ -21,11 +21,11 @@ use crate::jbig2::{
     },
     text_composer::{
         BitmapView, RandomAccessScratch, TextComposeBudget, TextComposeError, TextComposeErrorKind,
-        TextComposer,
+        TextComposeReport, TextComposer,
     },
     text_instances::{TextInstanceBudget, TextInstanceDecoder},
 };
-use crate::pdf::{BilevelImageSpec, PageSpec, PdfDocument};
+use crate::pdf::{BilevelImageSpec, ImageObject, PageSpec, PdfDocument};
 use crate::{
     Cancellation, ConversionReport, Error, Limits, RangedSource, SequentialSink, read_exact_at,
 };
@@ -498,6 +498,85 @@ pub async fn convert_type3_image_pdf<
             .map_err(|error| selected_container(error, selection))?
             .expect("selected image count was checked");
     }
+    let checked =
+        preflight_type3(reader.source_mut(), image, options, limits, cancellation).await?;
+    let page = checked.page();
+    let at = At {
+        page: Some(image.page_number),
+        image: Some(image.image_number),
+        offset: Some(image.payload.offset),
+    };
+    let pdf_page = page_spec(page, options.pixels_per_inch, at)?;
+    let prepared = prepare_type3_image(
+        reader.source_mut(),
+        table,
+        workspaces,
+        checked,
+        options,
+        limits,
+        cancellation,
+    )
+    .await?;
+    let mut document = PdfDocument::new(sink, limits, cancellation)
+        .await
+        .map_err(|error| at.pdf(error))?;
+    let (object, page_compose) = emit_type3_xobject(
+        reader.source_mut(),
+        &mut document,
+        table,
+        prepared,
+        options,
+        limits,
+        cancellation,
+    )
+    .await?;
+    document
+        .add_page(pdf_page, &[object])
+        .await
+        .map_err(|error| at.pdf(error))?;
+    let mut conversion = document.finish().await.map_err(|error| at.pdf(error))?;
+    conversion.input_bytes_read = source.read;
+    Ok(Type3SelectedPdfReport {
+        conversion,
+        source_variant: header.variant,
+        source_pages: header.page_count,
+        image,
+        page,
+        text_header_anomaly: page_compose.text_header_anomaly,
+        page_compose,
+    })
+}
+
+/// Checked source metadata and digest. Geometry is exposed without decoding
+/// pixels; the remaining fields stay paired with their original image span.
+pub(super) struct CheckedType3 {
+    image: ImageRecord,
+    directory: crate::jbig2::SegmentDirectory,
+    profile: PageProfile,
+    initial_digest: [u8; 32],
+}
+
+impl CheckedType3 {
+    pub(super) fn page(&self) -> PageInfo {
+        self.profile.page()
+    }
+}
+
+/// Prepared text pixels borrow their scratch until image emission finishes.
+/// Symbol decoder contexts/catalogs have already been released.
+pub(super) struct PreparedType3<'a, T> {
+    checked: CheckedType3,
+    text_report: TextComposeReport,
+    text: &'a mut T,
+}
+
+pub(super) async fn preflight_type3<S: RangedSource, C: Cancellation>(
+    source: &mut S,
+    image: ImageRecord,
+    options: Type3PdfOptions,
+    limits: &Limits,
+    cancellation: &C,
+) -> Result<CheckedType3, Type3PdfError> {
     let at = At {
         page: Some(image.page_number),
         image: Some(image.image_number),
@@ -513,17 +592,11 @@ pub async fn convert_type3_image_pdf<
             "record has no enclosed JBIG2 segments",
         )));
     }
-    let initial_digest = digest_span(reader.source_mut(), image, limits, cancellation, at).await?;
+    let initial_digest = digest_span(source, image, limits, cancellation, at).await?;
     let mut dib = [0_u8; DIB_BYTES as usize];
-    read_exact_at(
-        reader.source_mut(),
-        image.payload.offset,
-        &mut dib,
-        limits,
-        cancellation,
-    )
-    .await
-    .map_err(|source| at.error(Type3PdfErrorKind::Source(source)))?;
+    read_exact_at(source, image.payload.offset, &mut dib, limits, cancellation)
+        .await
+        .map_err(|source| at.error(Type3PdfErrorKind::Source(source)))?;
     if u32::from_le_bytes(dib[0..4].try_into().expect("fixed DIB field")) != 40 {
         return Err(at.error(Type3PdfErrorKind::DibMalformed(
             "header size differs from 40 bytes",
@@ -554,7 +627,7 @@ pub async fn convert_type3_image_pdf<
         length: image.payload.length - DIB_BYTES,
     };
     let directory = read_embedded_directory(
-        reader.source_mut(),
+        source,
         embedded,
         limits,
         options.header,
@@ -579,7 +652,7 @@ pub async fn convert_type3_image_pdf<
         ));
     }
     let page = read_page_info(
-        reader.source_mut(),
+        source,
         &directory.segments[0],
         limits,
         options.page,
@@ -596,7 +669,7 @@ pub async fn convert_type3_image_pdf<
         ));
     }
     let text = read_text_region_header_with_policy(
-        reader.source_mut(),
+        source,
         &directory.segments[3],
         &directory.segments[2],
         limits,
@@ -610,7 +683,7 @@ pub async fn convert_type3_image_pdf<
         at.with_offset(offset).stage(Type3Stage::TextHeader, error)
     })?;
     let generic = read_generic_region_header(
-        reader.source_mut(),
+        source,
         &directory.segments[4],
         limits,
         cancellation,
@@ -637,8 +710,42 @@ pub async fn convert_type3_image_pdf<
                 .unwrap_or(embedded.offset);
             at.with_offset(offset).stage(Type3Stage::Profile, error)
         })?;
-    let pdf_page = page_spec(page, options.pixels_per_inch, at)?;
-    if digest_span(reader.source_mut(), image, limits, cancellation, at).await? != initial_digest {
+    Ok(CheckedType3 {
+        image,
+        directory,
+        profile,
+        initial_digest,
+    })
+}
+
+/// Decode symbol dictionaries and the text layer without opening a PDF stream.
+/// This preserves the selected-image API's rejection before PDF output.
+pub(super) async fn prepare_type3_image<'a, S, R, W, T, C>(
+    source: &mut S,
+    table: &MqTable,
+    workspaces: &'a mut Type3Workspaces<'_, R, W, T>,
+    checked: CheckedType3,
+    options: Type3PdfOptions,
+    limits: &Limits,
+    cancellation: &C,
+) -> Result<PreparedType3<'a, T>, Type3PdfError>
+where
+    S: RangedSource,
+    R: RangedSource,
+    W: SequentialSink,
+    T: RandomAccessScratch,
+    C: Cancellation,
+{
+    let image = checked.image;
+    let directory = &checked.directory;
+    let text = checked.profile.text_header();
+    let initial_digest = checked.initial_digest;
+    let at = At {
+        page: Some(image.page_number),
+        image: Some(image.image_number),
+        offset: Some(image.payload.offset),
+    };
+    if digest_span(source, image, limits, cancellation, at).await? != initial_digest {
         return Err(at.error(Type3PdfErrorKind::SourceChanged));
     }
     if workspaces.first.reader.size() != 0
@@ -697,7 +804,7 @@ pub async fn convert_type3_image_pdf<
                 .stage(Type3Stage::Contexts, error)
         })?;
     let mut first_decoder = DirectDictionaryDecoder::new(
-        reader.source_mut(),
+        source,
         &directory.segments[1],
         table,
         &mut first_banks,
@@ -723,8 +830,8 @@ pub async fn convert_type3_image_pdf<
     let imported_count = u64::from(first_report.header.exported_symbols);
     let second_count = u64::from(
         read_second_new_symbol_count(
-            &directory,
-            reader.source_mut(),
+            directory,
+            source,
             limits,
             cancellation,
             options.dictionary,
@@ -738,7 +845,7 @@ pub async fn convert_type3_image_pdf<
     let second_at = at.with_offset(directory.segments[2].data.offset);
     let mut second_banks = work_stage(second_contexts, second_at, Type3Stage::Contexts)?;
     let mut second_decoder = RefinementDictionaryDecoder::new(
-        reader.source_mut(),
+        source,
         &directory.segments[2],
         &directory.segments[1],
         &first_report,
@@ -774,7 +881,7 @@ pub async fn convert_type3_image_pdf<
     let text_at = at.with_offset(directory.segments[3].data.offset);
     let mut text_banks = work_stage(text_contexts, text_at, Type3Stage::Contexts)?;
     let text_decoder = TextInstanceDecoder::new_with_header_policy(
-        reader.source_mut(),
+        source,
         &directory.segments[3],
         text,
         &directory.segments[2],
@@ -832,11 +939,47 @@ pub async fn convert_type3_image_pdf<
         composed_stage(composer.compose().await, at)?
     };
     drop(text_decoder);
-    // TextComposer's successful report proves the exact packed byte count;
-    // PageOrSink rechecks it before the final image stream is opened.
-    let mut document = PdfDocument::new(sink, limits, cancellation)
-        .await
-        .map_err(|error| at.pdf(error))?;
+    Ok(PreparedType3 {
+        checked,
+        text_report,
+        text: workspaces.text,
+    })
+}
+
+/// Append one image to an existing PDF. Page creation/placement belongs to
+/// the caller; the decoder never opens or finishes another document.
+pub(super) async fn emit_type3_xobject<S, W, T, C>(
+    source: &mut S,
+    document: &mut PdfDocument<'_, W, C>,
+    table: &MqTable,
+    prepared: PreparedType3<'_, T>,
+    options: Type3PdfOptions,
+    limits: &Limits,
+    cancellation: &C,
+) -> Result<(ImageObject, PageComposeReport), Type3PdfError>
+where
+    S: RangedSource,
+    W: SequentialSink,
+    T: RandomAccessScratch,
+    C: Cancellation,
+{
+    let PreparedType3 {
+        checked,
+        text_report,
+        text,
+    } = prepared;
+    let image = checked.image;
+    let page = checked.page();
+    let profile = checked.profile;
+    let directory = &checked.directory;
+    let initial_digest = checked.initial_digest;
+    let at = At {
+        page: Some(image.page_number),
+        image: Some(image.image_number),
+        offset: Some(image.payload.offset),
+    };
+    // TextComposer proved the packed byte count; PageOrSink rechecks it
+    // before forwarding the first combined row to the PDF image stream.
     let mut rows = document
         .begin_bilevel_image(BilevelImageSpec {
             pixel_width: page.width,
@@ -848,7 +991,7 @@ pub async fn convert_type3_image_pdf<
     let mut page_sink = PageOrSink::new(
         profile,
         text_report,
-        workspaces.text,
+        text,
         &mut rows,
         limits,
         cancellation,
@@ -860,7 +1003,7 @@ pub async fn convert_type3_image_pdf<
     let mut generic_contexts = work_stage(generic_result, generic_at, Type3Stage::Contexts)?;
     let generic_result = async {
         let mut decoder = GenericRegionDecoder::new(
-            reader.source_mut(),
+            source,
             &directory.segments[4],
             table,
             &mut generic_contexts,
@@ -889,25 +1032,11 @@ pub async fn convert_type3_image_pdf<
         .await
         .map_err(|error| at.stage(Type3Stage::PageCompose, error))?;
     drop(page_sink);
-    if digest_span(reader.source_mut(), image, limits, cancellation, at).await? != initial_digest {
+    if digest_span(source, image, limits, cancellation, at).await? != initial_digest {
         return Err(at.error(Type3PdfErrorKind::SourceChanged));
     }
     let object = rows.finish().await.map_err(|error| at.pdf(error))?;
-    document
-        .add_page(pdf_page, &[object])
-        .await
-        .map_err(|error| at.pdf(error))?;
-    let mut conversion = document.finish().await.map_err(|error| at.pdf(error))?;
-    conversion.input_bytes_read = source.read;
-    Ok(Type3SelectedPdfReport {
-        conversion,
-        source_variant: header.variant,
-        source_pages: header.page_count,
-        image,
-        page,
-        text_header_anomaly: page_compose.text_header_anomaly,
-        page_compose,
-    })
+    Ok((object, page_compose))
 }
 
 fn code_length(symbols: u64) -> u32 {
@@ -1139,5 +1268,210 @@ mod tests {
         assert!(ready(writer.write(&[0xcc])).is_err());
         assert_eq!(viewed.revision().unwrap(), 1);
         assert_eq!(writer.inner.bytes, [0xaa]);
+    }
+    mod fixture {
+        include!("../../tests/common/type3_fixture.rs");
+    }
+
+    #[derive(Clone, Default)]
+    struct Memory(std::rc::Rc<std::cell::RefCell<Vec<u8>>>);
+
+    impl RangedSource for Memory {
+        fn size(&self) -> u64 {
+            self.0.borrow().len() as u64
+        }
+        async fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> crate::Result<usize> {
+            let bytes = self.0.borrow();
+            let start = offset as usize;
+            let count = destination
+                .len()
+                .min(bytes.len().saturating_sub(start))
+                .min(2);
+            destination[..count].copy_from_slice(&bytes[start..start + count]);
+            Ok(count)
+        }
+    }
+
+    impl SequentialSink for Memory {
+        async fn write(&mut self, bytes: &[u8]) -> crate::Result<usize> {
+            let count = bytes.len().min(3);
+            self.0.borrow_mut().extend_from_slice(&bytes[..count]);
+            Ok(count)
+        }
+        async fn flush(&mut self) -> crate::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl RandomAccessScratch for Memory {
+        fn size(&self) -> crate::Result<u64> {
+            Ok(RangedSource::size(self))
+        }
+        async fn set_len(&mut self, length: u64) -> crate::Result<()> {
+            self.0.borrow_mut().resize(length as usize, 0);
+            Ok(())
+        }
+        async fn read_at(&mut self, offset: u64, bytes: &mut [u8]) -> crate::Result<usize> {
+            RangedSource::read_at(self, offset, bytes).await
+        }
+        async fn write_at(&mut self, offset: u64, bytes: &[u8]) -> crate::Result<usize> {
+            let start = offset as usize;
+            self.0.borrow_mut()[start..start + bytes.len()].copy_from_slice(bytes);
+            Ok(bytes.len())
+        }
+        async fn flush(&mut self) -> crate::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn shared_emitter_appends_two_asymmetric_images_to_an_existing_document() {
+        use crate::{
+            NeverCancel,
+            hnc8::Span,
+            jbig2::mq::{MQ_STATE_COUNT, MqState},
+        };
+        let limits = Limits::default();
+        let options = Type3PdfOptions::default();
+        let table = MqTable::new(
+            vec![
+                MqState {
+                    qe: 1,
+                    next_mps: 0,
+                    next_lps: 0,
+                    switch_mps: false,
+                };
+                MQ_STATE_COUNT
+            ],
+            &limits,
+        )
+        .unwrap();
+        let mut sink = Memory::default();
+        let output = sink.clone();
+        let mut document = ready(PdfDocument::new(&mut sink, &limits, &NeverCancel)).unwrap();
+        let size = PageSpec {
+            width_points: 30.0,
+            height_points: 20.0,
+        };
+        let mut placements = Vec::new();
+        let mut scratch = Memory::default();
+        for (number, width, height) in [(1, 3, 2), (2, 9, 3)] {
+            let bytes = fixture::payload(width, height, 0x10);
+            let image = ImageRecord {
+                page_number: 1,
+                image_number: number,
+                descriptor_offset: 0,
+                record_type: 3,
+                payload: Span {
+                    offset: 0,
+                    length: bytes.len() as u64,
+                },
+            };
+            let mut source = ByteReader(bytes);
+            let checked = ready(preflight_type3(
+                &mut source,
+                image,
+                options,
+                &limits,
+                &NeverCancel,
+            ))
+            .unwrap();
+            assert_eq!(
+                (checked.page().width, checked.page().height),
+                (width, height)
+            );
+            let mut first = Memory::default();
+            let (mut first_reader, mut first_compose) = (first.clone(), first.clone());
+            let mut second = Memory::default();
+            let (mut second_reader, mut second_compose) = (second.clone(), second.clone());
+            let mut refined = Memory::default();
+            let mut refined_reader = refined.clone();
+            let mut workspaces = Type3Workspaces {
+                first: Type3Store {
+                    reader: &mut first_reader,
+                    compose_reader: &mut first_compose,
+                    writer: &mut first,
+                },
+                second: Type3Store {
+                    reader: &mut second_reader,
+                    compose_reader: &mut second_compose,
+                    writer: &mut second,
+                },
+                refined: Type3RefinedStore {
+                    reader: &mut refined_reader,
+                    writer: &mut refined,
+                },
+                text: &mut scratch,
+            };
+            let before = output.0.borrow().len();
+            let prepared = ready(prepare_type3_image(
+                &mut source,
+                &table,
+                &mut workspaces,
+                checked,
+                options,
+                &limits,
+                &NeverCancel,
+            ))
+            .unwrap();
+            assert_eq!(
+                output.0.borrow().len(),
+                before,
+                "preparation must not write PDF bytes"
+            );
+            let (object, report) = ready(emit_type3_xobject(
+                &mut source,
+                &mut document,
+                &table,
+                prepared,
+                options,
+                &limits,
+                &NeverCancel,
+            ))
+            .unwrap();
+            assert_eq!(report.text_header_anomaly, None);
+            if number == 1 {
+                ready(document.add_page(size, &[object])).unwrap();
+            }
+            placements.push(crate::pdf::ImagePlacement {
+                image: object,
+                transform: [
+                    f64::from(width),
+                    0.0,
+                    0.0,
+                    f64::from(height),
+                    f64::from(number * 10),
+                    0.0,
+                ],
+            });
+            ready(scratch.set_len(0)).unwrap();
+        }
+        ready(document.add_placed_page(size, &placements)).unwrap();
+        let report = ready(document.finish()).unwrap();
+        assert_eq!(report.pages_converted, 2);
+        let bytes = output.0.borrow();
+        assert_eq!(report.output_bytes_written, bytes.len() as u64);
+        let text = String::from_utf8_lossy(&bytes);
+        assert_eq!(text.matches("%PDF-").count(), 1);
+        assert_eq!(text.matches("%%EOF").count(), 1);
+        assert_eq!(text.matches("/Subtype /Image").count(), 2);
+        for (width, height, expected) in
+            [(3, 2, &[0x80, 0][..]), (9, 3, &[0x80, 0, 0, 0, 0, 0][..])]
+        {
+            let marker = format!("/Width {width}\n/Height {height}");
+            let start = bytes
+                .windows(marker.len())
+                .position(|part| part == marker.as_bytes())
+                .unwrap();
+            let stream = bytes[start..]
+                .windows(8)
+                .position(|part| part == b"\nstream\n")
+                .unwrap()
+                + start
+                + 8;
+            assert_eq!(&bytes[stream..stream + expected.len()], expected);
+        }
+        assert!(text.contains("3 0 0 2 10 0 cm"));
+        assert!(text.contains("9 0 0 3 20 0 cm"));
     }
 }

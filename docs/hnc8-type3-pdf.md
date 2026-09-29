@@ -20,6 +20,27 @@ Strict T.88 text-header validation is the default. The single known raw `0xa40c`
 
 `Type3PdfError` retains requested page/image numbers, including zero for invalid selection, and an absolute source anchor. When a decoder knows a precise source location it is lifted to the outer error; scratch and PDF output positions remain in the nested stage error and are never labeled as source bytes. A zero selection has source anchor zero because no descriptor has been selected.
 
+## Shared image emission for source-page integration
+
+The selected-image wrapper now uses three internal steps: `preflight_type3`
+checks the image metadata and source digest, `prepare_type3_image` decodes
+symbols/text into the existing stores, and `emit_type3_xobject` appends the
+combined rows to a caller's existing `PdfDocument`. Page creation and
+placement remain the caller's responsibility.
+
+Preparation writes no PDF bytes. Its result borrows the text scratch until
+emission finishes, so that storage cannot be reset between these steps.
+Symbol contexts and catalogs are released before the generic row pass. The
+wrapper retains its three source-hash passes, error locations, strict/anomaly
+policy, and existing rejection-before-output behavior.
+
+An original unit test emits two differently sized asymmetric images into
+one document, reuses the text scratch between images, and checks packed
+pixels and page-placement commands. Its synthetic byte builder is shared
+with the existing selected-image integration tests. This is the reusable
+image boundary for #118; complete HN/C8 source-page composition and external
+full-page comparisons remain that issue's next steps.
+
 ## Verification protocol and measured evidence
 
 The clean-clone synthetic tests use independently authored tiny containers and an invented MQ table or injected packed rows. They exercise selection, errors, and the one-bit PDF polarity/row-order contract without the private table or corpus. The opt-in external harness must verify the pinned 27 source identities, all 546 selected encoded spans and the separately held table digest before and after; a missing explicitly requested input fails. It emits one temporary PDF at a time and independently checks its structure, extracted packed pixels, and selected rendered canaries. A clean clone reports `NOT_RUN` and zero private compatibility matches.
