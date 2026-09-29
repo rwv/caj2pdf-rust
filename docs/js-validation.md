@@ -3,8 +3,10 @@
 Issue #13 covers the common browser/Node package and CAJ/KDH/PDF conversion.
 HN/C8 integration acceptance is tracked in #10. Representative vendor-page
 comparisons and whole-process release measurements remain #123/#14.
-Selected HN/C8 pages have known page-size differences from CAJViewer; see
-[the current viewer results](cajviewer-hnc8-kdh.md).
+After #184, selected HN/C8 page-frame sizes match CAJViewer, but exact pixels
+still differ. See [the corrected results](cajviewer-hnc8-kdh.md#results-after-the-source-geometry-correction).
+Earlier conversion hashes and geometry checks below predate that correction;
+[the final section](#source-geometry-correction-repeat) records the corrected runs.
 
 ## Verified delivery paths
 
@@ -234,3 +236,49 @@ The fixture uses invented constant arithmetic states and no external document.
 Missing external corpus still means NOT_RUN. C8/HN-B unknown outlines require
 explicit bookmark omission; image-less HN-B rows and anomalous type-3 headers
 remain explicit errors. OCR and searchable text remain outside v0.1.
+
+## Source-geometry correction repeat
+
+After #184 (`bdb89b0`), the complete HN-A and C8 documents above were converted
+again through native CLI, Node 24.13.0 and Chromium 154.0.8037.57 Worker/OPFS.
+The source documents, caller-owned MQ states, 65,536-byte chunks and four
+64 MiB scratch limits are unchanged. Browser input spooling remains capped at
+64 MiB; output is sequential. This is a repeat of the existing integration
+checks after the geometry/padding correction, with no new harness.
+
+| Result | HN-A | C8 |
+| --- | ---: | ---: |
+| Pages / bookmarks, all three interfaces | 163 / 96 | 4 / 0 (explicit omission) |
+| Output bytes, all three interfaces | 162,515,239 | 3,978,812 |
+| Node duration | 568.20 s | 13.89 s |
+| Browser duration | 904.15 s | 21.48 s |
+| Final WASM linear capacity, Node and browser | 1,507,328 bytes | 1,376,256 bytes |
+| Node sampled whole-process RSS | 121,675,776 bytes | 76,394,496 bytes |
+| Final scratch sizes | Four zeros | Four zeros |
+
+HN-A native duration was 98.26 s and peak child RSS 14,700 KiB, with an empty
+temporary directory afterward. The same pre-exec RSS and concurrent-run
+measurement caveats from the earlier run apply; these are not isolated core
+allocation measurements or performance benchmarks. Node closed its handles
+and retained empty files; each browser run removed input, output and all scratch
+files. These repeats measure configured storage caps and cleanup, not a new
+peak-storage sample. #184 changes geometry and output padding, not the decoder
+scratch algorithms whose earlier peak measurements are recorded above.
+
+All three HN-A output hashes:
+`f903d8a871fcbead87ab76a65e19685f9385573e75d1e9b5a6babf5175320356`.
+All three C8 output hashes:
+`a28f46d2534935999b30048cfe49c7fc606fa4e4851cfe1814b5f1860bc0f726`.
+The [viewer report](cajviewer-hnc8-kdh.md#results-after-the-source-geometry-correction)
+records remaining exact-pixel failures and independent content/bookmark checks.
+These hashes supersede the old geometry outputs, not their historical evidence.
+
+Native binary SHA-256:
+`7e886dd497314a370987b464f6d9ddfbc3b382424bacc368d2fcf3a3c6981bb1`.
+WASM binary SHA-256:
+`6de6986d730d3ec55d6462bd43436ddc6c812ae61bdeb2b11e816c391a12a05c`.
+External run records are in `caj2pdf-source-geometry/public-results.json`.
+An earlier HN-A Node attempt exited with SIGTERM (143), without a completion
+report. Its partial PDF/stores are retained under `node-interrupted`; it is
+INTERRUPTED, not a compatibility pass. The successful fresh Node run above
+was started only after termination was confirmed.

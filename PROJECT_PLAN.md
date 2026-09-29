@@ -114,13 +114,11 @@ native sub-issue/blocking relationships are authoritative.
    identical PDFs on all three interfaces; page order, placement, bookmarks and
    cleanup are checked. Original two-image controls run in normal CI. See
    [the results and limitations](docs/js-validation.md#complete-multi-image-hn-a-public-interface-check).
-2. **Finish the observed layout discrepancy (#123).** Selected CAJ/PDF/KDH
-   pages match. Four HN/C8 pages have different page dimensions; see
-   [the recorded comparisons](docs/cajviewer-hnc8-kdh.md). Check the existing
-   size fields against the cover and mixed page. If a general rule is established,
-   fix it with original regression fixtures; otherwise document the affected
-   profile as experimental with the concrete limitation. Do not require exhaustive
-   pixel parity. Byte-identical CLI/Node/browser outputs share these checks.
+2. **Representative viewer checks completed (#123 / #184).** Source page/image
+   extents and storage-padding handling are corrected. HN-A/C8 selected frame
+   sizes match, while exact pixels still differ; these remain explicit
+   experimental-profile limitations. Complete corrected CLI/Node/browser outputs
+   match. See [results and scope](docs/cajviewer-hnc8-kdh.md#results-after-the-source-geometry-correction).
 3. **Finish codec distribution (#8 → #30, #9 → #44).** Resolve the exact missing
    rights evidence and wire approved state data into the implemented decoders.
    Record an unresolved decision precisely; do not restart broad research.

@@ -2,6 +2,9 @@
 
 # HN/C8 and KDH viewer checks
 
+Current results are in [the post-correction section](#results-after-the-source-geometry-correction).
+The earlier sections retain the baseline and field-discovery evidence.
+
 Observed on 2026-09-29 for #123, using the conversion implementation at
 `bb402cb` (#182). These are selected-page observations, not a claim of complete
 CAJViewer compatibility. Source documents and captures remain external.
@@ -143,3 +146,59 @@ bounded parser/composer. Original fixtures vary them independently of decoded
 pixels and check that DIB padding is not painted. The original conversion hashes
 and mismatches above describe the pre-correction build; fresh vendor comparison
 for the corrected build remains pending. The physical unit remains empirical.
+
+## Results after the source-geometry correction
+
+PR #184 merged at `bdb89b0` after review/simplification and all four hosted
+gates. Rust line coverage was 30,424/30,424, 100% total/per file. Native, Node
+22/24 and real Chromium tests include separate page/display/pixel dimensions
+and verify that storage padding cannot paint over an underlying image.
+
+Fresh captures used the same Viewer 9.0.0 image and display settings, with
+80% zoom, continuous mode and no sidebar for all four pages. Reviewed complete
+page frames now have equal source/output dimensions. The cover's large scale
+error is corrected; **exact pixel comparisons still fail**:
+
+| Page | Shared frame `(x, y, width, height)` | Changed RGB pixels / total |
+| --- | --- | --- |
+| HN-A 1 | `(536, 156, 578, 883)` | 391,951 / 510,374 |
+| HN-A 23 | `(536, 156, 578, 883)` | 136,286 / 510,374 |
+| C8 1 | `(519, 156, 611, 865)` | 87,412 / 528,515 |
+| C8 4 | `(519, 304, 611, 865)` | 68,559 / 528,515 |
+
+All eight source/output view-repeat pairs were identical without reopening.
+No alignment, resampling or tolerance was applied. HN/C8 remains experimental:
+matching frame dimensions is not pixel parity, and the physical source unit
+remains empirical. The remaining image/rasterization differences are retained
+as a known limitation rather than converted into passing baselines. Ordinary
+copy was NOT_RUN; no searchable-text or OCR claim is made.
+
+The corrected native HN-A output has 163 pages, 96 bookmarks and SHA-256
+`f903d8a871fcbead87ab76a65e19685f9385573e75d1e9b5a6babf5175320356`
+(162,515,239 bytes). The C8 output has four pages and explicitly omits unverified
+bookmarks: SHA-256
+`a28f46d2534935999b30048cfe49c7fc606fa4e4851cfe1814b5f1860bc0f726`
+(3,978,812 bytes). C8 CLI, Node and Chromium output hashes match; all four JS
+scratch stores returned to zero and the browser removed its OPFS files.
+The complete corrected HN-A Node and browser outputs also match the native
+hash: 163 pages, 96 bookmarks and four zero-size scratch stores. The browser's
+final OPFS enumeration is empty. Both corrected samples therefore share their
+viewer results across all three public interfaces. See the
+[current memory/run measurements](js-validation.md#source-geometry-correction-repeat).
+
+A separate qpdf comparison checked all 210 HN-A image streams and all four
+C8 streams against the preceding output, in page/resource order. JPEG bytes
+are identical; every bilevel stream equals the old stream with only row
+padding removed. 151 HN-A and two C8 image widths lost storage padding. Page
+counts, outline trees and outline destination pages are unchanged. These
+checks establish content retention across the correction, independently of
+the viewer screenshots; they do not establish source-wide pixel parity.
+
+The external `caj2pdf-source-geometry` directory retains `validation.json`,
+the comparison script and native/JS reports. Its `viewer` directory retains
+full captures, page crops, raw difference images, repeat/RGB hashes in
+`comparison.json`, settings, commands and logs. The mounted NotoSansCJK font
+hash is `b76b0433203017ca80401b2ee0dd69350349871c4b19d504c34dbdd80541690a`.
+The final font-inventory command failed and is recorded; no new inventory hash
+is claimed. The offline 2 GiB / 256-task viewer session peaked at 1,039,114,240
+bytes with no OOM/task-limit events, and its container was removed after capture.

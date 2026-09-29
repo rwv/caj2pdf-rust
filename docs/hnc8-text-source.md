@@ -11,6 +11,10 @@ specification or proof that the same layout holds for arbitrary documents.
 No external converter source was inspected or copied. Private documents,
 decoded text, modified sources and PDFs remain outside this repository.
 
+Later [controlled geometry checks](cajviewer-hnc8-kdh.md#controlled-geometry-checks)
+establish separate page/display extents for the observed HN-A/C8 profiles.
+#184 reads those fields; the discovery notes below retain their historical scope.
+
 ## Read-only framing discovery
 
 The old [#110 note](hnc8-placement-experiments.md) tested zlib starts at text
