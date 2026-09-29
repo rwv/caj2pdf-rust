@@ -18,7 +18,8 @@ fixture-management framework is needed.
 CLI, Node and browser output hashes match for these actual documents, so the
 same viewer comparisons apply to all three. After #184, corrected complete
 HN-A and C8 output identity is verified again. #123's selected-page work is
-complete with the pixel limitations below; #14 owns final release acceptance. #124–#128 supplied the working recipe,
+complete with the pixel limitations below; #14 owns final release acceptance.
+#124–#128 supplied the working recipe,
 fixtures and comparator; #129's remaining work was consolidated into #123.
 Their older future-work text is historical, not a new approval requirement.
 

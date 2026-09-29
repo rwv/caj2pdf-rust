@@ -144,15 +144,16 @@ hits, and was removed after capture. These are viewer measurements.
 The #123 correction uses these declared page/image extents in the existing
 bounded parser/composer. Original fixtures vary them independently of decoded
 pixels and check that DIB padding is not painted. The original conversion hashes
-and mismatches above describe the pre-correction build; fresh vendor comparison
-for the corrected build remains pending. The physical unit remains empirical.
+and mismatches above describe the pre-correction build; the following section
+records fresh corrected-build comparisons. The physical unit remains empirical.
 
 ## Results after the source-geometry correction
 
 PR #184 merged at `bdb89b0` after review/simplification and all four hosted
-gates. Rust line coverage was 30,424/30,424, 100% total/per file. Native, Node
-22/24 and real Chromium tests include separate page/display/pixel dimensions
-and verify that storage padding cannot paint over an underlying image.
+gates. Rust line coverage was 30,424/30,424, 100% total/per file. Native render
+tests verify that storage padding cannot paint over an underlying image.
+Node 22/24 and real Chromium conversion tests inspect separate page/display/
+pixel dimensions and packed image streams with qpdf.
 
 Fresh captures used the same Viewer 9.0.0 image and display settings, with
 80% zoom, continuous mode and no sidebar for all four pages. Reviewed complete
