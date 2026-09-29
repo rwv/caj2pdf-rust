@@ -49,7 +49,7 @@ async function syntheticCorpus(t, { pageOverride, extra = [] } = {}) {
     ["sub/a.caj", "CAJ", syntheticCaj(), 2, "success"],
     ["b.kdh", "KDH", (await syntheticKdh()).wrapped, 2, "success"],
     ["c.caj", "PDF", pdf, 2, "success"],
-    ["d.caj", "HN", await fixture("truncated_hn.hn"), null, "unknown"],
+    ["d.caj", "TEB", new TextEncoder().encode("TEB"), null, "unknown"],
     ...extra,
   ];
   const samples = [];
@@ -99,9 +99,9 @@ test("each matrix row's expectation mirrors the conformance.py outcome classes",
     [{ detected_type: "CAJ", expected_outcome: "error" }, "excluded"],
     [{ detected_type: "PDF", expected_outcome: "unsupported" }, "excluded"],
     [{ detected_type: "KDH", expected_outcome: "unknown" }, "not_run"],
-    // The API rejects these formats whatever the Python reference did.
-    [{ detected_type: "HN", expected_outcome: "success" }, "unsupported"],
-    [{ detected_type: "C8", expected_outcome: "unknown" }, "unsupported"],
+    // Caller-table formats are not configured by this runner.
+    [{ detected_type: "HN", expected_outcome: "success" }, "not_run"],
+    [{ detected_type: "C8", expected_outcome: "unknown" }, "not_run"],
     [{ detected_type: "TEB", expected_outcome: "unsupported" }, "unsupported"],
   ];
   for (const [row, expected] of rows) assert.equal(expectationFor(row), expected, JSON.stringify(row));
@@ -143,7 +143,7 @@ test("a requested but missing corpus fails with exit 1 and bad arguments exit 2"
   );
 });
 
-test("synthetic CAJ, KDH, and PDF samples pass and HN is counted as unsupported", async (t) => {
+test("synthetic CAJ, KDH, and PDF samples pass and TEB is counted as unsupported", async (t) => {
   const corpus = await syntheticCorpus(t);
   const seen = [];
   const report = await runSynthetic(t, corpus, {
@@ -156,7 +156,7 @@ test("synthetic CAJ, KDH, and PDF samples pass and HN is counted as unsupported"
   assert.deepEqual(seen, corpus.samples.map((row) => row.id));
   assert.deepEqual(report.failures, []);
   assert.equal(report.checked, 4);
-  assert.equal(report.unsupported, 1, "HN is rejected as unsupported");
+  assert.equal(report.unsupported, 1, "TEB is rejected as unsupported");
   assert.deepEqual(
     report.results.map(({ id, reference, expectation }) => [id, reference, expectation]),
     [
@@ -166,10 +166,10 @@ test("synthetic CAJ, KDH, and PDF samples pass and HN is counted as unsupported"
       ["d.caj", "unknown", "unsupported"],
     ],
   );
-  assert.match(report.results[3].reason, /API rejects HN; reference unknown/);
+  assert.match(report.results[3].reason, /API rejects TEB; reference unknown/);
   if (await hasQpdf()) {
     assert.equal(report.status, "PASS");
-    assert.equal(report.passed, 3, "the unsupported HN sample is not a pass");
+    assert.equal(report.passed, 3, "the unsupported TEB sample is not a pass");
     assert.equal(report.not_run, 0);
   } else {
     assert.ok(!process.env.CI, "qpdf is required in CI");
@@ -355,4 +355,20 @@ test("SIGINT stops the script with exit 130 and removes its temporary output", {
   assert.equal(await exited, 130);
   assert.match(stderr, /interrupted by SIGINT; temporary files removed/);
   assert.deepEqual(await readdir(corpus.tempDir), []);
+});
+
+
+test("HN/C8 without runner configuration are NOT_RUN, never compatibility passes", async (t) => {
+  const corpus = await syntheticCorpus(t, { extra: [
+    ["e.hn", "HN", await fixture("truncated_hn.hn"), null, "success"],
+    ["f.c8", "C8", await fixture("truncated_c8.c8"), null, "success"],
+  ] });
+  const report = await runSynthetic(t, corpus);
+  assert.equal(report.status, "NOT_RUN");
+  assert.deepEqual(report.failures, []);
+  for (const row of report.results.slice(4)) {
+    assert.equal(row.outcome, "not_run");
+    assert.match(row.reason, /requires runtime codec tables/);
+    assert.equal(row.observed, null);
+  }
 });

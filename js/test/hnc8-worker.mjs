@@ -1,0 +1,29 @@
+// SPDX-License-Identifier: MIT
+
+import { blobSource, convert, loadModule, syncAccessHandleScratch } from "../browser.mjs";
+import { qmStates, syntheticHn } from "./hnc8-fixtures.mjs";
+
+const root = await navigator.storage.getDirectory();
+const names = [];
+const handles = [];
+let result;
+try {
+  const scratch = [];
+  for (let i = 0; i < 4; i++) {
+    const name = `caj2pdf-hn-test-${crypto.randomUUID()}`;
+    const file = await root.getFileHandle(name, { create: true }); names.push(name);
+    const handle = await file.createSyncAccessHandle(); handles.push(handle);
+    scratch.push(syncAccessHandleScratch(handle, { maxBytes: 1024n }));
+  }
+  const parts = [];
+  const report = await convert(await loadModule(), blobSource(new Blob([syntheticHn()])), {
+    async writeChunk(bytes) { parts.push(...bytes); return bytes.length; }, async flush() {},
+  }, { chunkSize: 3, hnc8: { qmStates, scratch } });
+  result = { pages: report.pagesConverted, pdf: parts, cleared: scratch.every((store) => store.size === 0n) };
+} catch (error) {
+  result = { error: `${error.name}: ${error.message}` };
+} finally {
+  for (const handle of handles) handle.close();
+  for (const name of names) await root.removeEntry(name);
+}
+postMessage(result);

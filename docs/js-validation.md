@@ -85,3 +85,47 @@ claim HN/C8 WASM conversion. The existing JS suite includes the new tests.
 CI additionally compiles `js/test/types-worker/*.mts` with `ES2022,WebWorker`
 using the same pinned TypeScript installation. The actual npm tarball includes
 the shared scratch validation helper; packaging tests check the file list.
+
+
+## Experimental HN/C8 WASM integration (#10)
+
+The existing poll/resume engine now routes the complete source-page converter
+through four caller-owned scratch stores. Original CI fixtures check asymmetric
+pixels after PDF extraction, one-byte short I/O, Node files and real Chromium
+Dedicated Worker OPFS storage. Negative tests cover missing/invalid caller
+configuration, source/sink/store failure, cancellation, cleanup failure and
+instance reuse. Rust also rejects image-less HN-B source rows explicitly.
+DOM/Node and WebWorker TypeScript consumers compile the HN/C8 options.
+
+### External four-page C8 check
+
+Input: CAJSamples `issue-58/混凝土道面评价指标分析_谢永亮.caj`, with the same
+external MQ table and source identity recorded in the [direct-text comparison](hnc8-direct-text.md).
+Both calls used `includeBookmarks: false`, 4096-byte I/O, four 64 MiB-capped
+scratch adapters and the release WASM build. Native file-scratch output is the
+previous independently checked reference for byte identity.
+
+| Result | Node 24.13.0 | Chromium Dedicated Worker |
+| --- | --- | --- |
+| Converted pages / bookmarks | 4 / 0 | 4 / 0 |
+| Input bytes read | 733,682 | 733,682 |
+| Output bytes | 3,992,137 | 3,992,137 |
+| Final WASM linear capacity | 1,376,256 bytes | 1,376,256 bytes |
+| Observed conversion duration | 14.68 s | 24.62 s |
+| Scratch extents after conversion | Four zeros | Four zeros |
+| File cleanup | Caller closed handles; empty files retained for inspection | All handles closed and all input/output/scratch files removed |
+
+Both output SHA-256 values equal the native result:
+`fffa38e8f2cd675352108488117f13983f959ead7500f9f4ba1cab9a2e74ef1e`.
+Node output passes `qpdf --check`; browser output is byte-identical. The browser
+spooled the fetched input to OPFS and streamed PDF output to an OPFS writer.
+Hashing read the completed PDF only after conversion; this validation allocation
+is not part of the converter memory measurement. Node whole-process sampled
+RSS reached 87,744,512 bytes (100 ms sampling), not a core-allocation or precise
+kernel peak measurement. Durations are single observations, not benchmarks.
+
+This is one C8 sample, not all-format compatibility. Codec state distribution,
+C8/HN-B bookmarks, HN/C8 inspection, anomalous-header opt-in and CLI integration
+remain unresolved or outside this slice. The general JS corpus runner has no
+caller-table configuration and explicitly reports its HN/C8 rows as NOT_RUN;
+it must not count these as rejected-format compatibility passes.

@@ -151,7 +151,7 @@ test("conversion and stream failures remove the spool", async () => {
   await withTempRoot(async (tempDirectory) => {
     await assert.rejects(
       convertReadable(await wasmModule(), Readable.from([await fixture("truncated_hn.hn")]), discard, { tempDirectory }),
-      { name: "UnsupportedFormatError", format: "hn" },
+      { name: "Caj2PdfError", code: "HNC8" },
     );
   });
   await withTempRoot(async (tempDirectory) => {

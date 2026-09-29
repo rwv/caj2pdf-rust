@@ -110,16 +110,22 @@ pub extern "C" fn caj2pdf_start(
 }
 
 /// Poll the operation. 0=idle, 1=read, 2=write, 3=flush, 4=done, 5=error.
+/// 6=scratch read, 7=scratch write, 8=resize, 9=scratch flush.
 #[unsafe(no_mangle)]
 pub extern "C" fn caj2pdf_io_poll() -> u32 {
     with_engine(0, |engine| engine.poll() as u32)
 }
 
-/// Byte offset for the outstanding read request (JavaScript BigInt).
+/// Byte offset for a read/scratch write, or new scratch extent for a resize.
 #[unsafe(no_mangle)]
 pub extern "C" fn caj2pdf_io_request_offset() -> u64 {
     with_engine(0, |engine| match engine.request() {
-        Some(Request::Read { offset, .. }) => offset,
+        Some(
+            Request::Read { offset, .. }
+            | Request::ScratchRead { offset, .. }
+            | Request::ScratchWrite { offset, .. },
+        ) => offset,
+        Some(Request::ScratchResize { bytes, .. }) => bytes,
         _ => 0,
     })
 }
@@ -128,9 +134,48 @@ pub extern "C" fn caj2pdf_io_request_offset() -> u64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn caj2pdf_io_request_length() -> u32 {
     with_engine(0, |engine| match engine.request() {
-        Some(Request::Read { length, .. } | Request::Write { length }) => length as u32,
+        Some(
+            Request::Read { length, .. }
+            | Request::Write { length }
+            | Request::ScratchRead { length, .. }
+            | Request::ScratchWrite { length, .. },
+        ) => length as u32,
         _ => 0,
     })
+}
+
+/// Fixed scratch workspace identifier (1..=4), or 0 for ordinary I/O.
+#[unsafe(no_mangle)]
+pub extern "C" fn caj2pdf_io_request_store() -> u32 {
+    with_engine(0, |engine| match engine.request() {
+        Some(
+            Request::ScratchRead { store, .. }
+            | Request::ScratchWrite { store, .. }
+            | Request::ScratchResize { store, .. }
+            | Request::ScratchFlush { store },
+        ) => store,
+        _ => 0,
+    })
+}
+
+/// Append a validated caller-owned codec state before the first poll.
+#[unsafe(no_mangle)]
+pub extern "C" fn caj2pdf_hnc8_add_state(
+    table: u32,
+    qe: u32,
+    next_lps: u32,
+    next_mps: u32,
+    switch: u32,
+) -> u32 {
+    with_engine(0, |engine| {
+        engine.add_hnc8_state(table, qe, next_lps, next_mps, switch) as u32
+    })
+}
+
+/// Complete an awaited scratch resize (the requested extent is a u64).
+#[unsafe(no_mangle)]
+pub extern "C" fn caj2pdf_io_complete_resize() -> u32 {
+    with_engine(0, |engine| engine.complete_resize() as u32)
 }
 
 /// Pointer into exported WASM memory for one bounded staging chunk.
@@ -166,7 +211,7 @@ pub extern "C" fn caj2pdf_io_cancel() {
     with_engine((), |engine| engine.cancel());
 }
 
-/// Numeric error category for a failed operation (1..=15), else 0.
+/// Numeric error category for a failed operation (1..=16), else 0.
 #[unsafe(no_mangle)]
 pub extern "C" fn caj2pdf_io_error_kind() -> u32 {
     with_engine(0, |engine| match engine.result() {

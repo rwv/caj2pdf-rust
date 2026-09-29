@@ -14,3 +14,14 @@ export async function useWorkerScratch(file: FileSystemFileHandle) {
     handle.close();
   }
 }
+
+export async function useHn(
+  wasm: import('../../browser.mjs').WasmInput,
+  source: import('../../browser.mjs').RangedSource,
+  sink: import('../../browser.mjs').SequentialSink,
+  scratch: NonNullable<import('../../browser.mjs').Hnc8Options['scratch']>,
+  mqStates: readonly import('../../browser.mjs').ProbabilityState[],
+) {
+  const { convert } = await import('../../browser.mjs');
+  return convert(wasm, source, sink, { hnc8: { scratch, mqStates }, includeBookmarks: false });
+}

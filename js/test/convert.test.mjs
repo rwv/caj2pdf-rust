@@ -144,7 +144,7 @@ test("inspect reports format, pages, and CAJ bookmarks without output", async ()
   }
 });
 
-test("HN, C8, and TEB inputs are recognized and rejected as unsupported", async () => {
+test("malformed HN/C8 and unsupported TEB failures are distinguished", async () => {
   const cases = [
     ["truncated_hn.hn", "hn"],
     ["truncated_c8.c8", "c8"],
@@ -154,18 +154,23 @@ test("HN, C8, and TEB inputs are recognized and rejected as unsupported", async 
   for (const [name, format] of cases) {
     const source = blobSource(new Blob([await fixture(name)]));
     await assert.rejects(convert(await wasmModule(), source, sink), (error) => {
-      assert.ok(error instanceof UnsupportedFormatError);
       assert.ok(error instanceof Caj2PdfError);
-      assert.equal(error.code, "UNSUPPORTED_FORMAT");
-      assert.equal(error.format, format);
-      assert.match(error.message, /not supported yet/);
+      if (format === "teb") {
+        assert.ok(error instanceof UnsupportedFormatError);
+        assert.equal(error.code, "UNSUPPORTED_FORMAT");
+        assert.equal(error.format, format);
+        assert.match(error.message, /not supported yet/);
+      } else {
+        assert.equal(error.code, "HNC8");
+        assert.match(error.message, /HN\/C8/);
+      }
       return true;
     });
     await assert.rejects(inspect(await wasmModule(), source), { code: "UNSUPPORTED_FORMAT", format });
   }
   await assert.rejects(
     convert(await wasmModule(), blobSource(new Blob([syntheticCaj()])), sink, { format: "hn" }),
-    { name: "UnsupportedFormatError", format: "hn" },
+    { name: "Caj2PdfError", code: "HNC8" },
   );
   await assert.rejects(
     convert(await wasmModule(), blobSource(new Blob(["plain text"])), sink),

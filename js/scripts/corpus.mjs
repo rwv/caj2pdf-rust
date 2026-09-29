@@ -29,7 +29,8 @@ export const DEFAULT_WASM = fileURLToPath(
   new URL("../../target/wasm32-unknown-unknown/release/caj2pdf_wasm.wasm", import.meta.url),
 );
 /** Detected formats the JavaScript API rejects with `UnsupportedFormatError` (see io.mjs `FORMATS`). */
-const API_UNSUPPORTED = new Set(["HN", "C8", "TEB"]);
+const API_UNSUPPORTED = new Set(["TEB"]);
+const API_CALLER_TABLE = new Set(["HN", "C8"]);
 const API_CONVERTED = new Set(["CAJ", "KDH", "PDF"]);
 /** `expected_outcome` classes, as in scripts/conformance.py `audit_pdfs`. */
 const REFERENCE_EXPECTATION = Object.freeze({
@@ -59,10 +60,12 @@ class SetupError extends Error {
  *   repository records no Rust outcome; conformance.py reports it `EXCLUDED`.
  * - `not_run`: the reference outcome is unknown; conformance.py reports it
  *   `NOT_RUN`.
- * For `excluded` and `not_run` rows the conversion still runs; a typed input
+ * HN/C8 rows are NOT_RUN because this runner has no caller-table configuration.
+ * For other `excluded` and `not_run` rows the conversion still runs; a typed input
  * rejection or a validated output is recorded as `observed`, never as a pass.
  */
 export function expectationFor(row) {
+  if (API_CALLER_TABLE.has(row.detected_type)) return "not_run";
   return API_UNSUPPORTED.has(row.detected_type) ? "unsupported" : REFERENCE_EXPECTATION[row.expected_outcome];
 }
 
@@ -89,7 +92,7 @@ export async function loadMatrix(path = DEFAULT_MATRIX) {
     if (!Number.isSafeInteger(row.size_bytes) || row.size_bytes < 0) throw new SetupError(`${id}: invalid size_bytes`);
     if (!/^[0-9a-f]{64}$/.test(row.sha256 ?? "")) throw new SetupError(`${id}: invalid sha256`);
     if (!/^[0-9a-f]{40}$/.test(row.git_blob_oid ?? "")) throw new SetupError(`${id}: invalid git_blob_oid`);
-    if (!API_CONVERTED.has(row.detected_type) && !API_UNSUPPORTED.has(row.detected_type)) {
+    if (!API_CONVERTED.has(row.detected_type) && !API_UNSUPPORTED.has(row.detected_type) && !API_CALLER_TABLE.has(row.detected_type)) {
       throw new SetupError(`${id}: invalid detected_type`);
     }
     if (!Object.hasOwn(REFERENCE_EXPECTATION, row.expected_outcome)) {
@@ -344,7 +347,11 @@ export async function runCorpus({
       handle = await openVerified(root, row);
       verified.push({ row, result });
       result.stage = "convert";
-      Object.assign(result, await convertSample(handle, row, expectation, context, signal));
+      if (API_CALLER_TABLE.has(row.detected_type)) {
+        Object.assign(result, { outcome: "not_run", reason: "HN/C8 requires runtime codec tables and scratch stores; this runner has no caller configuration" });
+      } else {
+        Object.assign(result, await convertSample(handle, row, expectation, context, signal));
+      }
       result.stage = null;
       if (result.outcome !== "passed") result.reason ??= expectationReason(row, expectation);
     } catch (error) {
@@ -375,7 +382,7 @@ export async function runCorpus({
   if (report.failed > 0) {
     report.status = "FAIL";
   } else if (report.not_run > 0) {
-    report.reason = `${report.not_run} sample(s) not run: unknown reference outcome or qpdf unavailable`;
+    report.reason = `${report.not_run} sample(s) not run: caller configuration missing, unknown reference outcome or qpdf unavailable`;
   } else if (report.passed === 0) {
     report.reason = "no sample with a successful reference conversion passed";
   } else {
