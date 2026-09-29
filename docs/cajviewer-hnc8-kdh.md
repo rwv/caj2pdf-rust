@@ -103,3 +103,43 @@ can be shared across those three interfaces; this does not turn HN/C8
 mismatches into passes. The small CAJ/PDF/KDH verification collected output
 for hashing and made no memory-efficiency measurement. CI continues to use
 original MIT comparator and conversion fixtures without the external corpus.
+
+## Controlled geometry checks
+
+A follow-up on 2026-09-29 changed six external source copies, reusing the same
+viewer image, fonts, 80% zoom and display. Byte comparisons verified that each
+copy changed only the declared little-endian fields; image payloads and page
+indexes were unchanged. No reference-converter implementation was inspected.
+
+| Input / field | Change | Observed viewer effect |
+| --- | --- | --- |
+| HN cover image record, absolute offset 33184 | 5327 → 2663 | Image width halves; image height and page frame stay unchanged |
+| HN cover image record, offset 33186 | 8173 → 4086 | Image height halves; image width and page frame stay unchanged |
+| HN document header, offset `0xa8` | 5579 → 2789 | Page width halves, clipping the unchanged image |
+| HN document header, offset `0xaa` | 8528 → 4264 | Page height halves, clipping the unchanged image |
+| HN mixed page 23, first image record, offset 1120742 | 5557 → 2778 | The first image compresses horizontally; the separate overlaid illustration and page frame remain unchanged |
+| C8 document header, offsets `0x20` / `0x22` | 5901 / 8354 → 2950 / 4177 | Both page dimensions halve, clipping rather than scaling the content |
+
+The image fields are at `+8/+10` from the raw `0x800a` record marker
+(`+4/+6` from the coordinate-only tail representation). These interventions
+separate declared image extents from decoded pixel dimensions, and document
+page extents from first-image extents. They explain why a 300-DPI pixel-based
+cover and first-image-based page can differ substantially from the viewer.
+They do not independently establish the physical unit, signedness, all profile
+variants or pixel-perfect rendering. Do not extrapolate the HN-A header check
+to HN-B without evidence.
+
+Nine settled view/repeat pairs were identical without reopening. Page 23 used
+continuous mode; other observations used single-page mode with visible page
+indicators checked. One early blank page-23 capture and an incorrectly entered
+zoom capture were excluded. The external `caj2pdf-hn-geometry` directory retains
+source hashes, byte-change checks, repeat hashes, commands and captures in
+`changes.json`, `verification.json` and `actions.jsonl`. The offline container
+used 2 GiB / 256 tasks, peaked at 1,401,978,880 bytes, reported no OOM or task-limit
+hits, and was removed after capture. These are viewer measurements.
+
+The #123 correction uses these declared page/image extents in the existing
+bounded parser/composer. Original fixtures vary them independently of decoded
+pixels and check that DIB padding is not painted. The original conversion hashes
+and mismatches above describe the pre-correction build; fresh vendor comparison
+for the corrected build remains pending. The physical unit remains empirical.

@@ -51,6 +51,8 @@ impl Records {
                 coordinates[self.images] = RawTextCoordinate {
                     x: u16::from_le_bytes([self.bytes[4], self.bytes[5]]),
                     y: u16::from_le_bytes([self.bytes[6], self.bytes[7]]),
+                    width: u16::from_le_bytes([self.bytes[8], self.bytes[9]]),
+                    height: u16::from_le_bytes([self.bytes[10], self.bytes[11]]),
                 };
                 self.images += 1;
             } else {

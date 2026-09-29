@@ -758,6 +758,8 @@ fn image_hn_with_bookmarks(count: usize) -> Vec<u8> {
     let mut bytes = vec![0; payload + 49];
     bytes[..8].copy_from_slice(&[72, 78, 0, 0, 0x90, 1, 0, 0]);
     put_u32(&mut bytes, 0x90, 1);
+    bytes[0xa8..0xaa].copy_from_slice(&100_u16.to_le_bytes());
+    bytes[0xaa..0xac].copy_from_slice(&200_u16.to_le_bytes());
     put_u32(&mut bytes, 0x158, count as u32);
     for number in 0..count {
         let at = 0x15c + number * 308;
@@ -769,6 +771,8 @@ fn image_hn_with_bookmarks(count: usize) -> Vec<u8> {
     put_u32(&mut bytes, index + 4, 32);
     bytes[index + 8] = 1;
     bytes[text..text + 2].copy_from_slice(&0x800au16.to_le_bytes());
+    bytes[text + 8..text + 10].copy_from_slice(&80_u16.to_le_bytes());
+    bytes[text + 10..text + 12].copy_from_slice(&40_u16.to_le_bytes());
     bytes[text + 28..text + 30].copy_from_slice(&0x8004u16.to_le_bytes());
     put_u32(&mut bytes, descriptor + 4, payload as u32);
     put_u32(&mut bytes, descriptor + 8, 49);
@@ -818,7 +822,7 @@ fn hn_converts_from_files_and_pipes_with_exact_pixels_and_no_named_scratch() {
         .output()
         .unwrap();
     assert_success(&pixels);
-    assert_eq!(pixels.stdout, [0x40, 0, 0, 0, 0xa0, 0, 0, 0]);
+    assert_eq!(pixels.stdout, [0x40, 0xa0]);
     let pipe = scratch.run_with_stdin(&["-", "--qm-states=qm.txt", "--no-bookmarks"], &input);
     assert_success(&pipe);
     assert_eq!(pipe.stdout, fs::read(scratch.path("out.pdf")).unwrap());

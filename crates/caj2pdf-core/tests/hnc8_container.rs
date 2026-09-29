@@ -1241,3 +1241,46 @@ fn cancellation_inside_a_fixed_read_and_before_a_page_row_is_located() {
     let page = ready(reader.next_page()).unwrap().unwrap();
     assert_eq!((page.page_number, page.image_count), (1, 0));
 }
+
+#[test]
+fn declared_page_extents_use_variant_offsets_and_bounded_reads() {
+    let limits = Limits::default();
+    for variant in [Variant::C8, Variant::HnA, Variant::HnB] {
+        let (mut bytes, offset) = if variant == Variant::C8 {
+            (c8(1), 32)
+        } else {
+            (hn(variant, 1, 0).0, 168)
+        };
+        bytes[offset..offset + 4].copy_from_slice(&[0x23, 0x81, 0x67, 0x45]);
+        let mut source = Source::new(bytes);
+        source.max_read = 1;
+        let reader = ready(Hnc8Reader::open(
+            &mut source,
+            &limits,
+            &NEVER,
+            Budget::default(),
+        ))
+        .unwrap();
+        assert_eq!(
+            reader.header().page_size,
+            if variant == Variant::HnB {
+                None
+            } else {
+                Some([0x8123, 0x4567])
+            }
+        );
+    }
+    for (mut bytes, offset) in [(c8(1), 32), (hn(Variant::HnA, 1, 0).0, 168)] {
+        bytes.truncate(offset + 3);
+        let mut source = Source::new(bytes);
+        let error = ready(Hnc8Reader::open(
+            &mut source,
+            &limits,
+            &NEVER,
+            Budget::default(),
+        ))
+        .err()
+        .unwrap();
+        assert_eq!(error.kind.field(), "page dimensions");
+    }
+}

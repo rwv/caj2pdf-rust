@@ -11,19 +11,6 @@ use crate::hnc8::convert_jbig2::{
 use crate::pdf::ImageObject;
 use std::cell::{Cell, RefCell};
 
-pub(super) fn display_width(width: u32) -> crate::Result<u32> {
-    let visible = u64::from(width).div_ceil(8);
-    let stride = u64::from(width).div_ceil(32) * 4;
-    u32::try_from(if visible == stride {
-        u64::from(width)
-    } else {
-        stride * 8
-    })
-    .map_err(|_| Error::InvalidInput {
-        reason: "type-3 DIB display width overflows u32",
-    })
-}
-
 pub(super) fn error(at: At, stage: ComposeStage, error: Type3PdfError) -> ComposeError {
     At {
         offset: error.offset.or(at.offset),
@@ -263,7 +250,7 @@ where
             document,
             stores.table,
             prepared,
-            display_width(page.width).map_err(at.io(ComposeStage::Geometry))?,
+            page.width,
             options.type3,
             limits,
             cancellation,
@@ -390,8 +377,5 @@ mod tests {
         assert!(ready(RandomAccessScratch::write_at(&mut writer, 1, &[1])).is_err());
         store.length.set(u64::MAX);
         assert!(ready(SequentialSink::write(&mut writer, &[1])).is_err());
-        assert_eq!(display_width(31).unwrap(), 31);
-        assert_eq!(display_width(9).unwrap(), 32);
-        assert!(display_width(u32::MAX - 8).is_err());
     }
 }

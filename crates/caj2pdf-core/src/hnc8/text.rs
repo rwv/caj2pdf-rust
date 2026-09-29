@@ -49,13 +49,16 @@ impl Default for TextBudget {
     }
 }
 
-/// The two little-endian words at +0/+2 of one 28-byte tail record.
+/// The position and display extent words at +0/+2/+4/+6 of a tail record.
 /// These are raw bits; an unsigned Rust representation does not establish
 /// the source format's signedness, units or accepted coordinate range.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct RawTextCoordinate {
     pub x: u16,
     pub y: u16,
+    /// Declared display extent in source units, independent of decoded pixels.
+    pub width: u16,
+    pub height: u16,
 }
 
 /// Validated framing and bounded image-order metadata, with no opaque text.
@@ -354,13 +357,15 @@ impl Accumulator {
             } else if at >= u64::from(self.tail_start) {
                 let relative = at - u64::from(self.tail_start);
                 let within = relative % 28;
-                if within < 4 {
+                if within < 8 {
                     let coordinate = &mut self.coordinates[(relative / 28) as usize];
-                    if within < 2 {
-                        coordinate.x |= u16::from(byte) << (within * 8);
-                    } else {
-                        coordinate.y |= u16::from(byte) << ((within - 2) * 8);
-                    }
+                    let word = match within / 2 {
+                        0 => &mut coordinate.x,
+                        1 => &mut coordinate.y,
+                        2 => &mut coordinate.width,
+                        _ => &mut coordinate.height,
+                    };
+                    *word |= u16::from(byte) << ((within % 2) * 8);
                 }
             }
         }

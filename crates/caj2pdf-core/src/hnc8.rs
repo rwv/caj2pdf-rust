@@ -89,6 +89,8 @@ impl Span {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Header {
     pub variant: Variant,
+    /// Declared HN-A/C8 page extents in source units. HN-B is unverified.
+    pub page_size: Option<[u16; 2]>,
     pub page_count: u32,
     pub page_index: Span,
 }
@@ -532,6 +534,26 @@ impl<'a, S: RangedSource, C: Cancellation> Hnc8Reader<'a, S, C> {
                 u64::from(page_count),
             ));
         }
+        let page_size = if variant == Variant::HnB {
+            None
+        } else {
+            let offset = count_offset + 24;
+            let mut size = [0; 4];
+            read_fixed(
+                source,
+                limits,
+                cancellation,
+                offset,
+                &mut size,
+                loc.at(offset),
+                "page dimensions",
+            )
+            .await?;
+            Some([
+                u16::from_le_bytes([size[0], size[1]]),
+                u16::from_le_bytes([size[2], size[3]]),
+            ])
+        };
         let index_start = if variant == Variant::HnA {
             let mut outline = [0; 4];
             read_fixed(
@@ -578,6 +600,7 @@ impl<'a, S: RangedSource, C: Cancellation> Hnc8Reader<'a, S, C> {
             budget,
             header: Header {
                 variant,
+                page_size,
                 page_count,
                 page_index,
             },

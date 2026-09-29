@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 
-//! One padded, bottom-first type-0 XObject using caller-owned row storage.
+//! One bottom-first type-0 XObject using caller-owned padded row storage.
+//! The PDF writer drops storage padding from the emitted image.
 
 use super::ImageRecord;
 use super::convert::{Type0DecodeSettings, Type0PdfError, decode_type0_rows};
@@ -251,7 +252,7 @@ where
             reason: "type-0 row-storage geometry differs from checked DIB dimensions",
         }));
     }
-    let display_width = super::placement::type0_display_width(checked);
+    let display_width = u64::from(checked.width);
     let length = stride * u64::from(checked.height);
     for (resource, attempted, maximum) in [
         ("PDF image width", display_width, i32::MAX as u64),
@@ -412,7 +413,7 @@ where
 /// async cleanup cannot run from Drop. The caller also discards partial PDF
 /// output on any error, including a cleanup-only failure.
 #[allow(clippy::too_many_arguments)]
-pub(super) async fn emit_padded_type0_xobject<S, W, T, C>(
+pub(super) async fn emit_type0_xobject<S, W, T, C>(
     source: &mut S,
     document: &mut PdfDocument<'_, W, C>,
     image: ImageRecord,
@@ -698,7 +699,7 @@ mod tests {
         let sink_failure = Rc::clone(&sink.fail);
         let mut document = ready(PdfDocument::new(&mut sink, &limits, &NEVER)).unwrap();
         sink_failure.set(fail_pdf);
-        ready(emit_padded_type0_xobject(
+        ready(emit_type0_xobject(
             &mut source,
             &mut document,
             record,
@@ -972,7 +973,7 @@ mod tests {
             } else {
                 flag.set(true);
             }
-            let error = ready(emit_padded_type0_xobject(
+            let error = ready(emit_type0_xobject(
                 &mut source,
                 &mut document,
                 record,
@@ -1019,7 +1020,7 @@ mod tests {
             ..Scratch::default()
         };
         {
-            let mut future = pin!(emit_padded_type0_xobject(
+            let mut future = pin!(emit_type0_xobject(
                 &mut source,
                 &mut document,
                 record,
@@ -1084,7 +1085,7 @@ mod tests {
                         Type0ScratchReport::default(),
                     )
                 })?;
-            let result = ready(emit_padded_type0_xobject(
+            let result = ready(emit_type0_xobject(
                 &mut source,
                 &mut document,
                 record,
@@ -1159,7 +1160,7 @@ mod tests {
             ..Sink::default()
         };
         let mut document = ready(PdfDocument::new(&mut sink, &limits, &NEVER)).unwrap();
-        let error = ready(emit_padded_type0_xobject(
+        let error = ready(emit_type0_xobject(
             &mut source,
             &mut document,
             record,
@@ -1235,7 +1236,7 @@ mod tests {
         };
         let mut sink = Sink::default();
         let mut document = ready(PdfDocument::new(&mut sink, &limits, &NEVER)).unwrap();
-        let (object, report) = ready(emit_padded_type0_xobject(
+        let (object, report) = ready(emit_type0_xobject(
             &mut source,
             &mut document,
             record,
@@ -1264,14 +1265,14 @@ mod tests {
         );
         assert!(report.max_request_bytes <= 3);
         assert!(report.copy_buffer_bytes <= 3);
-        assert!(sink.bytes.windows(9).any(|bytes| bytes == b"/Width 32"));
+        assert!(sink.bytes.windows(8).any(|bytes| bytes == b"/Width 1"));
         let start = sink
             .bytes
             .windows(7)
             .position(|bytes| bytes == b"stream\n")
             .unwrap()
             + 7;
-        assert_eq!(&sink.bytes[start..start + 8], scratch.snapshot);
+        assert_eq!(&sink.bytes[start..start + 2], &[0, 0x80]);
     }
 
     #[test]

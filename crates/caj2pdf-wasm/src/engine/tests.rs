@@ -605,6 +605,10 @@ fn synthetic_hn() -> Vec<u8> {
         put_u32(&mut bytes, at, value);
     }
     for (at, value) in [
+        (0xa8, 100_u16),
+        (0xaa, 200),
+        (text + 8, 80),
+        (text + 10, 40),
         (0x164, 1_u16),
         (text, 0x800a),
         (text + 28, 0x8004),

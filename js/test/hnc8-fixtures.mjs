@@ -19,6 +19,7 @@ export function syntheticHn(withBookmarks = false, twoImages = false) {
   const u16 = (at, value) => view.setUint16(at, value, true);
   bytes.set([72, 78, 0, 0, 0x90, 1, 0, 0]);
   u32(0x90, 1); u32(0x158, count);
+  u16(0xa8, 100); u16(0xaa, 200);
   for (let number = 0; number < count; number++) {
     const at = 0x15c + number * 308;
     bytes.set(new TextEncoder().encode(number === 0 ? "Root" : "Leaf"), at);
@@ -30,6 +31,7 @@ export function syntheticHn(withBookmarks = false, twoImages = false) {
     u16(record, 0x800a);
     // The supplement has a nonzero origin to detect dropped or reordered draws.
     u16(record + 4, image * 13); u16(record + 6, image);
+    u16(record + 8, 80 - image * 20); u16(record + 10, 40 + image * 10);
     const entry = descriptor + image * (12 + 49);
     const dib = entry + 12;
     u32(entry, 0); u32(entry + 4, dib); u32(entry + 8, 49);
