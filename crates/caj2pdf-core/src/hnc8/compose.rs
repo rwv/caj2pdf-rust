@@ -1,10 +1,13 @@
 // SPDX-License-Identifier: MIT
 
-//! Image-only pages for the explicitly empirical HN-A/C8 type-0/type-2
+//! Image-only pages for the explicitly empirical HN-A/C8 type-0/type-2/type-3
 //! profile, and the separately measured single-JPEG HN-B profile.
 //! This opt-in core API does not enable production CLI/JavaScript routing.
 
 use super::convert::{Type0DecodeSettings, Type0PdfError, Type0PdfErrorKind, Type0PdfOptions};
+mod type3;
+
+use super::convert_jbig2::{Type3PdfError, Type3PdfOptions, preflight_type3};
 use super::convert_jpeg::{CheckedType2, Type2PdfError, emit_type2_xobject, preflight_type2};
 use super::image_emit::{
     Type0ScratchBudget, Type0ScratchError, Type0ScratchErrorKind, Type0ScratchStage,
@@ -18,6 +21,7 @@ use super::{
 use crate::fallible::{len_u64, reserve_exact, usize_from_u32};
 use crate::jbig1::{Type0Budget, Type0Error, Type0ErrorKind, Type0Info, read_type0_info};
 use crate::jbig2::text_composer::RandomAccessScratch;
+use crate::jbig2::{mq::MqTable, text::TextHeaderAnomaly};
 use crate::pdf::{BookmarkView, ImagePlacement, MAX_PAGE_IMAGE_PLACEMENTS, PageSpec, PdfDocument};
 use crate::qm::{ArithmeticBudget, ArithmeticError, ContextBank, QmTable};
 use crate::{
@@ -26,7 +30,29 @@ use crate::{
 };
 use std::{error, fmt, mem::size_of};
 
-/// Per-page metadata and per-image temporary-storage ceilings. Scratch work
+/// Caller-owned stores reused between images. Existing type-0/JPEG callers
+/// may still pass `&mut scratch` directly. Type-3 callers additionally provide
+/// three symbol stores and the caller-owned MQ table.
+pub struct ComposeWorkspaces<'a, T> {
+    pub rows: &'a mut T,
+    pub type3: Option<ComposeType3Workspaces<'a, T>>,
+}
+
+pub struct ComposeType3Workspaces<'a, T> {
+    pub table: &'a MqTable,
+    pub first: &'a mut T,
+    pub second: &'a mut T,
+    pub refined: &'a mut T,
+}
+
+impl<'a, T> From<&'a mut T> for ComposeWorkspaces<'a, T> {
+    fn from(rows: &'a mut T) -> Self {
+        Self { rows, type3: None }
+    }
+}
+
+/// Per-page metadata and per-image temporary-storage ceilings. Type-3 limits
+/// cover all four stores together. Scratch work
 /// charges requested read/write bytes, including requests that fail or make
 /// short progress. These limits do not cap PDF indexes or process residency.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -58,6 +84,8 @@ pub struct ComposeOptions {
     pub jpeg: JpegBudget,
     pub image: Type0Budget,
     pub arithmetic: ArithmeticBudget,
+    /// Decoder budgets/policy; selected-image scale/container fields are ignored.
+    pub type3: Type3PdfOptions,
     pub budget: ComposeBudget,
 }
 
@@ -71,6 +99,7 @@ impl Default for ComposeOptions {
             jpeg: JpegBudget::default(),
             image: type0.image,
             arithmetic: type0.arithmetic,
+            type3: Type3PdfOptions::default(),
             budget: ComposeBudget::default(),
         }
     }
@@ -80,6 +109,7 @@ impl Default for ComposeOptions {
 enum CheckedImage {
     Type0(Type0Info),
     Jpeg(CheckedType2),
+    Type3 { digest: [u8; 32] },
 }
 
 struct OutlineSink<'a, 'b, W: SequentialSink, C: Cancellation>(&'a mut PdfDocument<'b, W, C>);
@@ -101,6 +131,7 @@ pub struct ComposedImage {
     pub display_width: u32,
     pub height: u32,
     pub transform: [f64; 6],
+    pub type3_text_header_anomaly: Option<TextHeaderAnomaly>,
     checked: CheckedImage,
 }
 
@@ -140,6 +171,7 @@ pub struct ComposeReport {
     pub no_image_pages: u32,
     pub type0_images: u64,
     pub jpeg_images: u64,
+    pub type3_images: u64,
     pub peak_page_metadata_bytes: u64,
     pub peak_text_working_bytes: u64,
     pub peak_row_store_bytes: u64,
@@ -167,10 +199,12 @@ pub enum ComposeErrorKind {
     Unsupported(&'static str),
     UnsupportedImageType(u32),
     MissingTable,
+    MissingType3Workspaces,
     NoImages,
     Container(Box<Hnc8Error>),
     Image(Box<Type0Error>),
     Jpeg(Box<Type2PdfError>),
+    Type3(Box<Type3PdfError>),
     Contexts(Box<ArithmeticError>),
     Io(Error),
     /// Both failures are preserved; neither makes the partial output valid.
@@ -218,6 +252,10 @@ impl fmt::Display for ComposeError {
             ComposeErrorKind::MissingTable => {
                 f.write_str("type-0 image requires a caller QM table")
             }
+            ComposeErrorKind::MissingType3Workspaces => {
+                f.write_str("type-3 image requires MQ table and symbol stores")
+            }
+            ComposeErrorKind::Type3(error) => write!(f, "{error}"),
             ComposeErrorKind::NoImages => f.write_str("image-only output has no image to draw"),
             ComposeErrorKind::Container(error) => write!(f, "{error}"),
             ComposeErrorKind::Image(error) => write!(f, "{error}"),
@@ -238,6 +276,7 @@ impl error::Error for ComposeError {
             ComposeErrorKind::Image(error) => Some(error),
             ComposeErrorKind::Jpeg(error) => Some(error),
             ComposeErrorKind::Contexts(error) => Some(error),
+            ComposeErrorKind::Type3(error) => Some(error),
             ComposeErrorKind::Io(error) => Some(error),
             ComposeErrorKind::Cleanup { primary, .. } => Some(primary),
             _ => None,
@@ -466,7 +505,7 @@ impl<S: RangedSource> RangedSource for CountingSource<'_, S> {
 
 /// Compose every source row of the measured image-only profiles in order.
 ///
-/// HN-A/C8 require validated text framing and types 0 or 2. HN-B accepts only
+/// HN-A/C8 require validated text framing and types 0, 2 or 3. HN-B accepts only
 /// one JPEG on an image-bearing row and separately reports its no-image rows.
 /// Pure-text-only documents, unsupported types/profiles, missing type-0
 /// tables and omitted draws are errors. A caller table is never redistributed.
@@ -475,15 +514,18 @@ impl<S: RangedSource> RangedSource for CountingSource<'_, S> {
 /// caller-owned store before the measured negative-height CTM is applied.
 /// JPEG bytes are copied unchanged and SHA revalidated. Only current-page
 /// plans/placements are held; the existing PDF writer retains its indexes.
-/// Normal completed type-0 paths truncate the store, including errors.
+/// Type-3 retains top-first rows and adds white DIB padding while streaming
+/// to an equivalent positive-height CTM. Three symbol stores and text scratch
+/// are cleared per image; their aggregate size and I/O share the store budget.
+/// Normal completed type-0/type-3 paths truncate their stores, including errors.
 /// A dropped pending future cannot perform async cleanup: the adapter must
 /// dispose of its store and partial output, and never resume that session.
 #[allow(clippy::too_many_arguments)]
-pub async fn convert_source_pages_pdf<S, W, T, V, C>(
+pub async fn convert_source_pages_pdf<'a, S, W, T, V, C>(
     source: &mut S,
     sink: &mut W,
     table: Option<&QmTable>,
-    scratch: &mut T,
+    workspaces: impl Into<ComposeWorkspaces<'a, T>>,
     visitor: &mut V,
     options: ComposeOptions,
     limits: &Limits,
@@ -492,11 +534,12 @@ pub async fn convert_source_pages_pdf<S, W, T, V, C>(
 where
     S: RangedSource,
     W: SequentialSink,
-    T: RandomAccessScratch,
+    T: RandomAccessScratch + 'a,
     V: ComposeVisitor,
     C: Cancellation,
 {
     validate(options, limits)?;
+    let mut workspaces = workspaces.into();
     let mut counted = CountingSource { source, bytes: 0 };
     let mut reader = Hnc8Reader::open(&mut counted, limits, cancellation, options.container)
         .await
@@ -524,6 +567,7 @@ where
         no_image_pages: 0,
         type0_images: 0,
         jpeg_images: 0,
+        type3_images: 0,
         peak_page_metadata_bytes: 0,
         peak_text_working_bytes: 0,
         peak_row_store_bytes: 0,
@@ -651,6 +695,40 @@ where
                         info.height,
                     )
                 }
+                3 if header.variant != Variant::HnB => {
+                    if workspaces.type3.is_none() {
+                        return Err(image_at.error(
+                            ComposeStage::Headers,
+                            ComposeErrorKind::MissingType3Workspaces,
+                        ));
+                    }
+                    let checked = preflight_type3(
+                        reader.source_mut(),
+                        record,
+                        options.type3,
+                        limits,
+                        cancellation,
+                    )
+                    .await
+                    .map_err(|error| type3::error(image_at, ComposeStage::Headers, error))?;
+                    let page = checked.page();
+                    let display_width = type3::display_width(page.width)
+                        .map_err(image_at.io(ComposeStage::Geometry))?;
+                    if geometry.is_none() {
+                        geometry = Some(
+                            empirical_page_from_pixels(display_width, page.height, [0.0, 0.0])
+                                .map_err(image_at.io(ComposeStage::Geometry))?,
+                        );
+                    }
+                    (
+                        CheckedImage::Type3 {
+                            digest: checked.digest(),
+                        },
+                        page.width,
+                        display_width,
+                        page.height,
+                    )
+                }
                 2 => {
                     let checked = preflight_type2(
                         reader.source_mut(),
@@ -683,13 +761,19 @@ where
             } else {
                 coordinates[usize_from_u32(record.image_number - 1)]
             };
-            let transform = empirical_image_transform(
+            let mut transform = empirical_image_transform(
                 geometry.expect("first image checked"),
                 display_width,
                 height,
                 coordinate,
             )
             .map_err(image_at.io(ComposeStage::Geometry))?;
+            if matches!(checked, CheckedImage::Type3 { .. }) {
+                // Top-first rows give the same placement as bottom-first rows
+                // under the reference's negative-height matrix, without a copy.
+                transform[5] += transform[3];
+                transform[3] = -transform[3];
+            }
             images.push(ComposedImage {
                 record,
                 visible_width,
@@ -697,6 +781,7 @@ where
                 height,
                 transform,
                 checked,
+                type3_text_header_anomaly: None,
             });
         }
         drop(coordinates);
@@ -706,7 +791,7 @@ where
         let metadata_peak = plan_capacity + placement_capacity;
         check_metadata(metadata_peak, options.budget).map_err(at.io(ComposeStage::Preflight))?;
         report.peak_page_metadata_bytes = report.peak_page_metadata_bytes.max(metadata_peak);
-        for image in &images {
+        for image in &mut images {
             let image_at = at.image(image.record);
             let object = match image.checked {
                 CheckedImage::Type0(info) => {
@@ -727,7 +812,7 @@ where
                         image.record,
                         info,
                         contexts.as_mut().expect("contexts constructed"),
-                        scratch,
+                        workspaces.rows,
                         Type0ScratchBudget {
                             max_bytes: options.budget.max_row_store_bytes,
                             max_work_bytes: options.budget.max_row_store_io_bytes,
@@ -750,6 +835,30 @@ where
                     )
                     .map_err(image_at.io(ComposeStage::Scratch))?;
                     report.type0_images += 1;
+                    object
+                }
+                CheckedImage::Type3 { digest } => {
+                    let (object, stats) = type3::emit(
+                        reader.source_mut(),
+                        &mut document,
+                        image_at,
+                        image.record,
+                        digest,
+                        &mut workspaces,
+                        options,
+                        limits,
+                        cancellation,
+                    )
+                    .await?;
+                    report.peak_row_store_bytes = report.peak_row_store_bytes.max(stats.peak);
+                    report.row_store_read_bytes =
+                        add_store_bytes(report.row_store_read_bytes, stats.read)
+                            .map_err(image_at.io(ComposeStage::Scratch))?;
+                    report.row_store_written_bytes =
+                        add_store_bytes(report.row_store_written_bytes, stats.written)
+                            .map_err(image_at.io(ComposeStage::Scratch))?;
+                    image.type3_text_header_anomaly = stats.anomaly;
+                    report.type3_images += 1;
                     object
                 }
                 CheckedImage::Jpeg(checked) => {

@@ -21,7 +21,8 @@ mod text;
 
 pub use compose::{
     ComposeBudget, ComposeError, ComposeErrorKind, ComposeOptions, ComposePage, ComposeReport,
-    ComposeStage, ComposeVisitor, ComposedImage, convert_source_pages_pdf,
+    ComposeStage, ComposeType3Workspaces, ComposeVisitor, ComposeWorkspaces, ComposedImage,
+    convert_source_pages_pdf,
 };
 pub use convert::{
     MultipleImages, Type0ImageSelection, Type0PdfError, Type0PdfErrorKind, Type0PdfOptions,

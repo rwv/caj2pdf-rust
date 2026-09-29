@@ -193,9 +193,12 @@ issue acceptance criteria are authoritative for each task.
   and 162 comparisons against an explicitly corrected Gray reference. See
   [the evidence and legacy deviation](docs/hnc8-uncompressed-text.md).
   C8/HN-B outlines and general HN coverage remain parent #10 work.
-- Implement type-3/mixed-image composition in #118 using the existing decoder
-  and writer, then connect complete HN/C8 conversion to CLI and JS in #10.
-  Reuse the common adapters delivered by #13.
+- Type-3/mixed-image composition now reuses the existing decoder and writer
+  with bounded scratch storage and original tests. Next in #118: support the
+  concrete text-layout gap exposed by issue-58 (a direct 16-byte COMPRESSTEXT
+  header and different expanded records), then compare real complete pages.
+  This core integration does not establish external full-page parity. Connect
+  complete HN/C8 conversion to CLI and JS in #10 using #13's adapters.
 - Keep complete HN/C8 conversion (#10), codec rights, vendor comparisons
   (#123/#129) and the release matrix (#14) as explicit remaining requirements.
 - Prefer a concrete failing sample or focused original test over another generic

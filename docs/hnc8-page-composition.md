@@ -7,7 +7,7 @@ core `hnc8::convert_source_pages_pdf` API. It combines the checked container,
 text framing, empirical geometry and image codecs in one `PdfDocument`.
 Production CLI, browser and Node.js format routing remains gated by parent
 [#10](https://github.com/rwv/caj2pdf-rust/issues/10). This slice does not add
-searchable text, type-1 images, type-3 mixed pages or general vendor layout
+searchable text, type-1 images or general vendor layout
 support. HN-A outlines can be requested with `include_bookmarks`; see the
 [outline API and evidence](hnc8-outline-fields.md).
 
@@ -19,7 +19,7 @@ or the compressed text header tags and
 `COMPRESSTEXT` marker, a complete checksummed zlib frame, record markers and
 image tail. The two header payload words may vary across documents; see
 [compressed text framing](hnc8-compressed-text-header.md). Every image
-must be type 0 or type 2. The first checked image determines the page box.
+must be type 0, type 2 or type 3. The first checked image determines the page box.
 Type-0 display width retains visible bits when no whole padding bytes are
 needed; otherwise it includes the DIB padding bytes. All raw coordinate words determine transforms in source descriptor order via
 the [empirical placement rule](hnc8-placement-rule.md); negative height,
@@ -136,3 +136,74 @@ intentional legacy deviation and immutable receipts are recorded under
 [child #122](https://github.com/rwv/caj2pdf-rust/issues/122). Official CAJViewer
 image/text fixtures are a separate validation strategy. This API's production
 family exposure remains gated.
+
+## Type-3 source-page integration (#118)
+
+The source composer reuses the selected-image type-3 decoder. It keeps only a
+source digest per planned image, rechecks it before decoding and retains the
+existing decoder source checks. `ComposeReport::type3_images` counts emitted
+images; each visitor image exposes `type3_text_header_anomaly`. Strict text
+headers remain the default. The named HN/C8 exception must be explicitly
+selected with `options.type3.text_header_policy`.
+
+For type-0/JPEG callers, passing `&mut scratch` still works. For type-3,
+pass `ComposeWorkspaces { rows, type3: Some(ComposeType3Workspaces {
+table, first, second, refined }) }`. All four stores implement the existing
+`RandomAccessScratch` interface. The core creates serial live read/append
+views of the three symbol stores; it creates no files, tasks or storage
+factory. The platform adapter owns all backing storage. Stores are reset
+before each image and all four resets are attempted after success/failure.
+If both conversion and cleanup fail, both errors survive. Dropping a pending
+future still requires the caller to dispose its stores and partial output.
+
+`max_row_store_bytes` and `max_row_store_io_bytes` bound the aggregate type-3
+stores for one image. The existing report fields include their aggregate
+peak and successful physical reads/writes. Temporary backing may be files or
+browser storage; these counters are not process memory measurements. Source
+metadata, decoder contexts and bounded I/O buffers keep their separate limits.
+
+Type-3 decoding emits top-first visible-width rows. Whole DIB padding bytes
+are streamed as white, with no second image bitmap. The equivalent transform
+uses positive height and moves its origin down by that height. The observed
+DIB display-width rule matches type-0: retain visible width when its packed
+byte stride already equals `ceil(width / 32) * 4`; otherwise display all DIB
+bytes. Original tests include repeated asymmetric type-3 images, mixed
+0/2/3 pages, short store operations, failure cleanup, limits and cancellation.
+An independent MuPDF render verifies every pixel of the original padded
+first page; qpdf checks the two-page PDF.
+
+### Actual external observation and remaining work
+
+On 2026-09-29, the four type-3 images in external issue-58 (source SHA-256
+`8974d024e0cbb54009419aa8c91c9ba286dd74f056c3b19524ee5c626c947c85`)
+matched Python commit `8cbc3c5721acb762f739434eb3d206171dbb022a`'s extracted
+image streams exactly after row reversal and white padding. Visible widths
+2366/2352/2364/2352 become display widths 2366/2368/2364/2368.
+The reference was run as a black box; its external JBIG2 dependency was built
+outside the repository. No implementation source was inspected or imported.
+
+The subsequent full-source Rust attempt **failed before image decoding**:
+at source byte 160, the existing text reader rejected a header starting
+directly with `COMPRESSTEXT`. The source has a 16-byte compressed header and a
+different expanded record layout, whereas the current compressed reader
+expects two preceding tagged words and its measured fixed record layout.
+This is a concrete next task in #118; merely skipping eight bytes or assuming
+zero coordinates would not implement that layout. External full-page and
+mixed-page reference parity remain unverified. Logs and generated artifacts
+stay in the external `caj2pdf-issue118/reference58` bundle, not Git. CAJViewer
+HN/C8 comparisons remain NOT_RUN.
+
+### v0.x API migration
+
+`ComposeOptions` adds `type3`; exhaustive struct literals must add
+`type3: Type3PdfOptions::default()` (or use `..Default::default()`). Reports and
+visitor images add the fields described above; update exhaustive patterns.
+Existing ordinary function calls with `&mut scratch` remain valid. The
+selected-image API, CLI and JS routing are unchanged. `options.type3`
+provides decoder budgets/policy only; its selected-image `pixels_per_inch`
+and `container` fields are ignored by source composition, whose geometry and
+container limits use the existing source-page options.
+
+The opt-in native example also accepts `--mq-table PATH` after its existing
+arguments. The separately held MQ fixture remains outside Git; missing or
+unresolved normative table provenance is not solved by caller injection.

@@ -966,9 +966,18 @@ fn late_unsupported_types_refuse_the_complete_page_before_image_output() {
         located(&error, Variant::C8, Some(1), Some(2));
         assert_eq!(error.stage, ComposeStage::Headers);
         assert_eq!(error.offset, Some(case.fixture.descriptors[0][1]));
-        assert!(
-            matches!(error.kind, ComposeErrorKind::UnsupportedImageType(actual) if actual == kind as u32)
-        );
+        if kind == 3 {
+            assert!(matches!(
+                error.kind,
+                ComposeErrorKind::MissingType3Workspaces
+            ));
+            assert!(error.to_string().contains("symbol stores"));
+        } else {
+            assert!(matches!(
+                error.kind,
+                ComposeErrorKind::UnsupportedImageType(1)
+            ));
+        }
         assert!(!contains(&case.sink.bytes, b"/Subtype /Image"));
     }
 }
@@ -1744,8 +1753,7 @@ fn dropped_pending_conversion_requires_caller_owned_store_disposal() {
     }
 }
 
-#[test]
-fn independent_render_proves_padded_orientation_and_later_overlap_pixels() {
+fn render_original_pdf(bytes: &[u8]) -> Vec<u8> {
     use std::{
         fs,
         path::PathBuf,
@@ -1766,25 +1774,9 @@ fn independent_render_proves_padded_orientation_and_later_overlap_pixels() {
     ));
     fs::create_dir(&directory).unwrap();
     let artifacts = Artifacts(directory);
-    let pixels = rows(9);
-    let mut case = Harness::new(
-        Variant::C8,
-        &[vec![
-            Record::jpeg(32, 16, 50, 0, 0),
-            Record::type0(&pixels, 0, 0),
-            Record::jpeg(8, 8, 90, 40, 10),
-            Record::jpeg(8, 8, 210, 40, 10),
-        ]],
-    );
-    case.run(
-        Some(&table()),
-        ComposeOptions::default(),
-        &Limits::default(),
-    )
-    .unwrap();
     let pdf = artifacts.0.join("original.pdf");
     let raster = artifacts.0.join("original.pgm");
-    fs::write(&pdf, &case.sink.bytes).unwrap();
+    fs::write(&pdf, bytes).unwrap();
     let checked = Command::new("qpdf")
         .arg("--check")
         .arg(&pdf)
@@ -1801,6 +1793,7 @@ fn independent_render_proves_padded_orientation_and_later_overlap_pixels() {
         ])
         .arg(&raster)
         .arg(&pdf)
+        .arg("1")
         .output()
         .expect("mutool is a required PDF test tool");
     assert!(
@@ -1808,7 +1801,28 @@ fn independent_render_proves_padded_orientation_and_later_overlap_pixels() {
         "{}",
         String::from_utf8_lossy(&rendered.stderr)
     );
-    let raster = fs::read(raster).unwrap();
+    fs::read(raster).unwrap()
+}
+
+#[test]
+fn independent_render_proves_padded_orientation_and_later_overlap_pixels() {
+    let pixels = rows(9);
+    let mut case = Harness::new(
+        Variant::C8,
+        &[vec![
+            Record::jpeg(32, 16, 50, 0, 0),
+            Record::type0(&pixels, 0, 0),
+            Record::jpeg(8, 8, 90, 40, 10),
+            Record::jpeg(8, 8, 210, 40, 10),
+        ]],
+    );
+    case.run(
+        Some(&table()),
+        ComposeOptions::default(),
+        &Limits::default(),
+    )
+    .unwrap();
+    let raster = render_original_pdf(&case.sink.bytes);
     let header = b"P5\n32 16\n255\n";
     assert!(
         raster.starts_with(header),
@@ -1951,4 +1965,279 @@ fn uncompressed_text_composes_the_same_ordered_jpeg_page_as_compressed_text() {
     assert_eq!(report.output_pages, 1);
     assert_eq!(report.jpeg_images, 2);
     assert_eq!(sink.bytes, compressed.sink.bytes);
+}
+
+mod type3_fixture {
+    include!("../../../tests/common/type3_fixture.rs");
+}
+
+fn mq_table(limits: &Limits) -> MqTable {
+    use crate::jbig2::mq::{MQ_STATE_COUNT, MqState};
+    MqTable::new(
+        vec![
+            MqState {
+                qe: 1,
+                next_mps: 0,
+                next_lps: 0,
+                switch_mps: false
+            };
+            MQ_STATE_COUNT
+        ],
+        limits,
+    )
+    .unwrap()
+}
+
+fn type3_record(width: u32, height: u32, x: u16, y: u16) -> Record {
+    Record {
+        kind: 3,
+        bytes: type3_fixture::payload(width, height, 0x10),
+        coordinate: RawTextCoordinate { x, y },
+    }
+}
+
+#[test]
+fn type3_complete_mixed_pages_reuse_stores_and_keep_top_first_pixels() {
+    let limits = Limits::default();
+    let mq = mq_table(&limits);
+    let f = fixture(
+        Variant::C8,
+        &[
+            vec![type3_record(3, 5, 0, 0)],
+            vec![
+                Record::jpeg(40, 30, 128, 0, 0),
+                type3_record(9, 3, 12, 7),
+                type3_record(31, 2, 24, 14),
+                Record::type0(&rows(9), 0, 20),
+            ],
+        ],
+    );
+    let mut source = Source::new(f.bytes);
+    let mut sink = Sink::default();
+    let mut rows = Scratch::default();
+    let mut first = Scratch {
+        short: Some(1),
+        ..Default::default()
+    };
+    let mut second = Scratch::default();
+    let mut refined = Scratch::default();
+    let report = ready(convert_source_pages_pdf(
+        &mut source,
+        &mut sink,
+        Some(&table()),
+        ComposeWorkspaces {
+            rows: &mut rows,
+            type3: Some(ComposeType3Workspaces {
+                table: &mq,
+                first: &mut first,
+                second: &mut second,
+                refined: &mut refined,
+            }),
+        },
+        &mut (),
+        ComposeOptions {
+            type3: Type3PdfOptions {
+                page_compose: crate::jbig2::page_compose::PageComposeBudget {
+                    max_output_request_bytes: 1,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+        &limits,
+        &NeverCancel,
+    ))
+    .unwrap();
+    assert_eq!(
+        (report.output_pages, report.type3_images, report.jpeg_images),
+        (2, 3, 1)
+    );
+    assert!(report.peak_row_store_bytes > 0);
+    assert!(report.row_store_written_bytes > 0);
+    assert!(report.row_store_read_bytes > 0);
+    for store in [&rows, &first, &second, &refined] {
+        assert!(store.bytes.is_empty());
+    }
+    assert_eq!(report.type0_images, 1);
+    let raster = render_original_pdf(&sink.bytes);
+    let header = b"P5\n32 5\n255\n";
+    assert!(
+        raster.starts_with(header),
+        "{:?}",
+        &raster[..raster.len().min(80)]
+    );
+    let pixels = &raster[header.len()..];
+    assert_eq!(pixels.len(), 160);
+    assert_eq!(pixels[0], 0);
+    assert!(pixels[1..].iter().all(|&pixel| pixel == 255));
+    let pdf = String::from_utf8_lossy(&sink.bytes);
+    assert!(pdf.contains("/MediaBox [0 0 7.680000 1.200000]"), "{pdf}");
+    assert!(pdf.contains("7.68 0 0 1.2 0 0 cm"), "{pdf}");
+    // Width 3 and 9 expand to 32; width 31 keeps its visible dimension.
+    assert_eq!(pdf.matches("/Width 32\n").count(), 3);
+    assert_eq!(pdf.matches("/Width 31\n").count(), 1);
+    let marker = b"/Width 32\n/Height 5";
+    let start = sink
+        .bytes
+        .windows(marker.len())
+        .position(|part| part == marker)
+        .unwrap();
+    let stream = sink.bytes[start..]
+        .windows(8)
+        .position(|part| part == b"\nstream\n")
+        .unwrap()
+        + start
+        + 8;
+    assert_eq!(
+        &sink.bytes[stream..stream + 20],
+        &[
+            0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+        ]
+    );
+}
+
+#[test]
+fn type3_failures_keep_location_and_cleanup_all_stores() {
+    for mode in 0..12 {
+        let limits = Limits::default();
+        let mq = mq_table(&limits);
+        let mut record = type3_record(9, 3, 0, 0);
+        if mode == 0 {
+            record.bytes[4..8].copy_from_slice(&0_i32.to_le_bytes());
+        }
+        let f = fixture(Variant::C8, &[vec![record]]);
+        let mut source = Source::new(f.bytes);
+        if mode == 1 {
+            source.payload_start = Some(f.payloads[0][0]);
+            source.mutate_at_pass = Some((3, f.payloads[0][0] as usize + 36));
+        }
+        let mut sink = Sink::default();
+        let mut rows = Scratch::default();
+        let mut first = Scratch::default();
+        let mut second = Scratch::default();
+        let mut refined = Scratch::default();
+        let flag = Rc::new(Cell::new(false));
+        let mut options = ComposeOptions::default();
+        match mode {
+            2 => rows.fail_initialize = true,
+            3 => rows.write_fault = Some(Fault::Overreport),
+            4 => rows.read_fault = Some(Fault::Overreport),
+            5 => rows.cancel_write = Some(flag.clone()),
+            6 => options.budget.max_row_store_bytes = 1,
+            7 => options.budget.max_row_store_io_bytes = 1,
+            8 => rows.fail_cleanup = true,
+            9 => {
+                rows.fail_cleanup = true;
+                rows.read_fault = Some(Fault::Io);
+            }
+            10 => rows.fail_flush = true,
+            11 => sink.fail_after = Some(20),
+            _ => (),
+        }
+        let error = ready(convert_source_pages_pdf(
+            &mut source,
+            &mut sink,
+            Some(&table()),
+            ComposeWorkspaces {
+                rows: &mut rows,
+                type3: Some(ComposeType3Workspaces {
+                    table: &mq,
+                    first: &mut first,
+                    second: &mut second,
+                    refined: &mut refined,
+                }),
+            },
+            &mut (),
+            options,
+            &limits,
+            &Flag(flag),
+        ))
+        .unwrap_err();
+        located(&error, Variant::C8, Some(1), Some(1));
+        assert!(
+            std::error::Error::source(&error).is_some(),
+            "mode {mode}: {error}"
+        );
+        assert!(!error.to_string().is_empty());
+        if mode == 1 {
+            assert!(
+                matches!(error.kind, ComposeErrorKind::Type3(ref inner) if matches!(inner.kind, super::super::convert_jbig2::Type3PdfErrorKind::SourceChanged)),
+                "{error}"
+            );
+        }
+        if mode == 9 {
+            assert!(matches!(error.kind, ComposeErrorKind::Cleanup { .. }));
+        }
+        for store in [&first, &second, &refined] {
+            assert!(store.bytes.is_empty());
+        }
+        if !rows.fail_cleanup {
+            assert!(rows.bytes.is_empty());
+        }
+        assert!(!contains(&sink.bytes, b"%%EOF"));
+    }
+}
+
+#[test]
+fn type3_anomaly_is_explicitly_opted_in_and_reported_per_image() {
+    use crate::jbig2::text::TextHeaderPolicy;
+    struct Anomalies(Vec<Option<TextHeaderAnomaly>>);
+    impl ComposeVisitor for Anomalies {
+        async fn page(&mut self, page: ComposePage<'_>) -> crate::Result<()> {
+            self.0
+                .extend(page.images.iter().map(|i| i.type3_text_header_anomaly));
+            Ok(())
+        }
+    }
+    for policy in [
+        TextHeaderPolicy::Strict,
+        TextHeaderPolicy::HnC8UnusedRefinementTemplate,
+    ] {
+        let limits = Limits::default();
+        let table = mq_table(&limits);
+        let mut record = type3_record(3, 2, 0, 0);
+        record.bytes = type3_fixture::payload(3, 2, 0xa40c);
+        let f = fixture(Variant::C8, &[vec![record]]);
+        let mut source = Source::new(f.bytes);
+        let mut sink = Sink::default();
+        let mut stores: [Scratch; 4] = Default::default();
+        let [rows, first, second, refined] = &mut stores;
+        let mut visitor = Anomalies(Vec::new());
+        let result = ready(convert_source_pages_pdf(
+            &mut source,
+            &mut sink,
+            None,
+            ComposeWorkspaces {
+                rows,
+                type3: Some(ComposeType3Workspaces {
+                    table: &table,
+                    first,
+                    second,
+                    refined,
+                }),
+            },
+            &mut visitor,
+            ComposeOptions {
+                type3: Type3PdfOptions {
+                    text_header_policy: policy,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            &limits,
+            &NeverCancel,
+        ));
+        if policy == TextHeaderPolicy::Strict {
+            assert!(result.is_err());
+            assert!(visitor.0.is_empty());
+        } else {
+            assert_eq!(result.unwrap().type3_images, 1);
+            assert_eq!(
+                visitor.0,
+                [Some(TextHeaderAnomaly::UnusedRefinementTemplate)]
+            );
+        }
+        assert!(stores.iter().all(|s| s.bytes.is_empty()));
+    }
 }
