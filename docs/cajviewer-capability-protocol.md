@@ -1,5 +1,11 @@
 # Original bounded capability protocol (#146)
 
+> Historical implementation protocol. The [2026-09-29 fixture plan](cajviewer-fixtures.md)
+> supersedes future source-proof, inventory and launch-approval planning here.
+> Existing tool behavior is unchanged; this document remains useful when
+> maintaining the old harness. #153 is cancelled, not implemented.
+
+
 <!-- SPDX-License-Identifier: MIT -->
 
 **Original controls closed PASS; exact-head gates required; application observations NOT_RUN.**
