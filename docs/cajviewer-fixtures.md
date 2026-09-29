@@ -46,15 +46,22 @@ actions remain zero. These inventories describe the declared runtime view,
 including pinned read-only public-module mounts; they do not establish
 bare-image membership. Native child/blocker
 [#148](https://github.com/rwv/caj2pdf-rust/issues/148) adds bounded original
-inventory-helper diagnostics and remains independent of #146.
+[inventory-helper diagnostics](cajviewer-inventory-diagnostics.md) and remains
+independent of #146. The source contract preserves separate read/capture/excerpt
+counts, unknown spawn status and the first failure through closing checks.
+Its mandatory original controls and final-head gates are source acceptance;
+actual inventory/capability observations require a separate frozen phase.
 
 Native child/blocker [#146](https://github.com/rwv/caj2pdf-rust/issues/146)
 defines the original capability protocol: document/page identity,
 complete-page acquisition, fresh ordinary-copy transactions, finite GUI
 discovery and an exact bounded collector. Its sole reviewed original-control
 run passed 57 methods and 133 subtests with zero skips; all 112 source audit
-rows and both actual closing reviews passed, exit 0. Code acceptance requires
-exact committed-head reviews and the four hosted gates. #124 separately requires a successful
+rows and both actual closing reviews passed, exit 0. Source #146 completed in
+[PR #149](https://github.com/rwv/caj2pdf-rust/pull/149), with Root and independent
+correctness/provenance/simplification reviews and all four hosted gates passing.
+The merged tree matches the reviewed head and the tested synthetic merge tree.
+#124 separately requires a successful
 declared runtime-view prerequisite and two fresh document-verified sessions
 repeating the complete-page and ordinary-copy proofs, including the negative
 control. The existing startup-only protocol cannot acquire these fixtures.
@@ -113,7 +120,7 @@ children follow this graph; issue acceptance criteria remain authoritative:
 
 | Child | Issue | Blocked by |
 | --- | --- | --- |
-| A | [#124: verify offline CAJViewer Linux container capabilities](https://github.com/rwv/caj2pdf-rust/issues/124) | Resolved child prerequisites [#133](https://github.com/rwv/caj2pdf-rust/issues/133) and [#143](https://github.com/rwv/caj2pdf-rust/issues/143); capability-protocol prerequisite [#146](https://github.com/rwv/caj2pdf-rust/issues/146) and inventory-helper diagnostics prerequisite [#148](https://github.com/rwv/caj2pdf-rust/issues/148), whose diagnostics remain unimplemented |
+| A | [#124: verify offline CAJViewer Linux container capabilities](https://github.com/rwv/caj2pdf-rust/issues/124) | Resolved child prerequisites [#133](https://github.com/rwv/caj2pdf-rust/issues/133), [#143](https://github.com/rwv/caj2pdf-rust/issues/143) and source #146 (PR #149); inventory-helper source/control prerequisite [#148](https://github.com/rwv/caj2pdf-rust/issues/148); actual runtime-view and capability proof remain unmet |
 | D | [#125: define immutable external fixture manifests and receipts](https://github.com/rwv/caj2pdf-rust/issues/125) | None within this epic |
 | B | [#126: acquire reproducible complete-page CAJViewer images](https://github.com/rwv/caj2pdf-rust/issues/126) | A (#124) and D (#125) |
 | C | [#127: capture standard-copy text and classify OCR separately](https://github.com/rwv/caj2pdf-rust/issues/127) | A (#124) and D (#125) |

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import io
 import json
 from pathlib import Path
 import re
@@ -18,6 +19,7 @@ import subprocess
 import sys
 import tarfile
 import time
+import tokenize
 import types
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -231,6 +233,583 @@ def public_source_fragment(source, part):
             raise SourceLoadError("source-load-fragment")
         fragments.append(source[left:right + len(end)])
     return b"\n".join(fragments)
+
+# BEGIN INVENTORY HELPER COMMON
+import base64
+import math
+
+INVENTORY_COMMANDS = (
+    ("dpkg-query","-W","-f=${Package}\t${Version}\t${Architecture}\n"),
+    ("fc-list","--format","%{file}\t%{family}\t%{style}\n"),
+)
+INVENTORY_LIMITS = {"stdout":262144,"stderr":65536}
+INVENTORY_ENVELOPE_BYTES = 4 * 1024**2
+INVENTORY_ERROR_TYPES = PUBLIC_SOURCE_ERROR_TYPES
+INVENTORY_RESULT_FIELDS = ("helper_status","exit_code","spawned","captures","bytes_read")
+
+
+class InventoryDiagnosticError(ValueError):
+    pass
+
+
+def _inventory_kind(error):
+    name = type(error).__name__
+    return name if name in INVENTORY_ERROR_TYPES else "OTHER_ERROR_TYPE"
+
+
+def _inventory_encoded(value):
+    return (json.dumps(value,sort_keys=True,separators=(",",":"),ensure_ascii=True) + "\n").encode()
+# END INVENTORY HELPER COMMON
+
+# BEGIN INVENTORY HELPER PRODUCER
+def inventory_helper_call(run,report,argv,**kwargs):
+    actions = report["actions"]
+    ordinal = len(actions) + 1
+    if (ordinal > 2 or list(argv) != list(INVENTORY_COMMANDS[ordinal - 1])
+            or kwargs != {"deadline_seconds":10,"output_limit":262144}
+            or any(type(value) is not int for value in kwargs.values())
+            or report.get("terminal_helper") is not None
+            or actions and actions[-1]["status"] != "PASS"):
+        raise ValueError
+    action = {"ordinal":ordinal,"argv":list(argv),"status":"PENDING","spawned":None,
+              "helper_status":None,"exit_code":None,"bytes_read":None,"captures":None,
+              "elapsed_seconds":None,"error_type":None}
+    actions.append(action)
+    reason,stage,stderr = "HELPER_RESULT_UNAVAILABLE","metadata-helper-run",None
+    try:
+        result = run(argv,**kwargs)
+        if result is None:
+            raise ValueError
+        reason = "HELPER_RESULT_MALFORMED"
+        if (type(result) is not dict or set(result) != {"status","exit_code","stdout","stderr",
+                "bytes_read","prefix_truncated","elapsed_seconds"}
+                or type(result["status"]) is not str or result["status"] not in ("PASS","FAIL","TIMEOUT","OUTPUT_LIMIT")
+                or type(result["exit_code"]) is not int or not -255 <= result["exit_code"] <= 255
+                or type(result["prefix_truncated"]) is not bool
+                or result["prefix_truncated"] is not (result["status"] == "OUTPUT_LIMIT")
+                or type(result["elapsed_seconds"]) not in (int,float)
+                or not math.isfinite(result["elapsed_seconds"]) or not 0 <= result["elapsed_seconds"] <= 1200
+                or type(result["bytes_read"]) is not dict or set(result["bytes_read"]) != set(INVENTORY_LIMITS)):
+            raise ValueError
+        for name,limit in INVENTORY_LIMITS.items():
+            count,raw = result["bytes_read"][name],result[name]
+            if (type(count) is not int or not 0 <= count <= limit + 1 or type(raw) is not bytes
+                    or len(raw) > min(count,262144)
+                    or result["status"] not in ("TIMEOUT","OUTPUT_LIMIT") and count > limit):
+                raise ValueError
+        captured = {name:result[name][:limit] for name,limit in INVENTORY_LIMITS.items()}
+        partial = result["status"] in ("TIMEOUT","OUTPUT_LIMIT")
+        captures = {name:{"size_bytes":len(raw),"sha256":hashlib.sha256(raw).hexdigest(),
+                     "complete":not partial and len(raw) == result["bytes_read"][name],
+                     "hash_scope":"retained-stream" if not partial and len(raw) == result["bytes_read"][name] else "captured-prefix"}
+                    for name,raw in captured.items()}
+        action.update(spawned=True,helper_status=result["status"],exit_code=result["exit_code"],
+                      bytes_read=dict(result["bytes_read"]),captures=captures,elapsed_seconds=result["elapsed_seconds"])
+        stderr = captured["stderr"]
+        if result["status"] == "TIMEOUT":
+            reason = "HELPER_TIMEOUT"
+        elif result["status"] == "OUTPUT_LIMIT":
+            reason = "HELPER_OUTPUT_LIMIT"
+        elif result["exit_code"] != 0:
+            reason = "HELPER_NONZERO_EXIT"
+        elif result["status"] != "PASS":
+            reason = "HELPER_RESULT_MALFORMED"
+        elif not all(value["complete"] for value in captures.values()):
+            reason,stage = "HELPER_CAPTURE_INCOMPLETE","metadata-helper-validation"
+        elif stderr:
+            reason,stage = "HELPER_STDERR_NOT_EMPTY","metadata-helper-validation"
+        else:
+            action["status"] = "PASS"
+            return {**result,**captured}
+        raise ValueError
+    except BaseException as error:
+        action.update(status="FAIL",error_type=_inventory_kind(error))
+        if report.get("terminal_helper") is None:
+            kept = None if stderr is None else stderr[:4096]
+            complete = kept is not None and action["captures"]["stderr"]["complete"] and len(stderr) <= 4096
+            report["terminal_helper"] = {"schema":"cajviewer-inventory-helper-diagnostic/1",
+                "action_ordinal":ordinal,"stage":stage,"reason":reason,"error_type":action["error_type"],
+                **{key:action[key] for key in INVENTORY_RESULT_FIELDS},
+                "stderr":None if kept is None else {"encoding":"base64","data":base64.b64encode(kept).decode("ascii"),
+                    "retained_bytes":len(kept),"sha256":hashlib.sha256(kept).hexdigest(),"complete":bool(complete),
+                    "truncated":not complete,"hash_scope":"retained-stream" if complete else "captured-prefix"}}
+        raise
+
+
+def inventory_envelope_bytes(report,maximum=INVENTORY_ENVELOPE_BYTES):
+    if type(maximum) is not int or not 256 <= maximum <= INVENTORY_ENVELOPE_BYTES:
+        raise InventoryDiagnosticError("inventory-envelope-limit")
+    payload = _inventory_encoded(report)
+    if len(payload) > maximum:
+        report.update(status="FAIL",envelope_refusal="envelope-size-refusal",inventory_json=None,inventory_bytes_omitted=True)
+        payload = _inventory_encoded(report)
+    if len(payload) > maximum:
+        raise InventoryDiagnosticError("inventory-envelope-size")
+    return payload
+# END INVENTORY HELPER PRODUCER
+
+# BEGIN INVENTORY HELPER VALIDATOR
+def _inventory_hex(value):
+    return type(value) is str and len(value) == 64 and all(c in "0123456789abcdef" for c in value)
+
+
+def validate_inventory_actions(actions):
+    """Validate the two fixed action records, without trusting producer guards."""
+    keys = {"ordinal", "argv", "status", "spawned", "helper_status", "exit_code", "bytes_read",
+            "captures", "elapsed_seconds", "error_type"}
+    if type(actions) is not list or len(actions) > 2:
+        raise InventoryDiagnosticError("inventory-action-count")
+    safe = []
+    for ordinal, action in enumerate(actions, 1):
+        if (type(action) is not dict or set(action) != keys or type(action["ordinal"]) is not int
+                or action["ordinal"] != ordinal or type(action["argv"]) is not list
+                or any(type(value) is not str for value in action["argv"])
+                or action["argv"] != list(INVENTORY_COMMANDS[ordinal - 1])
+                or type(action["status"]) is not str or action["status"] not in ("PASS", "FAIL")
+                or ordinal > 1 and safe[-1]["status"] != "PASS"):
+            raise InventoryDiagnosticError("inventory-action-framing")
+        if action["helper_status"] is None:
+            if (action["status"] != "FAIL" or any(action[name] is not None for name in
+                    ("spawned", "exit_code", "bytes_read", "captures", "elapsed_seconds"))):
+                raise InventoryDiagnosticError("inventory-unavailable-result")
+        else:
+            status, counts, captures = action["helper_status"], action["bytes_read"], action["captures"]
+            if (type(status) is not str or status not in ("PASS", "FAIL", "TIMEOUT", "OUTPUT_LIMIT")
+                    or action["spawned"] is not True or type(action["exit_code"]) is not int
+                    or not -255 <= action["exit_code"] <= 255
+                    or type(action["elapsed_seconds"]) not in (int, float)
+                    or not math.isfinite(action["elapsed_seconds"]) or not 0 <= action["elapsed_seconds"] <= 1200
+                    or type(counts) is not dict or set(counts) != set(INVENTORY_LIMITS)
+                    or type(captures) is not dict or set(captures) != set(INVENTORY_LIMITS)):
+                raise InventoryDiagnosticError("inventory-result-framing")
+            for name, limit in INVENTORY_LIMITS.items():
+                value, count = captures[name], counts[name]
+                if (type(count) is not int or not 0 <= count <= limit + 1
+                        or status not in ("TIMEOUT", "OUTPUT_LIMIT") and count > limit
+                        or type(value) is not dict or set(value) != {"size_bytes", "sha256", "complete", "hash_scope"}
+                        or type(value["size_bytes"]) is not int or not 0 <= value["size_bytes"] <= min(count, limit)
+                        or not _inventory_hex(value["sha256"]) or type(value["complete"]) is not bool
+                        or value["complete"] is not (status not in ("TIMEOUT", "OUTPUT_LIMIT") and value["size_bytes"] == count)
+                        or type(value["hash_scope"]) is not str
+                        or value["hash_scope"] != ("retained-stream" if value["complete"] else "captured-prefix")
+                        or value["size_bytes"] == 0 and value["sha256"] != hashlib.sha256(b"").hexdigest()):
+                    raise InventoryDiagnosticError("inventory-capture-framing")
+            passed = (status == "PASS" and action["exit_code"] == 0
+                      and all(value["complete"] for value in captures.values()) and counts["stderr"] == 0)
+            if (action["status"] == "PASS") is not passed:
+                raise InventoryDiagnosticError("inventory-contradictory-result")
+        if (action["status"] == "PASS" and action["error_type"] is not None
+                or action["status"] == "FAIL" and (type(action["error_type"]) is not str
+                                                   or action["error_type"] not in INVENTORY_ERROR_TYPES)):
+            raise InventoryDiagnosticError("inventory-error-type")
+        safe.append(json.loads(json.dumps(action)))
+    return safe
+
+
+def validate_inventory_diagnostic(diagnostic, actions):
+    """Bind metadata; larger/incomplete prefix membership trusts the producer."""
+    actions = validate_inventory_actions(actions)
+    failed = bool(actions and actions[-1]["status"] == "FAIL")
+    if diagnostic is None:
+        if failed:
+            raise InventoryDiagnosticError("inventory-diagnostic-missing")
+        return None
+    keys = {"schema", "action_ordinal", "stage", "reason", "error_type", "helper_status", "exit_code",
+            "spawned", "captures", "bytes_read", "stderr"}
+    if (not failed or type(diagnostic) is not dict or set(diagnostic) != keys
+            or diagnostic["schema"] != "cajviewer-inventory-helper-diagnostic/1"
+            or type(diagnostic["action_ordinal"]) is not int or diagnostic["action_ordinal"] != len(actions)):
+        raise InventoryDiagnosticError("inventory-diagnostic-framing")
+    action = actions[-1]
+    for name in ("error_type", *INVENTORY_RESULT_FIELDS):
+        if (type(diagnostic[name]) is not type(action[name])
+                or json.dumps(diagnostic[name], sort_keys=True) != json.dumps(action[name], sort_keys=True)):
+            raise InventoryDiagnosticError("inventory-diagnostic-binding")
+    status = action["helper_status"]
+    if status is None:
+        reasons, stage = ("HELPER_RESULT_UNAVAILABLE", "HELPER_RESULT_MALFORMED"), "metadata-helper-run"
+    elif status == "TIMEOUT":
+        reasons, stage = ("HELPER_TIMEOUT",), "metadata-helper-run"
+    elif status == "OUTPUT_LIMIT":
+        reasons, stage = ("HELPER_OUTPUT_LIMIT",), "metadata-helper-run"
+    elif action["exit_code"] != 0:
+        reasons, stage = ("HELPER_NONZERO_EXIT",), "metadata-helper-run"
+    elif status != "PASS":
+        reasons, stage = ("HELPER_RESULT_MALFORMED",), "metadata-helper-run"
+    elif not all(value["complete"] for value in action["captures"].values()):
+        reasons, stage = ("HELPER_CAPTURE_INCOMPLETE",), "metadata-helper-validation"
+    else:
+        reasons, stage = ("HELPER_STDERR_NOT_EMPTY",), "metadata-helper-validation"
+    if type(diagnostic["reason"]) is not str or diagnostic["reason"] not in reasons or diagnostic["stage"] != stage:
+        raise InventoryDiagnosticError("inventory-diagnostic-reason")
+    stderr = diagnostic["stderr"]
+    if status is None:
+        if stderr is not None:
+            raise InventoryDiagnosticError("inventory-unavailable-stderr")
+    else:
+        capture = action["captures"]["stderr"]
+        complete = capture["complete"] and capture["size_bytes"] <= 4096
+        if (type(stderr) is not dict or set(stderr) != {"encoding", "data", "retained_bytes", "sha256",
+                    "complete", "truncated", "hash_scope"}
+                or stderr["encoding"] != "base64" or type(stderr["data"]) is not str or len(stderr["data"]) > 5464
+                or type(stderr["retained_bytes"]) is not int or stderr["retained_bytes"] != min(capture["size_bytes"], 4096)
+                or not _inventory_hex(stderr["sha256"]) or type(stderr["complete"]) is not bool
+                or stderr["complete"] is not complete or type(stderr["truncated"]) is not bool
+                or stderr["truncated"] is not (not complete)
+                or stderr["hash_scope"] != ("retained-stream" if complete else "captured-prefix")):
+            raise InventoryDiagnosticError("inventory-diagnostic-stderr")
+        try:
+            raw = base64.b64decode(stderr["data"].encode("ascii"), validate=True)
+        except (ValueError, UnicodeError):
+            raise InventoryDiagnosticError("inventory-diagnostic-base64") from None
+        if (len(raw) != stderr["retained_bytes"] or base64.b64encode(raw).decode("ascii") != stderr["data"]
+                or hashlib.sha256(raw).hexdigest() != stderr["sha256"]
+                or complete and stderr["sha256"] != capture["sha256"]):
+            raise InventoryDiagnosticError("inventory-diagnostic-identity")
+    return json.loads(json.dumps(diagnostic))
+
+
+def inventory_helper_observation(envelope, *, complete):
+    unknown = {"observation": "UNKNOWN", "attempted": None, "spawned": None, "actions": None,
+               "terminal_helper": None, "reason": "INVENTORY_CAPTURE_INCOMPLETE"}
+    if complete is not True:
+        return unknown
+    if type(envelope) is not dict or envelope.get("status") not in ("PASS", "FAIL"):
+        return {**unknown, "reason": "INVENTORY_ACCOUNTING_MALFORMED"}
+    try:
+        actions = validate_inventory_actions(envelope.get("actions"))
+        diagnostic = validate_inventory_diagnostic(envelope.get("terminal_helper"), actions)
+        if envelope["status"] == "PASS" and (len(actions) != 2 or any(row["status"] != "PASS" for row in actions)):
+            raise InventoryDiagnosticError("inventory-impossible-pass")
+        unknown_count = sum(row["spawned"] is None for row in actions)
+        observed_count = sum(row["spawned"] is True for row in actions)
+        return {"observation": "COMPLETE_ORDERED_RECORDS", "attempted": len(actions),
+                "spawned": None if unknown_count else observed_count, "observed_spawned": observed_count,
+                "spawn_unknown": unknown_count, "actions": actions,
+                "terminal_helper": diagnostic}
+    except InventoryDiagnosticError:
+        return {**unknown, "reason": "INVENTORY_ACCOUNTING_MALFORMED"}
+# END INVENTORY HELPER VALIDATOR
+
+# BEGIN INVENTORY HELPER HOST
+def parse_inventory_envelope(raw):
+    """Parse only bounded complete JSON, rejecting duplicates and deep nesting."""
+    if type(raw) is not bytes or not raw or len(raw) > INVENTORY_ENVELOPE_BYTES:
+        raise InventoryDiagnosticError("inventory-envelope-bounds")
+    depth, quoted, escaped = 0, False, False
+    for byte in raw:
+        if quoted:
+            if escaped:
+                escaped = False
+            elif byte == 92:
+                escaped = True
+            elif byte == 34:
+                quoted = False
+        elif byte == 34:
+            quoted = True
+        elif byte in (91, 123):
+            depth += 1
+            if depth > 32:
+                raise InventoryDiagnosticError("inventory-envelope-depth")
+        elif byte in (93, 125):
+            depth -= 1
+            if depth < 0:
+                raise InventoryDiagnosticError("inventory-envelope-framing")
+    def pairs(items):
+        value = {}
+        for key, item in items:
+            if key in value:
+                raise InventoryDiagnosticError("inventory-envelope-duplicate")
+            value[key] = item
+        return value
+    def constant(value):
+        raise InventoryDiagnosticError("inventory-envelope-number")
+    try:
+        value = json.loads(raw.decode("utf-8", "strict"), object_pairs_hook=pairs, parse_constant=constant)
+    except (UnicodeError, ValueError, RecursionError):
+        raise InventoryDiagnosticError("inventory-envelope-framing") from None
+    if (type(value) is not dict or value.get("schema") != "cajviewer-inventory-accounting/1"
+            or type(value.get("status")) is not str or value["status"] not in ("PASS", "FAIL")
+            or any(type(value.get(key)) is not int or value[key] != 0 for key in ("app_launches", "vendor_passes"))):
+        raise InventoryDiagnosticError("inventory-envelope-framing")
+    return value
+
+
+def require_inventory_success(envelope, expected_environment_identity, *, pins=PUBLIC_SOURCE_PINS):
+    """Require existing two-helper/source/cap/ENV/UID integrity before PASS."""
+    observed = inventory_helper_observation(envelope, complete=True)
+    loading = source_loading_observation(envelope, complete=True, pins=pins)
+    if (envelope["status"] != "PASS" or envelope.get("scope") != "opaque-runtime-inventory-only"
+            or observed["observation"] != "COMPLETE_ORDERED_RECORDS" or observed["attempted"] != 2
+            or any(row["status"] != "PASS" for row in observed["actions"])
+            or loading["observation"] != "COMPLETE_ORDERED_RECORDS" or loading["records_completed"] != 2
+            or envelope.get("closing_audits") != {"caps": "PASS", "environment": "PASS", "user": "PASS"}
+            or envelope.get("closing_failures") != [] or envelope.get("inventory_bytes_omitted", False) is not False
+            or type(envelope.get("inventory_json")) is not str
+            or any(type(envelope.get(key)) is not int or envelope[key] != 0 for key in ("app_launches", "vendor_passes"))):
+        raise InventoryDiagnosticError("required-inventory-envelope")
+    for key in ("environment_identity", "environment_after_identity"):
+        value = envelope.get(key)
+        if (type(value) is not dict or set(value) != {"size_bytes", "sha256"}
+                or type(value["size_bytes"]) is not int or not 0 < value["size_bytes"] <= 262144
+                or not _inventory_hex(value["sha256"]) or value != expected_environment_identity):
+            raise InventoryDiagnosticError("required-inventory-environment")
+    for key in ("uid_gid", "uid_gid_after"):
+        value = envelope.get(key)
+        if type(value) is not list or len(value) != 2 or any(type(item) is not int or item != 1000 for item in value):
+            raise InventoryDiagnosticError("required-inventory-user")
+    keys = {"memory_max_bytes", "memory_swap_max_bytes", "memory_peak_bytes", "pids_max", "pids_peak",
+            "cpu_quota", "cpu_period", "memory_events"}
+    for key in ("caps_before", "caps_after"):
+        caps = envelope.get(key)
+        if (type(caps) is not dict or set(caps) != keys or any(type(caps[name]) is not int for name in keys - {"memory_events"})
+                or caps["memory_max_bytes"] != 536870912 or caps["memory_swap_max_bytes"] != 0
+                or caps["pids_max"] != 64 or not 0 <= caps["memory_peak_bytes"] <= 536870912
+                or not 0 <= caps["pids_peak"] <= 64 or not 0 < caps["cpu_period"] <= 10**9
+                or caps["cpu_quota"] != 2 * caps["cpu_period"] or type(caps["memory_events"]) is not dict
+                or len(caps["memory_events"]) > 64
+                or any(type(name) is not str or len(name) > 64 or type(count) is not int or not 0 <= count < 2**63
+                       for name, count in caps["memory_events"].items())
+                or any(caps["memory_events"].get(name) != 0 for name in ("oom", "oom_kill"))):
+            raise InventoryDiagnosticError("required-container-cap-facts")
+    raw = envelope["inventory_json"].encode("utf-8", "strict")
+    if (len(raw) > INVENTORY_ENVELOPE_BYTES or type(envelope.get("inventory_identity")) is not dict
+            or envelope["inventory_identity"] != {"size_bytes": len(raw), "sha256": hashlib.sha256(raw).hexdigest()}
+            or type(envelope["inventory_identity"].get("size_bytes")) is not int):
+        raise InventoryDiagnosticError("underlying-inventory-identity")
+
+
+def observe_inventory_result(result, report, expected_environment_identity, *, pins=PUBLIC_SOURCE_PINS):
+    """Adopt accounting before outer refusal; enclosing host owns cleanup."""
+    report["nested_helpers"] = inventory_helper_observation(None, complete=False)
+    report["public_source_loading"] = source_loading_observation(None, complete=False, pins=pins)
+    if (type(result) is not dict or result.get("status") not in ("PASS", "FAIL")
+            or result.get("prefix_truncated") is not False or type(result.get("stdout")) is not bytes
+            or type(result.get("bytes_read")) is not dict
+            or type(result["bytes_read"].get("stdout")) is not int
+            or result["bytes_read"]["stdout"] != len(result["stdout"])):
+        raise InventoryDiagnosticError("incomplete-inventory-envelope")
+    try:
+        envelope = parse_inventory_envelope(result["stdout"])
+    except InventoryDiagnosticError:
+        raise InventoryDiagnosticError("inventory-envelope-framing") from None
+    report["nested_helpers"] = inventory_helper_observation(envelope, complete=True)
+    report["public_source_loading"] = source_loading_observation(envelope, complete=True, pins=pins)
+    report["container_caps"] = {key: envelope.get(key) for key in ("caps_before", "caps_after")}
+    report["container_environment"] = {key: envelope.get(key) for key in
+        ("environment_identity", "environment_after_identity", "uid_gid", "uid_gid_after", "closing_audits", "closing_failures")}
+    if (report["nested_helpers"]["observation"] == "UNKNOWN"
+            or report["public_source_loading"]["observation"] == "UNKNOWN"):
+        raise InventoryDiagnosticError("inventory-accounting-malformed")
+    if (result["status"] != "PASS" or type(result.get("exit_code")) is not int or result["exit_code"] != 0
+            or type(result.get("stderr")) is not bytes or result["stderr"]
+            or type(result["bytes_read"].get("stderr")) is not int or result["bytes_read"]["stderr"] != 0):
+        raise InventoryDiagnosticError("required-inventory-helper")
+    require_inventory_success(envelope, expected_environment_identity, pins=pins)
+    return envelope
+# END INVENTORY HELPER HOST
+
+
+def inventory_helper_fragment(source, part):
+    """Include the exact public COMMON dependency; HOST also gets its validator."""
+    if type(source) is not bytes or len(source) > 65536 or part not in ("PRODUCER", "VALIDATOR", "HOST"):
+        raise InventoryDiagnosticError("inventory-fragment")
+    fragments, previous_end = [], -1
+    for name in (("COMMON", "VALIDATOR", "HOST") if part == "HOST" else ("COMMON", part)):
+        start = ("# BEGIN INVENTORY HELPER " + name + "\n").encode()
+        end = ("# END INVENTORY HELPER " + name + "\n").encode()
+        if source.count(start) != 1 or source.count(end) != 1:
+            raise InventoryDiagnosticError("inventory-fragment")
+        left, right = source.index(start), source.index(end)
+        if right <= left or left <= previous_end:
+            raise InventoryDiagnosticError("inventory-fragment")
+        fragments.append(source[left:right + len(end)])
+        previous_end = right + len(end) - 1
+    dependency = public_source_fragment(source, "VALIDATOR" if part == "HOST" else "LOADER")
+    if part != "HOST":
+        dependency = dependency.split(b"# BEGIN PUBLIC SOURCE LOADER\n", 1)[0]
+    fragments.insert(0, dependency)
+    return b"\n".join(fragments)
+
+
+# Complete owned entry; no operational profile. Source-loader bytes stay exact.
+INVENTORY_ENTRY_PRELUDE = r'''# SPDX-License-Identifier: MIT
+import hashlib,json,os,shutil,stat,sys,types
+from pathlib import Path
+report={"schema":"cajviewer-inventory-accounting/1","status":"FAIL",
+ "scope":"opaque-runtime-inventory-only","app_launches":0,"vendor_passes":0,
+ "actions":[],"source_loads":[],"terminal_helper":None,"inventory_json":None,
+ "inventory_identity":None,"caps_before":None,"caps_after":None,
+ "environment_identity":None,"environment_after_identity":None,"uid_gid":None,"uid_gid_after":None,
+ "closing_audits":{"caps":"NOT_RUN","environment":"NOT_RUN","user":"NOT_RUN"},"closing_failures":[]}
+expected_env=environment=None
+'''
+
+INVENTORY_ENTRY_BODY = r'''
+def identity(raw):
+ return {"size_bytes":len(raw),"sha256":hashlib.sha256(raw).hexdigest()}
+def environment_snapshot():
+ value=dict(os.environ)
+ if len(value)>64 or any(len(key)>128 or len(item)>4096 for key,item in value.items()):
+  raise ValueError
+ return value
+def env_identity(value):
+ return identity(_inventory_encoded(value))
+def closing(kind,error=None,unknown=False):
+ report["status"]="FAIL"
+ report["closing_audits"][kind]="UNKNOWN" if unknown else "FAIL"
+ report["closing_failures"].append({"kind":kind,"reason":"baseline-unavailable" if unknown else "closing-observation-failed",
+  "error_type":None if error is None else _inventory_kind(error)})
+def read_fixed(path,maximum):
+ fd=os.open(path,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK|os.O_CLOEXEC)
+ with os.fdopen(fd,"rb",buffering=0) as stream:
+  if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
+   raise ValueError
+  chunks,size=[],0
+  while True:
+   requested=min(65536,maximum+1-size)
+   counts=report.setdefault("fixed_read_counts",{"calls":0,"requested_bytes":0,"returned_bytes":0})
+   counts["calls"]+=1
+   counts["requested_bytes"]+=requested
+   raw=stream.read(requested)
+   counts["returned_bytes"]+=len(raw)
+   if not raw:
+    return b"".join(chunks)
+   size+=len(raw)
+   if size>maximum:
+    raise ValueError
+   chunks.append(raw)
+def caps():
+ root=Path("/sys/fs/cgroup")
+ values={name:read_fixed(str(root/name),4096).decode("ascii","strict").strip() for name in
+  ("memory.max","memory.swap.max","memory.peak","memory.events","pids.max","pids.peak","cpu.max")}
+ events={}
+ for line in values["memory.events"].splitlines():
+  name,value=line.split()
+  if name in events or not value.isdecimal():
+   raise ValueError
+  events[name]=int(value)
+ quota,period=values["cpu.max"].split()
+ if (values["memory.max"]!="536870912" or values["memory.swap.max"]!="0" or values["pids.max"]!="64"
+  or not quota.isdecimal() or not period.isdecimal() or int(period)==0 or int(quota)!=2*int(period)
+  or not {"oom","oom_kill"}<=set(events) or not values["memory.peak"].isdecimal()
+  or not values["pids.peak"].isdecimal() or int(values["memory.peak"])>536870912 or int(values["pids.peak"])>64):
+  raise ValueError
+ return {"memory_max_bytes":536870912,"memory_swap_max_bytes":0,"memory_peak_bytes":int(values["memory.peak"]),
+  "pids_max":64,"pids_peak":int(values["pids.peak"]),"cpu_quota":int(quota),"cpu_period":int(period),"memory_events":events}
+try:
+ expected_env=json.loads(sys.argv[1])
+ tools=json.loads(sys.argv[2])
+ environment=environment_snapshot()
+ report["environment_identity"]=env_identity(environment)
+ report["uid_gid"]=[os.getuid(),os.getgid()]
+ if environment!=expected_env or report["uid_gid"]!=[1000,1000]:
+  raise ValueError
+ report["caps_before"]=caps()
+ if any(report["caps_before"]["memory_events"][key]!=0 for key in ("oom","oom_kill")):
+  raise ValueError
+ load_public_sources(read_fixed,report["source_loads"])
+ inventory=sys.modules["inventory"]
+ original_run,original_hash=inventory.run_bounded,inventory.hash_regular
+ tool_pins={}
+ def observed_hash(path,**kwargs):
+  report["opaque_hash_attempts"]=report.get("opaque_hash_attempts",0)+1
+  expected=next((value for value in tools.values() if value["path"]==str(path)),None)
+  if expected is not None:
+   kwargs.update(expected_size=expected["size_bytes"],expected_sha256=expected["sha256"],max_bytes=expected["size_bytes"])
+  result=original_hash(path,**kwargs)
+  report["completed_opaque_hash_bytes"]=report.get("completed_opaque_hash_bytes",0)+result["size_bytes"]
+  if str(path) in {value["path"] for value in tools.values()}:
+   tool_pins[str(path)]=result
+  return result
+ def observed_run(argv,**kwargs):
+  ordinal=len(report["actions"])
+  if ordinal>=2 or argv!=list(INVENTORY_COMMANDS[ordinal]) or kwargs!={"deadline_seconds":10,"output_limit":262144}:
+   raise ValueError
+  tool=tools[argv[0]]
+  selected=shutil.which(argv[0])
+  if (selected is None or str(Path(selected).resolve(strict=True))!=tool["path"]
+   or tool_pins.get(tool["path"])!={key:tool[key] for key in ("size_bytes","sha256")}):
+   raise ValueError
+  return inventory_helper_call(original_run,report,argv,**kwargs)
+ inventory.hash_regular,inventory.run_bounded=observed_hash,observed_run
+ value=inventory.inventory()
+ if len(report["actions"])!=2 or any(action["status"]!="PASS" for action in report["actions"]):
+  raise ValueError
+ text=json.dumps(value,sort_keys=True)
+ report.update(inventory_identity=identity(text.encode("utf-8")),inventory_json=text,status="PASS")
+except BaseException as error:
+ report["error_type"]=(report["source_loads"][-1]["error_type"] if report["source_loads"]
+  and report["source_loads"][-1]["status"]=="FAIL" else _inventory_kind(error))
+finally:
+ for kind in ("caps","environment","user"):
+  try:
+   if kind=="caps":
+    after=report["caps_after"]=caps()
+    before=report["caps_before"]
+    if any(after["memory_events"][key]!=0 for key in ("oom","oom_kill")):
+     raise ValueError
+    unknown=before is None
+    valid=unknown or all(after["memory_events"][key]==before["memory_events"][key] for key in ("oom","oom_kill"))
+   elif kind=="environment":
+    after_env=environment_snapshot()
+    report["environment_after_identity"]=env_identity(after_env)
+    unknown=environment is None or expected_env is None
+    valid=unknown or after_env==environment==expected_env
+   else:
+    after=report["uid_gid_after"]=[os.getuid(),os.getgid()]
+    if after!=[1000,1000]:
+     raise ValueError
+    unknown=report["uid_gid"] is None
+    valid=unknown or after==report["uid_gid"]
+   if not valid:
+    raise ValueError
+   if unknown:
+    closing(kind,unknown=True)
+   else:
+    report["closing_audits"][kind]="PASS"
+  except BaseException as error:
+   closing(kind,error)
+ payload=inventory_envelope_bytes(report)
+ sys.stdout.buffer.write(payload)
+ sys.stdout.buffer.flush()
+sys.exit(0 if report["status"]=="PASS" else 1)
+'''
+
+
+def _compact_inventory_entry_piece(source, unit):
+    """Compact fixed owned pieces, preserving string tokens and other code."""
+    protected, comments = set(), {}
+    for token in tokenize.generate_tokens(io.StringIO(source).readline):
+        if token.type == tokenize.STRING:
+            protected.update(range(token.start[0] + 1, token.end[0] + 1))
+        elif token.type == tokenize.COMMENT and "SPDX-License-Identifier" not in token.string:
+            comments[token.start[0]] = token.start[1]
+    lines = []
+    for row, line in enumerate(source.splitlines(keepends=True), 1):
+        if row in protected:
+            lines.append(line)
+            continue
+        if row in comments:
+            line = line[:comments[row]] + "\n"
+        stripped = line.lstrip(" ")
+        if stripped.strip():
+            lines.append(" " * ((len(line) - len(stripped)) // unit) + stripped)
+    return "".join(lines)
+
+
+def inventory_entry_source(source):
+    """Assemble fixed bytes only; caller must separately pin source and result."""
+    loader = public_source_fragment(source, "LOADER")
+    producer = inventory_helper_fragment(source, "PRODUCER")
+    producer = producer[producer.index(b"# BEGIN INVENTORY HELPER COMMON\n"):]
+    pieces = (INVENTORY_ENTRY_PRELUDE.encode(), loader,
+              _compact_inventory_entry_piece(producer.decode("utf-8", "strict"), 4).encode(),
+              INVENTORY_ENTRY_BODY.encode())
+    result = b"\n".join(pieces)
+    if len(result) > 16384:
+        raise InventoryDiagnosticError("inventory-inline-size")
+    return result
 
 # Docker cp cannot read this tmpfs mount. Run an original, finite archive
 # transport in the container's mount namespace using its pinned Python tool.
@@ -552,6 +1131,11 @@ def execute(protocol: Path, output: Path):
 
 def main(argv=None):
     global SCHEDULING_DEADLINE
+    if argv is None:
+        argv = sys.argv[1:]
+    if not argv:
+        print(json.dumps({"status": "NOT_RUN", "app_launches": 0, "vendor_passes": 0}))
+        return 0
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--protocol", type=Path)
     parser.add_argument("--output-dir", type=Path)
