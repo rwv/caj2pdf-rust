@@ -148,8 +148,8 @@ issue acceptance criteria are authoritative for each task.
    practical recipe with reopen pixel differences; next save a
    small image baseline (#126) and ordinary-copy text where available (#127).
    Manual initial acquisition is acceptable; Docker is a reproducibility aid.
-   Reuse completed manifests (#125). Develop comparison (#128) immediately
-   against original fixtures, independently of GUI acquisition. Begin rollout
+   Reuse completed manifests (#125). Use [the decoded comparator](docs/vendor-fixture-diff.md) (#128)
+   with original controls now and acquired fixtures when available. Begin rollout
    (#129) with implemented native formats; finish browser/Node and remaining
    format coverage after #10/#13. Text unavailability does not block images.
    The standalone source-loading framework (#153) is cancelled, not implemented.

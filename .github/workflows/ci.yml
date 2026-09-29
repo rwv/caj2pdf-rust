@@ -50,6 +50,9 @@ jobs:
         run: python3 -m unittest discover -s tests/fixtures -p 'test_*.py' -v
       - name: Conformance harness tests
         run: python3 -m unittest discover -s tests/conformance -p 'test_*.py' -v
+      - name: Report optional vendor fixture comparison as not run
+        run: |
+          python3 scripts/vendor_fixture_diff.py | python3 -c 'import json, sys; r = json.load(sys.stdin); assert r["status"] == "NOT_RUN" and r["pages"] == [] and all(n == 0 for n in r["counts"].values()), r'
       - name: Report external HN/C8 container comparison as not run
         env:
           CAJ2PDF_CORPUS_DIR: ""

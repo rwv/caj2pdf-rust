@@ -1,6 +1,17 @@
 # Provenance and dependency inventory
 
 
+## 2026-09-29 decoded fixture comparison (#128)
+
+`scripts/vendor_fixture_diff.py` and
+`tests/conformance/test_vendor_fixture_diff.py` are independently authored
+MIT code. They reuse this repository's original manifest validation and
+original synthetic bundle generator. Pixel comparisons use declared decoded
+payloads; no vendor image decoder, converter source, third-party implementation
+or corpus content was copied or added. Only Python standard-library facilities
+are used. The English usage document and CI smoke check are original as well.
+
+
 ## 2026-09-29 practical CAJViewer capture pilot
 
 Original English report and reproduction instructions in

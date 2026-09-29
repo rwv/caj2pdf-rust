@@ -74,6 +74,14 @@ Reuse normal imports and pinned checkout/container versions. Fix actual
 container-layout bugs with ordinary packaging and a smoke test. A custom
 verified-byte loader or execution-origin receipt system is not required.
 
+## Comparator
+
+The [decoded fixture comparator](vendor-fixture-diff.md) implements #128 using
+existing manifest validation, exact page pixels and raw text. It runs without
+the viewer and keeps unavailable text distinct from equality. Acquisition
+still supplies decoded payloads and their provenance; no rendering noise is
+silently accepted.
+
 ## Tests and completion
 
 Ordinary CI uses generated original MIT fixtures, without CAJViewer or the
