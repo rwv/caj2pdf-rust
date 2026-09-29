@@ -1,6 +1,17 @@
 # Provenance and dependency inventory
 
 
+## 2026-09-29 practical CAJViewer capture pilot
+
+Original English report and reproduction instructions in
+`cajviewer-capture-pilot.md`, with planning/conformance links. Commands reuse
+existing original MIT controls and X11 client; no vendor implementation code
+was inspected or copied. Only non-content external sample metadata and the
+original control's expected text are published. All screenshots, vendor files,
+external source documents and raw runtime logs remain external. No converter
+or codec implementation changes are included.
+
+
 ## 2026-09-29 fixture planning simplification
 
 Original English documentation only: PROJECT_PLAN.md, cajviewer-fixtures.md,

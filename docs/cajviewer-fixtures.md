@@ -2,6 +2,11 @@
 
 # CAJViewer vendor fixtures
 
+Current capability result: [the capture pilot](cajviewer-capture-pilot.md)
+obtained complete-page screenshots and ordinary-copy text from an original
+control, plus one real CAJ page. Reopen pixels differ. Converter-versus-viewer
+compatibility remains NOT_RUN; #126–#129 are still open.
+
 ## Current plan (2026-09-29)
 
 Use CAJViewer as a version-specific behavior reference for full-page images
