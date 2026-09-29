@@ -5,8 +5,8 @@
 [Issue #117](https://github.com/rwv/caj2pdf-rust/issues/117) adds the opt-in
 core `hnc8::convert_source_pages_pdf` API. It combines the checked container,
 text framing, empirical geometry and image codecs in one `PdfDocument`.
-Production CLI, browser and Node.js format routing remains gated by parent
-[#10](https://github.com/rwv/caj2pdf-rust/issues/10). This slice does not add
+CLI, browser and Node.js routing is implemented and validated in
+[#10](https://github.com/rwv/caj2pdf-rust/issues/10). This API does not add
 searchable text, type-1 images or general vendor layout
 support. HN-A outlines can be requested with `include_bookmarks`; see the
 [outline API and evidence](hnc8-outline-fields.md).
@@ -20,10 +20,13 @@ layout, or the [directly prefixed record stream](hnc8-direct-text.md). Each
 compressed path requires a complete checksummed zlib frame and consistent
 image records. The two header payload words may vary across documents; see
 [compressed text framing](hnc8-compressed-text-header.md). Every image
-must be type 0, type 2 or type 3. The first checked image determines the page box.
-Type-0 display width retains visible bits when no whole padding bytes are
-needed; otherwise it includes the DIB padding bytes. All raw coordinate words determine transforms in source descriptor order via
-the [empirical placement rule](hnc8-placement-rule.md); negative height,
+must be type 0, type 2 or type 3. Since #184, declared header extents determine
+the page box, and each image record's display extents determine its size.
+Decoded pixel dimensions are independent; DIB storage padding is dropped by
+the PDF writer. Zero extents are errors. See the
+[source-geometry correction and remaining limits](cajviewer-hnc8-kdh.md#results-after-the-source-geometry-correction).
+Raw position/extent words determine transforms in source descriptor order,
+using the empirical `240 / 2473` points per unit; negative height,
 fractional positions, overlap, repeated payloads and off-page draws are kept.
 The coordinate factor is measured, not an authoritative physical source unit.
 Unknown text profiles and unsupported draws are errors, never omissions.
@@ -165,6 +168,7 @@ peak and successful physical reads/writes. Temporary backing may be files or
 browser storage; these counters are not process memory measurements. Source
 metadata, decoder contexts and bounded I/O buffers keep their separate limits.
 
+The following #118 measurements predate #184, which removes displayed padding.
 Type-3 decoding emits top-first visible-width rows. Whole DIB padding bytes
 are streamed as white, with no second image bitmap. The equivalent transform
 uses positive height and moves its origin down by that height. The observed

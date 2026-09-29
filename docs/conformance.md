@@ -1,9 +1,10 @@
 # Conformance baseline
 
-Current capability result: [the capture pilot](cajviewer-capture-pilot.md)
-obtained complete-page screenshots and ordinary-copy text from an original
-control, plus one real CAJ page. Reopen pixels differ. Converter-versus-viewer
-compatibility remains NOT_RUN; #126–#129 are still open.
+Current selected-page vendor results are in [CAJViewer fixtures](cajviewer-fixtures.md).
+CAJ/PDF/KDH selected pages match. After #184, HN-A/C8 page-frame sizes match,
+but exact pixels still differ; these profiles remain experimental. Capture
+repeatability is scoped to each report. Historical launch/fixture issues
+#124–#129 are closed or consolidated into #123.
 
 The [corpus matrix](../tests/conformance/matrix.json) inventories unique inputs
 from a pinned revision of the external

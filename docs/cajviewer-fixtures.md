@@ -13,18 +13,20 @@ fixture-management framework is needed.
 | CAJ | Pages 1 and 75 match | [Page-box comparison](cajviewer-page-boxes.md) |
 | PDF | Pages 1 and 11 matched in the existing native pilot | #158 |
 | KDH | Page 1 matches exactly | [Current checks](cajviewer-hnc8-kdh.md) |
-| HN/C8 | Four selected pages have unequal page-frame dimensions | [Current checks and limits](cajviewer-hnc8-kdh.md) |
+| HN/C8 | Corrected page-frame sizes match; four selected pages still differ in pixels | [Current checks and limits](cajviewer-hnc8-kdh.md) |
 
 CLI, Node and browser output hashes match for these actual documents, so the
-same viewer comparisons apply to all three. HN/C8 differences remain open in
-#123; #14 owns final release acceptance. #124–#128 supplied the working recipe,
+same viewer comparisons apply to all three. After #184, corrected complete
+HN-A and C8 output identity is verified again. #123's selected-page work is
+complete with the pixel limitations below; #14 owns final release acceptance.
+#124–#128 supplied the working recipe,
 fixtures and comparator; #129's remaining work was consolidated into #123.
 Their older future-work text is historical, not a new approval requirement.
 
-The next task is a small investigation of the observed HN/C8 page extents,
-starting with the JPEG cover and mixed page. Preserve the current mismatches;
-do not infer source geometry from matching a screenshot alone or introduce
-sample-specific page sizes. Ordinary-copy text is a separate optional check;
+#184 corrected the observed source page/image extents and removed displayed
+storage padding. Preserve the remaining exact-pixel differences as explicit
+experimental HN/C8 limitations. No additional capture campaign is required to
+claim the recorded selected-page scope. Ordinary-copy text is optional;
 OCR/searchable HN remains outside v0.1. Missing work is NOT_RUN.
 
 ## First experiment
