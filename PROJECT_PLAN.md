@@ -114,14 +114,20 @@ native sub-issue/blocking relationships are authoritative.
    identical PDFs on all three interfaces; page order, placement, bookmarks and
    cleanup are checked. Original two-image controls run in normal CI. See
    [the results and limitations](docs/js-validation.md#complete-multi-image-hn-a-public-interface-check).
-2. **Check representative viewer pages (#123).** Reuse the pinned container and
-   capture recipe. Check one ordinary and one mixed/boundary page per advertised
-   format; expand only for an observed mismatch. Identical PDFs across interfaces
-   share the same rendering comparison. Text copying is optional, not OCR.
-3. **Audit and release (#14).** Reuse the existing compatibility matrix, small
-   and large input measurements, and prior checks. Final release is blocked by
-   #8/#9 until the state-data distribution decisions (#30/#44) are resolved.
-   These decisions do not block caller-table integration acceptance in #10.
+2. **Finish the observed layout discrepancy (#123).** Selected CAJ/PDF/KDH
+   pages match. Four HN/C8 pages have different page dimensions; see
+   [the recorded comparisons](docs/cajviewer-hnc8-kdh.md). Check the existing
+   size fields against the cover and mixed page. If a general rule is established,
+   fix it with original regression fixtures; otherwise document the affected
+   profile as experimental with the concrete limitation. Do not require exhaustive
+   pixel parity. Byte-identical CLI/Node/browser outputs share these checks.
+3. **Finish codec distribution (#8 → #30, #9 → #44).** Resolve the exact missing
+   rights evidence and wire approved state data into the implemented decoders.
+   Record an unresolved decision precisely; do not restart broad research.
+4. **Audit and release (#14).** Maintain one support matrix, reuse valid memory
+   measurements, check packages/examples and run existing CI. Geometry must be
+   fixed or explicitly limited; distribution decisions must be resolved before
+   shipping the affected data. OCR and legacy Python ordering remain deferred.
 
 Keep remaining work in these issues, with no new issue hierarchy or framework.
 Missing optional corpus is NOT_RUN; unavailable checks do not count as passes.

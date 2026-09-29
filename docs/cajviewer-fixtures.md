@@ -2,31 +2,30 @@
 
 # CAJViewer vendor fixtures
 
-Current capability result: [the capture pilot](cajviewer-capture-pilot.md)
-obtained complete-page screenshots and ordinary-copy text from an original
-control, plus one real CAJ page. Reopen pixels differ. Converter-versus-viewer
-compatibility remains NOT_RUN; #126–#129 are still open.
+## Current status and remaining work
 
-## Current plan (2026-09-29)
+Use CAJViewer as a version-specific behavior reference. Reuse the pinned
+container, manual capture recipe and existing comparator; no new GUI or
+fixture-management framework is needed.
 
-Use CAJViewer as a version-specific behavior reference for full-page images
-and ordinary-copy text. Start with a small working experiment and reuse the
-existing manifest tooling. The public language is English; all committed
-code and original controls are MIT.
-
-| Issue | Deliverable | Prerequisites |
+| Format | Selected-page result | Evidence |
 | --- | --- | --- |
-| [#124](https://github.com/rwv/caj2pdf-rust/issues/124) | A repeatable capture recipe, tested on original controls and one CAJ sample | Resolved diagnostic tasks |
-| [#125](https://github.com/rwv/caj2pdf-rust/issues/125) | External manifest validation (complete) | Resolved |
-| [#126](https://github.com/rwv/caj2pdf-rust/issues/126) | Small complete-page image baseline | #124, #125 |
-| [#127](https://github.com/rwv/caj2pdf-rust/issues/127) | Raw copied text or documented unavailability | #124, #125 |
-| [#128](https://github.com/rwv/caj2pdf-rust/issues/128) | Bounded image/text comparisons and original CI fixtures | #125 only |
-| [#129](https://github.com/rwv/caj2pdf-rust/issues/129) | Representative conversion results | #124–#128, #10 and #13 for final completion |
+| CAJ | Pages 1 and 75 match | [Page-box comparison](cajviewer-page-boxes.md) |
+| PDF | Pages 1 and 11 matched in the existing native pilot | #158 |
+| KDH | Page 1 matches exactly | [Current checks](cajviewer-hnc8-kdh.md) |
+| HN/C8 | Four selected pages have unequal page-frame dimensions | [Current checks and limits](cajviewer-hnc8-kdh.md) |
 
-The six tasks remain children of [#123](https://github.com/rwv/caj2pdf-rust/issues/123).
-#123 remains a release prerequisite. Start #129 native pilots when fixtures
-and comparison are available; finish the platform matrix after conversion
-support is implemented. Text unavailability must not block the image route.
+CLI, Node and browser output hashes match for these actual documents, so the
+same viewer comparisons apply to all three. HN/C8 differences remain open in
+#123; #14 owns final release acceptance. #124–#128 supplied the working recipe,
+fixtures and comparator; #129's remaining work was consolidated into #123.
+Their older future-work text is historical, not a new approval requirement.
+
+The next task is a small investigation of the observed HN/C8 page extents,
+starting with the JPEG cover and mixed page. Preserve the current mismatches;
+do not infer source geometry from matching a screenshot alone or introduce
+sample-specific page sizes. Ordinary-copy text is a separate optional check;
+OCR/searchable HN remains outside v0.1. Missing work is NOT_RUN.
 
 ## First experiment
 
@@ -87,7 +86,7 @@ silently accepted.
 Ordinary CI uses generated original MIT fixtures, without CAJViewer or the
 external corpus. Test equal content, changed edge pixels, dimensions,
 missing/reordered pages, Unicode/line-order changes and corrupt/oversized
-artifacts. Develop these checks in #128 before GUI automation is complete.
+artifacts. These checks already run in ordinary CI.
 Existing native/WASM/license/coverage gates remain in place; review and
 simplify each PR and test changed behavior.
 
@@ -100,7 +99,9 @@ memory checks in release work.
 
 ## Status and historical evidence
 
-Complete-page/text compatibility is still `NOT_RUN`, with zero vendor passes.
+The table above supersedes the earlier zero-comparison status. Unchecked
+pages and text remain NOT_RUN; completed selected-page checks do not establish
+whole-document or all-format pixel parity.
 The V14 inventory and metadata consumer completed, but do not prove capture
 or conversion compatibility. The twelve historical launch observations and
 failures remain in [the V14 report](cajviewer-runtime-view-v14.md) and
