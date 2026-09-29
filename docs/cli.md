@@ -9,7 +9,7 @@ the input's leading signature. Format parsing and PDF writing stay in
 listed in the release notes.
 
 ```text
-caj2pdf INPUT [-o OUTPUT] [--force]
+caj2pdf INPUT [-o OUTPUT] [--force] [--no-bookmarks] [--qm-states FILE] [--mq-states FILE]
 caj2pdf inspect INPUT [--json] [--bookmarks]
 caj2pdf add-bookmarks SOURCE_CAJ INPUT_PDF -o OUTPUT_PDF [--force]
 caj2pdf --help | --version
@@ -35,19 +35,61 @@ that starts with `CAJ` but lacks the CAJ header is reported as malformed.
 | `%PDF-` | PDF | Validated copy through the core PDF reader and repair layer | Pages and outline presence |
 | `CAJ` | CAJ | Reconstructed PDF with the CAJ outline | Pages and full outline |
 | `KDH` | KDH | Decoded embedded PDF | Pages and outline presence |
-| `HN` | HN | **Not implemented**; exits with status 1 | Container variant and pages |
-| `c8 00 00 00` | C8 | **Not implemented**; exits with status 1 | Container variant and pages |
+| `HN` | HN | Experimental image-page conversion with caller codec states | Container variant and pages |
+| `c8 00 00 00` | C8 | Experimental image-page conversion with caller codec states | Container variant and pages |
 | `TEB` | TEB | Unsupported; exits with status 1 | Format only |
 
-Before reporting that HN or C8 conversion is not implemented, the command
-parses the container header and page index, so a malformed container fails
-with a parse error instead. HN and C8 conversion needs the image decoders
-tracked under
-[#9](https://github.com/rwv/caj2pdf-rust/issues/9) and
-[#23](https://github.com/rwv/caj2pdf-rust/issues/23). No NH signature has been
-measured, so NH input is reported as an unrecognized format. Listing the
-outline entries of a PDF or KDH input is not implemented: `inspect` reports
-only whether such a document has an outline.
+HN/C8 routes use the same independently implemented core page composer as
+WASM. Malformed data and unsupported layouts produce located errors. No NH
+signature has been measured, so NH input remains unrecognized. PDF/KDH
+inspection reports outline presence rather than full outline entries;
+HN/C8 inspection still reports container metadata only.
+
+### Experimental HN/C8 options
+
+- `--qm-states FILE`: caller-supplied states for type-0 images.
+- `--mq-states FILE`: caller-supplied states for arithmetic JBIG2 images.
+- `--no-bookmarks`: skip CAJ/HN outline import. Required for C8/HN-B because
+  their outlines are not yet validated. Existing embedded PDF/KDH outlines
+  are not removed by this flag.
+
+The state flags accept both `--qm-states FILE` and `--qm-states=FILE`
+(and likewise MQ). Separate values preserve non-UTF-8 filenames. Values must
+be nonempty paths, not `-`; document input may still come from stdin.
+These options apply only to conversion, not `inspect` or `add-bookmarks`.
+State files are protected inputs, including aliases: `--force` cannot overwrite
+them. Unknown or duplicate state options are usage errors.
+
+A state file is UTF-8 text, at most 16 KiB, with exactly 113 QM or 47 MQ rows.
+Each row contains four whitespace-separated decimal integers in this order:
+`qe next_lps next_mps switch_mps`. `qe` is in 1..32767, transition indices are
+zero-based within the table, and switch is 0 or 1. A final newline and CRLF are
+accepted; headers, comments, blank rows and extra fields are rejected. The
+column order is explicit and differs from some standard-table presentations.
+No normative table is distributed: callers supply data they may use while
+#30/#44 remain unresolved. Valid shape alone does not prove a correct table.
+
+Only tables needed by the images must be supplied. HN-A outlines are supported;
+C8/HN-B use `--no-bookmarks`. Image-less HN-B rows, pure-text/searchable HN and
+unverified profiles are rejected. Strict JBIG2 headers apply; the core's
+anomalous-header opt-in is not exposed by this command.
+
+The command creates four private anonymous files in `TMPDIR` (or the system
+temporary directory), each capped at 64 MiB by the composition budget. The
+names are removed before conversion; the OS releases storage when handles
+close, including on process exit. This reuses input spooling's file helper.
+Forward-only document input is separately spooled within its input limit.
+Output remains sequential; a failed conversion never commits a staged path
+output. Stdout can contain a partial PDF on failure, as for other formats.
+
+### v0.x migration
+
+HN/C8 conversion now attempts supported page profiles instead of unconditionally
+rejecting the format. Missing state data and unsupported metadata/layouts have
+specific diagnostics. `inspect` reports `conversion_supported: true` for HN/C8
+because this build has a conversion route; that is not proof that a particular
+profile converts or its required runtime states are supplied. Human-readable
+inspection marks this support as experimental. The JSON schema remains version 1.
 
 ## Conversion
 
@@ -134,7 +176,7 @@ adding a field is not considered incompatible.
 | `schema_version` | integer | Always `1` for this schema. |
 | `format` | string | `"PDF"`, `"CAJ"`, `"KDH"`, `"HN"`, `"C8"`, or `"TEB"`. |
 | `variant` | string or null | Measured HN/C8 container layout: `"C8"`, `"HN-A"`, or `"HN-B"`; otherwise null. |
-| `conversion_supported` | boolean | Whether this build converts the format. |
+| `conversion_supported` | boolean | Whether this build has a conversion route; HN/C8 still require runtime configuration and a supported profile. |
 | `page_count` | integer or null | Declared page count; null when unknown (TEB). |
 | `has_outline` | boolean or null | Whether the document has an outline; null when unknown (HN, C8, TEB). |
 | `bookmark_count` | integer or null | Number of outline entries; null when this format's outline cannot be listed. |
@@ -201,3 +243,25 @@ PDFs are checked with `qpdf --check`, `qpdf --show-npages`, and
 ```sh
 cargo test --locked -p caj2pdf-cli
 ```
+
+
+## HN/C8 integration validation
+
+Original tests convert an asymmetric 3×2 type-0 HN-A page from a file and stdin,
+reopen the PDF with qpdf and extract exact packed pixels. They also exercise
+state-file bounds/syntax, malformed input, missing state data, HN-B empty-row
+rejection, state-file/hardlink overwrite protection, scratch creation failure,
+existing-output preservation, anonymous-file cleanup and CAJ bookmark omission.
+
+The release CLI converted the external four-page C8 issue-58 document described
+in [the direct-record comparison](hnc8-direct-text.md), using a caller-supplied
+MQ file and `--no-bookmarks`. All four pages passed qpdf; the 3,992,137-byte
+PDF is byte-identical to the native example, Node and Chromium outputs:
+`fffa38e8f2cd675352108488117f13983f959ead7500f9f4ba1cab9a2e74ef1e`.
+The final run took 2.46 seconds and its scratch directory was empty.
+Linux child-process `ru_maxrss` reported 14,844 KiB from a Python
+subprocess harness. That process-lifetime measurement can include pre-exec
+launcher overhead; it is not a precise core-allocation measurement or a
+benchmark. Validation/hash allocations ran after conversion in the parent.
+External documents, tables and output PDFs remain outside Git. This covers one
+C8 document; broad compatibility and metadata work remain under #10/#14.

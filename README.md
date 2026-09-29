@@ -34,36 +34,26 @@ same-document handle validation.
 
 ## Command-line usage
 
-The `caj2pdf` Linux command converts CAJ, KDH, and PDF inputs. HN and C8
-files are recognized, but the command does not convert them yet: the core's
-[type-0 page converter](docs/hnc8-type0-pdf.md) needs a probability table
-that cannot be bundled until issue #30 is resolved. TEB is recognized and
-unsupported. Build it with `cargo build --release -p caj2pdf-cli`.
-The core also has a [selected type-2 JPEG PDF diagnostic](docs/hnc8-type2-pdf.md)
-for one checked HN/C8 image at a time; it does not compose a source page.
-The [selected type-3 JBIG2 PDF diagnostic](docs/hnc8-type3-pdf.md) similarly
-emits one checked image with a caller-supplied MQ table and bounded temporary
-backing. Exact table-state redistribution remains unresolved under issue #44.
-The [HN/C8 layout oracle](docs/hnc8-layout-oracle.md) records opt-in,
-metadata-only source-page and reference-PDF measurements for future page
-composition; it does not enable HN/C8 conversion.
-The [text-framing investigation](docs/hnc8-text-source.md) isolates the
-page-text component and positive-valued x/y fields with fixed-row diagnostic
-controls. The [source-derived placement profile](docs/hnc8-placement-rule.md)
-adds a bounded native text parser and pure unsigned-coordinate evaluator:
-36/36 discovery and 14/14 validation supplemental transforms match in the
-two inspected HN-A/C8 documents. Its factor is empirical; other layouts and
-full-page conversion remain pending under #10.
-The opt-in core [image-only source-page composer](docs/hnc8-page-composition.md)
-combines the measured type-0/type-2 profile in one PDF with bounded per-page
-metadata and caller-owned row storage. Its HN-B path reports no-image source
-rows separately. Caller-table use and this diagnostic API do not enable the
-production CLI or JavaScript HN/C8 routes.
+The `caj2pdf` Linux command converts CAJ, KDH and PDF inputs, and supports
+experimental HN/C8 image-page conversion. HN/C8 arithmetic images require
+caller-supplied QM/MQ state files while their MIT distribution decisions
+(#30/#44) remain unresolved. The same core converter is available through
+[Node and browser WASM](js/README.md), using caller-owned bounded scratch stores.
+TEB is recognized and unsupported. Build with `cargo build --release -p caj2pdf-cli`.
+
+For C8/HN-B, explicitly disable bookmark import until those outline semantics
+are verified. Unsupported profiles, including image-less HN-B source rows,
+fail rather than silently losing pages. See the [CLI reference](docs/cli.md)
+for runtime state-file syntax and limitations. The existing
+[page composer](docs/hnc8-page-composition.md),
+[repeated-group rules](docs/hnc8-repeated-groups.md), and
+[JS validation](docs/js-validation.md) document implementation evidence.
 
 ```sh
 caj2pdf paper.caj                  # writes paper.pdf next to the input
 caj2pdf paper.caj -o out.pdf       # explicit output; --force replaces a file
 caj2pdf - < paper.caj > paper.pdf  # standard input and output
+caj2pdf paper.c8 --mq-states mq.txt --no-bookmarks -o out.pdf
 caj2pdf inspect paper.caj --json --bookmarks
 caj2pdf add-bookmarks paper.caj scan.pdf -o scan-with-outline.pdf
 ```

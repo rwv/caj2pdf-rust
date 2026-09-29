@@ -123,12 +123,19 @@ fn create_unique(directory: &Path, stem: &OsString, mode: u32) -> io::Result<(Pa
     ))
 }
 
+/// Create private storage whose name is removed before it is used. The OS
+/// releases the file when the handle closes, including after process exit.
+pub fn anonymous_file(directory: &Path) -> io::Result<File> {
+    let (path, file) = create_unique(directory, &OsString::from(".caj2pdf-spool"), 0o600)?;
+    fs::remove_file(path)?;
+    Ok(file)
+}
+
 /// Copy a forward-only reader into an unlinked temporary file in
 /// `directory`. The name is removed before copying begins, so the storage
 /// is released when the returned handle closes, including after a failure.
 pub fn spool<R: Read>(mut reader: R, limit: u64, directory: &Path) -> Result<File, SpoolError> {
-    let (path, mut file) = create_unique(directory, &OsString::from(".caj2pdf-spool"), 0o600)?;
-    fs::remove_file(&path)?;
+    let mut file = anonymous_file(directory)?;
     let mut buffer = vec![0; COPY_CHUNK];
     let mut total = 0u64;
     loop {

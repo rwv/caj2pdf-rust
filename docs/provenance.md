@@ -1650,3 +1650,14 @@ unresolved. No dependency or legacy decoder source was added.
 The real C8 Node/Chromium runs described in [JS validation](js-validation.md)
 used externally supplied MQ data and an external corpus document. Those inputs,
 output PDFs and private harness files remain outside Git and npm packages.
+
+
+## Experimental HN/C8 CLI integration
+
+The CLI state-file parser, page routing and tests are original MIT project
+code. Anonymous file creation is factored from the existing stdin spool helper;
+the existing native `FileScratch` and core converter provide storage and PDF
+conversion. The tiny HN test uses the same original invented model/pixels as
+the WASM fixture. No normative states, legacy implementation, external document
+bytes or new dependency are committed. Runtime state files remain caller inputs
+and are protected against output overwrite.

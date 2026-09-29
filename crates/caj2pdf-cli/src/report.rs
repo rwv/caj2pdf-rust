@@ -40,7 +40,12 @@ pub fn write_text<W: Write>(out: &mut W, info: &Inspection, list: bool) -> io::R
     writeln!(
         out,
         "Conversion: {}",
-        if supported {
+        if matches!(
+            info.format,
+            caj2pdf_core::InputFormat::Hn | caj2pdf_core::InputFormat::C8
+        ) {
+            "experimental (caller codec states may be required)"
+        } else if supported {
             "supported"
         } else {
             "not supported"

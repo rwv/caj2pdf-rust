@@ -76,7 +76,8 @@ fn conversion_arguments_accept_every_output_spelling() {
         Ok(Command::Convert {
             input: path("paper.caj"),
             output: None,
-            force: false
+            force: false,
+            options: Default::default()
         })
     );
     for spelling in [
@@ -89,7 +90,8 @@ fn conversion_arguments_accept_every_output_spelling() {
             Ok(Command::Convert {
                 input: path("paper.caj"),
                 output: Some(path("out.pdf")),
-                force: false
+                force: false,
+                options: Default::default()
             })
         );
     }
@@ -98,7 +100,8 @@ fn conversion_arguments_accept_every_output_spelling() {
         Ok(Command::Convert {
             input: Endpoint::Std,
             output: Some(Endpoint::Std),
-            force: true
+            force: true,
+            options: Default::default()
         })
     );
     assert_eq!(
@@ -106,7 +109,8 @@ fn conversion_arguments_accept_every_output_spelling() {
         Ok(Command::Convert {
             input: path("-name.caj"),
             output: None,
-            force: false
+            force: false,
+            options: Default::default()
         })
     );
     assert_eq!(
@@ -114,7 +118,8 @@ fn conversion_arguments_accept_every_output_spelling() {
         Ok(Command::Convert {
             input: path("./inspect"),
             output: None,
-            force: false
+            force: false,
+            options: Default::default()
         })
     );
 }
@@ -367,7 +372,7 @@ fn json_report_uses_null_for_unknown_fields() {
     };
     assert_eq!(
         render(true, &info, true),
-        "{\"schema_version\":1,\"format\":\"C8\",\"variant\":\"C8\",\"conversion_supported\":false,\
+        "{\"schema_version\":1,\"format\":\"C8\",\"variant\":\"C8\",\"conversion_supported\":true,\
          \"page_count\":1,\"has_outline\":null,\"bookmark_count\":null,\"bookmarks\":null}\n"
     );
 }
@@ -760,4 +765,51 @@ fn stdout_commit_reports_a_failed_flush() {
     output.writer().write_all(b"%PDF-").unwrap();
     let error = output.commit().unwrap_err();
     assert!(error.message.starts_with("cannot write standard output"));
+}
+
+#[test]
+fn experimental_conversion_options_are_scoped_and_unambiguous() {
+    for args in [
+        vec![
+            "paper.hn",
+            "--qm-states",
+            "qm.txt",
+            "--mq-states",
+            "mq.txt",
+            "--no-bookmarks",
+        ],
+        vec![
+            "--qm-states=qm.txt",
+            "--mq-states=mq.txt",
+            "--no-bookmarks",
+            "paper.hn",
+        ],
+    ] {
+        let Command::Convert { options, .. } = parse_str(&args).unwrap() else {
+            panic!()
+        };
+        assert_eq!(options.qm_states, Some("qm.txt".into()));
+        assert_eq!(options.mq_states, Some("mq.txt".into()));
+        assert!(options.no_bookmarks);
+    }
+    for args in [
+        vec!["paper.hn", "--qm-states"],
+        vec!["paper.hn", "--mq-states", "-"],
+        vec!["paper.hn", "--qm-states="],
+        vec!["paper.hn", "--mq-states=a", "--mq-states=b"],
+        vec!["inspect", "paper.hn", "--no-bookmarks"],
+        vec!["inspect", "paper.hn", "--qm-states=a"],
+    ] {
+        assert!(parse_str(&args).is_err(), "{args:?}");
+    }
+    let unusual = OsString::from_vec(b"state-\xff".to_vec());
+    let Command::Convert { options, .. } = parse(vec![
+        "paper.hn".into(),
+        "--qm-states".into(),
+        unusual.clone(),
+    ])
+    .unwrap() else {
+        panic!()
+    };
+    assert_eq!(options.qm_states, Some(unusual.into()));
 }

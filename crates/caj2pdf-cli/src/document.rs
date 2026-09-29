@@ -48,7 +48,7 @@ pub fn format_name(format: InputFormat) -> &'static str {
 pub fn conversion_supported(format: InputFormat) -> bool {
     matches!(
         format,
-        InputFormat::Pdf | InputFormat::Caj | InputFormat::Kdh
+        InputFormat::Pdf | InputFormat::Caj | InputFormat::Kdh | InputFormat::Hn | InputFormat::C8
     )
 }
 
@@ -70,15 +70,10 @@ async fn detect<S: RangedSource>(source: &mut S, limits: &Limits) -> Result<Inpu
 }
 
 fn unsupported(format: InputFormat) -> String {
-    match format {
-        InputFormat::Teb => {
-            "TEB input is recognized, but TEB conversion is not supported".to_owned()
-        }
-        other => format!(
-            "{} input is recognized, but HN/C8 image decoding is not implemented yet",
-            format_name(other)
-        ),
-    }
+    format!(
+        "{name} input is recognized, but {name} conversion is not supported",
+        name = format_name(format)
+    )
 }
 
 fn ranged(file: &mut File) -> Result<SeekableSource<&mut File>, String> {
@@ -95,7 +90,13 @@ async fn hnc8_header<S: RangedSource>(source: &mut S, limits: &Limits) -> Result
 }
 
 /// Convert one input to PDF bytes written to `writer`.
-pub fn convert<W: Write>(input: &mut Input, writer: W, limits: &Limits) -> Result<(), CliError> {
+pub fn convert<W: Write>(
+    input: &mut Input,
+    writer: W,
+    limits: &Limits,
+    tables: &crate::hnc8::Tables,
+    include_bookmarks: bool,
+) -> Result<(), CliError> {
     let result = block_on(async {
         let mut source = ranged(&mut input.file)?;
         let mut sink = WriteSink::new(writer);
@@ -106,7 +107,7 @@ pub fn convert<W: Write>(input: &mut Input, writer: W, limits: &Limits) -> Resul
             InputFormat::Caj => caj::convert_caj(
                 &mut source,
                 &mut sink,
-                ConversionOptions::default(),
+                ConversionOptions { include_bookmarks },
                 limits,
                 &NeverCancel,
             )
@@ -115,9 +116,9 @@ pub fn convert<W: Write>(input: &mut Input, writer: W, limits: &Limits) -> Resul
             InputFormat::Kdh => convert_kdh(&mut source, &mut sink, limits, &NeverCancel)
                 .await
                 .map_err(text),
-            format @ (InputFormat::Hn | InputFormat::C8) => {
-                hnc8_header(&mut source, limits).await?;
-                Err(unsupported(format))
+            InputFormat::Hn | InputFormat::C8 => {
+                crate::hnc8::convert(&mut source, &mut sink, tables, include_bookmarks, limits)
+                    .await
             }
             other => Err(unsupported(other)),
         }
