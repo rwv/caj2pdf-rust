@@ -70,7 +70,7 @@ other failures. The [CLI reference](docs/cli.md) documents every rule and the
 
 Releases use `v0.x.y` during initial development. APIs, CLI behavior, and
 output may change between `0.x` releases; breaking changes are documented in
-the release notes. Commits follow [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/),
+[the release notes](CHANGELOG.md). Commits follow [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/),
 including `!` or a `BREAKING CHANGE:` footer for breaking changes. See
 [CONTRIBUTING.md](CONTRIBUTING.md) and the [release policy](docs/release-policy.md).
 
