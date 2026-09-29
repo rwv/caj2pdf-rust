@@ -525,6 +525,7 @@ pub async fn convert_type3_image_pdf<
         &mut document,
         table,
         prepared,
+        page.width,
         options,
         limits,
         cancellation,
@@ -557,6 +558,10 @@ pub(super) struct CheckedType3 {
 }
 
 impl CheckedType3 {
+    pub(super) fn digest(&self) -> [u8; 32] {
+        self.initial_digest
+    }
+
     pub(super) fn page(&self) -> PageInfo {
         self.profile.page()
     }
@@ -948,11 +953,13 @@ where
 
 /// Append one image to an existing PDF. Page creation/placement belongs to
 /// the caller; the decoder never opens or finishes another document.
+#[allow(clippy::too_many_arguments)]
 pub(super) async fn emit_type3_xobject<S, W, T, C>(
     source: &mut S,
     document: &mut PdfDocument<'_, W, C>,
     table: &MqTable,
     prepared: PreparedType3<'_, T>,
+    display_width: u32,
     options: Type3PdfOptions,
     limits: &Limits,
     cancellation: &C,
@@ -982,17 +989,23 @@ where
     // before forwarding the first combined row to the PDF image stream.
     let mut rows = document
         .begin_bilevel_image(BilevelImageSpec {
-            pixel_width: page.width,
+            pixel_width: display_width,
             pixel_height: page.height,
-            row_stride: page.row_stride,
+            row_stride: (display_width as usize).div_ceil(8),
         })
         .await
         .map_err(|error| at.pdf(error))?;
+    let mut padded = PaddedRows {
+        sink: &mut rows,
+        stride: page.row_stride,
+        column: 0,
+        padding: (display_width as usize).div_ceil(8) - page.row_stride,
+    };
     let mut page_sink = PageOrSink::new(
         profile,
         text_report,
         text,
-        &mut rows,
+        &mut padded,
         limits,
         cancellation,
         options.page_compose,
@@ -1037,6 +1050,33 @@ where
     }
     let object = rows.finish().await.map_err(|error| at.pdf(error))?;
     Ok((object, page_compose))
+}
+
+/// Internal adapter for a checked visible/DIB width. BilevelImageWriter
+/// accepts entire writes or fails; padding is at most three white bytes.
+struct PaddedRows<'a, W> {
+    sink: &'a mut W,
+    stride: usize,
+    column: usize,
+    padding: usize,
+}
+
+impl<W: SequentialSink> SequentialSink for PaddedRows<'_, W> {
+    async fn write(&mut self, bytes: &[u8]) -> crate::Result<usize> {
+        let count = bytes.len().min(self.stride - self.column);
+        let written = self.sink.write(&bytes[..count]).await?;
+        self.column += written;
+        if self.column == self.stride {
+            // Only BilevelImageWriter is wrapped: it accepts the complete
+            // slice or fails, including its own bounded/partial sink writes.
+            self.sink.write(&[0; 3][..self.padding]).await?;
+            self.column = 0;
+        }
+        Ok(written)
+    }
+    async fn flush(&mut self) -> crate::Result<()> {
+        self.sink.flush().await
+    }
 }
 
 fn code_length(symbols: u64) -> u32 {
@@ -1424,6 +1464,7 @@ mod tests {
                 &mut document,
                 &table,
                 prepared,
+                width,
                 options,
                 &limits,
                 &NeverCancel,

@@ -1586,3 +1586,16 @@ only on a synthesized CAJ page-tree root, preserving descendant overrides.
 See [the experiment and selected real-page comparisons](cajviewer-page-boxes.md).
 No vendor or legacy converter implementation was read or copied. The source
 rule is a documented viewer-compatibility fallback, not inferred lost metadata.
+
+## Type-3 source-page storage and geometry
+
+The #118 integration and its serial scratch views are original MIT code,
+reusing the repository's independently authored decoder and fixture builder.
+No dependency was added. The four-image black-box observation, reference
+revision and source digest are recorded in
+[the source-page note](hnc8-page-composition.md#actual-external-observation-and-remaining-work).
+External reference libraries, probability tables, documents and output
+pixels remain outside the repository. That observation establishes selected
+image padding/orientation only; the full-source attempt found an unsupported
+text layout and is explicitly recorded as a failure. Original mixed-page
+fixtures and independently rendered synthetic pixels are separate evidence.

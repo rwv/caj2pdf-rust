@@ -11,8 +11,8 @@ mod support;
 use caj2pdf_core::{
     Error, Limits, NeverCancel, RangedSource, SequentialSink,
     hnc8::{
-        Budget, ComposeBudget, ComposeOptions, ComposePage, ComposeVisitor, JpegBudget, TextBudget,
-        convert_source_pages_pdf,
+        Budget, ComposeBudget, ComposeOptions, ComposePage, ComposeType3Workspaces, ComposeVisitor,
+        ComposeWorkspaces, JpegBudget, TextBudget, convert_source_pages_pdf,
     },
     jbig1::Type0Budget,
     jbig2::text_composer::RandomAccessScratch,
@@ -266,11 +266,20 @@ fn caller_table(path: &Path, limits: &Limits) -> Result<QmTable, Box<dyn StdErro
 
 fn run() -> Result<(), Box<dyn StdError>> {
     let args: Vec<_> = env::args_os().skip(1).collect();
-    if args.len() != 4 && !(args.len() == 5 && args[4] == "--bookmarks") {
-        return Err(
-            "usage: hnc8_page_composition SOURCE OUTPUT_PDF TABLE SCRATCH_DIRECTORY [--bookmarks]"
-                .into(),
-        );
+    if args.len() < 4 {
+        return Err("usage: hnc8_page_composition SOURCE OUTPUT_PDF TABLE SCRATCH_DIRECTORY [--bookmarks] [--mq-table PATH]".into());
+    }
+    let mut bookmarks = false;
+    let mut mq_path = None;
+    let mut extra = args[4..].iter();
+    while let Some(flag) = extra.next() {
+        if flag == "--bookmarks" && !bookmarks {
+            bookmarks = true;
+        } else if flag == "--mq-table" && mq_path.is_none() {
+            mq_path = Some(extra.next().ok_or("missing MQ table path")?);
+        } else {
+            return Err("unknown or repeated diagnostic option".into());
+        }
     }
     let scratch_dir = Path::new(&args[3]).canonicalize()?;
     if env::temp_dir().canonicalize()? != scratch_dir {
@@ -285,7 +294,7 @@ fn run() -> Result<(), Box<dyn StdError>> {
         max_bookmarks: 4096,
     };
     let options = ComposeOptions {
-        include_bookmarks: args.len() == 5,
+        include_bookmarks: bookmarks,
         container: Budget {
             max_outline_records: 4096,
             max_images_per_page: 256,
@@ -298,6 +307,7 @@ fn run() -> Result<(), Box<dyn StdError>> {
             ..TextBudget::default()
         },
         jpeg: JpegBudget::default(),
+        type3: Default::default(),
         image: Type0Budget::default(),
         arithmetic: ArithmeticBudget {
             max_symbols: 12032768,
@@ -337,11 +347,45 @@ fn run() -> Result<(), Box<dyn StdError>> {
         written_bytes: 0,
         peak_bytes: 0,
     };
+    let mq = mq_path
+        .map(|path| support::table(Path::new(path), &limits))
+        .transpose()?;
+    let mut symbol_files = Vec::new();
+    let mut symbol_stores = Vec::new();
+    if mq.is_some() {
+        for _ in 0..3 {
+            let (store, handle) = TempStore::create("caj2pdf-source-symbols")?;
+            drop(handle);
+            symbol_stores.push(Scratch {
+                file: OpenOptions::new()
+                    .read(true)
+                    .write(true)
+                    .open(store.path())?,
+                max_request: 0,
+                read_bytes: 0,
+                written_bytes: 0,
+                peak_bytes: 0,
+            });
+            symbol_files.push(store);
+        }
+    }
+    let type3 = match (mq.as_ref(), symbol_stores.as_mut_slice()) {
+        (Some(table), [first, second, refined]) => Some(ComposeType3Workspaces {
+            table,
+            first,
+            second,
+            refined,
+        }),
+        _ => None,
+    };
     let report = ready(convert_source_pages_pdf(
         &mut source,
         &mut sink,
         Some(&table),
-        &mut scratch,
+        ComposeWorkspaces {
+            rows: &mut scratch,
+            type3,
+        },
         &mut Visitor,
         options,
         &limits,
@@ -350,7 +394,7 @@ fn run() -> Result<(), Box<dyn StdError>> {
     if scratch.size()? != 0 {
         return Err("completed diagnostic retained row-store bytes".into());
     }
-    if report.peak_row_store_bytes != scratch.peak_bytes {
+    if mq.is_none() && report.peak_row_store_bytes != scratch.peak_bytes {
         return Err("handler row-store peak differs from physical file lengths".into());
     }
     println!(
@@ -374,6 +418,19 @@ fn run() -> Result<(), Box<dyn StdError>> {
         scratch.written_bytes,
         scratch.max_request,
     );
+    if mq.is_some() {
+        eprintln!(
+            "type-3 images: {}; aggregate store peak: {} bytes",
+            report.type3_images, report.peak_row_store_bytes
+        );
+        for store in &symbol_stores {
+            if store.size()? != 0 {
+                return Err("retained type-3 symbol bytes".into());
+            }
+        }
+    }
+    drop(symbol_stores);
+    drop(symbol_files);
     drop(scratch);
     drop(row_store);
     Ok(())

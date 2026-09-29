@@ -38,8 +38,10 @@ An original unit test emits two differently sized asymmetric images into
 one document, reuses the text scratch between images, and checks packed
 pixels and page-placement commands. Its synthetic byte builder is shared
 with the existing selected-image integration tests. This is the reusable
-image boundary for #118; complete HN/C8 source-page composition and external
-full-page comparisons remain that issue's next steps.
+image boundary for #118. The source-page composer now reuses it for the
+currently parsed text profiles, with bounded reusable stores and streamed
+DIB padding; see [integration and remaining text-layout limits](hnc8-page-composition.md#type-3-source-page-integration-118).
+External full-page comparisons remain incomplete.
 
 ## Verification protocol and measured evidence
 
