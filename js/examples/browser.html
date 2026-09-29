@@ -15,15 +15,36 @@
     <input id="file" type="file">
     <button id="run" type="button">Convert</button>
     <button id="cancel" type="button" disabled>Cancel</button>
+    <button id="discard" type="button" hidden>Discard download</button>
     <pre id="result"></pre>
     <script type="module">
       import { blobSource, convert, loadModule, webWritableSink } from "../browser.mjs";
 
       const result = document.querySelector("#result");
       const cancel = document.querySelector("#cancel");
-      const modulePromise = loadModule(
-        new URL("../../target/wasm32-unknown-unknown/release/caj2pdf_wasm.wasm", import.meta.url),
-      );
+      const run = document.querySelector("#run");
+      const discard = document.querySelector("#discard");
+      let download;
+
+      async function discardDownload() {
+        if (!download) return;
+        await download.remove();
+        URL.revokeObjectURL(download.link.href);
+        download.link.remove();
+        download = undefined;
+        discard.hidden = true;
+      }
+
+      discard.onclick = async () => {
+        run.disabled = discard.disabled = true;
+        try {
+          await discardDownload();
+        } catch (error) {
+          result.textContent = error.message;
+        } finally {
+          run.disabled = discard.disabled = false;
+        }
+      };
 
       async function openOutput(name) {
         if (typeof window.showSaveFilePicker === "function") {
@@ -31,24 +52,37 @@
           return { stream: await handle.createWritable(), finish: async () => null };
         }
         const root = await navigator.storage.getDirectory();
-        const handle = await root.getFileHandle(`output-${crypto.randomUUID()}.pdf`, { create: true });
-        return { stream: await handle.createWritable(), finish: async () => handle.getFile() };
+        const storageName = `output-${crypto.randomUUID()}.pdf`;
+        const handle = await root.getFileHandle(storageName, { create: true });
+        const dispose = () => root.removeEntry(storageName);
+        try {
+          return { stream: await handle.createWritable(), finish: () => handle.getFile(), dispose };
+        } catch (error) {
+          await dispose();
+          throw error;
+        }
       }
 
-      document.querySelector("#run").addEventListener("click", async () => {
+      run.addEventListener("click", async () => {
         const file = document.querySelector("#file").files[0];
         if (!file) {
           result.textContent = "Select a file first.";
           return;
         }
         const controller = new AbortController();
+        run.disabled = discard.disabled = true;
         cancel.disabled = false;
         cancel.onclick = () => controller.abort();
         let writer;
+        let output;
         try {
-          const output = await openOutput(file.name.replace(/\.[^.]*$/, "") + ".pdf");
+          await discardDownload();
+          output = await openOutput(file.name.replace(/\.[^.]*$/, "") + ".pdf");
           writer = output.stream.getWriter();
-          const report = await convert(await modulePromise, blobSource(file), webWritableSink(writer), {
+          const module = await loadModule(
+            new URL("../../target/wasm32-unknown-unknown/release/caj2pdf_wasm.wasm", import.meta.url),
+          );
+          const report = await convert(module, blobSource(file), webWritableSink(writer), {
             signal: controller.signal,
           });
           await writer.close();
@@ -59,12 +93,19 @@
             link.href = URL.createObjectURL(saved);
             link.download = file.name.replace(/\.[^.]*$/, "") + ".pdf";
             link.textContent = " Download";
-            result.append(link);
+            result.append(link, " Save the download, then discard it to remove the private output file.");
+            download = { link, remove: output.dispose };
+            discard.hidden = false;
           }
         } catch (error) {
           await writer?.abort().catch(() => {});
-          result.textContent = `${error.code ?? error.name}: ${error.message}`;
+          await output?.dispose?.().catch(() => {});
+          result.textContent = error.name === "AbortError"
+            ? "Conversion cancelled."
+            : `${error.code ?? error.name}: ${error.message}`;
         } finally {
+          writer?.releaseLock();
+          run.disabled = discard.disabled = false;
           cancel.disabled = true;
         }
       });
