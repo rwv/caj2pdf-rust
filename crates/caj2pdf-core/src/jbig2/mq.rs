@@ -2,9 +2,12 @@
 
 //! Experimental T.88 Annex E MQ arithmetic control flow for one bounded stream.
 //!
-//! The 47 probability states are supplied by the caller. This module contains
-//! no published Table E.1 entries, Annex H vector, JBIG2 image model, or
-//! container parser. It is independent of the T.82 `qm` stripe decoder.
+//! The 47 standard probability states are available in [`STANDARD_STATES`];
+//! callers can also supply custom states. No Annex H vector, JBIG2 image model,
+//! or container parser is included. This is independent of the T.82 decoder.
+
+mod standard;
+pub use standard::STANDARD_STATES;
 
 use crate::{Cancellation, Error, Limits, MAX_BUDGET_COUNT, RangedSource, read_exact_at};
 use std::{error, fmt, mem};

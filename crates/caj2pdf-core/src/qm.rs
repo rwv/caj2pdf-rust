@@ -2,10 +2,14 @@
 
 //! Experimental, bounded T.82 arithmetic decoder for an already isolated SCD.
 //!
-//! The caller supplies the probability states. This module contains no
-//! normative state tuples, test vectors, CAJ framing, or image prediction.
+//! Standard probability states are available in [`STANDARD_STATES`].
+//! Custom states are also supported. No official test vectors, CAJ framing,
+//! or image prediction are included in this module.
 //! Its input span contains arithmetic bytes after any container framing and
 //! byte unstuffing have been handled by the caller.
+
+mod standard;
+pub use standard::STANDARD_STATES;
 
 use crate::{Cancellation, Error, Limits, MAX_BUDGET_COUNT, RangedSource, read_exact_at};
 use std::{error, fmt, mem};

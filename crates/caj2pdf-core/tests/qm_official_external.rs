@@ -159,6 +159,7 @@ fn official_1993_vector_and_register_checkpoints() {
     );
     let text = String::from_utf8(bytes).expect("external T.82 fixture is not UTF-8");
     let fixture = fixture_from_text(&text);
+    assert_eq!(fixture.states, caj2pdf_core::qm::STANDARD_STATES);
     let table = QmTable::new(fixture.states).expect("invalid externally supplied state table");
     let limits = Limits::default();
     let mut contexts = ContextBank::new(2, &limits).expect("context bank allocation failed");
