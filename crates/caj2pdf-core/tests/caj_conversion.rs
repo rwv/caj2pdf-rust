@@ -937,7 +937,7 @@ fn rejects_invalid_page_tree_relationships_before_writing() {
 }
 
 #[test]
-fn duplicate_page_tree_object_numbers_are_rejected_before_output() {
+fn identical_page_tree_object_replays_convert_once() {
     let mut body = Vec::new();
     object(
         &mut body,
@@ -950,11 +950,35 @@ fn duplicate_page_tree_object_numbers_are_rejected_before_output() {
         "<< /Type /Page /Parent 5 0 R /MediaBox [0 0 72 72] >>",
     );
     object(&mut body, 5, "<< /Type /Pages /Count 1 /Kids [9 0 R] >>");
+    let (output, report) = convert(
+        &fragment_caj(&body, &[9]),
+        ConversionOptions::default(),
+        &Limits::default(),
+    )
+    .unwrap();
+    assert_eq!(report.pages_converted, 1);
+    assert_eq!(inspect(&output).pages().len(), 1);
+}
+
+#[test]
+fn conflicting_page_tree_object_replays_are_rejected_before_output() {
+    let mut body = Vec::new();
+    object(
+        &mut body,
+        9,
+        "<< /Type /Page /Parent 5 0 R /MediaBox [0 0 72 72] >>",
+    );
+    object(
+        &mut body,
+        9,
+        "<< /Type /Page /Parent 5 0 R /MediaBox [0 0 73 72] >>",
+    );
+    object(&mut body, 5, "<< /Type /Pages /Count 1 /Kids [9 0 R] >>");
     let error = rejected_without_output(&fragment_caj(&body, &[9]), &Limits::default());
     assert!(matches!(
         error,
-        Error::Caj {
-            reason: "duplicate PDF page-tree object",
+        Error::Pdf {
+            kind: caj2pdf_core::PdfErrorKind::AmbiguousRepair,
             ..
         }
     ));
