@@ -6,16 +6,17 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { test } from "node:test";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-import { tempDirectory, wasmUrl } from "./helpers.mjs";
+import { syntheticCaj, tempDirectory, validatePdf, wasmUrl } from "./helpers.mjs";
+import { findChrome, launchChrome, openPage, startServer } from "./browser-harness.mjs";
 
 const run = promisify(execFile);
 const packageDirectory = fileURLToPath(new URL("..", import.meta.url));
 
-/** Copy the package without any built WASM, and dry-run `npm pack` there. */
+/** Copy the package without any built WASM, and run `npm pack` there. */
 async function packCopy(directory, prepare = async () => {}) {
   await cp(packageDirectory, directory, {
     recursive: true,
@@ -23,11 +24,11 @@ async function packCopy(directory, prepare = async () => {}) {
   });
   await prepare();
   const env = { ...process.env, npm_config_update_notifier: "false", npm_config_cache: join(directory, ".npm") };
-  const { stdout } = await run("npm", ["pack", "--dry-run", "--json", "--offline"], { cwd: directory, env });
+  const { stdout } = await run("npm", ["pack", "--json", "--offline"], { cwd: directory, env });
   return JSON.parse(stdout)[0];
 }
 
-test("npm pack includes the WASM build, entry points, declarations, LICENSE, and README only", async () => {
+test("npm pack includes the WASM build, entry points, declarations, LICENSE, and README only", async (t) => {
   const directory = await tempDirectory("pack");
   try {
     // The same copy step `npm run build:wasm` uses.
@@ -51,17 +52,58 @@ test("npm pack includes the WASM build, entry points, declarations, LICENSE, and
     assert.equal(files.get("caj2pdf_wasm.wasm").size, (await readFile(wasmUrl)).length);
     assert.equal(files.get("caj2pdf_wasm.wasm").mode & 0o777, 0o644);
     assert.equal(packed.name, "caj2pdf-rust");
-    // Import only the files selected for the tarball, so an omitted internal
-    // dependency cannot be supplied accidentally by the full checkout copy.
-    const installed = join(directory, "installed");
-    for (const { path } of packed.files) {
-      const target = join(installed, path);
-      await mkdir(dirname(target), { recursive: true });
-      await cp(join(directory, path), target);
-    }
-    const entry = await import(pathToFileURL(join(installed, "node.mjs")).href);
-    assert.ok(WebAssembly.Module.exports(await entry.loadModule()).some(({ name }) => name === "caj2pdf_io_poll"));
-    assert.equal(entry.writeSpoolChunk, undefined, "the helper is not a public entry export");
+    // Extract the actual artifact into a fresh consumer. Imports must resolve
+    // through its package exports without access to omitted checkout files.
+    const consumer = join(directory, "consumer");
+    const installed = join(consumer, "node_modules", "caj2pdf-rust");
+    await mkdir(installed, { recursive: true });
+    await run("tar", ["-xzf", join(directory, packed.filename), "--strip-components=1", "-C", installed]);
+    const { stdout } = await run(process.execPath, ["--input-type=module", "--eval", `
+      import assert from "node:assert/strict";
+      import * as root from "caj2pdf-rust";
+      import * as node from "caj2pdf-rust/node";
+      import * as browser from "caj2pdf-rust/browser";
+      assert.equal(root.loadModule, node.loadModule);
+      assert.equal(root.writeSpoolChunk, undefined);
+      assert.equal(browser.convert, node.convert);
+      assert.ok(WebAssembly.Module.exports(await root.loadModule()).some(({name}) => name === "caj2pdf_io_poll"));
+      console.log("packed exports and default WASM load passed");
+    `], { cwd: consumer });
+    assert.match(stdout, /packed exports and default WASM load passed/);
+
+    await t.test("packed browser entry converts in Chromium with its default WASM URL", async (t) => {
+      const chrome = findChrome();
+      if (!chrome) {
+        assert.ok(!process.env.CI, "Chromium is required in CI");
+        t.skip("no Chromium found; packed browser conversion NOT_RUN");
+        return;
+      }
+      const server = await startServer(installed, {
+        "/index.html": "<!doctype html><title>packed package</title>",
+        "/input.caj": syntheticCaj(),
+      });
+      let browser;
+      try {
+        browser = await launchChrome(chrome);
+        const page = await openPage(browser.cdp, `${server.origin}/index.html`);
+        const output = await page.evaluate(`(async () => {
+          const api = await import("/browser.mjs");
+          const module = await api.loadModule();
+          const input = await (await fetch("/input.caj")).blob();
+          const chunks = [];
+          const writer = new WritableStream({ write(bytes) { chunks.push(bytes); } }).getWriter();
+          const report = await api.convert(module, api.blobSource(input), api.webWritableSink(writer));
+          await writer.close();
+          return { pages: report.pagesConverted, bytes: Array.from(new Uint8Array(await new Blob(chunks).arrayBuffer())) };
+        })()`);
+        assert.equal(output.pages, 2);
+        await validatePdf(t, new Uint8Array(output.bytes), 2);
+        assert.deepEqual(page.errors, []);
+      } finally {
+        await browser?.close();
+        await server.close();
+      }
+    });
     const manifest = JSON.parse(await readFile(join(directory, "package.json"), "utf8"));
     assert.equal(manifest.license, "MIT");
     assert.equal(manifest.exports["./caj2pdf_wasm.wasm"], "./caj2pdf_wasm.wasm");
