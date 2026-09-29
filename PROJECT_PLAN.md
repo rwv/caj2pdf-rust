@@ -128,27 +128,19 @@ issue acceptance criteria are authoritative for each task.
 4. Compare page counts, bookmarks, and rendered output against the Python
    converter on its successful corpus cases. Keep known Python failures and
    unsupported formats classified separately.
-   HN/C8 outline discovery is now recorded in the
-   [closed Stage A report](docs/hnc8-outline-stage-a-results.md): two HN-A
-   references agree on 52 complete entries, and a finite GB18030 candidate
-   correlates with all 52 titles. Compatibility remains UNVERIFIED. Exact
-   title field/codec, hierarchy and destination rules still need the held-out
-   and one-field validation in native child/blocker
-   [#137](https://github.com/rwv/caj2pdf-rust/issues/137) before
-   [#119](https://github.com/rwv/caj2pdf-rust/issues/119) can implement its
-   original bounded visitor and emitted-page mapping. Preserve `/XYZ` null
-   parameters explicitly; C8/HN-B applicability and omitted-row policy remain
-   unknown. No converter/native/render/vendor call occurred in this discovery;
-   the first FAIL and all six unmet #119 criteria remain recorded.
-   The original [Stage B design proposal](docs/hnc8-outline-stage-b-proposal.md)
-   separates positive baseline and exact-control freezes. It remains DRAFT:
-   unresolved grammar, runtime identities and calculated phase ceilings keep
-   execution disabled and satisfy no #137 acceptance criterion.
+   HN-A [field validation](docs/hnc8-outline-fields.md) now compares 159 entries
+   from two additional documents and records fifteen targeted controls. #119
+   can implement the original bounded visitor and emitted-page mapping for
+   that profile, including explicit nullable `/XYZ` destinations. Malformed
+   truncation/retargeting behavior is documented rather than silently adopted.
+   C8/HN-B applicability and omitted-row policy remain unknown. Historical
+   [Stage A results](docs/hnc8-outline-stage-a-results.md) remain unchanged.
 5. Complete [the vendor fixture epic #123](https://github.com/rwv/caj2pdf-rust/issues/123)
    using the [simplified fixture plan](docs/cajviewer-fixtures.md).
    The [#124 capture pilot](docs/cajviewer-capture-pilot.md) established a
-   practical recipe with reopen pixel differences; next save a
-   small image baseline (#126) and ordinary-copy text where available (#127).
+   practical recipe with reopen pixel differences. The
+   [image/text snapshot](docs/cajviewer-fixture-snapshot.md) completes #126/#127;
+   formal baseline approval and the wider #129 matrix remain incomplete.
    Manual initial acquisition is acceptable; Docker is a reproducibility aid.
    Reuse completed manifests (#125). Use [the decoded comparator](docs/vendor-fixture-diff.md) (#128)
    with original controls now and acquired fixtures when available. Begin rollout
