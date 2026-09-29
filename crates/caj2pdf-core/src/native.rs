@@ -8,6 +8,9 @@
 use crate::{Error, MAX_IO_CHUNK, RangedSource, Result, SequentialSink};
 use std::io::{Read, Seek, SeekFrom, Write};
 
+mod scratch;
+pub use scratch::FileScratch;
+
 /// A positioned source backed by a caller-supplied `Read + Seek` handle.
 pub struct SeekableSource<R> {
     inner: R,

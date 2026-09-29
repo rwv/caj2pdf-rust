@@ -16,14 +16,14 @@ use caj2pdf_core::{
     },
     jbig1::Type0Budget,
     jbig2::text_composer::RandomAccessScratch,
-    native::{SeekableSource, WriteSink},
+    native::{FileScratch, SeekableSource, WriteSink},
     qm::{ArithmeticBudget, QM_STATE_COUNT, QmState, QmTable},
 };
 use std::{
     env,
     error::Error as StdError,
     fs::{File, OpenOptions},
-    io::{Read, Seek, SeekFrom, Write},
+    io::{Read, Write},
     path::Path,
 };
 use support::{TempStore, ready};
@@ -91,67 +91,42 @@ impl<S: SequentialSink> SequentialSink for Sink<S> {
 }
 
 struct Scratch {
-    file: File,
+    inner: FileScratch,
     max_request: usize,
     read_bytes: u64,
     written_bytes: u64,
     peak_bytes: u64,
 }
 
-impl Scratch {
-    fn span(&mut self, offset: u64, count: usize) -> caj2pdf_core::Result<()> {
-        check_request(count)?;
-        self.max_request = self.max_request.max(count);
-        let end = offset
-            .checked_add(count as u64)
-            .ok_or(Error::InvalidInput {
-                reason: "diagnostic scratch offset overflowed",
-            })?;
-        if end > self.file.metadata()?.len() {
-            return Err(Error::InvalidInput {
-                reason: "diagnostic scratch request escapes declared rows",
-            });
-        }
-        self.file.seek(SeekFrom::Start(offset))?;
-        Ok(())
-    }
-}
-
 impl RandomAccessScratch for Scratch {
     fn size(&self) -> caj2pdf_core::Result<u64> {
-        Ok(self.file.metadata()?.len())
+        self.inner.size()
     }
 
     async fn set_len(&mut self, bytes: u64) -> caj2pdf_core::Result<()> {
-        if bytes > ROW_BYTES {
-            return Err(Error::LimitExceeded {
-                resource: "diagnostic row-store bytes",
-                limit: ROW_BYTES,
-                attempted: bytes,
-            });
-        }
-        self.file.set_len(bytes)?;
+        self.inner.set_len(bytes).await?;
         self.peak_bytes = self.peak_bytes.max(bytes);
         Ok(())
     }
 
     async fn read_at(&mut self, offset: u64, output: &mut [u8]) -> caj2pdf_core::Result<usize> {
-        self.span(offset, output.len())?;
-        let count = self.file.read(output)?;
+        check_request(output.len())?;
+        self.max_request = self.max_request.max(output.len());
+        let count = self.inner.read_at(offset, output).await?;
         checked_total(&mut self.read_bytes, count)?;
         Ok(count)
     }
 
     async fn write_at(&mut self, offset: u64, bytes: &[u8]) -> caj2pdf_core::Result<usize> {
-        self.span(offset, bytes.len())?;
-        let count = self.file.write(bytes)?;
+        check_request(bytes.len())?;
+        self.max_request = self.max_request.max(bytes.len());
+        let count = self.inner.write_at(offset, bytes).await?;
         checked_total(&mut self.written_bytes, count)?;
         Ok(count)
     }
 
     async fn flush(&mut self) -> caj2pdf_core::Result<()> {
-        self.file.flush()?;
-        Ok(())
+        self.inner.flush().await
     }
 }
 
@@ -338,10 +313,13 @@ fn run() -> Result<(), Box<dyn StdError>> {
     let (row_store, handle) = TempStore::create("caj2pdf-source-rows")?;
     drop(handle);
     let mut scratch = Scratch {
-        file: OpenOptions::new()
-            .read(true)
-            .write(true)
-            .open(row_store.path())?,
+        inner: FileScratch::new(
+            OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open(row_store.path())?,
+            ROW_BYTES,
+        )?,
         max_request: 0,
         read_bytes: 0,
         written_bytes: 0,
@@ -357,10 +335,13 @@ fn run() -> Result<(), Box<dyn StdError>> {
             let (store, handle) = TempStore::create("caj2pdf-source-symbols")?;
             drop(handle);
             symbol_stores.push(Scratch {
-                file: OpenOptions::new()
-                    .read(true)
-                    .write(true)
-                    .open(store.path())?,
+                inner: FileScratch::new(
+                    OpenOptions::new()
+                        .read(true)
+                        .write(true)
+                        .open(store.path())?,
+                    ROW_BYTES,
+                )?,
                 max_request: 0,
                 read_bytes: 0,
                 written_bytes: 0,
