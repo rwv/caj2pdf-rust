@@ -193,3 +193,10 @@ without producing a PDF. No 75-page success or viewer parity is claimed.
 Other filter names, filter arrays and unresolved unfiltered lengths remain
 unsupported. Next work must establish reliable boundaries for that case,
 not infer them from arbitrary marker-like bytes in its payload.
+
+## Missing inherited page dimensions
+
+Synthesized CAJ page-tree roots carry a Letter MediaBox (`[0 0 612 792]`),
+matching the [observed CAJViewer fallback](cajviewer-page-boxes.md). Explicit
+boxes on existing descendant nodes/pages still override the root. This does
+not change strict validation of ordinary PDF inputs or invalid explicit boxes.
