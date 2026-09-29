@@ -6,8 +6,9 @@
 
 This is the original MIT source and control contract for
 [#148](https://github.com/rwv/caj2pdf-rust/issues/148), completed in
-[PR #150](https://github.com/rwv/caj2pdf-rust/pull/150), and the new
+[PR #150](https://github.com/rwv/caj2pdf-rust/pull/150), and the completed
 [#151](https://github.com/rwv/caj2pdf-rust/issues/151) fixed-cache source child
+([PR #152](https://github.com/rwv/caj2pdf-rust/pull/152))
 and blocker of [capability issue #124](https://github.com/rwv/caj2pdf-rust/issues/124).
 The prerequisites #125, #133 and #143 are complete. The capability-protocol
 source in #146 is a separate prerequisite; this child does not depend on it.
@@ -18,6 +19,14 @@ original controls in
 It retains a bounded diagnostic when an inventory metadata helper fails.
 The #148 diagnostic slice supplies no runtime profile and performs no image
 build, module installation, cache-policy change, viewer launch or vendor comparison.
+
+Parent #124's later [V14 inventory](cajviewer-runtime-view-v14.md) completed
+successfully with both actual closing reviews. The separate metadata consumer
+passed one actual call and both closing reviews, and GUI capability remains
+unproved. The historical failures below are preserved; only parent AC7 is complete.
+The new source-loading child [#153](https://github.com/rwv/caj2pdf-rust/issues/153)
+covers capability execution origin before separate fresh delivery/load checks
+and the GUI profile; the upstream inventory source checks cannot fill that role.
 
 The sole historical V12 inventory remains `CLOSED_FAIL`. Both original modules
 loaded; `dpkg-query` passed, and `fc-list` returned helper status PASS and typed
@@ -60,22 +69,24 @@ The returned pair contains a new expected-ENV dictionary changing only
 filesystem, clock, tool or process is consulted, and no cache-path option is
 exposed. This adds no installed module or inline statement.
 
-Parent #124's future external caller must consume both values: insert those
+Parent #124's external caller must consume both values: insert those
 tokens exactly once into Docker create and pass the returned ENV to the
 canonical entry and independent host observation. Preserve every other
 image/resource/user/mount argument. Its existing `future_exact_argvs` equality
 gate must reject missing, duplicate or foreign overrides before Docker.
-There is no public P2 argv builder; the actual caller amendment and its
-argument/refusal controls remain unimplemented and NOT_RUN. Do not apply this
-profile by editing the consumed V13 caller, plans or evidence.
+There is no public P2 argv builder. A distinct original V14 caller and its
+argument/refusal controls passed, followed by one successful inventory with
+unchanged raw font/package observations. The consumed V13 caller, plans and
+evidence remain immutable.
 
 Fontconfig's documented XDG user-cache default makes `/tmp/fontconfig` a
 candidate inside the existing 8 MiB `/tmp` tmpfs. See the
 [Debian Fontconfig 2.14.1 manual](https://manpages.debian.org/bookworm/fontconfig-config/fonts-conf.5.en.html),
 [upstream Fontconfig configuration](https://fontconfig.pages.freedesktop.org/fontconfig/fontconfig-user.html)
 and [XDG base-directory specification](https://specifications.freedesktop.org/basedir/latest/).
-Actual cache creation, configuration applicability, capacity and identical
-font output remain unproved. `/tmp` is outside the six inventory roots; no
+The fixed V14 inventory profile passed with identical raw font output and empty
+helper stderr. Actual cache creation, contents and occupied bytes remain
+unmeasured. `/tmp` is outside the six inventory roots; no
 membership exception, cache warmup, custom font configuration, writable HOME,
 image rebuild, baseline refresh, output sorting/normalization or cap increase
 is introduced.

@@ -4,6 +4,20 @@
 
 ## Status and scope
 
+The latest [V14 public runtime-view inventory](cajviewer-runtime-view-v14.md)
+closed PASS: five Docker clients, one complete inventory, all 2,731 strict
+runtime comparisons and both actual closing reviews passed. The separate
+eight-blob metadata consumer passed one actual call with both closing reviews
+accepted, scoped only to the closed pinned runtime view. These phases launched
+no application and add zero vendor compatibility passes. #124 stays open with only AC7
+complete; image/text acquisition remains blocked. Earlier failure checkpoints
+below retain their original scopes and outcomes.
+
+Native child/blocker [#153](https://github.com/rwv/caj2pdf-rust/issues/153)
+requires verified source loading before host, session and collector actions.
+Its source controls precede separate fresh capability delivery/load proof and
+the GUI profile; runtime inventory success does not establish those facts.
+
 **DRAFT — vendor compatibility is `NOT_RUN`, zero passes.** Two original-PDF
 startup attempts lost their tmpfs diagnostics. The reviewed transport amendment
 collected two loader failures with unavailable `libxslt.so.1`. The measured
@@ -62,15 +76,16 @@ audits, four dynamic/environment checks, three output audits, owned-ID removal
 and final absence. This does not recover V12's unavailable message/cause or
 change the twelve old launcher outcomes.
 
-New native child/blocker [#151](https://github.com/rwv/caj2pdf-rust/issues/151)
+Resolved native child/blocker [#151](https://github.com/rwv/caj2pdf-rust/issues/151)
 supplies a pure host-only fixed cache profile and original controls. Its
 [contract](cajviewer-inventory-diagnostics.md#fixed-host-cache-profile-151)
 jointly returns copied expected ENV and one `XDG_CACHE_HOME=/tmp` Docker
-override. Actual caller integration remains parent #124 work; a separately
-reviewed phase must prove conditional `/tmp/fontconfig` behavior within the
-existing 8 MiB tmpfs and unchanged inventory. Source closure authorizes no
-runtime replay or application attempt. Only #124 AC7 is complete; actual
-runtime-view and capability criteria remain unmet.
+override. Its original caller integration and the sole V14 inventory passed;
+the fixed profile preserved raw font/package observations and strict membership
+under the existing 8 MiB tmpfs. Actual cache contents and occupied bytes were
+not measured. The separate metadata consumer passed; verified capability source
+loading, fresh delivery/load proof and the GUI profile remain parent #124 work.
+Only AC7 is complete; capability criteria remain unmet.
 
 Native child/blocker [#146](https://github.com/rwv/caj2pdf-rust/issues/146)
 defines the original capability protocol: document/page identity,
@@ -140,7 +155,7 @@ children follow this graph; issue acceptance criteria remain authoritative:
 
 | Child | Issue | Blocked by |
 | --- | --- | --- |
-| A | [#124: verify offline CAJViewer Linux container capabilities](https://github.com/rwv/caj2pdf-rust/issues/124) | Resolved child prerequisites [#133](https://github.com/rwv/caj2pdf-rust/issues/133), [#143](https://github.com/rwv/caj2pdf-rust/issues/143), #146 (PR #149) and [#148](https://github.com/rwv/caj2pdf-rust/issues/148) (PR #150); new fixed-cache source prerequisite [#151](https://github.com/rwv/caj2pdf-rust/issues/151); actual runtime-view and capability proof remain unmet |
+| A | [#124: verify offline CAJViewer Linux container capabilities](https://github.com/rwv/caj2pdf-rust/issues/124) | Resolved child prerequisites [#133](https://github.com/rwv/caj2pdf-rust/issues/133), [#143](https://github.com/rwv/caj2pdf-rust/issues/143), #146 (PR #149), [#148](https://github.com/rwv/caj2pdf-rust/issues/148) (PR #150) and [#151](https://github.com/rwv/caj2pdf-rust/issues/151) (PR #152); new source-loading child [#153](https://github.com/rwv/caj2pdf-rust/issues/153); V14 inventory and its separate metadata consumer passed; GUI capability proof remains pending |
 | D | [#125: define immutable external fixture manifests and receipts](https://github.com/rwv/caj2pdf-rust/issues/125) | None within this epic |
 | B | [#126: acquire reproducible complete-page CAJViewer images](https://github.com/rwv/caj2pdf-rust/issues/126) | A (#124) and D (#125) |
 | C | [#127: capture standard-copy text and classify OCR separately](https://github.com/rwv/caj2pdf-rust/issues/127) | A (#124) and D (#125) |

@@ -224,16 +224,28 @@ issue acceptance criteria are authoritative for each task.
    closing reviews passed for preservation, including 381 public audits,
    four dynamic/environment checks, three output audits and verified-ID cleanup.
    The older V12 message/cause and twelve launcher outcomes remain unchanged.
-   New native child/blocker
+   Resolved native child/blocker
    [#151: fixed temporary font-cache profile](https://github.com/rwv/caj2pdf-rust/issues/151)
-   defines a pure host-only expected-ENV copy and one exact Docker override.
+   supplies a pure host-only expected-ENV copy and one exact Docker override,
+   completed in [PR #152](https://github.com/rwv/caj2pdf-rust/pull/152).
    Its [integration contract](docs/cajviewer-inventory-diagnostics.md#fixed-host-cache-profile-151)
-   requires joint consumption under the existing exact-argv gate. Actual caller
-   integration and `/tmp/fontconfig` behavior within the existing 8 MiB tmpfs
-   remain unimplemented/unproved parent #124 work. Source closure grants no
-   replay; a new caller/finite phase needs its own controls, two frozen reviews,
-   same-PID pending/token and actual closing. Only #124 AC7 is complete;
-   runtime-view, capability, image and text criteria remain unmet.
+   requires joint consumption under the existing exact-argv gate. Original caller
+   controls passed 22 methods with zero skips. The sole fresh
+   [V14 runtime inventory](docs/cajviewer-runtime-view-v14.md) completed with
+   five Docker clients, one complete inventory and zero application/vendor
+   actions; both actual closing reviews passed. All 2,731 strict comparisons,
+   372 public audits and the unchanged raw font/package checks passed, with
+   only the declared original session-module update. Cache contents/occupied
+   bytes remain unmeasured. The separate eight-blob metadata consumer completed
+   one actual call with both closing reviews accepted, scoped only to the closed
+   pinned runtime view and adding zero Docker/application/vendor actions.
+   New native child/blocker
+   [#153: verified capability source loading](https://github.com/rwv/caj2pdf-rust/issues/153)
+   requires execution from verified bytes in host, session and collector entries
+   before fresh capability delivery and a separately reviewed GUI profile.
+   Only #124 AC7 is complete;
+   capability, image and text criteria remain unmet. Old failures and the twelve
+   Viewer outcomes are preserved; the closed inventory is not replayed.
    Resolved native source child/blocker
    [#146: original capability protocol](https://github.com/rwv/caj2pdf-rust/issues/146)
    implements separate document/page identity, complete-page and fresh
