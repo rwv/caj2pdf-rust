@@ -2,6 +2,10 @@
 
 # T.88 MQ state-data provenance decision
 
+Current project decision: [2026-09-29 standard numeric state adoption](provenance.md#2026-09-29-standard-numeric-state-adoption-3044).
+The owner has directed direct use without emailing rights holders. The following
+research record remains historical and is not a current implementation blocker.
+
 Status: **UNRESOLVED**. Reviewed on 2026-09-27 by Codex repository research and an independent Codex reviewer for [issue #44](https://github.com/rwv/caj2pdf-rust/issues/44). This is a repository release decision, not a determination that the numeric data is or is not copyrightable. The exact state rows remain outside Git and all native, WASM, and JavaScript packages. A new independent review is required before relying on a different decision.
 
 ## Material and editions

@@ -1,0 +1,293 @@
+// SPDX-License-Identifier: MIT
+
+//! Numerical interoperability states from T.88 (02/2000), Annex E Table E.1.
+//! See docs/provenance.md for the adoption decision and source scope.
+
+use super::MqState;
+
+/// Standard probability states, ordered by the normative state index.
+/// Custom tables remain accepted by the existing table constructor.
+pub const STANDARD_STATES: [MqState; 47] = [
+    MqState {
+        qe: 0x5601,
+        next_lps: 1,
+        next_mps: 1,
+        switch_mps: true,
+    },
+    MqState {
+        qe: 0x3401,
+        next_lps: 6,
+        next_mps: 2,
+        switch_mps: false,
+    },
+    MqState {
+        qe: 0x1801,
+        next_lps: 9,
+        next_mps: 3,
+        switch_mps: false,
+    },
+    MqState {
+        qe: 0x0ac1,
+        next_lps: 12,
+        next_mps: 4,
+        switch_mps: false,
+    },
+    MqState {
+        qe: 0x0521,
+        next_lps: 29,
+        next_mps: 5,
+        switch_mps: false,
+    },
+    MqState {
+        qe: 0x0221,
+        next_lps: 33,
+        next_mps: 38,
+        switch_mps: false,
+    },
+    MqState {
+        qe: 0x5601,
+        next_lps: 6,
+        next_mps: 7,
+        switch_mps: true,
+    },
+    MqState {
+        qe: 0x5401,
+        next_lps: 14,
+        next_mps: 8,
+        switch_mps: false,
+    },
+    MqState {
+        qe: 0x4801,
+        next_lps: 14,
+        next_mps: 9,
+        switch_mps: false,
+    },
+    MqState {
+        qe: 0x3801,
+        next_lps: 14,
+        next_mps: 10,
+        switch_mps: false,
+    },
+    MqState {
+        qe: 0x3001,
+        next_lps: 17,
+        next_mps: 11,
+        switch_mps: false,
+    },
+    MqState {
+        qe: 0x2401,
+        next_lps: 18,
+        next_mps: 12,
+        switch_mps: false,
+    },
+    MqState {
+        qe: 0x1c01,
+        next_lps: 20,
+        next_mps: 13,
+        switch_mps: false,
+    },
+    MqState {
+        qe: 0x1601,
+        next_lps: 21,
+        next_mps: 29,
+        switch_mps: false,
+    },
+    MqState {
+        qe: 0x5601,
+        next_lps: 14,
+        next_mps: 15,
+        switch_mps: true,
+    },
+    MqState {
+        qe: 0x5401,
+        next_lps: 14,
+        next_mps: 16,
+        switch_mps: false,
+    },
+    MqState {
+        qe: 0x5101,
+        next_lps: 15,
+        next_mps: 17,
+        switch_mps: false,
+    },
+    MqState {
+        qe: 0x4801,
+        next_lps: 16,
+        next_mps: 18,
+        switch_mps: false,
+    },
+    MqState {
+        qe: 0x3801,
+        next_lps: 17,
+        next_mps: 19,
+        switch_mps: false,
+    },
+    MqState {
+        qe: 0x3401,
+        next_lps: 18,
+        next_mps: 20,
+        switch_mps: false,
+    },
+    MqState {
+        qe: 0x3001,
+        next_lps: 19,
+        next_mps: 21,
+        switch_mps: false,
+    },
+    MqState {
+        qe: 0x2801,
+        next_lps: 19,
+        next_mps: 22,
+        switch_mps: false,
+    },
+    MqState {
+        qe: 0x2401,
+        next_lps: 20,
+        next_mps: 23,
+        switch_mps: false,
+    },
+    MqState {
+        qe: 0x2201,
+        next_lps: 21,
+        next_mps: 24,
+        switch_mps: false,
+    },
+    MqState {
+        qe: 0x1c01,
+        next_lps: 22,
+        next_mps: 25,
+        switch_mps: false,
+    },
+    MqState {
+        qe: 0x1801,
+        next_lps: 23,
+        next_mps: 26,
+        switch_mps: false,
+    },
+    MqState {
+        qe: 0x1601,
+        next_lps: 24,
+        next_mps: 27,
+        switch_mps: false,
+    },
+    MqState {
+        qe: 0x1401,
+        next_lps: 25,
+        next_mps: 28,
+        switch_mps: false,
+    },
+    MqState {
+        qe: 0x1201,
+        next_lps: 26,
+        next_mps: 29,
+        switch_mps: false,
+    },
+    MqState {
+        qe: 0x1101,
+        next_lps: 27,
+        next_mps: 30,
+        switch_mps: false,
+    },
+    MqState {
+        qe: 0x0ac1,
+        next_lps: 28,
+        next_mps: 31,
+        switch_mps: false,
+    },
+    MqState {
+        qe: 0x09c1,
+        next_lps: 29,
+        next_mps: 32,
+        switch_mps: false,
+    },
+    MqState {
+        qe: 0x08a1,
+        next_lps: 30,
+        next_mps: 33,
+        switch_mps: false,
+    },
+    MqState {
+        qe: 0x0521,
+        next_lps: 31,
+        next_mps: 34,
+        switch_mps: false,
+    },
+    MqState {
+        qe: 0x0441,
+        next_lps: 32,
+        next_mps: 35,
+        switch_mps: false,
+    },
+    MqState {
+        qe: 0x02a1,
+        next_lps: 33,
+        next_mps: 36,
+        switch_mps: false,
+    },
+    MqState {
+        qe: 0x0221,
+        next_lps: 34,
+        next_mps: 37,
+        switch_mps: false,
+    },
+    MqState {
+        qe: 0x0141,
+        next_lps: 35,
+        next_mps: 38,
+        switch_mps: false,
+    },
+    MqState {
+        qe: 0x0111,
+        next_lps: 36,
+        next_mps: 39,
+        switch_mps: false,
+    },
+    MqState {
+        qe: 0x0085,
+        next_lps: 37,
+        next_mps: 40,
+        switch_mps: false,
+    },
+    MqState {
+        qe: 0x0049,
+        next_lps: 38,
+        next_mps: 41,
+        switch_mps: false,
+    },
+    MqState {
+        qe: 0x0025,
+        next_lps: 39,
+        next_mps: 42,
+        switch_mps: false,
+    },
+    MqState {
+        qe: 0x0015,
+        next_lps: 40,
+        next_mps: 43,
+        switch_mps: false,
+    },
+    MqState {
+        qe: 0x0009,
+        next_lps: 41,
+        next_mps: 44,
+        switch_mps: false,
+    },
+    MqState {
+        qe: 0x0005,
+        next_lps: 42,
+        next_mps: 45,
+        switch_mps: false,
+    },
+    MqState {
+        qe: 0x0001,
+        next_lps: 43,
+        next_mps: 45,
+        switch_mps: false,
+    },
+    MqState {
+        qe: 0x5601,
+        next_lps: 46,
+        next_mps: 46,
+        switch_mps: false,
+    },
+];

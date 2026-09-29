@@ -1,5 +1,45 @@
 # Provenance and dependency inventory
 
+## 2026-09-29 standard numeric state adoption (#30/#44)
+
+The owner explicitly instructed the project to use the state tables directly
+and not send a rights inquiry. This supersedes the earlier project rule that
+bundling must wait for an email or a separate original state derivation.
+The earlier UNRESOLVED entries below are historical research, not the current
+implementation gate. No rights-holder permission or legal determination is
+claimed by this maintainer decision.
+
+The adopted material is only the numerical interoperability parameters in
+T.82 (03/1993) Table 24 (113 states) and T.88 (02/2000) Annex E Table E.1
+(47 states). Values are taken from the project's already pinned, standard-derived
+external records used for prior conformance checks. Rust declarations are
+original MIT code. No reference decoder control flow, comments, arrangement,
+standard prose, official test-vector bytes or external documents are imported.
+The data is not described as independently invented or granted an MIT license
+by another project's license. The project adopts the required numerical
+parameters for implementing the formats and retains its MIT source license.
+
+Observed upstream practice:
+
+- [JBIG-KIT](https://www.cl.cam.ac.uk/~mgk25/jbigkit/) implements T.82 and
+  distributes its implementation under GPL (with commercial licensing).
+- [OpenJPEG](https://www.openjpeg.org/) embeds MQ state data for JPEG 2000;
+  its [license](https://github.com/uclouvain/openjpeg/blob/master/LICENSE)
+  is BSD-2-Clause.
+- [PDF.js JBIG2](https://github.com/mozilla/pdf.js.jbig2/) distributes a
+  PDFium-based decoder under Apache-2.0.
+
+These are implementation precedents, not licenses for our source or evidence
+of an ITU grant. No code was copied from these implementations. In particular,
+GPL/BSD/Apache implementation code is not relabeled MIT.
+
+`qm::STANDARD_STATES` and `jbig2::mq::STANDARD_STATES` expose the data through
+existing state types. Fixed digest tests catch accidental numerical changes;
+existing external conformance tests compare every row with the independently
+pinned standard records. Official vectors remain external and optional tests
+remain NOT_RUN when absent. Default CLI/WASM integration belongs to #8/#9.
+
+
 ## Type-3 shared image emission (#118)
 
 The internal preflight/preparation/emission split reuses original MIT code

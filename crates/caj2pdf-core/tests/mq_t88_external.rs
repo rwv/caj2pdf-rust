@@ -166,6 +166,7 @@ fn official_2000_h2_decisions_and_h1_register_checkpoints() {
         max_work: 100_000,
         max_terminal_inputs: H2_SYMBOLS as u64,
     };
+    assert_eq!(fixture.states, caj2pdf_core::jbig2::mq::STANDARD_STATES);
     let table = MqTable::new(fixture.states, &limits).expect("invalid external E.1 state table");
     let mut contexts = MqContexts::new(1, &limits, &budget).unwrap();
     let mut source = SeekableSource::new(Cursor::new(fixture.compressed)).unwrap();
