@@ -3,6 +3,8 @@
 Issue #13 covers the common browser/Node package and CAJ/KDH/PDF conversion.
 HN/C8 integration acceptance is tracked in #10. Representative vendor-page
 comparisons and whole-process release measurements remain #123/#14.
+Selected HN/C8 pages have known page-size differences from CAJViewer; see
+[the current viewer results](cajviewer-hnc8-kdh.md).
 
 ## Verified delivery paths
 
