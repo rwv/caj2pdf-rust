@@ -210,10 +210,13 @@ export async function validateMultiImageHn(t, bytes) {
     const info = JSON.parse((await run("qpdf", ["--json", "--json-key=pages", "--json-key=outlines", path])).stdout);
     const page = info.pages[0];
     assert.equal(page.images.length, 2);
-    for (const image of page.images) {
+    for (const [index, image] of page.images.entries()) {
+      assert.equal(image.name, `/Im${index}`);
       assert.equal(image.width, 32); assert.equal(image.height, 2);
       const { stdout } = await run("qpdf", [`--show-object=${image.object.split(" ")[0]}`, "--filtered-stream-data", path], { encoding: "buffer" });
-      assert.deepEqual([...stdout], [0x40, 0, 0, 0, 0xa0, 0, 0, 0]);
+      assert.deepEqual([...stdout], index === 0
+        ? [0x40, 0, 0, 0, 0xa0, 0, 0, 0]
+        : [0x20, 0, 0, 0, 0xc0, 0, 0, 0]);
     }
     const content = (await run("qpdf", [`--show-object=${page.contents[0].split(" ")[0]}`, "--filtered-stream-data", path])).stdout;
     const draws = [...content.matchAll(/([\d.e+\- ]+) cm\s+\/Im(\d+) Do/g)];

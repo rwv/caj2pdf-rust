@@ -36,8 +36,9 @@ export function syntheticHn(withBookmarks = false, twoImages = false) {
     u32(dib, 40); u32(dib + 4, 3); u32(dib + 8, 2);
     u16(dib + 12, 1); u16(dib + 14, 1); u32(dib + 32, 2);
     bytes.fill(255, dib + 40, dib + 43);
-    // Alternating rows 101 / 010 under the invented constant state table.
-    bytes[dib + 48] = 0x92;
+    // Original rows: 101 / 010, then 110 / 001. Their constant-state
+    // interval lower bounds are 0x9200 and 0xa100 (see core compose tests).
+    bytes[dib + 48] = image === 0 ? 0x92 : 0xa1;
   }
   u16(text + images * 28, 0x8004);
   return bytes;
