@@ -221,3 +221,13 @@ async function runWorker(path) {
 
 export const scratchInWorker = () => runWorker("/test/scratch-worker.mjs");
 export const hnc8InWorker = () => runWorker("/test/hnc8-worker.mjs");
+
+export async function inspectHnc8() {
+  const { syntheticHn, unknownOutline } = await import("./hnc8-fixtures.mjs");
+  const result = [];
+  for (const bytes of [syntheticHn(true), unknownOutline("c8"), unknownOutline("hn")]) {
+    const info = await inspect(await modulePromise, blobSource(new Blob([bytes])), { chunkSize: 3 });
+    result.push({ format: info.format, pages: info.pageCount, bookmarks: info.bookmarkCount });
+  }
+  return result;
+}

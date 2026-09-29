@@ -35,7 +35,7 @@ that starts with `CAJ` but lacks the CAJ header is reported as malformed.
 | `%PDF-` | PDF | Validated copy through the core PDF reader and repair layer | Pages and outline presence |
 | `CAJ` | CAJ | Reconstructed PDF with the CAJ outline | Pages and full outline |
 | `KDH` | KDH | Decoded embedded PDF | Pages and outline presence |
-| `HN` | HN | Experimental image-page conversion with caller codec states | Container variant and pages |
+| `HN` | HN | Experimental image-page conversion with caller codec states | Variant/pages; HN-A full outline, HN-B outline unknown |
 | `c8 00 00 00` | C8 | Experimental image-page conversion with caller codec states | Container variant and pages |
 | `TEB` | TEB | Unsupported; exits with status 1 | Format only |
 
@@ -43,7 +43,10 @@ HN/C8 routes use the same independently implemented core page composer as
 WASM. Malformed data and unsupported layouts produce located errors. No NH
 signature has been measured, so NH input remains unrecognized. PDF/KDH
 inspection reports outline presence rather than full outline entries;
-HN/C8 inspection still reports container metadata only.
+HN-A inspection also validates and lists its outline. C8/HN-B outline metadata
+remains unknown. Inspection needs neither state files nor scratch storage.
+The CLI bounds retained outline records plus title capacities by
+`max_allocation_bytes`; image payloads are not read.
 
 ### Experimental HN/C8 options
 
@@ -89,7 +92,10 @@ rejecting the format. Missing state data and unsupported metadata/layouts have
 specific diagnostics. `inspect` reports `conversion_supported: true` for HN/C8
 because this build has a conversion route; that is not proof that a particular
 profile converts or its required runtime states are supplied. Human-readable
-inspection marks this support as experimental. The JSON schema remains version 1.
+inspection marks this support as experimental. The JSON schema remains version 1. HN-A `has_outline`, `bookmark_count` and
+`bookmarks` now contain validated metadata rather than unknown values; a malformed
+outline fails inspection with its source location. Known empty outlines produce
+`false`, zero and an empty list. C8/HN-B remain unknown.
 
 ## Conversion
 
@@ -178,7 +184,7 @@ adding a field is not considered incompatible.
 | `variant` | string or null | Measured HN/C8 container layout: `"C8"`, `"HN-A"`, or `"HN-B"`; otherwise null. |
 | `conversion_supported` | boolean | Whether this build has a conversion route; HN/C8 still require runtime configuration and a supported profile. |
 | `page_count` | integer or null | Declared page count; null when unknown (TEB). |
-| `has_outline` | boolean or null | Whether the document has an outline; null when unknown (HN, C8, TEB). |
+| `has_outline` | boolean or null | Whether the document has an outline; null when unknown (HN-B, C8, TEB). |
 | `bookmark_count` | integer or null | Number of outline entries; null when this format's outline cannot be listed. |
 | `bookmarks` | array or null | Present only with `--bookmarks`. The root entries, or null when the outline cannot be listed. |
 
@@ -264,4 +270,4 @@ subprocess harness. That process-lifetime measurement can include pre-exec
 launcher overhead; it is not a precise core-allocation measurement or a
 benchmark. Validation/hash allocations ran after conversion in the parent.
 External documents, tables and output PDFs remain outside Git. This covers one
-C8 document; broad compatibility and metadata work remain under #10/#14.
+C8 document; broader compatibility and C8/HN-B outline semantics remain under #10/#14.

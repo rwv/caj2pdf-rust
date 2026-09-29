@@ -124,8 +124,42 @@ is not part of the converter memory measurement. Node whole-process sampled
 RSS reached 87,744,512 bytes (100 ms sampling), not a core-allocation or precise
 kernel peak measurement. Durations are single observations, not benchmarks.
 
-This is one C8 sample, not all-format compatibility. Codec state distribution,
-C8/HN-B bookmarks, HN/C8 inspection, anomalous-header opt-in and CLI integration
-remain unresolved or outside this slice. The general JS corpus runner has no
+This is one C8 sample, not all-format compatibility. That conversion check
+did not cover C8/HN-B bookmarks or metadata inspection. CLI integration is
+validated in docs/cli.md; metadata inspection is covered below. Codec state
+distribution and the adapter anomalous-header opt-in remain unresolved. The general JS corpus runner has no
 caller-table configuration and explicitly reports its HN/C8 rows as NOT_RUN;
 it must not count these as rejected-format compatibility passes.
+
+
+## HN/C8 metadata inspection
+
+`inspect` uses the existing HN/C8 reader and validates HN-A outline records one
+at a time, discarding each title immediately in WASM. It requires no codec
+states, image decoding or temporary stores. CLI inspection retains a bounded
+outline for its existing text/JSON rendering. C8/HN-B return unknown bookmark
+metadata; validated empty HN-A outlines return zero/empty. Malformed records
+fail with their original source location and `HNC8` JS error code.
+
+Original controls cover one-byte short reads, nested outlines, count/depth/
+allocation/page limits, invalid destinations/records in the core suite,
+cancellation and direct metadata-read bounds. CLI tests check the same outline
+in the resulting PDF with independent tools. Real Chromium controls distinguish
+HN-A's known count from C8/HN-B's unknown count. Rust exhaustive error matches
+must now handle `Error::Hnc8Metadata`; no new raw WASM exports or JS result fields
+are needed.
+
+CLI and Node inspection agree on these external documents (metadata comparison,
+not a new independent format oracle):
+
+| Source SHA-256 | Variant | Declared pages | Validated bookmarks | Node bytes read |
+| --- | --- | ---: | ---: | ---: |
+| `8974d024e0cbb54009419aa8c91c9ba286dd74f056c3b19524ee5c626c947c85` | C8 | 4 | unknown | 13 |
+| `46779c74e34f1508125fe94f482672b4eb518436bc663dc5470df814cb41f0aa` | HN-A | 163 | 96 | 29,589 |
+| `951b60efc58186018bbc5a8ec25c54c838405535ea9a6aae5c0588099f1c3574` | HN-A | 65 | 54 | 16,653 |
+
+Each Node run used a fresh release WASM instance, 4096-byte I/O and file ranges;
+final linear memory capacity was 1,310,720 bytes in all three runs. These counts
+validate header/outline metadata and do not establish that every source page
+can be converted. Documents and private result files remain external. Real
+browser metadata checks use original fixtures, not these external documents.

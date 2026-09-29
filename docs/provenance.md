@@ -1661,3 +1661,14 @@ conversion. The tiny HN test uses the same original invented model/pixels as
 the WASM fixture. No normative states, legacy implementation, external document
 bytes or new dependency are committed. Runtime state files remain caller inputs
 and are protected against output overwrite.
+
+
+## HN/C8 metadata adapters
+
+The CLI outline collector and WASM metadata visitor are original MIT adapters
+around the existing independently measured HN-A record parser. Its declared
+count accessor centralizes the already validated container offset calculation;
+record contents still require visitor validation. Tiny original nested-bookmark
+controls exercise metadata and PDF output without external state tables in Git.
+No new format inference, decoder data or dependency is introduced. C8/HN-B
+outline absence is deliberately not inferred.

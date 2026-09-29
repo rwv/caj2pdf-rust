@@ -29,6 +29,8 @@ pub enum Error {
     UnsupportedFormat,
     /// A located HN/C8 conversion failure, preserving its codec/source chain.
     Hnc8(Box<crate::hnc8::ComposeError>),
+    /// A located HN/C8 container or outline failure during metadata inspection.
+    Hnc8Metadata(Box<crate::hnc8::Hnc8Error>),
     /// A malformed range, count, or field was supplied.
     InvalidInput { reason: &'static str },
     /// The source ended before a required range was complete.
@@ -99,6 +101,7 @@ impl fmt::Display for Error {
         match self {
             Self::UnsupportedFormat => f.write_str("unsupported input format"),
             Self::Hnc8(error) => error.fmt(f),
+            Self::Hnc8Metadata(error) => error.fmt(f),
             Self::InvalidInput { reason } => write!(f, "invalid input: {reason}"),
             Self::TruncatedInput {
                 offset,
@@ -180,6 +183,7 @@ impl std::error::Error for Error {
         match self {
             Self::Io(error) => Some(error),
             Self::Hnc8(error) => Some(error.as_ref()),
+            Self::Hnc8Metadata(error) => Some(error.as_ref()),
             _ => None,
         }
     }

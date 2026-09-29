@@ -747,13 +747,24 @@ fn pdf_bytes_are_not_written_to_a_terminal() {
 /// Original 3x2 HN-A image shared in shape with the WASM synthetic fixture.
 /// Its invented constant probability model emits 101/010, not normative states.
 fn image_hn() -> Vec<u8> {
-    let index = 0x15c;
+    image_hn_with_bookmarks(0)
+}
+
+fn image_hn_with_bookmarks(count: usize) -> Vec<u8> {
+    let index = 0x15c + count * 308;
     let text = index + 20;
     let descriptor = text + 32;
     let payload = descriptor + 12;
     let mut bytes = vec![0; payload + 49];
     bytes[..8].copy_from_slice(&[72, 78, 0, 0, 0x90, 1, 0, 0]);
     put_u32(&mut bytes, 0x90, 1);
+    put_u32(&mut bytes, 0x158, count as u32);
+    for number in 0..count {
+        let at = 0x15c + number * 308;
+        bytes[at..at + 4].copy_from_slice(if number == 0 { b"Root" } else { b"Leaf" });
+        bytes[at + 280] = b'1';
+        put_u32(&mut bytes, at + 304, number as u32 + 1);
+    }
     put_u32(&mut bytes, index, text as u32);
     put_u32(&mut bytes, index + 4, 32);
     bytes[index + 8] = 1;
@@ -896,4 +907,37 @@ fn no_bookmarks_skips_caj_outline_import() {
     assert_eq!(pages, 3);
     assert!(outline.trim().is_empty(), "{outline}");
     assert_eq!(scratch.entries(), ["input.caj", "input.pdf"]);
+}
+
+#[test]
+fn hna_inspection_and_converted_outline_agree() {
+    let scratch = Scratch::new("hn-outline");
+    scratch.write("input.hn", &image_hn_with_bookmarks(2));
+    scratch.write("qm.txt", "16384 0 0 0\n".repeat(113).as_bytes());
+    let json = scratch.run(["inspect", "input.hn", "--json", "--bookmarks"]);
+    assert_success(&json);
+    assert!(stdout(&json).contains(r#""has_outline":true,"bookmark_count":2,"bookmarks":[{"title":"Root","page":1,"children":[{"title":"Leaf","page":1,"children":[]}]}]"#));
+    let text = scratch.run(["inspect", "input.hn", "--bookmarks"]);
+    assert_success(&text);
+    assert!(stdout(&text).ends_with("Bookmarks: 2\n  - Root (page 1)\n    - Leaf (page 1)\n"));
+    assert_success(&scratch.run(["input.hn", "--qm-states=qm.txt"]));
+    let (pages, outline) = validate_pdf(&scratch.path("input.pdf"));
+    assert_eq!(pages, 1);
+    assert!(
+        outline.contains("Root") && outline.contains("Leaf"),
+        "{outline}"
+    );
+    scratch.write("empty.hn", &image_hn());
+    let empty = scratch.run(["inspect", "empty.hn", "--json", "--bookmarks"]);
+    assert_success(&empty);
+    assert!(stdout(&empty).contains(r#""has_outline":false,"bookmark_count":0,"bookmarks":[]"#));
+    let mut invalid = image_hn_with_bookmarks(2);
+    put_u32(&mut invalid, 0x15c + 308 + 304, 4);
+    scratch.write("bad.hn", &invalid);
+    assert_failure(
+        &scratch.run(["inspect", "bad.hn", "--json"]),
+        1,
+        "outline level",
+    );
+    assert_eq!(fs::read_dir(scratch.path("tmp")).unwrap().count(), 0);
 }

@@ -6,6 +6,14 @@ use super::{ErrorKind, Hnc8Reader, Location, Result, Variant, read_fixed};
 use crate::{Bookmark, BookmarkVisitor, Cancellation, Error, RangedSource, gb18030};
 
 impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
+    /// Declared outline record count for the validated HN-A container layout.
+    /// Titles, levels and destinations still need `visit_bookmarks` validation.
+    /// C8/HN-B return `None`: their outline absence must not be inferred.
+    pub fn declared_bookmark_count(&self) -> Option<u32> {
+        (self.header.variant == Variant::HnA)
+            .then(|| ((self.header.page_index.offset - 0x15c) / 308) as u32)
+    }
+
     /// Visit HN-A bookmarks one record at a time, awaiting every visitor call.
     ///
     /// `map_page` maps a one-based physical source page to a zero-based emitted
@@ -53,12 +61,12 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
         if self.cancellation.is_cancelled() {
             return Err(loc.error(ErrorKind::Cancelled));
         }
-        if self.header.variant != Variant::HnA {
+        let Some(count) = self.declared_bookmark_count() else {
             return Err(loc.error(ErrorKind::Unsupported {
                 field: "outline variant",
                 value: 0,
             }));
-        }
+        };
         if max_depth == 0 {
             return Err(loc.malformed("outline depth", "depth limit must be positive"));
         }
@@ -70,7 +78,6 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
             ));
         }
         // HN-A open already validated the record interval and format-specific count.
-        let count = ((self.header.page_index.offset - 0x15c) / 308) as u32;
         if count > self.limits.max_bookmarks {
             return Err(loc.limit(
                 "bookmarks",

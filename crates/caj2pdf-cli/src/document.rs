@@ -8,7 +8,6 @@ use crate::files::Input;
 use caj2pdf_core::{
     Bookmark, ConversionOptions, Error, InputFormat, Limits, NeverCancel, RangedSource,
     SIGNATURE_BYTES, caj, detect_format,
-    hnc8::{Budget, Header, Hnc8Reader},
     kdh::{KdhPdfSource, convert_kdh},
     native::{SeekableSource, WriteSink},
     pdf::{PdfIndex, PdfOutlineAppender, PdfRange, copy_pdf},
@@ -78,15 +77,6 @@ fn unsupported(format: InputFormat) -> String {
 
 fn ranged(file: &mut File) -> Result<SeekableSource<&mut File>, String> {
     SeekableSource::new(file).map_err(text)
-}
-
-/// Parse an HN or C8 container header and page index, so that a malformed
-/// file is reported as malformed rather than as merely unsupported.
-async fn hnc8_header<S: RangedSource>(source: &mut S, limits: &Limits) -> Result<Header, String> {
-    Hnc8Reader::open(source, limits, &NeverCancel, Budget::default())
-        .await
-        .map(|reader| reader.header())
-        .map_err(|error| error.to_string())
 }
 
 /// Convert one input to PDF bytes written to `writer`.
@@ -187,13 +177,13 @@ async fn inspect_source<S: RangedSource>(
             }
         }
         InputFormat::Hn | InputFormat::C8 => {
-            let header = hnc8_header(source, limits).await?;
+            let (header, bookmarks) = crate::hnc8::inspect(source, limits).await?;
             Inspection {
                 format,
                 variant: Some(header.variant.as_str()),
                 page_count: Some(header.page_count),
-                has_outline: None,
-                bookmarks: None,
+                has_outline: bookmarks.as_ref().map(|items| !items.is_empty()),
+                bookmarks,
             }
         }
         InputFormat::Nh | InputFormat::Teb => Inspection {

@@ -166,7 +166,7 @@ test("malformed HN/C8 and unsupported TEB failures are distinguished", async () 
       }
       return true;
     });
-    await assert.rejects(inspect(await wasmModule(), source), { code: "UNSUPPORTED_FORMAT", format });
+    await assert.rejects(inspect(await wasmModule(), source), format === "teb" ? { code: "UNSUPPORTED_FORMAT", format } : { code: "HNC8" });
   }
   await assert.rejects(
     convert(await wasmModule(), blobSource(new Blob([syntheticCaj()])), sink, { format: "hn" }),

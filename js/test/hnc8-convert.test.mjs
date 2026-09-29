@@ -113,3 +113,41 @@ test("HN yields to scheduled cancellation and clears pending workspace contents"
   assert.ok(scheduled);
   assert.ok(scratch.every((store) => store.size === 0n));
 });
+
+test("HN/C8 inspection validates metadata without image reads or runtime tables", async () => {
+  const { inspect } = await import("../node.mjs");
+  const { unknownOutline } = await import("./hnc8-fixtures.mjs");
+  for (const [bytes, format, count, boundary] of [
+    [syntheticHn(), "hn", 0, 0x15c],
+    [syntheticHn(true), "hn", 2, 0x15c + 616],
+    [unknownOutline("c8"), "c8", null, 0x50],
+    [unknownOutline("hn"), "hn", null, 0xd8],
+  ]) {
+    let reads = 0n;
+    const input = {
+      size: BigInt(bytes.length),
+      async readAt(offset, length) {
+        assert.ok(offset + BigInt(length) <= BigInt(boundary), "inspection must not request image/page payloads");
+        const chunk = bytes.slice(Number(offset), Number(offset) + 1);
+        reads += BigInt(chunk.length); return chunk;
+      },
+    };
+    const info = await inspect(await newInstance(), input, { chunkSize: 3 });
+    assert.equal(info.format, format);
+    assert.equal(info.pageCount, 1);
+    assert.equal(info.bookmarkCount, count);
+    assert.equal(info.inputBytesRead, reads);
+  }
+});
+
+test("HN inspection rejects malformed outlines, limits and cancelled reads", async () => {
+  const { inspect } = await import("../node.mjs");
+  const malformed = syntheticHn(true);
+  new DataView(malformed.buffer).setUint32(0x15c + 308 + 304, 4, true);
+  await assert.rejects(inspect(await newInstance(), blobSource(new Blob([malformed]))), (error) => error.code === "HNC8" && /outline level/.test(error.message));
+  await assert.rejects(inspect(await newInstance(), blobSource(new Blob([syntheticHn(true)])), { limits: { maxBookmarks: 1 } }), { code: "HNC8" });
+  const controller = new AbortController(); const reason = new Error("stop inspection");
+  const inner = source();
+  const input = { size: inner.size, async readAt(...args) { const chunk = await inner.readAt(...args); controller.abort(reason); return chunk; } };
+  await assert.rejects(inspect(await newInstance(), input, { signal: controller.signal }), (error) => error === reason);
+});

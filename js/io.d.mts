@@ -103,7 +103,7 @@ export interface ConversionReport {
 export interface DocumentInfo {
   format: DetectedFormat;
   pageCount: number;
-  /** Counted for CAJ; `null` when not counted (PDF, KDH). */
+  /** Validated for CAJ/HN-A; `null` when unknown or not counted (C8, HN-B, PDF, KDH). */
   bookmarkCount: number | null;
   inputBytesRead: bigint;
 }
@@ -121,7 +121,7 @@ export interface Spooled {
 
 export type StreamInput = ReadableStream<Uint8Array> | AsyncIterable<Uint8Array>;
 
-/** Convert a PDF, CAJ, or KDH source to PDF with bounded, awaited I/O. */
+/** Convert supported PDF/CAJ/KDH and configured HN/C8 sources with bounded I/O. */
 export declare function convert(
   wasm: WasmInput,
   source: RangedSource,
@@ -129,7 +129,7 @@ export declare function convert(
   options?: ConvertOptions,
 ): Promise<ConversionReport>;
 
-/** Read the format and page count without output. */
+/** Read pages and validated CAJ/HN-A bookmark counts without decoding images. */
 export declare function inspect(
   wasm: WasmInput,
   source: RangedSource,

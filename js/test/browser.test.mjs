@@ -150,3 +150,11 @@ test("Chromium: HN converts through WASM and real Worker OPFS workspaces", optio
   assert.equal(result.cleared, true);
   await validatePdf(t, new Uint8Array(result.pdf), 1);
 });
+
+test("Chromium: HN/C8 inspection distinguishes validated and unknown outlines", options, async () => {
+  assert.deepEqual(await run("inspectHnc8"), [
+    { format: "hn", pages: 1, bookmarks: 2 },
+    { format: "c8", pages: 1, bookmarks: null },
+    { format: "hn", pages: 1, bookmarks: null },
+  ]);
+});
