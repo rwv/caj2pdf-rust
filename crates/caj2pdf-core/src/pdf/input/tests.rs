@@ -184,7 +184,38 @@ fn indirect_flate_length_rejects_corruption_truncation_and_bombs() {
         )
         .is_err()
     );
+    let mut two_streams = bytes.clone();
+    let mut second = bytes.clone();
+    replace_once(&mut second, b"1 0 obj", b"3 0 obj");
+    replace_once(&mut second, b"2 0 R", b"4 0 R");
+    replace_once(&mut second, b"2 0 obj", b"4 0 obj");
+    two_streams.push(b'\n');
+    two_streams.extend_from_slice(&second);
+    assert!(matches!(
+        scan_indirect(
+            two_streams,
+            &Limits {
+                max_output_bytes: 39_999,
+                ..Limits::default()
+            },
+            &NEVER
+        ),
+        Err(Error::LimitExceeded {
+            resource: "CAJ Flate scan bytes",
+            ..
+        })
+    ));
     assert!(scan_indirect(bytes, &Limits::default(), &NEVER).is_ok());
+    let mut bad_checksum = encoded.clone();
+    *bad_checksum.last_mut().unwrap() ^= 1;
+    assert!(
+        scan_indirect(
+            indirect_flate_fragment(&bad_checksum, &bad_checksum.len().to_string()),
+            &Limits::default(),
+            &NEVER
+        )
+        .is_err()
+    );
     for payload in [
         &encoded[..encoded.len() - 1],
         b"invalid zlib bytes".as_slice(),
