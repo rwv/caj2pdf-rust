@@ -209,12 +209,17 @@ issue acceptance criteria are authoritative for each task.
    remained FAIL. Independent native child/blocker
    [#148: inventory-helper diagnostics](https://github.com/rwv/caj2pdf-rust/issues/148)
    tracks the bounded original diagnostics, with #125/#133/#143 resolved.
+   The [source contract](docs/cajviewer-inventory-diagnostics.md) retains the
+   first bounded helper diagnostic, distinguishes observed and unknown spawns,
+   and preserves complete valid FAIL accounting before outer rejection.
+   Its original controls and final-head gates establish source readiness;
+   runtime-view completion and actual viewer observations remain separate.
    Further diagnostics and startup require separate exact freezes and reviews.
    The twelve historical launcher attempts and unknown helper-stderr cause
    are preserved; no new capability passed.
-   New native child/blocker
+   Resolved native source child/blocker
    [#146: original capability protocol](https://github.com/rwv/caj2pdf-rust/issues/146)
-   tracks implementation of separate document/page identity, complete-page and fresh
+   implements separate document/page identity, complete-page and fresh
    standard-copy gates, with a strict collector and finite GUI discovery.
    Code completion is separate from #124's actual two-session evidence.
    The [capability implementation](docs/cajviewer-capability-protocol.md)
@@ -223,8 +228,11 @@ issue acceptance criteria are authoritative for each task.
    57 methods and 133 subtests with zero errors, failures or skips; all 112
    ordered source audit rows and both actual closing reviews passed, exit 0.
    One carrier parent and one controlled Python child ran, with zero additional
-   candidate forbidden effects. Code acceptance requires exact committed-head
-   reviews and the four hosted gates; app observations are NOT_RUN. Neither v11 nor v12
+   candidate forbidden effects. [PR #149](https://github.com/rwv/caj2pdf-rust/pull/149)
+   merged after final-head Root/independent correctness, provenance and
+   simplification reviews and all four hosted gates. Its merged file tree is
+   identical to the reviewed source and CI's tested synthetic merge tree.
+   App observations are NOT_RUN. Neither v11 nor v12
    FAIL satisfies the runtime-view gate, and no operational bindings are invented.
    After successful reviewed declared runtime-view integrity, a fresh frozen
    capability profile may propose two launches (cumulative maximum fourteen),

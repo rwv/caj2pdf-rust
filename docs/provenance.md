@@ -1336,3 +1336,50 @@ transport amendment remains DRAFT, with no additional phase execution.
 Old failed receipts and superseded planning/reader assumptions remain external
 and unchanged. Vendor/application/runtime bytes, captures, clipboard data,
 documents, complete receipts and raw environment values are not published.
+
+## CAJViewer bounded inventory-helper diagnostics (#148)
+
+This slice is independently authored original MIT public source, controls and
+English documentation. It reuses only repository-owned original source-loading
+and process/metadata primitives. The historical V12 failure is preserved:
+helper status PASS and typed exit 0 did not satisfy required empty stderr;
+the actual message and cause remain unknown. No proprietary application,
+Python/Go/private converter, third-party loader/codec or private HN/JBIG
+implementation was read, copied or translated for this work.
+
+| File | Original ownership and basis |
+| --- | --- |
+| `tools/cajviewer/run.py` | Original MIT helper producer, independent host validator, duplicate-safe bounded parser, canonical entry and fixed assembly compaction; inherited owned public source-loader bytes and both module pins are preserved |
+| `tests/conformance/test_cajviewer_inventory_diagnostics.py` | Original MIT control code with invented results and mutations; exercises the actual owned fragments, complete entry/finally and host observation path |
+| `docs/cajviewer-inventory-diagnostics.md` | Original MIT English contract from the public issue and reviewed owned source interfaces; contains no actual stderr or runtime/private byte data |
+| `PROJECT_PLAN.md` | Original MIT English checkpoint update; separates source readiness from runtime/capability proof |
+| `docs/cajviewer-fixtures.md` | Original MIT English fixture-plan update; preserves native blockers and unverified actual acquisition |
+| `docs/provenance.md` | Original MIT per-file provenance statement and scope record |
+
+All control stderr/stdout, exceptions, malformed frames and result mutations
+are invented. Public-helper stderr is retained verbatim only in a future
+external envelope/receipt, under the 4,096-byte excerpt bound. It may contain
+public-tool paths; actual bytes are not published, classified or normalized.
+Stdout, arbitrary exception messages and tracebacks are not added to the
+diagnostic. Hashes describe retained bytes and do not independently establish
+that a smaller excerpt belongs to a larger capture.
+
+The shared whitelist belongs to the original public source-loading COMMON;
+producer and independent validator use its reviewed bytes. The producer keeps
+separate read, retained-capture and diagnostic-excerpt counts. Unknown spawn
+status is preserved even when a helper raises. Complete valid failure
+accounting is retained before the host refuses the outer helper result, and
+later closing/serialization failure does not replace the primary diagnostic.
+The canonical entry installs no additional module and changes no image,
+recipe, cache policy, resource cap or operational profile. Its source loader
+and helper/inventory source pins stay unchanged.
+
+Original mandatory controls and exact-head reviews/hosted gates establish
+only source readiness. Their actual original test processes and synthetic
+events must be reported separately from vendor compatibility. The completed
+source child does not recover earlier stderr, replay a failed operation or
+complete parent #124 or fixture epic #123. Actual runtime/viewer/private/native
+compatibility remains NOT_RUN with zero passes for this slice. A later phase
+requires separate exact frozen review and actual closing evidence. External
+vendor/corpus files, raw environment values, captures and complete runtime
+receipts remain outside Git.
