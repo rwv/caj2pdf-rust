@@ -2,7 +2,7 @@
 
 Issue #13 covers the common browser/Node package and CAJ/KDH/PDF conversion.
 HN/C8 integration remains #10; representative vendor-page comparisons and
-whole-process release measurements remain #129/#14.
+whole-process release measurements remain #123/#14.
 
 ## Verified delivery paths
 

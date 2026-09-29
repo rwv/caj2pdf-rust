@@ -1,12 +1,11 @@
 // SPDX-License-Identifier: MIT
 
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
-import { open, rm, writeFile } from "node:fs/promises";
+import { open, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { test } from "node:test";
 import { blobSource, convert, fileHandleScratch } from "../node.mjs";
-import { newInstance, tempDirectory, validatePdf } from "./helpers.mjs";
+import { newInstance, tempDirectory, validateMultiImageHn } from "./helpers.mjs";
 import { qmStates, syntheticHn } from "./hnc8-fixtures.mjs";
 
 function memoryStore() {
@@ -24,7 +23,7 @@ function source() { return blobSource(new Blob([syntheticHn()])); }
 function sink(parts = []) { return { async writeChunk(bytes) { parts.push(bytes.slice()); return bytes.length; }, async flush() {} }; }
 function stores() { return Array.from({ length: 4 }, memoryStore); }
 
-test("real WASM composes asymmetric HN pixels through bounded Node scratch", async (t) => {
+test("real WASM composes multiple HN images and bookmarks through bounded Node scratch", async (t) => {
   const directory = await tempDirectory("hnc8");
   const handles = [];
   try {
@@ -34,17 +33,11 @@ test("real WASM composes asymmetric HN pixels through bounded Node scratch", asy
       scratch.push(await fileHandleScratch(handle, { maxBytes: 1024n }));
     }
     const parts = [];
-    const report = await convert(await newInstance(), source(), sink(parts), { chunkSize: 7, hnc8: { qmStates, scratch } });
+    const report = await convert(await newInstance(), blobSource(new Blob([syntheticHn(true, true)])), sink(parts), { chunkSize: 7, hnc8: { qmStates, scratch } });
     assert.equal(report.pagesConverted, 1);
     assert.equal(report.format, "hn");
     const pdf = Buffer.concat(parts);
-    await validatePdf(t, pdf, 1);
-    const path = join(directory, "output.pdf"); await writeFile(path, pdf);
-    const info = JSON.parse(execFileSync("qpdf", ["--json", "--json-key=pages", path], { encoding: "utf8" }));
-    const image = info.pages[0].images[0];
-    assert.equal(image.width, 32); assert.equal(image.height, 2);
-    const packed = execFileSync("qpdf", [`--show-object=${image.object.split(" ")[0]}`, "--filtered-stream-data", path]);
-    assert.deepEqual([...packed], [0x40, 0, 0, 0, 0xa0, 0, 0, 0]);
+    await validateMultiImageHn(t, pdf);
     assert.deepEqual(scratch.map((store) => store.size), [0n, 0n, 0n, 0n]);
   } finally {
     await Promise.all(handles.map((handle) => handle.close()));
