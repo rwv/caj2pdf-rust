@@ -388,7 +388,7 @@ async fn replay_end<S: RangedSource, C: Cancellation>(
     }
     let amount = MAX_REPLAY.min(reader.range.length - start) as usize;
     let bytes = reader.bytes(start, amount).await?;
-    let Some((reference, prefix_end, replay_at)) = replay_prefix(&bytes) else {
+    let Some((reference, header_end)) = replay_prefix(&bytes) else {
         return Ok(None);
     };
     let mut prior = objects
@@ -397,17 +397,7 @@ async fn replay_end<S: RangedSource, C: Cancellation>(
     let Some(original) = prior.next() else {
         return Ok(None);
     };
-    if prior.next().is_some() || original.range.length <= prefix_end as u64 {
-        return Ok(None);
-    }
-    let end = replay_at + previous.range.length as usize;
-    if end >= bytes.len() || !bytes[end].is_ascii_whitespace() {
-        return Ok(None);
-    }
-    let original_prefix = reader
-        .bytes(original.range.offset - reader.range.offset, prefix_end)
-        .await?;
-    if bytes[..prefix_end] != original_prefix {
+    if prior.next().is_some() {
         return Ok(None);
     }
     let original_scalar = reader
@@ -416,13 +406,36 @@ async fn replay_end<S: RangedSource, C: Cancellation>(
             previous.range.length as usize,
         )
         .await?;
-    if bytes[replay_at..end] != original_scalar {
+    let mut matches = bytes
+        .windows(original_scalar.len())
+        .enumerate()
+        .filter(|(at, part)| {
+            *at > header_end && *part == original_scalar && bytes[*at - 1].is_ascii_whitespace()
+        });
+    let Some((replay_at, _)) = matches.next() else {
+        return Ok(None);
+    };
+    if matches.next().is_some() {
+        return Ok(None);
+    }
+    let end = replay_at + original_scalar.len();
+    if end >= bytes.len() || !bytes[end].is_ascii_whitespace() {
+        return Ok(None);
+    }
+    let prefix = bytes[..replay_at].trim_ascii_end();
+    let old_head = reader
+        .load_head(original.range.offset - reader.range.offset, Some(reference))
+        .await?;
+    let ObjectTail::Stream { data_start } = old_head.tail else {
+        return Ok(None);
+    };
+    if prefix.len() >= data_start || !old_head.bytes.starts_with(prefix) {
         return Ok(None);
     }
     Ok(Some(start + end as u64))
 }
 
-fn replay_prefix(bytes: &[u8]) -> Option<(PdfRef, usize, usize)> {
+fn replay_prefix(bytes: &[u8]) -> Option<(PdfRef, usize)> {
     let mut cursor = 0;
     let mut token = || {
         while bytes.get(cursor).is_some_and(u8::is_ascii_whitespace) {
@@ -435,21 +448,16 @@ fn replay_prefix(bytes: &[u8]) -> Option<(PdfRef, usize, usize)> {
         &bytes[start..cursor]
     };
     let number = u32::try_from(exact_unsigned(token())?).ok()?;
-    for expected in [b"0".as_slice(), b"obj", b"<<", b"/Length"] {
+    for expected in [b"0".as_slice(), b"obj", b"<<"] {
         if token() != expected {
             return None;
         }
-    }
-    let prefix_end = cursor;
-    while bytes.get(cursor).is_some_and(u8::is_ascii_whitespace) {
-        cursor += 1;
     }
     Some((
         PdfRef {
             number,
             generation: 0,
         },
-        prefix_end,
         cursor,
     ))
 }
@@ -904,6 +912,8 @@ mod tests {
         let changed_prefix = text.replacen("1 0 obj\n<<", "1 0 obj <<", 1);
         let long_integer =
             text.replacen("2 0 obj\n1", &format!("2 0 obj\n{}1", " ".repeat(256)), 1);
+        let non_stream = text.replacen("\nstream\nx\nendstream", "", 1);
+        let ambiguous = text.replacen("\n3 0 obj", "\n2 0 obj\n1\nendobj\n3 0 obj", 1);
         let no_history = "1 0 obj\n<<\n/Length\n2 0 obj\n1\nendobj\n".to_owned();
         for text in [
             duplicated,
@@ -911,6 +921,8 @@ mod tests {
             changed_prefix,
             long_integer,
             no_history,
+            non_stream,
+            ambiguous,
         ] {
             let bytes = text.into_bytes();
             let end = bytes.len() as u64;
@@ -926,5 +938,23 @@ mod tests {
                 .is_err()
             );
         }
+    }
+    #[test]
+    fn recovers_a_partial_filter_name_without_a_sample_specific_rule() {
+        let mut bytes = b"1 0 obj\n<< /Length 1 /Filter /FlateDecode >>\nstream\nx\nendstream\nendobj\n2 0 obj\n1\nendobj\n".to_vec();
+        bytes.extend_from_slice(
+            b"1 0 obj\n<< /Length 1 /Filter /FlateD\n2 0 obj\n1\nendobj\n3 0 obj\nnull\nendobj\n",
+        );
+        let end = bytes.len() as u64;
+        let mut source = SeekableSource::new(Cursor::new(bytes)).unwrap();
+        let scan = run(scan_fragment_objects(
+            &mut source,
+            0,
+            end,
+            &Limits::default(),
+            &NEVER,
+        ))
+        .unwrap();
+        assert_eq!(scan.objects.len(), 3);
     }
 }

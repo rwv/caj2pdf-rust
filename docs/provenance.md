@@ -1519,8 +1519,11 @@ followed by an exact replay of that integer object. The partial header's
 bytes through `/Length` match the beginning of an earlier complete object;
 whitespace after the name differs. The implementation recognizes this
 shape only at a known object boundary after ordinary parsing fails, within
-256 bytes, with a unique prior object and an exact immediately preceding
-integer replay. It excludes these inactive bytes from the reconstruction
+256 bytes, with a unique prior stream object and an exact immediately preceding
+integer replay. The prefix must match that stream header before its payload;
+trailing whitespace is ignored. A second observed prefix ends partway through
+`/Filter /FlateD`, so the rule compares header bytes without special-casing
+the last dictionary name. It excludes these inactive bytes from the reconstruction
 index rather than searching or patching stream payloads. Original synthetic
 positive and negative fixtures contain no external document content.
 
