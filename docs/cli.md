@@ -271,4 +271,9 @@ subprocess harness. That process-lifetime measurement can include pre-exec
 launcher overhead; it is not a precise core-allocation measurement or a
 benchmark. Validation/hash allocations ran after conversion in the parent.
 External documents, tables and output PDFs remain outside Git. This covers one
-C8 document; broader compatibility and C8/HN-B outline semantics remain under #10/#14.
+C8 document; broader compatibility remains a release check (#14), and
+C8/HN-B outline semantics are still unverified.
+
+The complete 163-page multi-image HN-A run, including 96 source bookmarks,
+PDF structure/rendering checks and cross-interface hashes, is recorded in
+[public-interface validation](js-validation.md#complete-multi-image-hn-a-public-interface-check).

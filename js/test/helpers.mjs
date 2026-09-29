@@ -199,3 +199,44 @@ export async function validatePdf(t, bytes, pages) {
     await rm(directory, { recursive: true, force: true });
   }
 }
+
+/** Check the original two-image HN fixture, including draw order and geometry. */
+export async function validateMultiImageHn(t, bytes) {
+  await validatePdf(t, bytes, 1);
+  const directory = await tempDirectory("hn-images");
+  try {
+    const path = join(directory, "output.pdf");
+    await writeFile(path, bytes);
+    const info = JSON.parse((await run("qpdf", ["--json", "--json-key=pages", "--json-key=outlines", path])).stdout);
+    const page = info.pages[0];
+    assert.equal(page.images.length, 2);
+    for (const [index, image] of page.images.entries()) {
+      assert.equal(image.name, `/Im${index}`);
+      assert.equal(image.width, 32); assert.equal(image.height, 2);
+      const { stdout } = await run("qpdf", [`--show-object=${image.object.split(" ")[0]}`, "--filtered-stream-data", path], { encoding: "buffer" });
+      assert.deepEqual([...stdout], index === 0
+        ? [0x40, 0, 0, 0, 0xa0, 0, 0, 0]
+        : [0x20, 0, 0, 0, 0xc0, 0, 0, 0]);
+    }
+    const content = (await run("qpdf", [`--show-object=${page.contents[0].split(" ")[0]}`, "--filtered-stream-data", path])).stdout;
+    const draws = [...content.matchAll(/([\d.e+\- ]+) cm\s+\/Im(\d+) Do/g)];
+    assert.equal(draws.length, 2);
+    const scale = 240 / 2473;
+    for (let i = 0; i < 2; i++) {
+      assert.equal(Number(draws[i][2]), i);
+      const matrix = draws[i][1].trim().split(/\s+/).map(Number);
+      const expected = [7.68, 0, 0, -0.48, i * 13 * scale, 0.48 - i * scale];
+      assert.equal(matrix.length, 6);
+      matrix.forEach((value, axis) => assert.ok(Math.abs(value - expected[axis]) < 0.000001, `image ${i}, matrix axis ${axis}`));
+    }
+    assert.equal(info.outlines.length, 1);
+    const root = info.outlines[0];
+    assert.equal(root.title, "Root"); assert.equal(root.destpageposfrom1, 1);
+    assert.equal(root.kids.length, 1);
+    const leaf = root.kids[0];
+    assert.equal(leaf.title, "Leaf"); assert.equal(leaf.destpageposfrom1, 1);
+    assert.deepEqual(leaf.kids, []);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}

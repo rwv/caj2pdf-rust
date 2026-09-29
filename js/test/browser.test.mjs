@@ -11,7 +11,7 @@ import { readFile } from "node:fs/promises";
 import { after, before, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { findChrome, launchChrome, openPage, startServer } from "./browser-harness.mjs";
-import { fixture, syntheticCaj, syntheticKdh, validatePdf, wasmUrl } from "./helpers.mjs";
+import { fixture, syntheticCaj, syntheticKdh, validatePdf, validateMultiImageHn, wasmUrl } from "./helpers.mjs";
 
 const chrome = findChrome();
 if (chrome == null && process.env.CI) {
@@ -144,11 +144,11 @@ test("Chromium: Worker OPFS scratch reads current writes and cleans up", options
   assert.equal(result.cleaned, true);
 });
 
-test("Chromium: HN converts through WASM and real Worker OPFS workspaces", options, async (t) => {
+test("Chromium: multi-image HN converts with bookmarks through Worker OPFS", options, async (t) => {
   const result = await run("hnc8InWorker");
   assert.equal(result.pages, 1);
   assert.equal(result.cleared, true);
-  await validatePdf(t, new Uint8Array(result.pdf), 1);
+  await validateMultiImageHn(t, new Uint8Array(result.pdf));
 });
 
 test("Chromium: HN/C8 inspection distinguishes validated and unknown outlines", options, async () => {

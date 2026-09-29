@@ -103,22 +103,28 @@ caj2pdf add-bookmarks SOURCE_CAJ INPUT_PDF -o OUTPUT_PDF [--force]
 - Return exit status 0 on success, 2 for invalid arguments, and 1 for I/O,
   unsupported format, or conversion failures. Provide `--help` and `--version`.
 
-## Remaining delivery sequence
+## Delivery status and remaining sequence
 
 The [parent issue #1](https://github.com/rwv/caj2pdf-rust/issues/1) and its
 native sub-issue/blocking relationships are authoritative.
 
-1. **Finish conversion (#118 → #10).** Complete mixed HN/C8 pages, then reuse
-   existing CLI/browser/Node adapters. Common JS delivery (#13), HN-A outlines
-   (#119) and type-3/direct-frame integration (#174/#175) already exist.
-   [Repeated-group results](docs/hnc8-repeated-groups.md) document selected
-   mixed-page comparisons and explicit Python reference deviations. Resolve
-   existing codec distribution/provenance gaps before advertising support.
-2. **Validate and release (#129 → #123 → #14).** Reuse current viewer fixtures,
-   memory scripts and one compatibility matrix. Check working formats now;
-   final completion requires production HN/C8 on both JS targets. Record page
-   order, bookmarks, selected pixels and small/large conversion resources.
-   Missing optional corpus is NOT_RUN; skipped work is not a compatibility pass.
+1. **Integration acceptance completed (#10 / #182).** HN/C8 composition, native
+   and JS scratch adapters, CLI/browser/Node conversion, and HN-A metadata
+   inspection are implemented. The complete multi-image document produces
+   identical PDFs on all three interfaces; page order, placement, bookmarks and
+   cleanup are checked. Original two-image controls run in normal CI. See
+   [the results and limitations](docs/js-validation.md#complete-multi-image-hn-a-public-interface-check).
+2. **Check representative viewer pages (#123).** Reuse the pinned container and
+   capture recipe. Check one ordinary and one mixed/boundary page per advertised
+   format; expand only for an observed mismatch. Identical PDFs across interfaces
+   share the same rendering comparison. Text copying is optional, not OCR.
+3. **Audit and release (#14).** Reuse the existing compatibility matrix, small
+   and large input measurements, and prior checks. Final release is blocked by
+   #8/#9 until the state-data distribution decisions (#30/#44) are resolved.
+   These decisions do not block caller-table integration acceptance in #10.
+
+Keep remaining work in these issues, with no new issue hierarchy or framework.
+Missing optional corpus is NOT_RUN; unavailable checks do not count as passes.
 
 Use short implementation PRs, focused unit tests, final-head review and
 simplification, and the existing native/WASM/license/coverage gates. Add an

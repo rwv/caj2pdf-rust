@@ -16,7 +16,7 @@ try {
     scratch.push(syncAccessHandleScratch(handle, { maxBytes: 1024n }));
   }
   const parts = [];
-  const report = await convert(await loadModule(), blobSource(new Blob([syntheticHn()])), {
+  const report = await convert(await loadModule(), blobSource(new Blob([syntheticHn(true, true)])), {
     async writeChunk(bytes) { parts.push(...bytes); return bytes.length; }, async flush() {},
   }, { chunkSize: 3, hnc8: { qmStates, scratch } });
   result = { pages: report.pagesConverted, pdf: parts, cleared: scratch.every((store) => store.size === 0n) };

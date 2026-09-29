@@ -1,8 +1,8 @@
 # JavaScript delivery validation
 
 Issue #13 covers the common browser/Node package and CAJ/KDH/PDF conversion.
-HN/C8 integration remains #10; representative vendor-page comparisons and
-whole-process release measurements remain #129/#14.
+HN/C8 integration acceptance is tracked in #10. Representative vendor-page
+comparisons and whole-process release measurements remain #123/#14.
 
 ## Verified delivery paths
 
@@ -163,3 +163,72 @@ final linear memory capacity was 1,310,720 bytes in all three runs. These counts
 validate header/outline metadata and do not establish that every source page
 can be converted. Documents and private result files remain external. Real
 browser metadata checks use original fixtures, not these external documents.
+
+## Complete multi-image HN-A public-interface check
+
+The 2026-09-29 run uses the 24,519,256-byte, 163-page source identified in
+[repeated HN image groups](hnc8-repeated-groups.md), SHA-256
+`46779c74e34f1508125fe94f482672b4eb518436bc663dc5470df814cb41f0aa`.
+It has 210 image draws (161 type-3 and 49 JPEG), repeated descriptor groups,
+and 96 HN-A bookmarks. Runtime conversion code is main revision `f092bdf`;
+the acceptance PR changes tests and documentation only. The MQ states are
+supplied externally, with no normative data added to Git or packages.
+
+| Check | Native CLI | Node 24.13.0 | Chromium Worker |
+| --- | ---: | ---: | ---: |
+| Pages / bookmarks | 163 / 96 | 163 / 96 | 163 / 96 |
+| Output bytes | 163,571,546 | 163,571,546 | 163,571,546 |
+| Observed duration | 110.18 s | 625.96 s | 1133.76 s |
+| Final WASM linear capacity | N/A | 1,507,328 bytes | 1,507,328 bytes |
+| Final scratch sizes | Anonymous files removed | Four zero-byte files | Four zeros; all OPFS files removed |
+
+All three output SHA-256 values:
+`1cc9c1cef08ea7077af47c78429e186af9f46d55b2f6174c2ec544bc4533d7e6`.
+The CLI PDF passes qpdf 12.2.0. All 96 PDF outline titles, hierarchy levels and
+destinations match the raw source's 308-byte bookmark records. All 163 page
+objects, content streams and image dictionaries/streams retain their order and
+bytes from the previously validated core output (before bookmarks were added).
+The unchanged 163,533,754-byte prefix contains all those page and stream objects;
+their ranges were checked against the PDF cross-reference offsets.
+
+MuPDF 1.25.1 rendered pages 1, 23, 69, 78, 144, 150 and 163 at 300 ppi,
+grayscale, `-A 0`. Every pixel matches the recorded gray-corrected Python
+reference described in the linked report. This is selected-page rendering
+parity, not all-page pixel parity or a CAJViewer result. Identical public output
+hashes allow these document checks to be shared across interfaces.
+
+Native peak child RSS was 14,708 KiB (`resource.getrusage(RUSAGE_CHILDREN)`;
+may include the Python launcher's pre-exec process footprint). Node whole-process
+RSS sampled every 100 ms reached 104,964,096 bytes before output hashing.
+These observations are not isolated core allocation measurements or benchmarks:
+the conversions and some tests ran concurrently. WASM linear capacity excludes
+JavaScript heap, browser process memory and filesystem caches. Validation reads
+the completed PDF for hashing only after conversion; that allocation is outside
+the reported conversion memory observation.
+
+Reproduction uses the existing CLI with `--mq-states FILE` and bookmarks
+left enabled. Node uses `fileHandleSource`, `nodeWritableSink`, and four
+`fileHandleScratch` stores. Both JS targets cap each scratch store at 64 MiB;
+JavaScript I/O chunks are
+65,536 bytes. Source, state files, generated PDFs and private run reports stay
+outside the repository. The CLI temporary directory was empty afterward;
+Node closed all handles and retained its empty scratch files for inspection.
+The browser spooled the source to OPFS with a 64 MiB input cap and streamed
+output to an OPFS writer. It closed the handles and removed input, output and
+all four scratch files; final OPFS enumeration was empty.
+The existing core run records a 1,089,966-byte aggregate scratch peak; this
+public-interface run records caps and cleanup, not a new peak-storage sample.
+
+Native binary SHA-256:
+`c7a8f5e21f77b064cc470e956beaed0751bbf88f56b89301db28e1d2283b2c9f`.
+WASM binary SHA-256:
+`961c1cf9530f751ee3e679546941c5c26aa5d86cdae99c2be8f766b44e1035d6`.
+
+Ordinary CI uses the existing original HN fixture extended to two positioned
+images and nested bookmarks. Node file-scratch and Chromium Worker OPFS tests
+extract both asymmetric pixel streams with qpdf, check both draw transforms and
+order, verify the outline tree/destinations, and check cleared scratch stores.
+The fixture uses invented constant arithmetic states and no external document.
+Missing external corpus still means NOT_RUN. C8/HN-B unknown outlines require
+explicit bookmark omission; image-less HN-B rows and anomalous type-3 headers
+remain explicit errors. OCR and searchable text remain outside v0.1.

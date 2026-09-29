@@ -62,8 +62,9 @@ pixel with no alignment or tolerance:
 
 These are selected-page comparisons against an explicitly corrected Python
 reference, not whole-document pixel parity or CAJViewer validation. Bookmarks
-were not requested in this run. CAJViewer and production routing remain #129
-and #10 work respectively.
+were not requested in this run. Public CLI/Node/browser acceptance is recorded in
+[JS validation](js-validation.md#complete-multi-image-hn-a-public-interface-check);
+representative CAJViewer comparison remains #123.
 
 ## Resources and reproducibility
 
@@ -90,7 +91,9 @@ a verified alias of first-group image `n`. Consumers that count or display
 draws should filter `duplicate_of.is_none()`. The alias transform and anomaly
 report refer to that original draw. `ComposeReport::duplicate_image_records`
 counts aliases; codec image counters count emitted images. Update exhaustive
-report literals/patterns for the new field. CLI and JS routing is still gated.
+report literals/patterns for the new field. CLI and JS now expose the
+caller-table route; distribution of bundled codec states remains gated by
+#30/#44.
 
 Original MIT unit fixtures cover raw/direct framing, repeated type-3/JPEG
 groups, byte-identical output versus one group, alias reporting, conflicting
