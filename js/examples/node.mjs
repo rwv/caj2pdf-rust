@@ -7,21 +7,25 @@ import { open, rm } from "node:fs/promises";
 import { finished } from "node:stream/promises";
 import { convert, convertReadable, fileHandleSource, loadModule, nodeWritableSink } from "../node.mjs";
 
-const [inputPath, outputPath] = process.argv.slice(2);
-if (!inputPath || !outputPath) {
+const [inputPath, outputPath, extra] = process.argv.slice(2);
+if (!inputPath || !outputPath || extra !== undefined) {
   process.stderr.write("Usage: node js/examples/node.mjs INPUT|- OUTPUT.pdf\n");
   process.exitCode = 2;
 } else {
-  const module = await loadModule(
-    new URL("../../target/wasm32-unknown-unknown/release/caj2pdf_wasm.wasm", import.meta.url),
-  );
   const controller = new AbortController();
-  process.once("SIGINT", () => controller.abort());
+  const abort = () => controller.abort();
+  process.once("SIGINT", abort);
   const options = { signal: controller.signal };
-  // "wx" never replaces an existing file; a failed conversion removes it.
-  const output = (await open(outputPath, "wx")).createWriteStream();
-  const input = inputPath === "-" ? null : await open(inputPath, "r");
+  let input;
+  let output;
   try {
+    const module = await loadModule(
+      new URL("../../target/wasm32-unknown-unknown/release/caj2pdf_wasm.wasm", import.meta.url),
+    );
+    input = inputPath === "-" ? null : await open(inputPath, "r");
+    // "wx" never replaces an existing file. Only an output we successfully
+    // opened belongs to this invocation and may be removed after failure.
+    output = (await open(outputPath, "wx")).createWriteStream();
     const sink = nodeWritableSink(output);
     const report = input == null
       ? await convertReadable(module, process.stdin, sink, options)
@@ -33,11 +37,15 @@ if (!inputPath || !outputPath) {
         `${report.outputBytesWritten} bytes.\n`,
     );
   } catch (error) {
-    output.destroy();
-    await rm(outputPath, { force: true });
+    if (output) {
+      output.destroy();
+      await finished(output).catch(() => {});
+      await rm(outputPath, { force: true });
+    }
     process.stderr.write(`${error.code ?? error.name}: ${error.message}\n`);
     process.exitCode = 1;
   } finally {
+    process.off("SIGINT", abort);
     await input?.close();
   }
 }

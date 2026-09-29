@@ -10,7 +10,7 @@ project-owned JavaScript and TypeScript declarations are MIT-licensed.
 | PDF (`%PDF-`) | Validated, repaired where the core supports it, and copied. |
 | CAJ (`CAJ`) | Reconstructed PDF with CAJ outline bookmarks. |
 | KDH (`KDH`) | Decoded PDF, then the PDF path. |
-| HN, C8, TEB | Recognized; rejected with `UnsupportedFormatError`. Image decoding is not implemented yet (issues #9 and #23). |
+| HN, C8, TEB | Recognized; rejected with `UnsupportedFormatError`. Complete-page HN/C8 integration is tracked in issue #10; selected-image decoders are not exposed by this package. |
 | Anything else | Rejected with `UnsupportedFormatError` (`format: null`). |
 
 ## Build and test
@@ -34,16 +34,21 @@ removes `private`, and publishes.
 ```js
 // Node.js
 import { open } from "node:fs/promises";
+import { finished } from "node:stream/promises";
 import { convert, fileHandleSource, loadModule, nodeWritableSink } from "caj2pdf-rust";
 
 const module = await loadModule();
 const input = await open("paper.caj", "r");
-const output = (await open("paper.pdf", "wx")).createWriteStream();
+let output;
 try {
+  output = (await open("paper.pdf", "wx")).createWriteStream();
   const report = await convert(module, await fileHandleSource(input), nodeWritableSink(output));
   output.end();
+  await finished(output);
   console.log(report.format, report.pagesConverted);
 } finally {
+  output?.destroy();
+  if (output) await finished(output).catch(() => {});
   await input.close();
 }
 ```
@@ -64,7 +69,9 @@ re-export the platform-neutral API in `io.mjs`. Type declarations are in
 `*.d.mts`. Runnable examples are [`examples/node.mjs`](examples/node.mjs)
 (`node js/examples/node.mjs INPUT|- OUTPUT.pdf`) and
 [`examples/browser.html`](examples/browser.html) (serve the repository root
-over HTTP and open `/js/examples/browser.html`).
+over HTTP and open `/js/examples/browser.html`). The Node example also
+removes its newly created output on failure; the short snippet above leaves
+partial-output disposal to the caller.
 
 ### API
 
@@ -190,6 +197,9 @@ sink should honor its `signal` argument for prompt cancellation.
   declarations, `caj2pdf_wasm.wasm`, `package.json`, `LICENSE`, and
   `README.md`; that `loadModule()` finds the packaged module by default; and
   that packing without a valid WASM build fails.
+- `examples.test.mjs` runs the Node example as a subprocess for CAJ/KDH/PDF
+  files and stdin, validates output PDFs, and checks missing/malformed inputs,
+  existing-output preservation and usage errors.
 - `adapters.test.mjs` and `wasm.test.mjs` cover the adapters and the raw ABI.
 - `corpus.test.mjs` runs the optional corpus runner (below) against a
   synthetic corpus and matrix built at test time.
