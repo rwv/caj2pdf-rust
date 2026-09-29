@@ -5,7 +5,10 @@
 Current reader update: the former document-prefix digest check has been replaced
 by structural compressed-header validation; see
 [the header note](hnc8-compressed-text-header.md). The experiments below retain
-their historical scope. No placement factor changed.
+their historical scope. No placement factor changed. The later
+[uncompressed-text and display-width note](hnc8-uncompressed-text.md) adds
+the observed raw HN-A grammar and corrects whole-byte versus partial-bit
+DIB padding.
 
 
 This records the frozen plan and measured results for [#112](https://github.com/rwv/caj2pdf-rust/issues/112),

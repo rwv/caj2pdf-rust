@@ -10,6 +10,8 @@ use crate::{Cancellation, Error, Limits, RangedSource, read_exact_at};
 use flate2::{Decompress, FlushDecompress, Status};
 use sha2::{Digest, Sha256};
 
+mod raw;
+
 const HEADER_BYTES: usize = 24;
 const CHUNK_BYTES: usize = 64 * 1024;
 const FIXED_WORKING_BYTES: u64 = 4096;
@@ -61,23 +63,26 @@ pub struct RawTextCoordinate {
 #[derive(Debug, Eq, PartialEq)]
 pub struct TextCoordinates {
     pub text: Span,
-    pub zlib_frame: Span,
+    /// None for uncompressed records.
+    pub zlib_frame: Option<Span>,
+    /// Expanded length, or the full indexed raw span including its opaque tail.
     pub decoded_length: u32,
+    /// Compressed glyph records, or all logical raw glyph/control/image/end records.
     pub record_count: u32,
     pub coordinates: Vec<RawTextCoordinate>,
-    /// SHA-256 of `zlib_frame` alone, excluding the 24-byte text header.
+    /// SHA-256 of the zlib frame, or the entire uncompressed text span.
     pub encoded_sha256: [u8; 32],
-    /// SHA-256 of all expanded bytes, including discarded opaque fields.
+    /// SHA-256 of all expanded bytes, or the entire uncompressed text span.
     pub decoded_sha256: [u8; 32],
     pub max_source_request_bytes: usize,
     pub max_decoder_output_chunk_bytes: usize,
     /// Capacities of the compressed/expanded scratch and coordinate Vecs.
     pub owned_buffer_bytes: u64,
-    /// Owned buffers, fixed scratch and the conservative decoder reservation.
+    /// Owned buffers and fixed scratch; compressed input also reserves a decoder.
     pub working_memory_bytes: u64,
 }
 
-/// Validate one declared page's compressed text framing and record structure.
+/// Validate compressed HN-A/C8 text or the observed uncompressed HN-A records.
 ///
 /// The caller supplies metadata from the same stable [`RangedSource`],
 /// normally [`super::Hnc8Reader`]. Public header/page values are rechecked
@@ -102,7 +107,25 @@ pub async fn read_text_coordinates<S: RangedSource, C: Cancellation>(
             value: 2,
         }));
     }
-    read_compressed_text(source, header, page, limits, cancellation, budget).await
+    let loc = location(header, page);
+    validate_metadata(header, page, source.size(), limits, budget, loc)?;
+    let mut prefix = [0; 4];
+    read_chunks(
+        source,
+        page.text.offset,
+        &mut prefix,
+        limits,
+        cancellation,
+        loc,
+        &mut 0,
+    )
+    .await?;
+    let tag = u16::from_le_bytes([prefix[0], prefix[1]]);
+    if header.variant == Variant::HnA && matches!(tag, 0x8001 | 0x800a | 0x8004) {
+        raw::read(source, page, limits, cancellation, budget, loc).await
+    } else {
+        read_compressed_text(source, header, page, limits, cancellation, budget).await
+    }
 }
 
 fn location(header: Header, page: PageRecord) -> Location {
@@ -254,8 +277,13 @@ fn allocate<T: Clone>(count: usize, value: T, limits: &Limits, loc: Location) ->
     Ok(result)
 }
 
-fn check_working(owned: u64, budget: TextBudget, loc: Location) -> Result<u64> {
-    let working = owned.saturating_add(TEXT_DECODER_RESERVATION_BYTES + FIXED_WORKING_BYTES);
+fn check_working(owned: u64, compressed: bool, budget: TextBudget, loc: Location) -> Result<u64> {
+    let decoder = if compressed {
+        TEXT_DECODER_RESERVATION_BYTES
+    } else {
+        0
+    };
+    let working = owned.saturating_add(decoder + FIXED_WORKING_BYTES);
     if working > budget.max_working_bytes {
         return Err(loc.limit("text working bytes", budget.max_working_bytes, working));
     }
@@ -312,10 +340,7 @@ async fn read_compressed_text<S: RangedSource, C: Cancellation>(
     budget: TextBudget,
 ) -> Result<TextCoordinates> {
     let loc = location(header, page);
-    validate_metadata(header, page, source.size(), limits, budget, loc)?;
-    if cancellation.is_cancelled() {
-        return Err(loc.error(ErrorKind::Cancelled));
-    }
+
     let mut max_source_request_bytes = 0;
     let mut fixed = [0; HEADER_BYTES];
     read_chunks(
@@ -385,7 +410,7 @@ async fn read_compressed_text<S: RangedSource, C: Cancellation>(
     let output_count = (decoded_bytes + 1).min(len_u64(chunk)) as usize;
     let planned_buffers = len_u64(input_count + output_count)
         + u64::from(page.image_count) * size_of::<RawTextCoordinate>() as u64;
-    check_working(planned_buffers, budget, loc)?;
+    check_working(planned_buffers, true, budget, loc)?;
     if TEXT_DECODER_RESERVATION_BYTES > limits.max_allocation_bytes {
         return Err(loc.limit(
             "text decoder allocation reservation",
@@ -409,7 +434,7 @@ async fn read_compressed_text<S: RangedSource, C: Cancellation>(
             len_u64(accumulator.coordinates.capacity())
                 .saturating_mul(size_of::<RawTextCoordinate>() as u64),
         );
-    let working_memory_bytes = check_working(owned_buffer_bytes, budget, loc)?;
+    let working_memory_bytes = check_working(owned_buffer_bytes, true, budget, loc)?;
     let mut inflater = Decompress::new(true);
     let mut encoded_hash = Sha256::new();
     let mut decoded_hash = Sha256::new();
@@ -487,7 +512,7 @@ async fn read_compressed_text<S: RangedSource, C: Cancellation>(
     }
     Ok(TextCoordinates {
         text: page.text,
-        zlib_frame,
+        zlib_frame: Some(zlib_frame),
         decoded_length,
         record_count,
         coordinates: accumulator.coordinates,

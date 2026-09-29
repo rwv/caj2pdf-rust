@@ -642,7 +642,7 @@ where
                     }
                     // The page helper checked the one-bit DIB padding and
                     // u32 display-width range without converting via float.
-                    let display_width = u32::try_from(info.dib_stride as u64 * 8)
+                    let display_width = u32::try_from(super::placement::type0_display_width(info))
                         .expect("checked empirical type-0 width");
                     (
                         CheckedImage::Type0(info),

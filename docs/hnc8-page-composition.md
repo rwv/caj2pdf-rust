@@ -14,12 +14,14 @@ support. HN-A outlines can be requested with `include_bookmarks`; see the
 ## Supported profile and source mapping
 
 The HN-A/C8 path traverses the entire declared index from source page 1. Each
-image-bearing page must have the compressed text header tags and
+image-bearing page must have either the [uncompressed HN-A record profile](hnc8-uncompressed-text.md)
+or the compressed text header tags and
 `COMPRESSTEXT` marker, a complete checksummed zlib frame, record markers and
 image tail. The two header payload words may vary across documents; see
 [compressed text framing](hnc8-compressed-text-header.md). Every image
 must be type 0 or type 2. The first checked image determines the page box.
-All raw coordinate words determine transforms in source descriptor order via
+Type-0 display width retains visible bits when no whole padding bytes are
+needed; otherwise it includes the DIB padding bytes. All raw coordinate words determine transforms in source descriptor order via
 the [empirical placement rule](hnc8-placement-rule.md); negative height,
 fractional positions, overlap, repeated payloads and off-page draws are kept.
 The coordinate factor is measured, not an authoritative physical source unit.
@@ -52,8 +54,10 @@ for every image through the existing decoder.
 
 The [row decoder](jbig1-type0-rows.md) emits top-first, MSB-first DIB-stride
 rows, where bit 1 means black. It zeroes unused low visible bits and all DIB
-padding. This composition profile keeps **all** `dib_stride * 8` samples in
-the PDF image width. It does not crop to visible width and stretch the result.
+padding. The PDF stream retains all DIB row bytes. Display width is the
+visible width if `visible_bytes == dib_stride`, otherwise `dib_stride * 8`.
+This distinguishes unused bits from extra padding bytes; page and image
+geometry use the same rule.
 This composer stores those rows bottom-first under a negative-height CTM.
 That sample/transform convention must pass the predeclared full-reference
 comparison; the older row-oracle check alone is insufficient. A caller-owned

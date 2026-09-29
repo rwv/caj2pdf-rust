@@ -251,10 +251,10 @@ where
             reason: "type-0 row-storage geometry differs from checked DIB dimensions",
         }));
     }
-    let padded_width = stride * 8;
+    let display_width = super::placement::type0_display_width(checked);
     let length = stride * u64::from(checked.height);
     for (resource, attempted, maximum) in [
-        ("PDF image width", padded_width, i32::MAX as u64),
+        ("PDF image width", display_width, i32::MAX as u64),
         ("PDF image stream bytes", length, i32::MAX as u64),
         ("type-0 row-storage bytes", length, budget.max_bytes),
         (
@@ -304,7 +304,7 @@ where
     report.copy_buffer_bytes = buffer.capacity();
     let mut rows = document
         .begin_bilevel_image(BilevelImageSpec {
-            pixel_width: padded_width as u32,
+            pixel_width: display_width as u32,
             pixel_height: checked.height,
             row_stride: checked.dib_stride,
         })

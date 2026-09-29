@@ -96,9 +96,21 @@ pub fn empirical_page_from_pixels(
     Ok(page)
 }
 
-/// Derive a first-type-0 page from a consistent DIB stride, not visible width.
+/// Display width for checked type-0 metadata in the observed reference profile.
+/// Whole padding bytes expand the displayed width; unused bits in the last
+/// visible byte do not. Callers validate the DIB dimensions before using this.
+pub(super) fn type0_display_width(info: Type0Info) -> u64 {
+    if info.visible_bytes == info.dib_stride {
+        u64::from(info.width)
+    } else {
+        info.dib_stride as u64 * 8
+    }
+}
+
+/// Derive a first-type-0 page from consistent DIB dimensions and row storage.
 ///
-/// The observed one-bit DIB profile pads rows to a multiple of 32 bits.
+/// The observed profile retains visible width if its byte count already
+/// equals the DIB stride; otherwise whole padding bytes expand the width.
 /// Although [`Type0Info`] normally comes from the checked decoder, its fields
 /// are public, so both stride and visible-byte consistency are checked here.
 pub fn empirical_page_from_type0(
@@ -117,10 +129,11 @@ pub fn empirical_page_from_type0(
             reason: "empirical type-0 stride or visible bytes differ from the one-bit DIB dimensions",
         });
     }
-    let padded_width = u32::try_from(stride * 8).map_err(|_| Error::InvalidInput {
-        reason: "empirical type-0 padded width exceeds the supported pixel range",
-    })?;
-    empirical_page_from_pixels(padded_width, info.height, origin_points)
+    let display_width =
+        u32::try_from(type0_display_width(info)).map_err(|_| Error::InvalidInput {
+            reason: "empirical type-0 display width exceeds the supported pixel range",
+        })?;
+    empirical_page_from_pixels(display_width, info.height, origin_points)
 }
 
 /// Predict one image CTM from checked source pixels and raw coordinate words.
@@ -129,8 +142,8 @@ pub fn empirical_page_from_type0(
 /// downward. The result is `[width, 0, 0, -height, x, y]`; negative PDF
 /// positions and images outside the page are preserved without clipping.
 /// Calls preserve source order and repeated images without a lookup table.
-/// For type-0 rasters, pass their checked padded `dib_stride * 8` pixel width
-/// rather than the DIB's visible width. This matches the page helper above.
+/// For type-0 rasters, use visible width when `visible_bytes == dib_stride`,
+/// otherwise `dib_stride * 8`. This matches the page helper above.
 ///
 /// All raw `u16` values, including bit 15, are evaluated as unsigned without
 /// clipping. This is the evaluator's mathematical domain, not proof that

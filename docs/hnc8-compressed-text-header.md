@@ -51,8 +51,9 @@ sequentially and raster pairs removed after comparison. The comparison report
 SHA-256 is `8a19f5d6e006561a0f2af75cbf033baf13b642116fa5562bad7d89d094d46170`.
 
 Issue-69 is different: its 81 text spans do not have this compressed header.
-It remains unsupported by page composition, and #119 stays open. This fix does
-not claim uncompressed-text support, type-3 integration or complete HN parity.
+The later [uncompressed-text reader](hnc8-uncompressed-text.md) handles that
+profile separately. The compressed-header work does not establish type-3
+integration or complete HN parity.
 
 ## Tests and provenance
 

@@ -182,10 +182,11 @@ issue acceptance criteria are authoritative for each task.
   Flate support; do not claim whole-document success from a partial parser fix.
 - HN-A outline fields (#137) are validated. PR #162 implements the bounded
   reader and PDF output; 159 outline-only matches do not prove page content.
-  PR #163 fixes compressed-header validation: issue-29 now passes 48 pages,
-  48 outlines and 96 full-page renderer comparisons. Finish #119 by supporting
-  issue-69's uncompressed text records and validating its full output; this
-  sample uses only type-0/JPEG and does not depend on type-3 integration.
+  Issue-29 passes 48 pages, 48 outlines and 96 full-page comparisons (#163).
+  The uncompressed HN-A reader also passes issue-69's 81 pages, 111 outlines
+  and 162 comparisons against an explicitly corrected Gray reference. See
+  [the evidence and legacy deviation](docs/hnc8-uncompressed-text.md).
+  C8/HN-B outlines and general HN coverage remain parent #10 work.
 - Implement type-3/mixed-image composition in #118 using the existing decoder
   and writer, then connect complete HN/C8 conversion to CLI and JS in #10/#13.
 - Keep complete HN/C8 conversion (#10), browser/Node support (#13), codec rights
