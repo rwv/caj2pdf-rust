@@ -39,6 +39,8 @@ experimental HN/C8 image-page conversion. HN/C8 arithmetic images require
 caller-supplied QM/MQ state files while their MIT distribution decisions
 (#30/#44) remain unresolved. The same core converter is available through
 [Node and browser WASM](js/README.md), using caller-owned bounded scratch stores.
+See the [support matrix and release status](docs/conformance.md#v01-support-and-release-status)
+for verified profiles and remaining HN/C8 rendering differences.
 TEB is recognized and unsupported. Build with `cargo build --release -p caj2pdf-cli`.
 
 For C8/HN-B, explicitly disable bookmark import until those outline semantics
