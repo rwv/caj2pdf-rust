@@ -183,6 +183,61 @@ pub async fn convert<S: RangedSource, W: SequentialSink>(
     .map_err(|e| e.to_string())
 }
 
+/// Keep only bounded outline metadata; image payloads are never read here.
+pub async fn inspect<S: RangedSource>(
+    source: &mut S,
+    limits: &Limits,
+) -> Result<
+    (
+        caj2pdf_core::hnc8::Header,
+        Option<Vec<caj2pdf_core::Bookmark>>,
+    ),
+    String,
+> {
+    use caj2pdf_core::hnc8::{Budget, Hnc8Reader};
+    let mut reader = Hnc8Reader::open(source, limits, &NeverCancel, Budget::default())
+        .await
+        .map_err(|e| e.to_string())?;
+    let header = reader.header();
+    let Some(count) = reader.declared_bookmark_count() else {
+        return Ok((header, None));
+    };
+    if count > limits.max_bookmarks {
+        return Err("HN-A bookmark count exceeds the configured limit".into());
+    }
+    let bytes = u64::from(count) * std::mem::size_of::<caj2pdf_core::Bookmark>() as u64;
+    limits.check_allocation(bytes).map_err(|e| e.to_string())?;
+    let mut collected = CollectedBookmarks {
+        items: Vec::new(),
+        limits: *limits,
+        bytes,
+    };
+    collected
+        .items
+        .try_reserve_exact(count as usize)
+        .map_err(|_| "cannot allocate HN-A outline metadata")?;
+    reader
+        .visit_bookmarks(64, header.page_count, |page| Some(page - 1), &mut collected)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok((header, Some(collected.items)))
+}
+
+struct CollectedBookmarks {
+    items: Vec<caj2pdf_core::Bookmark>,
+    limits: Limits,
+    bytes: u64,
+}
+
+impl caj2pdf_core::BookmarkVisitor for CollectedBookmarks {
+    async fn visit(&mut self, bookmark: caj2pdf_core::Bookmark) -> caj2pdf_core::Result<()> {
+        self.bytes += bookmark.title.capacity() as u64;
+        self.limits.check_allocation(self.bytes)?;
+        self.items.push(bookmark);
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -207,5 +262,33 @@ mod tests {
             assert!(parse_states(text, 1).is_err(), "{text:?}");
         }
         assert!(parse_states(&" ".repeat(MAX_STATE_BYTES as usize + 1), 1).is_err());
+    }
+
+    #[test]
+    fn outline_collection_accounts_for_records_and_retained_titles() {
+        use crate::document::block_on;
+        use caj2pdf_core::native::SeekableSource;
+        let mut bytes = vec![0; 0x15c + 308 + 20];
+        bytes[..8].copy_from_slice(&[72, 78, 0, 0, 0x90, 1, 0, 0]);
+        bytes[0x90] = 1;
+        bytes[0x158] = 1;
+        bytes[0x15c..0x160].copy_from_slice(b"Root");
+        bytes[0x15c + 280] = b'1';
+        bytes[0x15c + 304] = 1;
+        for (max_bookmarks, max_allocation_bytes) in [
+            (0, 4096),
+            (1, 1),
+            (1, std::mem::size_of::<caj2pdf_core::Bookmark>() as u64),
+        ] {
+            let mut source = SeekableSource::new(std::io::Cursor::new(&bytes)).unwrap();
+            let limits = Limits {
+                max_bookmarks,
+                max_allocation_bytes,
+                io_chunk_bytes: 1,
+                ..Limits::default()
+            };
+            let error = block_on(inspect(&mut source, &limits)).unwrap_err();
+            assert!(error.contains("limit"), "{error}");
+        }
     }
 }

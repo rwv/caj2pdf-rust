@@ -123,7 +123,9 @@ this matrix through the public JavaScript API:
 CAJ2PDF_CORPUS_DIR=/path/to/CAJSamples node js/scripts/corpus.mjs
 ```
 
-HN, C8, and TEB entries must be rejected as unsupported. For CAJ, KDH, and
+TEB entries must be rejected as unsupported. HN/C8 entries are explicitly
+NOT_RUN because this runner does not configure caller codec tables or scratch
+stores; those are not rejected-format compatibility passes. For CAJ, KDH, and
 PDF entries it uses the same `expected_outcome` classes as
 `scripts/conformance.py`: a reference `success` must convert to a PDF that
 passes `qpdf --check` without warnings and has the reference output page

@@ -45,7 +45,7 @@ pub fn detect_format(prefix: &[u8]) -> Option<InputFormat> {
 pub struct DocumentInfo {
     pub format: InputFormat,
     pub page_count: u32,
-    /// `None` if counting bookmarks requires a separate pass.
+    /// `None` if the outline layout is unknown or this operation does not count it.
     pub bookmark_count: Option<u32>,
 }
 

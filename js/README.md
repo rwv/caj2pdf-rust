@@ -10,7 +10,7 @@ project-owned JavaScript and TypeScript declarations are MIT-licensed.
 | PDF (`%PDF-`) | Validated, repaired where the core supports it, and copied. |
 | CAJ (`CAJ`) | Reconstructed PDF with CAJ outline bookmarks. |
 | KDH (`KDH`) | Decoded PDF, then the PDF path. |
-| HN, C8 | Experimental complete-page conversion with caller-supplied codec tables and scratch stores (below). `inspect` remains unsupported. |
+| HN, C8 | Experimental complete-page conversion with caller-supplied codec tables and scratch stores (below). `inspect` reads page counts and validated HN-A bookmark counts without codec tables. |
 | TEB | Recognized; rejected with `UnsupportedFormatError`. |
 | Anything else | Rejected with `UnsupportedFormatError` (`format: null`). |
 
@@ -89,7 +89,10 @@ to the file you choose.
   `{ format, inputBytesRead, outputBytesWritten, pagesConverted, bookmarksWritten }`.
 - `inspect(wasm, source, options)` resolves with
   `{ format, pageCount, bookmarkCount, inputBytesRead }` without output.
-  `bookmarkCount` is counted for CAJ and `null` for PDF and KDH.
+  `bookmarkCount` is validated/countable for CAJ and HN-A; it is `null`
+  for PDF, KDH, C8 and HN-B (unknown, not zero). HN-A validation streams
+  one outline record at a time and reads no image payloads. No codec tables
+  or scratch stores are required for HN/C8 inspection.
 - `wasm` is a `WebAssembly.Module` (each call instantiates its own instance,
   so calls may run concurrently), an `Instance`, or its exports. An instance
   runs one operation at a time and rejects a second concurrent one.
@@ -228,8 +231,9 @@ files in its own `finally`; cleanup cannot guarantee removal after host failure.
 HN-A outlines are supported. C8/HN-B currently require explicit
 `includeBookmarks: false`. HN-B source rows without supported image content are
 rejected rather than silently omitted. Strict JBIG2 headers are enforced; the
-core's anomalous-header opt-in is not exposed here. Pure-text/searchable HN and
-HN/C8 `inspect` remain unsupported. Located composition failures use error code
+core's anomalous-header opt-in is not exposed here. Pure-text/searchable HN
+remains unsupported. HN/C8 inspection validates metadata without implying
+that the document can be converted. Located conversion and metadata failures use error code
 `HNC8`. This API does not resolve codec distribution or finish issue #10.
 
 ### v0.x migration
@@ -237,7 +241,10 @@ HN/C8 `inspect` remain unsupported. Located composition failures use error code
 HN/C8 conversion no longer always throws `UnsupportedFormatError`: callers must
 handle `HNC8`, invalid configuration and missing scratch errors. Existing
 PDF/CAJ/KDH calls do not need `hnc8`. Rust users must handle the new
-`Error::Hnc8`, `Status` and `Request` variants when matching exhaustively.
+`Error::Hnc8`, `Error::Hnc8Metadata`, `Status` and `Request` variants when matching exhaustively.
+HN/C8 inspection now succeeds for valid metadata; malformed headers/outlines
+use `HNC8` instead of a blanket unsupported-format error. C8/HN-B unknown
+bookmark counts remain `null`, while validated empty HN-A outlines return zero.
 Raw WASM hosts must implement statuses 6–9 (scratch read/write/resize/flush),
 use `caj2pdf_io_request_store()` (1–4), and acknowledge resize through
 `caj2pdf_io_complete_resize()`. The request offset holds the new extent for
@@ -290,7 +297,7 @@ sink should honor its `signal` argument for prompt cancellation.
   every request is within the chunk size and validating each output with
   `qpdf --check` and `qpdf --show-npages` when `qpdf` is installed (otherwise
   a diagnostic reports the skip; the CI WASM job installs it). It
-  also covers `inspect`, unsupported inspection/TEB conversion, typed errors, limits,
+  also covers `inspect`, TEB rejection, typed errors, limits,
   cancellation, sink and source errors, and the memory measurement above.
 - `spool.test.mjs` covers Node temp-file spooling from Node and Web streams,
   the spool bound, cleanup after success, failure, and abort, and the OPFS
@@ -410,7 +417,7 @@ and runs
   PDF inputs, with every read and write at most the 4 KiB chunk size. The
   outputs return to Node (base64 plus a SHA-256 computed with
   `crypto.subtle`) for `qpdf --check` and page counts.
-- HN/C8 inspection remains unsupported; conversion uses the experimental caller-table path.
+- HN/C8 inspection validates source metadata; conversion uses the experimental caller-table path.
 - `AbortSignal` cancellation while a `WritableStream` write is stalled.
 - `convertReadableStream` through the real OPFS: one `caj2pdf-spool-*` file
   exists during conversion and none after success, the `maxSpoolBytes`

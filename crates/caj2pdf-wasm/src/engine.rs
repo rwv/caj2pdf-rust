@@ -157,7 +157,7 @@ pub fn error_code(error: &Error) -> u32 {
         Error::Caj { .. } => 13,
         Error::CajLimitExceeded { .. } => 14,
         Error::Kdh { .. } => 15,
-        Error::Hnc8(_) => 16,
+        Error::Hnc8(_) | Error::Hnc8Metadata(_) => 16,
     }
 }
 
@@ -577,6 +577,9 @@ async fn inspect(
         InputFormat::Kdh => {
             let mut decoded = KdhPdfSource::open(&mut counted, limits, cancellation).await?;
             (pdf_pages(&mut decoded, limits, cancellation).await?, None)
+        }
+        InputFormat::Hn | InputFormat::C8 => {
+            hnc8::inspect(&mut counted, limits, cancellation).await?
         }
         _ => return Err(Error::UnsupportedFormat),
     };

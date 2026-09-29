@@ -579,7 +579,7 @@ export function convert(wasm, source, sink, options = {}) {
   return run(OPERATION_CONVERT, wasm, source, sink, options);
 }
 
-/** Read the format, page count, and (for CAJ) bookmark count. No output. */
+/** Read format, pages and validated CAJ/HN-A bookmark counts. No image decoding. */
 export function inspect(wasm, source, options = {}) {
   return run(OPERATION_INSPECT, wasm, source, null, options);
 }

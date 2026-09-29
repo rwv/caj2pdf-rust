@@ -364,7 +364,7 @@ fn caj_conversion_honors_disabled_bookmarks_and_explicit_format() {
 }
 
 #[test]
-fn recognized_image_formats_and_unknown_inputs_are_unsupported() {
+fn malformed_known_formats_and_unsupported_inputs_have_distinct_errors() {
     let cases: [(&[u8], Option<InputFormat>); 5] = [
         (b"HN\0\0\x90\x01\0\0", Some(InputFormat::Hn)),
         (&[0xc8, 0, 0, 0, 0, 0], Some(InputFormat::C8)),
@@ -391,7 +391,12 @@ fn recognized_image_formats_and_unknown_inputs_are_unsupported() {
     };
     let mut engine = Engine::start(4, limits(64), inspect_hn).unwrap();
     drive(&mut engine, b"HN\0\0", None);
-    assert!(matches!(failure(&engine), Error::UnsupportedFormat));
+    assert!(matches!(failure(&engine), Error::Hnc8Metadata(_)));
+    assert_eq!(error_code(failure(&engine)), 16);
+    assert!(std::error::Error::source(failure(&engine)).is_some());
+    let mut teb = Engine::start(3, limits(1), Operation::Inspect { format: None }).unwrap();
+    drive(&mut teb, b"TEB", None);
+    assert!(matches!(failure(&teb), Error::UnsupportedFormat));
 }
 
 #[test]
@@ -770,4 +775,75 @@ fn hnb_empty_source_rows_are_not_silently_omitted() {
         engine.message()
     );
     assert!(engine.message().contains("page 1"));
+}
+
+fn hn_metadata() -> Vec<u8> {
+    let mut bytes = vec![0; 0x15c + 2 * 308 + 2 * 20];
+    bytes[..8].copy_from_slice(&[72, 78, 0, 0, 0x90, 1, 0, 0]);
+    put_u32(&mut bytes, 0x90, 2);
+    put_u32(&mut bytes, 0x158, 2);
+    for index in 0..2 {
+        let at = 0x15c + index * 308;
+        bytes[at..at + 4].copy_from_slice(b"Root");
+        bytes[at + 280] = b'1' + index as u8;
+        put_u32(&mut bytes, at + 304, index as u32 + 1);
+    }
+    bytes
+}
+
+#[test]
+fn hnc8_inspection_streams_outline_validation_without_codec_or_scratch() {
+    let mut c8 = vec![0; 0x50 + 20];
+    c8[0] = 0xc8;
+    put_u32(&mut c8, 8, 1);
+    let mut hnb = vec![0; 0xd8 + 20];
+    hnb[..8].copy_from_slice(&[72, 78, 0, 0, 0xc8, 0, 0, 0]);
+    put_u32(&mut hnb, 0x90, 1);
+    for (input, pages, bookmarks) in [
+        (hn_metadata(), 2, Some(2)),
+        (synthetic_hn(), 1, Some(0)),
+        (c8, 1, None),
+        (hnb, 1, None),
+    ] {
+        let mut engine = Engine::start(
+            input.len() as u64,
+            limits(1),
+            Operation::Inspect { format: None },
+        )
+        .unwrap();
+        let run = drive(&mut engine, &input, Some(1));
+        let info = outcome(&engine).info.as_ref().unwrap();
+        assert_eq!((info.page_count, info.bookmark_count), (pages, bookmarks));
+        assert!(run.output.is_empty());
+        assert_eq!(run.flushes, 0);
+        assert_eq!(run.max_read, 1);
+        assert!(run.stores.iter().all(Vec::is_empty));
+    }
+}
+
+#[test]
+fn hna_inspection_rejects_invalid_records_and_resource_limits() {
+    for case in 0..5 {
+        let mut input = hn_metadata();
+        let mut bounded = limits(1);
+        match case {
+            0 => put_u32(&mut input, 0x15c + 308 + 304, 4),
+            1 => bounded.max_bookmarks = 1,
+            2 => bounded.max_pages = 1,
+            3 => bounded.max_allocation_bytes = 8,
+            _ => {
+                input.pop();
+            }
+        }
+        let mut engine = Engine::start(
+            input.len() as u64,
+            bounded,
+            Operation::Inspect { format: None },
+        )
+        .unwrap();
+        drive(&mut engine, &input, None);
+        assert_eq!(error_code(failure(&engine)), 16);
+        assert!(engine.message().contains("byte"));
+        assert!(std::error::Error::source(failure(&engine)).is_some());
+    }
 }

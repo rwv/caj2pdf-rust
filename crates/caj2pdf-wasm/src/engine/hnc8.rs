@@ -144,3 +144,34 @@ pub(super) async fn convert(
     .map(|report| report.conversion)
     .map_err(|error| Error::Hnc8(Box::new(error)))
 }
+
+struct IgnoreBookmarks;
+impl caj2pdf_core::BookmarkVisitor for IgnoreBookmarks {
+    async fn visit(&mut self, _: caj2pdf_core::Bookmark) -> Result<()> {
+        Ok(())
+    }
+}
+
+pub(super) async fn inspect<S: RangedSource, C: Cancellation>(
+    source: &mut S,
+    limits: &Limits,
+    cancellation: &C,
+) -> Result<(u32, Option<u32>)> {
+    use caj2pdf_core::hnc8::{Budget, Hnc8Reader};
+    let result: caj2pdf_core::hnc8::Result<_> = async {
+        let mut reader = Hnc8Reader::open(source, limits, cancellation, Budget::default()).await?;
+        let pages = reader.header().page_count;
+        let count = if reader.declared_bookmark_count().is_some() {
+            Some(
+                reader
+                    .visit_bookmarks(64, pages, |page| Some(page - 1), &mut IgnoreBookmarks)
+                    .await?,
+            )
+        } else {
+            None
+        };
+        Ok((pages, count))
+    }
+    .await;
+    result.map_err(|error| Error::Hnc8Metadata(Box::new(error)))
+}
