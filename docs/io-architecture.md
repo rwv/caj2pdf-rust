@@ -33,6 +33,19 @@ KDH engine (issue #13). A native caller
 can drive its future with an executor of its choice; the core does not choose
 an executor.
 
+For native HN/C8 bitmap storage, `native::FileScratch::new(file, max_bytes)`
+adopts a caller-created regular file and implements `RandomAccessScratch`.
+The caller supplies a read/write handle and grants exclusive access during
+conversion. Resizing is capped; positioned requests must fit both the declared
+file extent and `MAX_IO_CHUNK`. The adapter allocates no image buffer and
+preserves short I/O and OS errors. `into_inner()` returns the handle.
+Dropping closes it but does not delete its path: the CLI or embedding caller
+owns temporary-file creation/unlinking. These blocking operations suit native
+file adapters; the asynchronous browser/Node bridge remains separate.
+The source-page example uses this adapter for its four reusable stores.
+This storage API does not resolve codec-state distribution or enable HN/C8
+CLI/JS routing on its own; those remain #10 work.
+
 The WASM instance permits one active operation. A fixed staging allocation
 holds at most one configured chunk. The JS driver reads the requested range,
 copies only that chunk to WASM memory, and resumes the future. On output, it

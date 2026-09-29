@@ -1620,3 +1620,11 @@ source mapping from Python page-count and color-declaration defects. No legacy
 implementation was inspected or imported. Unit images and records use existing
 original fixture builders; documents, tables, JPEG payloads and renders remain
 external. No dependency was added.
+
+## Native file-backed scratch
+
+`native::FileScratch` and its filesystem tests are original MIT project code,
+factored from the source-page example's existing file I/O. It uses only Rust
+standard-library file operations and existing core limits; no external code,
+codec states, document data or new dependency is introduced. The example now
+retains only its resource counters around the reusable adapter.
