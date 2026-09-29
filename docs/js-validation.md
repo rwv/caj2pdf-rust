@@ -284,3 +284,27 @@ An earlier HN-A Node attempt exited with SIGTERM (143), without a completion
 report. Its partial PDF/stores are retained under `node-interrupted`; it is
 INTERRUPTED, not a compatibility pass. The successful fresh Node run above
 was started only after termination was confirmed.
+
+## Built-in state defaults
+
+After #189, CLI and WASM use the same standard QM/MQ values previously supplied
+externally. Explicit tables still override the defaults; partial overrides fail.
+Original tests exercise default QM conversion on CLI, Node and Chromium Worker
+OPFS, plus the existing custom-table, failure and cleanup paths.
+
+The real four-page C8 sample was converted again with **no state file, fixture
+read or state-array injection** on CLI, Node and Chromium. All three outputs
+are 3,978,812 bytes with SHA-256
+`a28f46d2534935999b30048cfe49c7fc606fa4e4851cfe1814b5f1860bc0f726`,
+identical to the previously validated explicit-table output. Bookmarks remain
+explicitly omitted. The native PDF passes qpdf; each JS run resets all four
+scratch stores to zero, and the browser removes every OPFS file. This verifies
+actual default MQ routing without repeating unaffected viewer captures.
+
+#189 compares all built-in numeric rows against the independently pinned
+external official records and runs the existing arithmetic vectors. Decoder
+logic and those numerical values are unchanged; the earlier 1,400 type-0 and
+545 strict type-3 image comparisons retain their recorded scope and are not
+claimed as newly rerun batches. Native/WASM regression tests, Clippy and all
+123 JavaScript tests passed locally; Rust coverage is 30,448/30,448 lines.
+External default-C8 reports are under `caj2pdf-release-audit/default-*-c8`.

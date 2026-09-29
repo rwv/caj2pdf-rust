@@ -93,22 +93,25 @@ pub(super) async fn convert(
     cancellation: &BridgeCancellation,
 ) -> Result<ConversionReport> {
     let tables = std::mem::take(&mut source.shared.borrow_mut().tables);
-    let qm = if tables.qm.is_empty() {
-        None
+    let qm = QmTable::new(if tables.qm.is_empty() {
+        caj2pdf_core::qm::STANDARD_STATES.to_vec()
     } else {
-        Some(QmTable::new(tables.qm).map_err(|_| Error::InvalidInput {
-            reason: "incomplete caller QM state table",
-        })?)
-    };
-    let mq = if tables.mq.is_empty() {
-        None
-    } else {
-        Some(
-            MqTable::new(tables.mq, limits).map_err(|_| Error::InvalidInput {
-                reason: "invalid or incomplete caller MQ state table",
-            })?,
-        )
-    };
+        tables.qm
+    })
+    .map_err(|_| Error::InvalidInput {
+        reason: "incomplete caller QM state table",
+    })?;
+    let mq = MqTable::new(
+        if tables.mq.is_empty() {
+            caj2pdf_core::jbig2::mq::STANDARD_STATES.to_vec()
+        } else {
+            tables.mq
+        },
+        limits,
+    )
+    .map_err(|_| Error::InvalidInput {
+        reason: "invalid or incomplete MQ state table",
+    })?;
     let options = ComposeOptions {
         include_bookmarks: options.include_bookmarks,
         ..Default::default()
@@ -123,8 +126,8 @@ pub(super) async fn convert(
     let [rows, first, second, refined] = &mut stores;
     let workspaces = ComposeWorkspaces {
         rows,
-        type3: mq.as_ref().map(|table| ComposeType3Workspaces {
-            table,
+        type3: Some(ComposeType3Workspaces {
+            table: &mq,
             first,
             second,
             refined,
@@ -133,7 +136,7 @@ pub(super) async fn convert(
     convert_source_pages_pdf(
         source,
         sink,
-        qm.as_ref(),
+        Some(&qm),
         workspaces,
         &mut CompletePages,
         options,

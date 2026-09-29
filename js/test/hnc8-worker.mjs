@@ -15,11 +15,16 @@ try {
     const handle = await file.createSyncAccessHandle(); handles.push(handle);
     scratch.push(syncAccessHandleScratch(handle, { maxBytes: 1024n }));
   }
+  const module = await loadModule();
   const parts = [];
-  const report = await convert(await loadModule(), blobSource(new Blob([syntheticHn(true, true)])), {
+  const report = await convert(module, blobSource(new Blob([syntheticHn(true, true)])), {
     async writeChunk(bytes) { parts.push(...bytes); return bytes.length; }, async flush() {},
   }, { chunkSize: 3, hnc8: { qmStates, scratch } });
-  result = { pages: report.pagesConverted, pdf: parts, cleared: scratch.every((store) => store.size === 0n) };
+  const standardPdf = [];
+  const standard = await convert(module, blobSource(new Blob([syntheticHn()])), {
+    async writeChunk(bytes) { standardPdf.push(...bytes); return bytes.length; }, async flush() {},
+  }, { chunkSize: 3, hnc8: { scratch } });
+  result = { standardPages: standard.pagesConverted, standardPdf, pages: report.pagesConverted, pdf: parts, cleared: scratch.every((store) => store.size === 0n) };
 } catch (error) {
   result = { error: `${error.name}: ${error.message}` };
 } finally {

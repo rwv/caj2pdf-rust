@@ -10,7 +10,7 @@ project-owned JavaScript and TypeScript declarations are MIT-licensed.
 | PDF (`%PDF-`) | Validated, repaired where the core supports it, and copied. |
 | CAJ (`CAJ`) | Reconstructed PDF with CAJ outline bookmarks. |
 | KDH (`KDH`) | Decoded PDF, then the PDF path. |
-| HN, C8 | Experimental complete-page conversion with caller-supplied codec tables and scratch stores (below). `inspect` reads page counts and validated HN-A bookmark counts without codec tables. |
+| HN, C8 | Experimental complete-page conversion with built-in standard codec tables and caller-owned scratch stores (below). `inspect` reads page counts and validated HN-A bookmark counts without codec tables. |
 | TEB | Recognized; rejected with `UnsupportedFormatError`. |
 | Anything else | Rejected with `UnsupportedFormatError` (`format: null`). |
 
@@ -201,20 +201,18 @@ not provide that contract. Pass four independent adapters to `convert` as shown 
 
 ## Experimental HN/C8 conversion
 
-`convert` accepts `hnc8: { qmStates, mqStates, scratch }`. The independently
-implemented decoder does **not** bundle normative probability tables while
-issues #30/#44 remain unresolved. Supply authorized QM states for type-0 images
-and MQ states for arithmetic JBIG2; unused tables may be omitted. Each state is
-`{ qe, nextLps, nextMps, switchMps }`, with exactly 113 QM or 47 MQ entries.
-An array with the right shape is not evidence of a correct standard table.
+`convert` uses built-in standard QM/MQ states. Provide `hnc8: { scratch }`
+for arithmetic image decoding. Optional `qmStates` and `mqStates` override the
+corresponding standard table; each state is `{ qe, nextLps, nextMps, switchMps }`,
+with exactly 113 QM or 47 MQ entries. Invalid or partial overrides are rejected.
 
 ```js
 // `source`, `sink`, `wasm` use the ordinary streaming API.
 // `scratch` is a tuple of four distinct caller-owned adapters described above.
-// `qmStates` / `mqStates` are supplied by the caller, not this package.
+// No external state-table files are needed.
 const result = await convert(wasm, source, sink, {
   includeBookmarks: false, // Required for C8/HN-B until outline semantics are verified.
-  hnc8: { qmStates, mqStates, scratch },
+  hnc8: { scratch },
 });
 ```
 
@@ -234,7 +232,7 @@ rejected rather than silently omitted. Strict JBIG2 headers are enforced; the
 core's anomalous-header opt-in is not exposed here. Pure-text/searchable HN
 remains unsupported. HN/C8 inspection validates metadata without implying
 that the document can be converted. Located conversion and metadata failures use error code
-`HNC8`. Codec state-data distribution remains unresolved in #30/#44.
+`HNC8`. Standard numeric state adoption is recorded in #189.
 
 ### v0.x migration
 
@@ -422,7 +420,7 @@ and runs
   PDF inputs, with every read and write at most the 4 KiB chunk size. The
   outputs return to Node (base64 plus a SHA-256 computed with
   `crypto.subtle`) for `qpdf --check` and page counts.
-- HN/C8 inspection validates source metadata; conversion uses the experimental caller-table path.
+- HN/C8 inspection validates source metadata; conversion uses the experimental image-page path.
 - `AbortSignal` cancellation while a `WritableStream` write is stalled.
 - `convertReadableStream` through the real OPFS: one `caj2pdf-spool-*` file
   exists during conversion and none after success, the `maxSpoolBytes`

@@ -37,7 +37,9 @@ GPL/BSD/Apache implementation code is not relabeled MIT.
 existing state types. Fixed digest tests catch accidental numerical changes;
 existing external conformance tests compare every row with the independently
 pinned standard records. Official vectors remain external and optional tests
-remain NOT_RUN when absent. Default CLI/WASM integration belongs to #8/#9.
+remain NOT_RUN when absent. CLI/WASM now default to these constants while retaining explicit overrides.
+Original synthetic tests cover default and custom-table routes, incomplete
+overrides, memory limits and scratch cleanup. No decoder logic changed.
 
 
 ## Type-3 shared image emission (#118)

@@ -62,7 +62,7 @@ Usage:
 Conversion writes INPUT's sibling .pdf file unless -o is given. Use - for
 standard input or output; standard input without -o writes to standard output.
 Supported inputs: CAJ, KDH, PDF, and experimental HN/C8 image pages.
-HN/C8 arithmetic images require caller state files; TEB remains unsupported.
+HN/C8 uses built-in standard codec states; TEB remains unsupported.
 C8/HN-B currently require --no-bookmarks.
 
 Options:

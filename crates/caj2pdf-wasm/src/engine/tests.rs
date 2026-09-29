@@ -650,20 +650,25 @@ fn hnc8_type0_converts_through_short_scratch_io_and_clears_stores() {
 #[test]
 fn hnc8_configuration_and_located_failures_are_explicit() {
     let input = synthetic_hn();
-    for (table, count) in [(0, 0), (0, 1), (1, 1)] {
+    let mut standard = Engine::start(input.len() as u64, limits(8), convert_op(None)).unwrap();
+    let result = drive(&mut standard, &input, Some(1));
+    assert_eq!(outcome(&standard).report.pages_converted, 1);
+    assert!(result.stores.iter().all(Vec::is_empty));
+    for table in [0, 1] {
         let mut engine = Engine::start(input.len() as u64, limits(8), convert_op(None)).unwrap();
-        add_table(&mut engine, table, count);
+        add_table(&mut engine, table, 1);
         drive(&mut engine, &input, None);
-        let error = failure(&engine);
-        if count == 0 {
-            assert_eq!(error_code(error), 16);
-            assert!(engine.message().contains("page 1"));
-            assert!(engine.message().contains("image 1"));
-            assert!(std::error::Error::source(error).is_some());
-        } else {
-            assert!(matches!(error, Error::InvalidInput { .. }));
-        }
+        assert!(matches!(failure(&engine), Error::InvalidInput { .. }));
     }
+    let mut invalid = input.clone();
+    put_u32(&mut invalid, 0x15c + 20 + 32, 99);
+    let mut engine = Engine::start(invalid.len() as u64, limits(8), convert_op(None)).unwrap();
+    drive(&mut engine, &invalid, None);
+    let error = failure(&engine);
+    assert_eq!(error_code(error), 16);
+    assert!(engine.message().contains("page 1"));
+    assert!(engine.message().contains("image 1"));
+    assert!(std::error::Error::source(error).is_some());
     let mut engine = Engine::start(0, limits(8), convert_op(None)).unwrap();
     for args in [
         (2, 1, 0, 0, 0),

@@ -86,7 +86,7 @@ export interface OperationOptions {
 }
 
 export interface ConvertOptions extends OperationOptions {
-  /** Experimental HN/C8 caller tables and four independent disposable stores. */
+  /** Experimental HN/C8 table overrides and four independent disposable stores. */
   hnc8?: Hnc8Options;
   /** Write supported CAJ/HN-A outlines. Default `true`; C8/HN-B require `false`. */
   includeBookmarks?: boolean;
@@ -192,7 +192,9 @@ export interface ProbabilityState {
   switchMps: boolean;
 }
 export interface Hnc8Options {
+  /** Optional override; defaults to standard T.82 states. */
   qmStates?: readonly ProbabilityState[];
+  /** Optional override; defaults to standard T.88 states. */
   mqStates?: readonly ProbabilityState[];
   /** Contents are reset on exit; callers retain handle ownership. */
   scratch?: readonly [RandomAccessScratch, RandomAccessScratch, RandomAccessScratch, RandomAccessScratch];

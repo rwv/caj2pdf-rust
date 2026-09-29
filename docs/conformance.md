@@ -30,10 +30,10 @@ The same conversion core serves all three interfaces.
 | HN-B | Experimental single-JPEG image-bearing rows | Unknown outlines require explicit omission. A source row without image content is rejected by public conversion, never silently dropped. No vendor rendering parity is claimed here. |
 | TEB, unrecognized layouts, unsupported image modes, pure-text/searchable HN | Rejected | No OCR or silent omission fallback. Located errors identify unsupported HN/C8 content. |
 
-Arithmetic HN/C8 images require caller-supplied QM/MQ states. Their distribution
-basis remains unresolved in #30/#44; successful external decoding does not
-permit bundling those states. The default package is not a self-contained
-converter for those images.
+Arithmetic HN/C8 images use built-in standard QM/MQ states. Optional custom
+state overrides remain supported. The owner-directed adoption and upstream
+practice are recorded in [provenance](provenance.md); #189 completed #30/#44.
+JS arithmetic image decoding still needs bounded caller-owned scratch stores.
 
 [Viewer results](cajviewer-fixtures.md) record the pinned application and
 selected-page scope. [Complete HN/C8 checks](js-validation.md#source-geometry-correction-repeat)
@@ -55,7 +55,7 @@ known pixel failures are not passing baselines.
   constant memory for arbitrary documents.
 - #186 passed Native, WASM, MIT audit and the 100% Rust line-coverage gate.
   This is development-head evidence, not certification of a future release.
-- Release remains pending codec distribution decisions (#8/#9), final artifact
+- Release remains pending codec integration acceptance (#8/#9), final artifact
   inspection and checksums, and English release notes with breaking changes
   and migration examples. Keep npm private and Cargo publishing disabled until
   the release commit follows the [release policy](release-policy.md).

@@ -53,9 +53,13 @@ test("WASM HN preserves short scratch I/O and resets on completion", async () =>
   assert.ok(scratch.every((store) => store.size === 0n));
 });
 
-test("HN requires codec states and random-access scratch explicitly", async () => {
-  await assert.rejects(convert(await newInstance(), source(), sink()), { code: "HNC8" });
+test("HN uses standard states by default and requires random-access scratch", async () => {
+  await assert.rejects(convert(await newInstance(), source(), sink()), { code: "RANDOM_ACCESS_REQUIRED" });
   await assert.rejects(convert(await newInstance(), source(), sink(), { hnc8: { qmStates } }), { code: "RANDOM_ACCESS_REQUIRED" });
+  const scratch = stores();
+  const report = await convert(await newInstance(), source(), sink(), { hnc8: { scratch } });
+  assert.equal(report.pagesConverted, 1);
+  assert.ok(scratch.every((store) => store.size === 0n));
   for (const hnc8 of [
     { qmStates: [] }, { mqStates: [] }, { scratch: [memoryStore()] },
     { qmStates: qmStates.map(() => ({ qe: 0, nextLps: 0, nextMps: 0, switchMps: false })) },
