@@ -624,7 +624,10 @@ fn joins_multiple_missing_page_tree_groups_in_table_order() {
         pdf.contains("21 0 obj\n<< /Type /Pages /Parent 22 0 R"),
         "{pdf}"
     );
-    assert!(pdf.contains("22 0 obj\n<< /Type /Pages /Count 2"), "{pdf}");
+    assert!(
+        pdf.contains("22 0 obj\n<< /Type /Pages /MediaBox [0 0 612 792] /Count 2"),
+        "{pdf}"
+    );
     let file = TempPdf::write("multi-roots", &output);
     checked_command(Command::new("qpdf").arg("--check").arg(&file.0), "qpdf");
     let info = checked_command(Command::new("pdfinfo").arg("-box").arg(&file.0), "pdfinfo");
@@ -685,7 +688,7 @@ fn converts_many_pages_under_a_deep_shared_missing_parent_chain() {
     let pdf = String::from_utf8_lossy(&output);
     assert!(
         pdf.contains(&format!(
-            "{MISSING_ROOT} 0 obj\n<< /Type /Pages /Count {PAGE_COUNT} /Kids [{FIRST_GROUP} 0 R ]"
+            "{MISSING_ROOT} 0 obj\n<< /Type /Pages /MediaBox [0 0 612 792] /Count {PAGE_COUNT} /Kids [{FIRST_GROUP} 0 R ]"
         )),
         "missing root should count every page but list the shared direct child once"
     );
@@ -760,7 +763,10 @@ fn synthetic_root_id_stays_clear_of_repairable_link_targets() {
     assert_eq!(report.pages_converted, 2);
     assert_eq!(inspect(&output).pages().len(), 2);
     let pdf = String::from_utf8_lossy(&output);
-    assert!(pdf.contains("23 0 obj\n<< /Type /Pages /Count 2"), "{pdf}");
+    assert!(
+        pdf.contains("23 0 obj\n<< /Type /Pages /MediaBox [0 0 612 792] /Count 2"),
+        "{pdf}"
+    );
     assert!(!pdf.contains("/Dest [22 0 R"), "{pdf}");
     let file = TempPdf::write("root-link-collision", &output);
     checked_command(Command::new("qpdf").arg("--check").arg(&file.0), "qpdf");
@@ -1685,4 +1691,53 @@ fn link_repair_budget_includes_every_link_sharing_a_destination() {
         .expect("links sharing an omitted destination convert with enough budget");
     assert_eq!(report.pages_converted, 1);
     assert!(!output.windows(5).any(|window| window == b"/Dest"));
+}
+
+#[test]
+fn missing_root_supplies_letter_without_overriding_descendant_boxes() {
+    let body = b"9 0 obj\n<< /Type /Page /Parent 5 0 R >>\nendobj\n3 0 obj\n<< /Type /Page /Parent 6 0 R >>\nendobj\n6 0 obj\n<< /Type /Pages /Parent 5 0 R /Count 1 /Kids [3 0 R] /MediaBox [0 0 200 300] >>\nendobj\n7 0 obj\n<< /Type /Page /Parent 5 0 R /MediaBox [0 0 400 250] >>\nendobj\n";
+    let input = fragment_caj(body, &[9, 3, 7]);
+    let (output, report) =
+        convert(&input, ConversionOptions::default(), &Limits::default()).unwrap();
+    assert_eq!(report.pages_converted, 3);
+    assert_eq!(
+        inspect(&output)
+            .pages()
+            .iter()
+            .map(|page| page.number)
+            .collect::<Vec<_>>(),
+        [9, 3, 7]
+    );
+    let file = TempPdf::write("fallback-media-box", &output);
+    checked_command(Command::new("qpdf").arg("--check").arg(&file.0), "qpdf");
+    let info = checked_command(
+        Command::new("pdfinfo")
+            .args(["-f", "1", "-l", "3", "-box"])
+            .arg(&file.0),
+        "pdfinfo",
+    );
+    let sizes: Vec<_> = info
+        .lines()
+        .filter_map(|line| {
+            let fields: Vec<_> = line.split_whitespace().collect();
+            (fields.len() >= 6 && fields[0] == "Page" && fields[2] == "size:")
+                .then(|| (fields[1], fields[3], fields[5]))
+        })
+        .collect();
+    assert_eq!(
+        sizes,
+        [
+            ("1", "612", "792"),
+            ("2", "200", "300"),
+            ("3", "400", "250")
+        ],
+        "{info}"
+    );
+}
+
+#[test]
+fn letter_fallback_does_not_mask_an_invalid_explicit_box() {
+    let body = b"9 0 obj\n<< /Type /Page /Parent 5 0 R /MediaBox [0 0 1] >>\nendobj\n";
+    let error = rejected_without_output(&fragment_caj(body, &[9]), &Limits::default());
+    assert!(error.to_string().contains("MediaBox"), "{error}");
 }

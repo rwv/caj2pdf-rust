@@ -154,6 +154,10 @@ fn write_page_tree(body: &mut BoundedSuffix<'_>, node: &SyntheticPageTree<'_>) -
         write!(body, "{} 0 obj\n<< /Type /Pages ", node.number)?;
         if let Some(parent) = node.parent {
             write!(body, "/Parent {parent} 0 R ")?;
+        } else {
+            // Match CAJViewer's observed Letter fallback for unavailable
+            // inherited page boxes. Explicit descendant boxes still take precedence.
+            body.write_str("/MediaBox [0 0 612 792] ")?;
         }
         write!(body, "/Count {} /Kids [", node.count)?;
         for child in node.kids {

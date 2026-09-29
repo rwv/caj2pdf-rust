@@ -1558,3 +1558,12 @@ but conversion rejects page object 4 because no direct or inherited MediaBox
 is available. An independent bounded byte inspection found no `/MediaBox`
 name in this file. No page size is guessed and no output PDF or viewer parity
 is claimed. The external corpus and generated artifacts remain outside Git.
+
+## Missing inherited CAJ page boxes
+
+Original vector controls and a pinned CAJViewer black-box experiment establish
+its Letter fallback when MediaBox is absent. The converter writes that box
+only on a synthesized CAJ page-tree root, preserving descendant overrides.
+See [the experiment and selected real-page comparisons](cajviewer-page-boxes.md).
+No vendor or legacy converter implementation was read or copied. The source
+rule is a documented viewer-compatibility fallback, not inferred lost metadata.
