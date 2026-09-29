@@ -1636,3 +1636,17 @@ original in-memory test bytes and real-worker tests are MIT project code.
 They use standard platform I/O and introduce no dependency, codec state data,
 document payload or reference implementation. Browser behavior follows the
 [File System standard](https://fs.spec.whatwg.org/#api-filesystemsyncaccesshandle).
+
+
+## HN/C8 WASM conversion bridge
+
+The four-store request bridge, caller-table configuration, JS lifecycle handling
+and original tiny HN fixture are MIT project code. The fixture uses an invented
+constant probability model and asymmetric 101/010 pixel rows; it contains no
+normative state rows or external document bytes. Runtime state validation is
+not a distribution grant. QM/MQ data remain caller-supplied while #30/#44 are
+unresolved. No dependency or legacy decoder source was added.
+
+The real C8 Node/Chromium runs described in [JS validation](js-validation.md)
+used externally supplied MQ data and an external corpus document. Those inputs,
+output PDFs and private harness files remain outside Git and npm packages.

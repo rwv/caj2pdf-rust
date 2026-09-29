@@ -11,6 +11,9 @@
 //! This module has no WASM-specific code, so native unit tests drive the same
 //! state machine that `bridge.rs` exposes to JavaScript.
 
+mod hnc8;
+mod scratch;
+
 use caj2pdf_core::{
     Cancellation, ConversionOptions, ConversionReport, DocumentInfo, Error, InputFormat, Limits,
     PdfErrorKind, RangedSource, Result, SIGNATURE_BYTES, SequentialSink,
@@ -43,17 +46,44 @@ pub enum Status {
     Flush = 3,
     Done = 4,
     Failed = 5,
+    ScratchRead = 6,
+    ScratchWrite = 7,
+    ScratchResize = 8,
+    ScratchFlush = 9,
 }
 
 /// One outstanding host request.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Request {
     /// Copy up to `length` source bytes at `offset` into the staging buffer.
-    Read { offset: u64, length: usize },
+    Read {
+        offset: u64,
+        length: usize,
+    },
     /// Deliver the first `length` staging bytes to the sink.
-    Write { length: usize },
+    Write {
+        length: usize,
+    },
     /// Await the sink's I/O barrier.
     Flush,
+    /// A scratch store is one of four fixed, session-owned workspaces (1..=4).
+    ScratchRead {
+        store: u32,
+        offset: u64,
+        length: usize,
+    },
+    ScratchWrite {
+        store: u32,
+        offset: u64,
+        length: usize,
+    },
+    ScratchResize {
+        store: u32,
+        bytes: u64,
+    },
+    ScratchFlush {
+        store: u32,
+    },
 }
 
 #[derive(Clone, Copy)]
@@ -61,6 +91,7 @@ enum Response {
     Read(usize),
     Write(usize),
     Flush,
+    Resize,
 }
 
 /// The work an engine performs.
@@ -106,7 +137,7 @@ pub fn format_from_code(code: u32) -> Option<Option<InputFormat>> {
     })
 }
 
-/// Stable numeric error category shared with JavaScript (1..=15).
+/// Stable numeric error category shared with JavaScript (1..=16).
 pub fn error_code(error: &Error) -> u32 {
     match error {
         Error::UnsupportedFormat => 1,
@@ -126,6 +157,7 @@ pub fn error_code(error: &Error) -> u32 {
         Error::Caj { .. } => 13,
         Error::CajLimitExceeded { .. } => 14,
         Error::Kdh { .. } => 15,
+        Error::Hnc8(_) => 16,
     }
 }
 
@@ -156,6 +188,7 @@ struct Shared {
     response: Option<Response>,
     cancelled: bool,
     format: Option<InputFormat>,
+    tables: hnc8::Tables,
 }
 
 struct BridgeSource {
@@ -261,6 +294,8 @@ pub struct Engine {
     task: Task,
     result: Option<Result<Outcome>>,
     message: String,
+    started: bool,
+    limits: Limits,
 }
 
 impl Engine {
@@ -275,6 +310,7 @@ impl Engine {
             response: None,
             cancelled: false,
             format: None,
+            tables: hnc8::Tables::default(),
         }));
         let source = BridgeSource {
             shared: Rc::clone(&shared),
@@ -290,14 +326,22 @@ impl Engine {
             task,
             result: None,
             message: String::new(),
+            started: false,
+            limits,
         })
     }
 
     /// Advance the operation until it needs host I/O or completes.
     pub fn poll(&mut self) -> Status {
+        self.started = true;
         if self.result.is_none() {
             let mut context = Context::from_waker(Waker::noop());
             if let Poll::Ready(result) = self.task.as_mut().poll(&mut context) {
+                let result = if self.shared.borrow().cancelled {
+                    Err(Error::Cancelled)
+                } else {
+                    result
+                };
                 if let Err(error) = &result {
                     self.message = bounded_message(error);
                 }
@@ -311,6 +355,10 @@ impl Engine {
             (None, Some(Request::Read { .. })) => Status::Read,
             (None, Some(Request::Write { .. })) => Status::Write,
             (None, Some(Request::Flush)) => Status::Flush,
+            (None, Some(Request::ScratchRead { .. })) => Status::ScratchRead,
+            (None, Some(Request::ScratchWrite { .. })) => Status::ScratchWrite,
+            (None, Some(Request::ScratchResize { .. })) => Status::ScratchResize,
+            (None, Some(Request::ScratchFlush { .. })) => Status::ScratchFlush,
             (None, None) => Status::Idle,
         }
     }
@@ -332,6 +380,9 @@ impl Engine {
         self.complete(|request| match request {
             Request::Read {
                 length: maximum, ..
+            }
+            | Request::ScratchRead {
+                length: maximum, ..
             } if length <= maximum => Some(Response::Read(length)),
             _ => None,
         })
@@ -340,16 +391,48 @@ impl Engine {
     /// Complete a pending write with the number of bytes the sink accepted.
     pub fn complete_write(&self, length: usize) -> bool {
         self.complete(|request| match request {
-            Request::Write { length: maximum } if length <= maximum => {
-                Some(Response::Write(length))
-            }
+            Request::Write { length: maximum }
+            | Request::ScratchWrite {
+                length: maximum, ..
+            } if length <= maximum => Some(Response::Write(length)),
             _ => None,
         })
     }
 
     /// Complete a pending flush.
     pub fn complete_flush(&self) -> bool {
-        self.complete(|request| (request == Request::Flush).then_some(Response::Flush))
+        self.complete(|request| {
+            matches!(request, Request::Flush | Request::ScratchFlush { .. })
+                .then_some(Response::Flush)
+        })
+    }
+
+    /// Acknowledge an awaited scratch resize; no other request is consumed.
+    pub fn complete_resize(&self) -> bool {
+        self.complete(|request| {
+            matches!(request, Request::ScratchResize { .. }).then_some(Response::Resize)
+        })
+    }
+
+    /// Append one caller-supplied codec state before the first poll. Table 0
+    /// is the 113-state QM table; table 1 is the 47-state MQ table.
+    pub fn add_hnc8_state(
+        &mut self,
+        table: u32,
+        qe: u32,
+        next_lps: u32,
+        next_mps: u32,
+        switch: u32,
+    ) -> bool {
+        !self.started
+            && self.shared.borrow_mut().tables.push(
+                table,
+                qe,
+                next_lps,
+                next_mps,
+                switch,
+                &self.limits,
+            )
     }
 
     fn complete(&self, accept: impl FnOnce(Request) -> Option<Response>) -> bool {
@@ -431,6 +514,9 @@ async fn run(
                 InputFormat::Kdh => {
                     convert_kdh(&mut source, &mut sink, &limits, &cancellation).await
                 }
+                InputFormat::Hn | InputFormat::C8 => {
+                    hnc8::convert(&mut source, &mut sink, options, &limits, &cancellation).await
+                }
                 _ => Err(Error::UnsupportedFormat),
             }?,
             info: None,
@@ -455,7 +541,19 @@ async fn resolve_format(
     }
     let length = source.size.min(SIGNATURE_BYTES as u64) as usize;
     let mut prefix = [0; SIGNATURE_BYTES];
-    read_exact_at(source, 0, &mut prefix[..length], limits, cancellation).await?;
+    for (index, chunk) in prefix[..length]
+        .chunks_mut(limits.io_chunk_bytes)
+        .enumerate()
+    {
+        read_exact_at(
+            source,
+            (index * limits.io_chunk_bytes) as u64,
+            chunk,
+            limits,
+            cancellation,
+        )
+        .await?;
+    }
     let format = detect_format(&prefix[..length]).ok_or(Error::UnsupportedFormat)?;
     Ok((format, length as u64))
 }

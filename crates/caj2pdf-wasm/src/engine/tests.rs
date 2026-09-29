@@ -94,13 +94,27 @@ struct Run {
     flushes: usize,
     max_read: usize,
     max_write: usize,
+    stores: [Vec<u8>; 4],
 }
 
 /// Drive an engine as the JavaScript host does, with optional short I/O.
 fn drive(engine: &mut Engine, input: &[u8], short: Option<usize>) -> Run {
+    drive_until(engine, input, short, None)
+}
+
+fn drive_until(
+    engine: &mut Engine,
+    input: &[u8],
+    short: Option<usize>,
+    stop: Option<Status>,
+) -> Run {
     let mut run = Run::default();
     loop {
-        match engine.poll() {
+        let status = engine.poll();
+        if Some(status) == stop {
+            return run;
+        }
+        match status {
             Status::Read => {
                 let Some(Request::Read { offset, length }) = engine.request() else {
                     panic!("read status without a read request");
@@ -124,6 +138,49 @@ fn drive(engine: &mut Engine, input: &[u8], short: Option<usize>) -> Run {
             }
             Status::Flush => {
                 run.flushes += 1;
+                assert!(engine.complete_flush());
+            }
+            Status::ScratchResize => {
+                let Some(Request::ScratchResize { store, bytes }) = engine.request() else {
+                    panic!("resize request");
+                };
+                run.stores[store as usize - 1].resize(bytes as usize, 0);
+                assert!(engine.complete_resize());
+            }
+            Status::ScratchRead => {
+                let Some(Request::ScratchRead {
+                    store,
+                    offset,
+                    length,
+                }) = engine.request()
+                else {
+                    panic!("scratch read request");
+                };
+                let count = short.unwrap_or(length).min(length);
+                engine.with_staging(|staging| {
+                    staging[..count].copy_from_slice(
+                        &run.stores[store as usize - 1][offset as usize..offset as usize + count],
+                    )
+                });
+                assert!(engine.complete_read(count));
+            }
+            Status::ScratchWrite => {
+                let Some(Request::ScratchWrite {
+                    store,
+                    offset,
+                    length,
+                }) = engine.request()
+                else {
+                    panic!("scratch write request");
+                };
+                let count = short.unwrap_or(length).min(length);
+                engine.with_staging(|staging| {
+                    run.stores[store as usize - 1][offset as usize..offset as usize + count]
+                        .copy_from_slice(&staging[..count])
+                });
+                assert!(engine.complete_write(count));
+            }
+            Status::ScratchFlush => {
                 assert!(engine.complete_flush());
             }
             Status::Done | Status::Failed => return run,
@@ -319,9 +376,14 @@ fn recognized_image_formats_and_unknown_inputs_are_unsupported() {
         let mut engine = Engine::start(input.len() as u64, limits(64), convert_op(None)).unwrap();
         let run = drive(&mut engine, input, None);
         assert!(run.output.is_empty());
-        assert!(matches!(failure(&engine), Error::UnsupportedFormat));
+        if matches!(format, Some(InputFormat::Hn | InputFormat::C8)) {
+            assert!(matches!(failure(&engine), Error::Hnc8(_)));
+            assert!(engine.message().contains("HN/C8"));
+        } else {
+            assert!(matches!(failure(&engine), Error::UnsupportedFormat));
+            assert_eq!(engine.message(), "unsupported input format");
+        }
         assert_eq!(engine.format(), format);
-        assert_eq!(engine.message(), "unsupported input format");
         assert!(engine.request().is_none());
     }
     let inspect_hn = Operation::Inspect {
@@ -461,6 +523,7 @@ fn source_reads_past_the_end_are_clamped_before_reaching_the_host() {
         response: None,
         cancelled: false,
         format: None,
+        tables: hnc8::Tables::default(),
     }));
     let mut source = BridgeSource {
         shared: Rc::clone(&shared),
@@ -515,4 +578,196 @@ fn a_task_pending_without_a_request_reports_idle_until_it_completes() {
     assert_eq!(engine.poll(), Status::Idle);
     assert_eq!(engine.request(), None);
     assert_eq!(engine.poll(), Status::Done);
+}
+
+fn synthetic_hn() -> Vec<u8> {
+    let text = 0x15c + 20;
+    let descriptor = text + 32;
+    let payload = descriptor + 12;
+    let mut bytes = vec![0; payload + 49];
+    bytes[..8].copy_from_slice(&[72, 78, 0, 0, 0x90, 1, 0, 0]);
+    for (at, value) in [
+        (0x90, 1),
+        (0x15c, text as u32),
+        (0x160, 32),
+        (descriptor + 4, payload as u32),
+        (descriptor + 8, 49),
+        (payload, 40),
+        (payload + 4, 3),
+        (payload + 8, 2),
+        (payload + 32, 2),
+    ] {
+        put_u32(&mut bytes, at, value);
+    }
+    for (at, value) in [
+        (0x164, 1_u16),
+        (text, 0x800a),
+        (text + 28, 0x8004),
+        (payload + 12, 1),
+        (payload + 14, 1),
+    ] {
+        bytes[at..at + 2].copy_from_slice(&value.to_le_bytes());
+    }
+    bytes[payload + 40..payload + 43].fill(255);
+    bytes[payload + 48] = 0x92; // Original 101 / 010 rows under the invented table.
+    bytes
+}
+
+fn add_table(engine: &mut Engine, table: u32, count: usize) {
+    for _ in 0..count {
+        assert!(engine.add_hnc8_state(table, 0x4000, 0, 0, 0));
+    }
+}
+
+#[test]
+fn hnc8_type0_converts_through_short_scratch_io_and_clears_stores() {
+    let input = synthetic_hn();
+    for (chunk, with_mq) in [(1, false), (3, false), (7, true)] {
+        let mut engine =
+            Engine::start(input.len() as u64, limits(chunk), convert_op(None)).unwrap();
+        add_table(&mut engine, 0, 113);
+        if with_mq {
+            add_table(&mut engine, 1, 47);
+        }
+        let run = drive(&mut engine, &input, Some(1));
+        assert_eq!(outcome(&engine).report.pages_converted, 1);
+        assert!(run.output.starts_with(b"%PDF-1.7"));
+        assert!(run.output.ends_with(b"%%EOF\n"));
+        assert!(run.stores.iter().all(Vec::is_empty));
+        assert!(!engine.add_hnc8_state(0, 0x4000, 0, 0, 0));
+    }
+}
+
+#[test]
+fn hnc8_configuration_and_located_failures_are_explicit() {
+    let input = synthetic_hn();
+    for (table, count) in [(0, 0), (0, 1), (1, 1)] {
+        let mut engine = Engine::start(input.len() as u64, limits(8), convert_op(None)).unwrap();
+        add_table(&mut engine, table, count);
+        drive(&mut engine, &input, None);
+        let error = failure(&engine);
+        if count == 0 {
+            assert_eq!(error_code(error), 16);
+            assert!(engine.message().contains("page 1"));
+            assert!(engine.message().contains("image 1"));
+            assert!(std::error::Error::source(error).is_some());
+        } else {
+            assert!(matches!(error, Error::InvalidInput { .. }));
+        }
+    }
+    let mut engine = Engine::start(0, limits(8), convert_op(None)).unwrap();
+    for args in [
+        (2, 1, 0, 0, 0),
+        (0, 0, 0, 0, 0),
+        (0, 0x8000, 0, 0, 0),
+        (0, 1, 113, 0, 0),
+        (0, 1, 0, 113, 0),
+        (0, 1, 0, 0, 2),
+        (1, 1, 47, 0, 0),
+    ] {
+        assert!(!engine.add_hnc8_state(args.0, args.1, args.2, args.3, args.4));
+    }
+    add_table(&mut engine, 0, 113);
+    add_table(&mut engine, 1, 47);
+    assert!(!engine.add_hnc8_state(0, 1, 0, 0, 0));
+    assert!(!engine.add_hnc8_state(1, 1, 0, 0, 0));
+    let mut tiny = limits(1);
+    tiny.max_allocation_bytes = 1;
+    let mut engine = Engine::start(0, tiny, convert_op(None)).unwrap();
+    assert!(!engine.add_hnc8_state(0, 1, 0, 0, 0));
+    assert!(!engine.add_hnc8_state(1, 1, 0, 0, 0));
+}
+
+fn scratch_engine() -> Engine {
+    use caj2pdf_core::jbig2::text_composer::RandomAccessScratch;
+    let mut engine = Engine::start(
+        0,
+        limits(3),
+        Operation::Copy {
+            offset: 0,
+            length: 0,
+        },
+    )
+    .unwrap();
+    let shared = Rc::clone(&engine.shared);
+    engine.task = Box::pin(async move {
+        for id in 1..=4 {
+            let mut store = scratch::Scratch::new(Rc::clone(&shared), id, 8);
+            assert_eq!(store.size()?, 0);
+            assert!(matches!(
+                store.set_len(9).await,
+                Err(Error::LimitExceeded { .. })
+            ));
+            store.set_len(8).await?;
+            assert!(store.read_at(u64::MAX, &mut [0]).await.is_err());
+            assert!(store.write_at(7, &[0; 2]).await.is_err());
+            assert_eq!(store.read_at(8, &mut []).await?, 0);
+            assert_eq!(store.write_at(8, &[]).await?, 0);
+            assert_eq!(store.write_at(2, &[1, 2, 3, 4]).await?, 3);
+            let mut bytes = [0; 4];
+            assert_eq!(store.read_at(2, &mut bytes).await?, 3);
+            assert_eq!(bytes, [1, 2, 3, 0]);
+            store.flush().await?;
+            store.set_len(0).await?;
+        }
+        Ok(Outcome::default())
+    });
+    engine
+}
+
+#[test]
+fn all_four_scratch_stores_use_bounded_acknowledged_requests() {
+    let mut engine = scratch_engine();
+    assert!(!engine.complete_resize());
+    assert_eq!(engine.poll(), Status::ScratchResize);
+    assert!(!engine.complete_read(0));
+    assert!(!engine.complete_write(0));
+    assert!(!engine.complete_flush());
+    let run = drive(&mut engine, &[], None);
+    outcome(&engine);
+    assert!(run.stores.iter().all(Vec::is_empty));
+}
+
+#[test]
+fn each_pending_scratch_operation_cancels_without_another_host_request() {
+    for stop in [
+        Status::ScratchResize,
+        Status::ScratchRead,
+        Status::ScratchWrite,
+        Status::ScratchFlush,
+    ] {
+        let mut engine = scratch_engine();
+        drive_until(&mut engine, &[], None, Some(stop));
+        engine.cancel();
+        assert_eq!(engine.poll(), Status::Failed);
+        assert_eq!(error_code(failure(&engine)), 6);
+        assert!(engine.request().is_none());
+    }
+}
+
+#[test]
+fn hnb_empty_source_rows_are_not_silently_omitted() {
+    let mut input = vec![0; 0xd8 + 20];
+    input[..8].copy_from_slice(&[72, 78, 0, 0, 0xc8, 0, 0, 0]);
+    put_u32(&mut input, 0x90, 1);
+    put_u32(&mut input, 0xd8, 0xd8 + 20);
+    let mut engine = Engine::start(
+        input.len() as u64,
+        limits(7),
+        Operation::Convert {
+            format: None,
+            options: ConversionOptions {
+                include_bookmarks: false,
+            },
+        },
+    )
+    .unwrap();
+    drive(&mut engine, &input, None);
+    assert!(matches!(failure(&engine), Error::Hnc8(_)));
+    assert!(
+        engine.message().contains("cannot omit source pages"),
+        "{}",
+        engine.message()
+    );
+    assert!(engine.message().contains("page 1"));
 }

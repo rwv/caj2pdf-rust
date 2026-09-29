@@ -8,7 +8,7 @@ export declare const MAX_U64: bigint;
 export declare const MAX_ALLOCATION_LIMIT: bigint;
 export declare const DEFAULT_LIMITS: Readonly<Required<Limits>>;
 
-/** Input format names in WASM code order. Only `pdf`, `caj`, and `kdh` convert. */
+/** Input format names in WASM code order. HN/C8 conversion requires experimental caller configuration. */
 export type Format = "auto" | "pdf" | "caj" | "kdh" | "hn" | "c8" | "teb" | "nh";
 export type DetectedFormat = Exclude<Format, "auto">;
 export declare const FORMATS: readonly Format[];
@@ -29,7 +29,8 @@ export type ErrorCode =
   | "PDF_LIMIT_EXCEEDED"
   | "MALFORMED_CAJ"
   | "CAJ_LIMIT_EXCEEDED"
-  | "MALFORMED_KDH";
+  | "MALFORMED_KDH"
+  | "HNC8";
 
 export declare class Caj2PdfError extends Error {
   constructor(message: string, code: ErrorCode);
@@ -85,7 +86,9 @@ export interface OperationOptions {
 }
 
 export interface ConvertOptions extends OperationOptions {
-  /** Write CAJ outline entries as PDF bookmarks. Default `true`. */
+  /** Experimental HN/C8 caller tables and four independent disposable stores. */
+  hnc8?: Hnc8Options;
+  /** Write supported CAJ/HN-A outlines. Default `true`; C8/HN-B require `false`. */
   includeBookmarks?: boolean;
 }
 
@@ -179,4 +182,18 @@ export interface RandomAccessScratch {
   /** May accept a short prefix. Keep bytes unchanged until the promise settles. */
   writeAt(offset: bigint, bytes: Uint8Array, signal?: AbortSignal): Promise<number>;
   flush(signal?: AbortSignal): Promise<void>;
+}
+
+/** Caller-supplied probability state; no normative table is bundled. */
+export interface ProbabilityState {
+  qe: number;
+  nextLps: number;
+  nextMps: number;
+  switchMps: boolean;
+}
+export interface Hnc8Options {
+  qmStates?: readonly ProbabilityState[];
+  mqStates?: readonly ProbabilityState[];
+  /** Contents are reset on exit; callers retain handle ownership. */
+  scratch?: readonly [RandomAccessScratch, RandomAccessScratch, RandomAccessScratch, RandomAccessScratch];
 }

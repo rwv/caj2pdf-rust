@@ -84,12 +84,12 @@ test("Chromium: File sources and WritableStream sinks convert CAJ, KDH, and PDF"
   }
 });
 
-test("Chromium: HN and C8 inputs are rejected as unsupported", options, async () => {
+test("Chromium: malformed HN and C8 inputs return located conversion errors", options, async () => {
   for (const format of ["hn", "c8"]) {
     const result = await run("reject", `input.${format}`);
     assert.deepEqual(
       { name: result.error?.name, code: result.error?.code, format: result.error?.format },
-      { name: "UnsupportedFormatError", code: "UNSUPPORTED_FORMAT", format },
+      { name: "Caj2PdfError", code: "HNC8", format: undefined },
     );
     assert.equal(result.written, 0);
   }
@@ -142,4 +142,11 @@ test("Chromium: Worker OPFS scratch reads current writes and cleans up", options
   assert.equal(result.afterClose, 16);
   assert.equal(result.rejected, true);
   assert.equal(result.cleaned, true);
+});
+
+test("Chromium: HN converts through WASM and real Worker OPFS workspaces", options, async (t) => {
+  const result = await run("hnc8InWorker");
+  assert.equal(result.pages, 1);
+  assert.equal(result.cleared, true);
+  await validatePdf(t, new Uint8Array(result.pdf), 1);
 });

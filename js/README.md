@@ -10,7 +10,8 @@ project-owned JavaScript and TypeScript declarations are MIT-licensed.
 | PDF (`%PDF-`) | Validated, repaired where the core supports it, and copied. |
 | CAJ (`CAJ`) | Reconstructed PDF with CAJ outline bookmarks. |
 | KDH (`KDH`) | Decoded PDF, then the PDF path. |
-| HN, C8, TEB | Recognized; rejected with `UnsupportedFormatError`. Complete-page HN/C8 integration is tracked in issue #10; selected-image decoders are not exposed by this package. |
+| HN, C8 | Experimental complete-page conversion with caller-supplied codec tables and scratch stores (below). `inspect` remains unsupported. |
+| TEB | Recognized; rejected with `UnsupportedFormatError`. |
 | Anything else | Rejected with `UnsupportedFormatError` (`format: null`). |
 
 ## Build and test
@@ -193,8 +194,57 @@ try {
 The [File System standard](https://fs.spec.whatwg.org/#api-filesystemsyncaccesshandle)
 defines this worker-only handle. It permits reads and writes against the same
 live file; an unclosed `createWritable()` stream and a `getFile()` snapshot do
-not provide that contract. These adapters prepare HN/C8 integration; `convert`
-does not yet accept scratch stores or enable HN/C8 conversion (#10).
+not provide that contract. Pass four independent adapters to `convert` as shown below.
+
+## Experimental HN/C8 conversion
+
+`convert` accepts `hnc8: { qmStates, mqStates, scratch }`. The independently
+implemented decoder does **not** bundle normative probability tables while
+issues #30/#44 remain unresolved. Supply authorized QM states for type-0 images
+and MQ states for arithmetic JBIG2; unused tables may be omitted. Each state is
+`{ qe, nextLps, nextMps, switchMps }`, with exactly 113 QM or 47 MQ entries.
+An array with the right shape is not evidence of a correct standard table.
+
+```js
+// `source`, `sink`, `wasm` use the ordinary streaming API.
+// `scratch` is a tuple of four distinct caller-owned adapters described above.
+// `qmStates` / `mqStates` are supplied by the caller, not this package.
+const result = await convert(wasm, source, sink, {
+  includeBookmarks: false, // Required for C8/HN-B until outline semantics are verified.
+  hnc8: { qmStates, mqStates, scratch },
+});
+```
+
+Use Node file handles or live OPFS sync access handles in a Dedicated Worker.
+Grant exclusive ownership of all four disposable stores for the operation.
+Each store is capped at 64 MiB by the Rust composition budget; an adapter may
+impose a smaller cap. Buffers remain bounded and output is sequential.
+On success, failure or cancellation, the driver resets the Rust operation and
+attempts to resize every supplied store to zero, without the cancelled signal.
+If cleanup fails, `AggregateError.errors` preserves the conversion error first
+(if any) and all cleanup errors. The caller must still close handles and remove
+files in its own `finally`; cleanup cannot guarantee removal after host failure.
+
+HN-A outlines are supported. C8/HN-B currently require explicit
+`includeBookmarks: false`. HN-B source rows without supported image content are
+rejected rather than silently omitted. Strict JBIG2 headers are enforced; the
+core's anomalous-header opt-in is not exposed here. Pure-text/searchable HN and
+HN/C8 `inspect` remain unsupported. Located composition failures use error code
+`HNC8`. This API does not resolve codec distribution or finish issue #10.
+
+### v0.x migration
+
+HN/C8 conversion no longer always throws `UnsupportedFormatError`: callers must
+handle `HNC8`, invalid configuration and missing scratch errors. Existing
+PDF/CAJ/KDH calls do not need `hnc8`. Rust users must handle the new
+`Error::Hnc8`, `Status` and `Request` variants when matching exhaustively.
+Raw WASM hosts must implement statuses 6–9 (scratch read/write/resize/flush),
+use `caj2pdf_io_request_store()` (1–4), and acknowledge resize through
+`caj2pdf_io_complete_resize()`. The request offset holds the new extent for
+resize; read/write reuse the staging buffer and completion exports.
+Feed state rows through `caj2pdf_hnc8_add_state(table, qe, nextLps, nextMps, switch)`
+after start and before the first poll (table 0 = QM, 1 = MQ; switch 0/1).
+The raw host owns cleanup if it cancels or drops a pending operation.
 
 ## Bounded memory and I/O
 
@@ -240,7 +290,7 @@ sink should honor its `signal` argument for prompt cancellation.
   every request is within the chunk size and validating each output with
   `qpdf --check` and `qpdf --show-npages` when `qpdf` is installed (otherwise
   a diagnostic reports the skip; the CI WASM job installs it). It
-  also covers `inspect`, HN/C8/TEB rejection, typed errors, limits,
+  also covers `inspect`, unsupported inspection/TEB conversion, typed errors, limits,
   cancellation, sink and source errors, and the memory measurement above.
 - `spool.test.mjs` covers Node temp-file spooling from Node and Web streams,
   the spool bound, cleanup after success, failure, and abort, and the OPFS
@@ -287,7 +337,8 @@ expectation comes from the API's format contract and the matrix's
 
 | Entry | `expectation` | Requirement | Outcome when met |
 | --- | --- | --- | --- |
-| HN, C8, or TEB (any reference outcome) | `unsupported` | `UnsupportedFormatError` for that format | `unsupported` |
+| HN/C8 in the corpus runner | `not_run` | Runner has no caller-table/scratch configuration; conversion is not attempted | `NOT_RUN` |
+| TEB | `unsupported` | `UnsupportedFormatError` | `unsupported` |
 | CAJ, KDH, or PDF; reference `success` | `convert` | Output validated with the reference output page count | `passed` |
 | CAJ, KDH, or PDF; reference `error` or `unsupported` | `excluded` | None recorded; conversion runs and is reported as `observed` | `excluded` |
 | CAJ, KDH, or PDF; reference `unknown` | `not_run` | None recorded; conversion runs and is reported as `observed` | `not_run` |
@@ -359,7 +410,7 @@ and runs
   PDF inputs, with every read and write at most the 4 KiB chunk size. The
   outputs return to Node (base64 plus a SHA-256 computed with
   `crypto.subtle`) for `qpdf --check` and page counts.
-- HN and C8 rejection with `UnsupportedFormatError`.
+- HN/C8 inspection remains unsupported; conversion uses the experimental caller-table path.
 - `AbortSignal` cancellation while a `WritableStream` write is stalled.
 - `convertReadableStream` through the real OPFS: one `caj2pdf-spool-*` file
   exists during conversion and none after success, the `maxSpoolBytes`

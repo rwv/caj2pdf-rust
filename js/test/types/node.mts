@@ -25,3 +25,12 @@ export async function useNodeScratch(handle: import('node:fs/promises').FileHand
   await scratch.flush();
   return { size: scratch.size, read };
 }
+
+export function useHn(
+  wasm: import('../../node.mjs').WasmInput,
+  source: import('../../node.mjs').RangedSource,
+  sink: import('../../node.mjs').SequentialSink,
+  hnc8: import('../../node.mjs').Hnc8Options,
+) {
+  return convert(wasm, source, sink, { hnc8, includeBookmarks: false });
+}

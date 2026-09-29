@@ -45,6 +45,7 @@ const ERROR_CODES = [
   "MALFORMED_CAJ",
   "CAJ_LIMIT_EXCEEDED",
   "MALFORMED_KDH",
+  "HNC8",
 ];
 
 /** A typed conversion failure. `code` is one of the stable error codes. */
@@ -383,7 +384,7 @@ function inspection(exports) {
  * Drive one WASM operation to completion. Every read, write, and flush is
  * awaited before Rust resumes; the engine is always cancelled and reset.
  */
-async function drive(exports, start, source, sink, chunkSize, signal, finish = report) {
+async function drive(exports, start, source, sink, chunkSize, signal, finish = report, hnc8) {
   const started = start();
   if (started === 1) {
     throw new Error("WASM instance already has an active operation");
@@ -391,10 +392,58 @@ async function drive(exports, start, source, sink, chunkSize, signal, finish = r
   if (started !== 0) {
     throw new RangeError("invalid WASM operation configuration");
   }
+  let failure;
+  let failed = false;
+  let requests = 0;
   try {
+    for (const row of hnc8?.states ?? []) {
+      if (exports.caj2pdf_hnc8_add_state(...row) !== 1) {
+        throw new RangeError("WASM rejected a caller HN/C8 codec state");
+      }
+    }
     for (;;) {
+      // OPFS operations can resolve synchronously. Let Worker messages/timers
+      // deliver cancellation instead of monopolizing the microtask queue.
+      if (hnc8 && ++requests % 128 === 0) await new Promise((resolve) => setTimeout(resolve, 0));
       checkAbort(signal);
       const status = exports.caj2pdf_io_poll();
+      if (status >= 6 && status <= 9) {
+        const id = exports.caj2pdf_io_request_store();
+        const store = hnc8?.scratch[id - 1];
+        if (!Number.isInteger(id) || id < 1 || id > 4 || store == null) {
+          throw new Caj2PdfError("HN/C8 decoding requires four independent scratch stores", "RANDOM_ACCESS_REQUIRED");
+        }
+        const offset = exports.caj2pdf_io_request_offset();
+        if (status === 8) {
+          requireU64(offset, "scratch extent");
+          await store.resize(offset, signal);
+          checkAbort(signal);
+          if (store.size !== offset || exports.caj2pdf_io_complete_resize() !== 1) throw new Error("scratch resize did not establish the requested extent");
+        } else if (status === 9) {
+          await store.flush(signal);
+          checkAbort(signal);
+          if (exports.caj2pdf_io_complete_flush() !== 1) throw new Error("WASM rejected a scratch flush");
+        } else {
+          const length = exports.caj2pdf_io_request_length();
+          requireChunkLength(length);
+          if (length > chunkSize) throw new RangeError("oversized WASM scratch request");
+          checkRange(store.size, offset, BigInt(length));
+          if (status === 6) {
+            const bytes = await store.readAt(offset, length, signal);
+            checkAbort(signal);
+            if (!(bytes instanceof Uint8Array) || bytes.byteLength > length) throw new TypeError("scratch must return a bounded Uint8Array");
+            new Uint8Array(exports.memory.buffer, exports.caj2pdf_io_buffer_ptr(), bytes.byteLength).set(bytes);
+            if (exports.caj2pdf_io_complete_read(bytes.byteLength) !== 1) throw new Error("WASM rejected a scratch read");
+          } else {
+            const bytes = new Uint8Array(exports.memory.buffer, exports.caj2pdf_io_buffer_ptr(), length);
+            const count = await store.writeAt(offset, bytes, signal);
+            checkAbort(signal);
+            if (!Number.isSafeInteger(count) || count < 0 || count > length) throw new RangeError("invalid scratch write count");
+            if (exports.caj2pdf_io_complete_write(count) !== 1) throw new Error("WASM rejected a scratch write");
+          }
+        }
+        continue;
+      }
       if (status === 1) {
         const offset = exports.caj2pdf_io_request_offset();
         const length = exports.caj2pdf_io_request_length();
@@ -441,10 +490,41 @@ async function drive(exports, start, source, sink, chunkSize, signal, finish = r
         throw new Error(`unexpected WASM I/O status: ${status}`);
       }
     }
+  } catch (error) {
+    failed = true;
+    failure = error;
+    throw error;
   } finally {
     exports.caj2pdf_io_cancel();
     exports.caj2pdf_io_reset();
+    const cleanup = [];
+    for (const store of hnc8?.scratch ?? []) {
+      try { await store.resize(0n); if (store.size !== 0n) throw new Error("scratch cleanup did not clear its extent"); } catch (error) { cleanup.push(error); }
+    }
+    if (cleanup.length) throw new AggregateError(failed ? [failure, ...cleanup] : cleanup, "HN/C8 scratch cleanup failed");
   }
+}
+
+function hnc8Config(options) {
+  if (options == null) return undefined;
+  const scratch = options.scratch == null ? [] : [...options.scratch];
+  if (scratch.length !== 0 && (scratch.length !== 4 || new Set(scratch).size !== 4)) throw new TypeError("HN/C8 scratch must contain four independent stores");
+  for (const store of scratch) {
+    requireU64(store?.size, "scratch size");
+    if (["resize", "readAt", "writeAt", "flush"].some((method) => typeof store[method] !== "function")) throw new TypeError("invalid HN/C8 scratch store");
+  }
+  const states = [];
+  for (const [table, name, count] of [[0, "qmStates", 113], [1, "mqStates", 47]]) {
+    const rows = options[name];
+    if (rows === undefined) continue;
+    if (!Array.isArray(rows) || rows.length !== count) throw new RangeError(`${name} requires exactly ${count} states`);
+    for (const state of rows) {
+      const { qe, nextLps, nextMps, switchMps } = state ?? {};
+      if (!Number.isInteger(qe) || qe < 1 || qe >= 0x8000 || !Number.isInteger(nextLps) || nextLps < 0 || nextLps >= count || !Number.isInteger(nextMps) || nextMps < 0 || nextMps >= count || typeof switchMps !== "boolean") throw new RangeError(`invalid ${name} state`);
+      states.push([table, qe, nextLps, nextMps, Number(switchMps)]);
+    }
+  }
+  return { scratch, states };
 }
 
 const OPERATION_CONVERT = 1;
@@ -473,6 +553,7 @@ async function run(operation, wasm, source, sink, options) {
   requireSource(source);
   if (operation === OPERATION_CONVERT) requireSink(sink);
   const { code, resolved, chunkSize, signal, includeBookmarks } = operationConfig(options);
+  const hnc8 = operation === OPERATION_CONVERT ? hnc8Config(options?.hnc8) : undefined;
   checkAbort(signal);
   const exports = await resolveExports(wasm);
   const start = () => exports.caj2pdf_start(
@@ -487,11 +568,11 @@ async function run(operation, wasm, source, sink, options) {
     resolved.maxPages,
     resolved.maxBookmarks,
   );
-  return drive(exports, start, source, sink, chunkSize, signal, operation === OPERATION_INSPECT ? inspection : report);
+  return drive(exports, start, source, sink, chunkSize, signal, operation === OPERATION_INSPECT ? inspection : report, hnc8);
 }
 
 /**
- * Convert a PDF, CAJ, or KDH source to PDF through bounded, awaited I/O.
+ * Convert PDF, CAJ, KDH or experimental caller-table HN/C8 through bounded I/O.
  * The format is detected from the leading signature unless `format` is set.
  */
 export function convert(wasm, source, sink, options = {}) {

@@ -27,6 +27,8 @@ impl fmt::Display for PdfErrorKind {
 pub enum Error {
     /// The input's format or a format feature is not supported.
     UnsupportedFormat,
+    /// A located HN/C8 conversion failure, preserving its codec/source chain.
+    Hnc8(Box<crate::hnc8::ComposeError>),
     /// A malformed range, count, or field was supplied.
     InvalidInput { reason: &'static str },
     /// The source ended before a required range was complete.
@@ -96,6 +98,7 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::UnsupportedFormat => f.write_str("unsupported input format"),
+            Self::Hnc8(error) => error.fmt(f),
             Self::InvalidInput { reason } => write!(f, "invalid input: {reason}"),
             Self::TruncatedInput {
                 offset,
@@ -176,6 +179,7 @@ impl std::error::Error for Error {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Io(error) => Some(error),
+            Self::Hnc8(error) => Some(error.as_ref()),
             _ => None,
         }
     }
