@@ -153,6 +153,49 @@ rejects with `RANDOM_ACCESS_REQUIRED` instead of falling back to memory; pass
 a `Blob`/`File` (which browsers keep disk-backed) or a custom `readAt`
 source. OPFS writes count against the origin's storage quota.
 
+## Random-access scratch for HN/C8 integration
+
+`fileHandleScratch(handle, { maxBytes })` (Node, async) and
+`syncAccessHandleScratch(handle, { maxBytes })` (browser, synchronous construction)
+wrap caller-owned read/write storage. Both return the same async methods:
+`resize(size, signal)`, `readAt(offset, length, signal)`,
+`writeAt(offset, bytes, signal)`, and `flush(signal)`, plus a current `size`
+BigInt. Reads/writes may complete a short prefix. Each request is at most
+1 MiB and stays inside the explicitly resized extent. `maxBytes` is required
+and must not exceed `Number.MAX_SAFE_INTEGER`; file truncation and browser
+positions use exact Numbers. There is no whole-image allocation.
+
+Grant the adapter exclusive access and await each operation before issuing
+another. Keep write bytes unchanged until the promise settles. Node cancellation
+waits for pending file I/O to finish before rejecting, so cleanup cannot race an
+abandoned write or resize. Completed resize updates `size` even if cancellation
+arrives during that operation. Node `flush` is an ordering barrier; it does not
+fsync disposable storage. Closing and deleting files belong to the caller.
+
+Browser scratch requires an OPFS access handle in a **Dedicated Worker**:
+
+```js
+import { syncAccessHandleScratch } from "caj2pdf-rust/browser";
+
+// `file` is a caller-created OPFS FileSystemFileHandle in this worker.
+const handle = await file.createSyncAccessHandle();
+try {
+  const scratch = syncAccessHandleScratch(handle, { maxBytes: 64n * 1024n ** 2n });
+  await scratch.resize(4096n);
+  await scratch.writeAt(0n, new Uint8Array([1, 2]));
+  const bytes = await scratch.readAt(0n, 2);
+  await scratch.flush();
+} finally {
+  handle.close(); // The caller also removes its temporary file.
+}
+```
+
+The [File System standard](https://fs.spec.whatwg.org/#api-filesystemsyncaccesshandle)
+defines this worker-only handle. It permits reads and writes against the same
+live file; an unclosed `createWritable()` stream and a `getFile()` snapshot do
+not provide that contract. These adapters prepare HN/C8 integration; `convert`
+does not yet accept scratch stores or enable HN/C8 conversion (#10).
+
 ## Bounded memory and I/O
 
 Rust requests one range or one write at a time. JavaScript awaits the source,

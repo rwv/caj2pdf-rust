@@ -42,6 +42,7 @@ test("npm pack includes the WASM build, entry points, declarations, LICENSE, and
       "browser.d.mts",
       "browser.mjs",
       "caj2pdf_wasm.wasm",
+      "internal/scratch.mjs",
       "internal/spool-write.mjs",
       "io.d.mts",
       "io.mjs",

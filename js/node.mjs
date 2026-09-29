@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   abortable,
+  checkAbort,
   checkRange,
   convertSpooled,
   pumpChunks,
@@ -15,6 +16,7 @@ import {
   TruncatedInputError,
 } from "./io.mjs";
 import { writeSpoolChunk } from "./internal/spool-write.mjs";
+import { scratchCount, scratchSize } from "./internal/scratch.mjs";
 
 export * from "./io.mjs";
 
@@ -55,6 +57,55 @@ export async function fileHandleSource(handle) {
         done += count;
       }
       return bytes;
+    },
+  });
+}
+
+/**
+ * Bounded random-access scratch over a caller-owned read/write FileHandle.
+ * Serialize calls and grant exclusive access; close/unlink remain caller-owned.
+ * Cancellation waits for an outstanding operation to settle before rejecting,
+ * so no abandoned write or truncate can race with cleanup or store reuse.
+ */
+export async function fileHandleScratch(handle, { maxBytes } = {}) {
+  scratchSize(0n, maxBytes);
+  if (["stat", "truncate", "read", "write"].some((key) => typeof handle?.[key] !== "function")) {
+    throw new TypeError("a read/write FileHandle is required");
+  }
+  const stats = await handle.stat({ bigint: true });
+  if (!stats.isFile()) throw new TypeError("scratch backing must be a regular file");
+  let size = stats.size;
+  scratchSize(size, maxBytes);
+  return Object.freeze({
+    get size() { return size; },
+    async resize(bytes, signal) {
+      const length = scratchSize(bytes, maxBytes);
+      checkAbort(signal);
+      await handle.truncate(length);
+      size = bytes;
+      checkAbort(signal);
+    },
+    async readAt(offset, length, signal) {
+      requireChunkLength(length, { allowZero: true });
+      checkRange(size, offset, BigInt(length));
+      checkAbort(signal);
+      const bytes = new Uint8Array(length);
+      const result = await handle.read({ buffer: bytes, offset: 0, length, position: Number(offset) });
+      checkAbort(signal);
+      return bytes.subarray(0, scratchCount(result?.bytesRead, length));
+    },
+    async writeAt(offset, bytes, signal) {
+      requireSinkChunk(bytes);
+      checkRange(size, offset, BigInt(bytes.byteLength));
+      checkAbort(signal);
+      const result = await handle.write(bytes, 0, bytes.byteLength, Number(offset));
+      checkAbort(signal);
+      return scratchCount(result?.bytesWritten, bytes.byteLength);
+    },
+    async flush(signal) {
+      checkAbort(signal);
+      // Completed FileHandle writes are already visible to subsequent reads.
+      // Durability (fsync) belongs to the owner, not disposable scratch.
     },
   });
 }

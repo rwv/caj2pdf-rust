@@ -131,3 +131,15 @@ test("Chromium: OPFS spool bound, failure, and abort remove the spool", options,
 test("Chromium: the page raised no uncaught exceptions", options, () => {
   assert.deepEqual(page.errors, []);
 });
+
+test("Chromium: Worker OPFS scratch reads current writes and cleans up", options, async () => {
+  const result = await run("scratchInWorker");
+  const expected = [1, 2, 0, 0, 7, 8, 0, 0];
+  assert.deepEqual(result.immediate, expected);
+  assert.deepEqual(result.visible, expected);
+  assert.deepEqual(result.reused, Array(16).fill(0));
+  assert.equal(result.size, "16");
+  assert.equal(result.afterClose, 16);
+  assert.equal(result.rejected, true);
+  assert.equal(result.cleaned, true);
+});

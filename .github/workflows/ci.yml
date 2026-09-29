@@ -257,6 +257,7 @@ jobs:
           typecheck_dir="$RUNNER_TEMP/caj2pdf-typecheck"
           npm install --prefix "$typecheck_dir" --ignore-scripts --no-audit --no-fund typescript@5.9.3 @types/node@22.18.6 undici-types@6.21.0
           node "$typecheck_dir/node_modules/typescript/bin/tsc" --strict --noEmit --module NodeNext --target ES2022 --lib ES2022,DOM,DOM.Iterable --typeRoots "$typecheck_dir/node_modules/@types" js/test/types/*.mts
+          node "$typecheck_dir/node_modules/typescript/bin/tsc" --strict --noEmit --module NodeNext --target ES2022 --lib ES2022,WebWorker --typeRoots "$typecheck_dir/node_modules/@types" js/test/types-worker/*.mts
       - name: Measure JavaScript memory and temporary storage
         run: node js/scripts/measure-memory.mjs
       - name: Test the JavaScript API, packaging, and headless Chromium on Node 22

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 // Compile-only consumer check; this function is never executed.
-import { blobSource, convert, convertReadableStream, loadModule, spoolToOpfs, webWritableSink } from '../../browser.mjs';
+import { blobSource, convert, convertReadableStream, loadModule, spoolToOpfs, syncAccessHandleScratch, webWritableSink } from '../../browser.mjs';
 
 export async function useBrowser(file: File, destination: WritableStream<Uint8Array>, signal: AbortSignal) {
   const module = await loadModule();
@@ -13,4 +13,13 @@ export async function useBrowser(file: File, destination: WritableStream<Uint8Ar
   await spool.dispose();
   await writer.close();
   return count;
+}
+
+export async function useBrowserScratch(handle: import('../../browser.mjs').ScratchAccessHandle) {
+  const scratch = syncAccessHandleScratch(handle, { maxBytes: 1024n });
+  await scratch.resize(8n);
+  const written: number = await scratch.writeAt(0n, new Uint8Array([1]));
+  const read: Uint8Array = await scratch.readAt(0n, written);
+  await scratch.flush();
+  return { size: scratch.size, read };
 }

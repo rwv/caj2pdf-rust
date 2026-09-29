@@ -2,7 +2,7 @@
 
 import type { FileHandle } from "node:fs/promises";
 import type { Writable } from "node:stream";
-import type { ConvertOptions, ConversionReport, RangedSource, SequentialSink, Spooled, SpoolOptions, StreamInput, WasmInput } from "./io.mjs";
+import type { ConvertOptions, ConversionReport, RandomAccessScratch, RangedSource, SequentialSink, Spooled, SpoolOptions, StreamInput, WasmInput } from "./io.mjs";
 
 export * from "./io.mjs";
 
@@ -28,3 +28,9 @@ export declare function convertReadable(
   sink: SequentialSink,
   options?: ConvertOptions & SpoolOptions & { tempDirectory?: string },
 ): Promise<ConversionReport>;
+
+/** Borrow a read/write file. maxBytes must fit a safe integer; never closes it. */
+export declare function fileHandleScratch(
+  handle: FileHandle,
+  options: { maxBytes: bigint },
+): Promise<RandomAccessScratch>;

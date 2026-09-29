@@ -2,7 +2,7 @@
 // Compile-only consumer check; this function is never executed.
 import { open } from 'node:fs/promises';
 import { Readable } from 'node:stream';
-import { convert, convertReadable, fileHandleSource, loadModule, nodeWritableSink, spoolToTempFile } from '../../node.mjs';
+import { convert, convertReadable, fileHandleSource, fileHandleScratch, loadModule, nodeWritableSink, spoolToTempFile } from '../../node.mjs';
 
 export async function useNode(inputPath: string, outputPath: string) {
   const module = await loadModule();
@@ -15,4 +15,13 @@ export async function useNode(inputPath: string, outputPath: string) {
   const spool = await spoolToTempFile(Readable.from([]), { maxBytes: 1024n });
   await spool.dispose();
   return count;
+}
+
+export async function useNodeScratch(handle: import('node:fs/promises').FileHandle) {
+  const scratch = await fileHandleScratch(handle, { maxBytes: 1024n });
+  await scratch.resize(8n);
+  const written: number = await scratch.writeAt(0n, new Uint8Array([1]));
+  const read: Uint8Array = await scratch.readAt(0n, written);
+  await scratch.flush();
+  return { size: scratch.size, read };
 }

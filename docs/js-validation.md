@@ -73,3 +73,15 @@ npm install --prefix "$typecheck_dir" --ignore-scripts --no-audit --no-fund type
 node "$typecheck_dir/node_modules/typescript/bin/tsc" --strict --noEmit --module NodeNext --target ES2022 --lib ES2022,DOM,DOM.Iterable --typeRoots "$typecheck_dir/node_modules/@types" js/test/types/*.mts
 rm -rf "$typecheck_dir"
 ```
+
+## Random-access scratch adapters (#10)
+
+Original tests exercise real Node files, immediate OPFS reads in a real Chromium
+Dedicated Worker, resize/reset reuse, caps and precise offsets, short/invalid
+host I/O counts, storage failures and cancellation during pending Node I/O.
+The worker closes/reopens the handle and verifies caller-owned file cleanup.
+No external corpus is needed for these storage contract checks; they do not
+claim HN/C8 WASM conversion. The existing JS suite includes the new tests.
+CI additionally compiles `js/test/types-worker/*.mts` with `ES2022,WebWorker`
+using the same pinned TypeScript installation. The actual npm tarball includes
+the shared scratch validation helper; packaging tests check the file list.
