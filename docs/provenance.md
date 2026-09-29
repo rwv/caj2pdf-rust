@@ -1510,3 +1510,20 @@ Python/Go/private converter implementation was used for this change. The
 external issue-77 source supplied byte-level observations only and remains
 outside Git. Successful framing alone does not establish document conversion
 or viewer parity.
+
+## Headerless CAJ repeated fragment recovery
+
+Independent byte inspection of external CAJSamples issue 77 observed a
+partial `14 0 obj << /Length` header after a complete integer object,
+followed by an exact replay of that integer object. The partial header's
+bytes through `/Length` match the beginning of an earlier complete object;
+whitespace after the name differs. The implementation recognizes this
+shape only at a known object boundary after ordinary parsing fails, within
+256 bytes, with a unique prior object and an exact immediately preceding
+integer replay. It excludes these inactive bytes from the reconstruction
+index rather than searching or patching stream payloads. Original synthetic
+positive and negative fixtures contain no external document content.
+
+The experimental conversion then reaches object 19 at byte 41833, whose
+indirect length uses `/DCTDecode`. No complete PDF or viewer parity is
+claimed by this recovery change. No legacy converter source was consulted.
