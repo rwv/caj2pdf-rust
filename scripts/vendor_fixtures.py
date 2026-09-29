@@ -930,8 +930,11 @@ def _receipt(value, manifest, limits):
     for key in ("before_audit", "after_audit"):
         _choice(value[key], {"PASS", "FAIL", "NOT_RUN"}, "receipt." + key)
     resources = _object(value["resources"], "elapsed_ms owned_disk_peak_bytes process_tree_memory", "receipt.resources")
-    _integer(resources["elapsed_ms"], "receipt.resources.elapsed_ms", caps["wall_ms"] if passing else (1 << 63) - 1)
-    _integer(resources["owned_disk_peak_bytes"], "receipt.resources.owned_disk_peak_bytes", caps["session_bytes"] if passing else (1 << 63) - 1)
+    for key, cap in (("elapsed_ms", "wall_ms"), ("owned_disk_peak_bytes", "session_bytes")):
+        # Failed/manual observations may lack telemetry; never invent zeroes.
+        # A passing acquisition still needs measured values within its caps.
+        if resources[key] is not None or passing:
+            _integer(resources[key], "receipt.resources." + key, caps[cap] if passing else (1 << 63) - 1)
     memory = _object(resources["process_tree_memory"], "status peak_bytes method", "receipt.resources.process_tree_memory")
     _choice(memory["status"], {"MEASURED", "UNAVAILABLE"}, "receipt.memory.status")
     _string(memory["method"], "receipt.memory.method")

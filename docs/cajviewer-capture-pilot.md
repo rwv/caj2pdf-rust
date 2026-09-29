@@ -104,8 +104,9 @@ The pilot used one application launch; document reopen is not app restart.
    rectangle without scaling or content-based alignment.
 6. Before copy, set a distinct clipboard sentinel with
    `printf PILOT_SENTINEL | xclip -selection clipboard -in`. Select text with
-   the arrow selection tool, right-click the selection and choose the first
-   Copy item. Read with `timeout 3 xclip -selection clipboard -out`. Preserve
+   the arrow selection tool, right-click the selection and choose the visibly labeled ordinary
+   Copy (复制) item. Do not use Ctrl+C: the later font-enabled experiment
+   identified that shortcut as enhanced copy. Menu positions can vary. Read with `timeout 3 xclip -selection clipboard -out`. Preserve
    raw bytes. Repeat with a new sentinel on the image-only page.
 7. Close and reopen the document, reapply settings and capture again. Compare
    complete equal-sized decoded RGB payloads and report actual changed pixels.
