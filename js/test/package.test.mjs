@@ -59,18 +59,35 @@ test("npm pack includes the WASM build, entry points, declarations, LICENSE, and
     const installed = join(consumer, "node_modules", "caj2pdf-rust");
     await mkdir(installed, { recursive: true });
     await run("tar", ["-xzf", join(directory, packed.filename), "--strip-components=1", "-C", installed]);
+    await writeFile(join(consumer, "input.caj"), syntheticCaj());
     const { stdout } = await run(process.execPath, ["--input-type=module", "--eval", `
       import assert from "node:assert/strict";
+      import { open } from "node:fs/promises";
+      import { finished } from "node:stream/promises";
       import * as root from "caj2pdf-rust";
       import * as node from "caj2pdf-rust/node";
       import * as browser from "caj2pdf-rust/browser";
       assert.equal(root.loadModule, node.loadModule);
       assert.equal(root.writeSpoolChunk, undefined);
       assert.equal(browser.convert, node.convert);
-      assert.ok(WebAssembly.Module.exports(await root.loadModule()).some(({name}) => name === "caj2pdf_io_poll"));
-      console.log("packed exports and default WASM load passed");
+      const module = await root.loadModule();
+      assert.ok(WebAssembly.Module.exports(module).some(({name}) => name === "caj2pdf_io_poll"));
+      const input = await open("input.caj", "r");
+      const output = (await open("output.pdf", "wx")).createWriteStream();
+      try {
+        const report = await root.convert(module, await root.fileHandleSource(input), root.nodeWritableSink(output));
+        output.end();
+        await finished(output);
+        assert.equal(report.pagesConverted, 2);
+      } finally {
+        output.destroy();
+        await finished(output).catch(() => {});
+        await input.close();
+      }
+      console.log("packed exports and Node conversion passed");
     `], { cwd: consumer });
-    assert.match(stdout, /packed exports and default WASM load passed/);
+    assert.match(stdout, /packed exports and Node conversion passed/);
+    await validatePdf(t, await readFile(join(consumer, "output.pdf")), 2);
 
     await t.test("packed browser entry converts in Chromium with its default WASM URL", async (t) => {
       const chrome = findChrome();

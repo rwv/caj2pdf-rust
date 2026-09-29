@@ -16,7 +16,9 @@ Earlier conversion hashes and geometry checks below predate that correction;
 - #169 tests the runnable Node example, including stdin, initialization and
   conversion failures, and preservation of existing output.
 - #170 extracts the real npm tarball and checks public exports, default WASM
-  loading, and actual Chromium conversion using only shipped files.
+  loading, and actual Chromium conversion using only shipped files. The release
+  check also converts an original two-page CAJ through the packed Node entry
+  using file input and streamed output, then validates the PDF with qpdf.
 - #171 tests the browser example's OPFS output cleanup, cancellation, writer
   initialization failure, replacement, and download disposal. Native OS file
   picker dialogs are not automated. A successful fallback output stays
