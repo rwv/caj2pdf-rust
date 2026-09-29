@@ -1530,3 +1530,31 @@ positive and negative fixtures contain no external document content.
 The experimental conversion then reaches object 19 at byte 41833, whose
 indirect length uses `/DCTDecode`. No complete PDF or viewer parity is
 claimed by this recovery change. No legacy converter source was consulted.
+
+## JPEG framing and further repeated fragments (issue 77)
+
+The ordinary PDF DCTDecode path now uses original bounded JPEG marker
+traversal, consistent with the project's existing original HN/C8 marker
+reader. It skips length-delimited segments and accounts for entropy stuffing,
+restart markers and multiple scans; it does not decode pixels or relax the
+HN/C8 profile validator. Original framing fixtures deliberately exercise
+marker structure without claiming decodable image pixels. No new dependency
+or legacy implementation source is used.
+
+Further independent byte observations require recovery beyond the initial
+header-only/immediate-integer shape documented above:
+
+- Truncated integer headers or endobj keywords followed by their complete
+  copies. Recovery requires the reference and value measured from the latest
+  framed stream, and a byte-identical prefix of the complete scalar object.
+- Partial known page dictionaries and stream prefixes, followed by an exact
+  copy of an earlier indexed integer. Compare at most 256 bytes at a failed
+  object boundary against prior source spans; reject ambiguous candidates.
+- Complete repeated objects. Compare every byte in bounded chunks and retain
+  one identical copy in source order; differing copies remain errors.
+
+The external file now passes object scanning and reference-length validation,
+but conversion rejects page object 4 because no direct or inherited MediaBox
+is available. An independent bounded byte inspection found no `/MediaBox`
+name in this file. No page size is guessed and no output PDF or viewer parity
+is claimed. The external corpus and generated artifacts remain outside Git.

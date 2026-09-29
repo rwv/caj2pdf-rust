@@ -503,21 +503,14 @@ pub async fn convert_caj<S: RangedSource, W: SequentialSink, C: Cancellation>(
                 FragmentKind::Pages { parent, .. } => parent,
                 _ => continue,
             };
-            if nodes
-                .insert(
-                    object.reference,
-                    TreeNode {
-                        parent,
-                        resolved_root: None,
-                    },
-                )
-                .is_some()
-            {
-                return Err(malformed(
-                    object.range.offset,
-                    "duplicate PDF page-tree object",
-                ));
-            }
+            let previous = nodes.insert(
+                object.reference,
+                TreeNode {
+                    parent,
+                    resolved_root: None,
+                },
+            );
+            debug_assert!(previous.is_none(), "fragment scanner deduplicates objects");
         }
     }
 
