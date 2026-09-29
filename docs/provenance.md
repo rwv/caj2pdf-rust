@@ -1,5 +1,16 @@
 # Provenance and dependency inventory
 
+## 2026-09-29 JavaScript delivery validation (#13)
+
+The Node/browser example fixes, artifact tests, compile-only consumer checks,
+and memory measurement script are original MIT source. They reuse the
+repository's original synthetic PDF/CAJ fixtures and browser harness; no
+external documents or converter code are added. CI uses TypeScript 5.9.3
+(Apache-2.0) solely as an external type-checking tool, with MIT-licensed Node
+22.18.6 and undici 6.21.0 declarations in the runner's temporary directory.
+These tool packages are not vendored, imported at runtime or distributed with
+the MIT npm package. Its runtime dependency list remains empty.
+
 
 ## 2026-09-29 decoded fixture comparison (#128)
 

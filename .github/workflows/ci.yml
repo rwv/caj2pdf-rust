@@ -252,6 +252,13 @@ jobs:
         run: cargo check --locked --workspace --all-features --all-targets --target wasm32-unknown-unknown
       - name: Build WASM boundary
         run: cargo build --locked --release --all-features -p caj2pdf-wasm --target wasm32-unknown-unknown
+      - name: Type-check JavaScript consumer declarations
+        run: |
+          typecheck_dir="$RUNNER_TEMP/caj2pdf-typecheck"
+          npm install --prefix "$typecheck_dir" --ignore-scripts --no-audit --no-fund typescript@5.9.3 @types/node@22.18.6 undici-types@6.21.0
+          node "$typecheck_dir/node_modules/typescript/bin/tsc" --strict --noEmit --module NodeNext --target ES2022 --lib ES2022,DOM,DOM.Iterable --typeRoots "$typecheck_dir/node_modules/@types" js/test/types/*.mts
+      - name: Measure JavaScript memory and temporary storage
+        run: node js/scripts/measure-memory.mjs
       - name: Test the JavaScript API, packaging, and headless Chromium on Node 22
         run: node --test js/test/*.test.mjs
       - name: Report external JavaScript corpus conversion as not run

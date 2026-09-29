@@ -172,6 +172,9 @@ from 1,179,648 bytes after instantiation to a peak of 1,966,080 bytes
 the largest write were each 262,144 bytes, over 97 writes. WASM memory never
 shrinks, so the final `memory.buffer.byteLength` is the peak.
 
+Current browser/Node small/large measurements, temporary-storage results,
+and reproduction commands are in [JavaScript validation](../docs/js-validation.md).
+
 ## Cancellation
 
 `AbortSignal` is checked before every poll and after every awaited read,
