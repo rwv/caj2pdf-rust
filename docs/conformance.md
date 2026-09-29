@@ -1,5 +1,10 @@
 # Conformance baseline
 
+Current capability result: [the capture pilot](cajviewer-capture-pilot.md)
+obtained complete-page screenshots and ordinary-copy text from an original
+control, plus one real CAJ page. Reopen pixels differ. Converter-versus-viewer
+compatibility remains NOT_RUN; #126–#129 are still open.
+
 The [corpus matrix](../tests/conformance/matrix.json) inventories unique inputs
 from a pinned revision of the external
 [CAJSamples](https://github.com/caj2pdf/CAJSamples) repository. Its

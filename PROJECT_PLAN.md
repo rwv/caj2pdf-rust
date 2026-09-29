@@ -144,7 +144,8 @@ issue acceptance criteria are authoritative for each task.
    execution disabled and satisfy no #137 acceptance criterion.
 5. Complete [the vendor fixture epic #123](https://github.com/rwv/caj2pdf-rust/issues/123)
    using the [simplified fixture plan](docs/cajviewer-fixtures.md).
-   First prove a practical complete-page capture recipe (#124), then save a
+   The [#124 capture pilot](docs/cajviewer-capture-pilot.md) established a
+   practical recipe with reopen pixel differences; next save a
    small image baseline (#126) and ordinary-copy text where available (#127).
    Manual initial acquisition is acceptable; Docker is a reproducibility aid.
    Reuse completed manifests (#125). Develop comparison (#128) immediately
