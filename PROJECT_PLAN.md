@@ -103,16 +103,17 @@ caj2pdf add-bookmarks SOURCE_CAJ INPUT_PDF -o OUTPUT_PDF [--force]
 - Return exit status 0 on success, 2 for invalid arguments, and 1 for I/O,
   unsupported format, or conversion failures. Provide `--help` and `--version`.
 
-## Remaining delivery sequence
+## Delivery status and remaining sequence
 
 The [parent issue #1](https://github.com/rwv/caj2pdf-rust/issues/1) and its
 native sub-issue/blocking relationships are authoritative.
 
-1. **Finish integration acceptance (#10).** HN/C8 composition, native and JS
-   scratch adapters, CLI/browser/Node conversion, and HN-A metadata inspection
-   already exist (#176–#181). Validate one complete multi-image document on all
-   three interfaces and reuse the existing C8 results. Check page order, image
-   placement, bookmarks and cleanup. Add focused original regression tests.
+1. **Integration acceptance completed (#10 / #182).** HN/C8 composition, native
+   and JS scratch adapters, CLI/browser/Node conversion, and HN-A metadata
+   inspection are implemented. The complete multi-image document produces
+   identical PDFs on all three interfaces; page order, placement, bookmarks and
+   cleanup are checked. Original two-image controls run in normal CI. See
+   [the results and limitations](docs/js-validation.md#complete-multi-image-hn-a-public-interface-check).
 2. **Check representative viewer pages (#123).** Reuse the pinned container and
    capture recipe. Check one ordinary and one mixed/boundary page per advertised
    format; expand only for an observed mismatch. Identical PDFs across interfaces
