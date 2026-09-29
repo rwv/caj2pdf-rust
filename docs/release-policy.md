@@ -59,7 +59,7 @@ The npm package in `js/` stays `"private": true` in the repository. To
 publish it, build and copy the WASM with `npm run build:wasm` inside `js/`
 (its `prepack` script refuses to pack a missing or non-WASM
 `caj2pdf_wasm.wasm`), inspect
-`npm pack --dry-run` against the file list asserted by
-`js/test/package.test.mjs`, remove `private` in the release commit, and
-publish that tarball. The copied `.wasm` is a build product and is never
+the actual `npm pack` tarball against the file list asserted by
+`js/test/package.test.mjs`, run its Node and Chromium artifact smoke tests,
+remove `private` in the release commit, and publish the verified tarball. The copied `.wasm` is a build product and is never
 committed.

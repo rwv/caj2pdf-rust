@@ -192,11 +192,13 @@ sink should honor its `signal` argument for prompt cancellation.
   the spool bound, cleanup after success, failure, and abort, and the OPFS
   spool against an in-memory OPFS test double.
 - `browser.test.mjs` runs `browser.mjs` in headless Chromium (below).
-- `package.test.mjs` dry-runs `npm pack` on a temporary copy of the package
+- `package.test.mjs` runs `npm pack` on a temporary copy of the package
   with the WASM build and asserts the tarball holds exactly the entry points,
   declarations, `caj2pdf_wasm.wasm`, `package.json`, `LICENSE`, and
-  `README.md`; that `loadModule()` finds the packaged module by default; and
-  that packing without a valid WASM build fails.
+  `README.md`. It extracts the actual tarball into a fresh consumer, checks
+  Node package exports and default WASM loading, and converts CAJ through
+  the packed browser entry in Chromium. Packing without a valid WASM build
+  must fail.
 - `examples.test.mjs` runs the Node example as a subprocess for CAJ/KDH/PDF
   files and stdin, validates output PDFs, and checks missing/malformed inputs,
   existing-output preservation and usage errors.
