@@ -73,6 +73,14 @@ over HTTP and open `/js/examples/browser.html`). The Node example also
 removes its newly created output on failure; the short snippet above leaves
 partial-output disposal to the caller.
 
+The browser example runs one conversion at a time. Failed or cancelled
+conversions remove their private OPFS output. When using its download
+fallback, save the download and click **Discard download** to revoke the
+URL and remove the private output; starting another conversion also removes
+the previous download. Discard before closing the tab: browser shutdown
+cannot reliably await storage cleanup. The save-picker path writes directly
+to the file you choose.
+
 ### API
 
 - `convert(wasm, source, sink, options)` detects the format from at most five
@@ -192,6 +200,9 @@ sink should honor its `signal` argument for prompt cancellation.
   the spool bound, cleanup after success, failure, and abort, and the OPFS
   spool against an in-memory OPFS test double.
 - `browser.test.mjs` runs `browser.mjs` in headless Chromium (below).
+- `browser-example.test.mjs` drives the actual HTML example in Chromium,
+  checks failed/cancelled output cleanup, validates a downloaded PDF, and
+  verifies replacement/discard removes OPFS files and revokes download URLs.
 - `package.test.mjs` runs `npm pack` on a temporary copy of the package
   with the WASM build and asserts the tarball holds exactly the entry points,
   declarations, `caj2pdf_wasm.wasm`, `package.json`, `LICENSE`, and
@@ -322,6 +333,5 @@ DevTools command has a 30-second timeout. After the run, or when the test
 process exits early or receives `SIGINT` or `SIGTERM`, the Chromium process
 group is killed and its throwaway profile removed. The CI WASM job runs
 these tests with the runner's preinstalled Google Chrome on Node 22 and 24.
-Firefox, Safari, and Web Workers are not covered, and the manual
-[`examples/browser.html`](examples/browser.html) (file picker and save
-dialog) is not automated.
+Firefox, Safari, and Web Workers are not covered, and native file-picker/save dialogs are not automated. The example
+page's OPFS fallback is tested through actual Chromium File and storage APIs.
