@@ -206,6 +206,47 @@ fn one_page_body(annotation: Option<&str>, declared_stream_length: Option<usize>
 }
 
 #[test]
+fn indirect_flate_content_survives_caj_conversion() {
+    use std::io::Write;
+    let mut encoder = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
+    encoder.write_all(b"0 0 0 rg 10 10 30 30 re f").unwrap();
+    let encoded = encoder.finish().unwrap();
+    let mut body = Vec::new();
+    object(
+        &mut body,
+        9,
+        "<< /Type /Page /Parent 5 0 R /MediaBox [0 0 72 72] /Resources << >> /Contents 11 0 R /Annots [13 0 R] >>",
+    );
+    object(&mut body, 5, "<< /Type /Pages /Count 1 /Kids [9 0 R] >>");
+    body.extend_from_slice(b"11 0 obj\n<< /Length 12 0 R /Filter /FlateDecode >>\nstream\n");
+    body.extend_from_slice(&encoded);
+    body.extend_from_slice(b"\nendstream\nendobj\n");
+    object(&mut body, 12, &encoded.len().to_string());
+    object(
+        &mut body,
+        13,
+        "<< /Type /Annot /Subtype /Link /Rect [0 0 20 20] /Dest 14 0 R >>",
+    );
+    object(&mut body, 14, "[99 0 R /Fit]");
+    let (pdf, report) = convert(
+        &fragment_caj(&body, &[9]),
+        ConversionOptions::default(),
+        &Limits::default(),
+    )
+    .unwrap();
+    assert_eq!(report.pages_converted, 1);
+    assert_eq!(inspect(&pdf).pages().len(), 1);
+    assert!(!pdf.windows(5).any(|bytes| bytes == b"/Dest"));
+    let file = TempPdf::write("indirect-flate", &pdf);
+    checked_command(Command::new("qpdf").arg("--check").arg(&file.0), "qpdf");
+    assert!(pdf.windows(encoded.len()).any(|bytes| bytes == encoded));
+    assert!(
+        pdf.windows(b"/Length 12 0 R".len())
+            .any(|bytes| bytes == b"/Length 12 0 R")
+    );
+}
+
+#[test]
 fn a_synthetic_pages_node_cannot_satisfy_an_annotation_destination() {
     let mut body = Vec::new();
     object(

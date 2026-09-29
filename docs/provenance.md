@@ -1442,3 +1442,15 @@ amendment and separately frozen inventory attempt remain unimplemented and
 NOT_RUN. No old receipt/cause is rewritten or operational phase replayed.
 The fresh V13 cache finding is paraphrased; actual stderr, ENV maps,
 vendor/corpus files and complete receipts remain external.
+
+### CAJ indirect Flate lengths (#159)
+
+The fragment-scanner changes and synthetic tests are original MIT work.
+They reuse the already approved MIT flate2 dependency and existing PDF parser;
+no converter source or new decoder dependency was imported. Format evidence
+is independent inspection of the issue-77 bytes and zlib consumption recorded
+in [the CAJ observations](caj-format.md#indirect-stream-lengths-159).
+The synthetic compressed streams, integer references, malformed targets and
+marker-containing payloads were authored for this repository. External CAJ,
+viewer screenshots and derived text remain outside Git. The observed CCITT
+stream is still unsupported; Flate progress is not document compatibility.

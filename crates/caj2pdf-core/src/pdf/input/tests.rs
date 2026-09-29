@@ -55,6 +55,203 @@ fn expect_pdf_error(bytes: Vec<u8>, kind: PdfErrorKind) {
     );
 }
 
+fn indirect_flate_fragment(encoded: &[u8], integer: &str) -> Vec<u8> {
+    let mut bytes = b"1 0 obj\n<< /Length 2 0 R /Filter /FlateDecode >>\nstream\n".to_vec();
+    bytes.extend_from_slice(encoded);
+    bytes.extend_from_slice(format!("\nendstream\nendobj\n2 0 obj\n{integer}\nendobj").as_bytes());
+    bytes
+}
+
+fn scan_indirect(
+    bytes: Vec<u8>,
+    limits: &Limits,
+    cancellation: &CancelAfter,
+) -> Result<fragment_scan::FragmentScan> {
+    let size = bytes.len() as u64;
+    let mut source = SeekableSource::new(Cursor::new(bytes)).unwrap();
+    run(scan_fragment_objects(
+        &mut source,
+        0,
+        size,
+        limits,
+        cancellation,
+    ))
+}
+
+#[test]
+fn indirect_flate_length_resolves_forward_and_backward_integer_objects() {
+    use std::io::Write;
+    let mut encoder = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::none());
+    encoder
+        .write_all(b"original payload with endstream endobj 2 0 obj 0 endobj markers")
+        .unwrap();
+    let encoded = encoder.finish().unwrap();
+    assert!(encoded.windows(9).any(|bytes| bytes == b"endstream"));
+    let integer = encoded.len().to_string();
+    let forward = indirect_flate_fragment(&encoded, &integer);
+    let boundary = forward
+        .windows(7)
+        .rposition(|bytes| bytes == b"2 0 obj")
+        .unwrap();
+    let mut backward = forward[boundary..].to_vec();
+    backward.push(b'\n');
+    backward.extend_from_slice(&forward[..boundary]);
+    for bytes in [forward, backward] {
+        let scan = scan_indirect(
+            bytes,
+            &Limits {
+                io_chunk_bytes: 1,
+                ..Limits::default()
+            },
+            &NEVER,
+        )
+        .unwrap();
+        assert_eq!(scan.objects.len(), 2);
+        assert!(scan.patches.is_empty());
+        assert_eq!(
+            scan.resolve_length(PdfRef {
+                number: 2,
+                generation: 0
+            }),
+            Some(encoded.len() as u64)
+        );
+    }
+}
+
+#[test]
+fn indirect_flate_length_rejects_missing_cyclic_wrong_and_noninteger_targets() {
+    let encoded = zlib(b"original");
+    for integer in ["1 0 R", "2 0 R", "null", "-1", "3.5", "0", "<<>>"] {
+        let error = scan_indirect(
+            indirect_flate_fragment(&encoded, integer),
+            &Limits::default(),
+            &NEVER,
+        )
+        .err()
+        .unwrap();
+        assert!(
+            matches!(
+                error,
+                Error::Pdf {
+                    kind: PdfErrorKind::Malformed,
+                    ..
+                }
+            ),
+            "{error:?}"
+        );
+    }
+    let mut missing = indirect_flate_fragment(&encoded, &encoded.len().to_string());
+    missing.truncate(find(&missing, b"2 0 obj") as usize);
+    assert!(scan_indirect(missing, &Limits::default(), &NEVER).is_err());
+    let mut bad_value = indirect_flate_fragment(&encoded, &encoded.len().to_string());
+    replace_once(&mut bad_value, b"/Length 2 0 R", b"/Length null ");
+    assert!(scan_indirect(bad_value, &Limits::default(), &NEVER).is_err());
+    let mut duplicate = indirect_flate_fragment(&encoded, &encoded.len().to_string());
+    duplicate.extend_from_slice(b"\n2 0 obj 1 endobj");
+    assert!(scan_indirect(duplicate, &Limits::default(), &NEVER).is_err());
+}
+
+#[test]
+fn indirect_flate_length_rejects_corruption_truncation_and_bombs() {
+    let encoded = zlib(&vec![b'x'; 20_000]);
+    let bytes = indirect_flate_fragment(&encoded, &encoded.len().to_string());
+    let error = scan_indirect(
+        bytes.clone(),
+        &Limits {
+            max_output_bytes: 19_999,
+            ..Limits::default()
+        },
+        &NEVER,
+    )
+    .err()
+    .unwrap();
+    assert!(matches!(
+        error,
+        Error::LimitExceeded {
+            resource: "CAJ Flate scan bytes",
+            ..
+        }
+    ));
+    assert!(
+        scan_indirect(
+            bytes.clone(),
+            &Limits {
+                io_chunk_bytes: 1,
+                max_allocation_bytes: 65_535,
+                ..Limits::default()
+            },
+            &NEVER
+        )
+        .is_err()
+    );
+    let mut two_streams = bytes.clone();
+    let mut second = bytes.clone();
+    replace_once(&mut second, b"1 0 obj", b"3 0 obj");
+    replace_once(&mut second, b"2 0 R", b"4 0 R");
+    replace_once(&mut second, b"2 0 obj", b"4 0 obj");
+    two_streams.push(b'\n');
+    two_streams.extend_from_slice(&second);
+    assert!(matches!(
+        scan_indirect(
+            two_streams,
+            &Limits {
+                max_output_bytes: 39_999,
+                ..Limits::default()
+            },
+            &NEVER
+        ),
+        Err(Error::LimitExceeded {
+            resource: "CAJ Flate scan bytes",
+            ..
+        })
+    ));
+    assert!(scan_indirect(bytes, &Limits::default(), &NEVER).is_ok());
+    let mut bad_checksum = encoded.clone();
+    *bad_checksum.last_mut().unwrap() ^= 1;
+    assert!(
+        scan_indirect(
+            indirect_flate_fragment(&bad_checksum, &bad_checksum.len().to_string()),
+            &Limits::default(),
+            &NEVER
+        )
+        .is_err()
+    );
+    for payload in [
+        &encoded[..encoded.len() - 1],
+        b"invalid zlib bytes".as_slice(),
+    ] {
+        assert!(
+            scan_indirect(
+                indirect_flate_fragment(payload, &payload.len().to_string()),
+                &Limits::default(),
+                &NEVER
+            )
+            .is_err()
+        );
+    }
+    let mut truncated = b"1 0 obj << /Length 2 0 R /Filter /FlateDecode >> stream\n".to_vec();
+    truncated.extend_from_slice(&encoded[..encoded.len() - 1]);
+    assert!(scan_indirect(truncated, &Limits::default(), &NEVER).is_err());
+}
+
+#[test]
+fn indirect_flate_length_preserves_cancellation_at_every_checkpoint() {
+    let encoded = zlib(&vec![b'x'; 9000]);
+    let bytes = indirect_flate_fragment(&encoded, &encoded.len().to_string());
+    let counter = CancelAfter::never();
+    scan_indirect(bytes.clone(), &Limits::default(), &counter).unwrap();
+    for allowed in 0..counter.queries() {
+        assert!(matches!(
+            scan_indirect(
+                bytes.clone(),
+                &Limits::default(),
+                &CancelAfter::new(allowed)
+            ),
+            Err(Error::Cancelled)
+        ));
+    }
+}
+
 #[test]
 fn fragment_scanner_skips_binary_markers_repairs_unique_short_length_and_excludes_tail() {
     let payload = b"binary endobj 17 0 obj and endstream marker";

@@ -166,3 +166,30 @@ The Rust conversion path must keep the 256-byte title bound, checked table
 arithmetic, seekable input, bounded PDF-fragment copying, and sequential
 output. The [provenance register](provenance.md) records the corresponding
 source and test-data boundaries.
+
+## Indirect stream lengths (#159)
+
+The issue-77 external CAJ (539,434 bytes, SHA-256
+`5d988d74a6e6a0c392eb58297e70d91ff2e1ad2c2887374a04adc67a253ac2ab`)
+contains no observed `startxref` or classic xref table. At byte 20,479,
+object 14 0 has `/Length 15 0 R` and `/Filter /FlateDecode`. Its zlib stream
+starts at 20,544, consumes 11 bytes and produces 3 bytes. Object 15 0 follows
+the validated stream/object terminators and contains the integer 11.
+
+The scanner now measures single-FlateDecode streams through the existing
+MIT flate2 dependency, retaining only bounded input/output chunks and scalar
+metadata. It checks zlib framing/checksum, exact PDF terminators and the
+referenced unsigned integer; it never searches compressed bytes for object
+markers. Forward and backward references work, and the original stream and
+indirect Length syntax remain unchanged in output. Missing, noninteger,
+cyclic or mismatched targets fail. Inflated bytes across these streams are
+capped by `max_output_bytes`; cancellation remains checked during inflation.
+Direct lengths retain their existing behavior and narrow repair rules.
+
+This is partial progress on #159. The real input now reaches byte 21,006,
+object 10 0, whose indirect Length belongs to a `/CCITTFaxDecode` image.
+That filter has no implemented boundary resolver; conversion still fails
+without producing a PDF. No 75-page success or viewer parity is claimed.
+Other filter names, filter arrays and unresolved unfiltered lengths remain
+unsupported. Next work must establish reliable boundaries for that case,
+not infer them from arbitrary marker-like bytes in its payload.

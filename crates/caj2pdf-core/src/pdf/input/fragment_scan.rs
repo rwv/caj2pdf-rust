@@ -2,11 +2,12 @@
 
 //! Bounded object scanning for headerless CAJ PDF fragments.
 
-use super::{ObjectTail, Reader, exact_unsigned};
+use super::{ObjectTail, Reader, exact_name, exact_reference, exact_unsigned};
 use crate::fallible::{checked_read_count, reserve};
 use crate::pdf::writer::MAX_PDF_OBJECTS;
 use crate::pdf::{FragmentObject, PdfRange, PdfRef};
 use crate::{Cancellation, Error, Limits, PdfErrorKind, RangedSource, Result};
+use flate2::{Decompress, FlushDecompress, Status};
 
 /// An equal-width correction to an observed, understated direct `/Length`.
 /// The PDF bytes remain at their original offsets when the patch is applied.
@@ -22,6 +23,16 @@ pub(crate) struct LengthPatch {
 pub(crate) struct FragmentScan {
     pub objects: Vec<FragmentObject>,
     pub patches: Vec<LengthPatch>,
+    lengths: Vec<(PdfRef, u64)>,
+}
+
+impl FragmentScan {
+    pub fn resolve_length(&self, reference: PdfRef) -> Option<u64> {
+        self.lengths
+            .binary_search_by_key(&reference, |entry| entry.0)
+            .ok()
+            .map(|index| self.lengths[index].1)
+    }
 }
 
 const OVERREAD: &str = "source reported more bytes than requested";
@@ -87,6 +98,8 @@ const MAX_STREAM_LENGTH_REPAIR: u64 = 64;
 
 /// Scan indirect objects with the existing PDF syntax parser, advancing over
 /// stream payloads by `/Length` rather than searching them for object markers.
+/// Indirect lengths for a single FlateDecode filter are measured from zlib
+/// framing and verified against the referenced scalar after indexing.
 /// A narrowly bounded repair accepts a unique nearby `endstream`/`endobj`
 /// delimiter when a direct length is understated. An ambiguous marker is an
 /// error. Bytes after the complete final object are excluded from the plan.
@@ -119,6 +132,9 @@ pub(crate) async fn scan_fragment_objects<S: RangedSource, C: Cancellation>(
     let mut reader = Reader::new(source, range, limits, cancellation)?;
     let mut objects = Vec::new();
     let mut patches = Vec::new();
+    let mut lengths = Vec::new();
+    let mut pending_lengths = Vec::new();
+    let mut inflated_bytes = 0_u64;
     let mut cursor = 0_u64;
     let mut final_object_repaired = false;
     let minimum_relative = minimum_end - body_start;
@@ -147,28 +163,54 @@ pub(crate) async fn scan_fragment_objects<S: RangedSource, C: Cancellation>(
         let end_overflow =
             reader.malformed(start, Some(reference), "fragment object end overflows");
         let end = match head.tail {
-            ObjectTail::EndObject { end } => start.checked_add(end as u64),
+            ObjectTail::EndObject { end } => {
+                if let Some(value) = head
+                    .scalar
+                    .as_ref()
+                    .and_then(|range| exact_unsigned(&head.bytes[range.clone()]))
+                {
+                    retain_length(&mut lengths, (reference, value), limits)?;
+                }
+                start.checked_add(end as u64)
+            }
             ObjectTail::Stream { data_start } => {
                 let failure = reader.malformed(start, Some(reference), "stream has no dictionary");
                 let dictionary = head.dictionary.as_ref().ok_or(failure)?;
                 let failure = reader.malformed(start, Some(reference), "stream lacks Length");
                 let entry = dictionary.entry(b"Length").ok_or(failure)?;
                 let value = entry.value(&dictionary.bytes);
-                let length = exact_unsigned(value).ok_or_else(|| {
-                    reader.problem(
-                        start,
-                        Some(reference),
-                        PdfErrorKind::UnsupportedFeature,
-                        "CAJ fragment stream requires a direct Length",
-                    )
-                })?;
                 let data_at = start
                     .checked_add(data_start as u64)
                     .ok_or(reader.malformed(start, Some(reference), "stream offset overflows"))?;
+                let indirect = exact_reference(value);
+                let length = if let Some(length) = exact_unsigned(value) {
+                    length
+                } else if let Some(target) = indirect {
+                    if dictionary.value(b"Filter").and_then(exact_name).as_deref()
+                        != Some(b"FlateDecode")
+                    {
+                        return Err(reader.problem(
+                            start,
+                            Some(reference),
+                            PdfErrorKind::UnsupportedFeature,
+                            "indirect CAJ stream Length requires a single FlateDecode filter",
+                        ));
+                    }
+                    let length =
+                        flate_extent(&mut reader, data_at, reference, &mut inflated_bytes).await?;
+                    retain_length(&mut pending_lengths, (target, length), limits)?;
+                    length
+                } else {
+                    return Err(reader.malformed(
+                        start,
+                        Some(reference),
+                        "stream Length is neither an integer nor a reference",
+                    ));
+                };
                 let failure = reader.malformed(data_at, Some(reference), "stream extent overflows");
                 let after_data = data_at.checked_add(length).ok_or(failure)?;
                 let tail = reader.check_stream_tail(after_data, Some(reference)).await;
-                let end = if is_malformed(&tail) {
+                let end = if indirect.is_none() && is_malformed(&tail) {
                     let (corrected_length, corrected_end) =
                         repair_stream_length(&mut reader, after_data, data_at, reference).await?;
                     let original = value.to_vec();
@@ -216,6 +258,10 @@ pub(crate) async fn scan_fragment_objects<S: RangedSource, C: Cancellation>(
             next_object_count(objects.len()).map_err(reader.locator(start, Some(reference)))?;
         let allocation = (count as u64)
             .saturating_mul(std::mem::size_of::<FragmentObject>() as u64)
+            .saturating_add(
+                ((lengths.len() + pending_lengths.len()) * std::mem::size_of::<(PdfRef, u64)>())
+                    as u64,
+            )
             .saturating_add(
                 (patches.len() as u64)
                     .saturating_mul(std::mem::size_of::<LengthPatch>() as u64 + 40),
@@ -269,7 +315,91 @@ pub(crate) async fn scan_fragment_objects<S: RangedSource, C: Cancellation>(
     limits
         .check_input_size(actual_length)
         .map_err(reader.locator(logical_end, None))?;
-    Ok(FragmentScan { objects, patches })
+    lengths.sort_unstable_by_key(|entry| entry.0);
+    if lengths.windows(2).any(|pair| pair[0].0 == pair[1].0) {
+        return Err(reader.malformed(0, None, "duplicate fragment integer object"));
+    }
+    let scan = FragmentScan {
+        objects,
+        patches,
+        lengths,
+    };
+    for (target, actual) in pending_lengths {
+        if scan.resolve_length(target) != Some(actual) {
+            return Err(reader.malformed(
+                0,
+                Some(target),
+                "indirect stream Length does not match its integer object",
+            ));
+        }
+    }
+    Ok(scan)
+}
+
+/// Store only bounded scalar metadata; stream bytes never enter this index.
+fn retain_length(
+    entries: &mut Vec<(PdfRef, u64)>,
+    entry: (PdfRef, u64),
+    limits: &Limits,
+) -> Result<()> {
+    let count = next_object_count(entries.len())?;
+    let bytes = (count * std::mem::size_of::<(PdfRef, u64)>()) as u64;
+    limits.check_allocation(bytes)?;
+    let refused = limits.allocation_refused("fragment Length index", bytes);
+    reserve(entries, 1, refused)?;
+    entries.push(entry);
+    Ok(())
+}
+
+/// Zlib framing locates a stream independently of marker-like payload bytes.
+/// The referenced integer is checked after all objects have been indexed.
+async fn flate_extent<S: RangedSource, C: Cancellation>(
+    reader: &mut Reader<'_, S, C>,
+    data_at: u64,
+    reference: PdfRef,
+    inflated_bytes: &mut u64,
+) -> Result<u64> {
+    // Include the inflater's fixed history/state in the allocation allowance.
+    reader.limits.check_allocation(64 * 1024)?;
+    let mut inflater = Decompress::new(true);
+    let mut output = [0_u8; 4096];
+    loop {
+        if reader.cancellation.is_cancelled() {
+            return Err(Error::Cancelled);
+        }
+        let at = data_at + inflater.total_in();
+        let amount = reader.range.length.saturating_sub(at).min(4096) as usize;
+        let input = reader.bytes(at, amount).await?;
+        let before_in = inflater.total_in();
+        let before_out = inflater.total_out();
+        let status = inflater
+            .decompress(&input, &mut output, FlushDecompress::None)
+            .map_err(|_| {
+                reader.malformed(
+                    at,
+                    Some(reference),
+                    "invalid Flate stream while resolving Length",
+                )
+            })?;
+        *inflated_bytes = inflated_bytes.saturating_add(inflater.total_out() - before_out);
+        if *inflated_bytes > reader.limits.max_output_bytes {
+            return Err(Error::LimitExceeded {
+                resource: "CAJ Flate scan bytes",
+                limit: reader.limits.max_output_bytes,
+                attempted: *inflated_bytes,
+            });
+        }
+        if status == Status::StreamEnd {
+            return Ok(inflater.total_in());
+        }
+        if inflater.total_in() == before_in && inflater.total_out() == before_out {
+            return Err(reader.malformed(
+                at,
+                Some(reference),
+                "truncated Flate stream while resolving Length",
+            ));
+        }
+    }
 }
 
 /// The object count after indexing one more fragment object.

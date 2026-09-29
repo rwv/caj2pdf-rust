@@ -392,7 +392,7 @@ pub async fn convert_caj<S: RangedSource, W: SequentialSink, C: Cancellation>(
         bytes_read: 0,
     };
     let metadata = parse_metadata(&mut counted, limits, cancellation).await?;
-    let scan = scan_fragment_objects(
+    let mut scan = scan_fragment_objects(
         &mut counted,
         metadata.body_start,
         metadata.body_end_hint,
@@ -400,7 +400,7 @@ pub async fn convert_caj<S: RangedSource, W: SequentialSink, C: Cancellation>(
         cancellation,
     )
     .await?;
-    let mut objects = scan.objects;
+    let mut objects = std::mem::take(&mut scan.objects);
     let source_object_count = objects.len();
     // `parse_metadata` admitted the larger page-row index under the same
     // allocation limit, so this smaller index needs no second check.
@@ -448,7 +448,7 @@ pub async fn convert_caj<S: RangedSource, W: SequentialSink, C: Cancellation>(
                 object.reference,
                 limits,
                 cancellation,
-                |_| None,
+                |reference| scan.resolve_length(reference),
             )
             .await?;
             highest_referenced_object =
@@ -698,7 +698,7 @@ pub async fn convert_caj<S: RangedSource, W: SequentialSink, C: Cancellation>(
                     fragment.reference,
                     limits,
                     cancellation,
-                    |_| None,
+                    |reference| scan.resolve_length(reference),
                 )
                 .await?;
                 let mut referenced_scalar = None;
