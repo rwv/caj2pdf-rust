@@ -5,18 +5,18 @@
 //! This opt-in core API does not enable production CLI/JavaScript routing.
 
 use super::convert::{Type0DecodeSettings, Type0PdfError, Type0PdfErrorKind, Type0PdfOptions};
+use super::placement::{source_image_transform, source_page_geometry};
 mod type3;
 
 use super::convert_jbig2::{Type3PdfError, Type3PdfOptions, preflight_type3};
 use super::convert_jpeg::{CheckedType2, Type2PdfError, emit_type2_xobject, preflight_type2};
 use super::image_emit::{
     Type0ScratchBudget, Type0ScratchError, Type0ScratchErrorKind, Type0ScratchStage,
-    emit_padded_type0_xobject,
+    emit_type0_xobject,
 };
 use super::{
     Budget, Header, Hnc8Error, Hnc8Reader, ImageRecord, JpegBudget, PageRecord, RawTextCoordinate,
     TextBudget, Variant, empirical_image_transform, empirical_page_from_pixels,
-    empirical_page_from_type0,
 };
 use crate::fallible::{len_u64, reserve_exact, usize_from_u32};
 use crate::jbig1::{Type0Budget, Type0Error, Type0ErrorKind, Type0Info, read_type0_info};
@@ -571,12 +571,14 @@ impl<S: RangedSource> RangedSource for CountingSource<'_, S> {
 /// Pure-text-only documents, unsupported types/profiles, missing type-0
 /// tables and omitted draws are errors. A caller table is never redistributed.
 ///
-/// Type-0 samples retain all DIB padding and are reversed in one bounded
-/// caller-owned store before the measured negative-height CTM is applied.
+/// Source-declared page and image extents determine HN-A/C8 layout using
+/// the empirical coordinate unit. Zero extents are errors. DIB storage
+/// padding is omitted from PDF image widths and streams. Type-0 rows are
+/// reversed in one bounded store before the negative-height CTM is applied.
 /// JPEG bytes are copied unchanged and SHA revalidated. Only current-page
 /// plans/placements are held; the existing PDF writer retains its indexes.
-/// Type-3 retains top-first rows and adds white DIB padding while streaming
-/// to an equivalent positive-height CTM. Three symbol stores and text scratch
+/// Type-3 retains top-first packed rows while streaming to an equivalent
+/// positive-height CTM. Three symbol stores and text scratch
 /// are cleared per image; their aggregate size and I/O share the store budget.
 /// Normal completed type-0/type-3 paths truncate their stores, including errors.
 /// A dropped pending future cannot perform async cleanup: the adapter must
@@ -728,7 +730,11 @@ where
             plan_capacity + capacity_bytes::<RawTextCoordinate>(coordinates.capacity());
         check_metadata(planning_peak, options.budget).map_err(at.io(ComposeStage::Preflight))?;
         report.peak_page_metadata_bytes = report.peak_page_metadata_bytes.max(planning_peak);
-        let mut geometry = None;
+        let mut geometry = header
+            .page_size
+            .map(source_page_geometry)
+            .transpose()
+            .map_err(at.io(ComposeStage::Geometry))?;
         while let Some(record) = reader
             .next_image()
             .await
@@ -770,15 +776,7 @@ where
                     )
                     .await
                     .map_err(image_at.type0(ComposeStage::Headers))?;
-                    let image_page = empirical_page_from_type0(info, [0.0, 0.0])
-                        .map_err(image_at.io(ComposeStage::Geometry))?;
-                    if geometry.is_none() {
-                        geometry = Some(image_page);
-                    }
-                    // The page helper checked the one-bit DIB padding and
-                    // u32 display-width range without converting via float.
-                    let display_width = u32::try_from(super::placement::type0_display_width(info))
-                        .expect("checked empirical type-0 width");
+                    let display_width = info.width;
                     (
                         CheckedImage::Type0(info),
                         info.width,
@@ -803,14 +801,7 @@ where
                     .await
                     .map_err(|error| type3::error(image_at, ComposeStage::Headers, error))?;
                     let page = checked.page();
-                    let display_width = type3::display_width(page.width)
-                        .map_err(image_at.io(ComposeStage::Geometry))?;
-                    if geometry.is_none() {
-                        geometry = Some(
-                            empirical_page_from_pixels(display_width, page.height, [0.0, 0.0])
-                                .map_err(image_at.io(ComposeStage::Geometry))?,
-                        );
-                    }
+                    let display_width = page.width;
                     (
                         CheckedImage::Type3 {
                             digest: checked.digest(),
@@ -833,10 +824,11 @@ where
                     let info = checked.info();
                     let width = u32::from(info.width);
                     let height = u32::from(info.height);
-                    let image_page = empirical_page_from_pixels(width, height, [0.0, 0.0])
-                        .map_err(image_at.io(ComposeStage::Geometry))?;
                     if geometry.is_none() {
-                        geometry = Some(image_page);
+                        geometry = Some(
+                            empirical_page_from_pixels(width, height, [0.0, 0.0])
+                                .map_err(image_at.io(ComposeStage::Geometry))?,
+                        );
                     }
                     (CheckedImage::Jpeg(checked), width, width, height)
                 }
@@ -852,12 +844,12 @@ where
             } else {
                 coordinates[usize_from_u32(record.image_number - 1)]
             };
-            let mut transform = empirical_image_transform(
-                geometry.expect("first image checked"),
-                display_width,
-                height,
-                coordinate,
-            )
+            let page_geometry = geometry.expect("source page or HN-B first image checked");
+            let mut transform = if header.variant == Variant::HnB {
+                empirical_image_transform(page_geometry, display_width, height, coordinate)
+            } else {
+                source_image_transform(page_geometry, coordinate)
+            }
             .map_err(image_at.io(ComposeStage::Geometry))?;
             if matches!(checked, CheckedImage::Type3 { .. }) {
                 // Top-first rows give the same placement as bottom-first rows
@@ -905,7 +897,7 @@ where
                         limits,
                         cancellation,
                     };
-                    let (object, scratch_report) = emit_padded_type0_xobject(
+                    let (object, scratch_report) = emit_type0_xobject(
                         reader.source_mut(),
                         &mut document,
                         image.record,

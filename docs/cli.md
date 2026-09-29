@@ -49,6 +49,20 @@ The CLI bounds retained outline records plus title capacities by
 `max_allocation_bytes`. With a ranged input, image payloads are not read;
 stdin still follows the bounded spooling rule below.
 
+### Source geometry correction (breaking, v0.x)
+
+HN-A/C8 now use declared page and image display extents independently of decoded
+pixel dimensions. PDF image streams omit DIB storage padding. Earlier builds
+used the first image at 300 DPI for the page and displayed padded image widths;
+page sizes, transforms, image widths, PDF bytes and hashes can therefore change.
+Regenerate affected PDF snapshots instead of preserving the old geometry.
+Zero declared extents now produce a located geometry error. HN-B keeps its
+separately measured single-JPEG behavior.
+
+The source-unit-to-point factor remains empirical (`240 / 2473`); this correction
+does not claim exact CAJViewer rasterization or establish a universal physical
+unit. See the [controlled field checks](cajviewer-hnc8-kdh.md#controlled-geometry-checks).
+
 ### Experimental HN/C8 options
 
 - `--qm-states FILE`: caller-supplied states for type-0 images.

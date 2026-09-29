@@ -234,9 +234,14 @@ rejected rather than silently omitted. Strict JBIG2 headers are enforced; the
 core's anomalous-header opt-in is not exposed here. Pure-text/searchable HN
 remains unsupported. HN/C8 inspection validates metadata without implying
 that the document can be converted. Located conversion and metadata failures use error code
-`HNC8`. This API does not resolve codec distribution or finish issue #10.
+`HNC8`. Codec state-data distribution remains unresolved in #30/#44.
 
 ### v0.x migration
+
+HN-A/C8 output now follows declared page/image extents and omits DIB padding.
+PDF page sizes, image widths and hashes change; regenerate affected snapshots.
+Zero extents are rejected. The physical unit remains empirical; see the
+[geometry correction](../docs/cli.md#source-geometry-correction-breaking-v0x).
 
 HN/C8 conversion no longer always throws `UnsupportedFormatError`: callers must
 handle `HNC8`, invalid configuration and missing scratch errors. Existing

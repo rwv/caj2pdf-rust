@@ -48,7 +48,12 @@ impl Record {
         Self {
             kind: 2,
             bytes: jpeg(width, height, sample),
-            coordinate: RawTextCoordinate { x, y },
+            coordinate: RawTextCoordinate {
+                x,
+                y,
+                width: 80,
+                height: 40,
+            },
         }
     }
 
@@ -56,7 +61,12 @@ impl Record {
         Self {
             kind: 0,
             bytes: type0(rows),
-            coordinate: RawTextCoordinate { x, y },
+            coordinate: RawTextCoordinate {
+                x,
+                y,
+                width: 80,
+                height: 40,
+            },
         }
     }
 }
@@ -78,6 +88,8 @@ fn text(records: &[Record]) -> Vec<u8> {
         let at = 28 + number * 28;
         plain[at..at + 2].copy_from_slice(&record.coordinate.x.to_le_bytes());
         plain[at + 2..at + 4].copy_from_slice(&record.coordinate.y.to_le_bytes());
+        plain[at + 4..at + 6].copy_from_slice(&record.coordinate.width.to_le_bytes());
+        plain[at + 6..at + 8].copy_from_slice(&record.coordinate.height.to_le_bytes());
     }
     let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
     encoder.write_all(&plain).unwrap();
@@ -94,6 +106,8 @@ fn image_records(records: &[Record]) -> Vec<u8> {
         image[..2].copy_from_slice(&0x800a_u16.to_le_bytes());
         image[4..6].copy_from_slice(&record.coordinate.x.to_le_bytes());
         image[6..8].copy_from_slice(&record.coordinate.y.to_le_bytes());
+        image[8..10].copy_from_slice(&record.coordinate.width.to_le_bytes());
+        image[10..12].copy_from_slice(&record.coordinate.height.to_le_bytes());
         plain.extend(image);
     }
     plain.extend([4, 0x80, 0, 0]);
@@ -136,6 +150,8 @@ fn fixture_with_text(
         }
     }
     bytes[count_at..count_at + 4].copy_from_slice(&(pages.len() as i32).to_le_bytes());
+    bytes[count_at + 24..count_at + 26].copy_from_slice(&100_u16.to_le_bytes());
+    bytes[count_at + 26..count_at + 28].copy_from_slice(&200_u16.to_le_bytes());
     let mut result = Fixture {
         bytes,
         index,
@@ -344,8 +360,8 @@ fn rows(width: usize) -> Vec<Vec<bool>> {
         .collect()
 }
 
-fn reversed_padded(rows: &[Vec<bool>]) -> Vec<u8> {
-    let stride = rows[0].len().div_ceil(32) * 4;
+fn reversed_packed(rows: &[Vec<bool>]) -> Vec<u8> {
+    let stride = rows[0].len().div_ceil(8);
     let mut packed = vec![0; stride * rows.len()];
     for (number, row) in rows.iter().rev().enumerate() {
         for (x, bit) in row.iter().enumerate() {
@@ -760,7 +776,14 @@ fn invented_hna_c8_text_preserves_order_overlap_repeats_and_off_page_positions()
         let scale = 240.0 / 2473.0;
         assert_eq!(
             visitor.images[1].4,
-            [1.92, 0.0, 0.0, -1.92, 17.0 * scale, 3.84 - 3.0 * scale]
+            [
+                80.0 * scale,
+                0.0,
+                0.0,
+                -40.0 * scale,
+                17.0 * scale,
+                200.0 * scale - 3.0 * scale
+            ]
         );
         assert!(visitor.images[3].4[4] > 3.84);
         assert!(visitor.images[3].4[5] < 0.0);
@@ -797,19 +820,15 @@ fn mixed_images_preserve_exact_padding_and_asymmetric_reversed_rows() {
             &Limits::default(),
         )
         .unwrap();
-        let display_width = if width.div_ceil(8) % 4 == 0 {
-            width
-        } else {
-            width.div_ceil(32) * 32
-        };
+        let display_width = width;
         assert_eq!(visitor.images[0].1, width as u32);
         assert_eq!(visitor.images[0].2, display_width as u32);
         assert_eq!(
             visitor.sizes[0].unwrap().width_points,
-            display_width as f64 * 72.0 / 300.0
+            100.0 * (240.0 / 2473.0)
         );
-        assert_eq!(visitor.images[0].4[3], -0.72);
-        let expected = reversed_padded(&pixels);
+        assert_eq!(visitor.images[0].4[3], -40.0 * (240.0 / 2473.0));
+        let expected = reversed_packed(&pixels);
         assert!(contains(&sink.bytes, &expected), "width {width}");
         assert!(contains(
             &sink.bytes,
@@ -817,10 +836,11 @@ fn mixed_images_preserve_exact_padding_and_asymmetric_reversed_rows() {
         ));
         assert_eq!(report.type0_images, 2);
         assert_eq!(report.jpeg_images, 1);
-        assert_eq!(report.peak_row_store_bytes, expected.len() as u64);
-        assert_eq!(report.row_store_read_bytes, 2 * expected.len() as u64);
-        assert_eq!(report.row_store_written_bytes, 2 * expected.len() as u64);
-        assert_eq!(scratch.peak, expected.len());
+        let scratch_bytes = width.div_ceil(32) * 4 * pixels.len();
+        assert_eq!(report.peak_row_store_bytes, scratch_bytes as u64);
+        assert_eq!(report.row_store_read_bytes, 2 * scratch_bytes as u64);
+        assert_eq!(report.row_store_written_bytes, 2 * scratch_bytes as u64);
+        assert_eq!(scratch.peak, scratch_bytes);
         assert!(scratch.bytes.is_empty());
     }
 }
@@ -1173,7 +1193,7 @@ fn exclusive_dirty_row_store_is_overwritten_and_reset() {
     )
     .unwrap();
     assert!(case.scratch.bytes.is_empty());
-    assert!(contains(&case.sink.bytes, &reversed_padded(&rows(9))));
+    assert!(contains(&case.sink.bytes, &reversed_packed(&rows(9))));
 }
 
 #[test]
@@ -1441,7 +1461,7 @@ fn larger_padded_rows_are_streamed_in_chunks_without_growing_page_metadata() {
     assert!(case.scratch.max_request <= 17);
     assert!(case.sink.max_request <= 17);
     assert!(case.scratch.bytes.is_empty());
-    assert!(contains(&case.sink.bytes, &reversed_padded(&rows(4097))));
+    assert!(contains(&case.sink.bytes, &reversed_packed(&rows(4097))));
 }
 
 #[test]
@@ -1812,7 +1832,7 @@ fn render_original_pdf(bytes: &[u8]) -> Vec<u8> {
     );
     let rendered = Command::new("mutool")
         .args([
-            "draw", "-q", "-A", "0", "-r", "300", "-c", "gray", "-F", "pgm", "-o",
+            "draw", "-q", "-A", "0", "-r", "0.7419", "-c", "gray", "-F", "pgm", "-o",
         ])
         .arg(&raster)
         .arg(&pdf)
@@ -1830,15 +1850,25 @@ fn render_original_pdf(bytes: &[u8]) -> Vec<u8> {
 #[test]
 fn independent_render_proves_padded_orientation_and_later_overlap_pixels() {
     let pixels = rows(9);
-    let mut case = Harness::new(
-        Variant::C8,
-        &[vec![
-            Record::jpeg(32, 16, 50, 0, 0),
-            Record::type0(&pixels, 0, 0),
-            Record::jpeg(8, 8, 90, 40, 10),
-            Record::jpeg(8, 8, 210, 40, 10),
-        ]],
-    );
+    // 1000 source units per pixel at the renderer's 0.7419 DPI. This
+    // deliberately separates display units from encoded pixel dimensions.
+    let mut records = vec![
+        Record::jpeg(32, 16, 50, 0, 0),
+        Record::type0(&pixels, 0, 0),
+        Record::jpeg(8, 8, 90, 16000, 4000),
+        Record::jpeg(8, 8, 210, 16000, 4000),
+    ];
+    for (record, [width, height]) in
+        records
+            .iter_mut()
+            .zip([[32000, 16000], [9000, 3000], [8000, 8000], [8000, 8000]])
+    {
+        record.coordinate.width = width;
+        record.coordinate.height = height;
+    }
+    let mut case = Harness::new(Variant::C8, &[records]);
+    case.source.bytes[32..34].copy_from_slice(&32000_u16.to_le_bytes());
+    case.source.bytes[34..36].copy_from_slice(&16000_u16.to_le_bytes());
     case.run(
         Some(&table()),
         ComposeOptions::default(),
@@ -1853,10 +1883,10 @@ fn independent_render_proves_padded_orientation_and_later_overlap_pixels() {
     );
     let samples = &raster[header.len()..];
     assert_eq!(samples.len(), 32 * 16);
-    // Every pixel in the asymmetric top strip, including all 23 padding
-    // columns, is independently checked after the negative CTM and reversal.
+    // Check every visible pixel after the negative CTM and row reversal;
+    // dropped storage padding must leave the background image visible.
     for (y, row) in pixels.iter().enumerate() {
-        for x in 0..32 {
+        for x in 0..9 {
             assert_eq!(
                 samples[y * 32 + x],
                 if row.get(x) == Some(&true) { 0 } else { 255 },
@@ -1864,6 +1894,10 @@ fn independent_render_proves_padded_orientation_and_later_overlap_pixels() {
             );
         }
     }
+    assert!(
+        samples[30].abs_diff(50) <= 1,
+        "storage padding must not paint"
+    );
     assert!(
         samples[15 * 32 + 30].abs_diff(50) <= 1,
         "background draw is present"
@@ -1958,7 +1992,9 @@ fn uncompressed_text_composes_the_same_ordered_jpeg_page_as_compressed_text() {
             bytes.extend([0; 2]);
             bytes.extend(record.coordinate.x.to_le_bytes());
             bytes.extend(record.coordinate.y.to_le_bytes());
-            bytes.extend([0; 20]);
+            bytes.extend(record.coordinate.width.to_le_bytes());
+            bytes.extend(record.coordinate.height.to_le_bytes());
+            bytes.extend([0; 16]);
         }
         bytes.extend(0x8004_u16.to_le_bytes());
         bytes.extend([0; 2]);
@@ -2015,7 +2051,12 @@ fn type3_record(width: u32, height: u32, x: u16, y: u16) -> Record {
     Record {
         kind: 3,
         bytes: type3_fixture::payload(width, height, 0x10),
-        coordinate: RawTextCoordinate { x, y },
+        coordinate: RawTextCoordinate {
+            x,
+            y,
+            width: 80,
+            height: 40,
+        },
     }
 }
 
@@ -2023,10 +2064,13 @@ fn type3_record(width: u32, height: u32, x: u16, y: u16) -> Record {
 fn type3_complete_mixed_pages_reuse_stores_and_keep_top_first_pixels() {
     let limits = Limits::default();
     let mq = mq_table(&limits);
-    let f = fixture_with_text(
+    let mut first_image = type3_record(3, 5, 0, 0);
+    first_image.coordinate.width = 3000;
+    first_image.coordinate.height = 5000;
+    let mut f = fixture_with_text(
         Variant::C8,
         &[
-            vec![type3_record(3, 5, 0, 0)],
+            vec![first_image],
             vec![
                 Record::jpeg(40, 30, 128, 0, 0),
                 type3_record(9, 3, 12, 7),
@@ -2036,6 +2080,8 @@ fn type3_complete_mixed_pages_reuse_stores_and_keep_top_first_pixels() {
         ],
         direct_text,
     );
+    f.bytes[32..34].copy_from_slice(&32000_u16.to_le_bytes());
+    f.bytes[34..36].copy_from_slice(&5000_u16.to_le_bytes());
     let mut source = Source::new(f.bytes);
     let mut sink = Sink::default();
     let mut rows = Scratch::default();
@@ -2045,6 +2091,7 @@ fn type3_complete_mixed_pages_reuse_stores_and_keep_top_first_pixels() {
     };
     let mut second = Scratch::default();
     let mut refined = Scratch::default();
+    let mut visitor = Visitor::default();
     let report = ready(convert_source_pages_pdf(
         &mut source,
         &mut sink,
@@ -2058,7 +2105,7 @@ fn type3_complete_mixed_pages_reuse_stores_and_keep_top_first_pixels() {
                 refined: &mut refined,
             }),
         },
-        &mut (),
+        &mut visitor,
         ComposeOptions {
             type3: Type3PdfOptions {
                 page_compose: crate::jbig2::page_compose::PageComposeBudget {
@@ -2096,12 +2143,16 @@ fn type3_complete_mixed_pages_reuse_stores_and_keep_top_first_pixels() {
     assert_eq!(pixels[0], 0);
     assert!(pixels[1..].iter().all(|&pixel| pixel == 255));
     let pdf = String::from_utf8_lossy(&sink.bytes);
-    assert!(pdf.contains("/MediaBox [0 0 7.680000 1.200000]"), "{pdf}");
-    assert!(pdf.contains("7.68 0 0 1.2 0 0 cm"), "{pdf}");
-    // Width 3 and 9 expand to 32; width 31 keeps its visible dimension.
-    assert_eq!(pdf.matches("/Width 32\n").count(), 3);
+    assert_eq!(
+        visitor.sizes[0].unwrap().width_points,
+        32000.0 * (240.0 / 2473.0)
+    );
+    assert_eq!(visitor.images[0].4[5], 0.0);
+    // Image widths exclude storage padding.
+    assert_eq!(pdf.matches("/Width 3\n").count(), 1);
+    assert_eq!(pdf.matches("/Width 9\n").count(), 2);
     assert_eq!(pdf.matches("/Width 31\n").count(), 1);
-    let marker = b"/Width 32\n/Height 5";
+    let marker = b"/Width 3\n/Height 5";
     let start = sink
         .bytes
         .windows(marker.len())
@@ -2113,12 +2164,7 @@ fn type3_complete_mixed_pages_reuse_stores_and_keep_top_first_pixels() {
         .unwrap()
         + start
         + 8;
-    assert_eq!(
-        &sink.bytes[stream..stream + 20],
-        &[
-            0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-        ]
-    );
+    assert_eq!(&sink.bytes[stream..stream + 5], &[0x80, 0, 0, 0, 0]);
 }
 
 #[test]
@@ -2491,4 +2537,84 @@ fn repeated_payload_comparison_cancels_and_propagates_first_read_failures() {
     ))
     .unwrap_err();
     assert!(matches!(error.kind, ComposeErrorKind::Io(Error::Io(_))));
+}
+
+#[test]
+fn source_page_and_image_extents_are_independent_of_decoded_pixels() {
+    for variant in [Variant::HnA, Variant::C8] {
+        let encoders = [text as fn(&[Record]) -> Vec<u8>, direct_text, image_records];
+        let count = if variant == Variant::HnA { 3 } else { 2 };
+        for &encode in &encoders[..count] {
+            for pixels in [(8, 8), (32, 16)] {
+                let mut record = Record::jpeg(pixels.0, pixels.1, 90, 7, 11);
+                record.coordinate.width = 12365;
+                record.coordinate.height = 2473;
+                let mut built = fixture_with_text(variant, &[vec![record]], encode);
+                let offset = if variant == Variant::C8 { 32 } else { 168 };
+                built.bytes[offset..offset + 2].copy_from_slice(&2473_u16.to_le_bytes());
+                built.bytes[offset + 2..offset + 4].copy_from_slice(&4946_u16.to_le_bytes());
+                let mut visitor = Visitor::default();
+                convert(
+                    &mut Source::new(built.bytes),
+                    &mut Sink::default(),
+                    None,
+                    &mut Scratch::default(),
+                    &mut visitor,
+                    ComposeOptions::default(),
+                    &Limits::default(),
+                )
+                .unwrap();
+                let size = visitor.sizes[0].unwrap();
+                assert_eq!((size.width_points, size.height_points), (240.0, 480.0));
+                let transform = visitor.images[0].4;
+                assert_eq!(
+                    transform,
+                    [
+                        1200.0,
+                        0.0,
+                        0.0,
+                        -240.0,
+                        7.0 * (240.0 / 2473.0),
+                        480.0 - 11.0 * (240.0 / 2473.0)
+                    ]
+                );
+                assert_eq!(
+                    (visitor.images[0].1, visitor.images[0].3),
+                    (u32::from(pixels.0), u32::from(pixels.1))
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn missing_page_or_image_extent_fails_before_emitting_image_data() {
+    for field in 0..4 {
+        let mut record = Record::jpeg(8, 8, 90, 0, 0);
+        if field == 2 {
+            record.coordinate.width = 0;
+        }
+        if field == 3 {
+            record.coordinate.height = 0;
+        }
+        let mut built = fixture(Variant::C8, &[vec![record]]);
+        if field < 2 {
+            built.bytes[32 + field * 2..34 + field * 2].fill(0);
+        }
+        let mut sink = Sink::default();
+        let mut visitor = Visitor::default();
+        let error = convert(
+            &mut Source::new(built.bytes),
+            &mut sink,
+            None,
+            &mut Scratch::default(),
+            &mut visitor,
+            ComposeOptions::default(),
+            &Limits::default(),
+        )
+        .unwrap_err();
+        assert_eq!(error.stage, ComposeStage::Geometry);
+        assert!(visitor.images.is_empty());
+        assert!(!contains(&sink.bytes, b"/Subtype /Image"));
+    }
 }

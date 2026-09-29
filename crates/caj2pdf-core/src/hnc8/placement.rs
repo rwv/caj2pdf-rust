@@ -159,8 +159,47 @@ pub fn empirical_image_transform(
     pixel_height: u32,
     coordinate: RawTextCoordinate,
 ) -> Result<[f64; 6]> {
+    image_transform(page, pixel_size(pixel_width, pixel_height)?, coordinate)
+}
+
+/// Source page/image extents share the measured coordinate unit. Their
+/// physical unit remains empirical; pixel dimensions do not determine layout.
+pub(super) fn source_page_geometry(size: [u16; 2]) -> Result<EmpiricalPageGeometry> {
+    Ok(EmpiricalPageGeometry {
+        origin_points: [0.0, 0.0],
+        size: source_size(size)?,
+    })
+}
+
+pub(super) fn source_image_transform(
+    page: EmpiricalPageGeometry,
+    coordinate: RawTextCoordinate,
+) -> Result<[f64; 6]> {
+    image_transform(
+        page,
+        source_size([coordinate.width, coordinate.height])?,
+        coordinate,
+    )
+}
+
+fn source_size([width, height]: [u16; 2]) -> Result<PageSpec> {
+    if width == 0 || height == 0 {
+        return Err(Error::InvalidInput {
+            reason: "declared source dimensions must be positive",
+        });
+    }
+    Ok(PageSpec {
+        width_points: f64::from(width) * EMPIRICAL_COORDINATE_POINTS_PER_UNIT,
+        height_points: f64::from(height) * EMPIRICAL_COORDINATE_POINTS_PER_UNIT,
+    })
+}
+
+fn image_transform(
+    page: EmpiricalPageGeometry,
+    size: PageSpec,
+    coordinate: RawTextCoordinate,
+) -> Result<[f64; 6]> {
     let [left, bottom, _, top] = page.media_box()?;
-    let size = pixel_size(pixel_width, pixel_height)?;
     let x_offset = f64::from(coordinate.x) * EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
     let y_offset = f64::from(coordinate.y) * EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
     let x = left + x_offset;

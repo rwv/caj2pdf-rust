@@ -1672,3 +1672,20 @@ record contents still require visitor validation. Tiny original nested-bookmark
 controls exercise metadata and PDF output without external state tables in Git.
 No new format inference, decoder data or dependency is introduced. C8/HN-B
 outline absence is deliberately not inferred.
+
+## HN-A/C8 declared geometry (2026-09-29, #123)
+
+[Controlled vendor observations](cajviewer-hnc8-kdh.md#controlled-geometry-checks)
+independently varied HN-A header words at 0xa8/0xaa, C8 words at 0x20/0x22,
+and raw image-record words at +8/+10. They establish separate page/display
+extents for those observed profiles, not a normative physical unit or HN-B
+layout. The parser retains these u16 words; composition uses the already
+explicit empirical coordinate scale. Original synthetic tests vary extents
+independently of encoded pixels, exercise supported text framings and reject
+zero extents. Existing PDF row-stride handling removes DIB storage padding.
+
+All implementation and tests are original MIT work based on source bytes and
+black-box viewer interventions. No Python/Go/vendor decoder implementation,
+external document, capture or codec probability table is included. Rust callers
+constructing `hnc8::Header` or `RawTextCoordinate` must initialize the new
+`page_size` or `width`/`height` fields; HN-B header geometry remains `None`.

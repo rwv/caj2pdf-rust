@@ -31,8 +31,7 @@ fn image_dimensions_round_the_exact_point_ratio_once() {
     assert_eq!(page.size.width_points, 497.04);
     assert_eq!(page.size.height_points, 36.72);
     assert_ne!(page.size.width_points, 2071.0 * EMPIRICAL_PIXEL_POINTS);
-    let transform =
-        empirical_image_transform(page, 2071, 153, RawTextCoordinate { x: 0, y: 0 }).unwrap();
+    let transform = empirical_image_transform(page, 2071, 153, point(0, 0)).unwrap();
     assert_eq!(transform, [497.04, 0.0, 0.0, -36.72, 0.0, 36.72]);
     // The whole public unsigned dimension range keeps the numerator exact.
     let largest = empirical_page_from_pixels(u32::MAX, u32::MAX, [0.0; 2]).unwrap();
@@ -51,8 +50,7 @@ fn fractional_negative_pdf_origin_and_off_page_translation_are_preserved() {
         }
     );
     assert_eq!(page.media_box().unwrap(), [-3.25, 1.125, 20.75, 61.125]);
-    let ctm =
-        empirical_image_transform(page, 3, 7, RawTextCoordinate { x: 2473, y: 2473 }).unwrap();
+    let ctm = empirical_image_transform(page, 3, 7, point(2473, 2473)).unwrap();
     close(ctm[0], 0.72);
     assert_eq!(&ctm[1..3], &[0.0, 0.0]);
     close(ctm[3], -1.68);
@@ -65,9 +63,9 @@ fn fractional_negative_pdf_origin_and_off_page_translation_are_preserved() {
 #[test]
 fn zero_origin_is_top_left_and_positive_y_moves_downward() {
     let page = empirical_page_from_pixels(50, 100, [0.0, 0.0]).unwrap();
-    let top = empirical_image_transform(page, 50, 100, RawTextCoordinate { x: 0, y: 0 }).unwrap();
+    let top = empirical_image_transform(page, 50, 100, point(0, 0)).unwrap();
     assert_eq!(top, [12.0, 0.0, 0.0, -24.0, 0.0, 24.0]);
-    let moved = empirical_image_transform(page, 50, 100, RawTextCoordinate { x: 1, y: 1 }).unwrap();
+    let moved = empirical_image_transform(page, 50, 100, point(1, 1)).unwrap();
     close(moved[4], 240.0 / 2473.0);
     close(moved[5], 24.0 - 240.0 / 2473.0);
     assert_eq!(&top[..4], &moved[..4]);
@@ -93,7 +91,7 @@ fn type0_page_uses_padded_bits_and_checks_the_public_info() {
         padded.media_box().unwrap()[2],
         visible.media_box().unwrap()[2]
     );
-    let ctm = empirical_image_transform(padded, 64, 100, RawTextCoordinate { x: 0, y: 0 }).unwrap();
+    let ctm = empirical_image_transform(padded, 64, 100, point(0, 0)).unwrap();
     assert_eq!(ctm[0], padded.size.width_points);
     assert_eq!(ctm[5], 22.75);
     let aligned = empirical_page_from_type0(
@@ -152,11 +150,7 @@ fn type0_padded_width_conversion_is_checked_at_the_u32_boundary() {
 #[test]
 fn source_order_repeats_and_pixel_dimensions_do_not_change_coordinate_roles() {
     let page = page();
-    let coordinates = [
-        RawTextCoordinate { x: 2, y: 4 },
-        RawTextCoordinate { x: 7, y: 3 },
-        RawTextCoordinate { x: 2, y: 4 },
-    ];
+    let coordinates = [point(2, 4), point(7, 3), point(2, 4)];
     let transforms =
         coordinates.map(|coordinate| empirical_image_transform(page, 3, 7, coordinate).unwrap());
     assert_eq!(transforms[0], transforms[2]);
@@ -172,8 +166,7 @@ fn source_order_repeats_and_pixel_dimensions_do_not_change_coordinate_roles() {
 fn positive_pixel_range_has_no_integer_product_or_float_overflow() {
     let page = empirical_page_from_pixels(u32::MAX, u32::MAX, [0.0; 2]).unwrap();
     assert_eq!(page.size.width_points, f64::from(u32::MAX) * 0.24);
-    let ctm = empirical_image_transform(page, u32::MAX, u32::MAX, RawTextCoordinate { x: 1, y: 2 })
-        .unwrap();
+    let ctm = empirical_image_transform(page, u32::MAX, u32::MAX, point(1, 2)).unwrap();
     assert!(ctm.into_iter().all(f64::is_finite));
     for (width, height) in [(0, 1), (1, 0), (0, 0)] {
         assert!(matches!(
@@ -181,7 +174,7 @@ fn positive_pixel_range_has_no_integer_product_or_float_overflow() {
             Err(Error::InvalidInput { .. })
         ));
         assert!(matches!(
-            empirical_image_transform(page, width, height, RawTextCoordinate { x: 0, y: 0 }),
+            empirical_image_transform(page, width, height, point(0, 0)),
             Err(Error::InvalidInput { .. })
         ));
     }
@@ -212,7 +205,7 @@ fn forged_page_origins_sizes_overflow_and_precision_collapse_are_rejected() {
             let bad = EmpiricalPageGeometry { size, ..valid };
             assert!(matches!(bad.media_box(), Err(Error::InvalidInput { .. })));
             assert!(matches!(
-                empirical_image_transform(bad, 1, 1, RawTextCoordinate { x: 0, y: 0 }),
+                empirical_image_transform(bad, 1, 1, point(0, 0)),
                 Err(Error::InvalidInput { .. })
             ));
         }
@@ -289,7 +282,7 @@ fn noncollapsed_extreme_origins_must_preserve_dimension_and_coordinate_precision
                     height_points: 24.0,
                 },
             },
-            RawTextCoordinate { x: 1, y: 0 },
+            point(1, 0),
         ),
         (
             EmpiricalPageGeometry {
@@ -299,7 +292,7 @@ fn noncollapsed_extreme_origins_must_preserve_dimension_and_coordinate_precision
                     height_points: 1024.0,
                 },
             },
-            RawTextCoordinate { x: 0, y: 1 },
+            point(0, 1),
         ),
     ] {
         assert!(page.media_box().is_ok());
@@ -310,7 +303,7 @@ fn noncollapsed_extreme_origins_must_preserve_dimension_and_coordinate_precision
             })
         ));
         // An exact zero offset still has its intended meaning at that origin.
-        assert!(empirical_image_transform(page, 1, 1, RawTextCoordinate { x: 0, y: 0 }).is_ok());
+        assert!(empirical_image_transform(page, 1, 1, point(0, 0)).is_ok());
     }
 }
 
@@ -329,7 +322,7 @@ fn page_and_offset_rounding_must_not_accumulate_beyond_translation_tolerance() {
             > EMPIRICAL_PLACEMENT_TOLERANCE_POINTS
     );
     assert!(matches!(
-        empirical_image_transform(page, 1, 1, RawTextCoordinate { x: 0, y: 14 }),
+        empirical_image_transform(page, 1, 1, point(0, 14)),
         Err(Error::InvalidInput {
             reason: "empirical PDF origin cannot preserve the selected coordinate precision"
         })
@@ -340,14 +333,11 @@ fn page_and_offset_rounding_must_not_accumulate_beyond_translation_tolerance() {
 fn full_raw_word_domain_is_unsigned_and_preserves_off_page_positions() {
     let page = page();
     for coordinate in [
-        RawTextCoordinate { x: 0, y: 0 },
-        RawTextCoordinate { x: 32767, y: 32767 },
-        RawTextCoordinate { x: 32768, y: 0 },
-        RawTextCoordinate { x: 0, y: 32768 },
-        RawTextCoordinate {
-            x: u16::MAX,
-            y: u16::MAX,
-        },
+        point(0, 0),
+        point(32767, 32767),
+        point(32768, 0),
+        point(0, 32768),
+        point(u16::MAX, u16::MAX),
     ] {
         let ctm = empirical_image_transform(page, 1, 1, coordinate).unwrap();
         close(ctm[4], -3.25 + f64::from(coordinate.x) * 240.0 / 2473.0);
@@ -383,5 +373,13 @@ fn type0_display_width_preserves_partial_bits_when_there_are_no_padding_bytes() 
                 .width_points,
             f64::from(expected) * 72.0 / 300.0
         );
+    }
+}
+
+fn point(x: u16, y: u16) -> RawTextCoordinate {
+    RawTextCoordinate {
+        x,
+        y,
+        ..Default::default()
     }
 }

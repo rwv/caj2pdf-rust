@@ -209,14 +209,21 @@ export async function validateMultiImageHn(t, bytes) {
     await writeFile(path, bytes);
     const info = JSON.parse((await run("qpdf", ["--json", "--json-key=pages", "--json-key=outlines", path])).stdout);
     const page = info.pages[0];
+    const pageObject = (await run("qpdf", [`--show-object=${page.object.split(" ")[0]}`, path])).stdout;
+    const box = pageObject.match(/\/MediaBox\s*\[([^\]]+)\]/);
+    assert.ok(box, "page has a MediaBox");
+    const bounds = box[1].trim().split(/\s+/).map(Number);
+    assert.equal(bounds.length, 4);
+    [0, 0, 100 * 240 / 2473, 200 * 240 / 2473].forEach((value, axis) =>
+      assert.ok(Math.abs(bounds[axis] - value) < 0.000001, `page boundary ${axis}`));
     assert.equal(page.images.length, 2);
     for (const [index, image] of page.images.entries()) {
       assert.equal(image.name, `/Im${index}`);
-      assert.equal(image.width, 32); assert.equal(image.height, 2);
+      assert.equal(image.width, 3); assert.equal(image.height, 2);
       const { stdout } = await run("qpdf", [`--show-object=${image.object.split(" ")[0]}`, "--filtered-stream-data", path], { encoding: "buffer" });
       assert.deepEqual([...stdout], index === 0
-        ? [0x40, 0, 0, 0, 0xa0, 0, 0, 0]
-        : [0x20, 0, 0, 0, 0xc0, 0, 0, 0]);
+        ? [0x40, 0xa0]
+        : [0x20, 0xc0]);
     }
     const content = (await run("qpdf", [`--show-object=${page.contents[0].split(" ")[0]}`, "--filtered-stream-data", path])).stdout;
     const draws = [...content.matchAll(/([\d.e+\- ]+) cm\s+\/Im(\d+) Do/g)];
@@ -225,7 +232,7 @@ export async function validateMultiImageHn(t, bytes) {
     for (let i = 0; i < 2; i++) {
       assert.equal(Number(draws[i][2]), i);
       const matrix = draws[i][1].trim().split(/\s+/).map(Number);
-      const expected = [7.68, 0, 0, -0.48, i * 13 * scale, 0.48 - i * scale];
+      const expected = [(80 - i * 20) * scale, 0, 0, -(40 + i * 10) * scale, i * 13 * scale, 200 * scale - i * scale];
       assert.equal(matrix.length, 6);
       matrix.forEach((value, axis) => assert.ok(Math.abs(value - expected[axis]) < 0.000001, `image ${i}, matrix axis ${axis}`));
     }

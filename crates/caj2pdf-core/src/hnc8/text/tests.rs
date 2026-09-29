@@ -91,6 +91,8 @@ impl Fixture {
             let at = tail + index * 28;
             plain[at..at + 2].copy_from_slice(&coordinate.x.to_le_bytes());
             plain[at + 2..at + 4].copy_from_slice(&coordinate.y.to_le_bytes());
+            plain[at + 4..at + 6].copy_from_slice(&coordinate.width.to_le_bytes());
+            plain[at + 6..at + 8].copy_from_slice(&coordinate.height.to_le_bytes());
         }
         let mut result = Self {
             source: Source {
@@ -103,6 +105,7 @@ impl Fixture {
                 max_request: 0,
             },
             header: Header {
+                page_size: None,
                 variant: Variant::C8,
                 page_count: 1,
                 page_index: Span {
@@ -178,7 +181,12 @@ impl Fixture {
 }
 
 fn point(x: u16, y: u16) -> RawTextCoordinate {
-    RawTextCoordinate { x, y }
+    RawTextCoordinate {
+        x,
+        y,
+        width: 0,
+        height: 0,
+    }
 }
 fn ordinary() -> Fixture {
     Fixture::new(3, &[point(10, 20), point(0x8123, 0xffff), point(10, 20)])
@@ -287,7 +295,10 @@ fn stored_and_compressed_blocks_respect_request_and_output_caps() {
         if compression == Compression::none() {
             assert!(fixture.frame().len() > CHUNK_BYTES);
             assert_eq!(result.max_source_request_bytes, CHUNK_BYTES);
-            assert_eq!(result.owned_buffer_bytes, (2 * CHUNK_BYTES + 4) as u64);
+            assert_eq!(
+                result.owned_buffer_bytes,
+                (2 * CHUNK_BYTES + size_of::<RawTextCoordinate>()) as u64
+            );
         }
     }
 }
@@ -797,7 +808,8 @@ fn raw_fixture() -> Fixture {
         bytes.extend(99_u16.to_le_bytes());
         bytes.extend(x.to_le_bytes());
         bytes.extend(y.to_le_bytes());
-        bytes.extend([0x5a; 20]);
+        bytes.extend([0; 4]);
+        bytes.extend([0x5a; 16]);
     }
     bytes.extend(0x8004_u16.to_le_bytes());
     bytes.extend(7_u16.to_le_bytes());
@@ -1011,7 +1023,9 @@ fn direct_image(coordinate: RawTextCoordinate) -> Vec<u8> {
     bytes.extend(coordinate.x.to_le_bytes());
     bytes.extend(coordinate.y.to_le_bytes());
     // Image payload deliberately contains tags that are not record starts.
-    for tag in [0x800a, 0x8004, 0x8071, 0x8070, 0xffff] {
+    bytes.extend(coordinate.width.to_le_bytes());
+    bytes.extend(coordinate.height.to_le_bytes());
+    for tag in [0x800a, 0x8004, 0x8071, 0xffff] {
         bytes.extend(direct_record(tag, 42));
     }
     bytes
@@ -1141,7 +1155,7 @@ fn direct_opaque_tail_stays_bounded_and_requires_the_complete_checksum() {
         )
         .unwrap();
     assert_eq!(output.coordinates, [point(7, 11)]);
-    assert!(output.owned_buffer_bytes <= 17 * 2 + 4);
+    assert!(output.owned_buffer_bytes <= 17 * 2 + size_of::<RawTextCoordinate>() as u64);
     assert_eq!(output.record_count, 2);
     let last = fixture.source.bytes.len() - 1;
     fixture.source.bytes[last] ^= 1;
@@ -1253,4 +1267,30 @@ fn raw_image_first_records_reuse_compact_controls_with_strict_public_counts() {
                 .contains("image count differs")
         );
     }
+}
+
+#[test]
+fn declared_extents_survive_each_text_framing_and_single_byte_reads() {
+    let expected = RawTextCoordinate {
+        x: 17,
+        y: 29,
+        width: 0x8123,
+        height: 0x4567,
+    };
+    let mut raw = direct_image(expected);
+    raw.extend(direct_record(0x8004, 0));
+    let mut direct = direct_fixture(raw.clone(), 1);
+    direct.source.short = 1;
+    let mut tagged = Fixture::new(1, &[expected]);
+    tagged.source.short = 1;
+    assert_eq!(tagged.normal().unwrap().coordinates, [expected]);
+    assert_eq!(direct.normal().unwrap().coordinates, [expected]);
+    direct.header.variant = Variant::HnA;
+    direct.header.page_index.offset = 0x15c;
+    direct.page.row_offset = 0x15c;
+    direct.source.bytes.truncate(512);
+    direct.source.bytes.extend(raw);
+    direct.source.size = direct.source.bytes.len() as u64;
+    direct.page.text.length = direct.source.size - 512;
+    assert_eq!(direct.normal().unwrap().coordinates, [expected]);
 }
