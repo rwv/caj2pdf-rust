@@ -1494,3 +1494,19 @@ rule use independent input observations and black-box controls described in
 [the format note](hnc8-uncompressed-text.md). No Python/Go/private converter
 implementation or document text was copied. Fixtures are invented records
 with format tags; reference data and runtime tables remain external.
+
+## PDF CCITT indirect stream framing
+
+The `fax` 0.3.0 dependency is MIT licensed (copyright 2021 pdf-rs
+contributors; upstream https://github.com/pdf-rs/fax). Its public Huffman
+maps and bit-reader types are used to measure Group-4 PDF stream extents.
+The upstream MIT license and decoder/table APIs were inspected. The local
+async framing walker uses bounded transition rows and the existing ranged
+reader; it does not decode or retain full-page pixels. Original synthetic
+unit inputs are generated with the dependency's encoder.
+
+This is ordinary PDF CCITT support, not CAJ-specific JBIG or HN code. No
+Python/Go/private converter implementation was used for this change. The
+external issue-77 source supplied byte-level observations only and remains
+outside Git. Successful framing alone does not establish document conversion
+or viewer parity.
