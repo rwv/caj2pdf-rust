@@ -87,7 +87,7 @@ fn text(records: &[Record]) -> Vec<u8> {
     result
 }
 
-fn direct_text(records: &[Record]) -> Vec<u8> {
+fn image_records(records: &[Record]) -> Vec<u8> {
     let mut plain = Vec::new();
     for record in records {
         let mut image = [0_u8; 28];
@@ -97,6 +97,11 @@ fn direct_text(records: &[Record]) -> Vec<u8> {
         plain.extend(image);
     }
     plain.extend([4, 0x80, 0, 0]);
+    plain
+}
+
+fn direct_text(records: &[Record]) -> Vec<u8> {
+    let plain = image_records(records);
     let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
     encoder.write_all(&plain).unwrap();
     let mut result = b"COMPRESSTEXT".to_vec();
@@ -2259,4 +2264,231 @@ fn type3_anomaly_is_explicitly_opted_in_and_reported_per_image() {
         }
         assert!(stores.iter().all(|s| s.bytes.is_empty()));
     }
+}
+
+fn repeated_raw(records: &[Record]) -> Vec<u8> {
+    image_records(&records[..2])
+}
+fn repeated_direct(records: &[Record]) -> Vec<u8> {
+    direct_text(&records[..2])
+}
+
+#[test]
+fn repeated_payload_groups_collapse_to_identical_pdf_with_explicit_aliases() {
+    struct Aliases(Vec<Option<u32>>);
+    impl ComposeVisitor for Aliases {
+        async fn page(&mut self, page: ComposePage<'_>) -> crate::Result<()> {
+            assert_eq!(page.output_page, Some(1));
+            for image in page.images {
+                self.0.push(image.duplicate_of);
+                if let Some(original) = image.duplicate_of {
+                    assert_eq!(
+                        image.transform,
+                        page.images[original as usize - 1].transform
+                    );
+                }
+            }
+            Ok(())
+        }
+    }
+    for (variant, framing) in [
+        (Variant::HnA, repeated_raw as fn(&[Record]) -> Vec<u8>),
+        (Variant::C8, repeated_direct),
+    ] {
+        let limits = Limits::default();
+        let mq = mq_table(&limits);
+        let pair = [type3_record(3, 5, 0, 0), Record::jpeg(7, 4, 130, 2, 3)];
+        let mut reference = None;
+        for repetitions in [1, 3] {
+            let records = pair
+                .iter()
+                .cloned()
+                .cycle()
+                .take(pair.len() * repetitions)
+                .collect::<Vec<_>>();
+            let f = fixture_with_text(variant, &[records], framing);
+            let mut source = Source::new(f.bytes);
+            source.short = 11;
+            let mut sink = Sink::default();
+            let mut stores: [Scratch; 4] = Default::default();
+            let [rows, first, second, refined] = &mut stores;
+            let mut aliases = Aliases(Vec::new());
+            let report = ready(convert_source_pages_pdf(
+                &mut source,
+                &mut sink,
+                None,
+                ComposeWorkspaces {
+                    rows,
+                    type3: Some(ComposeType3Workspaces {
+                        table: &mq,
+                        first,
+                        second,
+                        refined,
+                    }),
+                },
+                &mut aliases,
+                ComposeOptions::default(),
+                &limits,
+                &NeverCancel,
+            ))
+            .unwrap();
+            assert_eq!(
+                (
+                    report.source_pages,
+                    report.output_pages,
+                    report.type3_images,
+                    report.jpeg_images
+                ),
+                (1, 1, 1, 1)
+            );
+            assert_eq!(
+                report.duplicate_image_records,
+                ((repetitions - 1) * 2) as u64
+            );
+            assert!(stores.iter().all(|s| s.bytes.is_empty()));
+            if repetitions == 1 {
+                reference = Some(sink.bytes);
+                assert_eq!(aliases.0, [None, None]);
+            } else {
+                assert_eq!(
+                    sink.bytes,
+                    reference.take().unwrap(),
+                    "duplicates must not paint a second time"
+                );
+                assert_eq!(aliases.0, [None, None, Some(1), Some(2), Some(1), Some(2)]);
+            }
+        }
+    }
+}
+
+#[test]
+fn repeated_groups_reject_conflicts_partial_groups_and_read_failures_before_draws() {
+    for mode in 0..8 {
+        let pair = vec![
+            Record::jpeg(512, 512, 90, 0, 0),
+            Record::jpeg(7, 4, 190, 2, 3),
+        ];
+        let mut records = pair
+            .iter()
+            .cloned()
+            .cycle()
+            .take(pair.len() * 2)
+            .collect::<Vec<_>>();
+        match mode {
+            0 => records[2].kind = 0,
+            1 => records[2].bytes.push(0),
+            2 => {
+                let last = records[2].bytes.len() - 1;
+                records[2].bytes[last] ^= 1;
+            }
+            3 => {
+                records.pop();
+            }
+            _ => (),
+        }
+        let f = fixture_with_text(Variant::C8, &[records], repeated_direct);
+        let mut source = Source::new(f.bytes);
+        if (4..=6).contains(&mode) {
+            source.fault_at = Some((
+                f.payloads[0][2],
+                [Fault::Zero, Fault::Overreport, Fault::Io][mode - 4],
+            ));
+        }
+        // A zero-coordinate page cannot be mapped by modulo or guessed origins.
+        if mode == 7 {
+            let f = fixture_with_text(Variant::C8, &[pair], |_| direct_text(&[]));
+            source = Source::new(f.bytes);
+        }
+        let mut sink = Sink::default();
+        let error = convert(
+            &mut source,
+            &mut sink,
+            None,
+            &mut Scratch::default(),
+            &mut Visitor::default(),
+            ComposeOptions::default(),
+            &Limits::default(),
+        )
+        .unwrap_err();
+        assert_eq!(error.page, Some(1));
+        if mode != 3 && mode != 7 {
+            assert_eq!(error.image, Some(3));
+        }
+        if mode == 2 {
+            assert!(error.to_string().contains("payload differs"));
+        }
+        if mode < 2 {
+            assert!(error.to_string().contains("type or length differs"));
+        }
+        assert!(!contains(&sink.bytes, b"/Subtype /Image"));
+        assert!(!contains(&sink.bytes, b"%%EOF"));
+    }
+}
+
+#[test]
+fn repeated_payload_comparison_cancels_and_propagates_first_read_failures() {
+    struct Stop(Cell<usize>);
+    impl Cancellation for Stop {
+        fn is_cancelled(&self) -> bool {
+            let remaining = self.0.get();
+            self.0.set(remaining.saturating_sub(1));
+            remaining == 0
+        }
+    }
+    let payload = vec![0x55; 3100];
+    let make_record = |number, offset| ImageRecord {
+        page_number: 1,
+        image_number: number,
+        descriptor_offset: offset - 12,
+        record_type: 2,
+        payload: super::super::Span {
+            offset,
+            length: payload.len() as u64,
+        },
+    };
+    let first = make_record(1, 12);
+    let second = make_record(2, 3124);
+    let at = At {
+        variant: Some(Variant::C8),
+        page: Some(1),
+        image: Some(2),
+        offset: Some(3112),
+    };
+    let mut bytes = vec![0; 12];
+    bytes.extend(&payload);
+    bytes.extend([0; 12]);
+    bytes.extend(&payload);
+    let limits = Limits::default();
+    let mut completed = false;
+    for checkpoints in 0..50 {
+        let mut source = Source::new(bytes.clone());
+        let result = ready(verify_repeated_image(
+            &mut source,
+            first,
+            second,
+            at,
+            &limits,
+            &Stop(Cell::new(checkpoints)),
+        ));
+        match result {
+            Ok(()) => {
+                completed = true;
+                break;
+            }
+            Err(error) => assert!(matches!(error.kind, ComposeErrorKind::Io(Error::Cancelled))),
+        }
+    }
+    assert!(completed);
+    let mut source = Source::new(bytes);
+    source.fault_at = Some((0, Fault::Io));
+    let error = ready(verify_repeated_image(
+        &mut source,
+        first,
+        second,
+        at,
+        &limits,
+        &NeverCancel,
+    ))
+    .unwrap_err();
+    assert!(matches!(error.kind, ComposeErrorKind::Io(Error::Io(_))));
 }

@@ -16,7 +16,7 @@ use super::image_emit::{
 use super::{
     Budget, Header, Hnc8Error, Hnc8Reader, ImageRecord, JpegBudget, PageRecord, RawTextCoordinate,
     TextBudget, Variant, empirical_image_transform, empirical_page_from_pixels,
-    empirical_page_from_type0, read_text_coordinates,
+    empirical_page_from_type0,
 };
 use crate::fallible::{len_u64, reserve_exact, usize_from_u32};
 use crate::jbig1::{Type0Budget, Type0Error, Type0ErrorKind, Type0Info, read_type0_info};
@@ -122,7 +122,7 @@ impl<W: SequentialSink, C: Cancellation> BookmarkVisitor for OutlineSink<'_, '_,
     }
 }
 
-/// Source-derived facts for one completed draw, in descriptor order.
+/// Source-derived facts for a drawn image or verified alias, in descriptor order.
 /// The private checked codec state prevents mismatching a header and span.
 #[derive(Clone, Copy, Debug)]
 pub struct ComposedImage {
@@ -131,6 +131,9 @@ pub struct ComposedImage {
     pub display_width: u32,
     pub height: u32,
     pub transform: [f64; 6],
+    /// One-based first-group record when this byte-identical descriptor was
+    /// validated but not drawn again. Its transform describes the original draw.
+    pub duplicate_of: Option<u32>,
     pub type3_text_header_anomaly: Option<TextHeaderAnomaly>,
     checked: CheckedImage,
 }
@@ -172,6 +175,7 @@ pub struct ComposeReport {
     pub type0_images: u64,
     pub jpeg_images: u64,
     pub type3_images: u64,
+    pub duplicate_image_records: u64,
     pub peak_page_metadata_bytes: u64,
     pub peak_text_working_bytes: u64,
     pub peak_row_store_bytes: u64,
@@ -425,6 +429,63 @@ fn scratch_error(at: At, error: Type0ScratchError) -> ComposeError {
     }
 }
 
+/// Additional descriptor groups are accepted only after a complete byte
+/// comparison. Two fixed 1 KiB buffers avoid per-image hashes or allocations.
+async fn verify_repeated_image<S: RangedSource, C: Cancellation>(
+    source: &mut S,
+    original: ImageRecord,
+    repeated: ImageRecord,
+    at: At,
+    limits: &Limits,
+    cancellation: &C,
+) -> Result<(), ComposeError> {
+    if original.record_type != repeated.record_type
+        || original.payload.length != repeated.payload.length
+    {
+        return Err(at.error(
+            ComposeStage::Headers,
+            ComposeErrorKind::Unsupported("repeated image type or length differs"),
+        ));
+    }
+    let mut first = [0; 1024];
+    let mut second = [0; 1024];
+    let mut offset = 0;
+    while offset < original.payload.length {
+        let count = (original.payload.length - offset)
+            .min(limits.io_chunk_bytes.min(first.len()) as u64) as usize;
+        crate::read_exact_at(
+            source,
+            original.payload.offset + offset,
+            &mut first[..count],
+            limits,
+            cancellation,
+        )
+        .await
+        .map_err(at.io(ComposeStage::Headers))?;
+        crate::read_exact_at(
+            source,
+            repeated.payload.offset + offset,
+            &mut second[..count],
+            limits,
+            cancellation,
+        )
+        .await
+        .map_err(at.io(ComposeStage::Headers))?;
+        if first[..count] != second[..count] {
+            return Err(At {
+                offset: Some(repeated.payload.offset + offset),
+                ..at
+            }
+            .error(
+                ComposeStage::Headers,
+                ComposeErrorKind::Unsupported("repeated image payload differs"),
+            ));
+        }
+        offset += count as u64;
+    }
+    Ok(())
+}
+
 fn validate(options: ComposeOptions, limits: &Limits) -> Result<(), ComposeError> {
     limits
         .validate()
@@ -568,6 +629,7 @@ where
         type0_images: 0,
         jpeg_images: 0,
         type3_images: 0,
+        duplicate_image_records: 0,
         peak_page_metadata_bytes: 0,
         peak_text_working_bytes: 0,
         peak_row_store_bytes: 0,
@@ -633,13 +695,14 @@ where
             .map_err(at.io(ComposeStage::Preflight))?;
         let mut coordinates = Vec::new();
         if header.variant != Variant::HnB {
-            let text = read_text_coordinates(
+            let text = super::text::read_coordinates(
                 reader.source_mut(),
                 header,
                 page,
                 limits,
                 cancellation,
                 options.text,
+                false,
             )
             .await
             .map_err(|error| container(error, ComposeStage::Text))?;
@@ -648,7 +711,17 @@ where
                 .max(text.working_memory_bytes);
             coordinates = text.coordinates;
         }
-        let mut images = page_vector(count, limits, "current-page image plans")
+        if header.variant != Variant::HnB
+            && (coordinates.is_empty() || count % coordinates.len() != 0)
+        {
+            return Err(at.error(
+                ComposeStage::Text,
+                ComposeErrorKind::Unsupported(
+                    "image descriptor count is not a complete coordinate group",
+                ),
+            ));
+        }
+        let mut images: Vec<ComposedImage> = page_vector(count, limits, "current-page image plans")
             .map_err(at.io(ComposeStage::Preflight))?;
         let plan_capacity = capacity_bytes::<ComposedImage>(images.capacity());
         let planning_peak =
@@ -662,6 +735,24 @@ where
             .map_err(|error| container(error, ComposeStage::Container))?
         {
             let image_at = at.image(record);
+            if header.variant != Variant::HnB && images.len() >= coordinates.len() {
+                let original = images[images.len() % coordinates.len()];
+                verify_repeated_image(
+                    reader.source_mut(),
+                    original.record,
+                    record,
+                    image_at,
+                    limits,
+                    cancellation,
+                )
+                .await?;
+                images.push(ComposedImage {
+                    record,
+                    duplicate_of: Some(original.record.image_number),
+                    ..original
+                });
+                continue;
+            }
             let (checked, visible_width, display_width, height) = match record.record_type {
                 0 if header.variant != Variant::HnB => {
                     if table.is_none() {
@@ -782,6 +873,7 @@ where
                 transform,
                 checked,
                 type3_text_header_anomaly: None,
+                duplicate_of: None,
             });
         }
         drop(coordinates);
@@ -791,7 +883,14 @@ where
         let metadata_peak = plan_capacity + placement_capacity;
         check_metadata(metadata_peak, options.budget).map_err(at.io(ComposeStage::Preflight))?;
         report.peak_page_metadata_bytes = report.peak_page_metadata_bytes.max(metadata_peak);
-        for image in &mut images {
+        for index in 0..images.len() {
+            if let Some(original) = images[index].duplicate_of {
+                images[index].type3_text_header_anomaly =
+                    images[usize_from_u32(original - 1)].type3_text_header_anomaly;
+                report.duplicate_image_records += 1;
+                continue;
+            }
+            let image = &mut images[index];
             let image_at = at.image(image.record);
             let object = match image.checked {
                 CheckedImage::Type0(info) => {

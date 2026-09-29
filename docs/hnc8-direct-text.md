@@ -24,7 +24,10 @@ Expanded direct records use little-endian words:
 | First word below `0x8000` | 4 | Opaque glyph record |
 
 Unknown control tags, incomplete records, missing terminators, or a different
-number of image records and source descriptors are errors. Tags inside a
+number of image records and source descriptors are errors in the public
+coordinate reader. Composition additionally supports byte-verified
+[repeated groups](hnc8-repeated-groups.md); raw image-first HN-A uses the same
+record consumer. Tags inside a
 28-byte image payload are never scanned as record starts. Indexed bytes after
 the first complete terminator remain opaque, like the existing raw reader;
 they are still decompressed, hashed and included in checksum/length validation.

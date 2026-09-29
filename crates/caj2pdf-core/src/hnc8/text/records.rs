@@ -15,10 +15,11 @@ pub(super) struct Records {
     count: u32,
     limit: u32,
     ended: bool,
+    exact_images: bool,
 }
 
 impl Records {
-    pub(super) fn new(limit: u32) -> Self {
+    pub(super) fn new(limit: u32, exact_images: bool) -> Self {
         Self {
             bytes: [0; 28],
             filled: 0,
@@ -27,6 +28,7 @@ impl Records {
             count: 0,
             limit,
             ended: false,
+            exact_images,
         }
     }
 
@@ -82,16 +84,21 @@ impl Records {
         Ok(())
     }
 
-    pub(super) fn finish(self, images: usize, loc: Location) -> Result<u32> {
+    pub(super) fn finish(
+        self,
+        coordinates: &mut Vec<RawTextCoordinate>,
+        loc: Location,
+    ) -> Result<u32> {
         if !self.ended {
             return Err(loc.malformed("decoded text records", "missing complete terminator"));
         }
-        if self.images != images {
+        if self.exact_images && self.images != coordinates.len() {
             return Err(loc.malformed(
                 "decoded image records",
                 "image count differs from source descriptors",
             ));
         }
+        coordinates.truncate(self.images);
         Ok(self.count)
     }
 }

@@ -288,7 +288,7 @@ fn run() -> Result<(), Box<dyn StdError>> {
     let limits = Limits {
         io_chunk_bytes: CHUNK,
         max_input_bytes: 8 * 1024 * 1024 * 1024,
-        max_output_bytes: 128 * 1024 * 1024,
+        max_output_bytes: 512 * 1024 * 1024,
         max_allocation_bytes: 1024 * 1024,
         max_pages: 4096,
         max_bookmarks: 4096,
@@ -417,6 +417,10 @@ fn run() -> Result<(), Box<dyn StdError>> {
         scratch.read_bytes,
         scratch.written_bytes,
         scratch.max_request,
+    );
+    eprintln!(
+        "verified duplicate image records: {}",
+        report.duplicate_image_records
     );
     if mq.is_some() {
         eprintln!(

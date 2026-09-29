@@ -102,6 +102,20 @@ pub async fn read_text_coordinates<S: RangedSource, C: Cancellation>(
     cancellation: &C,
     budget: TextBudget,
 ) -> Result<TextCoordinates> {
+    read_coordinates(source, header, page, limits, cancellation, budget, true).await
+}
+
+/// Composition alone may receive fewer coordinates than descriptors. It must
+/// prove all additional descriptor payloads repeat that coordinate group.
+pub(super) async fn read_coordinates<S: RangedSource, C: Cancellation>(
+    source: &mut S,
+    header: Header,
+    page: PageRecord,
+    limits: &Limits,
+    cancellation: &C,
+    budget: TextBudget,
+    exact_images: bool,
+) -> Result<TextCoordinates> {
     if header.variant == Variant::HnB {
         return Err(location(header, page).error(ErrorKind::Unsupported {
             field: "text framing variant",
@@ -123,9 +137,27 @@ pub async fn read_text_coordinates<S: RangedSource, C: Cancellation>(
     .await?;
     let tag = u16::from_le_bytes([prefix[0], prefix[1]]);
     if header.variant == Variant::HnA && matches!(tag, 0x8001 | 0x800a | 0x8004) {
-        raw::read(source, page, limits, cancellation, budget, loc).await
+        raw::read(
+            source,
+            page,
+            limits,
+            cancellation,
+            budget,
+            loc,
+            (tag == 0x800a).then(|| records::Records::new(budget.max_records, exact_images)),
+        )
+        .await
     } else {
-        read_compressed_text(source, header, page, limits, cancellation, budget).await
+        read_compressed_text(
+            source,
+            header,
+            page,
+            limits,
+            cancellation,
+            budget,
+            exact_images,
+        )
+        .await
     }
 }
 
@@ -343,6 +375,7 @@ async fn read_compressed_text<S: RangedSource, C: Cancellation>(
     limits: &Limits,
     cancellation: &C,
     budget: TextBudget,
+    exact_images: bool,
 ) -> Result<TextCoordinates> {
     let loc = location(header, page);
 
@@ -447,7 +480,8 @@ async fn read_compressed_text<S: RangedSource, C: Cancellation>(
         tail_start: decoded_bytes.saturating_sub(tail_bytes) as u32,
         coordinates,
         loc: loc.at(zlib_frame.offset),
-        records: (header_bytes == 16).then(|| records::Records::new(budget.max_records)),
+        records: (header_bytes == 16)
+            .then(|| records::Records::new(budget.max_records, exact_images)),
     };
     let owned_buffer_bytes = len_u64(input.capacity())
         .saturating_add(len_u64(output.capacity()))
@@ -532,7 +566,7 @@ async fn read_compressed_text<S: RangedSource, C: Cancellation>(
         }
     }
     let record_count = match accumulator.records {
-        Some(records) => records.finish(images, loc.at(zlib_frame.offset))?,
+        Some(records) => records.finish(&mut accumulator.coordinates, loc.at(zlib_frame.offset))?,
         None => record_count,
     };
     Ok(TextCoordinates {
