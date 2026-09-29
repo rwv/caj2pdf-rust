@@ -132,7 +132,7 @@ fn type0_page_uses_padded_bits_and_checks_the_public_info() {
 
 #[test]
 fn type0_padded_width_conversion_is_checked_at_the_u32_boundary() {
-    let width = u32::MAX;
+    let width = u32::MAX - 7;
     let stride = u64::from(width).div_ceil(32) * 4;
     let visible = u64::from(width).div_ceil(8);
     let info = Type0Info {
@@ -144,7 +144,7 @@ fn type0_padded_width_conversion_is_checked_at_the_u32_boundary() {
     assert!(matches!(
         empirical_page_from_type0(info, [0.0; 2]),
         Err(Error::InvalidInput {
-            reason: "empirical type-0 padded width exceeds the supported pixel range"
+            reason: "empirical type-0 display width exceeds the supported pixel range"
         })
     ));
 }
@@ -358,5 +358,30 @@ fn full_raw_word_domain_is_unsigned_and_preserves_off_page_positions() {
         if coordinate.y >= 32768 {
             assert!(ctm[5] < page.media_box().unwrap()[1]);
         }
+    }
+}
+
+#[test]
+fn type0_display_width_preserves_partial_bits_when_there_are_no_padding_bytes() {
+    for width in 1_u32..=96 {
+        let info = Type0Info {
+            width,
+            height: 3,
+            dib_stride: width.div_ceil(32) as usize * 4,
+            visible_bytes: width.div_ceil(8) as usize,
+        };
+        let expected = if width.div_ceil(8) % 4 == 0 {
+            width
+        } else {
+            width.div_ceil(32) * 32
+        };
+        assert_eq!(type0_display_width(info), u64::from(expected));
+        assert_eq!(
+            empirical_page_from_type0(info, [0.0; 2])
+                .unwrap()
+                .size
+                .width_points,
+            f64::from(expected) * 72.0 / 300.0
+        );
     }
 }

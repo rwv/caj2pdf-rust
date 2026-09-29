@@ -88,6 +88,14 @@ fn text(records: &[Record]) -> Vec<u8> {
 }
 
 fn fixture(variant: Variant, pages: &[Vec<Record>]) -> Fixture {
+    fixture_with_text(variant, pages, text)
+}
+
+fn fixture_with_text(
+    variant: Variant,
+    pages: &[Vec<Record>],
+    text: fn(&[Record]) -> Vec<u8>,
+) -> Fixture {
     let (count_at, index) = match variant {
         Variant::C8 => (8, 0x50),
         Variant::HnA => (0x90, 0x15c),
@@ -744,7 +752,7 @@ fn invented_hna_c8_text_preserves_order_overlap_repeats_and_off_page_positions()
 
 #[test]
 fn mixed_images_preserve_exact_padding_and_asymmetric_reversed_rows() {
-    for width in [1, 7, 8, 9, 31, 32, 33] {
+    for width in [1, 7, 8, 9, 24, 25, 28, 31, 32, 33] {
         let pixels = rows(width);
         let bilevel = Record::type0(&pixels, 0, 0);
         let jpeg = Record::jpeg(8, 8, 155, 9, 0);
@@ -766,12 +774,16 @@ fn mixed_images_preserve_exact_padding_and_asymmetric_reversed_rows() {
             &Limits::default(),
         )
         .unwrap();
-        let display_width = width.div_ceil(32) * 32;
+        let display_width = if width.div_ceil(8) % 4 == 0 {
+            width
+        } else {
+            width.div_ceil(32) * 32
+        };
         assert_eq!(visitor.images[0].1, width as u32);
         assert_eq!(visitor.images[0].2, display_width as u32);
         assert_eq!(
             visitor.sizes[0].unwrap().width_points,
-            display_width as f64 * 0.24
+            display_width as f64 * 72.0 / 300.0
         );
         assert_eq!(visitor.images[0].4[3], -0.72);
         let expected = reversed_padded(&pixels);
@@ -1898,4 +1910,45 @@ fn unproven_outline_variants_fail_before_pdf_output() {
     .unwrap_err();
     assert!(matches!(error.kind, ComposeErrorKind::Unsupported(_)));
     assert!(sink.bytes.is_empty());
+}
+
+#[test]
+fn uncompressed_text_composes_the_same_ordered_jpeg_page_as_compressed_text() {
+    fn raw(records: &[Record]) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        for record in records {
+            bytes.extend(0x800a_u16.to_le_bytes());
+            bytes.extend([0; 2]);
+            bytes.extend(record.coordinate.x.to_le_bytes());
+            bytes.extend(record.coordinate.y.to_le_bytes());
+            bytes.extend([0; 20]);
+        }
+        bytes.extend(0x8004_u16.to_le_bytes());
+        bytes.extend([0; 2]);
+        bytes
+    }
+    let pages = [vec![
+        Record::jpeg(16, 16, 50, 0, 0),
+        Record::jpeg(8, 8, 210, 17, 3),
+    ]];
+    let mut compressed = Harness::new(Variant::HnA, &pages);
+    compressed
+        .run(None, ComposeOptions::default(), &Limits::default())
+        .unwrap();
+    let fixture = fixture_with_text(Variant::HnA, &pages, raw);
+    let mut source = Source::new(fixture.bytes);
+    let mut sink = Sink::default();
+    let report = convert(
+        &mut source,
+        &mut sink,
+        None,
+        &mut Scratch::default(),
+        &mut Visitor::default(),
+        ComposeOptions::default(),
+        &Limits::default(),
+    )
+    .unwrap();
+    assert_eq!(report.output_pages, 1);
+    assert_eq!(report.jpeg_images, 2);
+    assert_eq!(sink.bytes, compressed.sink.bytes);
 }

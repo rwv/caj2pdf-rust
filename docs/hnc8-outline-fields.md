@@ -159,3 +159,12 @@ including 96/96 exact 300-DPI page comparisons across MuPDF and Poppler; see
 [compressed text framing](hnc8-compressed-text-header.md). The earlier failed
 attempt remains recorded. Issue-69 uses a different uncompressed-text profile
 and is still unsupported by composition; #119 remains open for that work.
+
+
+The [uncompressed HN-A follow-up](hnc8-uncompressed-text.md) now completes
+issue-69's 81 pages and 111 bookmarks. It corrects a type-0 display-width rule
+and records the original reference's sixteen invalid JPEG color declarations.
+All 162 complete-page comparisons pass against a separately corrected Gray
+reference; historical failures remain failures. Together with issue-29, both
+selected positive outline cases now pass through actual composed pages.
+C8/HN-B outline semantics and official-viewer parity remain unproven.

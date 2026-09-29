@@ -1485,3 +1485,12 @@ observed from inputs and two black-box controls, documented in
 change removes document-specific prefix hashes and the test-only override;
 synthetic tests use format tags with invented payload values. No converter
 implementation or external document payload is copied into source fixtures.
+
+
+### Uncompressed HN-A records and type-0 display width
+
+The original MIT raw-record state machine and shared type-0 display-width
+rule use independent input observations and black-box controls described in
+[the format note](hnc8-uncompressed-text.md). No Python/Go/private converter
+implementation or document text was copied. Fixtures are invented records
+with format tags; reference data and runtime tables remain external.
