@@ -75,11 +75,21 @@ struct ChildLinks {
     last: Option<ObjectId>,
 }
 
+/// View applied when following a bookmark.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum BookmarkView {
+    /// Fit the entire destination page (the existing default).
+    Fit,
+    /// Keep the viewer's current position and zoom: `/XYZ null null null`.
+    Xyz,
+}
+
 struct OpenOutline {
     id: ObjectId,
     parent: ObjectId,
     previous: Option<ObjectId>,
     page: ObjectId,
+    view: BookmarkView,
     title: String,
     ordinal: u32,
     children: ChildLinks,
@@ -90,6 +100,7 @@ struct ClosedOutline {
     parent: ObjectId,
     previous: Option<ObjectId>,
     page: ObjectId,
+    view: BookmarkView,
     title: String,
     first_child: Option<ObjectId>,
     last_child: Option<ObjectId>,
@@ -593,6 +604,16 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
     /// A failure after validation, once earlier items may have been closed,
     /// makes later `add_bookmark` and `finish` calls fail.
     pub async fn add_bookmark(&mut self, bookmark: Bookmark) -> Result<()> {
+        self.add_bookmark_with_view(bookmark, BookmarkView::Fit)
+            .await
+    }
+
+    /// Add an entry with an explicit view, retaining the same bounded outline state.
+    pub async fn add_bookmark_with_view(
+        &mut self,
+        bookmark: Bookmark,
+        view: BookmarkView,
+    ) -> Result<()> {
         self.ensure_image_page_intact()?;
         super::ensure_outline_intact(self.outline_failed)?;
         let destination = self
@@ -653,6 +674,7 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
             parent,
             previous,
             page: destination,
+            view,
             title: bookmark.title,
             ordinal: self.bookmarks_written,
             children: ChildLinks::default(),
@@ -1029,6 +1051,7 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
             parent: item.parent,
             previous: item.previous,
             page: item.page,
+            view: item.view,
             title: item.title,
             first_child: item.children.first,
             last_child: item.children.last,
@@ -1093,9 +1116,13 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
         self.writer
             .write_bytes(
                 format!(
-                    "> /Parent {} 0 R /Dest [{} 0 R /Fit]",
+                    "> /Parent {} 0 R /Dest [{} 0 R {}]",
                     item.parent.number(),
-                    item.page.number()
+                    item.page.number(),
+                    match item.view {
+                        BookmarkView::Fit => "/Fit",
+                        BookmarkView::Xyz => "/XYZ null null null",
+                    }
                 )
                 .as_bytes(),
             )
