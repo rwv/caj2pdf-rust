@@ -38,6 +38,7 @@
   },
   "files": [
     "internal/spool-write.mjs",
+    "internal/scratch.mjs",
     "io.mjs",
     "io.d.mts",
     "node.mjs",

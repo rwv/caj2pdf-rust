@@ -169,3 +169,14 @@ export declare function checkRange(size: bigint, offset: bigint, length: bigint)
 export declare function requireU64(value: unknown, name: string): bigint;
 export declare function requireChunkLength(length: number, options?: { allowZero?: boolean }): number;
 export declare function requireSinkChunk(bytes: unknown): void;
+
+/** Bounded caller-owned scratch. Serialize calls and keep exclusive access. */
+export interface RandomAccessScratch {
+  readonly size: bigint;
+  resize(size: bigint, signal?: AbortSignal): Promise<void>;
+  /** May return a short prefix; never more than length bytes. */
+  readAt(offset: bigint, length: number, signal?: AbortSignal): Promise<Uint8Array>;
+  /** May accept a short prefix. Keep bytes unchanged until the promise settles. */
+  writeAt(offset: bigint, bytes: Uint8Array, signal?: AbortSignal): Promise<number>;
+  flush(signal?: AbortSignal): Promise<void>;
+}

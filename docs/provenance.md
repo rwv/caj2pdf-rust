@@ -1628,3 +1628,11 @@ factored from the source-page example's existing file I/O. It uses only Rust
 standard-library file operations and existing core limits; no external code,
 codec states, document data or new dependency is introduced. The example now
 retains only its resource counters around the reusable adapter.
+
+## JavaScript random-access scratch
+
+The Node FileHandle and browser OPFS scratch adapters, shared bounds checks,
+original in-memory test bytes and real-worker tests are MIT project code.
+They use standard platform I/O and introduce no dependency, codec state data,
+document payload or reference implementation. Browser behavior follows the
+[File System standard](https://fs.spec.whatwg.org/#api-filesystemsyncaccesshandle).

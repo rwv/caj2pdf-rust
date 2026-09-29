@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-import type { ConvertOptions, ConversionReport, SequentialSink, Spooled, SpoolOptions, WasmInput } from "./io.mjs";
+import type { ConvertOptions, ConversionReport, RandomAccessScratch, SequentialSink, Spooled, SpoolOptions, WasmInput } from "./io.mjs";
 
 export * from "./io.mjs";
 
@@ -28,3 +28,18 @@ export declare function convertReadableStream(
   sink: SequentialSink,
   options?: ConvertOptions & SpoolOptions & { storage?: SpoolStorage },
 ): Promise<ConversionReport>;
+
+/** The synchronous OPFS subset used in Dedicated Workers. */
+export interface ScratchAccessHandle {
+  getSize(): number;
+  truncate(size: number): void;
+  read(buffer: Uint8Array, options: { at: number }): number;
+  write(buffer: Uint8Array, options: { at: number }): number;
+  flush(): void;
+}
+
+/** Borrow an OPFS access handle. maxBytes must fit a safe integer; never closes it. */
+export declare function syncAccessHandleScratch(
+  handle: ScratchAccessHandle,
+  options: { maxBytes: bigint },
+): RandomAccessScratch;

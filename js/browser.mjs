@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 
 /** Browser entry point: the shared API plus an Origin Private File System spool. */
-import { blobSource, Caj2PdfError, convertSpooled, pumpChunks, requireU64 } from "./io.mjs";
+import { blobSource, Caj2PdfError, checkAbort, checkRange, convertSpooled, pumpChunks, requireChunkLength, requireSinkChunk, requireU64 } from "./io.mjs";
+import { scratchCount, scratchSize } from "./internal/scratch.mjs";
 
 export * from "./io.mjs";
 
@@ -12,6 +13,49 @@ export async function loadModule(url = new URL("./caj2pdf_wasm.wasm", import.met
     throw new Error(`could not fetch ${url}: HTTP ${response.status}`);
   }
   return WebAssembly.compileStreaming(response);
+}
+
+/**
+ * Bounded scratch over a caller-owned OPFS FileSystemSyncAccessHandle, obtained
+ * in a Dedicated Worker. Grant exclusive access and serialize calls. The caller
+ * closes the handle and removes its file. No snapshots or image buffers are kept.
+ */
+export function syncAccessHandleScratch(handle, { maxBytes } = {}) {
+  scratchSize(0n, maxBytes);
+  if (["getSize", "truncate", "read", "write", "flush"].some((key) => typeof handle?.[key] !== "function")) {
+    throw new TypeError("an OPFS synchronous access handle is required in a Dedicated Worker");
+  }
+  const initial = handle.getSize();
+  if (!Number.isSafeInteger(initial) || initial < 0) throw new RangeError("invalid OPFS scratch size");
+  let size = BigInt(initial);
+  scratchSize(size, maxBytes);
+  return Object.freeze({
+    get size() { return size; },
+    async resize(bytes, signal) {
+      const length = scratchSize(bytes, maxBytes);
+      checkAbort(signal);
+      handle.truncate(length);
+      size = bytes;
+    },
+    async readAt(offset, length, signal) {
+      requireChunkLength(length, { allowZero: true });
+      checkRange(size, offset, BigInt(length));
+      checkAbort(signal);
+      const bytes = new Uint8Array(length);
+      const count = scratchCount(handle.read(bytes, { at: Number(offset) }), length);
+      return bytes.subarray(0, count);
+    },
+    async writeAt(offset, bytes, signal) {
+      requireSinkChunk(bytes);
+      checkRange(size, offset, BigInt(bytes.byteLength));
+      checkAbort(signal);
+      return scratchCount(handle.write(bytes, { at: Number(offset) }), bytes.byteLength);
+    },
+    async flush(signal) {
+      checkAbort(signal);
+      handle.flush();
+    },
+  });
 }
 
 /**

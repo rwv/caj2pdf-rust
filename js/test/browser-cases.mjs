@@ -202,3 +202,19 @@ export async function opfsFailures(name) {
   return { bounded, afterBound, lowLevel, afterLowLevel, unsupported, afterUnsupported, aborted, afterAbort,
     unlocked: [boundedStream, lowLevelStream, unsupportedStream, abortedStream].map(readerReleased) };
 }
+
+/** Exercise real OPFS read/write storage in its required Worker context. */
+export async function scratchInWorker() {
+  const worker = new Worker("/test/scratch-worker.mjs", { type: "module" });
+  let timeout;
+  try {
+    return await new Promise((resolve, reject) => {
+      timeout = setTimeout(() => reject(new Error("scratch worker timed out")), 15_000);
+      worker.onmessage = ({ data }) => data.error ? reject(new Error(data.error)) : resolve(data);
+      worker.onerror = (event) => reject(new Error(event.message));
+    });
+  } finally {
+    clearTimeout(timeout);
+    worker.terminate();
+  }
+}
