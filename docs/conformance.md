@@ -14,6 +14,52 @@ type aliases, reference versions, and measured results. CAJSamples has no
 redistribution grant recorded for this project. Keep its documents and every
 PDF derived from them outside this repository.
 
+## v0.1 support and release status
+
+This is the current CLI, Node and browser support summary. “Supported” is
+limited to each documented input profile, not every file with that signature.
+The same conversion core serves all three interfaces.
+
+| Profile | Status on all three interfaces | Verified scope and limits |
+| --- | --- | --- |
+| PDF | Supported within the [PDF input profile](pdf-input.md) | Representative 11-page output is identical across interfaces; selected viewer pages 1 and 11 match. |
+| CAJ | Supported within the [CLI profile](cli.md) | Representative 75-page output with 58 bookmarks is identical across interfaces; selected viewer pages 1 and 75 match. Optional legacy Python ordering is deferred (#21). |
+| KDH | Supported for validated embedded PDFs | Representative one-page output is identical across interfaces and matches the selected viewer page. |
+| HN-A | Experimental image-page conversion | Complete 163-page, 96-bookmark output is identical across interfaces. Declared page/display extents are used; selected frame sizes match, but exact pixels differ. Physical units remain empirical. |
+| C8 | Experimental image-page conversion | Complete four-page output is identical across interfaces. Explicit bookmark omission is required; outline semantics are unverified. Selected frame sizes match, but exact pixels differ. |
+| HN-B | Experimental single-JPEG image-bearing rows | Unknown outlines require explicit omission. A source row without image content is rejected by public conversion, never silently dropped. No vendor rendering parity is claimed here. |
+| TEB, unrecognized layouts, unsupported image modes, pure-text/searchable HN | Rejected | No OCR or silent omission fallback. Located errors identify unsupported HN/C8 content. |
+
+Arithmetic HN/C8 images require caller-supplied QM/MQ states. Their distribution
+basis remains unresolved in #30/#44; successful external decoding does not
+permit bundling those states. The default package is not a self-contained
+converter for those images.
+
+[Viewer results](cajviewer-fixtures.md) record the pinned application and
+selected-page scope. [Complete HN/C8 checks](js-validation.md#source-geometry-correction-repeat)
+record output hashes, page counts, outline retention and image-stream checks.
+Python-reference corpus expectations below are a separate compatibility
+baseline, not a CAJViewer verdict. Missing optional inputs are `NOT_RUN`;
+known pixel failures are not passing baselines.
+
+### Release evidence and remaining work (#14)
+
+- Existing original tests cover short I/O, malformed input, cancellation,
+  bounded scratch, output cleanup and source-page omission refusal. The
+  [JavaScript delivery report](js-validation.md#verified-delivery-paths) covers
+  examples and conversion from the extracted npm artifact on Node and Chromium.
+- [Memory measurements](js-validation.md#memory-and-temporary-storage) cover
+  small/large original PDF inputs and the complete HN-A/C8 repeats. Native
+  child RSS, sampled Node RSS, WASM linear memory, scratch caps and cleanup
+  have distinct scopes; they do not establish a browser-process RSS peak or
+  constant memory for arbitrary documents.
+- #186 passed Native, WASM, MIT audit and the 100% Rust line-coverage gate.
+  This is development-head evidence, not certification of a future release.
+- Release remains pending codec distribution decisions (#8/#9), final artifact
+  inspection and checksums, and English release notes with breaking changes
+  and migration examples. Keep npm private and Cargo publishing disabled until
+  the release commit follows the [release policy](release-policy.md).
+
 ## Commands and status
 
 From a clean clone, run the unit tests and check that the original MIT
