@@ -140,7 +140,8 @@ issue acceptance criteria are authoritative for each task.
    The [#124 capture pilot](docs/cajviewer-capture-pilot.md) established a
    practical recipe with reopen pixel differences. The
    [image/text snapshot](docs/cajviewer-fixture-snapshot.md) completes #126/#127;
-   formal baseline approval and the wider #129 matrix remain incomplete.
+   the wider #129 matrix remains incomplete. Reproducible manual capture is
+   sufficient; no separate baseline-approval project is required.
    Manual initial acquisition is acceptable; Docker is a reproducibility aid.
    Reuse completed manifests (#125). Use [the decoded comparator](docs/vendor-fixture-diff.md) (#128)
    with original controls now and acquired fixtures when available. Begin rollout
@@ -151,15 +152,19 @@ issue acceptance criteria are authoritative for each task.
    Keep hashes, timeouts, page/output limits and cleanup; do not add another
    inventory/attestation project. V14 inventory success and twelve historical
    launch observations remain in the [historical report](docs/cajviewer-runtime-view-v14.md).
-   Actual complete-page/text compatibility remains `NOT_RUN`, zero passes.
+   Selected native PDF pages 1/11 and CAJ pages 1/75 now match the viewer
+   exactly (#158/#168). See [the CAJ comparison](docs/cajviewer-page-boxes.md).
+   HN/C8/KDH and browser/Node vendor comparisons remain `NOT_RUN`.
 
 6. Record peak memory, throughput, and output validity on representative
    documents; make these release gates rather than assumptions.
    Public spooling hardening [#141](https://github.com/rwv/caj2pdf-rust/issues/141)
    releases owned Web readers and validates cancellable ordered Node writes,
-   with original fault controls and package-import checks. Exact-head independent
-   reviews and hosted gates remain required. Parent #13 still requires supported
-   HN/C8 conversion through both targets and its unresolved provenance gates.
+   with original fault controls and package-import checks. Review the final
+   published head and require hosted gates. The common JS package (#13) now
+   has runnable example, real-tarball, type and memory checks; see
+   [JavaScript validation](docs/js-validation.md). HN/C8 integration on both
+   JS targets and its codec provenance gaps remain #10 work and block #14.
 
 ## Reference material
 
@@ -178,8 +183,9 @@ issue acceptance criteria are authoritative for each task.
 
 ## Immediate implementation sequence
 
-- Continue #159's concrete CAJ compatibility failures after the merged indirect
-  Flate support; do not claim whole-document success from a partial parser fix.
+- #159 is complete: issue-77 converts to 75 valid, source-ordered pages;
+  selected pages 1/75 match CAJViewer (#168). This is selected-page evidence,
+  not whole-format parity.
 - HN-A outline fields (#137) are validated. PR #162 implements the bounded
   reader and PDF output; 159 outline-only matches do not prove page content.
   Issue-29 passes 48 pages, 48 outlines and 96 full-page comparisons (#163).
@@ -188,8 +194,9 @@ issue acceptance criteria are authoritative for each task.
   [the evidence and legacy deviation](docs/hnc8-uncompressed-text.md).
   C8/HN-B outlines and general HN coverage remain parent #10 work.
 - Implement type-3/mixed-image composition in #118 using the existing decoder
-  and writer, then connect complete HN/C8 conversion to CLI and JS in #10/#13.
-- Keep complete HN/C8 conversion (#10), browser/Node support (#13), codec rights
-  and the release matrix (#14) as explicit remaining requirements.
+  and writer, then connect complete HN/C8 conversion to CLI and JS in #10.
+  Reuse the common adapters delivered by #13.
+- Keep complete HN/C8 conversion (#10), codec rights, vendor comparisons
+  (#123/#129) and the release matrix (#14) as explicit remaining requirements.
 - Prefer a concrete failing sample or focused original test over another generic
   proof framework. Each PR still requires review, simplification and green CI.
