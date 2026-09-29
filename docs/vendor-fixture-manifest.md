@@ -6,7 +6,7 @@ This is the version 1 integrity contract for
 separate CAJViewer acquisition work in
 [the vendor fixture plan](cajviewer-fixtures.md). The reader does not start
 CAJViewer, decode an image, run OCR, convert a document or compare candidate
-output. Current vendor acquisition and compatibility are **NOT_RUN**.
+output. A small external acquisition is documented in [the fixture snapshot](cajviewer-fixture-snapshot.md). Converter compatibility remains **NOT_RUN**.
 
 An integrity `PASS` means the supplied declarations, exact file identities,
 page mapping and text encoding agree. It does not prove that a capture covers
@@ -239,7 +239,9 @@ or enforce process counts. The acquisition supervisor/protocol remains
 responsible for that bound and its reviewed evidence.
 `resources` records `elapsed_ms`, `owned_disk_peak_bytes` and
 `process_tree_memory: {status: MEASURED|UNAVAILABLE, peak_bytes, method}`.
-Unavailable memory is null, never zero. A passing vendor acquisition must
+Unavailable memory is null, never zero. Failed receipts may also use null
+for unmeasured elapsed time and disk peak; passing receipts still require
+measured values within their caps. A passing vendor acquisition must
 have measured process-tree memory evidence. The reader does not operate a
 process supervisor; acquisition must enforce whole-stage/process-tree caps
 and account for UI, screenshots, clipboard, exports and finally cleanup.
