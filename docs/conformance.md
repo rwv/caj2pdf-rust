@@ -187,65 +187,26 @@ basis does not establish vendor page fidelity or full-family conversion.
 
 ## CAJViewer vendor fixtures
 
-The planned [vendor fixture protocol](cajviewer-fixtures.md), tracked by
-[epic #123](https://github.com/rwv/caj2pdf-rust/issues/123), adds a separate
-version-scoped Linux CAJViewer baseline for complete-page images and local
-standard-copy text. Vendor compatibility is **`NOT_RUN`, zero passes**. The
-first pair lost its tmpfs diagnostics; the reviewed transport amendment
-collected a second pair failing on `libxslt.so.1`. With the measured provider
-added, a third pair exited 153 with a file-size-limit diagnostic; its target
-file is unknown. The fourth pair lost Xvfb to signal 25 and reported a separate
-QtWebEngine sandbox error. An original public shared-memory control isolates
-the display limit without launching the viewer. The fifth pair retained
-matching-window deadline failures while its identical viewport captures
-showed the original four-page PDF under manual review. The prepared observer
-checks window PID/process-group ownership and records document identity as
-unverified; an owned window can be a dialog. The
-[startup note](cajviewer-linux-startup.md) retains all twelve reported
-attempts: ten prior failures followed by one helper failure and one owned
-window observation. The sixth pair remains FAIL; unretained helper stderr
-leaves its exact cause unknown. Complete-page capture and text copy remain
-unattempted. No
-private vendor fixture has been acquired, and no supported Linux
-export CLI or headless API has been proven. The existing Python-converter
-regressions and [#117 composition evidence](hnc8-page-composition-evidence.md),
-including the explicit corrected grayscale HN-B basis, remain distinct.
+Follow the [simplified fixture plan](cajviewer-fixtures.md) and
+[epic #123](https://github.com/rwv/caj2pdf-rust/issues/123). Prove one practical
+capture recipe, save a small external image baseline, and collect ordinary-copy
+text where available. Manual initial capture is acceptable. #128 comparison
+can start with original fixtures; it depends only on completed #125.
+Text unavailability is recorded and does not block the image route.
 
-The completed [manifest/receipt tooling](vendor-fixture-manifest.md) supplies
-bounded integrity validation, distinct image/text origins and immutable
-reviewed regeneration. Integrity PASS does not imply acquisition or parity
-PASS. Original controls run in clean-clone CI without the proprietary runtime.
+Actual complete-page/text compatibility remains **`NOT_RUN`, zero passes**.
+The [V14 inventory](cajviewer-runtime-view-v14.md) and
+[twelve earlier launch observations](cajviewer-linux-startup.md) are retained;
+they do not prove document compatibility. #153 is cancelled as a standalone
+source-loading prerequisite. The revised plan supersedes the old future
+proof/launch-approval requirements, without changing historical outcomes.
 
-Keep the vendor installer/runtime, private source documents, exported images,
-copied text and receipts outside the repository. Original MIT generators and
-bounded pixel/text comparators must have mandatory positive and mutation
-tests without proprietary fixtures. A clean optional invocation must report
-`NOT_RUN`, zero vendor calls and zero compatibility passes; an explicit
-request with missing inputs/tools or unavailable required capabilities fails.
-
-Image fixtures identify their canonical acquisition origin:
-`viewer-native-page-image`, `viewer-complete-page-capture`, or
-`viewer-exported-pdf-render`. Region/viewport/embedded
-image extraction cannot silently stand in for a full page. Comparisons cover
-the entire declared grid and every channel with exact dimensions and payload
-identity, without cropping, scaling, alignment or hidden color conversion.
-Raw exported-file hashes and decoded-payload hashes are separate. Legitimate
-blank pages require explicit page/content evidence, not two-empty success.
-
-Text fixtures initially identify standard-copy observations, without claiming
-native Unicode extraction. Each acquisition requires a fresh clipboard
-sentinel and verified fresh transaction/content observation; preserve raw
-encoding, Unicode, whitespace, reading order and page boundaries.
-Enhanced copy, OCR and repair are separate
-modes. This work does not add searchable HN output or OCR to the v0.1.0 scope.
-
-Freeze the finite coverage, application/environment/tool identities, modes,
-source/output page mapping, numeric limits for every stage, and immutable
-receipts before private execution. Report attempted/passing/failing/skipped/
-unsupported and unstarted work, failed calls, warnings, resources and complete
-post-audits. Vendor/Python/native disagreements remain explicit, version-scoped
-results; skipped, unknown or unsupported required work cannot complete the
-release-blocking vendor epic.
+Keep vendor/corpus artifacts external, preserve full-page geometry and raw
+text, and distinguish native capture from print-derived images and OCR.
+Original fixtures run in ordinary CI. Requested missing inputs fail; optional
+missing corpus is NOT_RUN. Publish actual coverage and limitations separately
+from Python regression results. Preserve independent bookmark, licensing and
+converter-memory release checks.
 
 ## Reference behavior
 

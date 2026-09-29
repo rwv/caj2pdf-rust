@@ -1,5 +1,14 @@
 # Provenance and dependency inventory
 
+
+## 2026-09-29 fixture planning simplification
+
+Original English documentation only: PROJECT_PLAN.md, cajviewer-fixtures.md,
+conformance.md and the historical capability-protocol notice. No converter,
+codec, third-party source or vendor/corpus content is added. The unmerged #153
+bootstrap draft is not included; that standalone task is cancelled. Existing
+MIT requirements and historical evidence remain unchanged.
+
 ## Original capability protocol (#146)
 
 The nine new modules `tools/cajviewer/capability_protocol.py`,

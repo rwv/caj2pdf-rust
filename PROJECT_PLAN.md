@@ -142,144 +142,21 @@ issue acceptance criteria are authoritative for each task.
    separates positive baseline and exact-control freezes. It remains DRAFT:
    unresolved grammar, runtime identities and calculated phase ceilings keep
    execution disabled and satisfy no #137 acceptance criterion.
-5. Complete [the vendor-oracle epic #123](https://github.com/rwv/caj2pdf-rust/issues/123),
-   a direct child of #1 and a blocker for the #14 release gate:
-   [manifest #125](https://github.com/rwv/caj2pdf-rust/issues/125) is complete:
-   [immutable bounded validation and regeneration](docs/vendor-fixture-manifest.md)
-   merged in [PR #131](https://github.com/rwv/caj2pdf-rust/pull/131).
-   [Capability #124](https://github.com/rwv/caj2pdf-rust/issues/124) remains open:
-   public tmpfs controls pass and the measured `libxslt.so.1` provider is added,
-   and an original app-zero shared-memory control isolates the Xvfb limit and
-   verifies a bounded allowance. The fifth pair keeps its display/launcher
-   alive but fails an unverified filename-based window predicate. Identical
-   viewport captures support manual original-PDF opening observation only.
-   The ten earlier failures remain recorded. The sixth frozen pair adds one
-   helper failure and one observed owned window after PID/process-group
-   checks; document identity stays unverified. All twelve attempts are
-   retained and the pair remains FAIL. Its helper stderr was not retained,
-   so [bounded public diagnostics/controls #133](https://github.com/rwv/caj2pdf-rust/issues/133)
-   provide the completed diagnostic prerequisite as a native child/blocker of #124,
-   merged in [PR #136](https://github.com/rwv/caj2pdf-rust/pull/136).
-   Their original mandatory controls retain terminal captured-byte diagnostics,
-   preserve primary failures without a raster, and enforce the existing receipt
-   budget. They cannot recover historical stderr or establish a new viewer
-   success. The
-   [startup records and original child-limit controls](docs/cajviewer-linux-startup.md)
-   require a new exact profile and reviewed finite budget before further apps.
-   The [closed diagnostics-overlay preparation](docs/cajviewer-startup-diagnostics-v7.md)
-   completed nine Docker clients with zero app or inventory calls. Its image
-   preserves the full parent Config and six layers, adding one original script
-   layer; all 108 public audit rows passed. Separately frozen inventory controls
-   passed all eight groups and 47 variants in one original runner, with zero
-   actual child, Docker, runtime or application actions. The first operational
-   P2 phase closed FAIL after five Docker clients and one incomplete inventory
-   attempt. Its complete envelope records `FileNotFoundError` without a loading
-   stage or missing path; the specific cause remains UNKNOWN. Closing audits
-   and owned-container cleanup passed; all 2,731 runtime comparisons remain
-   NOT_RUN. Original source-load accounting and fault controls in
-   native child/blocker [#143](https://github.com/rwv/caj2pdf-rust/issues/143)
-   now preserve bounded ordered read/pin/compile/exec records for the two
-   whitelisted MIT source paths. One reviewed original runner passed all
-   25 methods (19 mandatory, four actual inline and two actual host controls),
-   with ten mocked helper callbacks and zero actual child, Docker, runtime,
-   viewer or private actions. All 24 source audit rows and the closing plan
-   identity passed; invented fixtures were removed. The
-   [source-load contract and evidence](docs/cajviewer-source-loading.md)
-   retain cleanup-refusal controls and limited application/virtual I/O scopes.
-   [PR #145](https://github.com/rwv/caj2pdf-rust/pull/145) merged after exact-head
-   reviews and hosted native/WASM/MIT/coverage gates; #143 is closed.
-   Four separately frozen original execute-escape controls also passed, with
-   zero actual child/Docker/runtime/app work. The sole separately frozen v11
-   inventory phase then closed FAIL: five Docker clients, one admitted but
-   incomplete inventory, zero app/vendor passes and all 2,731 comparisons
-   NOT_RUN. Its first original public module loaded; the second failed at
-   `read` of `/opt/canary/inventory.py`. The specific missing filesystem
-   component and the older v10 cause remain UNKNOWN. Both actual closing
-   reviews, all 258 public audit rows and owned-container cleanup passed.
-   [The closed v11 report](docs/cajviewer-runtime-view-v11.md) preserves the
-   original captures and distinguishes operational failure from closing success.
-   Historical v9 supplied the public inventory module through a pinned
-   read-only bind; its inventory describes that mounted runtime view, not bare
-   image membership. The separately frozen transport amendment's sole v12
-   phase is now CLOSED_FAIL: both original source loads passed, but the
-   fc-list helper's exit-0 result with 48 stderr bytes failed validation with
-   ValueError. The exact message and cause remain UNKNOWN; inventory did not
-   complete, all 2,731 comparisons are NOT_RUN and app/vendor counts are zero.
-   Both actual closing reviews passed preservation while operational status
-   remained FAIL. Independent native child/blocker
-   [#148: inventory-helper diagnostics](https://github.com/rwv/caj2pdf-rust/issues/148)
-   completed in [PR #150](https://github.com/rwv/caj2pdf-rust/pull/150), with
-   #125/#133/#143 resolved. All 29 original controls passed without skips,
-   with 41 synthetic callbacks and no candidate child or vendor actions;
-   final-head reviews and all four hosted gates passed.
-   The [source contract](docs/cajviewer-inventory-diagnostics.md) retains the
-   first bounded helper diagnostic, distinguishes observed and unknown spawns,
-   and preserves complete valid FAIL accounting before outer rejection.
-   Its original controls and final-head gates establish source readiness;
-   runtime-view completion and actual viewer observations remain separate.
-   The fresh V13 inventory then closed FAIL: Fontconfig reported no writable
-   cache directory through a complete 48-byte stderr diagnostic with reason
-   `HELPER_STDERR_NOT_EMPTY`. Five Docker clients, one incomplete inventory
-   and zero app/vendor actions leave all 2,731 comparisons NOT_RUN. Both
-   closing reviews passed for preservation, including 381 public audits,
-   four dynamic/environment checks, three output audits and verified-ID cleanup.
-   The older V12 message/cause and twelve launcher outcomes remain unchanged.
-   Resolved native child/blocker
-   [#151: fixed temporary font-cache profile](https://github.com/rwv/caj2pdf-rust/issues/151)
-   supplies a pure host-only expected-ENV copy and one exact Docker override,
-   completed in [PR #152](https://github.com/rwv/caj2pdf-rust/pull/152).
-   Its [integration contract](docs/cajviewer-inventory-diagnostics.md#fixed-host-cache-profile-151)
-   requires joint consumption under the existing exact-argv gate. Original caller
-   controls passed 22 methods with zero skips. The sole fresh
-   [V14 runtime inventory](docs/cajviewer-runtime-view-v14.md) completed with
-   five Docker clients, one complete inventory and zero application/vendor
-   actions; both actual closing reviews passed. All 2,731 strict comparisons,
-   372 public audits and the unchanged raw font/package checks passed, with
-   only the declared original session-module update. Cache contents/occupied
-   bytes remain unmeasured. The separate eight-blob metadata consumer completed
-   one actual call with both closing reviews accepted, scoped only to the closed
-   pinned runtime view and adding zero Docker/application/vendor actions.
-   New native child/blocker
-   [#153: verified capability source loading](https://github.com/rwv/caj2pdf-rust/issues/153)
-   requires execution from verified bytes in host, session and collector entries
-   before fresh capability delivery and a separately reviewed GUI profile.
-   Only #124 AC7 is complete;
-   capability, image and text criteria remain unmet. Old failures and the twelve
-   Viewer outcomes are preserved; the closed inventory is not replayed.
-   Resolved native source child/blocker
-   [#146: original capability protocol](https://github.com/rwv/caj2pdf-rust/issues/146)
-   implements separate document/page identity, complete-page and fresh
-   standard-copy gates, with a strict collector and finite GUI discovery.
-   Code completion is separate from #124's actual two-session evidence.
-   The [capability implementation](docs/cajviewer-capability-protocol.md)
-   contains the refused-default host/session, raw desktop/page/clipboard gates,
-   exact collector and original controls. The sole reviewed carrier passed
-   57 methods and 133 subtests with zero errors, failures or skips; all 112
-   ordered source audit rows and both actual closing reviews passed, exit 0.
-   One carrier parent and one controlled Python child ran, with zero additional
-   candidate forbidden effects. [PR #149](https://github.com/rwv/caj2pdf-rust/pull/149)
-   merged after final-head Root/independent correctness, provenance and
-   simplification reviews and all four hosted gates. Its merged file tree is
-   identical to the reviewed source and CI's tested synthetic merge tree.
-   App observations are NOT_RUN. Neither v11 nor v12
-   FAIL satisfies the runtime-view gate, and no operational bindings are invented.
-   After successful reviewed declared runtime-view integrity, a fresh frozen
-   capability profile may propose two launches (cumulative maximum fourteen),
-   ten physical-page observations and four ordinary-copy attempts. No issue
-   creation or diagnostic approval grants those launches. Whole-page boundaries,
-   repeated decoded grids, fresh clipboard transactions and actual available
-   build/render/settings observations must be established before private acquisition.
-   [Images #126](https://github.com/rwv/caj2pdf-rust/issues/126)
-   and [text #127](https://github.com/rwv/caj2pdf-rust/issues/127) require
-   #124 and #125;
-   [diffs #128](https://github.com/rwv/caj2pdf-rust/issues/128) follow the manifest
-   and acquisition contracts. [Rollout #129](https://github.com/rwv/caj2pdf-rust/issues/129)
-   requires all five plus [production HN/C8 #10](https://github.com/rwv/caj2pdf-rust/issues/10)
-   and [JavaScript #13](https://github.com/rwv/caj2pdf-rust/issues/13).
-   Implementation follows the native GitHub dependency graph.
-   Freeze inputs, modes, complete-stage resource caps and receipts before
-   private execution. `NOT_RUN`, skipped or unsupported work is not a vendor
-   compatibility pass.
+5. Complete [the vendor fixture epic #123](https://github.com/rwv/caj2pdf-rust/issues/123)
+   using the [simplified fixture plan](docs/cajviewer-fixtures.md).
+   First prove a practical complete-page capture recipe (#124), then save a
+   small image baseline (#126) and ordinary-copy text where available (#127).
+   Manual initial acquisition is acceptable; Docker is a reproducibility aid.
+   Reuse completed manifests (#125). Develop comparison (#128) immediately
+   against original fixtures, independently of GUI acquisition. Begin rollout
+   (#129) with implemented native formats; finish browser/Node and remaining
+   format coverage after #10/#13. Text unavailability does not block images.
+   The standalone source-loading framework (#153) is cancelled, not implemented.
+   Fix concrete import/layout bugs with normal packaging and focused tests.
+   Keep hashes, timeouts, page/output limits and cleanup; do not add another
+   inventory/attestation project. V14 inventory success and twelve historical
+   launch observations remain in the [historical report](docs/cajviewer-runtime-view-v14.md).
+   Actual complete-page/text compatibility remains `NOT_RUN`, zero passes.
 
 6. Record peak memory, throughput, and output validity on representative
    documents; make these release gates rather than assumptions.
