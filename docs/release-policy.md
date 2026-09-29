@@ -55,11 +55,10 @@ The workspace commits its root `Cargo.lock`; CI and release builds use it in
 locked mode. If a JavaScript package later adds an npm dependency graph, commit
 its package-manager lockfile and use frozen installs for release builds.
 
-The npm package in `js/` stays `"private": true` in the repository. To
-publish it, build and copy the WASM with `npm run build:wasm` inside `js/`
-(its `prepack` script refuses to pack a missing or non-WASM
-`caj2pdf_wasm.wasm`), inspect
-the actual `npm pack` tarball against the file list asserted by
-`js/test/package.test.mjs`, run its Node and Chromium artifact smoke tests,
-remove `private` in the release commit, and publish the verified tarball. The copied `.wasm` is a build product and is never
-committed.
+The npm package in `js/` stays `"private": true` until the release commit.
+To publish it, remove `private` in that commit, then build and copy the WASM
+with `npm run build:wasm` inside `js/`. Its `prepack` script refuses a
+missing or non-WASM `caj2pdf_wasm.wasm`. Inspect the actual `npm pack`
+tarball against the file list asserted by `js/test/package.test.mjs`, run
+its Node and Chromium artifact smoke tests, and publish the verified
+tarball. The copied `.wasm` is a build product and is never committed.
