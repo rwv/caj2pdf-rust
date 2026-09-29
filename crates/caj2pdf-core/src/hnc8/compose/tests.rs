@@ -1,12 +1,11 @@
 // SPDX-License-Identifier: MIT
 
-//! Original runtime fixtures. Invented text fingerprints and QM states never
-//! enter the production profile; no external document or table bytes are used.
+//! Original fixtures exercise the public conversion path with synthetic text
+//! and caller-owned QM states; no external document or table bytes are used.
 
 use super::*;
 use crate::NeverCancel;
 use flate2::{Compression, write::ZlibEncoder};
-use sha2::{Digest, Sha256};
 use std::{
     cell::Cell,
     future::Future,
@@ -16,7 +15,7 @@ use std::{
     task::{Context, Poll, Waker},
 };
 
-const PREFIX: [u8; 20] = [0x5a; 20];
+const PREFIX: [u8; 20] = *b"\x03\x80\x01\x00\x03\x80\x02\x00COMPRESSTEXT";
 
 fn ready<F: Future>(future: F) -> F::Output {
     let mut future = pin!(future);
@@ -543,10 +542,6 @@ impl ComposeVisitor for Visitor {
     }
 }
 
-fn invented() -> TextProfile {
-    TextProfile::Invented(Sha256::digest(PREFIX).into())
-}
-
 fn convert(
     source: &mut Source,
     sink: &mut Sink,
@@ -556,7 +551,7 @@ fn convert(
     options: ComposeOptions,
     limits: &Limits,
 ) -> Result<ComposeReport, ComposeError> {
-    ready(convert_with_profile(
+    ready(convert_source_pages_pdf(
         source,
         sink,
         table,
@@ -565,7 +560,6 @@ fn convert(
         options,
         limits,
         &NeverCancel,
-        invented(),
     ))
 }
 
@@ -616,7 +610,7 @@ impl Harness {
     }
 
     fn cancelled(&mut self, flag: Rc<Cell<bool>>) -> Result<ComposeReport, ComposeError> {
-        ready(convert_with_profile(
+        ready(convert_source_pages_pdf(
             &mut self.source,
             &mut self.sink,
             Some(&table()),
@@ -625,7 +619,6 @@ impl Harness {
             ComposeOptions::default(),
             &Limits::default(),
             &Flag(flag),
-            invented(),
         ))
     }
 }
@@ -875,9 +868,10 @@ fn current_page_metadata_and_row_storage_peaks_do_not_accumulate_across_pages() 
 }
 
 #[test]
-fn production_profile_rejects_invented_text_without_emitting_images() {
+fn invalid_text_marker_is_rejected_without_emitting_images() {
     for variant in [Variant::C8, Variant::HnA] {
         let mut case = Harness::new(variant, &[vec![Record::jpeg(8, 8, 128, 0, 0)]]);
+        case.source.bytes[case.fixture.text_offsets[0] + 8] ^= 1;
         let error = ready(convert_source_pages_pdf(
             &mut case.source,
             &mut case.sink,
@@ -1708,7 +1702,7 @@ fn dropped_pending_conversion_requires_caller_owned_store_disposal() {
         let options = ComposeOptions::default();
         let limits = Limits::default();
         {
-            let mut future = pin!(convert_with_profile(
+            let mut future = pin!(convert_source_pages_pdf(
                 &mut case.source,
                 &mut case.sink,
                 Some(&table),
@@ -1717,7 +1711,6 @@ fn dropped_pending_conversion_requires_caller_owned_store_disposal() {
                 options,
                 &limits,
                 &NeverCancel,
-                invented(),
             ));
             assert!(matches!(
                 future

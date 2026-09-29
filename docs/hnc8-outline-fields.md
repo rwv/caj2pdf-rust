@@ -151,3 +151,11 @@ not skipped passes. Further page-profile support and complete-page comparison
 remain necessary before claiming complete conversion for these sources.
 Results and failed diagnostic logs remain outside Git under
 `caj2pdf-native-outlines-20260929`.
+
+
+Follow-up #163 replaces the document-specific compressed-header fingerprint
+with structural validation. Issue-29 now completes all 48 pages and bookmarks,
+including 96/96 exact 300-DPI page comparisons across MuPDF and Poppler; see
+[compressed text framing](hnc8-compressed-text-header.md). The earlier failed
+attempt remains recorded. Issue-69 uses a different uncompressed-text profile
+and is still unsupported by composition; #119 remains open for that work.

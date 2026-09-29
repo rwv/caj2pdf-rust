@@ -10,8 +10,8 @@ use std::{
     task::{Context, Poll, Waker},
 };
 
-// Invented bytes, unrelated to the separately held document prefixes.
-const INVENTED_PREFIX: [u8; 20] = [0x5a; 20];
+// Format tags with invented payload words, not a copied document header.
+const INVENTED_PREFIX: [u8; 20] = *b"\x03\x80\x01\x00\x03\x80\x02\x00COMPRESSTEXT";
 
 fn block_on<T>(future: impl Future<Output = T>) -> T {
     let mut future = std::pin::pin!(future);
@@ -162,14 +162,13 @@ impl Fixture {
         budget: TextBudget,
         cancel: &C,
     ) -> Result<TextCoordinates> {
-        block_on(read_with_prefix(
+        block_on(read_text_coordinates(
             &mut self.source,
             self.header,
             self.page,
             &limits,
             cancel,
             budget,
-            Sha256::digest(INVENTED_PREFIX).into(),
         ))
     }
 
@@ -294,9 +293,7 @@ fn stored_and_compressed_blocks_respect_request_and_output_caps() {
 }
 
 #[test]
-fn both_production_variants_reject_invented_prefixes() {
-    assert_ne!(C8_PREFIX, HN_A_PREFIX);
-    assert_ne!(C8_PREFIX, <[u8; 32]>::from(Sha256::digest(INVENTED_PREFIX)));
+fn both_variants_reject_unknown_compression_markers() {
     for variant in [Variant::C8, Variant::HnA] {
         let mut fixture = ordinary();
         fixture.header.variant = variant;
@@ -304,6 +301,7 @@ fn both_production_variants_reject_invented_prefixes() {
             fixture.header.page_index.offset = 0x15c;
             fixture.page.row_offset = 0x15c;
         }
+        fixture.source.bytes[520] ^= 1;
         let error = block_on(read_text_coordinates(
             &mut fixture.source,
             fixture.header,
@@ -337,7 +335,10 @@ fn hn_a_outline_aligned_index_is_supported_and_hn_b_is_not() {
     .unwrap_err();
     assert_eq!(error.kind.as_str(), "unsupported");
     assert_eq!(error.kind.field(), "text framing variant");
-    assert_eq!(fixture.normal().unwrap_err().kind.field(), "page index");
+    assert_eq!(
+        fixture.normal().unwrap_err().kind.field(),
+        "text framing variant"
+    );
 }
 
 #[test]
@@ -738,4 +739,30 @@ fn every_cancellation_checkpoint_returns_no_partial_coordinates() {
         }
     }
     assert!(completed);
+}
+
+#[test]
+fn compressed_header_payload_words_vary_without_changing_coordinates() {
+    for word in [0_u16, 1, 0x8000, u16::MAX] {
+        for at in [514, 518] {
+            let mut fixture = ordinary();
+            fixture.source.bytes[at..at + 2].copy_from_slice(&word.to_le_bytes());
+            fixture.source.short = 1;
+            assert_eq!(
+                fixture.normal().unwrap().coordinates,
+                [point(10, 20), point(0x8123, 0xffff), point(10, 20)]
+            );
+        }
+    }
+}
+
+#[test]
+fn compressed_header_requires_both_tags_and_the_complete_marker() {
+    for relative in [0, 1, 4, 5].into_iter().chain(8..20) {
+        let mut fixture = ordinary();
+        fixture.source.bytes[512 + relative] ^= 1;
+        let error = fixture.normal().unwrap_err();
+        assert_eq!(error.kind.field(), "page text prefix");
+        assert_eq!(error.offset, 512);
+    }
 }
