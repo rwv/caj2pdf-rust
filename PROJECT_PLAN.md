@@ -180,8 +180,12 @@ issue acceptance criteria are authoritative for each task.
 
 - Continue #159's concrete CAJ compatibility failures after the merged indirect
   Flate support; do not claim whole-document success from a partial parser fix.
-- Validate HN outline fields through the [small #137 plan](docs/hnc8-outline-stage-b-proposal.md),
-  then implement #119 with the existing bounded visitor/PDF APIs.
+- HN-A outline fields (#137) are validated. PR #162 implements the bounded
+  reader and PDF output; 159 outline-only matches do not prove page content.
+  Finish #119 by addressing the concrete page-text-prefix rejection in its
+  two selected documents and comparing their fully composed output.
+- Implement type-3/mixed-image composition in #118 using the existing decoder
+  and writer, then connect complete HN/C8 conversion to CLI and JS in #10/#13.
 - Keep complete HN/C8 conversion (#10), browser/Node support (#13), codec rights
   and the release matrix (#14) as explicit remaining requirements.
 - Prefer a concrete failing sample or focused original test over another generic

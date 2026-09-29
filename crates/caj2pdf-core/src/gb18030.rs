@@ -7,8 +7,8 @@
 //! and all 1,587,600 syntactically possible four-byte candidates. Consecutive
 //! four-byte Unicode values were coalesced into ranges. No codec source or
 //! mapping table from another project was copied. This is original MIT code;
-//! the mapping is factual character-encoding data. CAJ's 256-byte title field
-//! bounds the input supplied by its caller.
+//! the mapping is factual character-encoding data. The CAJ and HN callers bound input
+//! using their fixed-width title fields.
 
 use std::fmt;
 
