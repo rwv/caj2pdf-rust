@@ -12,6 +12,7 @@
 pub mod caj;
 mod error;
 mod fallible;
+mod gb18030;
 pub mod hnc8;
 mod io;
 pub mod jbig1;

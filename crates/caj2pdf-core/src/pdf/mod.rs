@@ -11,8 +11,8 @@ mod writer;
 
 pub use append::{PdfOutlineAppender, copy_pdf, copy_pdf_range};
 pub use document::{
-    BilevelImageSpec, BilevelImageWriter, ImageEncoding, ImageObject, ImagePlacement, ImageSpec,
-    MAX_PAGE_IMAGE_PLACEMENTS, PageSpec, PdfDocument,
+    BilevelImageSpec, BilevelImageWriter, BookmarkView, ImageEncoding, ImageObject, ImagePlacement,
+    ImageSpec, MAX_PAGE_IMAGE_PLACEMENTS, PageSpec, PdfDocument,
 };
 pub use fragment::{
     FragmentObject, FragmentPlan, reconstruct_fragment, reconstruct_fragment_with_bookmarks,

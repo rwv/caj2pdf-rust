@@ -320,7 +320,7 @@ its implementation or tables. All 23,940 syntactically valid two-byte
 candidates and 1,587,600 four-byte candidates were queried. The latter
 produced 1,087,996 mapped values, represented as 207 contiguous ranges. The
 decoder logic and generated mapping representation are original MIT source in
-[`gb18030.rs`](../crates/caj2pdf-core/src/caj/gb18030.rs). The source corpus
+[`gb18030.rs`](../crates/caj2pdf-core/src/gb18030.rs). The source corpus
 itself contains no four-byte GB18030 title among the ten successful CAJ files,
 so four-byte behavior is independently exercised with synthetic tests rather
 than claimed as corpus compatibility.
@@ -1465,3 +1465,14 @@ source/title/PDF/query bytes remain external. Title encoding evidence justifies
 reusing the existing original GB18030 decoder for the stated profile. Unknown
 record spans and C8/HN-B applicability remain uninterpreted. Native reader and
 PDF destination changes belong to #119 and require their own tests/review.
+
+
+### HN-A native outlines
+
+The ranged HN-A outline visitor and nullable XYZ PDF destination support are
+original MIT implementations based on the independent observations documented
+in [HN-A outline fields](hnc8-outline-fields.md). The existing original GB18030
+decoder was moved to a shared core module without changing its mapping.
+No Python, Go or private HN/JBIG implementation was copied or transliterated.
+Tests contain invented records and titles; external documents, title lists,
+reference PDFs and caller-owned QM table data are not redistributed.

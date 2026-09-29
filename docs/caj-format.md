@@ -153,7 +153,7 @@ a passing render check.
 
 ## Encoding implementation provenance
 
-[`gb18030.rs`](../crates/caj2pdf-core/src/caj/gb18030.rs) is original MIT
+[`gb18030.rs`](../crates/caj2pdf-core/src/gb18030.rs) is original MIT
 code. Its mapping data was generated through exhaustive black-box queries to
 Python 3.13.5's `gb18030` decoder, with no inspection or copying of codec
 source or tables: 23,940 two-byte candidates all mapped, and 1,587,600

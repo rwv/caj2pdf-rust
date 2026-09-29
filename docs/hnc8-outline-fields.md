@@ -115,3 +115,39 @@ it records source/output/script/control identities and actual results. Source,
 mutated documents, copied titles, PDFs and query output remain external. No
 converter implementation was read or copied. Existing original outline-parser
 tests passed (42 tests); no runtime format implementation is introduced here.
+
+
+## Native reader and PDF integration
+
+`Hnc8Reader::visit_bookmarks(max_depth, output_pages, map_page, visitor)`
+reads one 308-byte record at a time. The mapping takes a one-based physical
+source page and returns a zero-based emitted page, or `None` for an omitted
+page. Invalid/omitted destinations fail explicitly. Failure or cancellation
+poisons the reader so partial visitor output cannot accidentally be replayed.
+
+`ComposeOptions::include_bookmarks` opts into HN-A outlines after page output;
+it defaults to `false`. The current HN-A composer emits every source page in
+order, so its mapping is identity minus one. C8/HN-B opt-in fails before output.
+`PdfDocument::add_bookmark_with_view` accepts `BookmarkView::Xyz`, emitting
+`/XYZ null null null`; existing `add_bookmark` callers retain `/Fit`.
+
+**Unstable API migration:** explicit `ComposeOptions` struct literals must add
+`include_bookmarks: false` (or use `..Default::default()`). Set it to `true` to
+request outlines. A conversion failure invalidates the partial PDF.
+The diagnostic example accepts an optional final `--bookmarks` argument.
+CLI and JavaScript family routing are separate work.
+
+Original synthetic tests cover record fields, Unicode/empty titles, nesting,
+page remapping, bounds, short reads, cancellation and visitor failures. qpdf
+checks an emitted synthetic PDF's titles, hierarchy, destinations and views.
+A composition test confirms enabling outlines preserves its JPEG stream.
+
+External native outline-only PDFs with placeholder pages matched all 159
+reference entries above through qpdf and MuPDF, including target pages and
+nullable XYZ views. These PDFs validate the outline path, not page content.
+Full composition attempts for both sources failed on page 1 at the existing
+text-prefix profile check (source offsets 16092 and 36156). They are failures,
+not skipped passes. Further page-profile support and complete-page comparison
+remain necessary before claiming complete conversion for these sources.
+Results and failed diagnostic logs remain outside Git under
+`caj2pdf-native-outlines-20260929`.

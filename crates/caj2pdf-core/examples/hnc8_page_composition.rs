@@ -266,9 +266,10 @@ fn caller_table(path: &Path, limits: &Limits) -> Result<QmTable, Box<dyn StdErro
 
 fn run() -> Result<(), Box<dyn StdError>> {
     let args: Vec<_> = env::args_os().skip(1).collect();
-    if args.len() != 4 {
+    if args.len() != 4 && !(args.len() == 5 && args[4] == "--bookmarks") {
         return Err(
-            "usage: hnc8_page_composition SOURCE OUTPUT_PDF TABLE SCRATCH_DIRECTORY".into(),
+            "usage: hnc8_page_composition SOURCE OUTPUT_PDF TABLE SCRATCH_DIRECTORY [--bookmarks]"
+                .into(),
         );
     }
     let scratch_dir = Path::new(&args[3]).canonicalize()?;
@@ -284,6 +285,7 @@ fn run() -> Result<(), Box<dyn StdError>> {
         max_bookmarks: 4096,
     };
     let options = ComposeOptions {
+        include_bookmarks: args.len() == 5,
         container: Budget {
             max_outline_records: 4096,
             max_images_per_page: 256,

@@ -15,6 +15,7 @@ mod convert_jbig2;
 mod convert_jpeg;
 mod image_emit;
 mod jpeg;
+mod outline;
 mod placement;
 mod text;
 

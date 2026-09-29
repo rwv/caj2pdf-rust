@@ -1833,3 +1833,76 @@ fn independent_render_proves_padded_orientation_and_later_overlap_pixels() {
     assert_eq!(case.visitor.images.len(), 4);
     assert!(case.scratch.bytes.is_empty());
 }
+
+#[test]
+fn optional_hna_outlines_preserve_image_bytes_and_use_nullable_xyz() {
+    let image = Record::jpeg(8, 8, 90, 0, 0);
+    let mut fixture = fixture(Variant::HnA, &[vec![image.clone()]]);
+    let at = fixture.index;
+    fixture.bytes.splice(at..at, [0; 308]);
+    fixture.bytes[344..348].copy_from_slice(&1_i32.to_le_bytes());
+    fixture.bytes[at..at + 8].copy_from_slice(b"Original");
+    fixture.bytes[at + 280] = b'1';
+    fixture.bytes[at + 304..at + 308].copy_from_slice(&1_u32.to_le_bytes());
+    let row = at + 308;
+    fixture.bytes[row..row + 4]
+        .copy_from_slice(&((fixture.text_offsets[0] + 308) as i32).to_le_bytes());
+    let descriptor = fixture.descriptors[0][0] as usize + 308;
+    fixture.bytes[descriptor + 4..descriptor + 8]
+        .copy_from_slice(&((fixture.payloads[0][0] + 308) as i32).to_le_bytes());
+    let limits = Limits::default();
+    let mut sink = Sink::default();
+    let report = convert(
+        &mut Source::new(fixture.bytes.clone()),
+        &mut sink,
+        None,
+        &mut Scratch::default(),
+        &mut Visitor::default(),
+        ComposeOptions {
+            include_bookmarks: true,
+            ..ComposeOptions::default()
+        },
+        &limits,
+    )
+    .unwrap();
+    assert_eq!(report.conversion.bookmarks_written, 1);
+    assert_eq!(report.output_pages, 1);
+    assert!(contains(&sink.bytes, b"/XYZ null null null"));
+    assert!(contains(&sink.bytes, &image.bytes));
+    fixture.bytes[at + 280] = b'2';
+    let error = convert(
+        &mut Source::new(fixture.bytes),
+        &mut Sink::default(),
+        None,
+        &mut Scratch::default(),
+        &mut Visitor::default(),
+        ComposeOptions {
+            include_bookmarks: true,
+            ..ComposeOptions::default()
+        },
+        &limits,
+    )
+    .unwrap_err();
+    assert!(matches!(error.kind, ComposeErrorKind::Container(_)));
+}
+
+#[test]
+fn unproven_outline_variants_fail_before_pdf_output() {
+    let fixture = fixture(Variant::C8, &[vec![Record::jpeg(8, 8, 90, 0, 0)]]);
+    let mut sink = Sink::default();
+    let error = convert(
+        &mut Source::new(fixture.bytes),
+        &mut sink,
+        None,
+        &mut Scratch::default(),
+        &mut Visitor::default(),
+        ComposeOptions {
+            include_bookmarks: true,
+            ..ComposeOptions::default()
+        },
+        &Limits::default(),
+    )
+    .unwrap_err();
+    assert!(matches!(error.kind, ComposeErrorKind::Unsupported(_)));
+    assert!(sink.bytes.is_empty());
+}

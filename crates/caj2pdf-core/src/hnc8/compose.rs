@@ -18,10 +18,11 @@ use super::{
 use crate::fallible::{len_u64, reserve_exact, usize_from_u32};
 use crate::jbig1::{Type0Budget, Type0Error, Type0ErrorKind, Type0Info, read_type0_info};
 use crate::jbig2::text_composer::RandomAccessScratch;
-use crate::pdf::{ImagePlacement, MAX_PAGE_IMAGE_PLACEMENTS, PageSpec, PdfDocument};
+use crate::pdf::{BookmarkView, ImagePlacement, MAX_PAGE_IMAGE_PLACEMENTS, PageSpec, PdfDocument};
 use crate::qm::{ArithmeticBudget, ArithmeticError, ContextBank, QmTable};
 use crate::{
-    Cancellation, ConversionReport, Error, Limits, MAX_BUDGET_COUNT, RangedSource, SequentialSink,
+    Bookmark, BookmarkVisitor, Cancellation, ConversionReport, Error, Limits, MAX_BUDGET_COUNT,
+    RangedSource, SequentialSink,
 };
 use std::{error, fmt, mem::size_of};
 
@@ -49,6 +50,9 @@ impl Default for ComposeBudget {
 /// with origin `[0, 0]`; arbitrary scaling and clipping are not performed.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ComposeOptions {
+    /// Emit validated HN-A outlines after page composition. Defaults to false
+    /// to preserve the existing image-only diagnostic API; C8/HN-B are refused.
+    pub include_bookmarks: bool,
     pub container: Budget,
     pub text: TextBudget,
     pub jpeg: JpegBudget,
@@ -61,6 +65,7 @@ impl Default for ComposeOptions {
     fn default() -> Self {
         let type0 = Type0PdfOptions::default();
         Self {
+            include_bookmarks: false,
             container: Budget::default(),
             text: TextBudget::default(),
             jpeg: JpegBudget::default(),
@@ -75,6 +80,16 @@ impl Default for ComposeOptions {
 enum CheckedImage {
     Type0(Type0Info),
     Jpeg(CheckedType2),
+}
+
+struct OutlineSink<'a, 'b, W: SequentialSink, C: Cancellation>(&'a mut PdfDocument<'b, W, C>);
+
+impl<W: SequentialSink, C: Cancellation> BookmarkVisitor for OutlineSink<'_, '_, W, C> {
+    async fn visit(&mut self, bookmark: Bookmark) -> crate::Result<()> {
+        self.0
+            .add_bookmark_with_view(bookmark, BookmarkView::Xyz)
+            .await
+    }
 }
 
 /// Source-derived facts for one completed draw, in descriptor order.
@@ -532,6 +547,12 @@ where
         offset: Some(0),
         ..At::NONE
     };
+    if options.include_bookmarks && header.variant != Variant::HnA {
+        return Err(document_at.error(
+            ComposeStage::Preflight,
+            ComposeErrorKind::Unsupported("outlines are only validated for HN-A"),
+        ));
+    }
     let mut document = PdfDocument::new(sink, limits, cancellation)
         .await
         .map_err(document_at.io(ComposeStage::Pdf))?;
@@ -823,6 +844,20 @@ where
     }
     if report.output_pages == 0 {
         return Err(document_at.error(ComposeStage::Preflight, ComposeErrorKind::NoImages));
+    }
+    if options.include_bookmarks {
+        // This HN-A composer emits every source row in order and rejects
+        // no-image rows, so its actual source/output map is the identity map.
+        debug_assert_eq!(report.output_pages, header.page_count);
+        reader
+            .visit_bookmarks(
+                64,
+                report.output_pages,
+                |page| Some(page - 1),
+                &mut OutlineSink(&mut document),
+            )
+            .await
+            .map_err(|error| container(error, ComposeStage::Container))?;
     }
     report.conversion = document
         .finish()
