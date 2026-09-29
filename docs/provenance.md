@@ -1,5 +1,13 @@
 # Provenance and dependency inventory
 
+## Type-3 shared image emission (#118)
+
+The internal preflight/preparation/emission split reuses original MIT code
+from `hnc8/convert_jbig2.rs`. The shared synthetic fixture builder was moved
+from the existing original type-3 integration test; the new in-crate test
+uses the same invented MQ states. No normative table, external document,
+third-party implementation or new dependency is included.
+
 ## 2026-09-29 JavaScript delivery validation (#13)
 
 The Node/browser example fixes, artifact tests, compile-only consumer checks,
