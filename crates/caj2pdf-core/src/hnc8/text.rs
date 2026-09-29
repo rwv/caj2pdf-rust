@@ -11,6 +11,7 @@ use flate2::{Decompress, FlushDecompress, Status};
 use sha2::{Digest, Sha256};
 
 mod raw;
+mod records;
 
 const HEADER_BYTES: usize = 24;
 const CHUNK_BYTES: usize = 64 * 1024;
@@ -67,7 +68,7 @@ pub struct TextCoordinates {
     pub zlib_frame: Option<Span>,
     /// Expanded length, or the full indexed raw span including its opaque tail.
     pub decoded_length: u32,
-    /// Compressed glyph records, or all logical raw glyph/control/image/end records.
+    /// Fixed-layout glyph records, or logical raw/direct-frame records.
     pub record_count: u32,
     pub coordinates: Vec<RawTextCoordinate>,
     /// SHA-256 of the zlib frame, or the entire uncompressed text span.
@@ -82,7 +83,7 @@ pub struct TextCoordinates {
     pub working_memory_bytes: u64,
 }
 
-/// Validate compressed HN-A/C8 text or the observed uncompressed HN-A records.
+/// Validate either compressed HN-A/C8 text layout or uncompressed HN-A records.
 ///
 /// The caller supplies metadata from the same stable [`RangedSource`],
 /// normally [`super::Hnc8Reader`]. Public header/page values are rechecked
@@ -295,10 +296,14 @@ struct Accumulator {
     tail_start: u32,
     coordinates: Vec<RawTextCoordinate>,
     loc: Location,
+    records: Option<records::Records>,
 }
 
 impl Accumulator {
     fn consume(&mut self, offset: u64, bytes: &[u8]) -> Result<()> {
+        if let Some(records) = &mut self.records {
+            return records.consume(bytes, &mut self.coordinates, self.loc);
+        }
         for (index, byte) in bytes.iter().copied().enumerate() {
             let at = offset + len_u64(index);
             if at >= 8 && at < u64::from(self.glyph_end) {
@@ -353,14 +358,24 @@ async fn read_compressed_text<S: RangedSource, C: Cancellation>(
         &mut max_source_request_bytes,
     )
     .await?;
-    // The two payload words at +2/+6 vary across documents and are not
-    // needed for image placement. Validate tags and compression marker,
-    // then the declared length, complete zlib frame and decoded records.
-    if fixed[..2] != [0x03, 0x80] || fixed[4..6] != [0x03, 0x80] || &fixed[8..20] != b"COMPRESSTEXT"
+    // A direct marker selects compact records. The older tagged prefix
+    // selects the fixed glyph/tail layout; its +2/+6 payload words vary.
+    // Both paths validate the declared length and complete zlib frame.
+    let header_bytes = if &fixed[..12] == b"COMPRESSTEXT" {
+        16
+    } else if fixed[..2] == [0x03, 0x80]
+        && fixed[4..6] == [0x03, 0x80]
+        && &fixed[8..20] == b"COMPRESSTEXT"
     {
+        HEADER_BYTES
+    } else {
         return Err(loc.malformed("page text prefix", "unsupported compressed text header"));
-    }
-    let decoded_length = u32::from_le_bytes(fixed[20..24].try_into().expect("fixed field width"));
+    };
+    let decoded_length = u32::from_le_bytes(
+        fixed[header_bytes - 4..header_bytes]
+            .try_into()
+            .expect("fixed field width"),
+    );
     let decoded_bytes = u64::from(decoded_length);
     if decoded_bytes > budget.max_decoded_bytes {
         return Err(loc.limit(
@@ -377,26 +392,31 @@ async fn read_compressed_text<S: RangedSource, C: Cancellation>(
         ));
     }
     let tail_bytes = u64::from(page.image_count) * 28;
-    let glyph_bytes = decoded_bytes.checked_sub(12 + tail_bytes).ok_or_else(|| {
-        loc.malformed(
-            "decoded text layout",
-            "too short for declared image records",
-        )
-    })?;
-    if glyph_bytes % 16 != 0 {
-        return Err(loc.malformed("decoded text layout", "record area is not a multiple of 16"));
-    }
-    let record_count = (glyph_bytes / 16) as u32;
-    if record_count > budget.max_records {
-        return Err(loc.limit(
-            "text records",
-            u64::from(budget.max_records),
-            u64::from(record_count),
-        ));
-    }
+    let (glyph_bytes, record_count) = if header_bytes == HEADER_BYTES {
+        let glyph_bytes = decoded_bytes.checked_sub(12 + tail_bytes).ok_or_else(|| {
+            loc.malformed(
+                "decoded text layout",
+                "too short for declared image records",
+            )
+        })?;
+        if glyph_bytes % 16 != 0 {
+            return Err(loc.malformed("decoded text layout", "record area is not a multiple of 16"));
+        }
+        let record_count = (glyph_bytes / 16) as u32;
+        if record_count > budget.max_records {
+            return Err(loc.limit(
+                "text records",
+                u64::from(budget.max_records),
+                u64::from(record_count),
+            ));
+        }
+        (glyph_bytes, record_count)
+    } else {
+        (0, 0)
+    };
     let zlib_frame = Span {
-        offset: page.text.offset + HEADER_BYTES as u64,
-        length: page.text.length - HEADER_BYTES as u64,
+        offset: page.text.offset + header_bytes as u64,
+        length: page.text.length - header_bytes as u64,
     };
     if zlib_frame.length < 6 {
         return Err(loc.at(zlib_frame.offset).error(ErrorKind::Truncated {
@@ -424,9 +444,10 @@ async fn read_compressed_text<S: RangedSource, C: Cancellation>(
     let coordinates = allocate(images, RawTextCoordinate::default(), limits, loc)?;
     let mut accumulator = Accumulator {
         glyph_end: (8 + glyph_bytes) as u32,
-        tail_start: (decoded_bytes - tail_bytes) as u32,
+        tail_start: decoded_bytes.saturating_sub(tail_bytes) as u32,
         coordinates,
         loc: loc.at(zlib_frame.offset),
+        records: (header_bytes == 16).then(|| records::Records::new(budget.max_records)),
     };
     let owned_buffer_bytes = len_u64(input.capacity())
         .saturating_add(len_u64(output.capacity()))
@@ -510,6 +531,10 @@ async fn read_compressed_text<S: RangedSource, C: Cancellation>(
             ));
         }
     }
+    let record_count = match accumulator.records {
+        Some(records) => records.finish(images, loc.at(zlib_frame.offset))?,
+        None => record_count,
+    };
     Ok(TextCoordinates {
         text: page.text,
         zlib_frame: Some(zlib_frame),

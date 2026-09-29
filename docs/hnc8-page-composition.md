@@ -15,9 +15,10 @@ support. HN-A outlines can be requested with `include_bookmarks`; see the
 
 The HN-A/C8 path traverses the entire declared index from source page 1. Each
 image-bearing page must have either the [uncompressed HN-A record profile](hnc8-uncompressed-text.md)
-or the compressed text header tags and
-`COMPRESSTEXT` marker, a complete checksummed zlib frame, record markers and
-image tail. The two header payload words may vary across documents; see
+or one of the supported compressed text layouts: the tagged fixed glyph/tail
+layout, or the [directly prefixed record stream](hnc8-direct-text.md). Each
+compressed path requires a complete checksummed zlib frame and consistent
+image records. The two header payload words may vary across documents; see
 [compressed text framing](hnc8-compressed-text-header.md). Every image
 must be type 0, type 2 or type 3. The first checked image determines the page box.
 Type-0 display width retains visible bits when no whole padding bytes are
@@ -182,16 +183,13 @@ image streams exactly after row reversal and white padding. Visible widths
 The reference was run as a black box; its external JBIG2 dependency was built
 outside the repository. No implementation source was inspected or imported.
 
-The subsequent full-source Rust attempt **failed before image decoding**:
-at source byte 160, the existing text reader rejected a header starting
-directly with `COMPRESSTEXT`. The source has a 16-byte compressed header and a
-different expanded record layout, whereas the current compressed reader
-expects two preceding tagged words and its measured fixed record layout.
-This is a concrete next task in #118; merely skipping eight bytes or assuming
-zero coordinates would not implement that layout. External full-page and
-mixed-page reference parity remain unverified. Logs and generated artifacts
-stay in the external `caj2pdf-issue118/reference58` bundle, not Git. CAJViewer
-HN/C8 comparisons remain NOT_RUN.
+The initial full-source Rust attempt failed at byte 160 on the directly
+prefixed text layout. That concrete gap is now implemented; all four source
+pages convert and pass qpdf. MuPDF matches 31,895,688 rendered pixels exactly.
+Poppler has one-level grayscale differences attributable to equivalent row
+orientation/CTM representations, confirmed with a separate control; it is
+not recorded as exact equality. See [the protocol and results](hnc8-direct-text.md).
+Real mixed-page compatibility and CAJViewer HN/C8 comparisons remain open.
 
 ### v0.x API migration
 

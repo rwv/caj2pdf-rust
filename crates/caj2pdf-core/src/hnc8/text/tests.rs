@@ -989,3 +989,225 @@ fn raw_image_only_records_need_no_glyph_run() {
     assert_eq!(report.coordinates, [point(12, 34), point(0xffff, 0x8000)]);
     assert_eq!(report.record_count, 3);
 }
+
+fn direct_fixture(plain: Vec<u8>, images: usize) -> Fixture {
+    let mut fixture = Fixture::new(0, &vec![point(0, 0); images]);
+    fixture.plain = plain;
+    fixture.recompress();
+    fixture.source.bytes.drain(512..520); // Direct marker has no tagged prefix.
+    fixture.source.size -= 8;
+    fixture.page.text.length -= 8;
+    fixture
+}
+
+fn direct_record(tag: u16, value: u16) -> [u8; 4] {
+    let [a, b] = tag.to_le_bytes();
+    let [c, d] = value.to_le_bytes();
+    [a, b, c, d]
+}
+
+fn direct_image(coordinate: RawTextCoordinate) -> Vec<u8> {
+    let mut bytes = direct_record(0x800a, 73).to_vec();
+    bytes.extend(coordinate.x.to_le_bytes());
+    bytes.extend(coordinate.y.to_le_bytes());
+    // Image payload deliberately contains tags that are not record starts.
+    for tag in [0x800a, 0x8004, 0x8071, 0x8070, 0xffff] {
+        bytes.extend(direct_record(tag, 42));
+    }
+    bytes
+}
+
+#[test]
+fn direct_compressed_records_cross_chunks_without_scanning_image_or_tail_payloads() {
+    let expected = [point(0x8004, 0xffff), point(17, 39)];
+    let mut plain = Vec::new();
+    for tag in [0x8001, 0x801c, 0x801d, 0x80ff, 0x8070, 0x8071] {
+        plain.extend(direct_record(tag, 99));
+    }
+    plain.extend(direct_image(expected[0]));
+    plain.extend(direct_record(0x1234, 0x800a));
+    plain.extend(direct_image(expected[1]));
+    plain.extend(direct_record(0x8004, 201));
+    plain.extend([0x0a, 0x80, 0x04, 0x80, 0xff]); // Indexed opaque tail.
+    for chunk in 1..=31 {
+        let mut fixture = direct_fixture(plain.clone(), 2);
+        fixture.source.short = 3;
+        if chunk % 2 == 0 {
+            fixture.header.variant = Variant::HnA;
+            fixture.header.page_index.offset = 0x15c;
+            fixture.page.row_offset = 0x15c;
+        }
+        let output = fixture
+            .parse(
+                Limits {
+                    io_chunk_bytes: chunk,
+                    ..Limits::default()
+                },
+                TextBudget::default(),
+                &NeverCancel,
+            )
+            .unwrap();
+        assert_eq!(output.coordinates, expected);
+        assert_eq!(output.record_count, 10);
+        assert_eq!(output.zlib_frame.unwrap().offset, 528);
+        assert_eq!(output.decoded_length, plain.len() as u32);
+        assert_eq!(
+            output.decoded_sha256,
+            <[u8; 32]>::from(Sha256::digest(&plain))
+        );
+        assert_eq!(
+            output.encoded_sha256,
+            <[u8; 32]>::from(Sha256::digest(&fixture.source.bytes[528..]))
+        );
+        assert!(output.max_source_request_bytes <= chunk);
+        assert!(output.max_decoder_output_chunk_bytes <= chunk);
+    }
+}
+
+#[test]
+fn direct_record_counts_unknown_tags_and_incomplete_records_are_refused() {
+    let image = direct_image(point(4, 8));
+    let end = direct_record(0x8004, 0);
+    let valid = [image.as_slice(), &end].concat();
+    for length in 0..valid.len() {
+        assert!(
+            direct_fixture(valid[..length].to_vec(), 1)
+                .normal()
+                .is_err(),
+            "accepted prefix {length}"
+        );
+    }
+    for tag in [0x8000, 0x8002, 0x8003, 0xffff] {
+        let bytes = [&direct_record(tag, 0)[..], &valid].concat();
+        let error = direct_fixture(bytes, 1).normal().unwrap_err();
+        assert!(error.to_string().contains("unknown control tag"));
+        assert_eq!(
+            error.offset, 528,
+            "compressed diagnostics use a source anchor"
+        );
+    }
+    for images in [0, 2] {
+        let error = direct_fixture(valid.clone(), images).normal().unwrap_err();
+        assert!(error.to_string().contains("image records"));
+    }
+    let no_images = direct_fixture(end.to_vec(), 0).normal().unwrap();
+    assert!(no_images.coordinates.is_empty());
+    assert_eq!(no_images.record_count, 1);
+    for limit in [0, 1] {
+        let mut fixture = direct_fixture(valid.clone(), 1);
+        assert!(
+            fixture
+                .parse(
+                    Limits::default(),
+                    TextBudget {
+                        max_records: limit,
+                        ..TextBudget::default()
+                    },
+                    &NeverCancel
+                )
+                .is_err()
+        );
+    }
+    assert_eq!(
+        direct_fixture(valid, 1)
+            .parse(
+                Limits::default(),
+                TextBudget {
+                    max_records: 2,
+                    ..TextBudget::default()
+                },
+                &NeverCancel
+            )
+            .unwrap()
+            .record_count,
+        2
+    );
+}
+
+#[test]
+fn direct_opaque_tail_stays_bounded_and_requires_the_complete_checksum() {
+    let mut plain = direct_image(point(7, 11));
+    plain.extend(direct_record(0x8004, 0));
+    plain.extend(vec![0xaa; 128 * 1024]);
+    let mut fixture = direct_fixture(plain.clone(), 1);
+    let output = fixture
+        .parse(
+            Limits {
+                io_chunk_bytes: 17,
+                ..Limits::default()
+            },
+            TextBudget::default(),
+            &NeverCancel,
+        )
+        .unwrap();
+    assert_eq!(output.coordinates, [point(7, 11)]);
+    assert!(output.owned_buffer_bytes <= 17 * 2 + 4);
+    assert_eq!(output.record_count, 2);
+    let last = fixture.source.bytes.len() - 1;
+    fixture.source.bytes[last] ^= 1;
+    assert!(
+        fixture
+            .normal()
+            .unwrap_err()
+            .to_string()
+            .contains("checksum")
+    );
+    let mut fixture = direct_fixture(plain, 1);
+    fixture.source.bytes.push(0);
+    fixture.source.size += 1;
+    fixture.page.text.length += 1;
+    assert!(
+        fixture
+            .normal()
+            .unwrap_err()
+            .to_string()
+            .contains("end differs")
+    );
+}
+
+#[test]
+fn direct_frame_cancellation_and_source_faults_return_no_partial_coordinates() {
+    let plain = [
+        direct_image(point(3, 7)),
+        direct_record(0x8004, 0).to_vec(),
+        vec![0xab; 97],
+    ]
+    .concat();
+    let mut completed = false;
+    for polls in 0..1000 {
+        let result = direct_fixture(plain.clone(), 1).parse(
+            Limits {
+                io_chunk_bytes: 7,
+                ..Limits::default()
+            },
+            TextBudget::default(),
+            &CancelAfter(Cell::new(polls)),
+        );
+        match result {
+            Err(error) => assert_eq!(error.kind.as_str(), "cancelled"),
+            Ok(output) => {
+                assert_eq!(output.coordinates, [point(3, 7)]);
+                completed = true;
+                break;
+            }
+        }
+    }
+    assert!(completed);
+    for fault in [Fault::Zero, Fault::Overreport, Fault::Error] {
+        let mut fixture = direct_fixture(plain.clone(), 1);
+        fixture.source.fault = fault;
+        fixture.source.fault_at = 536;
+        assert!(
+            fixture
+                .parse(
+                    Limits {
+                        io_chunk_bytes: 7,
+                        ..Limits::default()
+                    },
+                    TextBudget::default(),
+                    &NeverCancel
+                )
+                .is_err()
+        );
+    }
+}

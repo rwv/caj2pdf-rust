@@ -194,10 +194,10 @@ issue acceptance criteria are authoritative for each task.
   [the evidence and legacy deviation](docs/hnc8-uncompressed-text.md).
   C8/HN-B outlines and general HN coverage remain parent #10 work.
 - Type-3/mixed-image composition now reuses the existing decoder and writer
-  with bounded scratch storage and original tests. Next in #118: support the
-  concrete text-layout gap exposed by issue-58 (a direct 16-byte COMPRESSTEXT
-  header and different expanded records), then compare real complete pages.
-  This core integration does not establish external full-page parity. Connect
+  with bounded scratch storage and original tests. Issue-58's direct compressed
+  text records now parse; its four complete pages match MuPDF exactly, with
+  separately explained Poppler orientation-rounding differences. Next in #118:
+  verify an actual mixed page and its source-to-image coordinate mapping. Connect
   complete HN/C8 conversion to CLI and JS in #10 using #13's adapters.
 - Keep complete HN/C8 conversion (#10), codec rights, vendor comparisons
   (#123/#129) and the release matrix (#14) as explicit remaining requirements.
