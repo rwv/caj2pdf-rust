@@ -933,7 +933,7 @@ def _receipt(value, manifest, limits):
     for key, cap in (("elapsed_ms", "wall_ms"), ("owned_disk_peak_bytes", "session_bytes")):
         # Failed/manual observations may lack telemetry; never invent zeroes.
         # A passing acquisition still needs measured values within its caps.
-        if resources[key] is not None or passing:
+        if resources[key] is not None or value["status"] != "FAIL":
             _integer(resources[key], "receipt.resources." + key, caps[cap] if passing else (1 << 63) - 1)
     memory = _object(resources["process_tree_memory"], "status peak_bytes method", "receipt.resources.process_tree_memory")
     _choice(memory["status"], {"MEASURED", "UNAVAILABLE"}, "receipt.memory.status")

@@ -61,14 +61,15 @@ class OriginalBundle:
 class VendorFixtures(unittest.TestCase):
     def test_missing_telemetry_is_retained_only_for_failed_receipts(self):
         manifest, files = subject.control_data()
-        receipt = json.loads(files[("bundle", "receipt.json")])
-        receipt["status"] = "FAIL"
         for key in ("elapsed_ms", "owned_disk_peak_bytes"):
-            receipt["resources"][key] = None
-        subject._receipt(receipt, manifest, subject.Limits())
-        receipt["status"] = "PASS"
-        with self.assertRaises(subject.FixtureError):
-            subject._receipt(receipt, manifest, subject.Limits())
+            with self.subTest(resource=key):
+                receipt = json.loads(files[("bundle", "receipt.json")])
+                receipt["status"] = "FAIL"
+                receipt["resources"][key] = None
+                subject._receipt(receipt, manifest, subject.Limits())
+                receipt["status"] = "PASS"
+                with self.assertRaisesRegex(subject.FixtureError, key):
+                    subject._receipt(receipt, manifest, subject.Limits())
 
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
