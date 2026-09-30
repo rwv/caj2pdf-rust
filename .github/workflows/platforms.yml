@@ -498,6 +498,7 @@ jobs:
       - name: Run core and CLI tests on Android
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
         with:
+          emulator-build: '15917651' # 37.1.11.0
           api-level: ${{ matrix.api }}
           arch: ${{ matrix.arch }}
           target: ${{ matrix.image || 'default' }}
