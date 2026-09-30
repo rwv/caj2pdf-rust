@@ -52,6 +52,7 @@ targets = [
     "x86_64-linux-android",
     "i686-linux-android",
     "aarch64-unknown-netbsd",
+    "aarch64-unknown-openbsd",
     "wasm32-unknown-unknown",
 ]
 

@@ -55,3 +55,6 @@ not used as an unverified substitute.
   when requesting software acceleration. ARMv7 was also attempted through
   the ARM64 API 30 image. A suitable ARM device/virtualization host is needed;
   these build-only outputs are not release support. Android x86/x86_64 passes.
+
+A m68k retry with static relocation and PIE disabled hit the same LLVM std
+instruction-selection failure; those ineffective flags were removed.

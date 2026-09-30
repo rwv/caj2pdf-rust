@@ -350,6 +350,7 @@ jobs:
       matrix:
         include:
           - {arch: x86_64, target: x86_64-unknown-openbsd}
+          - {arch: aarch64, target: aarch64-unknown-openbsd}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Test release target in openbsd
