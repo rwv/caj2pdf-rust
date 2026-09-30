@@ -5,9 +5,10 @@
 
 use crate::CliError;
 use crate::files::Input;
+use crate::signals::ProcessCancellation;
 use caj2pdf_core::{
-    Bookmark, ConversionOptions, Error, InputFormat, Limits, NeverCancel, RangedSource,
-    SIGNATURE_BYTES, caj, detect_format,
+    Bookmark, ConversionOptions, Error, InputFormat, Limits, RangedSource, SIGNATURE_BYTES, caj,
+    detect_format,
     kdh::{KdhPdfSource, convert_kdh},
     native::{SeekableSource, WriteSink},
     pdf::{PdfIndex, PdfOutlineAppender, PdfRange, copy_pdf},
@@ -59,9 +60,15 @@ fn text(error: Error) -> String {
 async fn detect<S: RangedSource>(source: &mut S, limits: &Limits) -> Result<InputFormat, String> {
     let mut header = [0; SIGNATURE_BYTES];
     let length = source.size().min(header.len() as u64) as usize;
-    read_exact_at(source, 0, &mut header[..length], limits, &NeverCancel)
-        .await
-        .map_err(text)?;
+    read_exact_at(
+        source,
+        0,
+        &mut header[..length],
+        limits,
+        &ProcessCancellation,
+    )
+    .await
+    .map_err(text)?;
     if length == 0 {
         return Err("input is empty".to_owned());
     }
@@ -91,7 +98,7 @@ pub fn convert<W: Write>(
         let mut source = ranged(&mut input.file)?;
         let mut sink = WriteSink::new(writer);
         match detect(&mut source, limits).await? {
-            InputFormat::Pdf => copy_pdf(&mut source, &mut sink, limits, &NeverCancel)
+            InputFormat::Pdf => copy_pdf(&mut source, &mut sink, limits, &ProcessCancellation)
                 .await
                 .map_err(text),
             InputFormat::Caj => caj::convert_caj(
@@ -99,11 +106,11 @@ pub fn convert<W: Write>(
                 &mut sink,
                 ConversionOptions { include_bookmarks },
                 limits,
-                &NeverCancel,
+                &ProcessCancellation,
             )
             .await
             .map_err(text),
-            InputFormat::Kdh => convert_kdh(&mut source, &mut sink, limits, &NeverCancel)
+            InputFormat::Kdh => convert_kdh(&mut source, &mut sink, limits, &ProcessCancellation)
                 .await
                 .map_err(text),
             InputFormat::Hn | InputFormat::C8 => {
@@ -136,7 +143,7 @@ async fn index_pdf<S: RangedSource>(source: &mut S, limits: &Limits) -> Result<P
         offset: 0,
         length: source.size(),
     };
-    PdfIndex::open(source, range, limits, &NeverCancel)
+    PdfIndex::open(source, range, limits, &ProcessCancellation)
         .await
         .map_err(text)
 }
@@ -159,13 +166,13 @@ async fn inspect_source<S: RangedSource>(
     Ok(match format {
         InputFormat::Pdf => pdf_inspection(format, &index_pdf(source, limits).await?),
         InputFormat::Kdh => {
-            let mut decoded = KdhPdfSource::open(source, limits, &NeverCancel)
+            let mut decoded = KdhPdfSource::open(source, limits, &ProcessCancellation)
                 .await
                 .map_err(text)?;
             pdf_inspection(format, &index_pdf(&mut decoded, limits).await?)
         }
         InputFormat::Caj => {
-            let metadata = caj::parse_metadata(source, limits, &NeverCancel)
+            let metadata = caj::parse_metadata(source, limits, &ProcessCancellation)
                 .await
                 .map_err(text)?;
             Inspection {
@@ -217,7 +224,7 @@ pub fn add_bookmarks<W: Write>(
     let bookmarks = block_on(async {
         let mut source = ranged(outline_file)?;
         match detect(&mut source, limits).await? {
-            InputFormat::Caj => caj::parse_metadata(&mut source, limits, &NeverCancel)
+            InputFormat::Caj => caj::parse_metadata(&mut source, limits, &ProcessCancellation)
                 .await
                 .map(|metadata| metadata.bookmarks)
                 .map_err(text),
@@ -251,7 +258,8 @@ pub fn add_bookmarks<W: Write>(
     let mut sink = WriteSink::new(writer);
     block_on(async {
         let mut appender =
-            PdfOutlineAppender::begin(&mut source, &mut sink, &index, limits, &NeverCancel).await?;
+            PdfOutlineAppender::begin(&mut source, &mut sink, &index, limits, &ProcessCancellation)
+                .await?;
         for bookmark in bookmarks {
             appender.add_bookmark(bookmark).await?;
         }

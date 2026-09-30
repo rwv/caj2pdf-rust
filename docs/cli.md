@@ -291,3 +291,16 @@ C8/HN-B outline semantics are still unverified.
 The complete 163-page multi-image HN-A run, including 96 source bookmarks,
 PDF structure/rendering checks and cross-interface hashes, is recorded in
 [public-interface validation](js-validation.md#complete-multi-image-hn-a-public-interface-check).
+
+## Interruption
+
+SIGINT (Ctrl+C) and SIGTERM request cooperative cancellation. During conversion,
+inspection and bookmark import, the core checks the request between bounded I/O
+and decoder work units. A cancelled conversion exits with status 1, removes its
+staged output, and leaves an existing destination unchanged. Bytes already sent
+to stdout cannot be recalled.
+
+An operating-system read or write can remain blocked until it returns. A second
+termination signal forces the normal signal action; forced termination (including
+SIGKILL) can leave a named output temporary file. Anonymous scratch files are
+released by the operating system. Do not rely on forced termination for cleanup.

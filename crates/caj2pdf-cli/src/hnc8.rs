@@ -2,13 +2,14 @@
 
 //! Experimental HN/C8 CLI routing with standard states and optional overrides.
 
+use crate::signals::ProcessCancellation;
 use crate::{
     CliError,
     args::{ConvertOptions, Endpoint},
     files::{Input, anonymous_file, open_input},
 };
 use caj2pdf_core::{
-    ConversionReport, Error, Limits, NeverCancel, RangedSource, SequentialSink,
+    ConversionReport, Error, Limits, RangedSource, SequentialSink,
     hnc8::{
         ComposeOptions, ComposePage, ComposeType3Workspaces, ComposeVisitor, ComposeWorkspaces,
         convert_source_pages_pdf,
@@ -180,7 +181,7 @@ pub async fn convert<S: RangedSource, W: SequentialSink>(
         &mut CompletePages,
         options,
         limits,
-        &NeverCancel,
+        &ProcessCancellation,
     )
     .await
     .map(|report| report.conversion)
@@ -199,7 +200,7 @@ pub async fn inspect<S: RangedSource>(
     String,
 > {
     use caj2pdf_core::hnc8::{Budget, Hnc8Reader};
-    let mut reader = Hnc8Reader::open(source, limits, &NeverCancel, Budget::default())
+    let mut reader = Hnc8Reader::open(source, limits, &ProcessCancellation, Budget::default())
         .await
         .map_err(|e| e.to_string())?;
     let header = reader.header();

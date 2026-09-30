@@ -21,6 +21,8 @@ mod hnc8;
 mod json;
 #[cfg(unix)]
 mod report;
+#[cfg(unix)]
+mod signals;
 #[cfg(all(test, unix))]
 mod tests;
 
@@ -146,7 +148,9 @@ mod cli {
     }
 
     pub fn main() -> Result<(), CliError> {
-        run(args::parse(std::env::args_os().skip(1)).map_err(CliError::usage)?)
+        let command = args::parse(std::env::args_os().skip(1)).map_err(CliError::usage)?;
+        crate::signals::install().map_err(|error| CliError::runtime(error.to_string()))?;
+        run(command)
     }
 }
 
