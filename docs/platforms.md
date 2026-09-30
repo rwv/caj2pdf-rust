@@ -20,7 +20,8 @@ FreeBSD uses its packaged compiler; the exact build log records the version.
 Do not infer support for older OS/libc versions from compilation alone. No
 claim is made for Android/iOS applications, embedded targets, other BSDs or
 architectures outside this matrix. They need their own platform adapter and
-runtime evidence. Windows binaries are not Authenticode-signed and macOS
+runtime evidence. Windows builds statically link the MSVC CRT to avoid a separate VC runtime
+installation. Windows binaries are not Authenticode-signed and macOS
 binaries are not notarized; local OS trust prompts may apply.
 
 ## What each target checks

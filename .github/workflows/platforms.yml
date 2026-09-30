@@ -34,6 +34,7 @@ jobs:
         run: |
           rustup show active-toolchain
           rustup target add '${{ matrix.target }}'
+          if [[ "$RUNNER_OS" == Windows ]]; then echo 'RUSTFLAGS=-C target-feature=+crt-static' >> "$GITHUB_ENV"; fi
       - name: Install Linux validators and musl linker
         if: runner.os == 'Linux'
         run: |
@@ -71,11 +72,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - {target: i686-unknown-linux-gnu, compiler: i686-linux-gnu, qemu: i386}
-          - {target: armv7-unknown-linux-gnueabihf, compiler: arm-linux-gnueabihf, qemu: arm}
-          - {target: riscv64gc-unknown-linux-gnu, compiler: riscv64-linux-gnu, qemu: riscv64}
-          - {target: powerpc64le-unknown-linux-gnu, compiler: powerpc64le-linux-gnu, qemu: ppc64le}
-          - {target: s390x-unknown-linux-gnu, compiler: s390x-linux-gnu, qemu: s390x}
+          - {target: i686-unknown-linux-gnu, libc: i386, compiler: i686-linux-gnu, qemu: i386}
+          - {target: armv7-unknown-linux-gnueabihf, libc: armhf, compiler: arm-linux-gnueabihf, qemu: arm}
+          - {target: riscv64gc-unknown-linux-gnu, libc: riscv64, compiler: riscv64-linux-gnu, qemu: riscv64}
+          - {target: powerpc64le-unknown-linux-gnu, libc: ppc64el, compiler: powerpc64le-linux-gnu, qemu: ppc64le}
+          - {target: s390x-unknown-linux-gnu, libc: s390x, compiler: s390x-linux-gnu, qemu: s390x}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Install cross compiler and emulator
@@ -87,7 +88,7 @@ jobs:
           rustup show active-toolchain
           rustup target add "$TARGET"
           sudo apt-get update
-          sudo apt-get install --no-install-recommends -y "gcc-$COMPILER" qemu-user qpdf mupdf-tools
+          sudo apt-get install --no-install-recommends -y "gcc-$COMPILER" "libc6-dev-${{ matrix.libc }}-cross" qemu-user qpdf mupdf-tools
           key="$(echo "$TARGET" | tr '[:lower:]-' '[:upper:]_')"
           echo "CARGO_TARGET_${key}_LINKER=$COMPILER-gcc" >> "$GITHUB_ENV"
           echo "CARGO_TARGET_${key}_RUNNER=qemu-$QEMU -L /usr/$COMPILER" >> "$GITHUB_ENV"
@@ -122,6 +123,8 @@ jobs:
           arch: ${{ matrix.arch }}
           usesh: true
           mem: 4096
+          cpu: 2
+          cache-after-prepare: true
           prepare: pkg install -y rust python311 qpdf mupdf
           run: |
             set -eu
