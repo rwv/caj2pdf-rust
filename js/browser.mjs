@@ -85,7 +85,7 @@ export async function spoolToOpfs(stream, { maxBytes, signal, storage = globalTh
         await root.removeEntry(name);
         return;
       } catch (error) {
-        if (error.name !== "NoModificationAllowedError" || attempt === 2) throw error;
+        if (error?.name !== "NoModificationAllowedError" || attempt === 2) throw error;
         await new Promise((resolve) => setTimeout(resolve, attempt === 0 ? 10 : 50));
       }
     }
