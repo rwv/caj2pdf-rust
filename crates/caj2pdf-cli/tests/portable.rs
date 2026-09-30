@@ -28,7 +28,15 @@ impl Directory {
         Self(path)
     }
     fn command(&self, args: &[&str]) -> Command {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_caj2pdf"));
+        let runner = std::env::var("CAJ2PDF_TEST_RUNNER").unwrap_or_default();
+        let mut words = runner.split_whitespace();
+        let mut command = if let Some(program) = words.next() {
+            let mut command = Command::new(program);
+            command.args(words).arg(env!("CARGO_BIN_EXE_caj2pdf"));
+            command
+        } else {
+            Command::new(env!("CARGO_BIN_EXE_caj2pdf"))
+        };
         command.current_dir(&self.0).args(args);
         for key in ["TMPDIR", "TMP", "TEMP"] {
             command.env(key, self.0.join("temp"));

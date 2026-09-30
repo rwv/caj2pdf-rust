@@ -1,0 +1,18 @@
+{
+  "x86_64-unknown-linux-gnu": "native",
+  "aarch64-unknown-linux-gnu": "native",
+  "x86_64-unknown-linux-musl": "native",
+  "aarch64-unknown-linux-musl": "native",
+  "x86_64-apple-darwin": "native",
+  "aarch64-apple-darwin": "native",
+  "x86_64-pc-windows-msvc": "native",
+  "aarch64-pc-windows-msvc": "native",
+  "i686-pc-windows-msvc": "native",
+  "i686-unknown-linux-gnu": "qemu-user",
+  "armv7-unknown-linux-gnueabihf": "qemu-user",
+  "riscv64gc-unknown-linux-gnu": "qemu-user",
+  "powerpc64le-unknown-linux-gnu": "qemu-user",
+  "s390x-unknown-linux-gnu": "qemu-user",
+  "x86_64-unknown-freebsd": "freebsd-vm",
+  "aarch64-unknown-freebsd": "freebsd-vm"
+}
