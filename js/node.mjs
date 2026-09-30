@@ -205,3 +205,24 @@ export function convertReadable(wasm, stream, sink, options = {}) {
     options,
   );
 }
+
+/** Run an operation with four bounded temporary stores, then close/remove them. */
+export async function withHnc8Scratch(operation, { maxBytes = 64n * 1024n * 1024n, directory = tmpdir() } = {}) {
+  scratchSize(0n, maxBytes);
+  const folder = await mkdtemp(join(directory, "caj2pdf-hnc8-"));
+  const handles = [];
+  try {
+    const scratch = [];
+    for (let i = 0; i < 4; i++) {
+      const handle = await open(join(folder, String(i)), "wx+", 0o600);
+      handles.push(handle);
+      scratch.push(await fileHandleScratch(handle, { maxBytes }));
+    }
+    return await operation(scratch);
+  } finally {
+    const closed = await Promise.allSettled(handles.map((handle) => handle.close()));
+    await rm(folder, { recursive: true, force: true });
+    const errors = closed.filter((result) => result.status === "rejected").map((result) => result.reason);
+    if (errors.length) throw new AggregateError(errors, "Could not close HN/C8 scratch files");
+  }
+}

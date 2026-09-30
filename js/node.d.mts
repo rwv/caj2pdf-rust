@@ -34,3 +34,9 @@ export declare function fileHandleScratch(
   handle: FileHandle,
   options: { maxBytes: bigint },
 ): Promise<RandomAccessScratch>;
+
+/** Own four temporary stores for the callback's lifetime; maxBytes is per store. */
+export declare function withHnc8Scratch<T>(
+  operation: (scratch: [RandomAccessScratch, RandomAccessScratch, RandomAccessScratch, RandomAccessScratch]) => Promise<T>,
+  options?: { maxBytes?: bigint; directory?: string },
+): Promise<T>;

@@ -2,13 +2,14 @@
 
 //! Experimental HN/C8 CLI routing with standard states and optional overrides.
 
+use crate::signals::ProcessCancellation;
 use crate::{
     CliError,
     args::{ConvertOptions, Endpoint},
     files::{Input, anonymous_file, open_input},
 };
 use caj2pdf_core::{
-    ConversionReport, Error, Limits, NeverCancel, RangedSource, SequentialSink,
+    ConversionReport, Error, Limits, RangedSource, SequentialSink,
     hnc8::{
         ComposeOptions, ComposePage, ComposeType3Workspaces, ComposeVisitor, ComposeWorkspaces,
         convert_source_pages_pdf,
@@ -50,10 +51,7 @@ impl Tables {
                 })?,
             );
         } else {
-            tables.qm = Some(
-                QmTable::new(caj2pdf_core::qm::STANDARD_STATES.to_vec())
-                    .expect("valid standard QM states"),
-            );
+            tables.qm = Some(QmTable::standard());
         }
         if let Some(path) = &options.mq_states {
             let rows = tables.read(path, 47)?;
@@ -74,10 +72,7 @@ impl Tables {
                 })?,
             );
         } else {
-            tables.mq = Some(
-                MqTable::new(caj2pdf_core::jbig2::mq::STANDARD_STATES.to_vec(), limits)
-                    .map_err(|error| CliError::runtime(error.to_string()))?,
-            );
+            tables.mq = Some(MqTable::standard());
         }
         Ok(tables)
     }
@@ -186,7 +181,7 @@ pub async fn convert<S: RangedSource, W: SequentialSink>(
         &mut CompletePages,
         options,
         limits,
-        &NeverCancel,
+        &ProcessCancellation,
     )
     .await
     .map(|report| report.conversion)
@@ -205,7 +200,7 @@ pub async fn inspect<S: RangedSource>(
     String,
 > {
     use caj2pdf_core::hnc8::{Budget, Hnc8Reader};
-    let mut reader = Hnc8Reader::open(source, limits, &NeverCancel, Budget::default())
+    let mut reader = Hnc8Reader::open(source, limits, &ProcessCancellation, Budget::default())
         .await
         .map_err(|e| e.to_string())?;
     let header = reader.header();
@@ -253,17 +248,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn default_states_are_available_and_respect_mq_allocation_limits() {
+    fn default_states_are_available_without_allocating_tables() {
         let options = ConvertOptions::default();
         let tables = Tables::load(&options, &Limits::default()).unwrap();
         assert!(tables.qm.is_some());
         assert!(tables.mq.is_some());
         assert!(tables.inputs.is_empty());
         let limited = Limits {
-            max_allocation_bytes: 1,
+            max_allocation_bytes: 0,
             ..Limits::default()
         };
-        assert!(Tables::load(&options, &limited).is_err());
+        assert!(Tables::load(&options, &limited).is_ok());
     }
 
     #[test]

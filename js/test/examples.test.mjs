@@ -8,6 +8,8 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { fixture, syntheticCaj, syntheticKdh, tempDirectory, validatePdf } from "./helpers.mjs";
 
+import { syntheticHn, syntheticC8 } from "./hnc8-fixtures.mjs";
+
 const example = fileURLToPath(new URL("../examples/node.mjs", import.meta.url));
 
 function run(args, stdin) {
@@ -19,22 +21,24 @@ function run(args, stdin) {
   });
 }
 
-test("Node example converts CAJ, KDH and PDF files and spooled stdin", async (t) => {
+test("Node example converts CAJ, KDH, PDF, HN and C8 files and spooled stdin", async (t) => {
   const directory = await tempDirectory("example");
   try {
     for (const [format, bytes] of [
       ["CAJ", syntheticCaj()],
       ["KDH", (await syntheticKdh()).wrapped],
       ["PDF", await fixture("valid_nested_outline.pdf")],
+      ["HN", syntheticHn()],
+      ["C8", syntheticC8()],
     ]) {
       const input = join(directory, `input.${format}`);
       await writeFile(input, bytes);
       for (const fromStdin of [false, true]) {
         const output = join(directory, `${format}-${fromStdin}.pdf`);
-        const result = await run([fromStdin ? "-" : input, output], fromStdin ? bytes : undefined);
+        const result = await run([fromStdin ? "-" : input, output, ...(format === "C8" ? ["--no-bookmarks"] : [])], fromStdin ? bytes : undefined);
         assert.equal(result.code, 0, result.stderr);
-        assert.match(result.stdout, new RegExp(`Converted ${format}: 2 pages`));
-        await validatePdf(t, await readFile(output), 2);
+        assert.match(result.stdout, new RegExp(`Converted ${format}: ${["HN", "C8"].includes(format) ? 1 : 2} pages`));
+        await validatePdf(t, await readFile(output), ["HN", "C8"].includes(format) ? 1 : 2);
       }
     }
   } finally {

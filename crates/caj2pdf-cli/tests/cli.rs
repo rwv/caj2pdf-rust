@@ -978,3 +978,82 @@ fn hna_inspection_and_converted_outline_agree() {
     );
     assert_eq!(fs::read_dir(scratch.path("tmp")).unwrap().count(), 0);
 }
+
+#[test]
+fn termination_signals_clean_staged_output_and_preserve_destination() {
+    use std::time::{Duration, Instant};
+    for signal in ["INT", "TERM"] {
+        let scratch = Scratch::new("signal");
+        let pdf = fixture("valid_nested_outline.pdf");
+        let tail = pdf
+            .windows(9)
+            .rposition(|bytes| bytes == b"startxref")
+            .unwrap();
+        let input = scratch.write("large.pdf", &pdf);
+        let mut large = OpenOptions::new().write(true).open(&input).unwrap();
+        use std::io::{Seek, SeekFrom};
+        large.seek(SeekFrom::Start(512 * 1024 * 1024)).unwrap();
+        large.write_all(&pdf[tail..]).unwrap();
+        drop(large);
+        let output = scratch.write("out.pdf", b"original destination");
+        let mut child = Command::new(env!("CARGO_BIN_EXE_caj2pdf"))
+            .args([
+                input.as_os_str(),
+                OsStr::new("-o"),
+                output.as_os_str(),
+                OsStr::new("--force"),
+            ])
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            if fs::read_dir(&scratch.0).unwrap().any(|entry| {
+                entry
+                    .unwrap()
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with(".out.pdf.")
+            }) {
+                break;
+            }
+            if child.try_wait().unwrap().is_some() || Instant::now() > deadline {
+                let _ = child.kill();
+                let _ = child.wait();
+                panic!("conversion did not reach staged output before timeout");
+            }
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        assert!(
+            Command::new("kill")
+                .args(["-s", signal, &child.id().to_string()])
+                .status()
+                .unwrap()
+                .success()
+        );
+        while child.try_wait().unwrap().is_none() {
+            if Instant::now() > deadline {
+                let _ = child.kill();
+                let _ = child.wait();
+                panic!("conversion did not cancel before timeout");
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        let result = child.wait_with_output().unwrap();
+        assert_eq!(result.status.code(), Some(1));
+        assert!(
+            String::from_utf8_lossy(&result.stderr).contains("cancel"),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        assert_eq!(fs::read(output).unwrap(), b"original destination");
+        assert!(!fs::read_dir(&scratch.0).unwrap().any(|entry| {
+            entry
+                .unwrap()
+                .file_name()
+                .to_string_lossy()
+                .starts_with(".out.pdf.")
+        }));
+    }
+}

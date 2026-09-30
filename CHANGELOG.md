@@ -20,6 +20,17 @@ CLI, browser and Node.js APIs may break during v0.x. Final release-artifact veri
 - OCR, searchable HN, TEB and optional legacy Python ordering are outside v0.1.
   Missing optional corpus checks are `NOT_RUN`, never compatibility passes.
 
+### Review fixes and JavaScript examples
+
+- WASM packaging follows Cargo's resolved target directory, including
+  `CARGO_TARGET_DIR` and Cargo configuration, rather than copying stale builds.
+- Standard QM/MQ tables are borrowed without allocation by CLI and WASM.
+- CLI SIGINT/SIGTERM request cooperative cancellation and clean staged output;
+  repeated signals can force termination when OS I/O is blocked.
+- Browser/Node `withHnc8Scratch` scopes own four capped stores and dispose them
+  after success, failure or cancellation. The browser example uses a Dedicated
+  Worker and backpressured output; both examples support experimental HN/C8.
+
 ### Built-in codec states
 
 HN/C8 CLI and WASM conversion now use standard QM/MQ states when overrides are

@@ -7,6 +7,8 @@ import { fileURLToPath } from "node:url";
 import { findChrome, launchChrome, openPage, startServer } from "./browser-harness.mjs";
 import { syntheticCaj, validatePdf, wasmUrl } from "./helpers.mjs";
 
+import { syntheticHn, syntheticC8 } from "./hnc8-fixtures.mjs";
+
 const chrome = findChrome();
 if (!chrome && process.env.CI) throw new Error("Chromium is required in CI");
 const options = { skip: !chrome && "Chromium unavailable; browser example NOT_RUN", timeout: 60_000 };
@@ -19,6 +21,8 @@ before(async () => {
   server = await startServer(fileURLToPath(new URL("..", import.meta.url)), {
     "/target/wasm32-unknown-unknown/release/caj2pdf_wasm.wasm": await readFile(wasmUrl),
     "/input.caj": syntheticCaj(),
+    "/input.hn": syntheticHn(),
+    "/input.c8": syntheticC8(),
     "/invalid.caj": "invalid input",
   });
   browser = await launchChrome(chrome);
@@ -112,4 +116,20 @@ test("browser example replaces and discards downloadable OPFS output", options, 
   })()`);
   assert.deepEqual(result, { files: [], links: 0, oldUrlReadable: false, newUrlReadable: false });
   assert.deepEqual(page.errors, []);
+});
+
+
+test("browser worker example converts HN/C8 with standard tables and removes scratch", options, async () => {
+  for (const format of ["hn", "c8"]) {
+    await page.evaluate(`document.querySelector('#bookmarks').checked = ${format !== "c8"}`);
+    const result = await convert(`input.${format}`);
+    assert.match(result.text, new RegExp(`^Converted ${format.toUpperCase()}: 1 pages`));
+    assert.equal(result.files.length, 1); // Only the downloadable output remains.
+    assert.ok(result.files[0].startsWith("output-"));
+    await page.evaluate("document.querySelector('#discard').click()");
+    await page.evaluate(`(async () => {
+      while (document.querySelector('#discard').disabled) await new Promise(resolve => setTimeout(resolve, 10));
+    })()`);
+    assert.deepEqual(await page.evaluate("(async () => Array.fromAsync((await navigator.storage.getDirectory()).keys()))()"), []);
+  }
 });

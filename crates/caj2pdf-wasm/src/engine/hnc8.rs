@@ -93,25 +93,23 @@ pub(super) async fn convert(
     cancellation: &BridgeCancellation,
 ) -> Result<ConversionReport> {
     let tables = std::mem::take(&mut source.shared.borrow_mut().tables);
-    let qm = QmTable::new(if tables.qm.is_empty() {
-        caj2pdf_core::qm::STANDARD_STATES.to_vec()
+    let qm = if tables.qm.is_empty() {
+        QmTable::standard()
     } else {
-        tables.qm
-    })
-    .map_err(|_| Error::InvalidInput {
-        reason: "incomplete caller QM state table",
-    })?;
-    let mq = MqTable::new(
-        if tables.mq.is_empty() {
-            caj2pdf_core::jbig2::mq::STANDARD_STATES.to_vec()
-        } else {
-            tables.mq
-        },
-        limits,
-    )
-    .map_err(|_| Error::InvalidInput {
-        reason: "invalid or incomplete MQ state table",
-    })?;
+        QmTable::new(tables.qm).map_err(|_| Error::InvalidInput {
+            reason: "incomplete caller QM state table",
+        })?
+    };
+    let mq = if tables.mq.is_empty() {
+        MqTable::standard()
+    } else {
+        MqTable::new(tables.mq, limits).map_err(|error| match error.kind {
+            caj2pdf_core::jbig2::mq::MqErrorKind::Source(error) => error,
+            _ => Error::InvalidInput {
+                reason: "invalid or incomplete MQ state table",
+            },
+        })?
+    };
     let options = ComposeOptions {
         include_bookmarks: options.include_bookmarks,
         ..Default::default()

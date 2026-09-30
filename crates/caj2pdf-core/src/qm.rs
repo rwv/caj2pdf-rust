@@ -53,13 +53,20 @@ pub struct QmState {
     pub switch_mps: bool,
 }
 
-/// A validated, caller-supplied probability-estimation table.
+/// A validated table borrowing standard states or owning custom states.
 #[derive(Debug)]
 pub struct QmTable {
-    states: Box<[QmState]>,
+    states: std::borrow::Cow<'static, [QmState]>,
 }
 
 impl QmTable {
+    /// Use the standard probability states without allocating or copying them.
+    pub fn standard() -> Self {
+        Self {
+            states: std::borrow::Cow::Borrowed(&STANDARD_STATES),
+        }
+    }
+
     /// Validate the exact state count, interval sizes, and transition indices.
     pub fn new(states: Vec<QmState>) -> ArithmeticResult<Self> {
         if states.len() != QM_STATE_COUNT {
@@ -82,7 +89,7 @@ impl QmTable {
             }
         }
         Ok(Self {
-            states: states.into_boxed_slice(),
+            states: states.into(),
         })
     }
 

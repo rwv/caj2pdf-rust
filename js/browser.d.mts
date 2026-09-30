@@ -43,3 +43,9 @@ export declare function syncAccessHandleScratch(
   handle: ScratchAccessHandle,
   options: { maxBytes: bigint },
 ): RandomAccessScratch;
+
+/** Dedicated Worker only. Own four OPFS stores for the callback's lifetime. */
+export declare function withHnc8Scratch<T>(
+  operation: (scratch: [RandomAccessScratch, RandomAccessScratch, RandomAccessScratch, RandomAccessScratch]) => Promise<T>,
+  options?: { maxBytes?: bigint; storage?: SpoolStorage },
+): Promise<T>;

@@ -6,19 +6,43 @@
     <title>caj2pdf browser conversion</title>
   </head>
   <body>
-    <h1>Convert CAJ, KDH, or PDF in the browser</h1>
+    <h1>Convert CAJ, KDH, PDF, HN, or C8 in the browser</h1>
     <p>
       The selected file is read through bounded <code>Blob.slice()</code> ranges. The PDF is
       streamed to a file you choose (<code>showSaveFilePicker</code>) or, where that API is
       missing, to a private OPFS file offered as a download.
+      HN/C8 rendering is experimental. Conversion uses a Dedicated Worker and OPFS,
+      with four scratch files capped at 64 MiB each and removed before completion.
     </p>
     <input id="file" type="file">
+    <label><input id="bookmarks" type="checkbox" checked>Include bookmarks (disable for C8/HN-B)</label>
     <button id="run" type="button">Convert</button>
     <button id="cancel" type="button" disabled>Cancel</button>
     <button id="discard" type="button" hidden>Discard download</button>
     <pre id="result"></pre>
     <script type="module">
-      import { blobSource, convert, loadModule, webWritableSink } from "../browser.mjs";
+      // Conversion and bounded HN/C8 scratch live in a Dedicated Worker.
+      // The transferred stream preserves output backpressure.
+      function convertInWorker(file, writer, signal, includeBookmarks) {
+        signal.throwIfAborted();
+        return new Promise((resolve, reject) => {
+          const worker = new Worker(new URL("./browser-worker.mjs", import.meta.url), { type: "module" });
+          const abort = () => worker.postMessage({ cancel: true });
+          signal.addEventListener("abort", abort, { once: true });
+          const finish = () => signal.removeEventListener("abort", abort);
+          worker.onmessage = ({ data }) => {
+            finish();
+            if (data.error) reject(Object.assign(new Error(data.error.message), data.error));
+            else resolve(data.report);
+          };
+          worker.onerror = (event) => {
+            finish();
+            reject(new Error(event.message));
+          };
+          const output = new WritableStream({ write: (bytes) => writer.write(bytes) });
+          worker.postMessage({ file, output, includeBookmarks }, [output]);
+        });
+      }
 
       const result = document.querySelector("#result");
       const cancel = document.querySelector("#cancel");
@@ -79,12 +103,7 @@
           await discardDownload();
           output = await openOutput(file.name.replace(/\.[^.]*$/, "") + ".pdf");
           writer = output.stream.getWriter();
-          const module = await loadModule(
-            new URL("../../target/wasm32-unknown-unknown/release/caj2pdf_wasm.wasm", import.meta.url),
-          );
-          const report = await convert(module, blobSource(file), webWritableSink(writer), {
-            signal: controller.signal,
-          });
+          const report = await convertInWorker(file, writer, controller.signal, document.querySelector("#bookmarks").checked);
           await writer.close();
           const saved = await output.finish();
           result.textContent = `Converted ${report.format.toUpperCase()}: ${report.pagesConverted} pages.`;

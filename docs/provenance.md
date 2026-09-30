@@ -1731,3 +1731,13 @@ black-box viewer interventions. No Python/Go/vendor decoder implementation,
 external document, capture or codec probability table is included. Rust callers
 constructing `hnc8::Header` or `RawTextCoordinate` must initialize the new
 `page_size` or `width`/`height` fields; HN-B header geometry remains `None`.
+
+## CLI cooperative signal handling (review #193)
+
+The CLI uses `signal-hook` 0.3.18 (MIT OR Apache-2.0, used under MIT), with
+only its flag API and default features disabled. Its registry dependency
+`signal-hook-registry` 1.4.8 is MIT OR Apache-2.0; its `errno` dependency is
+MIT OR Apache-2.0. Existing `libc` is MIT OR Apache-2.0. Target-specific
+`windows-sys` and `windows-link` are MIT OR Apache-2.0. Versions are pinned in
+Cargo.lock. Original project glue only sets/checks cancellation flags; no
+external handler implementation was copied into this repository.
