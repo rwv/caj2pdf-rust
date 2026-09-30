@@ -13,46 +13,6 @@ concurrency:
   group: candidates-${{ github.ref }}-${{ inputs.group || 'all' }}
   cancel-in-progress: true
 jobs:
-  openbsd:
-    if: inputs.group == 'all' || inputs.group == 'bsd'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 120
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - {arch: riscv64, target: riscv64gc-unknown-openbsd}
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - name: Test candidate in openbsd
-        uses: vmactions/openbsd-vm@10e08aa98d44e590ad13d0f922b0f032b4f7f268
-        with:
-          release: '7.9'
-          arch: ${{ matrix.arch }}
-          sync: scp
-          usesh: true
-          mem: 8192
-          cpu: 4
-          cache-after-prepare: true
-          prepare: |
-            set -eu
-            pkg_add rust python%3.13 qpdf mupdf-1.27.2
-            /usr/local/bin/python3.13 --version
-            /usr/local/bin/mutool -v
-          run: |
-            set -eu
-            export PATH=/usr/local/bin:$PATH
-            rustc --version
-            cargo --version
-            cargo test --locked -p caj2pdf-core --lib
-            cargo test --locked --release -p caj2pdf-cli --test portable
-            python3.13 scripts/package-native.py --target '${{ matrix.target }}' --binary target/release/caj2pdf
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: candidate-${{ matrix.target }}
-          path: dist/
-          if-no-files-found: error
-
   freebsd:
     if: inputs.group == 'all' || inputs.group == 'bsd'
     runs-on: ubuntu-24.04
