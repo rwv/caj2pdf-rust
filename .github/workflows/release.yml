@@ -1,0 +1,91 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  pull_request:
+    paths:
+      - '.github/workflows/release.yml'
+      - 'js/test/package.test.mjs'
+      - 'docs/releases/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  quality:
+    if: startsWith(github.ref, 'refs/tags/')
+    uses: ./.github/workflows/ci.yml
+
+  assets:
+    needs: quality
+    if: always() && (needs.quality.result == 'success' || github.event_name == 'pull_request')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      CAJ2PDF_CHROME: /usr/bin/google-chrome
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '24'
+      - name: Validate release version
+        env:
+          RELEASE_REF: ${{ github.ref }}
+        run: |
+          python3 - <<'PY'
+          import json, os, tomllib
+          from pathlib import Path
+          version = json.loads(Path('js/package.json').read_text())['version']
+          for path in Path('crates').glob('*/Cargo.toml'):
+              assert tomllib.loads(path.read_text())['package']['version'] == version
+          if os.environ['RELEASE_REF'].startswith('refs/tags/'):
+              assert os.environ['RELEASE_REF'] == f'refs/tags/v{version}'
+          assert Path(f'docs/releases/v{version}.md').is_file()
+          with open(os.environ['GITHUB_ENV'], 'a') as out:
+              out.write(f'RELEASE_VERSION={version}\n')
+          PY
+      - name: Build locked release artifacts
+        run: |
+          rustup show active-toolchain
+          cargo build --locked --release --all-features -p caj2pdf-cli
+          cargo build --locked --release --all-features -p caj2pdf-wasm --target wasm32-unknown-unknown
+          node js/scripts/copy-wasm.mjs
+          mkdir -p dist
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y qpdf
+      - name: Test and retain the actual npm tarball
+        env:
+          CAJ2PDF_PACKAGE_OUTPUT: ${{ github.workspace }}/dist/caj2pdf-rust-${{ env.RELEASE_VERSION }}.tgz
+        run: node --test js/test/package.test.mjs
+      - name: Package and smoke-test CLI and WASM
+        run: |
+          stage="$(mktemp -d)"
+          cp target/release/caj2pdf LICENSE README.md "$stage/"
+          "$stage/caj2pdf" --version
+          "$stage/caj2pdf" tests/fixtures/valid_nested_outline.pdf -o "$stage/smoke.pdf"
+          qpdf --check "$stage/smoke.pdf"
+          rm "$stage/smoke.pdf"
+          tar -czf "dist/caj2pdf-v${RELEASE_VERSION}-x86_64-unknown-linux-gnu.tar.gz" -C "$stage" caj2pdf LICENSE README.md
+          cp js/caj2pdf_wasm.wasm dist/
+          cp LICENSE dist/
+          cp "docs/releases/v${RELEASE_VERSION}.md" dist/RELEASE-NOTES.md
+          (cd dist && sha256sum *.tar.gz *.tgz *.wasm LICENSE RELEASE-NOTES.md > SHA256SUMS && sha256sum -c SHA256SUMS)
+      - name: Retain tested assets
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-assets
+          path: dist/
+          if-no-files-found: error
+      - name: Publish complete GitHub release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "v${RELEASE_VERSION}" dist/* --verify-tag --draft --title "v${RELEASE_VERSION}" --notes-file "docs/releases/v${RELEASE_VERSION}.md"
+          gh release edit "v${RELEASE_VERSION}" --draft=false --prerelease

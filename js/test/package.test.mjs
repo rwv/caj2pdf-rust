@@ -177,6 +177,10 @@ test("npm pack includes the WASM build, entry points, declarations, LICENSE, and
     for (const hook of ["preinstall", "install", "postinstall"]) {
       assert.equal(manifest.scripts[hook], undefined, `no ${hook} script`);
     }
+    // Release CI retains this exact tested tarball, without repacking.
+    if (process.env.CAJ2PDF_PACKAGE_OUTPUT) {
+      await cp(join(directory, packed.filename), process.env.CAJ2PDF_PACKAGE_OUTPUT);
+    }
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
