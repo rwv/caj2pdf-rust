@@ -68,7 +68,7 @@ The `.` export resolves to `node.mjs` under the `node` condition and to
 `browser.mjs` elsewhere; `./node` and `./browser` select one explicitly. Both
 re-export the platform-neutral API in `io.mjs`. Type declarations are in
 `*.d.mts`. Runnable examples are [`examples/node.mjs`](examples/node.mjs)
-(`node js/examples/node.mjs INPUT|- OUTPUT.pdf`) and
+(`node js/examples/node.mjs INPUT|- OUTPUT.pdf [--no-bookmarks]`) and
 [`examples/browser.html`](examples/browser.html) (serve the repository root
 over HTTP and open `/js/examples/browser.html`). The Node example also
 removes its newly created output on failure; the short snippet above leaves
@@ -100,7 +100,7 @@ to the file you choose.
   request, default 256 KiB, at most 1 MiB), `signal`, and
   `includeBookmarks` (default `true`).
 - `limits`: `maxInputBytes` (8 GiB), `maxOutputBytes` (16 GiB),
-  `maxAllocationBytes` (64 MiB; at most 256 MiB and at least `chunkSize`),
+  `maxAllocationBytes` (64 MiB; at most 256 MiB and at least `chunkSize`; a single allocation limit, not a total memory budget),
   `maxPages` and `maxBookmarks` (100,000). JavaScript validates them and the
   Rust engine enforces them.
 - Errors are `Caj2PdfError` with a stable `code` (for example
@@ -156,6 +156,38 @@ When either API is missing, the spool
 rejects with `RANDOM_ACCESS_REQUIRED` instead of falling back to memory; pass
 a `Blob`/`File` (which browsers keep disk-backed) or a custom `readAt`
 source. OPFS writes count against the origin's storage quota.
+
+## Scoped HN/C8 scratch
+
+Both platform entry points export `withHnc8Scratch`. It creates four stores,
+awaits your callback, then closes their handles and removes their private
+folder on success, failure, or cancellation. Await all conversion work inside
+the callback; the stores must not escape it. The default cap is 64 MiB **per
+store** (up to 256 MiB of scratch), separate from WASM allocation limits.
+
+```js
+import { convert, withHnc8Scratch } from "caj2pdf-rust/node";
+// Use "caj2pdf-rust/browser" inside a Dedicated Worker for OPFS storage.
+const report = await withHnc8Scratch(
+  (scratch) => convert(module, source, sink, { signal, hnc8: { scratch } }),
+  { maxBytes: 64n * 1024n * 1024n },
+);
+```
+
+Node optionally accepts `directory`; browser optionally accepts `storage`.
+The caller still owns input/output and must abort or discard partial output
+on failure. Cleanup failures reject the operation. Existing adapters below
+remain available when you want to own scratch handles yourself.
+
+The Node example now uses this scope for HN/C8 as well as CAJ/KDH/PDF.
+The browser example transfers a backpressured output stream to
+[`examples/browser-worker.mjs`](examples/browser-worker.mjs), performs
+conversion and OPFS scratch work there, and forwards cancellation as a message.
+It waits for cleanup before reporting completion; do not replace cancellation
+with `worker.terminate()`. Browser use requires OPFS and Dedicated Workers.
+HN/C8 rendering remains experimental with the documented layout limitations.
+For C8/HN-B, use `--no-bookmarks` in the Node example or uncheck
+“Include bookmarks” in the browser example; their outline layout is unsupported.
 
 ## Random-access scratch for HN/C8 integration
 
@@ -316,7 +348,7 @@ sink should honor its `signal` argument for prompt cancellation.
   Node package exports and default WASM loading, and converts CAJ through
   the packed browser entry in Chromium. Packing without a valid WASM build
   must fail.
-- `examples.test.mjs` runs the Node example as a subprocess for CAJ/KDH/PDF
+- `examples.test.mjs` runs the Node example as a subprocess for CAJ/KDH/PDF/HN
   files and stdin, validates output PDFs, and checks missing/malformed inputs,
   existing-output preservation and usage errors.
 - `adapters.test.mjs` and `wasm.test.mjs` cover the adapters and the raw ABI.

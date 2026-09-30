@@ -111,3 +111,27 @@ export function convertReadableStream(wasm, stream, sink, options = {}) {
     options,
   );
 }
+
+/** Dedicated Worker only: run with four bounded OPFS stores and always dispose them. */
+export async function withHnc8Scratch(operation, { maxBytes = 64n * 1024n * 1024n, storage = globalThis.navigator?.storage } = {}) {
+  scratchSize(0n, maxBytes);
+  const root = await storage.getDirectory();
+  const directory = `caj2pdf-hnc8-${crypto.randomUUID()}`;
+  const folder = await root.getDirectoryHandle(directory, { create: true });
+  const handles = [];
+  try {
+    const scratch = [];
+    for (let i = 0; i < 4; i++) {
+      const file = await folder.getFileHandle(String(i), { create: true });
+      const handle = await file.createSyncAccessHandle();
+      handles.push(handle);
+      scratch.push(syncAccessHandleScratch(handle, { maxBytes }));
+    }
+    return await operation(scratch);
+  } finally {
+    const closed = await Promise.allSettled(handles.map(async (handle) => handle.close()));
+    await root.removeEntry(directory, { recursive: true });
+    const errors = closed.filter((result) => result.status === "rejected").map((result) => result.reason);
+    if (errors.length) throw new AggregateError(errors, "Could not close HN/C8 scratch handles");
+  }
+}

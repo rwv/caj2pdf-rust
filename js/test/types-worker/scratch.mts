@@ -25,3 +25,12 @@ export async function useHn(
   const { convert } = await import('../../browser.mjs');
   return convert(wasm, source, sink, { hnc8: { scratch, mqStates }, includeBookmarks: false });
 }
+
+export async function useScopedHn(
+  wasm: import('../../browser.mjs').WasmInput,
+  source: import('../../browser.mjs').RangedSource,
+  sink: import('../../browser.mjs').SequentialSink,
+) {
+  const { convert, withHnc8Scratch } = await import('../../browser.mjs');
+  return withHnc8Scratch((scratch) => convert(wasm, source, sink, { hnc8: { scratch } }));
+}

@@ -55,3 +55,32 @@ export function unknownOutline(format) {
   new DataView(bytes.buffer).setUint32(format === "c8" ? 8 : 0x90, 1, true);
   return bytes;
 }
+
+/** Original C8 wrapper with a stored zlib frame around raw text records. */
+export function syntheticC8() {
+  const hn = syntheticHn();
+  const text = hn.slice(0x170, 0x190);
+  // One uncompressed DEFLATE block inside a zlib frame; Adler-32 is computed
+  // from our original text bytes, without a runtime compression dependency.
+  let a = 1, b = 0;
+  for (const byte of text) { a = (a + byte) % 65521; b = (b + a) % 65521; }
+  const frame = new Uint8Array(2 + 5 + text.length + 4);
+  frame.set([0x78, 0x01, 1, text.length, 0, 255 - text.length, 255]);
+  frame.set(text, 7);
+  new DataView(frame.buffer).setUint32(frame.length - 4, ((b << 16) | a) >>> 0);
+  const textLength = 16 + frame.length;
+  const descriptor = 0x64 + textLength;
+  const bytes = new Uint8Array(descriptor + 61);
+  const view = new DataView(bytes.buffer);
+  bytes.set([0xc8, 0, 0, 0]);
+  view.setUint32(8, 1, true);
+  view.setUint16(32, 100, true); view.setUint16(34, 200, true);
+  view.setUint32(0x50, 0x64, true); view.setUint32(0x54, textLength, true);
+  view.setUint16(0x58, 1, true);
+  bytes.set(new TextEncoder().encode("COMPRESSTEXT"), 0x64);
+  view.setUint32(0x70, text.length, true);
+  bytes.set(frame, 0x74);
+  bytes.set(hn.subarray(0x190), descriptor);
+  view.setUint32(descriptor + 4, descriptor + 12, true);
+  return bytes;
+}

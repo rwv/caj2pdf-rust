@@ -1,21 +1,21 @@
 // SPDX-License-Identifier: MIT
 
-// Usage: node js/examples/node.mjs INPUT|- OUTPUT.pdf
-// Converts a PDF, CAJ, or KDH file (or standard input, spooled to a bounded
+// Usage: node js/examples/node.mjs INPUT|- OUTPUT.pdf [--no-bookmarks]
+// Converts a PDF, CAJ, KDH, HN, or C8 file (or standard input, spooled to a bounded
 // temporary file) to a new PDF. Build the WASM module first; see js/README.md.
 import { open, rm } from "node:fs/promises";
 import { finished } from "node:stream/promises";
-import { convert, convertReadable, fileHandleSource, loadModule, nodeWritableSink } from "../node.mjs";
+import { convert, convertReadable, fileHandleSource, loadModule, nodeWritableSink, withHnc8Scratch } from "../node.mjs";
 
-const [inputPath, outputPath, extra] = process.argv.slice(2);
-if (!inputPath || !outputPath || extra !== undefined) {
-  process.stderr.write("Usage: node js/examples/node.mjs INPUT|- OUTPUT.pdf\n");
+const [inputPath, outputPath, flag, extra] = process.argv.slice(2);
+if (!inputPath || !outputPath || extra !== undefined || (flag !== undefined && flag !== "--no-bookmarks")) {
+  process.stderr.write("Usage: node js/examples/node.mjs INPUT|- OUTPUT.pdf [--no-bookmarks]\n");
   process.exitCode = 2;
 } else {
   const controller = new AbortController();
   const abort = () => controller.abort();
   process.once("SIGINT", abort);
-  const options = { signal: controller.signal };
+  const options = { signal: controller.signal, includeBookmarks: flag !== "--no-bookmarks" };
   let input;
   let output;
   try {
@@ -27,9 +27,12 @@ if (!inputPath || !outputPath || extra !== undefined) {
     // opened belongs to this invocation and may be removed after failure.
     output = (await open(outputPath, "wx")).createWriteStream();
     const sink = nodeWritableSink(output);
-    const report = input == null
-      ? await convertReadable(module, process.stdin, sink, options)
-      : await convert(module, await fileHandleSource(input), sink, options);
+    const report = await withHnc8Scratch(async (scratch) => {
+      const conversionOptions = { ...options, hnc8: { scratch } };
+      return input == null
+        ? convertReadable(module, process.stdin, sink, conversionOptions)
+        : convert(module, await fileHandleSource(input), sink, conversionOptions);
+    });
     output.end();
     await finished(output);
     process.stdout.write(
