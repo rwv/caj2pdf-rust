@@ -31,8 +31,8 @@ jobs:
           arch: ${{ matrix.arch }}
           sync: scp
           usesh: true
-          mem: 4096
-          cpu: 2
+          mem: 8192
+          cpu: 4
           cache-after-prepare: true
           prepare: |
             set -eu
@@ -72,8 +72,8 @@ jobs:
           arch: ${{ matrix.arch }}
           sync: scp
           usesh: true
-          mem: 4096
-          cpu: 2
+          mem: 8192
+          cpu: 4
           cache-after-prepare: true
           prepare: pkg install -y rust python311 qpdf mupdf
           run: |
