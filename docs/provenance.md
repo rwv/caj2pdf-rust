@@ -1825,3 +1825,7 @@ Further rare-platform probes use Bootlin stable-2025.08-1 SDK checksums
 published by Bootlin. RISC-V32 also probes Debian's static QEMU 10.0.13 package,
 SHA256 pinned and extracted locally without changing the host package sources.
 The package is a CI tool and is not included in released archives or containers.
+
+`scripts/install-bootlin.sh` is original MIT CI glue shared by required and
+experimental matrices; it verifies SDK/emulator checksums and records the
+actual host kernel/compiler. It does not contain toolchain implementation code.
