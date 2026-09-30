@@ -250,8 +250,10 @@ jobs:
         run: '"$CAJ2PDF_CHROME" --version'
       - name: Check workspace examples and tests for WASM
         run: cargo check --locked --workspace --all-features --all-targets --target wasm32-unknown-unknown
-      - name: Build WASM boundary
-        run: cargo build --locked --release --all-features -p caj2pdf-wasm --target wasm32-unknown-unknown
+      - name: Build and stage the packaged WASM boundary
+        run: |
+          cargo build --locked --release --all-features -p caj2pdf-wasm --target wasm32-unknown-unknown
+          node js/scripts/copy-wasm.mjs
       - name: Type-check JavaScript consumer declarations
         run: |
           typecheck_dir="$RUNNER_TEMP/caj2pdf-typecheck"

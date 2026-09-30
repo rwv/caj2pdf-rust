@@ -3,7 +3,7 @@
 ## Unreleased — v0.1.0 preparation
 
 This is an unstable development build, not a published release. Native Rust,
-CLI, browser and Node.js APIs may break during v0.x. Final release-artifact verification and publication remain pending.
+CLI, browser and Node.js APIs may break during v0.x. The candidate artifact audit is recorded below; no release has been published.
 
 ### Capabilities and limits
 
@@ -84,23 +84,36 @@ For JavaScript, build with `npm run build:wasm` inside `js/`, then follow the
 these commands do not download them. The npm package remains private and
 Cargo publishing is disabled pending release acceptance.
 
-### Development artifact verification
+### Audited v0.1 candidate artifacts
 
-These are local, unpublished audit artifacts built from package sources at
-`e794c4b890e562ba82e3773b7a3beed741507170`. They are not download links or a
-promise of reproducible binaries on another host. Regenerate checksums from
-the exact final artifacts after any release-input change, including removing
-npm's `private` flag.
+The locked release builds and package sources are revision
+`b5ccff9c5e831cb0b6f6570ea2062e322eb80bad`. It includes the packaged-module example-path fix;
+the Rust production sources are unchanged from merged #197. The remaining audit
+changes only documentation outside the shipped package. These are local, unpublished artifacts, not download links or a
+promise of identical binaries on another host. Build environment: rustc 1.98.1,
+Linux x86_64, Node 24.13.0.
 
 | Artifact | Bytes | SHA-256 |
 | --- | ---: | --- |
-| `caj2pdf` (Linux development host) | 2,833,080 | `7e886dd497314a370987b464f6d9ddfbc3b382424bacc368d2fcf3a3c6981bb1` |
-| `caj2pdf_wasm.wasm` | 1,932,215 | `6de6986d730d3ec55d6462bd43436ddc6c812ae61bdeb2b11e816c391a12a05c` |
-| `caj2pdf-rust-0.1.0.tgz` | 637,749 | `5af27603f55f9f33b7e9a1f353ab4e2787b8e6cfc814380debcd3586b3ce5b5c` |
+| `caj2pdf` | 2,921,016 | `5618ceae0c30ab98a15249cb2fee5db803ab2c0a62dbb0eb05ef01c5ddc03c4b` |
+| `caj2pdf_wasm.wasm` | 1,960,522 | `b23cb2421aaefb2beecdd6984c6988d2947fe4828cbaeac40803aa0f97256090` |
+| `caj2pdf-rust-0.1.0.tgz` | 650,646 | `28da4e5d04f849bf0c4520c3db5af32c4ba9f85940f15b05a27a6d1184fdc539` |
 
-The tarball contains the declared 12 files, including MIT license and WASM.
-[Package/example tests and memory observations](docs/js-validation.md) and
-[viewer results](docs/cajviewer-fixtures.md) record their separate scopes.
-#186/#187 passed Native, WASM, MIT audit and 100% Rust line-coverage gates.
-The final release commit and its artifacts must pass the existing
-[release policy](docs/release-policy.md); this draft does not close #14.
+The actual offline npm tarball contains the declared 12 files, including the MIT
+license and current WASM, with no external documents, captures or vendor binaries.
+Extracted-package Node and Chromium tests cover CAJ and compressed C8 conversion,
+built-in states, scoped scratch and the default packaged WASM URL. The native
+artifact reports version 0.1.0 and passes a synthetic PDF conversion/qpdf check.
+
+#196/#197 passed all four hosted quality gates, including Node 22/24, Chromium,
+MIT dependency/source/advisory audits and 100% Rust line coverage (30,539/30,539
+at #197). [The support matrix](docs/conformance.md#v01-support-and-release-status)
+records profile limits and known Python differences; [compression evidence](docs/bilevel-compression.md)
+records new PDF hashes and memory observations. Optional missing corpus checks
+remain NOT_RUN, never compatibility passes.
+
+This completes candidate preparation under #14, subject to the final audit PR's
+review and existing gates. npm remains private and Cargo publishing disabled.
+Publishing is a separate action: removing `private` or changing any release
+input requires rebuilding, rechecking the actual package and regenerating its
+checksums under the [release policy](docs/release-policy.md).
