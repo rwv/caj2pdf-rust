@@ -3,7 +3,7 @@
 The matrix in `platform-targets.json` is the required release set. Each target
 must build and pass conversion tests before a release can be published; merely
 cross-compiling a binary is not sufficient. v0.1.0 remains Linux x86_64-only.
-The expanded matrix applies to the next release once all jobs pass.
+The expanded matrix applies to v0.2.0 once all release jobs pass.
 
 | Platform | Architectures | Runtime evidence / baseline |
 | --- | --- | --- |

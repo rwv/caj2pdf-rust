@@ -110,6 +110,15 @@ jobs:
           sudo apt-get update
           sudo apt-get install --no-install-recommends -y skopeo
           skopeo copy --all --dest-creds "$REGISTRY_USER:$REGISTRY_TOKEN" --digestfile dist/CONTAINER-DIGEST.txt oci-archive:dist/caj2pdf-container.oci.tar "docker://ghcr.io/rwv/caj2pdf-rust:$RELEASE_TAG"
+          skopeo inspect --raw --creds "$REGISTRY_USER:$REGISTRY_TOKEN" "docker://ghcr.io/rwv/caj2pdf-rust:$RELEASE_TAG" > "$RUNNER_TEMP/container-manifest.json"
+          python3 - <<'PYCODE'
+          import hashlib, json, os
+          from pathlib import Path
+          raw = (Path(os.environ['RUNNER_TEMP']) / 'container-manifest.json').read_bytes()
+          manifest = json.loads(raw)
+          assert {(m['platform']['os'], m['platform']['architecture']) for m in manifest['manifests']} == {('linux', 'amd64'), ('linux', 'arm64')}
+          assert 'sha256:' + hashlib.sha256(raw).hexdigest() == Path('dist/CONTAINER-DIGEST.txt').read_text().strip()
+          PYCODE
       - name: Verify complete native matrix and checksum every asset
         run: |
           python3 - <<'PY'

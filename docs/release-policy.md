@@ -75,3 +75,12 @@ GitHub-only releases may retain npm `private` and Cargo `publish = false`;
 registry publication remains a separate operation. See `docs/releases/` for
 versioned notes and platform limits. Never reuse the historical local candidate
 hashes for CI-built artifacts; the uploaded SHA256SUMS is authoritative.
+
+From v0.2.0, the release also calls `platforms.yml` and requires every target in
+`docs/platform-targets.json`. It aggregates native archives, the tested JS/WASM
+package and tested OCI container archive, then writes complete SHA256SUMS.
+Windows and macOS assets are unsigned. GHCR uses the workflow's scoped
+`packages: write` permission; first publication defaults to private visibility
+on GitHub, so the package owner must make the new package public before claiming
+anonymous pull support. The downloadable OCI archive remains available through
+GitHub Releases. Never replace assets of an already published version.
