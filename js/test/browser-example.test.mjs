@@ -74,6 +74,72 @@ test("browser example removes failed and cancelled OPFS output", options, async 
   assert.equal(cancelled.cancelDisabled, true);
 });
 
+test("early cancellation closes private output before removing it", options, async () => {
+  await page.evaluate(`
+    window.originalCreateWritable = FileSystemFileHandle.prototype.createWritable;
+    window.outputClosed = 0;
+    FileSystemFileHandle.prototype.createWritable = async function (...args) {
+      const stream = await window.originalCreateWritable.apply(this, args);
+      const writer = stream.getWriter();
+      document.querySelector("#cancel").click();
+      return new WritableStream({
+        write: bytes => writer.write(bytes),
+        async close() { await writer.close(); writer.releaseLock(); window.outputClosed++; },
+        async abort() { await writer.abort(); writer.releaseLock(); },
+      });
+    };
+  `);
+  try {
+    const result = await convert("input.caj");
+    assert.equal(result.text, "Conversion cancelled.");
+    assert.deepEqual(result.files, []);
+    assert.equal(await page.evaluate("window.outputClosed"), 1);
+  } finally {
+    await page.evaluate("FileSystemFileHandle.prototype.createWritable = window.originalCreateWritable");
+  }
+});
+
+test("cancellation aborts user-selected output without committing it", options, async () => {
+  await page.evaluate(`
+    window.selectedOutput = { closed: 0, aborted: 0 };
+    window.showSaveFilePicker = async () => ({
+      async createWritable() {
+        document.querySelector("#cancel").click();
+        return new WritableStream({
+          close() { window.selectedOutput.closed++; },
+          abort() { window.selectedOutput.aborted++; },
+        });
+      },
+    });
+  `);
+  try {
+    const result = await convert("input.caj");
+    assert.equal(result.text, "Conversion cancelled.");
+    assert.deepEqual(result.files, []);
+    assert.deepEqual(await page.evaluate("window.selectedOutput"), { closed: 0, aborted: 1 });
+  } finally {
+    await page.evaluate("window.showSaveFilePicker = undefined");
+  }
+});
+
+test("browser example reports output removal failures", options, async () => {
+  await page.evaluate(`
+    window.originalRemoveEntry = FileSystemDirectoryHandle.prototype.removeEntry;
+    FileSystemDirectoryHandle.prototype.removeEntry = async () => { throw new Error("removal unavailable"); };
+  `);
+  try {
+    const result = await convert("input.caj", true);
+    assert.match(result.text, /Conversion cancelled\. Output cleanup failed: removal unavailable/);
+    assert.equal(result.files.length, 1);
+  } finally {
+    await page.evaluate(`(async () => {
+      FileSystemDirectoryHandle.prototype.removeEntry = window.originalRemoveEntry;
+      const root = await navigator.storage.getDirectory();
+      for await (const name of root.keys()) await root.removeEntry(name);
+    })()`);
+  }
+});
+
 test("browser example cleans up when opening its OPFS writer fails", options, async () => {
   await page.evaluate(`
     window.originalCreateWritable = FileSystemFileHandle.prototype.createWritable;
