@@ -268,6 +268,12 @@ jobs:
           pattern: native-*
           merge-multiple: true
           path: native-assets/
+      - name: Install big-endian PowerPC container emulator
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y qemu-user-static binfmt-support
+          sudo update-binfmts --enable qemu-ppc64
+          cat /proc/sys/fs/binfmt_misc/qemu-ppc64
       - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
         with:
           image: tonistiigi/binfmt@sha256:400a4873b838d1b89194d982c45e5fb3cda4593fbfd7e08a02e76b03b21166f0 # qemu-v10.2.3-68

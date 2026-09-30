@@ -153,7 +153,7 @@ jobs:
           cache-after-prepare: true
           prepare: |
             set -eu
-            pkg install rust python-311
+            pkg install rust python-313
           run: |
             set -eu
             export PATH=/opt/ooce/bin:/opt/ooce/rust/bin:/opt/local/bin:/usr/gnu/bin:$PATH
@@ -161,7 +161,7 @@ jobs:
             cargo --version
             cargo test --locked -p caj2pdf-core --lib -- --skip hnc8::compose::tests::independent_render_proves_padded_orientation_and_later_overlap_pixels --skip hnc8::compose::tests::type3_complete_mixed_pages_reuse_stores_and_keep_top_first_pixels
             cargo test --locked --release -p caj2pdf-cli --test portable
-            python3.11 scripts/package-native.py --target '${{ matrix.target }}' --binary target/release/caj2pdf
+            python3.13 scripts/package-native.py --target '${{ matrix.target }}' --binary target/release/caj2pdf
             target/release/caj2pdf tests/fixtures/valid_nested_outline.pdf -o dist/illumos-smoke.pdf
       - name: Validate VM conversion on the host
         run: |
@@ -176,18 +176,25 @@ jobs:
           path: dist/
           if-no-files-found: error
 
-  riscv32:
+  bootlin:
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
         include:
-          - {target: riscv32gc-unknown-linux-gnu, libc: glibc, sha: d42680e926542595c4c87629d33f5f90aac1e9a964c8955089e0514caa01b78f, prefix: riscv32-buildroot-linux-gnu}
-          - {target: riscv32gc-unknown-linux-musl, libc: musl, sha: f15e9ed67724b249eb149126eb6ed945648c3cdcd3c1c484b23c1a12df368391, prefix: riscv32-buildroot-linux-musl}
+          - {arch: riscv32-ilp32d, qemu: riscv32, target: riscv32gc-unknown-linux-gnu, libc: glibc, sha: d42680e926542595c4c87629d33f5f90aac1e9a964c8955089e0514caa01b78f, prefix: riscv32-buildroot-linux-gnu}
+          - {arch: riscv32-ilp32d, qemu: riscv32, target: riscv32gc-unknown-linux-musl, libc: musl, sha: f15e9ed67724b249eb149126eb6ed945648c3cdcd3c1c484b23c1a12df368391, prefix: riscv32-buildroot-linux-musl}
+          - {arch: mips32, qemu: mips, target: mips-unknown-linux-musl, libc: musl, sha: 35b434d3ae1a46065d9e37de56b71bcf0e72bcda652f96d185e51dbea7ef045c, prefix: mips-buildroot-linux-musl}
+          - {arch: mips32el, qemu: mipsel, target: mipsel-unknown-linux-musl, libc: musl, sha: 12a5e2f50b94b5c619730914db380ce9679798fb3c7460a40d480f77bb50628f, prefix: mipsel-buildroot-linux-musl}
+          - {arch: powerpc-e300c3, qemu: ppc, target: powerpc-unknown-linux-musl, libc: musl, sha: 5f628b374b6857f4b4ceabe5e41b2565b07985a7e444978c87b0f864bb5a47fc, prefix: powerpc-buildroot-linux-musl}
+          - {arch: s390x-z13, qemu: s390x, target: s390x-unknown-linux-musl, libc: musl, sha: 23f536ff2bf1a9d3b93210465471996bc7c918fbb5702a277d8e1e42ffab8559, prefix: s390x-buildroot-linux-musl}
+          - {arch: m68k-68xxx, qemu: m68k, target: m68k-unknown-linux-gnu, libc: glibc, sha: 0ad3bde066917d3d57b05b89fd13529acd401f4bef4a2afdd0c14452d039ca77, prefix: m68k-buildroot-linux-gnu}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Install pinned std builder and Bootlin sysroot
         env:
+          ARCH: ${{ matrix.arch }}
+          QEMU: ${{ matrix.qemu }}
           TARGET: ${{ matrix.target }}
           LIBC: ${{ matrix.libc }}
           PREFIX: ${{ matrix.prefix }}
@@ -196,8 +203,8 @@ jobs:
           rustup toolchain install nightly-2026-09-29 --profile minimal --component rust-src
           sudo apt-get update
           sudo apt-get install --no-install-recommends -y qemu-user qpdf mupdf-tools
-          stem="riscv32-ilp32d--$LIBC--stable-2025.08-1"
-          curl --fail --location --retry 3 "https://toolchains.bootlin.com/downloads/releases/toolchains/riscv32-ilp32d/tarballs/$stem.tar.xz" -o "$RUNNER_TEMP/toolchain.tar.xz"
+          stem="$ARCH--$LIBC--stable-2025.08-1"
+          curl --fail --location --retry 3 "https://toolchains.bootlin.com/downloads/releases/toolchains/$ARCH/tarballs/$stem.tar.xz" -o "$RUNNER_TEMP/toolchain.tar.xz"
           echo "$SHA  $RUNNER_TEMP/toolchain.tar.xz" | sha256sum -c -
           tar -xJf "$RUNNER_TEMP/toolchain.tar.xz" -C "$RUNNER_TEMP"
           toolchain="$RUNNER_TEMP/$stem"
@@ -206,14 +213,14 @@ jobs:
           sysroot="$("$toolchain/bin/$PREFIX-gcc" -print-sysroot)"
           key="$(echo "$TARGET" | tr '[:lower:]-' '[:upper:]_')"
           echo "CARGO_TARGET_${key}_LINKER=$PREFIX-gcc" >> "$GITHUB_ENV"
-          echo "CARGO_TARGET_${key}_RUNNER=qemu-riscv32 -L $sysroot" >> "$GITHUB_ENV"
-          echo "CAJ2PDF_TEST_RUNNER=qemu-riscv32 -L $sysroot" >> "$GITHUB_ENV"
+          echo "CARGO_TARGET_${key}_RUNNER=qemu-$QEMU -L $sysroot" >> "$GITHUB_ENV"
+          echo "CAJ2PDF_TEST_RUNNER=qemu-$QEMU -L $sysroot" >> "$GITHUB_ENV"
           echo "CC_${TARGET//-/_}=$PREFIX-gcc" >> "$GITHUB_ENV"
-          if [[ "$LIBC" == musl ]]; then echo 'RUSTFLAGS=-C target-feature=+crt-static -C link-self-contained=no' >> "$GITHUB_ENV"; fi
+          if [[ "$LIBC" == musl ]]; then echo 'RUSTFLAGS=-C target-feature=-crt-static -C link-self-contained=no' >> "$GITHUB_ENV"; fi
       - name: Build std and execute actual tests
         run: |
-          cargo +nightly-2026-09-29 test -Z build-std -Z build-std-features=backtrace,panic-unwind,llvm-libunwind --locked --release -p caj2pdf-core --lib --target '${{ matrix.target }}'
-          cargo +nightly-2026-09-29 test -Z build-std -Z build-std-features=backtrace,panic-unwind,llvm-libunwind --locked --release -p caj2pdf-cli --test portable --target '${{ matrix.target }}'
+          cargo +nightly-2026-09-29 test -Z build-std --locked --release -p caj2pdf-core --lib --target '${{ matrix.target }}'
+          cargo +nightly-2026-09-29 test -Z build-std --locked --release -p caj2pdf-cli --test portable --target '${{ matrix.target }}'
           python scripts/package-native.py --target '${{ matrix.target }}' --binary 'target/${{ matrix.target }}/release/caj2pdf'
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -253,7 +260,7 @@ jobs:
       - name: Build device CLI
         run: cargo build --locked --release -p caj2pdf-cli --target '${{ matrix.target }}'
       - name: Run core and CLI tests on Android
-        uses: reactivecircus/android-emulator-runner@ed009f5318f15b1cf93a191b856c4f1748a2d4c1
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
         with:
           api-level: ${{ matrix.api }}
           arch: ${{ matrix.arch }}

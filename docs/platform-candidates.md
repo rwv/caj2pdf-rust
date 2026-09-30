@@ -24,8 +24,14 @@ workflow. Its failed jobs are failures, not compatibility passes. MIPS GNU
 32/64 little/big endian passed both core and CLI tests and is promoted using
 pinned nightly std builds. The main project continues using stable Rust.
 
-Android tests run the core suite except two qpdf/MuPDF-dependent render tests,
+Android and illumos tests run the core suite except two qpdf/MuPDF-dependent render tests,
 which cannot launch host programs inside the device. Portable CLI regressions
 run on the emulator; a device-produced PDF is pulled back and independently
 checked/rendered on the host. Report these filtered tests explicitly. No
 external-corpus tests are counted as passed when their inputs are absent.
+
+Further Bootlin probes cover m68k GNU and MIPS32 big/little-endian, PowerPC32
+and s390x musl. These use pinned std builds and hashed SDKs. Dynamic musl SDK
+probes are separate from static Docker targets. Bootlin's current SPARCv8 SDKs
+use uClibc, not the GNU libc expected by `sparc-unknown-linux-gnu`; that SDK is
+not used as an unverified substitute.
