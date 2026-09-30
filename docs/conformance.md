@@ -25,40 +25,66 @@ The same conversion core serves all three interfaces.
 | PDF | Supported within the [PDF input profile](pdf-input.md) | Representative 11-page output is identical across interfaces; selected viewer pages 1 and 11 match. |
 | CAJ | Supported within the [CLI profile](cli.md) | Representative 75-page output with 58 bookmarks is identical across interfaces; selected viewer pages 1 and 75 match. Optional legacy Python ordering is deferred (#21). |
 | KDH | Supported for validated embedded PDFs | Representative one-page output is identical across interfaces and matches the selected viewer page. |
-| HN-A | Experimental image-page conversion | Complete 163-page, 96-bookmark output is identical across interfaces. Declared page/display extents are used; selected frame sizes match, but exact pixels differ. Physical units remain empirical. |
-| C8 | Experimental image-page conversion | Complete four-page output is identical across interfaces. Explicit bookmark omission is required; outline semantics are unverified. Selected frame sizes match, but exact pixels differ. |
+| HN-A | Experimental image-page conversion | The complete 163-page, 96-bookmark pre-compression output was identical across interfaces; the current compression checks below preserve decoded pixels and mapping. Declared page/display extents are used; selected frame sizes match, but exact pixels differ. Physical units remain empirical. |
+| C8 | Experimental image-page conversion | Current compressed four-page output is identical across interfaces. Explicit bookmark omission is required; outline semantics are unverified. Selected frame sizes match, but exact pixels differ. |
 | HN-B | Experimental single-JPEG image-bearing rows | Unknown outlines require explicit omission. A source row without image content is rejected by public conversion, never silently dropped. No vendor rendering parity is claimed here. |
 | TEB, unrecognized layouts, unsupported image modes, pure-text/searchable HN | Rejected | No OCR or silent omission fallback. Located errors identify unsupported HN/C8 content. |
 
 Arithmetic HN/C8 images use built-in standard QM/MQ states. Optional custom
 state overrides remain supported. The owner-directed adoption and upstream
 practice are recorded in [provenance](provenance.md); #189 completed #30/#44.
-JS arithmetic image decoding still needs bounded caller-owned scratch stores.
+JS arithmetic image decoding needs bounded scratch stores; `withHnc8Scratch`
+can manage their lifetime for Node or browser Workers.
 
 [Viewer results](cajviewer-fixtures.md) record the pinned application and
 selected-page scope. [Complete HN/C8 checks](js-validation.md#source-geometry-correction-repeat)
-record output hashes, page counts, outline retention and image-stream checks.
+record historical output hashes, page counts, outline retention and image-stream checks.
+The [streaming compression report](bilevel-compression.md) records current C8
+hashes, fixed working memory, independent decoded-pixel equality and the explicit
+scope of reused versus rerun evidence. Compression changes encoded bytes, not
+page/outline mapping or decoded image bits.
 Python-reference corpus expectations below are a separate compatibility
 baseline, not a CAJViewer verdict. Missing optional inputs are `NOT_RUN`;
 known pixel failures are not passing baselines.
 
-### Release evidence and remaining work (#14)
+### Known Python-reference differences
 
-- Existing original tests cover short I/O, malformed input, cancellation,
-  bounded scratch, output cleanup and source-page omission refusal. The
-  [JavaScript delivery report](js-validation.md#verified-delivery-paths) covers
-  examples and conversion from the extracted npm artifact on Node and Chromium.
+These are accepted v0.1 differences, with full source hashes and measurements in
+[the CAJ format record](caj-format.md). Rust preserves source page-table order
+and valid source TOC records. The optional legacy mode remains deferred in #21.
+
+| External case | Difference / limitation |
+| --- | --- |
+| `issue-40` | Python orders source pages `1–12, 18–78, 13–17`; Rust retains `1–78`. All source pages are present. |
+| `issue-44` | Python orders `1–9, 25–108, 20–24, 15–19, 10–14`; Rust retains `1–108`. All source pages are present. |
+| `issue-49` | Python emits zero outlines after a missing-object error; Rust preserves 49 valid source bookmarks. |
+| `issue-73` | Python emits zero outlines after a PDF-read error; Rust preserves 100 valid source bookmarks. |
+| `issue-20`, page 39 | MuPDF encounters the same zlib/font error on both outputs. This page is not a passing render comparison. |
+
+### Final candidate evidence (#14)
+
+- Original tests cover short I/O, malformed input, cancellation, bounded scratch,
+  output cleanup, source-page omission refusal, compressed-stream finalization
+  and exact decoded pixels. #196 adds CLI signal cleanup and complete JS Worker
+  examples; #197 adds bounded compression and its memory regression.
+- [JavaScript delivery](js-validation.md#verified-delivery-paths) and the current
+  extracted-package tests cover Node/Chromium consumers. The artifact tests now
+  convert both CAJ and C8 using the packaged WASM and scratch helper.
 - [Memory measurements](js-validation.md#memory-and-temporary-storage) cover
-  small/large original PDF inputs and the complete HN-A/C8 repeats. Native
-  child RSS, sampled Node RSS, WASM linear memory, scratch caps and cleanup
-  have distinct scopes; they do not establish a browser-process RSS peak or
-  constant memory for arbitrary documents.
-- #186 passed Native, WASM, MIT audit and the 100% Rust line-coverage gate.
-  This is development-head evidence, not certification of a future release.
-- Release remains pending codec integration acceptance (#8/#9), final artifact
-  inspection and checksums, and English release notes with breaking changes
-  and migration examples. Keep npm private and Cargo publishing disabled until
-  the release commit follows the [release policy](release-policy.md).
+  small/large original PDF inputs and historical full HN-A/C8 runs; the
+  [compression report](bilevel-compression.md) measures the changed writer.
+  Native RSS, sampled Node RSS, WASM linear memory and scratch caps have distinct
+  scopes; no browser-process RSS bound or universal constant-memory claim is made.
+- #196/#197 passed Native, WASM, MIT audit and exact 100% Rust line coverage.
+  The final audit PR reruns the same gates; skipped private corpus remains NOT_RUN.
+- Codec/default integration (#8/#9) is complete. [Candidate artifacts and hashes](../CHANGELOG.md#audited-v01-candidate-artifacts)
+  were rebuilt after #197 and the example-path fix. Source inventory contains only documented
+  original synthetic fixtures; external documents and vendor/build artifacts
+  are absent. The numeric-state adoption record remains explicit in provenance.
+- Candidate preparation is complete after the final audit PR passes review and
+  CI. Publication has not occurred. Keep npm private and Cargo publishing
+  disabled until a release commit follows the [release policy](release-policy.md);
+  regenerate checksums if package inputs change.
 
 ## Commands and status
 
