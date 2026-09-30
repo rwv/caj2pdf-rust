@@ -62,3 +62,16 @@ missing or non-WASM `caj2pdf_wasm.wasm`. Inspect the actual `npm pack`
 tarball against the file list asserted by `js/test/package.test.mjs`, run
 its Node and Chromium artifact smoke tests, and publish the verified
 tarball. The copied `.wasm` is a build product and is never committed.
+
+## GitHub release assets
+
+After reviewing and merging release changes, push `v<package-version>` to run
+`.github/workflows/release.yml`. It reruns the four existing quality gates,
+checks crate/JS/tag versions, builds Linux x86_64 and WASM artifacts, tests the
+actual npm tarball, and uploads assets plus SHA256SUMS. Publication starts as a
+draft and becomes an unstable prerelease only after asset upload succeeds.
+The release job also runs without publication on relevant pull requests.
+GitHub-only releases may retain npm `private` and Cargo `publish = false`;
+registry publication remains a separate operation. See `docs/releases/` for
+versioned notes and platform limits. Never reuse the historical local candidate
+hashes for CI-built artifacts; the uploaded SHA256SUMS is authoritative.

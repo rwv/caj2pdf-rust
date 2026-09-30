@@ -1,9 +1,17 @@
 # caj2pdf-rust
 
 An MIT-licensed Rust project for converting CAJ-family documents to PDF from
-the command line and JavaScript. The project is in its initial development
-phase; no converter release is available yet. English is the project's public
-language for code, documentation, APIs, CLI output, and releases.
+the command line and JavaScript. v0.x is unstable; HN/C8 support is experimental.
+English is the project's public language for code, documentation, APIs, CLI
+output, and releases.
+
+## Downloads
+
+[GitHub Releases](https://github.com/rwv/caj2pdf-rust/releases) provide the Linux
+x86_64 CLI, browser/Node JS tarball, standalone WASM and SHA256SUMS. See the
+[v0.1.0 notes](docs/releases/v0.1.0.md) for platform requirements and limitations.
+After downloading, extract the CLI archive or install the JS tarball with
+`npm install ./caj2pdf-rust-0.1.0.tgz`. Registry publication is separate.
 
 ## Goals
 

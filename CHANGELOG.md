@@ -1,9 +1,15 @@
 # Changelog
 
-## Unreleased — v0.1.0 preparation
+## v0.1.0
 
-This is an unstable development build, not a published release. Native Rust,
-CLI, browser and Node.js APIs may break during v0.x. The candidate artifact audit is recorded below; no release has been published.
+See [release notes](docs/releases/v0.1.0.md) for GitHub assets and installation.
+CI-built release checksums are attached to the release as `SHA256SUMS`; the local
+candidate hashes below are historical audit evidence.
+
+### Candidate preparation record
+
+Native Rust, CLI, browser and Node.js APIs may break during v0.x. The following
+record describes the unpublished candidate audit before GitHub release packaging.
 
 ### Capabilities and limits
 
