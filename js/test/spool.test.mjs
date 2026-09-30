@@ -190,7 +190,7 @@ test("conversion and stream failures remove the spool", async () => {
 });
 
 /** An in-memory test double of the OPFS directory API. */
-function fakeStorage({ writable = true } = {}) {
+function fakeStorage({ writable = true, abortError } = {}) {
   const files = new Map();
   const events = [];
   const root = {
@@ -210,8 +210,10 @@ function fakeStorage({ writable = true } = {}) {
           async close() {
             events.push("close");
           },
-          async abort() {
+          abort() {
             events.push("abort");
+            if (abortError !== undefined) throw abortError;
+            return Promise.resolve();
           },
         });
       }
@@ -312,4 +314,15 @@ test("OPFS failure cleanup retries only transient locks and reports persistent f
       assert.equal(attempts, expectedAttempts);
     });
   }
+});
+
+
+test("a synchronously failing OPFS writer abort still removes the spool", async () => {
+  const { storage, files, events } = fakeStorage({ abortError: new Error("writer abort failed") });
+  await assert.rejects(
+    spoolToOpfs(new Blob([syntheticCaj()]).stream(), { maxBytes: 10n, storage }),
+    { code: "LIMIT_EXCEEDED" },
+  );
+  assert.equal(files.size, 0);
+  assert.deepEqual(events, ["abort", "remove"]);
 });

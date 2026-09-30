@@ -103,7 +103,7 @@ export async function spoolToOpfs(stream, { maxBytes, signal, storage = globalTh
     writable = undefined;
     return { source: blobSource(await file.getFile()), dispose };
   } catch (error) {
-    await writable?.abort().catch(() => {});
+    await Promise.resolve().then(() => writable?.abort()).catch(() => {});
     try {
       await dispose();
     } catch (cleanupError) {
