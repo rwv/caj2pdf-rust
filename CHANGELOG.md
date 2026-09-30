@@ -31,6 +31,15 @@ CLI, browser and Node.js APIs may break during v0.x. Final release-artifact veri
   after success, failure or cancellation. The browser example uses a Dedicated
   Worker and backpressured output; both examples support experimental HN/C8.
 
+### Streaming bilevel compression (#195)
+
+Bilevel image XObjects now use `/FlateDecode`. Visible row bits, JPEG payloads,
+page geometry/order and bookmarks are unchanged; compressed PDF bytes and hashes
+change. Regenerate byte snapshots and use a PDF decoder when inspecting image
+streams. Set `max_allocation_bytes` / `maxAllocationBytes` to at least 512 KiB
+for bilevel output; this conservative fixed compressor reservation is checked
+before opening the image. See [measurements and limits](docs/bilevel-compression.md).
+
 ### Built-in codec states
 
 HN/C8 CLI and WASM conversion now use standard QM/MQ states when overrides are

@@ -667,3 +667,198 @@ fn a_bookmark_that_fails_while_closing_items_stops_the_outline() -> Result<()> {
     assert!(!sink.bytes.ends_with(b"%%EOF\n"));
     Ok(())
 }
+
+#[test]
+fn bilevel_compressor_reservation_is_checked_before_opening_an_image() {
+    let limits = Limits {
+        io_chunk_bytes: 8,
+        max_allocation_bytes: DEFLATE_RESERVATION_BYTES - 1,
+        ..Limits::default()
+    };
+    let mut sink = VecSink::default();
+    run(async {
+        let mut document = PdfDocument::new(&mut sink, &limits, &NEVER).await.unwrap();
+        let before = document.writer.position();
+        let result = document
+            .begin_bilevel_image(BilevelImageSpec {
+                pixel_width: 8,
+                pixel_height: 1,
+                row_stride: 1,
+            })
+            .await;
+        assert!(matches!(
+            result,
+            Err(Error::LimitExceeded {
+                resource: "allocation bytes",
+                attempted: DEFLATE_RESERVATION_BYTES,
+                ..
+            })
+        ));
+        assert_eq!(document.writer.position(), before);
+        assert!(document.writer.ensure_idle().is_ok());
+    });
+}
+
+#[test]
+fn bilevel_compression_is_independent_of_row_and_output_chunk_boundaries() {
+    let (visible, stride, height) = (8193, 8196, 7);
+    let mut raw = vec![0; stride * height];
+    let mut random = 0x12345678_u32;
+    for byte in &mut raw {
+        random ^= random << 13;
+        random ^= random >> 17;
+        random ^= random << 5;
+        *byte = random as u8;
+    }
+    let expected: Vec<_> = raw
+        .chunks(stride)
+        .flat_map(|row| row[..visible].iter().copied())
+        .collect();
+    let mut reference = None;
+    for (chunk, split) in [(1, 1), (7, 13), (16 * 1024, raw.len())] {
+        let limits = Limits {
+            io_chunk_bytes: chunk,
+            ..Limits::default()
+        };
+        let mut sink = VecSink::default();
+        run(async {
+            let mut document = PdfDocument::new(&mut sink, &limits, &NEVER).await.unwrap();
+            let mut image = document
+                .begin_bilevel_image(BilevelImageSpec {
+                    pixel_width: 65537,
+                    pixel_height: height as u32,
+                    row_stride: stride,
+                })
+                .await
+                .unwrap();
+            assert!(image.encoded.len() <= DEFLATE_CHUNK_BYTES);
+            for bytes in raw.chunks(split) {
+                image.write(bytes).await.unwrap();
+            }
+            assert_eq!(image.encoder.total_in(), expected.len() as u64);
+            let object = image.finish().await.unwrap();
+            document.add_page(page(), &[object]).await.unwrap();
+            document.finish().await.unwrap();
+        });
+        assert_eq!(
+            crate::test_support::bilevel_pixels(&sink.bytes).as_slice(),
+            std::slice::from_ref(&expected)
+        );
+        if let Some(bytes) = &reference {
+            assert_eq!(&sink.bytes, bytes);
+        } else {
+            reference = Some(sink.bytes);
+        }
+    }
+}
+
+#[test]
+fn bilevel_compression_failure_poisons_the_image_and_leaves_the_stream_open() {
+    for mode in 0..2 {
+        let limits = Limits::default();
+        let mut sink = VecSink::default();
+        run(async {
+            let mut document = PdfDocument::new(&mut sink, &limits, &NEVER).await.unwrap();
+            let mut image = document
+                .begin_bilevel_image(BilevelImageSpec {
+                    pixel_width: 8,
+                    pixel_height: 1,
+                    row_stride: 1,
+                })
+                .await
+                .unwrap();
+            if mode == 0 {
+                // A broken compressor/output-buffer contract must not spin.
+                image.encoded.clear();
+            } else {
+                // Simulate a backend entering finalization before row submission.
+                assert_eq!(
+                    image
+                        .encoder
+                        .compress(&[], &mut image.encoded[..1], FlushCompress::Finish)
+                        .unwrap(),
+                    Status::Ok
+                );
+            }
+            let error = image.write(&[0x80]).await.unwrap_err();
+            let expected = if mode == 0 {
+                "bilevel zlib compression made no progress"
+            } else {
+                "bilevel zlib compression failed"
+            };
+            assert!(matches!(error, Error::InvalidInput { reason } if reason == expected));
+            assert!(image.failed);
+            assert!(matches!(
+                image.write(&[0x80]).await,
+                Err(Error::InvalidInput {
+                    reason: "bilevel image cannot continue after compression or output failure"
+                })
+            ));
+            assert!(image.finish().await.is_err());
+            assert!(document.finish().await.is_err());
+        });
+    }
+}
+
+#[test]
+fn bilevel_finish_observes_output_limits() {
+    let limits = Limits {
+        max_output_bytes: 4096,
+        ..Limits::default()
+    };
+    let mut sink = VecSink::default();
+    run(async {
+        let mut document = PdfDocument::new(&mut sink, &limits, &NEVER).await.unwrap();
+        let mut image = document
+            .begin_bilevel_image(BilevelImageSpec {
+                pixel_width: 8,
+                pixel_height: 1,
+                row_stride: 1,
+            })
+            .await
+            .unwrap();
+        image.write(&[0]).await.unwrap();
+        // The final zlib bytes must pass through the PDF output limit.
+        image
+            .document
+            .writer
+            .set_position_for_test(limits.max_output_bytes);
+        assert!(matches!(
+            image.finish().await,
+            Err(Error::LimitExceeded {
+                resource: "output bytes",
+                ..
+            })
+        ));
+        assert!(document.finish().await.is_err());
+    });
+}
+
+#[test]
+fn bilevel_finish_observes_cancellation_while_draining() {
+    for allowed in 0.. {
+        let limits = Limits {
+            io_chunk_bytes: 1,
+            ..Limits::default()
+        };
+        let mut sink = VecSink::default();
+        let cancellation = CancelAfter::new(allowed);
+        let result = run(async {
+            let mut document = PdfDocument::new(&mut sink, &limits, &cancellation).await?;
+            let mut image = document
+                .begin_bilevel_image(BilevelImageSpec {
+                    pixel_width: 8,
+                    pixel_height: 1,
+                    row_stride: 1,
+                })
+                .await?;
+            image.write(&[0]).await?;
+            Ok::<_, Error>(image.finish().await)
+        });
+        match result {
+            Ok(Err(Error::Cancelled)) => return,
+            Err(Error::Cancelled) => {}
+            other => panic!("expected a cancellation checkpoint during finish: {other:?}"),
+        }
+    }
+}

@@ -37,7 +37,7 @@ Text spans, the HN-A outline-like records, and the unknown page-row fields are n
 
 ### Polarity, padding, and orientation
 
-The accepted DIB palette is white at index 0 and black at index 1 ([#22 measurements](jbig1-oracle.md)), and the decoder emits those palette indices as bits, MSB first. The image XObject is `/DeviceGray`, `/BitsPerComponent 1`, `/Decode [1 0]`, so a set bit paints black and the stream carries the decoded bits unchanged. The PDF `/Width` is the DIB width, not `stride × 8`. Each PDF row is `ceil(width / 8)` bytes; the DIB's 32-bit alignment bytes are dropped. The unused low bits of a row's last byte are zero from the decoder, and PDF readers ignore them.
+The accepted DIB palette is white at index 0 and black at index 1 ([#22 measurements](jbig1-oracle.md)), and the decoder emits those palette indices as bits, MSB first. The image XObject is `/DeviceGray`, `/BitsPerComponent 1`, `/Decode [1 0]`, so a set bit paints black. The decoded stream carries those bits unchanged; current output uses `/FlateDecode` compression. The PDF `/Width` is the DIB width, not `stride × 8`. Each PDF row is `ceil(width / 8)` bytes; the DIB's 32-bit alignment bytes are dropped. The unused low bits of a row's last byte are zero from the decoder, and PDF readers ignore them.
 
 The decoder emits display-order rows. The first emitted row is the top of the page image, so the page draws the image with the ordinary `w 0 0 h 0 0 cm` matrix and no row buffer. This follows the #27 evidence summarized in the [bitstream investigation](jbig1-bitstream-investigation.md): a MuPDF render of a reference HN page equals the oracle's bottom-up memory rows reversed, and the Rust decoder's rows are that reversal. The synthetic tests below render asymmetric images and compare their top rows. A real-sample render comparison is still open, because it needs the corpus and the external table.
 
@@ -70,7 +70,7 @@ A local release-mode probe (not committed) converted synthetic HN-B documents wi
 
 [`tests/hnc8_type0_pdf.rs`](../crates/caj2pdf-core/tests/hnc8_type0_pdf.rs) builds C8, HN-A, and HN-B containers at run time. Its coded images come from an original test-only arithmetic encoder. The encoder follows the decoder's interval convention from the [arithmetic-core note](t82-arithmetic-core.md) and the row rule from the [row note](jbig1-type0-rows.md), and uses an invented adaptive 113-state table with conditional exchanges and MPS switches. The tests cover:
 
-- widths 7, 8, 9, 31, 32, and 33 at heights 1 and 6, in all three layouts, with exact PDF stream bytes;
+- widths 7, 8, 9, 31, 32, and 33 at heights 1 and 6, in all three layouts, with exact decoded PDF image bytes;
 - a hand-specified width-9 image for bit order, padding, and top-to-bottom row order;
 - multiple pages and page order, the multi-image policies, resolution scaling, and one-byte ranged reads;
 - no-image pages, types 1–3, container errors, truncated spans, corrupt DIB fields, and impossible dimensions, each with its location;
@@ -87,3 +87,12 @@ These synthetic tests prove the integration and PDF encoding, not Table 24 compa
 - Table 24 provenance (#30) and then CLI and browser/Node.js WASM wiring, including forward-only spooling for HN/C8 input.
 - Measured placement for pages with several images, and any policy for pages without images.
 - Codecs for record types 1–3.
+
+## Streaming compression update (#195)
+
+`begin_bilevel_image` now compresses visible row bytes incrementally with zlib;
+`finish` drains the compressor before closing the indirect-length stream. It
+retains fixed codec state and a bounded output buffer, not a whole image. Older
+measurements in this note describe uncompressed output. See the current
+[compression report](bilevel-compression.md) for output hashes, allocation
+requirements, cross-platform checks and independent pixel comparisons.

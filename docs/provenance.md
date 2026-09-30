@@ -1741,3 +1741,19 @@ MIT OR Apache-2.0. Existing `libc` is MIT OR Apache-2.0. Target-specific
 `windows-sys` and `windows-link` are MIT OR Apache-2.0. Versions are pinned in
 Cargo.lock. Original project glue only sets/checks cancellation flags; no
 external handler implementation was copied into this repository.
+
+## Streaming bilevel PDF compression (#195)
+
+Original MIT glue uses the existing `flate2` 1.1.10 Rust backend and locked
+`miniz_oxide` 0.9.1 dependency; no new dependency or external implementation
+source is copied. PDF `/FlateDecode` and indirect `/Length` use the existing
+PDF 1.7 reference above. Inspected backend allocation structure: fixed
+dictionary/hash buffers, code buffer, local output buffer and Huffman tables,
+with no image-size allocation. A conservative 512 KiB reservation is checked
+before `Compress::new`; re-audit it when changing the locked backend. As with
+the existing inflater, backend allocation is infallible at the Rust allocator
+level; the reservation rejects configured-budget violations, not OS OOM.
+Project-owned output buffering is fallibly allocated and capped at 16 KiB.
+The original synthetic fixtures and independent qpdf/render checks are extended
+to decode Flate streams; external C8 evidence is hash-only in the
+[compression report](bilevel-compression.md).

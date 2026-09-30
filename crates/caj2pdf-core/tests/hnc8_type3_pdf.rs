@@ -464,11 +464,15 @@ fn find(bytes: &[u8], needle: &[u8]) -> Option<usize> {
         .position(|window| window == needle)
 }
 
-fn embedded_image(pdf: &[u8]) -> &[u8] {
+fn embedded_image(pdf: &[u8]) -> Vec<u8> {
     let image = find(pdf, b"/Subtype /Image").unwrap();
     let start = image + find(&pdf[image..], b"stream\n").unwrap() + 7;
-    let end = start + find(&pdf[start..], b"\nendstream").unwrap();
-    &pdf[start..end]
+    use std::io::Read;
+    let mut pixels = Vec::new();
+    flate2::read::ZlibDecoder::new(&pdf[start..])
+        .read_to_end(&mut pixels)
+        .unwrap();
+    pixels
 }
 
 static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
@@ -1324,7 +1328,6 @@ fn generic_marker_and_pdf_sink_faults_propagate_without_success() {
     let writes = sink.writes;
     assert!(writes > 10);
     let mut saw_pdf = false;
-    let mut saw_page_compose = false;
     for fail_at in 1..=writes {
         let mut source = Source::new(built.bytes.clone());
         let mut sink = Sink {
@@ -1346,11 +1349,13 @@ fn generic_marker_and_pdf_sink_faults_propagate_without_success() {
             Type3PdfErrorKind::Stage {
                 stage: Type3Stage::PageCompose,
                 ..
-            } => saw_page_compose = true,
+            } => {}
             other => panic!("sink failure at write {fail_at}: {other:?}"),
         }
     }
-    assert!(saw_pdf && saw_page_compose);
+    // A small image may remain entirely inside the compressor until finalization,
+    // so sink failures need not occur during PageCompose for this fixture.
+    assert!(saw_pdf);
 }
 
 #[test]

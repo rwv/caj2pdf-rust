@@ -381,7 +381,19 @@ fn inspect_pdf(
 
     let mut fixture_by_object = BTreeMap::new();
     for object in ids {
-        let stream = qpdf_object(&pdf, object, true);
+        let dictionary = String::from_utf8(qpdf_object(&pdf, object, false)).unwrap();
+        let stream = if dictionary.contains("/FlateDecode") {
+            tool(
+                Command::new("qpdf")
+                    .arg(format!("--show-object={object}"))
+                    .arg("--filtered-stream-data")
+                    .arg(&pdf),
+                "qpdf decoded bilevel pixels",
+            )
+            .stdout
+        } else {
+            qpdf_object(&pdf, object, true)
+        };
         let fixture = expected_images
             .iter()
             .position(|image| image.bytes == stream)
@@ -391,7 +403,6 @@ fn inspect_pdf(
             "image payload was embedded twice"
         );
         fixture_by_object.insert(object, fixture);
-        let dictionary = String::from_utf8(qpdf_object(&pdf, object, false)).unwrap();
         let expected = &expected_images[fixture];
         assert_eq!(dictionary_number(&dictionary, "/Width"), expected.width);
         assert_eq!(dictionary_number(&dictionary, "/Height"), expected.height);

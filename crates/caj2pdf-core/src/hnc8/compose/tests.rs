@@ -829,7 +829,10 @@ fn mixed_images_preserve_exact_padding_and_asymmetric_reversed_rows() {
         );
         assert_eq!(visitor.images[0].4[3], -40.0 * (240.0 / 2473.0));
         let expected = reversed_packed(&pixels);
-        assert!(contains(&sink.bytes, &expected), "width {width}");
+        assert!(
+            crate::test_support::bilevel_pixels(&sink.bytes).contains(&expected),
+            "width {width}"
+        );
         assert!(contains(
             &sink.bytes,
             format!("/Width {display_width}\n/Height 3\n").as_bytes()
@@ -1193,7 +1196,9 @@ fn exclusive_dirty_row_store_is_overwritten_and_reset() {
     )
     .unwrap();
     assert!(case.scratch.bytes.is_empty());
-    assert!(contains(&case.sink.bytes, &reversed_packed(&rows(9))));
+    assert!(
+        crate::test_support::bilevel_pixels(&case.sink.bytes).contains(&reversed_packed(&rows(9)))
+    );
 }
 
 #[test]
@@ -1461,7 +1466,10 @@ fn larger_padded_rows_are_streamed_in_chunks_without_growing_page_metadata() {
     assert!(case.scratch.max_request <= 17);
     assert!(case.sink.max_request <= 17);
     assert!(case.scratch.bytes.is_empty());
-    assert!(contains(&case.sink.bytes, &reversed_packed(&rows(4097))));
+    assert!(
+        crate::test_support::bilevel_pixels(&case.sink.bytes)
+            .contains(&reversed_packed(&rows(4097)))
+    );
 }
 
 #[test]
@@ -2152,19 +2160,7 @@ fn type3_complete_mixed_pages_reuse_stores_and_keep_top_first_pixels() {
     assert_eq!(pdf.matches("/Width 3\n").count(), 1);
     assert_eq!(pdf.matches("/Width 9\n").count(), 2);
     assert_eq!(pdf.matches("/Width 31\n").count(), 1);
-    let marker = b"/Width 3\n/Height 5";
-    let start = sink
-        .bytes
-        .windows(marker.len())
-        .position(|part| part == marker)
-        .unwrap();
-    let stream = sink.bytes[start..]
-        .windows(8)
-        .position(|part| part == b"\nstream\n")
-        .unwrap()
-        + start
-        + 8;
-    assert_eq!(&sink.bytes[stream..stream + 5], &[0x80, 0, 0, 0, 0]);
+    assert!(crate::test_support::bilevel_pixels(&sink.bytes).contains(&vec![0x80, 0, 0, 0, 0]));
 }
 
 #[test]

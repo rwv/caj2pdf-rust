@@ -507,7 +507,7 @@ fn image_streams(pdf: &[u8]) -> Vec<(u32, u32, Vec<u8>)> {
     let mut images = Vec::new();
     let mut from = 0;
     while let Some(start) = find(pdf, b"/Subtype /Image\n/Width ", from) {
-        let text = String::from_utf8_lossy(&pdf[start..start + 120]).into_owned();
+        let text = String::from_utf8_lossy(&pdf[start..start + 145]).into_owned();
         let number = |key: &str| -> u32 {
             let rest = &text[text.find(key).unwrap() + key.len()..];
             rest[..rest.find('\n').unwrap()].parse().unwrap()
@@ -515,13 +515,18 @@ fn image_streams(pdf: &[u8]) -> Vec<(u32, u32, Vec<u8>)> {
         let (width, height) = (number("/Width "), number("/Height "));
         assert!(
             text.contains(
-                "/ColorSpace /DeviceGray\n/BitsPerComponent 1\n/Decode [1 0]\n>>\nstream\n"
+                "/ColorSpace /DeviceGray\n/BitsPerComponent 1\n/Decode [1 0]\n/Filter /FlateDecode\n>>\nstream\n"
             )
         );
         let data = find(pdf, b">>\nstream\n", start).unwrap() + b">>\nstream\n".len();
-        let length = width.div_ceil(8) as usize * height as usize;
+        use std::io::Read;
+        let mut decoder = flate2::read::ZlibDecoder::new(&pdf[data..]);
+        let mut pixels = Vec::new();
+        decoder.read_to_end(&mut pixels).unwrap();
+        assert_eq!(pixels.len(), width.div_ceil(8) as usize * height as usize);
+        let length = decoder.total_in() as usize;
         assert_eq!(&pdf[data + length..data + length + 11], b"\nendstream\n");
-        images.push((width, height, pdf[data..data + length].to_vec()));
+        images.push((width, height, pixels));
         from = data + length;
     }
     images
