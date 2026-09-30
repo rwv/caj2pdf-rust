@@ -10,22 +10,161 @@ concurrency:
   group: platforms-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 jobs:
-  windows:
+  native:
     strategy:
       fail-fast: false
       matrix:
-        runner: [windows-2025, windows-11-arm]
+        include:
+          - {runner: ubuntu-24.04, target: x86_64-unknown-linux-gnu}
+          - {runner: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu}
+          - {runner: ubuntu-24.04, target: x86_64-unknown-linux-musl}
+          - {runner: ubuntu-24.04-arm, target: aarch64-unknown-linux-musl}
+          - {runner: macos-15-intel, target: x86_64-apple-darwin}
+          - {runner: macos-15, target: aarch64-apple-darwin}
+          - {runner: windows-2025, target: x86_64-pc-windows-msvc}
+          - {runner: windows-11-arm, target: aarch64-pc-windows-msvc}
+          - {runner: windows-2025, target: i686-pc-windows-msvc}
     runs-on: ${{ matrix.runner }}
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - name: Install pinned toolchain
-        run: rustup show active-toolchain
-      - name: Check native code quality
-        run: cargo clippy --locked -p caj2pdf-cli --all-targets --all-features -- -D warnings
-      - name: Install pinned independent PDF validators
+      - name: Install pinned toolchain and target
+        run: |
+          rustup show active-toolchain
+          rustup target add '${{ matrix.target }}'
+          if [[ "$RUNNER_OS" == Windows ]]; then echo 'RUSTFLAGS=-C target-feature=+crt-static' >> "$GITHUB_ENV"; fi
+      - name: Install Linux validators and musl linker
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y qpdf mupdf-tools musl-tools
+      - name: Install macOS validators
+        if: runner.os == 'macOS'
+        run: brew install qpdf mupdf-tools
+      - name: Install Windows validators
+        if: runner.os == 'Windows'
         shell: pwsh
         run: ./scripts/install-windows-test-tools.ps1
-      - name: Test core units
-        run: cargo test --locked -p caj2pdf-core --lib --all-features
-      - name: Test native CLI behavior
-        run: cargo test --locked -p caj2pdf-cli --bin caj2pdf --test portable --all-features
+      - name: Check target code quality
+        run: cargo clippy --locked -p caj2pdf-cli --all-targets --target '${{ matrix.target }}' -- -D warnings
+      - name: Test core on target
+        run: cargo test --locked -p caj2pdf-core --lib --target '${{ matrix.target }}'
+      - name: Test portable CLI on target
+        run: cargo test --locked -p caj2pdf-cli --test portable --target '${{ matrix.target }}'
+      - name: Build and package tested release binary
+        run: |
+          cargo build --locked --release -p caj2pdf-cli --target '${{ matrix.target }}'
+          cargo test --locked --release -p caj2pdf-cli --test portable --target '${{ matrix.target }}'
+          binary='target/${{ matrix.target }}/release/caj2pdf'
+          if [[ '${{ runner.os }}' == Windows ]]; then binary="$binary.exe"; fi
+          python scripts/package-native.py --target '${{ matrix.target }}' --binary "$binary"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: native-${{ matrix.target }}
+          path: dist/
+          if-no-files-found: error
+
+  linux-cross:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {target: i686-unknown-linux-gnu, libc: i386, compiler: i686-linux-gnu, qemu: i386}
+          - {target: armv7-unknown-linux-gnueabihf, libc: armhf, compiler: arm-linux-gnueabihf, qemu: arm}
+          - {target: riscv64gc-unknown-linux-gnu, libc: riscv64, compiler: riscv64-linux-gnu, qemu: riscv64}
+          - {target: powerpc64le-unknown-linux-gnu, libc: ppc64el, compiler: powerpc64le-linux-gnu, qemu: ppc64le}
+          - {target: s390x-unknown-linux-gnu, libc: s390x, compiler: s390x-linux-gnu, qemu: s390x}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Install cross compiler and emulator
+        env:
+          TARGET: ${{ matrix.target }}
+          COMPILER: ${{ matrix.compiler }}
+          QEMU: ${{ matrix.qemu }}
+        run: |
+          rustup show active-toolchain
+          rustup target add "$TARGET"
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y "gcc-$COMPILER" "libc6-dev-${{ matrix.libc }}-cross" qemu-user qpdf mupdf-tools
+          key="$(echo "$TARGET" | tr '[:lower:]-' '[:upper:]_')"
+          echo "CARGO_TARGET_${key}_LINKER=$COMPILER-gcc" >> "$GITHUB_ENV"
+          echo "CARGO_TARGET_${key}_RUNNER=qemu-$QEMU -L /usr/$COMPILER" >> "$GITHUB_ENV"
+          echo "CAJ2PDF_TEST_RUNNER=qemu-$QEMU -L /usr/$COMPILER" >> "$GITHUB_ENV"
+      - name: Run core and CLI tests under QEMU
+        run: |
+          cargo test --locked --release -p caj2pdf-core --lib --target '${{ matrix.target }}'
+          cargo test --locked --release -p caj2pdf-cli --test portable --target '${{ matrix.target }}'
+      - name: Package tested cross binary
+        run: python scripts/package-native.py --target '${{ matrix.target }}' --binary 'target/${{ matrix.target }}/release/caj2pdf'
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: native-${{ matrix.target }}
+          path: dist/
+          if-no-files-found: error
+
+  freebsd:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {arch: x86_64, target: x86_64-unknown-freebsd}
+          - {arch: aarch64, target: aarch64-unknown-freebsd}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Build and test in FreeBSD 14.3
+        uses: vmactions/freebsd-vm@a2f9a41fa97f6848b8c3b791087dfcdaa5b473ff # v1 at adoption
+        with:
+          release: '14.3'
+          arch: ${{ matrix.arch }}
+          usesh: true
+          mem: 4096
+          cpu: 2
+          cache-after-prepare: true
+          prepare: pkg install -y rust python311 qpdf mupdf
+          run: |
+            set -eu
+            rustc --version
+            cargo --version
+            cargo test --locked -p caj2pdf-core --lib
+            cargo test --locked --release -p caj2pdf-cli --test portable
+            python3.11 scripts/package-native.py --target '${{ matrix.target }}' --binary target/release/caj2pdf
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: native-${{ matrix.target }}
+          path: dist/
+          if-no-files-found: error
+
+  docker:
+    needs: native
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: native-*-unknown-linux-musl
+          merge-multiple: true
+          path: native-assets/
+      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
+        with:
+          platforms: arm64
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - name: Build exact OCI archive from tested static binaries
+        run: |
+          python3 scripts/prepare-docker.py native-assets
+          mkdir -p dist
+          docker buildx build --platform linux/amd64,linux/arm64 --provenance=false --output type=oci,dest=dist/caj2pdf-container.oci.tar docker
+      - name: Test both architectures from the OCI archive
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y skopeo qpdf
+          bash scripts/test-docker.sh dist/caj2pdf-container.oci.tar
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: container-assets
+          path: dist/
+          if-no-files-found: error

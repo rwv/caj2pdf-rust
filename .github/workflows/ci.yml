@@ -289,6 +289,8 @@ jobs:
         with:
           tool: cargo-deny@0.20.2
           fallback: none
+      - name: Audit all declared platform dependency graphs
+        run: cargo deny --locked --all-features check licenses sources
       - name: Audit native dependency graph
         run: cargo deny --locked --all-features --target x86_64-unknown-linux-gnu check licenses sources
       - name: Audit Windows dependency graph

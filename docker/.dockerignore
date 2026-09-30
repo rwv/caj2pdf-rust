@@ -1,0 +1,6 @@
+*
+!Dockerfile
+!artifacts/
+!artifacts/**
+!rootfs/
+!rootfs/**

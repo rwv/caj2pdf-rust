@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.2.0
+
+- Implement the Windows CLI using the shared converter, native file identity and
+  cooperative console cancellation. Preserve Unicode paths and input protection.
+- Add tested Linux GNU/musl, macOS, Windows, extended Linux/QEMU and FreeBSD
+  targets. See [platform baselines](docs/platforms.md); no universal OS claim.
+- Package dependency MIT notices, require the complete native matrix before
+  publication and checksum every asset. Windows archives use ZIP.
+- Add non-root Docker amd64/arm64 CLI images on scratch, with read-only root and
+  pipe tests. Publish the tested OCI archive without rebuilding.
+- Conversion profiles, JS API and PDF encoding remain unchanged from v0.1.0.
+  HN/C8 remains experimental. No npm/crates.io registry publication is included.
+
+See [v0.2.0 release notes](docs/releases/v0.2.0.md) for downloads and installation.
+
 ## v0.1.0
 
 See [release notes](docs/releases/v0.1.0.md) for GitHub assets and installation.

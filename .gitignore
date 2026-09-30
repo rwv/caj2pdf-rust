@@ -9,3 +9,6 @@ __pycache__/
 .env
 .env.*
 /js/caj2pdf_wasm.wasm
+
+# Extracted container build inputs from tested release archives.
+/docker/artifacts/
