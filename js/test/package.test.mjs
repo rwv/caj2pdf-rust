@@ -13,6 +13,8 @@ import { promisify } from "node:util";
 import { syntheticCaj, tempDirectory, validatePdf, wasmUrl } from "./helpers.mjs";
 import { findChrome, launchChrome, openPage, startServer } from "./browser-harness.mjs";
 
+import { syntheticC8 } from "./hnc8-fixtures.mjs";
+
 const run = promisify(execFile);
 const packageDirectory = fileURLToPath(new URL("..", import.meta.url));
 
@@ -60,6 +62,7 @@ test("npm pack includes the WASM build, entry points, declarations, LICENSE, and
     await mkdir(installed, { recursive: true });
     await run("tar", ["-xzf", join(directory, packed.filename), "--strip-components=1", "-C", installed]);
     await writeFile(join(consumer, "input.caj"), syntheticCaj());
+    await writeFile(join(consumer, "input.c8"), syntheticC8());
     const { stdout } = await run(process.execPath, ["--input-type=module", "--eval", `
       import assert from "node:assert/strict";
       import { open } from "node:fs/promises";
@@ -72,24 +75,37 @@ test("npm pack includes the WASM build, entry points, declarations, LICENSE, and
       assert.equal(browser.convert, node.convert);
       const module = await root.loadModule();
       assert.ok(WebAssembly.Module.exports(module).some(({name}) => name === "caj2pdf_io_poll"));
-      const input = await open("input.caj", "r");
-      const output = (await open("output.pdf", "wx")).createWriteStream();
-      try {
-        const report = await root.convert(module, await root.fileHandleSource(input), root.nodeWritableSink(output));
-        output.end();
-        await finished(output);
-        assert.equal(report.pagesConverted, 2);
-      } finally {
-        output.destroy();
-        await finished(output).catch(() => {});
-        await input.close();
+      for (const [name, target, pages] of [["input.caj", "output.pdf", 2], ["input.c8", "c8.pdf", 1]]) {
+        const input = await open(name, "r");
+        const output = (await open(target, "wx")).createWriteStream();
+        try {
+          const report = await root.withHnc8Scratch(async (scratch) => root.convert(
+            module, await root.fileHandleSource(input), root.nodeWritableSink(output),
+            { includeBookmarks: name === "input.caj", hnc8: { scratch } },
+          ));
+          output.end();
+          await finished(output);
+          assert.equal(report.pagesConverted, pages);
+        } finally {
+          output.destroy();
+          await finished(output).catch(() => {});
+          await input.close();
+        }
       }
       console.log("packed exports and Node conversion passed");
     `], { cwd: consumer });
     assert.match(stdout, /packed exports and Node conversion passed/);
     await validatePdf(t, await readFile(join(consumer, "output.pdf")), 2);
+    await validatePdf(t, await readFile(join(consumer, "c8.pdf")), 1);
 
-    await t.test("packed browser entry converts in Chromium with its default WASM URL", async (t) => {
+    // The public Node example must work beside the unpacked package, without
+    // a workspace target/ directory or a fallback to a stale build.
+    await mkdir(join(installed, "examples"));
+    await cp(new URL("../examples/node.mjs", import.meta.url), join(installed, "examples", "node.mjs"));
+    await run(process.execPath, [join(installed, "examples", "node.mjs"), "input.c8", "example.pdf", "--no-bookmarks"], { cwd: consumer });
+    assert.deepEqual(await readFile(join(consumer, "example.pdf")), await readFile(join(consumer, "c8.pdf")));
+
+    await t.test("packed browser entry converts in Chromium with its default WASM URL", { timeout: 60_000 }, async (t) => {
       const chrome = findChrome();
       if (!chrome) {
         assert.ok(!process.env.CI, "Chromium is required in CI");
@@ -99,6 +115,24 @@ test("npm pack includes the WASM build, entry points, declarations, LICENSE, and
       const server = await startServer(installed, {
         "/index.html": "<!doctype html><title>packed package</title>",
         "/input.caj": syntheticCaj(),
+        "/input.c8": syntheticC8(),
+        "/artifact-worker.mjs": `
+          import * as api from "/browser.mjs";
+          try {
+            const output = await api.withHnc8Scratch(async (scratch) => {
+              const input = await (await fetch("/input.c8")).blob();
+              const chunks = [];
+              const report = await api.convert(await api.loadModule(), api.blobSource(input), {
+                async writeChunk(bytes) { chunks.push(bytes.slice()); return bytes.length; },
+                async flush() {},
+              }, { includeBookmarks: false, hnc8: { scratch } });
+              return { pages: report.pagesConverted, bytes: Array.from(new Uint8Array(await new Blob(chunks).arrayBuffer())) };
+            });
+            const root = await navigator.storage.getDirectory();
+            postMessage({ ...output, remaining: await Array.fromAsync(root.keys()) });
+          } catch (error) { postMessage({ error: String(error) }); }
+          self.close();
+        `,
       });
       let browser;
       try {
@@ -116,6 +150,17 @@ test("npm pack includes the WASM build, entry points, declarations, LICENSE, and
         })()`);
         assert.equal(output.pages, 2);
         await validatePdf(t, new Uint8Array(output.bytes), 2);
+        const c8 = await page.evaluate(`new Promise((resolve, reject) => {
+          const worker = new Worker("/artifact-worker.mjs", { type: "module" });
+          worker.onmessage = ({ data }) => resolve(data);
+          worker.onerror = (error) => reject(new Error(error.message));
+        })`);
+        assert.equal(c8.error, undefined);
+        assert.equal(c8.pages, 1);
+        assert.deepEqual(Buffer.from(c8.bytes), await readFile(join(consumer, "c8.pdf")));
+        assert.deepEqual(c8.remaining, []);
+        assert.match(Buffer.from(c8.bytes).toString("latin1"), /\/Filter \/FlateDecode/);
+        await validatePdf(t, new Uint8Array(c8.bytes), 1);
         assert.deepEqual(page.errors, []);
       } finally {
         await browser?.close();

@@ -18,13 +18,15 @@ project-owned JavaScript and TypeScript declarations are MIT-licensed.
 
 ```sh
 cargo build --locked --release --all-features -p caj2pdf-wasm --target wasm32-unknown-unknown
+node js/scripts/copy-wasm.mjs
 node --test js/test/*.test.mjs
 ```
 
 `npm run build:wasm` (run inside `js/`) builds the module and copies it next
 to the entry points as `caj2pdf_wasm.wasm` (`scripts/copy-wasm.mjs`, mode
 `0644`), which is where `loadModule()` looks by default. That copy is
-gitignored and is never committed; the `files` list puts it in the tarball,
+gitignored and is never committed. Examples use this same packaged module path,
+including when Cargo builds into a custom target directory. The `files` list puts it in the tarball,
 and `prepack` refuses to pack without a WebAssembly module there. The
 package is marked `private` until the release process
 ([release policy](../docs/release-policy.md)) runs `npm run build:wasm`,

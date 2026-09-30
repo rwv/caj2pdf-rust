@@ -10,9 +10,7 @@ self.onmessage = async ({ data }) => {
   }
   const writer = data.output.getWriter();
   try {
-    const module = await loadModule(
-      new URL("../../target/wasm32-unknown-unknown/release/caj2pdf_wasm.wasm", import.meta.url),
-    );
+    const module = await loadModule();
     const report = await withHnc8Scratch((scratch) =>
       convert(module, blobSource(data.file), webWritableSink(writer), {
         signal: controller.signal,

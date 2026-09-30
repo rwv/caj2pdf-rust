@@ -19,7 +19,7 @@ let page;
 before(async () => {
   if (!chrome) return;
   server = await startServer(fileURLToPath(new URL("..", import.meta.url)), {
-    "/target/wasm32-unknown-unknown/release/caj2pdf_wasm.wasm": await readFile(wasmUrl),
+    "/caj2pdf_wasm.wasm": await readFile(wasmUrl),
     "/input.caj": syntheticCaj(),
     "/input.hn": syntheticHn(),
     "/input.c8": syntheticC8(),

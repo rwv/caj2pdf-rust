@@ -19,9 +19,7 @@ if (!inputPath || !outputPath || extra !== undefined || (flag !== undefined && f
   let input;
   let output;
   try {
-    const module = await loadModule(
-      new URL("../../target/wasm32-unknown-unknown/release/caj2pdf_wasm.wasm", import.meta.url),
-    );
+    const module = await loadModule();
     input = inputPath === "-" ? null : await open(inputPath, "r");
     // "wx" never replaces an existing file. Only an output we successfully
     // opened belongs to this invocation and may be removed after failure.
