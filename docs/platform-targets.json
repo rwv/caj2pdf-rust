@@ -45,5 +45,6 @@
   "powerpc-unknown-linux-musl": "qemu-user-nightly-std",
   "s390x-unknown-linux-musl": "qemu-user-nightly-std",
   "x86_64-linux-android": "android-emulator",
-  "i686-linux-android": "android-emulator"
+  "i686-linux-android": "android-emulator",
+  "aarch64-unknown-netbsd": "netbsd-vm"
 }

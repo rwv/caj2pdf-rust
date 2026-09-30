@@ -305,6 +305,7 @@ jobs:
       matrix:
         include:
           - {arch: x86_64, target: x86_64-unknown-netbsd}
+          - {arch: aarch64, target: aarch64-unknown-netbsd}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Test release target in netbsd
@@ -524,3 +525,20 @@ jobs:
           name: native-${{ matrix.target }}
           path: dist/
           if-no-files-found: error
+
+  complete:
+    name: Native platform matrix
+    if: always()
+    needs: [native, linux-cross, linux-musl, mips, freebsd, docker, netbsd, openbsd, omnios, bootlin, android]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require every release platform job to succeed
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          results = {name: job['result'] for name, job in json.loads(os.environ['RESULTS']).items()}
+          assert results and all(result == 'success' for result in results.values()), results
+          print('Every required native/container job passed:', results)
+          PY

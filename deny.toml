@@ -51,6 +51,7 @@ targets = [
     "s390x-unknown-linux-musl",
     "x86_64-linux-android",
     "i686-linux-android",
+    "aarch64-unknown-netbsd",
     "wasm32-unknown-unknown",
 ]
 

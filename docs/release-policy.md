@@ -84,3 +84,8 @@ Windows and macOS assets are unsigned. GHCR uses the workflow's scoped
 on GitHub, so the package owner must make the new package public before claiming
 anonymous pull support. The downloadable OCI archive remains available through
 GitHub Releases. Never replace assets of an already published version.
+
+From v0.3.0, the stable `Native platform matrix` status aggregates every required
+native/container job and fails on failure, cancellation or skipped jobs. It is
+required alongside the four existing quality statuses before merging to main.
+Optional candidate probes are separate and never substitute for release gates.

@@ -48,3 +48,10 @@ not used as an unverified substitute.
   These targets were removed from the release inventory. A matching soft-float
   SDK is required; Bootlin probes now make linker warnings fatal. MIPS GNU
   32/64 big/little-endian targets remain independently verified.
+
+- Android ARM64/ARMv7 builds with the NDK, but runtime validation is blocked
+  on standard hosted runners: Linux x86_64 Android emulators refuse ARM64
+  system images, and macOS ARM64 fails with `HVF error: HV_UNSUPPORTED` even
+  when requesting software acceleration. ARMv7 was also attempted through
+  the ARM64 API 30 image. A suitable ARM device/virtualization host is needed;
+  these build-only outputs are not release support. Android x86/x86_64 passes.

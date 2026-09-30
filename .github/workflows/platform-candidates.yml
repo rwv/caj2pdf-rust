@@ -8,50 +8,6 @@ concurrency:
   group: candidates-${{ github.ref }}
   cancel-in-progress: true
 jobs:
-  netbsd:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 120
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - {arch: aarch64, target: aarch64-unknown-netbsd}
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - name: Test candidate in netbsd
-        uses: vmactions/netbsd-vm@11a9faa5b7086f5f5fdcd65ccc344efb87777c50
-        with:
-          release: '11.0'
-          arch: ${{ matrix.arch }}
-          sync: scp
-          usesh: true
-          mem: 4096
-          cpu: 2
-          cache-after-prepare: true
-          prepare: |
-            set -eu
-            case '${{ matrix.arch }}' in
-              x86_64) machine=amd64; digest=1fc6760036b07676d3da3f45eb23bf1a3891fd46255d4b9f984d045095c77bf586bda0ba1be9b79f6d9c7c2f6d73c3098c31b982c1f2706a6071f155a27a3ef6 ;;
-              aarch64) machine=evbarm-aarch64; digest=0606338c3afc578bc5a388e772eb05d90bbd2701673111545fa8c50ca77d943ce166e7a1056353e334246705dd976a3785f4bcd74848091eeac9d88506fba906 ;;
-            esac
-            ftp -o /tmp/xbase.tar.xz "https://cdn.netbsd.org/pub/NetBSD/NetBSD-11.0/$machine/binary/sets/xbase.tar.xz"
-            test "$(sha512 -q /tmp/xbase.tar.xz)" = "$digest"
-            tar -xJpf /tmp/xbase.tar.xz -C /
-            /usr/sbin/pkg_add -u rust python311 qpdf mupdf
-          run: |
-            set -eu
-            export PATH=/usr/pkg/bin:/usr/pkg/sbin:$PATH
-            rustc --version
-            cargo --version
-            cargo test --locked -p caj2pdf-core --lib
-            cargo test --locked --release -p caj2pdf-cli --test portable
-            python3.11 scripts/package-native.py --target '${{ matrix.target }}' --binary target/release/caj2pdf
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: candidate-${{ matrix.target }}
-          path: dist/
-          if-no-files-found: error
-
   openbsd:
     runs-on: ubuntu-24.04
     timeout-minutes: 120

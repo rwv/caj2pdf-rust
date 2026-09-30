@@ -19,7 +19,8 @@ Target counts include OS/libc/ABI combinations, not just CPU architectures.
 | Linux musl additions | i586, i686, ARMv5TE, ARMv6/ARMv7 soft/hard-float, PowerPC64 big/little endian, RISC-V64 GC | Static Rust-bundled musl runtime, tested with QEMU |
 | Linux GNU MIPS | MIPS32 and MIPS64 n64, each big/little endian | Ubuntu cross sysroots and QEMU; std built with pinned nightly-2026-09-29 |
 | FreeBSD | x86_64, ARM64 | FreeBSD 14.3 virtual machines; Rust from the FreeBSD package repository, version printed in CI |
-| NetBSD / OpenBSD | x86_64 | NetBSD 11.0 / OpenBSD 7.9 VMs, packaged Rust compiler |
+| NetBSD | x86_64, ARM64 | NetBSD 11.0 VMs, packaged Rust compiler |
+| OpenBSD | x86_64 | OpenBSD 7.9 VM, packaged Rust compiler |
 | illumos | x86_64 | OmniOS r151054 VM; 499 core tests and 4 CLI tests, host qpdf/MuPDF validation |
 | Linux Bootlin GNU | RISC-V32 GC ILP32D | Bootlin stable-2025.08-1 glibc sysroot; pinned std build and QEMU |
 | Linux Bootlin musl (dynamic) | PowerPC32 (e300c3), s390x (z13) | Bootlin stable-2025.08-1 SDK runtime; pinned std build and QEMU; not static Docker artifacts |
