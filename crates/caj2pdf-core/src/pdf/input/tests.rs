@@ -2582,10 +2582,12 @@ fn index_allocations_obey_the_allocation_limit() {
     assert_eq!((object, resource, limit), (None, "PDF xref records", 1024));
 
     let mut objects = minimal_objects().to_vec();
-    objects.push((67, "null"));
-    let stream = xref_stream_pdf(&objects, [1, 2, 1], 0, false);
-    let (_, object, resource, _) = index_limit(stream, 2944);
-    assert_eq!((object, resource), (Some((68, 0)), "PDF xref records"));
+    // The 129th record grows capacity to 256 even on i686, where records
+    // are smaller. Three-byte rows keep decoded bytes within their own cap.
+    objects.push((127, "null"));
+    let stream = xref_stream_pdf(&objects, [1, 2, 0], 0, false);
+    let (_, object, resource, _) = index_limit(stream, 4096);
+    assert_eq!((object, resource), (Some((128, 0)), "PDF xref records"));
 
     // The xref records fit, but the combined per-object indexes do not.
     let mut objects = minimal_objects().to_vec();
