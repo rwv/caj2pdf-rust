@@ -361,8 +361,8 @@ jobs:
           arch: ${{ matrix.arch }}
           sync: scp
           usesh: true
-          mem: 8192
-          cpu: 4
+          mem: 4096
+          cpu: 2
           cache-after-prepare: true
           prepare: |
             set -eu
