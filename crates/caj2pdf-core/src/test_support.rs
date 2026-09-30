@@ -6,7 +6,7 @@ use crate::Cancellation;
 use std::{
     future::Future,
     pin::pin,
-    sync::atomic::{AtomicU64, Ordering},
+    sync::atomic::{AtomicUsize, Ordering},
     task::{Context, Poll, Waker},
 };
 
@@ -35,7 +35,7 @@ pub(crate) fn run<F: Future>(future: F) -> F::Output {
 /// from then on, counting every query.
 #[derive(Debug)]
 pub(crate) struct CancelAfter {
-    queries: AtomicU64,
+    queries: AtomicUsize,
     allowed: u64,
 }
 
@@ -47,7 +47,7 @@ pub(crate) static NEVER: CancelAfter = CancelAfter::new(u64::MAX);
 impl CancelAfter {
     pub(crate) const fn new(allowed: u64) -> Self {
         Self {
-            queries: AtomicU64::new(0),
+            queries: AtomicUsize::new(0),
             allowed,
         }
     }
@@ -64,13 +64,13 @@ impl CancelAfter {
 
     /// The number of cancellation queries observed so far.
     pub(crate) fn queries(&self) -> u64 {
-        self.queries.load(Ordering::Relaxed)
+        self.queries.load(Ordering::Relaxed) as u64
     }
 }
 
 impl Cancellation for CancelAfter {
     fn is_cancelled(&self) -> bool {
-        self.queries.fetch_add(1, Ordering::Relaxed) >= self.allowed
+        self.queries.fetch_add(1, Ordering::Relaxed) as u64 >= self.allowed
     }
 }
 

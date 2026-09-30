@@ -1809,9 +1809,9 @@ fn render_original_pdf(bytes: &[u8]) -> Vec<u8> {
         fs,
         path::PathBuf,
         process::Command,
-        sync::atomic::{AtomicU64, Ordering},
+        sync::atomic::{AtomicUsize, Ordering},
     };
-    static NEXT: AtomicU64 = AtomicU64::new(0);
+    static NEXT: AtomicUsize = AtomicUsize::new(0);
     struct Artifacts(PathBuf);
     impl Drop for Artifacts {
         fn drop(&mut self) {

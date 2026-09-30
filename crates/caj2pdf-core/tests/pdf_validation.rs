@@ -15,11 +15,11 @@ use std::{
     path::{Path, PathBuf},
     pin::pin,
     process::{Command, Output, Stdio},
-    sync::atomic::{AtomicU64, Ordering},
+    sync::atomic::{AtomicUsize, Ordering},
     task::{Context, Poll, Waker},
 };
 
-static NEXT_TEMP_ID: AtomicU64 = AtomicU64::new(0);
+static NEXT_TEMP_ID: AtomicUsize = AtomicUsize::new(0);
 
 fn run_native<F: Future>(future: F) -> F::Output {
     let mut context = Context::from_waker(Waker::noop());

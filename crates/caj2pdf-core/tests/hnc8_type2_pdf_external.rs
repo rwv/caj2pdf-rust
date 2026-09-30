@@ -21,7 +21,7 @@ use std::{
     path::{Component, Path, PathBuf},
     pin::pin,
     process::{Command, Stdio},
-    sync::atomic::{AtomicU64, Ordering},
+    sync::atomic::{AtomicUsize, Ordering},
     task::{Context, Poll, Waker},
     time::Instant,
 };
@@ -54,7 +54,7 @@ const MULTI_CANARY: (usize, u32, u32) = (5, 1, 2);
 // Fixed colorful canaries also require tight pointwise stable-region matches.
 const MAX_CHANNEL_DIFFERENCE: u8 = 8;
 const MAX_MEAN_DIFFERENCE: f64 = 1.5;
-static NEXT_TEST_SOURCE: AtomicU64 = AtomicU64::new(0);
+static NEXT_TEST_SOURCE: AtomicUsize = AtomicUsize::new(0);
 
 #[derive(Debug)]
 struct Image {
@@ -446,7 +446,7 @@ impl SequentialSink for BoundedPdf {
     }
 }
 
-static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
+static NEXT_TEMP: AtomicUsize = AtomicUsize::new(0);
 
 struct PrivateTemp(PathBuf);
 

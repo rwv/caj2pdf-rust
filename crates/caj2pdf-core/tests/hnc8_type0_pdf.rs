@@ -30,7 +30,7 @@ use std::{
     path::{Path, PathBuf},
     pin::pin,
     process::{Command, Output},
-    sync::atomic::{AtomicU64, Ordering},
+    sync::atomic::{AtomicUsize, Ordering},
     task::{Context, Poll, Waker},
 };
 
@@ -532,7 +532,7 @@ fn image_streams(pdf: &[u8]) -> Vec<(u32, u32, Vec<u8>)> {
     images
 }
 
-static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
+static NEXT_TEMP: AtomicUsize = AtomicUsize::new(0);
 
 struct Temp(PathBuf);
 

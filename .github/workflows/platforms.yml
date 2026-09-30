@@ -77,6 +77,15 @@ jobs:
           - {target: riscv64gc-unknown-linux-gnu, libc: riscv64, compiler: riscv64-linux-gnu, qemu: riscv64}
           - {target: powerpc64le-unknown-linux-gnu, libc: ppc64el, compiler: powerpc64le-linux-gnu, qemu: ppc64le}
           - {target: s390x-unknown-linux-gnu, libc: s390x, compiler: s390x-linux-gnu, qemu: s390x}
+          - {target: armv5te-unknown-linux-gnueabi, libc: armel, compiler: arm-linux-gnueabi, qemu: arm, cpu: "arm926"}
+          - {target: arm-unknown-linux-gnueabi, libc: armel, compiler: arm-linux-gnueabi, qemu: arm, cpu: "arm1176"}
+          - {target: arm-unknown-linux-gnueabihf, libc: armhf, compiler: arm-linux-gnueabihf, qemu: arm, cpu: "arm1176"}
+          - {target: armv7-unknown-linux-gnueabi, libc: armel, compiler: arm-linux-gnueabi, qemu: arm, cpu: "cortex-a9"}
+          - {target: i586-unknown-linux-gnu, libc: i386, compiler: i686-linux-gnu, qemu: i386, cpu: "pentium"}
+          - {target: powerpc-unknown-linux-gnu, libc: powerpc, compiler: powerpc-linux-gnu, qemu: ppc, cpu: ""}
+          - {target: powerpc64-unknown-linux-gnu, libc: ppc64, compiler: powerpc64-linux-gnu, qemu: ppc64, cpu: ""}
+          - {target: sparc64-unknown-linux-gnu, libc: sparc64, compiler: sparc64-linux-gnu, qemu: sparc64, cpu: ""}
+          - {target: loongarch64-unknown-linux-gnu, libc: loong64, compiler: loongarch64-unknown-linux-gnu, qemu: loongarch64, cpu: ""}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Install cross compiler and emulator
@@ -84,20 +93,83 @@ jobs:
           TARGET: ${{ matrix.target }}
           COMPILER: ${{ matrix.compiler }}
           QEMU: ${{ matrix.qemu }}
+          CPU: ${{ matrix.cpu }}
         run: |
           rustup show active-toolchain
           rustup target add "$TARGET"
           sudo apt-get update
-          sudo apt-get install --no-install-recommends -y "gcc-$COMPILER" "libc6-dev-${{ matrix.libc }}-cross" qemu-user qpdf mupdf-tools
+          sudo apt-get install --no-install-recommends -y qemu-user qpdf mupdf-tools
+          if [[ "$TARGET" == loongarch64-unknown-linux-gnu ]]; then
+            archive=x86_64-cross-tools-loongarch64-binutils_2.45-gcc_15.1.0-glibc_2.42.tar.xz
+            curl --fail --location --retry 3 "https://github.com/loongson/build-tools/releases/download/2025.08.08/$archive" -o "$RUNNER_TEMP/$archive"
+            echo "b8572e2083143ff1807658f02e11eba53e5ed81d6194854d369b43fceea72de7  $RUNNER_TEMP/$archive" | sha256sum -c -
+            tar -xJf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP"
+            echo "$RUNNER_TEMP/cross-tools/bin" >> "$GITHUB_PATH"
+            sysroot="$("$RUNNER_TEMP/cross-tools/bin/$COMPILER-gcc" -print-sysroot)"
+          else
+            sudo apt-get install --no-install-recommends -y "gcc-$COMPILER" "libc6-dev-${{ matrix.libc }}-cross"
+            sysroot="/usr/$COMPILER"
+          fi
+          runner="qemu-$QEMU"
+          if [[ -n "$CPU" ]]; then runner+=" -cpu $CPU"; fi
+          runner+=" -L $sysroot"
           key="$(echo "$TARGET" | tr '[:lower:]-' '[:upper:]_')"
           echo "CARGO_TARGET_${key}_LINKER=$COMPILER-gcc" >> "$GITHUB_ENV"
-          echo "CARGO_TARGET_${key}_RUNNER=qemu-$QEMU -L /usr/$COMPILER" >> "$GITHUB_ENV"
-          echo "CAJ2PDF_TEST_RUNNER=qemu-$QEMU -L /usr/$COMPILER" >> "$GITHUB_ENV"
+          echo "CARGO_TARGET_${key}_RUNNER=$runner" >> "$GITHUB_ENV"
+          echo "CAJ2PDF_TEST_RUNNER=$runner" >> "$GITHUB_ENV"
       - name: Run core and CLI tests under QEMU
         run: |
           cargo test --locked --release -p caj2pdf-core --lib --target '${{ matrix.target }}'
           cargo test --locked --release -p caj2pdf-cli --test portable --target '${{ matrix.target }}'
       - name: Package tested cross binary
+        run: python scripts/package-native.py --target '${{ matrix.target }}' --binary 'target/${{ matrix.target }}/release/caj2pdf'
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: native-${{ matrix.target }}
+          path: dist/
+          if-no-files-found: error
+
+  linux-musl:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {target: loongarch64-unknown-linux-musl, qemu: loongarch64, cpu: ""}
+          - {target: armv5te-unknown-linux-musleabi, qemu: arm, cpu: "arm926"}
+          - {target: arm-unknown-linux-musleabi, qemu: arm, cpu: "arm1176"}
+          - {target: arm-unknown-linux-musleabihf, qemu: arm, cpu: "arm1176"}
+          - {target: armv7-unknown-linux-musleabi, qemu: arm, cpu: "cortex-a9"}
+          - {target: armv7-unknown-linux-musleabihf, qemu: arm, cpu: "cortex-a9"}
+          - {target: i586-unknown-linux-musl, qemu: i386, cpu: "pentium"}
+          - {target: i686-unknown-linux-musl, qemu: i386, cpu: ""}
+          - {target: powerpc64-unknown-linux-musl, qemu: ppc64, cpu: ""}
+          - {target: powerpc64le-unknown-linux-musl, qemu: ppc64le, cpu: ""}
+          - {target: riscv64gc-unknown-linux-musl, qemu: riscv64, cpu: ""}
+    env:
+      RUSTFLAGS: '-C linker=rust-lld -C target-feature=+crt-static -C link-self-contained=yes'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Install target and emulator
+        env:
+          TARGET: ${{ matrix.target }}
+          QEMU: ${{ matrix.qemu }}
+          CPU: ${{ matrix.cpu }}
+        run: |
+          rustup show active-toolchain
+          rustup target add "$TARGET"
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y qemu-user qpdf mupdf-tools
+          key="$(echo "$TARGET" | tr '[:lower:]-' '[:upper:]_')"
+          runner="qemu-$QEMU"
+          if [[ -n "$CPU" ]]; then runner+=" -cpu $CPU"; fi
+          echo "CARGO_TARGET_${key}_RUNNER=$runner" >> "$GITHUB_ENV"
+          echo "CAJ2PDF_TEST_RUNNER=$runner" >> "$GITHUB_ENV"
+      - name: Test static core and CLI under QEMU
+        run: |
+          cargo test --locked --release -p caj2pdf-core --lib --target '${{ matrix.target }}'
+          cargo test --locked --release -p caj2pdf-cli --test portable --target '${{ matrix.target }}'
+      - name: Package tested static binary
         run: python scripts/package-native.py --target '${{ matrix.target }}' --binary 'target/${{ matrix.target }}/release/caj2pdf'
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:

@@ -17,11 +17,11 @@ use std::{
     path::PathBuf,
     pin::pin,
     process::Command,
-    sync::atomic::{AtomicU64, Ordering},
+    sync::atomic::{AtomicUsize, Ordering},
     task::{Context, Poll, Waker},
 };
 
-static NEXT_TEMP_ID: AtomicU64 = AtomicU64::new(0);
+static NEXT_TEMP_ID: AtomicUsize = AtomicUsize::new(0);
 type CajFieldCase = (&'static str, Vec<u8>, u64, Option<u32>, &'static str);
 
 fn run_native<F: Future>(future: F) -> F::Output {

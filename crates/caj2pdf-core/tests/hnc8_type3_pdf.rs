@@ -29,7 +29,7 @@ use std::{
     pin::pin,
     process::Command,
     rc::Rc,
-    sync::atomic::{AtomicU64, Ordering},
+    sync::atomic::{AtomicUsize, Ordering},
     task::{Context, Poll, Waker},
 };
 
@@ -475,7 +475,7 @@ fn embedded_image(pdf: &[u8]) -> Vec<u8> {
     pixels
 }
 
-static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
+static NEXT_TEMP: AtomicUsize = AtomicUsize::new(0);
 
 struct TempDir(PathBuf);
 

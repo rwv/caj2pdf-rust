@@ -1781,3 +1781,20 @@ SHA-256 in `scripts/install-windows-test-tools.ps1`. They are independent test
 programs (MuPDF runs under x64 emulation on Windows ARM64), never Cargo
 dependencies or release contents. Their own upstream licenses remain distinct
 from the MIT converter. Windows render tests remain enabled.
+
+## Extended platform matrix (#209–#211)
+
+The additional workflows and target inventory are original MIT project glue.
+Musl cross targets use the pinned Rust distribution's self-contained runtime
+and LLVM linker, with explicit static CRT selection. LoongArch GNU uses the
+Loongson build-tools 2025.08.08 GCC 15.1.0 / binutils 2.45 / glibc 2.42 archive,
+pinned by SHA-256 in CI. Compilers, libc runtimes, emulators, VM images and PDF
+validators retain their upstream licenses; they are not relabeled project MIT
+source. No converter or decoder source is imported. Test-only counters use
+pointer-width atomics so CPUs without 64-bit atomics can compile the same
+regressions. Conversion limits and public APIs are unchanged.
+
+Candidate VM/Tier 3 jobs are discovery evidence until explicitly promoted to
+the release inventory. Building their std with a separately pinned nightly does
+not change the main stable toolchain. Failed candidates are not compatibility
+passes and cannot silently contribute release assets.

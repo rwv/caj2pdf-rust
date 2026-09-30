@@ -1,0 +1,189 @@
+name: Platform candidates
+on:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: candidates-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  netbsd:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {arch: x86_64, target: x86_64-unknown-netbsd}
+          - {arch: aarch64, target: aarch64-unknown-netbsd}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Test candidate in netbsd
+        uses: vmactions/netbsd-vm@11a9faa5b7086f5f5fdcd65ccc344efb87777c50
+        with:
+          release: '11.0'
+          arch: ${{ matrix.arch }}
+          sync: scp
+          usesh: true
+          mem: 4096
+          cpu: 2
+          cache-after-prepare: true
+          prepare: /usr/sbin/pkg_add -u rust python311 qpdf mupdf
+          run: |
+            set -eu
+            export PATH=/usr/pkg/bin:/usr/pkg/sbin:$PATH
+            rustc --version
+            cargo --version
+            cargo test --locked -p caj2pdf-core --lib
+            cargo test --locked --release -p caj2pdf-cli --test portable
+            python3.11 scripts/package-native.py --target '${{ matrix.target }}' --binary target/release/caj2pdf
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: candidate-${{ matrix.target }}
+          path: dist/
+          if-no-files-found: error
+
+  openbsd:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {arch: x86_64, target: x86_64-unknown-openbsd}
+          - {arch: aarch64, target: aarch64-unknown-openbsd}
+          - {arch: riscv64, target: riscv64gc-unknown-openbsd}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Test candidate in openbsd
+        uses: vmactions/openbsd-vm@10e08aa98d44e590ad13d0f922b0f032b4f7f268
+        with:
+          release: '7.9'
+          arch: ${{ matrix.arch }}
+          sync: scp
+          usesh: true
+          mem: 4096
+          cpu: 2
+          cache-after-prepare: true
+          prepare: pkg_add rust python%3.12 qpdf mupdf
+          run: |
+            set -eu
+            export PATH=/usr/local/bin:$PATH
+            rustc --version
+            cargo --version
+            cargo test --locked -p caj2pdf-core --lib
+            cargo test --locked --release -p caj2pdf-cli --test portable
+            python3.12 scripts/package-native.py --target '${{ matrix.target }}' --binary target/release/caj2pdf
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: candidate-${{ matrix.target }}
+          path: dist/
+          if-no-files-found: error
+
+  freebsd:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {arch: riscv64, target: riscv64gc-unknown-freebsd}
+          - {arch: powerpc64, target: powerpc64-unknown-freebsd}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Test candidate in freebsd
+        uses: vmactions/freebsd-vm@a2f9a41fa97f6848b8c3b791087dfcdaa5b473ff
+        with:
+          release: '14.3'
+          arch: ${{ matrix.arch }}
+          sync: scp
+          usesh: true
+          mem: 4096
+          cpu: 2
+          cache-after-prepare: true
+          prepare: pkg install -y rust python311 qpdf mupdf
+          run: |
+            set -eu
+            export PATH=/usr/local/bin:$PATH
+            rustc --version
+            cargo --version
+            cargo test --locked -p caj2pdf-core --lib
+            cargo test --locked --release -p caj2pdf-cli --test portable
+            python3.11 scripts/package-native.py --target '${{ matrix.target }}' --binary target/release/caj2pdf
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: candidate-${{ matrix.target }}
+          path: dist/
+          if-no-files-found: error
+
+  omnios:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {arch: x86_64, target: x86_64-unknown-illumos}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Test candidate in omnios
+        uses: vmactions/omnios-vm@9fef3e21494ae59304197253c91eae28582615d6
+        with:
+          release: 'r151054-build'
+          arch: ${{ matrix.arch }}
+          sync: scp
+          usesh: true
+          mem: 4096
+          cpu: 2
+          cache-after-prepare: true
+          prepare: pkg install rust python-311 qpdf mupdf
+          run: |
+            set -eu
+            export PATH=/opt/ooce/bin:/opt/ooce/rust/bin:/usr/gnu/bin:$PATH
+            rustc --version
+            cargo --version
+            cargo test --locked -p caj2pdf-core --lib
+            cargo test --locked --release -p caj2pdf-cli --test portable
+            python3.11 scripts/package-native.py --target '${{ matrix.target }}' --binary target/release/caj2pdf
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: candidate-${{ matrix.target }}
+          path: dist/
+          if-no-files-found: error
+
+  mips:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {target: mips-unknown-linux-gnu, compiler: mips-linux-gnu, libc: mips, qemu: mips}
+          - {target: mipsel-unknown-linux-gnu, compiler: mipsel-linux-gnu, libc: mipsel, qemu: mipsel}
+          - {target: mips64-unknown-linux-gnuabi64, compiler: mips64-linux-gnuabi64, libc: mips64, qemu: mips64}
+          - {target: mips64el-unknown-linux-gnuabi64, compiler: mips64el-linux-gnuabi64, libc: mips64el, qemu: mips64el}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Install pinned std builder and cross sysroot
+        env:
+          TARGET: ${{ matrix.target }}
+          COMPILER: ${{ matrix.compiler }}
+          QEMU: ${{ matrix.qemu }}
+        run: |
+          rustup toolchain install nightly-2026-09-29 --profile minimal --component rust-src
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y "gcc-$COMPILER" "libc6-dev-${{ matrix.libc }}-cross" qemu-user qpdf mupdf-tools
+          key="$(echo "$TARGET" | tr '[:lower:]-' '[:upper:]_')"
+          echo "CARGO_TARGET_${key}_LINKER=$COMPILER-gcc" >> "$GITHUB_ENV"
+          echo "CARGO_TARGET_${key}_RUNNER=qemu-$QEMU -L /usr/$COMPILER" >> "$GITHUB_ENV"
+          echo "CAJ2PDF_TEST_RUNNER=qemu-$QEMU -L /usr/$COMPILER" >> "$GITHUB_ENV"
+      - name: Build std and execute actual tests
+        run: |
+          cargo +nightly-2026-09-29 test -Z build-std --locked --release -p caj2pdf-core --lib --target '${{ matrix.target }}'
+          cargo +nightly-2026-09-29 test -Z build-std --locked --release -p caj2pdf-cli --test portable --target '${{ matrix.target }}'
+          python scripts/package-native.py --target '${{ matrix.target }}' --binary 'target/${{ matrix.target }}/release/caj2pdf'
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: candidate-${{ matrix.target }}
+          path: dist/
+          if-no-files-found: error
