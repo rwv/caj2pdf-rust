@@ -85,6 +85,7 @@ jobs:
     runs-on: ubuntu-24.04
     permissions:
       contents: write
+      packages: write
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
@@ -96,6 +97,19 @@ jobs:
         with:
           name: release-assets
           path: dist/
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: container-assets
+          path: dist/
+      - name: Publish tested OCI archive to GHCR
+        env:
+          REGISTRY_USER: ${{ github.actor }}
+          REGISTRY_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y skopeo
+          skopeo copy --all --dest-creds "$REGISTRY_USER:$REGISTRY_TOKEN" --digestfile dist/CONTAINER-DIGEST.txt oci-archive:dist/caj2pdf-container.oci.tar "docker://ghcr.io/rwv/caj2pdf-rust:$RELEASE_TAG"
       - name: Verify complete native matrix and checksum every asset
         run: |
           python3 - <<'PY'
@@ -105,7 +119,7 @@ jobs:
           version = json.loads(Path('js/package.json').read_text())['version']
           root = Path('dist')
           expected = {f"caj2pdf-v{version}-{t}.{'zip' if 'windows' in t else 'tar.gz'}" for t in targets}
-          expected.update({f'caj2pdf-rust-{version}.tgz', 'caj2pdf_wasm.wasm', 'LICENSE', 'RELEASE-NOTES.md'})
+          expected.update({f'caj2pdf-rust-{version}.tgz', 'caj2pdf_wasm.wasm', 'LICENSE', 'RELEASE-NOTES.md', 'caj2pdf-container.oci.tar', 'CONTAINER-DIGEST.txt'})
           assert {p.name for p in root.iterdir()} == expected, 'Incomplete or unexpected release assets'
           with (root / 'SHA256SUMS').open('w') as out:
               for name in sorted(expected):
