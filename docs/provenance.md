@@ -1775,3 +1775,9 @@ Cargo.lock also resolves ctrlc's other-platform packages, but those do not
 build through this Windows-only dependency. CI audits the Windows graph
 explicitly. Native Windows regression tests cover Unicode paths, file identity
 (including hard links), bounded spooling, staged-output cleanup and pipe I/O.
+
+Windows CI downloads upstream qpdf 12.4.2 and MuPDF 1.28.5 archives, pinned by
+SHA-256 in `scripts/install-windows-test-tools.ps1`. They are independent test
+programs (MuPDF runs under x64 emulation on Windows ARM64), never Cargo
+dependencies or release contents. Their own upstream licenses remain distinct
+from the MIT converter. Windows render tests remain enabled.

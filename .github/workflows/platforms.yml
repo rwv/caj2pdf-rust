@@ -22,6 +22,9 @@ jobs:
         run: rustup show active-toolchain
       - name: Check native code quality
         run: cargo clippy --locked -p caj2pdf-cli --all-targets --all-features -- -D warnings
+      - name: Install pinned independent PDF validators
+        shell: pwsh
+        run: ./scripts/install-windows-test-tools.ps1
       - name: Test core units
         run: cargo test --locked -p caj2pdf-core --lib --all-features
       - name: Test native CLI behavior
