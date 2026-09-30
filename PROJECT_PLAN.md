@@ -149,3 +149,13 @@ linked issues and format notes; no extra approval or inventory project is needed
 - Semantic Versioning: https://semver.org/spec/v2.0.0.html
 - Browser Blob ranges: https://developer.mozilla.org/en-US/docs/Web/API/Blob/slice
 - Node.js positioned reads: https://nodejs.org/api/fs.html#filehandlereadbuffer-offset-length-position
+
+## Wider distribution (v0.3.0)
+
+Track platform expansion in #209, with LoongArch in #210, additional targets
+in #211 and concrete remaining toolchain/runtime blockers in #214. The release
+inventory is `docs/platform-targets.json`; CI matrices must execute each target
+before packaging. Docker has a separate `docs/container-platforms.json` and
+executes every manifest from the exported archive. Preserve the existing
+converter and JavaScript architecture; platform setup belongs in CI/adapters.
+Do not promote an ABI-mismatched or build-only target even if some tests pass.

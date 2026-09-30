@@ -43,7 +43,7 @@ same-document handle validation.
 
 ## Command-line usage
 
-The `caj2pdf` Linux command converts CAJ, KDH and PDF inputs, and supports
+The `caj2pdf` CLI converts CAJ, KDH and PDF inputs, and supports
 experimental HN/C8 image-page conversion. HN/C8 arithmetic images use
 built-in standard QM/MQ states; optional state files override those defaults. The same core converter is available through
 [Node and browser WASM](js/README.md), using caller-owned bounded scratch stores.

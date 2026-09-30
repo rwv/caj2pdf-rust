@@ -47,8 +47,6 @@ targets = [
     "x86_64-unknown-openbsd",
     "x86_64-unknown-illumos",
     "riscv32gc-unknown-linux-gnu",
-    "mips-unknown-linux-musl",
-    "mipsel-unknown-linux-musl",
     "powerpc-unknown-linux-musl",
     "s390x-unknown-linux-musl",
     "wasm32-unknown-unknown",

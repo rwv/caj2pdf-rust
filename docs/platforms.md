@@ -22,7 +22,7 @@ Target counts include OS/libc/ABI combinations, not just CPU architectures.
 | NetBSD / OpenBSD | x86_64 | NetBSD 11.0 / OpenBSD 7.9 VMs, packaged Rust compiler |
 | illumos | x86_64 | OmniOS r151054 VM; 499 core tests and 4 CLI tests, host qpdf/MuPDF validation |
 | Linux Bootlin GNU | RISC-V32 GC ILP32D | Bootlin stable-2025.08-1 glibc sysroot; pinned std build and QEMU |
-| Linux Bootlin musl (dynamic) | MIPS32 big/little endian, PowerPC32, s390x | Bootlin stable-2025.08-1 SDK runtime; pinned std build and QEMU; not static Docker artifacts |
+| Linux Bootlin musl (dynamic) | PowerPC32 (e300c3), s390x (z13) | Bootlin stable-2025.08-1 SDK runtime; pinned std build and QEMU; not static Docker artifacts |
 | JavaScript/WASM | Browser and Node 22+ | Portable WASM package; real Node 22/24 and Chromium tests |
 
 The pinned Rust toolchain is used wherever distributed for hosted runners.
@@ -65,3 +65,8 @@ compatibility is inferred from user-mode emulation on a newer host kernel.
 
 The container inventory is separate: `container-platforms.json`. Every listed
 image must execute from the exported OCI archive before publication.
+
+The dynamic PowerPC32 SDK targets e300c3 and the s390x SDK targets z13; the
+SDK may require newer CPU features than Rust's generic target baseline. MIPS
+GNU archives use their standard hard-float target ABI. MIPS32 musl candidates
+are withheld because the available SDK disagrees with Rust's soft-float ABI.

@@ -432,8 +432,6 @@ jobs:
       matrix:
         include:
           - {arch: riscv32-ilp32d, qemu: riscv32, target: riscv32gc-unknown-linux-gnu, libc: glibc, sha: d42680e926542595c4c87629d33f5f90aac1e9a964c8955089e0514caa01b78f, prefix: riscv32-buildroot-linux-gnu}
-          - {arch: mips32, qemu: mips, target: mips-unknown-linux-musl, libc: musl, sha: 35b434d3ae1a46065d9e37de56b71bcf0e72bcda652f96d185e51dbea7ef045c, prefix: mips-buildroot-linux-musl}
-          - {arch: mips32el, qemu: mipsel, target: mipsel-unknown-linux-musl, libc: musl, sha: 12a5e2f50b94b5c619730914db380ce9679798fb3c7460a40d480f77bb50628f, prefix: mipsel-buildroot-linux-musl}
           - {arch: powerpc-e300c3, qemu: ppc, target: powerpc-unknown-linux-musl, libc: musl, sha: 5f628b374b6857f4b4ceabe5e41b2565b07985a7e444978c87b0f864bb5a47fc, prefix: powerpc-buildroot-linux-musl}
           - {arch: s390x-z13, qemu: s390x, target: s390x-unknown-linux-musl, libc: musl, sha: 23f536ff2bf1a9d3b93210465471996bc7c918fbb5702a277d8e1e42ffab8559, prefix: s390x-buildroot-linux-musl}
     steps:
@@ -469,7 +467,9 @@ jobs:
           echo "CARGO_TARGET_${key}_RUNNER=qemu-$QEMU -L $sysroot" >> "$GITHUB_ENV"
           echo "CAJ2PDF_TEST_RUNNER=qemu-$QEMU -L $sysroot" >> "$GITHUB_ENV"
           echo "CC_${TARGET//-/_}=$PREFIX-gcc" >> "$GITHUB_ENV"
-          if [[ "$LIBC" == musl ]]; then echo 'RUSTFLAGS=-C target-feature=-crt-static -C link-self-contained=no' >> "$GITHUB_ENV"; fi
+          flags='-C link-arg=-Wl,--fatal-warnings'
+          if [[ "$LIBC" == musl ]]; then flags+=' -C target-feature=-crt-static -C link-self-contained=no'; fi
+          echo "RUSTFLAGS=$flags" >> "$GITHUB_ENV"
       - name: Build std and execute actual tests
         run: |
           cargo +nightly-2026-09-29 test -Z build-std --locked --release -p caj2pdf-core --lib --target '${{ matrix.target }}'

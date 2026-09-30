@@ -41,3 +41,10 @@ not used as an unverified substitute.
 - RISC-V32 musl initially lacked a static unwinder. The dynamic SDK build links
   but crashes before the test harness under both the distro and pinned newer
   QEMU; it is not promoted. RISC-V32 GNU passes and is separately included.
+
+- MIPS32 musl (both byte orders): core/CLI tests passed, but review found linker
+  warnings proving an ABI mismatch: Rust defaults to soft-float while the
+  Bootlin SDK libc uses hard-float. Those passes do not establish a sound ABI.
+  These targets were removed from the release inventory. A matching soft-float
+  SDK is required; Bootlin probes now make linker warnings fatal. MIPS GNU
+  32/64 big/little-endian targets remain independently verified.
