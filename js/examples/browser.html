@@ -117,11 +117,28 @@
             discard.hidden = false;
           }
         } catch (error) {
-          await writer?.abort().catch(() => {});
-          await output?.dispose?.().catch(() => {});
+          let cleanupError;
+          try {
+            // Private output is disposable: close it before removal so the
+            // browser has completed the file operation and released its lock.
+            // Abort user-selected output to preserve its previous contents.
+            if (output?.dispose) await writer?.close();
+            else await writer?.abort();
+          } catch {
+            await writer?.abort().catch(() => {});
+          } finally {
+            writer?.releaseLock();
+            writer = undefined;
+          }
+          try {
+            await output?.dispose?.();
+          } catch (failure) {
+            cleanupError = failure;
+          }
           result.textContent = error.name === "AbortError"
             ? "Conversion cancelled."
             : `${error.code ?? error.name}: ${error.message}`;
+          if (cleanupError) result.textContent += ` Output cleanup failed: ${cleanupError.message}`;
         } finally {
           writer?.releaseLock();
           run.disabled = discard.disabled = false;
