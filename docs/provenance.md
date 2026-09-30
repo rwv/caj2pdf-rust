@@ -1820,3 +1820,8 @@ MIT code. Lock semantics were checked against the WHATWG File System Standard
 (https://fs.spec.whatwg.org/) and Chromium's file-writer lifecycle. No browser
 implementation was copied. A transient lock is a mitigation hypothesis for
 issue #213, not a confirmed diagnosis of its single observed CI failure.
+
+Further rare-platform probes use Bootlin stable-2025.08-1 SDK checksums
+published by Bootlin. RISC-V32 also probes Debian's static QEMU 10.0.13 package,
+SHA256 pinned and extracted locally without changing the host package sources.
+The package is a CI tool and is not included in released archives or containers.
