@@ -75,7 +75,7 @@ function plainReport(report) {
 }
 
 function plainError(error) {
-  return { name: error?.name, code: error?.code, format: error?.format, message: String(error?.message) };
+  return { name: error?.name, code: error?.code, format: error?.format, message: String(error?.message), errors: error instanceof AggregateError ? error.errors.map(plainError) : undefined };
 }
 
 async function settle(promise) {

@@ -1812,5 +1812,11 @@ host qpdf/MuPDF validation of actual device output recorded separately.
 The expanded container mapping and archive tests are original MIT project code.
 Container emulation pins tonistiigi/binfmt qemu-v10.2.3-68 by OCI digest;
 external emulator code is not copied into project source or release images.
-Android uses the official NDK 28.2.13676358. RISC-V32 builds Rust std with
-its LLVM unwinder feature, preserving backtrace and panic-unwind features.
+Android uses the official NDK 28.2.13676358. RISC-V32 builds Rust std with its default features; its musl probe uses
+the external SDK dynamic runtime because no bundled static unwinder is distributed.
+
+The OPFS cleanup hardening and deterministic fault-injection tests are original
+MIT code. Lock semantics were checked against the WHATWG File System Standard
+(https://fs.spec.whatwg.org/) and Chromium's file-writer lifecycle. No browser
+implementation was copied. A transient lock is a mitigation hypothesis for
+issue #213, not a confirmed diagnosis of its single observed CI failure.

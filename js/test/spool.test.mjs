@@ -275,3 +275,41 @@ test("the browser spool fails explicitly without durable storage", async () => {
   });
   assert.equal(readOnly.files.size, 0);
 });
+
+
+test("OPFS failure cleanup retries only transient locks and reports persistent failures", async (t) => {
+  for (const [name, failures, expectedAttempts] of [
+    ["NoModificationAllowedError", 1, 2],
+    ["NoModificationAllowedError", 3, 3],
+    ["NotAllowedError", 1, 1],
+  ]) {
+    await t.test(`${name}, ${failures} failures`, async () => {
+      const { storage, files } = fakeStorage();
+      const root = await storage.getDirectory();
+      const remove = root.removeEntry.bind(root);
+      let attempts = 0;
+      const cleanupError = new DOMException("injected cleanup failure", name);
+      root.removeEntry = async (...args) => {
+        if (++attempts <= failures) throw cleanupError;
+        return remove(...args);
+      };
+      await assert.rejects(
+        spoolToOpfs(new Blob([syntheticCaj()]).stream(), { maxBytes: 10n, storage }),
+        (error) => {
+          if (failures < expectedAttempts) {
+            assert.equal(error.code, "LIMIT_EXCEEDED");
+            assert.equal(files.size, 0);
+          } else {
+            assert.ok(error instanceof AggregateError);
+            assert.equal(error.cause.code, "LIMIT_EXCEEDED");
+            assert.equal(error.errors[0], error.cause);
+            assert.equal(error.errors[1], cleanupError);
+            assert.equal(files.size, 1);
+          }
+          return true;
+        },
+      );
+      assert.equal(attempts, expectedAttempts);
+    });
+  }
+});

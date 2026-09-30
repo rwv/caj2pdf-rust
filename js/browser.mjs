@@ -77,7 +77,19 @@ export async function spoolToOpfs(stream, { maxBytes, signal, storage = globalTh
   const name = `caj2pdf-spool-${crypto.randomUUID()}`;
   const file = await root.getFileHandle(name, { create: true });
   let writable;
-  const dispose = () => root.removeEntry(name);
+  const dispose = async () => {
+    // A browser may briefly retain the writer lock after abort settles.
+    // Bound retries to this specific lock error; surface permanent failures.
+    for (let attempt = 0; ; attempt++) {
+      try {
+        await root.removeEntry(name);
+        return;
+      } catch (error) {
+        if (error.name !== "NoModificationAllowedError" || attempt === 2) throw error;
+        await new Promise((resolve) => setTimeout(resolve, attempt === 0 ? 10 : 50));
+      }
+    }
+  };
   try {
     if (typeof file.createWritable !== "function") {
       throw new Caj2PdfError(
@@ -92,7 +104,11 @@ export async function spoolToOpfs(stream, { maxBytes, signal, storage = globalTh
     return { source: blobSource(await file.getFile()), dispose };
   } catch (error) {
     await writable?.abort().catch(() => {});
-    await dispose().catch(() => {});
+    try {
+      await dispose();
+    } catch (cleanupError) {
+      throw new AggregateError([error, cleanupError], "OPFS spool failed and its temporary file could not be removed", { cause: error });
+    }
     throw error;
   }
 }
