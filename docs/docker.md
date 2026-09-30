@@ -1,6 +1,8 @@
 # Docker CLI
 
-The multiarch image targets Linux amd64 and arm64. It contains the tested static
+The multiarch image targets Linux amd64, arm64, ARMv5/v6/v7, 386, LoongArch64,
+RISC-V64 and PowerPC64 little/big endian. The exact OCI platform mapping is
+`container-platforms.json`. It contains the tested static
 musl executable and license notices on `scratch`: no shell, package manager,
 network service, GUI or vendor converter. Default user is 65532:65532. Docker
 provides convenient deployment; it does not reduce conversion memory or remove
@@ -15,7 +17,7 @@ docker run --rm --read-only \
   --user "$(id -u):$(id -g)" \
   --tmpfs /tmp:rw,noexec,nosuid,mode=1777,size=1g \
   --mount "type=bind,src=$PWD,dst=/data" \
-  ghcr.io/rwv/caj2pdf-rust:v0.2.0 input.caj -o output.pdf
+  ghcr.io/rwv/caj2pdf-rust:v0.3.0 input.caj -o output.pdf
 ```
 
 The mounted directory must be writable by the selected user. Choose temporary
@@ -29,7 +31,7 @@ For stdin/stdout (binary output stays on stdout):
 
 ```sh
 docker run --rm -i --read-only --tmpfs /tmp:rw,noexec,nosuid,mode=1777,size=1g \
-  ghcr.io/rwv/caj2pdf-rust:v0.2.0 - < input.caj > output.pdf
+  ghcr.io/rwv/caj2pdf-rust:v0.3.0 - < input.caj > output.pdf
 ```
 
 C8/HN-B needs `--no-bookmarks`. All native format limits and resource limits
