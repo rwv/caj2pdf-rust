@@ -15,11 +15,11 @@ use std::{
     path::{Path, PathBuf},
     pin::pin,
     process::{Command, Output},
-    sync::atomic::{AtomicU64, Ordering},
+    sync::atomic::{AtomicUsize, Ordering},
     task::{Context, Poll, Waker},
 };
 
-static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
+static NEXT_TEMP: AtomicUsize = AtomicUsize::new(0);
 const MAX_TOOL_OUTPUT: usize = 1024 * 1024;
 
 fn ready<F: Future>(future: F) -> F::Output {

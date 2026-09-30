@@ -8,11 +8,11 @@ use std::{
     future::Future,
     path::PathBuf,
     pin::pin,
-    sync::atomic::{AtomicU64, Ordering},
+    sync::atomic::{AtomicUsize, Ordering},
     task::{Context, Poll, Waker},
 };
 
-static NEXT: AtomicU64 = AtomicU64::new(0);
+static NEXT: AtomicUsize = AtomicUsize::new(0);
 
 struct Temporary(PathBuf);
 

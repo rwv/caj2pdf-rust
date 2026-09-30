@@ -485,3 +485,9 @@ group is killed and its throwaway profile removed. The CI WASM job runs
 these tests with the runner's preinstalled Google Chrome on Node 22 and 24.
 Firefox, Safari, and Web Workers are not covered, and native file-picker/save dialogs are not automated. The example
 page's OPFS fallback is tested through actual Chromium File and storage APIs.
+
+An OPFS spool failure normally preserves the original error. Cleanup retries
+only a transient `NoModificationAllowedError` (at most three attempts, with
+10 ms and 50 ms delays). If the failed spool still cannot be removed, rejection
+is an `AggregateError`: `cause` and `errors[0]` hold the original failure,
+`errors[1]` holds the removal failure. The temporary file may then remain.

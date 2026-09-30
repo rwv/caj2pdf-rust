@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
   workflow_call:
+  workflow_dispatch:
 permissions:
   contents: read
 concurrency:
@@ -77,6 +78,14 @@ jobs:
           - {target: riscv64gc-unknown-linux-gnu, libc: riscv64, compiler: riscv64-linux-gnu, qemu: riscv64}
           - {target: powerpc64le-unknown-linux-gnu, libc: ppc64el, compiler: powerpc64le-linux-gnu, qemu: ppc64le}
           - {target: s390x-unknown-linux-gnu, libc: s390x, compiler: s390x-linux-gnu, qemu: s390x}
+          - {target: armv5te-unknown-linux-gnueabi, libc: armel, compiler: arm-linux-gnueabi, qemu: arm, cpu: "arm926"}
+          - {target: arm-unknown-linux-gnueabi, libc: armel, compiler: arm-linux-gnueabi, qemu: arm, cpu: "arm1176"}
+          - {target: arm-unknown-linux-gnueabihf, libc: armhf, compiler: arm-linux-gnueabihf, qemu: arm, cpu: "arm1176"}
+          - {target: armv7-unknown-linux-gnueabi, libc: armel, compiler: arm-linux-gnueabi, qemu: arm, cpu: "cortex-a9"}
+          - {target: powerpc-unknown-linux-gnu, libc: powerpc, compiler: powerpc-linux-gnu, qemu: ppc, cpu: ""}
+          - {target: powerpc64-unknown-linux-gnu, libc: ppc64, compiler: powerpc64-linux-gnu, qemu: ppc64, cpu: ""}
+          - {target: sparc64-unknown-linux-gnu, libc: sparc64, compiler: sparc64-linux-gnu, qemu: sparc64, cpu: ""}
+          - {target: loongarch64-unknown-linux-gnu, libc: loong64, compiler: loongarch64-unknown-linux-gnu, qemu: loongarch64, cpu: ""}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Install cross compiler and emulator
@@ -84,21 +93,132 @@ jobs:
           TARGET: ${{ matrix.target }}
           COMPILER: ${{ matrix.compiler }}
           QEMU: ${{ matrix.qemu }}
+          CPU: ${{ matrix.cpu }}
         run: |
           rustup show active-toolchain
           rustup target add "$TARGET"
           sudo apt-get update
-          sudo apt-get install --no-install-recommends -y "gcc-$COMPILER" "libc6-dev-${{ matrix.libc }}-cross" qemu-user qpdf mupdf-tools
+          sudo apt-get install --no-install-recommends -y qemu-user qpdf mupdf-tools
+          if [[ "$TARGET" == loongarch64-unknown-linux-gnu ]]; then
+            archive=x86_64-cross-tools-loongarch64-binutils_2.45-gcc_15.1.0-glibc_2.42.tar.xz
+            curl --fail --location --retry 3 "https://github.com/loongson/build-tools/releases/download/2025.08.08/$archive" -o "$RUNNER_TEMP/$archive"
+            echo "b8572e2083143ff1807658f02e11eba53e5ed81d6194854d369b43fceea72de7  $RUNNER_TEMP/$archive" | sha256sum -c -
+            tar -xJf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP"
+            echo "$RUNNER_TEMP/cross-tools/bin" >> "$GITHUB_PATH"
+            sysroot="$("$RUNNER_TEMP/cross-tools/bin/$COMPILER-gcc" -print-sysroot)"
+          elif [[ "$TARGET" == arm-unknown-linux-gnueabihf ]]; then
+            stem=armv6-eabihf--glibc--stable-2025.08-1
+            curl --fail --location --retry 3 "https://toolchains.bootlin.com/downloads/releases/toolchains/armv6-eabihf/tarballs/$stem.tar.xz" -o "$RUNNER_TEMP/armv6.tar.xz"
+            echo "062c148a62785ce583f32e2e69bb1e8fc5dbb598bf4baacce0df118de4066de8  $RUNNER_TEMP/armv6.tar.xz" | sha256sum -c -
+            tar -xJf "$RUNNER_TEMP/armv6.tar.xz" -C "$RUNNER_TEMP"
+            toolchain="$RUNNER_TEMP/$stem"
+            "$toolchain/relocate-sdk.sh"
+            COMPILER=arm-buildroot-linux-gnueabihf
+            echo "$toolchain/bin" >> "$GITHUB_PATH"
+            sysroot="$("$toolchain/bin/$COMPILER-gcc" -print-sysroot)"
+          else
+            sudo apt-get install --no-install-recommends -y "gcc-$COMPILER" "libc6-dev-${{ matrix.libc }}-cross"
+            sysroot="/usr/$COMPILER"
+          fi
+          if [[ "$QEMU" == loongarch64 ]]; then bash scripts/install-loongarch-qemu.sh; fi
+          runner="qemu-$QEMU"
+          if [[ -n "$CPU" ]]; then runner+=" -cpu $CPU"; fi
+          runner+=" -L $sysroot"
           key="$(echo "$TARGET" | tr '[:lower:]-' '[:upper:]_')"
           echo "CARGO_TARGET_${key}_LINKER=$COMPILER-gcc" >> "$GITHUB_ENV"
-          echo "CARGO_TARGET_${key}_RUNNER=qemu-$QEMU -L /usr/$COMPILER" >> "$GITHUB_ENV"
-          echo "CAJ2PDF_TEST_RUNNER=qemu-$QEMU -L /usr/$COMPILER" >> "$GITHUB_ENV"
+          echo "CARGO_TARGET_${key}_RUNNER=$runner" >> "$GITHUB_ENV"
+          echo "CAJ2PDF_TEST_RUNNER=$runner" >> "$GITHUB_ENV"
       - name: Run core and CLI tests under QEMU
         run: |
           cargo test --locked --release -p caj2pdf-core --lib --target '${{ matrix.target }}'
           cargo test --locked --release -p caj2pdf-cli --test portable --target '${{ matrix.target }}'
       - name: Package tested cross binary
         run: python scripts/package-native.py --target '${{ matrix.target }}' --binary 'target/${{ matrix.target }}/release/caj2pdf'
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: native-${{ matrix.target }}
+          path: dist/
+          if-no-files-found: error
+
+  linux-musl:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {target: loongarch64-unknown-linux-musl, qemu: loongarch64, cpu: ""}
+          - {target: armv5te-unknown-linux-musleabi, qemu: arm, cpu: "arm926"}
+          - {target: arm-unknown-linux-musleabi, qemu: arm, cpu: "arm1176"}
+          - {target: arm-unknown-linux-musleabihf, qemu: arm, cpu: "arm1176"}
+          - {target: armv7-unknown-linux-musleabi, qemu: arm, cpu: "cortex-a9"}
+          - {target: armv7-unknown-linux-musleabihf, qemu: arm, cpu: "cortex-a9"}
+          - {target: i586-unknown-linux-musl, qemu: i386, cpu: "pentium"}
+          - {target: i686-unknown-linux-musl, qemu: i386, cpu: ""}
+          - {target: powerpc64-unknown-linux-musl, qemu: ppc64, cpu: ""}
+          - {target: powerpc64le-unknown-linux-musl, qemu: ppc64le, cpu: ""}
+          - {target: riscv64gc-unknown-linux-musl, qemu: riscv64, cpu: ""}
+    env:
+      RUSTFLAGS: '-C linker=rust-lld -C target-feature=+crt-static -C link-self-contained=yes'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Install target and emulator
+        env:
+          TARGET: ${{ matrix.target }}
+          QEMU: ${{ matrix.qemu }}
+          CPU: ${{ matrix.cpu }}
+        run: |
+          rustup show active-toolchain
+          rustup target add "$TARGET"
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y qemu-user qpdf mupdf-tools
+          key="$(echo "$TARGET" | tr '[:lower:]-' '[:upper:]_')"
+          if [[ "$QEMU" == loongarch64 ]]; then bash scripts/install-loongarch-qemu.sh; fi
+          runner="qemu-$QEMU"
+          if [[ -n "$CPU" ]]; then runner+=" -cpu $CPU"; fi
+          echo "CARGO_TARGET_${key}_RUNNER=$runner" >> "$GITHUB_ENV"
+          echo "CAJ2PDF_TEST_RUNNER=$runner" >> "$GITHUB_ENV"
+      - name: Test static core and CLI under QEMU
+        run: |
+          cargo test --locked --release -p caj2pdf-core --lib --target '${{ matrix.target }}'
+          cargo test --locked --release -p caj2pdf-cli --test portable --target '${{ matrix.target }}'
+      - name: Package tested static binary
+        run: python scripts/package-native.py --target '${{ matrix.target }}' --binary 'target/${{ matrix.target }}/release/caj2pdf'
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: native-${{ matrix.target }}
+          path: dist/
+          if-no-files-found: error
+
+  mips:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {target: mips-unknown-linux-gnu, compiler: mips-linux-gnu, libc: mips, qemu: mips}
+          - {target: mipsel-unknown-linux-gnu, compiler: mipsel-linux-gnu, libc: mipsel, qemu: mipsel}
+          - {target: mips64-unknown-linux-gnuabi64, compiler: mips64-linux-gnuabi64, libc: mips64, qemu: mips64}
+          - {target: mips64el-unknown-linux-gnuabi64, compiler: mips64el-linux-gnuabi64, libc: mips64el, qemu: mips64el}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Install pinned std builder and cross sysroot
+        env:
+          TARGET: ${{ matrix.target }}
+          COMPILER: ${{ matrix.compiler }}
+          QEMU: ${{ matrix.qemu }}
+        run: |
+          rustup toolchain install nightly-2026-09-29 --profile minimal --component rust-src
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y "gcc-$COMPILER" "libc6-dev-${{ matrix.libc }}-cross" qemu-user qpdf mupdf-tools
+          key="$(echo "$TARGET" | tr '[:lower:]-' '[:upper:]_')"
+          echo "CARGO_TARGET_${key}_LINKER=$COMPILER-gcc" >> "$GITHUB_ENV"
+          echo "CARGO_TARGET_${key}_RUNNER=qemu-$QEMU -L /usr/$COMPILER" >> "$GITHUB_ENV"
+          echo "CAJ2PDF_TEST_RUNNER=qemu-$QEMU -L /usr/$COMPILER" >> "$GITHUB_ENV"
+      - name: Build std and execute actual tests
+        run: |
+          cargo +nightly-2026-09-29 test -Z build-std --locked --release -p caj2pdf-core --lib --target '${{ matrix.target }}'
+          cargo +nightly-2026-09-29 test -Z build-std --locked --release -p caj2pdf-cli --test portable --target '${{ matrix.target }}'
+          python scripts/package-native.py --target '${{ matrix.target }}' --binary 'target/${{ matrix.target }}/release/caj2pdf'
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: native-${{ matrix.target }}
@@ -122,8 +242,8 @@ jobs:
           release: '14.3'
           arch: ${{ matrix.arch }}
           usesh: true
-          mem: 4096
-          cpu: 2
+          mem: 8192
+          cpu: 4
           cache-after-prepare: true
           prepare: pkg install -y rust python311 qpdf mupdf
           run: |
@@ -140,25 +260,33 @@ jobs:
           if-no-files-found: error
 
   docker:
-    needs: native
+    needs: [native, linux-musl]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          pattern: native-*-unknown-linux-musl
+          pattern: native-*
           merge-multiple: true
           path: native-assets/
+      - name: Install big-endian PowerPC container emulator
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y qemu-user-static binfmt-support
+          sudo update-binfmts --enable qemu-ppc64
+          cat /proc/sys/fs/binfmt_misc/qemu-ppc64
       - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
         with:
-          platforms: arm64
+          image: tonistiigi/binfmt@sha256:400a4873b838d1b89194d982c45e5fb3cda4593fbfd7e08a02e76b03b21166f0 # qemu-v10.2.3-68
+          platforms: all
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
       - name: Build exact OCI archive from tested static binaries
         run: |
           python3 scripts/prepare-docker.py native-assets
           mkdir -p dist
-          docker buildx build --platform linux/amd64,linux/arm64 --provenance=false --output type=oci,dest=dist/caj2pdf-container.oci.tar docker
-      - name: Test both architectures from the OCI archive
+          platforms="$(python3 -c 'import json; print(",".join(json.load(open("docs/container-platforms.json"))))')"
+          docker buildx build --platform "$platforms" --provenance=false --output type=oci,dest=dist/caj2pdf-container.oci.tar docker
+      - name: Test every platform from the OCI archive
         run: |
           sudo apt-get update
           sudo apt-get install --no-install-recommends -y skopeo qpdf
@@ -168,3 +296,251 @@ jobs:
           name: container-assets
           path: dist/
           if-no-files-found: error
+
+  netbsd:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {arch: x86_64, target: x86_64-unknown-netbsd}
+          - {arch: aarch64, target: aarch64-unknown-netbsd}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Test release target in netbsd
+        uses: vmactions/netbsd-vm@11a9faa5b7086f5f5fdcd65ccc344efb87777c50
+        with:
+          release: '11.0'
+          arch: ${{ matrix.arch }}
+          sync: scp
+          usesh: true
+          mem: 8192
+          cpu: 4
+          cache-after-prepare: true
+          prepare: |
+            set -eu
+            case '${{ matrix.arch }}' in
+              x86_64) machine=amd64; digest=1fc6760036b07676d3da3f45eb23bf1a3891fd46255d4b9f984d045095c77bf586bda0ba1be9b79f6d9c7c2f6d73c3098c31b982c1f2706a6071f155a27a3ef6 ;;
+              aarch64) machine=evbarm-aarch64; digest=0606338c3afc578bc5a388e772eb05d90bbd2701673111545fa8c50ca77d943ce166e7a1056353e334246705dd976a3785f4bcd74848091eeac9d88506fba906 ;;
+            esac
+            ftp -o /tmp/xbase.tar.xz "https://cdn.netbsd.org/pub/NetBSD/NetBSD-11.0/$machine/binary/sets/xbase.tar.xz"
+            test "$(sha512 -q /tmp/xbase.tar.xz)" = "$digest"
+            tar -xJpf /tmp/xbase.tar.xz -C /
+            /usr/sbin/pkg_add -u rust python311 qpdf mupdf
+          run: |
+            set -eu
+            export PATH=/usr/pkg/bin:/usr/pkg/sbin:$PATH
+            rustc --version
+            cargo --version
+            cargo test --locked -p caj2pdf-core --lib
+            cargo test --locked --release -p caj2pdf-cli --test portable
+            python3.11 scripts/package-native.py --target '${{ matrix.target }}' --binary target/release/caj2pdf
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: native-${{ matrix.target }}
+          path: dist/
+          if-no-files-found: error
+
+  openbsd:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {arch: x86_64, target: x86_64-unknown-openbsd}
+          - {arch: aarch64, target: aarch64-unknown-openbsd}
+          - {arch: riscv64, target: riscv64gc-unknown-openbsd}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Test release target in openbsd
+        uses: vmactions/openbsd-vm@10e08aa98d44e590ad13d0f922b0f032b4f7f268
+        with:
+          release: '7.9'
+          arch: ${{ matrix.arch }}
+          sync: scp
+          usesh: true
+          mem: 4096
+          cpu: 2
+          cache-after-prepare: true
+          prepare: |
+            set -eu
+            pkg_add rust python%3.13 qpdf mupdf-1.27.2
+            /usr/local/bin/python3.13 --version
+            /usr/local/bin/mutool -v
+          run: |
+            set -eu
+            export PATH=/usr/local/bin:$PATH
+            rustc --version
+            cargo --version
+            cargo test --locked -p caj2pdf-core --lib
+            cargo test --locked --release -p caj2pdf-cli --test portable
+            python3.13 scripts/package-native.py --target '${{ matrix.target }}' --binary target/release/caj2pdf
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: native-${{ matrix.target }}
+          path: dist/
+          if-no-files-found: error
+
+  omnios:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {arch: x86_64, target: x86_64-unknown-illumos}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Test release target in omnios
+        uses: vmactions/omnios-vm@9fef3e21494ae59304197253c91eae28582615d6
+        with:
+          release: 'r151054-build'
+          arch: ${{ matrix.arch }}
+          sync: scp
+          usesh: true
+          mem: 8192
+          cpu: 4
+          cache-after-prepare: true
+          prepare: |
+            set -eu
+            pkg install rust python-313
+          run: |
+            set -eu
+            export PATH=/opt/ooce/bin:/opt/ooce/rust/bin:/opt/local/bin:/usr/gnu/bin:$PATH
+            rustc --version
+            cargo --version
+            cargo test --locked -p caj2pdf-core --lib -- --skip hnc8::compose::tests::independent_render_proves_padded_orientation_and_later_overlap_pixels --skip hnc8::compose::tests::type3_complete_mixed_pages_reuse_stores_and_keep_top_first_pixels
+            cargo test --locked --release -p caj2pdf-cli --test portable
+            python3.13 scripts/package-native.py --target '${{ matrix.target }}' --binary target/release/caj2pdf
+            target/release/caj2pdf tests/fixtures/valid_nested_outline.pdf -o dist/illumos-smoke.pdf
+      - name: Validate VM conversion on the host
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y qpdf mupdf-tools
+          qpdf --check dist/illumos-smoke.pdf
+          mutool draw -q -o "$RUNNER_TEMP/illumos-%d.png" dist/illumos-smoke.pdf
+          rm dist/illumos-smoke.pdf
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: native-${{ matrix.target }}
+          path: dist/
+          if-no-files-found: error
+
+  bootlin:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {arch: riscv32-ilp32d, qemu: riscv32, target: riscv32gc-unknown-linux-gnu, libc: glibc, sha: d42680e926542595c4c87629d33f5f90aac1e9a964c8955089e0514caa01b78f, prefix: riscv32-buildroot-linux-gnu}
+          - {arch: powerpc-e300c3, qemu: ppc, target: powerpc-unknown-linux-musl, libc: musl, sha: 5f628b374b6857f4b4ceabe5e41b2565b07985a7e444978c87b0f864bb5a47fc, prefix: powerpc-buildroot-linux-musl}
+          - {arch: s390x-z13, qemu: s390x, target: s390x-unknown-linux-musl, libc: musl, sha: 23f536ff2bf1a9d3b93210465471996bc7c918fbb5702a277d8e1e42ffab8559, prefix: s390x-buildroot-linux-musl}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Install pinned std builder and Bootlin sysroot
+        env:
+          ARCH: ${{ matrix.arch }}
+          QEMU: ${{ matrix.qemu }}
+          TARGET: ${{ matrix.target }}
+          LIBC: ${{ matrix.libc }}
+          PREFIX: ${{ matrix.prefix }}
+          SHA: ${{ matrix.sha }}
+        run: bash scripts/install-bootlin.sh
+      - name: Build std and execute actual tests
+        run: |
+          cargo +nightly-2026-09-29 test -Z build-std --locked --release -p caj2pdf-core --lib --target '${{ matrix.target }}'
+          cargo +nightly-2026-09-29 test -Z build-std --locked --release -p caj2pdf-cli --test portable --target '${{ matrix.target }}'
+          python scripts/package-native.py --target '${{ matrix.target }}' --binary 'target/${{ matrix.target }}/release/caj2pdf'
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: native-${{ matrix.target }}
+          path: dist/
+          if-no-files-found: error
+
+  android:
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {runner: ubuntu-24.04, target: x86_64-linux-android, compiler: x86_64-linux-android, arch: x86_64, api: 30}
+          - {runner: ubuntu-24.04, target: i686-linux-android, compiler: i686-linux-android, arch: x86, api: 30, image: google_apis}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - name: Install toolchain and enable emulator acceleration
+        env:
+          TARGET: ${{ matrix.target }}
+          COMPILER: ${{ matrix.compiler }}
+        run: |
+          rustup target add "$TARGET"
+          sdkmanager 'ndk;28.2.13676358'
+          host=linux-x86_64
+          if [[ "$RUNNER_OS" == macOS ]]; then host=darwin-x86_64; fi
+          ndk="$ANDROID_HOME/ndk/28.2.13676358/toolchains/llvm/prebuilt/$host/bin"
+          key="$(echo "$TARGET" | tr '[:lower:]-' '[:upper:]_')"
+          echo "CARGO_TARGET_${key}_LINKER=$ndk/${COMPILER}24-clang" >> "$GITHUB_ENV"
+          echo "CARGO_TARGET_${key}_RUNNER=python3 $GITHUB_WORKSPACE/scripts/android-runner.py" >> "$GITHUB_ENV"
+          if [[ "$RUNNER_OS" == Linux ]]; then
+            echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+            sudo udevadm control --reload-rules
+            sudo udevadm trigger --name-match=kvm
+            sudo apt-get update
+            sudo apt-get install --no-install-recommends -y qpdf mupdf-tools
+          else
+            HOMEBREW_NO_AUTO_UPDATE=1 brew install qpdf mupdf
+          fi
+      - name: Build device CLI
+        run: cargo build --locked --release -p caj2pdf-cli --target '${{ matrix.target }}'
+      - name: Run core and CLI tests on Android
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
+        with:
+          emulator-build: '15917651' # 37.1.11.0
+          api-level: ${{ matrix.api }}
+          arch: ${{ matrix.arch }}
+          target: ${{ matrix.image || 'default' }}
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim ${{ matrix.acceleration }}
+          script: |
+            adb root
+            adb wait-for-device
+            adb shell id
+            adb push target/${{ matrix.target }}/release/caj2pdf /data/local/tmp/caj2pdf
+            adb shell chmod 755 /data/local/tmp/caj2pdf
+            cargo test --locked --release -p caj2pdf-core --lib --target '${{ matrix.target }}' -- --skip hnc8::compose::tests::independent_render_proves_padded_orientation_and_later_overlap_pixels --skip hnc8::compose::tests::type3_complete_mixed_pages_reuse_stores_and_keep_top_first_pixels
+            cargo test --locked --release -p caj2pdf-cli --test portable --target '${{ matrix.target }}'
+            adb push tests/fixtures/valid_nested_outline.pdf /data/local/tmp/input.pdf
+            adb shell 'TMPDIR=/data/local/tmp /data/local/tmp/caj2pdf /data/local/tmp/input.pdf -o /data/local/tmp/output.pdf'
+            adb pull /data/local/tmp/output.pdf android-output.pdf
+            qpdf --check android-output.pdf
+            mutool draw -q -o android-page-%d.png android-output.pdf
+      - name: Package tested Android binary
+        run: python3 scripts/package-native.py --target '${{ matrix.target }}' --binary 'target/${{ matrix.target }}/release/caj2pdf'
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: native-${{ matrix.target }}
+          path: dist/
+          if-no-files-found: error
+
+  complete:
+    name: Native platform matrix
+    if: always()
+    needs: [native, linux-cross, linux-musl, mips, freebsd, docker, netbsd, openbsd, omnios, bootlin, android]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require every release platform job to succeed
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          results = {name: job['result'] for name, job in json.loads(os.environ['RESULTS']).items()}
+          assert results and all(result == 'success' for result in results.values()), results
+          print('Every required native/container job passed:', results)
+          PY

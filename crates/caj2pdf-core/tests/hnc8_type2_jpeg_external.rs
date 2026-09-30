@@ -22,7 +22,7 @@ use std::{
     io::{Read, Seek, SeekFrom, Write},
     path::{Component, Path, PathBuf},
     pin::pin,
-    sync::atomic::{AtomicU64, Ordering},
+    sync::atomic::{AtomicUsize, Ordering},
     task::{Context, Poll, Waker},
 };
 
@@ -41,7 +41,7 @@ const MAX_MATRIX: u64 = 1_048_576;
 const MAX_INVENTORY: u64 = 262_144;
 const MAX_SOURCE: u64 = 8 * 1024 * 1024 * 1024;
 const MAX_JPEG: u64 = 64 * 1024 * 1024;
-static NEXT_TEST_SOURCE: AtomicU64 = AtomicU64::new(0);
+static NEXT_TEST_SOURCE: AtomicUsize = AtomicUsize::new(0);
 
 #[derive(Debug)]
 struct Image {

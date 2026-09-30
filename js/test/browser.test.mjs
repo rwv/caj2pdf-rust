@@ -114,7 +114,7 @@ test("Chromium: a ReadableStream spools through real OPFS and is removed", optio
 
 test("Chromium: OPFS spool bound, failure, and abort remove the spool", options, async () => {
   const result = await run("opfsFailures", "input.caj");
-  assert.equal(result.bounded.error?.code, "LIMIT_EXCEEDED");
+  assert.equal(result.bounded.error?.code, "LIMIT_EXCEEDED", JSON.stringify(result.bounded));
   assert.match(result.bounded.error.message, /spool limit of 500 bytes/);
   assert.equal(result.lowLevel.error?.code, "LIMIT_EXCEEDED");
   assert.deepEqual(

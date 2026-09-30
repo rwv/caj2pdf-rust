@@ -21,7 +21,7 @@ use std::{
     path::PathBuf,
     pin::pin,
     process::Command,
-    sync::atomic::{AtomicU64, Ordering},
+    sync::atomic::{AtomicUsize, Ordering},
     task::{Context, Poll, Waker},
 };
 
@@ -404,7 +404,7 @@ fn embedded_jpeg(pdf: &[u8]) -> &[u8] {
     &pdf[stream..end]
 }
 
-static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
+static NEXT_TEMP: AtomicUsize = AtomicUsize::new(0);
 
 struct TempDir(PathBuf);
 

@@ -25,7 +25,7 @@ use std::{
     path::{Component, Path, PathBuf},
     pin::pin,
     process::{Command, Stdio},
-    sync::atomic::{AtomicU64, Ordering},
+    sync::atomic::{AtomicUsize, Ordering},
     task::{Context, Poll, Waker},
 };
 
@@ -385,7 +385,7 @@ impl SequentialSink for BoundedPdf {
     }
 }
 
-static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
+static NEXT_TEMP: AtomicUsize = AtomicUsize::new(0);
 
 struct PrivateTemp(PathBuf);
 

@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.3.0
+
+- Expand native runtime-tested CI/release targets, including LoongArch64,
+  ARMv5/v6, MIPS32/64, PowerPC32/64, SPARC64 and additional libc variants.
+- Expand the tested static Docker image matrix and retain complete release
+  archive checksums and registry manifest verification.
+- **Breaking:** bound OPFS cleanup retries for transient file locks and expose persistent
+  spool removal failures with the original error retained as the cause.
+- Keep format support, bounded conversion I/O and PDF encoding unchanged.
+
+See [v0.3.0 release notes](docs/releases/v0.3.0.md) for precise runtime limits
+and candidate platforms that are not released.
+
 ## v0.2.0
 
 - Implement the Windows CLI using the shared converter, native file identity and

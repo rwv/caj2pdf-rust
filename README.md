@@ -10,9 +10,9 @@ output, and releases.
 [GitHub Releases](https://github.com/rwv/caj2pdf-rust/releases) provide native CLI archives, the browser/Node JS tarball, standalone WASM,
 container OCI archive and SHA256SUMS. See the [platform matrix](docs/platforms.md)
 and [Docker usage](docs/docker.md). See the
-[v0.2.0 notes](docs/releases/v0.2.0.md) for platform requirements and limitations.
+[v0.3.0 notes](docs/releases/v0.3.0.md) for platform requirements and limitations.
 After downloading, extract the CLI archive or install the JS tarball with
-`npm install ./caj2pdf-rust-0.2.0.tgz`. Registry publication is separate.
+`npm install ./caj2pdf-rust-0.3.0.tgz`. Registry publication is separate.
 
 ## Goals
 
@@ -43,7 +43,7 @@ same-document handle validation.
 
 ## Command-line usage
 
-The `caj2pdf` Linux command converts CAJ, KDH and PDF inputs, and supports
+The `caj2pdf` CLI converts CAJ, KDH and PDF inputs, and supports
 experimental HN/C8 image-page conversion. HN/C8 arithmetic images use
 built-in standard QM/MQ states; optional state files override those defaults. The same core converter is available through
 [Node and browser WASM](js/README.md), using caller-owned bounded scratch stores.

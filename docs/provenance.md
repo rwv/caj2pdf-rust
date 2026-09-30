@@ -1781,3 +1781,51 @@ SHA-256 in `scripts/install-windows-test-tools.ps1`. They are independent test
 programs (MuPDF runs under x64 emulation on Windows ARM64), never Cargo
 dependencies or release contents. Their own upstream licenses remain distinct
 from the MIT converter. Windows render tests remain enabled.
+
+## Extended platform matrix (#209–#211)
+
+The additional workflows and target inventory are original MIT project glue.
+Musl cross targets use the pinned Rust distribution's self-contained runtime
+and LLVM linker, with explicit static CRT selection. LoongArch GNU uses the
+Loongson build-tools 2025.08.08 GCC 15.1.0 / binutils 2.45 / glibc 2.42 archive,
+pinned by SHA-256 in CI. Compilers, libc runtimes, emulators, VM images and PDF
+validators retain their upstream licenses; they are not relabeled project MIT
+source. No converter or decoder source is imported. Test-only counters use
+pointer-width atomics so CPUs without 64-bit atomics can compile the same
+regressions. Conversion limits and public APIs are unchanged.
+
+Candidate VM/Tier 3 jobs are discovery evidence until explicitly promoted to
+the release inventory. Building their std with a separately pinned nightly does
+not change the main stable toolchain. Failed candidates are not compatibility
+passes and cannot silently contribute release assets.
+
+LoongArch runtime tests pin upstream QEMU 10.0.2 by SHA-256; the Ubuntu 24.04
+QEMU 8.2 run produced incorrect resident-budget arithmetic while the same
+source passed with QEMU 10 locally. ARMv6 hard-float uses the hashed Bootlin
+2025.08 sysroot because Ubuntu armhf libraries require a newer CPU. VM tests
+install upstream validators (including hashed NetBSD X libraries and an illumos
+pkgsrc bootstrap) outside project artifacts. The Android adb test adapter is
+original MIT Python glue; Android NDK/runtime and emulator tools are external.
+Two device-unavailable renderer tests are explicitly filtered on Android, with
+host qpdf/MuPDF validation of actual device output recorded separately.
+
+The expanded container mapping and archive tests are original MIT project code.
+Container emulation pins tonistiigi/binfmt qemu-v10.2.3-68 by OCI digest;
+external emulator code is not copied into project source or release images.
+Android uses the official NDK 28.2.13676358. RISC-V32 builds Rust std with its default features; its musl probe uses
+the external SDK dynamic runtime because no bundled static unwinder is distributed.
+
+The OPFS cleanup hardening and deterministic fault-injection tests are original
+MIT code. Lock semantics were checked against the WHATWG File System Standard
+(https://fs.spec.whatwg.org/) and Chromium's file-writer lifecycle. No browser
+implementation was copied. A transient lock is a mitigation hypothesis for
+issue #213, not a confirmed diagnosis of its single observed CI failure.
+
+Further rare-platform probes use Bootlin stable-2025.08-1 SDK checksums
+published by Bootlin. RISC-V32 also probes Debian's static QEMU 10.0.13 package,
+SHA256 pinned and extracted locally without changing the host package sources.
+The package is a CI tool and is not included in released archives or containers.
+
+`scripts/install-bootlin.sh` is original MIT CI glue shared by required and
+experimental matrices; it verifies SDK/emulator checksums and records the
+actual host kernel/compiler. It does not contain toolchain implementation code.
