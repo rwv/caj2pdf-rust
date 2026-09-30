@@ -28,5 +28,6 @@ echo "CARGO_TARGET_${key}_RUNNER=qemu-$QEMU -L $sysroot" >> "$GITHUB_ENV"
 echo "CAJ2PDF_TEST_RUNNER=qemu-$QEMU -L $sysroot" >> "$GITHUB_ENV"
 echo "CC_${TARGET//-/_}=$PREFIX-gcc" >> "$GITHUB_ENV"
 flags='-C link-arg=-Wl,--fatal-warnings'
+if [[ "$ARCH" == m68k-* ]]; then flags+=' -C relocation-model=static -C link-arg=-no-pie'; fi
 if [[ "$LIBC" == musl ]]; then flags+=' -C target-feature=-crt-static -C link-self-contained=no'; fi
 echo "RUSTFLAGS=$flags" >> "$GITHUB_ENV"

@@ -1,13 +1,20 @@
 name: Platform candidates
 on:
   workflow_dispatch:
+    inputs:
+      group:
+        description: Candidate group to probe (never a release support claim)
+        type: choice
+        options: [all, linux, bsd, android]
+        default: all
 permissions:
   contents: read
 concurrency:
-  group: candidates-${{ github.ref }}
+  group: candidates-${{ github.ref }}-${{ inputs.group || 'all' }}
   cancel-in-progress: true
 jobs:
   openbsd:
+    if: inputs.group == 'all' || inputs.group == 'bsd'
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     strategy:
@@ -48,7 +55,7 @@ jobs:
           if-no-files-found: error
 
   freebsd:
-    if: github.event_name == 'workflow_dispatch'
+    if: inputs.group == 'all' || inputs.group == 'bsd'
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     strategy:
@@ -85,6 +92,7 @@ jobs:
           if-no-files-found: error
 
   bootlin:
+    if: inputs.group == 'all' || inputs.group == 'linux'
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
@@ -117,6 +125,7 @@ jobs:
           if-no-files-found: error
 
   android:
+    if: inputs.group == 'all' || inputs.group == 'android'
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
     strategy:
