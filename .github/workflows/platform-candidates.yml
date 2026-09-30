@@ -29,7 +29,16 @@ jobs:
           mem: 4096
           cpu: 2
           cache-after-prepare: true
-          prepare: /usr/sbin/pkg_add -u rust python311 qpdf mupdf
+          prepare: |
+            set -eu
+            case '${{ matrix.arch }}' in
+              x86_64) machine=amd64; digest=1fc6760036b07676d3da3f45eb23bf1a3891fd46255d4b9f984d045095c77bf586bda0ba1be9b79f6d9c7c2f6d73c3098c31b982c1f2706a6071f155a27a3ef6 ;;
+              aarch64) machine=evbarm-aarch64; digest=0606338c3afc578bc5a388e772eb05d90bbd2701673111545fa8c50ca77d943ce166e7a1056353e334246705dd976a3785f4bcd74848091eeac9d88506fba906 ;;
+            esac
+            ftp -o /tmp/xbase.tar.xz "https://cdn.netbsd.org/pub/NetBSD/NetBSD-11.0/$machine/binary/sets/xbase.tar.xz"
+            test "$(sha512 -q /tmp/xbase.tar.xz)" = "$digest"
+            tar -xJpf /tmp/xbase.tar.xz -C /
+            /usr/sbin/pkg_add -u rust python311 qpdf mupdf
           run: |
             set -eu
             export PATH=/usr/pkg/bin:/usr/pkg/sbin:$PATH
@@ -66,7 +75,11 @@ jobs:
           mem: 4096
           cpu: 2
           cache-after-prepare: true
-          prepare: pkg_add rust python%3.12 qpdf mupdf
+          prepare: |
+            set -eu
+            pkg_add rust python%3.13 qpdf mupdf-1.27.2
+            /usr/local/bin/python3.13 --version
+            /usr/local/bin/mutool -v
           run: |
             set -eu
             export PATH=/usr/local/bin:$PATH
@@ -74,7 +87,7 @@ jobs:
             cargo --version
             cargo test --locked -p caj2pdf-core --lib
             cargo test --locked --release -p caj2pdf-cli --test portable
-            python3.12 scripts/package-native.py --target '${{ matrix.target }}' --binary target/release/caj2pdf
+            python3.13 scripts/package-native.py --target '${{ matrix.target }}' --binary target/release/caj2pdf
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: candidate-${{ matrix.target }}
@@ -82,6 +95,7 @@ jobs:
           if-no-files-found: error
 
   freebsd:
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     strategy:
@@ -137,10 +151,17 @@ jobs:
           mem: 4096
           cpu: 2
           cache-after-prepare: true
-          prepare: pkg install rust python-311 qpdf mupdf
+          prepare: |
+            set -eu
+            pkg install rust python-311
+            curl --fail --location --retry 3 https://pkgsrc.smartos.org/packages/SmartOS/bootstrap/bootstrap-trunk-x86_64-20260811.tar.gz -o /var/tmp/pkgsrc.tar.gz
+            test "$(digest -a sha256 /var/tmp/pkgsrc.tar.gz)" = fcc91d9ebafae3fd92bc7a1bc4b1d000b107d4bb33c56d282125dc2a10ccdf40
+            tar -zxpf /var/tmp/pkgsrc.tar.gz -C /
+            /opt/local/bin/pkgin -y update
+            /opt/local/bin/pkgin -y install qpdf mupdf
           run: |
             set -eu
-            export PATH=/opt/ooce/bin:/opt/ooce/rust/bin:/usr/gnu/bin:$PATH
+            export PATH=/opt/ooce/bin:/opt/ooce/rust/bin:/opt/local/bin:/usr/gnu/bin:$PATH
             rustc --version
             cargo --version
             cargo test --locked -p caj2pdf-core --lib
@@ -152,36 +173,101 @@ jobs:
           path: dist/
           if-no-files-found: error
 
-  mips:
+  riscv32:
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
         include:
-          - {target: mips-unknown-linux-gnu, compiler: mips-linux-gnu, libc: mips, qemu: mips}
-          - {target: mipsel-unknown-linux-gnu, compiler: mipsel-linux-gnu, libc: mipsel, qemu: mipsel}
-          - {target: mips64-unknown-linux-gnuabi64, compiler: mips64-linux-gnuabi64, libc: mips64, qemu: mips64}
-          - {target: mips64el-unknown-linux-gnuabi64, compiler: mips64el-linux-gnuabi64, libc: mips64el, qemu: mips64el}
+          - {target: riscv32gc-unknown-linux-gnu, libc: glibc, sha: d42680e926542595c4c87629d33f5f90aac1e9a964c8955089e0514caa01b78f, prefix: riscv32-buildroot-linux-gnu}
+          - {target: riscv32gc-unknown-linux-musl, libc: musl, sha: f15e9ed67724b249eb149126eb6ed945648c3cdcd3c1c484b23c1a12df368391, prefix: riscv32-buildroot-linux-musl}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - name: Install pinned std builder and cross sysroot
+      - name: Install pinned std builder and Bootlin sysroot
         env:
           TARGET: ${{ matrix.target }}
-          COMPILER: ${{ matrix.compiler }}
-          QEMU: ${{ matrix.qemu }}
+          LIBC: ${{ matrix.libc }}
+          PREFIX: ${{ matrix.prefix }}
+          SHA: ${{ matrix.sha }}
         run: |
           rustup toolchain install nightly-2026-09-29 --profile minimal --component rust-src
           sudo apt-get update
-          sudo apt-get install --no-install-recommends -y "gcc-$COMPILER" "libc6-dev-${{ matrix.libc }}-cross" qemu-user qpdf mupdf-tools
+          sudo apt-get install --no-install-recommends -y qemu-user qpdf mupdf-tools
+          stem="riscv32-ilp32d--$LIBC--stable-2025.08-1"
+          curl --fail --location --retry 3 "https://toolchains.bootlin.com/downloads/releases/toolchains/riscv32-ilp32d/tarballs/$stem.tar.xz" -o "$RUNNER_TEMP/toolchain.tar.xz"
+          echo "$SHA  $RUNNER_TEMP/toolchain.tar.xz" | sha256sum -c -
+          tar -xJf "$RUNNER_TEMP/toolchain.tar.xz" -C "$RUNNER_TEMP"
+          toolchain="$RUNNER_TEMP/$stem"
+          "$toolchain/relocate-sdk.sh"
+          echo "$toolchain/bin" >> "$GITHUB_PATH"
+          sysroot="$("$toolchain/bin/$PREFIX-gcc" -print-sysroot)"
           key="$(echo "$TARGET" | tr '[:lower:]-' '[:upper:]_')"
-          echo "CARGO_TARGET_${key}_LINKER=$COMPILER-gcc" >> "$GITHUB_ENV"
-          echo "CARGO_TARGET_${key}_RUNNER=qemu-$QEMU -L /usr/$COMPILER" >> "$GITHUB_ENV"
-          echo "CAJ2PDF_TEST_RUNNER=qemu-$QEMU -L /usr/$COMPILER" >> "$GITHUB_ENV"
+          echo "CARGO_TARGET_${key}_LINKER=$PREFIX-gcc" >> "$GITHUB_ENV"
+          echo "CARGO_TARGET_${key}_RUNNER=qemu-riscv32 -L $sysroot" >> "$GITHUB_ENV"
+          echo "CAJ2PDF_TEST_RUNNER=qemu-riscv32 -L $sysroot" >> "$GITHUB_ENV"
+          echo "CC_${TARGET//-/_}=$PREFIX-gcc" >> "$GITHUB_ENV"
+          if [[ "$LIBC" == musl ]]; then echo 'RUSTFLAGS=-C target-feature=+crt-static -C link-self-contained=no' >> "$GITHUB_ENV"; fi
       - name: Build std and execute actual tests
         run: |
           cargo +nightly-2026-09-29 test -Z build-std --locked --release -p caj2pdf-core --lib --target '${{ matrix.target }}'
           cargo +nightly-2026-09-29 test -Z build-std --locked --release -p caj2pdf-cli --test portable --target '${{ matrix.target }}'
           python scripts/package-native.py --target '${{ matrix.target }}' --binary 'target/${{ matrix.target }}/release/caj2pdf'
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: candidate-${{ matrix.target }}
+          path: dist/
+          if-no-files-found: error
+
+  android:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {target: x86_64-linux-android, compiler: x86_64-linux-android, arch: x86_64, api: 30}
+          - {target: i686-linux-android, compiler: i686-linux-android, arch: x86, api: 30}
+          - {target: aarch64-linux-android, compiler: aarch64-linux-android, arch: arm64-v8a, api: 30}
+          - {target: armv7-linux-androideabi, compiler: armv7a-linux-androideabi, arch: armeabi-v7a, api: 24}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Install toolchain and enable emulator acceleration
+        env:
+          TARGET: ${{ matrix.target }}
+          COMPILER: ${{ matrix.compiler }}
+        run: |
+          rustup target add "$TARGET"
+          sdkmanager 'ndk;28.2.13676358'
+          ndk="$ANDROID_HOME/ndk/28.2.13676358/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          key="$(echo "$TARGET" | tr '[:lower:]-' '[:upper:]_')"
+          echo "CARGO_TARGET_${key}_LINKER=$ndk/${COMPILER}24-clang" >> "$GITHUB_ENV"
+          echo "CARGO_TARGET_${key}_RUNNER=python3 $GITHUB_WORKSPACE/scripts/android-runner.py" >> "$GITHUB_ENV"
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y qpdf mupdf-tools
+      - name: Build device CLI
+        run: cargo build --locked --release -p caj2pdf-cli --target '${{ matrix.target }}'
+      - name: Run core and CLI tests on Android
+        uses: reactivecircus/android-emulator-runner@ed009f5318f15b1cf93a191b856c4f1748a2d4c1
+        with:
+          api-level: ${{ matrix.api }}
+          arch: ${{ matrix.arch }}
+          target: default
+          disable-animations: true
+          script: |
+            adb push target/${{ matrix.target }}/release/caj2pdf /data/local/tmp/caj2pdf
+            adb shell chmod 755 /data/local/tmp/caj2pdf
+            cargo test --locked --release -p caj2pdf-core --lib --target '${{ matrix.target }}' -- --skip hnc8::compose::tests::independent_render_proves_padded_orientation_and_later_overlap_pixels --skip hnc8::compose::tests::type3_complete_mixed_pages_reuse_stores_and_keep_top_first_pixels
+            cargo test --locked --release -p caj2pdf-cli --test portable --target '${{ matrix.target }}'
+            adb push tests/fixtures/valid_nested_outline.pdf /data/local/tmp/input.pdf
+            adb shell 'TMPDIR=/data/local/tmp /data/local/tmp/caj2pdf /data/local/tmp/input.pdf -o /data/local/tmp/output.pdf'
+            adb pull /data/local/tmp/output.pdf android-output.pdf
+            qpdf --check android-output.pdf
+            mutool draw -q -o android-page-%d.png android-output.pdf
+      - name: Package tested candidate
+        run: python scripts/package-native.py --target '${{ matrix.target }}' --binary 'target/${{ matrix.target }}/release/caj2pdf'
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: candidate-${{ matrix.target }}

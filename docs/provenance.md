@@ -1798,3 +1798,13 @@ Candidate VM/Tier 3 jobs are discovery evidence until explicitly promoted to
 the release inventory. Building their std with a separately pinned nightly does
 not change the main stable toolchain. Failed candidates are not compatibility
 passes and cannot silently contribute release assets.
+
+LoongArch runtime tests pin upstream QEMU 10.0.2 by SHA-256; the Ubuntu 24.04
+QEMU 8.2 run produced incorrect resident-budget arithmetic while the same
+source passed with QEMU 10 locally. ARMv6 hard-float uses the hashed Bootlin
+2025.08 sysroot because Ubuntu armhf libraries require a newer CPU. VM tests
+install upstream validators (including hashed NetBSD X libraries and an illumos
+pkgsrc bootstrap) outside project artifacts. The Android adb test adapter is
+original MIT Python glue; Android NDK/runtime and emulator tools are external.
+Two device-unavailable renderer tests are explicitly filtered on Android, with
+host qpdf/MuPDF validation of actual device output recorded separately.

@@ -81,7 +81,6 @@ jobs:
           - {target: arm-unknown-linux-gnueabi, libc: armel, compiler: arm-linux-gnueabi, qemu: arm, cpu: "arm1176"}
           - {target: arm-unknown-linux-gnueabihf, libc: armhf, compiler: arm-linux-gnueabihf, qemu: arm, cpu: "arm1176"}
           - {target: armv7-unknown-linux-gnueabi, libc: armel, compiler: arm-linux-gnueabi, qemu: arm, cpu: "cortex-a9"}
-          - {target: i586-unknown-linux-gnu, libc: i386, compiler: i686-linux-gnu, qemu: i386, cpu: "pentium"}
           - {target: powerpc-unknown-linux-gnu, libc: powerpc, compiler: powerpc-linux-gnu, qemu: ppc, cpu: ""}
           - {target: powerpc64-unknown-linux-gnu, libc: ppc64, compiler: powerpc64-linux-gnu, qemu: ppc64, cpu: ""}
           - {target: sparc64-unknown-linux-gnu, libc: sparc64, compiler: sparc64-linux-gnu, qemu: sparc64, cpu: ""}
@@ -106,10 +105,21 @@ jobs:
             tar -xJf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP"
             echo "$RUNNER_TEMP/cross-tools/bin" >> "$GITHUB_PATH"
             sysroot="$("$RUNNER_TEMP/cross-tools/bin/$COMPILER-gcc" -print-sysroot)"
+          elif [[ "$TARGET" == arm-unknown-linux-gnueabihf ]]; then
+            stem=armv6-eabihf--glibc--stable-2025.08-1
+            curl --fail --location --retry 3 "https://toolchains.bootlin.com/downloads/releases/toolchains/armv6-eabihf/tarballs/$stem.tar.xz" -o "$RUNNER_TEMP/armv6.tar.xz"
+            echo "062c148a62785ce583f32e2e69bb1e8fc5dbb598bf4baacce0df118de4066de8  $RUNNER_TEMP/armv6.tar.xz" | sha256sum -c -
+            tar -xJf "$RUNNER_TEMP/armv6.tar.xz" -C "$RUNNER_TEMP"
+            toolchain="$RUNNER_TEMP/$stem"
+            "$toolchain/relocate-sdk.sh"
+            COMPILER=arm-buildroot-linux-gnueabihf
+            echo "$toolchain/bin" >> "$GITHUB_PATH"
+            sysroot="$("$toolchain/bin/$COMPILER-gcc" -print-sysroot)"
           else
             sudo apt-get install --no-install-recommends -y "gcc-$COMPILER" "libc6-dev-${{ matrix.libc }}-cross"
             sysroot="/usr/$COMPILER"
           fi
+          if [[ "$QEMU" == loongarch64 ]]; then bash scripts/install-loongarch-qemu.sh; fi
           runner="qemu-$QEMU"
           if [[ -n "$CPU" ]]; then runner+=" -cpu $CPU"; fi
           runner+=" -L $sysroot"
@@ -161,6 +171,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install --no-install-recommends -y qemu-user qpdf mupdf-tools
           key="$(echo "$TARGET" | tr '[:lower:]-' '[:upper:]_')"
+          if [[ "$QEMU" == loongarch64 ]]; then bash scripts/install-loongarch-qemu.sh; fi
           runner="qemu-$QEMU"
           if [[ -n "$CPU" ]]; then runner+=" -cpu $CPU"; fi
           echo "CARGO_TARGET_${key}_RUNNER=$runner" >> "$GITHUB_ENV"
@@ -171,6 +182,42 @@ jobs:
           cargo test --locked --release -p caj2pdf-cli --test portable --target '${{ matrix.target }}'
       - name: Package tested static binary
         run: python scripts/package-native.py --target '${{ matrix.target }}' --binary 'target/${{ matrix.target }}/release/caj2pdf'
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: native-${{ matrix.target }}
+          path: dist/
+          if-no-files-found: error
+
+  mips:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {target: mips-unknown-linux-gnu, compiler: mips-linux-gnu, libc: mips, qemu: mips}
+          - {target: mipsel-unknown-linux-gnu, compiler: mipsel-linux-gnu, libc: mipsel, qemu: mipsel}
+          - {target: mips64-unknown-linux-gnuabi64, compiler: mips64-linux-gnuabi64, libc: mips64, qemu: mips64}
+          - {target: mips64el-unknown-linux-gnuabi64, compiler: mips64el-linux-gnuabi64, libc: mips64el, qemu: mips64el}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Install pinned std builder and cross sysroot
+        env:
+          TARGET: ${{ matrix.target }}
+          COMPILER: ${{ matrix.compiler }}
+          QEMU: ${{ matrix.qemu }}
+        run: |
+          rustup toolchain install nightly-2026-09-29 --profile minimal --component rust-src
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y "gcc-$COMPILER" "libc6-dev-${{ matrix.libc }}-cross" qemu-user qpdf mupdf-tools
+          key="$(echo "$TARGET" | tr '[:lower:]-' '[:upper:]_')"
+          echo "CARGO_TARGET_${key}_LINKER=$COMPILER-gcc" >> "$GITHUB_ENV"
+          echo "CARGO_TARGET_${key}_RUNNER=qemu-$QEMU -L /usr/$COMPILER" >> "$GITHUB_ENV"
+          echo "CAJ2PDF_TEST_RUNNER=qemu-$QEMU -L /usr/$COMPILER" >> "$GITHUB_ENV"
+      - name: Build std and execute actual tests
+        run: |
+          cargo +nightly-2026-09-29 test -Z build-std --locked --release -p caj2pdf-core --lib --target '${{ matrix.target }}'
+          cargo +nightly-2026-09-29 test -Z build-std --locked --release -p caj2pdf-cli --test portable --target '${{ matrix.target }}'
+          python scripts/package-native.py --target '${{ matrix.target }}' --binary 'target/${{ matrix.target }}/release/caj2pdf'
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: native-${{ matrix.target }}
