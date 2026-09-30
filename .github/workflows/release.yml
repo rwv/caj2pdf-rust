@@ -116,7 +116,15 @@ jobs:
           from pathlib import Path
           raw = (Path(os.environ['RUNNER_TEMP']) / 'container-manifest.json').read_bytes()
           manifest = json.loads(raw)
-          assert {(m['platform']['os'], m['platform']['architecture']) for m in manifest['manifests']} == {('linux', 'amd64'), ('linux', 'arm64')}
+          expected = set(json.loads(Path('docs/container-platforms.json').read_text()))
+          actual = set()
+          for item in manifest['manifests']:
+              p = item['platform']
+              platform = f"{p['os']}/{p['architecture']}"
+              if p['architecture'] == 'arm':
+                  platform += '/' + p['variant']
+              actual.add(platform)
+          assert actual == expected, (actual, expected)
           assert 'sha256:' + hashlib.sha256(raw).hexdigest() == Path('dist/CONTAINER-DIGEST.txt').read_text().strip()
           PYCODE
       - name: Verify complete native matrix and checksum every asset

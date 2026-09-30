@@ -1808,3 +1808,9 @@ pkgsrc bootstrap) outside project artifacts. The Android adb test adapter is
 original MIT Python glue; Android NDK/runtime and emulator tools are external.
 Two device-unavailable renderer tests are explicitly filtered on Android, with
 host qpdf/MuPDF validation of actual device output recorded separately.
+
+The expanded container mapping and archive tests are original MIT project code.
+Container emulation pins tonistiigi/binfmt qemu-v10.2.3-68 by OCI digest;
+external emulator code is not copied into project source or release images.
+Android uses the official NDK 28.2.13676358. RISC-V32 builds Rust std with
+its LLVM unwinder feature, preserving backtrace and panic-unwind features.
