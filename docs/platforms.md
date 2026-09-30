@@ -23,6 +23,7 @@ Target counts include OS/libc/ABI combinations, not just CPU architectures.
 | illumos | x86_64 | OmniOS r151054 VM; 499 core tests and 4 CLI tests, host qpdf/MuPDF validation |
 | Linux Bootlin GNU | RISC-V32 GC ILP32D | Bootlin stable-2025.08-1 glibc sysroot; pinned std build and QEMU |
 | Linux Bootlin musl (dynamic) | PowerPC32 (e300c3), s390x (z13) | Bootlin stable-2025.08-1 SDK runtime; pinned std build and QEMU; not static Docker artifacts |
+| Android CLI | x86_64, x86 | NDK 28.2.13676358 (API 24 build), API 30 emulators; 499 core + 4 CLI tests and host PDF validation |
 | JavaScript/WASM | Browser and Node 22+ | Portable WASM package; real Node 22/24 and Chromium tests |
 
 The pinned Rust toolchain is used wherever distributed for hosted runners.
@@ -36,7 +37,7 @@ binaries are not notarized; local OS trust prompts may apply.
 
 ## What each target checks
 
-Core unit tests include independent qpdf/MuPDF rendering. On illumos, the two
+Core unit tests include independent qpdf/MuPDF rendering. On illumos and Android, the two
 core tests requiring local PDF validators are explicitly filtered because those
 packages are unavailable; the VM-produced PDF is instead checked and rendered
 on the host. This is 499 core tests plus separate validation, not 501 passes. Portable CLI tests
@@ -70,3 +71,8 @@ The dynamic PowerPC32 SDK targets e300c3 and the s390x SDK targets z13; the
 SDK may require newer CPU features than Rust's generic target baseline. MIPS
 GNU archives use their standard hard-float target ABI. MIPS32 musl candidates
 are withheld because the available SDK disagrees with Rust's soft-float ABI.
+
+Android artifacts are command-line executables, not APKs or a JNI API. Emulator
+tests enable adb root so the hard-link protection fixture can be created under
+Android's filesystem policy. API 30 is the tested runtime; compiling with an
+API 24 NDK setting is not an execution claim for every older Android release.

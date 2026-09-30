@@ -193,8 +193,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - {runner: ubuntu-24.04, target: x86_64-linux-android, compiler: x86_64-linux-android, arch: x86_64, api: 30}
-          - {runner: ubuntu-24.04, target: i686-linux-android, compiler: i686-linux-android, arch: x86, api: 30, image: google_apis}
           - {runner: macos-15, acceleration: -accel off, target: aarch64-linux-android, compiler: aarch64-linux-android, arch: arm64-v8a, api: 30}
           - {runner: macos-15, acceleration: -accel off, target: armv7-linux-androideabi, compiler: armv7a-linux-androideabi, arch: arm64-v8a, api: 30}
     steps:

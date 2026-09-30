@@ -43,5 +43,7 @@
   "x86_64-unknown-illumos": "illumos-vm",
   "riscv32gc-unknown-linux-gnu": "qemu-user-nightly-std",
   "powerpc-unknown-linux-musl": "qemu-user-nightly-std",
-  "s390x-unknown-linux-musl": "qemu-user-nightly-std"
+  "s390x-unknown-linux-musl": "qemu-user-nightly-std",
+  "x86_64-linux-android": "android-emulator",
+  "i686-linux-android": "android-emulator"
 }

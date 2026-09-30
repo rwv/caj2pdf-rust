@@ -49,6 +49,8 @@ targets = [
     "riscv32gc-unknown-linux-gnu",
     "powerpc-unknown-linux-musl",
     "s390x-unknown-linux-musl",
+    "x86_64-linux-android",
+    "i686-linux-android",
     "wasm32-unknown-unknown",
 ]
 
