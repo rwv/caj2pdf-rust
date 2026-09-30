@@ -8,9 +8,15 @@ use crate::{
     Bookmark, BookmarkVisitor, Cancellation, ConversionReport, Error, Limits, RangedSource, Result,
     SequentialSink, read_exact_at,
 };
+use flate2::{Compress, Compression, FlushCompress, Status};
 use std::fmt::{self, Write as _};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+// Conservative reservation for flate2's locked miniz_oxide Rust backend:
+// fixed dictionary, code buffer, local output buffer and Huffman tables.
+// Re-audit when changing the backend; this is not a document-size allocation.
+const DEFLATE_RESERVATION_BYTES: u64 = 512 * 1024;
+const DEFLATE_CHUNK_BYTES: usize = 16 * 1024;
 const PAGE_TREE_FANOUT: usize = 256;
 const MAX_TREE_PAGES: u64 = (PAGE_TREE_FANOUT as u64).pow(3);
 const MAX_PAGE_POINTS: f64 = 14_400.0;
@@ -178,9 +184,10 @@ impl PageImages<'_> {
 /// Obtain it from [`PdfDocument::begin_bilevel_image`], write exactly
 /// `row_stride * pixel_height` bytes through [`SequentialSink::write`], then
 /// call [`BilevelImageWriter::finish`]. Writes may split or join rows. Only
-/// row-position state is retained; image bytes are passed straight to the
-/// document sink. Dropping the writer before `finish` leaves the document's
-/// stream open, so every later document operation fails.
+/// row-position state and a fixed-size zlib encoder are retained. Visible row
+/// bytes are compressed incrementally; storage padding is omitted. Dropping
+/// the writer before `finish` leaves the document's stream open, so every
+/// later document operation fails.
 pub struct BilevelImageWriter<'d, 'a, W: SequentialSink, C: Cancellation> {
     document: &'d mut PdfDocument<'a, W, C>,
     object: ObjectId,
@@ -188,6 +195,9 @@ pub struct BilevelImageWriter<'d, 'a, W: SequentialSink, C: Cancellation> {
     stride: usize,
     column: usize,
     remaining: u64,
+    encoder: Compress,
+    encoded: Vec<u8>,
+    failed: bool,
 }
 
 impl<W: SequentialSink, C: Cancellation> SequentialSink for BilevelImageWriter<'_, '_, W, C> {
@@ -204,10 +214,7 @@ impl<W: SequentialSink, C: Cancellation> SequentialSink for BilevelImageWriter<'
             let kept = count.min(self.visible.saturating_sub(self.column));
             // Padding-only chunks still pass an empty slice, so a poisoned
             // writer or cancellation is reported for them too.
-            self.document
-                .writer
-                .write_stream_bytes(&bytes[done..done + kept])
-                .await?;
+            self.encode(&bytes[done..done + kept], false).await?;
             // Account for the bytes only after the document accepted them.
             self.column = (self.column + count) % self.stride;
             self.remaining -= len_u64(count);
@@ -216,20 +223,71 @@ impl<W: SequentialSink, C: Cancellation> SequentialSink for BilevelImageWriter<'
         Ok(bytes.len())
     }
 
-    /// Rows are flushed with the whole PDF by [`PdfDocument::finish`].
+    /// Does not force a deflate boundary. `finish` drains the encoder, and
+    /// [`PdfDocument::finish`] flushes the document sink.
     async fn flush(&mut self) -> Result<()> {
         Ok(())
     }
 }
 
 impl<W: SequentialSink, C: Cancellation> BilevelImageWriter<'_, '_, W, C> {
+    async fn encode(&mut self, mut input: &[u8], finish: bool) -> Result<()> {
+        if self.failed {
+            return Err(Error::InvalidInput {
+                reason: "bilevel image cannot continue after compression or output failure",
+            });
+        }
+        // Compression can consume input before a subsequent output write fails.
+        // Such a call cannot be retried safely, even if the sink wrote no bytes.
+        self.failed = true;
+        let flush = if finish {
+            FlushCompress::Finish
+        } else {
+            FlushCompress::None
+        };
+        loop {
+            // Also checks cancellation for padding-only writes and while draining.
+            self.document.writer.write_stream_bytes(&[]).await?;
+            if input.is_empty() && !finish {
+                break;
+            }
+            let before_in = self.encoder.total_in();
+            let before_out = self.encoder.total_out();
+            let count = input.len().min(DEFLATE_CHUNK_BYTES);
+            let status = self
+                .encoder
+                .compress(&input[..count], &mut self.encoded, flush)
+                .map_err(|_| Error::InvalidInput {
+                    reason: "bilevel zlib compression failed",
+                })?;
+            let consumed = (self.encoder.total_in() - before_in) as usize;
+            let produced = (self.encoder.total_out() - before_out) as usize;
+            self.document
+                .writer
+                .write_stream_bytes(&self.encoded[..produced])
+                .await?;
+            input = &input[consumed..];
+            if status == Status::StreamEnd || (!finish && input.is_empty()) {
+                break;
+            }
+            if consumed == 0 && produced == 0 {
+                return Err(Error::InvalidInput {
+                    reason: "bilevel zlib compression made no progress",
+                });
+            }
+        }
+        self.failed = false;
+        Ok(())
+    }
+
     /// Close the image stream after exactly the declared rows were written.
-    pub async fn finish(self) -> Result<ImageObject> {
+    pub async fn finish(mut self) -> Result<ImageObject> {
         if self.remaining != 0 {
             return Err(Error::InvalidInput {
                 reason: "bilevel image ended before its declared height",
             });
         }
+        self.encode(&[], true).await?;
         self.document.writer.end_stream().await?;
         Ok(ImageObject {
             object: self.object,
@@ -418,8 +476,9 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
 
     /// Start a 1 bpp image XObject whose rows the caller streams.
     ///
-    /// The dimensions, row stride, and PDF stream length are checked before
-    /// any output. No page is added; place the finished image with
+    /// Dimensions, row stride, raw byte count and a 512 KiB compressor-state
+    /// reservation are checked before image output. Compressed bytes are written
+    /// sequentially with an indirect stream length. No page is added; place it with
     /// [`PdfDocument::add_page`]. The image must be finished before any other
     /// document operation.
     pub async fn begin_bilevel_image(
@@ -428,10 +487,19 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
     ) -> Result<BilevelImageWriter<'_, 'a, W, C>> {
         self.ensure_image_page_intact()?;
         let (visible, remaining) = image.validate()?;
+        self.limits.check_allocation(DEFLATE_RESERVATION_BYTES)?;
+        let mut encoded = Vec::new();
+        let chunk = self.limits.io_chunk_bytes.min(DEFLATE_CHUNK_BYTES);
+        let refused = self
+            .limits
+            .allocation_refused("bilevel compression output", chunk as u64);
+        reserve_exact(&mut encoded, chunk, refused)?;
+        encoded.resize(chunk, 0);
+        let encoder = Compress::new(Compression::default(), true);
         let object = self.writer.reserve_object()?;
         let length_id = self.writer.reserve_object()?;
         let dictionary = format!(
-            "/Type /XObject\n/Subtype /Image\n/Width {}\n/Height {}\n/ColorSpace /DeviceGray\n/BitsPerComponent 1\n/Decode [1 0]\n",
+            "/Type /XObject\n/Subtype /Image\n/Width {}\n/Height {}\n/ColorSpace /DeviceGray\n/BitsPerComponent 1\n/Decode [1 0]\n/Filter /FlateDecode\n",
             image.pixel_width, image.pixel_height
         );
         self.writer
@@ -444,6 +512,9 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
             stride: image.row_stride,
             column: 0,
             remaining,
+            encoder,
+            encoded,
+            failed: false,
         })
     }
 

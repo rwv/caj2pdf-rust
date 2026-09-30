@@ -157,6 +157,15 @@ rejects with `RANDOM_ACCESS_REQUIRED` instead of falling back to memory; pass
 a `Blob`/`File` (which browsers keep disk-backed) or a custom `readAt`
 source. OPFS writes count against the origin's storage quota.
 
+## Bilevel output compression
+
+Bilevel image streams use lossless Flate compression. JPEG streams are copied
+unchanged. PDF byte snapshots/hashes change even when pixels and layout do not.
+For bilevel conversion, `limits.maxAllocationBytes` must be at least `512n *
+1024n` for the fixed compressor reservation (the default 64 MiB already covers
+this). This is a per-allocation requirement, not a whole-process memory budget.
+See the [compression measurements](../docs/bilevel-compression.md).
+
 ## Scoped HN/C8 scratch
 
 Both platform entry points export `withHnc8Scratch`. It creates four stores,

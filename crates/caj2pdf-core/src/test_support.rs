@@ -79,3 +79,36 @@ impl Cancellation for CancelAfter {
 fn ready_rejects_a_future_that_yields() {
     ready(std::future::pending::<()>());
 }
+
+/// Decode the bilevel XObjects in small, generated test PDFs. JPEG streams are
+/// deliberately left to their existing passthrough assertions.
+pub(crate) fn bilevel_pixels(pdf: &[u8]) -> Vec<Vec<u8>> {
+    use std::io::Read;
+    let mut images = Vec::new();
+    let marker = b"/Subtype /Image";
+    let mut from = 0;
+    while let Some(at) = pdf[from..]
+        .windows(marker.len())
+        .position(|part| part == marker)
+    {
+        let at = from + at;
+        let data = at
+            + pdf[at..]
+                .windows(7)
+                .position(|part| part == b"stream\n")
+                .unwrap()
+            + 7;
+        let dictionary = String::from_utf8_lossy(&pdf[at..data]);
+        if dictionary.contains("/BitsPerComponent 1\n") {
+            assert!(dictionary.contains("/Filter /FlateDecode"));
+            let mut decoder = flate2::read::ZlibDecoder::new(&pdf[data..]);
+            let mut pixels = Vec::new();
+            decoder.read_to_end(&mut pixels).unwrap();
+            images.push(pixels);
+            from = data + decoder.total_in() as usize;
+        } else {
+            from = data;
+        }
+    }
+    images
+}

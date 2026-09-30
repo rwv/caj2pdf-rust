@@ -148,3 +148,24 @@ test("HN inspection rejects malformed outlines, limits and cancelled reads", asy
   const input = { size: inner.size, async readAt(...args) { const chunk = await inner.readAt(...args); controller.abort(reason); return chunk; } };
   await assert.rejects(inspect(await newInstance(), input, { signal: controller.signal }), (error) => error === reason);
 });
+
+test("bilevel compression has bounded reusable WASM memory and an explicit allocation floor", async () => {
+  const instance = await newInstance();
+  const before = instance.exports.memory.buffer.byteLength;
+  let retained, reference;
+  for (let iteration = 0; iteration < 3; iteration++) {
+    const parts = [];
+    await convert(instance, source(), sink(parts), {
+      chunkSize: 7, limits: { maxAllocationBytes: 512n * 1024n }, hnc8: { scratch: stores() },
+    });
+    const pdf = Buffer.concat(parts);
+    assert.match(pdf.toString("latin1"), /\/Filter \/FlateDecode/);
+    const memory = instance.exports.memory.buffer.byteLength;
+    assert.ok(memory - before <= 1024 * 1024, "small-image working memory must stay bounded");
+    if (iteration === 0) { retained = memory; reference = pdf; }
+    else { assert.equal(memory, retained); assert.deepEqual(pdf, reference); }
+  }
+  await assert.rejects(convert(instance, source(), sink(), {
+    chunkSize: 7, limits: { maxAllocationBytes: 512n * 1024n - 1n }, hnc8: { scratch: stores() },
+  }), (error) => error.code === "HNC8" && /allocation bytes/.test(error.message));
+});

@@ -1496,22 +1496,10 @@ mod tests {
         assert_eq!(text.matches("%PDF-").count(), 1);
         assert_eq!(text.matches("%%EOF").count(), 1);
         assert_eq!(text.matches("/Subtype /Image").count(), 2);
-        for (width, height, expected) in
-            [(3, 2, &[0x80, 0][..]), (9, 3, &[0x80, 0, 0, 0, 0, 0][..])]
-        {
-            let marker = format!("/Width {width}\n/Height {height}");
-            let start = bytes
-                .windows(marker.len())
-                .position(|part| part == marker.as_bytes())
-                .unwrap();
-            let stream = bytes[start..]
-                .windows(8)
-                .position(|part| part == b"\nstream\n")
-                .unwrap()
-                + start
-                + 8;
-            assert_eq!(&bytes[stream..stream + expected.len()], expected);
-        }
+        assert_eq!(
+            crate::test_support::bilevel_pixels(&bytes),
+            [vec![0x80, 0], vec![0x80, 0, 0, 0, 0, 0]]
+        );
         assert!(text.contains("3 0 0 2 10 0 cm"));
         assert!(text.contains("9 0 0 3 20 0 cm"));
     }

@@ -1266,13 +1266,10 @@ mod tests {
         assert!(report.max_request_bytes <= 3);
         assert!(report.copy_buffer_bytes <= 3);
         assert!(sink.bytes.windows(8).any(|bytes| bytes == b"/Width 1"));
-        let start = sink
-            .bytes
-            .windows(7)
-            .position(|bytes| bytes == b"stream\n")
-            .unwrap()
-            + 7;
-        assert_eq!(&sink.bytes[start..start + 2], &[0, 0x80]);
+        assert_eq!(
+            crate::test_support::bilevel_pixels(&sink.bytes),
+            [vec![0, 0x80]]
+        );
     }
 
     #[test]
