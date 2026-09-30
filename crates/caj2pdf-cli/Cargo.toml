@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.85.0"
 license = "MIT"
-description = "Linux command-line interface for caj2pdf"
+description = "Native command-line interface for caj2pdf"
 repository = "https://github.com/rwv/caj2pdf-rust"
 publish = false
 
@@ -17,3 +17,7 @@ caj2pdf-core = { path = "../caj2pdf-core" }
 
 [target.'cfg(unix)'.dependencies]
 signal-hook = { version = "0.3", default-features = false }
+
+[target."cfg(windows)".dependencies]
+ctrlc = "3.5.2"
+winapi-util = "0.1.11"

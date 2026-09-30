@@ -1,0 +1,28 @@
+name: Native platforms
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_call:
+permissions:
+  contents: read
+concurrency:
+  group: platforms-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  windows:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [windows-2025, windows-11-arm]
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Install pinned toolchain
+        run: rustup show active-toolchain
+      - name: Check native code quality
+        run: cargo clippy --locked -p caj2pdf-cli --all-targets --all-features -- -D warnings
+      - name: Test core units
+        run: cargo test --locked -p caj2pdf-core --lib --all-features
+      - name: Test native CLI behavior
+        run: cargo test --locked -p caj2pdf-cli --bin caj2pdf --test portable --all-features
