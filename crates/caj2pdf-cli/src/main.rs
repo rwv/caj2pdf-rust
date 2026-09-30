@@ -9,19 +9,19 @@
 
 use std::process::ExitCode;
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 mod args;
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 mod document;
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 mod files;
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 mod hnc8;
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 mod json;
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 mod report;
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 mod signals;
 #[cfg(all(test, unix))]
 mod tests;
@@ -49,7 +49,7 @@ impl CliError {
     }
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 mod cli {
     use crate::CliError;
     use crate::args::{self, Command, Endpoint};
@@ -154,7 +154,7 @@ mod cli {
     }
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 fn main() -> ExitCode {
     use std::io::Write;
 
@@ -177,8 +177,8 @@ fn main() -> ExitCode {
     }
 }
 
-#[cfg(not(unix))]
+#[cfg(not(any(unix, windows)))]
 fn main() -> ExitCode {
-    eprintln!("caj2pdf: error: this command-line interface supports Unix-like systems only");
+    eprintln!("caj2pdf: error: this target has no native command-line adapter; use the WASM API");
     ExitCode::FAILURE
 }

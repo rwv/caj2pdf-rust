@@ -304,3 +304,20 @@ An operating-system read or write can remain blocked until it returns. A second
 termination signal forces the normal signal action; forced termination (including
 SIGKILL) can leave a named output temporary file. Anonymous scratch files are
 released by the operating system. Do not rely on forced termination for cleanup.
+
+
+## Native platform adapters
+
+The Windows CLI uses the same conversion, argument and report code as Unix.
+Windows identity checks use volume and file indexes, including hard-link
+aliases. Paths remain native OS strings. Temporary files inherit their parent
+directory's ACL; use a private user temp/output directory. Scratch files are
+marked for deletion through their open handles and removed when closed.
+
+On Windows, Ctrl-C/Ctrl-Break request cooperative cancellation; a second
+interrupt exits with status 130 immediately and may leave staged output.
+On Unix, SIGINT/SIGTERM retain the documented cooperative/second-signal behavior.
+Blocking OS I/O and forced process termination cannot guarantee normal cleanup.
+The Linux 100% instrumented-line gate measures Linux-compiled Rust; separate
+Windows execution tests validate the Windows-only adapter, without claiming
+100% cross-platform coverage.

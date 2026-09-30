@@ -1140,7 +1140,7 @@ direct third-party Cargo dependencies in the current graph:
 | Package | Role | License | Edition / minimum Rust | External dependencies |
 | --- | --- | --- | --- | --- |
 | `caj2pdf-core` | Platform-neutral library | MIT | 2024 / 1.85.0 | `flate2`, `sha2` (direct) |
-| `caj2pdf-cli` | Linux executable | MIT | 2024 / 1.85.0 | None |
+| `caj2pdf-cli` | Native executable | MIT | 2024 / 1.85.0 | Unix: `signal-hook`; Windows: `ctrlc`, `winapi-util` |
 | `caj2pdf-wasm` | WASM/JavaScript boundary | MIT | 2024 / 1.85.0 | None |
 
 The Rust standard library and compiler-provided target components are not
@@ -1757,3 +1757,27 @@ Project-owned output buffering is fallibly allocated and capped at 16 KiB.
 The original synthetic fixtures and independent qpdf/render checks are extended
 to decode Flate streams; external C8 evidence is hash-only in the
 [compression report](bilevel-compression.md).
+
+
+## Windows adapter dependencies (#204)
+
+The Windows CLI uses `ctrlc` 3.5.2 (MIT OR Apache-2.0, selected MIT) for safe
+console interrupt registration and `winapi-util` 0.1.11 (Unlicense OR MIT,
+selected MIT) for file type and volume/file identity queries. Both use the
+already audited `windows-sys` 0.61.2 / `windows-link` 0.2.1 under MIT. Their
+published MIT notices and Windows source paths were reviewed; no converter,
+codec or vendored native implementation is imported. Project source retains
+`forbid(unsafe_code)`; OS FFI is encapsulated by those dependencies.
+
+Both direct dependencies are `cfg(windows)` only, with default features and no
+optional features enabled. They are absent from Unix and WASM build graphs.
+Cargo.lock also resolves ctrlc's other-platform packages, but those do not
+build through this Windows-only dependency. CI audits the Windows graph
+explicitly. Native Windows regression tests cover Unicode paths, file identity
+(including hard links), bounded spooling, staged-output cleanup and pipe I/O.
+
+Windows CI downloads upstream qpdf 12.4.2 and MuPDF 1.28.5 archives, pinned by
+SHA-256 in `scripts/install-windows-test-tools.ps1`. They are independent test
+programs (MuPDF runs under x64 emulation on Windows ARM64), never Cargo
+dependencies or release contents. Their own upstream licenses remain distinct
+from the MIT converter. Windows render tests remain enabled.

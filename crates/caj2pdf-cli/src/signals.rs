@@ -5,6 +5,7 @@
 //! read or write. Only normal unwinding can clean up staged output paths.
 
 use caj2pdf_core::Cancellation;
+#[cfg(unix)]
 use signal_hook::{
     consts::signal::{SIGINT, SIGTERM},
     flag,
@@ -16,6 +17,7 @@ use std::sync::{
 
 static CANCELLED: OnceLock<Arc<AtomicBool>> = OnceLock::new();
 
+#[cfg(unix)]
 pub fn install() -> std::io::Result<()> {
     let cancelled = CANCELLED.get_or_init(|| Arc::new(AtomicBool::new(false)));
     for signal in [SIGINT, SIGTERM] {
@@ -23,6 +25,17 @@ pub fn install() -> std::io::Result<()> {
         flag::register(signal, Arc::clone(cancelled))?;
     }
     Ok(())
+}
+
+#[cfg(windows)]
+pub fn install() -> std::io::Result<()> {
+    let cancelled = Arc::clone(CANCELLED.get_or_init(|| Arc::new(AtomicBool::new(false))));
+    ctrlc::set_handler(move || {
+        if cancelled.swap(true, Ordering::Relaxed) {
+            std::process::exit(130);
+        }
+    })
+    .map_err(std::io::Error::other)
 }
 
 pub struct ProcessCancellation;
