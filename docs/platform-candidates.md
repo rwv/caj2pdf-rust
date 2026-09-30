@@ -20,7 +20,7 @@ is free. Larger runners are not part of this workflow.
 ## Active probes
 
 NetBSD, OpenBSD, illumos, Android and Linux RISC-V32 use the separate candidate
-workflow. Its failed jobs are failures, not compatibility passes. MIPS GNU
+manual workflow. Its failed jobs are failures, not compatibility passes. MIPS GNU
 32/64 little/big endian passed both core and CLI tests and is promoted using
 pinned nightly std builds. The main project continues using stable Rust.
 
