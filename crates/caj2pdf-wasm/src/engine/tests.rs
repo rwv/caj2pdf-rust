@@ -692,6 +692,43 @@ fn hnc8_configuration_and_located_failures_are_explicit() {
     assert!(!engine.add_hnc8_state(1, 1, 0, 0, 0));
 }
 
+#[test]
+fn default_tables_do_not_turn_small_allocation_limits_into_invalid_input() {
+    let input = synthetic_hn();
+    let mut bounded = limits(8);
+    bounded.max_allocation_bytes = 8;
+    let mut engine = Engine::start(input.len() as u64, bounded, convert_op(None)).unwrap();
+    drive(&mut engine, &input, None);
+    let Error::Hnc8(error) = failure(&engine) else {
+        panic!("expected located allocation limit");
+    };
+    assert!(matches!(
+        error.kind,
+        caj2pdf_core::hnc8::ComposeErrorKind::Io(Error::LimitExceeded { .. })
+    ));
+}
+
+#[test]
+fn custom_mq_validation_preserves_resource_errors() {
+    let input = synthetic_hn();
+    let mut bounded = limits(8);
+    bounded.max_allocation_bytes = 8;
+    let mut engine = Engine::start(input.len() as u64, bounded, convert_op(None)).unwrap();
+    // Exercise the conversion boundary independently of the public state-upload
+    // guard, which normally rejects oversized tables before this point.
+    for _ in 0..47 {
+        assert!(
+            engine
+                .shared
+                .borrow_mut()
+                .tables
+                .push(1, 0x4000, 0, 0, 0, &Limits::default())
+        );
+    }
+    drive(&mut engine, &input, None);
+    assert!(matches!(failure(&engine), Error::LimitExceeded { .. }));
+}
+
 fn scratch_engine() -> Engine {
     use caj2pdf_core::jbig2::text_composer::RandomAccessScratch;
     let mut engine = Engine::start(

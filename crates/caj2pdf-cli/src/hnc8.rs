@@ -50,10 +50,7 @@ impl Tables {
                 })?,
             );
         } else {
-            tables.qm = Some(
-                QmTable::new(caj2pdf_core::qm::STANDARD_STATES.to_vec())
-                    .expect("valid standard QM states"),
-            );
+            tables.qm = Some(QmTable::standard());
         }
         if let Some(path) = &options.mq_states {
             let rows = tables.read(path, 47)?;
@@ -74,10 +71,7 @@ impl Tables {
                 })?,
             );
         } else {
-            tables.mq = Some(
-                MqTable::new(caj2pdf_core::jbig2::mq::STANDARD_STATES.to_vec(), limits)
-                    .map_err(|error| CliError::runtime(error.to_string()))?,
-            );
+            tables.mq = Some(MqTable::standard());
         }
         Ok(tables)
     }
@@ -253,17 +247,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn default_states_are_available_and_respect_mq_allocation_limits() {
+    fn default_states_are_available_without_allocating_tables() {
         let options = ConvertOptions::default();
         let tables = Tables::load(&options, &Limits::default()).unwrap();
         assert!(tables.qm.is_some());
         assert!(tables.mq.is_some());
         assert!(tables.inputs.is_empty());
         let limited = Limits {
-            max_allocation_bytes: 1,
+            max_allocation_bytes: 0,
             ..Limits::default()
         };
-        assert!(Tables::load(&options, &limited).is_err());
+        assert!(Tables::load(&options, &limited).is_ok());
     }
 
     #[test]

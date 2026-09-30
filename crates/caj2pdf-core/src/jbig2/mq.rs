@@ -59,13 +59,20 @@ pub struct MqState {
     pub switch_mps: bool,
 }
 
-/// An owned, validated state machine built from standard or custom values.
+/// A validated state machine borrowing standard states or owning custom values.
 #[derive(Debug)]
 pub struct MqTable {
-    states: Box<[MqState]>,
+    states: std::borrow::Cow<'static, [MqState]>,
 }
 
 impl MqTable {
+    /// Use the standard probability states without allocating or copying them.
+    pub fn standard() -> Self {
+        Self {
+            states: std::borrow::Cow::Borrowed(&STANDARD_STATES),
+        }
+    }
+
     pub fn new(states: Vec<MqState>, limits: &Limits) -> MqResult<Self> {
         if states.len() != MQ_STATE_COUNT {
             return Err(MqError::configuration(MqErrorKind::InvalidTable(
@@ -90,7 +97,7 @@ impl MqTable {
             }
         }
         Ok(Self {
-            states: states.into_boxed_slice(),
+            states: states.into(),
         })
     }
 
