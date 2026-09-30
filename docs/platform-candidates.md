@@ -35,3 +35,9 @@ and s390x musl. These use pinned std builds and hashed SDKs. Dynamic musl SDK
 probes are separate from static Docker targets. Bootlin's current SPARCv8 SDKs
 use uClibc, not the GNU libc expected by `sparc-unknown-linux-gnu`; that SDK is
 not used as an unverified substitute.
+
+- m68k GNU reaches an LLVM instruction-selection failure while compiling std,
+  before project code runs (nightly-2026-09-29). See follow-up #214.
+- RISC-V32 musl initially lacked a static unwinder. The dynamic SDK build links
+  but crashes before the test harness under both the distro and pinned newer
+  QEMU; it is not promoted. RISC-V32 GNU passes and is separately included.

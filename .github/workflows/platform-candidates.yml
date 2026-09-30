@@ -15,7 +15,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - {arch: x86_64, target: x86_64-unknown-netbsd}
           - {arch: aarch64, target: aarch64-unknown-netbsd}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -60,7 +59,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - {arch: x86_64, target: x86_64-unknown-openbsd}
           - {arch: aarch64, target: aarch64-unknown-openbsd}
           - {arch: riscv64, target: riscv64gc-unknown-openbsd}
     steps:
@@ -131,63 +129,13 @@ jobs:
           path: dist/
           if-no-files-found: error
 
-  omnios:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 120
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - {arch: x86_64, target: x86_64-unknown-illumos}
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - name: Test candidate in omnios
-        uses: vmactions/omnios-vm@9fef3e21494ae59304197253c91eae28582615d6
-        with:
-          release: 'r151054-build'
-          arch: ${{ matrix.arch }}
-          sync: scp
-          usesh: true
-          mem: 4096
-          cpu: 2
-          cache-after-prepare: true
-          prepare: |
-            set -eu
-            pkg install rust python-313
-          run: |
-            set -eu
-            export PATH=/opt/ooce/bin:/opt/ooce/rust/bin:/opt/local/bin:/usr/gnu/bin:$PATH
-            rustc --version
-            cargo --version
-            cargo test --locked -p caj2pdf-core --lib -- --skip hnc8::compose::tests::independent_render_proves_padded_orientation_and_later_overlap_pixels --skip hnc8::compose::tests::type3_complete_mixed_pages_reuse_stores_and_keep_top_first_pixels
-            cargo test --locked --release -p caj2pdf-cli --test portable
-            python3.13 scripts/package-native.py --target '${{ matrix.target }}' --binary target/release/caj2pdf
-            target/release/caj2pdf tests/fixtures/valid_nested_outline.pdf -o dist/illumos-smoke.pdf
-      - name: Validate VM conversion on the host
-        run: |
-          sudo apt-get update
-          sudo apt-get install --no-install-recommends -y qpdf mupdf-tools
-          qpdf --check dist/illumos-smoke.pdf
-          mutool draw -q -o "$RUNNER_TEMP/illumos-%d.png" dist/illumos-smoke.pdf
-          rm dist/illumos-smoke.pdf
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: candidate-${{ matrix.target }}
-          path: dist/
-          if-no-files-found: error
-
   bootlin:
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
         include:
-          - {arch: riscv32-ilp32d, qemu: riscv32, target: riscv32gc-unknown-linux-gnu, libc: glibc, sha: d42680e926542595c4c87629d33f5f90aac1e9a964c8955089e0514caa01b78f, prefix: riscv32-buildroot-linux-gnu}
           - {arch: riscv32-ilp32d, qemu: riscv32, target: riscv32gc-unknown-linux-musl, libc: musl, sha: f15e9ed67724b249eb149126eb6ed945648c3cdcd3c1c484b23c1a12df368391, prefix: riscv32-buildroot-linux-musl}
-          - {arch: mips32, qemu: mips, target: mips-unknown-linux-musl, libc: musl, sha: 35b434d3ae1a46065d9e37de56b71bcf0e72bcda652f96d185e51dbea7ef045c, prefix: mips-buildroot-linux-musl}
-          - {arch: mips32el, qemu: mipsel, target: mipsel-unknown-linux-musl, libc: musl, sha: 12a5e2f50b94b5c619730914db380ce9679798fb3c7460a40d480f77bb50628f, prefix: mipsel-buildroot-linux-musl}
-          - {arch: powerpc-e300c3, qemu: ppc, target: powerpc-unknown-linux-musl, libc: musl, sha: 5f628b374b6857f4b4ceabe5e41b2565b07985a7e444978c87b0f864bb5a47fc, prefix: powerpc-buildroot-linux-musl}
-          - {arch: s390x-z13, qemu: s390x, target: s390x-unknown-linux-musl, libc: musl, sha: 23f536ff2bf1a9d3b93210465471996bc7c918fbb5702a277d8e1e42ffab8559, prefix: s390x-buildroot-linux-musl}
           - {arch: m68k-68xxx, qemu: m68k, target: m68k-unknown-linux-gnu, libc: glibc, sha: 0ad3bde066917d3d57b05b89fd13529acd401f4bef4a2afdd0c14452d039ca77, prefix: m68k-buildroot-linux-gnu}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -235,34 +183,44 @@ jobs:
           if-no-files-found: error
 
   android:
-    runs-on: ubuntu-24.04
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
         include:
-          - {target: x86_64-linux-android, compiler: x86_64-linux-android, arch: x86_64, api: 30}
-          - {target: i686-linux-android, compiler: i686-linux-android, arch: x86, api: 30, image: google_apis}
-          - {target: aarch64-linux-android, compiler: aarch64-linux-android, arch: arm64-v8a, api: 30}
-          - {target: armv7-linux-androideabi, compiler: armv7a-linux-androideabi, arch: armeabi-v7a, api: 24}
+          - {runner: ubuntu-24.04, target: x86_64-linux-android, compiler: x86_64-linux-android, arch: x86_64, api: 30}
+          - {runner: ubuntu-24.04, target: i686-linux-android, compiler: i686-linux-android, arch: x86, api: 30, image: google_apis}
+          - {runner: macos-15, acceleration: -accel off, target: aarch64-linux-android, compiler: aarch64-linux-android, arch: arm64-v8a, api: 30}
+          - {runner: macos-15, acceleration: -accel off, target: armv7-linux-androideabi, compiler: armv7a-linux-androideabi, arch: arm64-v8a, api: 30}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
       - name: Install toolchain and enable emulator acceleration
         env:
           TARGET: ${{ matrix.target }}
           COMPILER: ${{ matrix.compiler }}
         run: |
           rustup target add "$TARGET"
-          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'ndk;28.2.13676358'
-          ndk="$ANDROID_HOME/ndk/28.2.13676358/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          sdkmanager 'ndk;28.2.13676358'
+          host=linux-x86_64
+          if [[ "$RUNNER_OS" == macOS ]]; then host=darwin-x86_64; fi
+          ndk="$ANDROID_HOME/ndk/28.2.13676358/toolchains/llvm/prebuilt/$host/bin"
           key="$(echo "$TARGET" | tr '[:lower:]-' '[:upper:]_')"
           echo "CARGO_TARGET_${key}_LINKER=$ndk/${COMPILER}24-clang" >> "$GITHUB_ENV"
           echo "CARGO_TARGET_${key}_RUNNER=python3 $GITHUB_WORKSPACE/scripts/android-runner.py" >> "$GITHUB_ENV"
-          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
-          sudo udevadm control --reload-rules
-          sudo udevadm trigger --name-match=kvm
-          sudo apt-get update
-          sudo apt-get install --no-install-recommends -y qpdf mupdf-tools
+          if [[ "$RUNNER_OS" == Linux ]]; then
+            echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+            sudo udevadm control --reload-rules
+            sudo udevadm trigger --name-match=kvm
+            sudo apt-get update
+            sudo apt-get install --no-install-recommends -y qpdf mupdf-tools
+          else
+            HOMEBREW_NO_AUTO_UPDATE=1 brew install qpdf mupdf
+          fi
       - name: Build device CLI
         run: cargo build --locked --release -p caj2pdf-cli --target '${{ matrix.target }}'
       - name: Run core and CLI tests on Android
@@ -272,7 +230,11 @@ jobs:
           arch: ${{ matrix.arch }}
           target: ${{ matrix.image || 'default' }}
           disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim ${{ matrix.acceleration }}
           script: |
+            adb root
+            adb wait-for-device
+            adb shell id
             adb push target/${{ matrix.target }}/release/caj2pdf /data/local/tmp/caj2pdf
             adb shell chmod 755 /data/local/tmp/caj2pdf
             cargo test --locked --release -p caj2pdf-core --lib --target '${{ matrix.target }}' -- --skip hnc8::compose::tests::independent_render_proves_padded_orientation_and_later_overlap_pixels --skip hnc8::compose::tests::type3_complete_mixed_pages_reuse_stores_and_keep_top_first_pixels
@@ -283,7 +245,7 @@ jobs:
             qpdf --check android-output.pdf
             mutool draw -q -o android-page-%d.png android-output.pdf
       - name: Package tested candidate
-        run: python scripts/package-native.py --target '${{ matrix.target }}' --binary 'target/${{ matrix.target }}/release/caj2pdf'
+        run: python3 scripts/package-native.py --target '${{ matrix.target }}' --binary 'target/${{ matrix.target }}/release/caj2pdf'
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: candidate-${{ matrix.target }}

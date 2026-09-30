@@ -19,20 +19,27 @@ Target counts include OS/libc/ABI combinations, not just CPU architectures.
 | Linux musl additions | i586, i686, ARMv5TE, ARMv6/ARMv7 soft/hard-float, PowerPC64 big/little endian, RISC-V64 GC | Static Rust-bundled musl runtime, tested with QEMU |
 | Linux GNU MIPS | MIPS32 and MIPS64 n64, each big/little endian | Ubuntu cross sysroots and QEMU; std built with pinned nightly-2026-09-29 |
 | FreeBSD | x86_64, ARM64 | FreeBSD 14.3 virtual machines; Rust from the FreeBSD package repository, version printed in CI |
+| NetBSD / OpenBSD | x86_64 | NetBSD 11.0 / OpenBSD 7.9 VMs, packaged Rust compiler |
+| illumos | x86_64 | OmniOS r151054 VM; 499 core tests and 4 CLI tests, host qpdf/MuPDF validation |
+| Linux Bootlin GNU | RISC-V32 GC ILP32D | Bootlin stable-2025.08-1 glibc sysroot; pinned std build and QEMU |
+| Linux Bootlin musl (dynamic) | MIPS32 big/little endian, PowerPC32, s390x | Bootlin stable-2025.08-1 SDK runtime; pinned std build and QEMU; not static Docker artifacts |
 | JavaScript/WASM | Browser and Node 22+ | Portable WASM package; real Node 22/24 and Chromium tests |
 
 The pinned Rust toolchain is used wherever distributed for hosted runners.
-MIPS builds std with a separate pinned nightly. FreeBSD uses its packaged compiler; the exact build log records the version.
+MIPS builds std with a separate pinned nightly. BSD and illumos use their packaged compilers; the exact build log records the version.
 Do not infer support for older OS/libc versions from compilation alone. No
-claim is made for Android/iOS applications, embedded targets, other BSDs or
-architectures outside this matrix. They need their own platform adapter and
+claim is made for Android/iOS applications, embedded targets or platforms
+outside this matrix. They need their own platform adapter and
 runtime evidence. Windows builds statically link the MSVC CRT to avoid a separate VC runtime
 installation. Windows binaries are not Authenticode-signed and macOS
 binaries are not notarized; local OS trust prompts may apply.
 
 ## What each target checks
 
-Core unit tests include independent qpdf/MuPDF rendering. Portable CLI tests
+Core unit tests include independent qpdf/MuPDF rendering. On illumos, the two
+core tests requiring local PDF validators are explicitly filtered because those
+packages are unavailable; the VM-produced PDF is instead checked and rendered
+on the host. This is 499 core tests plus separate validation, not 501 passes. Portable CLI tests
 execute Unicode paths, inspect/page counts, stdin/stdout conversion equality,
 existing-output refusal, hard-link/input protection and failed-output cleanup.
 Cross-platform tests do not use Unix-only `/dev` test fixtures. QEMU validates
