@@ -113,24 +113,20 @@ def main():
         manifest.append({"file": name, "marker": 0, "row_bytes": 12,
                          "run_words": words, "bytes": len(data),
                          "sha256": hashlib.sha256(data).hexdigest()})
-    for value in (0, 0x12D8, 0x8004, 0xFFFF):
-        for suffix, following in (("bare", ()), ("next-y", (0x8001, 5000))):
-            name = f"hnb-c053-{value:04x}-{suffix}.caj"
-            words = (0xC053, value) + following
-            data = document(12, 0, run=words)
-            (args.output / name).write_bytes(data)
-            manifest.append({"file": name, "marker": 0, "row_bytes": 12,
-                             "run_words": words, "bytes": len(data),
-                             "sha256": hashlib.sha256(data).hexdigest()})
-    for value in (0, 1):
-        for suffix, following in (("bare", ()), ("next-y", (0x8001, 5000))):
-            name = f"hnb-80ce-{value}-{suffix}.caj"
-            words = (0x80CE, value) + following
-            data = document(12, 0, run=words)
-            (args.output / name).write_bytes(data)
-            manifest.append({"file": name, "marker": 0, "row_bytes": 12,
-                             "run_words": words, "bytes": len(data),
-                             "sha256": hashlib.sha256(data).hexdigest()})
+    for tag, values, digits in (
+        (0xC053, (0, 0x12D8, 0x8004, 0xFFFF), 4),
+        (0x80CE, (0, 1), 1),
+        (0x8070, (0x0024, 0x002B), 4),
+    ):
+        for value in values:
+            for suffix, following in (("bare", ()), ("next-y", (0x8001, 5000))):
+                name = f"hnb-{tag:04x}-{value:0{digits}x}-{suffix}.caj"
+                words = (tag, value) + following
+                data = document(12, 0, run=words)
+                (args.output / name).write_bytes(data)
+                manifest.append({"file": name, "marker": 0, "row_bytes": 12,
+                                 "run_words": words, "bytes": len(data),
+                                 "sha256": hashlib.sha256(data).hexdigest()})
     (args.output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
 
 

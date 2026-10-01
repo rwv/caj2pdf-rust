@@ -263,3 +263,25 @@ probe reaches 1429 records on issue-100 page 1 and 2657 on issue-63 page 1,
 both now stopping at `8070/0024`. Issue-63 page 4 advances from 264 records /
 195 raw glyphs to 2182 / 1371, then stops at offset 69864. All 14 pages still
 have explicit unsupported outcomes; these are not successful conversions.
+
+### Independent 8070 controls
+
+Four original two-page controls verify four-byte `8070/0024` and
+`8070/002b` records, each bare and followed by `8001/5000`. All repeated
+captures match in the same 57% page frame. Value `0024` matches the
+corresponding baseline. Value `002b` changes the first row's glyph geometry;
+the following position control still moves that row independently, and
+later rows retain their baseline appearance. This establishes framing,
+not a point-size formula or no-op semantics. Preserve the raw payload.
+
+The existing HN-B guard and four-byte reader admit only these two values.
+Short-read tests exercise both index widths and reject neighboring values
+and C8 use of these HN-B controls. The fixture generator consolidates the
+identical numeric-control loops and reproduces all four viewer inputs
+byte-for-byte. External receipts are `8070-inputs.json` and
+`8070-comparison.json` in `caj2pdf-hnb-control-values-20261001`.
+
+The direct corpus probe now reaches `8071/0024` at offsets 6004 and 10936
+on issue-100/63 page 1, and `8071/002b` on issue-65 pages 2–5. All 14 pages
+still have explicit unsupported outcomes. No complete conversion or new
+rendering semantics is claimed.
