@@ -75,8 +75,8 @@ pub trait NativeRecordVisitor {
 
 impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
     /// Visit admitted C8 or HN-B raw native records without allocating.
-    /// HN-B admits independently controlled glyph runs, controls and two drawing
-    /// forms. Other C8 drawing, image and control framing is not inherited.
+    /// HN-B admits independently controlled glyph runs, controls, three drawing
+    /// forms and fixed-length image records. Other C8 framing is not inherited.
     /// Call `next_page` first. This does not consume image descriptors, decode
     /// characters or enable conversion. Unknown framing stops at its source byte.
     /// A failed/dropped operation poisons the reader, just like image traversal.
