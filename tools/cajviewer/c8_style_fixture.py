@@ -89,6 +89,7 @@ def main():
         )
     )
     fixtures.append(("draw10horizontal", baseline, None, (0x8010, 1, 0)))
+    fixtures.append(("draw06a385", [(0x1084, 0, 6)], None, (0x8006, 0xA385, 0)))
     symbols = {
         "letter-a": (0xA0C1,),
         "digit-one": (0xA0B1,),

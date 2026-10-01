@@ -196,7 +196,7 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
                     0x8006 | 0x8010
                         if matches!(
                             (tag, value),
-                            (0x8006, 0xa381 | 0xa383 | 0xa38b) | (0x8010, 1)
+                            (0x8006, 0xa381 | 0xa383 | 0xa385 | 0xa38b) | (0x8010, 1)
                         ) =>
                     {
                         length = if value == 0xa383 { 12 } else { 16 };

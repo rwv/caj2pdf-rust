@@ -755,3 +755,28 @@ is inconsistent with the observed size-dependent deltas and is not admitted.
 Production rendering acceptance remains open. External receipts are in
 `caj2pdf-c8-advance-control-20261001/{comparison,axis-comparison,axis-inputs}.json`;
 no captures or font binaries are committed.
+
+
+### Additional raw drawing value `8006/a385`
+
+An original one-row control changes only the existing `8006/a381` record's
+value to `a385`, retaining two asymmetric endpoints, the trailing `ffff/0005`
+pair and five following glyphs. Both controls render the line and all five
+geometric glyphs in pinned CAJViewer; page crops and their repeated captures
+are identical at displayed 57% zoom. The inspected page frame is
+`(647,386,1024,937)`. This low-zoom equality establishes record framing and
+preservation of following content, not identical stroke semantics at every
+scale. The generator's `draw06a385` reproduces the observed input exactly.
+
+The C8 visitor now preserves this as one 16-byte `NativeRecord::Drawing`,
+retaining both raw coordinate pairs and the unchanged style value, and
+validating the fixed trailing `ffff/0005` pair. Short-read tests
+use marker-like payload words followed by a glyph; the existing truncation
+sweep now covers every shortened length of this form. Adjacent unverified
+value `a384` remains unsupported. No allocation or new rendering rule is added.
+
+HN-B inventories in #241 also encounter `a385`; that observation alone does
+not enable the C8 visitor for HN-B. HN-B variant semantics and complete-document
+conversion remain open. External receipts are the `segment-a381` and
+`segment-a385` controls/captures and `segment-inputs.json` in
+`caj2pdf-c8-advance-control-20261001`.

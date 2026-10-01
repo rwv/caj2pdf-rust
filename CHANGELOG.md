@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Preserve the independently controlled `8006/a385` C8 drawing record in
+  bounded native traversal; HN-B rendering and stroke interpretation remain
+  unsupported.
+
 - Add allocation-free decoding of the independently controlled C8 native image
   coordinate profile. Unknown prefixes and zero extents remain unsupported;
   this does not enable complete native C8 conversion.

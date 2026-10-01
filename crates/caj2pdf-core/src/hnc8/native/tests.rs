@@ -215,6 +215,7 @@ fn streams_raw_glyph_context_and_atomic_drawing_image_records() {
 fn unsupported_records_stop_without_consuming_their_payload_as_glyphs() {
     for pair in [
         [0x8006, 0],
+        [0x8006, 0xa384],
         [0x8010, 0],
         [0x8010, 0xa381],
         [0xc052, 7],
@@ -281,6 +282,7 @@ fn never_reads_past_indexed_span_for_any_truncated_record() {
         vec![[0x8004, 0]],
         vec![[0x8006, 0xa381], [1, 2], [3, 4], [0xffff, 5]],
         vec![[0x8006, 0xa383], [1, 2], [3, 4]],
+        vec![[0x8006, 0xa385], [1, 2], [3, 4], [0xffff, 5]],
         vec![[0x8010, 1], [1, 2], [3, 4], [0xffff, 5]],
         vec![[0xc053, 0xffff]],
         vec![[0x8073, 0x8004]],
@@ -698,4 +700,54 @@ fn native_image_coordinates_keep_source_axes_and_reject_unknown_profiles() {
     words[2] = 0;
     let origin = decode_native_image_coordinate(&words).unwrap();
     assert_eq!([origin.x, origin.y], [0, 0]);
+}
+
+#[test]
+fn a385_drawing_preserves_coordinates_and_following_glyph_context() {
+    for short in [1, 3, 7, 28] {
+        let mut source = fixture(
+            &[
+                [0x8001, 47],
+                [0x8002, 0x1084],
+                [0x8006, 0xa385],
+                [0x8004, 17],
+                [23, 0x8001],
+                [0xffff, 5],
+                [31, 0xd6d0],
+                [0x8004, 1],
+            ],
+            0,
+        );
+        source.short = short;
+        let mut visitor = Visitor::default();
+        assert_eq!(
+            parse(&mut source, TextBudget::default(), &mut visitor).unwrap(),
+            5
+        );
+        assert_eq!(
+            visitor.events[2],
+            (
+                108,
+                NativeRecord::Drawing {
+                    tag: 0x8006,
+                    style: 0xa385,
+                    points: [[0x8004, 17], [23, 0x8001]],
+                }
+            )
+        );
+        assert_eq!(
+            visitor.events[3],
+            (
+                124,
+                NativeRecord::Glyph {
+                    x: 31,
+                    y: 47,
+                    style: 0x1084,
+                    code: 0xd6d0,
+                }
+            )
+        );
+        assert_eq!(visitor.events[4], (128, NativeRecord::End { value: 1 }));
+        assert!(source.max_request <= 28);
+    }
 }
