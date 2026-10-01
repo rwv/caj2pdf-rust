@@ -2069,3 +2069,14 @@ pinned offline viewer. `docs/c8-native-controls.md` records three visible
 state changes and leaves transform semantics unresolved. No other converter
 source, vendor outlines or external document text were copied. All captured
 and derived external content remains outside Git.
+
+### Native C8 image-reference framing (#242)
+
+The `810a/d300` visitor branch and tests are independently written MIT code.
+Original one-/two-image controls establish byte-length/alignment, coordinates
+and embedded descriptor order without reading another converter implementation.
+`tools/cajviewer/c8_image_fixture.py` is the identical original helper from #235;
+`c8_image_reference_fixture.py` adds independently drawn color geometry and
+invented reference names. `docs/c8-image-references.md` records successful
+controls and excluded failed probes. External documents, captured pages and
+reference bytes stay outside Git. No pathname resolution or viewer code is used.
