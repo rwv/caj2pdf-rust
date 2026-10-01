@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **Breaking:** add `NativeRecord::ImageReference` for the measured C8
+  `810a/d300` profile. Exhaustive matches must handle its coordinates and
+  opaque source-span reference. Names are never opened as external files;
+  complete native-page conversion remains unsupported.
+
 - **Breaking:** add `NativeRecord::ExtendedControl` and preserve additional
   verified C8 control records. Exhaustive native matches must handle their
   raw payloads; exact transform/resource semantics remain unimplemented.
