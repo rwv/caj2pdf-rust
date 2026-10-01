@@ -11,7 +11,7 @@ import { readFile } from "node:fs/promises";
 import { after, before, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { findChrome, launchChrome, openPage, startServer } from "./browser-harness.mjs";
-import { fixture, syntheticCaj, syntheticKdh, validatePdf, validateMultiImageHn, validateType1Hn, wasmUrl } from "./helpers.mjs";
+import { fixture, syntheticCaj, syntheticRecoveredCaj, syntheticKdh, validatePdf, validateMultiImageHn, validateType1Hn, wasmUrl } from "./helpers.mjs";
 
 const chrome = findChrome();
 if (chrome == null && process.env.CI) {
@@ -29,6 +29,8 @@ before(async () => {
   if (skip) return;
   const fixtures = {
     "/fixtures/input.caj": syntheticCaj(),
+    "/fixtures/recovered.caj": syntheticRecoveredCaj(),
+    "/fixtures/broken-recovery.caj": syntheticRecoveredCaj(true),
     "/fixtures/input.kdh": (await syntheticKdh()).wrapped,
     "/fixtures/input.pdf": await fixture("valid_nested_outline.pdf"),
     "/fixtures/input.hn": await fixture("truncated_hn.hn"),
@@ -67,6 +69,7 @@ const options = { skip, timeout: 60_000 };
 test("Chromium: File sources and WritableStream sinks convert CAJ, KDH, and PDF", options, async (t) => {
   for (const [name, format, pages, bookmarks] of [
     ["input.caj", "caj", 2, 1],
+    ["recovered.caj", "caj", 2, 1],
     ["input.kdh", "kdh", 2, 0],
     ["input.pdf", "pdf", 2, 0],
   ]) {
@@ -163,4 +166,17 @@ test("Chromium: HN/C8 inspection distinguishes validated and unknown outlines", 
     { format: "c8", pages: 1, bookmarks: null },
     { format: "hn", pages: 1, bookmarks: null },
   ]);
+});
+
+
+test("Chromium: CAJ recovery retains a later malformed-object error", options, async () => {
+  for (const mode of ["reject", "rejectSpooled"]) {
+    const result = await run(mode, "broken-recovery.caj");
+    assert.equal(result.error?.code, "MALFORMED_PDF");
+    assert.equal(result.written, 0);
+    if (mode === "rejectSpooled") {
+      assert.deepEqual(result.after, []);
+      assert.equal(result.unlocked, true);
+    }
+  }
 });
