@@ -12,8 +12,9 @@ mod writer;
 
 pub use append::{PdfOutlineAppender, copy_pdf, copy_pdf_range};
 pub use document::{
-    BilevelImageSpec, BilevelImageWriter, BookmarkView, ImageEncoding, ImageObject, ImagePlacement,
-    ImageSpec, MAX_PAGE_IMAGE_PLACEMENTS, PageSpec, PdfDocument,
+    BilevelImageSpec, BilevelImageWriter, BookmarkView, ContentPageWriter, FontObject,
+    ImageEncoding, ImageObject, ImagePlacement, ImageSpec, MAX_PAGE_IMAGE_PLACEMENTS, PageSpec,
+    PdfDocument,
 };
 pub use font::{FontGlyph, MAX_FONT_METADATA_BYTES, TrueTypeFont};
 pub use fragment::{

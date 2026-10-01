@@ -1927,14 +1927,15 @@ The independent viewer observations and admitted limits are recorded in
 
 The original MIT ranged adapter in `pdf/font.rs` follows Microsoft's
 [OpenType SFNT structure](https://learn.microsoft.com/en-us/typography/opentype/spec/otff).
-It retains only seven metric/character tables, at most 1 MiB combined, and
+It retains only eight metric/character/name tables, at most 1 MiB combined, and
 leaves the font program in the caller's ranged source. A maximum of 128 table
 entries bounds directory work; table order, duplicates, ranges, alignment
 and overlap are checked before payload allocation. Original synthetic
 metadata tests contain no copied font outlines or external font data.
 This is a resource primitive, not completed native C8 rendering or validation
-of every glyph outline. C8 style interpretation, PDF embedding, text drawing
-and complete six-page acceptance remain open under #233.
+of every glyph outline. The shared writer now embeds fonts and emits positioned glyphs, segments and
+images. C8 style interpretation and complete six-page acceptance remain open
+under #233; see [the output contract](pdf-native-text.md).
 
 `ttf-parser` **0.25.1**, normal native and WASM dependency, supplies the
 borrowed `Face::from_raw_tables` and character/metric APIs. Default features
@@ -1947,3 +1948,27 @@ using the existing dependency-notice packaging step. The dependency source
 is downloaded by Cargo, not copied into this repository. Its optional
 layout/variation features and example/test development dependencies are
 not enabled. No proprietary viewer font is bundled or used as source code.
+
+
+### Original embedded-font and mixed-page fixtures
+
+`pdf/document/text.rs` is original MIT output glue over the existing sequential
+writer. CIDFontType2/Identity-H, FontFile2, CIDToGIDMap, widths, ToUnicode,
+text matrices and path operators follow Adobe's PDF 1.7 / ISO 32000-1
+font and content-stream definitions, available through the
+[PDF Association specification archive](https://pdfa.org/resource/pdf-specification-archive/).
+Widths use 256-code blocks so neither the outer nor inner array exceeds the
+recommended PDF array size. ToUnicode ranges increment only the last byte,
+exclude surrogate code units and contain at most 32 entries per block.
+
+The in-repository `drawing_font` test builder creates .notdef plus original
+rectangle/triangle outlines, original names, a two-character cmap, metric
+and location tables, and SFNT checksums. No external glyph designs or font
+bytes are used. Its labels `A` and `中` test Unicode mapping, not authentic
+letterform design. The two-page mixed fixture tests baseline placement,
+image-over-glyph ordering, a segment and font reuse; negative tests cover
+missing/foreign resources, malformed names/maps, limits, I/O failure,
+cancellation and dropped pending operations. Independent local qpdf,
+Poppler and fontTools checks concern these original fixtures only, not
+successful native C8 document conversion. Test exports and external fonts
+remain outside Git.

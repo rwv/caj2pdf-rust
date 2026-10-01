@@ -9,8 +9,8 @@ use ttf_parser::{Face, RawFaceTables};
 const MAX_TABLES: usize = 128;
 /// Maximum combined retained font metadata, independent of outline size.
 pub const MAX_FONT_METADATA_BYTES: u64 = 1024 * 1024;
-const METADATA_TAGS: [[u8; 4]; 7] = [
-    *b"head", *b"hhea", *b"maxp", *b"cmap", *b"hmtx", *b"OS/2", *b"post",
+const METADATA_TAGS: [[u8; 4]; 8] = [
+    *b"head", *b"hhea", *b"maxp", *b"cmap", *b"hmtx", *b"OS/2", *b"post", *b"name",
 ];
 
 /// A Unicode glyph's ID and horizontal advance in font units.
@@ -27,8 +27,8 @@ pub struct FontGlyph {
 /// collections, CFF and variable fonts are outside this initial profile.
 /// Loading this resource does not enable native C8 conversion by itself.
 pub struct TrueTypeFont<'a, S> {
-    source: &'a mut S,
-    tables: [Vec<u8>; 7],
+    pub(super) source: &'a mut S,
+    tables: [Vec<u8>; 8],
 }
 
 impl<'a, S: RangedSource> TrueTypeFont<'a, S> {
@@ -99,7 +99,7 @@ impl<'a, S: RangedSource> TrueTypeFont<'a, S> {
             });
         }
         limits.check_allocation(metadata_bytes)?;
-        let mut tables: [Vec<u8>; 7] = Default::default();
+        let mut tables: [Vec<u8>; 8] = Default::default();
         for (tag, table) in METADATA_TAGS.iter().zip(&mut tables) {
             let entry = directory[..count]
                 .iter()
@@ -119,6 +119,20 @@ impl<'a, S: RangedSource> TrueTypeFont<'a, S> {
             || face.tables().post.is_none()
         {
             return Err(invalid("invalid required TrueType metadata table"));
+        }
+        // A BMP mapping pass performs a fixed number of character lookups.
+        // Bound their per-character table search independently of byte size.
+        let maps = face
+            .tables()
+            .cmap
+            .as_ref()
+            .map_or(0, |cmap| cmap.subtables.len());
+        if maps > 16 {
+            return Err(Error::LimitExceeded {
+                resource: "font character maps",
+                limit: 16,
+                attempted: u64::from(maps),
+            });
         }
         if matches!(
             face.permissions(),
@@ -152,7 +166,7 @@ impl<'a, S: RangedSource> TrueTypeFont<'a, S> {
         Ok(FontGlyph { id: id.0, advance })
     }
 
-    fn face(&self) -> Result<Face<'_>> {
+    pub(super) fn face(&self) -> Result<Face<'_>> {
         Face::from_raw_tables(RawFaceTables {
             head: &self.tables[0],
             hhea: &self.tables[1],
@@ -161,9 +175,34 @@ impl<'a, S: RangedSource> TrueTypeFont<'a, S> {
             hmtx: Some(&self.tables[4]),
             os2: Some(&self.tables[5]),
             post: Some(&self.tables[6]),
+            name: Some(&self.tables[7]),
             ..Default::default()
         })
         .map_err(|_| invalid("invalid required TrueType face metadata"))
+    }
+
+    pub(super) fn postscript_name(&self) -> Result<String> {
+        let face = self.face()?;
+        let name = face
+            .names()
+            .into_iter()
+            .find(|name| name.name_id == 6 && name.is_unicode())
+            .ok_or(invalid("font requires a Unicode PostScript name"))?;
+        if name.name.is_empty() || name.name.len() > 126 || name.name.len() % 2 != 0 {
+            return Err(invalid(
+                "font PostScript name must have 1 to 63 ASCII characters",
+            ));
+        }
+        let name = name
+            .to_string()
+            .ok_or(invalid("font PostScript name is invalid UTF-16"))?;
+        if !name
+            .bytes()
+            .all(|byte| (33..=126).contains(&byte) && !b"[](){}<>/%".contains(&byte))
+        {
+            return Err(invalid("font PostScript name contains invalid characters"));
+        }
+        Ok(name)
     }
 }
 
@@ -199,4 +238,4 @@ async fn read<S: RangedSource, C: Cancellation>(
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
