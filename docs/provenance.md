@@ -1993,3 +1993,14 @@ The original symbol/permutation controls establish the explicit `a0a6`,
 viewer copy. The source-independent generator retains both column orders;
 Unicode mappings are recorded as format observations, with no font data or
 proprietary character-map implementation copied into the repository.
+
+
+### External FreeType call observation
+
+The C8 font-call follow-up uses an original MIT forwarding shim against public
+FreeType declarations. Only public face names, units/em and numeric size and
+transform arguments are recorded externally. No vendor implementation,
+proprietary font program or glyph outline was copied into the project. Original
+control-page captures agree exactly with the earlier uninstrumented captures.
+These limited observations do not establish font redistribution rights or
+complete C8 rendering support; see `docs/c8-native-records.md`.

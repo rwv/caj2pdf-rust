@@ -354,3 +354,41 @@ not prove complete visual conversion, correct font resources or reading order.
 The generator reproduces all 21 original inputs byte for byte. Captures,
 clipboard bytes and probe outputs remain external under the existing evidence
 directories.
+
+
+## Runtime font-call observations (2026-10-01)
+
+An original external MIT `LD_PRELOAD` shim forwards the public FreeType
+size/transform calls unchanged and logs only face family/style, units per em,
+size arguments and matrices. It reads no viewer implementation or glyph
+outlines. The pinned offline viewer opened the original baseline, vertical,
+horizontal, weight and size-square controls. At 100% zoom, each captured page
+rectangle `(494,178,1155,1145)` is pixel-identical to its earlier capture without
+the shim. This checks the observed rendering, not arbitrary instrumentation
+transparency.
+
+For the baseline's `中文AM1` glyphs, the observed CNKI faces are `HGHT_CNKI`
+(256 units/em) and `HGBZ_CNKI` (2048 units/em). With only `801d` changed from
+0 to 4, calls instead include `HGHT_CNKI` and `HGHZ_CNKI`. This agrees with
+the previously measured change confined to the Latin/digit columns, but does
+not establish a universal bold flag or the font mapping for every character.
+Neither face names nor units/em identify a redistributable font resource.
+
+The vertical control produces nonuniform horizontal matrices while changing
+the requested pixel height; the horizontal control changes the horizontal
+matrix while retaining the corresponding baseline pixel heights. The final
+recorded CNKI pixel-height requests are 11 for baseline, 13 for vertical, 11
+for horizontal and 11 for weight. The final vertical/horizontal matrix xx
+values are 55453 and 77451 respectively (yy is 65536). These describe this
+viewer execution; they are not a physical point-size lookup table. Opening
+and resizing also produces thumbnail/intermediate-scale calls, so the full
+trace must not be treated as a list of document font sizes.
+
+FreeType documents pixel sizing and 16.16 transform matrices in its
+[sizing and scaling reference](https://freetype.org/freetype2/docs/reference/ft2-sizing_and_scaling.html).
+The next rendering step still requires associating each admitted raw style
+with reproducible font resources, source-space dimensions and baseline
+placement. Do not infer those values solely from hinted raster bounds.
+External receipts are in `caj2pdf-c8-fonttrace-20261001`: original shim,
+per-control traces, captures and action log. No proprietary font, source
+content or runtime trace is committed.
