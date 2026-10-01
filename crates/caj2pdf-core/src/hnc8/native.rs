@@ -37,11 +37,18 @@ pub enum NativeRecord {
 ///
 /// Ordinary codes use their big-endian two-byte GB18030 value. The independently
 /// verified A0-prefixed letters/digits use ASCII plus 0x80 in the low byte.
+/// Three independently observed symbol codes have explicit Unicode mappings.
 /// Other A0 codes, private-use mappings and malformed sequences return `None`;
 /// they must remain explicit unsupported glyphs rather than blank substitutions.
 /// This maps characters only: fonts, metrics, drawing/text order and complete
 /// native page rendering still require separate validation.
 pub fn decode_native_character(code: u16) -> Option<char> {
+    match code {
+        0xa0a6 => return Some('＆'),
+        0xaab3 => return Some('∗'),
+        0xaca3 => return Some('►'),
+        _ => {}
+    }
     let [lead, second] = code.to_be_bytes();
     if lead == 0xa0 {
         let ascii = second.checked_sub(0x80)?;

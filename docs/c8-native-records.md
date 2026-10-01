@@ -127,7 +127,8 @@ The still-required special characters, controls and rendering remain #229/#233.
 allocating a String per glyph. It returns the standard two-byte character for
 ordinary codes, and ASCII letters/digits for the verified A0-prefixed codes.
 The 62 alphanumeric codes are `a0b0..a0b9`, `a0c1..a0da`, and `a0e1..a0fa`.
-Other A0 codes, private-use mappings and invalid sequences return `None`.
+The three explicitly verified symbols listed below are also mapped. Other A0
+codes, private-use mappings and invalid sequences return `None`.
 A visitor that requires complete text can reject `None`; the reader retains
 the failing source-record offset and poisons the cursor. Raw glyph events still
 preserve the original code. The helper is not a full-page text extractor.
@@ -154,8 +155,9 @@ codes that agree with that rule. Ordinary copy is not a universal Unicode
 oracle: it changes some fullwidth digits to ASCII, produces U+0082 for the
 standard GB18030 fullwidth comma code, and maps special A0 ampersand/AA symbol
 codes differently from an ordinary GB18030 decode. The helper does not copy
-those clipboard transformations or guess unknown special-code semantics.
-Those exceptions remain explicit prerequisites for complete text rendering.
+those comma/digit transformations or guess unknown special-code semantics.
+The three symbol exceptions have since received separate original controls,
+as described below; other unverified codes still fail explicitly.
 Source record order has only been compared for this selected body region;
 full-document reading order is not established.
 
@@ -302,3 +304,53 @@ This completes traversal of the sample's records, not conversion, Unicode
 coverage or rendering semantics. The public route remains disabled pending
 #233. A renderer must explicitly interpret or reject each required control;
 none is silently dropped by the parser.
+
+
+## Three verified symbol exceptions
+
+A complete raw-glyph inventory across the six source pages found only three
+codes rejected by the character helper: `a0a6` (8 occurrences on page 2),
+`aab3` (2/17/5/12 on pages 1/2/4/5), and `aca3` (2 on page 3).
+Counts are decimal. The 6,638 total glyph records include spacing characters;
+this is not a reading-order or text-layout claim.
+
+The original generator's `symbols` fixture places `aab3 a0a6 aca3 a3a6 a3aa`
+in five columns and repeats them on eight rows. `symbols-permuted` places
+`aca3 a3aa a0a6 a3a6 aab3` and changes `801d` to 4. In the pinned offline
+viewer at 100% and 96 DPI, the first three symbols visibly appear as an
+asterisk operator, ampersand and filled right-pointing triangle. The standard
+GB18030 fullwidth ampersand/asterisk columns serve as separate controls.
+
+Fresh distinct clipboard sentinels preceded each selection. The visibly
+labeled ordinary **Copy** menu (not enhanced copy/OCR) produced exactly eight
+rows of the expected symbol order, allowing whitespace only between symbols:
+
+| Native code | Unicode mapping |
+| --- | --- |
+| `a0a6` | U+FF06 FULLWIDTH AMPERSAND |
+| `aab3` | U+2217 ASTERISK OPERATOR |
+| `aca3` | U+25BA BLACK RIGHT-POINTING POINTER |
+
+The earlier real-source ordinary-copy observations independently agree for
+`a0a6` and `aab3`. The reordered original control confirms the association for
+all three and rules out a stale clipboard result. Font appearance and Unicode
+identity are separate: do not derive glyph width from the word “FULLWIDTH”,
+and do not extend this exception to arbitrary A0 punctuation or private-use
+codes. Tests retain rejection of neighboring unverified codes.
+
+Fixture SHA-256 values:
+
+- `symbols`: `e9c413d7b70494fa3ec699baf350bcf281946cf47a6c50d85bc6974f46cefdcf`
+- `symbols-permuted`: `c825648f82dba851333c081b31ec8126434ff98bf423132dc81e426566d993c2`
+
+Raw ordinary-copy SHA-256 values, respectively:
+
+- `d4dc44574a9e80fd3abc52af8f62733ff27ff613d1ec56e6598605e849e5e824`
+- `4f5b050cf0d83b3830be642a850f87e2558bbd41c55a5a4010556f0fdf5fa846`
+
+The helper now maps these three explicit exceptions without allocations.
+The same six-page source probe reports zero unmapped glyph codes; this does
+not prove complete visual conversion, correct font resources or reading order.
+The generator reproduces all 21 original inputs byte for byte. Captures,
+clipboard bytes and probe outputs remain external under the existing evidence
+directories.

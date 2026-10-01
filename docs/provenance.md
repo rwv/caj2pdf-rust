@@ -1987,3 +1987,9 @@ chosen records into the original rows. They establish raw framing observations
 for `8072..8074`, `c053/c054` and `8010/1`; they do not copy source-page content
 or infer permission to discard required rendering semantics. The Rust visitor
 retains every newly admitted tag/value and uses its existing fixed buffer.
+
+The original symbol/permutation controls establish the explicit `a0a6`,
+`aab3`, and `aca3` character exceptions through visible glyphs and ordinary
+viewer copy. The source-independent generator retains both column orders;
+Unicode mappings are recorded as format observations, with no font data or
+proprietary character-map implementation copied into the repository.

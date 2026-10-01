@@ -507,6 +507,9 @@ fn maps_verified_alphanumeric_and_gbk_codes_without_inventing_unknowns() {
         (0xa1a1, '\u{3000}'),
         (0xa3ac, '\u{ff0c}'),
         (0xa3b0, '\u{ff10}'),
+        (0xa0a6, '\u{ff06}'),
+        (0xaab3, '\u{2217}'),
+        (0xaca3, '\u{25ba}'),
     ] {
         assert_eq!(decode_native_character(code), Some(expected));
     }
@@ -519,10 +522,14 @@ fn maps_verified_alphanumeric_and_gbk_codes_without_inventing_unknowns() {
         0x817f,
         0xffff,
         0xa001,
-        0xa0a6,
+        0xa0a5,
+        0xa0a7,
         0xa0a0,
         0xa0ff,
-        0xaab3,
+        0xaab2,
+        0xaab4,
+        0xaca2,
+        0xaca4,
         0xaaa1,
     ] {
         assert_eq!(decode_native_character(code), None, "{code:04x}");
@@ -540,7 +547,7 @@ fn a_text_consumer_rejects_unmapped_glyphs_at_their_source_record() {
             Ok(())
         }
     }
-    for code in [0xcec4, 0xa0da, 0xa0a6, 0xffff] {
+    for code in [0xcec4, 0xa0da, 0xa0a5, 0xffff] {
         let mut source = fixture(&[[0x8001, 3], [0x8002, 5], [11, code], [0x8004, 0]], 0);
         let limits = Limits::default();
         let cancel = Cancel::default();

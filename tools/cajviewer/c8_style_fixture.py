@@ -22,8 +22,10 @@ VARIANTS = (
 )
 
 
-def document(styles, control_record=None, drawing=None):
-    """One page of eight rows containing the original test string 中文AM1."""
+def document(styles, control_record=None, drawing=None, codes=None):
+    """One original page, with 中文AM1 as the default test string."""
+    if codes is None:
+        codes = (0xD6D0, 0xCEC4, 0xA0C1, 0xA0CD, 0xA0B1)
     records = bytearray()
     for row, (style, control, font) in enumerate(styles):
         pairs = [
@@ -40,7 +42,7 @@ def document(styles, control_record=None, drawing=None):
             pairs = [(tag, value), (5200 + delta, y), (6300, y + 50), (0xFFFF, 5)] + pairs
         pairs.extend(
             (5200 + column * 350, code)
-            for column, code in enumerate((0xD6D0, 0xCEC4, 0xA0C1, 0xA0CD, 0xA0B1))
+            for column, code in enumerate(codes)
         )
         for pair in pairs:
             records.extend(struct.pack("<HH", *pair))
@@ -81,14 +83,23 @@ def main():
             ("draw06", 0x8006, 0xA381, 0),
         )
     )
+    symbols = {
+        "symbols": (0xAAB3, 0xA0A6, 0xACA3, 0xA3A6, 0xA3AA),
+        "symbols-permuted": (0xACA3, 0xA3AA, 0xA0A6, 0xA3A6, 0xAAB3),
+    }
+    fixtures.extend([
+        ("symbols", baseline, None, None),
+        ("symbols-permuted", [(0x1084, 4, 6)] * 8, None, None),
+    ])
     manifest = []
     for name, styles, control_record, drawing in fixtures:
-        data = document(styles, control_record, drawing)
+        data = document(styles, control_record, drawing, symbols.get(name))
         (args.output / f"{name}.caj").write_bytes(data)
         manifest.append({
             "name": name, "bytes": len(data),
             "sha256": hashlib.sha256(data).hexdigest(), "rows": styles,
             "control_record": control_record, "drawing": drawing,
+            "symbol_codes": symbols.get(name),
         })
     (args.output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
 
