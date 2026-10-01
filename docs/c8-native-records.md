@@ -12,7 +12,8 @@ The issue-66 source has SHA-256
 `90e7b47716c32ef7a67cde8094f312e0ee7f1a7e0ed50a25830e8ba64a84f6a6`.
 Each indexed text span ends with a four-byte `8004` record. There are no
 remaining bytes inside those spans after that record. The file still has
-1,449 bytes after the last indexed text span; their purpose is unverified.
+1,449 bytes after the last indexed text span; they are the application-info
+block classified below.
 
 | Page | Text offset | Text bytes | Images | Drawing starts `8006` | Additional unresolved high words |
 | --- | ---: | ---: | ---: | ---: | --- |
@@ -180,3 +181,34 @@ Runtime diagnostic font requests include Fangzheng/CNKI names; the viewer has
 its own font resources. Those log observations do not identify the effective
 font for each source style or license any font for redistribution. Keep style
 words raw until the rendering work validates a reproducible font contract.
+
+## Application-info tail and source coverage
+
+The remaining interval at 39,425 begins with two little-endian u32 lengths:
+10,400 decoded bytes and 1,424 compressed bytes. A bounded zlib decode consumes
+exactly those 1,424 bytes, produces exactly 10,400 bytes, and leaves the 17-byte
+ASCII trailer `APPINFOSIGN 39425`. The compressed/decoded SHA-256 values are:
+
+- `33de306020c1aa748b10094d04ebb6928b4057a99b2dae2dd285387884981f17`
+- `fd2920fa45820856482b89577239587e2a9a5c4ee60339fc4f9c4e11bbecd4b5`
+
+The decoded XML is an application `Package` with a `Note-Package` and
+`FileProperty-Package`. There are 23 Link entries, each containing one rectangle
+and one UrlLink. Their page counts are 13 on page 1, one each on pages 2–4, and
+seven on page 6. This explains the 13 entries in the viewer's page-1 annotation
+panel; it is not a table of contents or embedded font resource. No URL was
+followed. XML and link/text contents remain external.
+
+An independent interval check accounts for every source byte without gaps or
+overlaps: the 200-byte header/index, six indexed text spans, three image
+descriptors/payloads, and this application-info block total 40,874 bytes.
+No separate font resource interval is observed. Font identifiers within text
+records and the effective viewer font selection are still unresolved; this
+accounting does not authorize a guessed font or omission of source controls.
+It also does not infer bookmark absence for every C8 variant (#221).
+
+The external `application-info-summary.json`, `application-info-structure.json`
+and `source-span-coverage.json` retain the bounded decode and interval checks.
+The ordinary-copy/runtime smoke evidence supplements the frozen #223 report;
+it does not retroactively make that report's intentionally limited prototype a
+complete extractor.
