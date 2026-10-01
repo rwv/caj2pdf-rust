@@ -832,9 +832,9 @@ fn image_reference_fixture(name: &[u8], declared_images: u16) -> Source {
     }
     source.bytes.extend(name);
     source.bytes.push(0);
-    while !source.bytes.len().is_multiple_of(4) {
-        source.bytes.push(0);
-    }
+    source
+        .bytes
+        .resize(source.bytes.len().next_multiple_of(4), 0);
     for word in [0x8004_u16, 1] {
         source.bytes.extend(word.to_le_bytes());
     }
