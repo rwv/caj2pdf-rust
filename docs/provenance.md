@@ -1163,7 +1163,7 @@ direct third-party Cargo dependencies in the current graph:
 
 | Package | Role | License | Edition / minimum Rust | External dependencies |
 | --- | --- | --- | --- | --- |
-| `caj2pdf-core` | Platform-neutral library | MIT | 2024 / 1.85.0 | `flate2`, `sha2` (direct) |
+| `caj2pdf-core` | Platform-neutral library | MIT | 2024 / 1.85.0 | `fax`, `flate2`, `sha2`, `ttf-parser` (direct) |
 | `caj2pdf-cli` | Native executable | MIT | 2024 / 1.85.0 | Unix: `signal-hook`; Windows: `ctrlc`, `winapi-util` |
 | `caj2pdf-wasm` | WASM/JavaScript boundary | MIT | 2024 / 1.85.0 | None |
 
@@ -1923,3 +1923,27 @@ crosses 12/20-byte rows with two observed layout markers. It reads no external
 document or converter source and includes no fonts, outlines or source text.
 The independent viewer observations and admitted limits are recorded in
 `docs/hnb-compact-index.md`. All external captures/documents remain outside Git.
+## Caller-supplied TrueType metadata (#233)
+
+The original MIT ranged adapter in `pdf/font.rs` follows Microsoft's
+[OpenType SFNT structure](https://learn.microsoft.com/en-us/typography/opentype/spec/otff).
+It retains only seven metric/character tables, at most 1 MiB combined, and
+leaves the font program in the caller's ranged source. A maximum of 128 table
+entries bounds directory work; table order, duplicates, ranges, alignment
+and overlap are checked before payload allocation. Original synthetic
+metadata tests contain no copied font outlines or external font data.
+This is a resource primitive, not completed native C8 rendering or validation
+of every glyph outline. C8 style interpretation, PDF embedding, text drawing
+and complete six-page acceptance remain open under #233.
+
+`ttf-parser` **0.25.1**, normal native and WASM dependency, supplies the
+borrowed `Face::from_raw_tables` and character/metric APIs. Default features
+are disabled; only `std` is enabled. There are no enabled transitive
+runtime dependencies, native libraries, build scripts or proc macros.
+Its distributed Cargo manifest, feature graph and `LICENSE-MIT` were
+reviewed. The declared license is `MIT OR Apache-2.0`; this project selects
+**MIT**, copyright (c) 2018 Yevhenii Reizner. Preserve that complete notice
+using the existing dependency-notice packaging step. The dependency source
+is downloaded by Cargo, not copied into this repository. Its optional
+layout/variation features and example/test development dependencies are
+not enabled. No proprietary viewer font is bundled or used as source code.

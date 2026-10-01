@@ -4,6 +4,7 @@
 
 mod append;
 mod document;
+mod font;
 mod fragment;
 pub(crate) mod input;
 mod types;
@@ -14,6 +15,7 @@ pub use document::{
     BilevelImageSpec, BilevelImageWriter, BookmarkView, ImageEncoding, ImageObject, ImagePlacement,
     ImageSpec, MAX_PAGE_IMAGE_PLACEMENTS, PageSpec, PdfDocument,
 };
+pub use font::{FontGlyph, MAX_FONT_METADATA_BYTES, TrueTypeFont};
 pub use fragment::{
     FragmentObject, FragmentPlan, reconstruct_fragment, reconstruct_fragment_with_bookmarks,
 };
