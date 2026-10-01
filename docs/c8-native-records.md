@@ -902,3 +902,29 @@ production admission. Font outline substitution remains explicit. Receipts
 are in `caj2pdf-c8-decoration-advance-20261001/comparison.json`; the
 consistent-metrics replay is in
 `caj2pdf-c8-decoration-advance-valid-20261001/comparison.json`.
+
+## Print-path limit for physical-size evidence (#240)
+
+An isolated CUPS-PDF destination was attached by Unix socket to the pinned,
+network-disabled viewer. The original `c8-axis-reference-5` control printed
+successfully. Two explicitly selected actual-size jobs and one automatic-fit
+job produced byte-identical 160,762-byte PJL-wrapped PostScript spools (SHA256
+`2db49b940f3ae532f3e3c4f2207ec3b307d0bcfac53d860c520c4d46ee94e6f4`).
+Each spool contains one 2310×3059 RGB raster placed using `28 28 translate`
+and `555 736 scale`; it contains no `/PageSize` request. The resulting PDF
+passes qpdf, has no font objects, and uses an A4 MediaBox despite the Letter
+label in the application's dialog.
+
+These controlled print settings do not establish native vector geometry or
+physical font units. Do not infer a point-size table from the dialog labels,
+use the backend's paper size as the source page size, or promote this output
+as an exact page-fidelity baseline. The print path is usable as a separately
+identified raster appearance reference only. This bounded experiment is
+complete; repeated screen/print ratio fitting does not resolve the missing
+source-space style rule.
+
+External receipts: `caj2pdf-c8-print-size-20261001` (build/server configuration)
+and `caj2pdf-c8-print-output-20261001` (settings, raw spools, converted PDF and
+`repeat-print-result.json`). The print service is experiment infrastructure,
+not a runtime dependency. Original controls only; no captures or PDFs are
+committed.
