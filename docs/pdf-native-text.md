@@ -68,3 +68,30 @@ later image covers the rectangle, `(25,40)` and `(31,37)` are white, and
 `(80,50)` lies on the black segment. These are original controls, not CAJViewer
 baselines or a claim about real C8 font fidelity. Missing independent tools
 must be reported as NOT_RUN, never as successful validation.
+
+## Node and browser Worker core-runtime check
+
+At core commit `2940104`, an external MIT test module reused
+`embedded_font_and_ordered_mixed_page_reopen` and its exported original font,
+including the glyph-support, width, source-order, page-count and short-output
+assertions. It compiled the actual core for `wasm32-unknown-unknown`; every
+registry dependency version/checksum matched this repository's lockfile.
+Node v24.13.0 and a real Chromium Worker both executed the module. Each
+produced the same 142,360-byte PDF as native Rust, SHA256
+`bc9bd48bd72ccce51d15c73f2f83ac643a369224d2657f5500c1f167b814a9fd`.
+qpdf passed, and Poppler extracted `A 中` / `中`.
+
+The external harness reused `js/test/browser-harness.mjs` and disposed the
+Worker, browser and local HTTP server. Its WASM SHA256 is
+`94cd5e4ca9a83d029cc776196a662f8a369741f51cab9ea7f73c1e1051f4dfb2`.
+Sources, build lockfile, commands, outputs and `results.json` are retained
+under the external `caj2pdf-font-wasm-runtime-20261001` receipt directory.
+The first browser attempt failed to resolve a relative fetch URL inside a
+Blob Worker; using the local server's absolute URL fixed the harness.
+
+This is a core font/PDF runtime check, not the production JS conversion API
+or native C8 document acceptance. The tiny original font is embedded in the
+test module and output is collected for byte comparison. It does not measure
+streaming host callbacks, peak WASM memory, OPFS cleanup or cancellation
+through JS; those remain in #233/#222. No test-only production export or
+additional font framework was introduced.
