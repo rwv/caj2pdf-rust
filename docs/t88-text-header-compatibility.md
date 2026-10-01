@@ -55,10 +55,9 @@ and the composer does not use the refinement template. The policy changes
 header acceptance only; it does not normalize the body or relax segment
 framing, reference, page, source, resource, cancellation, or poison checks.
 
-The core default remains `TextHeaderPolicy::Strict`. HN/C8 document and page
-integration under [#9](https://github.com/rwv/caj2pdf-rust/issues/9) must
-choose this policy explicitly after its own container and segment profile
-checks. The optional diagnostic makes that choice through
+The core default remains `TextHeaderPolicy::Strict`. CLI and WASM HN/C8
+integration explicitly select this policy for [the measured container profile](hnc8-type1.md);
+the composer still checks the container and segment profile before emission. The optional diagnostic makes that choice through
 `--text-header-policy hn-c8-unused-refinement-template`. It cannot be
 inferred merely from a `.caj` or `.hn` filename.
 

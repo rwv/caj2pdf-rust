@@ -47,6 +47,10 @@ Python-reference corpus expectations below are a separate compatibility
 baseline, not a CAJViewer verdict. Missing optional inputs are `NOT_RUN`;
 known pixel failures are not passing baselines.
 
+The unreleased [type-1 JPEG extension](hnc8-type1.md) adds the measured HN-A/C8
+profile and selects the existing HN/C8 text-header interoperability policy in
+CLI/WASM. The frozen v0.3.1 results below are not overwritten by this change.
+
 ### Reproducible v0.3.1 CLI baseline (#218)
 
 The [current CLI observations](../tests/conformance/current_cli_baseline.json)

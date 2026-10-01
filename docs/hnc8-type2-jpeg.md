@@ -12,6 +12,8 @@ T.81's nonhierarchical interchange form begins with SOI, has one frame with one 
 
 The pinned private HN/C8 observations use JFIF APP0 version 1.01, units 0, densities 1/1, and no thumbnail. The reader treats that as an observed compatibility profile; it does not call those files T.871-conformant version 1.02. The JFIF sources establish field meaning and color intent, while the observed version and exact marker order are corpus facts.
 
+Types 1 and 2 now use this profile; see [type-1 evidence](hnc8-type1.md).
+The historical API names and type-2-only corpus measurements below are retained.
 The HN/C8 descriptor's type field is the only source image-type discriminator. A JPEG-looking prefix inside a differently typed payload does not change its type. The [selected-image PDF diagnostic](hnc8-type2-pdf.md) builds on this marker check and separately verifies encoded bytes, color, geometry, and rendered output. It still does not recover placement on an original HN/C8 page or compose a full document. The marker check alone makes no PDF or pixel parity claim.
 
 ## I/O and failure model

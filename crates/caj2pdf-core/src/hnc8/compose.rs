@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 
-//! Image-only pages for the explicitly empirical HN-A/C8 type-0/type-2/type-3
+//! Image-only pages for the explicitly empirical HN-A/C8 type-0/type-1/type-2/type-3
 //! profile, and the separately measured single-JPEG HN-B profile.
-//! This opt-in core API does not enable production CLI/JavaScript routing.
+//! The CLI and WASM adapters share this core and reject omitted source rows.
 
 use super::convert::{Type0DecodeSettings, Type0PdfError, Type0PdfErrorKind, Type0PdfOptions};
 use super::placement::{source_image_transform, source_page_geometry};
@@ -566,7 +566,7 @@ impl<S: RangedSource> RangedSource for CountingSource<'_, S> {
 
 /// Compose every source row of the measured image-only profiles in order.
 ///
-/// HN-A/C8 require validated text framing and types 0, 2 or 3. HN-B accepts only
+/// HN-A/C8 require validated text framing and types 0, 1, 2 or 3. HN-B accepts only
 /// one JPEG on an image-bearing row and separately reports its no-image rows.
 /// Pure-text-only documents, unsupported types/profiles, missing type-0
 /// tables and omitted draws are errors. A caller table is never redistributed.
@@ -811,7 +811,9 @@ where
                         page.height,
                     )
                 }
-                2 => {
+                // Type 1 reuses the validated JPEG path in the measured
+                // HN-A/C8 composition profile; HN-B remains type-2 only.
+                1 | 2 if record.record_type == 2 || header.variant != Variant::HnB => {
                     let checked = preflight_type2(
                         reader.source_mut(),
                         record,

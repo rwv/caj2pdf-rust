@@ -84,3 +84,44 @@ export function syntheticC8() {
   view.setUint32(descriptor + 4, descriptor + 12, true);
   return bytes;
 }
+
+/** Original 16 x 8 grayscale JPEG: a dark left block and light right block.
+ * Uses the original core composition fixture's custom Huffman coding.
+ */
+export function syntheticType1Hn() {
+  const jpeg = [0xff, 0xd8];
+  const segment = (marker, body) => {
+    const length = body.length + 2;
+    jpeg.push(0xff, marker, length >> 8, length & 255, ...body);
+  };
+  segment(0xe0, [74, 70, 73, 70, 0, 1, 1, 0, 0, 1, 0, 1, 0, 0]);
+  segment(0xdb, [0, ...Array(64).fill(1)]);
+  segment(0xc0, [8, 0, 8, 0, 16, 1, 1, 0x11, 0]);
+  segment(0xc4, [0, 0, 0, 0, 12, ...Array(12).fill(0), ...Array.from({ length: 12 }, (_, i) => i)]);
+  segment(0xc4, [0x10, 1, ...Array(15).fill(0), 0]);
+  segment(0xda, [1, 1, 0, 0, 63, 0]);
+  let bits = "", previous = 0;
+  for (const sample of [32, 224]) {
+    const value = 8 * (sample - 128), difference = value - previous;
+    previous = value;
+    const category = 32 - Math.clz32(Math.abs(difference));
+    const amplitude = difference < 0 ? difference + 2 ** category - 1 : difference;
+    bits += category.toString(2).padStart(4, "0");
+    if (category) bits += amplitude.toString(2).padStart(category, "0");
+    bits += "0"; // EOB.
+  }
+  bits = bits.padEnd(Math.ceil(bits.length / 8) * 8, "1");
+  for (let at = 0; at < bits.length; at += 8) {
+    const byte = Number.parseInt(bits.slice(at, at + 8), 2);
+    jpeg.push(byte);
+    if (byte === 255) jpeg.push(0);
+  }
+  jpeg.push(0xff, 0xd9);
+  const bytes = new Uint8Array(0x19c + jpeg.length);
+  bytes.set(syntheticHn().subarray(0, 0x19c));
+  const view = new DataView(bytes.buffer);
+  view.setUint32(0x190, 1, true);
+  view.setUint32(0x198, jpeg.length, true);
+  bytes.set(jpeg, 0x19c);
+  return { bytes, jpeg: new Uint8Array(jpeg) };
+}

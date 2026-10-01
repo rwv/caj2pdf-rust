@@ -245,7 +245,7 @@ jobs:
       - name: Install independent PDF validator for JavaScript output tests
         run: |
           sudo apt-get update
-          sudo apt-get install --no-install-recommends -y qpdf
+          sudo apt-get install --no-install-recommends -y qpdf poppler-utils libjpeg-turbo-progs
           qpdf --version
       - name: Check the preinstalled Chromium for real-browser tests
         run: '"$CAJ2PDF_CHROME" --version'

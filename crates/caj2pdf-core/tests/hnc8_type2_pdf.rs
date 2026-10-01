@@ -536,7 +536,7 @@ fn original_asymmetric_pgm_ppm_pixels_render_in_their_direct_jpeg_orientation_an
         let built = container(
             Layout::HnA,
             &[vec![Record {
-                kind: 2,
+                kind: 1,
                 payload: jpeg.clone(),
             }]],
         );
@@ -728,7 +728,7 @@ fn selection_skips_bad_earlier_page_and_rejects_invalid_id_and_wrong_type() {
             }],
             vec![
                 Record {
-                    kind: 1,
+                    kind: 0,
                     payload: vec![0xaa],
                 },
                 Record {
@@ -798,12 +798,12 @@ fn selection_skips_bad_earlier_page_and_rejects_invalid_id_and_wrong_type() {
     .unwrap_err();
     assert!(matches!(
         error.kind,
-        Type2PdfErrorKind::UnsupportedImageType(1)
+        Type2PdfErrorKind::UnsupportedImageType(0)
     ));
     assert!(
         error
             .to_string()
-            .contains("unsupported image record type 1")
+            .contains("unsupported image record type 0")
     );
     assert!(error.source().is_none());
     assert_eq!(

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-//! One checked HN/C8 type-2 JPEG as a bounded, one-page PDF diagnostic.
+//! One checked HN/C8 type-1/type-2 JPEG as a bounded, one-page PDF diagnostic.
 
 use super::{
     Budget, Hnc8Error, Hnc8Reader, ImageRecord, JpegBudget, JpegColor, JpegInfo, Variant,
@@ -13,7 +13,7 @@ use std::{error, fmt};
 
 const POINTS_PER_INCH: f64 = 72.0;
 
-/// One-based identity of a source type-2 image. Earlier pages are skipped.
+/// One-based identity of a source type-1/type-2 image. Earlier pages are skipped.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Type2ImageSelection {
     pub page_number: u32,
@@ -76,7 +76,7 @@ pub struct Type2PdfError {
 
 impl fmt::Display for Type2PdfError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("HN/C8 type-2 JPEG PDF conversion")?;
+        f.write_str("HN/C8 type-1/type-2 JPEG PDF conversion")?;
         if let Some(page) = self.page {
             write!(f, ", page {page}")?;
         }
@@ -284,7 +284,7 @@ pub(super) async fn preflight_type2<S: RangedSource, C: Cancellation>(
         image: Some(image.image_number),
         offset: Some(image.payload.offset),
     };
-    if image.record_type != 2 {
+    if !matches!(image.record_type, 1 | 2) {
         return Err(At {
             offset: Some(image.descriptor_offset),
             ..at
@@ -329,7 +329,7 @@ pub(super) async fn emit_type2_xobject<S: RangedSource, W: SequentialSink, C: Ca
     Ok(object)
 }
 
-/// Stream one checked HN/C8 type-2 JPEG record into a one-page PDF.
+/// Stream one checked HN/C8 type-1 or type-2 JPEG record into a one-page PDF.
 ///
 /// Source pages before the selected page are intentionally skipped. On the
 /// selected page, descriptors through the chosen image are validated in chain
