@@ -1944,3 +1944,14 @@ pinned offline viewer. `docs/c8-native-controls.md` records three visible
 state changes and leaves transform semantics unresolved. No other converter
 source, vendor outlines or external document text were copied. All captured
 and derived external content remains outside Git.
+
+### HN-B raw glyph-run traversal
+
+The HN-B visitor extension and unit controls are original MIT implementation.
+It reuses the independently generated two-page controls in
+`tools/cajviewer/hnb_index_fixture.py` and their recorded ordinary CAJViewer
+navigation observations in `docs/hnb-compact-index.md`. No converter code,
+external text, document, font or capture is copied. Only the verified glyph-run
+record subset is admitted; C8-only records retain a separate HN-B rejection.
+Actual-source probes record bounded counts and error offsets, not extracted
+text or successful conversion claims.

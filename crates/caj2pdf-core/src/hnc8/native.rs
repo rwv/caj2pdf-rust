@@ -73,7 +73,9 @@ pub trait NativeRecordVisitor {
 }
 
 impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
-    /// Visit the current C8 page's observed raw native records without allocating.
+    /// Visit admitted C8 or HN-B raw native records without allocating.
+    /// HN-B currently admits only the independently controlled glyph-run subset;
+    /// C8 drawing, image and extended-control framing is not inherited.
     /// Call `next_page` first. This does not consume image descriptors, decode
     /// characters or enable conversion. Unknown framing stops at its source byte.
     /// A failed/dropped operation poisons the reader, just like image traversal.
@@ -103,7 +105,7 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
             .page;
         self.poisoned = true;
         let result = async {
-            if self.header.variant != Variant::C8 {
+            if !matches!(self.header.variant, Variant::C8 | Variant::HnB) {
                 return Err(loc.error(ErrorKind::Unsupported {
                     field: "native record variant",
                     value: 0,
@@ -157,6 +159,18 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
                     .await?;
                 let tag = word(&bytes[..2]);
                 let value = word(&bytes[2..4]);
+                if self.header.variant == Variant::HnB
+                    && tag >= 0x8000
+                    && !matches!(
+                        (tag, value),
+                        (0x8001 | 0x8002 | 0x8004, _) | (0x801d, 0) | (0x8067, 6)
+                    )
+                {
+                    return Err(at.error(ErrorKind::Unsupported {
+                        field: "HN-B native record tag/value",
+                        value: (u64::from(tag) << 16) | u64::from(value),
+                    }));
+                }
                 let mut length = 4;
                 let record = match tag {
                     0x8001 => {

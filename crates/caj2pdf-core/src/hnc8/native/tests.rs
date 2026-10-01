@@ -824,3 +824,166 @@ fn extended_controls_are_atomic_and_bounded_even_with_marker_payloads() {
         ));
     }
 }
+
+fn hnb_source(width: usize, pages: &[&[[u16; 2]]]) -> Source {
+    let mut source = fixture(&[], 0);
+    source.bytes = vec![0; 216 + width * pages.len()];
+    for (offset, value) in [
+        (0, 0x4e48_u32),
+        (4, 200),
+        (8, 136),
+        (136, if width == 12 { 0 } else { 0xc8 }),
+        (144, pages.len() as u32),
+        (148, 2),
+    ] {
+        source.bytes[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+    }
+    for (index, words) in pages.iter().enumerate() {
+        let row = 216 + index * width;
+        let offset = source.bytes.len() as u32;
+        source.bytes[row..row + 4].copy_from_slice(&offset.to_le_bytes());
+        source.bytes[row + 4..row + 8].copy_from_slice(&(words.len() as u32 * 4).to_le_bytes());
+        for pair in *words {
+            for word in pair {
+                source.bytes.extend(word.to_le_bytes());
+            }
+        }
+    }
+    source
+}
+
+#[test]
+fn hnb_glyph_runs_use_both_verified_indexes_without_crossing_pages() {
+    let first = [
+        [0x8001, 4700],
+        [0x8002, 0x1084],
+        [0x801d, 0],
+        [0x8067, 6],
+        [5200, 0xd6d0],
+        [0x8004, 1],
+    ];
+    let second = [
+        [0x8001, 5200],
+        [0x8002, 0x1084],
+        [0x801d, 0],
+        [0x8067, 6],
+        [5300, 0xa0c1],
+        [5600, 0xa0cd],
+        [0x8004, 2],
+    ];
+    for width in [12, 20] {
+        for short in [1, 3, 7, 28] {
+            let mut source = hnb_source(width, &[&first, &second]);
+            source.short = short;
+            run(async {
+                let limits = Limits::default();
+                let cancel = Cancel::default();
+                let mut reader =
+                    Hnc8Reader::open(&mut source, &limits, &cancel, Default::default())
+                        .await
+                        .unwrap();
+                assert_eq!(reader.header().variant, Variant::HnB);
+                for (page, words) in [&first[..], &second[..]].into_iter().enumerate() {
+                    assert_eq!(
+                        reader.next_page().await.unwrap().unwrap().page_number,
+                        page as u32 + 1
+                    );
+                    let mut visitor = Visitor::default();
+                    assert_eq!(
+                        reader
+                            .visit_native_records(TextBudget::default(), &mut visitor)
+                            .await
+                            .unwrap(),
+                        words.len() as u32
+                    );
+                    let start = (216 + width * 2 + page * first.len() * 4) as u64;
+                    assert_eq!(
+                        visitor.events[4],
+                        (
+                            start + 16,
+                            NativeRecord::Glyph {
+                                x: words[4][0],
+                                y: words[0][1],
+                                style: words[1][1],
+                                code: words[4][1],
+                            }
+                        )
+                    );
+                    assert_eq!(
+                        visitor.events.last(),
+                        Some(&(
+                            start + (words.len() as u64 - 1) * 4,
+                            NativeRecord::End {
+                                value: page as u16 + 1
+                            }
+                        ))
+                    );
+                }
+                assert!(reader.next_page().await.unwrap().is_none());
+            });
+            assert!(source.max_request <= 28);
+        }
+    }
+}
+
+#[test]
+fn hnb_does_not_inherit_unverified_c8_records_or_font_controls() {
+    for pair in [
+        [0x8006, 0xa381],
+        [0x80cc, 0x0102],
+        [0x800a, 0xd300],
+        [0x801d, 4],
+        [0x8067, 5],
+        [0xc052, 0xa385],
+    ] {
+        let mut source = hnb_source(
+            12,
+            &[&[[0x8001, 4700], [0x8002, 0x1084], pair, [0x8004, 1]]],
+        );
+        let mut visitor = Visitor::default();
+        let error = parse(&mut source, TextBudget::default(), &mut visitor).unwrap_err();
+        assert_eq!(error.variant, Some(Variant::HnB));
+        assert_eq!(error.page, Some(1));
+        assert_eq!(error.offset, 236);
+        assert!(matches!(
+            error.kind,
+            ErrorKind::Unsupported {
+                field: "HN-B native record tag/value",
+                ..
+            }
+        ));
+        assert_eq!(visitor.events.len(), 2);
+    }
+}
+
+#[test]
+fn hnb_truncated_record_keeps_the_next_page_unread_and_poisons_cursor() {
+    for width in [12, 20] {
+        for length in 1..4_u32 {
+            let mut source = hnb_source(width, &[&[[0x8004, 1]], &[[0x8004, 2]]]);
+            source.bytes[220..224].copy_from_slice(&length.to_le_bytes());
+            run(async {
+                let limits = Limits::default();
+                let cancel = Cancel::default();
+                let mut reader =
+                    Hnc8Reader::open(&mut source, &limits, &cancel, Default::default())
+                        .await
+                        .unwrap();
+                reader.next_page().await.unwrap();
+                let mut visitor = Visitor::default();
+                let error = reader
+                    .visit_native_records(TextBudget::default(), &mut visitor)
+                    .await
+                    .unwrap_err();
+                assert!(
+                    matches!(error.kind, ErrorKind::Truncated { expected: 4, available, .. } if available == u64::from(length))
+                );
+                assert!(visitor.events.is_empty());
+                assert!(matches!(
+                    reader.next_page().await.unwrap_err().kind,
+                    ErrorKind::Poisoned
+                ));
+            });
+        }
+    }
+}

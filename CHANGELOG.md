@@ -6,6 +6,9 @@
   verified C8 control records. Exhaustive native matches must handle their
   raw payloads; exact transform/resource semantics remain unimplemented.
   This does not expand public CLI/JavaScript conversion support.
+- Admit the independently controlled HN-B native glyph-run subset through
+  bounded raw record traversal for both verified index layouts. Unknown
+  HN-B records remain explicit errors; complete rendering is not enabled.
 
 - **Breaking:** add `NativeRecord::EncodedString` for verified bounded C8
   `80cc/01xx` framing. Exhaustive native record matches must handle this raw
