@@ -567,3 +567,132 @@ fn a_text_consumer_rejects_unmapped_glyphs_at_their_source_record() {
         }
     }
 }
+
+fn encoded_string_fixture(characters: usize) -> Source {
+    let mut source = fixture(
+        &[[0x8001, 37], [0x8002, 0x1084], [71, 0xcec4], [0x8004, 0]],
+        0,
+    );
+    let mut prefix = Vec::new();
+    prefix.extend(0x80cc_u16.to_le_bytes());
+    prefix.extend((0x102 + characters as u16).to_le_bytes());
+    for byte in b"Fixture /~".iter().cycle().take(characters) {
+        prefix.extend((0xe000 | u16::from(*byte)).to_le_bytes());
+    }
+    source.bytes.splice(108..108, prefix);
+    let length = source.bytes.len() as u32 - 100;
+    source.bytes[84..88].copy_from_slice(&length.to_le_bytes());
+    source
+}
+
+#[test]
+fn encoded_strings_preserve_run_context_and_bounded_source_spans() {
+    for characters in [0, 5, 28, 253] {
+        for short in [1, 3, 7, 28] {
+            let mut source = encoded_string_fixture(characters);
+            source.short = short;
+            let mut visitor = Visitor::default();
+            assert_eq!(
+                parse(&mut source, TextBudget::default(), &mut visitor).unwrap(),
+                5
+            );
+            assert_eq!(
+                visitor.events[2],
+                (
+                    108,
+                    NativeRecord::EncodedString {
+                        value: 0x102 + characters as u16,
+                        payload: super::super::Span {
+                            offset: 112,
+                            length: characters as u64 * 2
+                        },
+                    }
+                )
+            );
+            assert_eq!(
+                visitor.events[3],
+                (
+                    112 + characters as u64 * 2,
+                    NativeRecord::Glyph {
+                        x: 71,
+                        y: 37,
+                        style: 0x1084,
+                        code: 0xcec4,
+                    }
+                )
+            );
+            assert!(source.max_request <= 28);
+        }
+    }
+}
+
+#[test]
+fn encoded_strings_reject_unknown_lengths_and_embedded_markers() {
+    for value in [0_u16, 0x0100, 0x0101, 0x0200, 0xffff] {
+        let mut source = encoded_string_fixture(5);
+        source.bytes[110..112].copy_from_slice(&value.to_le_bytes());
+        let mut visitor = Visitor::default();
+        let error = parse(&mut source, TextBudget::default(), &mut visitor).unwrap_err();
+        assert_eq!(error.offset, 108);
+        assert!(matches!(error.kind, ErrorKind::Unsupported { .. }));
+        assert_eq!(visitor.events.len(), 2);
+    }
+    for word in [0xe01f_u16, 0xe07f, 0xe080, 0x8004, 0x8001, 0xffff] {
+        let mut source = encoded_string_fixture(28);
+        source.bytes[140..142].copy_from_slice(&word.to_le_bytes());
+        let limits = Limits::default();
+        let cancel = Cancel::default();
+        let mut reader = run(Hnc8Reader::open(
+            &mut source,
+            &limits,
+            &cancel,
+            Default::default(),
+        ))
+        .unwrap();
+        run(reader.next_page()).unwrap();
+        let mut visitor = Visitor::default();
+        let error =
+            run(reader.visit_native_records(TextBudget::default(), &mut visitor)).unwrap_err();
+        assert_eq!(error.offset, 140);
+        assert!(matches!(
+            error.kind,
+            ErrorKind::Unsupported {
+                field: "native encoded-string word",
+                ..
+            }
+        ));
+        assert_eq!(visitor.events.len(), 2);
+        assert!(matches!(
+            run(reader.next_page()).unwrap_err().kind,
+            ErrorKind::Poisoned
+        ));
+    }
+}
+
+#[test]
+fn encoded_string_truncation_never_consumes_outside_the_page_span() {
+    for bytes in 1..60 {
+        let mut source = encoded_string_fixture(28);
+        source.bytes[84..88].copy_from_slice(&(8_u32 + bytes).to_le_bytes());
+        let mut visitor = Visitor::default();
+        let error = parse(&mut source, TextBudget::default(), &mut visitor).unwrap_err();
+        assert!(
+            matches!(error.kind, ErrorKind::Truncated { .. }),
+            "{bytes}: {error:?}"
+        );
+        assert_eq!(visitor.events.len(), 2);
+    }
+    let mut visitor = Visitor::default();
+    let error = parse(
+        &mut encoded_string_fixture(253),
+        TextBudget {
+            max_records: 3,
+            ..Default::default()
+        },
+        &mut visitor,
+    )
+    .unwrap_err();
+    assert_eq!(error.offset, 618);
+    assert!(matches!(error.kind, ErrorKind::LimitExceeded { .. }));
+    assert_eq!(visitor.events.len(), 3);
+}

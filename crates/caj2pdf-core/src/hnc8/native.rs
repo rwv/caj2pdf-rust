@@ -28,6 +28,12 @@ pub enum NativeRecord {
     },
     /// Thirteen words after the image marker. Do not apply HN-A coordinates.
     Image { words: [u16; 13] },
+    /// The observed `80cc/01xx` encoded-string record. The low byte of
+    /// `value` counts all words, including the two-word header. `payload`
+    /// locates 0..=253 validated `e020..=e07e` words in the original source.
+    /// Its role is deliberately uninterpreted; this is not visible page text
+    /// or permission to discard a required resource reference.
+    EncodedString { value: u16, payload: super::Span },
     /// The final record, including its uninterpreted payload.
     End { value: u16 },
 }
@@ -156,6 +162,38 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
                     0x801d if matches!(value, 0 | 4) => NativeRecord::Control { tag, value },
                     0x8067 if matches!(value, 5 | 6 | 8 | 9) => {
                         NativeRecord::Control { tag, value }
+                    }
+                    0x80cc if (0x0102..=0x01ff).contains(&value) => {
+                        length = usize::from(value & 0xff) * 2;
+                        let mut consumed = 4;
+                        while consumed < length {
+                            let count = (length - consumed).min(bytes.len());
+                            self.native_bytes(
+                                position + consumed as u64,
+                                end,
+                                &mut bytes[..count],
+                                at,
+                            )
+                            .await?;
+                            for (index, pair) in bytes[..count].chunks_exact(2).enumerate() {
+                                if !(0xe020..=0xe07e).contains(&word(pair)) {
+                                    return Err(at
+                                        .at(position + (consumed + index * 2) as u64)
+                                        .error(ErrorKind::Unsupported {
+                                            field: "native encoded-string word",
+                                            value: u64::from(word(pair)),
+                                        }));
+                                }
+                            }
+                            consumed += count;
+                        }
+                        NativeRecord::EncodedString {
+                            value,
+                            payload: super::Span {
+                                offset: position + 4,
+                                length: length as u64 - 4,
+                            },
+                        }
                     }
                     0x8006 if matches!(value, 0xa381 | 0xa383 | 0xa38b) => {
                         length = if value == 0xa383 { 12 } else { 16 };
