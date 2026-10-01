@@ -1333,12 +1333,28 @@ fn hnb_truncated_image_does_not_consume_the_following_page() {
         );
         source.bytes[220..224].copy_from_slice(&(length as u32).to_le_bytes());
         source.bytes[224..226].copy_from_slice(&1_u16.to_le_bytes());
-        let mut visitor = Visitor::default();
-        let error = parse(&mut source, TextBudget::default(), &mut visitor).unwrap_err();
-        assert!(
-            matches!(error.kind, ErrorKind::Truncated { expected: 24, available, .. } if available == u64::from(length as u32 - 4))
-        );
-        assert_eq!(error.page, Some(1));
-        assert!(visitor.events.is_empty());
+        run(async {
+            let limits = Limits::default();
+            let cancel = Cancel::default();
+            let mut reader = Hnc8Reader::open(&mut source, &limits, &cancel, Default::default())
+                .await
+                .unwrap();
+            reader.next_page().await.unwrap();
+            let mut visitor = Visitor::default();
+            let error = reader
+                .visit_native_records(TextBudget::default(), &mut visitor)
+                .await
+                .unwrap_err();
+            assert!(
+                matches!(error.kind, ErrorKind::Truncated { expected: 24, available, .. }
+                if available == u64::from(length as u32 - 4))
+            );
+            assert_eq!(error.page, Some(1));
+            assert!(visitor.events.is_empty());
+            assert!(matches!(
+                reader.next_page().await.unwrap_err().kind,
+                ErrorKind::Poisoned
+            ));
+        });
     }
 }
