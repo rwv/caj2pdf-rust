@@ -433,3 +433,17 @@ or proprietary font data is added. Font choice/substitution must stay explicit,
 and baseline/size rules remain unverified. External traces, shim and captures
 remain in `caj2pdf-c8-glyphtrace-20261001`; no outlines or font programs are copied
 into the repository.
+
+
+An independent `digit-one` control (eight raw A0B1 codes) confirms actual HGBZ
+glyph-2578 loads. Its SHA-256 is `71368e44e4cae4133f6d61cac050c9a37963670cebec70a7debde708f90e8402`; the generator reproduces it exactly.
+Metadata-only reads of the SFNT directory, loca, ten-byte glyph headers and
+horizontal advances reveal a material distinction: glyph 2578 has advance
+2048 and bounds `[664,288,1428,1672]`, while ordinary Unicode 1 (glyph 18) has
+advance 1024 and bounds `[216,0,792,1368]`, in 2048 units/em. No outline
+coordinates or font programs are exported. A/ M's observed aliases have the
+same bounds and advances as their ordinary slots; this does not prove outline
+identity. Consequently neither universal alias equivalence nor one uniform
+compensation factor is justified. The raw character-to-Unicode mapping remains
+unchanged. Measurements are external in `actual-glyph-metrics.json` and
+`digit-one-trace.tsv` under the glyph-trace directory.
