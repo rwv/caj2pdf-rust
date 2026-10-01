@@ -22,7 +22,7 @@ VARIANTS = (
 )
 
 
-def document(styles, control_record=None, drawing=None, codes=None, *, row_step=500, height=7469, drawing_dy=50, width=5105, first_x=5200, first_y=4700):
+def document(styles, control_record=None, drawing=None, codes=None, *, row_step=500, height=7469, drawing_dy=50, width=5105, first_x=5200, first_y=4700, run_words=()):
     """One original page, with 中文AM1 as the default test string."""
     if codes is None:
         codes = (0xD6D0, 0xCEC4, 0xA0C1, 0xA0CD, 0xA0B1)
@@ -43,6 +43,7 @@ def document(styles, control_record=None, drawing=None, codes=None, *, row_step=
             if value != 0xA383:
                 drawing_pairs.append((0xFFFF, 5))
             pairs = drawing_pairs + pairs
+        pairs.extend(zip(run_words[::2], run_words[1::2]))
         pairs.extend(
             (first_x + column * 350, code)
             for column, code in enumerate(codes)
@@ -132,6 +133,18 @@ def main():
             "symbol_codes": symbols.get(name),
             "geometry": geometry,
         })
+    boundaries = [("baseline", ()), ("standalone", (0xFFFF, 5))]
+    for value in (0xA381, 0xA385, 0xA38B):
+        for suffix, following in (("bare", ()), ("footer", (0xFFFF, 5)),
+                                  ("next-y", (0x8001, 5000))):
+            boundaries.append((f"{value:x}-{suffix}",
+                               (0x8006, value, 5200, 4800, 6300, 4850) + following))
+    for suffix, words in boundaries:
+        name = f"c8-drawing-boundary-{suffix}"
+        data = document([(0x1084, 0, 6)], run_words=words)
+        (args.output / f"{name}.caj").write_bytes(data)
+        manifest.append({"name": name, "run_words": words, "bytes": len(data),
+                         "sha256": hashlib.sha256(data).hexdigest()})
     (args.output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
 
 

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **Breaking:** frame admitted C8 `8006` drawings as 12-byte records and
+  preserve following `ffff/5` controls independently. Raw visitor event counts
+  change; following position/style/end records are no longer consumed as footers.
+
 - Preserve the independently controlled `8006/a385` C8 drawing record in
   bounded native traversal; HN-B rendering and stroke interpretation remain
   unsupported.

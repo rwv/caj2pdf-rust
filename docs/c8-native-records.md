@@ -768,9 +768,9 @@ are identical at displayed 57% zoom. The inspected page frame is
 preservation of following content, not identical stroke semantics at every
 scale. The generator's `draw06a385` reproduces the observed input exactly.
 
-The C8 visitor now preserves this as one 16-byte `NativeRecord::Drawing`,
-retaining both raw coordinate pairs and the unchanged style value, and
-validating the fixed trailing `ffff/0005` pair. Short-read tests
+The initial C8 visitor treated this as one 16-byte `NativeRecord::Drawing`.
+The independent in-run boundary controls below supersede that assumption:
+the drawing is 12 bytes and `ffff/0005` is a separate raw control. Short-read tests
 use marker-like payload words followed by a glyph; the existing truncation
 sweep now covers every shortened length of this form. Adjacent unverified
 value `a384` remains unsupported. No allocation or new rendering rule is added.
@@ -780,3 +780,29 @@ not enable the C8 visitor for HN-B. HN-B variant semantics and complete-document
 conversion remain open. External receipts are the `segment-a381` and
 `segment-a385` controls/captures and `segment-inputs.json` in
 `caj2pdf-c8-advance-control-20261001`.
+
+## Corrected in-run drawing boundaries
+
+Eleven original C8 controls test `8006/a381`, `a385` and `a38b` separately:
+12-byte drawing, drawing followed by `ffff/5`, and drawing followed by
+`8001/5000`, plus a no-drawing baseline and standalone `ffff/5`. For each
+style, bare and footer variants have identical first-page pixels. A following
+y record moves the five glyphs while preserving the visible segment.
+Standalone `ffff/5` matches the baseline. All repeat crops match at 57%,
+page interior `(648,387,1023,936)`. This independently confirms the boundary
+without assuming that HN-B semantics apply to C8.
+
+The visitor now emits each `8006` drawing as a 12-byte record and preserves
+`ffff/5` as its own `Control`. It does not discard the control or infer that
+it is always a no-op. The already admitted `a383` remains 12 bytes. The
+separate `8010/1` form retains its prior framing pending independent controls.
+Existing sources containing `ffff/5` therefore yield one additional raw event
+per occurrence: exhaustive event/count consumers must accommodate it. This is
+a documented unstable v0.x parser behavior correction, not a conversion claim.
+
+The generator reproduces all eleven inputs. Tests cover immediate y/end
+records, marker-like coordinates, short reads and truncated drawings. Earlier
+16-byte boundary descriptions in this investigation are superseded for these
+`8006` forms. Font size, baseline and stroke fidelity remain unresolved under
+#240. External receipts are `c8-drawing-boundary-{inputs,comparison}.json` in
+`caj2pdf-c8-advance-control-20261001`; external captures remain outside Git.

@@ -155,7 +155,7 @@ fn streams_raw_glyph_context_and_atomic_drawing_image_records() {
         let mut visitor = Visitor::default();
         assert_eq!(
             parse(&mut source, TextBudget::default(), &mut visitor).unwrap(),
-            14
+            16
         );
         assert!(source.max_request <= 24);
         assert_eq!(
@@ -199,15 +199,25 @@ fn streams_raw_glyph_context_and_atomic_drawing_image_records() {
                 }
             )
         );
-        assert_eq!(visitor.events[10].0, 152);
-        assert_eq!(visitor.events[11].0, 164);
         assert_eq!(
-            visitor.events[12].1,
+            visitor.events[10],
+            (
+                148,
+                NativeRecord::Control {
+                    tag: 0xffff,
+                    value: 5
+                }
+            )
+        );
+        assert_eq!(visitor.events[11].0, 152);
+        assert_eq!(visitor.events[12].0, 164);
+        assert_eq!(
+            visitor.events[14].1,
             NativeRecord::Image {
                 words: [0xd300, 0x8004, 0x8006, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
             }
         );
-        assert_eq!(visitor.events[13], (208, NativeRecord::End { value: 39 }));
+        assert_eq!(visitor.events[15], (208, NativeRecord::End { value: 39 }));
     }
 }
 
@@ -225,7 +235,7 @@ fn unsupported_records_stop_without_consuming_their_payload_as_glyphs() {
         [0x801d, 1],
         [0x8067, 0],
         [0x800a, 0],
-        [0xffff, 5],
+        [0xffff, 4],
     ] {
         let mut source = fixture(
             &[[0x8001, 5], [0x8002, 7], pair, [13, 0xcec4], [0x8004, 0]],
@@ -249,7 +259,6 @@ fn context_end_and_image_counts_are_checked() {
         vec![],
         vec![[0x8001, 5]],
         vec![[0x8004, 0], [0x8004, 0]],
-        vec![[0x8006, 0xa381], [1, 2], [3, 4], [0x8004, 0]],
     ] {
         let error = parse(
             &mut fixture(&words, 0),
@@ -280,9 +289,9 @@ fn context_end_and_image_counts_are_checked() {
 fn never_reads_past_indexed_span_for_any_truncated_record() {
     for words in [
         vec![[0x8004, 0]],
-        vec![[0x8006, 0xa381], [1, 2], [3, 4], [0xffff, 5]],
+        vec![[0x8006, 0xa381], [1, 2], [3, 4]],
         vec![[0x8006, 0xa383], [1, 2], [3, 4]],
-        vec![[0x8006, 0xa385], [1, 2], [3, 4], [0xffff, 5]],
+        vec![[0x8006, 0xa385], [1, 2], [3, 4]],
         vec![[0x8010, 1], [1, 2], [3, 4], [0xffff, 5]],
         vec![[0xc053, 0xffff]],
         vec![[0x8073, 0x8004]],
@@ -722,7 +731,7 @@ fn a385_drawing_preserves_coordinates_and_following_glyph_context() {
         let mut visitor = Visitor::default();
         assert_eq!(
             parse(&mut source, TextBudget::default(), &mut visitor).unwrap(),
-            5
+            6
         );
         assert_eq!(
             visitor.events[2],
@@ -736,7 +745,7 @@ fn a385_drawing_preserves_coordinates_and_following_glyph_context() {
             )
         );
         assert_eq!(
-            visitor.events[3],
+            visitor.events[4],
             (
                 124,
                 NativeRecord::Glyph {
@@ -747,7 +756,69 @@ fn a385_drawing_preserves_coordinates_and_following_glyph_context() {
                 }
             )
         );
-        assert_eq!(visitor.events[4], (128, NativeRecord::End { value: 1 }));
+        assert_eq!(visitor.events[5], (128, NativeRecord::End { value: 1 }));
         assert!(source.max_request <= 28);
+    }
+}
+
+#[test]
+fn drawing_boundary_preserves_independent_y_end_and_control_records() {
+    for value in [0xa381, 0xa383, 0xa385, 0xa38b] {
+        for short in [1, 3, 7, 28] {
+            let mut source = fixture(
+                &[
+                    [0x8001, 47],
+                    [0x8002, 0x1084],
+                    [0x8006, value],
+                    [0x8004, 17],
+                    [23, 0x8001],
+                    [0x8001, 71],
+                    [31, 0xd6d0],
+                    [0xffff, 5],
+                    [0x8004, 1],
+                ],
+                0,
+            );
+            source.short = short;
+            let mut visitor = Visitor::default();
+            assert_eq!(
+                parse(&mut source, TextBudget::default(), &mut visitor).unwrap(),
+                7
+            );
+            assert_eq!(
+                visitor.events[3],
+                (
+                    120,
+                    NativeRecord::Control {
+                        tag: 0x8001,
+                        value: 71
+                    }
+                )
+            );
+            assert_eq!(
+                visitor.events[4].1,
+                NativeRecord::Glyph {
+                    x: 31,
+                    y: 71,
+                    style: 0x1084,
+                    code: 0xd6d0
+                }
+            );
+            assert_eq!(
+                visitor.events[5],
+                (
+                    128,
+                    NativeRecord::Control {
+                        tag: 0xffff,
+                        value: 5
+                    }
+                )
+            );
+            let mut source = fixture(&[[0x8006, value], [1, 2], [3, 4], [0x8004, 1]], 0);
+            assert_eq!(
+                parse(&mut source, TextBudget::default(), &mut Visitor::default()).unwrap(),
+                2
+            );
+        }
     }
 }
