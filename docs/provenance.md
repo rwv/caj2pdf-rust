@@ -1958,3 +1958,12 @@ invented payloads, including terminal-looking words, and ordinary viewer
 observations; they reuse `hnb_index_fixture.py` without external data.
 Actual-source probes record bounded counts and error offsets, not extracted
 text or successful conversion claims.
+
+#### HN-B in-run controls
+
+The HN-B native visitor extensions and `hnb-run-*` generator controls are original
+MIT work. Evidence comes from independently constructed two-page documents and
+ordinary pinned CAJViewer rendering with original geometric fonts. No converter
+implementation, vendor font outlines or external document content was copied.
+The implementation preserves raw record boundaries; it does not infer rendering
+semantics from unchanged screenshots. See `docs/hnb-compact-index.md`.

@@ -21,10 +21,11 @@ def page(rows, codes, number):
     return data
 
 
-def document(width, marker, prefix=()):
+def document(width, marker, prefix=(), run=()):
     # Unequal spans and distinct invented strings expose incorrect page lookup.
     pages = [page(8, (0xD6D0, 0xCEC4, 0xA0C1, 0xA0CD, 0xA0B1), 1),
              page(4, (0xA0D0, 0xA0C1, 0xA0C7, 0xA0C5, 0xA0B2), 2)]
+    pages[0][16:16] = struct.pack("<" + "H" * len(run), *run)
     pages[0][:0] = struct.pack("<" + "H" * len(prefix), *prefix)
     header = bytearray(216)
     struct.pack_into("<III", header, 0, 0x4E48, 200, 136)
@@ -64,6 +65,19 @@ def main():
         (args.output / name).write_bytes(data)
         manifest.append({"file": name, "marker": 0, "row_bytes": 12,
                          "prefix_words": prefix, "bytes": len(data),
+                         "sha256": hashlib.sha256(data).hexdigest()})
+    for suffix, words in (
+        ("none", ()), ("weight4", (0x801D, 4)),
+        ("control1c", (0x801C, 4)), ("font7", (0x8067, 7)),
+        ("control72", (0x8072, 0)), ("control24", (0x8024, 0x281D)),
+        ("control53", (0xC053, 0x00E9)),
+        ("drawing385", (0x8006, 0xA385, 5200, 4800, 6300, 4850, 0xFFFF, 5)),
+    ):
+        name = f"hnb-run-{suffix}.caj"
+        data = document(12, 0, run=words)
+        (args.output / name).write_bytes(data)
+        manifest.append({"file": name, "marker": 0, "row_bytes": 12,
+                         "run_words": words, "bytes": len(data),
                          "sha256": hashlib.sha256(data).hexdigest()})
     (args.output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
 

@@ -146,3 +146,29 @@ The unchanged issue-100 first page now reaches offset 440 after 43 records and
 explicitly; none is counted as successful conversion. Receipts remain external
 in `caj2pdf-c8-advance-control-20261001/hnb-c052-{inputs,comparison}.json` and
 paired captures. No source-document strings or binary payloads are committed.
+
+### Additional in-run record boundaries
+
+Eight original two-page controls insert one record after the first row's four
+context controls. In the pinned viewer, all retain the eight following rows;
+all repeated first-page captures match. `801d/4`, `801c/4`, `8067/7`, `8072/0`
+and `c053/00e9` match the baseline with the original geometric font.
+`8024/281d` changes glyph geometry across rows. `8006/a385` adds a visible segment
+and consumes two coordinate pairs plus the `ffff/0005` footer (16 bytes total).
+These observations establish boundaries, not font selection, transform units
+or stroke semantics. Matching baseline pixels does not establish a no-op.
+
+The native visitor preserves the six controls and drawing coordinates as raw
+events using its existing fixed buffer. HN-B-only cases do not broaden C8
+acceptance. Required rendering interpretation and complete-document acceptance
+remain in #241; no public HN-B rendering is enabled by this parser increment.
+The existing generator emits `hnb-run-*` controls. Tests exercise both index
+widths, short reads, marker-like coordinates, every truncated drawing length,
+invalid footers and unverified neighboring values.
+
+Direct probes of all 14 indexed pages in the three pinned HN-B inputs still
+stop on unsupported records or an unadmitted drawing terminator. For example,
+issue-100 page 1 now reaches byte 836 after 139 records / 106 raw glyphs;
+issue-63 page 1 reaches byte 10924 after 2654 records / 2015 raw glyphs.
+A drawing-footer rejection reflects the current parser profile, not proof that
+the source is corrupt. No complete-page or document conversion is claimed.
