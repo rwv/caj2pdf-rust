@@ -12,7 +12,8 @@ use crate::{Cancellation, RangedSource};
 pub enum NativeRecord {
     /// A position, style or observed four-byte control, with its original tag.
     Control { tag: u16, value: u16 },
-    /// An observed eight-byte control (`81ff/1..=3` or `80cc/0204`).
+    /// An observed eight-byte control (`81ff/1..=3`, `80cc/0204`,
+    /// or the HN-B `c052/a385` prefix).
     /// The two payload words are atomic and uninterpreted. Preserving their
     /// framing does not establish font, layout or resource semantics.
     ExtendedControl {
@@ -163,7 +164,10 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
                     && tag >= 0x8000
                     && !matches!(
                         (tag, value),
-                        (0x8001 | 0x8002 | 0x8004, _) | (0x801d, 0) | (0x8067, 6)
+                        (0x8001 | 0x8002 | 0x8004, _)
+                            | (0x801d, 0)
+                            | (0x8067, 6)
+                            | (0xc052, 0xa385)
                     )
                 {
                     return Err(at.error(ErrorKind::Unsupported {
@@ -193,8 +197,10 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
                     0x8021 if value == 0x2000 => NativeRecord::Control { tag, value },
                     0x80d0 | 0x80d2 if value == 0 => NativeRecord::Control { tag, value },
                     0x80d1 if value == 1 => NativeRecord::Control { tag, value },
-                    0x81ff | 0x80cc
-                        if matches!((tag, value), (0x81ff, 1..=3) | (0x80cc, 0x0204)) =>
+                    0x81ff | 0x80cc | 0xc052
+                        if matches!((tag, value), (0x81ff, 1..=3) | (0x80cc, 0x0204))
+                            || (self.header.variant == Variant::HnB
+                                && (tag, value) == (0xc052, 0xa385)) =>
                     {
                         length = 8;
                         self.native_bytes(position + 4, end, &mut bytes[4..8], at)

@@ -934,7 +934,7 @@ fn hnb_does_not_inherit_unverified_c8_records_or_font_controls() {
         [0x800a, 0xd300],
         [0x801d, 4],
         [0x8067, 5],
-        [0xc052, 0xa385],
+        [0xc052, 0xa384],
     ] {
         let mut source = hnb_source(
             12,
@@ -984,6 +984,65 @@ fn hnb_truncated_record_keeps_the_next_page_unread_and_poisons_cursor() {
                     ErrorKind::Poisoned
                 ));
             });
+        }
+    }
+}
+
+#[test]
+fn hnb_prefix_is_one_atomic_eight_byte_record() {
+    for width in [12, 20] {
+        for payload in [[0xffff, 5], [0x8004, 1], [5200, 0xd6d0]] {
+            for short in [1, 3, 7, 28] {
+                let mut source = hnb_source(
+                    width,
+                    &[&[
+                        [0xc052, 0xa385],
+                        payload,
+                        [0x8001, 4700],
+                        [0x8002, 0x1084],
+                        [5200, 0xd6d0],
+                        [0x8004, 1],
+                    ]],
+                );
+                source.short = short;
+                let mut visitor = Visitor::default();
+                assert_eq!(
+                    parse(&mut source, TextBudget::default(), &mut visitor).unwrap(),
+                    5
+                );
+                assert_eq!(
+                    visitor.events[0],
+                    (
+                        (216 + width) as u64,
+                        NativeRecord::ExtendedControl {
+                            tag: 0xc052,
+                            value: 0xa385,
+                            words: payload
+                        }
+                    )
+                );
+                assert!(matches!(
+                    visitor.events[3].1,
+                    NativeRecord::Glyph {
+                        x: 5200,
+                        y: 4700,
+                        style: 0x1084,
+                        code: 0xd6d0
+                    }
+                ));
+            }
+        }
+        for length in 1..8_u32 {
+            let mut source = hnb_source(width, &[&[[0xc052, 0xa385], [0x8004, 1]], &[[0x8004, 2]]]);
+            source.bytes[220..224].copy_from_slice(&length.to_le_bytes());
+            let mut visitor = Visitor::default();
+            assert!(matches!(
+                parse(&mut source, TextBudget::default(), &mut visitor)
+                    .unwrap_err()
+                    .kind,
+                ErrorKind::Truncated { .. }
+            ));
+            assert!(visitor.events.is_empty());
         }
     }
 }

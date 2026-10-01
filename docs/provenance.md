@@ -1952,6 +1952,9 @@ It reuses the independently generated two-page controls in
 `tools/cajviewer/hnb_index_fixture.py` and their recorded ordinary CAJViewer
 navigation observations in `docs/hnb-compact-index.md`. No converter code,
 external text, document, font or capture is copied. Only the verified glyph-run
-record subset is admitted; C8-only records retain a separate HN-B rejection.
+record subset and the independently controlled eight-byte prefix are admitted;
+C8-only records retain a separate HN-B rejection. The prefix controls use
+invented payloads, including terminal-looking words, and ordinary viewer
+observations; they reuse `hnb_index_fixture.py` without external data.
 Actual-source probes record bounded counts and error offsets, not extracted
 text or successful conversion claims.

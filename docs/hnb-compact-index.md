@@ -28,7 +28,8 @@ reports four pages and displays visible text on the first page.
 
 ## Independent original controls
 
-Generate four source-independent two-page controls into a new directory:
+Generate the four source-independent two-page index controls and the prefix
+controls described below into a new directory:
 
 ```sh
 python3 tools/cajviewer/hnb_index_fixture.py /tmp/hnb-index-controls
@@ -86,7 +87,7 @@ the actual index width multiplied by page count.
 verified index layouts. It uses the existing visitor and fixed buffer; it
 neither fabricates a C8 header nor accumulates a page. The allowed HN-B forms
 are four-byte `8001` (raw y), `8002` (raw style), `801d/0000`, `8067/0006`,
-raw glyph pairs with x below `8000`, and a terminal `8004` record. Run context,
+raw glyph pairs with x below `8000`, a terminal `8004` record, and the eight-byte prefix described below. Run context,
 end position, declared image count, span/record budgets, cancellation and
 cursor poisoning use the same checked path as C8.
 
@@ -109,7 +110,7 @@ fail explicitly. Selected first-page boundaries are:
 
 | Input | Accepted prefix | Next unsupported pair | Absolute offset |
 | --- | --- | --- | ---: |
-| issue-100 | 1 record, 0 raw glyphs | `c052/a385` | 268 |
+| issue-100 | 43 records, 26 raw glyphs | `801d/0004` | 440 |
 | issue-63 | 2531 records, 1919 raw glyphs | `8072/0000` | 10420 |
 | issue-65 | 1 record, 0 raw glyphs | `800a/d300` | 340 |
 
@@ -119,3 +120,29 @@ support evidence. All 14 actual pages retain explicit unsupported outcomes.
 Full content, Unicode, geometry and CLI/Node/browser conversion acceptance
 remains in #241/#233. External probe code and receipts stay outside Git under
 `caj2pdf-native-profile-inventory-20261001/hnb-probe`.
+
+
+### Atomic `c052/a385` prefix
+
+The first issue-100 page originally stopped at this pair at absolute offset
+268. Five original controls reuse the two-page compact HN-B fixture: no prefix,
+a four-byte header only, and three eight-byte prefixes with invented payloads
+`ffff/0005`, `8004/0001`, or `5200/d6d0`. The four-byte control changes the first
+row; all eight-byte controls retain every baseline page pixel, including the
+payload that resembles a terminal record. Each repeated capture is identical.
+The inspected first-page interior is `(648,357,1023,906)` at displayed 57%.
+No content registration or scaling is used. The generator reproduces all five
+observed files exactly and leaves the original four index controls unchanged.
+
+The HN-B visitor consumes exactly eight bytes and exposes both payload words
+as one `ExtendedControl` (reusing #244). C8 continues to reject this tag/value.
+This is framing evidence, not permission to discard the prefix or assign it
+font, geometry or resource semantics. Unknown values remain unsupported.
+Tests cover marker-like payloads, short reads, both layouts, all seven truncated
+lengths, following glyph context and explicit C8 rejection.
+
+The unchanged issue-100 first page now reaches offset 440 after 43 records and
+26 raw glyphs, then rejects weight `801d/0004`. All 14 source pages still fail
+explicitly; none is counted as successful conversion. Receipts remain external
+in `caj2pdf-c8-advance-control-20261001/hnb-c052-{inputs,comparison}.json` and
+paired captures. No source-document strings or binary payloads are committed.

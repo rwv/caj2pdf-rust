@@ -7,7 +7,8 @@
   raw payloads; exact transform/resource semantics remain unimplemented.
   This does not expand public CLI/JavaScript conversion support.
 - Admit the independently controlled HN-B native glyph-run subset through
-  bounded raw record traversal for both verified index layouts. Unknown
+  bounded raw record traversal for both verified index layouts, including
+  the independently framed eight-byte `c052/a385` prefix. Unknown
   HN-B records remain explicit errors; complete rendering is not enabled.
 
 - **Breaking:** add `NativeRecord::EncodedString` for verified bounded C8
