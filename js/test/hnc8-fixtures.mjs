@@ -52,6 +52,7 @@ export function unknownOutline(format) {
   const index = format === "c8" ? 0x50 : 0xd8;
   const bytes = new Uint8Array(index + 20);
   bytes.set(format === "c8" ? [0xc8, 0, 0, 0] : [72, 78, 0, 0, 0xc8, 0, 0, 0]);
+  if (format !== "c8") new DataView(bytes.buffer).setUint32(0x88, 0xc8, true);
   new DataView(bytes.buffer).setUint32(format === "c8" ? 8 : 0x90, 1, true);
   return bytes;
 }

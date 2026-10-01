@@ -152,6 +152,9 @@ fn hn(variant: Variant, pages: i32, outline: i32) -> (Vec<u8>, usize) {
         Variant::HnB => &[0xc8, 0, 0, 0],
         Variant::C8 => panic!("test helper requires HN"),
     });
+    if variant == Variant::HnB {
+        put_i32(&mut bytes, 0x88, 0xc8);
+    }
     put_i32(&mut bytes, 0x90, pages);
     if variant == Variant::HnA {
         put_i32(&mut bytes, 0x158, outline);
@@ -1283,4 +1286,133 @@ fn declared_page_extents_use_variant_offsets_and_bounded_reads() {
         .unwrap();
         assert_eq!(error.kind.field(), "page dimensions");
     }
+}
+
+fn compact_hnb() -> Vec<u8> {
+    let (mut bytes, _) = hn(Variant::HnB, 2, 0);
+    put_i32(&mut bytes, 0x88, 0);
+    bytes.truncate(680);
+    for (row, offset, length) in [(216, 240, 292), (228, 532, 148)] {
+        put_i32(&mut bytes, row, offset);
+        put_i32(&mut bytes, row + 4, length);
+        put_i32(&mut bytes, row + 8, 0);
+    }
+    bytes
+}
+
+#[test]
+fn compact_hnb_uses_explicit_layout_marker_and_checked_twelve_byte_rows() {
+    let limits = Limits::default();
+    for short in [1, 3, usize::MAX] {
+        let mut source = Source::new(compact_hnb());
+        source.max_read = short;
+        let mut reader = ready(Hnc8Reader::open(
+            &mut source,
+            &limits,
+            &NEVER,
+            Budget::default(),
+        ))
+        .unwrap();
+        assert_eq!(reader.header().page_index.length, 24);
+        for (number, offset, length) in [(1, 240, 292), (2, 532, 148)] {
+            let page = ready(reader.next_page()).unwrap().unwrap();
+            assert_eq!(page.page_number, number);
+            assert_eq!(page.row_offset, 216 + u64::from(number - 1) * 12);
+            assert_eq!((page.text.offset, page.text.length), (offset, length));
+            assert_eq!(page.image_count, 0);
+            assert_eq!(page.unknown, [0; 10]);
+            assert!(ready(reader.next_image()).unwrap().is_none());
+        }
+        assert!(ready(reader.next_page()).unwrap().is_none());
+    }
+    let mut source = Source::new(compact_hnb());
+    let mut reader = ready(Hnc8Reader::probe_at_page(
+        &mut source,
+        &limits,
+        &NEVER,
+        Budget::default(),
+        2,
+    ))
+    .unwrap();
+    assert_eq!(ready(reader.next_page()).unwrap().unwrap().text.offset, 532);
+}
+
+#[test]
+fn compact_hnb_does_not_guess_unknown_fields_or_retry_other_layouts() {
+    let limits = Limits::default();
+    for (at, value, expected) in [
+        (0x88, 1, 0x88),
+        (224, 1, 224),
+        (224, 65536, 224),
+        (216, 239, 216),
+        (220, 1000, 216),
+    ] {
+        let mut bytes = compact_hnb();
+        put_i32(&mut bytes, at, value);
+        let mut source = Source::new(bytes);
+        let result = ready(async {
+            let mut reader =
+                Hnc8Reader::open(&mut source, &limits, &NEVER, Budget::default()).await?;
+            reader.next_page().await
+        });
+        assert_eq!(result.unwrap_err().offset, expected as u64);
+    }
+    // A malformed 20-byte row must not trigger retry as a valid 12-byte index.
+    let mut bytes = compact_hnb();
+    put_i32(&mut bytes, 0x88, 0xc8);
+    // Text bytes for the compact layout, but a negative length in a 20-byte row.
+    put_i32(&mut bytes, 240, -1);
+    let mut source = Source::new(bytes);
+    let mut reader = ready(Hnc8Reader::open(
+        &mut source,
+        &limits,
+        &NEVER,
+        Budget::default(),
+    ))
+    .unwrap();
+    assert_eq!(reader.header().page_index.length, 40);
+    ready(reader.next_page()).unwrap();
+    assert!(ready(reader.next_page()).is_err());
+}
+
+#[test]
+fn compact_hnb_index_truncation_budgets_and_cancellation_remain_bounded() {
+    let limits = Limits::default();
+    for length in 216..240 {
+        let mut bytes = compact_hnb();
+        bytes.truncate(length);
+        let mut source = Source::new(bytes);
+        let error = ready(Hnc8Reader::open(
+            &mut source,
+            &limits,
+            &NEVER,
+            Budget::default(),
+        ))
+        .err()
+        .expect("truncated compact index");
+        assert_eq!(error.offset, 216);
+    }
+    let mut source = Source::new(compact_hnb());
+    let cancel = Flag::new(false);
+    let mut reader = ready(Hnc8Reader::open(
+        &mut source,
+        &limits,
+        &cancel,
+        Budget::default(),
+    ))
+    .unwrap();
+    ready(reader.next_page()).unwrap();
+    cancel.set(true);
+    assert!(matches!(
+        ready(reader.next_page()).unwrap_err().kind,
+        ErrorKind::Cancelled
+    ));
+
+    let mut source = Source::new(compact_hnb());
+    let budget = Budget {
+        max_text_span_bytes: 291,
+        ..Budget::default()
+    };
+    let mut reader = ready(Hnc8Reader::open(&mut source, &limits, &NEVER, budget)).unwrap();
+    assert_eq!(ready(reader.next_page()).unwrap_err().offset, 220);
 }

@@ -198,6 +198,7 @@ fn format_source(variant: Variant, first: &[u8], last: &[u8]) -> Source {
         }
         Variant::HnB => {
             bytes[..8].copy_from_slice(&[b'H', b'N', 0, 0, 0xc8, 0, 0, 0]);
+            bytes[0x88..0x8c].copy_from_slice(&0xc8_u32.to_le_bytes());
         }
     }
     bytes[count_offset..count_offset + 4].copy_from_slice(&1_i32.to_le_bytes());

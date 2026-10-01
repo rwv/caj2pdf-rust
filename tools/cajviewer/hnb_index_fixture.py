@@ -1,0 +1,59 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
+"""Generate original HN-B layout-marker controls in a new external directory."""
+
+import argparse
+import hashlib
+import json
+from pathlib import Path
+import struct
+
+
+def page(rows, codes, number):
+    data = bytearray()
+    for row in range(rows):
+        pairs = [(0x8001, 4700 + row * 500), (0x8002, 0x1084),
+                 (0x801D, 0), (0x8067, 6)]
+        pairs.extend((5200 + column * 350, code) for column, code in enumerate(codes))
+        for pair in pairs:
+            data.extend(struct.pack("<HH", *pair))
+    data.extend(struct.pack("<HH", 0x8004, number))
+    return data
+
+
+def document(width, marker):
+    # Unequal spans and distinct invented strings expose incorrect page lookup.
+    pages = [page(8, (0xD6D0, 0xCEC4, 0xA0C1, 0xA0CD, 0xA0B1), 1),
+             page(4, (0xA0D0, 0xA0C1, 0xA0C7, 0xA0C5, 0xA0B2), 2)]
+    header = bytearray(216)
+    struct.pack_into("<III", header, 0, 0x4E48, 200, 136)
+    struct.pack_into("<IIII", header, 136, marker, 0, 2, 2)
+    header[152:164] = "北大二扫1.00".encode("gbk")
+    struct.pack_into("<HHHH", header, 164, 4652, 4274, 5105, 7469)
+    offset = 216 + 2 * width
+    index = bytearray()
+    for data in pages:
+        index.extend(struct.pack("<III", offset, len(data), 0))
+        index.extend(bytes(width - 12))
+        offset += len(data)
+    return bytes(header + index + b"".join(pages))
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("output", type=Path)
+    args = parser.parse_args()
+    args.output.mkdir(parents=True, exist_ok=False)
+    manifest = []
+    for marker in (0, 0xC8):
+        for width in (12, 20):
+            name = f"hnb-{'zero' if marker == 0 else 'original'}-{width}.caj"
+            data = document(width, marker)
+            (args.output / name).write_bytes(data)
+            manifest.append({"file": name, "marker": marker, "row_bytes": width,
+                             "bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()})
+    (args.output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+
+
+if __name__ == "__main__":
+    main()

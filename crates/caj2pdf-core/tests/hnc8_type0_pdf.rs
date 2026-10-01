@@ -304,6 +304,9 @@ fn container(layout: Layout, pages: &[Vec<Record>]) -> Built {
             bytes[4..8].copy_from_slice(&marker);
         }
     }
+    if matches!(layout, Layout::HnB) {
+        bytes[0x88..0x8c].copy_from_slice(&0xc8_u32.to_le_bytes());
+    }
     bytes[count_at..count_at + 4].copy_from_slice(&(pages.len() as i32).to_le_bytes());
     if layout == Layout::HnA {
         // One opaque outline-like record precedes the page index.

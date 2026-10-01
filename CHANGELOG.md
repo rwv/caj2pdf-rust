@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Read the verified compact HN-B page index using its explicit layout marker.
+  Native-text conversion for these pages remains unsupported.
+- **Breaking:** validate the HN-B layout marker at offset 136; unknown values
+  and nonzero compact-row third words now fail explicitly.
+
 - Admit the measured paired raw HN-A page-prefix profile through the bounded
   text reader; C8 raw framing remains unsupported.
 
