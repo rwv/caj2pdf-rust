@@ -2,24 +2,16 @@
 
 ## Unreleased
 
-- Preserve HN-B `c053` numeric payloads and verified `80ce/0,1` controls
-  without inferring their rendering semantics.
-
-- Preserve the independently verified 12-byte HN-B `8006/a381` drawing
-  without consuming its following control record.
-
-- Preserve independently controlled HN-B `8069/1084` and `8024/2800` raw
-  records without enabling unverified rendering semantics.
+- Extend bounded HN-B native-record traversal across both verified index
+  layouts, preserving observed run controls, raw numeric values, the atomic
+  `c052/a385` prefix and 12-byte drawing records. Implicit glyph styles are
+  explicitly unsupported rather than reported as malformed. This does not
+  enable complete HN-B rendering or expand CLI/JavaScript conversion support.
 
 - **Breaking:** add `NativeRecord::ExtendedControl` and preserve additional
   verified C8 control records. Exhaustive native matches must handle their
   raw payloads; exact transform/resource semantics remain unimplemented.
   This does not expand public CLI/JavaScript conversion support.
-- Admit the independently controlled HN-B native glyph-run subset through
-  bounded raw record traversal for both verified index layouts, including
-  the eight-byte `c052/a385` prefix, verified in-run controls and the
-  `8006/a385` drawing boundary. Unknown
-  HN-B records remain explicit errors; complete rendering is not enabled.
 
 - **Breaking:** add `NativeRecord::EncodedString` for verified bounded C8
   `80cc/01xx` framing. Exhaustive native record matches must handle this raw
