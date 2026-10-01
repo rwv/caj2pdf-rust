@@ -153,6 +153,19 @@ def main():
         (args.output / f"{name}.caj").write_bytes(data)
         manifest.append({"name": name, "run_words": words, "bytes": len(data),
                          "sha256": hashlib.sha256(data).hexdigest()})
+    for name, points in (
+        ("short", (4900, 4800, 7050, 4800)),
+        ("shift-y", (4900, 5300, 9200, 5300)),
+        ("slope", (4900, 4800, 9200, 5300)),
+        ("shift-x", (5200, 4800, 9500, 4800)),
+        ("vertical", (4900, 4800, 4900, 6800)),
+    ):
+        name = "decoration-geometry-" + name
+        words = (0x8010, 1) + points
+        data = document([(0x1084, 0, 6)], run_words=words)
+        (args.output / f"{name}.caj").write_bytes(data)
+        manifest.append({"name": name, "run_words": words, "bytes": len(data),
+                         "sha256": hashlib.sha256(data).hexdigest()})
     (args.output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
 
 

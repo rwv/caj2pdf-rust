@@ -853,3 +853,30 @@ source ornament as a plain line. Those remaining rules stay under #240.
 The default generator and previous metric/outline variants retain their output.
 Receipts and captures remain external in
 `caj2pdf-c8-decoration-{alias,no-alias}-20261001`. No vendor font data is added.
+
+### Decoration axes and repetition control
+
+Five original `decoration-geometry-*` inputs vary only the two `8010/1`
+coordinate pairs. With the original alias font, shortening the horizontal
+span changes the decoration width; translating both points by 300 source x
+units moves its visible region 22 pixels, and 500 source y units moves it
+37 pixels at the same 57% page frame. A vertical span is visible. The sloped
+control matches the no-decoration baseline; this is an observation, not
+permission to silently discard arbitrary diagonal records. All repeat captures
+match. Raw coordinate endpoints remain preserved by the parser.
+
+`--variant decoration-narrow` narrows the original upper-half rectangle to a
+quarter em while retaining its one-em advance and the same alias. The long
+and short horizontal controls now show separated repeated marks (53 and 27
+connected runs at desktop row 423, threshold 200), rather than one stretched
+rectangle. Vertical repetition is also visible; all three captures repeat.
+The generator reproduces the tested glyph/cmap/metric tables and all five
+source controls. This establishes axis sensitivity and glyph repetition, but
+not an exact source-space step, endpoint clipping or font-size formula. Do not
+promote pixel-run counts into a document-independent repetition rule.
+
+External receipts are `geometry-{inputs,comparison}.json` in
+`caj2pdf-c8-decoration-alias-20261001` and `comparison.json` in
+`caj2pdf-c8-decoration-narrow-20261001`. The next discriminator is the source
+step and end clipping under an independently changed zoom/advance; reuse these
+controls rather than introducing another renderer or screenshot framework.
