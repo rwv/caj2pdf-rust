@@ -91,6 +91,13 @@ bounds, cancellation and partial/missing records. The Python diagnostic uses
 stdlib decoding as a black box, never another converter's implementation.
 It is not a new Python runtime requirement for Rust/JavaScript conversion.
 
+## Subsequent implementation evidence
+
+The later [native-record work](c8-native-records.md) verifies the 62 A0
+alphanumeric codes, adds a bounded Rust visitor and character helper, and
+classifies this sample's application-info tail. The prefix-only Python probe
+and measurements above remain the original bounded feasibility result.
+
 ## Next implementation
 
 #229 owns the observed visible C8 profile, including verified Unicode mapping,

@@ -1874,3 +1874,30 @@ an external C8 source and observing the pinned offline viewer. Unknown font,
 vector and character semantics remain explicit. See `native-text-feasibility.md`
 for the bounded go/no-go decision and separate ordinary-copy/image-only
 controls. External text, images, fonts and source mutations are not committed.
+
+### C8 native-record inventory and field controls (#232)
+
+`docs/c8-native-records.md` records an original bounded-span survey of the
+SHA-pinned issue-66 source and four original single-word controls observed
+through the pinned offline viewer. Whole-file comparisons verify mutation
+boundaries; repeated captures are checked separately from navigation-dependent
+raster differences. No reference converter source was read or copied. Only
+field/count/hash observations are included; external documents, derived text,
+mutants and captures stay outside Git. Record/style/font semantics still marked
+unknown are not promoted to production support by this note.
+
+The Rust `hnc8/native.rs` record visitor and its tests are original code written
+from those bounded-span observations. Test positions, payloads and error cases
+are invented, including embedded marker values to check atomic record framing.
+The visitor retains raw codes/styles without copying another decoder or
+claiming Unicode/font semantics. It reuses the existing MIT I/O, limits and
+cursor-failure contract. No fonts or external document data are bundled.
+
+The native character helper reuses the existing independently generated
+GB18030 mapping through a shared, allocation-free two-byte lookup. Its A0
+alphanumeric extension was established by original 62-character source
+mutations and the pinned viewer's ordinary-copy output, checked against the
+invented ASCII alphabet; the selected original text provides a second control.
+Only encoding facts/hashes are committed. Viewer copy normalization and
+unverified special/private-use mappings are not silently adopted. No viewer
+source code or font data was read/copied into this implementation.

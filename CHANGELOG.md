@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Add a bounded raw C8 native-record visitor for incremental parser work;
+  add allocation-free decoding of verified native character codes. Complete
+  native text rendering remains unsupported.
+
 - Support validated type-1 JPEG image records in experimental HN-A/C8 conversion.
 - Select the existing, narrowly scoped HN/C8 JBIG2 text-header compatibility
   policy in CLI/WASM; generic decoder defaults remain strict.
