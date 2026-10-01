@@ -86,6 +86,8 @@ jobs:
     permissions:
       contents: write
       packages: write
+      id-token: write
+      attestations: write
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
@@ -102,6 +104,7 @@ jobs:
           name: container-assets
           path: dist/
       - name: Publish tested OCI archive to GHCR
+        id: container
         env:
           REGISTRY_USER: ${{ github.actor }}
           REGISTRY_TOKEN: ${{ github.token }}
@@ -127,6 +130,8 @@ jobs:
           assert actual == expected, (actual, expected)
           assert 'sha256:' + hashlib.sha256(raw).hexdigest() == Path('dist/CONTAINER-DIGEST.txt').read_text().strip()
           PYCODE
+          printf 'digest=%s\n' "$(cat dist/CONTAINER-DIGEST.txt)" >> "$GITHUB_OUTPUT"
+          printf '%s' "$REGISTRY_TOKEN" | docker login ghcr.io -u "$REGISTRY_USER" --password-stdin
       - name: Verify complete native matrix and checksum every asset
         run: |
           python3 - <<'PY'
@@ -145,6 +150,45 @@ jobs:
                   out.write(f'{digest}  {name}\n')
           PY
           (cd dist && sha256sum -c SHA256SUMS)
+      # Attest only this run's gated build outputs, before adding the bundles.
+      - name: Attest release files and checksum manifest
+        id: files-provenance
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-path: dist/*
+      - name: Attest exact published container digest
+        id: container-provenance
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-name: ghcr.io/rwv/caj2pdf-rust
+          subject-digest: ${{ steps.container.outputs.digest }}
+          push-to-registry: true
+          create-storage-record: false
+      - name: Verify provenance before release publication
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FILE_BUNDLE: ${{ steps.files-provenance.outputs.bundle-path }}
+          CONTAINER_BUNDLE: ${{ steps.container-provenance.outputs.bundle-path }}
+          CONTAINER_DIGEST: ${{ steps.container.outputs.digest }}
+        run: |
+          policy=(--repo "$GITHUB_REPOSITORY"
+            --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release.yml"
+            --source-ref "$GITHUB_REF" --source-digest "$GITHUB_SHA"
+            --signer-digest "$GITHUB_SHA" --deny-self-hosted-runners)
+          for asset in dist/*; do
+            gh attestation verify "$asset" --bundle "$FILE_BUNDLE" "${policy[@]}"
+          done
+          gh attestation verify "oci://ghcr.io/rwv/caj2pdf-rust@$CONTAINER_DIGEST" \
+            --bundle-from-oci "${policy[@]}"
+          # A modified artifact must be rejected by the same verification policy.
+          cp dist/SHA256SUMS "$RUNNER_TEMP/tampered-checksums"
+          printf '\nmodified\n' >> "$RUNNER_TEMP/tampered-checksums"
+          if gh attestation verify "$RUNNER_TEMP/tampered-checksums" --bundle "$FILE_BUNDLE" "${policy[@]}"; then
+            echo 'Modified artifact unexpectedly verified' >&2
+            exit 1
+          fi
+          cp "$FILE_BUNDLE" dist/RELEASE-PROVENANCE.sigstore.json
+          cp "$CONTAINER_BUNDLE" dist/CONTAINER-PROVENANCE.sigstore.json
       - name: Publish complete GitHub release
         env:
           GH_TOKEN: ${{ github.token }}

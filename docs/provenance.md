@@ -1829,3 +1829,13 @@ The package is a CI tool and is not included in released archives or containers.
 `scripts/install-bootlin.sh` is original MIT CI glue shared by required and
 experimental matrices; it verifies SDK/emulator checksums and records the
 actual host kernel/compiler. It does not contain toolchain implementation code.
+
+## Release build attestations (issue #215)
+
+The release workflow uses the MIT-licensed official `actions/attest` action at
+`1e69f48acb82d1966a394da916b4c1698aa569d6` (v4). It is a CI tool; no upstream
+implementation is copied into this repository or packaged with the converter.
+The workflow integration and [verification documentation](build-provenance.md)
+are original MIT work based on the official action inputs and GitHub CLI.
+Build attestations authenticate released bytes and workflow identity; they do
+not change the independent source/format/fixture rights records in this file.

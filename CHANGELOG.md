@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.3.1
+
+- Attest release files and the exact GHCR image digest using GitHub Actions OIDC.
+- Verify signatures and workflow/commit/tag identity before publication.
+- Include downloadable Sigstore bundles and consumer verification instructions.
+- Preserve v0.3.0 conversion behavior and platform coverage.
+
+See [v0.3.1 release notes](docs/releases/v0.3.1.md).
+
 ## v0.3.0
 
 - Expand native runtime-tested CI/release targets, including LoongArch64,
