@@ -564,6 +564,106 @@ impl<S: RangedSource> RangedSource for CountingSource<'_, S> {
     }
 }
 
+/// Decode one preflighted descriptor into the current PDF document. Kept
+/// independent of page placement so native text pages can reuse the same
+/// codec, scratch accounting and cleanup path as image-only composition.
+#[allow(clippy::too_many_arguments)]
+async fn emit_image<S, W, T, C>(
+    source: &mut S,
+    document: &mut PdfDocument<'_, W, C>,
+    image: &mut ComposedImage,
+    image_at: At,
+    contexts: &mut Option<ContextBank>,
+    workspaces: &mut ComposeWorkspaces<'_, T>,
+    table: Option<&QmTable>,
+    options: ComposeOptions,
+    limits: &Limits,
+    cancellation: &C,
+    report: &mut ComposeReport,
+) -> Result<crate::pdf::ImageObject, ComposeError>
+where
+    S: RangedSource,
+    W: SequentialSink,
+    T: RandomAccessScratch,
+    C: Cancellation,
+{
+    let object = match image.checked {
+        CheckedImage::Type0(info) => {
+            if contexts.is_none() {
+                *contexts = Some(ContextBank::new(1024, limits).map_err(image_at.contexts())?);
+            }
+            let settings = Type0DecodeSettings {
+                table: table.expect("type-zero table checked"),
+                arithmetic: options.arithmetic,
+                image: options.image,
+                limits,
+                cancellation,
+            };
+            let (object, scratch_report) = emit_type0_xobject(
+                source,
+                document,
+                image.record,
+                info,
+                contexts.as_mut().expect("contexts constructed"),
+                workspaces.rows,
+                Type0ScratchBudget {
+                    max_bytes: options.budget.max_row_store_bytes,
+                    max_work_bytes: options.budget.max_row_store_io_bytes,
+                },
+                &settings,
+            )
+            .await
+            .map_err(|error| scratch_error(image_at, *error))?;
+            report.peak_row_store_bytes = report
+                .peak_row_store_bytes
+                .max(scratch_report.peak_scratch_bytes);
+            report.row_store_read_bytes = add_store_bytes(
+                report.row_store_read_bytes,
+                scratch_report.scratch_read_bytes,
+            )
+            .map_err(image_at.io(ComposeStage::Scratch))?;
+            report.row_store_written_bytes = add_store_bytes(
+                report.row_store_written_bytes,
+                scratch_report.scratch_write_bytes,
+            )
+            .map_err(image_at.io(ComposeStage::Scratch))?;
+            report.type0_images += 1;
+            object
+        }
+        CheckedImage::Type3 { digest } => {
+            let (object, stats) = type3::emit(
+                source,
+                document,
+                image_at,
+                image.record,
+                digest,
+                workspaces,
+                options,
+                limits,
+                cancellation,
+            )
+            .await?;
+            report.peak_row_store_bytes = report.peak_row_store_bytes.max(stats.peak);
+            report.row_store_read_bytes = add_store_bytes(report.row_store_read_bytes, stats.read)
+                .map_err(image_at.io(ComposeStage::Scratch))?;
+            report.row_store_written_bytes =
+                add_store_bytes(report.row_store_written_bytes, stats.written)
+                    .map_err(image_at.io(ComposeStage::Scratch))?;
+            image.type3_text_header_anomaly = stats.anomaly;
+            report.type3_images += 1;
+            object
+        }
+        CheckedImage::Jpeg(checked) => {
+            let object = emit_type2_xobject(source, document, checked)
+                .await
+                .map_err(image_at.jpeg(ComposeStage::Pdf))?;
+            report.jpeg_images += 1;
+            object
+        }
+    };
+    Ok(object)
+}
+
 /// Compose every source row of the measured image-only profiles in order.
 ///
 /// HN-A/C8 require validated text framing and types 0, 1, 2 or 3. HN-B accepts only
@@ -886,82 +986,20 @@ where
             }
             let image = &mut images[index];
             let image_at = at.image(image.record);
-            let object = match image.checked {
-                CheckedImage::Type0(info) => {
-                    if contexts.is_none() {
-                        contexts =
-                            Some(ContextBank::new(1024, limits).map_err(image_at.contexts())?);
-                    }
-                    let settings = Type0DecodeSettings {
-                        table: table.expect("type-zero table checked"),
-                        arithmetic: options.arithmetic,
-                        image: options.image,
-                        limits,
-                        cancellation,
-                    };
-                    let (object, scratch_report) = emit_type0_xobject(
-                        reader.source_mut(),
-                        &mut document,
-                        image.record,
-                        info,
-                        contexts.as_mut().expect("contexts constructed"),
-                        workspaces.rows,
-                        Type0ScratchBudget {
-                            max_bytes: options.budget.max_row_store_bytes,
-                            max_work_bytes: options.budget.max_row_store_io_bytes,
-                        },
-                        &settings,
-                    )
-                    .await
-                    .map_err(|error| scratch_error(image_at, *error))?;
-                    report.peak_row_store_bytes = report
-                        .peak_row_store_bytes
-                        .max(scratch_report.peak_scratch_bytes);
-                    report.row_store_read_bytes = add_store_bytes(
-                        report.row_store_read_bytes,
-                        scratch_report.scratch_read_bytes,
-                    )
-                    .map_err(image_at.io(ComposeStage::Scratch))?;
-                    report.row_store_written_bytes = add_store_bytes(
-                        report.row_store_written_bytes,
-                        scratch_report.scratch_write_bytes,
-                    )
-                    .map_err(image_at.io(ComposeStage::Scratch))?;
-                    report.type0_images += 1;
-                    object
-                }
-                CheckedImage::Type3 { digest } => {
-                    let (object, stats) = type3::emit(
-                        reader.source_mut(),
-                        &mut document,
-                        image_at,
-                        image.record,
-                        digest,
-                        &mut workspaces,
-                        options,
-                        limits,
-                        cancellation,
-                    )
-                    .await?;
-                    report.peak_row_store_bytes = report.peak_row_store_bytes.max(stats.peak);
-                    report.row_store_read_bytes =
-                        add_store_bytes(report.row_store_read_bytes, stats.read)
-                            .map_err(image_at.io(ComposeStage::Scratch))?;
-                    report.row_store_written_bytes =
-                        add_store_bytes(report.row_store_written_bytes, stats.written)
-                            .map_err(image_at.io(ComposeStage::Scratch))?;
-                    image.type3_text_header_anomaly = stats.anomaly;
-                    report.type3_images += 1;
-                    object
-                }
-                CheckedImage::Jpeg(checked) => {
-                    let object = emit_type2_xobject(reader.source_mut(), &mut document, checked)
-                        .await
-                        .map_err(image_at.jpeg(ComposeStage::Pdf))?;
-                    report.jpeg_images += 1;
-                    object
-                }
-            };
+            let object = emit_image(
+                reader.source_mut(),
+                &mut document,
+                image,
+                image_at,
+                &mut contexts,
+                &mut workspaces,
+                table,
+                options,
+                limits,
+                cancellation,
+                &mut report,
+            )
+            .await?;
             placements.push(ImagePlacement {
                 image: object,
                 transform: image.transform,
