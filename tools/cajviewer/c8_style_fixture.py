@@ -93,6 +93,8 @@ def main():
     fixtures.extend([
         ("letter-a", baseline, None, None),
         ("digit-one", baseline, None, None),
+        ("size-ladder", [(0x1000 | (index << 5) | index, 0, 6)
+                         for index in range(1, 13)], None, None),
         ("size-squares", [(0x1000 | (index << 5) | index, 0, 6)
                           for index in range(3, 11)], None, None),
         ("symbols", baseline, None, None),

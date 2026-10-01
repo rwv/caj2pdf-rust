@@ -447,3 +447,49 @@ identity. Consequently neither universal alias equivalence nor one uniform
 compensation factor is justified. The raw character-to-Unicode mapping remains
 unchanged. Measurements are external in `actual-glyph-metrics.json` and
 `digit-one-trace.tsv` under the glyph-trace directory.
+
+## Size ladder and first text-page preview
+
+The original `size-ladder` fixture repeats `中文AM1` on twelve fixed rows,
+using equal size fields 1 through 12 and high bits `0x1000`. It is 536 bytes,
+SHA-256 `648a2074f743d3c588e48058f5847a9cc1775aba0c320fdbd9c3244987d04f7e`.
+The generator reproduces the observed input exactly. The pinned viewer's
+100% captures repeat identically. A metadata-only extension of the public
+FreeType forwarding shim records bitmap dimensions/bearings after loading;
+its baseline page is pixel-identical to the prior uninstrumented baseline.
+No glyph bitmap or outline is exported by the shim.
+
+A fresh six-page source inventory narrows the required equal size fields to
+**2, 3, 4, 5, 6 and 8**. Page 2 uses field 5 for all 1,338 glyph records. This
+bounds the first renderer's required size investigation; it does not establish
+all 32 possible field values or their physical units.
+
+An external Rust preview now exercises the existing record visitor and shared
+PDF writer on actual page 2, which has no source images. It emits all 1,338
+glyphs and the 73 observed `8006` coordinate records. The experiment explicitly
+substitutes caller-provided WenQuanYi Zen Hei and Latin/symbol fonts. It tests
+candidate source-space sizes `[60,70,80,90,105,120,140,160,180,210,240,280]`,
+subtractive header origins, and baseline `raw_y + candidate_height`, using the
+existing empirical coordinate factor. It models the coordinate records as
+thin segments. **Those size/baseline/stroke choices remain hypotheses, not an
+admitted production rendering profile.**
+
+The preview PDF passes qpdf validation and text extraction, and renders to
+661×967 pixels at 96 DPI. The independently captured viewer page frame is
+`(494,156,1155,1123)` after navigating to page 2; it is not the synthetic
+single-page frame at y=178. All four edges are visible and the page capture
+repeats identically. The first comparison reveals visible font-shape, spacing
+and stroke differences. Switching the explicit Latin substitute from DejaVu
+Serif to Liberation Serif does not eliminate those differences. No alignment,
+resizing or tolerance is used to turn this preview into a fidelity claim.
+
+External receipts are in `caj2pdf-c8-metrics-20261001` (original controls,
+public-call metadata and captures), `caj2pdf-c8-full-record-probe` (style
+inventory), and `caj2pdf-c8-render-preview-20261001` (original experimental
+harness, explicit font resources, PDF/raster/text and hashes). These artifacts
+stay outside Git. The preview is restricted to an actual image-free page and
+refuses any source image, so it cannot silently omit diagrams. It is not a
+six-page conversion, a public CLI/JS route, or a successful completion of
+#233. Next compare the candidate glyph geometry against the original controls
+before admitting rules, then integrate the existing image emitters in source
+draw order for pages 1 and 3.
