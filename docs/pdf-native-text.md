@@ -95,3 +95,16 @@ test module and output is collected for byte comparison. It does not measure
 streaming host callbacks, peak WASM memory, OPFS cleanup or cancellation
 through JS; those remain in #233/#222. No test-only production export or
 additional font framework was introduced.
+
+The same external runtime check subsequently exercised four negative paths
+in both Node and the Chromium Worker: missing glyph, injected output error,
+cancellation during glyph emission, and abandoning an unfinished page.
+Failed draws reject page completion; all four cases reject document
+completion and emit no final `%%EOF` marker. Resetting the temporary failure
+or cancellation flag does not revive a failed page. Sink requests remain
+at most 31 bytes. The normal fixture remains byte-identical to native.
+The expanded harness WASM SHA256 is
+`84102a509b835409d10b62f4216af40bf6c2a1ca021af965cee1f01c791c847b`;
+it supersedes the initial positive-only harness for subsequent reruns.
+These are core cancellation/output invariants executed under WASM, not
+JavaScript adapter cleanup or host-driven asynchronous cancellation tests.
