@@ -2058,3 +2058,14 @@ from indexed record observations and original controlled viewer inputs.
 254-character probe. No other converter source, vendor outlines or external
 text was copied. The visitor exposes a validated source span with unknown
 semantics; it does not silently discard a resource or enable conversion.
+
+### Additional native control boundaries (#242)
+
+The short and eight-byte record extensions in `hnc8/native.rs`, their Rust
+regressions and `tools/cajviewer/c8_native_control_fixture.py` are original
+MIT work. Bounded source observations identified candidate tag/value pairs;
+17 original two-glyph controls independently checked their boundaries in the
+pinned offline viewer. `docs/c8-native-controls.md` records three visible
+state changes and leaves transform semantics unresolved. No other converter
+source, vendor outlines or external document text were copied. All captured
+and derived external content remains outside Git.

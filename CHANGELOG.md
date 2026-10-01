@@ -20,6 +20,12 @@
 
 - **Breaking:** raise the minimum Rust version from 1.85.0 to 1.88.0 for
   the maintained MIT `xberg-ttf-parser` dependency used by font resources.
+
+- **Breaking:** add `NativeRecord::ExtendedControl` and preserve additional
+  verified C8 control records. Exhaustive native matches must handle their
+  raw payloads; exact transform/resource semantics remain unimplemented.
+  This does not expand public CLI/JavaScript conversion support.
+
 - **Breaking:** add `NativeRecord::EncodedString` for verified bounded C8
   `80cc/01xx` framing. Exhaustive native record matches must handle this raw
   event; unknown rendering semantics remain unsupported. CLI/JS behavior
