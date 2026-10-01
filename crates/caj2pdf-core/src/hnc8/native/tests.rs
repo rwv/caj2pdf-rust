@@ -647,3 +647,55 @@ fn preserves_additional_controls_and_atomic_8010_payload() {
     assert_eq!(error.offset, 112);
     assert!(matches!(error.kind, ErrorKind::Malformed { .. }));
 }
+
+#[test]
+fn native_image_coordinates_keep_source_axes_and_reject_unknown_profiles() {
+    let mut words = [0; 13];
+    words[..5].copy_from_slice(&[0xd300, 0xc000 | 4682, 4314, 0xc000 | 80, 50]);
+    let coordinate = decode_native_image_coordinate(&words).unwrap();
+    assert_eq!(
+        (
+            coordinate.x,
+            coordinate.y,
+            coordinate.width,
+            coordinate.height
+        ),
+        (4682, 4314, 80, 50)
+    );
+    for (field, delta) in [(1, 20), (2, 20), (3, 20), (4, 20)] {
+        let mut changed = words;
+        changed[field] += delta;
+        let decoded = decode_native_image_coordinate(&changed).unwrap();
+        let mut expected = [4682, 4314, 80, 50];
+        expected[field - 1] += delta;
+        assert_eq!(
+            [decoded.x, decoded.y, decoded.width, decoded.height],
+            expected
+        );
+    }
+    for (field, value) in [
+        (0, 0xd301),
+        (1, 0),
+        (1, 0x4000),
+        (1, 0x8000),
+        (3, 0),
+        (3, 0x4001),
+        (3, 0x8001),
+        (3, 0xc000),
+        (4, 0),
+    ] {
+        let mut invalid = words;
+        invalid[field] = value;
+        assert!(decode_native_image_coordinate(&invalid).is_none());
+    }
+    words[..5].copy_from_slice(&[0xd300, 0xffff, 0xffff, 0xffff, 0xffff]);
+    let extreme = decode_native_image_coordinate(&words).unwrap();
+    assert_eq!(
+        [extreme.x, extreme.y, extreme.width, extreme.height],
+        [0x3fff, 0xffff, 0x3fff, 0xffff]
+    );
+    words[1] = 0xc000;
+    words[2] = 0;
+    let origin = decode_native_image_coordinate(&words).unwrap();
+    assert_eq!([origin.x, origin.y], [0, 0]);
+}

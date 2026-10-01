@@ -58,6 +58,33 @@ pub fn decode_native_character(code: u16) -> Option<char> {
         .filter(|c| !c.is_control() && !(0xe000..=0xf8ff).contains(&u32::from(*c)))
 }
 
+/// Decode only the established image-coordinate fields of the raw C8 profile.
+///
+/// `words` is the payload of [`NativeRecord::Image`]. The observed `d300`
+/// profile stores x and width with `c000` high bits; y and height are unsigned
+/// words. Unknown prefixes and zero extents return `None`. Other payload words
+/// remain uninterpreted: this helper does not approve their rendering semantics.
+///
+/// Coordinates are absolute source units. Subtract [`super::Header::native_origin`]
+/// in signed or floating-point arithmetic, without a text-specific margin.
+/// Image row orientation depends on the decoded representation; this helper
+/// neither flips rows nor supplies a universal PDF image transform.
+pub fn decode_native_image_coordinate(words: &[u16; 13]) -> Option<super::RawTextCoordinate> {
+    if words[0] != 0xd300 || words[1] & 0xc000 != 0xc000 || words[3] & 0xc000 != 0xc000 {
+        return None;
+    }
+    let width = words[3] & 0x3fff;
+    if width == 0 || words[4] == 0 {
+        return None;
+    }
+    Some(super::RawTextCoordinate {
+        x: words[1] & 0x3fff,
+        y: words[2],
+        width,
+        height: words[4],
+    })
+}
+
 /// Receives one record at a time in source order, including all known controls.
 /// A callback is awaited before the next record is read. Events delivered before
 /// a later error are an incomplete prefix and must not be published as a page.

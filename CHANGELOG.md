@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Add allocation-free decoding of the independently controlled C8 native image
+  coordinate profile. Unknown prefixes and zero extents remain unsupported;
+  this does not enable complete native C8 conversion.
+
 - **Breaking:** add `hnc8::Header::native_origin` for the observed C8 native
   coordinate origin. Explicit header literals must include this field; use
   `None` for HN variants. This metadata does not enable C8 text conversion.

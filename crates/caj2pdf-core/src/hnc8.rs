@@ -38,7 +38,9 @@ pub use convert_jpeg::{
     convert_type2_image_pdf,
 };
 pub use jpeg::{JpegBudget, JpegColor, JpegInfo, read_type2_jpeg_info};
-pub use native::{NativeRecord, NativeRecordVisitor, decode_native_character};
+pub use native::{
+    NativeRecord, NativeRecordVisitor, decode_native_character, decode_native_image_coordinate,
+};
 pub use placement::{
     EMPIRICAL_COORDINATE_POINTS_PER_UNIT, EMPIRICAL_PIXEL_POINTS,
     EMPIRICAL_PLACEMENT_TOLERANCE_POINTS, EmpiricalPageGeometry, empirical_image_transform,

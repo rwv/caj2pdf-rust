@@ -668,3 +668,50 @@ targets without local validators explicitly filter only the latter.
 This verifies codec/content-writer integration, not the still-unverified source
 C8 size, baseline or decoration rules. The external six-page diagnostic has
 not yet been switched from sidecars to this internal path.
+
+
+### Independently controlled native image coordinates
+
+`tools/cajviewer/c8_image_fixture.py` generates seven original controls with
+one asymmetric 32 × 24 JPEG. They share a 300 × 230 source page and vary only
+one placement field or the declared origin. The generated files reproduce the
+external viewer inputs byte-for-byte. No external document image is used.
+
+At displayed 2896%, all seven complete page frames are (449,231,1574,1093).
+Each capture repeats identically. Bounds below are half-open screen ink bounds,
+not fractional mathematical edges:
+
+| Control | Ink bounds |
+| --- | --- |
+| Baseline (relative x=30, y=40, width=80, height=50) | (562,380,863,569) |
+| x + 20 | (637,380,938,569) |
+| y + 20 | (562,455,863,644) |
+| width + 20 | (562,380,938,569) |
+| height + 20 | (562,380,863,644) |
+| Both header origins + 20 | (486,305,788,494) |
+| Both origins and image x/y + 20 | (562,380,863,569) |
+
+The last page crop is byte-identical to the baseline. These controls establish
+subtractive origins, independent axes/extents and absence of a text-specific
+20-unit margin for this image profile. One-pixel edge rounding is visible in
+the origin-only control; do not infer fractional edges from threshold bounds.
+They independently support the earlier actual-source image-x observation.
+
+`decode_native_image_coordinate` admits the observed `d300` prefix, removes
+`c000` high bits from x/width, and preserves unsigned y/height. Unknown prefixes
+or zero extents return `None`; a renderer must report that unsupported profile
+explicitly. Remaining payload words are still opaque. The helper allocates
+nothing and does not infer fonts, units or complete-page support.
+
+The viewer vertically reverses the original JPEG relative to its encoded rows
+(black source top border appears below). Row orientation therefore remains a
+codec/emitter concern, as in the existing image-only composer; one universal
+positive-height image transform is not justified. The six-page diagnostic uses
+already decoded sidecars, whose representation must be distinguished from raw
+source JPEG/type-0 storage. This observation alone does not identify a defect
+in its existing diagrams.
+
+External receipts: `caj2pdf-c8-image-controls-20261001/manifest.json`,
+`measurements.json`, original inputs and repeated captures. This advances
+image placement under #233/#240; font size/baseline and separator fidelity
+remain unresolved.
