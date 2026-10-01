@@ -355,6 +355,37 @@ impl<W: SequentialSink, C: Cancellation> ContentPageWriter<'_, '_, '_, W, C> {
         Ok(())
     }
 
+    /// Fill a closed black polygon using PDF's nonzero winding rule.
+    /// Three to eight vertices cover small native decorations without retaining
+    /// an unbounded path. Points are streamed through fixed decimal scratch;
+    /// failure or cancellation invalidates this content page.
+    pub async fn fill_polygon(&mut self, points: &[[f64; 2]]) -> Result<()> {
+        self.start_draw()?;
+        if !(3..=8).contains(&points.len()) {
+            return Err(Error::InvalidInput {
+                reason: "PDF polygon must have three to eight vertices",
+            });
+        }
+        self.document.writer.write_stream_bytes(b"q 0 g\n").await?;
+        for (index, point) in points.iter().enumerate() {
+            let mut command = DecimalMatrix {
+                bytes: [0; MATRIX_TEXT_BYTES],
+                length: 0,
+            };
+            command.push(point[0])?;
+            command.push(point[1])?;
+            self.document
+                .writer
+                .write_stream_bytes(command.as_bytes())
+                .await?;
+            let operator = if index == 0 { b" m\n" } else { b" l\n" };
+            self.document.writer.write_stream_bytes(operator).await?;
+        }
+        self.document.writer.write_stream_bytes(b"h f Q\n").await?;
+        self.failed = false;
+        Ok(())
+    }
+
     pub async fn finish(self) -> Result<u32> {
         if self.failed {
             return Err(Error::InvalidInput {

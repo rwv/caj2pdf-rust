@@ -13,6 +13,7 @@ struct Sink {
     bytes: Vec<u8>,
     max_request: usize,
     fail_after: Option<usize>,
+    fail_now: std::rc::Rc<std::cell::Cell<bool>>,
     pending: std::rc::Rc<std::cell::Cell<bool>>,
 }
 impl SequentialSink for Sink {
@@ -21,9 +22,10 @@ impl SequentialSink for Sink {
             std::future::pending::<()>().await;
         }
         self.max_request = self.max_request.max(bytes.len());
-        if self
-            .fail_after
-            .is_some_and(|limit| self.bytes.len() >= limit)
+        if self.fail_now.get()
+            || self
+                .fail_after
+                .is_some_and(|limit| self.bytes.len() >= limit)
         {
             return Err(std::io::Error::other("injected output failure").into());
         }
@@ -142,6 +144,92 @@ fn embedded_font_and_ordered_mixed_page_reopen() {
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(root.join("original.ttf"), bytes).unwrap();
         std::fs::write(root.join("mixed.pdf"), sink.bytes).unwrap();
+    }
+}
+
+#[test]
+fn bounded_filled_polygons_preserve_concavity_and_close_paths() {
+    let limits = Limits {
+        io_chunk_bytes: 31,
+        ..Limits::default()
+    };
+    let mut sink = Sink::default();
+    run(async {
+        let mut document = PdfDocument::new(&mut sink, &limits, &NEVER).await.unwrap();
+        let mut content = document.begin_content_page(page(), &[], &[]).await.unwrap();
+        content
+            .fill_polygon(&[
+                [10.0, 10.0],
+                [30.0, 10.0],
+                [45.0, 25.0],
+                [30.0, 40.0],
+                [10.0, 40.0],
+                [25.0, 25.0],
+            ])
+            .await
+            .unwrap();
+        content
+            .fill_polygon(&[[70.0, 10.0], [90.0, 10.0], [70.0, 30.0]])
+            .await
+            .unwrap();
+        content
+            .fill_polygon(&[
+                [60.0, 50.0],
+                [80.0, 50.0],
+                [90.0, 60.0],
+                [90.0, 80.0],
+                [80.0, 90.0],
+                [60.0, 90.0],
+                [50.0, 80.0],
+                [50.0, 60.0],
+            ])
+            .await
+            .unwrap();
+        content.finish().await.unwrap();
+        document.finish().await.unwrap();
+    });
+    assert!(sink.max_request <= 31);
+    let text = String::from_utf8_lossy(&sink.bytes);
+    assert!(text.contains("q 0 g\n10 10 m\n30 10 l\n45 25 l\n30 40 l\n10 40 l\n25 25 l\nh f Q\n"));
+    assert_eq!(text.matches("h f Q").count(), 3);
+    let mut source = SeekableSource::new(Cursor::new(sink.bytes.clone())).unwrap();
+    let length = source.size();
+    let index = run(crate::pdf::PdfIndex::open(
+        &mut source,
+        crate::pdf::PdfRange { offset: 0, length },
+        &limits,
+        &NEVER,
+    ))
+    .unwrap();
+    assert_eq!(index.pages().len(), 1);
+    if let Some(path) = std::env::var_os("CAJ2PDF_POLYGON_TEST_OUTPUT") {
+        std::fs::write(path, sink.bytes).unwrap();
+    }
+}
+
+#[test]
+fn invalid_polygons_and_output_failure_poison_the_content_page() {
+    for case in 0..7 {
+        let limits = Limits::default();
+        let mut sink = Sink::default();
+        let fail_now = sink.fail_now.clone();
+        run(async {
+            let mut document = PdfDocument::new(&mut sink, &limits, &NEVER).await.unwrap();
+            let mut content = document.begin_content_page(page(), &[], &[]).await.unwrap();
+            let mut points = vec![[0.0, 0.0], [20.0, 0.0], [10.0, 20.0]];
+            match case {
+                0 => points.clear(),
+                1 => points.truncate(2),
+                2 => points.resize(9, [0.0, 0.0]),
+                3 => points[1][0] = f64::NAN,
+                4 => points[2][1] = MAX_PDF_INTEGER as f64 + 1.0,
+                5 => fail_now.set(true),
+                _ => content.failed = true,
+            }
+            assert!(content.fill_polygon(&points).await.is_err());
+            assert!(content.finish().await.is_err());
+            assert!(document.finish().await.is_err());
+        });
     }
 }
 
@@ -381,7 +469,7 @@ fn cancellation_and_abandoned_draws_cannot_publish_a_partial_page() {
             self.0.get()
         }
     }
-    for pending in [false, true] {
+    for (pending, polygon) in [(false, false), (true, false), (false, true), (true, true)] {
         let mut source = FontSource::new();
         let limits = Limits::default();
         let mut font = run(TrueTypeFont::read(&mut source, &limits, &NEVER)).unwrap();
@@ -393,9 +481,17 @@ fn cancellation_and_abandoned_draws_cannot_publish_a_partial_page() {
         let font = run(document.add_font(&mut font)).unwrap();
         let fonts = [&font];
         let mut page = run(document.begin_content_page(page(), &fonts, &[])).unwrap();
+        let draw = async {
+            if polygon {
+                page.fill_polygon(&[[10.0, 10.0], [30.0, 10.0], [20.0, 30.0]])
+                    .await
+            } else {
+                page.glyph(0, 'A', matrix(10.0)).await
+            }
+        };
         if pending {
             suspend.set(true);
-            let mut future = std::pin::pin!(page.glyph(0, 'A', matrix(10.0)));
+            let mut future = std::pin::pin!(draw);
             assert!(matches!(
                 future
                     .as_mut()
@@ -404,10 +500,7 @@ fn cancellation_and_abandoned_draws_cannot_publish_a_partial_page() {
             ));
         } else {
             cancelled.set(true);
-            assert!(matches!(
-                run(page.glyph(0, 'A', matrix(10.0))),
-                Err(Error::Cancelled)
-            ));
+            assert!(matches!(run(draw), Err(Error::Cancelled)));
         }
         suspend.set(false);
         cancelled.set(false);

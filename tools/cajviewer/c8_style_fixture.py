@@ -22,7 +22,7 @@ VARIANTS = (
 )
 
 
-def document(styles, control_record=None, drawing=None, codes=None, *, row_step=500, height=7469):
+def document(styles, control_record=None, drawing=None, codes=None, *, row_step=500, height=7469, drawing_dy=50):
     """One original page, with 中文AM1 as the default test string."""
     if codes is None:
         codes = (0xD6D0, 0xCEC4, 0xA0C1, 0xA0CD, 0xA0B1)
@@ -39,7 +39,7 @@ def document(styles, control_record=None, drawing=None, codes=None, *, row_step=
         if drawing is not None:
             tag, value, delta = drawing
             y = 4800 + row * row_step
-            drawing_pairs = [(tag, value), (5200 + delta, y), (6300, y + 50)]
+            drawing_pairs = [(tag, value), (5200 + delta, y), (6300, y + drawing_dy)]
             if value != 0xA383:
                 drawing_pairs.append((0xFFFF, 5))
             pairs = drawing_pairs + pairs
@@ -88,6 +88,7 @@ def main():
             ("draw06alternate", 0x8006, 0xA38B, 0),
         )
     )
+    fixtures.append(("draw10horizontal", baseline, None, (0x8010, 1, 0)))
     symbols = {
         "letter-a": (0xA0C1,),
         "digit-one": (0xA0B1,),
@@ -111,6 +112,8 @@ def main():
     manifest = []
     for name, styles, control_record, drawing in fixtures:
         geometry = {"row_step": 350, "height": 3200} if name == "size-profile" else {}
+        if name == "draw10horizontal":
+            geometry["drawing_dy"] = 0
         data = document(styles, control_record, drawing, symbols.get(name), **geometry)
         (args.output / f"{name}.caj").write_bytes(data)
         manifest.append({

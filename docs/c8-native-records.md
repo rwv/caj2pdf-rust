@@ -607,3 +607,44 @@ subpixel placement still differ. This supports continued hairline comparison
 but does not complete segment fidelity or native page conversion. Diagnostic
 source is under `caj2pdf-c8-render-preview-20261001/src/bin/segments.rs` and
 captures/receipts remain in `caj2pdf-c8-isolated-size-20261001`, outside Git.
+
+
+### Horizontal decoration and complete diagnostic preview
+
+The earlier diagonal `8010/1` control did not establish that this record was
+ignorable. The actual page-6 record has equal endpoint y coordinates. Removing
+only this record removes a visible repeated chevron separator; repeated source
+and modified captures are individually identical. The changed page-relative
+region is (19,600,641,606), with full frame (494,202,1155,1169).
+The original `draw10horizontal` fixture reproduces visible decoration without
+source-document content. Its geometry manifest explicitly sets `drawing_dy=0`.
+Do not silently discard this required record or assume its diagonal behavior.
+
+The PDF content writer now supplies a bounded black filled polygon primitive
+(three to eight vertices), streaming coordinates through fixed scratch. Tests
+cover concavity, closure, short writes, invalid coordinates, cancellation and
+failed-output poisoning. This primitive does not establish C8 decoration shape
+or spacing; those remain profile-specific work in #240.
+
+Original geometric font controls now offer `extended-metrics` and
+`shifted-outline` variants. Changing ascent/descent alone preserved the tested
+CJK and Latin page crops. Moving original outlines up by 250/1000 em moved the
+field-5 glyph up by 101 pixels for a 404-pixel em. This supports ordinary outline
+placement relative to a baseline, but does not resolve the observed class-specific
+Latin placement or the exact size table. No vendor outlines are copied.
+
+An external six-page diagnostic now emits all 6638 mapped glyphs, three decoded
+images and the required separator through shared PDF primitives. qpdf accepts
+its 14,845,250-byte PDF, and MuPDF renders all six pages. Images were decoded by
+the existing Rust codecs into temporary PDFs and extracted losslessly into
+external row sidecars. This is not the production streaming image integration.
+The diagnostic still uses hypothetical size/baseline rules, explicit substitute
+fonts and an original approximate chevron shape. Visible text-spacing differences
+remain. It therefore does not pass #233/#240 fidelity or public-adapter acceptance.
+
+External diagnostics and outputs remain under
+`caj2pdf-c8-render-preview-20261001`; viewer controls are under
+`caj2pdf-c8-nativefont-page6-20261001`,
+`caj2pdf-c8-ascent-control-20261001` and
+`caj2pdf-c8-outline-shift-20261001`. No external fonts, captures, extracted text,
+image rows or preview PDFs are repository fixtures.
