@@ -14,7 +14,7 @@ type aliases, reference versions, and measured results. CAJSamples has no
 redistribution grant recorded for this project. Keep its documents and every
 PDF derived from them outside this repository.
 
-## v0.1 support and release status
+## Current support and release status
 
 This is the current CLI, Node and browser support summary. “Supported” is
 limited to each documented input profile, not every file with that signature.
@@ -47,6 +47,101 @@ Python-reference corpus expectations below are a separate compatibility
 baseline, not a CAJViewer verdict. Missing optional inputs are `NOT_RUN`;
 known pixel failures are not passing baselines.
 
+### Reproducible v0.3.1 CLI baseline (#218)
+
+The [current CLI observations](../tests/conformance/current_cli_baseline.json)
+record a completed repeat on all 56 pinned inputs using the published Linux
+x86_64 v0.3.1 executable. Source hashes matched the inventory before and after
+all attempts. These are current observations, separate from the historical
+Python expectations. The optional runner independently checks page/image
+identity and order; it does not perform new rendered-page pixel comparisons.
+
+| Format | Inputs | Successful conversion with the recorded options |
+| --- | ---: | ---: |
+| HN | 22 | 16 |
+| C8 | 5 | 2 (explicit bookmark omission) |
+| CAJ | 17 | 11 |
+| KDH | 3 | 3 |
+| PDF | 2 | 2 |
+| TEB | 7 | 0 (recognized unsupported) |
+
+There were 64 conversion attempts: the default on every input, plus an
+explicit `--no-bookmarks` attempt on the five C8 and three HN-B inputs.
+Default conversion completed on 32 inputs; the explicit option added two C8
+outputs. All 34 emitted PDFs have page counts matching current source
+inspection. qpdf returns success on 33; issue-20 returns warning status 3,
+so that output is not counted as a clean PDF-validation pass. Neither output
+existence nor matching page counts alone establishes correct source-page order.
+The separate source-order checks pass on all 34 outputs (2,630 pages): CAJ
+page-table object IDs, PDF/KDH source page/content-object identities, and
+2,128 HN/C8 images compared in page order using Poppler extraction and the
+existing pinned codec pixel oracles. Repeated byte-identical source descriptor
+groups are recorded separately; this check does not validate their coordinates
+or deduplication semantics. All 27 CAJ/HN-A source-outline comparisons pass;
+other source-outline comparisons remain NOT_RUN. The repeat produces the same
+34 PDF hashes as the initial run.
+
+The run used a 180-second per-conversion deadline, 1 GiB process address-space
+ceiling and 512 MiB per-file ceiling. CLI scratch limits remained 64 MiB per
+store across four stores. These are configured limits, not peak-memory
+measurements. Outputs and raw logs remain outside Git. The POSIX runner needs
+Python 3.11+, qpdf, MuPDF (`mutool`) and Poppler (`pdfimages`):
+
+```sh
+python3 scripts/current_formats.py \
+  --corpus-dir /external/CAJSamples \
+  --candidate /external/caj2pdf \
+  --output-dir /external/new-format-run > /external/current-format-report.json
+```
+
+The output directory must be new and outside the checkout and corpus. With no
+corpus argument or `CAJ2PDF_CORPUS_DIR`, it reports NOT_RUN. An explicitly
+missing/mismatched corpus fails. COMPLETE means all attempts finished, including
+FAIL/UNSUPPORTED results; it is not a compatibility pass. Conversion, PDF
+validation, count/order, outlines and pixels have separate result fields.
+Each child process has the stated limits; these are not a parent-harness RSS
+bound. Image extracts are discarded after each page.
+
+Reproduced HN/C8 gaps are linked to [#220](https://github.com/rwv/caj2pdf-rust/issues/220)
+(image-less HN-B/C8 rows), [#224](https://github.com/rwv/caj2pdf-rust/issues/224)
+(type-1 image records), and [#225](https://github.com/rwv/caj2pdf-rust/issues/225)
+(additional page-text framing). Six CAJ inputs fail PDF parsing/repair and
+remain explicit failures tracked by [#226](https://github.com/rwv/caj2pdf-rust/issues/226);
+this does not establish whether their source content is recoverable. Existing
+selected-page viewer results have not been rerun by this inventory.
+
+### Fixed regression set for the next format work
+
+Use the exact hashes/paths in the matrix, not similarly named replacement files.
+The full runner remains 56 inputs; these are the small development controls,
+not a requirement to capture every page in CAJViewer.
+
+| Matrix case | Purpose |
+| --- | --- |
+| `issue-21/实时网络流量异常检测算法研究和系统实现_林尚朕.caj` | Compressed HN-A text/image placement and source outlines. |
+| `issue-69/12.caj` | Raw HN-A text records and multiple images. |
+| `issue-76/基于星载合成孔径雷达干涉测量技术的数字高程模型生成研究_任坤.caj` | Full mixed type-0/JPEG/type-3 document and repeated descriptors. |
+| `issue-58/混凝土道面评价指标分析_谢永亮.caj` | C8 conversion with explicit bookmark omission; existing viewer controls. |
+| `issue-100/中国金融体制改革阶段研究_李卉.caj` | HN-B image-less-row refusal; completeness work must not hide it. |
+| `issue-40/*`, `issue-44/*` | CAJ source order differs from historical Python; retain source order. |
+| `issue-20/*` | Existing malformed-stream warning remains visible. |
+| `issue-48/ZZXX200402047.caj` | KDH embedded-PDF control. |
+| `issue-33/test3.caj` | PDF pass-through control. |
+
+Each wildcard above resolves to the single matrix entry in that issue directory.
+Add only the directly affected cases for #224 (issue-43), #225 (issue-7,
+issue-85 Zhouli, issue-66) and #220 (issue-63/65 and issue-90 C8 rows).
+Ordinary CI uses the existing original fixtures and new synthetic checks:
+
+```sh
+python3 -m unittest discover -s tests/conformance -p 'test_current_format*.py'
+```
+
+These tests detect reordered/missing/changed image identities, a real synthetic
+PDF page permutation, malformed bitmap extents, oracle identity mismatches,
+invalid inspection metadata, missing output and timeout/error classification.
+They are not substitutes for an external corpus run or CAJViewer comparison.
+
 ### Known Python-reference differences
 
 These are accepted v0.1 differences, with full source hashes and measurements in
@@ -61,7 +156,7 @@ and valid source TOC records. The optional legacy mode remains deferred in #21.
 | `issue-73` | Python emits zero outlines after a PDF-read error; Rust preserves 100 valid source bookmarks. |
 | `issue-20`, page 39 | MuPDF encounters the same zlib/font error on both outputs. This page is not a passing render comparison. |
 
-### Final candidate evidence (#14)
+### Historical v0.1 candidate evidence (#14)
 
 - Original tests cover short I/O, malformed input, cancellation, bounded scratch,
   output cleanup, source-page omission refusal, compressed-stream finalization
@@ -81,10 +176,14 @@ and valid source TOC records. The optional legacy mode remains deferred in #21.
   were rebuilt after #197 and the example-path fix. Source inventory contains only documented
   original synthetic fixtures; external documents and vendor/build artifacts
   are absent. The numeric-state adoption record remains explicit in provenance.
-- Candidate preparation is complete after the final audit PR passes review and
-  CI. Publication has not occurred. Keep npm private and Cargo publishing
-  disabled until a release commit follows the [release policy](release-policy.md);
-  regenerate checksums if package inputs change.
+- The candidate audit was completed and GitHub releases have since been
+  published, most recently [v0.3.1](releases/v0.3.1.md). Native archives,
+  JS/WASM and container artifacts include [build provenance](build-provenance.md).
+  npm/crates.io publication remains separate; package publishing stays disabled.
+  The measurements above are historical and are not a fresh whole-corpus run.
+  [Issue #218](https://github.com/rwv/caj2pdf-rust/issues/218) tracks the current
+  format baseline; [#217](https://github.com/rwv/caj2pdf-rust/issues/217) owns
+  remaining HN/C8 improvements.
 
 ## Commands and status
 
@@ -234,7 +333,9 @@ CAJ-specific rules. Neither result claims full JBIG1 compatibility.
 
 The [#106 selected type-3 PDF diagnostic](hnc8-type3-pdf.md) converts one
 checked HN/C8 JBIG2 image record into one bilevel PDF page with a
-caller-supplied, privately held T.88 MQ table. The optional
+caller-supplied T.88 MQ table in the historical experiment. Current public
+conversion uses built-in standard states; the table-injection diagnostic is
+retained for comparison. The optional
 [`jbig2_page_pdf_parity.py`](../scripts/jbig2_page_pdf_parity.py) runner
 requires the pinned external CAJSamples corpus and private table, then checks
 each selected PDF using `qpdf`, Poppler, and fixed MuPDF/Poppler render
@@ -242,7 +343,9 @@ canaries against the [#43 hash-only pixel oracle](jbig2-oracle.md). It keeps
 strict-valid image matches separate from the single named opt-in `0xa40c`
 case, and reports the expected strict refusal separately. A clean clone
 reports `NOT_RUN` and zero PDF pixel compatibility matches. Source documents,
-MQ state rows, generated PDFs, and bitmaps are never committed. This check
+privately supplied diagnostic inputs, generated PDFs, and bitmaps remain
+external. Standard numeric states were subsequently adopted in #189, as
+recorded in [provenance](provenance.md). This check
 does not establish multi-image HN/C8 page placement or independence of the
 external oracle's decoder backends; [#107](https://github.com/rwv/caj2pdf-rust/issues/107)
 tracks source-page layout measurement.
@@ -272,12 +375,16 @@ text where available. Manual initial capture is acceptable. #128 comparison
 can start with original fixtures; it depends only on completed #125.
 Text unavailability is recorded and does not block the image route.
 
-Actual complete-page/text compatibility remains **`NOT_RUN`, zero passes**.
+Selected complete-page checks have been run: CAJ/PDF/KDH selected pages
+match; corrected HN-A/C8 frames match but exact pixels still differ. See
+[the current fixture results](cajviewer-fixtures.md) for the measured pages
+and repeatability limits. Unchecked pages and ordinary-copy text in the HN/C8
+run remain NOT_RUN; this is not whole-document or whole-family parity.
 The [V14 inventory](cajviewer-runtime-view-v14.md) and
-[twelve earlier launch observations](cajviewer-linux-startup.md) are retained;
-they do not prove document compatibility. #153 is cancelled as a standalone
-source-loading prerequisite. The revised plan supersedes the old future
-proof/launch-approval requirements, without changing historical outcomes.
+[twelve earlier launch observations](cajviewer-linux-startup.md) are historical
+startup evidence. #153 is cancelled as a standalone source-loading prerequisite.
+[#219](https://github.com/rwv/caj2pdf-rust/issues/219) tracks improvement beyond
+the completed selected-page scope of #123.
 
 Keep vendor/corpus artifacts external, preserve full-page geometry and raw
 text, and distinguish native capture from print-derived images and OCR.

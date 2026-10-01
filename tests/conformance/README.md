@@ -38,6 +38,17 @@ corpus must report `NOT_RUN`, never a compatibility pass.
 PDFs after validating the full matrix; its results make no claim about the
 other formats.
 
+## Current public CLI baseline
+
+[`current_cli_baseline.json`](current_cli_baseline.json) records the v0.3.1
+public CLI repeat separately from the historical Python expectations in
+`matrix.json`. See [current results and commands](../../docs/conformance.md#reproducible-v031-cli-baseline-218)
+for conversion, independent source-order checks, PDF warnings and the fixed
+regression set. `scripts/current_formats.py` reuses the inventory and existing
+source/oracle helpers. It writes PDFs and raw logs only to a new external
+directory. COMPLETE means attempts finished, not universal format support;
+unavailable corpus/render comparisons remain NOT_RUN.
+
 ## Optional HN/C8 placement diagnostics
 
 The [#107 layout oracle](hnc8_layout_oracle.json) contains ordered source and
