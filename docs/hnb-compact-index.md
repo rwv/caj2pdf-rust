@@ -86,8 +86,10 @@ the actual index width multiplied by page count.
 `visit_native_records` now admits the original HN-B glyph-run subset for both
 verified index layouts. It uses the existing visitor and fixed buffer; it
 neither fabricates a C8 header nor accumulates a page. The allowed HN-B forms
-are four-byte `8001` (raw y), `8002` (raw style), `801d/0000`, `8067/0006`,
-raw glyph pairs with x below `8000`, a terminal `8004` record, and the eight-byte prefix described below. Run context,
+are four-byte `8001` (raw y), `8002` (raw style), `801d/0,4`, `8067/6,7`,
+`801c/4`, `8072/0`, `8024/281d`, `c053/00e9`, raw glyph pairs with x below
+`8000`, a terminal `8004` record, the eight-byte prefix and the 16-byte
+`8006/a385` drawing described below. Run context,
 end position, declared image count, span/record budgets, cancellation and
 cursor poisoning use the same checked path as C8.
 
@@ -101,17 +103,17 @@ select fonts or render a document. In particular, the C8 character decoder
 is not implicitly applied to HN-B.
 
 A format-specific guard rejects every other required HN-B record, including
-C8 drawings/images, encoded strings, weight 4 and font 5. Extending the C8
+unverified C8 drawing forms, images, encoded strings and font 5. Extending the C8
 parser therefore cannot silently enable unverified HN-B framing. This guard
 is a small condition in the shared reader, not another parser or registry.
 
 Direct probes of the three unchanged, hash-verified corpus documents still
 fail explicitly. Selected first-page boundaries are:
 
-| Input | Accepted prefix | Next unsupported pair | Absolute offset |
+| Input | Accepted prefix | Next rejection | Absolute offset |
 | --- | --- | --- | ---: |
-| issue-100 | 43 records, 26 raw glyphs | `801d/0004` | 440 |
-| issue-63 | 2531 records, 1919 raw glyphs | `8072/0000` | 10420 |
+| issue-100 | 139 records, 106 raw glyphs | unadmitted drawing footer | 836 |
+| issue-63 | 2654 records, 2015 raw glyphs | unadmitted drawing footer | 10924 |
 | issue-65 | 1 record, 0 raw glyphs | `800a/d300` | 340 |
 
 These are partial parsing results, not successful source conversions. Earlier
@@ -141,9 +143,10 @@ font, geometry or resource semantics. Unknown values remain unsupported.
 Tests cover marker-like payloads, short reads, both layouts, all seven truncated
 lengths, following glyph context and explicit C8 rejection.
 
-The unchanged issue-100 first page now reaches offset 440 after 43 records and
-26 raw glyphs, then rejects weight `801d/0004`. All 14 source pages still fail
-explicitly; none is counted as successful conversion. Receipts remain external
+The prefix-only implementation reached offset 440 after 43 records and
+26 raw glyphs; the later in-run extension advances further, as recorded in the
+current table above. No source page is counted as a successful conversion.
+Prefix receipts remain external
 in `caj2pdf-c8-advance-control-20261001/hnb-c052-{inputs,comparison}.json` and
 paired captures. No source-document strings or binary payloads are committed.
 

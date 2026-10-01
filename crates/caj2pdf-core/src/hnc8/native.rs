@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-//! Framing of the independently observed raw C8 native-page subset.
+//! Framing of independently observed raw C8 and HN-B native-page subsets.
 //! Events preserve uninterpreted words; they do not imply renderability.
 
 use super::{ErrorKind, Hnc8Reader, Location, Result, TextBudget, Variant, read_fixed};
@@ -75,8 +75,8 @@ pub trait NativeRecordVisitor {
 
 impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
     /// Visit admitted C8 or HN-B raw native records without allocating.
-    /// HN-B currently admits only the independently controlled glyph-run subset;
-    /// C8 drawing, image and extended-control framing is not inherited.
+    /// HN-B admits independently controlled glyph runs, controls and one drawing
+    /// form. Other C8 drawing, image and control framing is not inherited.
     /// Call `next_page` first. This does not consume image descriptors, decode
     /// characters or enable conversion. Unknown framing stops at its source byte.
     /// A failed/dropped operation poisons the reader, just like image traversal.
