@@ -84,10 +84,13 @@ def main():
         )
     )
     symbols = {
+        "size-squares": (0xA1F6, 0xA1F5, 0xCCEF, 0xB9FA, 0xD6D0),
         "symbols": (0xAAB3, 0xA0A6, 0xACA3, 0xA3A6, 0xA3AA),
         "symbols-permuted": (0xACA3, 0xA3AA, 0xA0A6, 0xA3A6, 0xAAB3),
     }
     fixtures.extend([
+        ("size-squares", [(0x1000 | (index << 5) | index, 0, 6)
+                          for index in range(3, 11)], None, None),
         ("symbols", baseline, None, None),
         ("symbols-permuted", [(0x1084, 4, 6)] * 8, None, None),
     ])

@@ -392,3 +392,20 @@ placement. Do not infer those values solely from hinted raster bounds.
 External receipts are in `caj2pdf-c8-fonttrace-20261001`: original shim,
 per-control traces, captures and action log. No proprietary font, source
 content or runtime trace is committed.
+
+
+The generator also reproduces the original `size-squares` control: eight rows
+with both five-bit size fields set to 3 through 10, fixed high bits `0x1000`,
+and the original string `■□田国中`. Its SHA-256 is
+`7d89555d34b6a5e4d3d0aee357b4c03db6197354b4690029a3394fa4391a860f`.
+Generation was checked byte-for-byte against the externally observed control.
+The manifest records every raw row style and character code. This is a size
+comparison fixture, not an accepted physical-size mapping.
+
+A bounded zoom follow-up on the baseline records CNKI pixel-height requests
+12, 14, 17, 20 and 23 at requested zooms 110%, 125%, 150%, 175% and 200%.
+Requests at 400% and 800% were not accepted: the visible zoom field remained
+200%; they provide no high-zoom size evidence. Empty traces at previously
+rendered sizes also do not establish absence of glyph rendering. Derive a
+source-space size rule from independent controls before adopting a PDF font
+size; do not use the final pixel request as a zoom-independent point size.
