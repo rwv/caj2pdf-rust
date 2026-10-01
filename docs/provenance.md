@@ -1863,3 +1863,14 @@ The workflow integration and [verification documentation](build-provenance.md)
 are original MIT work based on the official action inputs and GitHub CLI.
 Build attestations authenticate released bytes and workflow identity; they do
 not change the independent source/format/fixture rights records in this file.
+
+### Native C8 text feasibility (#223 / #229)
+
+The bounded `c8_text_probe.py` diagnostic and its tests are original MIT work.
+It reuses the independent container index reader and treats Python's stdlib
+GB18030 codec as a black box; no converter implementation was read or copied.
+Character/position controls were verified by changing only selected words in
+an external C8 source and observing the pinned offline viewer. Unknown font,
+vector and character semantics remain explicit. See `native-text-feasibility.md`
+for the bounded go/no-go decision and separate ordinary-copy/image-only
+controls. External text, images, fonts and source mutations are not committed.
