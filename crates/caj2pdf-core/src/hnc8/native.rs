@@ -200,7 +200,7 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
                         }
                         images += 1;
                         let mut words = [0; 13];
-                        for (out, pair) in words.iter_mut().zip(bytes[2..].chunks_exact(2)) {
+                        for (out, pair) in words.iter_mut().zip(bytes[2..].as_chunks::<2>().0) {
                             *out = word(pair);
                         }
                         NativeRecord::Image { words }

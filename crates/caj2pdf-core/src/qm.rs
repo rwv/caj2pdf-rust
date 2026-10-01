@@ -725,10 +725,10 @@ mod tests {
             if count > 0 {
                 destination[..count].copy_from_slice(&self.bytes[start..start + count]);
             }
-            if let Some((cancel_at, flag)) = &self.cancel_at {
-                if offset == *cancel_at {
-                    flag.set(true);
-                }
+            if let Some((cancel_at, flag)) = &self.cancel_at
+                && offset == *cancel_at
+            {
+                flag.set(true);
             }
             Ok(count)
         }

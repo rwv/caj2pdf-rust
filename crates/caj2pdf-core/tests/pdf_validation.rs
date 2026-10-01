@@ -308,8 +308,8 @@ fn image_pages_and_unicode_outlines_reopen_with_correct_order_and_dimensions() {
     if image_bytes.starts_with(ppm_header.as_bytes()) {
         let pixels = &image_bytes[ppm_header.len()..];
         assert_eq!(pixels.len(), BINARY_GRAY.len() * 3);
-        for (rgb, gray) in pixels.chunks_exact(3).zip(BINARY_GRAY) {
-            assert_eq!(rgb, [*gray; 3], "decoded grayscale pixel differs");
+        for (rgb, gray) in pixels.as_chunks::<3>().0.iter().zip(BINARY_GRAY) {
+            assert_eq!(*rgb, [*gray; 3], "decoded grayscale pixel differs");
         }
     } else if image_bytes.starts_with(pgm_header.as_bytes()) {
         assert_eq!(&image_bytes[pgm_header.len()..], BINARY_GRAY);

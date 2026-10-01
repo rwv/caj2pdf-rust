@@ -229,7 +229,10 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
     }
 }
 
-fn bmp_glyph(face: &ttf_parser::Face<'_>, code: u32) -> Result<Option<crate::pdf::FontGlyph>> {
+fn bmp_glyph(
+    face: &xberg_ttf_parser::Face<'_>,
+    code: u32,
+) -> Result<Option<crate::pdf::FontGlyph>> {
     let Some(character) = char::from_u32(code) else {
         return Ok(None);
     };

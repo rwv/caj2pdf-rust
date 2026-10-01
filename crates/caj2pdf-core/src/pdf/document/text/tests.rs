@@ -291,7 +291,9 @@ fn font_limits_and_invalid_glyphs_are_explicit() {
         }
         if case == 3 {
             let table = source.bytes[12..]
-                .chunks_exact(16)
+                .as_chunks::<16>()
+                .0
+                .iter()
                 .find(|entry| &entry[..4] == b"cmap")
                 .unwrap();
             let offset = u32::from_be_bytes(table[8..12].try_into().unwrap()) as usize;
@@ -419,7 +421,9 @@ fn notdef_is_missing_and_postscript_hash_is_escaped() {
     let mut source = FontSource::new();
     let offset = |bytes: &[u8], tag: &[u8; 4]| {
         let table = bytes[12..]
-            .chunks_exact(16)
+            .as_chunks::<16>()
+            .0
+            .iter()
             .find(|entry| &entry[..4] == tag)
             .unwrap();
         u32::from_be_bytes(table[8..12].try_into().unwrap()) as usize

@@ -1163,9 +1163,9 @@ direct third-party Cargo dependencies in the current graph:
 
 | Package | Role | License | Edition / minimum Rust | External dependencies |
 | --- | --- | --- | --- | --- |
-| `caj2pdf-core` | Platform-neutral library | MIT | 2024 / 1.85.0 | `fax`, `flate2`, `sha2`, `ttf-parser` (direct) |
-| `caj2pdf-cli` | Native executable | MIT | 2024 / 1.85.0 | Unix: `signal-hook`; Windows: `ctrlc`, `winapi-util` |
-| `caj2pdf-wasm` | WASM/JavaScript boundary | MIT | 2024 / 1.85.0 | None |
+| `caj2pdf-core` | Platform-neutral library | MIT | 2024 / 1.88.0 | `fax`, `flate2`, `sha2`, `xberg-ttf-parser` (direct) |
+| `caj2pdf-cli` | Native executable | MIT | 2024 / 1.88.0 | Unix: `signal-hook`; Windows: `ctrlc`, `winapi-util` |
+| `caj2pdf-wasm` | WASM/JavaScript boundary | MIT | 2024 / 1.88.0 | None |
 
 The Rust standard library and compiler-provided target components are not
 third-party Cargo dependencies. The `js/` npm package (issue #13) has no
@@ -1937,17 +1937,32 @@ of every glyph outline. The shared writer now embeds fonts and emits positioned 
 images. C8 style interpretation and complete six-page acceptance remain open
 under #233; see [the output contract](pdf-native-text.md).
 
-`ttf-parser` **0.25.1**, normal native and WASM dependency, supplies the
+`xberg-ttf-parser` **1.1.0**, normal native and WASM dependency, supplies
 borrowed `Face::from_raw_tables` and character/metric APIs. Default features
-are disabled; only `std` is enabled. There are no enabled transitive
-runtime dependencies, native libraries, build scripts or proc macros.
-Its distributed Cargo manifest, feature graph and `LICENSE-MIT` were
-reviewed. The declared license is `MIT OR Apache-2.0`; this project selects
-**MIT**, copyright (c) 2018 Yevhenii Reizner. Preserve that complete notice
-using the existing dependency-notice packaging step. The dependency source
-is downloaded by Cargo, not copied into this repository. Its optional
-layout/variation features and example/test development dependencies are
-not enabled. No proprietary viewer font is bundled or used as source code.
+are disabled; only `std` is enabled. `cargo tree --edges normal,build` shows
+no enabled dependencies. The published manifest, README, source API and
+complete `LICENSE` were reviewed. The license is **MIT**, copyright
+2025–2026 Kreuzberg, Inc. and 2018 Yevhenii Reizner and the ttf-parser
+contributors. Preserve both notices through the existing packaging script.
+The source is downloaded by Cargo, not vendored into this repository.
+Optional layout/variation features and development dependencies are disabled.
+No proprietary viewer font is bundled or used as source code.
+
+This maintained distribution carries nine upstream fixes, including bounded
+composite-glyph traversal and maximum-glyph-count `loca` handling. Its
+[published README](https://docs.rs/crate/xberg-ttf-parser/1.1.0/source/README.md)
+identifies each change; the upstream project continues to consume the
+published crate. Our adapter reads metadata only; these upstream outline
+fixes do not imply that we validate or render arbitrary font outlines.
+The minimum Rust version becomes **1.88.0**, matching the dependency and the
+updated workspace MSRV check. Native platform compiler pins are unchanged.
+
+The former `ttf-parser 0.25.1` was rejected by the advisory gate under
+RUSTSEC-2026-0192 (unmaintained). A local `read-fonts 0.44.0` migration passed
+244 PDF tests but was rejected: its required `font-types` → `bytemuck_derive`
+→ `proc-macro2` → `unicode-ident` build chain requires Unicode-3.0 in addition
+to MIT. That experiment is not part of the shipped source or lockfile.
+No license exception, advisory suppression or local parser fork is used.
 
 
 ### Original embedded-font and mixed-page fixtures

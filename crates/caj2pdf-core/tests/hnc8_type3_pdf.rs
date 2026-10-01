@@ -203,30 +203,30 @@ impl RangedSource for Source {
     ) -> caj2pdf_core::Result<usize> {
         self.calls += 1;
         self.max_request = self.max_request.max(destination.len());
-        if let Some((call, index)) = self.mutate_at_call {
-            if self.calls == call {
-                self.bytes[index] ^= 1;
-            }
+        if let Some((call, index)) = self.mutate_at_call
+            && self.calls == call
+        {
+            self.bytes[index] ^= 1;
         }
-        if let Some((watched, visit, index)) = self.mutate_at_offset_visit {
-            if offset == watched {
-                self.offset_visits += 1;
-                if self.offset_visits == visit {
-                    self.bytes[index] ^= 1;
-                }
+        if let Some((watched, visit, index)) = self.mutate_at_offset_visit
+            && offset == watched
+        {
+            self.offset_visits += 1;
+            if self.offset_visits == visit {
+                self.bytes[index] ^= 1;
             }
         }
         if self.fail_at == Some(offset) {
             return Err(Error::Io(io::Error::other("injected source failure")));
         }
-        if let Some((watched, visit)) = self.fail_on_offset_visit {
-            if offset == watched {
-                self.failed_offset_visits += 1;
-                if self.failed_offset_visits == visit {
-                    return Err(Error::Io(io::Error::other(
-                        "injected staged source failure",
-                    )));
-                }
+        if let Some((watched, visit)) = self.fail_on_offset_visit
+            && offset == watched
+        {
+            self.failed_offset_visits += 1;
+            if self.failed_offset_visits == visit {
+                return Err(Error::Io(io::Error::other(
+                    "injected staged source failure",
+                )));
             }
         }
         if self.overreport_at == Some(offset) {
@@ -678,7 +678,7 @@ fn selected_nonblank_asymmetric_pixels_keep_top_left_black_with_two_renderers() 
     // Require the black mark to remain at the top left and every rendered
     // black pixel to lie in its clipped 3x3 neighborhood, with no color slack.
     assert_ne!(poppler[0] & 0x80, 0);
-    for (y, row) in poppler.chunks_exact(2).enumerate() {
+    for (y, row) in poppler.as_chunks::<2>().0.iter().enumerate() {
         for x in 0..9 {
             if row[x / 8] & (0x80 >> (x % 8)) != 0 {
                 assert!(x <= 1 && y <= 1, "Poppler moved a black pixel to ({x},{y})");

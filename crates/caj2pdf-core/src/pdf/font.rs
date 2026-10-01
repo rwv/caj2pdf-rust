@@ -4,7 +4,7 @@
 
 use crate::fallible::reserve_exact;
 use crate::{Cancellation, Error, Limits, RangedSource, Result, read_exact_at};
-use ttf_parser::{Face, RawFaceTables};
+use xberg_ttf_parser::{Face, RawFaceTables};
 
 const MAX_TABLES: usize = 128;
 /// Maximum combined retained font metadata, independent of outline size.
@@ -136,7 +136,7 @@ impl<'a, S: RangedSource> TrueTypeFont<'a, S> {
         }
         if matches!(
             face.permissions(),
-            None | Some(ttf_parser::Permissions::Restricted)
+            None | Some(xberg_ttf_parser::Permissions::Restricted)
         ) || !face.is_outline_embedding_allowed()
         {
             return Err(invalid("font metadata does not permit outline embedding"));

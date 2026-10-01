@@ -2,7 +2,7 @@
 name = "caj2pdf-core"
 version = "0.3.1"
 edition = "2024"
-rust-version = "1.85.0"
+rust-version = "1.88.0"
 license = "MIT"
 description = "Platform-neutral CAJ-family conversion core"
 repository = "https://github.com/rwv/caj2pdf-rust"
@@ -15,4 +15,4 @@ path = "src/lib.rs"
 fax = "0.3.0"
 flate2 = { version = "1.1.10", default-features = false, features = ["rust_backend"] }
 sha2 = { version = "0.11.0", default-features = false }
-ttf-parser = { version = "0.25.1", default-features = false, features = ["std"] }
+xberg-ttf-parser = { version = "1.1.0", default-features = false, features = ["std"] }
