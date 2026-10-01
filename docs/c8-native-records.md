@@ -212,3 +212,26 @@ and `source-span-coverage.json` retain the bounded decode and interval checks.
 The ordinary-copy/runtime smoke evidence supplements the frozen #223 report;
 it does not retroactively make that report's intentionally limited prototype a
 complete extractor.
+
+### HN-B native image framing (issue #250)
+
+`tools/cajviewer/hnb_image_fixture.py` generates 13 original one-page controls
+outside the repository. The pinned offline CAJViewer accepts the 20-byte index,
+28-byte `800a/d300` image record and chained type-2 descriptors. Changing x, y,
+width or header origins independently changes the displayed image as expected;
+two images consume consecutive descriptors. Text following the 28-byte record
+remains visible. The visitor preserves all 13 raw words, source order and exact
+image counts; this is framing support, not a new public conversion profile.
+The compact 12-byte index still rejects nonzero third words.
+
+The generated inputs reproduce the independently captured controls byte-for-byte.
+External receipts are in `caj2pdf-hnb-image-controls-20261001`; every selected page
+crop repeats identically at 971% zoom. No source documents or captures are bundled.
+
+Mixed-page rendering is unresolved: a glyph followed by a green JPEG changes
+`(68,68,68)` to `(0,4,0)`, consistent with bitwise AND against decoded `(1,180,0)`
+and inconsistent with Multiply. However image A → glyph → image B renders B
+opaquely, while glyph → A → B retains cumulative AND in the overlap. These
+controls rule out a universal image blend. They do not yet establish the state
+that selects the operation; do not implement a guessed global blend or claim
+complete HN-B conversion from raw record admission.

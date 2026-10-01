@@ -1984,3 +1984,14 @@ complete conversion.
 The HN-B implicit-style diagnostic is based on four original first-row
 replacement controls, all with repeated ordinary viewer captures. Missing
 `8002` is not treated as proven corruption; no default style is inferred.
+
+### HN-B native image controls
+
+The `800a/d300` admission and tests are original MIT code, based on independently
+generated HN-B images and ordinary pinned CAJViewer observations.
+`tools/cajviewer/hnb_image_fixture.py` creates asymmetric and solid-color JPEGs
+from invented pixels and uses an invented glyph placement. Its asymmetric image
+recipe reuses this project's original MIT C8 control design. All 13 generated
+inputs were checked byte-for-byte against the external captured controls. No
+vendor implementation, glyph outline, corpus image or extracted source text was
+copied. Raw framing is admitted separately from unresolved image/text blending.

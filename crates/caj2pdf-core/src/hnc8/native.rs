@@ -178,6 +178,7 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
                             | (0xffff, 5)
                             | (0x8006, 0xa381 | 0xa385)
                             | (0xc052, 0xa385)
+                            | (0x800a, 0xd300)
                     )
                 {
                     return Err(at.error(ErrorKind::Unsupported {
