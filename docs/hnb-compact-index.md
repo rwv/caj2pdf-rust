@@ -309,3 +309,21 @@ position/style: this identifies an unresolved profile/context rule, not
 proof that the documents are corrupt. No default style or blank output
 is substituted. Other remaining controls include `8074`, additional
 `8067`/`8070`/`8073` values and the `800a/d300` image form.
+
+### Implicit style is an unsupported profile
+
+Four original controls replace only the first row's `8002` style record:
+no replacement, `8070/002b` alone, `8071/002b` alone, and both controls.
+All display the original first-row glyphs in pinned CAJViewer; all repeated
+page crops match. The no-style and paired-control rows have different
+appearances. Later rows retain their explicit style records. This disproves
+the requirement that every valid HN-B run must first contain `8002`; it
+does not identify a portable default style or physical font-size formula.
+
+The visitor now reports missing HN-B style as unsupported, preserving its
+located failure instead of claiming malformed source. C8's existing context
+validation remains unchanged. No glyph is emitted with an invented default.
+The generator reproduces all four controls; receipts are
+`context-{inputs,comparison}.json` in the preceding external directory.
+The pending implementation must model explicit axis controls and verified
+default/reset behavior before admitting these runs for rendering.

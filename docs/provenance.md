@@ -1980,3 +1980,7 @@ position changes. Their repeated viewer observations and exact generated
 byte parity establish framing only. All source document probes report raw
 counts and located outcomes, without committing document text or claiming
 complete conversion.
+
+The HN-B implicit-style diagnostic is based on four original first-row
+replacement controls, all with repeated ordinary viewer captures. Missing
+`8002` is not treated as proven corruption; no default style is inferred.

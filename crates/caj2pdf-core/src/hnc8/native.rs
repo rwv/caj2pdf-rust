@@ -319,6 +319,12 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
                         NativeRecord::End { value }
                     }
                     x if x < 0x8000 => {
+                        if self.header.variant == Variant::HnB && style.is_none() {
+                            return Err(at.error(ErrorKind::Unsupported {
+                                field: "HN-B implicit native glyph style",
+                                value: 0,
+                            }));
+                        }
                         let (Some(y), Some(style)) = (y, style) else {
                             return Err(
                                 at.malformed("native glyph", "missing run position or style")

@@ -21,11 +21,12 @@ def page(rows, codes, number):
     return data
 
 
-def document(width, marker, prefix=(), run=()):
+def document(width, marker, prefix=(), run=(), first_style=(0x8002, 0x1084)):
     # Unequal spans and distinct invented strings expose incorrect page lookup.
     pages = [page(8, (0xD6D0, 0xCEC4, 0xA0C1, 0xA0CD, 0xA0B1), 1),
              page(4, (0xA0D0, 0xA0C1, 0xA0C7, 0xA0C5, 0xA0B2), 2)]
     pages[0][16:16] = struct.pack("<" + "H" * len(run), *run)
+    pages[0][4:8] = struct.pack("<" + "H" * len(first_style), *first_style)
     pages[0][:0] = struct.pack("<" + "H" * len(prefix), *prefix)
     header = bytearray(216)
     struct.pack_into("<III", header, 0, 0x4E48, 200, 136)
@@ -131,6 +132,16 @@ def main():
                 manifest.append({"file": name, "marker": 0, "row_bytes": 12,
                                  "run_words": words, "bytes": len(data),
                                  "sha256": hashlib.sha256(data).hexdigest()})
+    for suffix, style in (
+        ("no-style", ()), ("width-only", (0x8070, 0x002B)),
+        ("height-only", (0x8071, 0x002B)),
+        ("paired-style", (0x8070, 0x002B, 0x8071, 0x002B)),
+    ):
+        name = f"hnb-context-{suffix}.caj"
+        data = document(12, 0, first_style=style)
+        (args.output / name).write_bytes(data)
+        manifest.append({"file": name, "first_style": style, "bytes": len(data),
+                         "sha256": hashlib.sha256(data).hexdigest()})
     (args.output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
 
 

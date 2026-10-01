@@ -1247,3 +1247,29 @@ fn hnb_run_controls_and_drawing_preserve_following_glyph_context() {
         ));
     }
 }
+
+#[test]
+fn hnb_implicit_style_is_unsupported_rather_than_proven_malformed() {
+    for width in [12, 20] {
+        for controls in [
+            vec![],
+            vec![[0x8070, 0x002b]],
+            vec![[0x8071, 0x002b]],
+            vec![[0x8070, 0x002b], [0x8071, 0x002b]],
+        ] {
+            let mut words = vec![[0x8001, 4700]];
+            words.extend(controls);
+            words.extend([[5200, 0xd6d0], [0x8004, 1]]);
+            let mut source = hnb_source(width, &[&words]);
+            let error =
+                parse(&mut source, TextBudget::default(), &mut Visitor::default()).unwrap_err();
+            assert!(matches!(
+                error.kind,
+                ErrorKind::Unsupported {
+                    field: "HN-B implicit native glyph style",
+                    value: 0
+                }
+            ));
+        }
+    }
+}
