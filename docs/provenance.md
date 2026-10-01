@@ -2019,3 +2019,16 @@ proprietary font program or glyph outline was copied into the project. Original
 control-page captures agree exactly with the earlier uninstrumented captures.
 These limited observations do not establish font redistribution rights or
 complete C8 rendering support; see `docs/c8-native-records.md`.
+
+
+### Original geometric-font size controls (#240)
+
+`tools/cajviewer/c8_geometric_font.py` is independently authored MIT code.
+Its square and half-square contours are constructed from coordinates, with
+no external font input. Family/resource names and cmap aliases are factual
+viewer observations; no vendor outline data or implementation is copied.
+External MIT fontTools 4.62.1 generates the diagnostic fonts, not production
+conversion output. The short `size-profile` extension to the original C8
+fixture generator is also original MIT code. Generated fonts, documents and
+viewer captures stay outside Git. The recorded zoom observations disprove
+one preview hypothesis; they do not certify a production rendering rule.

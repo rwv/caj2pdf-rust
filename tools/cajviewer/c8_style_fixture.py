@@ -22,14 +22,14 @@ VARIANTS = (
 )
 
 
-def document(styles, control_record=None, drawing=None, codes=None):
+def document(styles, control_record=None, drawing=None, codes=None, *, row_step=500, height=7469):
     """One original page, with 中文AM1 as the default test string."""
     if codes is None:
         codes = (0xD6D0, 0xCEC4, 0xA0C1, 0xA0CD, 0xA0B1)
     records = bytearray()
     for row, (style, control, font) in enumerate(styles):
         pairs = [
-            (0x8001, 4700 + row * 500),
+            (0x8001, 4700 + row * row_step),
             (0x8002, style),
             (0x801D, control),
             (0x8067, font),
@@ -38,7 +38,7 @@ def document(styles, control_record=None, drawing=None, codes=None):
             pairs.append(control_record)
         if drawing is not None:
             tag, value, delta = drawing
-            y = 4800 + row * 500
+            y = 4800 + row * row_step
             pairs = [(tag, value), (5200 + delta, y), (6300, y + 50), (0xFFFF, 5)] + pairs
         pairs.extend(
             (5200 + column * 350, code)
@@ -51,7 +51,7 @@ def document(styles, control_record=None, drawing=None, codes=None):
     struct.pack_into("<IIII", header, 0, 0xC8, 0, 1, 2)
     # Observed format identifier; no source document text or font data is copied.
     header[16:28] = "北大二扫1.00".encode("gbk")
-    struct.pack_into("<HHHH", header, 28, 4652, 4274, 5105, 7469)
+    struct.pack_into("<HHHH", header, 28, 4652, 4274, 5105, height)
     index = struct.pack("<IIIII", 100, len(records), 0, 0, 100 + len(records))
     return bytes(header + index + records)
 
@@ -100,15 +100,20 @@ def main():
         ("symbols", baseline, None, None),
         ("symbols-permuted", [(0x1084, 4, 6)] * 8, None, None),
     ])
+    fixtures.append(("size-profile", [(0x1000 | (index << 5) | index, 0, 6)
+                                      for index in (2, 3, 4, 5, 6, 8)], None, None))
+    symbols["size-profile"] = (0xD6D0, 0xA0C1)
     manifest = []
     for name, styles, control_record, drawing in fixtures:
-        data = document(styles, control_record, drawing, symbols.get(name))
+        geometry = {"row_step": 350, "height": 3200} if name == "size-profile" else {}
+        data = document(styles, control_record, drawing, symbols.get(name), **geometry)
         (args.output / f"{name}.caj").write_bytes(data)
         manifest.append({
             "name": name, "bytes": len(data),
             "sha256": hashlib.sha256(data).hexdigest(), "rows": styles,
             "control_record": control_record, "drawing": drawing,
             "symbol_codes": symbols.get(name),
+            "geometry": geometry,
         })
     (args.output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
 

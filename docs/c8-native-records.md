@@ -493,3 +493,48 @@ six-page conversion, a public CLI/JS route, or a successful completion of
 #233. Next compare the candidate glyph geometry against the original controls
 before admitting rules, then integrate the existing image emitters in source
 draw order for pages 1 and 3.
+
+
+## Original geometric-font control (#240)
+
+`tools/cajviewer/c8_geometric_font.py OUTPUT` generates three original fonts
+with 1000 units per em, an empty missing glyph, a square and two half-square
+outlines. It reads no font input. It requires the external MIT fontTools tool
+(observed version 4.62.1), not a converter runtime dependency. Resource-slot
+family names and observed character aliases select the controlled glyphs;
+these files contain no vendor outlines. Generate outside the repository and
+mount over the corresponding viewer resources read-only in the isolated
+viewer container. Never replace installed host fonts.
+
+The style generator's `size-profile` has six rows, equal size fields
+2, 3, 4, 5, 6 and 8, two glyphs per row, row spacing 350 and page height 3200.
+Its SHA256 is `ff55ebd71ec505dc0ec26d971571126308544445878f642858ef3fc7dcd95db0`.
+This shorter original page keeps all edges visible at 200% zoom. It and all
+three generated fonts reproduce the external experiment byte for byte.
+
+In the pinned offline viewer, repeated captures at each zoom were identical.
+The original square's measured ink widths, rounded to integer pixels, were:
+
+| Zoom | Field 2 | 3 | 4 | 5 | 6 | 8 |
+| --- | --- | --- | --- | --- | --- | --- |
+| 193% | 17 | 19 | 22 | 26 | 30 | 40 |
+| 194% | 18 | 19 | 22 | 27 | 30 | 40 |
+| 197% | 18 | 20 | 22 | 27 | 31 | 41 |
+| 198–200% | 18 | 20 | 23 | 27 | 31 | 41 |
+
+These observations contradict interpreting the preview's candidate table as
+`floor(size * 320 / 2473 * zoom / 100)`. For example, size 105 at 194%
+predicts 26 pixels, while field 5 measured 27. They do **not** establish a
+replacement size table or an unmodified vendor-font rendering rule. Font
+hinting, viewer size policy and page rasterization must remain distinct.
+The public font-call trace contains intermediate scales and cached glyphs;
+its order is not sufficient to associate every call with a final-page row.
+
+Short pages are vertically centered: the observed outer frame at 200% is
+(164, 247, 1485, 1076), unlike the earlier tall-page frame. Always measure
+all four page edges again. No content alignment or fitted baseline offset
+was applied. External captures, traces and measurement receipts remain in
+`caj2pdf-c8-square-font-20261001`; none are bundled as passing fidelity tests.
+The next missing observation is an isolated required field's font-size
+request at a zoom transition, associated with its final page rendering.
+Production font size, baseline and segment rules remain unapproved.
