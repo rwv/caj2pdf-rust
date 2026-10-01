@@ -155,6 +155,14 @@ def main():
         (args.output / name).write_bytes(data)
         manifest.append({"file": name, "run_words": words, "bytes": len(data),
                          "sha256": hashlib.sha256(data).hexdigest()})
+    for tag, value in ((0x801D, 3), (0x8070, 0x001C)):
+        for suffix, following in (("bare", ()), ("next-y", (0x8001, 5000))):
+            name = f"hnb-{tag:04x}-{value:04x}-{suffix}.caj"
+            words = (tag, value) + following
+            data = document(20, 0xC8, run=words)
+            (args.output / name).write_bytes(data)
+            manifest.append({"file": name, "run_words": words, "bytes": len(data),
+                             "sha256": hashlib.sha256(data).hexdigest()})
     (args.output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
 
 

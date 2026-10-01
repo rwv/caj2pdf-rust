@@ -1050,7 +1050,9 @@ fn hnb_prefix_is_one_atomic_eight_byte_record() {
 #[test]
 fn hnb_run_controls_and_drawing_preserve_following_glyph_context() {
     let controls = [
+        [0x801d, 3],
         [0x801d, 4],
+        [0x8070, 0x001c],
         [0x801c, 4],
         [0x8067, 7],
         [0x8067, 9],

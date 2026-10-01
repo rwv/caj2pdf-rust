@@ -249,3 +249,12 @@ After these admissions, the pinned issue-65 page 6 traverses all four raw record
 Page 1 traverses 283 records (235 raw glyphs) before another unsupported control
 at offset 1500. Other pages retain explicit style/control failures. No complete
 page rendering or document-conversion acceptance is claimed.
+
+Four further original bare/next-y controls verify raw `801d/0003` and
+`8070/001c` framing. All repeat identically and preserve the following row;
+changes are confined to the affected first-row glyphs. The generator reproduces
+captured input bytes exactly (`style-inputs.json`, `style-comparison.json`).
+Only the observed raw values are admitted; this does not establish physical
+font units or admit the corresponding untested `8071` value. The issue-65 probe
+then reaches page-1 offset 1532 and page-3/page-4 offsets 53366/57046 before the
+next unsupported controls; implicit-style failures on pages 2/5 remain.
