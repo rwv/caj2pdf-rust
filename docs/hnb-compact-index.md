@@ -285,3 +285,27 @@ The direct corpus probe now reaches `8071/0024` at offsets 6004 and 10936
 on issue-100/63 page 1, and `8071/002b` on issue-65 pages 2–5. All 14 pages
 still have explicit unsupported outcomes. No complete conversion or new
 rendering semantics is claimed.
+
+### Remaining observed run controls
+
+Sixteen original controls verify four-byte framing for `8071/0024`,
+`8071/002b`, `8073/001e`, `8073/001f`, `8073/0029`, `8073/002a`,
+`8072/c2c7` and `8067/9`, each bare and followed by an independent
+`8001/5000` position change. All repeated page crops match at 57% in
+`(648,357,1023,906)`. The `8071/002b` control changes first-row glyph
+appearance; the other controls match the corresponding baseline. These
+results establish record boundaries, not no-op semantics or font formulas.
+The existing generator reproduces all sixteen inputs byte-for-byte.
+External receipts are `inputs.json`, `comparison.json` and named captures
+in `caj2pdf-hnb-remaining-controls-20261001`.
+
+The same fixed reader preserves raw values; unknown neighboring values
+and HN-B-only controls in C8 remain rejected. Direct corpus traversal now
+finishes issue-100 page 1 (1471 records, 1302 raw glyphs) and issue-63 page 1
+(2706 records, 2060 raw glyphs). This is raw traversal, not conversion or
+verified Unicode/rendering. All other pages still stop explicitly.
+Issue-65 pages 2/5 now reach glyphs without the visitor's required run
+position/style: this identifies an unresolved profile/context rule, not
+proof that the documents are corrupt. No default style or blank output
+is substituted. Other remaining controls include `8074`, additional
+`8067`/`8070`/`8073` values and the `800a/d300` image form.

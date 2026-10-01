@@ -1973,3 +1973,10 @@ The `hnb-8070-*` controls independently establish the two observed four-byte
 value-dependent visible changes are recorded without assigning unverified
 layout semantics. The same generator now shares its numeric-control loop
 across `c053`, `80ce` and `8070`; no external bytes are embedded.
+
+The subsequent `8071`, `8073`, `8072/c2c7` and `8067/9` HN-B controls
+use sixteen additional original two-page inputs with independent following
+position changes. Their repeated viewer observations and exact generated
+byte parity establish framing only. All source document probes report raw
+counts and located outcomes, without committing document text or claiming
+complete conversion.

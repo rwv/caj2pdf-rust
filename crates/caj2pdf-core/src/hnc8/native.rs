@@ -167,11 +167,12 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
                         (0x8001 | 0x8002 | 0x8004, _)
                             | (0x801d, 0 | 4)
                             | (0x801c, 4)
-                            | (0x8067, 6 | 7)
+                            | (0x8067, 6 | 7 | 9)
                             | (0x8069, 0x1084)
                             | (0x80ce, 0 | 1)
-                            | (0x8070, 0x0024 | 0x002b)
-                            | (0x8072, 0)
+                            | (0x8070 | 0x8071, 0x0024 | 0x002b)
+                            | (0x8072, 0 | 0xc2c7)
+                            | (0x8073, 0x001e | 0x001f | 0x0029 | 0x002a)
                             | (0x8024, 0x2800 | 0x281d)
                             | (0xc053, _)
                             | (0xffff, 5)
@@ -207,7 +208,7 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
                         NativeRecord::Control { tag, value }
                     }
                     // Values were checked by the HN-B profile guard above.
-                    0x8069 | 0x8070 | 0x8072 | 0xc053 | 0xffff
+                    0x8069 | 0x8070 | 0x8071 | 0x8072 | 0x8073 | 0xc053 | 0xffff
                         if self.header.variant == Variant::HnB =>
                     {
                         NativeRecord::Control { tag, value }
