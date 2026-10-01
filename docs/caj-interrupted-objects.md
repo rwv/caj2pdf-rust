@@ -93,3 +93,42 @@ copy passes its adjacent header at 292989 with this rule, then stops at 346970
 on another dictionary prefix whose full object occurs later. This remains a
 hypothesis-copy result; the original file still stops at its earlier stream
 failure and no final PDF is published.
+
+
+## The other three baseline failures
+
+The unmodified source hashes match the conformance matrix. An external
+metadata-only scanner trace identifies the object start responsible for each
+error; the reported failure offset can be well inside another apparent object
+and must not be mistaken for the starting object. Temporary tracing was removed
+from the production source and executable after measurement.
+
+| Input | Failing object starts | Object | Current failure |
+| --- | ---: | ---: | --- |
+| issue-39 | 889064 | 320 | Unterminated indexed-color lookup literal; value error later at 898312. |
+| issue-85 (Mingtang) | 512113 | 4 | Direct stream length has no unique nearby repair. |
+| issue-90/4-[6] | 1314164 | 4474 | Independent zlib decoding also fails with invalid code lengths. |
+
+For issue-39, the literal's apparent closing parenthesis is escaped, so parsing
+continues into later bytes. The indexed DeviceCMYK declaration has high value
+43, requiring 176 lookup bytes; the short visible prefix does not establish
+those bytes. Only one object-320 header candidate was found. Do not guess a
+palette or silently remove the referenced color resource. Whole-file textual
+candidate searches here are external discovery, not a production repair rule.
+
+For the Mingtang case, object 4 at 559123 shares the first 143 bytes with the
+interrupted object. After that prefix and whitespace, another header starts at
+512258. This is another later-copy case, not merely a nearby Length typo.
+
+For issue-90, the sole object-4474 candidate's compressed payload shares 3276
+bytes with a later *different-reference* image, object 4479. The mismatch is at
+1317616, followed by an apparent header at 1317618. The later payload reaches
+zlib EOF, but yields 3,466,638 bytes versus 3,433,011 bytes for its declared
+1019-by-1123 RGB image. Reaching EOF therefore does not establish correct image
+content. A textual reference search finds no reference to object 4474, but that
+alone does not prove an unreferenced-object repair is safe. Do not substitute
+object 4479 or scan compressed payloads for headers.
+
+These observations classify the next work; they do not complete #226 or prove
+any document irrecoverable. External receipts include per-case scanner offsets,
+`remaining-three-prefixes.json`, and the independent Flate observations.
