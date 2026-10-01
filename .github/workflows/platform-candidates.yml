@@ -133,7 +133,6 @@ jobs:
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim ${{ matrix.acceleration }}
           script: |
-            adb root
             adb wait-for-device
             adb shell id
             adb push target/${{ matrix.target }}/release/caj2pdf /data/local/tmp/caj2pdf
