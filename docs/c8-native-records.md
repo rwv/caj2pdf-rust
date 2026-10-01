@@ -212,3 +212,47 @@ and `source-span-coverage.json` retain the bounded decode and interval checks.
 The ordinary-copy/runtime smoke evidence supplements the frozen #223 report;
 it does not retroactively make that report's intentionally limited prototype a
 complete extractor.
+
+## Original fixed-position style controls
+
+`tools/cajviewer/c8_style_fixture.py` builds nine original 392-byte documents
+without reading an external source. Each has one text-only page, eight rows
+and the test characters `中文AM1`. The observed header identifier and structural
+constants are retained as format facts; their necessity is not established.
+The grid varies the fields by row; the other documents repeat one field set
+at identical positions, permitting direct comparisons without alignment.
+
+```sh
+python3 tools/cajviewer/c8_style_fixture.py /tmp/c8-style-controls
+```
+
+The output directory must be new. The manifest contains input hashes and
+raw per-row values. Open the files with the existing pinned offline viewer
+recipe, close the annotation sidebar and explicitly set `100%` zoom after
+opening each tab. The initial fit-to-width zoom differs and is not a valid
+comparison. All generated documents were byte-identical to the observed
+inputs. The grid SHA-256 is
+`5cdcadbd6559d0c50c21a16e1fa59eb0e729e383e9a0cf937bf6ec584d795d7c`.
+
+At 96 DPI, the fixed page crop was `(494,178)` to `(1155,1145)`; each capture
+repeated identically. Compared with `style=1084, 801d=0, 8067=6`:
+
+| Changed field | Changed page pixels | Observation |
+| --- | ---: | --- |
+| style `1085` | 3,524 | Increased glyph height. |
+| style `10a4` | 3,218 | Increased glyph width. |
+| `801d=4` | 1,580 | Changes confined to the Latin/digit columns; Chinese columns unchanged. |
+| `8067=5`, `8`, or `9` | 0 each | No visible difference for these glyphs and state. |
+| style `0884` | 0 | No visible difference for these glyphs and state. |
+
+There was no resizing, registration or pixel tolerance. These independent
+controls corroborate the selected source mutations, but do not determine the
+size lookup, font identities, baseline metrics or all state interactions.
+In particular, `801d=4` is not established as a universal bold flag, and a
+zero pixel difference is not permission to discard a control. Keep the raw
+parser/rendering boundary until those required semantics are resolved.
+
+External receipts are in `caj2pdf-c8-grid-20261001`: `variants.json`,
+`comparison.json`, action logs and paired captures. Viewer images/fonts are
+not bundled. Successful display of these original controls does not satisfy
+the six-page source conversion requirement in #233.

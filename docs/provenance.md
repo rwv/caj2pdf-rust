@@ -1972,3 +1972,12 @@ cancellation and dropped pending operations. Independent local qpdf,
 Poppler and fontTools checks concern these original fixtures only, not
 successful native C8 document conversion. Test exports and external fonts
 remain outside Git.
+
+### Original C8 style controls
+
+`tools/cajviewer/c8_style_fixture.py` is original MIT fixture-generation code.
+It writes an invented five-character, eight-row document from observed format
+constants, without loading or transforming an external document. It contains
+no copied converter implementation, font bytes or glyph outlines. The raw
+header identifier is an observed format fact. Viewer observations and their
+limits are recorded in `docs/c8-native-records.md`; screenshots remain external.
