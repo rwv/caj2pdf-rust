@@ -1923,3 +1923,12 @@ crosses 12/20-byte rows with two observed layout markers. It reads no external
 document or converter source and includes no fonts, outlines or source text.
 The independent viewer observations and admitted limits are recorded in
 `docs/hnb-compact-index.md`. All external captures/documents remain outside Git.
+
+### Interrupted CAJ dictionary prefixes
+
+The bounded dictionary-prefix handling in `pdf/input/fragment_scan.rs` is
+original MIT code derived from independently observed source structure and
+byte comparisons against already validated objects. Its synthetic tests use
+invented dictionaries and values. No converter implementation or external
+source document content is copied. See `docs/caj-interrupted-objects.md` for
+the exact evidence, acceptance rule and remaining failures.

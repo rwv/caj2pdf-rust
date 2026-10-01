@@ -170,6 +170,12 @@ pub(crate) async fn scan_fragment_objects<S: RangedSource, C: Cancellation>(
                     cursor = end;
                     continue;
                 }
+                if let Some(end) =
+                    dictionary_prefix_end(&mut reader, start, &error, &objects).await?
+                {
+                    cursor = end;
+                    continue;
+                }
                 return Err(error);
             }
             Err(error) => return Err(error),
@@ -432,6 +438,73 @@ pub(crate) async fn scan_fragment_objects<S: RangedSource, C: Cancellation>(
         }
     }
     Ok(scan)
+}
+
+/// A dictionary-key syntax error can identify an interrupted duplicate header.
+/// Only discard a bounded exact prefix of one already validated non-stream
+/// dictionary. Its exact shared prefix and trailing whitespace supply the
+/// boundary without a marker search. The main loop must then parse a complete
+/// next object and validate all links.
+async fn dictionary_prefix_end<S: RangedSource, C: Cancellation>(
+    reader: &mut Reader<'_, S, C>,
+    start: u64,
+    error: &Error,
+    objects: &[FragmentObject],
+) -> Result<Option<u64>> {
+    let Error::Pdf {
+        offset,
+        reason: "expected PDF name",
+        ..
+    } = error
+    else {
+        return Ok(None);
+    };
+    let end = offset
+        .checked_sub(reader.range.offset)
+        .expect("reader errors use absolute source offsets");
+    if end <= start || end - start > 256 {
+        return Ok(None);
+    }
+    let amount = 256.min(reader.range.length - start) as usize;
+    let bytes = reader.bytes(start, amount).await?;
+    let Some((reference, _)) = replay_prefix(&bytes) else {
+        return Ok(None);
+    };
+    let mut prior = objects
+        .iter()
+        .filter(|object| object.reference == reference);
+    let Some(original) = prior.next() else {
+        return Ok(None);
+    };
+    if prior.next().is_some() {
+        return Ok(None);
+    }
+    let original_start = original.range.offset - reader.range.offset;
+    let original_head = reader.load_head(original_start, Some(reference)).await?;
+    if original_head.dictionary.is_none()
+        || !matches!(original_head.tail, ObjectTail::EndObject { .. })
+    {
+        return Ok(None);
+    }
+    let shared = bytes
+        .iter()
+        .zip(&original_head.bytes)
+        .take_while(|(left, right)| left == right)
+        .count();
+    let mut boundary = shared;
+    while bytes.get(boundary).is_some_and(u8::is_ascii_whitespace) {
+        boundary += 1;
+    }
+    // A cut may occur between the two dictionary-closing '>' bytes. Follow
+    // only the exact shared prefix and its trailing whitespace, never search
+    // for a later marker. The suffix must parse as a new indirect object;
+    // changing a value alone cannot make an arbitrary suffix into an object.
+    if shared as u64 >= original.range.length
+        || !bytes.get(boundary).is_some_and(u8::is_ascii_digit)
+    {
+        return Ok(None);
+    }
+    Ok(Some(start + boundary as u64))
 }
 
 /// A partial integer-object header may precede its complete copy. Require
@@ -1131,6 +1204,45 @@ mod tests {
             b"1 0 obj\n7\nendobj\n1 0 obj\n07\nendobj\n",
             b"1 0 obj\n7\nendobj\n1 0 obj 7\nendobj\n",
             b"1 0 obj\n<< /A 1 >>\nendobj\n1 0 obj\n<< /A 2 >>\nendobj\n",
+        ] {
+            assert!(scan_bytes(bytes.to_vec()).is_err());
+        }
+    }
+
+    #[test]
+    fn recovers_known_dictionary_prefix_at_the_syntax_error_boundary() {
+        let original = b"1 0 obj<< /A 7 /B << /C 9 >> >>endobj\n";
+        for prefix in [
+            b"1 0 obj<<\r\n".as_slice(),
+            b"1 0 obj<< /A 7 /B <<\n",
+            b"1 0 obj<< /A 7 /B << /C 9 >\r\n",
+            b"1 0 obj<< /A 7 /B\r\n",
+        ] {
+            let mut bytes = original.to_vec();
+            bytes.extend_from_slice(prefix);
+            bytes.extend_from_slice(b"2 0 obj<< /Different 42 >>endobj\n");
+            let scan = scan_bytes(bytes).unwrap();
+            assert_eq!(scan.objects.len(), 2);
+            assert_eq!(scan.objects[0].reference.number, 1);
+            assert_eq!(scan.objects[0].range.length, (original.len() - 1) as u64);
+            assert_eq!(scan.objects[1].reference.number, 2);
+            assert_eq!(
+                scan.objects[1].range.offset,
+                (original.len() + prefix.len()) as u64
+            );
+        }
+    }
+
+    #[test]
+    fn dictionary_prefix_recovery_requires_an_exact_prior_nonstream_dictionary() {
+        for bytes in [
+            b"1 0 obj<< /A 7 >>endobj\n1 0 obj<< /A 8\n2 0 obj<<>>endobj\n".as_slice(),
+            b"1 0 obj<< /A 7 >>endobj\n3 0 obj<<\n2 0 obj<<>>endobj\n",
+            b"1 0 obj<< /A 7 /Bee 9 >>endobj\n1 0 obj<< /A 7 /Boo 9\n2 0 obj<<>>endobj\n",
+            b"4294967296 0 obj<<\n2 0 obj<<>>endobj\n",
+            b"1 0 obj<< /Length 1 >>stream\nx\nendstream\nendobj\n1 0 obj<<\n2 0 obj<<>>endobj\n",
+            b"1 0 obj<< /A 7 >>endobj\n1 0 obj<<\n2 0 R\n",
+            b"1 0 obj<< /A (literal) >>endobj\n1 0 obj<< /A (literal\n2 0 obj<<>>endobj\n",
         ] {
             assert!(scan_bytes(bytes.to_vec()).is_err());
         }
