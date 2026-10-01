@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Admit the measured paired raw HN-A page-prefix profile through the bounded
+  text reader; C8 raw framing remains unsupported.
+
 - Add a bounded raw C8 native-record visitor for incremental parser work;
   add allocation-free decoding of verified native character codes. Complete
   native text rendering remains unsupported.

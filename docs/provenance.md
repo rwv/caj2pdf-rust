@@ -1901,3 +1901,16 @@ invented ASCII alphabet; the selected original text provides a second control.
 Only encoding facts/hashes are committed. Viewer copy normalization and
 unverified special/private-use mappings are not silently adopted. No viewer
 source code or font data was read/copied into this implementation.
+
+### Additional paired raw HN-A framing (#225)
+
+The paired raw prefix and scoped zero-payload `0x80ce` control were measured
+from the two indexed source spans recorded in `hnc8-uncompressed-text.md`.
+No other converter implementation was read or copied. Rust record-boundary,
+truncation, limit and cancellation tests and JavaScript mixed-image controls
+are original MIT fixtures. External documents and derived PDFs remain outside
+Git. The two selected HN-A source/output page frames were compared using the
+pinned offline viewer; residual cover raster differences remain explicit.
+C8 image-less rows contain visible text in that viewer, so their native record
+interpretation/rendering is a distinct unresolved prerequisite (#229).
+This change reuses the existing bounded compact-record reader.

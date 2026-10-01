@@ -16,6 +16,7 @@ pub(super) struct Records {
     limit: u32,
     ended: bool,
     exact_images: bool,
+    page_prefix: bool,
 }
 
 impl Records {
@@ -29,6 +30,14 @@ impl Records {
             limit,
             ended: false,
             exact_images,
+            page_prefix: false,
+        }
+    }
+
+    pub(super) fn with_page_prefix(limit: u32, exact_images: bool) -> Self {
+        Self {
+            page_prefix: true,
+            ..Self::new(limit, exact_images)
         }
     }
 
@@ -64,7 +73,12 @@ impl Records {
                     ));
                 }
                 self.count += 1;
-                match u16::from_le_bytes([self.bytes[0], self.bytes[1]]) {
+                let tag = u16::from_le_bytes([self.bytes[0], self.bytes[1]]);
+                match tag {
+                    0x8003 if self.page_prefix && self.count <= 2 => (),
+                    // Only observed in this raw profile, with a zero payload.
+                    // No glyph semantics are assigned to the control.
+                    0x80ce if self.page_prefix && self.bytes[2..4] == [0, 0] => (),
                     0x800a => {
                         if self.images == coordinates.len() {
                             return Err(loc.malformed(

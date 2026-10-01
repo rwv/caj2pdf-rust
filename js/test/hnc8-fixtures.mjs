@@ -125,3 +125,26 @@ export function syntheticType1Hn() {
   bytes.set(jpeg, 0x19c);
   return { bytes, jpeg: new Uint8Array(jpeg) };
 }
+
+/** The same original mixed-image page with paired raw page-prefix records. */
+export function syntheticPrefixedHn() {
+  const original = syntheticHn(true, true);
+  const index = 0x15c + 2 * 308;
+  const text = index + 20;
+  const extra = 16;
+  const bytes = new Uint8Array(original.length + extra);
+  bytes.set(original.subarray(0, text));
+  bytes.set(original.subarray(text), text + extra);
+  const view = new DataView(bytes.buffer);
+  for (const [i, tag, value] of [[0, 0x8003, 100], [4, 0x8003, 200], [8, 0x801c, 0], [12, 0x80ce, 0]]) {
+    view.setUint16(text + i, tag, true);
+    view.setUint16(text + i + 2, value, true);
+  }
+  const textLength = 60 + extra;
+  view.setUint32(index + 4, textLength, true);
+  for (let i = 0; i < 2; i++) {
+    const descriptor = text + textLength + i * 61;
+    view.setUint32(descriptor + 4, descriptor + 12, true);
+  }
+  return bytes;
+}

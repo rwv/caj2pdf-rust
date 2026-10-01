@@ -139,7 +139,28 @@ pub(super) async fn read_coordinates<S: RangedSource, C: Cancellation>(
     )
     .await?;
     let tag = u16::from_le_bytes([prefix[0], prefix[1]]);
-    if header.variant == Variant::HnA && matches!(tag, 0x8001 | 0x800a | 0x8004) {
+    // The same paired page-prefix records also precede uncompressed HN-A
+    // records. Decide only at the indexed start, never by marker searching.
+    let mut prefixed_raw = false;
+    if header.variant == Variant::HnA && tag == 0x8003 {
+        let mut following = [0; 16];
+        read_chunks(
+            source,
+            page.text.offset + 4,
+            &mut following,
+            limits,
+            cancellation,
+            loc,
+            &mut 0,
+        )
+        .await?;
+        prefixed_raw = following[..2] == [0x03, 0x80]
+            && matches!(
+                u16::from_le_bytes([following[4], following[5]]),
+                0x800a | 0x801c
+            );
+    }
+    if header.variant == Variant::HnA && (prefixed_raw || matches!(tag, 0x8001 | 0x800a | 0x8004)) {
         raw::read(
             source,
             page,
@@ -147,7 +168,14 @@ pub(super) async fn read_coordinates<S: RangedSource, C: Cancellation>(
             cancellation,
             budget,
             loc,
-            (tag == 0x800a).then(|| records::Records::new(budget.max_records, exact_images)),
+            if prefixed_raw {
+                Some(records::Records::with_page_prefix(
+                    budget.max_records,
+                    exact_images,
+                ))
+            } else {
+                (tag == 0x800a).then(|| records::Records::new(budget.max_records, exact_images))
+            },
         )
         .await
     } else {

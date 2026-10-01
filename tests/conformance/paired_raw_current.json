@@ -1,0 +1,172 @@
+{
+  "schema_version": 1,
+  "implementation_commit": "bdec3b0",
+  "native_binary_sha256": "8a35e2c939426136e4ecf8a60ce3257529f50f9449eda66def406a8f890de683",
+  "wasm_sha256": "7b47282ff8b2f604ee27e8f1d35305ee75b766794a10ff40c47a05bc098e0ee0",
+  "scope": "HN-A paired raw framing; selected page-frame comparison, not universal renderer pixel parity",
+  "limits_note": "Native children: 1 GiB address space, 512 MiB output, 180 s; JS scratch: four 64 MiB capped stores. Browser input spool: Zhouli 128 MiB, a 64 MiB. WASM memory is post-conversion linear memory, not RSS or a measured peak. Browser verification allocates the PDF only after conversion; server input buffers are outside converter memory accounting. Runs overlap and are not benchmarks.",
+  "viewer_image": "sha256:cb5049d3448b6d5bcfd371cf195d522d637869dce075cb1650d74198875171de",
+  "samples": [
+    {
+      "id": "issue-85/《周礼》中所见天神祭祀考论_刘涛.caj",
+      "source_sha256": "3e22ca9ab78ac06ce0c1422fa26f7eea168b55a9cc56eed4188d77f1e437d560",
+      "pdf_sha256": "ae46026c8c96af56bf9f9ab34ba3f2c4f0f8fd79de32bf4403cf7f7d4e37a307",
+      "native": {
+        "conversion_exit": 0,
+        "seconds": 7.53,
+        "qpdf_exit": 0,
+        "page_order": {
+          "status": "PASS",
+          "pages": 160,
+          "images": 160,
+          "repeated_source_descriptors": 0,
+          "mismatched_pages": [],
+          "method": "ordered source images versus Poppler extraction and pinned pixel oracles",
+          "scope": "page/image identity and order; not placement, alias coordinates or rendered-page parity"
+        }
+      },
+      "viewer": {
+        "page": 1,
+        "crop_xywh": [
+          507,
+          156,
+          636,
+          899
+        ],
+        "repeat_equal": {
+          "source": true,
+          "output": true
+        },
+        "changed_pixels": 552575,
+        "total_pixels": 571764,
+        "bbox": [
+          0,
+          0,
+          636,
+          899
+        ],
+        "source_crop_sha256": "4b77b5fc2b9e1f3ec8f377daba5144e8d550dad7a9c9e0d45b6ff747e9875e70",
+        "output_crop_sha256": "cf63fe3d267abba809aba0f80d923bf567fc8918466be368e8edb83247eb02d7"
+      },
+      "node": {
+        "report": {
+          "format": "hn",
+          "inputBytesRead": "145620435",
+          "outputBytesWritten": "73533759",
+          "pagesConverted": 160,
+          "bookmarksWritten": 28
+        },
+        "seconds": 15.642580966,
+        "wasmMemoryBytes": 1835008,
+        "scratchSizes": [
+          "0",
+          "0",
+          "0",
+          "0"
+        ],
+        "sha256": "ae46026c8c96af56bf9f9ab34ba3f2c4f0f8fd79de32bf4403cf7f7d4e37a307",
+        "cleanup": "PASS"
+      },
+      "browser": {
+        "report": {
+          "format": "hn",
+          "inputBytesRead": "145620435",
+          "outputBytesWritten": "73533759",
+          "pagesConverted": 160,
+          "bookmarksWritten": 28
+        },
+        "seconds": 40.53609999847412,
+        "wasmMemoryBytes": 1638400,
+        "sha256": "ae46026c8c96af56bf9f9ab34ba3f2c4f0f8fd79de32bf4403cf7f7d4e37a307",
+        "scratchSizes": [
+          "0",
+          "0",
+          "0",
+          "0"
+        ],
+        "cleanup": "PASS"
+      }
+    },
+    {
+      "id": "issue-7/a.caj",
+      "source_sha256": "bac8e4d04f4f59a029cac852b674cd546255673f5d08cc1d60bac31be886bf57",
+      "pdf_sha256": "b1b186deda676811507762ec0966f4583a97ceaae0e4b66899d8ead461f3247b",
+      "native": {
+        "conversion_exit": 0,
+        "seconds": 16.147,
+        "qpdf_exit": 0,
+        "page_order": {
+          "status": "PASS",
+          "pages": 125,
+          "images": 169,
+          "repeated_source_descriptors": 0,
+          "mismatched_pages": [],
+          "method": "ordered source images versus Poppler extraction and pinned pixel oracles",
+          "scope": "page/image identity and order; not placement, alias coordinates or rendered-page parity"
+        }
+      },
+      "viewer": {
+        "page": 75,
+        "crop_xywh": [
+          524,
+          156,
+          602,
+          870
+        ],
+        "repeat_equal": {
+          "source": true,
+          "output": true
+        },
+        "changed_pixels": 0,
+        "total_pixels": 523740,
+        "bbox": null,
+        "source_crop_sha256": "54fd00b91ee2d46ec759e09e245b67d851a60ec0b7d55c7e9abd7a20df3302ab",
+        "output_crop_sha256": "54fd00b91ee2d46ec759e09e245b67d851a60ec0b7d55c7e9abd7a20df3302ab"
+      },
+      "node": {
+        "report": {
+          "format": "hn",
+          "inputBytesRead": "12236658",
+          "outputBytesWritten": "13694591",
+          "pagesConverted": 125,
+          "bookmarksWritten": 78
+        },
+        "seconds": 37.952217785,
+        "wasmMemoryBytes": 1966080,
+        "scratchSizes": [
+          "0",
+          "0",
+          "0",
+          "0"
+        ],
+        "sha256": "b1b186deda676811507762ec0966f4583a97ceaae0e4b66899d8ead461f3247b",
+        "cleanup": "PASS"
+      },
+      "browser": {
+        "report": {
+          "format": "hn",
+          "inputBytesRead": "12236658",
+          "outputBytesWritten": "13694591",
+          "pagesConverted": 125,
+          "bookmarksWritten": 78
+        },
+        "seconds": 39.94809999847412,
+        "wasmMemoryBytes": 1769472,
+        "sha256": "b1b186deda676811507762ec0966f4583a97ceaae0e4b66899d8ead461f3247b",
+        "scratchSizes": [
+          "0",
+          "0",
+          "0",
+          "0"
+        ],
+        "cleanup": "PASS"
+      }
+    }
+  ],
+  "browser_spool_negative_control": {
+    "input": "zhouli",
+    "cap_bytes": 67108864,
+    "result": "REFUSED before conversion",
+    "remaining_opfs_files": []
+  }
+}

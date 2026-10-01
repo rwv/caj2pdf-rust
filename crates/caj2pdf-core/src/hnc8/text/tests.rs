@@ -1294,3 +1294,145 @@ fn declared_extents_survive_each_text_framing_and_single_byte_reads() {
     direct.page.text.length = direct.source.size - 512;
     assert_eq!(direct.normal().unwrap().coordinates, [expected]);
 }
+
+fn prefixed_raw_fixture() -> Fixture {
+    let mut plain = Vec::new();
+    for (tag, payload) in [
+        (0x8003, 701),
+        (0x8003, 907),
+        (0x801c, 0),
+        (0x80ce, 0),
+        (0x8070, 0),
+        (0x8071, 0),
+        (0x8001, 0),
+        (23, 0x800a),
+    ] {
+        plain.extend(direct_record(tag, payload));
+    }
+    plain.extend(direct_image(RawTextCoordinate {
+        x: 17,
+        y: 31,
+        width: 701,
+        height: 907,
+    }));
+    plain.extend(direct_record(0x8004, 51));
+    plain.extend([0xff; 9]);
+    let mut f = direct_fixture(plain.clone(), 1);
+    f.header.variant = Variant::HnA;
+    f.header.page_index.offset = 0x15c;
+    f.page.row_offset = 0x15c;
+    f.source.bytes.truncate(512);
+    f.source.bytes.extend(&plain);
+    f.source.size = f.source.bytes.len() as u64;
+    f.page.text.length = plain.len() as u64;
+    f
+}
+
+#[test]
+fn paired_prefix_raw_records_preserve_extents_hashes_and_chunk_bounds() {
+    for chunk in 1..=31 {
+        let mut f = prefixed_raw_fixture();
+        f.source.short = 3;
+        let result = f
+            .parse(
+                Limits {
+                    io_chunk_bytes: chunk,
+                    ..Default::default()
+                },
+                TextBudget::default(),
+                &NeverCancel,
+            )
+            .unwrap();
+        assert_eq!(
+            result.coordinates,
+            [RawTextCoordinate {
+                x: 17,
+                y: 31,
+                width: 701,
+                height: 907
+            }]
+        );
+        assert_eq!(result.record_count, 10);
+        assert_eq!(result.zlib_frame, None);
+        assert_eq!(
+            result.encoded_sha256,
+            <[u8; 32]>::from(Sha256::digest(&f.source.bytes[512..]))
+        );
+        assert_eq!(result.decoded_sha256, result.encoded_sha256);
+        assert!(f.source.max_request <= chunk);
+        assert_eq!(result.max_decoder_output_chunk_bytes, 0);
+    }
+}
+
+#[test]
+fn paired_prefix_does_not_admit_unknown_controls_or_other_variants() {
+    for (offset, tag) in [(4, 0x8001), (8, 0x8003), (12, 0x80cd), (14, 1)] {
+        let mut f = prefixed_raw_fixture();
+        f.source.bytes[512 + offset..514 + offset].copy_from_slice(&u16::to_le_bytes(tag));
+        assert!(f.normal().is_err(), "offset {offset}");
+    }
+    let mut f = prefixed_raw_fixture();
+    f.header.variant = Variant::C8;
+    f.header.page_index.offset = 0x50;
+    f.page.row_offset = 0x50;
+    assert!(
+        f.normal()
+            .unwrap_err()
+            .to_string()
+            .contains("compressed text header")
+    );
+    for end in [24, 32, 40, 59, 63] {
+        let mut f = prefixed_raw_fixture();
+        f.source.bytes.truncate(512 + end);
+        f.source.size = (512 + end) as u64;
+        f.page.text.length = end as u64;
+        assert!(f.normal().is_err(), "end {end}");
+    }
+    let mut f = prefixed_raw_fixture();
+    assert!(
+        f.parse(
+            Limits::default(),
+            TextBudget {
+                max_records: 9,
+                ..Default::default()
+            },
+            &NeverCancel
+        )
+        .is_err()
+    );
+    let mut f = prefixed_raw_fixture();
+    f.source.fault_at = 516;
+    f.source.fault = Fault::Error;
+    assert!(f.normal().is_err());
+}
+
+#[test]
+fn prefixed_image_only_and_cancellation_keep_the_same_bounded_contract() {
+    let mut image_only = prefixed_raw_fixture();
+    image_only.source.bytes.drain(520..544);
+    image_only.source.size -= 24;
+    image_only.page.text.length -= 24;
+    let result = image_only.normal().unwrap();
+    assert_eq!(result.record_count, 4);
+    assert_eq!(result.coordinates[0].x, 17);
+    let mut completed = false;
+    for polls in 0..200 {
+        let mut fixture = prefixed_raw_fixture();
+        match fixture.parse(
+            Limits {
+                io_chunk_bytes: 3,
+                ..Default::default()
+            },
+            TextBudget::default(),
+            &CancelAfter(Cell::new(polls)),
+        ) {
+            Err(error) => assert_eq!(error.kind.as_str(), "cancelled"),
+            Ok(report) => {
+                assert_eq!(report.coordinates.len(), 1);
+                completed = true;
+                break;
+            }
+        }
+    }
+    assert!(completed);
+}

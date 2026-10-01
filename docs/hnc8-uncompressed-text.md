@@ -123,3 +123,61 @@ corrected-reference evidence, not official-viewer or all-HN compatibility.
 A source-header check of the previously validated issue-21 and issue-33
 profiles found zero changed display widths across their 74 type-0 images.
 It is a regression scope check, not a new complete-page rendering run.
+
+## Paired raw page prefixes (#225)
+
+Two additional HN-A inputs contain the same pair of four-byte `0x8003`
+page-prefix records as the tagged compressed profile, followed directly by
+raw records rather than `COMPRESSTEXT`:
+
+- `issue-85` Zhouli source SHA256
+  `3e22ca9ab78ac06ce0c1422fa26f7eea168b55a9cc56eed4188d77f1e437d560`:
+  page 1, offset 12172, 40 bytes; one image record and a terminator.
+- `issue-7/a.caj` SHA256
+  `bac8e4d04f4f59a029cac852b674cd546255673f5d08cc1d60bac31be886bf57`:
+  page 75, offset 5534084, 64 bytes; controls, one glyph record, one image
+  record and a terminator.
+
+Dispatch requires HN-A, both prefix tags, and `0x800a` or `0x801c` at the
+next record boundary. Damaged compressed markers do not trigger a raw
+fallback. The existing compact reader consumes the full indexed span and
+hashes it, including the prefix and opaque tail; its image count, work limits,
+short reads and cancellation contract remain unchanged. Prefix records count
+against the record limit. Additional `0x8003` tags inside the body are errors.
+The observed four-byte `0x80ce` control is admitted only in this raw profile
+and only with its observed zero payload. Its glyph semantics are unknown.
+No arbitrary unknown control is skipped and no marker scanning is used.
+
+The existing 28-byte image record fields supply x/y/width/height. Raw text
+allocates one bounded input chunk plus eight bytes per retained image and
+fixed scratch, with no inflater or full-page text buffer.
+
+A local bounded native run completes 160 pages/160 images for Zhouli and
+125 pages/169 images for `a.caj`. qpdf and independently ordered image checks
+pass for both. Full Node and Chromium Worker runs produce the same PDFs,
+including 28 and 78 bookmarks respectively. All scratch stores are empty;
+Node removes its scratch files and browser OPFS is empty after disposal.
+The larger Zhouli source needs more than 64 MiB of forward-only input spooling:
+that cap rejects it cleanly, while an explicit 128 MiB cap succeeds. This is
+external temporary storage, not a full-source RAM allocation.
+
+At 80% zoom in the pinned CAJViewer image, source and output page frames agree:
+Zhouli page 1 is 636×899 screen pixels and `a.caj` page 75 is 602×870. Each
+capture repeats identically. The latter is genuinely blank in the source
+image and matches exactly. Zhouli has 552,575 changed pixels out of 571,764;
+matching frames and encoded images do not establish renderer pixel parity.
+This residual remains a fidelity observation under #219, not a hidden pass.
+Original asymmetric mixed-image tests validate nonzero placement and draw
+order independently of the real blank-page case. A process-level regression
+checks a malformed second raw page after a successfully converted first page:
+existing destinations survive, no partial final PDF is published, and pipe
+input/native scratch are cleaned.
+
+[Metadata and hashes](../tests/conformance/paired_raw_current.json) preserve
+these distinctions and the post-conversion WASM memory observations.
+
+The C8 issue-66 raw layout is **not** admitted by this HN-A extension. Viewer
+inspection confirms visible text on its image-less page 2; page 1's sole
+848×251 image is only a diagram within the text page. Thus complete conversion
+requires visible native-text handling (#229), not just another image placement
+header. Issue #225 remains open until that C8 requirement is satisfied.
