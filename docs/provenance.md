@@ -2039,3 +2039,12 @@ using the already observed native record framing. Coordinate and raster-width
 observations use original geometric inputs and the pinned offline viewer;
 no vendor implementation is read. The public notes distinguish established
 translations from the still-unapproved PDF rendering rules.
+
+The `hnc8::Header::native_origin` field and its bounded C8 read are original
+MIT implementation based on the coordinate/origin controls documented in
+`c8-native-records.md`. Tests use asymmetric invented unsigned words, one-byte
+reads, truncated origins and HN variants with uninterpreted bytes. No font
+size, viewer margin or image mapping is inferred by this metadata addition.
+An external original Rust segment diagnostic uses the shared visitor/writer;
+its checked PDF and comparisons remain outside Git and are not full-profile
+compatibility acceptance.

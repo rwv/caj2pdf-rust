@@ -581,3 +581,29 @@ comparison remain to be completed before admitting a production rule.
 The style generator now includes `draw06compact` and `draw06alternate` with
 their correct record framing for further independent controls. No screenshots,
 external font data or source-document text are committed.
+
+### Core origin metadata and first segment PDF
+
+`Hnc8Reader::header().native_origin` now exposes the two unsigned C8 words
+at offsets 28/30 using one bounded four-byte read. HN-A/HN-B return `None`:
+their corresponding bytes have not been established as native origins.
+Subtract in signed or floating-point arithmetic; a coordinate below the
+origin is not unsigned overflow. The field does not apply a viewer margin,
+font baseline correction or an image transform. Explicit `Header` literals
+must include the new field in this unstable API.
+
+An original external Rust diagnostic passes the three-segment control through
+the native-record visitor and existing PDF writer. It uses the candidate
+20-unit x/y margin and zero-width hairlines, with the existing empirical page
+scale. qpdf validates the resulting PDF. Reading the origin through the core
+instead of the diagnostic's ad hoc header read produces identical bytes.
+
+Opened in the same pinned viewer, source and PDF both have the complete frame
+(449,231,1574,1093). At x=800, their three ink-weighted y positions are
+458.232/458.162, 645.368/645.462 and 832.989/832.736 respectively. Integrated
+black-equivalent width is approximately 1.04 pixels for both. These are
+unregistered measurements, not an exact pixel match: rasterization and
+subpixel placement still differ. This supports continued hairline comparison
+but does not complete segment fidelity or native page conversion. Diagnostic
+source is under `caj2pdf-c8-render-preview-20261001/src/bin/segments.rs` and
+captures/receipts remain in `caj2pdf-c8-isolated-size-20261001`, outside Git.

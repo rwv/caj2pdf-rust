@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **Breaking:** add `hnc8::Header::native_origin` for the observed C8 native
+  coordinate origin. Explicit header literals must include this field; use
+  `None` for HN variants. This metadata does not enable C8 text conversion.
+
 - **Breaking:** raise the minimum Rust version from 1.85.0 to 1.88.0 for
   the maintained MIT `xberg-ttf-parser` dependency used by font resources.
 

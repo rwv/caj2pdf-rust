@@ -105,6 +105,7 @@ impl Fixture {
                 max_request: 0,
             },
             header: Header {
+                native_origin: Some([0, 0]),
                 page_size: None,
                 variant: Variant::C8,
                 page_count: 1,
