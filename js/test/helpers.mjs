@@ -200,6 +200,22 @@ export async function validatePdf(t, bytes, pages) {
   }
 }
 
+/** Independently decode the original asymmetric type-1 fixture's PDF image. */
+export async function validateType1Hn(t, bytes) {
+  await validatePdf(t, bytes, 1);
+  const directory = await tempDirectory("hn-type1");
+  try {
+    const path = join(directory, "output.pdf");
+    await writeFile(path, bytes);
+    await run("pdfimages", ["-j", path, join(directory, "image")]);
+    const { stdout } = await run("djpeg", [join(directory, "image-000.jpg")], { encoding: "buffer" });
+    const pixels = Array.from({ length: 128 }, (_, i) => i % 16 < 8 ? 32 : 224);
+    assert.deepEqual(stdout, Buffer.concat([Buffer.from("P5\n16 8\n255\n"), Buffer.from(pixels)]));
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}
+
 /** Check the original two-image HN fixture, including draw order and geometry. */
 export async function validateMultiImageHn(t, bytes) {
   await validatePdf(t, bytes, 1);

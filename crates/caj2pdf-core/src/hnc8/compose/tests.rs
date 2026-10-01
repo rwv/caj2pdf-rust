@@ -743,7 +743,8 @@ fn hnb_maps_all_six_rows_without_a_table_or_scratch_activity() {
 fn invented_hna_c8_text_preserves_order_overlap_repeats_and_off_page_positions() {
     for variant in [Variant::HnA, Variant::C8] {
         let first = Record::jpeg(16, 16, 50, 0, 0);
-        let second = Record::jpeg(8, 8, 210, 17, 3);
+        let mut second = Record::jpeg(8, 8, 210, 17, 3);
+        second.kind = 1;
         let repeated = second.clone();
         let outside = Record::jpeg(8, 8, 125, u16::MAX, u16::MAX);
         let built = fixture(variant, &[vec![first, second, repeated, outside]]);
@@ -1000,29 +1001,30 @@ fn hnb_multi_image_and_non_jpeg_rows_are_never_silently_selected() {
 }
 
 #[test]
-fn late_unsupported_types_refuse_the_complete_page_before_image_output() {
+fn late_invalid_type1_or_missing_type3_workspace_refuses_page_before_output() {
     for kind in [1, 3] {
         let first = Record::jpeg(8, 8, 70, 0, 0);
         let mut second = Record::jpeg(8, 8, 190, 0, 0);
         second.kind = kind;
+        if kind == 1 {
+            second.bytes[0] = 0; // Invalid SOI must not be accepted by its record tag.
+        }
         let mut case = Harness::new(Variant::C8, &[vec![first, second]]);
         let error = case
             .run(None, ComposeOptions::default(), &Limits::default())
             .unwrap_err();
         located(&error, Variant::C8, Some(1), Some(2));
         assert_eq!(error.stage, ComposeStage::Headers);
-        assert_eq!(error.offset, Some(case.fixture.descriptors[0][1]));
         if kind == 3 {
+            assert_eq!(error.offset, Some(case.fixture.descriptors[0][1]));
             assert!(matches!(
                 error.kind,
                 ComposeErrorKind::MissingType3Workspaces
             ));
             assert!(error.to_string().contains("symbol stores"));
         } else {
-            assert!(matches!(
-                error.kind,
-                ComposeErrorKind::UnsupportedImageType(1)
-            ));
+            assert!(matches!(error.kind, ComposeErrorKind::Jpeg(_)));
+            assert_eq!(error.offset, Some(case.fixture.payloads[0][1]));
         }
         assert!(!contains(&case.sink.bytes, b"/Subtype /Image"));
     }

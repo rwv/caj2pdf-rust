@@ -1,5 +1,16 @@
 # Provenance and dependency inventory
 
+## Type-1 JPEG container profile (#224)
+
+Source descriptors and six indexed payloads in the SHA-pinned issue-43 HN-A
+input were inspected independently. Baseline JPEG structure and black-box
+libjpeg-turbo decoding justify reuse of the existing original MIT JPEG path.
+No converter source was consulted or copied. The JavaScript asymmetric JPEG
+fixture reuses this project's original custom Huffman/DC fixture construction;
+it contains no external image data. The existing #88 anomaly policy is selected
+explicitly by HN/C8 platform adapters, without changing the generic decoder.
+See [scope and measured results](hnc8-type1.md). External content remains private.
+
 ## Current-format baseline tools (#218)
 
 `scripts/current_formats.py`, `scripts/current_format_order.py` and their

@@ -269,6 +269,11 @@ If cleanup fails, `AggregateError.errors` preserves the conversion error first
 (if any) and all cleanup errors. The caller must still close handles and remove
 files in its own `finally`; cleanup cannot guarantee removal after host failure.
 
+HN-A/C8 type-1 and type-2 JPEG images share the bounded validation/emission
+path. The HN/C8 adapter also selects the documented unused-refinement-template
+interoperability policy; generic JBIG2 parsing remains strict. See the
+[type-1 profile and checks](../docs/hnc8-type1.md).
+
 HN-A outlines are supported. C8/HN-B currently require explicit
 `includeBookmarks: false`. HN-B source rows without supported image content are
 rejected rather than silently omitted. Strict JBIG2 headers are enforced; the

@@ -5,8 +5,8 @@ import { open, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { test } from "node:test";
 import { blobSource, convert, fileHandleScratch } from "../node.mjs";
-import { newInstance, tempDirectory, validateMultiImageHn } from "./helpers.mjs";
-import { qmStates, syntheticHn } from "./hnc8-fixtures.mjs";
+import { newInstance, tempDirectory, validateMultiImageHn, validateType1Hn } from "./helpers.mjs";
+import { qmStates, syntheticHn, syntheticType1Hn } from "./hnc8-fixtures.mjs";
 
 function memoryStore() {
   let bytes = new Uint8Array();
@@ -168,4 +168,29 @@ test("bilevel compression has bounded reusable WASM memory and an explicit alloc
   await assert.rejects(convert(instance, source(), sink(), {
     chunkSize: 7, limits: { maxAllocationBytes: 512n * 1024n - 1n }, hnc8: { scratch: stores() },
   }), (error) => error.code === "HNC8" && /allocation bytes/.test(error.message));
+});
+
+
+test("type-1 JPEG uses the bounded public path and preserves its encoded image", async (t) => {
+  const { bytes, jpeg } = syntheticType1Hn();
+  const outputs = [];
+  for (const kind of [1, 2]) {
+    new DataView(bytes.buffer).setUint32(0x190, kind, true);
+    const parts = [], scratch = stores();
+    const report = await convert(await newInstance(), blobSource(new Blob([bytes])), sink(parts),
+      { chunkSize: 3, hnc8: { scratch } });
+    assert.equal(report.pagesConverted, 1);
+    assert.ok(scratch.every((store) => store.size === 0n));
+    const pdf = Buffer.concat(parts);
+    assert.ok(pdf.includes(jpeg));
+    await validateType1Hn(t, pdf);
+    outputs.push(pdf);
+  }
+  assert.deepEqual(outputs[0], outputs[1]);
+  new DataView(bytes.buffer).setUint32(0x190, 1, true);
+  bytes[0x19c] = 0; // The type tag cannot bypass JPEG validation.
+  const scratch = stores();
+  await assert.rejects(convert(await newInstance(), blobSource(new Blob([bytes])), sink(),
+    { chunkSize: 1, hnc8: { scratch } }));
+  assert.ok(scratch.every((store) => store.size === 0n));
 });

@@ -11,7 +11,7 @@ import { readFile } from "node:fs/promises";
 import { after, before, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { findChrome, launchChrome, openPage, startServer } from "./browser-harness.mjs";
-import { fixture, syntheticCaj, syntheticKdh, validatePdf, validateMultiImageHn, wasmUrl } from "./helpers.mjs";
+import { fixture, syntheticCaj, syntheticKdh, validatePdf, validateMultiImageHn, validateType1Hn, wasmUrl } from "./helpers.mjs";
 
 const chrome = findChrome();
 if (chrome == null && process.env.CI) {
@@ -149,6 +149,10 @@ test("Chromium: multi-image HN converts with bookmarks through Worker OPFS", opt
   assert.equal(result.pages, 1);
   assert.equal(result.cleared, true);
   await validateMultiImageHn(t, new Uint8Array(result.pdf));
+  assert.equal(result.type1Pages, 1);
+  await validateType1Hn(t, new Uint8Array(result.type1Pdf));
+  const { syntheticType1Hn } = await import("./hnc8-fixtures.mjs");
+  assert.ok(Buffer.from(result.type1Pdf).includes(syntheticType1Hn().jpeg));
   assert.equal(result.standardPages, 1);
   await validatePdf(t, new Uint8Array(result.standardPdf), 1);
 });

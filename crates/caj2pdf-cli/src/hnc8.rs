@@ -12,9 +12,10 @@ use caj2pdf_core::{
     ConversionReport, Error, Limits, RangedSource, SequentialSink,
     hnc8::{
         ComposeOptions, ComposePage, ComposeType3Workspaces, ComposeVisitor, ComposeWorkspaces,
-        convert_source_pages_pdf,
+        Type3PdfOptions, convert_source_pages_pdf,
     },
     jbig2::mq::{MqState, MqTable},
+    jbig2::text::TextHeaderPolicy,
     native::FileScratch,
     qm::{QmState, QmTable},
 };
@@ -147,6 +148,12 @@ pub async fn convert<S: RangedSource, W: SequentialSink>(
     limits: &Limits,
 ) -> Result<ConversionReport, String> {
     let options = ComposeOptions {
+        // The HN/C8 profile explicitly admits the measured unused-template
+        // anomaly; general JBIG2 APIs and all other malformed flags stay strict.
+        type3: Type3PdfOptions {
+            text_header_policy: TextHeaderPolicy::HnC8UnusedRefinementTemplate,
+            ..Default::default()
+        },
         include_bookmarks,
         ..Default::default()
     };

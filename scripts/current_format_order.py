@@ -77,7 +77,7 @@ def oracle(name: str) -> dict:
 
 def expected_image(sample: dict, image: dict, source_sha: str, source_id: str) -> tuple:
     kind = image["record_type"]
-    if kind == 2:
+    if kind in (1, 2):
         return ("jpeg", image["payload_sha256"])
     if kind not in (0, 3):
         raise ValueError("no independent pixel oracle for image type")

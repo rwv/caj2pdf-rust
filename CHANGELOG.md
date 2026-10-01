@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Support validated type-1 JPEG image records in experimental HN-A/C8 conversion.
+- Select the existing, narrowly scoped HN/C8 JBIG2 text-header compatibility
+  policy in CLI/WASM; generic decoder defaults remain strict.
+- Record the current full-format baseline and fixed HN/C8 regression set.
+
 ## v0.3.1
 
 - Attest release files and the exact GHCR image digest using GitHub Actions OIDC.

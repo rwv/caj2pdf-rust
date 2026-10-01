@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-//! Strict, bounded marker traversal for one checked HN/C8 type-2 JPEG span.
+//! Strict, bounded marker traversal for one checked HN/C8 type-1/type-2 JPEG span.
 //! This is a structural profile reader, not a JPEG entropy decoder or a PDF
 //! color-management decision.
 
@@ -715,7 +715,7 @@ impl<S: RangedSource, C: Cancellation> Parser<'_, S, C> {
     }
 }
 
-/// Traverse one checked type-2 descriptor without copying its complete JPEG.
+/// Traverse one checked type-1 or type-2 JPEG descriptor without copying its complete JPEG.
 /// A successful result proves only the documented marker/profile subset;
 /// entropy code validity and PDF pixel parity require later checks.
 pub async fn read_type2_jpeg_info<S: RangedSource, C: Cancellation>(
@@ -745,7 +745,7 @@ pub async fn read_type2_jpeg_info<S: RangedSource, C: Cancellation>(
             .at(record.descriptor_offset)
             .malformed("image identity", "page and image numbers must be positive"));
     }
-    if record.record_type != 2 {
+    if !matches!(record.record_type, 1 | 2) {
         return Err(location
             .at(record.descriptor_offset)
             .error(ErrorKind::Unsupported {

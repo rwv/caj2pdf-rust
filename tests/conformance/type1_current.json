@@ -1,0 +1,154 @@
+{
+  "schema_version": 1,
+  "issue": 224,
+  "scope": "Measured HN-A type-1 JPEG profile; complete output identity/order and extracted-image checks, not CAJViewer whole-page parity",
+  "source_sha256": "826608ef34b850926d1291ddba1773305bd44a0bf4170b4a9ae8c7d83c0b7134",
+  "output_sha256": "e334c2be876c21237a9e6aa4095ad228d8093948a320e9e8b50b210adef087a4",
+  "native_binary_sha256": "fc48a71e432e1dcb3fa1eabb39d448019db86842710b5a37c5795580366f1d5d",
+  "wasm_sha256": "438688ebacca07d0fdf44e8913943f670fa61bb810271c9fc0bb8141e966d146",
+  "native": {
+    "seconds": 70.604,
+    "qpdf_exit_code": 0,
+    "pages": 109,
+    "bookmarks": 42
+  },
+  "source_order": {
+    "status": "PASS",
+    "pages": 109,
+    "images": 114,
+    "repeated_source_descriptors": 0,
+    "mismatched_pages": [],
+    "method": "ordered source images versus Poppler extraction and pinned pixel oracles",
+    "scope": "page/image identity and order; not placement, alias coordinates or rendered-page parity",
+    "source_outline": [
+      42,
+      "20b1f0b15357eea7f4f55a04fdc9c285c9a809eb8c55fad5ac55b37cf4c07bda"
+    ]
+  },
+  "type1_images": [
+    {
+      "page": 1,
+      "image": 1,
+      "payload_sha256": "f1f712a4d034cb57a54217bf6e6032c9c1609856dd0c694ffecb5c36ae3d0118",
+      "payload_length": 649171,
+      "width": 1563,
+      "height": 2174,
+      "dimension_source": "jpeg_sof0",
+      "precision": 8,
+      "components": 3,
+      "djpeg_exit": 0,
+      "pnm_sha256": "57c6eadbdf1b99c1bff77a366af1f43cf315a8b7b53e7e971458c5af0c64db20",
+      "warnings_bytes": 0
+    },
+    {
+      "page": 16,
+      "image": 2,
+      "payload_sha256": "1169b71e25d34a7a481789278ea7534f2ba272bbda1363c33765352c554fcab0",
+      "payload_length": 292835,
+      "width": 1363,
+      "height": 939,
+      "dimension_source": "jpeg_sof0",
+      "precision": 8,
+      "components": 3,
+      "djpeg_exit": 0,
+      "pnm_sha256": "83a2c975e734cd6a67f61124adc74417b800cc84167883969432be0f46e819bf",
+      "warnings_bytes": 0
+    },
+    {
+      "page": 30,
+      "image": 2,
+      "payload_sha256": "18f8fada15a0f6e809849d1c40c8768c1096a9f602e2bde5085eda16b7e33315",
+      "payload_length": 78604,
+      "width": 1626,
+      "height": 298,
+      "dimension_source": "jpeg_sof0",
+      "precision": 8,
+      "components": 3,
+      "djpeg_exit": 0,
+      "pnm_sha256": "f127ce1a85cd792cdea9c89e28fdbd39923bc6a0b45c6a193a2136f99b3714a2",
+      "warnings_bytes": 0
+    },
+    {
+      "page": 64,
+      "image": 2,
+      "payload_sha256": "a8d69c4a0a35005b6f6a4ed54b8b0afd538bbfff6cb0622156ae4f06e2a38c32",
+      "payload_length": 130593,
+      "width": 665,
+      "height": 740,
+      "dimension_source": "jpeg_sof0",
+      "precision": 8,
+      "components": 3,
+      "djpeg_exit": 0,
+      "pnm_sha256": "76a33240c997596f498330504a8525fe6d59d8a78e21c93bfcf6f7f8bbe735e6",
+      "warnings_bytes": 0
+    },
+    {
+      "page": 86,
+      "image": 2,
+      "payload_sha256": "88dbe064649fc20e526874b1fb48bfb095133bd7f71bff2364e88fb1a46ad867",
+      "payload_length": 502392,
+      "width": 1782,
+      "height": 1045,
+      "dimension_source": "jpeg_sof0",
+      "precision": 8,
+      "components": 3,
+      "djpeg_exit": 0,
+      "pnm_sha256": "820e898f07fd360945703c0fbe70f496cfc42ee16c7186f73f02af30fb86285f",
+      "warnings_bytes": 0
+    },
+    {
+      "page": 94,
+      "image": 2,
+      "payload_sha256": "b77c46b61574056a94898d2dd47614d6f1020ad3f334d05009bb9e7036cf2abf",
+      "payload_length": 538434,
+      "width": 1806,
+      "height": 1059,
+      "dimension_source": "jpeg_sof0",
+      "precision": 8,
+      "components": 3,
+      "djpeg_exit": 0,
+      "pnm_sha256": "8cd0e4e2d9e3cc449dea02a3508bd8222df3ccfdf61792b36fe26e3fa79114f2",
+      "warnings_bytes": 0
+    }
+  ],
+  "node": {
+    "report": {
+      "format": "hn",
+      "inputBytesRead": "22133270",
+      "outputBytesWritten": "10690852",
+      "pagesConverted": 109,
+      "bookmarksWritten": 42
+    },
+    "seconds": 375.622178471,
+    "wasmMemoryBytes": 1900544,
+    "scratchSizes": [
+      "0",
+      "0",
+      "0",
+      "0"
+    ],
+    "sha256": "e334c2be876c21237a9e6aa4095ad228d8093948a320e9e8b50b210adef087a4",
+    "temporary_scratch_removed": true
+  },
+  "browser": {
+    "report": {
+      "format": "hn",
+      "inputBytesRead": "22133270",
+      "outputBytesWritten": "10690852",
+      "pagesConverted": 109,
+      "bookmarksWritten": 42
+    },
+    "seconds": 339.724,
+    "wasmMemoryBytes": 1769472,
+    "sha256": "e334c2be876c21237a9e6aa4095ad228d8093948a320e9e8b50b210adef087a4",
+    "scratchSizes": [
+      "0",
+      "0",
+      "0",
+      "0"
+    ],
+    "remainingFiles": []
+  },
+  "reviewed_implementation_commit": "035672a",
+  "artifact_note": "Measured binaries were built from the working implementation before documentation and diagnostic-label edits; their exact identities are the recorded binary/WASM hashes."
+}
