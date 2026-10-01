@@ -157,7 +157,13 @@ fn source_order_repeats_and_pixel_dimensions_do_not_change_coordinate_roles() {
     assert!(transforms[1][4] > transforms[0][4]);
     assert!(transforms[1][5] > transforms[0][5]);
     let resized = empirical_image_transform(page, 11, 2, coordinates[0]).unwrap();
-    assert_eq!(&resized[4..], &transforms[0][4..]);
+    // Compare returned binary64 values, not x87 extended intermediates.
+    // Independently rounded exact coordinates are -13/4 + 480/2473 and
+    // 489/8 - 960/2473. Pixel dimensions must not change either translation.
+    for transform in [transforms[0], transforms[2], resized] {
+        assert_eq!(transform[4].to_bits(), 0xc008727dabbc819b);
+        assert_eq!(transform[5].to_bits(), 0x404e5e4fb5779033);
+    }
     close(resized[0], 2.64);
     close(resized[3], -0.48);
 }
