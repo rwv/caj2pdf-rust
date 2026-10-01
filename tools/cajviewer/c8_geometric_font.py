@@ -19,7 +19,7 @@ CHARACTERS = {
 }
 
 
-def font(path, family, units=1000, *, extended_metrics=False, outline_shift=0):
+def font(path, family, units=1000, *, extended_metrics=False, outline_shift=0, decoration_alias=False):
     names = [".notdef", "square", "upper", "lower"]
     rectangles = [
         None,
@@ -42,7 +42,10 @@ def font(path, family, units=1000, *, extended_metrics=False, outline_shift=0):
     descent = -(units // 2) if extended_metrics else 0
     builder = FontBuilder(units, isTTF=True)
     builder.setupGlyphOrder(names)
-    builder.setupCharacterMap(CHARACTERS)
+    characters = dict(CHARACTERS)
+    if decoration_alias:
+        characters[23812] = "upper"
+    builder.setupCharacterMap(characters)
     builder.setupGlyf(glyphs)
     builder.setupHorizontalMetrics({name: (units, 0) for name in names})
     builder.setupHorizontalHeader(ascent=ascent, descent=descent)
@@ -69,7 +72,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("output", type=Path, help="new directory outside the repository")
     parser.add_argument(
-        "--variant", choices=("baseline", "extended-metrics", "shifted-outline"),
+        "--variant", choices=("baseline", "extended-metrics", "shifted-outline", "decoration-alias"),
         default="baseline", help="original font metric/outline control",
     )
     args = parser.parse_args()
@@ -77,8 +80,9 @@ def main():
     for family in FAMILIES:
         font(
             args.output / (family + ".ttf"), family,
-            extended_metrics=args.variant != "baseline",
+            extended_metrics=args.variant in ("extended-metrics", "shifted-outline"),
             outline_shift=250 if args.variant == "shifted-outline" else 0,
+            decoration_alias=args.variant == "decoration-alias",
         )
 
 

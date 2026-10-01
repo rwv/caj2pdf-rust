@@ -830,3 +830,26 @@ pattern. `8010/1` must still not be silently dropped or rendered as a plain
 segment. Its rendering semantics remain in #240. External receipts are in
 `caj2pdf-c8-decoration-default-20261001`, including `comparison.json` and the
 recorded launch arguments. Earlier mandatory-footer descriptions are superseded.
+
+### Original glyph control for the 8010 resource dependency
+
+Public FreeType call observations for the original horizontal `8010/1` control
+show a character query of decimal 23812 in HGBZ_CNKI, returning glyph 1862 in
+the viewer's bundled font. These are API metadata, not extracted outlines.
+The numeric query is a resource alias; it does not establish the ornament's
+Unicode text meaning or a stable glyph ID across fonts.
+
+The geometric font generator now offers `--variant decoration-alias`. It adds
+only that character-map entry, pointing at the existing original upper-half
+rectangle. Against otherwise identical generated baseline fonts, the long
+horizontal control gains a solid visible strip; the baseline has no strip.
+Both captures repeat exactly at 57% with page interior `(648,387,1023,936)`.
+The changed region is `(17,34,335,39)` relative to that interior. This isolates
+the alias as necessary for visible decoration in this control and provides an
+original positive resource fixture. It does not establish the complete pattern
+placement, scaling or repetition rule and does not authorize rendering the
+source ornament as a plain line. Those remaining rules stay under #240.
+
+The default generator and previous metric/outline variants retain their output.
+Receipts and captures remain external in
+`caj2pdf-c8-decoration-{alias,no-alias}-20261001`. No vendor font data is added.
