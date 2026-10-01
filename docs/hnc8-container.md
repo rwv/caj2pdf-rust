@@ -27,7 +27,13 @@ The reader checks its count and span but does not interpret these records.
 Other header bytes and the meanings of the HN marker values remain unknown.
 Zero-page files and additional markers are outside this measured profile.
 
-The page index contains one 20-byte row per page, in one-based page order:
+The ordinary page index contains one 20-byte row per page, in one-based page
+order. HN-B additionally uses a verified compact 12-byte layout when the u32
+at offset `0x88` is zero; `0xc8` selects the ordinary layout. Other HN-B
+layout markers are unsupported. See [compact HN-B index](hnb-compact-index.md)
+for controls, admitted zero third word and raw-field representation.
+
+The ordinary row fields are:
 
 | Row offset | Type | Reader treatment |
 | --- | --- | --- |

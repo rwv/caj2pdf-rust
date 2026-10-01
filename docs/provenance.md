@@ -1914,3 +1914,12 @@ pinned offline viewer; residual cover raster differences remain explicit.
 C8 image-less rows contain visible text in that viewer, so their native record
 interpretation/rendering is a distinct unresolved prerequisite (#229).
 This change reuses the existing bounded compact-record reader.
+
+### Compact HN-B index controls
+
+`tools/cajviewer/hnb_index_fixture.py` and the reader extension are original
+MIT code. The generator creates two invented pages with unequal lengths and
+crosses 12/20-byte rows with two observed layout markers. It reads no external
+document or converter source and includes no fonts, outlines or source text.
+The independent viewer observations and admitted limits are recorded in
+`docs/hnb-compact-index.md`. All external captures/documents remain outside Git.

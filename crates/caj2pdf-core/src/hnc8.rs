@@ -104,6 +104,8 @@ pub struct PageRecord {
     pub text: Span,
     pub image_count: u32,
     /// Uninterpreted bytes at page-row offsets +10 through +19.
+    /// For the compact HN-B profile, only +10/+11 exist; the remaining eight
+    /// bytes are padding, not source data. Its admitted third word is zero.
     pub unknown: [u8; 10],
 }
 
@@ -407,6 +409,7 @@ pub struct Hnc8Reader<'a, S: RangedSource, C: Cancellation> {
     cancellation: &'a C,
     budget: Budget,
     header: Header,
+    page_row_bytes: u64,
     next_page: u32,
     current: Option<CurrentPage>,
     declared_images: u64,
@@ -582,7 +585,32 @@ impl<'a, S: RangedSource, C: Cancellation> Hnc8Reader<'a, S, C> {
         } else {
             index_start
         };
-        let index_length = u64::from(page_count) * PAGE_ROW_BYTES;
+        let page_row_bytes = if variant == Variant::HnB {
+            let mut marker = [0; 4];
+            read_fixed(
+                source,
+                limits,
+                cancellation,
+                0x88,
+                &mut marker,
+                loc.at(0x88),
+                "HN-B page-index layout",
+            )
+            .await?;
+            match u32::from_le_bytes(marker) {
+                0 => 12,
+                0xc8 => PAGE_ROW_BYTES,
+                value => {
+                    return Err(loc.at(0x88).error(ErrorKind::Unsupported {
+                        field: "HN-B page-index layout",
+                        value: u64::from(value),
+                    }));
+                }
+            }
+        } else {
+            PAGE_ROW_BYTES
+        };
+        let index_length = u64::from(page_count) * page_row_bytes;
         let page_index = checked_span(
             source.size(),
             index_start,
@@ -606,6 +634,7 @@ impl<'a, S: RangedSource, C: Cancellation> Hnc8Reader<'a, S, C> {
                 page_count,
                 page_index,
             },
+            page_row_bytes,
             next_page: start_page,
             current: None,
             declared_images: 0,
@@ -651,7 +680,7 @@ impl<'a, S: RangedSource, C: Cancellation> Hnc8Reader<'a, S, C> {
         }
         let page_number = self.next_page;
         let row_offset =
-            self.header.page_index.offset + u64::from(page_number - 1) * PAGE_ROW_BYTES;
+            self.header.page_index.offset + u64::from(page_number - 1) * self.page_row_bytes;
         let loc = loc.at(row_offset);
         self.poisoned = true;
         let mut row = [0; PAGE_ROW_BYTES as usize];
@@ -660,7 +689,7 @@ impl<'a, S: RangedSource, C: Cancellation> Hnc8Reader<'a, S, C> {
             self.limits,
             self.cancellation,
             row_offset,
-            &mut row,
+            &mut row[..self.page_row_bytes as usize],
             loc,
             "page row",
         )
@@ -681,6 +710,18 @@ impl<'a, S: RangedSource, C: Cancellation> Hnc8Reader<'a, S, C> {
                 self.budget.max_text_span_bytes,
                 text_length,
             ));
+        }
+        if self.page_row_bytes == 12 {
+            if text.offset < self.header.page_index.checked_end().expect("checked index") {
+                return Err(loc.malformed("text span", "overlaps protected container index"));
+            }
+            let value = u32::from_le_bytes(row[8..12].try_into().expect("four bytes"));
+            if value != 0 {
+                return Err(loc.at(row_offset + 8).error(ErrorKind::Unsupported {
+                    field: "compact HN-B third word",
+                    value: u64::from(value),
+                }));
+            }
         }
         let signed_images = signed16(&row[8..10]);
         if signed_images < 0 {

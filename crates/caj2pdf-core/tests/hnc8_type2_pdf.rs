@@ -244,6 +244,9 @@ fn container(layout: Layout, pages: &[Vec<Record>]) -> Built {
             });
         }
     }
+    if matches!(layout, Layout::HnB) {
+        bytes[0x88..0x8c].copy_from_slice(&0xc8_u32.to_le_bytes());
+    }
     bytes[count_at..count_at + 4].copy_from_slice(&(pages.len() as i32).to_le_bytes());
     if matches!(layout, Layout::HnA) {
         bytes[0x158..0x15c].copy_from_slice(&1_i32.to_le_bytes());

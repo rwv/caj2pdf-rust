@@ -213,6 +213,7 @@ fn c8() -> Vec<u8> {
 fn hn() -> Vec<u8> {
     let mut bytes = vec![0_u8; 0xd8 + 2 * 20];
     bytes[..8].copy_from_slice(b"HN\0\0\xc8\0\0\0");
+    put_u32(&mut bytes, 0x88, 0xc8);
     put_u32(&mut bytes, 0x90, 2);
     bytes
 }
