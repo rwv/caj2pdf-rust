@@ -12,6 +12,14 @@ use crate::{Cancellation, RangedSource};
 pub enum NativeRecord {
     /// A position, style or observed four-byte control, with its original tag.
     Control { tag: u16, value: u16 },
+    /// An observed eight-byte control (`81ff/1..=3` or `80cc/0204`).
+    /// The two payload words are atomic and uninterpreted. Preserving their
+    /// framing does not establish font, layout or resource semantics.
+    ExtendedControl {
+        tag: u16,
+        value: u16,
+        words: [u16; 2],
+    },
     /// A glyph code with the current run context. This is not Unicode.
     Glyph {
         x: u16,
@@ -159,9 +167,29 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
                         style = Some(value);
                         NativeRecord::Control { tag, value }
                     }
-                    0x801d if matches!(value, 0 | 4) => NativeRecord::Control { tag, value },
+                    0x801d if matches!(value, 0 | 3 | 4) => NativeRecord::Control { tag, value },
                     0x8067 if matches!(value, 5 | 6 | 8 | 9) => {
                         NativeRecord::Control { tag, value }
+                    }
+                    0x801c | 0x8070 | 0x8071 if value == 4 => NativeRecord::Control { tag, value },
+                    0x80ce if value <= 1 => NativeRecord::Control { tag, value },
+                    0x8024 if matches!(value, 0x2800 | 0x281d) => {
+                        NativeRecord::Control { tag, value }
+                    }
+                    0x8021 if value == 0x2000 => NativeRecord::Control { tag, value },
+                    0x80d0 | 0x80d2 if value == 0 => NativeRecord::Control { tag, value },
+                    0x80d1 if value == 1 => NativeRecord::Control { tag, value },
+                    0x81ff | 0x80cc
+                        if matches!((tag, value), (0x81ff, 1..=3) | (0x80cc, 0x0204)) =>
+                    {
+                        length = 8;
+                        self.native_bytes(position + 4, end, &mut bytes[4..8], at)
+                            .await?;
+                        NativeRecord::ExtendedControl {
+                            tag,
+                            value,
+                            words: [word(&bytes[4..6]), word(&bytes[6..8])],
+                        }
                     }
                     0x80cc if (0x0102..=0x01ff).contains(&value) => {
                         length = usize::from(value & 0xff) * 2;
