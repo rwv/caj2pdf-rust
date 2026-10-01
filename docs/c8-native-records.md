@@ -880,3 +880,25 @@ External receipts are `geometry-{inputs,comparison}.json` in
 `caj2pdf-c8-decoration-narrow-20261001`. The next discriminator is the source
 step and end clipping under an independently changed zoom/advance; reuse these
 controls rather than introducing another renderer or screenshot framework.
+
+### Advance and zoom discriminate decoration spacing
+
+Doubling the original narrow glyph's horizontal advance, leaving its
+outline and mapping unchanged, produces an identical whole page at 57%.
+The generated font also updates `hhea.advanceWidthMax` to remain consistent.
+A fresh viewer replay with both metrics at 2000 confirms the same result.
+Reproduce with `--variant decoration-narrow --decoration-advance-multiplier 2`.
+Thus normal font advance is not the spacing rule for this observed decoration.
+
+At independently selected and visually confirmed 100% zoom, all page edges
+remain visible (interior `(858,179,1518,1145)`). The same long control has 51
+separated runs on desktop row 245, with 11-pixel spacing in its unobstructed
+tail, versus 53 runs and 6-pixel spacing at 57%. Repeated captures match.
+This disproves a zoom-invariant glyph count derived from the 57% screenshot.
+The viewer applies raster-dependent spacing/rounding; exact pixel equality at
+one zoom cannot establish a source-space repetition count for PDF output.
+Nominal symbol size and end clipping still need an independent rule before
+production admission. Font outline substitution remains explicit. Receipts
+are in `caj2pdf-c8-decoration-advance-20261001/comparison.json`; the
+consistent-metrics replay is in
+`caj2pdf-c8-decoration-advance-valid-20261001/comparison.json`.

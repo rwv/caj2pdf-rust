@@ -19,7 +19,7 @@ CHARACTERS = {
 }
 
 
-def font(path, family, units=1000, *, extended_metrics=False, outline_shift=0, decoration_alias=False, narrow_decoration=False):
+def font(path, family, units=1000, *, extended_metrics=False, outline_shift=0, decoration_alias=False, narrow_decoration=False, decoration_advance_multiplier=1):
     names = [".notdef", "square", "upper", "lower"]
     rectangles = [
         None,
@@ -47,7 +47,9 @@ def font(path, family, units=1000, *, extended_metrics=False, outline_shift=0, d
         characters[23812] = "upper"
     builder.setupCharacterMap(characters)
     builder.setupGlyf(glyphs)
-    builder.setupHorizontalMetrics({name: (units, 0) for name in names})
+    metrics = {name: (units, 0) for name in names}
+    metrics["upper"] = (units * decoration_advance_multiplier, 0)
+    builder.setupHorizontalMetrics(metrics)
     builder.setupHorizontalHeader(ascent=ascent, descent=descent)
     builder.setupNameTable({
         "familyName": family,
@@ -75,6 +77,10 @@ def main():
         "--variant", choices=("baseline", "extended-metrics", "shifted-outline", "decoration-alias", "decoration-narrow"),
         default="baseline", help="original font metric/outline control",
     )
+    parser.add_argument(
+        "--decoration-advance-multiplier", type=int, choices=(1, 2), default=1,
+        help="change only the original upper glyph advance for a spacing control",
+    )
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=False)
     for family in FAMILIES:
@@ -84,6 +90,7 @@ def main():
             outline_shift=250 if args.variant == "shifted-outline" else 0,
             decoration_alias=args.variant == "decoration-alias",
             narrow_decoration=args.variant == "decoration-narrow",
+            decoration_advance_multiplier=args.decoration_advance_multiplier,
         )
 
 
