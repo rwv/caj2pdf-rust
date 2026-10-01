@@ -84,8 +84,8 @@ pub trait NativeRecordVisitor {
 
 impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
     /// Visit admitted C8 or HN-B raw native records without allocating.
-    /// HN-B admits independently controlled glyph runs, controls and two drawing
-    /// forms. Other C8 drawing, image and control framing is not inherited.
+    /// HN-B admits independently controlled glyph runs, controls, three drawing
+    /// forms and fixed-length image records. Other C8 framing is not inherited.
     /// Call `next_page` first. This does not consume image descriptors, decode
     /// characters or enable conversion. Unknown framing stops at its source byte.
     /// A failed/dropped operation poisons the reader, just like image traversal.
@@ -174,19 +174,21 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
                     && !matches!(
                         (tag, value),
                         (0x8001 | 0x8002 | 0x8004, _)
-                            | (0x801d, 0 | 4)
+                            | (0x801d, 0 | 3 | 4)
                             | (0x801c, 4)
                             | (0x8067, 6 | 7 | 9)
                             | (0x8069, 0x1084)
                             | (0x80ce, 0 | 1)
                             | (0x8070 | 0x8071, 0x0024 | 0x002b)
-                            | (0x8072, 0 | 0xc2c7)
+                            | (0x8070, 0x001c)
+                            | (0x8072, 0 | 0xc2c7 | 0xcdc1)
                             | (0x8073, 0x001e | 0x001f | 0x0029 | 0x002a)
                             | (0x8024, 0x2800 | 0x281d)
                             | (0xc053, _)
                             | (0xffff, 5)
-                            | (0x8006, 0xa381 | 0xa385)
+                            | (0x8006, 0xa381 | 0xa383 | 0xa385)
                             | (0xc052, 0xa385)
+                            | (0x800a, 0xd300)
                     )
                 {
                     return Err(at.error(ErrorKind::Unsupported {

@@ -1138,9 +1138,9 @@ fn hnb_glyph_runs_use_both_verified_indexes_without_crossing_pages() {
 #[test]
 fn hnb_does_not_inherit_unverified_c8_records_or_font_controls() {
     for pair in [
-        [0x8006, 0xa383],
+        [0x8006, 0xa38b],
         [0x80cc, 0x0102],
-        [0x800a, 0xd300],
+        [0x800a, 0xd301],
         [0x801d, 1],
         [0x8067, 5],
         [0xc052, 0xa384],
@@ -1259,7 +1259,9 @@ fn hnb_prefix_is_one_atomic_eight_byte_record() {
 #[test]
 fn hnb_run_controls_and_drawing_preserve_following_glyph_context() {
     let controls = [
+        [0x801d, 3],
         [0x801d, 4],
+        [0x8070, 0x001c],
         [0x801c, 4],
         [0x8067, 7],
         [0x8067, 9],
@@ -1275,6 +1277,7 @@ fn hnb_run_controls_and_drawing_preserve_following_glyph_context() {
         [0x8073, 0x0029],
         [0x8073, 0x002a],
         [0x8072, 0xc2c7],
+        [0x8072, 0xcdc1],
         [0x8072, 0],
         [0x8024, 0x2800],
         [0x8024, 0x281d],
@@ -1322,7 +1325,7 @@ fn hnb_run_controls_and_drawing_preserve_following_glyph_context() {
                     }
                 );
             }
-            for style in [0xa381, 0xa385] {
+            for style in [0xa381, 0xa383, 0xa385] {
                 for following in [[0xffff, 5], [0x8001, 5000]] {
                     let mut source = hnb_source(
                         width,
@@ -1364,7 +1367,7 @@ fn hnb_run_controls_and_drawing_preserve_following_glyph_context() {
                 }
             }
         }
-        for style in [0xa381, 0xa385] {
+        for style in [0xa381, 0xa383, 0xa385] {
             let mut source = hnb_source(
                 width,
                 &[&[[0x8006, style], [5200, 4800], [6300, 4850], [0x8004, 1]]],
@@ -1443,6 +1446,7 @@ fn hnb_run_controls_and_drawing_preserve_following_glyph_context() {
         [0x8073, 0x0029],
         [0x8073, 0x002a],
         [0x8072, 0xc2c7],
+        [0x8072, 0xcdc1],
         [0x8072, 0],
         [0xc053, 0x00e9],
         [0x8006, 0xa385],
@@ -1480,5 +1484,100 @@ fn hnb_implicit_style_is_unsupported_rather_than_proven_malformed() {
                 }
             ));
         }
+    }
+}
+
+#[test]
+fn hnb_images_preserve_atomic_words_and_following_glyph_order() {
+    let image = [
+        [0x800a, 0xd300],
+        [0xc000 | 4682, 4314],
+        [0xc000 | 80, 50],
+        [0xc050, 0xc033],
+        [0xc037, 0xc000],
+        [0xc06c, 0xc032],
+        [0xc0f2, 0xc07a],
+    ];
+    for short in [1, 3, 7, 28] {
+        for declared in [0_u16, 1, 2, 3] {
+            let mut words = image.to_vec();
+            words.extend([[0x8001, 4330], [0x8002, 0x1084], [4700, 0xd6d0]]);
+            words.extend(image);
+            words.push([0x8004, 1]);
+            let mut source = hnb_source(20, &[&words]);
+            source.bytes[224..226].copy_from_slice(&declared.to_le_bytes());
+            source.short = short;
+            let mut visitor = Visitor::default();
+            let result = parse(&mut source, TextBudget::default(), &mut visitor);
+            if declared == 2 {
+                assert_eq!(result.unwrap(), 6);
+                assert_eq!(
+                    visitor.events[0],
+                    (
+                        236,
+                        NativeRecord::Image {
+                            words: [
+                                0xd300, 0xd24a, 4314, 0xc050, 50, 0xc050, 0xc033, 0xc037, 0xc000,
+                                0xc06c, 0xc032, 0xc0f2, 0xc07a
+                            ],
+                        }
+                    )
+                );
+                assert!(matches!(visitor.events[3].1, NativeRecord::Glyph { .. }));
+                assert_eq!(visitor.events[4].1, visitor.events[0].1);
+                assert_eq!(visitor.events[1].0 - visitor.events[0].0, 28);
+            } else {
+                assert!(matches!(
+                    result.unwrap_err().kind,
+                    ErrorKind::Malformed { .. }
+                ));
+            }
+        }
+    }
+}
+
+#[test]
+fn hnb_truncated_image_does_not_consume_the_following_page() {
+    for length in 4..28 {
+        let mut source = hnb_source(
+            20,
+            &[
+                &[
+                    [0x800a, 0xd300],
+                    [0; 2],
+                    [0; 2],
+                    [0; 2],
+                    [0; 2],
+                    [0; 2],
+                    [0; 2],
+                ],
+                &[[0x8004, 2]],
+            ],
+        );
+        source.bytes[220..224].copy_from_slice(&(length as u32).to_le_bytes());
+        source.bytes[224..226].copy_from_slice(&1_u16.to_le_bytes());
+        run(async {
+            let limits = Limits::default();
+            let cancel = Cancel::default();
+            let mut reader = Hnc8Reader::open(&mut source, &limits, &cancel, Default::default())
+                .await
+                .unwrap();
+            reader.next_page().await.unwrap();
+            let mut visitor = Visitor::default();
+            let error = reader
+                .visit_native_records(TextBudget::default(), &mut visitor)
+                .await
+                .unwrap_err();
+            assert!(
+                matches!(error.kind, ErrorKind::Truncated { expected: 24, available, .. }
+                if available == u64::from(length as u32 - 4))
+            );
+            assert_eq!(error.page, Some(1));
+            assert!(visitor.events.is_empty());
+            assert!(matches!(
+                reader.next_page().await.unwrap_err().kind,
+                ErrorKind::Poisoned
+            ));
+        });
     }
 }

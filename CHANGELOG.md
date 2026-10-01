@@ -6,6 +6,11 @@
   `810a/d300` profile. Exhaustive matches must handle its coordinates and
   opaque source-span reference. Names are never opened as external files;
   complete native-page conversion remains unsupported.
+- Admit verified 28-byte HN-B native image records with bounded reads and
+  exact descriptor-count checks, plus independently verified following drawing
+  and style controls. Mixed-page rendering remains unsupported;
+  raw traversal does not establish full document conversion.
+
 - Extend bounded HN-B native-record traversal across both verified index
   layouts, preserving observed run controls, raw numeric values, the atomic
   `c052/a385` prefix and 12-byte drawing records. Implicit glyph styles are
