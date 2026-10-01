@@ -1892,3 +1892,12 @@ are invented, including embedded marker values to check atomic record framing.
 The visitor retains raw codes/styles without copying another decoder or
 claiming Unicode/font semantics. It reuses the existing MIT I/O, limits and
 cursor-failure contract. No fonts or external document data are bundled.
+
+The native character helper reuses the existing independently generated
+GB18030 mapping through a shared, allocation-free two-byte lookup. Its A0
+alphanumeric extension was established by original 62-character source
+mutations and the pinned viewer's ordinary-copy output, checked against the
+invented ASCII alphabet; the selected original text provides a second control.
+Only encoding facts/hashes are committed. Viewer copy normalization and
+unverified special/private-use mappings are not silently adopted. No viewer
+source code or font data was read/copied into this implementation.

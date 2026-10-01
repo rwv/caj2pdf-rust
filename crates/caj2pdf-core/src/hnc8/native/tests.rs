@@ -485,3 +485,85 @@ fn current_variant_is_enforced_and_success_releases_poison() {
         }
     }
 }
+
+#[test]
+fn maps_verified_alphanumeric_and_gbk_codes_without_inventing_unknowns() {
+    // The complete alphanumeric alphabet was independently checked with a
+    // controlled source and the pinned viewer's ordinary-copy operation.
+    let alphabet = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+    for &ascii in alphabet {
+        assert_eq!(
+            decode_native_character(0xa000 | u16::from(ascii + 0x80)),
+            Some(char::from(ascii))
+        );
+    }
+    for (code, expected) in [
+        (0xcec4, '文'),
+        (0xb2e2, '测'),
+        (0xcee4, '武'),
+        (0xa1a1, '\u{3000}'),
+        (0xa3ac, '\u{ff0c}'),
+        (0xa3b0, '\u{ff10}'),
+    ] {
+        assert_eq!(decode_native_character(code), Some(expected));
+    }
+    // Viewer ordinary copy normalizes some punctuation/digits and even emits
+    // U+0082 for a comma. Do not make those clipboard transformations our map.
+    for code in [
+        0,
+        0x4170,
+        0x8140_u16 - 1,
+        0x817f,
+        0xffff,
+        0xa001,
+        0xa0a6,
+        0xa0a0,
+        0xa0ff,
+        0xaab3,
+        0xaaa1,
+    ] {
+        assert_eq!(decode_native_character(code), None, "{code:04x}");
+    }
+}
+
+#[test]
+fn a_text_consumer_rejects_unmapped_glyphs_at_their_source_record() {
+    struct Text;
+    impl NativeRecordVisitor for Text {
+        async fn visit(&mut self, _: u64, record: NativeRecord) -> crate::Result<()> {
+            if let NativeRecord::Glyph { code, .. } = record {
+                decode_native_character(code).ok_or(Error::UnsupportedFormat)?;
+            }
+            Ok(())
+        }
+    }
+    for code in [0xcec4, 0xa0da, 0xa0a6, 0xffff] {
+        let mut source = fixture(&[[0x8001, 3], [0x8002, 5], [11, code], [0x8004, 0]], 0);
+        let limits = Limits::default();
+        let cancel = Cancel::default();
+        let mut reader = run(Hnc8Reader::open(
+            &mut source,
+            &limits,
+            &cancel,
+            Default::default(),
+        ))
+        .unwrap();
+        run(reader.next_page()).unwrap();
+        let result = run(reader.visit_native_records(TextBudget::default(), &mut Text));
+        if matches!(code, 0xcec4 | 0xa0da) {
+            assert_eq!(result.unwrap(), 4);
+        } else {
+            let error = result.unwrap_err();
+            assert_eq!(error.offset, 108);
+            assert_eq!(error.page, Some(1));
+            assert!(matches!(
+                error.kind,
+                ErrorKind::Source {
+                    source: Error::UnsupportedFormat,
+                    ..
+                }
+            ));
+            assert!(reader.poisoned);
+        }
+    }
+}

@@ -116,5 +116,67 @@ asymmetric glyph order, marker-like image/drawing payloads, both drawing end
 forms, every record truncation boundary, span/count/working limits, unknown
 controls, short reads, source/visitor errors, cancellation and an abandoned
 suspended visitor. Raw non-ASCII, Latin and invalid codes are preserved, not
-misrepresented as decoded characters. Unicode decoding acceptance in #232
-remains open, together with the still-required controls under #229/#233.
+misrepresented as decoded characters. The character helper below now covers the verified alphanumeric/GB18030 subset.
+The still-required special characters, controls and rendering remain #229/#233.
+
+## Character mapping and ordinary-copy controls
+
+`decode_native_character` reuses the existing factual GB18030 table without
+allocating a String per glyph. It returns the standard two-byte character for
+ordinary codes, and ASCII letters/digits for the verified A0-prefixed codes.
+The 62 alphanumeric codes are `a0b0..a0b9`, `a0c1..a0da`, and `a0e1..a0fa`.
+Other A0 codes, private-use mappings and invalid sequences return `None`.
+A visitor that requires complete text can reject `None`; the reader retains
+the failing source-record offset and poisons the cursor. Raw glyph events still
+preserve the original code. The helper is not a full-page text extractor.
+
+Evidence was acquired with the same pinned offline viewer, at 100% zoom and
+96 DPI, using the visibly labeled ordinary Copy menu, **not enhanced copy or
+OCR**. A fresh distinct clipboard sentinel was installed before each copy.
+The page-2 selection rectangle was `(548,218)` to `(1137,1060)`; it excludes
+the final body paragraphs and page furniture. Original bytes remain external.
+
+- Source selection: 2,459 UTF-8 bytes / 1,523 code points, SHA-256
+  `b5bd244865f329c798b5dd92a371c16f1171832e45d7865eb721d586e87ea240`.
+- Original uppercase/lowercase/digit alphabet control: 62 non-space glyph-code
+  words replaced with the corresponding A0 codes; all other bytes unchanged.
+  Control SHA-256 `a214562e8474b6e7579c67b8c3efa0e2cc1dc0be2fa97c49c5d84ec6313a4549`.
+- Control ordinary copy: 2,417 bytes / 1,542 code points,
+  SHA-256 `7def702a95f42df4291c190a344bcd8804e478bac83254786af677864d2b3137`. Its first 62 non-whitespace
+  characters exactly equal `ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789`.
+  Whitespace removal was used only to align this invented alphabet; retained
+  raw clipboard bytes were not normalized or substituted as a text baseline.
+
+The unchanged source selection independently contains 40 distinct A0 letter
+codes that agree with that rule. Ordinary copy is not a universal Unicode
+oracle: it changes some fullwidth digits to ASCII, produces U+0082 for the
+standard GB18030 fullwidth comma code, and maps special A0 ampersand/AA symbol
+codes differently from an ordinary GB18030 decode. The helper does not copy
+those clipboard transformations or guess unknown special-code semantics.
+Those exceptions remain explicit prerequisites for complete text rendering.
+Source record order has only been compared for this selected body region;
+full-document reading order is not established.
+
+The external evidence directory `caj2pdf-c8-copy-20261001` retains the raw
+clipboard payloads, visible menu/selection captures, mutation manifest, full-file
+integrity checks and comparison report. Only format facts and hashes are
+recorded here. No extracted document text, source document or font is committed.
+
+## Style-word follow-up (not yet a font contract)
+
+Four more original controls change only the style word at source offset 210,
+from `0884` to `0885`, `08a4`, `0c84`, or `1084`. Each source/control capture
+repeats identically with the same page frame. The first two changes affect only
+the selected five-glyph run (589 and 466 changed pixels, respectively); the
+other two produce zero changed page pixels. In the first control, the low-field
+increment visibly increases glyph height. The control file labels `width` and
+`height` were initial hypotheses, not established field names.
+
+All observed source style words have equal low five-bit and next five-bit
+fields. The asymmetric controls support investigating independent glyph-size
+fields, but do not establish size units, font selection or an accepted style
+bit layout. Zero visible difference does not authorize ignoring high bits.
+Runtime diagnostic font requests include Fangzheng/CNKI names; the viewer has
+its own font resources. Those log observations do not identify the effective
+font for each source style or license any font for redistribution. Keep style
+words raw until the rendering work validates a reproducible font contract.

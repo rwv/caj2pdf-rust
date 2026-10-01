@@ -32,6 +32,24 @@ pub enum NativeRecord {
     End { value: u16 },
 }
 
+/// Decode the admitted C8 native character subset without allocating.
+///
+/// Ordinary codes use their big-endian two-byte GB18030 value. The independently
+/// verified A0-prefixed letters/digits use ASCII plus 0x80 in the low byte.
+/// Other A0 codes, private-use mappings and malformed sequences return `None`;
+/// they must remain explicit unsupported glyphs rather than blank substitutions.
+/// This maps characters only: fonts, metrics, drawing/text order and complete
+/// native page rendering still require separate validation.
+pub fn decode_native_character(code: u16) -> Option<char> {
+    let [lead, second] = code.to_be_bytes();
+    if lead == 0xa0 {
+        let ascii = second.checked_sub(0x80)?;
+        return ascii.is_ascii_alphanumeric().then(|| char::from(ascii));
+    }
+    crate::gb18030::decode_two_byte(lead, second)
+        .filter(|c| !c.is_control() && !(0xe000..=0xf8ff).contains(&u32::from(*c)))
+}
+
 /// Receives one record at a time in source order, including all known controls.
 /// A callback is awaited before the next record is read. Events delivered before
 /// a later error are an incomplete prefix and must not be published as a page.
