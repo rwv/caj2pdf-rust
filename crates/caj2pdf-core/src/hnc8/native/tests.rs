@@ -215,12 +215,12 @@ fn streams_raw_glyph_context_and_atomic_drawing_image_records() {
 fn unsupported_records_stop_without_consuming_their_payload_as_glyphs() {
     for pair in [
         [0x8006, 0],
-        [0x8010, 1],
-        [0xc053, 7],
-        [0xc054, 8],
-        [0x8072, 0],
-        [0x8073, 0],
-        [0x8074, 0],
+        [0x8010, 0],
+        [0x8010, 0xa381],
+        [0xc052, 7],
+        [0xc055, 8],
+        [0x8071, 0],
+        [0x8075, 0],
         [0x801d, 1],
         [0x8067, 0],
         [0x800a, 0],
@@ -281,6 +281,9 @@ fn never_reads_past_indexed_span_for_any_truncated_record() {
         vec![[0x8004, 0]],
         vec![[0x8006, 0xa381], [1, 2], [3, 4], [0xffff, 5]],
         vec![[0x8006, 0xa383], [1, 2], [3, 4]],
+        vec![[0x8010, 1], [1, 2], [3, 4], [0xffff, 5]],
+        vec![[0xc053, 0xffff]],
+        vec![[0x8073, 0x8004]],
         vec![
             [0x800a, 0xd300],
             [1, 2],
@@ -566,4 +569,74 @@ fn a_text_consumer_rejects_unmapped_glyphs_at_their_source_record() {
             assert!(reader.poisoned);
         }
     }
+}
+
+#[test]
+fn preserves_additional_controls_and_atomic_8010_payload() {
+    for short in [1, 3, 28] {
+        let mut words = vec![[0x8001, 4700], [0x8002, 0x1084]];
+        for tag in [0x8072, 0x8073, 0x8074, 0xc053, 0xc054] {
+            // Marker-looking values must remain payload, not terminate the page.
+            words.push([tag, 0x8004]);
+        }
+        words.extend([
+            [0x8010, 1],
+            [0x8004, 0x8001],
+            [0x8006, 0xffff],
+            [0xffff, 5],
+            [5200, 0xd6d0],
+            [0x8004, 1],
+        ]);
+        let mut source = fixture(&words, 0);
+        source.short = short;
+        let mut visitor = Visitor::default();
+        assert_eq!(
+            parse(&mut source, TextBudget::default(), &mut visitor).unwrap(),
+            10
+        );
+        for (index, tag) in [0x8072, 0x8073, 0x8074, 0xc053, 0xc054]
+            .into_iter()
+            .enumerate()
+        {
+            assert_eq!(
+                visitor.events[index + 2],
+                (
+                    108 + index as u64 * 4,
+                    NativeRecord::Control { tag, value: 0x8004 }
+                )
+            );
+        }
+        assert_eq!(
+            visitor.events[7],
+            (
+                128,
+                NativeRecord::Drawing {
+                    tag: 0x8010,
+                    style: 1,
+                    points: [[0x8004, 0x8001], [0x8006, 0xffff]],
+                }
+            )
+        );
+        assert_eq!(
+            visitor.events[8],
+            (
+                144,
+                NativeRecord::Glyph {
+                    x: 5200,
+                    y: 4700,
+                    style: 0x1084,
+                    code: 0xd6d0,
+                }
+            )
+        );
+        assert_eq!(visitor.events[9], (148, NativeRecord::End { value: 1 }));
+    }
+    let error = parse(
+        &mut fixture(&[[0x8010, 1], [7, 9], [21, 13], [0xffff, 6]], 0),
+        TextBudget::default(),
+        &mut Visitor::default(),
+    )
+    .unwrap_err();
+    assert_eq!(error.offset, 112);
+    assert!(matches!(error.kind, ErrorKind::Malformed { .. }));
 }

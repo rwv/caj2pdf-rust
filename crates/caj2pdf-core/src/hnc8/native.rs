@@ -20,7 +20,8 @@ pub enum NativeRecord {
         code: u16,
     },
     /// Two coordinate pairs with a checked, variant-specific record boundary.
-    /// Neither stroke style nor physical geometry is assigned here.
+    /// Neither stroke style nor physical geometry is assigned here. In particular,
+    /// the observed `8010/1` form does not imply a visible `8006` stroke.
     Drawing {
         tag: u16,
         style: u16,
@@ -157,7 +158,13 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
                     0x8067 if matches!(value, 5 | 6 | 8 | 9) => {
                         NativeRecord::Control { tag, value }
                     }
-                    0x8006 if matches!(value, 0xa381 | 0xa383 | 0xa38b) => {
+                    0x8072..=0x8074 | 0xc053 | 0xc054 => NativeRecord::Control { tag, value },
+                    0x8006 | 0x8010
+                        if matches!(
+                            (tag, value),
+                            (0x8006, 0xa381 | 0xa383 | 0xa38b) | (0x8010, 1)
+                        ) =>
+                    {
                         length = if value == 0xa383 { 12 } else { 16 };
                         self.native_bytes(position + 4, end, &mut bytes[4..length], at)
                             .await?;

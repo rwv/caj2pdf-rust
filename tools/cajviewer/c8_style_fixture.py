@@ -22,7 +22,7 @@ VARIANTS = (
 )
 
 
-def document(styles):
+def document(styles, control_record=None, drawing=None):
     """One page of eight rows containing the original test string 中文AM1."""
     records = bytearray()
     for row, (style, control, font) in enumerate(styles):
@@ -32,6 +32,12 @@ def document(styles):
             (0x801D, control),
             (0x8067, font),
         ]
+        if control_record is not None:
+            pairs.append(control_record)
+        if drawing is not None:
+            tag, value, delta = drawing
+            y = 4800 + row * 500
+            pairs = [(tag, value), (5200 + delta, y), (6300, y + 50), (0xFFFF, 5)] + pairs
         pairs.extend(
             (5200 + column * 350, code)
             for column, code in enumerate((0xD6D0, 0xCEC4, 0xA0C1, 0xA0CD, 0xA0B1))
@@ -53,13 +59,37 @@ def main():
     parser.add_argument("output", type=Path, help="new directory outside the repository")
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=False)
-    fixtures = [("grid", [v[1:] for v in VARIANTS])]
-    fixtures.extend((name, [(style, control, font)] * 8) for name, style, control, font in VARIANTS)
+    fixtures = [("grid", [v[1:] for v in VARIANTS], None, None)]
+    fixtures.extend(
+        (name, [(style, control, font)] * 8, None, None)
+        for name, style, control, font in VARIANTS
+    )
+    baseline = [(0x1084, 0, 6)] * 8
+    fixtures.extend(
+        (name, baseline, (tag, value), None)
+        for name, tag, value in (
+            ("control72", 0x8072, 0), ("control73", 0x8073, 38),
+            ("control74", 0x8074, 0), ("control53", 0xC053, 5200),
+            ("control54", 0xC054, 5200), ("control53shift", 0xC053, 5700),
+            ("control54shift", 0xC054, 5700),
+        )
+    )
+    fixtures.extend(
+        (name, baseline, None, (tag, value, delta))
+        for name, tag, value, delta in (
+            ("draw10", 0x8010, 1, 0), ("draw10shift", 0x8010, 1, 200),
+            ("draw06", 0x8006, 0xA381, 0),
+        )
+    )
     manifest = []
-    for name, styles in fixtures:
-        data = document(styles)
+    for name, styles, control_record, drawing in fixtures:
+        data = document(styles, control_record, drawing)
         (args.output / f"{name}.caj").write_bytes(data)
-        manifest.append({"name": name, "bytes": len(data), "sha256": hashlib.sha256(data).hexdigest(), "rows": styles})
+        manifest.append({
+            "name": name, "bytes": len(data),
+            "sha256": hashlib.sha256(data).hexdigest(), "rows": styles,
+            "control_record": control_record, "drawing": drawing,
+        })
     (args.output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
 
 

@@ -1981,3 +1981,9 @@ constants, without loading or transforming an external document. It contains
 no copied converter implementation, font bytes or glyph outlines. The raw
 header identifier is an observed format fact. Viewer observations and their
 limits are recorded in `docs/c8-native-records.md`; screenshots remain external.
+
+The same builder's additional control/coordinate variants insert independently
+chosen records into the original rows. They establish raw framing observations
+for `8072..8074`, `c053/c054` and `8010/1`; they do not copy source-page content
+or infer permission to discard required rendering semantics. The Rust visitor
+retains every newly admitted tag/value and uses its existing fixed buffer.

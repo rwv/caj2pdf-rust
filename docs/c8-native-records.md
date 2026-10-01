@@ -93,12 +93,13 @@ never silently discarded. No CLI/JavaScript conversion route is enabled yet.
 The renderer must resolve or reject unknown style/character semantics.
 
 The admitted framing is `8001`, `8002`, observed `801d` values 0/4, observed
-`8067` values 5/6/8/9, the three measured `8006` forms, the 28-byte `800a/d300`
+`8067` values 5/6/8/9, raw controls `8072..8074` and `c053/c054`, the three
+measured `8006` forms, the `8010/1` coordinate form, the 28-byte `800a/d300`
 image record, and an exact-end `8004`. Drawings and images are atomic visitor
 events, including marker-looking payload bytes. Unknown tag/value pairs stop.
 The current page's declared image count must agree before end-of-page success.
 
-A native file-backed probe of all six source pages gives the following
+The initial limited parser probe of all six source pages gave the following
 **incomplete prefixes**, not successful extraction or conversion:
 
 | Page | Visited records | Raw glyph records | Drawings | Images | First unsupported byte/tag |
@@ -215,7 +216,7 @@ complete extractor.
 
 ## Original fixed-position style controls
 
-`tools/cajviewer/c8_style_fixture.py` builds nine original 392-byte documents
+The style subset of `tools/cajviewer/c8_style_fixture.py` builds nine original 392-byte documents
 without reading an external source. Each has one text-only page, eight rows
 and the test characters `中文AM1`. The observed header identifier and structural
 constants are retained as format facts; their necessity is not established.
@@ -256,3 +257,48 @@ External receipts are in `caj2pdf-c8-grid-20261001`: `variants.json`,
 `comparison.json`, action logs and paired captures. Viewer images/fonts are
 not bundled. Successful display of these original controls does not satisfy
 the six-page source conversion requirement in #233.
+
+
+## Remaining record framing and full-span traversal
+
+The same original generator now also emits seven control variants and three
+coordinate-record variants. Controls are inserted after each row's context
+and before its glyphs: `8072/0`, `8073/38`, `8074/0`, `c053/5200`,
+`c054/5200`, `c053/5700`, and `c054/5700`. Each is four bytes. All seven
+preserve every following glyph and produce zero changed page pixels against
+the baseline, with identical repeat captures. Combined with the aligned source
+inventory, this establishes the admitted framing, not their rendering meaning.
+The visitor now delivers these controls and their full u16 payload unchanged.
+
+The coordinate variants insert, before each row, a 16-byte sequence consisting
+of `8010/1`, `(5200, 4800 + row*500)`, `(6300, 4850 + row*500)`, and
+`ffff/5`. A second control changes the first x to 5400. Neither produces a
+visible line. Replacing only the opening pair with `8006/a381` produces eight
+sloped lines (3,566 changed page pixels). All captures repeat identically.
+Thus `8010/1` uses the observed two-pair/end framing but must **not** be
+rendered automatically as an `8006` stroke. `NativeRecord::Drawing` preserves
+its tag, style and points without promising a visible drawing. Other `8010`
+values remain unsupported; terminator mismatch and truncation remain errors.
+
+The extended file-backed parser now consumes each indexed source span exactly:
+
+| Page | Records | Glyphs | Coordinate records | Images | Largest read request |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 1 | 1,178 | 1,015 | 2 | 1 | 24 |
+| 2 | 1,768 | 1,338 | 73 | 0 | 20 |
+| 3 | 952 | 840 | 6 | 2 | 24 |
+| 4 | 1,329 | 986 | 2 | 0 | 20 |
+| 5 | 1,072 | 801 | 25 | 0 | 20 |
+| 6 | 1,879 | 1,658 | 2 | 0 | 20 |
+
+The original source hash is unchanged. `caj2pdf-c8-full-record-probe/result.txt`
+is the external receipt; control/drawing manifests and comparisons are in
+`caj2pdf-c8-grid-20261001`. The generator reproduces all 19 viewer input files
+byte for byte. Original Rust regressions check retained marker-looking control
+payloads, atomic coordinate payloads, short reads and all new truncation
+boundaries. No parser buffer or output API is added.
+
+This completes traversal of the sample's records, not conversion, Unicode
+coverage or rendering semantics. The public route remains disabled pending
+#233. A renderer must explicitly interpret or reject each required control;
+none is silently dropped by the parser.
