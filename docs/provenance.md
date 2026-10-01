@@ -1923,3 +1923,13 @@ crosses 12/20-byte rows with two observed layout markers. It reads no external
 document or converter source and includes no fonts, outlines or source text.
 The independent viewer observations and admitted limits are recorded in
 `docs/hnb-compact-index.md`. All external captures/documents remain outside Git.
+
+### Additional C8 encoded-string framing (#242)
+
+`hnc8/native.rs`'s `80cc/01xx` extension, original Rust tests and
+`tools/cajviewer/c8_encoded_prefix_fixture.py` were written independently
+from indexed record observations and original controlled viewer inputs.
+`docs/c8-encoded-prefix.md` records the accepted boundary and rejected
+254-character probe. No other converter source, vendor outlines or external
+text was copied. The visitor exposes a validated source span with unknown
+semantics; it does not silently discard a resource or enable conversion.

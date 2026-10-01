@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **Breaking:** add `NativeRecord::EncodedString` for verified bounded C8
+  `80cc/01xx` framing. Exhaustive native record matches must handle this raw
+  event; unknown rendering semantics remain unsupported. CLI/JS behavior
+  and complete-document support are unchanged.
+
 - Read the verified compact HN-B page index using its explicit layout marker.
   Native-text conversion for these pages remains unsupported.
 - **Breaking:** validate the HN-B layout marker at offset 136; unknown values
