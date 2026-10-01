@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-//! Framing of the independently observed raw C8 native-page subset.
+//! Framing of independently observed raw C8 and HN-B native-page subsets.
 //! Events preserve uninterpreted words; they do not imply renderability.
 
 use super::{ErrorKind, Hnc8Reader, Location, Result, TextBudget, Variant, read_fixed};
@@ -12,7 +12,8 @@ use crate::{Cancellation, RangedSource};
 pub enum NativeRecord {
     /// A position, style or observed four-byte control, with its original tag.
     Control { tag: u16, value: u16 },
-    /// An observed eight-byte control (`81ff/1..=3` or `80cc/0204`).
+    /// An observed eight-byte control (`81ff/1..=3`, `80cc/0204`,
+    /// or the HN-B `c052/a385` prefix).
     /// The two payload words are atomic and uninterpreted. Preserving their
     /// framing does not establish font, layout or resource semantics.
     ExtendedControl {
@@ -117,7 +118,9 @@ pub trait NativeRecordVisitor {
 }
 
 impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
-    /// Visit the current C8 page's observed raw native records without allocating.
+    /// Visit admitted C8 or HN-B raw native records without allocating.
+    /// HN-B admits independently controlled glyph runs, controls, three drawing
+    /// forms and fixed-length image records. Other C8 framing is not inherited.
     /// Call `next_page` first. This does not consume image descriptors, decode
     /// characters or enable conversion. Unknown framing stops at its source byte.
     /// A failed/dropped operation poisons the reader, just like image traversal.
@@ -147,7 +150,7 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
             .page;
         self.poisoned = true;
         let result = async {
-            if self.header.variant != Variant::C8 {
+            if !matches!(self.header.variant, Variant::C8 | Variant::HnB) {
                 return Err(loc.error(ErrorKind::Unsupported {
                     field: "native record variant",
                     value: 0,
@@ -201,6 +204,33 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
                     .await?;
                 let tag = word(&bytes[..2]);
                 let value = word(&bytes[2..4]);
+                if self.header.variant == Variant::HnB
+                    && tag >= 0x8000
+                    && !matches!(
+                        (tag, value),
+                        (0x8001 | 0x8002 | 0x8004, _)
+                            | (0x801d, 0 | 3 | 4)
+                            | (0x801c, 4)
+                            | (0x8067, 6 | 7 | 9)
+                            | (0x8069, 0x1084)
+                            | (0x80ce, 0 | 1)
+                            | (0x8070 | 0x8071, 0x0024 | 0x002b)
+                            | (0x8070, 0x001c)
+                            | (0x8072, 0 | 0xc2c7 | 0xcdc1)
+                            | (0x8073, 0x001e | 0x001f | 0x0029 | 0x002a)
+                            | (0x8024, 0x2800 | 0x281d)
+                            | (0xc053, _)
+                            | (0xffff, 5)
+                            | (0x8006, 0xa381 | 0xa383 | 0xa385)
+                            | (0xc052, 0xa385)
+                            | (0x800a, 0xd300)
+                    )
+                {
+                    return Err(at.error(ErrorKind::Unsupported {
+                        field: "HN-B native record tag/value",
+                        value: (u64::from(tag) << 16) | u64::from(value),
+                    }));
+                }
                 let mut length = 4;
                 let record = match tag {
                     0x8001 => {
@@ -212,7 +242,10 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
                         NativeRecord::Control { tag, value }
                     }
                     0x801d if matches!(value, 0 | 3 | 4) => NativeRecord::Control { tag, value },
-                    0x8067 if matches!(value, 5 | 6 | 8 | 9) => {
+                    0x8067
+                        if matches!(value, 5 | 6 | 8 | 9)
+                            || (self.header.variant == Variant::HnB && value == 7) =>
+                    {
                         NativeRecord::Control { tag, value }
                     }
                     0x801c | 0x8070 | 0x8071 if value == 4 => NativeRecord::Control { tag, value },
@@ -220,11 +253,19 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
                     0x8024 if matches!(value, 0x2800 | 0x281d) => {
                         NativeRecord::Control { tag, value }
                     }
+                    // Values were checked by the HN-B profile guard above.
+                    0x8069 | 0x8070 | 0x8071 | 0x8072 | 0x8073 | 0xc053 | 0xffff
+                        if self.header.variant == Variant::HnB =>
+                    {
+                        NativeRecord::Control { tag, value }
+                    }
                     0x8021 if value == 0x2000 => NativeRecord::Control { tag, value },
                     0x80d0 | 0x80d2 if value == 0 => NativeRecord::Control { tag, value },
                     0x80d1 if value == 1 => NativeRecord::Control { tag, value },
-                    0x81ff | 0x80cc
-                        if matches!((tag, value), (0x81ff, 1..=3) | (0x80cc, 0x0204)) =>
+                    0x81ff | 0x80cc | 0xc052
+                        if matches!((tag, value), (0x81ff, 1..=3) | (0x80cc, 0x0204))
+                            || (self.header.variant == Variant::HnB
+                                && (tag, value) == (0xc052, 0xa385)) =>
                     {
                         length = 8;
                         self.native_bytes(position + 4, end, &mut bytes[4..8], at)
@@ -378,6 +419,12 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
                         NativeRecord::End { value }
                     }
                     x if x < 0x8000 => {
+                        if self.header.variant == Variant::HnB && style.is_none() {
+                            return Err(at.error(ErrorKind::Unsupported {
+                                field: "HN-B implicit native glyph style",
+                                value: 0,
+                            }));
+                        }
                         let (Some(y), Some(style)) = (y, style) else {
                             return Err(
                                 at.malformed("native glyph", "missing run position or style")
