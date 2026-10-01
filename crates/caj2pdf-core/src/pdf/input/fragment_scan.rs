@@ -440,7 +440,7 @@ pub(crate) async fn scan_fragment_objects<S: RangedSource, C: Cancellation>(
     Ok(scan)
 }
 
-/// A dictionary-key syntax error can identify an interrupted duplicate header.
+/// A dictionary-key or value error can identify an interrupted duplicate header.
 /// Only discard a bounded exact prefix of one already validated non-stream
 /// dictionary. Its exact shared prefix and trailing whitespace supply the
 /// boundary without a marker search. The main loop must then parse a complete
@@ -453,7 +453,7 @@ async fn dictionary_prefix_end<S: RangedSource, C: Cancellation>(
 ) -> Result<Option<u64>> {
     let Error::Pdf {
         offset,
-        reason: "expected PDF name",
+        reason: "expected PDF name" | "invalid PDF value token",
         ..
     } = error
     else {
@@ -1231,6 +1231,28 @@ mod tests {
                 (original.len() + prefix.len()) as u64
             );
         }
+    }
+
+    #[test]
+    fn recovers_known_dictionary_cut_inside_an_array() {
+        let original = b"7 0 obj<< /Box [-1 3 20 40] >>endobj\n";
+        for prefix in [
+            b"7 0 obj<< /Box [\n".as_slice(),
+            b"7 0 obj<< /Box [-1 3\r\n",
+        ] {
+            let mut bytes = original.to_vec();
+            bytes.extend_from_slice(prefix);
+            bytes.extend_from_slice(b"9 0 obj<< /New 81 >>endobj\n");
+            let scan = scan_bytes(bytes).unwrap();
+            assert_eq!(scan.objects.len(), 2);
+            assert_eq!(
+                scan.objects[1].range.offset,
+                (original.len() + prefix.len()) as u64
+            );
+        }
+        let mut changed = original.to_vec();
+        changed.extend_from_slice(b"7 0 obj<< /Box [99\n9 0 obj<< /New 81 >>endobj\n");
+        assert!(scan_bytes(changed).is_err());
     }
 
     #[test]
