@@ -10,7 +10,7 @@ output, and releases.
 [GitHub Releases](https://github.com/rwv/caj2pdf-rust/releases) provide native CLI archives, the browser/Node JS tarball, standalone WASM,
 container OCI archive and SHA256SUMS. See the [platform matrix](docs/platforms.md)
 and [Docker usage](docs/docker.md). See the
-[v0.3.0 notes](docs/releases/v0.3.0.md) for platform requirements and limitations.
+[v0.3.1 notes](docs/releases/v0.3.1.md) for platform requirements and limitations.
 After downloading, extract the CLI archive or install the JS tarball with
 `npm install ./caj2pdf-rust-0.3.0.tgz`. Registry publication is separate.
 
@@ -92,3 +92,6 @@ FreeType-derived JBIG/HN code must be reimplemented. The separate
 [CAJSamples](https://github.com/caj2pdf/CAJSamples) collection may be used as
 an optional external compatibility corpus; sample documents are not included
 in this repository.
+
+Verify downloaded artifacts and container digests with the
+[release build provenance guide](docs/build-provenance.md).

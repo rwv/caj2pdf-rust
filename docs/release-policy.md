@@ -89,3 +89,12 @@ From v0.3.0, the stable `Native platform matrix` status aggregates every require
 native/container job and fails on failure, cancellation or skipped jobs. It is
 required alongside the four existing quality statuses before merging to main.
 Optional candidate probes are separate and never substitute for release gates.
+
+From v0.3.1, the tag-only publisher signs the same run's complete release file
+set and exact GHCR digest using GitHub artifact attestations. Verification of
+all subjects against the expected workflow, tag and commit must pass before
+GitHub release publication. Downloadable Sigstore bundles are added after
+checksumming/signing; they are verified cryptographically, not self-hashed.
+See [build provenance](build-provenance.md) for consumer commands and the
+aggregation-job trust boundary. Never retroactively attest old releases as
+outputs of a new build run.
