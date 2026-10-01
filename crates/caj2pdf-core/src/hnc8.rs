@@ -15,6 +15,7 @@ mod convert_jbig2;
 mod convert_jpeg;
 mod image_emit;
 mod jpeg;
+mod native;
 mod outline;
 mod placement;
 mod text;
@@ -37,6 +38,7 @@ pub use convert_jpeg::{
     convert_type2_image_pdf,
 };
 pub use jpeg::{JpegBudget, JpegColor, JpegInfo, read_type2_jpeg_info};
+pub use native::{NativeRecord, NativeRecordVisitor};
 pub use placement::{
     EMPIRICAL_COORDINATE_POINTS_PER_UNIT, EMPIRICAL_PIXEL_POINTS,
     EMPIRICAL_PLACEMENT_TOLERANCE_POINTS, EmpiricalPageGeometry, empirical_image_transform,

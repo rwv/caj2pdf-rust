@@ -79,3 +79,42 @@ remaining Latin map, image placement, header/footer controls, special text
 words and font resources before admitting complete conversion. Unknown
 required records remain located errors. Parser-only success does not complete
 #229 or #233; all six pages must eventually preserve their visible content.
+
+## Rust parser boundary
+
+`Hnc8Reader::visit_native_records` visits the current page using existing
+`TextBudget`, range reads and cursor poisoning. It retains one fixed 28-byte
+record buffer and run state, allocates no parser-owned heap storage, and awaits
+each visitor before reading the next record. Reads respect `Limits`; the largest
+record-payload request is 24 bytes. This low-level API is deliberately raw:
+`NativeRecord::Glyph::code` is not a Unicode scalar, and `Control` values are
+never silently discarded. No CLI/JavaScript conversion route is enabled yet.
+The renderer must resolve or reject unknown style/character semantics.
+
+The admitted framing is `8001`, `8002`, observed `801d` values 0/4, observed
+`8067` values 5/6/8/9, the three measured `8006` forms, the 28-byte `800a/d300`
+image record, and an exact-end `8004`. Drawings and images are atomic visitor
+events, including marker-looking payload bytes. Unknown tag/value pairs stop.
+The current page's declared image count must agree before end-of-page success.
+
+A native file-backed probe of all six source pages gives the following
+**incomplete prefixes**, not successful extraction or conversion:
+
+| Page | Visited records | Raw glyph records | Drawings | Images | First unsupported byte/tag |
+| --- | ---: | ---: | ---: | ---: | --- |
+| 1 | 1,064 | 929 | 1 | 1 | 4,492 / `8072` |
+| 2 | 1,729 | 1,317 | 72 | 0 | 15,201 / `8072` |
+| 3 | 909 | 810 | 5 | 2 | 19,109 / `8072` |
+| 4 | 1,201 | 890 | 0 | 0 | 26,773 / `c054` |
+| 5 | 167 | 130 | 4 | 0 | 28,021 / `c054` |
+| 6 | 902 | 793 | 0 | 0 | 35,497 / `8010` |
+
+The source hash was rechecked after the probe. The external harness and report
+live in `caj2pdf-c8-native-probe`; neither extracted glyph codes nor source text
+are included in the report. Original synthetic tests cover state changes,
+asymmetric glyph order, marker-like image/drawing payloads, both drawing end
+forms, every record truncation boundary, span/count/working limits, unknown
+controls, short reads, source/visitor errors, cancellation and an abandoned
+suspended visitor. Raw non-ASCII, Latin and invalid codes are preserved, not
+misrepresented as decoded characters. Unicode decoding acceptance in #232
+remains open, together with the still-required controls under #229/#233.
