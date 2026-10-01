@@ -1995,3 +1995,8 @@ recipe reuses this project's original MIT C8 control design. All 13 generated
 inputs were checked byte-for-byte against the external captured controls. No
 vendor implementation, glyph outline, corpus image or extracted source text was
 copied. Raw framing is admitted separately from unresolved image/text blending.
+
+The following HN-B `8006/a383` and `8072/cdc1` admissions use seven additional
+original controls in `hnb_index_fixture.py`, independently captured and repeated
+in the pinned viewer. Bare/footer/next-y controls distinguish record boundaries;
+no external implementation or document content supplied the fixture bytes.

@@ -235,3 +235,17 @@ opaquely, while glyph → A → B retains cumulative AND in the overlap. These
 controls rule out a universal image blend. They do not yet establish the state
 that selects the operation; do not implement a guessed global blend or claim
 complete HN-B conversion from raw record admission.
+
+The following HN-B `8006/a383` drawing is independently verified as 12 bytes:
+original bare and `ffff/5`-suffixed controls render identically, and a following
+y control changes the glyph row independently. The visible segment occupies
+only the added drawing region. `8072/cdc1` bare/next-y controls preserve their
+following glyphs; unchanged pixels do not establish that this control is a no-op.
+Both records reuse the existing raw events. Seven controls in
+`hnb_index_fixture.py` reproduce the external inputs byte-for-byte, with repeated
+identical crops (`remaining-record-comparison.json`).
+
+After these admissions, the pinned issue-65 page 6 traverses all four raw records.
+Page 1 traverses 283 records (235 raw glyphs) before another unsupported control
+at offset 1500. Other pages retain explicit style/control failures. No complete
+page rendering or document-conversion acceptance is claimed.

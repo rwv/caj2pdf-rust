@@ -929,7 +929,7 @@ fn hnb_glyph_runs_use_both_verified_indexes_without_crossing_pages() {
 #[test]
 fn hnb_does_not_inherit_unverified_c8_records_or_font_controls() {
     for pair in [
-        [0x8006, 0xa383],
+        [0x8006, 0xa38b],
         [0x80cc, 0x0102],
         [0x800a, 0xd301],
         [0x801d, 1],
@@ -1066,6 +1066,7 @@ fn hnb_run_controls_and_drawing_preserve_following_glyph_context() {
         [0x8073, 0x0029],
         [0x8073, 0x002a],
         [0x8072, 0xc2c7],
+        [0x8072, 0xcdc1],
         [0x8072, 0],
         [0x8024, 0x2800],
         [0x8024, 0x281d],
@@ -1113,7 +1114,7 @@ fn hnb_run_controls_and_drawing_preserve_following_glyph_context() {
                     }
                 );
             }
-            for style in [0xa381, 0xa385] {
+            for style in [0xa381, 0xa383, 0xa385] {
                 for following in [[0xffff, 5], [0x8001, 5000]] {
                     let mut source = hnb_source(
                         width,
@@ -1155,7 +1156,7 @@ fn hnb_run_controls_and_drawing_preserve_following_glyph_context() {
                 }
             }
         }
-        for style in [0xa381, 0xa385] {
+        for style in [0xa381, 0xa383, 0xa385] {
             let mut source = hnb_source(
                 width,
                 &[&[[0x8006, style], [5200, 4800], [6300, 4850], [0x8004, 1]]],
@@ -1234,6 +1235,7 @@ fn hnb_run_controls_and_drawing_preserve_following_glyph_context() {
         [0x8073, 0x0029],
         [0x8073, 0x002a],
         [0x8072, 0xc2c7],
+        [0x8072, 0xcdc1],
         [0x8072, 0],
         [0xc053, 0x00e9],
         [0x8006, 0xa385],
