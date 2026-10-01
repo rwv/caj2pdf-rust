@@ -52,3 +52,25 @@ Worker tests use a generated 16×8 left-dark/right-light JPEG, three-byte I/O,
 real OPFS scratch in the browser, qpdf validation and independent `pdfimages` /
 `djpeg` pixel checking. All external documents, extracted images, PDFs, raw logs
 and copied text remain outside Git. Unavailable optional corpus is NOT_RUN.
+
+## Public-interface full-document repeat
+
+[Measured metadata and hashes](../tests/conformance/type1_current.json) record
+native, Node and Chromium Worker conversion of that same 109-page source.
+All three produced the identical 10,690,852-byte PDF above, including 42
+bookmarks. Native completed in 70.604 s, Node in 375.622 s and Chromium in
+339.724 s on this host; the two JS runs overlapped, so these are observations,
+not comparative performance benchmarks. Both JS runs used built-in codec states
+and four 64 MiB-capped scratch stores, all empty after conversion. The Node
+scratch helper removed its temporary files, and browser OPFS was empty after
+source/output/scratch disposal.
+
+Post-conversion WASM linear memory was 1,900,544 bytes in Node (64 KiB I/O)
+and 1,769,472 bytes in Chromium (4 KiB I/O). These are linear-memory sizes,
+not process peaks or total browser memory. Browser input was streamed into
+OPFS and output was sequential; a whole-output allocation used solely for
+SHA-256 verification occurred after conversion. The test server's source
+buffer is also outside the converter memory measurement.
+
+The prior strict-policy failure is retained externally. This repeat does not
+replace the frozen v0.3.1 baseline or claim source-versus-viewer pixel parity.
