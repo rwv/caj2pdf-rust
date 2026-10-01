@@ -6,6 +6,11 @@
   `810a/d300` profile. Exhaustive matches must handle its coordinates and
   opaque source-span reference. Names are never opened as external files;
   complete native-page conversion remains unsupported.
+- Extend bounded HN-B native-record traversal across both verified index
+  layouts, preserving observed run controls, raw numeric values, the atomic
+  `c052/a385` prefix and 12-byte drawing records. Implicit glyph styles are
+  explicitly unsupported rather than reported as malformed. This does not
+  enable complete HN-B rendering or expand CLI/JavaScript conversion support.
 
 - **Breaking:** add `NativeRecord::ExtendedControl` and preserve additional
   verified C8 control records. Exhaustive native matches must handle their
