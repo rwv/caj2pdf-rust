@@ -696,3 +696,131 @@ fn encoded_string_truncation_never_consumes_outside_the_page_span() {
     assert!(matches!(error.kind, ErrorKind::LimitExceeded { .. }));
     assert_eq!(visitor.events.len(), 3);
 }
+
+#[test]
+fn additional_controls_preserve_raw_values_without_inventing_glyphs() {
+    let controls = [
+        [0x801c, 4],
+        [0x801d, 3],
+        [0x8070, 4],
+        [0x8071, 4],
+        [0x80ce, 0],
+        [0x80ce, 1],
+        [0x8024, 0x2800],
+        [0x8024, 0x281d],
+        [0x8021, 0x2000],
+        [0x80d0, 0],
+        [0x80d1, 1],
+        [0x80d2, 0],
+    ];
+    for control in controls {
+        let mut source = fixture(
+            &[
+                [0x8001, 17],
+                [0x8002, 0x1084],
+                [31, 0xd6d0],
+                control,
+                [73, 0xcec4],
+                [0x8004, 0],
+            ],
+            0,
+        );
+        source.short = 1;
+        let mut visitor = Visitor::default();
+        assert_eq!(
+            parse(&mut source, TextBudget::default(), &mut visitor).unwrap(),
+            6
+        );
+        assert_eq!(
+            visitor.events[3],
+            (
+                112,
+                NativeRecord::Control {
+                    tag: control[0],
+                    value: control[1]
+                }
+            )
+        );
+        assert_eq!(
+            visitor.events[4],
+            (
+                116,
+                NativeRecord::Glyph {
+                    x: 73,
+                    y: 17,
+                    style: 0x1084,
+                    code: 0xcec4
+                }
+            )
+        );
+        assert!(source.max_request <= 24);
+        source.bytes[114..116].copy_from_slice(&0xffff_u16.to_le_bytes());
+        let error = parse(&mut source, TextBudget::default(), &mut Visitor::default()).unwrap_err();
+        assert_eq!(error.offset, 112);
+        assert!(matches!(error.kind, ErrorKind::Unsupported { .. }));
+    }
+}
+
+#[test]
+fn extended_controls_are_atomic_and_bounded_even_with_marker_payloads() {
+    for (tag, value) in [(0x81ff, 1), (0x81ff, 2), (0x81ff, 3), (0x80cc, 0x0204)] {
+        for words in [[0, 200], [33, 5], [0x8004, 0x8001]] {
+            for short in 1..=8 {
+                let mut source = fixture(
+                    &[
+                        [0x8001, 17],
+                        [0x8002, 0x1084],
+                        [tag, value],
+                        words,
+                        [73, 0xcec4],
+                        [0x8004, 0],
+                    ],
+                    0,
+                );
+                source.short = short;
+                let mut visitor = Visitor::default();
+                assert_eq!(
+                    parse(&mut source, TextBudget::default(), &mut visitor).unwrap(),
+                    5
+                );
+                assert_eq!(
+                    visitor.events[2],
+                    (108, NativeRecord::ExtendedControl { tag, value, words })
+                );
+                assert_eq!(
+                    visitor.events[3],
+                    (
+                        116,
+                        NativeRecord::Glyph {
+                            x: 73,
+                            y: 17,
+                            style: 0x1084,
+                            code: 0xcec4
+                        }
+                    )
+                );
+            }
+        }
+        for length in 1..8_u32 {
+            let mut source = fixture(&[[tag, value], [0, 200], [0x8004, 0]], 0);
+            source.bytes[84..88].copy_from_slice(&length.to_le_bytes());
+            let mut visitor = Visitor::default();
+            assert!(matches!(
+                parse(&mut source, TextBudget::default(), &mut visitor)
+                    .unwrap_err()
+                    .kind,
+                ErrorKind::Truncated { .. }
+            ));
+            assert!(visitor.events.is_empty());
+        }
+    }
+    for pair in [[0x81ff, 0], [0x81ff, 4], [0x80cc, 0x0203], [0x80cc, 0x0205]] {
+        let mut source = fixture(&[pair, [0, 200], [0x8004, 0]], 0);
+        assert!(matches!(
+            parse(&mut source, TextBudget::default(), &mut Visitor::default())
+                .unwrap_err()
+                .kind,
+            ErrorKind::Unsupported { .. }
+        ));
+    }
+}
