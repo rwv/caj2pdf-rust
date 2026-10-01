@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Preserve independently controlled HN-B `8069/1084` and `8024/2800` raw
+  records without enabling unverified rendering semantics.
+
 - **Breaking:** add `NativeRecord::ExtendedControl` and preserve additional
   verified C8 control records. Exhaustive native matches must handle their
   raw payloads; exact transform/resource semantics remain unimplemented.

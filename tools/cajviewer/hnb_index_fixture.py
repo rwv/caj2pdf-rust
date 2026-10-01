@@ -90,6 +90,19 @@ def main():
         (args.output / name).write_bytes(data)
         manifest.append({"file": name, "run_words": words, "bytes": len(data),
                          "sha256": hashlib.sha256(data).hexdigest()})
+    for suffix, words in (
+        ("8069-none", ()), ("8069-bare", (0x8069, 0x1084)),
+        ("8069-next-y", (0x8069, 0x1084, 0x8001, 5000)),
+        ("8069-y-only", (0x8001, 5000)),
+        ("8024-bare", (0x8024, 0x2800)),
+        ("8024-next-y", (0x8024, 0x2800, 0x8001, 5000)),
+    ):
+        name = f"hnb-{suffix}.caj"
+        data = document(12, 0, run=words)
+        (args.output / name).write_bytes(data)
+        manifest.append({"file": name, "marker": 0, "row_bytes": 12,
+                         "run_words": words, "bytes": len(data),
+                         "sha256": hashlib.sha256(data).hexdigest()})
     (args.output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
 
 

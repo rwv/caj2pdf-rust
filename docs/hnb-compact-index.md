@@ -112,7 +112,7 @@ fail explicitly. Selected first-page boundaries are:
 
 | Input | Accepted prefix | Next rejection | Absolute offset |
 | --- | --- | --- | ---: |
-| issue-100 | 194 records, 143 raw glyphs | `8069/1084` | 1052 |
+| issue-100 | 1358 records, 1209 raw glyphs | `8006/a381` | 5708 |
 | issue-63 | 2656 records, 2015 raw glyphs | `80ce/0001` | 10928 |
 | issue-65 | 1 record, 0 raw glyphs | `800a/d300` | 340 |
 
@@ -192,3 +192,25 @@ indexed source pages. None completes conversion. The earlier footer errors
 were parser-profile limitations, not evidence of corrupt source documents.
 External receipts are `hnb-drawing-boundary-{inputs,comparison}.json` in
 `caj2pdf-c8-advance-control-20261001`; no captures or source content are committed.
+
+### Additional controls required by issue-100
+
+Six original two-page inputs independently check `8069/1084` and `8024/2800`
+inside a glyph run. Each bare control matches the baseline; each followed by
+`8001/5000` matches the y-only control, moving the first glyph row and retaining
+later rows. All repeated crops match at 57%, page interior
+`(648,357,1023,906)`. These establish four-byte boundaries for the two observed
+values. They do not establish no-op or font/style semantics.
+
+The visitor preserves both as raw controls with its existing fixed buffer.
+Unknown neighboring values remain errors; `8069/1084` is admitted only for
+HN-B. Original tests cover both index layouts, short reads, the following glyph
+context and separate C8 admission. The existing generator reproduces all six
+`hnb-8069-*` / `hnb-8024-*` sources.
+
+The unchanged issue-100 source now reaches 1358/1644/1572/1313 records on
+pages 1–4 (1209/1528/1456/1214 raw glyphs). The next located errors are at
+5708/12744/19174/24516. No page is promoted to successful rendering.
+External receipts are `hnb-{8069,8024}-{inputs,comparison}.json` in
+`caj2pdf-c8-decoration-advance-valid-20261001`; no source text or captures are
+committed. These fixtures and parser changes are original MIT work.

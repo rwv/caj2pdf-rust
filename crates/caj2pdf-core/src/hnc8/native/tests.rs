@@ -1053,7 +1053,9 @@ fn hnb_run_controls_and_drawing_preserve_following_glyph_context() {
         [0x801d, 4],
         [0x801c, 4],
         [0x8067, 7],
+        [0x8069, 0x1084],
         [0x8072, 0],
+        [0x8024, 0x2800],
         [0x8024, 0x281d],
         [0xc053, 0x00e9],
         [0xffff, 5],
@@ -1179,6 +1181,7 @@ fn hnb_run_controls_and_drawing_preserve_following_glyph_context() {
         [0x801c, 5],
         [0x801d, 1],
         [0x8067, 8],
+        [0x8069, 0x1085],
         [0x8072, 1],
         [0x8024, 0x281c],
         [0xc053, 0x00e8],
@@ -1192,7 +1195,13 @@ fn hnb_run_controls_and_drawing_preserve_following_glyph_context() {
             ErrorKind::Unsupported { .. }
         ));
     }
-    for control in [[0x8067, 7], [0x8072, 0], [0xc053, 0x00e9], [0x8006, 0xa385]] {
+    for control in [
+        [0x8067, 7],
+        [0x8069, 0x1084],
+        [0x8072, 0],
+        [0xc053, 0x00e9],
+        [0x8006, 0xa385],
+    ] {
         let mut source = fixture(&[control, [0x8004, 1]], 0);
         assert!(matches!(
             parse(&mut source, TextBudget::default(), &mut Visitor::default())
