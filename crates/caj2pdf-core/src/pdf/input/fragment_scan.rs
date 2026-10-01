@@ -176,6 +176,10 @@ pub(crate) async fn scan_fragment_objects<S: RangedSource, C: Cancellation>(
                     cursor = end;
                     continue;
                 }
+                if let Some(end) = adjacent_header_end(&mut reader, start, &error).await? {
+                    cursor = end;
+                    continue;
+                }
                 return Err(error);
             }
             Err(error) => return Err(error),
@@ -438,6 +442,46 @@ pub(crate) async fn scan_fragment_objects<S: RangedSource, C: Cancellation>(
         }
     }
     Ok(scan)
+}
+
+/// Admit only an unfinished `number 0` header immediately followed by its
+/// complete same-reference object. No object body is discarded or searched.
+async fn adjacent_header_end<S: RangedSource, C: Cancellation>(
+    reader: &mut Reader<'_, S, C>,
+    start: u64,
+    error: &Error,
+) -> Result<Option<u64>> {
+    let Error::Pdf {
+        offset,
+        reason: "unexpected PDF keyword",
+        ..
+    } = error
+    else {
+        return Ok(None);
+    };
+    let end = offset
+        .checked_sub(reader.range.offset)
+        .expect("reader errors use absolute source offsets");
+    if end <= start || end - start > 64 {
+        return Ok(None);
+    }
+    let bytes = reader.bytes(start, (end - start) as usize).await?;
+    let prefix = bytes.trim_ascii_end();
+    let mut fields = prefix
+        .split(u8::is_ascii_whitespace)
+        .filter(|field| !field.is_empty());
+    let number = fields.next().and_then(exact_unsigned);
+    if fields.next() != Some(b"0".as_slice()) || fields.next().is_some() {
+        return Ok(None);
+    }
+    let head = reader.load_head(end, None).await?;
+    if number != Some(u64::from(head.reference.number))
+        || head.reference.generation != 0
+        || !head.bytes.starts_with(prefix)
+    {
+        return Ok(None);
+    }
+    Ok(Some(end))
 }
 
 /// A dictionary-key or value error can identify an interrupted duplicate header.
@@ -1206,6 +1250,42 @@ mod tests {
             b"1 0 obj\n<< /A 1 >>\nendobj\n1 0 obj\n<< /A 2 >>\nendobj\n",
         ] {
             assert!(scan_bytes(bytes.to_vec()).is_err());
+        }
+    }
+
+    #[test]
+    fn recovers_only_adjacent_same_reference_unfinished_headers() {
+        for body in [
+            b"10 0 obj<< /Value 37 >>endobj\n".as_slice(),
+            b"10 0 obj[3 7 19]endobj\n",
+            b"10 0 obj<< /Length 3 >>stream\nabc\nendstream\nendobj\n",
+        ] {
+            let mut bytes = b"10 0 \r\n".to_vec();
+            let offset = bytes.len() as u64;
+            bytes.extend_from_slice(body);
+            let scan = scan_bytes(bytes).unwrap();
+            assert_eq!(scan.objects.len(), 1);
+            assert_eq!(scan.objects[0].reference.number, 10);
+            assert_eq!(scan.objects[0].range.offset, offset);
+        }
+        for bytes in [
+            b"10 0 \r\n11 0 obj<<>>endobj\n".as_slice(),
+            b"10 1 \r\n10 1 obj<<>>endobj\n",
+            b"10 0 \r\n10 1 obj<<>>endobj\n",
+            b"10 0 \r\n10 0 obj<<",
+            b"10 0 obj garbage\n10 0 obj<<>>endobj\n",
+        ] {
+            assert!(scan_bytes(bytes.to_vec()).is_err());
+        }
+    }
+
+    #[test]
+    fn adjacent_header_recovery_has_a_fixed_boundary_budget() {
+        for length in [64, 65] {
+            let mut bytes = b"10 0".to_vec();
+            bytes.resize(length, b' ');
+            bytes.extend_from_slice(b"10 0 obj<< /Value 37 >>endobj\n");
+            assert_eq!(scan_bytes(bytes).is_ok(), length == 64);
         }
     }
 

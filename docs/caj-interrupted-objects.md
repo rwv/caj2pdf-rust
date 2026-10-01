@@ -74,3 +74,22 @@ a subsequent known dictionary cut inside an array. The array extension uses
 the same exact-prefix rule and has original positive/altered-array controls.
 The hypothesis copy then fails on a partial object header at its offset 292989;
 it still produces no final PDF and is not a successful corpus conversion.
+
+
+## Adjacent unfinished object headers
+
+A separate narrow case has no object body to recover: `number 0` followed
+immediately by a complete object with the same reference. For an unexpected
+keyword at that boundary, inspect at most 64 prefix bytes. Require exactly
+two whitespace-separated fields, generation zero, and an exact byte prefix
+of the successfully parsed following object. Normal scanning retains the
+entire following object, including any stream. A different number/generation,
+changed header spelling, intervening body, invalid following object or longer
+prefix is refused. This uses the parser error position, not marker searching.
+
+Original controls cover dictionary, array and stream bodies, mismatches,
+truncation and the exact 64/65-byte boundary. The issue-92 external hypothesis
+copy passes its adjacent header at 292989 with this rule, then stops at 346970
+on another dictionary prefix whose full object occurs later. This remains a
+hypothesis-copy result; the original file still stops at its earlier stream
+failure and no final PDF is published.
