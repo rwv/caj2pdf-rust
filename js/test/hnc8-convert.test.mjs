@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { blobSource, convert, fileHandleScratch } from "../node.mjs";
 import { newInstance, tempDirectory, validateMultiImageHn, validateType1Hn } from "./helpers.mjs";
-import { qmStates, syntheticHn, syntheticType1Hn } from "./hnc8-fixtures.mjs";
+import { qmStates, syntheticHn, syntheticType1Hn, syntheticPrefixedHn } from "./hnc8-fixtures.mjs";
 
 function memoryStore() {
   let bytes = new Uint8Array();
@@ -193,4 +193,17 @@ test("type-1 JPEG uses the bounded public path and preserves its encoded image",
   await assert.rejects(convert(await newInstance(), blobSource(new Blob([bytes])), sink(),
     { chunkSize: 1, hnc8: { scratch } }));
   assert.ok(scratch.every((store) => store.size === 0n));
+});
+
+test("paired raw HN prefix preserves independently validated mixed-image output", async (t) => {
+  const outputs = [];
+  for (const bytes of [syntheticHn(true, true), syntheticPrefixedHn()]) {
+    const scratch = stores(); const parts = [];
+    const report = await convert(await newInstance(), blobSource(new Blob([bytes])), sink(parts), { chunkSize: 3, hnc8: { qmStates, scratch } });
+    assert.equal(report.pagesConverted, 1);
+    assert.ok(scratch.every((store) => store.size === 0n));
+    outputs.push(Buffer.concat(parts));
+  }
+  assert.deepEqual(outputs[0], outputs[1]);
+  await validateMultiImageHn(t, outputs[1]);
 });

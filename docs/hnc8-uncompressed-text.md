@@ -123,3 +123,38 @@ corrected-reference evidence, not official-viewer or all-HN compatibility.
 A source-header check of the previously validated issue-21 and issue-33
 profiles found zero changed display widths across their 74 type-0 images.
 It is a regression scope check, not a new complete-page rendering run.
+
+## Paired raw page prefixes (#225)
+
+Two additional HN-A inputs contain the same pair of four-byte `0x8003`
+page-prefix records as the tagged compressed profile, followed directly by
+raw records rather than `COMPRESSTEXT`:
+
+- `issue-85` Zhouli source SHA256
+  `3e22ca9ab78ac06ce0c1422fa26f7eea168b55a9cc56eed4188d77f1e437d560`:
+  page 1, offset 12172, 40 bytes; one image record and a terminator.
+- `issue-7/a.caj` SHA256
+  `bac8e4d04f4f59a029cac852b674cd546255673f5d08cc1d60bac31be886bf57`:
+  page 75, offset 5534084, 64 bytes; controls, one glyph record, one image
+  record and a terminator.
+
+Dispatch requires HN-A, both prefix tags, and `0x800a` or `0x801c` at the
+next record boundary. Damaged compressed markers do not trigger a raw
+fallback. The existing compact reader consumes the full indexed span and
+hashes it, including the prefix and opaque tail; its image count, work limits,
+short reads and cancellation contract remain unchanged. Prefix records count
+against the record limit. Additional `0x8003` tags inside the body are errors.
+The observed four-byte `0x80ce` control is admitted only in this raw profile
+and only with its observed zero payload. Its glyph semantics are unknown.
+No arbitrary unknown control is skipped and no marker scanning is used.
+
+The existing 28-byte image record fields supply x/y/width/height. Raw text
+allocates one bounded input chunk plus eight bytes per retained image and
+fixed scratch, with no inflater or full-page text buffer.
+
+A local bounded native run completes 160 pages/160 images for Zhouli and
+125 pages/169 images for `a.caj`. qpdf and independently ordered image checks
+pass for both. These checks establish page/image identity, not physical
+placement or CAJViewer pixel parity; that acceptance remains to be verified.
+The C8 issue-66 raw layout is still unresolved and is **not** admitted by
+this HN-A extension. Issue #225 remains open until its other criteria are met.
