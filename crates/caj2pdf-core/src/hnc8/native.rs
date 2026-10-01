@@ -200,14 +200,9 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
                             (0x8006, 0xa381 | 0xa383 | 0xa385 | 0xa38b) | (0x8010, 1)
                         ) =>
                     {
-                        length = if tag == 0x8006 { 12 } else { 16 };
+                        length = 12;
                         self.native_bytes(position + 4, end, &mut bytes[4..length], at)
                             .await?;
-                        if length == 16 && bytes[12..16] != [0xff, 0xff, 5, 0] {
-                            return Err(at
-                                .at(position + 12)
-                                .malformed("native drawing end", "expected ffff/0005"));
-                        }
                         NativeRecord::Drawing {
                             tag,
                             style: value,

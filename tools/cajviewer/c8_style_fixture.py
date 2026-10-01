@@ -145,6 +145,14 @@ def main():
         (args.output / f"{name}.caj").write_bytes(data)
         manifest.append({"name": name, "run_words": words, "bytes": len(data),
                          "sha256": hashlib.sha256(data).hexdigest()})
+    for suffix, following in (("bare", ()), ("footer", (0xFFFF, 5)),
+                              ("next-y", (0x8001, 5000))):
+        name = f"c8-drawing10-boundary-{suffix}-horizontal-long"
+        words = (0x8010, 1, 4900, 4800, 9200, 4800) + following
+        data = document([(0x1084, 0, 6)], run_words=words)
+        (args.output / f"{name}.caj").write_bytes(data)
+        manifest.append({"name": name, "run_words": words, "bytes": len(data),
+                         "sha256": hashlib.sha256(data).hexdigest()})
     (args.output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
 
 

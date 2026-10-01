@@ -292,7 +292,7 @@ fn never_reads_past_indexed_span_for_any_truncated_record() {
         vec![[0x8006, 0xa381], [1, 2], [3, 4]],
         vec![[0x8006, 0xa383], [1, 2], [3, 4]],
         vec![[0x8006, 0xa385], [1, 2], [3, 4]],
-        vec![[0x8010, 1], [1, 2], [3, 4], [0xffff, 5]],
+        vec![[0x8010, 1], [1, 2], [3, 4]],
         vec![[0xc053, 0xffff]],
         vec![[0x8073, 0x8004]],
         vec![
@@ -610,7 +610,7 @@ fn preserves_additional_controls_and_atomic_8010_payload() {
         let mut visitor = Visitor::default();
         assert_eq!(
             parse(&mut source, TextBudget::default(), &mut visitor).unwrap(),
-            10
+            11
         );
         for (index, tag) in [0x8072, 0x8073, 0x8074, 0xc053, 0xc054]
             .into_iter()
@@ -636,7 +636,7 @@ fn preserves_additional_controls_and_atomic_8010_payload() {
             )
         );
         assert_eq!(
-            visitor.events[8],
+            visitor.events[9],
             (
                 144,
                 NativeRecord::Glyph {
@@ -647,7 +647,7 @@ fn preserves_additional_controls_and_atomic_8010_payload() {
                 }
             )
         );
-        assert_eq!(visitor.events[9], (148, NativeRecord::End { value: 1 }));
+        assert_eq!(visitor.events[10], (148, NativeRecord::End { value: 1 }));
     }
     let error = parse(
         &mut fixture(&[[0x8010, 1], [7, 9], [21, 13], [0xffff, 6]], 0),
@@ -656,7 +656,7 @@ fn preserves_additional_controls_and_atomic_8010_payload() {
     )
     .unwrap_err();
     assert_eq!(error.offset, 112);
-    assert!(matches!(error.kind, ErrorKind::Malformed { .. }));
+    assert!(matches!(error.kind, ErrorKind::Unsupported { .. }));
 }
 
 #[test]
@@ -763,13 +763,19 @@ fn a385_drawing_preserves_coordinates_and_following_glyph_context() {
 
 #[test]
 fn drawing_boundary_preserves_independent_y_end_and_control_records() {
-    for value in [0xa381, 0xa383, 0xa385, 0xa38b] {
+    for (tag, value) in [
+        (0x8006, 0xa381),
+        (0x8006, 0xa383),
+        (0x8006, 0xa385),
+        (0x8006, 0xa38b),
+        (0x8010, 1),
+    ] {
         for short in [1, 3, 7, 28] {
             let mut source = fixture(
                 &[
                     [0x8001, 47],
                     [0x8002, 0x1084],
-                    [0x8006, value],
+                    [tag, value],
                     [0x8004, 17],
                     [23, 0x8001],
                     [0x8001, 71],
@@ -814,7 +820,7 @@ fn drawing_boundary_preserves_independent_y_end_and_control_records() {
                     }
                 )
             );
-            let mut source = fixture(&[[0x8006, value], [1, 2], [3, 4], [0x8004, 1]], 0);
+            let mut source = fixture(&[[tag, value], [1, 2], [3, 4], [0x8004, 1]], 0);
             assert_eq!(
                 parse(&mut source, TextBudget::default(), &mut Visitor::default()).unwrap(),
                 2

@@ -795,7 +795,7 @@ without assuming that HN-B semantics apply to C8.
 The visitor now emits each `8006` drawing as a 12-byte record and preserves
 `ffff/5` as its own `Control`. It does not discard the control or infer that
 it is always a no-op. The already admitted `a383` remains 12 bytes. The
-separate `8010/1` form retains its prior framing pending independent controls.
+separate `8010/1` form was subsequently verified below with its own controls.
 Existing sources containing `ffff/5` therefore yield one additional raw event
 per occurrence: exhaustive event/count consumers must accommodate it. This is
 a documented unstable v0.x parser behavior correction, not a conversion claim.
@@ -806,3 +806,27 @@ records, marker-like coordinates, short reads and truncated drawings. Earlier
 `8006` forms. Font size, baseline and stroke fidelity remain unresolved under
 #240. External receipts are `c8-drawing-boundary-{inputs,comparison}.json` in
 `caj2pdf-c8-advance-control-20261001`; external captures remain outside Git.
+
+### 8010 boundary and resource-controlled replay
+
+The `8006` conclusion was not automatically applied to `8010/1`. Initial original
+horizontal controls with substituted geometric fonts showed no decoration.
+Replaying the known-positive `draw10horizontal` input and three new long
+horizontal controls in the same pinned offline image with its shipped font
+resources restores the visible repeated ornament. Those font files remain in
+the external viewer image; no font outlines or implementation are copied.
+
+Bare 12-byte `8010/1` and the variant followed by `ffff/5` have identical page
+pixels. A following `8001/5000` moves only the glyph row; the ornament remains.
+All four replayed inputs match their own repeats at 57%, page interior
+`(648,387,1023,936)`. The generator reproduces the three new controls exactly.
+This establishes the 12-byte boundary and independent following control, allowing
+the reader to use one fixed drawing read without a guessed mandatory footer.
+Tests cover following y/end records, marker-like points and truncation.
+
+The resource comparison establishes sensitivity to font replacement for this
+control; it does not identify a redistributable glyph or approve a substitute
+pattern. `8010/1` must still not be silently dropped or rendered as a plain
+segment. Its rendering semantics remain in #240. External receipts are in
+`caj2pdf-c8-decoration-default-20261001`, including `comparison.json` and the
+recorded launch arguments. Earlier mandatory-footer descriptions are superseded.
