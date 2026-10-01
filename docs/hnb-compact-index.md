@@ -112,8 +112,8 @@ fail explicitly. Selected first-page boundaries are:
 
 | Input | Accepted prefix | Next rejection | Absolute offset |
 | --- | --- | --- | ---: |
-| issue-100 | 1362 records, 1210 raw glyphs | `c053/12d8` | 5732 |
-| issue-63 | 2656 records, 2015 raw glyphs | `80ce/0001` | 10928 |
+| issue-100 | 1429 records, 1264 raw glyphs | `8070/0024` | 6000 |
+| issue-63 | 2657 records, 2015 raw glyphs | `8070/0024` | 10932 |
 | issue-65 | 1 record, 0 raw glyphs | `800a/d300` | 340 |
 
 These are partial parsing results, not successful source conversions. Earlier
@@ -232,3 +232,34 @@ offset 5732. Later page boundaries are unchanged. No conversion is claimed.
 Original MIT fixture bytes reproduce the external inputs exactly. Receipts
 are `hnb-a381-{inputs,comparison}.json` in
 `caj2pdf-c8-decoration-advance-valid-20261001`.
+
+### Raw numeric c053 payload and 80ce state
+
+The `c053` value is now retained as a raw u16 instead of accepting only the
+first sampled value `00e9`. Eight independent controls use 0, the observed
+`12d8`, and marker-like `8004` / `ffff`, each bare and followed by a y change.
+All preserve the corresponding baseline page pixels; all repeats match. This
+establishes a fixed four-byte record with an opaque numeric payload, without
+assigning coordinate units or assuming no-op semantics. It avoids adding a
+new parser special case for every document-specific number.
+
+Four separate controls establish four-byte `80ce/0` and `80ce/1` framing.
+With the original geometric font, value 1 matches the baseline; value 0
+retains the CJK pair but removes the three A0-alias glyphs from each row. Both
+values preserve the independent following y change and later row boundaries.
+All repeats match. This is visible state/resource behavior, not permission to
+discard Latin text or to treat both values as no-ops. Its rendering meaning
+remains unverified. Unknown flag values and the neighboring `c054` tag remain
+explicitly unsupported for HN-B.
+
+The existing visitor, fixed buffer and table-driven tests are reused. Tests
+retain all raw values, including marker-like payloads, with short reads and
+both indexes. The generator reproduces all twelve controls. Their receipts
+are external in `caj2pdf-hnb-control-values-20261001`, with page interior
+`(648,357,1023,906)` at 57%. No external font/data/capture is committed.
+
+All three corpus hashes still match their pinned identities. The new direct
+probe reaches 1429 records on issue-100 page 1 and 2657 on issue-63 page 1,
+both now stopping at `8070/0024`. Issue-63 page 4 advances from 264 records /
+195 raw glyphs to 2182 / 1371, then stops at offset 69864. All 14 pages still
+have explicit unsupported outcomes; these are not successful conversions.

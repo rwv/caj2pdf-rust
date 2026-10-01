@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Preserve HN-B `c053` numeric payloads and verified `80ce/0,1` controls
+  without inferring their rendering semantics.
+
 - Preserve the independently verified 12-byte HN-B `8006/a381` drawing
   without consuming its following control record.
 

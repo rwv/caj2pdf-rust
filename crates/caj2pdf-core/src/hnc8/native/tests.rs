@@ -1054,10 +1054,17 @@ fn hnb_run_controls_and_drawing_preserve_following_glyph_context() {
         [0x801c, 4],
         [0x8067, 7],
         [0x8069, 0x1084],
+        [0x80ce, 0],
+        [0x80ce, 1],
         [0x8072, 0],
         [0x8024, 0x2800],
         [0x8024, 0x281d],
+        [0xc053, 0],
+        [0xc053, 0x00e8],
         [0xc053, 0x00e9],
+        [0xc053, 0x12d8],
+        [0xc053, 0x8004],
+        [0xc053, 0xffff],
         [0xffff, 5],
     ];
     for width in [12, 20] {
@@ -1187,9 +1194,10 @@ fn hnb_run_controls_and_drawing_preserve_following_glyph_context() {
         [0x801d, 1],
         [0x8067, 8],
         [0x8069, 0x1085],
+        [0x80ce, 2],
         [0x8072, 1],
         [0x8024, 0x281c],
-        [0xc053, 0x00e8],
+        [0xc054, 0x00e9],
         [0x8006, 0xa384],
     ] {
         let mut source = hnb_source(12, &[&[control, [0x8004, 1]]]);
