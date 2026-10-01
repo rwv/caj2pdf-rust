@@ -648,3 +648,23 @@ External diagnostics and outputs remain under
 `caj2pdf-c8-ascent-control-20261001` and
 `caj2pdf-c8-outline-shift-20261001`. No external fonts, captures, extracted text,
 image rows or preview PDFs are repository fixtures.
+
+
+### Direct codec and content-page integration control
+
+The original `decoded_images_share_a_content_page_with_glyphs_and_vectors`
+control decodes type-0, JPEG and type-3 descriptors directly into a document,
+then interleaves their image handles with original Latin/CJK glyphs, a segment
+and a filled polygon. It uses the same private checked-image emitter as the
+image-only composer, including its scratch accounting and cleanup. No emitted
+PDF is parsed to supply the mixed page's images.
+
+The control checks original decoded bilevel rows, drawing order, cleared scratch
+and bounded requests with short source/output calls. qpdf validation and a
+72-DPI MuPDF raster independently check interior pixels: JPEG covers the earlier
+segment, and the final polygon covers the white portion of a type-3 image.
+The portable core assertions and external raster check are separate tests;
+targets without local validators explicitly filter only the latter.
+This verifies codec/content-writer integration, not the still-unverified source
+C8 size, baseline or decoration rules. The external six-page diagnostic has
+not yet been switched from sidecars to this internal path.

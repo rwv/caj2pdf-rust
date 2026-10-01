@@ -5,6 +5,8 @@
 mod append;
 mod document;
 mod font;
+#[cfg(test)]
+pub(crate) use font::tests::drawing_font;
 mod fragment;
 pub(crate) mod input;
 mod types;
