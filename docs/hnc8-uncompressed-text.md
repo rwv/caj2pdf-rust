@@ -154,7 +154,30 @@ fixed scratch, with no inflater or full-page text buffer.
 
 A local bounded native run completes 160 pages/160 images for Zhouli and
 125 pages/169 images for `a.caj`. qpdf and independently ordered image checks
-pass for both. These checks establish page/image identity, not physical
-placement or CAJViewer pixel parity; that acceptance remains to be verified.
-The C8 issue-66 raw layout is still unresolved and is **not** admitted by
-this HN-A extension. Issue #225 remains open until its other criteria are met.
+pass for both. Full Node and Chromium Worker runs produce the same PDFs,
+including 28 and 78 bookmarks respectively. All scratch stores are empty;
+Node removes its scratch files and browser OPFS is empty after disposal.
+The larger Zhouli source needs more than 64 MiB of forward-only input spooling:
+that cap rejects it cleanly, while an explicit 128 MiB cap succeeds. This is
+external temporary storage, not a full-source RAM allocation.
+
+At 80% zoom in the pinned CAJViewer image, source and output page frames agree:
+Zhouli page 1 is 636×899 screen pixels and `a.caj` page 75 is 602×870. Each
+capture repeats identically. The latter is genuinely blank in the source
+image and matches exactly. Zhouli has 552,575 changed pixels out of 571,764;
+matching frames and encoded images do not establish renderer pixel parity.
+This residual remains a fidelity observation under #219, not a hidden pass.
+Original asymmetric mixed-image tests validate nonzero placement and draw
+order independently of the real blank-page case. A process-level regression
+checks a malformed second raw page after a successfully converted first page:
+existing destinations survive, no partial final PDF is published, and pipe
+input/native scratch are cleaned.
+
+[Metadata and hashes](../tests/conformance/paired_raw_current.json) preserve
+these distinctions and the post-conversion WASM memory observations.
+
+The C8 issue-66 raw layout is **not** admitted by this HN-A extension. Viewer
+inspection confirms visible text on its image-less page 2; page 1's sole
+848×251 image is only a diagram within the text page. Thus complete conversion
+requires visible native-text handling (#229), not just another image placement
+header. Issue #225 remains open until that C8 requirement is satisfied.

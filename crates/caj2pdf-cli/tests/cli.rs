@@ -1057,3 +1057,51 @@ fn termination_signals_clean_staged_output_and_preserve_destination() {
         }));
     }
 }
+
+#[test]
+fn late_malformed_paired_raw_hn_page_never_publishes_a_partial_pdf() {
+    let scratch = Scratch::new("hn-paired-raw-late");
+    let original = image_hn();
+    let index = 0x15c;
+    let mut bytes = original[..index].to_vec();
+    bytes.resize(index + 40, 0);
+    put_u32(&mut bytes, 0x90, 2);
+    let mut second_end = 0;
+    for page in 0..2 {
+        let text = bytes.len();
+        if page == 1 {
+            for word in [0x8003_u16, 100, 0x8003, 200] {
+                bytes.extend(word.to_le_bytes());
+            }
+        }
+        bytes.extend_from_slice(&original[index + 20..]);
+        let length = if page == 0 { 32 } else { 40 };
+        let descriptor = text + length;
+        put_u32(&mut bytes, index + page * 20, text as u32);
+        put_u32(&mut bytes, index + page * 20 + 4, length as u32);
+        bytes[index + page * 20 + 8] = 1;
+        put_u32(&mut bytes, descriptor + 4, (descriptor + 12) as u32);
+        second_end = descriptor - 4;
+    }
+    scratch.write("good.hn", &bytes);
+    assert_success(&scratch.run(["good.hn", "-o", "good.pdf"]));
+    assert_eq!(validate_pdf(&scratch.path("good.pdf")).0, 2);
+    bytes[second_end..second_end + 2].copy_from_slice(&0x8005_u16.to_le_bytes());
+    scratch.write("bad.hn", &bytes);
+    scratch.write("keep.pdf", b"existing destination");
+    let failed = scratch.run(["bad.hn", "-o", "keep.pdf", "--force"]);
+    assert_failure(&failed, 1, "page 2");
+    assert!(stderr(&failed).contains("unknown control tag"));
+    assert_eq!(
+        fs::read(scratch.path("keep.pdf")).unwrap(),
+        b"existing destination"
+    );
+    let pipe = scratch.run_with_stdin(&["-", "-o", "new.pdf"], &bytes);
+    assert_failure(&pipe, 1, "page 2");
+    assert!(!scratch.path("new.pdf").exists());
+    assert_eq!(fs::read(scratch.path("bad.hn")).unwrap(), bytes);
+    assert_eq!(
+        scratch.entries(),
+        ["bad.hn", "good.hn", "good.pdf", "keep.pdf"]
+    );
+}
