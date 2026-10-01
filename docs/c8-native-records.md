@@ -715,3 +715,43 @@ External receipts: `caj2pdf-c8-image-controls-20261001/manifest.json`,
 `measurements.json`, original inputs and repeated captures. This advances
 image placement under #233/#240; font size/baseline and separator fidelity
 remain unresolved.
+
+
+## Independent size fields and original glyph anchors (#240)
+
+The style fixture generator now reproduces eight original `axis-*` controls:
+CJK `中` and Latin `A`, each with horizontal/vertical fields `(3,3)`, `(3,5)`,
+`(5,3)` and `(5,5)`. They use a 150×100 page, raw position `(4672,4294)`
+and the existing asymmetric origin. Generated inputs match the observed
+controls byte for byte; all prior generated fixtures remain unchanged.
+
+The pinned viewer restarted in its default smaller window. Its inspected
+page interior is `(648,537,1023,787)` (375×250 pixels), not the earlier
+maximized-window frame. With original geometric fonts, thresholded ink
+left/top positions relative to that interior are:
+
+| Horizontal, vertical | CJK | Latin |
+| --- | --- | --- |
+| 3, 3 | 99, 12 | 124, 34 |
+| 3, 5 | 99, 12 | 124, 27 |
+| 5, 3 | 99, 12 | 132, 34 |
+| 5, 5 | 99, 12 | 132, 27 |
+
+All eight repeat captures match. The high five-bit field changes width and
+Latin horizontal placement; the low field changes height and Latin vertical
+placement. The original CJK square keeps its upper-left anchor. Larger squares
+clip at page edges, so these measurements do not establish their full extent.
+
+A separate font control doubles only `hmtx` advance widths. Table comparison
+finds changes only in `hmtx` and the expected `head` checksum. For equal fields
+3, 5 and 8, both CJK and Latin page crops are identical to the normal-advance
+controls; repeated captures also match. Thus advance width does not explain
+the observed anchor difference for these controls. Vertical-metric and outline
+controls described above remain separate evidence.
+
+These observations establish independent field effects, not an exact PDF
+font-size or Latin baseline formula. A proposed `ceil(em/12)` vertical offset
+is inconsistent with the observed size-dependent deltas and is not admitted.
+Production rendering acceptance remains open. External receipts are in
+`caj2pdf-c8-advance-control-20261001/{comparison,axis-comparison,axis-inputs}.json`;
+no captures or font binaries are committed.

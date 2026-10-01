@@ -22,14 +22,14 @@ VARIANTS = (
 )
 
 
-def document(styles, control_record=None, drawing=None, codes=None, *, row_step=500, height=7469, drawing_dy=50):
+def document(styles, control_record=None, drawing=None, codes=None, *, row_step=500, height=7469, drawing_dy=50, width=5105, first_x=5200, first_y=4700):
     """One original page, with 中文AM1 as the default test string."""
     if codes is None:
         codes = (0xD6D0, 0xCEC4, 0xA0C1, 0xA0CD, 0xA0B1)
     records = bytearray()
     for row, (style, control, font) in enumerate(styles):
         pairs = [
-            (0x8001, 4700 + row * row_step),
+            (0x8001, first_y + row * row_step),
             (0x8002, style),
             (0x801D, control),
             (0x8067, font),
@@ -44,7 +44,7 @@ def document(styles, control_record=None, drawing=None, codes=None, *, row_step=
                 drawing_pairs.append((0xFFFF, 5))
             pairs = drawing_pairs + pairs
         pairs.extend(
-            (5200 + column * 350, code)
+            (first_x + column * 350, code)
             for column, code in enumerate(codes)
         )
         for pair in pairs:
@@ -54,7 +54,7 @@ def document(styles, control_record=None, drawing=None, codes=None, *, row_step=
     struct.pack_into("<IIII", header, 0, 0xC8, 0, 1, 2)
     # Observed format identifier; no source document text or font data is copied.
     header[16:28] = "北大二扫1.00".encode("gbk")
-    struct.pack_into("<HHHH", header, 28, 4652, 4274, 5105, height)
+    struct.pack_into("<HHHH", header, 28, 4652, 4274, width, height)
     index = struct.pack("<IIIII", 100, len(records), 0, 0, 100 + len(records))
     return bytes(header + index + records)
 
@@ -109,9 +109,17 @@ def main():
     fixtures.append(("size-profile", [(0x1000 | (index << 5) | index, 0, 6)
                                       for index in (2, 3, 4, 5, 6, 8)], None, None))
     symbols["size-profile"] = (0xD6D0, 0xA0C1)
+    anchor_geometry = {}
+    for horizontal, vertical in ((3, 3), (3, 5), (5, 3), (5, 5)):
+        for kind, code in (("cjk", 0xD6D0), ("latin", 0xA0C1)):
+            name = f"axis-{kind}-{horizontal}-{vertical}"
+            fixtures.append((name, [(0x1000 | (horizontal << 5) | vertical, 0, 6)], None, None))
+            symbols[name] = (code,)
+            anchor_geometry[name] = {"width": 150, "height": 100, "first_x": 4672, "first_y": 4294}
     manifest = []
     for name, styles, control_record, drawing in fixtures:
         geometry = {"row_step": 350, "height": 3200} if name == "size-profile" else {}
+        geometry.update(anchor_geometry.get(name, {}))
         if name == "draw10horizontal":
             geometry["drawing_dy"] = 0
         data = document(styles, control_record, drawing, symbols.get(name), **geometry)
