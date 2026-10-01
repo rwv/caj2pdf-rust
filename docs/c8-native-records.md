@@ -409,3 +409,27 @@ Requests at 400% and 800% were not accepted: the visible zoom field remained
 rendered sizes also do not establish absence of glyph rendering. Derive a
 source-space size rule from independent controls before adopting a PDF font
 size; do not use the final pixel request as a zoom-independent point size.
+
+
+### Viewer font character aliases
+
+A follow-up original forwarding shim also observes public `FT_Get_Char_Index`
+and `FT_Load_Glyph` arguments. The original baseline at 100% remains
+pixel-identical to the earlier uninstrumented capture. For its Chinese glyphs,
+observed HGHT lookups include Unicode U+4E2D and U+6587. For its visible Latin
+A, however, HGBZ is queried with U+7CA4 (31908), yielding glyph ID 4851.
+
+The independent `letter-a` fixture contains only eight occurrences of raw code
+A0C1 at fixed positions. It confirms the HGBZ U+7CA4-to-4851 lookup and actual
+loads of glyph 4851 at several pixel sizes. The existing generator reproduces
+this 264-byte control; SHA-256 `930089a6d884f58e5b4365b6e1d1d8073b676822ce83bd5498589739a9298b1d`.
+
+This does not change A0C1's independently verified textual meaning, Unicode A.
+It demonstrates that the vendor font's character slots cannot be assumed to
+match document Unicode. The shared PDF writer's standard Unicode font contract
+is still valid for explicitly supplied Unicode fonts; passing a viewer font
+unchanged is not established as faithful rendering. No generic font remapper
+or proprietary font data is added. Font choice/substitution must stay explicit,
+and baseline/size rules remain unverified. External traces, shim and captures
+remain in `caj2pdf-c8-glyphtrace-20261001`; no outlines or font programs are copied
+into the repository.
