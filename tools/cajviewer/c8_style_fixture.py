@@ -39,7 +39,10 @@ def document(styles, control_record=None, drawing=None, codes=None, *, row_step=
         if drawing is not None:
             tag, value, delta = drawing
             y = 4800 + row * row_step
-            pairs = [(tag, value), (5200 + delta, y), (6300, y + 50), (0xFFFF, 5)] + pairs
+            drawing_pairs = [(tag, value), (5200 + delta, y), (6300, y + 50)]
+            if value != 0xA383:
+                drawing_pairs.append((0xFFFF, 5))
+            pairs = drawing_pairs + pairs
         pairs.extend(
             (5200 + column * 350, code)
             for column, code in enumerate(codes)
@@ -81,6 +84,8 @@ def main():
         for name, tag, value, delta in (
             ("draw10", 0x8010, 1, 0), ("draw10shift", 0x8010, 1, 200),
             ("draw06", 0x8006, 0xA381, 0),
+            ("draw06compact", 0x8006, 0xA383, 0),
+            ("draw06alternate", 0x8006, 0xA38B, 0),
         )
     )
     symbols = {

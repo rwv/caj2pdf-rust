@@ -535,6 +535,49 @@ Short pages are vertically centered: the observed outer frame at 200% is
 all four page edges again. No content alignment or fitted baseline offset
 was applied. External captures, traces and measurement receipts remain in
 `caj2pdf-c8-square-font-20261001`; none are bundled as passing fidelity tests.
-The next missing observation is an isolated required field's font-size
-request at a zoom transition, associated with its final page rendering.
+The isolated transition and coordinate controls below supersede this earlier
+missing observation.
 Production font size, baseline and segment rules remain unapproved.
+
+
+### Isolated coordinates and segment controls (#240)
+
+External receipt `caj2pdf-c8-isolated-size-20261001` uses the same original
+geometric fonts. A single field-5 glyph requests/renders 26 pixels at 193%
+and 27 at 194%; before/after trace snapshots isolate those calls. Revisiting
+each zoom reproduces the screenshot exactly. Changing page width from 5105
+to 4000 preserves both requests. The transition is not a page-width effect.
+
+Automatic fit-to-width accepts much higher magnifications than the earlier
+manual zoom attempt. Six original 300 × 230 pages at displayed 2896% use
+origin (4652,4274) and one square glyph at (4672,4294). For fields 2,3,4,5,6,8,
+the final bitmap sizes are 269,298,336,404,461,606 pixels. All frames are
+(449,231,1574,1093); all dark glyph bounds start at (599,250). The UI zoom is
+rounded and dark bounds are not exact fractional outline bounds; these
+measurements alone still do not define a point-size table.
+
+With field 5 fixed, adding 20 to glyph x moves the dark left edge from 599
+to 674; adding 20 to glyph y moves the top from 250 to 325. Adding 20 to
+header x origin moves the left edge to 524. Adding 20 to both origins and
+both glyph coordinates preserves all glyph bounds. The isolated positive
+y-origin control clips the glyph at the page edge and is not a full-height
+measurement. These establish subtractive origins and translation direction
+without fitting document-specific offsets.
+
+A segment at the same raw starting point as the square begins at the same
+horizontal position but a different vertical position. Text baseline and
+segment placement must therefore not share an unverified y correction.
+
+Three original diagonal segments, tag 8006 with styles a381/a383/a38b, were
+rendered on one page. Each has dx=100 and dy=20, with starts at x=4672 and
+y=4304,4354,4404. The a383 record has no ffff/0005 terminator; the other two
+do. All three remain thin solid segments at both displayed 2896% and 200%.
+At an interior column, integrated darkness relative to black is approximately
+1.04 pixels at both magnifications (1.047 for all three at 200%). Thus the
+preview's fixed positive source-space stroke width is contradicted: it would
+grow with zoom. PDF's existing zero-width hairline operation is the candidate
+for this observed profile; endpoint, color and independent PDF rendering
+comparison remain to be completed before admitting a production rule.
+The style generator now includes `draw06compact` and `draw06alternate` with
+their correct record framing for further independent controls. No screenshots,
+external font data or source-document text are committed.

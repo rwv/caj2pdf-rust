@@ -2032,3 +2032,10 @@ conversion output. The short `size-profile` extension to the original C8
 fixture generator is also original MIT code. Generated fonts, documents and
 viewer captures stay outside Git. The recorded zoom observations disprove
 one preview hypothesis; they do not certify a production rendering rule.
+
+
+The #240 compact/alternate segment controls extend the original C8 generator
+using the already observed native record framing. Coordinate and raster-width
+observations use original geometric inputs and the pinned offline viewer;
+no vendor implementation is read. The public notes distinguish established
+translations from the still-unapproved PDF rendering rules.
