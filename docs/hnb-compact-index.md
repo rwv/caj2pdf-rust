@@ -112,7 +112,7 @@ fail explicitly. Selected first-page boundaries are:
 
 | Input | Accepted prefix | Next rejection | Absolute offset |
 | --- | --- | --- | ---: |
-| issue-100 | 1358 records, 1209 raw glyphs | `8006/a381` | 5708 |
+| issue-100 | 1362 records, 1210 raw glyphs | `c053/12d8` | 5732 |
 | issue-63 | 2656 records, 2015 raw glyphs | `80ce/0001` | 10928 |
 | issue-65 | 1 record, 0 raw glyphs | `800a/d300` | 340 |
 
@@ -214,3 +214,21 @@ pages 1–4 (1209/1528/1456/1214 raw glyphs). The next located errors are at
 External receipts are `hnb-{8069,8024}-{inputs,comparison}.json` in
 `caj2pdf-c8-decoration-advance-valid-20261001`; no source text or captures are
 committed. These fixtures and parser changes are original MIT work.
+
+### HN-B a381 drawing boundary
+
+Three original `hnb-a381-*` controls independently verify `8006/a381` as a
+12-byte record in HN-B. Bare and `ffff/5`-followed drawings have identical
+page pixels. A following `8001/5000` moves the glyph row without moving the
+segment. All repeats match in the same 57% page frame. This admits raw
+endpoints; stroke width and complete rendering remain unverified.
+
+The implementation only adds the verified value to the existing HN-B guard;
+its fixed drawing read is reused. Tests cover both index widths, short reads,
+marker-like coordinates and independently following position/footer/end
+records. The C8-only `a383` remains rejected for HN-B. The issue-100 first
+page now reaches 1362 records / 1210 raw glyphs and stops at `c053/12d8`,
+offset 5732. Later page boundaries are unchanged. No conversion is claimed.
+Original MIT fixture bytes reproduce the external inputs exactly. Receipts
+are `hnb-a381-{inputs,comparison}.json` in
+`caj2pdf-c8-decoration-advance-valid-20261001`.

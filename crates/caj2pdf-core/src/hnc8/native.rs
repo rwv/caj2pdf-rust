@@ -173,7 +173,7 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
                             | (0x8024, 0x2800 | 0x281d)
                             | (0xc053, 0x00e9)
                             | (0xffff, 5)
-                            | (0x8006, 0xa385)
+                            | (0x8006, 0xa381 | 0xa385)
                             | (0xc052, 0xa385)
                     )
                 {

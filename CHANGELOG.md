@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Preserve the independently verified 12-byte HN-B `8006/a381` drawing
+  without consuming its following control record.
+
 - Preserve independently controlled HN-B `8069/1084` and `8024/2800` raw
   records without enabling unverified rendering semantics.
 
