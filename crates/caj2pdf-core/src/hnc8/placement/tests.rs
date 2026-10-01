@@ -316,29 +316,30 @@ fn noncollapsed_extreme_origins_must_preserve_dimension_and_coordinate_precision
 #[test]
 fn page_and_offset_rounding_must_not_accumulate_beyond_translation_tolerance() {
     let page = empirical_page_from_pixels(1, 9, [0.0, 274_877_906_944.0]).unwrap();
-    // Independently calculated binary64 translations: origin + 2.16 -
-    // raw_y * (240 / 2473). At raw_y=14, only 0x4250000000003349 is within
-    // 0.00005 pt; its neighbors miss by -0.00005679 and +0.00006528 pt.
-    // Binary64-only intermediate rounding rejects this case. x87 may retain
-    // enough precision to return the correct translation instead. Check the
-    // actual returned bits, not which intermediate rounding path was taken.
-    for (raw_y, expected_bits) in [(0, 0x4250000000008a3d), (14, 0x4250000000003349)] {
-        let result = empirical_image_transform(page, 1, 1, point(0, raw_y));
-        if let Ok(transform) = &result {
-            assert_eq!(transform[5].to_bits(), expected_bits);
-        }
-        if raw_y == 0 {
-            assert!(result.is_ok(), "an exact zero offset must remain supported");
-        }
-        assert!(
-            result.is_ok()
-                || matches!(
-                    result,
-                    Err(Error::InvalidInput {
-                        reason: "empirical PDF origin cannot preserve the selected coordinate precision"
-                    })
-                )
-        );
+    let [_, bottom, _, top] = page.media_box().unwrap();
+    let offset = 14.0 * EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
+    let rounded_y = top - offset;
+    assert!(
+        ((top - bottom) - page.size.height_points).abs() <= EMPIRICAL_PLACEMENT_TOLERANCE_POINTS
+    );
+    assert!(((top - rounded_y) - offset).abs() <= EMPIRICAL_PLACEMENT_TOLERANCE_POINTS);
+    assert!(
+        ((rounded_y - bottom) - (page.size.height_points - offset)).abs()
+            > EMPIRICAL_PLACEMENT_TOLERANCE_POINTS
+    );
+    match empirical_image_transform(page, 1, 1, point(0, 14)) {
+        // x87 may retain enough intermediate precision to avoid the two
+        // accumulated binary64 rounding errors demonstrated above. Accept
+        // success only for the one binary64 y within the existing tolerance
+        // of the exact result: 2^38 + 54/25 - 3360/2473. Its neighbors miss by
+        // -0.0000567930524666 and +0.0000652772600334 points respectively.
+        Ok(ctm) => assert_eq!(ctm[5].to_bits(), 0x4250_0000_0000_3349),
+        Err(error) => assert!(matches!(
+            error,
+            Error::InvalidInput {
+                reason: "empirical PDF origin cannot preserve the selected coordinate precision"
+            }
+        )),
     }
 }
 
