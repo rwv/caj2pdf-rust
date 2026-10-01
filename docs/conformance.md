@@ -47,14 +47,14 @@ Python-reference corpus expectations below are a separate compatibility
 baseline, not a CAJViewer verdict. Missing optional inputs are `NOT_RUN`;
 known pixel failures are not passing baselines.
 
-### Initial v0.3.1 CLI inventory (#218)
+### Reproducible v0.3.1 CLI baseline (#218)
 
 The [current CLI observations](../tests/conformance/current_cli_baseline.json)
-record one completed run on all 56 pinned inputs using the published Linux
+record a completed repeat on all 56 pinned inputs using the published Linux
 x86_64 v0.3.1 executable. Source hashes matched the inventory before and after
 all attempts. These are current observations, separate from the historical
-Python expectations. The full #218 acceptance is **not complete**: source-page
-order, source-bookmark comparison and new pixel comparisons remain NOT_RUN.
+Python expectations. The optional runner independently checks page/image
+identity and order; it does not perform new rendered-page pixel comparisons.
 
 | Format | Inputs | Successful conversion with the recorded options |
 | --- | ---: | ---: |
@@ -71,21 +71,76 @@ Default conversion completed on 32 inputs; the explicit option added two C8
 outputs. All 34 emitted PDFs have page counts matching current source
 inspection. qpdf returns success on 33; issue-20 returns warning status 3,
 so that output is not counted as a clean PDF-validation pass. Neither output
-existence nor matching page counts establishes correct source-page order.
+existence nor matching page counts alone establishes correct source-page order.
+The separate source-order checks pass on all 34 outputs (2,630 pages): CAJ
+page-table object IDs, PDF/KDH source page/content-object identities, and
+2,128 HN/C8 images compared in page order using Poppler extraction and the
+existing pinned codec pixel oracles. Repeated byte-identical source descriptor
+groups are recorded separately; this check does not validate their coordinates
+or deduplication semantics. All 27 CAJ/HN-A source-outline comparisons pass;
+other source-outline comparisons remain NOT_RUN. The repeat produces the same
+34 PDF hashes as the initial run.
 
 The run used a 180-second per-conversion deadline, 1 GiB process address-space
 ceiling and 512 MiB per-file ceiling. CLI scratch limits remained 64 MiB per
 store across four stores. These are configured limits, not peak-memory
-measurements. Outputs, raw logs and the initial probe remain outside Git;
-#218 still needs the reusable runner and full acceptance checks.
+measurements. Outputs and raw logs remain outside Git. The POSIX runner needs
+Python 3.11+, qpdf, MuPDF (`mutool`) and Poppler (`pdfimages`):
+
+```sh
+python3 scripts/current_formats.py \
+  --corpus-dir /external/CAJSamples \
+  --candidate /external/caj2pdf \
+  --output-dir /external/new-format-run > /external/current-format-report.json
+```
+
+The output directory must be new and outside the checkout and corpus. With no
+corpus argument or `CAJ2PDF_CORPUS_DIR`, it reports NOT_RUN. An explicitly
+missing/mismatched corpus fails. COMPLETE means all attempts finished, including
+FAIL/UNSUPPORTED results; it is not a compatibility pass. Conversion, PDF
+validation, count/order, outlines and pixels have separate result fields.
+Each child process has the stated limits; these are not a parent-harness RSS
+bound. Image extracts are discarded after each page.
 
 Reproduced HN/C8 gaps are linked to [#220](https://github.com/rwv/caj2pdf-rust/issues/220)
 (image-less HN-B/C8 rows), [#224](https://github.com/rwv/caj2pdf-rust/issues/224)
 (type-1 image records), and [#225](https://github.com/rwv/caj2pdf-rust/issues/225)
 (additional page-text framing). Six CAJ inputs fail PDF parsing/repair and
-remain explicit failures; this does not establish whether their source content
-is recoverable. Existing selected-page viewer results have not been rerun by
-this inventory.
+remain explicit failures tracked by [#226](https://github.com/rwv/caj2pdf-rust/issues/226);
+this does not establish whether their source content is recoverable. Existing
+selected-page viewer results have not been rerun by this inventory.
+
+### Fixed regression set for the next format work
+
+Use the exact hashes/paths in the matrix, not similarly named replacement files.
+The full runner remains 56 inputs; these are the small development controls,
+not a requirement to capture every page in CAJViewer.
+
+| Matrix case | Purpose |
+| --- | --- |
+| `issue-21/实时网络流量异常检测算法研究和系统实现_林尚朕.caj` | Compressed HN-A text/image placement and source outlines. |
+| `issue-69/12.caj` | Raw HN-A text records and multiple images. |
+| `issue-76/基于星载合成孔径雷达干涉测量技术的数字高程模型生成研究_任坤.caj` | Full mixed type-0/JPEG/type-3 document and repeated descriptors. |
+| `issue-58/混凝土道面评价指标分析_谢永亮.caj` | C8 conversion with explicit bookmark omission; existing viewer controls. |
+| `issue-100/中国金融体制改革阶段研究_李卉.caj` | HN-B image-less-row refusal; completeness work must not hide it. |
+| `issue-40/*`, `issue-44/*` | CAJ source order differs from historical Python; retain source order. |
+| `issue-20/*` | Existing malformed-stream warning remains visible. |
+| `issue-48/ZZXX200402047.caj` | KDH embedded-PDF control. |
+| `issue-33/test3.caj` | PDF pass-through control. |
+
+Each wildcard above resolves to the single matrix entry in that issue directory.
+Add only the directly affected cases for #224 (issue-43), #225 (issue-7,
+issue-85 Zhouli, issue-66) and #220 (issue-63/65 and issue-90 C8 rows).
+Ordinary CI uses the existing original fixtures and new synthetic checks:
+
+```sh
+python3 -m unittest discover -s tests/conformance -p 'test_current_format*.py'
+```
+
+These tests detect reordered/missing/changed image identities, a real synthetic
+PDF page permutation, malformed bitmap extents, oracle identity mismatches,
+invalid inspection metadata, missing output and timeout/error classification.
+They are not substitutes for an external corpus run or CAJViewer comparison.
 
 ### Known Python-reference differences
 

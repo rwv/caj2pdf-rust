@@ -1,51 +1,58 @@
 {
   "schema_version": 1,
-  "scope": "Initial public CLI conversion and structural checks; not completed issue #218 acceptance or viewer compatibility.",
-  "source_commit": "088ecc8af2a7a84c8ca880e40b7ac8f387e6c240",
-  "release": "v0.3.1",
-  "platform": "x86_64-unknown-linux-gnu",
-  "binary_sha256": "f62312a68370d8c9837e2025850a9ef579a6cae47e7b9add8810b66c15140346",
-  "corpus_revision": "7e1c35e7b6de34e21972fcd1752c2a7e99b4ad07",
-  "inventory_before": "PASS",
-  "inventory_after": "PASS",
-  "limits": {
-    "address_space_bytes": 1073741824,
-    "per_file_bytes": 536870912,
-    "timeout_seconds": 180
+  "inventory_before": {
+    "status": "PASS",
+    "expected": 56,
+    "passed": 56,
+    "failed": 0,
+    "not_run": 0,
+    "failures": []
   },
-  "scratch_per_store_bytes": 67108864,
-  "tools": {
-    "qpdf": "qpdf version 12.2.0",
-    "mutool": "mutool version 1.25.1"
-  },
+  "scope": "Public CLI conversion, PDF structure and source-page identity/order; not rendered-page fidelity",
+  "status": "COMPLETE",
   "results": [
     {
       "id": "discussion-issue-1/a.caj",
       "source_sha256": "ddf87db0d95bc18ecfe43d441c92cd109f0502d01ea256100dd132cc13d49259",
       "format": "HN",
-      "variant": "HN-A",
-      "source_pages": 82,
-      "source_bookmarks": 44,
+      "metadata": {
+        "schema_version": 1,
+        "format": "HN",
+        "variant": "HN-A",
+        "conversion_supported": true,
+        "page_count": 82,
+        "has_outline": true,
+        "bookmark_count": 44
+      },
       "inspection_exit_code": 0,
       "attempts": [
         {
           "no_bookmarks": false,
-          "conversion_status": "PASS",
           "exit_code": 0,
-          "seconds": 8.431,
-          "diagnostic": null,
+          "conversion_status": "PASS",
+          "seconds": 9.484,
+          "diagnostic": "",
           "output_exists": true,
           "output_sha256": "427e9fbe533681fbbcf63a3cf738672f271d491841bc9894f490db4be97da598",
           "output_bytes": 10391404,
           "pages": 82,
+          "pdf_check_exit_code": 0,
+          "pdf_check": "PASS",
+          "page_count_check": "PASS",
+          "page_order_check": "PASS",
+          "source_outline_check": "PASS",
+          "pixel_check": "NOT_RUN",
           "outline_count": 44,
           "outline_sha256": "0a97967e95a2262947e48a0883cbaa074b5c0f44ec950fcddc4445bc050ae18b",
-          "pdf_check": "PASS",
-          "pdf_check_exit_code": 0,
-          "page_count_check": "PASS",
-          "page_order_check": "NOT_RUN",
-          "source_outline_check": "NOT_RUN",
-          "pixel_check": "NOT_RUN"
+          "page_order": {
+            "status": "PASS",
+            "pages": 82,
+            "images": 97,
+            "repeated_source_descriptors": 0,
+            "mismatched_pages": [],
+            "method": "ordered source images versus Poppler extraction and pinned pixel oracles",
+            "scope": "page/image identity and order; not placement, alias coordinates or rendered-page parity"
+          }
         }
       ]
     },
@@ -53,25 +60,31 @@
       "id": "issue-100/中国金融体制改革阶段研究_李卉.caj",
       "source_sha256": "3f3b9b57d6925df811247dced47fd7fb74cf0f678ab9bfda0827c827258ab39b",
       "format": "HN",
-      "variant": "HN-B",
-      "source_pages": 4,
-      "source_bookmarks": null,
+      "metadata": {
+        "schema_version": 1,
+        "format": "HN",
+        "variant": "HN-B",
+        "conversion_supported": true,
+        "page_count": 4,
+        "has_outline": null,
+        "bookmark_count": null
+      },
       "inspection_exit_code": 0,
       "attempts": [
         {
           "no_bookmarks": false,
-          "conversion_status": "UNSUPPORTED",
           "exit_code": 1,
-          "seconds": 0.002,
-          "diagnostic": "HN/C8 page composition, Preflight, HN-B, source byte 0: unsupported profile: outlines are only validated for HN-A",
+          "conversion_status": "UNSUPPORTED",
+          "seconds": 0.003,
+          "diagnostic": "caj2pdf: error: cannot convert 'issue-100/中国金融体制改革阶段研究_李卉.caj': HN/C8 page composition, Preflight, HN-B, source byte 0: unsupported profile: outlines are only validated for HN-A",
           "output_exists": false
         },
         {
           "no_bookmarks": true,
-          "conversion_status": "UNSUPPORTED",
           "exit_code": 1,
-          "seconds": 0.002,
-          "diagnostic": "HN/C8 page composition, Visitor, HN-B, page 1, source byte 216: invalid input: HN/C8 conversion cannot omit source pages without image content",
+          "conversion_status": "UNSUPPORTED",
+          "seconds": 0.003,
+          "diagnostic": "caj2pdf: error: cannot convert 'issue-100/中国金融体制改革阶段研究_李卉.caj': HN/C8 page composition, Visitor, HN-B, page 1, source byte 216: invalid input: HN/C8 conversion cannot omit source pages without image content",
           "output_exists": false
         }
       ]
@@ -80,29 +93,40 @@
       "id": "issue-2/a.caj",
       "source_sha256": "bd7987d20537ba0265bc5eccb953a6c65a413f3954d27e59375ddcd748861b99",
       "format": "CAJ",
-      "variant": null,
-      "source_pages": 62,
-      "source_bookmarks": 52,
+      "metadata": {
+        "schema_version": 1,
+        "format": "CAJ",
+        "variant": null,
+        "conversion_supported": true,
+        "page_count": 62,
+        "has_outline": true,
+        "bookmark_count": 52
+      },
       "inspection_exit_code": 0,
       "attempts": [
         {
           "no_bookmarks": false,
-          "conversion_status": "PASS",
           "exit_code": 0,
+          "conversion_status": "PASS",
           "seconds": 0.033,
-          "diagnostic": null,
+          "diagnostic": "",
           "output_exists": true,
           "output_sha256": "5e18cabbbf14ea51b1c9d5ba80197b77b9343badd9b987c51c8fa0cba5e185bd",
           "output_bytes": 5370996,
           "pages": 62,
+          "pdf_check_exit_code": 0,
+          "pdf_check": "PASS",
+          "page_count_check": "PASS",
+          "page_order_check": "PASS",
+          "source_outline_check": "PASS",
+          "pixel_check": "NOT_RUN",
           "outline_count": 52,
           "outline_sha256": "4654777b1424ae9d6f450c806b5469a25ce997ecece7df15615b9481334ad0a6",
-          "pdf_check": "PASS",
-          "pdf_check_exit_code": 0,
-          "page_count_check": "PASS",
-          "page_order_check": "NOT_RUN",
-          "source_outline_check": "NOT_RUN",
-          "pixel_check": "NOT_RUN"
+          "page_order": {
+            "status": "PASS",
+            "method": "source page-table object IDs versus qpdf output page order",
+            "pages": 62
+          }
         }
       ]
     },
@@ -110,29 +134,40 @@
       "id": "issue-2/b.caj",
       "source_sha256": "86529df25497bcf787505f60f7364e359796070a54a9be85f5874d8e6b090f91",
       "format": "CAJ",
-      "variant": null,
-      "source_pages": 78,
-      "source_bookmarks": 58,
+      "metadata": {
+        "schema_version": 1,
+        "format": "CAJ",
+        "variant": null,
+        "conversion_supported": true,
+        "page_count": 78,
+        "has_outline": true,
+        "bookmark_count": 58
+      },
       "inspection_exit_code": 0,
       "attempts": [
         {
           "no_bookmarks": false,
-          "conversion_status": "PASS",
           "exit_code": 0,
+          "conversion_status": "PASS",
           "seconds": 0.033,
-          "diagnostic": null,
+          "diagnostic": "",
           "output_exists": true,
           "output_sha256": "baa75b6a72f217b9605b07051d1fc3e7e3f78064e54a8aeb9f2b3ea3151cf56e",
           "output_bytes": 4097828,
           "pages": 78,
+          "pdf_check_exit_code": 0,
+          "pdf_check": "PASS",
+          "page_count_check": "PASS",
+          "page_order_check": "PASS",
+          "source_outline_check": "PASS",
+          "pixel_check": "NOT_RUN",
           "outline_count": 58,
           "outline_sha256": "83c8f373e1bf720cf410fd514810583d495d8661b188a37a58658499a6aee7f6",
-          "pdf_check": "PASS",
-          "pdf_check_exit_code": 0,
-          "page_count_check": "PASS",
-          "page_order_check": "NOT_RUN",
-          "source_outline_check": "NOT_RUN",
-          "pixel_check": "NOT_RUN"
+          "page_order": {
+            "status": "PASS",
+            "method": "source page-table object IDs versus qpdf output page order",
+            "pages": 78
+          }
         }
       ]
     },
@@ -140,29 +175,40 @@
       "id": "issue-20/文件名未知.caj",
       "source_sha256": "5a4432ed4878944c4aaa17f591b2a93d00014ea0bdacc9162bed1d88f8d61127",
       "format": "CAJ",
-      "variant": null,
-      "source_pages": 63,
-      "source_bookmarks": 93,
+      "metadata": {
+        "schema_version": 1,
+        "format": "CAJ",
+        "variant": null,
+        "conversion_supported": true,
+        "page_count": 63,
+        "has_outline": true,
+        "bookmark_count": 93
+      },
       "inspection_exit_code": 0,
       "attempts": [
         {
           "no_bookmarks": false,
-          "conversion_status": "PASS",
           "exit_code": 0,
+          "conversion_status": "PASS",
           "seconds": 0.017,
-          "diagnostic": null,
+          "diagnostic": "",
           "output_exists": true,
           "output_sha256": "58fc31644f1363fa695112bf2deb71e4069e990f53199e610938b31dc8052e6d",
           "output_bytes": 969020,
           "pages": 63,
+          "pdf_check_exit_code": 3,
+          "pdf_check": "WARNING",
+          "page_count_check": "PASS",
+          "page_order_check": "PASS",
+          "source_outline_check": "PASS",
+          "pixel_check": "NOT_RUN",
           "outline_count": 93,
           "outline_sha256": "de65572bf6f95ce55973b8d6e01ab6c590fb2e7803a35aeb3279f5333ba78836",
-          "pdf_check": "WARNING",
-          "pdf_check_exit_code": 3,
-          "page_count_check": "PASS",
-          "page_order_check": "NOT_RUN",
-          "source_outline_check": "NOT_RUN",
-          "pixel_check": "NOT_RUN"
+          "page_order": {
+            "status": "PASS",
+            "method": "source page-table object IDs versus qpdf output page order",
+            "pages": 63
+          }
         }
       ]
     },
@@ -170,29 +216,44 @@
       "id": "issue-21/实时网络流量异常检测算法研究和系统实现_林尚朕.caj",
       "source_sha256": "33386f14fd75994c7c70c8b4578d25ee1c731d5d76bb6ad4db48be0a774495d4",
       "format": "HN",
-      "variant": "HN-A",
-      "source_pages": 68,
-      "source_bookmarks": 52,
+      "metadata": {
+        "schema_version": 1,
+        "format": "HN",
+        "variant": "HN-A",
+        "conversion_supported": true,
+        "page_count": 68,
+        "has_outline": true,
+        "bookmark_count": 52
+      },
       "inspection_exit_code": 0,
       "attempts": [
         {
           "no_bookmarks": false,
-          "conversion_status": "PASS",
           "exit_code": 0,
-          "seconds": 7.73,
-          "diagnostic": null,
+          "conversion_status": "PASS",
+          "seconds": 8.482,
+          "diagnostic": "",
           "output_exists": true,
           "output_sha256": "0ee889305e8106dcab37fd9c62cfbaafc200ace81f7a91cf1b823b97235bb244",
           "output_bytes": 8217141,
           "pages": 68,
+          "pdf_check_exit_code": 0,
+          "pdf_check": "PASS",
+          "page_count_check": "PASS",
+          "page_order_check": "PASS",
+          "source_outline_check": "PASS",
+          "pixel_check": "NOT_RUN",
           "outline_count": 52,
           "outline_sha256": "00e4874bc70a8bc99a6a4c1d6fed6d976766fb2f341934d54ea6389a90d34a7c",
-          "pdf_check": "PASS",
-          "pdf_check_exit_code": 0,
-          "page_count_check": "PASS",
-          "page_order_check": "NOT_RUN",
-          "source_outline_check": "NOT_RUN",
-          "pixel_check": "NOT_RUN"
+          "page_order": {
+            "status": "PASS",
+            "pages": 68,
+            "images": 91,
+            "repeated_source_descriptors": 0,
+            "mismatched_pages": [],
+            "method": "ordered source images versus Poppler extraction and pinned pixel oracles",
+            "scope": "page/image identity and order; not placement, alias coordinates or rendered-page parity"
+          }
         }
       ]
     },
@@ -200,29 +261,40 @@
       "id": "issue-21/时间序列模型在卫星异常检测中的应用研究_余文艳.caj",
       "source_sha256": "556541114226584fe9e4a08ad6600f9d38bc27ae307fdd17e4246831bcfb1054",
       "format": "KDH",
-      "variant": null,
-      "source_pages": 6,
-      "source_bookmarks": null,
+      "metadata": {
+        "schema_version": 1,
+        "format": "KDH",
+        "variant": null,
+        "conversion_supported": true,
+        "page_count": 6,
+        "has_outline": false,
+        "bookmark_count": null
+      },
       "inspection_exit_code": 0,
       "attempts": [
         {
           "no_bookmarks": false,
-          "conversion_status": "PASS",
           "exit_code": 0,
+          "conversion_status": "PASS",
           "seconds": 0.017,
-          "diagnostic": null,
+          "diagnostic": "",
           "output_exists": true,
           "output_sha256": "17bb75eaabab043a0edfea687d0e1ec7c95961f4e6939204d02cbb4e376ec58e",
           "output_bytes": 480527,
           "pages": 6,
+          "pdf_check_exit_code": 0,
+          "pdf_check": "PASS",
+          "page_count_check": "PASS",
+          "page_order_check": "PASS",
+          "source_outline_check": "NOT_RUN",
+          "pixel_check": "NOT_RUN",
           "outline_count": 0,
           "outline_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-          "pdf_check": "PASS",
-          "pdf_check_exit_code": 0,
-          "page_count_check": "PASS",
-          "page_order_check": "NOT_RUN",
-          "source_outline_check": "NOT_RUN",
-          "pixel_check": "NOT_RUN"
+          "page_order": {
+            "status": "PASS",
+            "method": "qpdf source/output page and content-object identities",
+            "pages": 6
+          }
         }
       ]
     },
@@ -230,17 +302,23 @@
       "id": "issue-25/2.caj",
       "source_sha256": "eacbcd00c35a93f049350970d6b5a38010ca5633bdd615deb86db2ce03559444",
       "format": "CAJ",
-      "variant": null,
-      "source_pages": 78,
-      "source_bookmarks": 40,
+      "metadata": {
+        "schema_version": 1,
+        "format": "CAJ",
+        "variant": null,
+        "conversion_supported": true,
+        "page_count": 78,
+        "has_outline": true,
+        "bookmark_count": 40
+      },
       "inspection_exit_code": 0,
       "attempts": [
         {
           "no_bookmarks": false,
-          "conversion_status": "FAIL",
           "exit_code": 1,
-          "seconds": 0.002,
-          "diagnostic": "malformed PDF at byte 116724: expected PDF name",
+          "conversion_status": "FAIL",
+          "seconds": 0.003,
+          "diagnostic": "caj2pdf: error: cannot convert 'issue-25/2.caj': malformed PDF at byte 116724: expected PDF name",
           "output_exists": false
         }
       ]
@@ -249,29 +327,44 @@
       "id": "issue-29/阈上和阈下奖励对无意识剌激诱发的反应抑制的影响_刁留亭.caj",
       "source_sha256": "ede5eddb0e8ec1dea46c32a06e16ac12b874a141ca2d6669736495d2ac549261",
       "format": "HN",
-      "variant": "HN-A",
-      "source_pages": 48,
-      "source_bookmarks": 48,
+      "metadata": {
+        "schema_version": 1,
+        "format": "HN",
+        "variant": "HN-A",
+        "conversion_supported": true,
+        "page_count": 48,
+        "has_outline": true,
+        "bookmark_count": 48
+      },
       "inspection_exit_code": 0,
       "attempts": [
         {
           "no_bookmarks": false,
-          "conversion_status": "PASS",
           "exit_code": 0,
-          "seconds": 4.875,
-          "diagnostic": null,
+          "conversion_status": "PASS",
+          "seconds": 5.476,
+          "diagnostic": "",
           "output_exists": true,
           "output_sha256": "5c0a17541b2470f5436a7c7a478b6761d93fd8ae0665db0cdecd014a25b76264",
           "output_bytes": 11871083,
           "pages": 48,
+          "pdf_check_exit_code": 0,
+          "pdf_check": "PASS",
+          "page_count_check": "PASS",
+          "page_order_check": "PASS",
+          "source_outline_check": "PASS",
+          "pixel_check": "NOT_RUN",
           "outline_count": 48,
           "outline_sha256": "b632ebc72bb95dc6ff12947272968c92f4ea9046d5d2d8bc8f8a1c817fe642bc",
-          "pdf_check": "PASS",
-          "pdf_check_exit_code": 0,
-          "page_count_check": "PASS",
-          "page_order_check": "NOT_RUN",
-          "source_outline_check": "NOT_RUN",
-          "pixel_check": "NOT_RUN"
+          "page_order": {
+            "status": "PASS",
+            "pages": 48,
+            "images": 57,
+            "repeated_source_descriptors": 0,
+            "mismatched_pages": [],
+            "method": "ordered source images versus Poppler extraction and pinned pixel oracles",
+            "scope": "page/image identity and order; not placement, alias coordinates or rendered-page parity"
+          }
         }
       ]
     },
@@ -279,17 +372,23 @@
       "id": "issue-30/Lambertian.caj",
       "source_sha256": "c41cd7306591e0a4fc40728617b2d42d7302ba57413591de00f18bcf63023743",
       "format": "CAJ",
-      "variant": null,
-      "source_pages": 141,
-      "source_bookmarks": 31,
+      "metadata": {
+        "schema_version": 1,
+        "format": "CAJ",
+        "variant": null,
+        "conversion_supported": true,
+        "page_count": 141,
+        "has_outline": true,
+        "bookmark_count": 31
+      },
       "inspection_exit_code": 0,
       "attempts": [
         {
           "no_bookmarks": false,
-          "conversion_status": "FAIL",
           "exit_code": 1,
+          "conversion_status": "FAIL",
           "seconds": 0.005,
-          "diagnostic": "malformed PDF at byte 189227, object 2 0: invalid Flate stream while resolving Length",
+          "diagnostic": "caj2pdf: error: cannot convert 'issue-30/Lambertian.caj': malformed PDF at byte 189227, object 2 0: invalid Flate stream while resolving Length",
           "output_exists": false
         }
       ]
@@ -298,29 +397,44 @@
       "id": "issue-31/旋转超声辅助微细电火花加工机床研制及实验研究_张振.caj",
       "source_sha256": "2408a16401a70d4e6e02c93191831097850480c16c372760fb0a378bbeb490c6",
       "format": "HN",
-      "variant": "HN-A",
-      "source_pages": 72,
-      "source_bookmarks": 78,
+      "metadata": {
+        "schema_version": 1,
+        "format": "HN",
+        "variant": "HN-A",
+        "conversion_supported": true,
+        "page_count": 72,
+        "has_outline": true,
+        "bookmark_count": 78
+      },
       "inspection_exit_code": 0,
       "attempts": [
         {
           "no_bookmarks": false,
-          "conversion_status": "PASS",
           "exit_code": 0,
-          "seconds": 8.131,
-          "diagnostic": null,
+          "conversion_status": "PASS",
+          "seconds": 8.833,
+          "diagnostic": "",
           "output_exists": true,
           "output_sha256": "d9a9f6160d7557f75654629b71934ab13b69cfaa306bb7ed1811c72fb0aafa96",
           "output_bytes": 10035619,
           "pages": 72,
+          "pdf_check_exit_code": 0,
+          "pdf_check": "PASS",
+          "page_count_check": "PASS",
+          "page_order_check": "PASS",
+          "source_outline_check": "PASS",
+          "pixel_check": "NOT_RUN",
           "outline_count": 78,
           "outline_sha256": "eaa26bbf1b08a122167611b669ea273fb870930b60ea5d65f873f23212f18417",
-          "pdf_check": "PASS",
-          "pdf_check_exit_code": 0,
-          "page_count_check": "PASS",
-          "page_order_check": "NOT_RUN",
-          "source_outline_check": "NOT_RUN",
-          "pixel_check": "NOT_RUN"
+          "page_order": {
+            "status": "PASS",
+            "pages": 72,
+            "images": 121,
+            "repeated_source_descriptors": 0,
+            "mismatched_pages": [],
+            "method": "ordered source images versus Poppler extraction and pinned pixel oracles",
+            "scope": "page/image identity and order; not placement, alias coordinates or rendered-page parity"
+          }
         }
       ]
     },
@@ -328,37 +442,52 @@
       "id": "issue-33/test1.caj",
       "source_sha256": "35951c3775790c230c84e4312e8db7a57ca2980a04d35ff03d328806df7d622c",
       "format": "C8",
-      "variant": "C8",
-      "source_pages": 7,
-      "source_bookmarks": null,
+      "metadata": {
+        "schema_version": 1,
+        "format": "C8",
+        "variant": "C8",
+        "conversion_supported": true,
+        "page_count": 7,
+        "has_outline": null,
+        "bookmark_count": null
+      },
       "inspection_exit_code": 0,
       "attempts": [
         {
           "no_bookmarks": false,
-          "conversion_status": "UNSUPPORTED",
           "exit_code": 1,
-          "seconds": 0.002,
-          "diagnostic": "HN/C8 page composition, Preflight, C8, source byte 0: unsupported profile: outlines are only validated for HN-A",
+          "conversion_status": "UNSUPPORTED",
+          "seconds": 0.003,
+          "diagnostic": "caj2pdf: error: cannot convert 'issue-33/test1.caj': HN/C8 page composition, Preflight, C8, source byte 0: unsupported profile: outlines are only validated for HN-A",
           "output_exists": false
         },
         {
           "no_bookmarks": true,
-          "conversion_status": "PASS",
           "exit_code": 0,
-          "seconds": 0.716,
-          "diagnostic": null,
+          "conversion_status": "PASS",
+          "seconds": 0.766,
+          "diagnostic": "",
           "output_exists": true,
           "output_sha256": "17a2a256f9e1739fa31a5c39d1572c7efa4215ec9828c71e6f0324a64ca4e4b9",
           "output_bytes": 2762514,
           "pages": 7,
+          "pdf_check_exit_code": 0,
+          "pdf_check": "PASS",
+          "page_count_check": "PASS",
+          "page_order_check": "PASS",
+          "source_outline_check": "NOT_RUN",
+          "pixel_check": "NOT_RUN",
           "outline_count": 0,
           "outline_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-          "pdf_check": "PASS",
-          "pdf_check_exit_code": 0,
-          "page_count_check": "PASS",
-          "page_order_check": "NOT_RUN",
-          "source_outline_check": "NOT_RUN",
-          "pixel_check": "NOT_RUN"
+          "page_order": {
+            "status": "PASS",
+            "pages": 7,
+            "images": 34,
+            "repeated_source_descriptors": 0,
+            "mismatched_pages": [],
+            "method": "ordered source images versus Poppler extraction and pinned pixel oracles",
+            "scope": "page/image identity and order; not placement, alias coordinates or rendered-page parity"
+          }
         }
       ]
     },
@@ -366,29 +495,40 @@
       "id": "issue-33/test2.caj",
       "source_sha256": "d82e49e39b8d74d36e6a96f50ee4f8cb2d1a5e6072735c345c1bbeffcef1e091",
       "format": "PDF",
-      "variant": null,
-      "source_pages": 26,
-      "source_bookmarks": null,
+      "metadata": {
+        "schema_version": 1,
+        "format": "PDF",
+        "variant": null,
+        "conversion_supported": true,
+        "page_count": 26,
+        "has_outline": false,
+        "bookmark_count": null
+      },
       "inspection_exit_code": 0,
       "attempts": [
         {
           "no_bookmarks": false,
-          "conversion_status": "PASS",
           "exit_code": 0,
-          "seconds": 0.017,
-          "diagnostic": null,
+          "conversion_status": "PASS",
+          "seconds": 0.033,
+          "diagnostic": "",
           "output_exists": true,
           "output_sha256": "ac440185148c381bc88d56f3a6626a20d2f4610da5b81207023c8c6e97a79831",
           "output_bytes": 6411999,
           "pages": 26,
+          "pdf_check_exit_code": 0,
+          "pdf_check": "PASS",
+          "page_count_check": "PASS",
+          "page_order_check": "PASS",
+          "source_outline_check": "NOT_RUN",
+          "pixel_check": "NOT_RUN",
           "outline_count": 0,
           "outline_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-          "pdf_check": "PASS",
-          "pdf_check_exit_code": 0,
-          "page_count_check": "PASS",
-          "page_order_check": "NOT_RUN",
-          "source_outline_check": "NOT_RUN",
-          "pixel_check": "NOT_RUN"
+          "page_order": {
+            "status": "PASS",
+            "method": "qpdf source/output page and content-object identities",
+            "pages": 26
+          }
         }
       ]
     },
@@ -396,29 +536,40 @@
       "id": "issue-33/test3.caj",
       "source_sha256": "8ca4d3a2f42d926ba59b4e0d6c0a2cfd22a75a5c8df7cef05e890b7e79f6106f",
       "format": "PDF",
-      "variant": null,
-      "source_pages": 11,
-      "source_bookmarks": null,
+      "metadata": {
+        "schema_version": 1,
+        "format": "PDF",
+        "variant": null,
+        "conversion_supported": true,
+        "page_count": 11,
+        "has_outline": false,
+        "bookmark_count": null
+      },
       "inspection_exit_code": 0,
       "attempts": [
         {
           "no_bookmarks": false,
-          "conversion_status": "PASS",
           "exit_code": 0,
-          "seconds": 0.018,
-          "diagnostic": null,
+          "conversion_status": "PASS",
+          "seconds": 0.017,
+          "diagnostic": "",
           "output_exists": true,
           "output_sha256": "fcf88d82a59391b73c90c799c22c8002a0ab16ffd3617ced04c974635c101a75",
           "output_bytes": 5328476,
           "pages": 11,
+          "pdf_check_exit_code": 0,
+          "pdf_check": "PASS",
+          "page_count_check": "PASS",
+          "page_order_check": "PASS",
+          "source_outline_check": "NOT_RUN",
+          "pixel_check": "NOT_RUN",
           "outline_count": 0,
           "outline_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-          "pdf_check": "PASS",
-          "pdf_check_exit_code": 0,
-          "page_count_check": "PASS",
-          "page_order_check": "NOT_RUN",
-          "source_outline_check": "NOT_RUN",
-          "pixel_check": "NOT_RUN"
+          "page_order": {
+            "status": "PASS",
+            "method": "qpdf source/output page and content-object identities",
+            "pages": 11
+          }
         }
       ]
     },
@@ -426,29 +577,40 @@
       "id": "issue-34/G公司医药移动电子商务平台项目可行性研究_邓晓聪.caj",
       "source_sha256": "d19a294f78a6ec8dfe27993288a88a0560aa369fe5c4ebb22ca5f57c85209fb3",
       "format": "KDH",
-      "variant": null,
-      "source_pages": 67,
-      "source_bookmarks": null,
+      "metadata": {
+        "schema_version": 1,
+        "format": "KDH",
+        "variant": null,
+        "conversion_supported": true,
+        "page_count": 67,
+        "has_outline": false,
+        "bookmark_count": null
+      },
       "inspection_exit_code": 0,
       "attempts": [
         {
           "no_bookmarks": false,
-          "conversion_status": "PASS",
           "exit_code": 0,
+          "conversion_status": "PASS",
           "seconds": 0.033,
-          "diagnostic": null,
+          "diagnostic": "",
           "output_exists": true,
           "output_sha256": "606c4b374163ed70f7c3556cac98a067bca063b34ed9f11fdecf42f5df1fb66f",
           "output_bytes": 1837432,
           "pages": 67,
+          "pdf_check_exit_code": 0,
+          "pdf_check": "PASS",
+          "page_count_check": "PASS",
+          "page_order_check": "PASS",
+          "source_outline_check": "NOT_RUN",
+          "pixel_check": "NOT_RUN",
           "outline_count": 0,
           "outline_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-          "pdf_check": "PASS",
-          "pdf_check_exit_code": 0,
-          "page_count_check": "PASS",
-          "page_order_check": "NOT_RUN",
-          "source_outline_check": "NOT_RUN",
-          "pixel_check": "NOT_RUN"
+          "page_order": {
+            "status": "PASS",
+            "method": "qpdf source/output page and content-object identities",
+            "pages": 67
+          }
         }
       ]
     },
@@ -456,29 +618,44 @@
       "id": "issue-36/Unsupported file type.caj",
       "source_sha256": "9be8e023c7fe41dbe682a00258fb26fa365b06ebb2b709b2332cd1995d32f04b",
       "format": "HN",
-      "variant": "HN-A",
-      "source_pages": 150,
-      "source_bookmarks": 77,
+      "metadata": {
+        "schema_version": 1,
+        "format": "HN",
+        "variant": "HN-A",
+        "conversion_supported": true,
+        "page_count": 150,
+        "has_outline": true,
+        "bookmark_count": 77
+      },
       "inspection_exit_code": 0,
       "attempts": [
         {
           "no_bookmarks": false,
-          "conversion_status": "PASS",
           "exit_code": 0,
-          "seconds": 17.548,
-          "diagnostic": null,
+          "conversion_status": "PASS",
+          "seconds": 18.852,
+          "diagnostic": "",
           "output_exists": true,
           "output_sha256": "8feab0b8b4f43f89b4b05ff97588604d035f9fe0a17556ee660eb62a3252c846",
           "output_bytes": 13760821,
           "pages": 150,
+          "pdf_check_exit_code": 0,
+          "pdf_check": "PASS",
+          "page_count_check": "PASS",
+          "page_order_check": "PASS",
+          "source_outline_check": "PASS",
+          "pixel_check": "NOT_RUN",
           "outline_count": 77,
           "outline_sha256": "ff67bc1d35d599be470cb589da1a5c9662c4d54b72015451599d445528ca65be",
-          "pdf_check": "PASS",
-          "pdf_check_exit_code": 0,
-          "page_count_check": "PASS",
-          "page_order_check": "NOT_RUN",
-          "source_outline_check": "NOT_RUN",
-          "pixel_check": "NOT_RUN"
+          "page_order": {
+            "status": "PASS",
+            "pages": 150,
+            "images": 167,
+            "repeated_source_descriptors": 0,
+            "mismatched_pages": [],
+            "method": "ordered source images versus Poppler extraction and pinned pixel oracles",
+            "scope": "page/image identity and order; not placement, alias coordinates or rendered-page parity"
+          }
         }
       ]
     },
@@ -486,17 +663,23 @@
       "id": "issue-39/文件同步服务中数据同步传输消重策略研究_张航.caj",
       "source_sha256": "5e1ea482a56a2df02a2a452ac97949824c726471c88157e78441a1201b3d8697",
       "format": "CAJ",
-      "variant": null,
-      "source_pages": 80,
-      "source_bookmarks": 72,
+      "metadata": {
+        "schema_version": 1,
+        "format": "CAJ",
+        "variant": null,
+        "conversion_supported": true,
+        "page_count": 80,
+        "has_outline": true,
+        "bookmark_count": 72
+      },
       "inspection_exit_code": 0,
       "attempts": [
         {
           "no_bookmarks": false,
-          "conversion_status": "FAIL",
           "exit_code": 1,
-          "seconds": 0.004,
-          "diagnostic": "malformed PDF at byte 898312: invalid PDF value token",
+          "conversion_status": "FAIL",
+          "seconds": 0.005,
+          "diagnostic": "caj2pdf: error: cannot convert 'issue-39/文件同步服务中数据同步传输消重策略研究_张航.caj': malformed PDF at byte 898312: invalid PDF value token",
           "output_exists": false
         }
       ]
@@ -505,29 +688,40 @@
       "id": "issue-40/非线性量测下的雷达目标跟踪算法研究_张宇轩.caj",
       "source_sha256": "633210e8e9faf05b677479d37709dd99a56c1b5ff817dfcfbbb350d5617c1d7b",
       "format": "CAJ",
-      "variant": null,
-      "source_pages": 78,
-      "source_bookmarks": 40,
+      "metadata": {
+        "schema_version": 1,
+        "format": "CAJ",
+        "variant": null,
+        "conversion_supported": true,
+        "page_count": 78,
+        "has_outline": true,
+        "bookmark_count": 40
+      },
       "inspection_exit_code": 0,
       "attempts": [
         {
           "no_bookmarks": false,
-          "conversion_status": "PASS",
           "exit_code": 0,
-          "seconds": 0.066,
-          "diagnostic": null,
+          "conversion_status": "PASS",
+          "seconds": 0.065,
+          "diagnostic": "",
           "output_exists": true,
           "output_sha256": "e9b36c44b28059022fd24528dbb0251e6b5de94f2380f40489bcf90d9c8d1101",
           "output_bytes": 3586745,
           "pages": 78,
+          "pdf_check_exit_code": 0,
+          "pdf_check": "PASS",
+          "page_count_check": "PASS",
+          "page_order_check": "PASS",
+          "source_outline_check": "PASS",
+          "pixel_check": "NOT_RUN",
           "outline_count": 40,
           "outline_sha256": "9d4fa2f8069a93f2677828419d18bedebe7c9d10482911f4ce8d32e510ae10e1",
-          "pdf_check": "PASS",
-          "pdf_check_exit_code": 0,
-          "page_count_check": "PASS",
-          "page_order_check": "NOT_RUN",
-          "source_outline_check": "NOT_RUN",
-          "pixel_check": "NOT_RUN"
+          "page_order": {
+            "status": "PASS",
+            "method": "source page-table object IDs versus qpdf output page order",
+            "pages": 78
+          }
         }
       ]
     },
@@ -535,17 +729,23 @@
       "id": "issue-43/Windows9x_NT操作系统的磁盘备份与恢复的研究与实现_张宗伟.caj",
       "source_sha256": "826608ef34b850926d1291ddba1773305bd44a0bf4170b4a9ae8c7d83c0b7134",
       "format": "HN",
-      "variant": "HN-A",
-      "source_pages": 109,
-      "source_bookmarks": 42,
+      "metadata": {
+        "schema_version": 1,
+        "format": "HN",
+        "variant": "HN-A",
+        "conversion_supported": true,
+        "page_count": 109,
+        "has_outline": true,
+        "bookmark_count": 42
+      },
       "inspection_exit_code": 0,
       "attempts": [
         {
           "no_bookmarks": false,
-          "conversion_status": "UNSUPPORTED",
           "exit_code": 1,
-          "seconds": 0.002,
-          "diagnostic": "HN/C8 page composition, Headers, HN-A, page 1, image 1, source byte 15496: unsupported image record type 1",
+          "conversion_status": "UNSUPPORTED",
+          "seconds": 0.003,
+          "diagnostic": "caj2pdf: error: cannot convert 'issue-43/Windows9x_NT操作系统的磁盘备份与恢复的研究与实现_张宗伟.caj': HN/C8 page composition, Headers, HN-A, page 1, image 1, source byte 15496: unsupported image record type 1",
           "output_exists": false
         }
       ]
@@ -554,29 +754,40 @@
       "id": "issue-44/基于802.11ac的LDPC编译码算法设计与实现_杨阳.caj",
       "source_sha256": "fd89f649b4c70727255a76744e71a66c6621a1a2e81fd589f15840a107b1a135",
       "format": "CAJ",
-      "variant": null,
-      "source_pages": 108,
-      "source_bookmarks": 57,
+      "metadata": {
+        "schema_version": 1,
+        "format": "CAJ",
+        "variant": null,
+        "conversion_supported": true,
+        "page_count": 108,
+        "has_outline": true,
+        "bookmark_count": 57
+      },
       "inspection_exit_code": 0,
       "attempts": [
         {
           "no_bookmarks": false,
-          "conversion_status": "PASS",
           "exit_code": 0,
+          "conversion_status": "PASS",
           "seconds": 0.033,
-          "diagnostic": null,
+          "diagnostic": "",
           "output_exists": true,
           "output_sha256": "f6a25dd1aa63ce3098b4f785b3c4edbabf0ed67c8bcee511796d7fdb29499187",
           "output_bytes": 5673820,
           "pages": 108,
+          "pdf_check_exit_code": 0,
+          "pdf_check": "PASS",
+          "page_count_check": "PASS",
+          "page_order_check": "PASS",
+          "source_outline_check": "PASS",
+          "pixel_check": "NOT_RUN",
           "outline_count": 57,
           "outline_sha256": "65681a01c266ef19f4db732970dca427e43974e1187d922f0367b9846afd6fdf",
-          "pdf_check": "PASS",
-          "pdf_check_exit_code": 0,
-          "page_count_check": "PASS",
-          "page_order_check": "NOT_RUN",
-          "source_outline_check": "NOT_RUN",
-          "pixel_check": "NOT_RUN"
+          "page_order": {
+            "status": "PASS",
+            "method": "source page-table object IDs versus qpdf output page order",
+            "pages": 108
+          }
         }
       ]
     },
@@ -584,29 +795,40 @@
       "id": "issue-46/1.caj",
       "source_sha256": "5fe702bae7cf321178e85555bfc6e8b3a8b9f9074f5bf5d24ae2377b9638b5a8",
       "format": "CAJ",
-      "variant": null,
-      "source_pages": 109,
-      "source_bookmarks": 38,
+      "metadata": {
+        "schema_version": 1,
+        "format": "CAJ",
+        "variant": null,
+        "conversion_supported": true,
+        "page_count": 109,
+        "has_outline": true,
+        "bookmark_count": 38
+      },
       "inspection_exit_code": 0,
       "attempts": [
         {
           "no_bookmarks": false,
-          "conversion_status": "PASS",
           "exit_code": 0,
+          "conversion_status": "PASS",
           "seconds": 0.065,
-          "diagnostic": null,
+          "diagnostic": "",
           "output_exists": true,
           "output_sha256": "1d6c5563d2c12198f50b3f03c673bd6a7707b99d81ce578d65cfe29e766792d7",
           "output_bytes": 20003978,
           "pages": 109,
+          "pdf_check_exit_code": 0,
+          "pdf_check": "PASS",
+          "page_count_check": "PASS",
+          "page_order_check": "PASS",
+          "source_outline_check": "PASS",
+          "pixel_check": "NOT_RUN",
           "outline_count": 38,
           "outline_sha256": "0c1d7a118e2cfb20cfe86ba44a66254a02be7f995050f9a5f0555fd580e20bb9",
-          "pdf_check": "PASS",
-          "pdf_check_exit_code": 0,
-          "page_count_check": "PASS",
-          "page_order_check": "NOT_RUN",
-          "source_outline_check": "NOT_RUN",
-          "pixel_check": "NOT_RUN"
+          "page_order": {
+            "status": "PASS",
+            "method": "source page-table object IDs versus qpdf output page order",
+            "pages": 109
+          }
         }
       ]
     },
@@ -614,29 +836,44 @@
       "id": "issue-47/依据书法笔力对运笔基本问题的再认识_刘玉栋.caj",
       "source_sha256": "3dc7f393740dccfaa614b9f8b21f5a46db60bbf11a0e1c1e0dfba84764097586",
       "format": "HN",
-      "variant": "HN-A",
-      "source_pages": 37,
-      "source_bookmarks": 20,
+      "metadata": {
+        "schema_version": 1,
+        "format": "HN",
+        "variant": "HN-A",
+        "conversion_supported": true,
+        "page_count": 37,
+        "has_outline": true,
+        "bookmark_count": 20
+      },
       "inspection_exit_code": 0,
       "attempts": [
         {
           "no_bookmarks": false,
-          "conversion_status": "PASS",
           "exit_code": 0,
-          "seconds": 5.926,
-          "diagnostic": null,
+          "conversion_status": "PASS",
+          "seconds": 6.277,
+          "diagnostic": "",
           "output_exists": true,
           "output_sha256": "9ecd99ab33f49373d65dfd637efd4d8db37c4c6820b68e881447c84122ab3227",
           "output_bytes": 5791331,
           "pages": 37,
+          "pdf_check_exit_code": 0,
+          "pdf_check": "PASS",
+          "page_count_check": "PASS",
+          "page_order_check": "PASS",
+          "source_outline_check": "PASS",
+          "pixel_check": "NOT_RUN",
           "outline_count": 20,
           "outline_sha256": "17f785e3e5fe83039b6f53a14c11fe25f7d2c98d43197967956b6d6cf663b472",
-          "pdf_check": "PASS",
-          "pdf_check_exit_code": 0,
-          "page_count_check": "PASS",
-          "page_order_check": "NOT_RUN",
-          "source_outline_check": "NOT_RUN",
-          "pixel_check": "NOT_RUN"
+          "page_order": {
+            "status": "PASS",
+            "pages": 37,
+            "images": 49,
+            "repeated_source_descriptors": 0,
+            "mismatched_pages": [],
+            "method": "ordered source images versus Poppler extraction and pinned pixel oracles",
+            "scope": "page/image identity and order; not placement, alias coordinates or rendered-page parity"
+          }
         }
       ]
     },
@@ -644,29 +881,40 @@
       "id": "issue-48/ZZXX200402047.caj",
       "source_sha256": "5f6f1af5b148af2b6756ff8878124c09797882505d0aca12ca983d9073d94507",
       "format": "KDH",
-      "variant": null,
-      "source_pages": 1,
-      "source_bookmarks": null,
+      "metadata": {
+        "schema_version": 1,
+        "format": "KDH",
+        "variant": null,
+        "conversion_supported": true,
+        "page_count": 1,
+        "has_outline": false,
+        "bookmark_count": null
+      },
       "inspection_exit_code": 0,
       "attempts": [
         {
           "no_bookmarks": false,
-          "conversion_status": "PASS",
           "exit_code": 0,
+          "conversion_status": "PASS",
           "seconds": 0.009,
-          "diagnostic": null,
+          "diagnostic": "",
           "output_exists": true,
           "output_sha256": "82fc33ce060e14acaf68fa52b592f15d0e481db57a95103c068925518287e6ca",
           "output_bytes": 37680,
           "pages": 1,
+          "pdf_check_exit_code": 0,
+          "pdf_check": "PASS",
+          "page_count_check": "PASS",
+          "page_order_check": "PASS",
+          "source_outline_check": "NOT_RUN",
+          "pixel_check": "NOT_RUN",
           "outline_count": 0,
           "outline_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-          "pdf_check": "PASS",
-          "pdf_check_exit_code": 0,
-          "page_count_check": "PASS",
-          "page_order_check": "NOT_RUN",
-          "source_outline_check": "NOT_RUN",
-          "pixel_check": "NOT_RUN"
+          "page_order": {
+            "status": "PASS",
+            "method": "qpdf source/output page and content-object identities",
+            "pages": 1
+          }
         }
       ]
     },
@@ -674,29 +922,40 @@
       "id": "issue-49/皮质骨钻削中温度分布的预测模型及热影响区的研究_李向军.caj",
       "source_sha256": "964975c2d3269787be46de97ee0e574414d0e937de8a4190a923be0d02635c01",
       "format": "CAJ",
-      "variant": null,
-      "source_pages": 65,
-      "source_bookmarks": 49,
+      "metadata": {
+        "schema_version": 1,
+        "format": "CAJ",
+        "variant": null,
+        "conversion_supported": true,
+        "page_count": 65,
+        "has_outline": true,
+        "bookmark_count": 49
+      },
       "inspection_exit_code": 0,
       "attempts": [
         {
           "no_bookmarks": false,
-          "conversion_status": "PASS",
           "exit_code": 0,
+          "conversion_status": "PASS",
           "seconds": 0.033,
-          "diagnostic": null,
+          "diagnostic": "",
           "output_exists": true,
           "output_sha256": "0d388e767e25be0436d9b2b70b92058574e630ebf15ebe5a96089ddc9915ba30",
           "output_bytes": 3169038,
           "pages": 65,
+          "pdf_check_exit_code": 0,
+          "pdf_check": "PASS",
+          "page_count_check": "PASS",
+          "page_order_check": "PASS",
+          "source_outline_check": "PASS",
+          "pixel_check": "NOT_RUN",
           "outline_count": 49,
           "outline_sha256": "c8df1fbfe8597172a9647c1eec447285af345d62217baedd04988dd0a09b4d27",
-          "pdf_check": "PASS",
-          "pdf_check_exit_code": 0,
-          "page_count_check": "PASS",
-          "page_order_check": "NOT_RUN",
-          "source_outline_check": "NOT_RUN",
-          "pixel_check": "NOT_RUN"
+          "page_order": {
+            "status": "PASS",
+            "method": "source page-table object IDs versus qpdf output page order",
+            "pages": 65
+          }
         }
       ]
     },
@@ -704,29 +963,44 @@
       "id": "issue-50/基于群体协同的交通态势感知服务系统的研究与实现_高尚.caj",
       "source_sha256": "4437a9df5fe547b5f403a5717b315529393eb399469dd5c7e56f793dae1ea06e",
       "format": "HN",
-      "variant": "HN-A",
-      "source_pages": 116,
-      "source_bookmarks": 94,
+      "metadata": {
+        "schema_version": 1,
+        "format": "HN",
+        "variant": "HN-A",
+        "conversion_supported": true,
+        "page_count": 116,
+        "has_outline": true,
+        "bookmark_count": 94
+      },
       "inspection_exit_code": 0,
       "attempts": [
         {
           "no_bookmarks": false,
-          "conversion_status": "PASS",
           "exit_code": 0,
-          "seconds": 16.296,
-          "diagnostic": null,
+          "conversion_status": "PASS",
+          "seconds": 18.152,
+          "diagnostic": "",
           "output_exists": true,
           "output_sha256": "a3c029d8a943c847d6d0f75e25ab7c317873f4299ef21da69b2b09ecf51056c3",
           "output_bytes": 19430414,
           "pages": 116,
+          "pdf_check_exit_code": 0,
+          "pdf_check": "PASS",
+          "page_count_check": "PASS",
+          "page_order_check": "PASS",
+          "source_outline_check": "PASS",
+          "pixel_check": "NOT_RUN",
           "outline_count": 94,
           "outline_sha256": "c2f86bbb0525f38f5db40406edd0c3b470f2770c800d82aa5bdfca7ab8c88aa0",
-          "pdf_check": "PASS",
-          "pdf_check_exit_code": 0,
-          "page_count_check": "PASS",
-          "page_order_check": "NOT_RUN",
-          "source_outline_check": "NOT_RUN",
-          "pixel_check": "NOT_RUN"
+          "page_order": {
+            "status": "PASS",
+            "pages": 116,
+            "images": 172,
+            "repeated_source_descriptors": 0,
+            "mismatched_pages": [],
+            "method": "ordered source images versus Poppler extraction and pinned pixel oracles",
+            "scope": "page/image identity and order; not placement, alias coordinates or rendered-page parity"
+          }
         }
       ]
     },
@@ -734,37 +1008,52 @@
       "id": "issue-58/混凝土道面评价指标分析_谢永亮.caj",
       "source_sha256": "8974d024e0cbb54009419aa8c91c9ba286dd74f056c3b19524ee5c626c947c85",
       "format": "C8",
-      "variant": "C8",
-      "source_pages": 4,
-      "source_bookmarks": null,
+      "metadata": {
+        "schema_version": 1,
+        "format": "C8",
+        "variant": "C8",
+        "conversion_supported": true,
+        "page_count": 4,
+        "has_outline": null,
+        "bookmark_count": null
+      },
       "inspection_exit_code": 0,
       "attempts": [
         {
           "no_bookmarks": false,
-          "conversion_status": "UNSUPPORTED",
           "exit_code": 1,
-          "seconds": 0.002,
-          "diagnostic": "HN/C8 page composition, Preflight, C8, source byte 0: unsupported profile: outlines are only validated for HN-A",
+          "conversion_status": "UNSUPPORTED",
+          "seconds": 0.003,
+          "diagnostic": "caj2pdf: error: cannot convert 'issue-58/混凝土道面评价指标分析_谢永亮.caj': HN/C8 page composition, Preflight, C8, source byte 0: unsupported profile: outlines are only validated for HN-A",
           "output_exists": false
         },
         {
           "no_bookmarks": true,
-          "conversion_status": "PASS",
           "exit_code": 0,
-          "seconds": 1.818,
-          "diagnostic": null,
+          "conversion_status": "PASS",
+          "seconds": 2.971,
+          "diagnostic": "",
           "output_exists": true,
           "output_sha256": "47afde9be4bba2061195327fa36829378b2028deb1171e1dad52437fb9c965cc",
           "output_bytes": 367067,
           "pages": 4,
+          "pdf_check_exit_code": 0,
+          "pdf_check": "PASS",
+          "page_count_check": "PASS",
+          "page_order_check": "PASS",
+          "source_outline_check": "NOT_RUN",
+          "pixel_check": "NOT_RUN",
           "outline_count": 0,
           "outline_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-          "pdf_check": "PASS",
-          "pdf_check_exit_code": 0,
-          "page_count_check": "PASS",
-          "page_order_check": "NOT_RUN",
-          "source_outline_check": "NOT_RUN",
-          "pixel_check": "NOT_RUN"
+          "page_order": {
+            "status": "PASS",
+            "pages": 4,
+            "images": 4,
+            "repeated_source_descriptors": 0,
+            "mismatched_pages": [],
+            "method": "ordered source images versus Poppler extraction and pinned pixel oracles",
+            "scope": "page/image identity and order; not placement, alias coordinates or rendered-page parity"
+          }
         }
       ]
     },
@@ -772,17 +1061,23 @@
       "id": "issue-61/1.teb",
       "source_sha256": "760b0da0263587bfb8f9a26e2f82318c78b49a88283f7e0599fade8fb86d7274",
       "format": "TEB",
-      "variant": null,
-      "source_pages": null,
-      "source_bookmarks": null,
+      "metadata": {
+        "schema_version": 1,
+        "format": "TEB",
+        "variant": null,
+        "conversion_supported": false,
+        "page_count": null,
+        "has_outline": null,
+        "bookmark_count": null
+      },
       "inspection_exit_code": 0,
       "attempts": [
         {
           "no_bookmarks": false,
-          "conversion_status": "UNSUPPORTED",
           "exit_code": 1,
-          "seconds": 0.002,
-          "diagnostic": "TEB input is recognized, but TEB conversion is not supported",
+          "conversion_status": "UNSUPPORTED",
+          "seconds": 0.003,
+          "diagnostic": "caj2pdf: error: cannot convert 'issue-61/1.teb': TEB input is recognized, but TEB conversion is not supported",
           "output_exists": false
         }
       ]
@@ -791,17 +1086,23 @@
       "id": "issue-61/2.teb",
       "source_sha256": "b7dfd1fbf5a61d33e4d14e36b33b62fe4aa839361a1ab4c2f323041872b2c92c",
       "format": "TEB",
-      "variant": null,
-      "source_pages": null,
-      "source_bookmarks": null,
+      "metadata": {
+        "schema_version": 1,
+        "format": "TEB",
+        "variant": null,
+        "conversion_supported": false,
+        "page_count": null,
+        "has_outline": null,
+        "bookmark_count": null
+      },
       "inspection_exit_code": 0,
       "attempts": [
         {
           "no_bookmarks": false,
-          "conversion_status": "UNSUPPORTED",
           "exit_code": 1,
-          "seconds": 0.002,
-          "diagnostic": "TEB input is recognized, but TEB conversion is not supported",
+          "conversion_status": "UNSUPPORTED",
+          "seconds": 0.003,
+          "diagnostic": "caj2pdf: error: cannot convert 'issue-61/2.teb': TEB input is recognized, but TEB conversion is not supported",
           "output_exists": false
         }
       ]
@@ -810,17 +1111,23 @@
       "id": "issue-61/3.teb",
       "source_sha256": "88efaaad1426a53de66557bd317eaf10ecd735cd3f0721317938d86c426f959a",
       "format": "TEB",
-      "variant": null,
-      "source_pages": null,
-      "source_bookmarks": null,
+      "metadata": {
+        "schema_version": 1,
+        "format": "TEB",
+        "variant": null,
+        "conversion_supported": false,
+        "page_count": null,
+        "has_outline": null,
+        "bookmark_count": null
+      },
       "inspection_exit_code": 0,
       "attempts": [
         {
           "no_bookmarks": false,
-          "conversion_status": "UNSUPPORTED",
           "exit_code": 1,
-          "seconds": 0.002,
-          "diagnostic": "TEB input is recognized, but TEB conversion is not supported",
+          "conversion_status": "UNSUPPORTED",
+          "seconds": 0.003,
+          "diagnostic": "caj2pdf: error: cannot convert 'issue-61/3.teb': TEB input is recognized, but TEB conversion is not supported",
           "output_exists": false
         }
       ]
@@ -829,17 +1136,23 @@
       "id": "issue-61/4.teb",
       "source_sha256": "84e6df33d3d0752e76b56ce262a5194871da765c3b61248c1a07d89c79e616f3",
       "format": "TEB",
-      "variant": null,
-      "source_pages": null,
-      "source_bookmarks": null,
+      "metadata": {
+        "schema_version": 1,
+        "format": "TEB",
+        "variant": null,
+        "conversion_supported": false,
+        "page_count": null,
+        "has_outline": null,
+        "bookmark_count": null
+      },
       "inspection_exit_code": 0,
       "attempts": [
         {
           "no_bookmarks": false,
-          "conversion_status": "UNSUPPORTED",
           "exit_code": 1,
-          "seconds": 0.002,
-          "diagnostic": "TEB input is recognized, but TEB conversion is not supported",
+          "conversion_status": "UNSUPPORTED",
+          "seconds": 0.003,
+          "diagnostic": "caj2pdf: error: cannot convert 'issue-61/4.teb': TEB input is recognized, but TEB conversion is not supported",
           "output_exists": false
         }
       ]
@@ -848,17 +1161,23 @@
       "id": "issue-61/5.teb",
       "source_sha256": "ba7efa391b926f72699a47b840c440fd0f1407f46800632ab8553fd92406dc30",
       "format": "TEB",
-      "variant": null,
-      "source_pages": null,
-      "source_bookmarks": null,
+      "metadata": {
+        "schema_version": 1,
+        "format": "TEB",
+        "variant": null,
+        "conversion_supported": false,
+        "page_count": null,
+        "has_outline": null,
+        "bookmark_count": null
+      },
       "inspection_exit_code": 0,
       "attempts": [
         {
           "no_bookmarks": false,
-          "conversion_status": "UNSUPPORTED",
           "exit_code": 1,
-          "seconds": 0.002,
-          "diagnostic": "TEB input is recognized, but TEB conversion is not supported",
+          "conversion_status": "UNSUPPORTED",
+          "seconds": 0.003,
+          "diagnostic": "caj2pdf: error: cannot convert 'issue-61/5.teb': TEB input is recognized, but TEB conversion is not supported",
           "output_exists": false
         }
       ]
@@ -867,17 +1186,23 @@
       "id": "issue-61/6.teb",
       "source_sha256": "d5f87439a53ce6e587db274cb68ab36f731fe0272b24c76831e5c525e703c8a3",
       "format": "TEB",
-      "variant": null,
-      "source_pages": null,
-      "source_bookmarks": null,
+      "metadata": {
+        "schema_version": 1,
+        "format": "TEB",
+        "variant": null,
+        "conversion_supported": false,
+        "page_count": null,
+        "has_outline": null,
+        "bookmark_count": null
+      },
       "inspection_exit_code": 0,
       "attempts": [
         {
           "no_bookmarks": false,
-          "conversion_status": "UNSUPPORTED",
           "exit_code": 1,
-          "seconds": 0.002,
-          "diagnostic": "TEB input is recognized, but TEB conversion is not supported",
+          "conversion_status": "UNSUPPORTED",
+          "seconds": 0.003,
+          "diagnostic": "caj2pdf: error: cannot convert 'issue-61/6.teb': TEB input is recognized, but TEB conversion is not supported",
           "output_exists": false
         }
       ]
@@ -886,17 +1211,23 @@
       "id": "issue-61/7.teb",
       "source_sha256": "fc773e95124ea86f7a7ecf358933ec1bf260ea535dcfd5d2ad38ce816d21a5fd",
       "format": "TEB",
-      "variant": null,
-      "source_pages": null,
-      "source_bookmarks": null,
+      "metadata": {
+        "schema_version": 1,
+        "format": "TEB",
+        "variant": null,
+        "conversion_supported": false,
+        "page_count": null,
+        "has_outline": null,
+        "bookmark_count": null
+      },
       "inspection_exit_code": 0,
       "attempts": [
         {
           "no_bookmarks": false,
-          "conversion_status": "UNSUPPORTED",
           "exit_code": 1,
-          "seconds": 0.002,
-          "diagnostic": "TEB input is recognized, but TEB conversion is not supported",
+          "conversion_status": "UNSUPPORTED",
+          "seconds": 0.003,
+          "diagnostic": "caj2pdf: error: cannot convert 'issue-61/7.teb': TEB input is recognized, but TEB conversion is not supported",
           "output_exists": false
         }
       ]
@@ -905,25 +1236,31 @@
       "id": "issue-63/对任务型教学法的理论基础与课堂实践的思考.caj",
       "source_sha256": "63870d12f2069d3d6c663dc2813d04a38a632c4c319f20b6f8dd1b8b8bc589c2",
       "format": "HN",
-      "variant": "HN-B",
-      "source_pages": 4,
-      "source_bookmarks": null,
+      "metadata": {
+        "schema_version": 1,
+        "format": "HN",
+        "variant": "HN-B",
+        "conversion_supported": true,
+        "page_count": 4,
+        "has_outline": null,
+        "bookmark_count": null
+      },
       "inspection_exit_code": 0,
       "attempts": [
         {
           "no_bookmarks": false,
-          "conversion_status": "UNSUPPORTED",
           "exit_code": 1,
-          "seconds": 0.002,
-          "diagnostic": "HN/C8 page composition, Preflight, HN-B, source byte 0: unsupported profile: outlines are only validated for HN-A",
+          "conversion_status": "UNSUPPORTED",
+          "seconds": 0.003,
+          "diagnostic": "caj2pdf: error: cannot convert 'issue-63/对任务型教学法的理论基础与课堂实践的思考.caj': HN/C8 page composition, Preflight, HN-B, source byte 0: unsupported profile: outlines are only validated for HN-A",
           "output_exists": false
         },
         {
           "no_bookmarks": true,
-          "conversion_status": "UNSUPPORTED",
           "exit_code": 1,
+          "conversion_status": "UNSUPPORTED",
           "seconds": 0.003,
-          "diagnostic": "HN/C8 page composition, Visitor, HN-B, page 1, source byte 216: invalid input: HN/C8 conversion cannot omit source pages without image content",
+          "diagnostic": "caj2pdf: error: cannot convert 'issue-63/对任务型教学法的理论基础与课堂实践的思考.caj': HN/C8 page composition, Visitor, HN-B, page 1, source byte 216: invalid input: HN/C8 conversion cannot omit source pages without image content",
           "output_exists": false
         }
       ]
@@ -932,25 +1269,31 @@
       "id": "issue-65/伽利略的原子论思想_近代科学革命的形而上学基础.caj",
       "source_sha256": "e1b17805a87f62097987c41f2821836d6b774caaf035c9846be966c965f08a49",
       "format": "HN",
-      "variant": "HN-B",
-      "source_pages": 6,
-      "source_bookmarks": null,
+      "metadata": {
+        "schema_version": 1,
+        "format": "HN",
+        "variant": "HN-B",
+        "conversion_supported": true,
+        "page_count": 6,
+        "has_outline": null,
+        "bookmark_count": null
+      },
       "inspection_exit_code": 0,
       "attempts": [
         {
           "no_bookmarks": false,
-          "conversion_status": "UNSUPPORTED",
           "exit_code": 1,
-          "seconds": 0.002,
-          "diagnostic": "HN/C8 page composition, Preflight, HN-B, source byte 0: unsupported profile: outlines are only validated for HN-A",
+          "conversion_status": "UNSUPPORTED",
+          "seconds": 0.003,
+          "diagnostic": "caj2pdf: error: cannot convert 'issue-65/伽利略的原子论思想_近代科学革命的形而上学基础.caj': HN/C8 page composition, Preflight, HN-B, source byte 0: unsupported profile: outlines are only validated for HN-A",
           "output_exists": false
         },
         {
           "no_bookmarks": true,
-          "conversion_status": "UNSUPPORTED",
           "exit_code": 1,
-          "seconds": 0.004,
-          "diagnostic": "HN/C8 page composition, Visitor, HN-B, page 2, source byte 236: invalid input: HN/C8 conversion cannot omit source pages without image content",
+          "conversion_status": "UNSUPPORTED",
+          "seconds": 0.005,
+          "diagnostic": "caj2pdf: error: cannot convert 'issue-65/伽利略的原子论思想_近代科学革命的形而上学基础.caj': HN/C8 page composition, Visitor, HN-B, page 2, source byte 236: invalid input: HN/C8 conversion cannot omit source pages without image content",
           "output_exists": false
         }
       ]
@@ -959,25 +1302,31 @@
       "id": "issue-66/IDL编译器的实现_词法分析部分_于埴尧.caj",
       "source_sha256": "90e7b47716c32ef7a67cde8094f312e0ee7f1a7e0ed50a25830e8ba64a84f6a6",
       "format": "C8",
-      "variant": "C8",
-      "source_pages": 6,
-      "source_bookmarks": null,
+      "metadata": {
+        "schema_version": 1,
+        "format": "C8",
+        "variant": "C8",
+        "conversion_supported": true,
+        "page_count": 6,
+        "has_outline": null,
+        "bookmark_count": null
+      },
       "inspection_exit_code": 0,
       "attempts": [
         {
           "no_bookmarks": false,
-          "conversion_status": "UNSUPPORTED",
           "exit_code": 1,
-          "seconds": 0.002,
-          "diagnostic": "HN/C8 page composition, Preflight, C8, source byte 0: unsupported profile: outlines are only validated for HN-A",
+          "conversion_status": "UNSUPPORTED",
+          "seconds": 0.003,
+          "diagnostic": "caj2pdf: error: cannot convert 'issue-66/IDL编译器的实现_词法分析部分_于埴尧.caj': HN/C8 page composition, Preflight, C8, source byte 0: unsupported profile: outlines are only validated for HN-A",
           "output_exists": false
         },
         {
           "no_bookmarks": true,
-          "conversion_status": "UNSUPPORTED",
           "exit_code": 1,
+          "conversion_status": "UNSUPPORTED",
           "seconds": 0.003,
-          "diagnostic": "HN/C8 page composition, Text, C8, page 1, source byte 200: HN/C8 C8 at byte 200, page 1: malformed page text prefix: unsupported compressed text header",
+          "diagnostic": "caj2pdf: error: cannot convert 'issue-66/IDL编译器的实现_词法分析部分_于埴尧.caj': HN/C8 page composition, Text, C8, page 1, source byte 200: HN/C8 C8 at byte 200, page 1: malformed page text prefix: unsupported compressed text header",
           "output_exists": false
         }
       ]
@@ -986,29 +1335,44 @@
       "id": "issue-68/燃烧计算中火焰面模型的研究_陆阳.caj",
       "source_sha256": "d2585687799c760e220d03067ebb3f49deb65df8b539071d92b20ef40d5a57ae",
       "format": "HN",
-      "variant": "HN-A",
-      "source_pages": 145,
-      "source_bookmarks": 96,
+      "metadata": {
+        "schema_version": 1,
+        "format": "HN",
+        "variant": "HN-A",
+        "conversion_supported": true,
+        "page_count": 145,
+        "has_outline": true,
+        "bookmark_count": 96
+      },
       "inspection_exit_code": 0,
       "attempts": [
         {
           "no_bookmarks": false,
-          "conversion_status": "PASS",
           "exit_code": 0,
-          "seconds": 18.251,
-          "diagnostic": null,
+          "conversion_status": "PASS",
+          "seconds": 19.655,
+          "diagnostic": "",
           "output_exists": true,
           "output_sha256": "022278be558dab4740d2159b4200a793ea2d6c17475f81c5bfdf324615bf41f7",
           "output_bytes": 24421717,
           "pages": 145,
+          "pdf_check_exit_code": 0,
+          "pdf_check": "PASS",
+          "page_count_check": "PASS",
+          "page_order_check": "PASS",
+          "source_outline_check": "PASS",
+          "pixel_check": "NOT_RUN",
           "outline_count": 96,
           "outline_sha256": "37f6709b8bf5e75596cd572c46f522dc417ec4ce9e8c752771e9b37c102d0000",
-          "pdf_check": "PASS",
-          "pdf_check_exit_code": 0,
-          "page_count_check": "PASS",
-          "page_order_check": "NOT_RUN",
-          "source_outline_check": "NOT_RUN",
-          "pixel_check": "NOT_RUN"
+          "page_order": {
+            "status": "PASS",
+            "pages": 145,
+            "images": 145,
+            "repeated_source_descriptors": 0,
+            "mismatched_pages": [],
+            "method": "ordered source images versus Poppler extraction and pinned pixel oracles",
+            "scope": "page/image identity and order; not placement, alias coordinates or rendered-page parity"
+          }
         }
       ]
     },
@@ -1016,29 +1380,44 @@
       "id": "issue-69/12.caj",
       "source_sha256": "57a3c60e1d8639955c625452398d2c8a32a46a51b815a44cc9a5e0351fcb8ef4",
       "format": "HN",
-      "variant": "HN-A",
-      "source_pages": 81,
-      "source_bookmarks": 111,
+      "metadata": {
+        "schema_version": 1,
+        "format": "HN",
+        "variant": "HN-A",
+        "conversion_supported": true,
+        "page_count": 81,
+        "has_outline": true,
+        "bookmark_count": 111
+      },
       "inspection_exit_code": 0,
       "attempts": [
         {
           "no_bookmarks": false,
-          "conversion_status": "PASS",
           "exit_code": 0,
-          "seconds": 9.235,
-          "diagnostic": null,
+          "conversion_status": "PASS",
+          "seconds": 10.536,
+          "diagnostic": "",
           "output_exists": true,
           "output_sha256": "ac0f5c7fda7b45b0c680c81509fe80fd2ea2049b8c1ec9b747d8dd830a606e01",
           "output_bytes": 9465998,
           "pages": 81,
+          "pdf_check_exit_code": 0,
+          "pdf_check": "PASS",
+          "page_count_check": "PASS",
+          "page_order_check": "PASS",
+          "source_outline_check": "PASS",
+          "pixel_check": "NOT_RUN",
           "outline_count": 111,
           "outline_sha256": "45489e6e8bc90827c263c8117ac7ddd1263050ae20b92b97554229bd123a4091",
-          "pdf_check": "PASS",
-          "pdf_check_exit_code": 0,
-          "page_count_check": "PASS",
-          "page_order_check": "NOT_RUN",
-          "source_outline_check": "NOT_RUN",
-          "pixel_check": "NOT_RUN"
+          "page_order": {
+            "status": "PASS",
+            "pages": 81,
+            "images": 96,
+            "repeated_source_descriptors": 0,
+            "mismatched_pages": [],
+            "method": "ordered source images versus Poppler extraction and pinned pixel oracles",
+            "scope": "page/image identity and order; not placement, alias coordinates or rendered-page parity"
+          }
         }
       ]
     },
@@ -1046,29 +1425,44 @@
       "id": "issue-69/光波导光学相控阵技术的理论和实验研究_梁华伟.caj",
       "source_sha256": "61acad135f593fd22e7d1c6037715153f5bfc2a96fda6e786a2efd7c0362ab5a",
       "format": "HN",
-      "variant": "HN-A",
-      "source_pages": 121,
-      "source_bookmarks": 41,
+      "metadata": {
+        "schema_version": 1,
+        "format": "HN",
+        "variant": "HN-A",
+        "conversion_supported": true,
+        "page_count": 121,
+        "has_outline": true,
+        "bookmark_count": 41
+      },
       "inspection_exit_code": 0,
       "attempts": [
         {
           "no_bookmarks": false,
-          "conversion_status": "PASS",
           "exit_code": 0,
-          "seconds": 15.897,
-          "diagnostic": null,
+          "conversion_status": "PASS",
+          "seconds": 17.651,
+          "diagnostic": "",
           "output_exists": true,
           "output_sha256": "2092d0c4203fae93e2c841ad73b046129ad3c4f5a77aa1cb12f4b9a4c96fa464",
           "output_bytes": 12171056,
           "pages": 121,
+          "pdf_check_exit_code": 0,
+          "pdf_check": "PASS",
+          "page_count_check": "PASS",
+          "page_order_check": "PASS",
+          "source_outline_check": "PASS",
+          "pixel_check": "NOT_RUN",
           "outline_count": 41,
           "outline_sha256": "fb98883c3e71d50663bd1ca56a1d96b56c85a4f183bb3b82dc544a2eae1fa192",
-          "pdf_check": "PASS",
-          "pdf_check_exit_code": 0,
-          "page_count_check": "PASS",
-          "page_order_check": "NOT_RUN",
-          "source_outline_check": "NOT_RUN",
-          "pixel_check": "NOT_RUN"
+          "page_order": {
+            "status": "PASS",
+            "pages": 121,
+            "images": 161,
+            "repeated_source_descriptors": 0,
+            "mismatched_pages": [],
+            "method": "ordered source images versus Poppler extraction and pinned pixel oracles",
+            "scope": "page/image identity and order; not placement, alias coordinates or rendered-page parity"
+          }
         }
       ]
     },
@@ -1076,17 +1470,23 @@
       "id": "issue-7/a.caj",
       "source_sha256": "bac8e4d04f4f59a029cac852b674cd546255673f5d08cc1d60bac31be886bf57",
       "format": "HN",
-      "variant": "HN-A",
-      "source_pages": 125,
-      "source_bookmarks": 78,
+      "metadata": {
+        "schema_version": 1,
+        "format": "HN",
+        "variant": "HN-A",
+        "conversion_supported": true,
+        "page_count": 125,
+        "has_outline": true,
+        "bookmark_count": 78
+      },
       "inspection_exit_code": 0,
       "attempts": [
         {
           "no_bookmarks": false,
-          "conversion_status": "UNSUPPORTED",
           "exit_code": 1,
-          "seconds": 8.982,
-          "diagnostic": "HN/C8 page composition, Text, HN-A, page 75, source byte 5534084: HN/C8 HN-A at byte 5534084, page 75: malformed page text prefix: unsupported compressed text header",
+          "conversion_status": "UNSUPPORTED",
+          "seconds": 10.135,
+          "diagnostic": "caj2pdf: error: cannot convert 'issue-7/a.caj': HN/C8 page composition, Text, HN-A, page 75, source byte 5534084: HN/C8 HN-A at byte 5534084, page 75: malformed page text prefix: unsupported compressed text header",
           "output_exists": false
         }
       ]
@@ -1095,29 +1495,40 @@
       "id": "issue-73/基于物联网的温室大棚远程环境监测系统_朱超.caj",
       "source_sha256": "fc8a5c20626b3492aad9afae62709019f2038a8a4c669bc7c94ae653837b0cba",
       "format": "CAJ",
-      "variant": null,
-      "source_pages": 84,
-      "source_bookmarks": 100,
+      "metadata": {
+        "schema_version": 1,
+        "format": "CAJ",
+        "variant": null,
+        "conversion_supported": true,
+        "page_count": 84,
+        "has_outline": true,
+        "bookmark_count": 100
+      },
       "inspection_exit_code": 0,
       "attempts": [
         {
           "no_bookmarks": false,
-          "conversion_status": "PASS",
           "exit_code": 0,
-          "seconds": 0.033,
-          "diagnostic": null,
+          "conversion_status": "PASS",
+          "seconds": 0.034,
+          "diagnostic": "",
           "output_exists": true,
           "output_sha256": "6993ed3787d09499494c1270893f48cec8d86c09bb7c7626b3d12a73f65e016b",
           "output_bytes": 7210677,
           "pages": 84,
+          "pdf_check_exit_code": 0,
+          "pdf_check": "PASS",
+          "page_count_check": "PASS",
+          "page_order_check": "PASS",
+          "source_outline_check": "PASS",
+          "pixel_check": "NOT_RUN",
           "outline_count": 100,
           "outline_sha256": "83f6c34e0e705d383d5a0c970c0243b4843920acc488bca3daca8b4e1f853864",
-          "pdf_check": "PASS",
-          "pdf_check_exit_code": 0,
-          "page_count_check": "PASS",
-          "page_order_check": "NOT_RUN",
-          "source_outline_check": "NOT_RUN",
-          "pixel_check": "NOT_RUN"
+          "page_order": {
+            "status": "PASS",
+            "method": "source page-table object IDs versus qpdf output page order",
+            "pages": 84
+          }
         }
       ]
     },
@@ -1125,29 +1536,44 @@
       "id": "issue-76/基于压缩感知的合成孔径雷达超分辨成像复数据处理方法研究_曹轩.caj",
       "source_sha256": "951b60efc58186018bbc5a8ec25c54c838405535ea9a6aae5c0588099f1c3574",
       "format": "HN",
-      "variant": "HN-A",
-      "source_pages": 65,
-      "source_bookmarks": 54,
+      "metadata": {
+        "schema_version": 1,
+        "format": "HN",
+        "variant": "HN-A",
+        "conversion_supported": true,
+        "page_count": 65,
+        "has_outline": true,
+        "bookmark_count": 54
+      },
       "inspection_exit_code": 0,
       "attempts": [
         {
           "no_bookmarks": false,
-          "conversion_status": "PASS",
           "exit_code": 0,
-          "seconds": 9.533,
-          "diagnostic": null,
+          "conversion_status": "PASS",
+          "seconds": 10.586,
+          "diagnostic": "",
           "output_exists": true,
           "output_sha256": "1f9c638cba3e4291f51715e22f8e11384547c12e10981a743ee599d7c0cc2c53",
           "output_bytes": 14823798,
           "pages": 65,
+          "pdf_check_exit_code": 0,
+          "pdf_check": "PASS",
+          "page_count_check": "PASS",
+          "page_order_check": "PASS",
+          "source_outline_check": "PASS",
+          "pixel_check": "NOT_RUN",
           "outline_count": 54,
           "outline_sha256": "d8cb5a00b042530d4078ed33ad790ff31c2637e029081397f56385e0c216cfb1",
-          "pdf_check": "PASS",
-          "pdf_check_exit_code": 0,
-          "page_count_check": "PASS",
-          "page_order_check": "NOT_RUN",
-          "source_outline_check": "NOT_RUN",
-          "pixel_check": "NOT_RUN"
+          "page_order": {
+            "status": "PASS",
+            "pages": 65,
+            "images": 83,
+            "repeated_source_descriptors": 0,
+            "mismatched_pages": [],
+            "method": "ordered source images versus Poppler extraction and pinned pixel oracles",
+            "scope": "page/image identity and order; not placement, alias coordinates or rendered-page parity"
+          }
         }
       ]
     },
@@ -1155,29 +1581,44 @@
       "id": "issue-76/基于星载合成孔径雷达干涉测量技术的数字高程模型生成研究_任坤.caj",
       "source_sha256": "46779c74e34f1508125fe94f482672b4eb518436bc663dc5470df814cb41f0aa",
       "format": "HN",
-      "variant": "HN-A",
-      "source_pages": 163,
-      "source_bookmarks": 96,
+      "metadata": {
+        "schema_version": 1,
+        "format": "HN",
+        "variant": "HN-A",
+        "conversion_supported": true,
+        "page_count": 163,
+        "has_outline": true,
+        "bookmark_count": 96
+      },
       "inspection_exit_code": 0,
       "attempts": [
         {
           "no_bookmarks": false,
-          "conversion_status": "PASS",
           "exit_code": 0,
-          "seconds": 69.451,
-          "diagnostic": null,
+          "conversion_status": "PASS",
+          "seconds": 102.869,
+          "diagnostic": "",
           "output_exists": true,
           "output_sha256": "35ef00ccef40e815790ed72d259bcc9b220c726e9c060d85dffa958f86585526",
           "output_bytes": 18456393,
           "pages": 163,
+          "pdf_check_exit_code": 0,
+          "pdf_check": "PASS",
+          "page_count_check": "PASS",
+          "page_order_check": "PASS",
+          "source_outline_check": "PASS",
+          "pixel_check": "NOT_RUN",
           "outline_count": 96,
           "outline_sha256": "1171e828813cff4af170756d8dc60c24e5c529803ca5ec630e75f53d7e164a7a",
-          "pdf_check": "PASS",
-          "pdf_check_exit_code": 0,
-          "page_count_check": "PASS",
-          "page_order_check": "NOT_RUN",
-          "source_outline_check": "NOT_RUN",
-          "pixel_check": "NOT_RUN"
+          "page_order": {
+            "status": "PASS",
+            "pages": 163,
+            "images": 210,
+            "repeated_source_descriptors": 158,
+            "mismatched_pages": [],
+            "method": "ordered source images versus Poppler extraction and pinned pixel oracles",
+            "scope": "page/image identity and order; not placement, alias coordinates or rendered-page parity"
+          }
         }
       ]
     },
@@ -1185,29 +1626,40 @@
       "id": "issue-77/高炉铁水硅含量预测中的直接经验和间接经验.caj",
       "source_sha256": "5d988d74a6e6a0c392eb58297e70d91ff2e1ad2c2887374a04adc67a253ac2ab",
       "format": "CAJ",
-      "variant": null,
-      "source_pages": 75,
-      "source_bookmarks": 58,
+      "metadata": {
+        "schema_version": 1,
+        "format": "CAJ",
+        "variant": null,
+        "conversion_supported": true,
+        "page_count": 75,
+        "has_outline": true,
+        "bookmark_count": 58
+      },
       "inspection_exit_code": 0,
       "attempts": [
         {
           "no_bookmarks": false,
-          "conversion_status": "PASS",
           "exit_code": 0,
+          "conversion_status": "PASS",
           "seconds": 0.033,
-          "diagnostic": null,
+          "diagnostic": "",
           "output_exists": true,
           "output_sha256": "17af66b3201925945c16cbfbda3b587cc3cd2369eafe9ddfcd2f71f15f72c1cf",
           "output_bytes": 536962,
           "pages": 75,
+          "pdf_check_exit_code": 0,
+          "pdf_check": "PASS",
+          "page_count_check": "PASS",
+          "page_order_check": "PASS",
+          "source_outline_check": "PASS",
+          "pixel_check": "NOT_RUN",
           "outline_count": 58,
           "outline_sha256": "c69501d64124c31477967598d7545254bad13151188f9e09e221af4d7491ccde",
-          "pdf_check": "PASS",
-          "pdf_check_exit_code": 0,
-          "page_count_check": "PASS",
-          "page_order_check": "NOT_RUN",
-          "source_outline_check": "NOT_RUN",
-          "pixel_check": "NOT_RUN"
+          "page_order": {
+            "status": "PASS",
+            "method": "source page-table object IDs versus qpdf output page order",
+            "pages": 75
+          }
         }
       ]
     },
@@ -1215,17 +1667,23 @@
       "id": "issue-85/《周礼》中所见天神祭祀考论_刘涛.caj",
       "source_sha256": "3e22ca9ab78ac06ce0c1422fa26f7eea168b55a9cc56eed4188d77f1e437d560",
       "format": "HN",
-      "variant": "HN-A",
-      "source_pages": 160,
-      "source_bookmarks": 28,
+      "metadata": {
+        "schema_version": 1,
+        "format": "HN",
+        "variant": "HN-A",
+        "conversion_supported": true,
+        "page_count": 160,
+        "has_outline": true,
+        "bookmark_count": 28
+      },
       "inspection_exit_code": 0,
       "attempts": [
         {
           "no_bookmarks": false,
-          "conversion_status": "UNSUPPORTED",
           "exit_code": 1,
-          "seconds": 0.002,
-          "diagnostic": "HN/C8 page composition, Text, HN-A, page 1, source byte 12172: HN/C8 HN-A at byte 12172, page 1: malformed page text prefix: unsupported compressed text header",
+          "conversion_status": "UNSUPPORTED",
+          "seconds": 0.004,
+          "diagnostic": "caj2pdf: error: cannot convert 'issue-85/《周礼》中所见天神祭祀考论_刘涛.caj': HN/C8 page composition, Text, HN-A, page 1, source byte 12172: HN/C8 HN-A at byte 12172, page 1: malformed page text prefix: unsupported compressed text header",
           "output_exists": false
         }
       ]
@@ -1234,17 +1692,23 @@
       "id": "issue-85/明堂制度研究——明堂制度的源流_张一兵.caj",
       "source_sha256": "f26570f28a2043e17c1bbf065a62a531815c56d6ce2b84b4cc501c832926858e",
       "format": "CAJ",
-      "variant": null,
-      "source_pages": 234,
-      "source_bookmarks": 111,
+      "metadata": {
+        "schema_version": 1,
+        "format": "CAJ",
+        "variant": null,
+        "conversion_supported": true,
+        "page_count": 234,
+        "has_outline": true,
+        "bookmark_count": 111
+      },
       "inspection_exit_code": 0,
       "attempts": [
         {
           "no_bookmarks": false,
-          "conversion_status": "FAIL",
           "exit_code": 1,
+          "conversion_status": "FAIL",
           "seconds": 0.003,
-          "diagnostic": "malformed PDF at byte 529945, object 4 0: stream Length has no unique bounded repair",
+          "diagnostic": "caj2pdf: error: cannot convert 'issue-85/明堂制度研究——明堂制度的源流_张一兵.caj': malformed PDF at byte 529945, object 4 0: stream Length has no unique bounded repair",
           "output_exists": false
         }
       ]
@@ -1253,29 +1717,40 @@
       "id": "issue-88/0.caj",
       "source_sha256": "88b47b4d6fd687f8393d3b9e0aad2389873c5a9cef0f9eeb4cf0bbfa32d08a52",
       "format": "CAJ",
-      "variant": null,
-      "source_pages": 110,
-      "source_bookmarks": 65,
+      "metadata": {
+        "schema_version": 1,
+        "format": "CAJ",
+        "variant": null,
+        "conversion_supported": true,
+        "page_count": 110,
+        "has_outline": true,
+        "bookmark_count": 65
+      },
       "inspection_exit_code": 0,
       "attempts": [
         {
           "no_bookmarks": false,
-          "conversion_status": "PASS",
           "exit_code": 0,
+          "conversion_status": "PASS",
           "seconds": 0.033,
-          "diagnostic": null,
+          "diagnostic": "",
           "output_exists": true,
           "output_sha256": "3cc6d9bb0a95c150f8603e1b625bf77d3ca7d789858a0a6721081a7287f76daf",
           "output_bytes": 2045349,
           "pages": 110,
+          "pdf_check_exit_code": 0,
+          "pdf_check": "PASS",
+          "page_count_check": "PASS",
+          "page_order_check": "PASS",
+          "source_outline_check": "PASS",
+          "pixel_check": "NOT_RUN",
           "outline_count": 65,
           "outline_sha256": "f23ff74e2626dafcebf93b8d3dd5eb18ea2848e5458070b451e83a1df8300486",
-          "pdf_check": "PASS",
-          "pdf_check_exit_code": 0,
-          "page_count_check": "PASS",
-          "page_order_check": "NOT_RUN",
-          "source_outline_check": "NOT_RUN",
-          "pixel_check": "NOT_RUN"
+          "page_order": {
+            "status": "PASS",
+            "method": "source page-table object IDs versus qpdf output page order",
+            "pages": 110
+          }
         }
       ]
     },
@@ -1283,25 +1758,31 @@
       "id": "issue-90/4-[21].caj",
       "source_sha256": "1b9aa912e0bc9dcce4dfbefa07e08a24665d6db624a02f9a30a8c404df5a9ef7",
       "format": "C8",
-      "variant": "C8",
-      "source_pages": 4,
-      "source_bookmarks": null,
+      "metadata": {
+        "schema_version": 1,
+        "format": "C8",
+        "variant": "C8",
+        "conversion_supported": true,
+        "page_count": 4,
+        "has_outline": null,
+        "bookmark_count": null
+      },
       "inspection_exit_code": 0,
       "attempts": [
         {
           "no_bookmarks": false,
-          "conversion_status": "UNSUPPORTED",
           "exit_code": 1,
-          "seconds": 0.002,
-          "diagnostic": "HN/C8 page composition, Preflight, C8, source byte 0: unsupported profile: outlines are only validated for HN-A",
+          "conversion_status": "UNSUPPORTED",
+          "seconds": 0.003,
+          "diagnostic": "caj2pdf: error: cannot convert 'issue-90/4-[21].caj': HN/C8 page composition, Preflight, C8, source byte 0: unsupported profile: outlines are only validated for HN-A",
           "output_exists": false
         },
         {
           "no_bookmarks": true,
-          "conversion_status": "UNSUPPORTED",
           "exit_code": 1,
-          "seconds": 0.002,
-          "diagnostic": "HN/C8 page composition, Preflight, C8, page 1, source byte 80: image-only output has no image to draw",
+          "conversion_status": "UNSUPPORTED",
+          "seconds": 0.003,
+          "diagnostic": "caj2pdf: error: cannot convert 'issue-90/4-[21].caj': HN/C8 page composition, Preflight, C8, page 1, source byte 80: image-only output has no image to draw",
           "output_exists": false
         }
       ]
@@ -1310,25 +1791,31 @@
       "id": "issue-90/4-[24].caj",
       "source_sha256": "03770ea1cdebc9856d1443438b296860fa11f3e283717d256ea0af57ecae1c89",
       "format": "C8",
-      "variant": "C8",
-      "source_pages": 5,
-      "source_bookmarks": null,
+      "metadata": {
+        "schema_version": 1,
+        "format": "C8",
+        "variant": "C8",
+        "conversion_supported": true,
+        "page_count": 5,
+        "has_outline": null,
+        "bookmark_count": null
+      },
       "inspection_exit_code": 0,
       "attempts": [
         {
           "no_bookmarks": false,
-          "conversion_status": "UNSUPPORTED",
           "exit_code": 1,
-          "seconds": 0.002,
-          "diagnostic": "HN/C8 page composition, Preflight, C8, source byte 0: unsupported profile: outlines are only validated for HN-A",
+          "conversion_status": "UNSUPPORTED",
+          "seconds": 0.003,
+          "diagnostic": "caj2pdf: error: cannot convert 'issue-90/4-[24].caj': HN/C8 page composition, Preflight, C8, source byte 0: unsupported profile: outlines are only validated for HN-A",
           "output_exists": false
         },
         {
           "no_bookmarks": true,
-          "conversion_status": "UNSUPPORTED",
           "exit_code": 1,
-          "seconds": 0.002,
-          "diagnostic": "HN/C8 page composition, Preflight, C8, page 1, source byte 80: image-only output has no image to draw",
+          "conversion_status": "UNSUPPORTED",
+          "seconds": 0.003,
+          "diagnostic": "caj2pdf: error: cannot convert 'issue-90/4-[24].caj': HN/C8 page composition, Preflight, C8, page 1, source byte 80: image-only output has no image to draw",
           "output_exists": false
         }
       ]
@@ -1337,17 +1824,23 @@
       "id": "issue-90/4-[6].caj",
       "source_sha256": "dc3c3a651d4abaea61b8982e5165636f61b85f2c48f2eace3c6730e00dd963d3",
       "format": "CAJ",
-      "variant": null,
-      "source_pages": 60,
-      "source_bookmarks": 36,
+      "metadata": {
+        "schema_version": 1,
+        "format": "CAJ",
+        "variant": null,
+        "conversion_supported": true,
+        "page_count": 60,
+        "has_outline": true,
+        "bookmark_count": 36
+      },
       "inspection_exit_code": 0,
       "attempts": [
         {
           "no_bookmarks": false,
-          "conversion_status": "FAIL",
           "exit_code": 1,
+          "conversion_status": "FAIL",
           "seconds": 0.017,
-          "diagnostic": "malformed PDF at byte 1318436, object 4474 0: invalid Flate stream while resolving Length",
+          "diagnostic": "caj2pdf: error: cannot convert 'issue-90/4-[6].caj': malformed PDF at byte 1318436, object 4474 0: invalid Flate stream while resolving Length",
           "output_exists": false
         }
       ]
@@ -1356,29 +1849,44 @@
       "id": "issue-90/4-[7].caj",
       "source_sha256": "ee9f61b6324e921d8e3620571adcd0c918c5a38f7fb62d0ca4cfd0a48fc2f424",
       "format": "HN",
-      "variant": "HN-A",
-      "source_pages": 118,
-      "source_bookmarks": 74,
+      "metadata": {
+        "schema_version": 1,
+        "format": "HN",
+        "variant": "HN-A",
+        "conversion_supported": true,
+        "page_count": 118,
+        "has_outline": true,
+        "bookmark_count": 74
+      },
       "inspection_exit_code": 0,
       "attempts": [
         {
           "no_bookmarks": false,
-          "conversion_status": "PASS",
           "exit_code": 0,
-          "seconds": 14.741,
-          "diagnostic": null,
+          "conversion_status": "PASS",
+          "seconds": 16.548,
+          "diagnostic": "",
           "output_exists": true,
           "output_sha256": "d30eb75e666e24b6904afdde3b0fbbfb8777cf79b6e34407ce8c94f6a3dd8190",
           "output_bytes": 12052538,
           "pages": 118,
+          "pdf_check_exit_code": 0,
+          "pdf_check": "PASS",
+          "page_count_check": "PASS",
+          "page_order_check": "PASS",
+          "source_outline_check": "PASS",
+          "pixel_check": "NOT_RUN",
           "outline_count": 74,
           "outline_sha256": "34a4eaa7c913065fdad426602c908080c12791a89bdba291aa1245a59b1931ee",
-          "pdf_check": "PASS",
-          "pdf_check_exit_code": 0,
-          "page_count_check": "PASS",
-          "page_order_check": "NOT_RUN",
-          "source_outline_check": "NOT_RUN",
-          "pixel_check": "NOT_RUN"
+          "page_order": {
+            "status": "PASS",
+            "pages": 118,
+            "images": 167,
+            "repeated_source_descriptors": 0,
+            "mismatched_pages": [],
+            "method": "ordered source images versus Poppler extraction and pinned pixel oracles",
+            "scope": "page/image identity and order; not placement, alias coordinates or rendered-page parity"
+          }
         }
       ]
     },
@@ -1386,29 +1894,44 @@
       "id": "issue-90/5-[4].caj",
       "source_sha256": "1373e97a8598258c5ee9f8a2191f9efa189c5d62d5b663cfa6ec4aa7f7418735",
       "format": "HN",
-      "variant": "HN-A",
-      "source_pages": 132,
-      "source_bookmarks": 81,
+      "metadata": {
+        "schema_version": 1,
+        "format": "HN",
+        "variant": "HN-A",
+        "conversion_supported": true,
+        "page_count": 132,
+        "has_outline": true,
+        "bookmark_count": 81
+      },
       "inspection_exit_code": 0,
       "attempts": [
         {
           "no_bookmarks": false,
-          "conversion_status": "PASS",
           "exit_code": 0,
-          "seconds": 16.344,
-          "diagnostic": null,
+          "conversion_status": "PASS",
+          "seconds": 18.046,
+          "diagnostic": "",
           "output_exists": true,
           "output_sha256": "a271a48f6a8d8891a5fa05096cfe16061bd1e76816bf85e3bc30fea177209533",
           "output_bytes": 14891337,
           "pages": 132,
+          "pdf_check_exit_code": 0,
+          "pdf_check": "PASS",
+          "page_count_check": "PASS",
+          "page_order_check": "PASS",
+          "source_outline_check": "PASS",
+          "pixel_check": "NOT_RUN",
           "outline_count": 81,
           "outline_sha256": "da2fa58872fb05d62a45216e8799a42a7fd4c64a57e593c3097da91a9f3f7f02",
-          "pdf_check": "PASS",
-          "pdf_check_exit_code": 0,
-          "page_count_check": "PASS",
-          "page_order_check": "NOT_RUN",
-          "source_outline_check": "NOT_RUN",
-          "pixel_check": "NOT_RUN"
+          "page_order": {
+            "status": "PASS",
+            "pages": 132,
+            "images": 189,
+            "repeated_source_descriptors": 0,
+            "mismatched_pages": [],
+            "method": "ordered source images versus Poppler extraction and pinned pixel oracles",
+            "scope": "page/image identity and order; not placement, alias coordinates or rendered-page parity"
+          }
         }
       ]
     },
@@ -1416,17 +1939,23 @@
       "id": "issue-92/以太网交换机网络协议栈研究与应用_李晋.caj",
       "source_sha256": "49be4cec9ac6334b02355b30785407b9c9048bf1cf392cf470e670349dc51f50",
       "format": "CAJ",
-      "variant": null,
-      "source_pages": 58,
-      "source_bookmarks": 37,
+      "metadata": {
+        "schema_version": 1,
+        "format": "CAJ",
+        "variant": null,
+        "conversion_supported": true,
+        "page_count": 58,
+        "has_outline": true,
+        "bookmark_count": 37
+      },
       "inspection_exit_code": 0,
       "attempts": [
         {
           "no_bookmarks": false,
-          "conversion_status": "FAIL",
           "exit_code": 1,
-          "seconds": 0.002,
-          "diagnostic": "malformed PDF at byte 19116: expected PDF name",
+          "conversion_status": "FAIL",
+          "seconds": 0.003,
+          "diagnostic": "caj2pdf: error: cannot convert 'issue-92/以太网交换机网络协议栈研究与应用_李晋.caj': malformed PDF at byte 19116: expected PDF name",
           "output_exists": false
         }
       ]
@@ -1435,29 +1964,40 @@
       "id": "issue-93/tmp.caj",
       "source_sha256": "446ccbf126afb94d3559c87f0dc2d684ffa6610bfe8c5803ffe5cd4797ff7105",
       "format": "CAJ",
-      "variant": null,
-      "source_pages": 63,
-      "source_bookmarks": 51,
+      "metadata": {
+        "schema_version": 1,
+        "format": "CAJ",
+        "variant": null,
+        "conversion_supported": true,
+        "page_count": 63,
+        "has_outline": true,
+        "bookmark_count": 51
+      },
       "inspection_exit_code": 0,
       "attempts": [
         {
           "no_bookmarks": false,
-          "conversion_status": "PASS",
           "exit_code": 0,
-          "seconds": 0.016,
-          "diagnostic": null,
+          "conversion_status": "PASS",
+          "seconds": 0.033,
+          "diagnostic": "",
           "output_exists": true,
           "output_sha256": "c79867ffb920b19a4b881f2a7919995dceaf8a5b004ad7b602f971392291b5c6",
           "output_bytes": 2309810,
           "pages": 63,
+          "pdf_check_exit_code": 0,
+          "pdf_check": "PASS",
+          "page_count_check": "PASS",
+          "page_order_check": "PASS",
+          "source_outline_check": "PASS",
+          "pixel_check": "NOT_RUN",
           "outline_count": 51,
           "outline_sha256": "1f0ada2bb64be708e2294ca20c5dc2d2fdb578bcae2378956b33242f5a4cfd5f",
-          "pdf_check": "PASS",
-          "pdf_check_exit_code": 0,
-          "page_count_check": "PASS",
-          "page_order_check": "NOT_RUN",
-          "source_outline_check": "NOT_RUN",
-          "pixel_check": "NOT_RUN"
+          "page_order": {
+            "status": "PASS",
+            "method": "source page-table object IDs versus qpdf output page order",
+            "pages": 63
+          }
         }
       ]
     },
@@ -1465,29 +2005,44 @@
       "id": "issue-99/科普翻译四性观指导下的盖勾亚守宫汉译实践报告_葛琳 (5).caj",
       "source_sha256": "55563fab7dbc3997d78344de20ec55f95a89005b01c6f67eefc77367ae76c6ca",
       "format": "HN",
-      "variant": "HN-A",
-      "source_pages": 56,
-      "source_bookmarks": 26,
+      "metadata": {
+        "schema_version": 1,
+        "format": "HN",
+        "variant": "HN-A",
+        "conversion_supported": true,
+        "page_count": 56,
+        "has_outline": true,
+        "bookmark_count": 26
+      },
       "inspection_exit_code": 0,
       "attempts": [
         {
           "no_bookmarks": false,
-          "conversion_status": "PASS",
           "exit_code": 0,
-          "seconds": 7.278,
-          "diagnostic": null,
+          "conversion_status": "PASS",
+          "seconds": 8.029,
+          "diagnostic": "",
           "output_exists": true,
           "output_sha256": "b742853c9f18a371b6811769a04bc51f3f67af12008cbd1775c0933618ccb630",
           "output_bytes": 5669157,
           "pages": 56,
+          "pdf_check_exit_code": 0,
+          "pdf_check": "PASS",
+          "page_count_check": "PASS",
+          "page_order_check": "PASS",
+          "source_outline_check": "PASS",
+          "pixel_check": "NOT_RUN",
           "outline_count": 26,
           "outline_sha256": "e4ecccd6ffd0a5a94d6800da42d83247b467d6b0e6c64ca168b62996b08ff9ee",
-          "pdf_check": "PASS",
-          "pdf_check_exit_code": 0,
-          "page_count_check": "PASS",
-          "page_order_check": "NOT_RUN",
-          "source_outline_check": "NOT_RUN",
-          "pixel_check": "NOT_RUN"
+          "page_order": {
+            "status": "PASS",
+            "pages": 56,
+            "images": 56,
+            "repeated_source_descriptors": 0,
+            "mismatched_pages": [],
+            "method": "ordered source images versus Poppler extraction and pinned pixel oracles",
+            "scope": "page/image identity and order; not placement, alias coordinates or rendered-page parity"
+          }
         }
       ]
     },
@@ -1495,31 +2050,94 @@
       "id": "pull-72/碳_碳复合材料多重环境下的氧化机理研究_李龙.caj",
       "source_sha256": "01558ff7e30c3131c79fc3267e6eb99c055cc9cb8e1b0e710bc6bd0791c888ab",
       "format": "HN",
-      "variant": "HN-A",
-      "source_pages": 159,
-      "source_bookmarks": 101,
+      "metadata": {
+        "schema_version": 1,
+        "format": "HN",
+        "variant": "HN-A",
+        "conversion_supported": true,
+        "page_count": 159,
+        "has_outline": true,
+        "bookmark_count": 101
+      },
       "inspection_exit_code": 0,
       "attempts": [
         {
           "no_bookmarks": false,
-          "conversion_status": "PASS",
           "exit_code": 0,
-          "seconds": 73.651,
-          "diagnostic": null,
+          "conversion_status": "PASS",
+          "seconds": 112.322,
+          "diagnostic": "",
           "output_exists": true,
           "output_sha256": "b201ac9d3dd3f8fb38e2a60627f5a258a827594ab515725737c050cd18ce5335",
           "output_bytes": 17129858,
           "pages": 159,
+          "pdf_check_exit_code": 0,
+          "pdf_check": "PASS",
+          "page_count_check": "PASS",
+          "page_order_check": "PASS",
+          "source_outline_check": "PASS",
+          "pixel_check": "NOT_RUN",
           "outline_count": 101,
           "outline_sha256": "b4c0817406b64c82038f70476500b3be138f929f36a119c3e948fd7cca0ec55a",
-          "pdf_check": "PASS",
-          "pdf_check_exit_code": 0,
-          "page_count_check": "PASS",
-          "page_order_check": "NOT_RUN",
-          "source_outline_check": "NOT_RUN",
-          "pixel_check": "NOT_RUN"
+          "page_order": {
+            "status": "PASS",
+            "pages": 159,
+            "images": 229,
+            "repeated_source_descriptors": 284,
+            "mismatched_pages": [],
+            "method": "ordered source images versus Poppler extraction and pinned pixel oracles",
+            "scope": "page/image identity and order; not placement, alias coordinates or rendered-page parity"
+          }
         }
       ]
     }
-  ]
+  ],
+  "binary_sha256": "f62312a68370d8c9837e2025850a9ef579a6cae47e7b9add8810b66c15140346",
+  "limits": {
+    "timeout_seconds": 180,
+    "address_space_bytes": 1073741824,
+    "per_file_bytes": 536870912
+  },
+  "matrix_sha256": "af42132133911f3597eed9318f613494c4047353cb7e15fc4d1008cf59ef44a9",
+  "tools": {
+    "candidate": {
+      "exit_code": 0,
+      "version": [
+        "caj2pdf 0.3.1"
+      ]
+    },
+    "qpdf": {
+      "exit_code": 0,
+      "version": [
+        "qpdf version 12.2.0"
+      ]
+    },
+    "mutool": {
+      "exit_code": 0,
+      "version": [
+        "mutool version 1.25.1"
+      ]
+    },
+    "pdfimages": {
+      "exit_code": 0,
+      "version": [
+        "pdfimages version 25.03.0"
+      ]
+    }
+  },
+  "inventory_after": {
+    "status": "PASS",
+    "expected": 56,
+    "passed": 56,
+    "failed": 0,
+    "not_run": 0,
+    "failures": []
+  },
+  "binary_unchanged": true,
+  "source_commit": "088ecc8af2a7a84c8ca880e40b7ac8f387e6c240",
+  "release": "v0.3.1",
+  "platform": "x86_64-unknown-linux-gnu",
+  "corpus_revision": "7e1c35e7b6de34e21972fcd1752c2a7e99b4ad07",
+  "scratch_per_store_bytes": 67108864,
+  "repeat_output_hashes_match_initial_run": true
 }

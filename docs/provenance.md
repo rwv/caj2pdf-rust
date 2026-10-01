@@ -1,5 +1,18 @@
 # Provenance and dependency inventory
 
+## Current-format baseline tools (#218)
+
+`scripts/current_formats.py`, `scripts/current_format_order.py` and their
+synthetic tests are original MIT implementations. They reuse this project's
+source descriptors, bounded text/image helpers, normalized outline hashing and
+pinned JBIG1/JBIG2 pixel hashes. No converter implementation was copied or
+transliterated. CAJ page-table, CAJ/HN-A outline and KDH XOR observations are
+already documented in the format notes. qpdf, MuPDF and Poppler run as external
+black-box tools; their code is not bundled. The committed current CLI report
+contains only inventory identifiers, metadata, errors and hashes. Source
+files, converted PDFs, extracted pixels and outline text stay outside Git.
+Page/image identity checks are narrower than rendered-page fidelity.
+
 ## 2026-09-29 standard numeric state adoption (#30/#44)
 
 The owner explicitly instructed the project to use the state tables directly
