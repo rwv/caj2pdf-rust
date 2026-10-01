@@ -2048,3 +2048,13 @@ size, viewer margin or image mapping is inferred by this metadata addition.
 An external original Rust segment diagnostic uses the shared visitor/writer;
 its checked PDF and comparisons remain outside Git and are not full-profile
 compatibility acceptance.
+
+### Additional C8 encoded-string framing (#242)
+
+`hnc8/native.rs`'s `80cc/01xx` extension, original Rust tests and
+`tools/cajviewer/c8_encoded_prefix_fixture.py` were written independently
+from indexed record observations and original controlled viewer inputs.
+`docs/c8-encoded-prefix.md` records the accepted boundary and rejected
+254-character probe. No other converter source, vendor outlines or external
+text was copied. The visitor exposes a validated source span with unknown
+semantics; it does not silently discard a resource or enable conversion.

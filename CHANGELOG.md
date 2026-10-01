@@ -20,6 +20,10 @@
 
 - **Breaking:** raise the minimum Rust version from 1.85.0 to 1.88.0 for
   the maintained MIT `xberg-ttf-parser` dependency used by font resources.
+- **Breaking:** add `NativeRecord::EncodedString` for verified bounded C8
+  `80cc/01xx` framing. Exhaustive native record matches must handle this raw
+  event; unknown rendering semantics remain unsupported. CLI/JS behavior
+  and complete-document support are unchanged.
 
 - Read the verified compact HN-B page index using its explicit layout marker.
   Native-text conversion for these pages remains unsupported.
