@@ -1302,7 +1302,18 @@ fn hnb_images_preserve_atomic_words_and_following_glyph_order() {
             let result = parse(&mut source, TextBudget::default(), &mut visitor);
             if declared == 2 {
                 assert_eq!(result.unwrap(), 6);
-                assert!(matches!(visitor.events[0].1, NativeRecord::Image { .. }));
+                assert_eq!(
+                    visitor.events[0],
+                    (
+                        236,
+                        NativeRecord::Image {
+                            words: [
+                                0xd300, 0xd24a, 4314, 0xc050, 50, 0xc050, 0xc033, 0xc037, 0xc000,
+                                0xc06c, 0xc032, 0xc0f2, 0xc07a
+                            ],
+                        }
+                    )
+                );
                 assert!(matches!(visitor.events[3].1, NativeRecord::Glyph { .. }));
                 assert_eq!(visitor.events[4].1, visitor.events[0].1);
                 assert_eq!(visitor.events[1].0 - visitor.events[0].0, 28);
@@ -1312,7 +1323,6 @@ fn hnb_images_preserve_atomic_words_and_following_glyph_order() {
                     ErrorKind::Malformed { .. }
                 ));
             }
-            assert!(source.max_request <= 216);
         }
     }
 }

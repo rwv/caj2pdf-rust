@@ -3,7 +3,8 @@
 ## Unreleased
 
 - Admit verified 28-byte HN-B native image records with bounded reads and
-  exact descriptor-count checks. Mixed-page rendering remains unsupported;
+  exact descriptor-count checks, plus independently verified following drawing
+  and style controls. Mixed-page rendering remains unsupported;
   raw traversal does not establish full document conversion.
 
 - Extend bounded HN-B native-record traversal across both verified index
