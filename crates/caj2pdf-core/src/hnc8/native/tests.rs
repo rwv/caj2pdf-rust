@@ -1056,6 +1056,7 @@ fn hnb_run_controls_and_drawing_preserve_following_glyph_context() {
         [0x8072, 0],
         [0x8024, 0x281d],
         [0xc053, 0x00e9],
+        [0xffff, 5],
     ];
     for width in [12, 20] {
         for short in [1, 3, 7, 28] {
@@ -1093,44 +1094,56 @@ fn hnb_run_controls_and_drawing_preserve_following_glyph_context() {
                     }
                 );
             }
-            let mut source = hnb_source(
-                width,
-                &[&[
-                    [0x8001, 4700],
-                    [0x8002, 0x1084],
-                    [0x8006, 0xa385],
-                    [0x8004, 1],
-                    [0x8001, 0x8002],
-                    [0xffff, 5],
-                    [5200, 0xd6d0],
-                    [0x8004, 1],
-                ]],
-            );
-            source.short = short;
-            let mut visitor = Visitor::default();
-            assert_eq!(
-                parse(&mut source, TextBudget::default(), &mut visitor).unwrap(),
-                5
-            );
-            assert_eq!(
-                visitor.events[2].1,
-                NativeRecord::Drawing {
-                    tag: 0x8006,
-                    style: 0xa385,
-                    points: [[0x8004, 1], [0x8001, 0x8002]]
-                }
-            );
-            assert_eq!(
-                visitor.events[3].1,
-                NativeRecord::Glyph {
-                    x: 5200,
-                    y: 4700,
-                    style: 0x1084,
-                    code: 0xd6d0
-                }
-            );
+            for following in [[0xffff, 5], [0x8001, 5000]] {
+                let mut source = hnb_source(
+                    width,
+                    &[&[
+                        [0x8001, 4700],
+                        [0x8002, 0x1084],
+                        [0x8006, 0xa385],
+                        [0x8004, 1],
+                        [0x8001, 0x8002],
+                        following,
+                        [5200, 0xd6d0],
+                        [0x8004, 1],
+                    ]],
+                );
+                source.short = short;
+                let mut visitor = Visitor::default();
+                assert_eq!(
+                    parse(&mut source, TextBudget::default(), &mut visitor).unwrap(),
+                    6
+                );
+                assert_eq!(
+                    visitor.events[2].1,
+                    NativeRecord::Drawing {
+                        tag: 0x8006,
+                        style: 0xa385,
+                        points: [[0x8004, 1], [0x8001, 0x8002]]
+                    }
+                );
+                assert_eq!(
+                    visitor.events[4].1,
+                    NativeRecord::Glyph {
+                        x: 5200,
+                        y: if following[0] == 0x8001 { 5000 } else { 4700 },
+                        style: 0x1084,
+                        code: 0xd6d0
+                    }
+                );
+            }
         }
-        for length in 1..16_u32 {
+        let mut source = hnb_source(
+            width,
+            &[&[[0x8006, 0xa385], [5200, 4800], [6300, 4850], [0x8004, 1]]],
+        );
+        let mut visitor = Visitor::default();
+        assert_eq!(
+            parse(&mut source, TextBudget::default(), &mut visitor).unwrap(),
+            2
+        );
+        assert_eq!(visitor.events[1].1, NativeRecord::End { value: 1 });
+        for length in 1..12_u32 {
             let mut source = hnb_source(
                 width,
                 &[&[[0x8006, 0xa385], [5200, 4800], [6300, 4850], [0xffff, 5]]],
@@ -1159,7 +1172,7 @@ fn hnb_run_controls_and_drawing_preserve_following_glyph_context() {
             parse(&mut source, TextBudget::default(), &mut Visitor::default())
                 .unwrap_err()
                 .kind,
-            ErrorKind::Malformed { .. }
+            ErrorKind::Unsupported { .. }
         ));
     }
     for control in [

@@ -87,8 +87,8 @@ the actual index width multiplied by page count.
 verified index layouts. It uses the existing visitor and fixed buffer; it
 neither fabricates a C8 header nor accumulates a page. The allowed HN-B forms
 are four-byte `8001` (raw y), `8002` (raw style), `801d/0,4`, `8067/6,7`,
-`801c/4`, `8072/0`, `8024/281d`, `c053/00e9`, raw glyph pairs with x below
-`8000`, a terminal `8004` record, the eight-byte prefix and the 16-byte
+`801c/4`, `8072/0`, `8024/281d`, `c053/00e9`, `ffff/5`, raw glyph pairs with x below
+`8000`, a terminal `8004` record, the eight-byte prefix and the 12-byte
 `8006/a385` drawing described below. Run context,
 end position, declared image count, span/record budgets, cancellation and
 cursor poisoning use the same checked path as C8.
@@ -112,8 +112,8 @@ fail explicitly. Selected first-page boundaries are:
 
 | Input | Accepted prefix | Next rejection | Absolute offset |
 | --- | --- | --- | ---: |
-| issue-100 | 139 records, 106 raw glyphs | unadmitted drawing footer | 836 |
-| issue-63 | 2654 records, 2015 raw glyphs | unadmitted drawing footer | 10924 |
+| issue-100 | 194 records, 143 raw glyphs | `8069/1084` | 1052 |
+| issue-63 | 2656 records, 2015 raw glyphs | `80ce/0001` | 10928 |
 | issue-65 | 1 record, 0 raw glyphs | `800a/d300` | 340 |
 
 These are partial parsing results, not successful source conversions. Earlier
@@ -157,7 +157,8 @@ context controls. In the pinned viewer, all retain the eight following rows;
 all repeated first-page captures match. `801d/4`, `801c/4`, `8067/7`, `8072/0`
 and `c053/00e9` match the baseline with the original geometric font.
 `8024/281d` changes glyph geometry across rows. `8006/a385` adds a visible segment
-and consumes two coordinate pairs plus the `ffff/0005` footer (16 bytes total).
+after two coordinate pairs. The original 16-byte control also included a
+following `ffff/0005` record; the boundary correction below separates them.
 These observations establish boundaries, not font selection, transform units
 or stroke semantics. Matching baseline pixels does not establish a no-op.
 
@@ -167,11 +168,27 @@ acceptance. Required rendering interpretation and complete-document acceptance
 remain in #241; no public HN-B rendering is enabled by this parser increment.
 The existing generator emits `hnb-run-*` controls. Tests exercise both index
 widths, short reads, marker-like coordinates, every truncated drawing length,
-invalid footers and unverified neighboring values.
+unsupported following controls and unverified neighboring values.
 
-Direct probes of all 14 indexed pages in the three pinned HN-B inputs still
-stop on unsupported records or an unadmitted drawing terminator. For example,
-issue-100 page 1 now reaches byte 836 after 139 records / 106 raw glyphs;
-issue-63 page 1 reaches byte 10924 after 2654 records / 2015 raw glyphs.
-A drawing-footer rejection reflects the current parser profile, not proof that
-the source is corrupt. No complete-page or document conversion is claimed.
+### Drawing boundary correction
+
+Four further original controls distinguish the drawing from its following record:
+12-byte drawing alone, drawing plus `ffff/5`, standalone `ffff/5`, and drawing
+followed by `8001/5000`. Both drawing variants have identical page pixels;
+standalone `ffff/5` matches the original no-drawing baseline. The new y control
+moves the first glyph row while preserving the segment and later rows. All four
+repeated first-page crops match at 57%, interior `(648,357,1023,906)`.
+
+Thus HN-B `8006/a385` is framed as 12 bytes, followed by independent records.
+`ffff/5` is preserved as a raw control, not discarded or required as a footer.
+Its lack of visible effect here does not prove it is always a no-op. C8 framing
+is unchanged pending separate controls. The generator reproduces these four
+`hnb-drawing-boundary-*` inputs. Unit tests verify both index widths, marker-like
+coordinate words, immediately following y/end records, all 11 truncated drawing
+lengths, standalone controls and unknown values.
+
+The corrected direct probes reach the current table's boundaries on all 14
+indexed source pages. None completes conversion. The earlier footer errors
+were parser-profile limitations, not evidence of corrupt source documents.
+External receipts are `hnb-drawing-boundary-{inputs,comparison}.json` in
+`caj2pdf-c8-advance-control-20261001`; no captures or source content are committed.

@@ -79,6 +79,17 @@ def main():
         manifest.append({"file": name, "marker": 0, "row_bytes": 12,
                          "run_words": words, "bytes": len(data),
                          "sha256": hashlib.sha256(data).hexdigest()})
+    for suffix, words in (
+        ("bare", (0x8006, 0xA385, 5200, 4800, 6300, 4850)),
+        ("footer", (0x8006, 0xA385, 5200, 4800, 6300, 4850, 0xFFFF, 5)),
+        ("footer-only", (0xFFFF, 5)),
+        ("next-y", (0x8006, 0xA385, 5200, 4800, 6300, 4850, 0x8001, 5000)),
+    ):
+        name = f"hnb-drawing-boundary-{suffix}.caj"
+        data = document(12, 0, run=words)
+        (args.output / name).write_bytes(data)
+        manifest.append({"file": name, "run_words": words, "bytes": len(data),
+                         "sha256": hashlib.sha256(data).hexdigest()})
     (args.output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
 
 

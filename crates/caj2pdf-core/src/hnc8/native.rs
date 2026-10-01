@@ -171,6 +171,7 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
                             | (0x8072, 0)
                             | (0x8024, 0x281d)
                             | (0xc053, 0x00e9)
+                            | (0xffff, 5)
                             | (0x8006, 0xa385)
                             | (0xc052, 0xa385)
                     )
@@ -202,10 +203,8 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
                     0x8024 if matches!(value, 0x2800 | 0x281d) => {
                         NativeRecord::Control { tag, value }
                     }
-                    0x8072 | 0xc053
-                        if self.header.variant == Variant::HnB
-                            && matches!((tag, value), (0x8072, 0) | (0xc053, 0x00e9)) =>
-                    {
+                    // Values were checked by the HN-B profile guard above.
+                    0x8072 | 0xc053 | 0xffff if self.header.variant == Variant::HnB => {
                         NativeRecord::Control { tag, value }
                     }
                     0x8021 if value == 0x2000 => NativeRecord::Control { tag, value },
@@ -261,7 +260,11 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
                         if matches!(value, 0xa381 | 0xa383 | 0xa38b)
                             || (self.header.variant == Variant::HnB && value == 0xa385) =>
                     {
-                        length = if value == 0xa383 { 12 } else { 16 };
+                        length = if value == 0xa383 || self.header.variant == Variant::HnB {
+                            12
+                        } else {
+                            16
+                        };
                         self.native_bytes(position + 4, end, &mut bytes[4..length], at)
                             .await?;
                         if length == 16 && bytes[12..16] != [0xff, 0xff, 5, 0] {
