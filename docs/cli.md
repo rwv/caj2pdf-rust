@@ -2,7 +2,7 @@
 
 This note documents the `caj2pdf` executable delivered for
 [issue #12](https://github.com/rwv/caj2pdf-rust/issues/12). The command is a
-thin Linux adapter over the platform-neutral core: it opens files, spools
+thin native adapter over the platform-neutral core: it opens files, spools
 forward-only input, stages path output, and chooses the core operation from
 the input's leading signature. Format parsing and PDF writing stay in
 `caj2pdf-core`. Versions `v0.x.y` may change this interface; such changes are
@@ -106,7 +106,7 @@ HN/C8 conversion now attempts supported page profiles instead of unconditionally
 rejecting the format. Missing state data and unsupported metadata/layouts have
 specific diagnostics. `inspect` reports `conversion_supported: true` for HN/C8
 because this build has a conversion route; that is not proof that a particular
-profile converts or its required runtime states are supplied. Human-readable
+profile converts or its configured resource limits suffice. Human-readable
 inspection marks this support as experimental. The JSON schema remains version 1. HN-A `has_outline`, `bookmark_count` and
 `bookmarks` now contain validated metadata rather than unknown values; a malformed
 outline fails inspection with its source location. Known empty outlines produce

@@ -12,7 +12,7 @@ container OCI archive and SHA256SUMS. See the [platform matrix](docs/platforms.m
 and [Docker usage](docs/docker.md). See the
 [v0.3.1 notes](docs/releases/v0.3.1.md) for platform requirements and limitations.
 After downloading, extract the CLI archive or install the JS tarball with
-`npm install ./caj2pdf-rust-0.3.0.tgz`. Registry publication is separate.
+`npm install ./caj2pdf-rust-0.3.1.tgz`. Registry publication is separate.
 
 ## Goals
 
@@ -21,14 +21,15 @@ After downloading, extract the CLI archive or install the JS tarball with
 - Use a seekable or ranged input source and a sequential output sink so that
   conversion does not require loading a whole document into memory. A
   forward-only input may be spooled to temporary storage.
-- Provide a Linux CLI and a WASM-backed JavaScript API for browsers and Node.js.
+- Provide a cross-platform CLI and a WASM-backed JavaScript API for browsers and Node.js.
 - Implement HN parsing and the CAJ-specific JBIG decoder as new MIT code.
 
-The proposed architecture, CLI, acceptance milestones, and reference links are
-in [PROJECT_PLAN.md](PROJECT_PLAN.md). Start with the
-[v0.1.0 parent issue](https://github.com/rwv/caj2pdf-rust/issues/1) and its
-native sub-issues and blocked-by relationships. All initial tasks belong to
-the [v0.1.0 milestone](https://github.com/rwv/caj2pdf-rust/milestone/1).
+The initial architecture and milestones are recorded in
+[PROJECT_PLAN.md](PROJECT_PLAN.md) and the completed
+[v0.1.0 parent issue](https://github.com/rwv/caj2pdf-rust/issues/1).
+Current format work starts with the
+[HN/C8 roadmap](https://github.com/rwv/caj2pdf-rust/issues/217) and its
+sub-issues and blocked-by relationships.
 See the [provenance and dependency inventory](docs/provenance.md) for format
 references, test corpus rules, and the MIT-only source review process.
 The [bounded I/O architecture](docs/io-architecture.md) records the native and
