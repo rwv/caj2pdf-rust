@@ -307,3 +307,20 @@ final whole-fragment verification, so this progress is not successful recovery.
 Both fail without a final PDF. Issue-92 still converts to the identical SHA256
 recorded above and passes qpdf. New external receipts are
 `keyword-regression-results.json`, alongside the earlier source observations.
+
+### Known integer terminator prefixes
+
+The existing known-prefix comparison is shared by dictionaries and unsigned
+integer objects. This covers a cut inside an integer object's `endobj` when a
+unique, byte-identical complete same-reference object was already indexed. The
+256-byte bound, exact common-prefix boundary, normal following-object parsing
+and final conflict checks are unchanged. Original tests use all five nonempty
+partial terminator spellings, changed scalar/keyword bytes, conflicting prior
+copies and a new following object that must be retained. No integer value or
+terminator is synthesized.
+
+In issue-30, partial object 7461 at 1254841 matches its complete object at
+1244614. Conversion now reaches 1455036, object 15446, where JPEG framing
+fails. The two observed 15446 headers at 1454773 and 1603523 are diagnostic
+candidates, not yet proof of a complete later object. No final PDF is produced.
+Receipts remain external in `issue-30-known-integer.json`.

@@ -200,9 +200,7 @@ pub(crate) async fn scan_fragment_with_candidates<S: RangedSource, C: Cancellati
                     cursor = end;
                     continue;
                 }
-                if let Some(end) =
-                    dictionary_prefix_end(&mut reader, start, &error, &objects).await?
-                {
+                if let Some(end) = known_prefix_end(&mut reader, start, &error, &objects).await? {
                     cursor = end;
                     continue;
                 }
@@ -822,12 +820,12 @@ async fn adjacent_header_end<S: RangedSource, C: Cancellation>(
     Ok((original_prefix == prefix).then_some(end))
 }
 
-/// A dictionary-key or value error can identify an interrupted duplicate header.
-/// Only discard a bounded exact dictionary prefix of one already validated
-/// object, including stream dictionaries before their payload. Its exact shared prefix and trailing whitespace supply the
-/// boundary without a marker search. The main loop must then parse a complete
-/// next object and validate all links.
-async fn dictionary_prefix_end<S: RangedSource, C: Cancellation>(
+/// Syntax errors can identify an interrupted duplicate dictionary or integer.
+/// Only discard a bounded exact prefix of one already validated object,
+/// including stream dictionaries before their payload. The exact shared prefix
+/// and trailing whitespace define the boundary without a marker search. The
+/// main loop must then parse a complete next object and validate all links.
+async fn known_prefix_end<S: RangedSource, C: Cancellation>(
     reader: &mut Reader<'_, S, C>,
     start: u64,
     error: &Error,
@@ -835,7 +833,8 @@ async fn dictionary_prefix_end<S: RangedSource, C: Cancellation>(
 ) -> Result<Option<u64>> {
     let Error::Pdf {
         offset,
-        reason: "expected PDF name" | "invalid PDF value token",
+        reason:
+            "expected PDF name" | "invalid PDF value token" | "PDF object lacks endobj or stream",
         ..
     } = error
     else {
@@ -863,7 +862,11 @@ async fn dictionary_prefix_end<S: RangedSource, C: Cancellation>(
     }
     let original_start = original.range.offset - reader.range.offset;
     let original_head = reader.load_head(original_start, Some(reference)).await?;
-    if original_head.dictionary.is_none() {
+    let integer = original_head
+        .scalar
+        .as_ref()
+        .and_then(|range| exact_unsigned(&original_head.bytes[range.clone()]));
+    if original_head.dictionary.is_none() && integer.is_none() {
         return Ok(None);
     }
     let shared = bytes
@@ -1778,6 +1781,30 @@ mod tests {
             b"1 0 obj<< /A (literal) >>endobj\n1 0 obj<< /A (literal\n2 0 obj<<>>endobj\n",
         ] {
             assert!(scan_bytes(bytes.to_vec()).is_err());
+        }
+    }
+
+    #[test]
+    fn known_integer_prefix_preserves_a_new_following_object() {
+        for suffix in ["e", "en", "end", "endo", "endob"] {
+            let bytes = format!("7 0 obj 137 endobj\n7 0 obj 137 {suffix}\n8 0 obj 19 endobj\n")
+                .into_bytes();
+            let result = scan_bytes(bytes).unwrap();
+            assert_eq!(
+                result
+                    .objects
+                    .iter()
+                    .map(|object| object.reference.number)
+                    .collect::<Vec<_>>(),
+                [7, 8]
+            );
+        }
+        for bytes in [
+            "7 0 obj 137 endobj\n7 0 obj 138 endob\n8 0 obj 19 endobj\n",
+            "7 0 obj 137 endobj\n7 0 obj 137 endox\n8 0 obj 19 endobj\n",
+            "7 0 obj 137 endobj\n7 0 obj 137 endobj\n7 0 obj 137 endob\n8 0 obj 19 endobj\n",
+        ] {
+            assert!(scan_bytes(bytes.as_bytes().to_vec()).is_err(), "{bytes}");
         }
     }
 
