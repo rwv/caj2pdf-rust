@@ -333,6 +333,23 @@ async fn scan_fragment<S: RangedSource, C: Cancellation>(
                 let length = if let Some(length) = exact_unsigned(value) {
                     length
                 } else if let Some(target) = indirect {
+                    // PDF header bytes can also form valid ASCII85 groups.
+                    // Check the independently derived replay before measuring
+                    // the apparent stream, even when its groups look valid.
+                    if dictionary.value(b"Filter").and_then(exact_name).as_deref()
+                        == Some(b"ASCII85Decode")
+                    {
+                        match ascii85::adjacent_replay(
+                            &mut reader, start, data_at, reference, target, inflated_bytes,
+                        ).await {
+                            Ok(Some(next)) => {
+                                cursor = next;
+                                continue 'objects;
+                            }
+                            Ok(None) | Err(Error::Pdf { kind: PdfErrorKind::Malformed, .. }) => {}
+                            Err(error) => return Err(error),
+                        }
+                    }
                     let measured = match dictionary.value(b"Filter").and_then(exact_name).as_deref()
                     {
                         Some(b"FlateDecode") => {
@@ -369,20 +386,6 @@ async fn scan_fragment<S: RangedSource, C: Cancellation>(
                                 ..
                             },
                         ) => {
-                            if dictionary.value(b"Filter").and_then(exact_name).as_deref()
-                                == Some(b"ASCII85Decode")
-                            {
-                                match ascii85::adjacent_replay(
-                                    &mut reader, start, data_at, reference, target, inflated_bytes,
-                                ).await {
-                                    Ok(Some(next)) => {
-                                        cursor = next;
-                                        continue 'objects;
-                                    }
-                                    Ok(None) | Err(Error::Pdf { kind: PdfErrorKind::Malformed, .. }) => {}
-                                    Err(error) => return Err(error),
-                                }
-                            }
                             if let Some(end) =
                                 replay_end(&mut reader, start, &objects, &lengths).await?
                             {

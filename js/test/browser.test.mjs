@@ -11,7 +11,7 @@ import { readFile } from "node:fs/promises";
 import { after, before, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { findChrome, launchChrome, openPage, startServer } from "./browser-harness.mjs";
-import { fixture, syntheticCaj, syntheticRecoveredCaj, syntheticLaterCopyCaj, syntheticKdh, validatePdf, validateMultiImageHn, validateType1Hn, wasmUrl } from "./helpers.mjs";
+import { fixture, syntheticCaj, syntheticAscii85Caj, syntheticRecoveredCaj, syntheticLaterCopyCaj, syntheticKdh, validatePdf, validateMultiImageHn, validateType1Hn, wasmUrl } from "./helpers.mjs";
 
 const chrome = findChrome();
 if (chrome == null && process.env.CI) {
@@ -29,6 +29,9 @@ before(async () => {
   if (skip) return;
   const fixtures = {
     "/fixtures/input.caj": syntheticCaj(),
+    "/fixtures/ascii85.caj": syntheticAscii85Caj(),
+    "/fixtures/ascii85-clean.caj": syntheticAscii85Caj({ interrupted: false }),
+    "/fixtures/ascii85-broken.caj": syntheticAscii85Caj({ broken: true }),
     "/fixtures/recovered.caj": syntheticRecoveredCaj(),
     "/fixtures/later-copy.caj": syntheticLaterCopyCaj(),
     "/fixtures/broken-later-copy.caj": syntheticLaterCopyCaj(true),
@@ -183,11 +186,16 @@ test("Chromium: CAJ recovery retains a later malformed-object error", options, a
   }
 });
 
-test("Chromium: later-copy CAJ recovery and rejection run in a Worker", options, async (t) => {
+test("Chromium: later-copy CAJ and ASCII85 recovery run in a Worker", options, async (t) => {
   const result = await run("cajRecoveryInWorker");
   assert.equal(result.positive.report.pagesConverted, 2);
   assert.equal(result.positive.report.bookmarksWritten, 1);
   await validatePdf(t, decode(result.positive.output), 2);
   assert.equal(result.negative.error?.code, "MALFORMED_PDF");
   assert.equal(result.negative.written, 0);
+  assert.equal(result.ascii85.report.pagesConverted, 2);
+  assert.deepEqual(result.ascii85.output, result.cleanAscii85.output);
+  await validatePdf(t, decode(result.ascii85.output), 2);
+  assert.equal(result.brokenAscii85.error?.code, "MALFORMED_PDF");
+  assert.equal(result.brokenAscii85.written, 0);
 });

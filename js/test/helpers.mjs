@@ -69,6 +69,27 @@ export function syntheticCaj() {
   return bytes;
 }
 
+/** Original visible-content control for length-derived ASCII85 replay. */
+export function syntheticAscii85Caj({ interrupted = true, broken = false } = {}) {
+  const base = syntheticCaj();
+  const start = 0x400 + 24;
+  const original = new TextDecoder().decode(base.subarray(start))
+    .replace("/Resources << >> >>", "/Resources << >> /Contents 6 0 R >>");
+  // ASCII85 for the authored blue rectangle: q 0 0 1 rg 10 20 30 40 re f Q.
+  const payload = "E?HqX0H`(mEb?LL0H`,)+>Y\\o1b^%mAKYS-;$m~>";
+  const header = "6 0 obj << /Length 7 0 R /Filter /ASCII85Decode >> stream\n";
+  const prefix = interrupted ? header + payload.slice(0, 11) + "\n" : "";
+  const body = new TextEncoder().encode(original + prefix + header + payload +
+    `\nendstream\nendobj\n7 0 obj ${payload.length + (broken ? 1 : 0)} endobj\n`);
+  const bytes = new Uint8Array(start + body.length);
+  bytes.set(base.subarray(0, start));
+  bytes.set(body, start);
+  const view = new DataView(bytes.buffer);
+  view.setUint32(0x404, body.length, true);
+  view.setUint32(0x40c, bytes.length, true);
+  return bytes;
+}
+
 /** Original controls for known dictionary/array cuts and adjacent headers. */
 export function syntheticRecoveredCaj(broken = false) {
   const base = syntheticCaj();

@@ -418,6 +418,16 @@ identical header and an exact interrupted prefix (apart from trailing
 whitespace). Validate every ASCII85 group from the derived start, then resume
 the normal complete scanner. No object header is searched for, no decoded
 stream is buffered, and boundary scanning shares work limits and cancellation.
+The replay check runs before measuring the apparent original stream: PDF header
+bytes can themselves form valid ASCII85 groups, so malformed-group errors are
+not a sufficient trigger. Original visible-rectangle controls exercise this case
+through Rust, Node and a real browser Worker, comparing the entire recovered PDF
+with its uninterrupted counterpart and rejecting a false Length without output.
+A native CLI check also renders the authored first page with MuPDF at 72 dpi:
+the 200×100 page contains exactly the expected 30×40 blue rectangle at PDF
+coordinates (10,20), with white elsewhere. Both PDFs pass qpdf and are
+byte-identical; the malformed input exits nonzero without a final PDF.
+External receipts are in `caj2pdf-ascii85-public-20261002`.
 
 For pinned issue-25, object 373 starts at 565829, its header occupies 57 bytes,
 the first EOD ends at 566503, and immediate object 374 gives Length 508. This
