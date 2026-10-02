@@ -256,33 +256,30 @@ def main():
         anchor_geometry[name] = {"width": 800, "height": 1500,
                                  "run_words": tuple(words)}
     for field in range(2, 9):
-        for code in (0xA3A8, 0xA3A9):
-            name = f"paren-detail-{code:04x}-{field}"
+        for prefix, code in (("paren-detail-a3a8", 0xA3A8), ("paren-detail-a3a9", 0xA3A9),
+                             ("bracket-detail", 0xA3DB), ("single-quote-detail", 0xA1AF)):
+            name = f"{prefix}-{field}"
             words = (0x8001, 4344, 0x8002, 0x1000 | (field << 5) | field,
                      0x801D, 0, 0x8067, 6, 4672, 0xD6D0, 4872, code)
             fixtures.append((name, [(0x1084, 0, 6)], None, None))
             symbols[name] = ()
             anchor_geometry[name] = {"width": 460, "height": 350, "run_words": words}
-    words = []
-    for row, (width_field, height_field) in enumerate(((3, 7), (7, 3), (2, 8), (8, 2))):
-        words.extend((0x8001, 4394 + row * 180,
-                      0x8002, 0x1000 | (width_field << 5) | height_field,
-                      0x801D, 4, 0x8067, 6,
-                      4702, 0xD6D0, 4902, 0xA3A8, 5102, 0xA3A9))
-    name = "paren-axes-heldout"
-    fixtures.append((name, [(0x1084, 0, 6)], None, None))
-    symbols[name] = ()
-    anchor_geometry[name] = {"width": 800, "height": 850, "run_words": tuple(words)}
-    words = []
-    for row, (width_field, height_field) in enumerate(((3, 7), (7, 3), (2, 8), (8, 2))):
-        words.extend((0x8001, 4394 + row * 180,
-                      0x8002, 0x1000 | (width_field << 5) | height_field,
-                      0x801D, 4, 0x8067, 6,
-                      4702, 0xD6D0, 4902, 0xA1A1, 5102, 0xA1A2))
-    name = "space-comma-axes-heldout"
-    fixtures.append((name, [(0x1084, 0, 6)], None, None))
-    symbols[name] = ()
-    anchor_geometry[name] = {"width": 800, "height": 850, "run_words": tuple(words)}
+    for name, first, second in (
+        ("paren-axes-heldout", 0xA3A8, 0xA3A9),
+        ("space-comma-axes-heldout", 0xA1A1, 0xA1A2),
+        ("bracket-axes-heldout", 0xA3DB, 0xA3DD),
+        ("quotes-axes-heldout", 0xA1B0, 0xA1B1),
+        ("marks-axes-heldout", 0xA1A4, 0xA1AF),
+    ):
+        words = []
+        for row, (width_field, height_field) in enumerate(((3, 7), (7, 3), (2, 8), (8, 2))):
+            words.extend((0x8001, 4394 + row * 180,
+                          0x8002, 0x1000 | (width_field << 5) | height_field,
+                          0x801D, 4, 0x8067, 6,
+                          4702, 0xD6D0, 4902, first, 5102, second))
+        fixtures.append((name, [(0x1084, 0, 6)], None, None))
+        symbols[name] = ()
+        anchor_geometry[name] = {"width": 800, "height": 850, "run_words": tuple(words)}
     manifest = []
     for name, styles, control_record, drawing in fixtures:
         geometry = {"row_step": 350, "height": 3200} if name == "size-profile" else {}

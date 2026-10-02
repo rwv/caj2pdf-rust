@@ -284,7 +284,7 @@ fn native_records_drive_actual_mixed_page_in_source_order() {
 fn unsupported_content_and_missing_glyphs_poison_the_open_page() {
     for tail in [
         vec![[4800, 0xa0a6]],
-        vec![[4800, 0xa3db]],
+        vec![[4800, 0xa3a6]],
         vec![[4800, 0xa0c2]],
         vec![[4800, 0xa080]],
         vec![[0x801d, 3]],
@@ -542,6 +542,90 @@ fn ideographic_space_and_comma_keep_distinct_resources_and_baselines() {
                     .collect();
                 let unit = super::super::EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
                 assert!((values[4] - 270.0 * unit).abs() < 0.000001);
+                assert!((values[5] - ((495.0 - down) * unit - values[3])).abs() < 0.000002);
+            }
+        }
+    }
+}
+
+#[test]
+fn square_brackets_keep_ordinary_resource_under_alternate_state() {
+    for (style, x_offset, down) in [
+        (0x1067, 27.0, -15.0),
+        (0x10e3, 48.0, -1.0),
+        (0x1048, 24.0, -18.0),
+        (0x1102, 54.0, 1.0),
+    ] {
+        for (code, unicode) in [(0xa3db, 0xff3b), (0xa3dd, 0xff3d)] {
+            let words = [
+                [0x8001, 4394],
+                [0x8002, style],
+                [4902, code],
+                [0x801d, 4],
+                [4902, code],
+                [0x8004, 1],
+            ];
+            let (result, pdf, finished) = convert(&words, 0, &[], roles(), 11);
+            assert_eq!(result.unwrap(), 0);
+            assert!(finished);
+            let text = String::from_utf8_lossy(&pdf);
+            assert_eq!(text.matches(&format!("<{unicode:04X}> Tj")).count(), 2);
+            assert_eq!(text.matches("/F1 1 Tf").count(), 2);
+            assert!(!text.contains("/F2 1 Tf"));
+            for (matrix, _) in text.lines().filter_map(|line| line.split_once(" Tm ")) {
+                let values: Vec<f64> = matrix
+                    .split_whitespace()
+                    .map(|word| word.parse().unwrap())
+                    .collect();
+                let unit = super::super::EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
+                assert!((values[4] - (270.0 + x_offset) * unit).abs() < 0.000001);
+                assert!((values[5] - ((495.0 - down) * unit - values[3])).abs() < 0.000002);
+            }
+        }
+    }
+}
+
+#[test]
+fn quotation_marks_and_middle_dot_reuse_controlled_offsets() {
+    for (style, small_x, quote_x, quote_down) in [
+        (0x1067, 7.0, 18.0, -10.0),
+        (0x10e3, 13.0, 33.0, 1.0),
+        (0x1048, 7.0, 16.0, -14.0),
+        (0x1102, 15.0, 37.0, 3.0),
+    ] {
+        for (code, unicode) in [
+            (0xa1a4, 0x00b7),
+            (0xa1af, 0x2019),
+            (0xa1b0, 0x201c),
+            (0xa1b1, 0x201d),
+        ] {
+            let words = [
+                [0x8001, 4394],
+                [0x8002, style],
+                [4902, code],
+                [0x801d, 4],
+                [4902, code],
+                [0x8004, 1],
+            ];
+            let (result, pdf, finished) = convert(&words, 0, &[], roles(), 11);
+            assert_eq!(result.unwrap(), 0);
+            assert!(finished);
+            let text = String::from_utf8_lossy(&pdf);
+            assert_eq!(text.matches(&format!("<{unicode:04X}> Tj")).count(), 2);
+            assert!(text.contains("/F1 1 Tf"));
+            assert!(text.contains("/F2 1 Tf"));
+            for (matrix, _) in text.lines().filter_map(|line| line.split_once(" Tm ")) {
+                let values: Vec<f64> = matrix
+                    .split_whitespace()
+                    .map(|word| word.parse().unwrap())
+                    .collect();
+                let unit = super::super::EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
+                let (dx, down) = match code {
+                    0xa1a4 => (small_x, 15.0 - values[3] / (8.0 * unit)),
+                    0xa1af => (small_x, 15.0),
+                    _ => (quote_x, quote_down),
+                };
+                assert!((values[4] - (270.0 + dx) * unit).abs() < 0.000001);
                 assert!((values[5] - ((495.0 - down) * unit - values[3])).abs() < 0.000002);
             }
         }

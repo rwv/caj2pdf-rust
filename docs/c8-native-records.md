@@ -1731,3 +1731,66 @@ action receipts and observations remain external in
 checking Unicode, both resource states, independent axes and invalid size fields
 before table indexing. The real-source diagnostic now reaches page 1 byte 2432;
 remaining required symbols/controls and full-document orchestration stay open.
+
+### Remaining required brackets and quotation marks
+
+The original marker controls now cover all 52 required non-Han, non-ASCII-
+alphanumeric raw codes in the pinned six-page inventory. This is record-level
+admission, not complete-document support. The remaining additions reuse the
+existing matrix, resource roles and bounded PDF path:
+
+| Raw codes | Resource | Placement relative to CJK matrix |
+| --- | --- | --- |
+| `a3db`, `a3dd` (fullwidth square brackets) | Ordinary Latin, including alternate state | Size-table x/down offsets below |
+| `a1b0`, `a1b1` (double quotation marks) | Active Latin | Existing closing-parenthesis offsets |
+| `a1af` (right single quotation mark) | Active Latin | Small-mark x below; down 15 coordinate units |
+| `a1a4` (middle dot) | Active Latin | Same small-mark x; existing colon baseline model |
+
+| Size field | Square-bracket x | Square-bracket down | Small-mark x |
+| --- | --- | --- | --- |
+| 2 | 24 | 1 | 7 |
+| 3 | 27 | -1 | 7 |
+| 4 | 30 | -3 | 8 |
+| 5 | 36 | -7 | 10 |
+| 6 | 41 | -10 | 11 |
+| 7 | 48 | -15 | 13 |
+| 8 | 54 | -18 | 15 |
+
+`bracket-detail-*` and `single-quote-detail-*` measure all seven fields with
+original full-em marker outlines at 2233%. Their repeats are identical. As in
+the parenthesis experiment, only visible top/left origins are used where the
+right edge is clipped (bracket fields 6/7/8 and single-quote field 8); no clipped
+extent is admitted as a complete glyph width. The independent-axis controls
+below show complete glyphs at these sizes.
+
+Three separately authored controls change position, use alternate state and
+width/height pairs (3,7), (7,3), (2,8), (8,2). At 919%, target-minus-CJK origins
+for their two columns are:
+
+- `bracket-axes-heldout`: (270,-18)/(507,-18), (295,-2)/(532,-2),
+  (266,-22)/(504,-22), (302,1)/(540,1). Both markers select ordinary Latin.
+- `quotes-axes-heldout`: (259,-12)/(497,-12), (277,1)/(515,1),
+  (257,-17)/(494,-17), (282,3)/(519,3). Both select alternate Latin.
+- `marks-axes-heldout`: (246,-3)/(484,17), (253,7)/(491,17),
+  (246,-5)/(484,17), (255,8)/(493,17). Both select alternate Latin; the
+  horizontal correction is shared while their baselines remain different.
+
+All page captures repeat identically. Predictions, input hashes, complete boxes
+and role observations remain external under
+`caj2pdf-c8-required-glyph-roles-20261002` in `bracket-axes-prediction.json`,
+`remaining-marks-inputs.json`, both detail-measurement files and
+`remaining-marks-axes-results.json`. The simplified fixture-generator loops
+reproduce all 103 original inputs in that experiment directory byte-for-byte.
+The empirical physical-unit and raster-edge limits remain; these observations
+do not establish exact cross-renderer pixel parity or a general shaping model.
+
+The actual-record tests check independently varied axes, ordinary/alternate
+resource selection, explicit Unicode and retained rejection of unverified raw
+variants (including `a3a6`, despite its Unicode matching admitted `a0a6`).
+The real-source run first exposes a missing U+2217 in the diagnostic caller
+font at byte 4256; this remains an explicit product error. An explicitly
+configured external diagnostic font adds U+2217/U+25BA from an installed font,
+with input/output hashes retained outside Git. It is not bundled, automatically
+selected or used to claim source-font fidelity. With that resource, traversal
+reaches **page 1 byte 4492, control `8072/1042`**. Its effects on the following
+segment require verification; it remains rejected. No partial PDF is finished.

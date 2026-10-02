@@ -155,6 +155,7 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
                     | 0xa1aa
                     | 0xa1ad
                     | 0xa1ae
+                    | 0xa1af
                     | 0xa2d9..=0xa2df
                     | 0xa3a3
                     | 0xa3a5
@@ -168,8 +169,9 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
                     0xa1c6 | 0xa1c8 | 0xa9aa | 0xaab3 | 0xaca3 => {
                         (C8GlyphClass::Cjk, self.roles.latin, Some(0.0))
                     }
-                    0xa3ba => (C8GlyphClass::Cjk, latin, Some(1.0 / 8.0)),
-                    0xa3a8 | 0xa3a9 => (C8GlyphClass::Cjk, latin, None),
+                    0xa1a4 | 0xa3ba => (C8GlyphClass::Cjk, latin, Some(1.0 / 8.0)),
+                    0xa1b0 | 0xa1b1 | 0xa3a8 | 0xa3a9 => (C8GlyphClass::Cjk, latin, None),
+                    0xa3db | 0xa3dd => (C8GlyphClass::Cjk, self.roles.latin, None),
                     0xa1a1 => (C8GlyphClass::Cjk, self.roles.cjk, None),
                     0xa1a2 => (C8GlyphClass::Latin, latin, None),
                     _ if character.is_ascii_alphanumeric() => (C8GlyphClass::Latin, latin, None),
@@ -191,26 +193,39 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
                     // but retains the CJK horizontal origin.
                     transform[4] -= transform[0] / 8.0;
                 }
-                if matches!(code, 0xa3a8 | 0xa3a9) {
-                    // Raw coordinate offsets measured across the seven admitted
-                    // size fields, then checked with independent width/height
-                    // controls. Columns: opening x, closing x, downward y.
-                    const OFFSETS: [[i16; 3]; 7] = [
-                        [18, 16, 3],
-                        [19, 18, 1],
-                        [22, 21, 0],
-                        [26, 25, -4],
-                        [30, 28, -7],
-                        [35, 33, -10],
-                        [39, 37, -14],
+                let offset_columns = match code {
+                    0xa3a8 => Some((0, 2)),
+                    0xa1b0 | 0xa1b1 | 0xa3a9 => Some((1, 2)),
+                    0xa3db | 0xa3dd => Some((3, 4)),
+                    _ => None,
+                };
+                if let Some((x_column, y_column)) = offset_columns {
+                    // Raw offsets checked with independent width/height controls.
+                    // Columns: opening-parenthesis x, closing-parenthesis x,
+                    // parenthesis downward y, square-bracket x and downward y.
+                    const OFFSETS: [[i16; 5]; 7] = [
+                        [18, 16, 3, 24, 1],
+                        [19, 18, 1, 27, -1],
+                        [22, 21, 0, 30, -3],
+                        [26, 25, -4, 36, -7],
+                        [30, 28, -7, 41, -10],
+                        [35, 33, -10, 48, -15],
+                        [39, 37, -14, 54, -18],
                     ];
                     // The matrix evaluator above has validated both fields.
                     let width = usize::from((style >> 5) & 31) - 2;
                     let height = usize::from(style & 31) - 2;
-                    let column = usize::from(code == 0xa3a9);
                     let unit = super::EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
-                    transform[4] += f64::from(OFFSETS[width][column]) * unit;
-                    transform[5] -= f64::from(OFFSETS[height][2]) * unit;
+                    transform[4] += f64::from(OFFSETS[width][x_column]) * unit;
+                    transform[5] -= f64::from(OFFSETS[height][y_column]) * unit;
+                }
+                if matches!(code, 0xa1a4 | 0xa1af) {
+                    // Middle dot and right single quote share a horizontal
+                    // correction but keep their separately controlled baselines.
+                    const X_OFFSETS: [i16; 7] = [7, 7, 8, 10, 11, 13, 15];
+                    let width = usize::from((style >> 5) & 31) - 2;
+                    transform[4] +=
+                        f64::from(X_OFFSETS[width]) * super::EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
                 }
                 // Original source controls establish this gray for the admitted
                 // ordinary text profile; keep it local to each glyph draw.
