@@ -769,6 +769,44 @@ rule for other sizes or fonts. The generator reproduces the captured input
 byte for byte; external receipts are in `caj2pdf-c8-same-page-anchor-20261002`.
 
 
+### Same-page anchors across the required six sizes
+
+The original `anchor-field{2,3,4,5,6,8}-large-page` controls keep a 500×500
+page and two CJK/Latin square pairs fixed. Relative glyph positions are
+(20,20)/(250,20) and (20,250)/(250,250); only the equal size fields change.
+All four squares remain visible. The generator adds no external font data.
+
+Pinned offline CAJViewer with the existing original geometric fonts, 96 DPI
+and fit-height (displayed 1563%) gives the following thresholded vertical
+extents and Latin-minus-CJK top offsets. Both rows agree and all repeated
+page crops are identical:
+
+| Field | Square height (pixels) | Latin top offset, both rows (pixels) |
+| --- | --- | --- |
+| 2 | 145 | 18 |
+| 3 | 160 | 18 |
+| 4 | 181 | 16 |
+| 5 | 218 | 12 |
+| 6 | 249 | 10 |
+| 8 | 327 | 2 |
+
+The inspected full page interior is 1009×1009 pixels. Field 2 has a different
+horizontal screen origin after closing its wider sidebar; each page's own
+physical bounds are recorded, without content registration. Initial automatic
+fit-width captures had different tab widths and sometimes clipped the page;
+those are excluded from these measurements.
+
+This independently confirms that source-y position does not explain the
+class offset for any required size. The equal offset for fields 2/3 also
+prevents treating the earlier simple linear baseline candidate as established.
+A size-indexed source offset and a size-dependent rule with rounding remain
+competing explanations. Distinguishing their predicted transition at another
+scale is required before implementing either; these integer pixel observations
+are not an exact point-size table or a production support claim.
+External inputs/captures and measurements remain in
+`caj2pdf-c8-six-anchor-inputs-20261002` and `caj2pdf-c8-six-anchor-20261002`.
+
+
 ### Additional raw drawing value `8006/a385`
 
 An original one-row control changes only the existing `8006/a381` record's

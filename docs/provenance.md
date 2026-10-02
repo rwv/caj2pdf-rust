@@ -2204,3 +2204,13 @@ cancellation and dropped pending operations. Independent local qpdf,
 Poppler and fontTools checks concern these original fixtures only, not
 successful native C8 document conversion. Test exports and external fonts
 remain outside Git.
+
+### Required C8 size anchor controls
+
+The six `anchor-field*-large-page` variants in the original MIT style fixture
+generator fix a 500×500 page and two pairs of geometric glyphs. They were
+authored from observed raw record framing, without external text or vendor
+outlines. The existing original geometric fonts and pinned offline viewer
+provide the observations recorded in `c8-native-records.md`; generated inputs,
+font binaries and captures stay outside Git. These controls refine the #240
+baseline investigation and do not establish complete C8 rendering.

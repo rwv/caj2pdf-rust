@@ -124,6 +124,21 @@ def main():
             4672, 0xD6D0, 4792, 0xA0C1,
         ),
     }
+    # Hold page geometry fixed across the six sizes required by issue-66.
+    # Both rows and both scripts remain unclipped, including the largest size.
+    for field in (2, 3, 4, 5, 6, 8):
+        name = f"anchor-field{field}-large-page"
+        style = 0x1000 | (field << 5) | field
+        fixtures.append((name, [(style, 0, 6)], None, None))
+        symbols[name] = ()
+        anchor_geometry[name] = {
+            "width": 500, "height": 500, "first_x": 4672, "first_y": 4294,
+            "run_words": (
+                4672, 0xD6D0, 4902, 0xA0C1,
+                0x8001, 4524, 0x8002, style, 0x801D, 0, 0x8067, 6,
+                4672, 0xD6D0, 4902, 0xA0C1,
+            ),
+        }
     for horizontal, vertical in ((3, 3), (3, 5), (5, 3), (5, 5)):
         for kind, code in (("cjk", 0xD6D0), ("latin", 0xA0C1)):
             name = f"axis-{kind}-{horizontal}-{vertical}"
