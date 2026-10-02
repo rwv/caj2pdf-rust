@@ -64,6 +64,11 @@ The i586 musl binary passes on the original Pentium CPU model. Ubuntu's i386
 GNU libc fails on that model, so no i586 GNU artifact is advertised. PowerPC
 endian variants retain their target ELF ABIs. LoongArch is distinct from MIPS;
 these artifacts do not imply compatibility with all old Loongson vendor ABIs.
+LoongArch musl disables linker relaxation (`--no-relax`) for both tested and
+packaged binaries to avoid [LLVM's layout oscillation issue](https://github.com/llvm/llvm-project/issues/226712)
+with the pinned Rust toolchain. Static linking and the full runtime checks remain
+in place; the workaround does not change other targets.
+
 Exact sysroot and emulator hashes are recorded in the workflows. No old-kernel
 compatibility is inferred from user-mode emulation on a newer host kernel.
 

@@ -7,6 +7,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
+import { deflateSync } from "node:zlib";
 
 export const wasmUrl = new URL("../../target/wasm32-unknown-unknown/release/caj2pdf_wasm.wasm", import.meta.url);
 
@@ -66,6 +67,54 @@ export function syntheticCaj() {
   view.setUint32(table + 12, bodyStart + body.length, true);
   view.setUint32(table + 20, 4, true);
   bytes.set(body, bodyStart);
+  return bytes;
+}
+
+/** Original visible-content control for length-derived ASCII85 replay. */
+export function syntheticAscii85Caj({ interrupted = true, broken = false, cut = "payload" } = {}) {
+  const base = syntheticCaj();
+  const start = 0x400 + 24;
+  const original = new TextDecoder().decode(base.subarray(start))
+    .replace("/Resources << >> >>", "/Resources << >> /Contents 6 0 R >>");
+  // ASCII85 for the authored blue rectangle: q 0 0 1 rg 10 20 30 40 re f Q.
+  const payload = "E?HqX0H`(mEb?LL0H`,)+>Y\\o1b^%mAKYS-;$m~>";
+  const header = "6 0 obj << /Length 7 0 R /Filter /ASCII85Decode >> stream\n";
+  let prefix = header + payload.slice(0, 11) + "\n";
+  if (cut === "reference") prefix = header.slice(0, header.indexOf(" R")) + "\n";
+  if (cut === "keyword") prefix = header.slice(0, -3) + "\n";
+  if (!interrupted) prefix = "";
+  const body = new TextEncoder().encode(original + prefix + header + payload +
+    `\nendstream\nendobj\n7 0 obj ${payload.length + (broken ? 1 : 0)} endobj\n`);
+  const bytes = new Uint8Array(start + body.length);
+  bytes.set(base.subarray(0, start));
+  bytes.set(body, start);
+  const view = new DataView(bytes.buffer);
+  view.setUint32(0x404, body.length, true);
+  view.setUint32(0x40c, bytes.length, true);
+  return bytes;
+}
+
+/** Original direct-Length Flate replay, with an optional known-object anchor. */
+export function syntheticFlateReplayCaj({ interrupted = true, broken = false, anchor = "scalar", padding = "" } = {}) {
+  const base = syntheticCaj();
+  const start = 0x400 + 24;
+  const pageObjects = new TextDecoder().decode(base.subarray(start))
+    .replace("/Resources << >> >>", "/Resources << >> /Contents 6 0 R >>");
+  const payload = deflateSync("q 0 0 1 rg 10 20 30 40 re f Q\n%" + " ".repeat(1024) + "\n", { level: 0 });
+  if (broken) payload[payload.length - 1] ^= 1;
+  const prior = anchor === "scalar" ? "7 0 obj 91 endobj\n"
+    : anchor === "array" ? "7 0 obj [13 29 47] endobj\n" : "";
+  const header = `6 0 obj << /Length ${payload.length + padding.length} /Filter /FlateDecode >> stream\n`;
+  const parts = [pageObjects, prior];
+  if (interrupted) parts.push(header, payload.subarray(0, 12), "\n", prior);
+  parts.push(header, payload, padding, "\nendstream\nendobj\n");
+  const body = Buffer.concat(parts.map((part) => Buffer.from(part)));
+  const bytes = new Uint8Array(start + body.length);
+  bytes.set(base.subarray(0, start));
+  bytes.set(body, start);
+  const view = new DataView(bytes.buffer);
+  view.setUint32(0x404, body.length, true);
+  view.setUint32(0x40c, bytes.length, true);
   return bytes;
 }
 

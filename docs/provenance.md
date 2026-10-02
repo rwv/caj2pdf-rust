@@ -2125,3 +2125,38 @@ It validates groups and the end marker without retaining decoded bytes. Tests
 use invented short encodings and malformed variants, not copied converter
 implementation or external document payloads. Decoded work shares the existing
 scan budget; final referenced Length validation is unchanged.
+
+### ASCII85 adjacent replay boundary
+
+The #226 follow-up was independently authored from the existing ISO 32000
+ASCII85 framing rule and observed CAJ object/Length relationships. Original
+synthetic tests contain no external document content. An external Python
+standard-library ASCII85 decode checked the derived payload as a black box;
+no decoder implementation was copied or translated. No vendor implementation,
+font outlines or source document bytes are committed.
+
+The adjacent tail-keyword extension reuses the original deferred-prefix proof
+for proper prefixes of the standard PDF `stream` and `endobj` tokens. Its
+synthetic controls are independently authored, including malformed tokens and
+changed/missing counterparts. The issue-25 observation supplies a failure
+location only; no external implementation or document content was copied.
+
+The direct-Length Flate replay extension independently checks an exact repeat
+of an already parsed scalar, matching stream header/prefix, standard zlib framing
+and the declared extent. Tests use original stored-deflate bytes and an authored
+blue rectangle; Python zlib is only an external black-box check of the observed
+source span. No implementation or document content was copied. Node test-fixture
+compression uses the built-in `node:zlib`, adding no package dependency.
+
+The cut-reference extension only advances over a literal generation-zero token
+at an existing dictionary-name error, retaining the bounded full-prefix proof.
+Its original positive/negative controls and public-adapter fixtures use authored
+PDF content; the source observation is a failure location, not copied data.
+
+The subsequent Flate review independently derives adjacent restarts from a
+bounded declared-end window and validates zlib framing, checksum, matching
+encoded prefix and complete object tail. The prior-object proof is shared by
+parsed non-stream scalar/array objects. Original stored-deflate controls cover
+counted line endings, checksum failures and unsafe Length repairs; qpdf/MuPDF
+check authored rectangle outputs. ASCII85 prefix buffers remain capped at 4 KiB.
+No external document bytes, profiles, metadata or decoder code were copied.

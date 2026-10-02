@@ -407,3 +407,137 @@ fails encoding validation. The complete same-reference occurrence follows
 inside the same page span and is not admitted merely from a textual search.
 The input remains unsupported and publishes no final PDF. This adds standard
 framing support; it is not a complete-source recovery claim.
+
+## ASCII85 adjacent replay derived from Length (#226 follow-up)
+
+An additional original rule derives a restart boundary from the first ASCII85
+`~>` terminator, a complete stream/object tail, and the immediately following
+referenced unsigned Length object. Subtract Length and the current header
+length from the encoded end; accept only a later start within 4096 bytes, an
+identical header of at most 256 bytes and an exact interrupted prefix (apart from trailing
+whitespace). Validate every ASCII85 group from the derived start, then resume
+the normal complete scanner. No object header is searched for, no decoded
+stream is buffered, and boundary scanning shares work limits and cancellation.
+The replay check runs before measuring the apparent original stream: PDF header
+bytes can themselves form valid ASCII85 groups, so malformed-group errors are
+not a sufficient trigger. Original visible-rectangle controls exercise this case
+through Rust, Node and a real browser Worker, comparing the entire recovered PDF
+with its uninterrupted counterpart and rejecting a false Length without output.
+A native CLI check also renders the authored first page with MuPDF at 72 dpi:
+the 200×100 page contains exactly the expected 30×40 blue rectangle at PDF
+coordinates (10,20), with white elsewhere. Both PDFs pass qpdf and are
+byte-identical; the malformed input exits nonzero without a final PDF.
+External receipts are in `caj2pdf-ascii85-public-20261002`.
+
+For pinned issue-25, object 373 starts at 565829, its header occupies 57 bytes,
+the first EOD ends at 566503, and immediate object 374 gives Length 508. This
+derives object start 565938 and a 109-byte interruption. The complete encoded
+stream independently decodes to 768 bytes. Original synthetic tests cover
+wrong references/lengths, changed prefixes, invalid/truncated encodings,
+excessive prefixes, cancellation and work-budget propagation.
+
+### Interrupted tail keywords
+
+The next issue-25 failure at byte 598735 cuts `stream` as `stre` after a
+complete dictionary. The existing deferred syntax-prefix rule now recognizes
+proper prefixes of `stream` and `endobj` followed by whitespace. It retains
+the existing 256-byte bound and requires an exact complete counterpart from
+the full object scan. Arbitrary tokens, missing or changed counterparts and
+excessive whitespace remain errors; this does not search inside stream data.
+Original one-byte-read tests cover every proper prefix of both keywords.
+Node and browser Worker controls compare the recovered PDF with the complete
+version of the same authored rectangle stream.
+
+### Direct-Length Flate replay after an exact scalar repeat
+
+The subsequent issue-25 failure at byte 710644 has a short interrupted direct-
+Length stream followed by an exact repeat of the immediately preceding parsed
+integer object, then a complete stream copy. Object 316 first starts at 709655;
+scalar 315 repeats at 709741; the complete stream starts at 709765. Its 84-byte
+trimmed interrupted prefix matches exactly. Independent zlib decoding confirms
+938 encoded bytes and 2950 decoded bytes with a valid end marker/checksum.
+
+The initial scalar-anchor implementation admitted this bounded combination only
+after ordinary direct-Length tail validation and the existing small Length
+repair failed. The preceding
+object was required to be a uniquely indexed integer; the final review below
+extends this exact-byte proof to other non-stream objects. Its exact bytes must
+occur once within the interrupted object's first 256 bytes, after some payload bytes.
+The immediately following object must have the same reference, header and
+interrupted prefix; independent Flate framing must equal the declared Length,
+and the complete stream/object tail must parse. A candidate is then reparsed
+normally. This does not search later pages or arbitrary object-header markers.
+Fixed prefix buffers and the existing shared codec-work budget bound the work.
+
+Original one-byte-read controls reject absent/noninteger/duplicate/oversized
+anchors, changed scalar values, multiple repeats, header/prefix mismatches,
+invalid checksums and unequal codec extents. A small work budget propagates its
+limit error. Native CLI, Node and a real browser Worker compare an authored
+rectangle PDF against its uninterrupted version; wrong checksums publish no
+output. Native qpdf and MuPDF checks confirm the same independently specified
+rectangle bounds. Receipts are in `caj2pdf-scalar-replay-public-20261002`.
+
+### Cut indirect-reference suffix
+
+At byte 954402, object 268 contains `/Length 271 0` cut before `R`. The value
+parser has accepted `271` as an integer and reports generation zero where the
+next dictionary name should begin. The existing deferred-prefix path now
+permits that single `0` followed by whitespace, within its original 256-byte
+bound. The full scan must still prove the exact entire prefix against a complete
+same-reference dictionary; it does not infer or insert a missing reference.
+Original one-byte controls reject `0x`, `00`, nonzero generations, excessive
+whitespace and changed/missing counterparts. Public Node/browser controls
+compare a cut-reference stream with its uninterrupted PDF.
+
+At this intermediate stage, issue-25 stopped at byte 1572389, object 145, in
+another direct-Length stream interruption. The final review below supersedes
+that stopping point; #226 remains open. External source spans and per-step
+diagnostics stay in
+`caj2pdf-caj-candidate-recovery-20261002`.
+
+### Final replay review and current issue-25 limit
+
+A second observed ASCII85 interruption has a 523-byte prefix. The same EOD and
+immediate Length proof derives the complete start 1873341 from the encoded end
+1874388 and Length 990; independent decoding produces 768 bytes. The prefix
+bound is now one fixed 4 KiB window, with the existing 256-byte header bound.
+This is still bounded copying of encoded prefixes, not a decoded stream buffer;
+all reader allocation/work limits remain enforced. An original 520-byte payload
+prefix succeeds with one-byte reads, and over-4-KiB prefixes remain rejected.
+
+For adjacent direct-Length Flate copies, inspect only the 256 bytes after the
+declared encoded end for a stream tail. Subtract the known Length and header
+size to derive a restart. Require an exact interrupted prefix including the
+already parsed header, independent zlib framing/checksum and a complete tail.
+The previous-object anchor rule also applies to already parsed non-stream arrays
+and dictionaries, not just integers: the proof depends on exact object bytes and
+uniqueness. Stream anchors remain refused. Object 443 uses an exact repeat of
+array object 442; no additional recovery framework is needed.
+
+The encoded extent may include one LF, CR or CRLF after the zlib end. Such bytes
+are preserved and checked explicitly; arbitrary padding and a mismatch remain
+errors. This covers object 443's 2574-byte zlib stream with one counted LF in
+Length 2575. Original controls cover all three line endings and invalid padding.
+
+A new negative control also exposed an older Length-repair weakness: a short
+repeated header could be incorrectly absorbed into a larger Flate Length. A
+proposed Flate Length repair now requires independent codec validation, so this
+cannot produce a nominally repaired but undecodable stream. Exact-prefix checks
+already prove complete header equality; redundant separate header comparisons
+and reparsing were removed. The final scanner still parses the recovered object.
+
+Fresh CLI controls for adjacent and array-anchored replay (including counted LF)
+produce byte-identical clean/recovered PDFs, pass qpdf and render the independently
+authored blue rectangle exactly with MuPDF. Node and real browser Worker controls
+use the same public paths. Receipts: `caj2pdf-framed-replay-public-20261002`.
+The 58-page issue-92 regression still passes qpdf with unchanged output SHA256
+`853491f2e51ce91da80e8498b3223dbc29e2ac98a0d39229bb92ffc99eb24892`.
+
+Issue-25 now reaches final deferred-prefix validation. It refuses object 450 at
+455462: the surviving prefix declares Length 3304 and cuts `/Type/Metada`, while
+the original Catalog references it through `/Metadata 450 0 R`; no complete
+object 450 exists in the scanned fragment. No output PDF is published. This is
+a remaining missing-metadata target, not successful full-document conversion.
+The implementation does not invent metadata, silently drop the unresolved
+reference or claim full issue-25 support. Receipts remain outside Git in
+`caj2pdf-caj-candidate-recovery-20261002/issue25-replay-reviewed.json`.
