@@ -2,9 +2,12 @@
 
 # HN-A outline fields: observed profile
 
-This 2026-09-29 investigation completes the field-evidence task #137 for the
-profile below. Native implementation and output parity remain #119 work.
-Neither C8 nor HN-B outline support is established here.
+HN-A field validation (#137), native outline integration and the two selected
+complete-document checks (#119) are complete. The investigation and implementation
+chronology below preserves the earlier failures and their later resolutions;
+see [Native reader and PDF integration](#native-reader-and-pdf-integration).
+C8/HN-B outline support remains unverified and is tracked separately by
+[#221](https://github.com/rwv/caj2pdf-rust/issues/221).
 
 ## Method and results
 
