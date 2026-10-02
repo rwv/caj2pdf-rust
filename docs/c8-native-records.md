@@ -824,6 +824,27 @@ the explicitly configured 3200×2400 grid; repository capture defaults and
 production code are unchanged.
 
 
+A public FreeType forwarding trace on the same six controls confirms requested
+pixel heights 318/352/397/477/545/715 at displayed 3420%. Both original geometric
+faces request the same size, use the identity 16.16 transform, and produce
+bitmap left bearing zero with top bearing, width and rows equal to that size.
+The first instrumented page crops exactly match the uninstrumented captures.
+At displayed 200%, requests and bitmap sizes are 18/20/23/27/31/41, matching
+predictions recorded before capture; all six repeated page regions agree.
+The later field-2 return from 200% to fit-height differs at five pixels from
+its initial high-scale crop, while the other five high-scale repeats agree.
+This navigation-dependent difference is retained, not treated as exact repeat
+parity. An attempted 1000% edit was rejected by the UI and is excluded.
+
+These observations locate the controlled square extents at the requested
+pixel-size stage rather than a subsequent bitmap transform. They do not
+establish exact source-space font units, arbitrary-font baselines or a PDF
+point-size table. Resolve that mapping before promoting preview sizes into
+production rules. External traces, pre-capture predictions and comparison
+receipts are in `caj2pdf-c8-anchor-ft-metrics-20261002`; no font outlines or
+bitmap payloads were extracted by the trace.
+
+
 ### Additional raw drawing value `8006/a385`
 
 An original one-row control changes only the existing `8006/a381` record's
