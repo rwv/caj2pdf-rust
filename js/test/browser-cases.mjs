@@ -117,6 +117,15 @@ export async function reject(name) {
   return { ...result, written: sink.chunks.length };
 }
 
+/** A parser failure after spooling must release its stream and OPFS file. */
+export async function rejectSpooled(name) {
+  const sink = collector();
+  const stream = (await input(name)).stream();
+  const result = await settle(convertReadableStream(await modulePromise, stream, webWritableSink(sink.writer)));
+  await sink.writer.close();
+  return { ...result, written: sink.chunks.length, after: await opfsEntries(), unlocked: readerReleased(stream) };
+}
+
 /**
  * Abort while the real WritableStream applies backpressure (its first write
  * never settles); the conversion must reject promptly with the abort reason.
@@ -220,6 +229,7 @@ async function runWorker(path) {
 }
 
 export const scratchInWorker = () => runWorker("/test/scratch-worker.mjs");
+export const cajRecoveryInWorker = () => runWorker("/test/caj-recovery-worker.mjs");
 export const hnc8InWorker = () => runWorker("/test/hnc8-worker.mjs");
 
 export async function inspectHnc8() {

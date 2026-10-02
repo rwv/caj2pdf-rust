@@ -69,6 +69,49 @@ export function syntheticCaj() {
   return bytes;
 }
 
+/** Original controls for known dictionary/array cuts and adjacent headers. */
+export function syntheticRecoveredCaj(broken = false) {
+  const base = syntheticCaj();
+  const suffix = new TextEncoder().encode(
+    "3 0 obj\n<< /Type /Page /Parent\n" +
+    "10 0 obj<< /Box [1 3 9] >>endobj\n" +
+    "10 0 obj<< /Box [\n11 0 obj null endobj\n" +
+    "12 0 \r\n12 0 obj null endobj\n" +
+    (broken ? "13 0 obj<< /Fail @ >>endobj\n" : ""),
+  );
+  const bytes = new Uint8Array(base.length + suffix.length);
+  bytes.set(base);
+  bytes.set(suffix, base.length);
+  const view = new DataView(bytes.buffer);
+  const table = view.getUint32(0x14, true);
+  view.setUint32(table + 4, view.getUint32(table + 4, true) + suffix.length, true);
+  view.setUint32(table + 12, bytes.length, true);
+  return bytes;
+}
+
+/** Original later-copy control rooted in the second CAJ page-table span. */
+export function syntheticLaterCopyCaj(broken = false) {
+  const base = syntheticCaj();
+  const text = new TextEncoder();
+  const table = 0x400;
+  const start = table + 24;
+  const original = new TextDecoder().decode(base.subarray(start));
+  const split = original.indexOf("4 0 obj");
+  const first = text.encode(original.slice(0, split) + `7 0 obj\n<< /Type /Ex${broken ? "b" : "a"}\n` +
+    "8 0 obj\n<< /Length 600 >>\nstream\nZZZZZ\n");
+  const second = text.encode(original.slice(split) + "7 0 obj\n<< /Type /Example /Values [3 9] >>\nendobj\n" +
+    `8 0 obj\n<< /Length 600 >>\nstream\n${"Z".repeat(600)}\nendstream\nendobj\n`);
+  const bytes = new Uint8Array(start + first.length + second.length);
+  bytes.set(base.subarray(0, start));
+  bytes.set(first, start);
+  bytes.set(second, start + first.length);
+  const view = new DataView(bytes.buffer);
+  view.setUint32(table + 4, first.length, true);
+  view.setUint32(table + 12, start + first.length, true);
+  view.setUint32(table + 16, second.length, true);
+  return bytes;
+}
+
 /**
  * A valid one-page PDF whose content stream is about `streamBytes` long, as
  * Blob parts that repeat one small chunk (the test never builds one array).

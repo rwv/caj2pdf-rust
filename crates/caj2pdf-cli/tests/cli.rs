@@ -465,6 +465,72 @@ fn malformed_and_unsupported_inputs_leave_no_output() {
 }
 
 #[test]
+fn caj_prefix_recovery_preserves_pages_and_cleans_up_after_a_later_failure() {
+    fn append(bytes: &mut Vec<u8>, fragment: &[u8]) {
+        bytes.extend_from_slice(fragment);
+        let table = u32::from_le_bytes(bytes[0x14..0x18].try_into().unwrap()) as usize;
+        let body = u32::from_le_bytes(bytes[table..table + 4].try_into().unwrap());
+        let end = bytes.len() as u32;
+        put_u32(bytes, table + 4, end - body);
+        put_u32(bytes, table + 12, end);
+        put_u32(bytes, table + 24, end);
+    }
+
+    let scratch = Scratch::new("caj-prefix-cleanup");
+    let mut bytes = caj(OUTLINE);
+    append(
+        &mut bytes,
+        b"9 0 obj\n<< /Type /Page /Parent\n10 0 obj<< /Box [1 3 9] >>endobj\n10 0 obj<< /Box [\n11 0 obj null endobj\n12 0 \r\n12 0 obj null endobj\n",
+    );
+    scratch.write("recovered.caj", &bytes);
+    assert_success(&scratch.run(["recovered.caj", "-o", "recovered.pdf"]));
+    assert_eq!(validate_pdf(&scratch.path("recovered.pdf")).0, 3);
+    let boxes = tool(
+        "mutool",
+        &[
+            OsStr::new("show"),
+            scratch.path("recovered.pdf").as_os_str(),
+            OsStr::new("pages/1/MediaBox"),
+            OsStr::new("pages/2/MediaBox"),
+            OsStr::new("pages/3/MediaBox"),
+        ],
+    );
+    assert_eq!(
+        boxes.split_whitespace().collect::<Vec<_>>(),
+        "[ 0 0 200 100 ] [ 0 0 300 150 ] [ 0 0 400 250 ]"
+            .split_whitespace()
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(fs::read(scratch.path("recovered.caj")).unwrap(), bytes);
+
+    let invalid_offset = bytes.len() + b"13 0 obj<< /Fail ".len();
+    append(&mut bytes, b"13 0 obj<< /Fail @ >>endobj\n");
+    scratch.write("broken.caj", &bytes);
+    scratch.write("keep.pdf", b"existing destination");
+    let message = format!("at byte {invalid_offset}: invalid PDF value token");
+    for args in [
+        vec!["broken.caj", "-o", "new.pdf"],
+        vec!["broken.caj", "-o", "keep.pdf", "--force"],
+    ] {
+        assert_failure(&scratch.run(args), 1, &message);
+    }
+    assert_failure(
+        &scratch.run_with_stdin(&["-", "-o", "spooled.pdf"], &bytes),
+        1,
+        &message,
+    );
+    assert_eq!(fs::read(scratch.path("broken.caj")).unwrap(), bytes);
+    assert_eq!(
+        fs::read(scratch.path("keep.pdf")).unwrap(),
+        b"existing destination"
+    );
+    assert_eq!(
+        scratch.entries(),
+        ["broken.caj", "keep.pdf", "recovered.caj", "recovered.pdf"]
+    );
+}
+
+#[test]
 fn output_errors_are_reported() {
     let scratch = Scratch::new("output-errors");
     scratch.write("paper.caj", &caj(OUTLINE));

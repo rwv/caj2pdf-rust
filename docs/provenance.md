@@ -1924,6 +1924,21 @@ document or converter source and includes no fonts, outlines or source text.
 The independent viewer observations and admitted limits are recorded in
 `docs/hnb-compact-index.md`. All external captures/documents remain outside Git.
 
+### Interrupted CAJ dictionary prefixes
+
+The bounded dictionary-prefix handling in `pdf/input/fragment_scan.rs` is
+original MIT code derived from independently observed source structure and
+byte comparisons against already validated objects. Its synthetic tests use
+invented dictionaries and values. No converter implementation or external
+source document content is copied. See `docs/caj-interrupted-objects.md` for
+the exact evidence, acceptance rule and remaining failures.
+
+The later-copy extension uses independently parsed CAJ page-table spans and
+original synthetic dictionaries/streams. Its final scan confirms every used
+candidate boundary, with explicit controls for conflicting copies and fake
+objects inside stream payloads. No other converter source or external document
+bytes supplied the implementation or fixtures. Discovery probes and actual
+source results remain outside Git; complete-document acceptance is still open.
 ### Additional C8 encoded-string framing (#242)
 
 `hnc8/native.rs`'s `80cc/01xx` extension, original Rust tests and
@@ -2079,3 +2094,34 @@ cancellation and dropped pending operations. Independent local qpdf,
 Poppler and fontTools checks concern these original fixtures only, not
 successful native C8 document conversion. Test exports and external fonts
 remain outside Git.
+
+### CAJ deferred prefix validation
+
+The additional interrupted-header, dictionary/array/scalar-prefix and known
+stream-dictionary rules in `pdf/input/fragment_scan.rs` are original MIT work
+based on independent byte comparisons in the hash-pinned CAJ inputs. No Python,
+Go or vendor implementation was copied or translated. Synthetic positive and
+negative controls use invented PDF objects and payloads; external documents and
+the issue-92 PDF/render receipts remain outside Git. See
+[caj-interrupted-objects.md](caj-interrupted-objects.md) for bounded proof rules
+and the distinction between complete conversion and pending viewer fidelity.
+
+### CAJ cross-row candidate regression
+
+The original three-span candidate fixture in `pdf/input/fragment_scan.rs`
+uses invented dictionaries and a repeated synthetic stream payload. It models
+the independently observed issue-30 row dependency recorded in
+`docs/caj-interrupted-objects.md`; no source content is copied. Candidate
+collection reuses the original scanner, with deferred references always
+validated by the final complete-fragment path.
+
+### Original ASCII85 stream extent validation
+
+`pdf/input/fragment_scan/ascii85.rs` is an original MIT implementation of the
+ASCII85 framing and invalid-input rules in ISO 32000 section 7.4.3, checked
+against Adobe's [PDF reference](https://opensource.adobe.com/dc-acrobat-sdk-docs/pdfstandards/pdfreference1.5_v6.pdf)
+and the PDF Association's [approved syntax errata](https://pdf-issues.pdfa.org/32000-2-2020/clause07.html#743-ascii85decode-filter).
+It validates groups and the end marker without retaining decoded bytes. Tests
+use invented short encodings and malformed variants, not copied converter
+implementation or external document payloads. Decoded work shares the existing
+scan budget; final referenced Length validation is unchanged.

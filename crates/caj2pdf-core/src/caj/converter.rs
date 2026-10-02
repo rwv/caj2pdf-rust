@@ -5,8 +5,9 @@
 use super::parse_metadata;
 use crate::fallible::{checked_read_count, reserve, reserve_exact};
 use crate::pdf::input::{
-    FragmentKind, LinkDestinationTarget, LinkRepairCandidate, LinkRepairKind, PatchedSource,
-    inspect_fragment_object, inspect_link_destination_candidate, scan_fragment_objects,
+    FragmentCandidate, FragmentKind, FragmentScan, LinkDestinationTarget, LinkRepairCandidate,
+    LinkRepairKind, PatchedSource, collect_fragment_candidates, inspect_fragment_object,
+    inspect_link_destination_candidate, scan_fragment_with_candidates,
 };
 use crate::pdf::{
     FragmentObject, FragmentPlan, PdfRange, PdfRef, reconstruct_fragment_with_bookmarks,
@@ -380,6 +381,89 @@ fn push_synthetic(
     Ok(())
 }
 
+/// Retry a malformed fragment using only independently parsed page-table
+/// spans. No payload is searched for headers, and the full scan must confirm
+/// every candidate used. All attempts share one decompression-work counter.
+async fn scan_caj_objects<S: RangedSource, C: Cancellation>(
+    source: &mut S,
+    metadata: &super::CajMetadata,
+    limits: &Limits,
+    cancellation: &C,
+) -> Result<FragmentScan> {
+    let mut inflated_bytes = 0;
+    let original_error = match scan_fragment_with_candidates(
+        source,
+        metadata.body_start,
+        metadata.body_end_hint,
+        limits,
+        cancellation,
+        &mut [],
+        &mut inflated_bytes,
+    )
+    .await
+    {
+        Ok(scan) => return Ok(scan),
+        Err(
+            error @ Error::Pdf {
+                kind: PdfErrorKind::Malformed,
+                ..
+            },
+        ) => error,
+        Err(error) => return Err(error),
+    };
+    let mut candidates = Vec::new();
+    for row in metadata
+        .page_rows
+        .iter()
+        .skip(1)
+        .filter(|row| row.length != 0)
+    {
+        let objects = match collect_fragment_candidates(
+            source,
+            row.offset,
+            row.offset + row.length,
+            limits,
+            cancellation,
+            &mut inflated_bytes,
+        )
+        .await
+        {
+            Ok(objects) => objects,
+            Err(Error::Pdf { .. }) => continue,
+            Err(error) => return Err(error),
+        };
+        if !objects.first().is_some_and(|object| {
+            object.reference.number == row.page_object_id && object.reference.generation == 0
+        }) {
+            continue;
+        }
+        let bytes = ((candidates.len() + objects.len()) as u64)
+            .saturating_mul(size_of::<FragmentCandidate>() as u64);
+        limits.check_allocation(bytes)?;
+        let refused = limits.allocation_refused("CAJ recovery candidate index", bytes);
+        reserve(&mut candidates, objects.len(), refused)?;
+        candidates.extend(objects.into_iter().map(|object| FragmentCandidate {
+            object,
+            used: false,
+        }));
+    }
+    if candidates.is_empty() {
+        return Err(original_error);
+    }
+    candidates.sort_unstable_by_key(|candidate| candidate.object.range.offset);
+    candidates.dedup_by_key(|candidate| candidate.object.range.offset);
+    scan_fragment_with_candidates(
+        source,
+        metadata.body_start,
+        metadata.body_end_hint,
+        limits,
+        cancellation,
+        &mut candidates,
+        &mut inflated_bytes,
+    )
+    .await
+}
+
 /// Convert a CAJ source to a forward-only PDF sink. The source must support
 /// stable positioned reads. Page payloads are never materialized in a `Vec`;
 /// only page/outline metadata, object positions, and small missing page-tree
@@ -396,14 +480,7 @@ pub async fn convert_caj<S: RangedSource, W: SequentialSink, C: Cancellation>(
         bytes_read: 0,
     };
     let metadata = parse_metadata(&mut counted, limits, cancellation).await?;
-    let mut scan = scan_fragment_objects(
-        &mut counted,
-        metadata.body_start,
-        metadata.body_end_hint,
-        limits,
-        cancellation,
-    )
-    .await?;
+    let mut scan = scan_caj_objects(&mut counted, &metadata, limits, cancellation).await?;
     let mut objects = std::mem::take(&mut scan.objects);
     let source_object_count = objects.len();
     // `parse_metadata` admitted the larger page-row index under the same
