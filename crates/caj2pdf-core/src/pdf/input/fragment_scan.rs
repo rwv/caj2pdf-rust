@@ -126,6 +126,39 @@ pub(crate) async fn scan_fragment_objects<S: RangedSource, C: Cancellation>(
     .await
 }
 
+/// Collect locally framed candidates from an anchored row. Deferred prefixes
+/// and indirect Length references are proved by the final whole-fragment scan,
+/// never by this index. Framed stream extents still require codec validation.
+pub(crate) async fn collect_fragment_candidates<S: RangedSource, C: Cancellation>(
+    source: &mut S,
+    start: u64,
+    end: u64,
+    limits: &Limits,
+    cancellation: &C,
+    inflated_bytes: &mut u64,
+) -> Result<Vec<FragmentObject>> {
+    let scan = scan_fragment(
+        source,
+        start,
+        end,
+        limits,
+        cancellation,
+        ScanMode::Candidates,
+        inflated_bytes,
+    )
+    .await?;
+    Ok(if scan.patches.is_empty() {
+        scan.objects
+    } else {
+        Vec::new()
+    })
+}
+
+enum ScanMode<'a> {
+    Complete(&'a mut [FragmentCandidate]),
+    Candidates,
+}
+
 /// Scan indirect objects with the existing PDF syntax parser, advancing over
 /// stream payloads by `/Length` rather than searching them for object markers.
 /// Supported indirect lengths are measured from zlib, JPEG or Group-4 framing
@@ -143,6 +176,31 @@ pub(crate) async fn scan_fragment_with_candidates<S: RangedSource, C: Cancellati
     candidates: &mut [FragmentCandidate],
     inflated_bytes: &mut u64,
 ) -> Result<FragmentScan> {
+    scan_fragment(
+        source,
+        body_start,
+        minimum_end,
+        limits,
+        cancellation,
+        ScanMode::Complete(candidates),
+        inflated_bytes,
+    )
+    .await
+}
+
+async fn scan_fragment<S: RangedSource, C: Cancellation>(
+    source: &mut S,
+    body_start: u64,
+    minimum_end: u64,
+    limits: &Limits,
+    cancellation: &C,
+    mode: ScanMode<'_>,
+    inflated_bytes: &mut u64,
+) -> Result<FragmentScan> {
+    let (candidates, verify_document) = match mode {
+        ScanMode::Complete(candidates) => (candidates, true),
+        ScanMode::Candidates => (&mut [][..], false),
+    };
     limits.validate()?;
     if body_start >= minimum_end || minimum_end > source.size() {
         return Err(Error::Caj {
@@ -524,39 +582,41 @@ pub(crate) async fn scan_fragment_with_candidates<S: RangedSource, C: Cancellati
         }
     }
     objects.truncate(kept);
-    for prefix in pending_prefixes {
-        let original = objects
-            .binary_search_by_key(&prefix.reference, |object| object.reference)
-            .ok()
-            .map(|index| objects[index]);
-        let failure = reader.problem(
-            prefix.range.offset - body_start,
-            Some(prefix.reference),
-            PdfErrorKind::Malformed,
-            "interrupted prefix has no exact complete counterpart",
-        );
-        let Some(original) = original else {
-            return Err(failure);
-        };
-        if original.range.offset <= prefix.range.offset
-            || prefix.range.length >= original.range.length
-        {
-            return Err(failure);
-        }
-        let partial = reader
-            .bytes(
+    if verify_document {
+        for prefix in pending_prefixes {
+            let original = objects
+                .binary_search_by_key(&prefix.reference, |object| object.reference)
+                .ok()
+                .map(|index| objects[index]);
+            let failure = reader.problem(
                 prefix.range.offset - body_start,
-                prefix.range.length as usize,
-            )
-            .await?;
-        let complete = reader
-            .bytes(
-                original.range.offset - body_start,
-                prefix.range.length as usize,
-            )
-            .await?;
-        if partial != complete {
-            return Err(failure);
+                Some(prefix.reference),
+                PdfErrorKind::Malformed,
+                "interrupted prefix has no exact complete counterpart",
+            );
+            let Some(original) = original else {
+                return Err(failure);
+            };
+            if original.range.offset <= prefix.range.offset
+                || prefix.range.length >= original.range.length
+            {
+                return Err(failure);
+            }
+            let partial = reader
+                .bytes(
+                    prefix.range.offset - body_start,
+                    prefix.range.length as usize,
+                )
+                .await?;
+            let complete = reader
+                .bytes(
+                    original.range.offset - body_start,
+                    prefix.range.length as usize,
+                )
+                .await?;
+            if partial != complete {
+                return Err(failure);
+            }
         }
     }
     objects.sort_unstable_by_key(|object| object.range.offset);
@@ -565,13 +625,15 @@ pub(crate) async fn scan_fragment_with_candidates<S: RangedSource, C: Cancellati
         patches,
         lengths,
     };
-    for (target, actual) in pending_lengths {
-        if scan.resolve_length(target) != Some(actual) {
-            return Err(reader.malformed(
-                0,
-                Some(target),
-                "indirect stream Length does not match its integer object",
-            ));
+    if verify_document {
+        for (target, actual) in pending_lengths {
+            if scan.resolve_length(target) != Some(actual) {
+                return Err(reader.malformed(
+                    0,
+                    Some(target),
+                    "indirect stream Length does not match its integer object",
+                ));
+            }
         }
     }
     Ok(scan)
@@ -2024,6 +2086,121 @@ mod candidate_tests {
             candidates,
             &mut 0,
         ))
+    }
+
+    #[test]
+    fn patched_rows_do_not_supply_recovery_candidates() {
+        let bytes = b"1 0 obj << /Length 3 >> stream\nabcdef\nendstream\nendobj\n".to_vec();
+        let end = bytes.len() as u64;
+        let mut source = SeekableSource::new(Cursor::new(bytes)).unwrap();
+        let scan = run(scan_fragment_objects(
+            &mut source,
+            0,
+            end,
+            &Limits::default(),
+            &NEVER,
+        ))
+        .unwrap();
+        assert_eq!(scan.patches.len(), 1);
+        assert!(
+            run(collect_fragment_candidates(
+                &mut source,
+                0,
+                end,
+                &Limits::default(),
+                &NEVER,
+                &mut 0
+            ))
+            .unwrap()
+            .is_empty()
+        );
+    }
+
+    #[test]
+    fn candidate_stream_lengths_are_still_verified_by_the_complete_scan() {
+        let mut bytes = b"8 0 obj << /Length 12 0 R /Filter /DCTDecode >> stream\n".to_vec();
+        bytes.extend_from_slice(&[0xff, 0xd8, 0xff, 0xda, 0, 2, 7, 0xff, 0xd9]);
+        bytes.extend_from_slice(b"\nendstream\nendobj\n");
+        let end = bytes.len() as u64;
+        let mut source = SeekableSource::new(Cursor::new(bytes.clone())).unwrap();
+        assert_eq!(
+            run(collect_fragment_candidates(
+                &mut source,
+                0,
+                end,
+                &Limits::default(),
+                &NEVER,
+                &mut 0
+            ))
+            .unwrap()
+            .len(),
+            1
+        );
+        assert!(scan(bytes.clone(), &mut []).is_err());
+        let mut valid = bytes.clone();
+        valid.extend_from_slice(b"12 0 obj 9 endobj\n");
+        assert_eq!(scan(valid, &mut []).unwrap().objects.len(), 2);
+        bytes.extend_from_slice(b"12 0 obj 8 endobj\n");
+        assert!(scan(bytes, &mut []).is_err());
+    }
+
+    #[test]
+    fn anchored_candidates_can_depend_on_a_later_row_prefix_proof() {
+        let header = b"8 0 obj << /Length 600 >> stream\n";
+        let mut bytes = header.to_vec();
+        bytes.extend_from_slice(b"ZZZZZ\n");
+        let row_start = bytes.len() as u64;
+        bytes.extend_from_slice(b"9 0 obj 42 endobj\n");
+        bytes.extend_from_slice(PREFIX);
+        bytes.extend_from_slice(b"10 0 obj 13 endobj\n");
+        bytes.extend_from_slice(header);
+        bytes.extend_from_slice(&[b'Z'; 600]);
+        bytes.extend_from_slice(b"\nendstream\nendobj\n");
+        let row_end = bytes.len() as u64;
+        bytes.extend_from_slice(ORIGINAL);
+        let mut source = SeekableSource::new(Cursor::new(bytes.clone())).unwrap();
+        // A row alone is not a complete verified document: object 7 is later.
+        assert!(
+            run(scan_fragment_objects(
+                &mut source,
+                row_start,
+                row_end,
+                &Limits::default(),
+                &NEVER
+            ))
+            .is_err()
+        );
+        let objects = run(collect_fragment_candidates(
+            &mut source,
+            row_start,
+            row_end,
+            &Limits::default(),
+            &NEVER,
+            &mut 0,
+        ))
+        .unwrap();
+        assert_eq!(
+            objects
+                .iter()
+                .map(|o| o.reference.number)
+                .collect::<Vec<_>>(),
+            [9, 10, 8]
+        );
+        let mut candidates: Vec<_> = objects
+            .into_iter()
+            .map(|object| FragmentCandidate {
+                object,
+                used: false,
+            })
+            .collect();
+        assert_eq!(
+            scan(bytes.clone(), &mut candidates).unwrap().objects.len(),
+            4
+        );
+        assert!(candidates.iter().any(|candidate| candidate.used));
+        // Collection must never waive proof on the final whole fragment.
+        bytes.truncate(row_end as usize);
+        assert!(scan(bytes, &mut candidates).is_err());
     }
 
     #[test]

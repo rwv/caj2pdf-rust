@@ -2907,7 +2907,8 @@ mod fragment_scan;
 #[cfg(test)]
 pub(crate) use fragment_scan::scan_fragment_objects;
 pub(crate) use fragment_scan::{
-    FragmentCandidate, FragmentScan, PatchedSource, scan_fragment_with_candidates,
+    FragmentCandidate, FragmentScan, PatchedSource, collect_fragment_candidates,
+    scan_fragment_with_candidates,
 };
 
 #[cfg(test)]

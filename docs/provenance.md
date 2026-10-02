@@ -2105,3 +2105,12 @@ negative controls use invented PDF objects and payloads; external documents and
 the issue-92 PDF/render receipts remain outside Git. See
 [caj-interrupted-objects.md](caj-interrupted-objects.md) for bounded proof rules
 and the distinction between complete conversion and pending viewer fidelity.
+
+### CAJ cross-row candidate regression
+
+The original three-span candidate fixture in `pdf/input/fragment_scan.rs`
+uses invented dictionaries and a repeated synthetic stream payload. It models
+the independently observed issue-30 row dependency recorded in
+`docs/caj-interrupted-objects.md`; no source content is copied. Candidate
+collection reuses the original scanner, with deferred references always
+validated by the final complete-fragment path.

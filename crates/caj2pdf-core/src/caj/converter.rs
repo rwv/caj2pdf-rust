@@ -6,8 +6,8 @@ use super::parse_metadata;
 use crate::fallible::{checked_read_count, reserve, reserve_exact};
 use crate::pdf::input::{
     FragmentCandidate, FragmentKind, FragmentScan, LinkDestinationTarget, LinkRepairCandidate,
-    LinkRepairKind, PatchedSource, inspect_fragment_object, inspect_link_destination_candidate,
-    scan_fragment_with_candidates,
+    LinkRepairKind, PatchedSource, collect_fragment_candidates, inspect_fragment_object,
+    inspect_link_destination_candidate, scan_fragment_with_candidates,
 };
 use crate::pdf::{
     FragmentObject, FragmentPlan, PdfRange, PdfRef, reconstruct_fragment_with_bookmarks,
@@ -418,34 +418,31 @@ async fn scan_caj_objects<S: RangedSource, C: Cancellation>(
         .skip(1)
         .filter(|row| row.length != 0)
     {
-        let scan = match scan_fragment_with_candidates(
+        let objects = match collect_fragment_candidates(
             source,
             row.offset,
             row.offset + row.length,
             limits,
             cancellation,
-            &mut [],
             &mut inflated_bytes,
         )
         .await
         {
-            Ok(scan) => scan,
+            Ok(objects) => objects,
             Err(Error::Pdf { .. }) => continue,
             Err(error) => return Err(error),
         };
-        if !scan.patches.is_empty()
-            || !scan.objects.first().is_some_and(|object| {
-                object.reference.number == row.page_object_id && object.reference.generation == 0
-            })
-        {
+        if !objects.first().is_some_and(|object| {
+            object.reference.number == row.page_object_id && object.reference.generation == 0
+        }) {
             continue;
         }
-        let bytes = ((candidates.len() + scan.objects.len()) as u64)
+        let bytes = ((candidates.len() + objects.len()) as u64)
             .saturating_mul(size_of::<FragmentCandidate>() as u64);
         limits.check_allocation(bytes)?;
         let refused = limits.allocation_refused("CAJ recovery candidate index", bytes);
-        reserve(&mut candidates, scan.objects.len(), refused)?;
-        candidates.extend(scan.objects.into_iter().map(|object| FragmentCandidate {
+        reserve(&mut candidates, objects.len(), refused)?;
+        candidates.extend(objects.into_iter().map(|object| FragmentCandidate {
             object,
             used: false,
         }));

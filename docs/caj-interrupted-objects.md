@@ -324,3 +324,27 @@ In issue-30, partial object 7461 at 1254841 matches its complete object at
 fails. The two observed 15446 headers at 1454773 and 1603523 are diagnostic
 candidates, not yet proof of a complete later object. No final PDF is produced.
 Receipts remain external in `issue-30-known-integer.json`.
+
+## Cross-row candidate collection
+
+Anchored row collection now shares the same scanner with complete-fragment
+validation, but returns only candidate object metadata. Locally framed stream
+extents still require normal syntax/codec checks, and patched rows supply no
+candidates. Deferred prefix and indirect Length references may leave the row;
+those obligations are checked by the complete-fragment scan before conversion.
+The public internal complete-scan entry point always enables those checks.
+Every used candidate must still appear at its exact reference and byte range
+in that complete forward scan; a locally plausible object inside an opaque
+stream cannot justify a repair. No iterative repair scheduler is introduced.
+
+An original three-span regression covers a truncated stream in the first span,
+its complete copy in a second span, and a dictionary counterpart required by
+the second span in the third. Removing that counterpart still fails final
+validation. Separate controls cover unresolved/mismatched cross-row Length
+references and exclusion of patched rows.
+
+This admits the previously blocked issue-30 JPEG candidate at 1603523 and
+advances conversion to byte 1819762, object 7566 (invalid Flate framing). It
+does not complete that document. Issue-92 retains its identical 58-page PDF
+and passing qpdf result (`issue-92-cross-row-regression.json`, external).
+All other existing final validation and resource budgets remain active.
