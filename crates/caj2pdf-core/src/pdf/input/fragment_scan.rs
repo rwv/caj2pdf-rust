@@ -593,9 +593,25 @@ async fn interrupted_syntax_prefix<S: RangedSource, C: Cancellation>(
     else {
         return Ok(None);
     };
-    let end = offset.saturating_sub(reader.range.offset);
+    let mut end = offset.saturating_sub(reader.range.offset);
     if end <= start || end - start > 256 {
         return Ok(None);
+    }
+    // A dictionary cut between the two closing brackets reports its first
+    // bracket as the invalid name. Retain that byte in the exact prefix proof.
+    if reader.byte(end).await? == Some(b'>') {
+        end += 1;
+        while end - start <= 256
+            && reader
+                .byte(end)
+                .await?
+                .is_some_and(|byte| byte.is_ascii_whitespace())
+        {
+            end += 1;
+        }
+        if end - start > 256 {
+            return Ok(None);
+        }
     }
     let bytes = reader.bytes(start, (end - start) as usize).await?;
     let Some((reference, _)) = replay_prefix(&bytes) else {
@@ -2076,6 +2092,15 @@ mod candidate_tests {
         let bytes = b"7 0 obj << /Box [1 3\n8 0 obj 42 endobj\n7 0 obj << /Box [1 3 9] >> endobj\n"
             .to_vec();
         assert_eq!(scan(bytes, &mut []).unwrap().objects.len(), 2);
+        let cut = b"7 0 obj << /Value 3 >\r\n8 0 obj 42 endobj\n7 0 obj << /Value 3 >> endobj\n";
+        assert_eq!(scan(cut.to_vec(), &mut []).unwrap().objects.len(), 2);
+        let changed =
+            b"7 0 obj << /Value 3 >\r\n8 0 obj 42 endobj\n7 0 obj << /Value 4 >> endobj\n";
+        assert!(scan(changed.to_vec(), &mut []).is_err());
+        let mut padded = b"7 0 obj << /Value 3 >".to_vec();
+        padded.extend_from_slice(&[b' '; 257]);
+        padded.extend_from_slice(&cut[22..]);
+        assert!(scan(padded, &mut []).is_err());
         let mut fake = PREFIX.to_vec();
         fake.extend_from_slice(
             format!("8 0 obj << /Length {} >> stream\n", ORIGINAL.len()).as_bytes(),

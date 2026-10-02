@@ -242,3 +242,26 @@ validation. The 41 Node/Chromium tests pass without skips against freshly built
 WASM, including original fixtures that require anchored stream recovery as well
 as deferred dictionary proof. Hosted CI and the final reviewed commit remain
 separate release gates.
+
+### Split closing dictionary delimiter
+
+Issue-30 object 66 begins at 463816 and stops after the first `>` of `>>`;
+the parser reports 463864, and the next complete object begins at 463867.
+The same-reference object at 888798 has an identical 49-byte prefix. The
+deferred proof now retains that closing bracket and skips only immediately
+following ASCII whitespace, within the same 256-byte bound, before attempting
+normal object parsing. The final full-scan counterpart check remains mandatory.
+Original controls cover this split, changed dictionary content and excessive
+whitespace; the complete Rust gate covers 32,288/32,288 lines, 100% per file.
+
+The original issue-30 now stops at 966008 on another unfinished header
+(`7422` without its generation/keyword); no final PDF is created. A later
+7422 header at 1131327 is an observation for subsequent investigation, not
+yet an admitted recovery rule. External source hash, exact offsets and prefix
+equality are recorded in `issue-30-split-bracket.json` beside the earlier
+receipts. Issue-25's unfinished 430 header has no exact `430 0 obj` occurrence
+in the independent byte inventory; this does not establish irrecoverability.
+
+The fresh release WASM build and 41 Node/Chromium tests pass without skips.
+Re-running issue-92 with this change produces the identical PDF SHA256 recorded
+above and again passes qpdf, preserving the first complete-source result.
