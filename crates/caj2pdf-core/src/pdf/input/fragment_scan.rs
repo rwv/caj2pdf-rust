@@ -99,6 +99,33 @@ impl<S: RangedSource> RangedSource for PatchedSource<'_, S> {
 const MAX_FRAGMENT_TAIL_EXTENSION: u64 = 64 * 1024;
 const MAX_STREAM_LENGTH_REPAIR: u64 = 64;
 
+/// Independently framed object; `used` requires confirmation by the full scan.
+#[derive(Clone, Copy)]
+pub(crate) struct FragmentCandidate {
+    pub object: FragmentObject,
+    pub used: bool,
+}
+
+#[cfg(test)]
+pub(crate) async fn scan_fragment_objects<S: RangedSource, C: Cancellation>(
+    source: &mut S,
+    body_start: u64,
+    minimum_end: u64,
+    limits: &Limits,
+    cancellation: &C,
+) -> Result<FragmentScan> {
+    scan_fragment_with_candidates(
+        source,
+        body_start,
+        minimum_end,
+        limits,
+        cancellation,
+        &mut [],
+        &mut 0,
+    )
+    .await
+}
+
 /// Scan indirect objects with the existing PDF syntax parser, advancing over
 /// stream payloads by `/Length` rather than searching them for object markers.
 /// Supported indirect lengths are measured from zlib, JPEG or Group-4 framing
@@ -106,12 +133,14 @@ const MAX_STREAM_LENGTH_REPAIR: u64 = 64;
 /// A narrowly bounded repair accepts a unique nearby `endstream`/`endobj`
 /// delimiter when a direct length is understated. An ambiguous marker is an
 /// error. Bytes after the complete final object are excluded from the plan.
-pub(crate) async fn scan_fragment_objects<S: RangedSource, C: Cancellation>(
+pub(crate) async fn scan_fragment_with_candidates<S: RangedSource, C: Cancellation>(
     source: &mut S,
     body_start: u64,
     minimum_end: u64,
     limits: &Limits,
     cancellation: &C,
+    candidates: &mut [FragmentCandidate],
+    inflated_bytes: &mut u64,
 ) -> Result<FragmentScan> {
     limits.validate()?;
     if body_start >= minimum_end || minimum_end > source.size() {
@@ -137,7 +166,6 @@ pub(crate) async fn scan_fragment_objects<S: RangedSource, C: Cancellation>(
     let mut patches = Vec::new();
     let mut lengths = Vec::new();
     let mut pending_lengths = Vec::new();
-    let mut inflated_bytes = 0_u64;
     let mut cursor = 0_u64;
     let mut final_object_repaired = false;
     let minimum_relative = minimum_end - body_start;
@@ -177,6 +205,10 @@ pub(crate) async fn scan_fragment_objects<S: RangedSource, C: Cancellation>(
                     continue;
                 }
                 if let Some(end) = adjacent_header_end(&mut reader, start, &error).await? {
+                    cursor = end;
+                    continue;
+                }
+                if let Some(end) = candidate_prefix_end(&mut reader, start, candidates).await? {
                     cursor = end;
                     continue;
                 }
@@ -223,7 +255,7 @@ pub(crate) async fn scan_fragment_objects<S: RangedSource, C: Cancellation>(
                     let measured = match dictionary.value(b"Filter").and_then(exact_name).as_deref()
                     {
                         Some(b"FlateDecode") => {
-                            flate_extent(&mut reader, data_at, reference, &mut inflated_bytes).await
+                            flate_extent(&mut reader, data_at, reference, inflated_bytes).await
                         }
                         Some(b"DCTDecode") => jpeg::extent(&mut reader, data_at, reference).await,
                         Some(b"CCITTFaxDecode") => {
@@ -233,7 +265,7 @@ pub(crate) async fn scan_fragment_objects<S: RangedSource, C: Cancellation>(
                                 reference,
                                 dictionary,
                                 start + head.dictionary_start.expect("stream dictionary") as u64,
-                                &mut inflated_bytes,
+                                inflated_bytes,
                             )
                             .await
                         }
@@ -260,6 +292,12 @@ pub(crate) async fn scan_fragment_objects<S: RangedSource, C: Cancellation>(
                                 cursor = end;
                                 continue 'objects;
                             }
+                            if let Some(end) =
+                                candidate_prefix_end(&mut reader, start, candidates).await?
+                            {
+                                cursor = end;
+                                continue 'objects;
+                            }
                             return Err(error);
                         }
                         Err(error) => return Err(error),
@@ -278,7 +316,26 @@ pub(crate) async fn scan_fragment_objects<S: RangedSource, C: Cancellation>(
                 let tail = reader.check_stream_tail(after_data, Some(reference)).await;
                 let end = if indirect.is_none() && is_malformed(&tail) {
                     let (corrected_length, corrected_end) =
-                        repair_stream_length(&mut reader, after_data, data_at, reference).await?;
+                        match repair_stream_length(&mut reader, after_data, data_at, reference)
+                            .await
+                        {
+                            Ok(repair) => repair,
+                            Err(
+                                error @ Error::Pdf {
+                                    kind: PdfErrorKind::Malformed,
+                                    ..
+                                },
+                            ) => {
+                                if let Some(end) =
+                                    candidate_prefix_end(&mut reader, start, candidates).await?
+                                {
+                                    cursor = end;
+                                    continue 'objects;
+                                }
+                                return Err(error);
+                            }
+                            Err(error) => return Err(error),
+                        };
                     let original = value.to_vec();
                     let replacement = corrected_length.to_string().into_bytes();
                     if original.len() != replacement.len() {
@@ -389,6 +446,24 @@ pub(crate) async fn scan_fragment_objects<S: RangedSource, C: Cancellation>(
         return Err(reader.malformed(0, None, "conflicting fragment integer objects"));
     }
     lengths.dedup();
+    // A candidate reached through a container anchor may actually be inside a
+    // stream. Only the complete forward parse establishes its object boundary.
+    for candidate in candidates.iter().filter(|candidate| candidate.used) {
+        let object = candidate.object;
+        let confirmed = objects
+            .binary_search_by_key(&object.range.offset, |actual| actual.range.offset)
+            .is_ok_and(|index| {
+                objects[index].reference == object.reference && objects[index].range == object.range
+            });
+        if !confirmed {
+            return Err(reader.problem(
+                object.range.offset.saturating_sub(body_start),
+                Some(object.reference),
+                PdfErrorKind::AmbiguousRepair,
+                "recovery candidate is not a complete fragment object",
+            ));
+        }
+    }
     // Compact exact object replays in place, then restore source order. Compare
     // streams in bounded chunks; never buffer a complete replayed image.
     objects.sort_unstable_by_key(|object| (object.reference, object.range.offset));
@@ -442,6 +517,73 @@ pub(crate) async fn scan_fragment_objects<S: RangedSource, C: Cancellation>(
         }
     }
     Ok(scan)
+}
+
+/// Compare an interrupted object with a uniquely indexed later copy. A
+/// mismatch defines the only possible boundary; never search a payload for
+/// markers. The caller subsequently proves the copy is reached by the full scan.
+async fn candidate_prefix_end<S: RangedSource, C: Cancellation>(
+    reader: &mut Reader<'_, S, C>,
+    start: u64,
+    candidates: &mut [FragmentCandidate],
+) -> Result<Option<u64>> {
+    if candidates.is_empty() {
+        return Ok(None);
+    }
+    let bytes = reader
+        .bytes(start, 256.min(reader.range.length - start) as usize)
+        .await?;
+    let Some((reference, header_end)) = replay_prefix(&bytes) else {
+        return Ok(None);
+    };
+    let mut matches = candidates
+        .iter_mut()
+        .filter(|candidate| candidate.object.reference == reference);
+    let Some(candidate) = matches.next() else {
+        return Ok(None);
+    };
+    if matches.next().is_some() {
+        return Ok(None);
+    }
+    let original = candidate.object;
+    let Some(relative) = original.range.offset.checked_sub(reader.range.offset) else {
+        return Ok(None);
+    };
+    if relative <= start || original.range.length > reader.range.length.saturating_sub(relative) {
+        return Ok(None);
+    }
+    let original_bytes = reader
+        .bytes(
+            relative,
+            original.range.length.min(bytes.len() as u64) as usize,
+        )
+        .await?;
+    let shared = bytes
+        .iter()
+        .zip(&original_bytes)
+        .take_while(|(a, b)| a == b)
+        .count();
+    if shared <= header_end || shared as u64 >= original.range.length {
+        return Ok(None);
+    }
+    let mut boundary = shared;
+    while bytes.get(boundary).is_some_and(u8::is_ascii_whitespace) {
+        boundary += 1;
+    }
+    if !bytes.get(boundary).is_some_and(u8::is_ascii_digit) {
+        return Ok(None);
+    }
+    match reader.load_head(start + boundary as u64, None).await {
+        Ok(_) => {
+            candidate.used = true;
+            Ok(Some(start + boundary as u64))
+        }
+        Err(Error::Pdf {
+            kind: PdfErrorKind::Malformed,
+            ..
+        }) => Ok(None),
+        Err(error) => Err(error),
+    }
 }
 
 /// Admit only an unfinished `number 0` header immediately followed by its
@@ -1500,5 +1642,246 @@ mod tests {
             ),
             "{error}"
         );
+    }
+}
+
+#[cfg(test)]
+mod candidate_tests {
+    use super::*;
+    use crate::native::SeekableSource;
+    use crate::test_support::{NEVER, run};
+    use std::io::Cursor;
+
+    const ORIGINAL: &[u8] = b"7 0 obj\n<< /Type /Example /Values [3 9] >>\nendobj\n";
+    const PREFIX: &[u8] = b"7 0 obj\n<< /Type /Exa\n";
+    const NEXT: &[u8] = b"8 0 obj\n<< /Value 42 >>\nendobj\n";
+
+    fn candidate(offset: usize) -> FragmentCandidate {
+        FragmentCandidate {
+            object: FragmentObject {
+                reference: PdfRef {
+                    number: 7,
+                    generation: 0,
+                },
+                range: PdfRange {
+                    offset: offset as u64,
+                    length: (ORIGINAL.len() - 1) as u64,
+                },
+            },
+            used: false,
+        }
+    }
+
+    fn scan(bytes: Vec<u8>, candidates: &mut [FragmentCandidate]) -> Result<FragmentScan> {
+        let end = bytes.len() as u64;
+        let mut source = SeekableSource::new(Cursor::new(bytes)).unwrap();
+        run(scan_fragment_with_candidates(
+            &mut source,
+            0,
+            end,
+            &Limits {
+                io_chunk_bytes: 1,
+                ..Limits::default()
+            },
+            &NEVER,
+            candidates,
+            &mut 0,
+        ))
+    }
+
+    #[test]
+    fn later_dictionary_must_be_reached_at_its_exact_boundary() {
+        let mut bytes = [PREFIX, NEXT].concat();
+        let mut candidates = [candidate(bytes.len())];
+        bytes.extend_from_slice(ORIGINAL);
+        let result = scan(bytes, &mut candidates).unwrap();
+        assert!(candidates[0].used);
+        assert_eq!(result.objects.len(), 2);
+        assert_eq!(result.objects[1].range, candidates[0].object.range);
+
+        // An apparently valid candidate embedded inside a real opaque stream
+        // must not justify discarding an earlier interrupted object.
+        let mut bytes = PREFIX.to_vec();
+        bytes.extend_from_slice(
+            format!("8 0 obj\n<< /Length {} >>\nstream\n", ORIGINAL.len()).as_bytes(),
+        );
+        let mut candidates = [candidate(bytes.len())];
+        bytes.extend_from_slice(ORIGINAL);
+        bytes.extend_from_slice(b"\nendstream\nendobj\n");
+        assert!(matches!(
+            scan(bytes, &mut candidates),
+            Err(Error::Pdf {
+                kind: PdfErrorKind::AmbiguousRepair,
+                reason: "recovery candidate is not a complete fragment object",
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn candidate_recovery_rejects_changed_prefixes_and_conflicting_copies() {
+        let mut bytes = [PREFIX, NEXT].concat();
+        let offset = bytes.len();
+        bytes.extend_from_slice(ORIGINAL);
+        let mut conflicting = [candidate(offset), candidate(offset + 1)];
+        assert!(scan(bytes.clone(), &mut conflicting).is_err());
+        assert!(conflicting.iter().all(|c| !c.used));
+        for altered in *b"b!\0" {
+            let mut changed = bytes.clone();
+            changed[PREFIX.len() - 2] = altered;
+            let mut candidates = [candidate(offset)];
+            assert!(scan(changed, &mut candidates).is_err());
+            assert!(!candidates[0].used);
+        }
+    }
+    #[test]
+    fn later_flate_copy_replaces_only_the_matching_interruption() {
+        use std::io::Write;
+        let mut encoder =
+            flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
+        encoder
+            .write_all(b"Original bounded candidate recovery stream.")
+            .unwrap();
+        let encoded = encoder.finish().unwrap();
+        let header = b"7 0 obj\n<< /Length 9 0 R /Filter /FlateDecode >>\nstream\n";
+        let mut complete = header.to_vec();
+        complete.extend_from_slice(&encoded);
+        complete.extend_from_slice(b"\nendstream\nendobj");
+        let mut bytes = header.to_vec();
+        bytes.extend_from_slice(&encoded[..5]);
+        bytes.push(b'\n');
+        bytes.extend_from_slice(NEXT);
+        let mut candidates = [candidate(bytes.len())];
+        candidates[0].object.range.length = complete.len() as u64;
+        bytes.extend_from_slice(&complete);
+        bytes.extend_from_slice(format!("\n9 0 obj\n{}\nendobj\n", encoded.len()).as_bytes());
+        let result = scan(bytes, &mut candidates).unwrap();
+        assert!(candidates[0].used);
+        assert_eq!(result.objects.len(), 3);
+    }
+
+    #[test]
+    fn anchored_attempts_share_the_inflate_work_limit() {
+        use std::io::Write;
+        let mut encoder =
+            flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
+        encoder.write_all(&[b'X'; 200]).unwrap();
+        let encoded = encoder.finish().unwrap();
+        let mut bytes = b"1 0 obj\n<< /Length 2 0 R /Filter /FlateDecode >>\nstream\n".to_vec();
+        bytes.extend_from_slice(&encoded);
+        bytes.extend_from_slice(
+            format!("\nendstream\nendobj\n2 0 obj\n{}\nendobj", encoded.len()).as_bytes(),
+        );
+        let end = bytes.len() as u64;
+        let mut source = SeekableSource::new(Cursor::new(bytes)).unwrap();
+        let limits = Limits {
+            max_output_bytes: 300,
+            ..Limits::default()
+        };
+        let mut work = 0;
+        run(scan_fragment_with_candidates(
+            &mut source,
+            0,
+            end,
+            &limits,
+            &NEVER,
+            &mut [],
+            &mut work,
+        ))
+        .unwrap();
+        assert_eq!(work, 200);
+        assert!(matches!(
+            run(scan_fragment_with_candidates(
+                &mut source,
+                0,
+                end,
+                &limits,
+                &NEVER,
+                &mut [],
+                &mut work
+            )),
+            Err(Error::LimitExceeded {
+                resource: "CAJ Flate scan bytes",
+                ..
+            })
+        ));
+        assert_eq!(work, 400);
+    }
+    #[test]
+    fn later_direct_length_stream_has_a_bounded_prefix_recovery() {
+        let header = b"7 0 obj\n<< /Length 600 >>\nstream\n";
+        let mut complete = header.to_vec();
+        complete.extend_from_slice(&[b'Z'; 600]);
+        complete.extend_from_slice(b"\nendstream\nendobj");
+        let mut bytes = header.to_vec();
+        bytes.extend_from_slice(b"ZZZZZ\n");
+        bytes.extend_from_slice(NEXT);
+        let mut candidates = [candidate(bytes.len())];
+        candidates[0].object.range.length = complete.len() as u64;
+        bytes.extend_from_slice(&complete);
+        assert_eq!(scan(bytes, &mut candidates).unwrap().objects.len(), 2);
+        assert!(candidates[0].used);
+    }
+
+    #[test]
+    fn candidate_bounds_and_following_syntax_are_checked() {
+        fn probe(
+            bytes: Vec<u8>,
+            start: u64,
+            mut item: FragmentCandidate,
+            limit: u64,
+        ) -> Result<Option<u64>> {
+            let size = bytes.len() as u64;
+            let mut source = SeekableSource::new(Cursor::new(bytes)).unwrap();
+            let limits = Limits {
+                io_chunk_bytes: 1,
+                max_allocation_bytes: limit,
+                ..Limits::default()
+            };
+            let mut reader = Reader::new(
+                &mut source,
+                PdfRange {
+                    offset: start,
+                    length: size - start,
+                },
+                &limits,
+                &NEVER,
+            )
+            .unwrap();
+            run(candidate_prefix_end(
+                &mut reader,
+                0,
+                std::slice::from_mut(&mut item),
+            ))
+        }
+        let mut bytes = [PREFIX, NEXT].concat();
+        let at = bytes.len();
+        bytes.extend_from_slice(ORIGINAL);
+        let mut unknown = candidate(at);
+        unknown.object.reference.number = 99;
+        assert_eq!(probe(bytes.clone(), 0, unknown, 4096).unwrap(), None);
+        assert_eq!(probe(bytes.clone(), 0, candidate(0), 4096).unwrap(), None);
+        let mut shifted = vec![b' '; 10];
+        shifted.extend_from_slice(&bytes);
+        assert_eq!(probe(shifted, 10, candidate(0), 4096).unwrap(), None);
+        let mut no_header = bytes.clone();
+        no_header[0] = b'?';
+        assert_eq!(probe(no_header, 0, candidate(at), 4096).unwrap(), None);
+        let mut header_only = bytes.clone();
+        header_only[1] = b'\t';
+        assert_eq!(probe(header_only, 0, candidate(at), 4096).unwrap(), None);
+        let mut bad_next = bytes.clone();
+        bad_next[PREFIX.len() + 4] = b'x';
+        assert_eq!(probe(bad_next, 0, candidate(at), 4096).unwrap(), None);
+        let mut long = PREFIX.to_vec();
+        long.extend_from_slice(b"8 0 obj\n<< /Long (");
+        long.extend_from_slice(&[b'A'; 2000]);
+        long.extend_from_slice(b") >>\nendobj\n");
+        let at = long.len();
+        long.extend_from_slice(ORIGINAL);
+        assert!(matches!(
+            probe(long, 0, candidate(at), 512),
+            Err(Error::PdfLimitExceeded { .. })
+        ));
     }
 }

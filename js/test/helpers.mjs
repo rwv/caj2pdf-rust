@@ -89,6 +89,27 @@ export function syntheticRecoveredCaj(broken = false) {
   return bytes;
 }
 
+/** Original later-copy control rooted in the second CAJ page-table span. */
+export function syntheticLaterCopyCaj(broken = false) {
+  const base = syntheticCaj();
+  const text = new TextEncoder();
+  const table = 0x400;
+  const start = table + 24;
+  const original = new TextDecoder().decode(base.subarray(start));
+  const split = original.indexOf("4 0 obj");
+  const first = text.encode(original.slice(0, split) + `7 0 obj\n<< /Type /Ex${broken ? "b" : "a"}\n`);
+  const second = text.encode(original.slice(split) + "7 0 obj\n<< /Type /Example /Values [3 9] >>\nendobj\n");
+  const bytes = new Uint8Array(start + first.length + second.length);
+  bytes.set(base.subarray(0, start));
+  bytes.set(first, start);
+  bytes.set(second, start + first.length);
+  const view = new DataView(bytes.buffer);
+  view.setUint32(table + 4, first.length, true);
+  view.setUint32(table + 12, start + first.length, true);
+  view.setUint32(table + 16, second.length, true);
+  return bytes;
+}
+
 /**
  * A valid one-page PDF whose content stream is about `streamBytes` long, as
  * Blob parts that repeat one small chunk (the test never builds one array).

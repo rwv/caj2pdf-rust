@@ -161,3 +161,42 @@ object boundary. No such production recovery is admitted by this diagnostic.
 The temporary Rust probe was removed after execution. Source hashes match the
 matrix; receipts are `page-table-anchors.json`, `all-anchor-probe.log` and
 `all-anchor-summary.json` in the existing external evidence directory.
+
+### Candidate recovery implementation
+
+The draft now retries a malformed whole-fragment scan using complete later
+page-table span scans. It ignores unsuccessful spans and spans requiring Length
+patches, requires the first object to match the declared page ID, and retains
+only bounded object metadata. Cancellation, I/O and resource-limit failures
+propagate; decompression work is counted across the original scan, anchored
+attempts and final retry.
+
+A unique same-reference later candidate may justify an exact interrupted
+prefix of at most 256 bytes. Only the first differing byte and following
+whitespace define a possible next-object boundary; that boundary must parse
+normally. Before returning a successful scan, every used candidate must appear
+at its exact range and reference in the complete forward parse. A candidate
+inside another stream therefore fails, even if its local syntax is valid.
+Existing duplicate-object conflict checks and final document validation still
+apply. No source hash or external document byte is embedded in the rule.
+
+Original controls cover dictionary and direct/indirect stream interruptions,
+changed prefixes, conflicting candidates, a fake object inside an opaque
+stream, short reads, metadata limits and shared decompression work. A two-page
+public-API fixture produces the same PDF bytes as its unmodified counterpart;
+changed or incorrectly anchored variants fail before writing output.
+
+On the unchanged external sources, issue-25 now stops at 119435 (unfinished
+header), issue-30 at 221220 (missing object terminator), and issue-92 at 347103
+(another dictionary interruption). The other three retain their prior errors.
+All six still fail without publishing a final PDF. These newer results supersede
+the earlier stop offsets above, not the requirement for complete conversion.
+Receipts are in `caj2pdf-caj-candidate-recovery-20261002`.
+
+The current implementation passes the full Rust coverage gate (32,015/32,015
+lines, 100% per file), workspace all-target/all-feature Clippy and a fresh
+release WASM build. Node v24.13.0 and real Chromium tests pass 41 cases with
+zero skipped, including a Dedicated Worker later-copy success and changed-prefix
+rejection. Their original outputs pass the existing qpdf check. These results
+validate the recovery mechanism and adapters; the six external failures above
+remain open, and hosted platform gates are still required before merge.

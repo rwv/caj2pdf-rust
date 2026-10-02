@@ -2904,7 +2904,11 @@ pub(crate) async fn inspect_fragment_scalar<S: RangedSource, C: Cancellation>(
 
 mod fragment_scan;
 
-pub(crate) use fragment_scan::{PatchedSource, scan_fragment_objects};
+#[cfg(test)]
+pub(crate) use fragment_scan::scan_fragment_objects;
+pub(crate) use fragment_scan::{
+    FragmentCandidate, FragmentScan, PatchedSource, scan_fragment_with_candidates,
+};
 
 #[cfg(test)]
 mod tests;

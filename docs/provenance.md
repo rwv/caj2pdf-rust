@@ -1932,6 +1932,13 @@ byte comparisons against already validated objects. Its synthetic tests use
 invented dictionaries and values. No converter implementation or external
 source document content is copied. See `docs/caj-interrupted-objects.md` for
 the exact evidence, acceptance rule and remaining failures.
+
+The later-copy extension uses independently parsed CAJ page-table spans and
+original synthetic dictionaries/streams. Its final scan confirms every used
+candidate boundary, with explicit controls for conflicting copies and fake
+objects inside stream payloads. No other converter source or external document
+bytes supplied the implementation or fixtures. Discovery probes and actual
+source results remain outside Git; complete-document acceptance is still open.
 ### Additional C8 encoded-string framing (#242)
 
 `hnc8/native.rs`'s `80cc/01xx` extension, original Rust tests and

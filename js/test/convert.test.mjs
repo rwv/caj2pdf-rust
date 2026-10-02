@@ -30,6 +30,7 @@ import {
   newInstance,
   syntheticCaj,
   syntheticRecoveredCaj,
+  syntheticLaterCopyCaj,
   syntheticKdh,
   tempDirectory,
   trackedBlob,
@@ -43,6 +44,7 @@ async function inputs() {
   const { wrapped } = await syntheticKdh();
   return [
     { name: "CAJ", format: "caj", bytes: syntheticCaj(), pages: 2, bookmarks: 1 },
+    { name: "later-copy CAJ", format: "caj", bytes: syntheticLaterCopyCaj(), pages: 2, bookmarks: 1 },
     { name: "recovered CAJ", format: "caj", bytes: syntheticRecoveredCaj(), pages: 2, bookmarks: 1 },
     { name: "KDH", format: "kdh", bytes: wrapped, pages: 2, bookmarks: 0 },
     { name: "PDF", format: "pdf", bytes: await fixture("valid_nested_outline.pdf"), pages: 2, bookmarks: 0 },
@@ -345,6 +347,13 @@ test("CAJ recovery rejects a later malformed object before publishing output", a
     convert(await wasmModule(), blobSource(new Blob([syntheticRecoveredCaj(true)])), webWritableSink(writer)),
     { code: "MALFORMED_PDF" },
   );
+  assert.equal(bytes().length, 0);
+  await writer.close();
+});
+
+test("CAJ later-copy recovery rejects changed prefixes without output", async () => {
+  const { writer, bytes } = collectingWriter();
+  await assert.rejects(convert(await wasmModule(), blobSource(new Blob([syntheticLaterCopyCaj(true)])), webWritableSink(writer)), { code: "MALFORMED_PDF" });
   assert.equal(bytes().length, 0);
   await writer.close();
 });

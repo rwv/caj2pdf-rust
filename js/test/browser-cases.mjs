@@ -229,6 +229,7 @@ async function runWorker(path) {
 }
 
 export const scratchInWorker = () => runWorker("/test/scratch-worker.mjs");
+export const cajRecoveryInWorker = () => runWorker("/test/caj-recovery-worker.mjs");
 export const hnc8InWorker = () => runWorker("/test/hnc8-worker.mjs");
 
 export async function inspectHnc8() {

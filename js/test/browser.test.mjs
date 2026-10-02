@@ -11,7 +11,7 @@ import { readFile } from "node:fs/promises";
 import { after, before, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { findChrome, launchChrome, openPage, startServer } from "./browser-harness.mjs";
-import { fixture, syntheticCaj, syntheticRecoveredCaj, syntheticKdh, validatePdf, validateMultiImageHn, validateType1Hn, wasmUrl } from "./helpers.mjs";
+import { fixture, syntheticCaj, syntheticRecoveredCaj, syntheticLaterCopyCaj, syntheticKdh, validatePdf, validateMultiImageHn, validateType1Hn, wasmUrl } from "./helpers.mjs";
 
 const chrome = findChrome();
 if (chrome == null && process.env.CI) {
@@ -30,6 +30,8 @@ before(async () => {
   const fixtures = {
     "/fixtures/input.caj": syntheticCaj(),
     "/fixtures/recovered.caj": syntheticRecoveredCaj(),
+    "/fixtures/later-copy.caj": syntheticLaterCopyCaj(),
+    "/fixtures/broken-later-copy.caj": syntheticLaterCopyCaj(true),
     "/fixtures/broken-recovery.caj": syntheticRecoveredCaj(true),
     "/fixtures/input.kdh": (await syntheticKdh()).wrapped,
     "/fixtures/input.pdf": await fixture("valid_nested_outline.pdf"),
@@ -179,4 +181,13 @@ test("Chromium: CAJ recovery retains a later malformed-object error", options, a
       assert.equal(result.unlocked, true);
     }
   }
+});
+
+test("Chromium: later-copy CAJ recovery and rejection run in a Worker", options, async (t) => {
+  const result = await run("cajRecoveryInWorker");
+  assert.equal(result.positive.report.pagesConverted, 2);
+  assert.equal(result.positive.report.bookmarksWritten, 1);
+  await validatePdf(t, decode(result.positive.output), 2);
+  assert.equal(result.negative.error?.code, "MALFORMED_PDF");
+  assert.equal(result.negative.written, 0);
 });
