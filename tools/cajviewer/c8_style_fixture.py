@@ -79,6 +79,16 @@ def main():
             ("control74", 0x8074, 0), ("control53", 0xC053, 5200),
             ("control54", 0xC054, 5200), ("control53shift", 0xC053, 5700),
             ("control54shift", 0xC054, 5700),
+            # Nonzero, glyph-like payloads required by the first C8 profile.
+            # Keep these raw controls distinct from the following glyph stream.
+            ("control72-style", 0x8072, 0x1042),
+            ("control72-punctuation", 0x8072, 0xA3A8),
+            ("control72-latin", 0x8072, 0xA0F2),
+            ("control74-han1", 0x8074, 0xB4A2),
+            ("control74-han2", 0x8074, 0xD4B4),
+            ("control74-low", 0x8074, 0x24A7),
+            ("control74-space", 0x8074, 0xA1A1),
+            ("control74-punctuation", 0x8074, 0xA3A9),
         )
     )
     fixtures.extend(
@@ -99,6 +109,16 @@ def main():
         "symbols": (0xAAB3, 0xA0A6, 0xACA3, 0xA3A6, 0xA3AA),
         "symbols-permuted": (0xACA3, 0xA3AA, 0xA0A6, 0xA3A6, 0xAAB3),
     }
+    # Isolate resource selection from Unicode identity: the two ampersand
+    # codes decode to the same Unicode character but need not use one font.
+    for name, code in (("amp", 0xA0A6), ("star", 0xAAB3),
+                       ("pointer", 0xACA3), ("fullamp", 0xA3A6),
+                       ("fullstar", 0xA3AA), ("comma", 0xA3AC)):
+        for weight in (0, 4):
+            suffix = "-weight" if weight else ""
+            name_with_state = f"symbol-role-{name}{suffix}"
+            symbols[name_with_state] = (code,)
+            fixtures.append((name_with_state, [(0x1084, weight, 6)] * 2, None, None))
     fixtures.extend([
         ("letter-a", baseline, None, None),
         ("digit-one", baseline, None, None),

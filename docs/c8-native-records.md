@@ -1463,3 +1463,56 @@ inputs are in `caj2pdf-c8-state-controls-20261002`; all six new fixtures reprodu
 byte for byte from the committed generator, and omitted control tags are absent.
 These are original control observations, not complete-document compatibility
 passes. Source documents, captures, external fonts and traces remain outside Git.
+
+
+## Symbol resource roles and nonzero control payloads (2026-10-02)
+
+The original `symbol-role-*` controls isolate six source codes, each repeated
+on two rows at `1084`, with `801d` either 0 or 4 and `8067/6`. Unlike the
+previous geometric-font experiments, this offline run uses the pinned viewer's
+own installed resources. Only public font-call metadata and visible output are
+observed; no glyph program or outline is extracted or bundled.
+
+Actual raster-request loads identify these resource selections:
+
+| Raw code | Verified Unicode | `801d/0` resource | `801d/4` resource |
+| --- | --- | --- | --- |
+| `a0a6` | U+FF06 | HGBZ | HGHZ |
+| `aab3` | U+2217 | HGBZ | HGBZ |
+| `aca3` | U+25BA | HGBZ | HGBZ |
+| `a3a6` | U+FF06 | HGHT | HGHT |
+| `a3aa` | U+FF0A | HGHT | HGHT |
+| `a3ac` | U+FF0C | HGBZ | HGHZ |
+
+The ampersand observation at state zero comes from the initial document;
+reopening the same tab generated no new calls. The first comma run reached the
+shim's bounded trace limit and is excluded from complete attribution. A fresh
+process records both comma states and stable repeated page captures. Relevant
+loads are distinguished from the numerous resource-initialization metric loads
+by the observed raster-request flag and associated bitmap metadata. Resource
+names describe this viewer execution, not redistributable font requirements.
+
+These observations contradict a Unicode-only resource choice: both ampersand
+codes have U+FF06 text but select different resources. They also contradict
+applying the ordinary Latin state switch to every symbol. Preserve the raw code
+until role selection, then emit its verified Unicode. A role and a character
+must remain separate inputs to the existing PDF font/glyph path. Resource
+identity alone does not establish glyph placement class, vendor-alias outline
+identity or the appearance of a caller-supplied replacement font.
+
+Eight additional original controls exercise required nonzero `8072` and `8074`
+payloads: `1042/a3a8/a0f2` and `b4a2/d4b4/24a7/a1a1/a3a9`, respectively.
+Each is inserted after row context and before the existing `中文AM1` glyphs.
+At matched 57% zoom and interior `(648,387,1023,936)`, all eight page crops
+are byte-identical to the baseline, with identical repeats. Together with the
+previous zero-payload and independent control tests, this establishes that
+these payloads neither draw extra characters nor change these following glyphs.
+It does not establish their metadata meaning, arbitrary control tags or effects
+on untested operations. Preserve located errors for unresolved required content.
+
+The generator reproduces all twelve symbol-role inputs exactly. External
+receipts are in `caj2pdf-c8-symbol-role-20261002` (incremental and fresh-process
+traces, captures, `required-control-results.json`), with generated input manifests
+in `caj2pdf-c8-symbol-role-generated-20261002` and
+`caj2pdf-c8-required-controls-20261002`. These controls refine the production
+resource contract; they are not a complete six-page conversion or fidelity pass.

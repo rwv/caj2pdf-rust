@@ -2402,3 +2402,15 @@ and observes public FreeType resource/glyph identifiers without copying viewer
 implementation, outlines or bitmap data. Fresh-process checks resolve cached
 font-call ambiguity for two combinations. Scope and remaining interpretation
 limits are recorded in `c8-native-records.md`; all committed changes are MIT.
+
+
+### C8 symbol resource and nonzero control observations
+
+Additional original single-symbol and raw-control fixtures vary only authored
+source codes or required raw payloads. Public font metadata from the pinned
+viewer distinguishes ordinary, alternate and invariant symbol resources; no
+vendor implementation or glyph data is copied. The same Unicode ampersand can
+require different source roles, so Unicode mapping is kept independent of
+resource selection. Trace-limit/caching exclusions and original-input
+reproduction are recorded in `c8-native-records.md`. All new generator code and
+fixtures are original MIT work; external fonts and captures remain uncommitted.
