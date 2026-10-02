@@ -570,8 +570,21 @@ one exact-prefix proof rather than adding array-specific recovery code.
 The resulting native PDF has 141 pages, matching source metadata; qpdf passes
 and MuPDF renders every page. Output SHA256 is
 `01e138e904710100e75f39de16d2101a1b80fed345eaf5bceba1565a12e14efb`.
-Independent real-source page-order/content and CAJViewer fidelity acceptance
-remain open; successful conversion and PDF validation do not prove those.
+A separate read of the source's 12-byte page-table records confirms that all
+141 page object IDs match qpdf's output page order. Independent qpdf extraction
+also confirms source/output encoded identity for repaired stream 7566 (391
+bytes) and image 7460 (10009 bytes); all 2741 ordered references in complete
+source array 64 match the output array. These checks target the recovered
+content, not every page's visual appearance.
+
+On commit `867fb33`, Node and a real Chromium Worker both produce the same PDF
+hash, 141 pages and 31 bookmarks. All four scratch stores finish at zero bytes;
+browser input/output cleanup leaves OPFS empty. Post-conversion WASM memory is
+4587520 bytes on both JS paths; this is not a peak-memory measurement. External
+receipts and reused public-adapter runners are in
+`caj2pdf-issue30-public-20261002` (`page-order.json`, `repaired-content.json`,
+`node/result.json`, `browser/result.json`). Selected CAJViewer comparison remains
+open; structural identity and cross-runtime agreement do not prove fidelity.
 Original MIT rectangle controls produce byte-identical clean/recovered PDFs
 through Node and a real Chromium Worker. Native qpdf/MuPDF checks reproduce
 blue bounds `(10,40,40,80)` at 72 DPI on the authored 100-point page. Missing
