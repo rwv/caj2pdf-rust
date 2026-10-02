@@ -1286,3 +1286,32 @@ preserve subsequent ordinary text. It does not infer a font resource, position
 or repetition count; those remain C8 translation responsibilities. Missing font
 glyphs still fail explicitly. This primitive does not enable production native
 conversion or close six-page acceptance.
+
+
+### Nominal decoration PDF control
+
+An original external Rust control now generates the six endpoint rows using the
+actual `decoration_glyph` writer and the same original narrow alias font. For
+style `1084`, its nominal em is `35 * 75 / 301` points. The first glyph's x is
+the source x minus source origin, in empirical coordinate units, with no text
+margin; its baseline is page top minus relative source y minus half the em.
+Successive glyphs advance one em. The count is the ceiling of span width divided
+by em, with the clip at the exact source endpoints. These are empirical candidate
+placement rules, not authoritative format units or production admission.
+
+Pinned CAJViewer displays source and generated PDF at confirmed 993%, with the
+same inspected interior `(803,277,1573,1046)`. Repeated PDF crops match; a fresh
+source crop matches the prior source capture. Both have counts 1/1/1/2/3/5 and
+partial final marks. Without registration or scaling, PDF-minus-source row y
+bounds differ by 0 pixels for row one and +1 for the other five. X run boundaries
+mostly agree; differences reach +1 for later repetitions and +2 at one clipped
+endpoint. These residuals remain recorded, not hidden by a tolerance or corrected
+with sample offsets. The model preserves the demonstrated repetition/clipping
+behavior but does not establish universal pixel parity.
+
+qpdf accepts the generated PDF. Poppler extraction is empty apart from the page
+separator, as expected for a page containing only decoration. External receipts:
+`caj2pdf-c8-decoration-metrics-20261002/endpoint-pdf-result.json`, source/PDF
+captures and the authored `decoration_endpoints.rs` in the existing external
+render-preview package. The first PDF captures used different automatic zooms;
+only the final visibly confirmed 993% capture is compared quantitatively.
