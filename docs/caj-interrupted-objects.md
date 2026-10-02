@@ -541,3 +541,40 @@ a remaining missing-metadata target, not successful full-document conversion.
 The implementation does not invent metadata, silently drop the unresolved
 reference or claim full issue-25 support. Receipts remain outside Git in
 `caj2pdf-caj-candidate-recovery-20261002/issue25-replay-reviewed.json`.
+
+
+## Deferred stream prefix proved by a local Length replay
+
+For issue-30, object 7566 at 1819698 contains a 64-byte header and an interrupted
+Flate payload. The immediately preceding Length object 7565 at 1819675 repeats
+exactly once at relative offset 80, within the existing 256-byte anchor window.
+Its 22-byte object ends before the independently parsed object 14916 at 1819802.
+The trimmed 78-byte interrupted prefix matches the complete object at 2403619;
+independent zlib decoding validates 391 encoded bytes and 722 decoded bytes.
+External receipt: `caj2pdf-caj-candidate-recovery-20261002/issue30-deferred-scalar-boundary.json`.
+
+The scanner reuses the existing exact anchor search only after an indirect
+Flate codec failure, with the immediately preceding object required to be its
+known Length scalar. It retains the bounded prefix in the existing deferred
+index and continues after the anchor. The final full scan must independently
+reach and prove the complete same-reference object; a header hidden inside an
+opaque stream cannot satisfy this check. Missing, changed, conflicting or
+invalid-codec counterparts remain errors. Work budgets are not refunded.
+
+Final validation now also accepts a unique already parsed complete counterpart.
+This covers issue-30's 143-byte array prefix at 943121 (complete array at 439245)
+and bare object-number prefix at 1265856 (complete object 7460 at 1244640).
+Duplicate prior objects remain ambiguous during prefix admission. This reuses
+one exact-prefix proof rather than adding array-specific recovery code.
+
+The resulting native PDF has 141 pages, matching source metadata; qpdf passes
+and MuPDF renders every page. Output SHA256 is
+`01e138e904710100e75f39de16d2101a1b80fed345eaf5bceba1565a12e14efb`.
+Independent real-source page-order/content and CAJViewer fidelity acceptance
+remain open; successful conversion and PDF validation do not prove those.
+Original MIT rectangle controls produce byte-identical clean/recovered PDFs
+through Node and a real Chromium Worker. Native qpdf/MuPDF checks reproduce
+blue bounds `(10,40,40,80)` at 72 DPI on the authored 100-point page. Missing
+counterparts, opaque-stream decoys, changed prefixes/checksums and ambiguous
+anchors are covered by original one-byte-read controls. External native
+receipt: `caj2pdf-caj-candidate-recovery-20261002/deferred-public-control.json`.

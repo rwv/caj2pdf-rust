@@ -384,11 +384,11 @@ test("ASCII85 replay preserves complete output and rejects a false length", asyn
 });
 
 test("Flate replay preserves output and rejects a bad checksum", async () => {
-  for (const anchor of [null, "scalar", "array"]) {
+  for (const anchor of [null, "scalar", "array", "deferred"]) {
     const outputs = [];
     for (const interrupted of [false, true]) {
       const { writer, bytes } = collectingWriter();
-      await convert(await wasmModule(), blobSource(new Blob([syntheticFlateReplayCaj({ interrupted, anchor, padding: "\n" })])),
+      await convert(await wasmModule(), blobSource(new Blob([syntheticFlateReplayCaj({ interrupted, anchor, padding: anchor === "deferred" ? "" : "\n" })])),
         webWritableSink(writer), { chunkSize: 1 });
       await writer.close();
       outputs.push(bytes());
