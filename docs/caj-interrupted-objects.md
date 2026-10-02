@@ -436,7 +436,22 @@ stream independently decodes to 768 bytes. Original synthetic tests cover
 wrong references/lengths, changed prefixes, invalid/truncated encodings,
 excessive prefixes, cancellation and work-budget propagation.
 
-This advances the real input to a separate failure at byte 598735, where an
-object's `stream` keyword is cut as `stre`. There is still no complete PDF for
+### Interrupted tail keywords
+
+The next issue-25 failure at byte 598735 cuts `stream` as `stre` after a
+complete dictionary. The existing deferred syntax-prefix rule now recognizes
+proper prefixes of `stream` and `endobj` followed by whitespace. It retains
+the existing 256-byte bound and requires an exact complete counterpart from
+the full object scan. Arbitrary tokens, missing or changed counterparts and
+excessive whitespace remain errors; this does not search inside stream data.
+Original one-byte-read tests cover every proper prefix of both keywords.
+Node and browser Worker controls compare the recovered PDF with the complete
+version of the same authored rectangle stream.
+
+Issue-25 now advances to byte 710644, object 316, where a direct-Length stream
+is interrupted by a repeated scalar before its complete copy. Independent
+zlib decoding of the later copy confirms its declared 938 encoded bytes and
+2950 decoded bytes. That observation alone does not establish an admissible
+restart boundary for the earlier object. There is still no complete PDF for
 issue-25, and #226 remains open. External source spans and diagnostics stay
 outside Git in `caj2pdf-caj-candidate-recovery-20261002`.

@@ -701,6 +701,43 @@ async fn interrupted_syntax_prefix<S: RangedSource, C: Cancellation>(
             return Ok(None);
         }
     }
+    // After a complete value, accept only a proper prefix of the two legal
+    // tail keywords. The later full scan must still prove the entire prefix.
+    if *reason == "PDF object lacks endobj or stream" {
+        let keyword: &[u8] = match reader.byte(end).await? {
+            Some(b's') => b"stream",
+            Some(b'e') => b"endobj",
+            _ => b"",
+        };
+        if !keyword.is_empty() {
+            let begin = end;
+            for &byte in keyword {
+                if reader.byte(end).await? != Some(byte) {
+                    break;
+                }
+                end += 1;
+            }
+            if end - begin == keyword.len() as u64
+                || !reader
+                    .byte(end)
+                    .await?
+                    .is_some_and(|b| b.is_ascii_whitespace())
+            {
+                return Ok(None);
+            }
+            while end - start <= 256
+                && reader
+                    .byte(end)
+                    .await?
+                    .is_some_and(|b| b.is_ascii_whitespace())
+            {
+                end += 1;
+            }
+            if end - start > 256 {
+                return Ok(None);
+            }
+        }
+    }
     // A dictionary cut between the two closing brackets reports its first
     // bracket as the invalid name. Retain that byte in the exact prefix proof.
     if reader.byte(end).await? == Some(b'>') {
@@ -2410,6 +2447,38 @@ mod candidate_tests {
         ] {
             assert!(scan(bytes.to_vec(), &mut []).is_err());
         }
+    }
+
+    #[test]
+    fn unfinished_tail_keywords_require_an_exact_complete_counterpart() {
+        for (value, keyword, suffix) in [
+            ("<< /Length 1 >>", "stream", "\nX\nendstream\nendobj"),
+            ("42", "endobj", ""),
+        ] {
+            let complete = format!("7 0 obj {value} {keyword}{suffix}\n");
+            for count in 1..keyword.len() {
+                let prefix = format!("7 0 obj {value} {}\r\n", &keyword[..count]);
+                let bytes = format!("{prefix}8 0 obj null endobj\n{complete}");
+                assert_eq!(scan(bytes.into_bytes(), &mut []).unwrap().objects.len(), 2);
+                // Neither a changed value nor a missing counterpart is proof.
+                let changed = complete.replace(value, "<< /Length 2 >>");
+                for tail in [changed.as_str(), ""] {
+                    let bytes = format!("{prefix}8 0 obj null endobj\n{tail}");
+                    assert!(scan(bytes.into_bytes(), &mut []).is_err());
+                }
+            }
+        }
+        for token in ["strx", "ends", "streamX", "stream", "endobjX"] {
+            let bytes = format!(
+                "7 0 obj << /Length 1 >> {token}\n8 0 obj null endobj\n7 0 obj << /Length 1 >> stream\nX\nendstream\nendobj\n"
+            );
+            assert!(scan(bytes.into_bytes(), &mut []).is_err(), "{token}");
+        }
+        let bytes = format!(
+            "7 0 obj 42 endo{}8 0 obj null endobj\n7 0 obj 42 endobj\n",
+            " ".repeat(257)
+        );
+        assert!(scan(bytes.into_bytes(), &mut []).is_err());
     }
 
     #[test]

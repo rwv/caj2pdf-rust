@@ -2134,3 +2134,9 @@ synthetic tests contain no external document content. An external Python
 standard-library ASCII85 decode checked the derived payload as a black box;
 no decoder implementation was copied or translated. No vendor implementation,
 font outlines or source document bytes are committed.
+
+The adjacent tail-keyword extension reuses the original deferred-prefix proof
+for proper prefixes of the standard PDF `stream` and `endobj` tokens. Its
+synthetic controls are independently authored, including malformed tokens and
+changed/missing counterparts. The issue-25 observation supplies a failure
+location only; no external implementation or document content was copied.

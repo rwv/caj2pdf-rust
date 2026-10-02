@@ -70,7 +70,7 @@ export function syntheticCaj() {
 }
 
 /** Original visible-content control for length-derived ASCII85 replay. */
-export function syntheticAscii85Caj({ interrupted = true, broken = false } = {}) {
+export function syntheticAscii85Caj({ interrupted = true, broken = false, keywordCut = false } = {}) {
   const base = syntheticCaj();
   const start = 0x400 + 24;
   const original = new TextDecoder().decode(base.subarray(start))
@@ -78,7 +78,8 @@ export function syntheticAscii85Caj({ interrupted = true, broken = false } = {})
   // ASCII85 for the authored blue rectangle: q 0 0 1 rg 10 20 30 40 re f Q.
   const payload = "E?HqX0H`(mEb?LL0H`,)+>Y\\o1b^%mAKYS-;$m~>";
   const header = "6 0 obj << /Length 7 0 R /Filter /ASCII85Decode >> stream\n";
-  const prefix = interrupted ? header + payload.slice(0, 11) + "\n" : "";
+  const prefix = !interrupted ? "" : keywordCut
+    ? header.slice(0, -3) + "\n" : header + payload.slice(0, 11) + "\n";
   const body = new TextEncoder().encode(original + prefix + header + payload +
     `\nendstream\nendobj\n7 0 obj ${payload.length + (broken ? 1 : 0)} endobj\n`);
   const bytes = new Uint8Array(start + body.length);
