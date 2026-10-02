@@ -1233,3 +1233,38 @@ alongside the observation: PDF transforms can represent independent axes, but
 these screen operations still do not specify a zoom-independent repeat count.
 Receipts are `axis-predictions.json`, `axis-results.json` and the corresponding
 traces/captures in the same external metrics directory.
+
+
+### Horizontal decoration endpoint clipping
+
+The original `decoration-endpoints` control places six otherwise identical
+horizontal `8010/1` spans of 10, 50, 89, 91, 180 and 430 source units on a
+600×600-unit page, with explicit style `1084` and no ordinary glyphs. Predictions
+were recorded before capture. Both inspected 486% and 993% views show respectively
+1, 1, 1, 2, 3 and 5 marks, including clipped marks at the right endpoint. All
+page crops repeat identically without registration or resizing.
+
+At 486%, full marks occupy 15 thresholded pixels horizontally; the 10-unit
+span leaves 8 pixels. At 993%, corresponding widths are 30 and 13 pixels.
+The 91-unit span's second mark and 180-unit span's third mark each occupy only
+2 thresholded pixels at both scales. Thus the renderer starts a mark even for
+less than one em of remaining span, then clips its visible extent. A floor-count
+loop that drops partial final marks is contradicted, as is emitting whole glyphs
+past the endpoint. Threshold is RGB channels below 200; these are raster bounds,
+not exact geometric clipping coordinates.
+
+Consecutive complete mark starts differ by 56 pixels at 486% and 115 pixels at
+993%, consistent with the observed font em requests. The nominal empirical
+width (35×75/301 PDF points, about 89.86 source units) predicts the same six
+counts at both scales. Prior long-line observations still demonstrate
+zoom-dependent counts; nominal PDF spacing must not claim pixel parity at all
+viewer zooms. Implementation should stream repeated font marks with endpoint
+clipping, keep decoration separate from semantic Unicode text, and use the
+verified independent width/height fields. This evidence does not admit reversed
+or diagonal endpoints, or establish arbitrary font selection.
+
+Receipts: `endpoint-predictions.json`, `endpoint-results.json`, traces and repeated
+captures in `caj2pdf-c8-decoration-metrics-20261002`. The first screenshot is named
+`endpoints600` after an attempted UI entry, but the visible confirmed zoom is
+486%, not 600%; the maximized view confirms 993%. No inference uses the attempted
+zoom. The generator reproduces the captured input bytes exactly.

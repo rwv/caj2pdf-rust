@@ -206,6 +206,19 @@ def main():
         (args.output / f"{name}.caj").write_bytes(data)
         manifest.append({"name": name, "run_words": words, "bytes": len(data),
                          "sha256": hashlib.sha256(data).hexdigest()})
+    # Short spans distinguish repeated glyphs clipped at the endpoint from
+    # whole-glyph admission. Keep six isolated rows on one small square page.
+    lengths = (10, 50, 89, 91, 180, 430)
+    words = []
+    for row, length in enumerate(lengths):
+        y = 4334 + row * 80
+        words.extend((0x8010, 1, 4712, y, 4712 + length, y))
+    name = "decoration-endpoints"
+    data = document([(0x1084, 0, 6)], codes=(), run_words=tuple(words),
+                    width=600, height=600)
+    (args.output / f"{name}.caj").write_bytes(data)
+    manifest.append({"name": name, "lengths": lengths, "run_words": words,
+                     "bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()})
     # Isolate active size inheritance: no ordinary glyphs overlap the decoration.
     for horizontal, vertical in ((2, 2), (4, 4), (8, 8), (2, 8), (8, 2)):
         suffix = (f"size{horizontal}" if horizontal == vertical
