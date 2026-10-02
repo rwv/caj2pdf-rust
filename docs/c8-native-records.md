@@ -1328,3 +1328,22 @@ are covered. Replacing the external diagnostic's manually assembled placement
 with this helper produces a byte-identical PDF, preserving the recorded source
 comparison rather than starting a new calibration. Font/style selection and
 complete-document integration remain open.
+
+
+### Decoration resource selection controls
+
+Two original isolated controls change only `801d` from 0 to 4 or `8067` from
+6 to 9 before the same horizontal decoration. Both remain byte-identical to
+the style-4 baseline page crop at confirmed 57% and repeat identically. Public
+FreeType traces independently identify `HGBZ_CNKI`, alias 23812, original glyph
+2 and final 6-pixel em loads in both cases. Thus the ordinary Latin font switch
+observed for `801d=4` must not be applied to this decoration; the tested `8067`
+change also retains its resource. These controls do not establish every possible
+font/state value or authorize ignoring those controls on ordinary text.
+
+The generator reproduces `decoration-resource-state4` and
+`decoration-resource-font9` exactly. External input hashes, repeated screenshots
+and metadata-only traces are in `caj2pdf-c8-decoration-metrics-20261002`, with
+`resource-results.json`. No font programs or outlines are extracted or committed.
+The explicit caller-resource contract should identify the decoration separately
+from semantic Latin text, even when a provider supplies both from one font.

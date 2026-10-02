@@ -219,6 +219,13 @@ def main():
     (args.output / f"{name}.caj").write_bytes(data)
     manifest.append({"name": name, "lengths": lengths, "run_words": words,
                      "bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()})
+    for suffix, control, font in (("state4", 4, 6), ("font9", 0, 9)):
+        name = f"decoration-resource-{suffix}"
+        words = (0x8010, 1, 4900, 4800, 9200, 4800)
+        data = document([(0x1084, control, font)], codes=(), run_words=words)
+        (args.output / f"{name}.caj").write_bytes(data)
+        manifest.append({"name": name, "control": control, "font": font,
+                         "bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()})
     # Isolate active size inheritance: no ordinary glyphs overlap the decoration.
     for horizontal, vertical in ((2, 2), (4, 4), (8, 8), (2, 8), (8, 2)):
         suffix = (f"size{horizontal}" if horizontal == vertical
