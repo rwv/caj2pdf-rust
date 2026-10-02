@@ -2826,8 +2826,8 @@ fn independent_render_checks_decoded_images_in_native_content_order() {
     assert_eq!(pixel(100, 50), 255);
     assert_eq!(pixel(40, 80), 255);
     assert_eq!(pixel(100, 80), 0);
-    assert_eq!(pixel(85, 120), 0); // Original CJK-labelled triangle.
-    assert_eq!(pixel(160, 120), 0); // Original Latin-labelled rectangle.
+    assert_eq!(pixel(85, 120), 68); // Original CJK-labelled triangle.
+    assert_eq!(pixel(160, 120), 68); // Original Latin-labelled rectangle.
     assert_eq!(pixel(550, 550), 255);
 }
 

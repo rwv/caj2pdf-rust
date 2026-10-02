@@ -161,7 +161,11 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
                 };
                 let transform =
                     empirical_c8_glyph_transform(self.geometry, self.origin, [x, y], style, class)?;
-                self.page.glyph(font, character, transform).await?;
+                // Original source controls establish this gray for the admitted
+                // ordinary text profile; keep it local to each glyph draw.
+                self.page
+                    .glyph_with_gray(font, character, transform, 68)
+                    .await?;
             }
             NativeRecord::Drawing {
                 tag: 0x8006,
