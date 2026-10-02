@@ -2140,3 +2140,10 @@ for proper prefixes of the standard PDF `stream` and `endobj` tokens. Its
 synthetic controls are independently authored, including malformed tokens and
 changed/missing counterparts. The issue-25 observation supplies a failure
 location only; no external implementation or document content was copied.
+
+The direct-Length Flate replay extension independently checks an exact repeat
+of an already parsed scalar, matching stream header/prefix, standard zlib framing
+and the declared extent. Tests use original stored-deflate bytes and an authored
+blue rectangle; Python zlib is only an external black-box check of the observed
+source span. No implementation or document content was copied. Node test-fixture
+compression uses the built-in `node:zlib`, adding no package dependency.

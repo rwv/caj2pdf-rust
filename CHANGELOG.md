@@ -5,7 +5,9 @@
 - Recover short interrupted ASCII85 CAJ streams when their immediately
   following Length object uniquely determines a validated complete replay.
   Also recover short cut `stream`/`endobj` keywords only when a fully parsed
-  object proves the exact prefix. Unproved corruption remains an error.
+  object proves the exact prefix. Direct-Length Flate replay additionally
+  requires an exact preceding-scalar repeat and independent codec validation.
+  Unproved corruption remains an error.
 
 - Recover bounded interrupted CAJ objects when a later complete copy is
   independently parsed from a page-table span and confirmed by the full scan.

@@ -448,10 +448,33 @@ Original one-byte-read tests cover every proper prefix of both keywords.
 Node and browser Worker controls compare the recovered PDF with the complete
 version of the same authored rectangle stream.
 
-Issue-25 now advances to byte 710644, object 316, where a direct-Length stream
-is interrupted by a repeated scalar before its complete copy. Independent
-zlib decoding of the later copy confirms its declared 938 encoded bytes and
-2950 decoded bytes. That observation alone does not establish an admissible
-restart boundary for the earlier object. There is still no complete PDF for
-issue-25, and #226 remains open. External source spans and diagnostics stay
-outside Git in `caj2pdf-caj-candidate-recovery-20261002`.
+### Direct-Length Flate replay after an exact scalar repeat
+
+The subsequent issue-25 failure at byte 710644 has a short interrupted direct-
+Length stream followed by an exact repeat of the immediately preceding parsed
+integer object, then a complete stream copy. Object 316 first starts at 709655;
+scalar 315 repeats at 709741; the complete stream starts at 709765. Its 84-byte
+trimmed interrupted prefix matches exactly. Independent zlib decoding confirms
+938 encoded bytes and 2950 decoded bytes with a valid end marker/checksum.
+
+The scanner now admits this bounded combination only after ordinary direct-
+Length tail validation and the existing small Length repair fail. The preceding
+object must be a uniquely indexed integer. Its exact bytes must occur once
+within the interrupted object's first 256 bytes, after some payload bytes.
+The immediately following object must have the same reference, header and
+interrupted prefix; independent Flate framing must equal the declared Length,
+and the complete stream/object tail must parse. A candidate is then reparsed
+normally. This does not search later pages or arbitrary object-header markers.
+Fixed prefix buffers and the existing shared codec-work budget bound the work.
+
+Original one-byte-read controls reject absent/noninteger/duplicate/oversized
+anchors, changed scalar values, multiple repeats, header/prefix mismatches,
+invalid checksums and unequal codec extents. A small work budget propagates its
+limit error. Native CLI, Node and a real browser Worker compare an authored
+rectangle PDF against its uninterrupted version; wrong checksums publish no
+output. Native qpdf and MuPDF checks confirm the same independently specified
+rectangle bounds. Receipts are in `caj2pdf-scalar-replay-public-20261002`.
+
+Issue-25 now stops at byte 954402 in another interrupted dictionary. There is
+still no complete PDF, and #226 remains open. External source spans and
+per-step diagnostics stay in `caj2pdf-caj-candidate-recovery-20261002`.

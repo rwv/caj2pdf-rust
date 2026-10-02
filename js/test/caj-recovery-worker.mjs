@@ -9,7 +9,13 @@ try {
   const keywordCut = await convertFile("keyword-cut.caj");
   const cleanAscii85 = await convertFile("ascii85-clean.caj");
   const brokenAscii85 = await reject("ascii85-broken.caj");
-  self.postMessage({ positive, negative, ascii85, keywordCut, cleanAscii85, brokenAscii85 });
+  const scalarReplay = await convertFile("scalar-replay.caj");
+  const scalarClean = await convertFile("scalar-clean.caj");
+  const scalarBroken = await reject("scalar-broken.caj");
+  self.postMessage({ scalarReplay, scalarClean, scalarBroken, positive, negative, ascii85, keywordCut, cleanAscii85, brokenAscii85 });
 } catch (error) {
-  self.postMessage({ error: String(error?.stack ?? error) });
+  const scalarReplay = await convertFile("scalar-replay.caj");
+  const scalarClean = await convertFile("scalar-clean.caj");
+  const scalarBroken = await reject("scalar-broken.caj");
+  self.postMessage({ scalarReplay, scalarClean, scalarBroken, error: String(error?.stack ?? error) });
 }

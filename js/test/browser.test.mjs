@@ -11,7 +11,7 @@ import { readFile } from "node:fs/promises";
 import { after, before, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { findChrome, launchChrome, openPage, startServer } from "./browser-harness.mjs";
-import { fixture, syntheticCaj, syntheticAscii85Caj, syntheticRecoveredCaj, syntheticLaterCopyCaj, syntheticKdh, validatePdf, validateMultiImageHn, validateType1Hn, wasmUrl } from "./helpers.mjs";
+import { fixture, syntheticCaj, syntheticAscii85Caj, syntheticScalarReplayCaj, syntheticRecoveredCaj, syntheticLaterCopyCaj, syntheticKdh, validatePdf, validateMultiImageHn, validateType1Hn, wasmUrl } from "./helpers.mjs";
 
 const chrome = findChrome();
 if (chrome == null && process.env.CI) {
@@ -30,6 +30,9 @@ before(async () => {
   const fixtures = {
     "/fixtures/input.caj": syntheticCaj(),
     "/fixtures/ascii85.caj": syntheticAscii85Caj(),
+    "/fixtures/scalar-replay.caj": syntheticScalarReplayCaj(),
+    "/fixtures/scalar-clean.caj": syntheticScalarReplayCaj({ interrupted: false }),
+    "/fixtures/scalar-broken.caj": syntheticScalarReplayCaj({ broken: true }),
     "/fixtures/keyword-cut.caj": syntheticAscii85Caj({ keywordCut: true }),
     "/fixtures/ascii85-clean.caj": syntheticAscii85Caj({ interrupted: false }),
     "/fixtures/ascii85-broken.caj": syntheticAscii85Caj({ broken: true }),
@@ -187,7 +190,7 @@ test("Chromium: CAJ recovery retains a later malformed-object error", options, a
   }
 });
 
-test("Chromium: later-copy CAJ and ASCII85 recovery run in a Worker", options, async (t) => {
+test("Chromium: later-copy CAJ and stream replay run in a Worker", options, async (t) => {
   const result = await run("cajRecoveryInWorker");
   assert.equal(result.positive.report.pagesConverted, 2);
   assert.equal(result.positive.report.bookmarksWritten, 1);
@@ -200,4 +203,8 @@ test("Chromium: later-copy CAJ and ASCII85 recovery run in a Worker", options, a
   await validatePdf(t, decode(result.ascii85.output), 2);
   assert.equal(result.brokenAscii85.error?.code, "MALFORMED_PDF");
   assert.equal(result.brokenAscii85.written, 0);
+  assert.deepEqual(result.scalarReplay.output, result.scalarClean.output);
+  await validatePdf(t, decode(result.scalarReplay.output), 2);
+  assert.equal(result.scalarBroken.error?.code, "MALFORMED_PDF");
+  assert.equal(result.scalarBroken.written, 0);
 });

@@ -7,6 +7,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
+import { deflateSync } from "node:zlib";
 
 export const wasmUrl = new URL("../../target/wasm32-unknown-unknown/release/caj2pdf_wasm.wasm", import.meta.url);
 
@@ -82,6 +83,29 @@ export function syntheticAscii85Caj({ interrupted = true, broken = false, keywor
     ? header.slice(0, -3) + "\n" : header + payload.slice(0, 11) + "\n";
   const body = new TextEncoder().encode(original + prefix + header + payload +
     `\nendstream\nendobj\n7 0 obj ${payload.length + (broken ? 1 : 0)} endobj\n`);
+  const bytes = new Uint8Array(start + body.length);
+  bytes.set(base.subarray(0, start));
+  bytes.set(body, start);
+  const view = new DataView(bytes.buffer);
+  view.setUint32(0x404, body.length, true);
+  view.setUint32(0x40c, bytes.length, true);
+  return bytes;
+}
+
+/** Original direct-Length Flate replay anchored by the preceding scalar. */
+export function syntheticScalarReplayCaj({ interrupted = true, broken = false } = {}) {
+  const base = syntheticCaj();
+  const start = 0x400 + 24;
+  const pageObjects = new TextDecoder().decode(base.subarray(start))
+    .replace("/Resources << >> >>", "/Resources << >> /Contents 6 0 R >>");
+  const payload = deflateSync("q 0 0 1 rg 10 20 30 40 re f Q\n%" + " ".repeat(1024) + "\n", { level: 0 });
+  if (broken) payload[payload.length - 1] ^= 1;
+  const scalar = "7 0 obj 91 endobj\n";
+  const header = `6 0 obj << /Length ${payload.length} /Filter /FlateDecode >> stream\n`;
+  const parts = [pageObjects, scalar];
+  if (interrupted) parts.push(header, payload.subarray(0, 12), "\n", scalar);
+  parts.push(header, payload, "\nendstream\nendobj\n");
+  const body = Buffer.concat(parts.map((part) => Buffer.from(part)));
   const bytes = new Uint8Array(start + body.length);
   bytes.set(base.subarray(0, start));
   bytes.set(body, start);
