@@ -457,10 +457,12 @@ scalar 315 repeats at 709741; the complete stream starts at 709765. Its 84-byte
 trimmed interrupted prefix matches exactly. Independent zlib decoding confirms
 938 encoded bytes and 2950 decoded bytes with a valid end marker/checksum.
 
-The scanner now admits this bounded combination only after ordinary direct-
-Length tail validation and the existing small Length repair fail. The preceding
-object must be a uniquely indexed integer. Its exact bytes must occur once
-within the interrupted object's first 256 bytes, after some payload bytes.
+The initial scalar-anchor implementation admitted this bounded combination only
+after ordinary direct-Length tail validation and the existing small Length
+repair failed. The preceding
+object was required to be a uniquely indexed integer; the final review below
+extends this exact-byte proof to other non-stream objects. Its exact bytes must
+occur once within the interrupted object's first 256 bytes, after some payload bytes.
 The immediately following object must have the same reference, header and
 interrupted prefix; independent Flate framing must equal the declared Length,
 and the complete stream/object tail must parse. A candidate is then reparsed
@@ -487,9 +489,10 @@ Original one-byte controls reject `0x`, `00`, nonzero generations, excessive
 whitespace and changed/missing counterparts. Public Node/browser controls
 compare a cut-reference stream with its uninterrupted PDF.
 
-Issue-25 now stops at byte 1572389, object 145, in another direct-Length stream
-interruption. There is still no complete PDF, and #226 remains open. External
-source spans and per-step diagnostics stay in
+At this intermediate stage, issue-25 stopped at byte 1572389, object 145, in
+another direct-Length stream interruption. The final review below supersedes
+that stopping point; #226 remains open. External source spans and per-step
+diagnostics stay in
 `caj2pdf-caj-candidate-recovery-20261002`.
 
 ### Final replay review and current issue-25 limit
