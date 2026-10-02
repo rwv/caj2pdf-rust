@@ -714,7 +714,7 @@ where
             coordinates = text.coordinates;
         }
         if header.variant != Variant::HnB
-            && (coordinates.is_empty() || count % coordinates.len() != 0)
+            && (coordinates.is_empty() || !count.is_multiple_of(coordinates.len()))
         {
             return Err(at.error(
                 ComposeStage::Text,

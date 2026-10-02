@@ -2,6 +2,9 @@
 
 //! Bounded page and outline assembly over the forward-only PDF writer.
 
+mod text;
+pub use text::{ContentPageWriter, FontObject};
+
 use super::writer::{MAX_PDF_INTEGER, ObjectId, PdfWriter};
 use crate::fallible::{checked_read_count, len_u64, reserve_exact, usize_from_u32};
 use crate::{
@@ -583,6 +586,17 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
         self.writer.ensure_idle()?;
         self.check_next_page()?;
         self.reserve_page_index_slot()?;
+        self.prepare_page_objects()?;
+        self.image_page_failed = true;
+        self.ensure_leaf().await?;
+        let index = self
+            .push_page(&width, &height, PageImages::Placed(placements))
+            .await?;
+        self.image_page_failed = false;
+        Ok(index)
+    }
+
+    fn prepare_page_objects(&mut self) -> Result<()> {
         let new_leaf = self
             .leaf
             .as_ref()
@@ -596,13 +610,7 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
         // leave unwritten objects that would prevent a later corrected page.
         self.writer
             .prepare_objects(3 + usize::from(new_leaf) + usize::from(new_middle))?;
-        self.image_page_failed = true;
-        self.ensure_leaf().await?;
-        let index = self
-            .push_page(&width, &height, PageImages::Placed(placements))
-            .await?;
-        self.image_page_failed = false;
-        Ok(index)
+        Ok(())
     }
 
     fn check_image_owner(&self, image: ImageObject) -> Result<()> {
@@ -637,7 +645,10 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
             })?
             .id;
         let page_id = self.emit_page(parent, width, height, images).await?;
+        self.register_page(page_id)
+    }
 
+    fn register_page(&mut self, page_id: ObjectId) -> Result<u32> {
         let leaf = self.leaf.as_mut().ok_or(Error::InvalidInput {
             reason: "PDF page-tree leaf is missing",
         })?;
@@ -938,11 +949,22 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
         self.writer
             .begin_stream(image_id, length_id, dictionary.as_bytes())
             .await?;
+        self.copy_resource(source, offset, length).await?;
+        self.writer.end_stream().await?;
+        Ok(image_id)
+    }
+
+    async fn copy_resource<R: RangedSource>(
+        &mut self,
+        source: &mut R,
+        offset: u64,
+        length: u64,
+    ) -> Result<()> {
         let chunk_size = length.min(self.limits.io_chunk_bytes as u64) as usize;
         if self.image_buffer.len() < chunk_size {
             let refused = self
                 .limits
-                .allocation_refused("PDF image I/O buffer", chunk_size as u64);
+                .allocation_refused("PDF resource I/O buffer", chunk_size as u64);
             let additional = chunk_size - self.image_buffer.len();
             reserve_exact(&mut self.image_buffer, additional, refused)?;
             self.image_buffer.resize(chunk_size, 0);
@@ -955,7 +977,7 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
         while done < length {
             let chunk = (length - done).min(self.image_buffer.len() as u64) as usize;
             let position = offset.checked_add(done).ok_or(Error::InvalidInput {
-                reason: "image range offset overflows",
+                reason: "resource range offset overflows",
             })?;
             read_exact_at(
                 &mut source,
@@ -969,11 +991,10 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
                 .write_stream_bytes(&self.image_buffer[..chunk])
                 .await?;
             done = done.checked_add(chunk as u64).ok_or(Error::InvalidInput {
-                reason: "image input byte count overflows",
+                reason: "resource input byte count overflows",
             })?;
         }
-        self.writer.end_stream().await?;
-        Ok(image_id)
+        Ok(())
     }
 
     async fn emit_page(

@@ -69,18 +69,18 @@ impl RangedSource for Source {
         destination: &mut [u8],
     ) -> caj2pdf_core::Result<usize> {
         self.reads.push((offset, destination.len()));
-        if let Some((failed_offset, failure)) = self.fail_at {
-            if failed_offset == offset {
-                return Err(match failure {
-                    SourceFailure::Io => Error::Io(io::Error::other("synthetic I/O failure")),
-                    SourceFailure::Cancelled => Error::Cancelled,
-                    SourceFailure::Truncated => Error::TruncatedInput {
-                        offset,
-                        expected: destination.len() as u64,
-                        available: 0,
-                    },
-                });
-            }
+        if let Some((failed_offset, failure)) = self.fail_at
+            && failed_offset == offset
+        {
+            return Err(match failure {
+                SourceFailure::Io => Error::Io(io::Error::other("synthetic I/O failure")),
+                SourceFailure::Cancelled => Error::Cancelled,
+                SourceFailure::Truncated => Error::TruncatedInput {
+                    offset,
+                    expected: destination.len() as u64,
+                    available: 0,
+                },
+            });
         }
         if self.overreport {
             return Ok(destination.len() + 1);
@@ -95,10 +95,10 @@ impl RangedSource for Source {
         if count != 0 {
             destination[..count].copy_from_slice(&self.bytes[start..start + count]);
         }
-        if let Some((read_number, flag)) = &self.cancel_after_read {
-            if self.reads.len() == *read_number {
-                flag.set(true);
-            }
+        if let Some((read_number, flag)) = &self.cancel_after_read
+            && self.reads.len() == *read_number
+        {
+            flag.set(true);
         }
         Ok(count)
     }

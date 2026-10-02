@@ -27,8 +27,12 @@ they are not native CLI release assets.
 
 Required BSD targets (including NetBSD ARM64 and OpenBSD ARM64/RISC-V64) have
 passed their full core and portable CLI suites in VMs. Android x86/x86_64 and
-illumos run 499 core tests with the two local-validator tests explicitly
+illumos ran 499 core tests in the published baseline, with the two then-existing local-validator tests explicitly
 filtered, plus all four portable CLI tests; target-produced PDFs are separately
 checked/rendered on the host. This is not represented as 501 core passes.
+The current workflow also filters the new native-content mixed-image raster
+check on those targets; its codec, draw-order and cleanup test runs separately
+without external tools. Current test counts come from each run, not the
+historical baseline above.
 Absent external corpora remain NOT_RUN. Emulation does not certify every
 physical CPU or older kernel/libc release.

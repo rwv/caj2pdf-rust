@@ -253,7 +253,9 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
                                 at,
                             )
                             .await?;
-                            for (index, pair) in bytes[..count].chunks_exact(2).enumerate() {
+                            for (index, pair) in
+                                bytes[..count].as_chunks::<2>().0.iter().enumerate()
+                            {
                                 if !(0xe020..=0xe07e).contains(&word(pair)) {
                                     return Err(at
                                         .at(position + (consumed + index * 2) as u64)
@@ -309,7 +311,7 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
                         }
                         images += 1;
                         let mut words = [0; 13];
-                        for (out, pair) in words.iter_mut().zip(bytes[2..].chunks_exact(2)) {
+                        for (out, pair) in words.iter_mut().zip(bytes[2..].as_chunks::<2>().0) {
                             *out = word(pair);
                         }
                         NativeRecord::Image { words }

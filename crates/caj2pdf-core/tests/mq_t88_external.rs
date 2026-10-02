@@ -48,7 +48,9 @@ fn decimal<T: std::str::FromStr>(word: &str) -> T {
 fn hex_bytes(word: &str) -> Vec<u8> {
     assert_eq!(word.len() % 2, 0, "hex bytes have an odd number of digits");
     word.as_bytes()
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|pair| {
             let nibble = |byte: u8| match byte {
                 b'0'..=b'9' => byte - b'0',

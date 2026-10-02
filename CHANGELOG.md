@@ -5,6 +5,12 @@
 - Correct off-page image placement for verified raw HN-A `800a/d300` records
   carrying coordinate marker bits. Raw inspection values remain unchanged;
   this does not claim complete HN-A pixel fidelity.
+- Add bounded caller-supplied TrueType resources and sequential PDF glyph,
+  image and vector content pages. This shared API does not enable native
+  C8/HN-B conversion or production JavaScript font resources.
+- **Breaking:** raise the minimum Rust version to 1.88.0 for the maintained
+  MIT `xberg-ttf-parser` font metadata dependency.
+
 - **Breaking:** add `NativeRecord::ImageReference` for the measured C8
   `810a/d300` profile. Exhaustive matches must handle its coordinates and
   opaque source-span reference. Names are never opened as external files;

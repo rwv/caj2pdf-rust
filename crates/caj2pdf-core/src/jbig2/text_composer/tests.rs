@@ -335,10 +335,10 @@ impl RandomAccessScratch for Scratch {
         if self.shrink_after_write == Some(self.write_calls) {
             self.data.clear();
         }
-        if let Some((call, flag)) = &self.cancel_after_write {
-            if *call == self.write_calls {
-                flag.set(true);
-            }
+        if let Some((call, flag)) = &self.cancel_after_write
+            && *call == self.write_calls
+        {
+            flag.set(true);
         }
         Ok(n)
     }

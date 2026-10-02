@@ -600,7 +600,7 @@ impl<'a, T: RandomAccessScratch, W: SequentialSink, C: Cancellation> PageOrSink<
             }
             done += read;
         }
-        let mask = if page.width % 8 == 0 {
+        let mask = if page.width.is_multiple_of(8) {
             0xff
         } else {
             0xff << (8 - page.width % 8)

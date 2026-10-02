@@ -159,7 +159,7 @@ struct RowHashSink {
 impl RowHashSink {
     fn new(width: u32, height: u32) -> Self {
         let stride = width.div_ceil(8) as usize;
-        let padding_mask = if width % 8 == 0 {
+        let padding_mask = if width.is_multiple_of(8) {
             0
         } else {
             (1u8 << (8 - width % 8)) - 1
