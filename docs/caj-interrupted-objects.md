@@ -623,3 +623,27 @@ visually verified tab, page-number and zoom controls, plus identical repeats.
 The external `caj2pdf-caj30-viewer-20261002/comparison.json` names each accepted
 capture explicitly; `compare.py`, action receipts and diagnostic captures remain
 outside Git. The viewer container was stopped after collection.
+
+
+### Six-case regression review after deferred-prefix recovery
+
+A fresh native build of `4348b5b` was run against all six original #226 sources;
+each SHA256 matches `tests/conformance/matrix.json`. Results:
+
+| Case | Result |
+| --- | --- |
+| issue-25 | Located rejection at 455462, object 450: missing complete prefix counterpart. |
+| issue-30 | 141 pages, qpdf passes; unchanged accepted PDF hash above. |
+| issue-39 | Located rejection at 898312: invalid PDF value token. |
+| issue-85 Mingtang | Located rejection at 529945, object 4: no unique bounded Length repair. |
+| issue-90 4-[6] | Located rejection at 1318436, object 4474: invalid Flate framing. |
+| issue-92 | 58 pages, qpdf passes; unchanged `853491f2…24892` PDF hash recorded above. |
+
+All four rejected inputs leave no final output PDF. Reaching a later diagnostic
+is not a compatibility pass. The original issue-39 palette and issue-90 image
+ambiguities remain unresolved; no guessed replacement was admitted. Mingtang's
+later object-4 occurrence still needs an independently justified path through
+the anchored scanner. Source hashes, executable hash, exact commands, exit
+statuses and outputs are retained externally in
+`caj259-source-review-20261002/results.json`, with its small `run.py` driver.
+This review adds no new visual claim or whole-file conversion API.
