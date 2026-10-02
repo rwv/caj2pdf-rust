@@ -832,13 +832,33 @@ height by 500 instead predicts 464.14 and 1016.14 pixels. Thus the cropped
 page height must not be treated as an exact content scale when deriving
 subpixel font metrics. This observation does not establish which intermediate
 rounding or frame convention causes the difference, and is not a new font
-size rule. The next control should measure several known coordinate intervals
-on one page to distinguish uniform content scaling from intermediate rounding;
+size rule. The follow-up below measures several known coordinate intervals on one page;
 repeating the same six style screenshots would not decide that question.
 The external `caj2pdf-c8-scale-check-20261002/check.py` and `results.json`
 record source hashes and the calculation. Vertical bounds are independently
 rechecked at grayscale threshold 128; horizontal edge thresholds are not used
 for this conclusion.
+
+
+The original `coordinate-grid` fixture supplies nine CJK squares at x values
+20/170/320 and y values 20/21/22, 170/171/172 and 400/401/402. At displayed
+3420%, their page-relative top coordinates are 21/25/30, 685/689/694 and
+1702/1707/1711; left coordinates are 175/839/1503 for each row. Each square
+is 318 pixels high. The full 2210×2209 page crop repeats identically.
+
+These coordinates are consistent with the existing empirical source scale
+`320 / 2473 * 34.2` pixels per unit, a fixed origin per axis and final integer
+rounding. All nine y positions admit a common floor-model origin interval
+[-67.167813, -67.157703), without changing that scale. The frame-height-derived
+scale fails this same check. This supports reusing the existing coordinate
+scale for this control; it does not prove the viewer's exact rounding pipeline
+or establish a font-size table. An earlier unmaximized capture at displayed
+1739% does not fit the same single-floor model vertically and has no repeat
+capture; retain it as an unresolved observation, not acceptance evidence.
+External `caj2pdf-c8-anchor-ft-metrics-20261002/grid-results.json` records the
+nine points and stable final crop. The generator reproduces the 192-byte
+fixture with SHA256
+`37e7cfc47015ec29e12649e8df353042c841538eac08925bffb9c98b85442c47`.
 
 
 A public FreeType forwarding trace on the same six controls confirms requested

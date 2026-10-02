@@ -139,6 +139,18 @@ def main():
                 4672, 0xD6D0, 4902, 0xA0C1,
             ),
         }
+    # One-unit and long intervals distinguish content scaling from page framing.
+    name = "coordinate-grid"
+    fixtures.append((name, [(0x1042, 0, 6)], None, None))
+    symbols[name] = ()
+    words = []
+    for y in (20, 170, 400):
+        for delta, x in enumerate((20, 170, 320)):
+            words.extend((0x8001, 4274 + y + delta, 4652 + x, 0xD6D0))
+    anchor_geometry[name] = {
+        "width": 500, "height": 500, "first_x": 4672, "first_y": 4294,
+        "run_words": tuple(words),
+    }
     for horizontal, vertical in ((3, 3), (3, 5), (5, 3), (5, 5)):
         for kind, code in (("cjk", 0xD6D0), ("latin", 0xA0C1)):
             name = f"axis-{kind}-{horizontal}-{vertical}"
