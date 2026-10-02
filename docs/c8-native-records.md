@@ -1276,3 +1276,13 @@ cutoff at x=35 and an unaffected later glyph outside that rectangle. Required
 clipping mechanics are available without page-content buffering. The method
 retains ordinary Unicode mapping: C8 repetition, font selection, placement and
 nonsemantic alias handling still need integration before production admission.
+
+
+`decoration_glyph` now supplies the nonsemantic counterpart of the clipped
+glyph operation. It uses the same bounded writer, font lookup and failure path,
+with Artifact/Span marking and empty ActualText. Original output retains its
+visible clipped glyph while both Poppler and MuPDF omit that glyph's alias and
+preserve subsequent ordinary text. It does not infer a font resource, position
+or repetition count; those remain C8 translation responsibilities. Missing font
+glyphs still fail explicitly. This primitive does not enable production native
+conversion or close six-page acceptance.

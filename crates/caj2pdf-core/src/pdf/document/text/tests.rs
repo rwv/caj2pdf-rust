@@ -14,6 +14,7 @@ struct Sink {
     max_request: usize,
     fail_after: Option<usize>,
     fail_on_restore: bool,
+    fail_on_mark_end: bool,
     fail_now: std::rc::Rc<std::cell::Cell<bool>>,
     pending: std::rc::Rc<std::cell::Cell<bool>>,
 }
@@ -24,6 +25,7 @@ impl SequentialSink for Sink {
         }
         self.max_request = self.max_request.max(bytes.len());
         if (self.fail_on_restore && bytes.starts_with(b"Q\n"))
+            || (self.fail_on_mark_end && bytes.starts_with(b"EMC\n"))
             || self.fail_now.get()
             || self
                 .fail_after
@@ -110,6 +112,10 @@ fn embedded_font_and_ordered_mixed_page_reopen() {
             .unwrap();
         content
             .glyph_with_clip(0, 'A', matrix(30.0), [30.0, 50.0, 5.0, 20.0])
+            .await
+            .unwrap();
+        content
+            .decoration_glyph(0, 'A', matrix(45.0), [45.0, 50.0, 5.0, 20.0])
             .await
             .unwrap();
         content.glyph(0, 'A', matrix(90.0)).await.unwrap();
@@ -250,12 +256,13 @@ fn invalid_polygons_and_output_failure_poison_the_content_page() {
 
 #[test]
 fn failed_or_abandoned_content_cannot_be_finished() {
-    for case in 0..14 {
+    for case in 0..16 {
         let mut source = SeekableSource::new(Cursor::new(drawing_font())).unwrap();
         let limits = Limits::default();
         let mut font = run(TrueTypeFont::read(&mut source, &limits, &NEVER)).unwrap();
         let mut sink = Sink {
-            fail_on_restore: case == 8 || case == 9,
+            fail_on_restore: case == 8 || case == 9 || case == 14,
+            fail_on_mark_end: case == 15,
             ..Sink::default()
         };
         run(async {
@@ -278,6 +285,11 @@ fn failed_or_abandoned_content_cannot_be_finished() {
                 }
                 5 => content.segment([0.0, 0.0], [1.0, 1.0], -1.0).await,
                 6 => content.segment([f64::INFINITY, 0.0], [1.0, 1.0], 1.0).await,
+                14 | 15 => {
+                    content
+                        .decoration_glyph(0, 'A', matrix(0.0), [0.0, 0.0, 1.0, 1.0])
+                        .await
+                }
                 8 => content.glyph_with_gray(0, 'A', matrix(0.0), 68).await,
                 9..=13 => {
                     let clip = match case {
@@ -507,6 +519,8 @@ fn cancellation_and_abandoned_draws_cannot_publish_a_partial_page() {
         (true, 2),
         (false, 3),
         (true, 3),
+        (false, 4),
+        (true, 4),
     ] {
         let mut source = FontSource::new();
         let limits = Limits::default();
@@ -522,6 +536,9 @@ fn cancellation_and_abandoned_draws_cannot_publish_a_partial_page() {
         let draw = async {
             if kind == 1 {
                 page.fill_polygon(&[[10.0, 10.0], [30.0, 10.0], [20.0, 30.0]])
+                    .await
+            } else if kind == 4 {
+                page.decoration_glyph(0, 'A', matrix(10.0), [10.0, 50.0, 5.0, 20.0])
                     .await
             } else if kind == 3 {
                 page.glyph_with_clip(0, 'A', matrix(10.0), [10.0, 50.0, 5.0, 20.0])

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Add clipped decorative font glyph output with Artifact and empty ActualText
+  marking, preserving ordinary text extraction in Poppler and MuPDF checks.
+  C8 repetition and font/style integration remain under development.
+
 - Add scoped rectangular glyph clipping to the streaming PDF content writer,
   preserving later graphics state and failed-page poisoning. This primitive
   does not yet enable C8 decoration conversion.

@@ -2329,3 +2329,23 @@ restore failure, cancellation and abandoned draws retain failed-page behavior.
 External qpdf/MuPDF receipts are in `caj2pdf-c8-clipped-glyph-20261002`. The API
 retains the ordinary font Unicode map; nonsemantic decoration integration remains
 separate and is not claimed by the clipping primitive.
+
+
+### Nonsemantic decorative glyph output
+
+`ContentPageWriter::decoration_glyph` is original MIT glue around the existing
+shared glyph writer. A decorative font alias is enclosed in an Artifact and
+an inner Span with empty ActualText; graphics and marked-content scopes are
+closed before the page can finish. The syntax choice follows the PDF Association's
+[ActualText guidance](https://pdfa.org/glossary-of-accessibility-terminology-in-pdf/),
+which recommends Span placement when replacement must not overwrite tag semantics.
+No third-party implementation was copied or translated.
+
+An original-fixture experiment found that Artifact alone still extracts the
+alias in both Poppler and MuPDF; ActualText directly on Artifact differs between
+them. The nested representation removes only the decorative alias in both,
+with identical pixels in the controlled comparison. The actual Rust writer's
+fixture independently confirms visible clipped decoration and preserved ordinary
+text. Receipts are `caj2pdf-c8-decoration-text-20261002` and
+`caj2pdf-c8-decoration-writer-20261002`. These are tested extractor results, not
+universal extractor behavior or a PDF/UA conformance claim.
