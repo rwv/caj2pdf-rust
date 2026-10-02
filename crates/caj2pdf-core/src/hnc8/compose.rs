@@ -564,6 +564,84 @@ impl<S: RangedSource> RangedSource for CountingSource<'_, S> {
     }
 }
 
+/// Check one descriptor without decoding it. Native mixed pages and the
+/// image-only path must use the same codec admission, budgets and diagnostics.
+#[allow(clippy::too_many_arguments)]
+async fn preflight_image<S: RangedSource, C: Cancellation>(
+    source: &mut S,
+    record: ImageRecord,
+    variant: Variant,
+    image_at: At,
+    table: Option<&QmTable>,
+    has_type3_workspaces: bool,
+    options: ComposeOptions,
+    limits: &Limits,
+    cancellation: &C,
+) -> Result<(CheckedImage, u32, u32, u32), ComposeError> {
+    Ok(match record.record_type {
+        0 if variant != Variant::HnB => {
+            if table.is_none() {
+                return Err(image_at.error(ComposeStage::Headers, ComposeErrorKind::MissingTable));
+            }
+            let info = read_type0_info(
+                source,
+                record.type0_span().expect("matched type zero"),
+                limits,
+                cancellation,
+                options.arithmetic,
+                options.image,
+            )
+            .await
+            .map_err(image_at.type0(ComposeStage::Headers))?;
+            let display_width = info.width;
+            (
+                CheckedImage::Type0(info),
+                info.width,
+                display_width,
+                info.height,
+            )
+        }
+        3 if variant != Variant::HnB => {
+            if !has_type3_workspaces {
+                return Err(image_at.error(
+                    ComposeStage::Headers,
+                    ComposeErrorKind::MissingType3Workspaces,
+                ));
+            }
+            let checked = preflight_type3(source, record, options.type3, limits, cancellation)
+                .await
+                .map_err(|error| type3::error(image_at, ComposeStage::Headers, error))?;
+            let page = checked.page();
+            let display_width = page.width;
+            (
+                CheckedImage::Type3 {
+                    digest: checked.digest(),
+                },
+                page.width,
+                display_width,
+                page.height,
+            )
+        }
+        // Type 1 reuses the validated JPEG path in the measured
+        // HN-A/C8 composition profile; HN-B remains type-2 only.
+        1 | 2 if record.record_type == 2 || variant != Variant::HnB => {
+            let checked = preflight_type2(source, record, limits, cancellation, options.jpeg)
+                .await
+                .map_err(image_at.jpeg(ComposeStage::Headers))?;
+            let info = checked.info();
+            let width = u32::from(info.width);
+            let height = u32::from(info.height);
+            (CheckedImage::Jpeg(checked), width, width, height)
+        }
+        _ => {
+            return Err(image_at.error(
+                ComposeStage::Headers,
+                ComposeErrorKind::UnsupportedImageType(record.record_type),
+            ));
+        }
+    })
+}
+
 /// Decode one preflighted descriptor into the current PDF document. Kept
 /// independent of page placement so native text pages can reuse the same
 /// codec, scratch accounting and cleanup path as image-only composition.
@@ -859,88 +937,26 @@ where
                 });
                 continue;
             }
-            let (checked, visible_width, display_width, height) = match record.record_type {
-                0 if header.variant != Variant::HnB => {
-                    if table.is_none() {
-                        return Err(
-                            image_at.error(ComposeStage::Headers, ComposeErrorKind::MissingTable)
-                        );
-                    }
-                    let info = read_type0_info(
-                        reader.source_mut(),
-                        record.type0_span().expect("matched type zero"),
-                        limits,
-                        cancellation,
-                        options.arithmetic,
-                        options.image,
-                    )
-                    .await
-                    .map_err(image_at.type0(ComposeStage::Headers))?;
-                    let display_width = info.width;
-                    (
-                        CheckedImage::Type0(info),
-                        info.width,
-                        display_width,
-                        info.height,
-                    )
-                }
-                3 if header.variant != Variant::HnB => {
-                    if workspaces.type3.is_none() {
-                        return Err(image_at.error(
-                            ComposeStage::Headers,
-                            ComposeErrorKind::MissingType3Workspaces,
-                        ));
-                    }
-                    let checked = preflight_type3(
-                        reader.source_mut(),
-                        record,
-                        options.type3,
-                        limits,
-                        cancellation,
-                    )
-                    .await
-                    .map_err(|error| type3::error(image_at, ComposeStage::Headers, error))?;
-                    let page = checked.page();
-                    let display_width = page.width;
-                    (
-                        CheckedImage::Type3 {
-                            digest: checked.digest(),
-                        },
-                        page.width,
-                        display_width,
-                        page.height,
-                    )
-                }
-                // Type 1 reuses the validated JPEG path in the measured
-                // HN-A/C8 composition profile; HN-B remains type-2 only.
-                1 | 2 if record.record_type == 2 || header.variant != Variant::HnB => {
-                    let checked = preflight_type2(
-                        reader.source_mut(),
-                        record,
-                        limits,
-                        cancellation,
-                        options.jpeg,
-                    )
-                    .await
-                    .map_err(image_at.jpeg(ComposeStage::Headers))?;
-                    let info = checked.info();
-                    let width = u32::from(info.width);
-                    let height = u32::from(info.height);
-                    if geometry.is_none() {
-                        geometry = Some(
-                            empirical_page_from_pixels(width, height, [0.0, 0.0])
-                                .map_err(image_at.io(ComposeStage::Geometry))?,
-                        );
-                    }
-                    (CheckedImage::Jpeg(checked), width, width, height)
-                }
-                _ => {
-                    return Err(image_at.error(
-                        ComposeStage::Headers,
-                        ComposeErrorKind::UnsupportedImageType(record.record_type),
-                    ));
-                }
-            };
+            let (checked, visible_width, display_width, height) = preflight_image(
+                reader.source_mut(),
+                record,
+                header.variant,
+                image_at,
+                table,
+                workspaces.type3.is_some(),
+                options,
+                limits,
+                cancellation,
+            )
+            .await?;
+            if geometry.is_none() {
+                // Only HN-B lacks source page dimensions. Its admitted single
+                // JPEG supplies page size; the codec preflight is independent.
+                geometry = Some(
+                    empirical_page_from_pixels(visible_width, height, [0.0, 0.0])
+                        .map_err(image_at.io(ComposeStage::Geometry))?,
+                );
+            }
             let coordinate = if header.variant == Variant::HnB {
                 RawTextCoordinate::default()
             } else {
