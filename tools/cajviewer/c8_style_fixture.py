@@ -192,6 +192,52 @@ def main():
     # position, size and character codes fixed against the existing weight case.
     for font in (5, 8, 9):
         fixtures.append((f"weight-font{font}", [(0x1084, 4, font)] * 8, None, None))
+    # Required non-Han codes in the first C8 profile. Positions and row content
+    # are authored controls, not extracted document text. CJK and Latin anchors
+    # separate geometry from resource choice in the all-alias marker fonts.
+    role_codes = (
+        0xA0A6, 0xA1A1, 0xA1A2, 0xA1A4, 0xA1AA, 0xA1AD, 0xA1AE, 0xA1AF,
+        0xA1B0, 0xA1B1, 0xA1C6, 0xA1C8, *range(0xA2D9, 0xA2E0),
+        0xA3A3, 0xA3A5, 0xA3A8, 0xA3A9, 0xA3AB, 0xA3AC, 0xA3AD, 0xA3AE,
+        0xA3AF, *range(0xA3B0, 0xA3C0), 0xA3DB, 0xA3DC, 0xA3DD, 0xA3FB,
+        0xA3FD, 0xA9AA, 0xAAB3, 0xACA3,
+    )
+    for code in role_codes:
+        name = f"role-{code:04x}"
+        words = []
+        for row, weight in enumerate((0, 4)):
+            words.extend((0x8001, 4294 + row * 230, 0x8002, 0x1084,
+                          0x801D, weight, 0x8067, 6,
+                          4672, 0xD6D0, 4872, 0xA0C1, 5072, code))
+        fixtures.append((name, [(0x1084, 0, 6)], None, None))
+        symbols[name] = ()
+        anchor_geometry[name] = {"width": 600, "height": 600,
+                                 "first_x": 4672, "first_y": 4294,
+                                 "run_words": tuple(words)}
+    for code in (0xA0A6, 0xA1A2, 0xA1A4, 0xA1AF, 0xA1B0,
+                 0xA3A8, 0xA3A9, 0xA3BA, 0xA3DB, 0xACA3):
+        name = f"role-sizes-{code:04x}"
+        words = []
+        for row, field in enumerate((2, 3, 4, 5, 6, 8)):
+            words.extend((0x8001, 4344 + row * 230,
+                          0x8002, 0x1000 | (field << 5) | field,
+                          0x801D, 0, 0x8067, 6,
+                          4672, 0xD6D0, 4872, 0xA0C1, 5072, code))
+        fixtures.append((name, [(0x1084, 0, 6)], None, None))
+        symbols[name] = ()
+        anchor_geometry[name] = {"width": 800, "height": 1400,
+                                 "first_x": 4672, "first_y": 4344,
+                                 "run_words": tuple(words)}
+    words = []
+    for row, (width_field, height_field) in enumerate(((7, 7), (2, 8), (8, 2))):
+        words.extend((0x8001, 4394 + row * 300,
+                      0x8002, 0x1000 | (width_field << 5) | height_field,
+                      0x801D, 4, 0x8067, 6, 4702, 0xD6D0, 5052, 0xA3BA))
+    name = "role-colon-heldout"
+    fixtures.append((name, [(0x1084, 0, 6)], None, None))
+    symbols[name] = ()
+    anchor_geometry[name] = {"width": 800, "height": 1100,
+                             "run_words": tuple(words)}
     manifest = []
     for name, styles, control_record, drawing in fixtures:
         geometry = {"row_step": 350, "height": 3200} if name == "size-profile" else {}

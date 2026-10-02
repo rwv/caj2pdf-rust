@@ -143,9 +143,13 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
             NativeRecord::Glyph { x, y, style, code } => {
                 let character = decode_native_character(code)
                     .ok_or_else(|| invalid("unsupported C8 native character"))?;
-                let (class, font) = if character.is_ascii_alphanumeric() {
+                let (class, font) = if character.is_ascii_alphanumeric() || code == 0xa3ba {
                     (
-                        C8GlyphClass::Latin,
+                        if code == 0xa3ba {
+                            C8GlyphClass::Cjk
+                        } else {
+                            C8GlyphClass::Latin
+                        },
                         if self.alternate {
                             self.roles.alternate_latin
                         } else {
@@ -159,8 +163,14 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
                     // font role or placement (notably the two ampersand codes).
                     return Err(invalid("unverified C8 glyph resource or placement class"));
                 };
-                let transform =
+                let mut transform =
                     empirical_c8_glyph_transform(self.geometry, self.origin, [x, y], style, class)?;
+                if code == 0xa3ba {
+                    // Fullwidth colon uses the active Latin resource but has
+                    // its own baseline, controlled with independent size axes.
+                    transform[5] +=
+                        transform[3] / 8.0 - 15.0 * super::EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
+                }
                 // Original source controls establish this gray for the admitted
                 // ordinary text profile; keep it local to each glyph draw.
                 self.page

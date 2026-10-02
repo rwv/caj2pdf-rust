@@ -144,7 +144,20 @@ fn convert(
             _ => (),
         }
         let mut document = PdfDocument::new(&mut sink, &limits, &cancel).await.unwrap();
-        let mut font_source = source(crate::pdf::drawing_font());
+        let mut font_bytes = crate::pdf::drawing_font();
+        if mode == 11 {
+            // Relabel the original triangle as fullwidth colon for this test.
+            // No source font outline or character shape is imported.
+            let table = font_bytes[12..]
+                .chunks_exact(16)
+                .find(|entry| &entry[..4] == b"cmap")
+                .unwrap();
+            let offset = u32::from_be_bytes(table[8..12].try_into().unwrap()) as usize;
+            for at in [offset + 40, offset + 44] {
+                font_bytes[at..at + 4].copy_from_slice(&0xff1au32.to_be_bytes());
+            }
+        }
+        let mut font_source = source(font_bytes);
         let mut font = TrueTypeFont::read(&mut font_source, &limits, &cancel)
             .await
             .unwrap();
@@ -341,6 +354,61 @@ fn image_profile_and_coordinates_are_not_silently_guessed() {
         words.push([0x8004, 1]);
         let (result, _, finished) = convert(&words, 1, &[false], roles(), 0);
         assert!(result.is_err());
+        assert!(!finished);
+    }
+}
+
+#[test]
+fn fullwidth_colon_uses_active_latin_resource_and_independent_size_axes() {
+    for (style, expected_width, expected_height) in [
+        (0x10e7, 56.0, 56.0),
+        (0x1048, 28.0, 63.0),
+        (0x1102, 63.0, 28.0),
+    ] {
+        let words = [
+            [0x8001, 4394],
+            [0x8002, style],
+            [5052, 0xa3ba],
+            [0x801d, 4],
+            [5052, 0xa3ba],
+            [0x8004, 1],
+        ];
+        let (result, pdf, finished) = convert(&words, 0, &[], roles(), 11);
+        assert_eq!(result.unwrap(), 0);
+        assert!(finished);
+        let text = String::from_utf8_lossy(&pdf);
+        assert!(text.contains("/F1 1 Tf"));
+        assert!(text.contains("/F2 1 Tf"));
+        assert_eq!(text.matches("<FF1A> Tj").count(), 2);
+        let matrices: Vec<Vec<f64>> = text
+            .lines()
+            .filter_map(|line| line.split_once(" Tm ").map(|(matrix, _)| matrix))
+            .map(|line| {
+                line.split_whitespace()
+                    .map(|word| word.parse().unwrap())
+                    .collect()
+            })
+            .collect();
+        assert_eq!(matrices.len(), 2);
+        let width = expected_width * 75.0 / 301.0;
+        let height = expected_height * 75.0 / 301.0;
+        let unit = super::super::EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
+        let expected = [
+            width,
+            0.0,
+            0.0,
+            height,
+            420.0 * unit,
+            480.0 * unit - height * 7.0 / 8.0,
+        ];
+        for matrix in matrices {
+            for (actual, expected) in matrix.iter().zip(expected) {
+                // PDF serialization keeps six fractional decimal places.
+                assert!((actual - expected).abs() < 0.000001);
+            }
+        }
+        let (missing, _, finished) = convert(&words, 0, &[], roles(), 0);
+        assert!(missing.is_err());
         assert!(!finished);
     }
 }

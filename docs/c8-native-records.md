@@ -1578,3 +1578,56 @@ External inputs are in `caj2pdf-c8-image-tail-20261002`; captures and
 source checkpoint is in `caj2pdf-c8-render-preview-20261001` as
 `native-page-checkpoint.txt`; its partial PDF is explicitly incomplete. No
 external document, image/font data, extracted text or capture is committed.
+
+## Fullwidth colon and original resource markers (#240)
+
+The `role-markers` variant of `tools/cajviewer/c8_geometric_font.py`
+contains only original rectangular outlines. Each resource has the same outer
+em square and advance; a different interior white notch identifies the resource.
+Its diagnostic format-13 cmap maps every BMP alias to that original outline.
+This is a viewer probe, not a production font or an expansion of the Rust font
+reader's supported cmap formats. No vendor outline is used.
+
+`c8_style_fixture.py` reproduces 52 original `role-*` controls, ten
+`role-sizes-*` controls and `role-colon-heldout`. All 63 byte streams reproduce
+the observed external inputs exactly. Fixed CJK/Latin anchors separate resource
+selection from glyph placement. These controls are an inventory, not blanket
+admission of all tested codes. In particular, preliminary horizontal-offset
+hypotheses for other punctuation do not explain all size observations and are
+not implemented.
+
+For raw `a3ba` (U+FF1A), the field-4 weight controls select the ordinary Latin
+resource for `801d/0` and the alternate Latin resource for `801d/4`. Placement
+is separate from that resource choice. Starting from the existing CJK matrix,
+leave x unchanged and adjust the PDF baseline by:
+
+```
+y += em_height / 8 - 15 * EMPIRICAL_COORDINATE_POINTS_PER_UNIT
+```
+
+At the matched 337% view, six size fields 2/3/4/5/6/8 give target-minus-CJK
+visible top offsets of 3/3/2/1/0/-2 pixels, with the same nominal horizontal
+origin. This rejects a fixed vertical shift. The separately authored held-out
+input changes position, uses alternate resource state, and exercises width/
+height fields (7,7), (2,8), (8,2). Its SHA-256 is
+`cb81b33cea4545ba4cc5f93648437128882c3a12f7771fef1c09ceee4e9b5816`.
+At 429%, the corresponding top offsets are -1/-2/4 pixels; all three horizontal
+displacements are 195 pixels for the authored 350-unit separation. The original
+notch identifies the alternate resource in all three rows. Repeated captures
+are byte-identical. All glyphs fit the viewport; the right page frame is clipped,
+so this control establishes relative glyph placement, not full-page bounds.
+The empirical model retains the previously documented raster-edge and physical-
+unit limitations; these integer box measurements do not establish pixel parity.
+
+Receipts remain external in `caj2pdf-c8-required-glyph-roles-20261002`, including
+`size-component-measurements.json`, `colon-heldout-input.json` and
+`colon-heldout-result.json`. Initial batches after viewer exit are excluded.
+The later colon capture is populated and repeats identically; its anchor boxes
+match the earlier size controls, but 302 edge pixels in the anchor crop differ.
+It is not counted as an identical-anchor capture or used to claim pixel parity.
+
+The native-page translator now admits this raw code using the existing explicit
+font roles and matrix evaluator. Tests exercise the three held-out size pairs,
+both resource states, emitted U+FF1A and explicit missing-glyph failure through
+actual ranged record traversal and PDF output. This removes one required-record
+blocker; complete six-page and public-adapter acceptance remain open.

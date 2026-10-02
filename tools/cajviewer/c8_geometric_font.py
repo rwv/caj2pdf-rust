@@ -7,6 +7,8 @@ from pathlib import Path
 
 from fontTools.fontBuilder import FontBuilder
 from fontTools.pens.ttGlyphPen import TTGlyphPen
+from fontTools.ttLib import TTFont
+from fontTools.ttLib.tables._c_m_a_p import CmapSubtable
 
 
 # Names select viewer resource slots. Aliases are observed character queries;
@@ -19,7 +21,7 @@ CHARACTERS = {
 }
 
 
-def font(path, family, units=1000, *, extended_metrics=False, outline_shift=0, decoration_alias=False, narrow_decoration=False, decoration_advance_multiplier=1):
+def font(path, family, units=1000, *, extended_metrics=False, outline_shift=0, decoration_alias=False, narrow_decoration=False, decoration_advance_multiplier=1, role_markers=False):
     names = [".notdef", "square", "upper", "lower"]
     rectangles = [
         None,
@@ -36,6 +38,15 @@ def font(path, family, units=1000, *, extended_metrics=False, outline_shift=0, d
             pen.lineTo((x1, y0 + outline_shift))
             pen.lineTo((x1, y1 + outline_shift))
             pen.lineTo((x0, y1 + outline_shift))
+            pen.closePath()
+        if role_markers and name == "square":
+            # Identical outer bounds and advances; the white interior marker
+            # identifies which resource slot the viewer actually selected.
+            left = 100 + FAMILIES.index(family) * 250
+            pen.moveTo((left, 200))
+            pen.lineTo((left, 800))
+            pen.lineTo((left + 150, 800))
+            pen.lineTo((left + 150, 200))
             pen.closePath()
         glyphs[name] = pen.glyph()
     ascent = units + (units // 2 if extended_metrics else 0)
@@ -68,13 +79,25 @@ def font(path, family, units=1000, *, extended_metrics=False, outline_shift=0, d
     builder.setupMaxp()
     builder.font["head"].created = builder.font["head"].modified = 0
     builder.save(path)
+    if role_markers:
+        # Viewer-only probes: every BMP alias selects one original full-em
+        # marker. This is not a meaningful production text font.
+        cmap = CmapSubtable.newSubtable(13)
+        cmap.platformID, cmap.platEncID, cmap.language = 3, 10, 0
+        cmap.cmap = {code: "square" for code in range(65536)}
+        # Reopen only our just-generated font to retain the original metadata
+        # while changing its alias map; no external font is an input.
+        generated = TTFont(path, recalcTimestamp=False)
+        generated["cmap"].tables = [cmap]
+        generated["head"].created = generated["head"].modified = 0
+        generated.save(path)
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("output", type=Path, help="new directory outside the repository")
     parser.add_argument(
-        "--variant", choices=("baseline", "extended-metrics", "shifted-outline", "decoration-alias", "decoration-narrow"),
+        "--variant", choices=("baseline", "extended-metrics", "shifted-outline", "decoration-alias", "decoration-narrow", "role-markers"),
         default="baseline", help="original font metric/outline control",
     )
     parser.add_argument(
@@ -91,6 +114,7 @@ def main():
             decoration_alias=args.variant == "decoration-alias",
             narrow_decoration=args.variant == "decoration-narrow",
             decoration_advance_multiplier=args.decoration_advance_multiplier,
+            role_markers=args.variant == "role-markers",
         )
 
 
