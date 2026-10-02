@@ -3,7 +3,8 @@
 # Interrupted CAJ PDF objects
 
 Tracking: #226. Issue-92 now converts all 58 pages and passes PDF structure,
-page-order and rasterization checks; independent viewer comparison is NOT_RUN.
+page-order and rasterization checks. Viewer pages 1, 4 and 58 have now been
+inspected; stable source/output pixel differences remain unclassified.
 The other five baseline sources remain unsupported. Source files and diagnostic
 mutations remain outside Git. Earlier sections retain the investigation history;
 the latest result is recorded at the end.
@@ -348,3 +349,44 @@ advances conversion to byte 1819762, object 7566 (invalid Flate framing). It
 does not complete that document. Issue-92 retains its identical 58-page PDF
 and passing qpdf result (`issue-92-cross-row-regression.json`, external).
 All other existing final validation and resource budgets remain active.
+
+## Current issue-92 viewer observations
+
+Pinned offline CAJViewer image
+`sha256:cb5049d3448b6d5bcfd371cf195d522d637869dce075cb1650d74198875171de`
+opened the original CAJ and the unchanged 58-page PDF. Viewer font resources
+were unmodified; the environment included the existing Noto CJK UI font.
+Display was 1600×1200 at 96 DPI, 80% zoom, single-page mode. Page-number
+controls and all physical page edges were inspected before comparison.
+
+The cover (page 1), English abstract (page 4), and final acknowledgments
+(page 58) show no obvious missing content or layout loss. This is a selected-page
+observation, not full-document visual acceptance or an exact text comparison.
+
+| Page | Changed RGB pixels | Threshold-128 mask differences | Source/output repeat differences |
+| --- | ---: | ---: | ---: |
+| 1 | 24,330 | 1,267 | 0 / 0 |
+| 4 | 71,612 | 5,249 | 0 / 0 |
+| 58 | 49,907 | 4,356 | 0 / 0 |
+
+Each crop is 634×897 pixels. Crops use independently observed physical-page
+bounds; no rescaling, content registration or tolerance was applied. Ink bounds
+agree on page 1 and differ by one pixel at the left edge on pages 4/58. These
+measurements do not classify the remaining differences as harmless. Other
+pages remain visually unchecked. Earlier NOT_RUN entries above describe the
+historical stage before this observation.
+
+The external `caj2pdf-caj92-viewer-20261002` directory retains `launch.json`,
+action receipts, full desktop/repeat captures and `comparison.json` with
+source/output hashes and crop bounds. The container was stopped. Source pages,
+text, screenshots and vendor assets are not committed.
+
+## Remaining same-row dependency in issue-30
+
+Object 7566 at 1819698 shares 78 bytes with its same-reference occurrence at
+2403619. Both are within page-table row 46 (offset 1783324, length 690825);
+there is no intervening page-table anchor to admit the latter through the
+current collector. The first copy interrupts Flate data. A later textual
+header occurrence alone is not a verified object boundary, so this observation
+does not authorize skipping the damaged payload. Complete conversion remains
+open; a different independently justified boundary source is needed.
