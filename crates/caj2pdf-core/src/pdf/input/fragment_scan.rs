@@ -9,6 +9,7 @@ use crate::pdf::{FragmentObject, PdfRange, PdfRef};
 use crate::{Cancellation, Error, Limits, PdfErrorKind, RangedSource, Result};
 use flate2::{Decompress, FlushDecompress, Status};
 
+mod ascii85;
 mod ccitt;
 mod jpeg;
 
@@ -338,6 +339,7 @@ async fn scan_fragment<S: RangedSource, C: Cancellation>(
                             flate_extent(&mut reader, data_at, reference, inflated_bytes).await
                         }
                         Some(b"DCTDecode") => jpeg::extent(&mut reader, data_at, reference).await,
+                        Some(b"ASCII85Decode") => ascii85::extent(&mut reader, data_at, reference, inflated_bytes).await,
                         Some(b"CCITTFaxDecode") => {
                             ccitt::extent(
                                 &mut reader,
@@ -2376,7 +2378,7 @@ mod candidate_tests {
     fn prior_indirect_lengths_frame_opaque_streams_without_searching_payloads() {
         let payload = b"opaque endstream endobj 99 0 obj";
         let mut bytes = format!(
-            "2 0 obj {} endobj\n1 0 obj << /Length 2 0 R /Filter /ASCII85Decode >> stream\n",
+            "2 0 obj {} endobj\n1 0 obj << /Length 2 0 R /Filter /RunLengthDecode >> stream\n",
             payload.len()
         )
         .into_bytes();
@@ -2386,8 +2388,8 @@ mod candidate_tests {
         bytes.extend_from_slice(b"2 0 obj 1 endobj\n");
         assert!(scan(bytes, &mut []).is_err());
         for bytes in [
-            b"2 0 obj 1 endobj\n1 0 obj << /Length 2 0 R /Filter /ASCII85Decode >> stream\nlong\nendstream\nendobj\n".as_slice(),
-            b"1 0 obj << /Length 2 0 R /Filter /ASCII85Decode >> stream\nx\nendstream\nendobj\n2 0 obj 1 endobj\n",
+            b"2 0 obj 1 endobj\n1 0 obj << /Length 2 0 R /Filter /RunLengthDecode >> stream\nlong\nendstream\nendobj\n".as_slice(),
+            b"1 0 obj << /Length 2 0 R /Filter /RunLengthDecode >> stream\nx\nendstream\nendobj\n2 0 obj 1 endobj\n",
         ] {
             assert!(scan(bytes.to_vec(), &mut []).is_err());
         }

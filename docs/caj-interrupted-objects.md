@@ -390,3 +390,20 @@ current collector. The first copy interrupts Flate data. A later textual
 header occurrence alone is not a verified object boundary, so this observation
 does not authorize skipping the damaged payload. Complete conversion remains
 open; a different independently justified boundary source is needed.
+
+## ASCII85 indirect stream lengths
+
+The scanner now validates ASCII85's encoding-defined end marker, allowed
+characters, zero-group abbreviation, full-group range and final partial group.
+It retains only a group accumulator and counters, with cancellation and the
+shared decoded-work budget. It does not search binary data for PDF object
+markers. Referenced Length and the normal PDF stream tail still must agree.
+Original controls include all final-group lengths, whitespace, overflow,
+malformed terminators, zero abbreviations inside groups, missing terminators,
+work exhaustion, cancellation and a wrong final Length object.
+
+Issue-25 now reaches byte 565972, object 373: its interrupted ASCII85 payload
+fails encoding validation. The complete same-reference occurrence follows
+inside the same page span and is not admitted merely from a textual search.
+The input remains unsupported and publishes no final PDF. This adds standard
+framing support; it is not a complete-source recovery claim.

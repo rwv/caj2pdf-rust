@@ -2114,3 +2114,14 @@ the independently observed issue-30 row dependency recorded in
 `docs/caj-interrupted-objects.md`; no source content is copied. Candidate
 collection reuses the original scanner, with deferred references always
 validated by the final complete-fragment path.
+
+### Original ASCII85 stream extent validation
+
+`pdf/input/fragment_scan/ascii85.rs` is an original MIT implementation of the
+ASCII85 framing and invalid-input rules in ISO 32000 section 7.4.3, checked
+against Adobe's [PDF reference](https://opensource.adobe.com/dc-acrobat-sdk-docs/pdfstandards/pdfreference1.5_v6.pdf)
+and the PDF Association's [approved syntax errata](https://pdf-issues.pdfa.org/32000-2-2020/clause07.html#743-ascii85decode-filter).
+It validates groups and the end marker without retaining decoded bytes. Tests
+use invented short encodings and malformed variants, not copied converter
+implementation or external document payloads. Decoded work shares the existing
+scan budget; final referenced Length validation is unchanged.
