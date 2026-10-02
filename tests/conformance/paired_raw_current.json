@@ -168,5 +168,62 @@
     "cap_bytes": 67108864,
     "result": "REFUSED before conversion",
     "remaining_opfs_files": []
+  },
+  "accepted_build_confirmation": {
+    "implementation_commit": "c291a7272de854351c2eed4fba1a913b3eae0a84",
+    "native_binary_sha256": "47f3e22f31053e138aad65b1644da3382c592c0b518cd14ff9893442919b89b1",
+    "wasm_sha256": "2109a7586359223d888708cb88de5d63deda70901789bb587f7d16bed475333c",
+    "node_version": "v24.13.0",
+    "scope": "Fresh CLI, Node public example and real Chromium dedicated Worker conversions of both complete documents. Native qpdf --check passes. PDF hashes match the historical results above; this does not resolve historical page-geometry differences or claim fresh source visual inspection.",
+    "memory_note": "Browser input spooled to OPFS with 128 MiB cap; four scratch stores capped at 64 MiB each; output written sequentially to OPFS. SHA256 reads complete output only after conversion. Server fixture buffers are outside converter accounting. Reported WASM bytes are post-conversion, not peak memory.",
+    "samples": [
+      {
+        "id": "issue-7/a.caj",
+        "pages": 125,
+        "qpdf_exit": 0,
+        "pdf_sha256": "b1b186deda676811507762ec0966f4583a97ceaae0e4b66899d8ead461f3247b",
+        "node_pdf_sha256": "b1b186deda676811507762ec0966f4583a97ceaae0e4b66899d8ead461f3247b",
+        "browser": {
+          "name": "a",
+          "report": {
+            "format": "hn",
+            "inputBytesRead": "12236658",
+            "outputBytesWritten": "13694591",
+            "pagesConverted": 125,
+            "bookmarksWritten": 78
+          },
+          "sha256": "b1b186deda676811507762ec0966f4583a97ceaae0e4b66899d8ead461f3247b",
+          "maxRead": 262144,
+          "maxWrite": 262144,
+          "postConversionWasmBytes": 2555904,
+          "cleared": true,
+          "remainingFiles": []
+        }
+      },
+      {
+        "id": "issue-85/《周礼》中所见天神祭祀考论_刘涛.caj",
+        "pages": 160,
+        "qpdf_exit": 0,
+        "pdf_sha256": "ae46026c8c96af56bf9f9ab34ba3f2c4f0f8fd79de32bf4403cf7f7d4e37a307",
+        "node_pdf_sha256": "ae46026c8c96af56bf9f9ab34ba3f2c4f0f8fd79de32bf4403cf7f7d4e37a307",
+        "browser": {
+          "name": "zhouli",
+          "report": {
+            "format": "hn",
+            "inputBytesRead": "145620435",
+            "outputBytesWritten": "73533759",
+            "pagesConverted": 160,
+            "bookmarksWritten": 28
+          },
+          "sha256": "ae46026c8c96af56bf9f9ab34ba3f2c4f0f8fd79de32bf4403cf7f7d4e37a307",
+          "maxRead": 262144,
+          "maxWrite": 262144,
+          "postConversionWasmBytes": 2424832,
+          "cleared": true,
+          "remainingFiles": []
+        }
+      }
+    ],
+    "remaining": "Independent selected-page content/geometry acceptance in #249/#219. The first browser attempt hit the harness 30-second CDP timeout; completed evidence uses short polling with a 180-second per-document limit."
   }
 }
