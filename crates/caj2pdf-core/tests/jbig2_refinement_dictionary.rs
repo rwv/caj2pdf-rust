@@ -765,12 +765,12 @@ fn one_mq_symbol_budget_covers_integer_and_iaid_decisions() {
         let Err(error) = observed.result else {
             continue;
         };
-        if let RefinementDictionaryErrorKind::Mq(mq) = &error.kind {
-            if let Some(context) = mq.context {
-                integer_limit |= context < INTEGER_CONTEXT_COUNT;
-                iaid_limit |=
-                    context >= INTEGER_CONTEXT_COUNT && error.progress.iaai.single_reference == 1;
-            }
+        if let RefinementDictionaryErrorKind::Mq(mq) = &error.kind
+            && let Some(context) = mq.context
+        {
+            integer_limit |= context < INTEGER_CONTEXT_COUNT;
+            iaid_limit |=
+                context >= INTEGER_CONTEXT_COUNT && error.progress.iaai.single_reference == 1;
         }
         if integer_limit && iaid_limit {
             break;

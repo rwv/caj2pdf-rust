@@ -61,7 +61,7 @@ fn pixel_metrics(
             return Err("final pixel file shortened while hashing".into());
         }
         for (index, byte) in bytes[..got].iter().enumerate() {
-            if (offset + index as u64 + 1) % stride == 0 && byte & low_mask != 0 {
+            if (offset + index as u64 + 1).is_multiple_of(stride) && byte & low_mask != 0 {
                 return Err("final row has nonzero low padding bits".into());
             }
             black += u64::from(byte.count_ones());

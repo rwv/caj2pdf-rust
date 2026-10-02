@@ -427,10 +427,10 @@ impl RangedSource for Source {
         }
         if self.payload_start == Some(offset) {
             self.payload_passes += 1;
-            if let Some((pass, index)) = self.mutate_at_pass {
-                if pass == self.payload_passes {
-                    self.bytes[index] ^= 1;
-                }
+            if let Some((pass, index)) = self.mutate_at_pass
+                && pass == self.payload_passes
+            {
+                self.bytes[index] ^= 1;
             }
         }
         let start = usize::try_from(offset).unwrap();

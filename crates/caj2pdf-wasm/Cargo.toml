@@ -2,7 +2,7 @@
 name = "caj2pdf-wasm"
 version = "0.3.1"
 edition = "2024"
-rust-version = "1.85.0"
+rust-version = "1.88.0"
 license = "MIT"
 description = "WebAssembly boundary for browser and Node.js caj2pdf adapters"
 repository = "https://github.com/rwv/caj2pdf-rust"

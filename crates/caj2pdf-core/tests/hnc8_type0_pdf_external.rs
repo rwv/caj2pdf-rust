@@ -557,7 +557,7 @@ fn read_row(file: &mut File, start: u64, row: usize, buffer: &mut [u8]) -> TestR
 }
 
 fn mask(width: usize) -> u8 {
-    if width % 8 == 0 {
+    if width.is_multiple_of(8) {
         0xff
     } else {
         0xff << (8 - width % 8)
