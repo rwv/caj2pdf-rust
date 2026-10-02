@@ -2125,3 +2125,12 @@ It validates groups and the end marker without retaining decoded bytes. Tests
 use invented short encodings and malformed variants, not copied converter
 implementation or external document payloads. Decoded work shares the existing
 scan budget; final referenced Length validation is unchanged.
+
+### ASCII85 adjacent replay boundary
+
+The #226 follow-up was independently authored from the existing ISO 32000
+ASCII85 framing rule and observed CAJ object/Length relationships. Original
+synthetic tests contain no external document content. An external Python
+standard-library ASCII85 decode checked the derived payload as a black box;
+no decoder implementation was copied or translated. No vendor implementation,
+font outlines or source document bytes are committed.

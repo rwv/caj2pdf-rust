@@ -69,6 +69,80 @@ pub(super) async fn extent<S: RangedSource, C: Cancellation>(
     }
 }
 
+/// A damaged ASCII85 prefix can be followed immediately by a complete replay.
+/// Derive that boundary backwards from the first codec EOD and the immediately
+/// following referenced Length scalar. Never search for an object header.
+pub(super) async fn adjacent_replay<S: RangedSource, C: Cancellation>(
+    reader: &mut Reader<'_, S, C>,
+    start: u64,
+    data_at: u64,
+    reference: PdfRef,
+    target: PdfRef,
+    work: &mut u64,
+) -> Result<Option<u64>> {
+    let mut end = data_at;
+    loop {
+        if reader.cancellation.is_cancelled() {
+            return Err(Error::Cancelled);
+        }
+        let Some(byte) = reader.byte(end).await? else {
+            return Ok(None);
+        };
+        end += 1;
+        *work = work.saturating_add(1);
+        if *work > reader.limits.max_output_bytes {
+            return Err(Error::LimitExceeded {
+                resource: "CAJ ASCII85 boundary scan bytes",
+                limit: reader.limits.max_output_bytes,
+                attempted: *work,
+            });
+        }
+        if byte == b'~' {
+            if reader.byte(end).await? != Some(b'>') {
+                return Ok(None);
+            }
+            end += 1;
+            break;
+        }
+    }
+    let mut after = reader.check_stream_tail(end, Some(reference)).await?;
+    reader.skip_space(&mut after).await?;
+    let length_head = reader.load_head(after, Some(target)).await?;
+    let Some(length) = length_head
+        .scalar
+        .as_ref()
+        .and_then(|range| exact_unsigned(&length_head.bytes[range.clone()]))
+    else {
+        return Ok(None);
+    };
+    let header_bytes = data_at - start;
+    let Some(candidate) = end
+        .checked_sub(length)
+        .and_then(|data| data.checked_sub(header_bytes))
+    else {
+        return Ok(None);
+    };
+    if candidate <= start || candidate - start > 256 || header_bytes > 256 {
+        return Ok(None);
+    }
+    let original_header = reader.bytes(start, header_bytes as usize).await?;
+    let replay_header = reader.bytes(candidate, header_bytes as usize).await?;
+    if original_header != replay_header {
+        return Ok(None);
+    }
+    let prefix = reader.bytes(start, (candidate - start) as usize).await?;
+    let prefix = prefix.trim_ascii_end();
+    if prefix.len() <= header_bytes as usize
+        || reader.bytes(candidate, prefix.len()).await? != prefix
+    {
+        return Ok(None);
+    }
+    // The candidate starts after data_at, so its first EOD is the one above.
+    // Its extent equals Length by construction; still validate every group.
+    extent(reader, candidate + header_bytes, reference, work).await?;
+    Ok(Some(candidate))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -170,6 +244,155 @@ mod tests {
             measure(b"z~>", 100, &mut 0, true),
             Err(Error::Cancelled)
         ));
+    }
+
+    #[test]
+    fn derives_adjacent_replay_only_from_eod_and_referenced_length() {
+        let header = "1 0 obj << /Length 2 0 R /Filter /ASCII85Decode >> stream\n";
+        let payload = "z!!!!!~>";
+        let prefix = format!("{header}z!!!\n");
+        for (replay_header, replay_payload, scalar, succeeds) in [
+            (header.to_owned(), payload, "2 0 obj 8 endobj", true),
+            (
+                header.replace("1 0 obj", "3 0 obj"),
+                payload,
+                "2 0 obj 8 endobj",
+                false,
+            ),
+            (header.to_owned(), "!!!!!z~>", "2 0 obj 8 endobj", false),
+            (header.to_owned(), payload, "3 0 obj 8 endobj", false),
+            (header.to_owned(), payload, "2 0 obj 7 endobj", false),
+            (header.to_owned(), payload, "2 0 obj 999999 endobj", false),
+            (header.to_owned(), payload, "2 0 obj null endobj", false),
+            (header.to_owned(), "z!!!!v~>", "2 0 obj 8 endobj", false),
+        ] {
+            let bytes =
+                format!("{prefix}{replay_header}{replay_payload}\nendstream\nendobj\n{scalar}\n")
+                    .into_bytes();
+            let end = bytes.len() as u64;
+            let mut source = SeekableSource::new(Cursor::new(bytes)).unwrap();
+            let result = run(scan_fragment_objects(
+                &mut source,
+                0,
+                end,
+                &Limits::default(),
+                &NEVER,
+            ));
+            assert_eq!(
+                result.is_ok(),
+                succeeds,
+                "{replay_header} {replay_payload} {scalar}"
+            );
+            if let Ok(scan) = result {
+                assert_eq!(scan.objects.len(), 2);
+                assert_eq!(scan.objects[0].range.offset, prefix.len() as u64);
+                assert!(scan.patches.is_empty());
+            }
+        }
+    }
+
+    #[test]
+    fn adjacent_replay_scan_is_bounded_and_cancellable() {
+        struct Cancel(bool);
+        impl Cancellation for Cancel {
+            fn is_cancelled(&self) -> bool {
+                self.0
+            }
+        }
+        let header = "1 0 obj << /Length 2 0 R /Filter /ASCII85Decode >> stream\n";
+        let valid =
+            format!("{header}z!!!\n{header}z!!!!!~>\nendstream\nendobj\n2 0 obj 8 endobj\n");
+        let mut source = SeekableSource::new(Cursor::new(valid.as_bytes().to_vec())).unwrap();
+        let limits = Limits {
+            max_output_bytes: 60,
+            ..Limits::default()
+        };
+        let result = run(scan_fragment_objects(
+            &mut source,
+            0,
+            valid.len() as u64,
+            &limits,
+            &NEVER,
+        ));
+        assert!(matches!(
+            result,
+            Err(Error::LimitExceeded {
+                resource: "CAJ ASCII85 boundary scan bytes",
+                ..
+            })
+        ));
+        for (bytes, limit, cancelled) in [
+            (valid.clone(), 10000, true),
+            (valid.clone(), 1, false),
+            (format!("{header}unterminated"), 10000, false),
+            (format!("{header}~!"), 10000, false),
+            (
+                format!("{header}~>endstream endobj 2 0 obj 999999 endobj"),
+                10000,
+                false,
+            ),
+            (
+                format!("{header}~>endstream endobj 2 0 obj 2 endobj"),
+                10000,
+                false,
+            ),
+            (
+                format!(
+                    "{header}{}\n{header}z!!!!!~>\nendstream\nendobj\n2 0 obj 8 endobj",
+                    "z".repeat(257)
+                ),
+                10000,
+                false,
+            ),
+            (
+                format!("{header}{header}z!!!!!~>\nendstream\nendobj\n2 0 obj 8 endobj"),
+                10000,
+                false,
+            ),
+        ] {
+            let length = bytes.len() as u64;
+            let mut source = SeekableSource::new(Cursor::new(bytes.into_bytes())).unwrap();
+            let limits = Limits {
+                io_chunk_bytes: 1,
+                max_output_bytes: limit,
+                ..Limits::default()
+            };
+            let cancellation = Cancel(cancelled);
+            let mut reader = Reader::new(
+                &mut source,
+                PdfRange { offset: 0, length },
+                &limits,
+                &cancellation,
+            )
+            .unwrap();
+            let result = run(adjacent_replay(
+                &mut reader,
+                0,
+                header.len() as u64,
+                PdfRef {
+                    number: 1,
+                    generation: 0,
+                },
+                PdfRef {
+                    number: 2,
+                    generation: 0,
+                },
+                &mut 0,
+            ));
+            if cancelled {
+                assert!(matches!(result, Err(Error::Cancelled)));
+            } else if limit == 1 {
+                assert!(matches!(
+                    result,
+                    Err(Error::LimitExceeded {
+                        resource: "CAJ ASCII85 boundary scan bytes",
+                        ..
+                    })
+                ));
+            } else {
+                assert!(matches!(result, Ok(None)), "{result:?}");
+            }
+        }
     }
 
     #[test]

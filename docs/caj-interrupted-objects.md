@@ -407,3 +407,26 @@ fails encoding validation. The complete same-reference occurrence follows
 inside the same page span and is not admitted merely from a textual search.
 The input remains unsupported and publishes no final PDF. This adds standard
 framing support; it is not a complete-source recovery claim.
+
+## ASCII85 adjacent replay derived from Length (#226 follow-up)
+
+An additional original rule derives a restart boundary from the first ASCII85
+`~>` terminator, a complete stream/object tail, and the immediately following
+referenced unsigned Length object. Subtract Length and the current header
+length from the encoded end; accept only a later start within 256 bytes, an
+identical header and an exact interrupted prefix (apart from trailing
+whitespace). Validate every ASCII85 group from the derived start, then resume
+the normal complete scanner. No object header is searched for, no decoded
+stream is buffered, and boundary scanning shares work limits and cancellation.
+
+For pinned issue-25, object 373 starts at 565829, its header occupies 57 bytes,
+the first EOD ends at 566503, and immediate object 374 gives Length 508. This
+derives object start 565938 and a 109-byte interruption. The complete encoded
+stream independently decodes to 768 bytes. Original synthetic tests cover
+wrong references/lengths, changed prefixes, invalid/truncated encodings,
+excessive prefixes, cancellation and work-budget propagation.
+
+This advances the real input to a separate failure at byte 598735, where an
+object's `stream` keyword is cut as `stre`. There is still no complete PDF for
+issue-25, and #226 remains open. External source spans and diagnostics stay
+outside Git in `caj2pdf-caj-candidate-recovery-20261002`.
