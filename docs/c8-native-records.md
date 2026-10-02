@@ -756,6 +756,18 @@ Production rendering acceptance remains open. External receipts are in
 `caj2pdf-c8-advance-control-20261001/{comparison,axis-comparison,axis-inputs}.json`;
 no captures or font binaries are committed.
 
+The original `anchor-field2-same-page` control places CJK/Latin square pairs
+on the same 300×250 page, at source y=20 and y=120 relative to the origin.
+This removes tab-specific frame/zoom differences from the comparison. With
+page interiors 770×641 and 1127×938 pixels, both rows have Latin-minus-CJK
+vertical offsets of 23 and 34 pixels respectively (approximately 9 source
+units). Repeat captures match. The earlier candidate
+`17 * page_scale - em_height / 10` predicts 25.33 and 36.86 pixels and is
+not supported by this control. The discrepancy is not explained by source-y
+position or separate tabs. This is a field-2 observation, not a replacement
+rule for other sizes or fonts. The generator reproduces the captured input
+byte for byte; external receipts are in `caj2pdf-c8-same-page-anchor-20261002`.
+
 
 ### Additional raw drawing value `8006/a385`
 

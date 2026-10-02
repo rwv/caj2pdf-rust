@@ -112,6 +112,18 @@ def main():
                                       for index in (2, 3, 4, 5, 6, 8)], None, None))
     symbols["size-profile"] = (0xD6D0, 0xA0C1)
     anchor_geometry = {}
+    # Same-page pairs avoid comparing tab-specific zoom/sidebar state.
+    name = "anchor-field2-same-page"
+    fixtures.append((name, [(0x1042, 0, 6)], None, None))
+    symbols[name] = ()
+    anchor_geometry[name] = {
+        "width": 300, "height": 250, "first_x": 4672, "first_y": 4294,
+        "run_words": (
+            4672, 0xD6D0, 4792, 0xA0C1,
+            0x8001, 4394, 0x8002, 0x1042, 0x801D, 0, 0x8067, 6,
+            4672, 0xD6D0, 4792, 0xA0C1,
+        ),
+    }
     for horizontal, vertical in ((3, 3), (3, 5), (5, 3), (5, 5)):
         for kind, code in (("cjk", 0xD6D0), ("latin", 0xA0C1)):
             name = f"axis-{kind}-{horizontal}-{vertical}"
