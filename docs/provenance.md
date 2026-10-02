@@ -2414,3 +2414,17 @@ require different source roles, so Unicode mapping is kept independent of
 resource selection. Trace-limit/caching exclusions and original-input
 reproduction are recorded in `c8-native-records.md`. All new generator code and
 fixtures are original MIT work; external fonts and captures remain uncommitted.
+
+
+### Incremental C8 native-page composition
+
+The native-page translator is original MIT code connecting existing bounded
+record traversal and measured geometry to the shared PDF writer. Original
+in-memory fixtures use authored native records, the existing original geometric
+font and tiny bilevel images; no converter implementation is copied. Independent
+raster/text checks establish only the controlled fixture's content/order.
+Original image-tail variants change all eight low bytes while keeping the JPEG
+and geometry fixed; repeated viewer output supports the admitted `c0xx` class
+without literal sample matching. Unknown prefixes and unresolved glyph/control
+semantics remain explicit errors. The required six-page source still stops at
+its first unresolved glyph; this is not recorded as a compatibility pass.

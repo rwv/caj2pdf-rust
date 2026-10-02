@@ -29,7 +29,7 @@ def jpeg():
     return output.getvalue()
 
 
-def document(payload, *, dx=0, dy=0, dw=0, dh=0, origin_delta=0):
+def document(payload, *, dx=0, dy=0, dw=0, dh=0, origin_delta=0, trailing_words=None):
     header = bytearray(80)
     struct.pack_into("<IIII", header, 0, 200, 0, 1, 2)
     header[16:28] = "北大二扫1.00".encode("gbk")
@@ -40,6 +40,9 @@ def document(payload, *, dx=0, dy=0, dw=0, dh=0, origin_delta=0):
     words = [0x800A, 0xD300, 0xC000 | (4682 + dx), 4314 + dy,
              0xC000 | (80 + dw), 50 + dh, 0xC050, 0xC033, 0xC037,
              0xC000, 0xC06C, 0xC032, 0xC0F2, 0xC07A, 0x8004, 1]
+    if trailing_words is not None:
+        assert len(trailing_words) == 8
+        words[6:14] = trailing_words
     text = struct.pack("<16H", *words)
     descriptor = 100 + len(text)
     end = descriptor + 12 + len(payload)
@@ -58,6 +61,8 @@ def main():
         "wider": {"dw": 20}, "taller": {"dh": 20},
         "origins-only": {"origin_delta": 20},
         "origins-and-image": {"origin_delta": 20, "dx": 20, "dy": 20},
+        "trailing-ascii": {"trailing_words": [0xC041, 0xC042, 0xC043, 0xC000, 0xC061, 0xC062, 0xC063, 0xC064]},
+        "trailing-extremes": {"trailing_words": [0xC000, 0xC0FF, 0xC080, 0xC001, 0xC0FE, 0xC07F, 0xC000, 0xC0FF]},
     }
     manifest = []
     for name, parameters in controls.items():

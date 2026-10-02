@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Add incremental C8 native-page composition for the controlled ordinary-text,
+  image, segment and horizontal-decoration subset, using explicit embedded font
+  and image resources. Preserve source draw order and fail on unresolved content.
+  Complete-document conversion and CLI/JavaScript font transport remain pending.
+
 - Admit the independently controlled C8 glyph style prefixes `0800` and `0c00`
   alongside `1000` in empirical text geometry; retain raw styles and explicit
   rejection of unverified prefixes. Decoration admission remains unchanged.

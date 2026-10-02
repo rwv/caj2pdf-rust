@@ -1,0 +1,346 @@
+// SPDX-License-Identifier: MIT
+
+use super::*;
+use crate::Limits;
+use crate::pdf::{BilevelImageSpec, TrueTypeFont};
+use crate::test_support::ready;
+use std::{cell::Cell, rc::Rc};
+
+struct Source {
+    bytes: Vec<u8>,
+    fail: Rc<Cell<bool>>,
+    largest: usize,
+    signal_on_read: Option<(u64, Rc<Cell<bool>>)>,
+}
+impl RangedSource for Source {
+    fn size(&self) -> u64 {
+        self.bytes.len() as u64
+    }
+    async fn read_at(&mut self, offset: u64, out: &mut [u8]) -> crate::Result<usize> {
+        if self.fail.get() {
+            return Err(invalid("original read failure"));
+        }
+        if let Some((at, signal)) = &self.signal_on_read
+            && offset >= *at
+        {
+            signal.set(true);
+        }
+        self.largest = self.largest.max(out.len());
+        let at = offset as usize;
+        let count = out.len().min(3).min(self.bytes.len().saturating_sub(at));
+        out[..count].copy_from_slice(&self.bytes[at..at + count]);
+        Ok(count)
+    }
+}
+#[derive(Default)]
+struct Cancel(Rc<Cell<bool>>);
+impl Cancellation for Cancel {
+    fn is_cancelled(&self) -> bool {
+        self.0.get()
+    }
+}
+#[derive(Default)]
+struct Sink {
+    bytes: Vec<u8>,
+    fail: Rc<Cell<bool>>,
+}
+impl SequentialSink for Sink {
+    async fn write(&mut self, bytes: &[u8]) -> crate::Result<usize> {
+        if self.fail.get() {
+            return Err(invalid("original write failure"));
+        }
+        let count = bytes.len().min(7);
+        self.bytes.extend_from_slice(&bytes[..count]);
+        Ok(count)
+    }
+    async fn flush(&mut self) -> crate::Result<()> {
+        Ok(())
+    }
+}
+fn source(bytes: Vec<u8>) -> Source {
+    Source {
+        bytes,
+        fail: Rc::default(),
+        largest: 0,
+        signal_on_read: None,
+    }
+}
+fn fixture(words: &[[u16; 2]], images: u32) -> Source {
+    let mut bytes = vec![0; 100];
+    bytes[0] = 0xc8;
+    bytes[8] = 1;
+    for (offset, value) in [(28, 4652u16), (30, 4274), (32, 600), (34, 600)] {
+        bytes[offset..offset + 2].copy_from_slice(&value.to_le_bytes());
+    }
+    bytes[80..84].copy_from_slice(&100u32.to_le_bytes());
+    bytes[84..88].copy_from_slice(&(words.len() as u32 * 4).to_le_bytes());
+    bytes[88..92].copy_from_slice(&images.to_le_bytes());
+    let end = 100 + words.len() as u32 * 4;
+    bytes[96..100].copy_from_slice(&end.to_le_bytes());
+    for pair in words {
+        for word in pair {
+            bytes.extend(word.to_le_bytes());
+        }
+    }
+    source(bytes)
+}
+fn roles() -> C8PageFonts {
+    C8PageFonts {
+        cjk: 0,
+        latin: 1,
+        alternate_latin: 2,
+        decoration: Some((1, 'A')),
+    }
+}
+fn image() -> Vec<[u16; 2]> {
+    vec![
+        [0x800a, 0xd300],
+        [0xc000 | 4682, 4314],
+        [0xc000 | 80, 50],
+        [0xc050, 0xc033],
+        [0xc037, 0xc000],
+        [0xc06c, 0xc032],
+        [0xc0f2, 0xc07a],
+    ]
+}
+fn ordinary() -> Vec<[u16; 2]> {
+    vec![
+        [0x8001, 4350],
+        [0x8002, 0x1084],
+        [4682, 0xd6d0],
+        [4772, 0xa0c1],
+    ]
+}
+
+// Every run uses actual ranged traversal, a bounded writer, embedded original
+// font and an open PDF document. Faults start only after resource preparation.
+fn convert(
+    words: &[[u16; 2]],
+    declared: u32,
+    top_first: &[bool],
+    roles: C8PageFonts,
+    mode: u8,
+) -> (Result<u32>, Vec<u8>, bool) {
+    let mut input = fixture(words, declared);
+    let mut sink = Sink::default();
+    let input_fault = input.fail.clone();
+    let output_fault = sink.fail.clone();
+    let limits = Limits {
+        io_chunk_bytes: 64,
+        ..Default::default()
+    };
+    let cancel = Cancel::default();
+    let result = ready(async {
+        let mut reader = Hnc8Reader::open(&mut input, &limits, &cancel, Default::default())
+            .await
+            .unwrap();
+        reader.next_page().await.unwrap();
+        match mode {
+            1 => reader.header.variant = Variant::HnA,
+            2 => reader.current = None,
+            3 => reader.header.page_size = None,
+            4 => reader.header.native_origin = None,
+            5 => reader.header.page_size = Some([0, 1]),
+            _ => (),
+        }
+        let mut document = PdfDocument::new(&mut sink, &limits, &cancel).await.unwrap();
+        let mut font_source = source(crate::pdf::drawing_font());
+        let mut font = TrueTypeFont::read(&mut font_source, &limits, &cancel)
+            .await
+            .unwrap();
+        let font = document.add_font(&mut font).await.unwrap();
+        let fonts = [&font, &font, &font];
+        let mut images = Vec::new();
+        for _ in 0..declared {
+            let mut image = document
+                .begin_bilevel_image(BilevelImageSpec {
+                    pixel_width: 2,
+                    pixel_height: 2,
+                    row_stride: 1,
+                })
+                .await
+                .unwrap();
+            image.write(&[0x80, 0x40]).await.unwrap();
+            images.push(image.finish().await.unwrap());
+        }
+        if mode == 6 {
+            input_fault.set(true);
+        }
+        if mode == 7 {
+            output_fault.set(true);
+        }
+        if mode == 9 {
+            reader.source_mut().signal_on_read = Some((112, cancel.0.clone()));
+        }
+        if mode == 10 {
+            reader.source_mut().signal_on_read = Some((112, output_fault.clone()));
+        }
+        let slice = if mode == 8 { &[][..] } else { &images[..] };
+        let outcome = write_c8_native_page(
+            &mut reader,
+            &mut document,
+            &fonts,
+            roles,
+            slice,
+            top_first,
+            TextBudget::default(),
+        )
+        .await;
+        cancel.0.set(false);
+        input_fault.set(false);
+        output_fault.set(false);
+        let finished = document.finish().await.is_ok();
+        (outcome, finished)
+    });
+    assert!(input.largest <= 64);
+    (result.0, sink.bytes, result.1)
+}
+
+pub(crate) fn mixed_page() -> Vec<u8> {
+    let mut words = ordinary();
+    words.extend(image());
+    words.extend([
+        [0x8006, 0xa381],
+        [4682, 4350],
+        [4912, 4350],
+        [0xffff, 5],
+        [0x801d, 4],
+        [4772, 0xa0c1],
+    ]);
+    let mut second_image = image();
+    second_image[3..].copy_from_slice(&[
+        [0xc000, 0xc0ff],
+        [0xc080, 0xc001],
+        [0xc0fe, 0xc07f],
+        [0xc000, 0xc0ff],
+    ]);
+    words.extend(second_image);
+    words.extend([
+        [0x801d, 0],
+        [0x8067, 9],
+        [4772, 0xa0c1],
+        [0x8010, 1],
+        [4682, 4524],
+        [4832, 4524],
+        [0x8004, 1],
+    ]);
+    let (result, pdf, finished) = convert(&words, 2, &[false, true], roles(), 0);
+    assert_eq!(result.unwrap(), 0);
+    assert!(finished);
+    let content = String::from_utf8_lossy(&pdf);
+    let mut after = 0;
+    for operator in [
+        "/F0 1 Tf",
+        "<4E2D> Tj",
+        "/F1 1 Tf",
+        "<0041> Tj",
+        "/Im0 Do",
+        " l S Q",
+        "/F2 1 Tf",
+        "/Im1 Do",
+        "/F1 1 Tf",
+        "/Artifact BMC",
+    ] {
+        after += content[after..].find(operator).unwrap() + operator.len();
+    }
+    assert!(content.contains("/ActualText ()"));
+    assert_eq!(
+        crate::test_support::bilevel_pixels(&pdf),
+        [vec![0x80, 0x40], vec![0x80, 0x40]]
+    );
+    if let Some(path) = std::env::var_os("CAJ2PDF_NATIVE_PAGE_TEST_OUTPUT") {
+        std::fs::write(path, &pdf).unwrap();
+    }
+    pdf
+}
+
+#[test]
+fn native_records_drive_actual_mixed_page_in_source_order() {
+    mixed_page();
+}
+
+#[test]
+fn unsupported_content_and_missing_glyphs_poison_the_open_page() {
+    for tail in [
+        vec![[4800, 0xa0a6]],
+        vec![[4800, 0xa0c2]],
+        vec![[4800, 0xa080]],
+        vec![[0x801d, 3]],
+        vec![[0x8006, 0xa385], [4682, 4350], [4912, 4350]],
+        vec![[0x8004, 0]],
+    ] {
+        let mut words = ordinary();
+        words.extend(tail);
+        if words.last() != Some(&[0x8004, 0]) {
+            words.push([0x8004, 1]);
+        }
+        let (result, _, finished) = convert(&words, 0, &[], roles(), 0);
+        let error = result.unwrap_err();
+        assert_eq!(error.page, Some(1));
+        assert!(error.offset >= 116);
+        assert!(!finished);
+    }
+    let mut words = ordinary();
+    words.push([0x8004, 1]);
+    let mut missing = roles();
+    missing.cjk = 10;
+    let (result, _, finished) = convert(&words, 0, &[], missing, 0);
+    assert!(result.is_err());
+    assert!(!finished);
+}
+
+#[test]
+fn resource_and_header_errors_are_checked_before_page_output() {
+    let words = [[0x8004, 1]];
+    for mode in 1..=5 {
+        let (result, pdf, _) = convert(&words, 0, &[], roles(), mode);
+        assert!(result.is_err());
+        assert!(!String::from_utf8_lossy(&pdf).contains("/Type /Page /"));
+    }
+    let (result, _, _) = convert(&words, 0, &[false], roles(), 0);
+    assert!(result.is_err());
+    let (result, _, _) = convert(&words, 1, &[], roles(), 8);
+    assert!(result.is_err());
+}
+
+#[test]
+fn source_and_output_failures_leave_no_finished_document() {
+    let mut words = ordinary();
+    words.push([0x8004, 1]);
+    for mode in [6, 7, 9, 10] {
+        let (result, _, finished) = convert(&words, 0, &[], roles(), mode);
+        assert!(result.is_err());
+        assert!(!finished);
+    }
+}
+
+#[test]
+fn decoration_requires_resource_style_and_verified_direction() {
+    let drawing = [[0x8010, 1], [4682, 4524], [4832, 4524], [0x8004, 1]];
+    let (result, _, finished) = convert(&drawing, 0, &[], roles(), 0);
+    assert!(result.is_err());
+    assert!(!finished);
+    let mut words = ordinary();
+    words.extend(drawing);
+    let mut missing = roles();
+    missing.decoration = None;
+    let (result, _, finished) = convert(&words, 0, &[], missing, 0);
+    assert!(result.is_err());
+    assert!(!finished);
+    words[6][1] += 1; // diagonal endpoint
+    let (result, _, finished) = convert(&words, 0, &[], roles(), 0);
+    assert!(result.is_err());
+    assert!(!finished);
+}
+
+#[test]
+fn image_profile_and_coordinates_are_not_silently_guessed() {
+    for index in [0, 3] {
+        let mut words = image();
+        words[index][1] = 0;
+        words.push([0x8004, 1]);
+        let (result, _, finished) = convert(&words, 1, &[false], roles(), 0);
+        assert!(result.is_err());
+        assert!(!finished);
+    }
+}

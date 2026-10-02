@@ -1516,3 +1516,65 @@ traces, captures, `required-control-results.json`), with generated input manifes
 in `caj2pdf-c8-symbol-role-generated-20261002` and
 `caj2pdf-c8-required-controls-20261002`. These controls refine the production
 resource contract; they are not a complete six-page conversion or fidelity pass.
+
+
+## Native records now drive PDF page content (2026-10-02)
+
+`write_c8_native_page` consumes the current C8 reader page and finishes a mixed
+PDF content page. It directly connects the bounded record visitor to the
+existing glyph, segment, decoration and image writer. Only current style,
+ordinary Latin alternate state and image ordinal are retained. There is no
+whole-page record/glyph vector or second renderer. Already embedded font
+handles are reusable across pages; explicit role indices may share a handle.
+
+The initial translation admits ordinary decoded ASCII alphanumerics and CJK
+ideographs with their controlled geometry/resource roles, the three measured
+segment styles, forward horizontal decoration with a caller-selected
+nonsemantic alias, and the controlled raw image form. C8 origins are subtracted
+without the text margin for images. The caller supplies existing decoded image
+handles in descriptor order and their row representation (JPEG/type-0 false,
+type-3 true); the image count must agree before content output. Whole-document
+codec orchestration and CLI/Node/browser font transport remain #233/#252.
+
+Unresolved glyph classes, controls, image prefixes and end payloads fail at the
+source record's page/offset. In particular, the known same-Unicode symbol role
+distinctions are not replaced by a CJK fallback. The API does not yet admit the
+complete six-page profile. A checkpoint with that source and existing diagnostic
+image row sidecars stops at page 1, byte 232, raw code `a3ba` (fullwidth colon):
+its resource/placement translation remains unresolved. Finishing the PDF after
+that error fails. This checkpoint is not a successful conversion and sidecars
+are not the production codec path.
+
+Original Rust fixtures now traverse actual native records into the PDF writer,
+interleaving CJK/Latin glyphs, two images with opposite row representations, a
+segment, a Latin resource switch and decoration. Three-byte source reads and
+seven-byte sink writes exercise short I/O. Unknown content, missing glyphs or
+resources, invalid image coordinates/prefixes, missing header fields, source
+failure, output failure and cancellation cannot publish an unfinished page as a
+valid PDF. Cancellation and output failure are also triggered during traversal,
+after resource preparation. The reader retains its existing poisoned state.
+
+The existing independent mixed-content raster test additionally renders this
+native-record fixture with qpdf/MuPDF. At 741.9 DPI, one source unit is one pixel:
+all four image quadrants prove that the second image covers the first in the
+correct row orientation, and interior CJK/Latin/blank pixels are checked against
+independent coordinates. An external Poppler extraction retains `中AAA` after
+whitespace normalization and excludes decorative aliases. These checks exercise
+the original fixture, not external-document fidelity.
+
+### Controlled image trailing words
+
+Two new original `c8_image_fixture.py` variants change all eight trailing
+`c0xx` words, once to ASCII-like low bytes and once to zero/high-bit/extreme low
+bytes. The image payload and geometry are unchanged. In the pinned viewer at
+971%, page interior `(648,518,1023,805)`, both variants equal the baseline crop
+byte for byte and all repeated captures agree. This independently supports
+rendering the tested trailing-word class without matching one literal payload.
+Other high prefixes remain rejected; these words are never opened as paths or
+URLs and their metadata meaning is not inferred.
+
+External inputs are in `caj2pdf-c8-image-tail-20261002`; captures and
+`image-tail-results.json` are under `caj2pdf-c8-symbol-role-20261002`. The real
+source checkpoint is in `caj2pdf-c8-render-preview-20261001` as
+`native-page-checkpoint.txt`; its partial PDF is explicitly incomplete. No
+external document, image/font data, extracted text or capture is committed.

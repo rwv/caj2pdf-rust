@@ -2811,6 +2811,24 @@ fn independent_render_checks_decoded_images_in_native_content_order() {
     assert_eq!(pixel(25, 55), 155); // JPEG overwrites the segment.
     assert_eq!(pixel(37, 55), 0); // Polygon overwrites the white type-3 image.
     assert_eq!(pixel(110, 90), 255);
+
+    // The real native-record translator uses the same PDF writer. This scale
+    // makes one raw source unit one pixel, independently fixing image bounds
+    // at x=30..110/y=40..90 in the 600-unit original fixture. The second,
+    // top-first image must cover the first image's reversed row order.
+    let raster = render_original_pdf_at(&super::super::native_page::mixed_page(), "741.9");
+    let header = b"P5\n600 600\n255\n";
+    assert!(raster.starts_with(header));
+    let pixels = &raster[header.len()..];
+    assert_eq!(pixels.len(), 600 * 600);
+    let pixel = |x: usize, y: usize| pixels[y * 600 + x];
+    assert_eq!(pixel(40, 50), 0);
+    assert_eq!(pixel(100, 50), 255);
+    assert_eq!(pixel(40, 80), 255);
+    assert_eq!(pixel(100, 80), 0);
+    assert_eq!(pixel(85, 120), 0); // Original CJK-labelled triangle.
+    assert_eq!(pixel(160, 120), 0); // Original Latin-labelled rectangle.
+    assert_eq!(pixel(550, 550), 255);
 }
 
 #[test]
