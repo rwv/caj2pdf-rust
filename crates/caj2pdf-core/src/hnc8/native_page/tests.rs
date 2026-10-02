@@ -146,15 +146,23 @@ fn convert(
         let mut document = PdfDocument::new(&mut sink, &limits, &cancel).await.unwrap();
         let mut font_bytes = crate::pdf::drawing_font();
         if mode == 11 {
-            // Relabel the original triangle as fullwidth colon for this test.
+            // Relabel the original triangle as the test's source symbol.
             // No source font outline or character shape is imported.
             let table = font_bytes[12..]
-                .chunks_exact(16)
+                .as_chunks::<16>()
+                .0
+                .iter()
                 .find(|entry| &entry[..4] == b"cmap")
                 .unwrap();
             let offset = u32::from_be_bytes(table[8..12].try_into().unwrap()) as usize;
+            let code = words
+                .iter()
+                .find(|pair| pair[0] < 0x8000 && pair[1] >= 0xa000)
+                .unwrap()[1];
+            let character = decode_native_character(code).unwrap() as u32;
+            assert!(character > 65);
             for at in [offset + 40, offset + 44] {
-                font_bytes[at..at + 4].copy_from_slice(&0xff1au32.to_be_bytes());
+                font_bytes[at..at + 4].copy_from_slice(&character.to_be_bytes());
             }
         }
         let mut font_source = source(font_bytes);
@@ -276,6 +284,7 @@ fn native_records_drive_actual_mixed_page_in_source_order() {
 fn unsupported_content_and_missing_glyphs_poison_the_open_page() {
     for tail in [
         vec![[4800, 0xa0a6]],
+        vec![[4800, 0xa3a8]],
         vec![[4800, 0xa0c2]],
         vec![[4800, 0xa080]],
         vec![[0x801d, 3]],
@@ -410,5 +419,45 @@ fn fullwidth_colon_uses_active_latin_resource_and_independent_size_axes() {
         let (missing, _, finished) = convert(&words, 0, &[], roles(), 0);
         assert!(missing.is_err());
         assert!(!finished);
+    }
+}
+
+#[test]
+fn controlled_symbols_preserve_unicode_resource_state_and_common_baseline() {
+    let codes = [
+        0xa0a6, 0xa1aa, 0xa1ad, 0xa1ae, 0xa1c6, 0xa1c8, 0xa2d9, 0xa2da, 0xa2db, 0xa2dc, 0xa2dd,
+        0xa2de, 0xa2df, 0xa3a3, 0xa3a5, 0xa3ab, 0xa3ac, 0xa3ad, 0xa3ae, 0xa3af, 0xa3b0, 0xa3b1,
+        0xa3b2, 0xa3b3, 0xa3b4, 0xa3b5, 0xa3b6, 0xa3b7, 0xa3b8, 0xa3b9, 0xa3bb, 0xa3bc, 0xa3bd,
+        0xa3be, 0xa3bf, 0xa3dc, 0xa3fb, 0xa3fd, 0xa9aa, 0xaab3, 0xaca3,
+    ];
+    for code in codes {
+        for style in [0x10e3, 0x1067] {
+            let words = [
+                [0x8001, 4394],
+                [0x8002, style],
+                [5072, code],
+                [0x801d, 4],
+                [5072, code],
+                [0x8004, 1],
+            ];
+            let (result, pdf, finished) = convert(&words, 0, &[], roles(), 11);
+            assert_eq!(result.unwrap(), 0);
+            assert!(finished);
+            let text = String::from_utf8_lossy(&pdf);
+            let unicode = decode_native_character(code).unwrap() as u32;
+            assert_eq!(text.matches(&format!("<{unicode:04X}> Tj")).count(), 2);
+            let fixed = matches!(code, 0xa1c6 | 0xa1c8 | 0xa9aa | 0xaab3 | 0xaca3);
+            assert_eq!(text.matches("/F1 1 Tf").count(), if fixed { 2 } else { 1 });
+            assert_eq!(text.matches("/F2 1 Tf").count(), usize::from(!fixed));
+            let height = if style == 0x10e3 { 31.0 } else { 56.0 } * 75.0 / 301.0;
+            let expected_y = 480.0 * super::super::EMPIRICAL_COORDINATE_POINTS_PER_UNIT - height;
+            let mut count = 0;
+            for matrix in text.lines().filter_map(|line| line.split_once(" Tm ")) {
+                let y: f64 = matrix.0.split_whitespace().last().unwrap().parse().unwrap();
+                assert!((y - expected_y).abs() < 0.000001);
+                count += 1;
+            }
+            assert_eq!(count, 2);
+        }
     }
 }

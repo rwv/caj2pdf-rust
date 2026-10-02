@@ -1631,3 +1631,41 @@ font roles and matrix evaluator. Tests exercise the three held-out size pairs,
 both resource states, emitted U+FF1A and explicit missing-glyph failure through
 actual ranged record traversal and PDF output. This removes one required-record
 blocker; complete six-page and public-adapter acceptance remain open.
+
+### Shared baseline for required fullwidth digits and symbols
+
+Seven further original `role-common-heldout-*` controls test all 41 codes below
+with alternate resource state and independently varied width/height fields
+(7,3)/(3,7). The authored positions differ from the field-4 controls. Every
+capture repeats byte-identically; all reference and target glyphs lie within
+the visible page. At the matched 315% view, every target is 163 pixels to the
+right and 6 pixels below its CJK anchor. The authored differences are 400 raw
+x units and the predicted 15 raw y units. The two em heights differ, while the
+baseline displacement remains the same. Interior markers independently verify
+the selected resources, including the five invariant-role symbols.
+
+| Raw codes | Resource | Placement relative to existing CJK matrix |
+| --- | --- | --- |
+| `a0a6`, `a1aa`, `a1ad`, `a1ae`, `a2d9..a2df`, `a3a3`, `a3a5`, `a3ab..a3b9`, `a3bb..a3bf`, `a3dc`, `a3fb`, `a3fd` | Active ordinary/alternate Latin | x unchanged; PDF y minus 15 coordinate units |
+| `a1c6`, `a1c8`, `a9aa`, `aab3`, `aca3` | Ordinary Latin, independent of the alternate state | Same placement |
+
+The source-size controls for `a0a6` and `aca3` additionally vary the six required
+size fields. The new held-out `aca3` observation is valid independently of the
+excluded earlier black capture. None of these observations admits the other
+punctuation offsets, nor do they equate source aliases with emitted Unicode.
+The same decoder remains responsible for the verified Unicode mappings.
+
+The generator reproduces all seven input byte streams exactly. External
+`common-heldout-inputs.json` pins each hash and the prediction recorded before
+capture; `common-heldout-results.json` records every glyph box, resource marker
+and repeat result under `caj2pdf-c8-required-glyph-roles-20261002`.
+
+The native translator groups these codes explicitly and reuses the existing
+matrix/font/PDF path. Tests traverse every admitted code in both ordinary and
+alternate states with both independent-size configurations, checking resource
+operators, Unicode output and serialized baselines. Missing or unknown required
+content remains an error. With an explicitly supplied broad Unicode font reused
+for the ordinary roles, the real six-page diagnostic now reaches page 1 byte 280
+(`a3a8`, opening parenthesis); its partial PDF remains unfinished. This checkpoint
+still uses previously decoded image sidecars and does not claim production
+orchestration, public font transport or complete-document acceptance.

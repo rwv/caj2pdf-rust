@@ -143,33 +143,45 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
             NativeRecord::Glyph { x, y, style, code } => {
                 let character = decode_native_character(code)
                     .ok_or_else(|| invalid("unsupported C8 native character"))?;
-                let (class, font) = if character.is_ascii_alphanumeric() || code == 0xa3ba {
-                    (
-                        if code == 0xa3ba {
-                            C8GlyphClass::Cjk
-                        } else {
-                            C8GlyphClass::Latin
-                        },
-                        if self.alternate {
-                            self.roles.alternate_latin
-                        } else {
-                            self.roles.latin
-                        },
-                    )
-                } else if ('\u{3400}'..='\u{9fff}').contains(&character) {
-                    (C8GlyphClass::Cjk, self.roles.cjk)
+                let latin = if self.alternate {
+                    self.roles.alternate_latin
                 } else {
-                    // Unicode identity alone does not establish the source's
-                    // font role or placement (notably the two ampersand codes).
-                    return Err(invalid("unverified C8 glyph resource or placement class"));
+                    self.roles.latin
+                };
+                // Select by raw code: Unicode alone does not establish the
+                // resource or placement of the source's symbol variants.
+                let (class, font, baseline_fraction) = match code {
+                    0xa0a6
+                    | 0xa1aa
+                    | 0xa1ad
+                    | 0xa1ae
+                    | 0xa2d9..=0xa2df
+                    | 0xa3a3
+                    | 0xa3a5
+                    | 0xa3ab..=0xa3b9
+                    | 0xa3bb..=0xa3bf
+                    | 0xa3dc
+                    | 0xa3fb
+                    | 0xa3fd => (C8GlyphClass::Cjk, latin, Some(0.0)),
+                    // These symbols retain the ordinary Latin resource even
+                    // under the alternate-resource state.
+                    0xa1c6 | 0xa1c8 | 0xa9aa | 0xaab3 | 0xaca3 => {
+                        (C8GlyphClass::Cjk, self.roles.latin, Some(0.0))
+                    }
+                    0xa3ba => (C8GlyphClass::Cjk, latin, Some(1.0 / 8.0)),
+                    _ if character.is_ascii_alphanumeric() => (C8GlyphClass::Latin, latin, None),
+                    _ if ('\u{3400}'..='\u{9fff}').contains(&character) => {
+                        (C8GlyphClass::Cjk, self.roles.cjk, None)
+                    }
+                    _ => return Err(invalid("unverified C8 glyph resource or placement class")),
                 };
                 let mut transform =
                     empirical_c8_glyph_transform(self.geometry, self.origin, [x, y], style, class)?;
-                if code == 0xa3ba {
-                    // Fullwidth colon uses the active Latin resource but has
-                    // its own baseline, controlled with independent size axes.
-                    transform[5] +=
-                        transform[3] / 8.0 - 15.0 * super::EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
+                if let Some(fraction) = baseline_fraction {
+                    // Controlled symbol baselines use independent em height;
+                    // resource choice does not imply ordinary Latin geometry.
+                    transform[5] += transform[3] * fraction
+                        - 15.0 * super::EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
                 }
                 // Original source controls establish this gray for the admitted
                 // ordinary text profile; keep it local to each glyph draw.

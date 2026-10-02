@@ -238,6 +238,23 @@ def main():
     symbols[name] = ()
     anchor_geometry[name] = {"width": 800, "height": 1100,
                              "run_words": tuple(words)}
+    common_codes = [code for code in role_codes if code not in (
+        0xA1A1, 0xA1A2, 0xA1A4, 0xA1AF, 0xA1B0, 0xA1B1,
+        0xA3A8, 0xA3A9, 0xA3BA, 0xA3DB, 0xA3DD,
+    )]
+    for start in range(0, len(common_codes), 6):
+        name = f"role-common-heldout-{start // 6}"
+        words = []
+        for row, code in enumerate(common_codes[start:start + 6]):
+            width_field, height_field = ((7, 3), (3, 7))[row % 2]
+            words.extend((0x8001, 4394 + row * 210,
+                          0x8002, 0x1000 | (width_field << 5) | height_field,
+                          0x801D, 4, 0x8067, 6,
+                          4672, 0xD6D0, 4872, 0xA0C1, 5072, code))
+        fixtures.append((name, [(0x1084, 0, 6)], None, None))
+        symbols[name] = ()
+        anchor_geometry[name] = {"width": 800, "height": 1500,
+                                 "run_words": tuple(words)}
     manifest = []
     for name, styles, control_record, drawing in fixtures:
         geometry = {"row_step": 350, "height": 3200} if name == "size-profile" else {}
