@@ -578,7 +578,12 @@ fn observed_glyph_style_prefixes_share_geometry_without_admitting_other_records(
                     class,
                 )
                 .unwrap();
-                assert_eq!(actual, expected);
+                // i586 may retain x87 intermediate precision across the two
+                // evaluations. Compare arithmetic with the existing point-scale
+                // tolerance; this is not a source-raster fidelity tolerance.
+                for (actual, expected) in actual.into_iter().zip(expected) {
+                    close(actual, expected);
+                }
             }
         }
     }
