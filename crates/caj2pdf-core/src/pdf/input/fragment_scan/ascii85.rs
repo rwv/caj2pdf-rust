@@ -122,12 +122,7 @@ pub(super) async fn adjacent_replay<S: RangedSource, C: Cancellation>(
     else {
         return Ok(None);
     };
-    if candidate <= start || candidate - start > 256 || header_bytes > 256 {
-        return Ok(None);
-    }
-    let original_header = reader.bytes(start, header_bytes as usize).await?;
-    let replay_header = reader.bytes(candidate, header_bytes as usize).await?;
-    if original_header != replay_header {
+    if candidate <= start || candidate - start > 4096 || header_bytes > 256 {
         return Ok(None);
     }
     let prefix = reader.bytes(start, (candidate - start) as usize).await?;
@@ -292,6 +287,34 @@ mod tests {
     }
 
     #[test]
+    fn longer_ascii85_prefix_uses_the_same_derived_boundary_proof() {
+        let header = "1 0 obj << /Length 2 0 R /Filter /ASCII85Decode >> stream\n";
+        let payload = format!("{}~>", "!!!!!".repeat(200));
+        let prefix = format!("{header}{}\r\n", &payload[..520]);
+        let bytes = format!(
+            "{prefix}{header}{payload}\nendstream\nendobj\n2 0 obj {} endobj\n",
+            payload.len()
+        )
+        .into_bytes();
+        let length = bytes.len() as u64;
+        let mut source = SeekableSource::new(Cursor::new(bytes)).unwrap();
+        let limits = Limits {
+            io_chunk_bytes: 1,
+            ..Limits::default()
+        };
+        let result = run(scan_fragment_objects(
+            &mut source,
+            0,
+            length,
+            &limits,
+            &NEVER,
+        ))
+        .unwrap();
+        assert_eq!(result.objects[0].range.offset, prefix.len() as u64);
+        assert_eq!(result.objects.len(), 2);
+    }
+
+    #[test]
     fn adjacent_replay_scan_is_bounded_and_cancellable() {
         struct Cancel(bool);
         impl Cancellation for Cancel {
@@ -339,7 +362,7 @@ mod tests {
             (
                 format!(
                     "{header}{}\n{header}z!!!!!~>\nendstream\nendobj\n2 0 obj 8 endobj",
-                    "z".repeat(257)
+                    "z".repeat(4097)
                 ),
                 10000,
                 false,

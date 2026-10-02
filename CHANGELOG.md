@@ -6,8 +6,10 @@
   following Length object uniquely determines a validated complete replay.
   Also recover short cut `stream`/`endobj` keywords only when a fully parsed
   object proves the exact prefix, including an indirect reference cut before
-  its `R` token. Direct-Length Flate replay additionally
-  requires an exact preceding-scalar repeat and independent codec validation.
+  its `R` token. Direct-Length Flate replay additionally requires a bounded
+  tail-derived boundary or exact preceding-object repeat and codec validation.
+  Validate Flate Length repairs before accepting them; preserve explicitly
+  counted line endings. ASCII85 prefix comparison remains bounded to 4 KiB.
   Unproved corruption remains an error.
 
 - Recover bounded interrupted CAJ objects when a later complete copy is

@@ -30,7 +30,7 @@ import {
   newInstance,
   syntheticCaj,
   syntheticAscii85Caj,
-  syntheticScalarReplayCaj,
+  syntheticFlateReplayCaj,
   syntheticRecoveredCaj,
   syntheticLaterCopyCaj,
   syntheticKdh,
@@ -45,7 +45,9 @@ import {
 async function inputs() {
   const { wrapped } = await syntheticKdh();
   return [
-    { name: "scalar-replay CAJ", format: "caj", bytes: syntheticScalarReplayCaj(), pages: 2, bookmarks: 1 },
+    { name: "adjacent Flate CAJ", format: "caj", bytes: syntheticFlateReplayCaj({ anchor: null }), pages: 2, bookmarks: 1 },
+    { name: "array-replay CAJ", format: "caj", bytes: syntheticFlateReplayCaj({ anchor: "array", padding: "\n" }), pages: 2, bookmarks: 1 },
+    { name: "scalar-replay CAJ", format: "caj", bytes: syntheticFlateReplayCaj(), pages: 2, bookmarks: 1 },
     { name: "ASCII85 CAJ", format: "caj", bytes: syntheticAscii85Caj(), pages: 2, bookmarks: 1 },
     { name: "CAJ", format: "caj", bytes: syntheticCaj(), pages: 2, bookmarks: 1 },
     { name: "later-copy CAJ", format: "caj", bytes: syntheticLaterCopyCaj(), pages: 2, bookmarks: 1 },
@@ -381,19 +383,21 @@ test("ASCII85 replay preserves complete output and rejects a false length", asyn
   assert.equal(bytes().length, 0);
 });
 
-test("scalar-anchored Flate replay preserves output and rejects a bad checksum", async () => {
-  const outputs = [];
-  for (const interrupted of [false, true]) {
-    const { writer, bytes } = collectingWriter();
-    await convert(await wasmModule(), blobSource(new Blob([syntheticScalarReplayCaj({ interrupted })])),
-      webWritableSink(writer), { chunkSize: 1 });
-    await writer.close();
-    outputs.push(bytes());
+test("Flate replay preserves output and rejects a bad checksum", async () => {
+  for (const anchor of [null, "scalar", "array"]) {
+    const outputs = [];
+    for (const interrupted of [false, true]) {
+      const { writer, bytes } = collectingWriter();
+      await convert(await wasmModule(), blobSource(new Blob([syntheticFlateReplayCaj({ interrupted, anchor, padding: "\n" })])),
+        webWritableSink(writer), { chunkSize: 1 });
+      await writer.close();
+      outputs.push(bytes());
+    }
+    assert.deepEqual(outputs[1], outputs[0]);
   }
-  assert.deepEqual(outputs[1], outputs[0]);
   const { writer, bytes } = collectingWriter();
   await assert.rejects(convert(await wasmModule(),
-    blobSource(new Blob([syntheticScalarReplayCaj({ broken: true })])), webWritableSink(writer)),
+    blobSource(new Blob([syntheticFlateReplayCaj({ broken: true })])), webWritableSink(writer)),
     { code: "MALFORMED_PDF" });
   await writer.close();
   assert.equal(bytes().length, 0);

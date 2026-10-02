@@ -13,10 +13,18 @@ try {
   const scalarReplay = await convertFile("scalar-replay.caj");
   const scalarClean = await convertFile("scalar-clean.caj");
   const scalarBroken = await reject("scalar-broken.caj");
-  self.postMessage({ scalarReplay, scalarClean, scalarBroken, positive, negative, ascii85, keywordCut, referenceCut, cleanAscii85, brokenAscii85 });
+  const adjacentFlate = await convertFile("adjacent-flate.caj");
+  const adjacentClean = await convertFile("adjacent-flate-clean.caj");
+  const arrayReplay = await convertFile("array-replay.caj");
+  const arrayClean = await convertFile("array-clean.caj");
+  self.postMessage({ adjacentFlate, adjacentClean, arrayReplay, arrayClean, scalarReplay, scalarClean, scalarBroken, positive, negative, ascii85, keywordCut, referenceCut, cleanAscii85, brokenAscii85 });
 } catch (error) {
   const scalarReplay = await convertFile("scalar-replay.caj");
   const scalarClean = await convertFile("scalar-clean.caj");
   const scalarBroken = await reject("scalar-broken.caj");
-  self.postMessage({ scalarReplay, scalarClean, scalarBroken, error: String(error?.stack ?? error) });
+  const adjacentFlate = await convertFile("adjacent-flate.caj");
+  const adjacentClean = await convertFile("adjacent-flate-clean.caj");
+  const arrayReplay = await convertFile("array-replay.caj");
+  const arrayClean = await convertFile("array-clean.caj");
+  self.postMessage({ adjacentFlate, adjacentClean, arrayReplay, arrayClean, scalarReplay, scalarClean, scalarBroken, error: String(error?.stack ?? error) });
 }

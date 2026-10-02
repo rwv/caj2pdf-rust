@@ -413,8 +413,8 @@ framing support; it is not a complete-source recovery claim.
 An additional original rule derives a restart boundary from the first ASCII85
 `~>` terminator, a complete stream/object tail, and the immediately following
 referenced unsigned Length object. Subtract Length and the current header
-length from the encoded end; accept only a later start within 256 bytes, an
-identical header and an exact interrupted prefix (apart from trailing
+length from the encoded end; accept only a later start within 4096 bytes, an
+identical header of at most 256 bytes and an exact interrupted prefix (apart from trailing
 whitespace). Validate every ASCII85 group from the derived start, then resume
 the normal complete scanner. No object header is searched for, no decoded
 stream is buffered, and boundary scanning shares work limits and cancellation.
@@ -491,3 +491,50 @@ Issue-25 now stops at byte 1572389, object 145, in another direct-Length stream
 interruption. There is still no complete PDF, and #226 remains open. External
 source spans and per-step diagnostics stay in
 `caj2pdf-caj-candidate-recovery-20261002`.
+
+### Final replay review and current issue-25 limit
+
+A second observed ASCII85 interruption has a 523-byte prefix. The same EOD and
+immediate Length proof derives the complete start 1873341 from the encoded end
+1874388 and Length 990; independent decoding produces 768 bytes. The prefix
+bound is now one fixed 4 KiB window, with the existing 256-byte header bound.
+This is still bounded copying of encoded prefixes, not a decoded stream buffer;
+all reader allocation/work limits remain enforced. An original 520-byte payload
+prefix succeeds with one-byte reads, and over-4-KiB prefixes remain rejected.
+
+For adjacent direct-Length Flate copies, inspect only the 256 bytes after the
+declared encoded end for a stream tail. Subtract the known Length and header
+size to derive a restart. Require an exact interrupted prefix including the
+already parsed header, independent zlib framing/checksum and a complete tail.
+The previous-object anchor rule also applies to already parsed non-stream arrays
+and dictionaries, not just integers: the proof depends on exact object bytes and
+uniqueness. Stream anchors remain refused. Object 443 uses an exact repeat of
+array object 442; no additional recovery framework is needed.
+
+The encoded extent may include one LF, CR or CRLF after the zlib end. Such bytes
+are preserved and checked explicitly; arbitrary padding and a mismatch remain
+errors. This covers object 443's 2574-byte zlib stream with one counted LF in
+Length 2575. Original controls cover all three line endings and invalid padding.
+
+A new negative control also exposed an older Length-repair weakness: a short
+repeated header could be incorrectly absorbed into a larger Flate Length. A
+proposed Flate Length repair now requires independent codec validation, so this
+cannot produce a nominally repaired but undecodable stream. Exact-prefix checks
+already prove complete header equality; redundant separate header comparisons
+and reparsing were removed. The final scanner still parses the recovered object.
+
+Fresh CLI controls for adjacent and array-anchored replay (including counted LF)
+produce byte-identical clean/recovered PDFs, pass qpdf and render the independently
+authored blue rectangle exactly with MuPDF. Node and real browser Worker controls
+use the same public paths. Receipts: `caj2pdf-framed-replay-public-20261002`.
+The 58-page issue-92 regression still passes qpdf with unchanged output SHA256
+`853491f2e51ce91da80e8498b3223dbc29e2ac98a0d39229bb92ffc99eb24892`.
+
+Issue-25 now reaches final deferred-prefix validation. It refuses object 450 at
+455462: the surviving prefix declares Length 3304 and cuts `/Type/Metada`, while
+the original Catalog references it through `/Metadata 450 0 R`; no complete
+object 450 exists in the scanned fragment. No output PDF is published. This is
+a remaining missing-metadata target, not successful full-document conversion.
+The implementation does not invent metadata, silently drop the unresolved
+reference or claim full issue-25 support. Receipts remain outside Git in
+`caj2pdf-caj-candidate-recovery-20261002/issue25-replay-reviewed.json`.

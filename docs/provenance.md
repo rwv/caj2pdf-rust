@@ -2152,3 +2152,11 @@ The cut-reference extension only advances over a literal generation-zero token
 at an existing dictionary-name error, retaining the bounded full-prefix proof.
 Its original positive/negative controls and public-adapter fixtures use authored
 PDF content; the source observation is a failure location, not copied data.
+
+The subsequent Flate review independently derives adjacent restarts from a
+bounded declared-end window and validates zlib framing, checksum, matching
+encoded prefix and complete object tail. The prior-object proof is shared by
+parsed non-stream scalar/array objects. Original stored-deflate controls cover
+counted line endings, checksum failures and unsafe Length repairs; qpdf/MuPDF
+check authored rectangle outputs. ASCII85 prefix buffers remain capped at 4 KiB.
+No external document bytes, profiles, metadata or decoder code were copied.

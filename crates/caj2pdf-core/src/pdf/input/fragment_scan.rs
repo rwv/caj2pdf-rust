@@ -415,10 +415,17 @@ async fn scan_fragment<S: RangedSource, C: Cancellation>(
                 let after_data = data_at.checked_add(length).ok_or(failure)?;
                 let tail = reader.check_stream_tail(after_data, Some(reference)).await;
                 let end = if indirect.is_none() && is_malformed(&tail) {
-                    let (corrected_length, corrected_end) =
-                        match repair_stream_length(&mut reader, after_data, data_at, reference)
-                            .await
-                        {
+                    let repair = match repair_stream_length(&mut reader, after_data, data_at, reference).await {
+                        Ok((length, end)) if dictionary.value(b"Filter").and_then(exact_name).as_deref() == Some(b"FlateDecode") => {
+                            match flate_matches_length(&mut reader, data_at, reference, length, inflated_bytes).await {
+                                Ok(true) => Ok((length, end)),
+                                Ok(false) => Err(reader.malformed(data_at, Some(reference), "repaired Flate Length does not match codec extent")),
+                                Err(error) => Err(error),
+                            }
+                        }
+                        result => result,
+                    };
+                    let (corrected_length, corrected_end) = match repair {
                             Ok(repair) => repair,
                             Err(
                                 error @ Error::Pdf {
@@ -429,9 +436,19 @@ async fn scan_fragment<S: RangedSource, C: Cancellation>(
                                 if dictionary.value(b"Filter").and_then(exact_name).as_deref()
                                     == Some(b"FlateDecode")
                                 {
-                                    match scalar_anchored_replay(
+                                    match adjacent_flate_replay(
+                                        &mut reader, start, (reference, data_start, length), inflated_bytes,
+                                    ).await {
+                                        Ok(Some(next)) => {
+                                            cursor = next;
+                                            continue 'objects;
+                                        }
+                                        Ok(None) | Err(Error::Pdf { kind: PdfErrorKind::Malformed, .. }) => {}
+                                        Err(error) => return Err(error),
+                                    }
+                                    match object_anchored_replay(
                                         &mut reader, start, (reference, data_start, length),
-                                        &objects, &lengths, inflated_bytes,
+                                        &objects, inflated_bytes,
                                     ).await {
                                         Ok(Some(next)) => {
                                             cursor = next;
@@ -1091,36 +1108,108 @@ async fn orphan_length_end<S: RangedSource, C: Cancellation>(
     Ok(None)
 }
 
-/// A repeated, already parsed scalar can anchor a complete Flate replay.
-/// Require one exact scalar occurrence in the first 256 bytes, identical
-/// stream header/prefix, codec extent equal to Length, and a valid object tail.
-async fn scalar_anchored_replay<S: RangedSource, C: Cancellation>(
+/// Preserve an observed line ending counted inside a direct Length. No
+/// arbitrary trailing bytes are admitted after the independently framed codec.
+async fn flate_matches_length<S: RangedSource, C: Cancellation>(
+    reader: &mut Reader<'_, S, C>,
+    data_at: u64,
+    reference: PdfRef,
+    length: u64,
+    work: &mut u64,
+) -> Result<bool> {
+    let measured = flate_extent(reader, data_at, reference, work).await?;
+    match length.checked_sub(measured) {
+        Some(0) => Ok(true),
+        Some(padding @ (1 | 2)) => Ok(matches!(
+            reader
+                .bytes(data_at + measured, padding as usize)
+                .await?
+                .as_slice(),
+            b"\n" | b"\r" | b"\r\n"
+        )),
+        _ => Ok(false),
+    }
+}
+
+/// Derive an adjacent replay from a tail within 256 bytes of the declared
+/// encoded end. The repeated prefix includes the validated header; the codec
+/// plus at most one line ending must account for Length before that tail.
+async fn adjacent_flate_replay<S: RangedSource, C: Cancellation>(
+    reader: &mut Reader<'_, S, C>,
+    start: u64,
+    (reference, data_start, length): (PdfRef, usize, u64),
+    work: &mut u64,
+) -> Result<Option<u64>> {
+    // The caller already checked the direct stream extent for overflow.
+    let declared_end = start + data_start as u64 + length;
+    let last = declared_end.saturating_add(256).min(reader.range.length);
+    for end in declared_end.saturating_add(1)..=last {
+        let tail = reader
+            .bytes(end, (reader.range.length - end).min(11) as usize)
+            .await?;
+        if ![
+            b"endstream".as_slice(),
+            b"\nendstream",
+            b"\rendstream",
+            b"\r\nendstream",
+        ]
+        .iter()
+        .any(|marker| tail.starts_with(marker))
+        {
+            continue;
+        }
+        let prefix_length = end - declared_end;
+        let prefix = reader.bytes(start, prefix_length as usize).await?;
+        let prefix = prefix.trim_ascii_end();
+        let next = start + prefix_length;
+        if prefix.len() <= data_start || reader.bytes(next, prefix.len()).await? != prefix {
+            continue;
+        }
+        if !flate_matches_length(reader, next + data_start as u64, reference, length, work).await? {
+            return Ok(None);
+        }
+        reader.check_stream_tail(end, Some(reference)).await?;
+        return Ok(Some(next));
+    }
+    Ok(None)
+}
+
+/// A repeated, already parsed non-stream object can anchor a Flate replay.
+/// Require one exact object occurrence in the first 256 bytes, identical
+/// stream header/prefix, validated encoded extent, and a valid object tail.
+async fn object_anchored_replay<S: RangedSource, C: Cancellation>(
     reader: &mut Reader<'_, S, C>,
     start: u64,
     (reference, data_start, length): (PdfRef, usize, u64),
     objects: &[FragmentObject],
-    lengths: &[(PdfRef, u64)],
     work: &mut u64,
 ) -> Result<Option<u64>> {
-    let Some(scalar) = objects.last() else {
+    let Some(anchor) = objects.last() else {
         return Ok(None);
     };
-    if scalar.range.length > 256
-        || !lengths
-            .iter()
-            .any(|(reference, _)| *reference == scalar.reference)
+    if anchor.range.length > 256
         || objects
             .iter()
-            .filter(|object| object.reference == scalar.reference)
+            .filter(|object| object.reference == anchor.reference)
             .count()
             != 1
     {
         return Ok(None);
     }
+    let anchor_at = anchor.range.offset - reader.range.offset;
+    if !matches!(
+        reader
+            .load_head(anchor_at, Some(anchor.reference))
+            .await?
+            .tail,
+        ObjectTail::EndObject { .. }
+    ) {
+        return Ok(None);
+    }
     let marker = reader
         .bytes(
-            scalar.range.offset - reader.range.offset,
-            scalar.range.length as usize,
+            anchor.range.offset - reader.range.offset,
+            anchor.range.length as usize,
         )
         .await?;
     let bytes = reader
@@ -1147,14 +1236,12 @@ async fn scalar_anchored_replay<S: RangedSource, C: Cancellation>(
         next += 1;
     }
     let next = start + next as u64;
-    let complete = reader.load_head(next, Some(reference)).await?;
-    if complete.bytes.get(..data_start) != Some(&bytes[..data_start])
-        || reader.bytes(next, prefix.len()).await? != prefix
-    {
+    // The exact prefix includes the entire already parsed stream header.
+    if reader.bytes(next, prefix.len()).await? != prefix {
         return Ok(None);
     }
     let data_at = next + data_start as u64;
-    if flate_extent(reader, data_at, reference, work).await? != length {
+    if !flate_matches_length(reader, data_at, reference, length, work).await? {
         return Ok(None);
     }
     reader
@@ -2561,6 +2648,87 @@ mod candidate_tests {
     }
 
     #[test]
+    fn adjacent_flate_replay_checks_codec_padding_and_prefix_bounds() {
+        use std::io::Write;
+        let mut encoder = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::none());
+        encoder.write_all(&[b'Q'; 1024]).unwrap();
+        let encoded = encoder.finish().unwrap();
+        let fixture = |cut: usize, padding: &[u8], extra: usize, corrupt: bool| {
+            let header = format!(
+                "7 0 obj << /Length {} /Filter /FlateDecode >> stream\n",
+                encoded.len() + padding.len() + extra
+            );
+            let mut payload = encoded.clone();
+            if corrupt {
+                let last = payload.len() - 1;
+                payload[last] ^= 1;
+            }
+            [
+                header.as_bytes(),
+                &payload[..cut],
+                b"\n",
+                header.as_bytes(),
+                &payload,
+                padding,
+                b"\nendstream\nendobj\n",
+            ]
+            .concat()
+        };
+        assert_eq!(
+            scan(fixture(1, b"", 0, false), &mut [])
+                .unwrap()
+                .objects
+                .len(),
+            1
+        );
+        let short = format!(
+            "7 0 obj << /Length {} /Filter /FlateDecode >> stream\n",
+            encoded.len() - 1
+        );
+        let repaired = [short.as_bytes(), &encoded, b"\nendstream\nendobj\n"].concat();
+        assert_eq!(scan(repaired, &mut []).unwrap().patches.len(), 1);
+        let junk = [short.as_bytes(), &encoded, b"X\nendstream\nendobj\n"].concat();
+        assert!(scan(junk, &mut []).is_err());
+        for padding in [b"".as_slice(), b"\n", b"\r", b"\r\n"] {
+            let result = scan(fixture(12, padding, 0, false), &mut []).unwrap();
+            assert_eq!(result.objects.len(), 1);
+            assert!(result.patches.is_empty());
+        }
+        for (index, bytes) in [
+            fixture(12, b"X", 0, false),
+            fixture(12, b"\nX", 0, false),
+            fixture(12, b"\n\n\n", 0, false),
+            fixture(12, b"", 2, false),
+            fixture(12, b"", 0, true),
+            fixture(512, b"", 0, false),
+            fixture(0, b"", 0, false),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            assert!(scan(bytes, &mut []).is_err(), "negative case {index}");
+        }
+        let mut truncated = fixture(12, b"", 0, false);
+        truncated.truncate(truncated.len() - 4);
+        assert!(scan(truncated, &mut []).is_err());
+        let valid = fixture(12, b"", 0, false);
+        let end = valid.len() as u64;
+        let mut source = SeekableSource::new(Cursor::new(valid)).unwrap();
+        let limits = Limits {
+            max_output_bytes: 700,
+            io_chunk_bytes: 1,
+            ..Limits::default()
+        };
+        assert!(matches!(
+            run(scan_fragment_objects(&mut source, 0, end, &limits, &NEVER)),
+            Err(Error::LimitExceeded {
+                resource: "CAJ Flate scan bytes",
+                ..
+            })
+        ));
+    }
+
+    #[test]
     fn scalar_anchor_requires_one_exact_replay_and_a_valid_flate_extent() {
         use std::io::Write;
         let plain: Vec<_> = (0..1024).map(|value| value as u8).collect();
@@ -2582,12 +2750,24 @@ mod candidate_tests {
             (scalar.len() * 2 + interrupted.len()) as u64
         );
         assert!(result.patches.is_empty());
+        let array = b"6 0 obj[/ICCBased 7 0 R] endobj\n";
+        let bytes = [array.as_slice(), &interrupted, array, &complete].concat();
+        assert_eq!(scan(bytes, &mut []).unwrap().objects.len(), 2);
+        let prior_stream = b"6 0 obj << /Length 1 >> stream\nX\nendstream\nendobj\n";
+        let bytes = [
+            prior_stream.as_slice(),
+            &interrupted,
+            prior_stream,
+            &complete,
+        ]
+        .concat();
+        assert!(scan(bytes, &mut []).is_err());
         let mut changed_prefix = interrupted.clone();
         changed_prefix[header.len() + 2] ^= 1;
         let mut corrupt = complete.clone();
         corrupt[header.len() + encoded.len() - 1] ^= 1;
         let wrong_length =
-            header.replace(&encoded.len().to_string(), &(encoded.len() + 1).to_string());
+            header.replace(&encoded.len().to_string(), &(encoded.len() + 2).to_string());
         let bad_extent_prefix = [wrong_length.as_bytes(), &encoded[..12], b"\n"].concat();
         let bad_extent_copy =
             [wrong_length.as_bytes(), &encoded, b"\nendstream\nendobj\n"].concat();
