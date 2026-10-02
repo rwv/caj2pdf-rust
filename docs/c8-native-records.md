@@ -1347,3 +1347,35 @@ and metadata-only traces are in `caj2pdf-c8-decoration-metrics-20261002`, with
 `resource-results.json`. No font programs or outlines are extracted or committed.
 The explicit caller-resource contract should identify the decoration separately
 from semantic Latin text, even when a provider supplies both from one font.
+
+
+### Independent horizontal/vertical segment control
+
+The original `segment-axes` fixture contains one horizontal and one vertical
+segment for each of `8006/a381`, `a383`, `a38b`, with asymmetric coordinates
+and no ordinary text. A separately authored PDF uses the existing black,
+zero-width segment writer with the candidate +20 source-unit margin in both
+axes. At confirmed 993% and the same physical page bounds
+`(803,277,1573,1046)`, source and PDF both show all six segments in the expected
+positions. Repeated captures match. Threshold-250 bounds differ by at most one
+pixel at endpoints/edges; no registration or sample correction is applied.
+
+The comparison exposes a material raster difference that the earlier diagonal
+controls did not: source horizontal cross-sections integrate to 1.0078 black
+pixels, while the same viewer's PDF path integrates to 2.0039. Source/PDF
+vertical cross-sections both integrate to approximately 1.00. Independently,
+MuPDF renders this same PDF at 953.28 DPI with horizontal/vertical cross-section
+masses of 0.2667 and 0.1765–0.2353. Thus a zero-width PDF stroke is not a promise
+of a uniform one-black-pixel line across these rendering paths. These results
+must not be described as pixel-equivalent or used to tune a fixed gray value.
+The same PDF's differing renderings establish renderer sensitivity; they do
+not establish every remaining source stroke property.
+
+Together with the existing diagonal controls across zooms, this supports a
+nominal hairline representation with explicit raster limits, not a fixed
+positive source-space width that grows with zoom. Unknown styles remain
+unsupported. qpdf accepts the authored PDF. External receipts are
+`segment-axes-input.json`, `segment-axes-result.json`, `segment-mupdf-result.json`
+and repeated source/PDF captures in `caj2pdf-c8-decoration-metrics-20261002`.
+The generator reproduces the observed input byte-for-byte; no external content
+or raster captures are committed.

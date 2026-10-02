@@ -206,6 +206,17 @@ def main():
         (args.output / f"{name}.caj").write_bytes(data)
         manifest.append({"name": name, "run_words": words, "bytes": len(data),
                          "sha256": hashlib.sha256(data).hexdigest()})
+    words = []
+    for row, style in enumerate((0xA381, 0xA383, 0xA38B)):
+        for points in (((4682, 4304 + row * 70), (4832, 4304 + row * 70)),
+                       ((4902 + row * 90, 4524), (4902 + row * 90, 4704))):
+            words.extend((0x8006, style, *points[0], *points[1]))
+    data = document([(0x1084, 0, 6)], codes=(), run_words=tuple(words),
+                    width=600, height=600)
+    name = "segment-axes"
+    (args.output / f"{name}.caj").write_bytes(data)
+    manifest.append({"name": name, "run_words": words, "bytes": len(data),
+                     "sha256": hashlib.sha256(data).hexdigest()})
     # Short spans distinguish repeated glyphs clipped at the endpoint from
     # whole-glyph admission. Keep six isolated rows on one small square page.
     lengths = (10, 50, 89, 91, 180, 430)
