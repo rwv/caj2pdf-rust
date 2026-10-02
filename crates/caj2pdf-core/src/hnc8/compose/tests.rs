@@ -2812,3 +2812,60 @@ fn independent_render_checks_decoded_images_in_native_content_order() {
     assert_eq!(pixel(37, 55), 0); // Polygon overwrites the white type-3 image.
     assert_eq!(pixel(110, 90), 255);
 }
+
+#[test]
+fn raw_hna_marked_images_keep_full_page_and_offset_geometry() {
+    fn marked(records: &[Record], prefix: bool) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        if prefix {
+            for word in [0x8003_u16, 320, 0x8003, 240] {
+                bytes.extend(word.to_le_bytes());
+            }
+        }
+        for record in records {
+            for word in [
+                0x800a,
+                0xd300,
+                0xc000 | record.coordinate.x,
+                record.coordinate.y,
+                0xc000 | record.coordinate.width,
+                record.coordinate.height,
+            ] {
+                bytes.extend(word.to_le_bytes());
+            }
+            bytes.extend([0; 16]);
+        }
+        bytes.extend(0x8004_u16.to_le_bytes());
+        bytes.extend([0; 2]);
+        bytes
+    }
+    let pages = [vec![
+        Record::jpeg(32, 24, 50, 0, 0),
+        Record::jpeg(28, 18, 210, 20, 30),
+    ]];
+    let mut reference = Harness::new(Variant::HnA, &pages);
+    reference
+        .run(None, ComposeOptions::default(), &Limits::default())
+        .unwrap();
+    for make_text in [
+        (|records: &[Record]| marked(records, true)) as fn(&[Record]) -> Vec<u8>,
+        |records: &[Record]| marked(records, false),
+    ] {
+        let fixture = fixture_with_text(Variant::HnA, &pages, make_text);
+        let mut source = Source::new(fixture.bytes);
+        let mut sink = Sink::default();
+        let report = convert(
+            &mut source,
+            &mut sink,
+            None,
+            &mut Scratch::default(),
+            &mut Visitor::default(),
+            ComposeOptions::default(),
+            &Limits::default(),
+        )
+        .unwrap();
+        assert_eq!(report.output_pages, 1);
+        assert_eq!(report.jpeg_images, 2);
+        assert_eq!(sink.bytes, reference.sink.bytes);
+    }
+}

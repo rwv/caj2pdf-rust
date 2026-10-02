@@ -2,9 +2,13 @@
 
 # Closed issue #119 Stage A observation report
 
-Current work follows [the revised field-validation plan](hnc8-outline-stage-b-proposal.md).
-Execution restrictions below describe the closed historical invocation, not a
-requirement for renewed user approval of subsequent authorized work.
+This is a historical report. Subsequent [field validation and native
+integration](hnc8-outline-fields.md) completed HN-A outline issue
+[#119](https://github.com/rwv/caj2pdf-rust/issues/119). C8/HN-B bookmarks remain
+in [#221](https://github.com/rwv/caj2pdf-rust/issues/221). Statements below about
+open work, compatibility and execution restrictions refer to the closed Stage A
+invocation; they are not current support claims or a requirement for renewed
+user approval of subsequent authorized work.
 
 Status: **CLOSED STAGE A REPORT — ROOT AND INDEPENDENT CLOSED-METADATA REVIEW COMPLETE.**
 

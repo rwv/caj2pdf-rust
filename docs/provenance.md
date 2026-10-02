@@ -2049,6 +2049,21 @@ An external original Rust segment diagnostic uses the shared visitor/writer;
 its checked PDF and comparisons remain outside Git and are not full-profile
 compatibility acceptance.
 
+### Interrupted CAJ dictionary prefixes
+
+The bounded dictionary-prefix handling in `pdf/input/fragment_scan.rs` is
+original MIT code derived from independently observed source structure and
+byte comparisons against already validated objects. Its synthetic tests use
+invented dictionaries and values. No converter implementation or external
+source document content is copied. See `docs/caj-interrupted-objects.md` for
+the exact evidence, acceptance rule and remaining failures.
+
+The later-copy extension uses independently parsed CAJ page-table spans and
+original synthetic dictionaries/streams. Its final scan confirms every used
+candidate boundary, with explicit controls for conflicting copies and fake
+objects inside stream payloads. No other converter source or external document
+bytes supplied the implementation or fixtures. Discovery probes and actual
+source results remain outside Git; complete-document acceptance is still open.
 ### Additional C8 encoded-string framing (#242)
 
 `hnc8/native.rs`'s `80cc/01xx` extension, original Rust tests and
@@ -2224,3 +2239,69 @@ reference observations use only generated geometric fonts and authored controls;
 the public FreeType shim records bitmap statistics, not bitmap or outline data.
 The separately retained original print raster supplies appearance evidence.
 No external source code, fonts, spools or screenshots are included in Git.
+
+### CAJ deferred prefix validation
+
+The additional interrupted-header, dictionary/array/scalar-prefix and known
+stream-dictionary rules in `pdf/input/fragment_scan.rs` are original MIT work
+based on independent byte comparisons in the hash-pinned CAJ inputs. No Python,
+Go or vendor implementation was copied or translated. Synthetic positive and
+negative controls use invented PDF objects and payloads; external documents and
+the issue-92 PDF/render receipts remain outside Git. See
+[caj-interrupted-objects.md](caj-interrupted-objects.md) for bounded proof rules
+and the distinction between complete conversion and pending viewer fidelity.
+
+### CAJ cross-row candidate regression
+
+The original three-span candidate fixture in `pdf/input/fragment_scan.rs`
+uses invented dictionaries and a repeated synthetic stream payload. It models
+the independently observed issue-30 row dependency recorded in
+`docs/caj-interrupted-objects.md`; no source content is copied. Candidate
+collection reuses the original scanner, with deferred references always
+validated by the final complete-fragment path.
+
+### Original ASCII85 stream extent validation
+
+`pdf/input/fragment_scan/ascii85.rs` is an original MIT implementation of the
+ASCII85 framing and invalid-input rules in ISO 32000 section 7.4.3, checked
+against Adobe's [PDF reference](https://opensource.adobe.com/dc-acrobat-sdk-docs/pdfstandards/pdfreference1.5_v6.pdf)
+and the PDF Association's [approved syntax errata](https://pdf-issues.pdfa.org/32000-2-2020/clause07.html#743-ascii85decode-filter).
+It validates groups and the end marker without retaining decoded bytes. Tests
+use invented short encodings and malformed variants, not copied converter
+implementation or external document payloads. Decoded work shares the existing
+scan budget; final referenced Length validation is unchanged.
+
+### ASCII85 adjacent replay boundary
+
+The #226 follow-up was independently authored from the existing ISO 32000
+ASCII85 framing rule and observed CAJ object/Length relationships. Original
+synthetic tests contain no external document content. An external Python
+standard-library ASCII85 decode checked the derived payload as a black box;
+no decoder implementation was copied or translated. No vendor implementation,
+font outlines or source document bytes are committed.
+
+The adjacent tail-keyword extension reuses the original deferred-prefix proof
+for proper prefixes of the standard PDF `stream` and `endobj` tokens. Its
+synthetic controls are independently authored, including malformed tokens and
+changed/missing counterparts. The issue-25 observation supplies a failure
+location only; no external implementation or document content was copied.
+
+The direct-Length Flate replay extension independently checks an exact repeat
+of an already parsed scalar, matching stream header/prefix, standard zlib framing
+and the declared extent. Tests use original stored-deflate bytes and an authored
+blue rectangle; Python zlib is only an external black-box check of the observed
+source span. No implementation or document content was copied. Node test-fixture
+compression uses the built-in `node:zlib`, adding no package dependency.
+
+The cut-reference extension only advances over a literal generation-zero token
+at an existing dictionary-name error, retaining the bounded full-prefix proof.
+Its original positive/negative controls and public-adapter fixtures use authored
+PDF content; the source observation is a failure location, not copied data.
+
+The subsequent Flate review independently derives adjacent restarts from a
+bounded declared-end window and validates zlib framing, checksum, matching
+encoded prefix and complete object tail. The prior-object proof is shared by
+parsed non-stream scalar/array objects. Original stored-deflate controls cover
+counted line endings, checksum failures and unsafe Length repairs; qpdf/MuPDF
+check authored rectangle outputs. ASCII85 prefix buffers remain capped at 4 KiB.
+No external document bytes, profiles, metadata or decoder code were copied.

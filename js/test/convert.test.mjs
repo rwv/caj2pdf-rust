@@ -29,6 +29,10 @@ import {
   largePdfBlob,
   newInstance,
   syntheticCaj,
+  syntheticAscii85Caj,
+  syntheticFlateReplayCaj,
+  syntheticRecoveredCaj,
+  syntheticLaterCopyCaj,
   syntheticKdh,
   tempDirectory,
   trackedBlob,
@@ -41,7 +45,13 @@ import {
 async function inputs() {
   const { wrapped } = await syntheticKdh();
   return [
+    { name: "adjacent Flate CAJ", format: "caj", bytes: syntheticFlateReplayCaj({ anchor: null }), pages: 2, bookmarks: 1 },
+    { name: "array-replay CAJ", format: "caj", bytes: syntheticFlateReplayCaj({ anchor: "array", padding: "\n" }), pages: 2, bookmarks: 1 },
+    { name: "scalar-replay CAJ", format: "caj", bytes: syntheticFlateReplayCaj(), pages: 2, bookmarks: 1 },
+    { name: "ASCII85 CAJ", format: "caj", bytes: syntheticAscii85Caj(), pages: 2, bookmarks: 1 },
     { name: "CAJ", format: "caj", bytes: syntheticCaj(), pages: 2, bookmarks: 1 },
+    { name: "later-copy CAJ", format: "caj", bytes: syntheticLaterCopyCaj(), pages: 2, bookmarks: 1 },
+    { name: "recovered CAJ", format: "caj", bytes: syntheticRecoveredCaj(), pages: 2, bookmarks: 1 },
     { name: "KDH", format: "kdh", bytes: wrapped, pages: 2, bookmarks: 0 },
     { name: "PDF", format: "pdf", bytes: await fixture("valid_nested_outline.pdf"), pages: 2, bookmarks: 0 },
   ];
@@ -78,8 +88,8 @@ test("FileHandle sources and Node Writable sinks convert CAJ, KDH, and PDF", asy
   try {
     for (const input of await inputs()) {
       await t.test(input.name, async (t) => {
-        const inputPath = join(directory, `input.${input.format}`);
-        const outputPath = join(directory, `output-${input.format}.pdf`);
+        const inputPath = join(directory, `input-${input.name}.${input.format}`);
+        const outputPath = join(directory, `output-${input.name}.pdf`);
         await writeFile(inputPath, input.bytes);
         const inputHandle = await open(inputPath, "r");
         const output = (await open(outputPath, "wx")).createWriteStream();
@@ -334,4 +344,61 @@ test("loadModule compiles a WASM file for reuse across conversions", async () =>
   });
   const [first, second] = await Promise.all(pending);
   assert.equal(first, second, "concurrent conversions use separate instances");
+});
+
+test("CAJ recovery rejects a later malformed object before publishing output", async () => {
+  const { writer, bytes } = collectingWriter();
+  await assert.rejects(
+    convert(await wasmModule(), blobSource(new Blob([syntheticRecoveredCaj(true)])), webWritableSink(writer)),
+    { code: "MALFORMED_PDF" },
+  );
+  assert.equal(bytes().length, 0);
+  await writer.close();
+});
+
+test("CAJ later-copy recovery rejects changed prefixes without output", async () => {
+  const { writer, bytes } = collectingWriter();
+  await assert.rejects(convert(await wasmModule(), blobSource(new Blob([syntheticLaterCopyCaj(true)])), webWritableSink(writer)), { code: "MALFORMED_PDF" });
+  assert.equal(bytes().length, 0);
+  await writer.close();
+});
+
+test("ASCII85 replay preserves complete output and rejects a false length", async () => {
+  const outputs = [];
+  for (const options of [{ interrupted: false }, {}, { cut: "keyword" }, { cut: "reference" }]) {
+    const { writer, bytes } = collectingWriter();
+    await convert(await wasmModule(), blobSource(new Blob([syntheticAscii85Caj(options)])),
+      webWritableSink(writer), { chunkSize: 1 });
+    await writer.close();
+    outputs.push(bytes());
+  }
+  assert.deepEqual(outputs[1], outputs[0]);
+  assert.deepEqual(outputs[2], outputs[0]);
+  assert.deepEqual(outputs[3], outputs[0]);
+  const { writer, bytes } = collectingWriter();
+  await assert.rejects(convert(await wasmModule(),
+    blobSource(new Blob([syntheticAscii85Caj({ broken: true })])), webWritableSink(writer),
+    { chunkSize: 1 }), { code: "MALFORMED_PDF" });
+  await writer.close();
+  assert.equal(bytes().length, 0);
+});
+
+test("Flate replay preserves output and rejects a bad checksum", async () => {
+  for (const anchor of [null, "scalar", "array"]) {
+    const outputs = [];
+    for (const interrupted of [false, true]) {
+      const { writer, bytes } = collectingWriter();
+      await convert(await wasmModule(), blobSource(new Blob([syntheticFlateReplayCaj({ interrupted, anchor, padding: "\n" })])),
+        webWritableSink(writer), { chunkSize: 1 });
+      await writer.close();
+      outputs.push(bytes());
+    }
+    assert.deepEqual(outputs[1], outputs[0]);
+  }
+  const { writer, bytes } = collectingWriter();
+  await assert.rejects(convert(await wasmModule(),
+    blobSource(new Blob([syntheticFlateReplayCaj({ broken: true })])), webWritableSink(writer)),
+    { code: "MALFORMED_PDF" });
+  await writer.close();
+  assert.equal(bytes().length, 0);
 });

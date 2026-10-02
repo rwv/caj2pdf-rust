@@ -7,6 +7,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
+import { deflateSync } from "node:zlib";
 
 export const wasmUrl = new URL("../../target/wasm32-unknown-unknown/release/caj2pdf_wasm.wasm", import.meta.url);
 
@@ -66,6 +67,97 @@ export function syntheticCaj() {
   view.setUint32(table + 12, bodyStart + body.length, true);
   view.setUint32(table + 20, 4, true);
   bytes.set(body, bodyStart);
+  return bytes;
+}
+
+/** Original visible-content control for length-derived ASCII85 replay. */
+export function syntheticAscii85Caj({ interrupted = true, broken = false, cut = "payload" } = {}) {
+  const base = syntheticCaj();
+  const start = 0x400 + 24;
+  const original = new TextDecoder().decode(base.subarray(start))
+    .replace("/Resources << >> >>", "/Resources << >> /Contents 6 0 R >>");
+  // ASCII85 for the authored blue rectangle: q 0 0 1 rg 10 20 30 40 re f Q.
+  const payload = "E?HqX0H`(mEb?LL0H`,)+>Y\\o1b^%mAKYS-;$m~>";
+  const header = "6 0 obj << /Length 7 0 R /Filter /ASCII85Decode >> stream\n";
+  let prefix = header + payload.slice(0, 11) + "\n";
+  if (cut === "reference") prefix = header.slice(0, header.indexOf(" R")) + "\n";
+  if (cut === "keyword") prefix = header.slice(0, -3) + "\n";
+  if (!interrupted) prefix = "";
+  const body = new TextEncoder().encode(original + prefix + header + payload +
+    `\nendstream\nendobj\n7 0 obj ${payload.length + (broken ? 1 : 0)} endobj\n`);
+  const bytes = new Uint8Array(start + body.length);
+  bytes.set(base.subarray(0, start));
+  bytes.set(body, start);
+  const view = new DataView(bytes.buffer);
+  view.setUint32(0x404, body.length, true);
+  view.setUint32(0x40c, bytes.length, true);
+  return bytes;
+}
+
+/** Original direct-Length Flate replay, with an optional known-object anchor. */
+export function syntheticFlateReplayCaj({ interrupted = true, broken = false, anchor = "scalar", padding = "" } = {}) {
+  const base = syntheticCaj();
+  const start = 0x400 + 24;
+  const pageObjects = new TextDecoder().decode(base.subarray(start))
+    .replace("/Resources << >> >>", "/Resources << >> /Contents 6 0 R >>");
+  const payload = deflateSync("q 0 0 1 rg 10 20 30 40 re f Q\n%" + " ".repeat(1024) + "\n", { level: 0 });
+  if (broken) payload[payload.length - 1] ^= 1;
+  const prior = anchor === "scalar" ? "7 0 obj 91 endobj\n"
+    : anchor === "array" ? "7 0 obj [13 29 47] endobj\n" : "";
+  const header = `6 0 obj << /Length ${payload.length + padding.length} /Filter /FlateDecode >> stream\n`;
+  const parts = [pageObjects, prior];
+  if (interrupted) parts.push(header, payload.subarray(0, 12), "\n", prior);
+  parts.push(header, payload, padding, "\nendstream\nendobj\n");
+  const body = Buffer.concat(parts.map((part) => Buffer.from(part)));
+  const bytes = new Uint8Array(start + body.length);
+  bytes.set(base.subarray(0, start));
+  bytes.set(body, start);
+  const view = new DataView(bytes.buffer);
+  view.setUint32(0x404, body.length, true);
+  view.setUint32(0x40c, bytes.length, true);
+  return bytes;
+}
+
+/** Original controls for known dictionary/array cuts and adjacent headers. */
+export function syntheticRecoveredCaj(broken = false) {
+  const base = syntheticCaj();
+  const suffix = new TextEncoder().encode(
+    "3 0 obj\n<< /Type /Page /Parent\n" +
+    "10 0 obj<< /Box [1 3 9] >>endobj\n" +
+    "10 0 obj<< /Box [\n11 0 obj null endobj\n" +
+    "12 0 \r\n12 0 obj null endobj\n" +
+    (broken ? "13 0 obj<< /Fail @ >>endobj\n" : ""),
+  );
+  const bytes = new Uint8Array(base.length + suffix.length);
+  bytes.set(base);
+  bytes.set(suffix, base.length);
+  const view = new DataView(bytes.buffer);
+  const table = view.getUint32(0x14, true);
+  view.setUint32(table + 4, view.getUint32(table + 4, true) + suffix.length, true);
+  view.setUint32(table + 12, bytes.length, true);
+  return bytes;
+}
+
+/** Original later-copy control rooted in the second CAJ page-table span. */
+export function syntheticLaterCopyCaj(broken = false) {
+  const base = syntheticCaj();
+  const text = new TextEncoder();
+  const table = 0x400;
+  const start = table + 24;
+  const original = new TextDecoder().decode(base.subarray(start));
+  const split = original.indexOf("4 0 obj");
+  const first = text.encode(original.slice(0, split) + `7 0 obj\n<< /Type /Ex${broken ? "b" : "a"}\n` +
+    "8 0 obj\n<< /Length 600 >>\nstream\nZZZZZ\n");
+  const second = text.encode(original.slice(split) + "7 0 obj\n<< /Type /Example /Values [3 9] >>\nendobj\n" +
+    `8 0 obj\n<< /Length 600 >>\nstream\n${"Z".repeat(600)}\nendstream\nendobj\n`);
+  const bytes = new Uint8Array(start + first.length + second.length);
+  bytes.set(base.subarray(0, start));
+  bytes.set(first, start);
+  bytes.set(second, start + first.length);
+  const view = new DataView(bytes.buffer);
+  view.setUint32(table + 4, first.length, true);
+  view.setUint32(table + 12, start + first.length, true);
+  view.setUint32(table + 16, second.length, true);
   return bytes;
 }
 

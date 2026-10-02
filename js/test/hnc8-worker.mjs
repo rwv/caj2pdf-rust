@@ -28,12 +28,14 @@ try {
   const type1 = await convert(module, blobSource(new Blob([syntheticType1Hn().bytes])), {
     async writeChunk(bytes) { type1Pdf.push(...bytes); return bytes.length; }, async flush() {},
   }, { chunkSize: 3, hnc8: { scratch } });
-  const prefixedPdf = [];
-  await convert(module, blobSource(new Blob([syntheticPrefixedHn()])), {
-    async writeChunk(bytes) { prefixedPdf.push(...bytes); return bytes.length; }, async flush() {},
-  }, { chunkSize: 3, hnc8: { qmStates, scratch } });
-  if (prefixedPdf.length !== parts.length || prefixedPdf.some((byte, i) => byte !== parts[i])) {
-    throw new Error("paired raw prefix changed the mixed-image PDF");
+  for (const markers of [false, true]) {
+    const prefixedPdf = [];
+    await convert(module, blobSource(new Blob([syntheticPrefixedHn(markers)])), {
+      async writeChunk(bytes) { prefixedPdf.push(...bytes); return bytes.length; }, async flush() {},
+    }, { chunkSize: 3, hnc8: { qmStates, scratch } });
+    if (prefixedPdf.length !== parts.length || prefixedPdf.some((byte, i) => byte !== parts[i])) {
+      throw new Error("paired raw prefix or image markers changed the mixed-image PDF");
+    }
   }
   result = { type1Pages: type1.pagesConverted, type1Pdf, standardPages: standard.pagesConverted, standardPdf, pages: report.pagesConverted, pdf: parts, cleared: scratch.every((store) => store.size === 0n) };
 } catch (error) {

@@ -11,7 +11,7 @@ import { readFile } from "node:fs/promises";
 import { after, before, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { findChrome, launchChrome, openPage, startServer } from "./browser-harness.mjs";
-import { fixture, syntheticCaj, syntheticKdh, validatePdf, validateMultiImageHn, validateType1Hn, wasmUrl } from "./helpers.mjs";
+import { fixture, syntheticCaj, syntheticAscii85Caj, syntheticFlateReplayCaj, syntheticRecoveredCaj, syntheticLaterCopyCaj, syntheticKdh, validatePdf, validateMultiImageHn, validateType1Hn, wasmUrl } from "./helpers.mjs";
 
 const chrome = findChrome();
 if (chrome == null && process.env.CI) {
@@ -29,6 +29,22 @@ before(async () => {
   if (skip) return;
   const fixtures = {
     "/fixtures/input.caj": syntheticCaj(),
+    "/fixtures/ascii85.caj": syntheticAscii85Caj(),
+    "/fixtures/adjacent-flate.caj": syntheticFlateReplayCaj({ anchor: null }),
+    "/fixtures/adjacent-flate-clean.caj": syntheticFlateReplayCaj({ anchor: null, interrupted: false }),
+    "/fixtures/array-replay.caj": syntheticFlateReplayCaj({ anchor: "array", padding: "\n" }),
+    "/fixtures/array-clean.caj": syntheticFlateReplayCaj({ anchor: "array", padding: "\n", interrupted: false }),
+    "/fixtures/scalar-replay.caj": syntheticFlateReplayCaj(),
+    "/fixtures/scalar-clean.caj": syntheticFlateReplayCaj({ interrupted: false }),
+    "/fixtures/scalar-broken.caj": syntheticFlateReplayCaj({ broken: true }),
+    "/fixtures/keyword-cut.caj": syntheticAscii85Caj({ cut: "keyword" }),
+    "/fixtures/reference-cut.caj": syntheticAscii85Caj({ cut: "reference" }),
+    "/fixtures/ascii85-clean.caj": syntheticAscii85Caj({ interrupted: false }),
+    "/fixtures/ascii85-broken.caj": syntheticAscii85Caj({ broken: true }),
+    "/fixtures/recovered.caj": syntheticRecoveredCaj(),
+    "/fixtures/later-copy.caj": syntheticLaterCopyCaj(),
+    "/fixtures/broken-later-copy.caj": syntheticLaterCopyCaj(true),
+    "/fixtures/broken-recovery.caj": syntheticRecoveredCaj(true),
     "/fixtures/input.kdh": (await syntheticKdh()).wrapped,
     "/fixtures/input.pdf": await fixture("valid_nested_outline.pdf"),
     "/fixtures/input.hn": await fixture("truncated_hn.hn"),
@@ -67,6 +83,7 @@ const options = { skip, timeout: 60_000 };
 test("Chromium: File sources and WritableStream sinks convert CAJ, KDH, and PDF", options, async (t) => {
   for (const [name, format, pages, bookmarks] of [
     ["input.caj", "caj", 2, 1],
+    ["recovered.caj", "caj", 2, 1],
     ["input.kdh", "kdh", 2, 0],
     ["input.pdf", "pdf", 2, 0],
   ]) {
@@ -163,4 +180,41 @@ test("Chromium: HN/C8 inspection distinguishes validated and unknown outlines", 
     { format: "c8", pages: 1, bookmarks: null },
     { format: "hn", pages: 1, bookmarks: null },
   ]);
+});
+
+
+test("Chromium: CAJ recovery retains a later malformed-object error", options, async () => {
+  for (const mode of ["reject", "rejectSpooled"]) {
+    const result = await run(mode, "broken-recovery.caj");
+    assert.equal(result.error?.code, "MALFORMED_PDF");
+    assert.equal(result.written, 0);
+    if (mode === "rejectSpooled") {
+      assert.deepEqual(result.after, []);
+      assert.equal(result.unlocked, true);
+    }
+  }
+});
+
+test("Chromium: later-copy CAJ and stream replay run in a Worker", options, async (t) => {
+  const result = await run("cajRecoveryInWorker");
+  assert.equal(result.positive.report.pagesConverted, 2);
+  assert.equal(result.positive.report.bookmarksWritten, 1);
+  await validatePdf(t, decode(result.positive.output), 2);
+  assert.equal(result.negative.error?.code, "MALFORMED_PDF");
+  assert.equal(result.negative.written, 0);
+  assert.equal(result.ascii85.report.pagesConverted, 2);
+  assert.deepEqual(result.ascii85.output, result.cleanAscii85.output);
+  assert.deepEqual(result.keywordCut.output, result.cleanAscii85.output);
+  assert.deepEqual(result.referenceCut.output, result.cleanAscii85.output);
+  await validatePdf(t, decode(result.ascii85.output), 2);
+  assert.equal(result.brokenAscii85.error?.code, "MALFORMED_PDF");
+  assert.equal(result.brokenAscii85.written, 0);
+  assert.deepEqual(result.scalarReplay.output, result.scalarClean.output);
+  await validatePdf(t, decode(result.scalarReplay.output), 2);
+  assert.equal(result.scalarBroken.error?.code, "MALFORMED_PDF");
+  assert.equal(result.scalarBroken.written, 0);
+  for (const [recovered, clean] of [[result.adjacentFlate, result.adjacentClean], [result.arrayReplay, result.arrayClean]]) {
+    assert.deepEqual(recovered.output, clean.output);
+    await validatePdf(t, decode(recovered.output), 2);
+  }
 });

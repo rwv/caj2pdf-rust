@@ -21,6 +21,23 @@
   coordinate origin. Explicit header literals must include this field; use
   `None` for HN variants. This metadata does not enable C8 text conversion.
 
+
+- Recover short interrupted ASCII85 CAJ streams when their immediately
+  following Length object uniquely determines a validated complete replay.
+  Also recover short cut `stream`/`endobj` keywords only when a fully parsed
+  object proves the exact prefix, including an indirect reference cut before
+  its `R` token. Direct-Length Flate replay additionally requires a bounded
+  tail-derived boundary or exact preceding-object repeat and codec validation.
+  Validate Flate Length repairs before accepting them; preserve explicitly
+  counted line endings. ASCII85 prefix comparison remains bounded to 4 KiB.
+  Unproved corruption remains an error.
+
+- Recover bounded interrupted CAJ objects when a later complete copy is
+  independently parsed from a page-table span and confirmed by the full scan.
+  Ambiguous copies and unresolved corruption remain errors.
+- Correct off-page image placement for verified raw HN-A `800a/d300` records
+  carrying coordinate marker bits. Raw inspection values remain unchanged;
+  this does not claim complete HN-A pixel fidelity.
 - Add bounded caller-supplied TrueType resources and sequential PDF glyph,
   image and vector content pages. This shared API does not enable native
   C8/HN-B conversion or production JavaScript font resources.

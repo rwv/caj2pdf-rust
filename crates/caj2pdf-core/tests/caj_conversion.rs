@@ -1741,3 +1741,120 @@ fn letter_fallback_does_not_mask_an_invalid_explicit_box() {
     let error = rejected_without_output(&fragment_caj(body, &[9]), &Limits::default());
     assert!(error.to_string().contains("MediaBox"), "{error}");
 }
+
+#[test]
+fn later_page_anchor_recovers_a_dictionary_without_changing_output() {
+    fn fixture(prefix: &[u8], anchor_id: u32) -> Vec<u8> {
+        let mut body = Vec::new();
+        object(
+            &mut body,
+            1,
+            "<< /Type /Page /Parent 9 0 R /MediaBox [0 0 90 120] /Resources << >> /Probe 7 0 R >>",
+        );
+        body.extend_from_slice(prefix);
+        if !prefix.is_empty() {
+            body.extend_from_slice(b"8 0 obj\n<< /Length 600 >>\nstream\nZZZZZ\n");
+        }
+        let split = body.len();
+        object(
+            &mut body,
+            2,
+            "<< /Type /Page /Parent 9 0 R /MediaBox [0 0 120 90] /Resources << >> /Probe 7 0 R >>",
+        );
+        object(&mut body, 7, "<< /Type /Example /Values [3 9] >>");
+        object(
+            &mut body,
+            8,
+            &format!("<< /Length 600 >>\nstream\n{}\nendstream", "Z".repeat(600)),
+        );
+        let mut bytes = fragment_caj(&body, &[1, anchor_id]);
+        let body_start = 0x400 + 2 * 12;
+        put_u32(&mut bytes, 0x404, split as u32);
+        put_u32(&mut bytes, 0x40c, (body_start + split) as u32);
+        put_u32(&mut bytes, 0x410, (body.len() - split) as u32);
+        bytes
+    }
+    let limits = Limits {
+        io_chunk_bytes: 1,
+        ..Limits::default()
+    };
+    let clean = fixture(b"", 2);
+    let interrupted = fixture(b"7 0 obj\n<< /Type /Exa\n", 2);
+    let (expected, _) = convert(&clean, ConversionOptions::default(), &limits).unwrap();
+    let (actual, report) = convert(&interrupted, ConversionOptions::default(), &limits).unwrap();
+    assert_eq!(report.pages_converted, 2);
+    assert_eq!(actual, expected);
+    assert_eq!(inspect(&actual).pages().len(), 2);
+    for damaged in [
+        fixture(b"7 0 obj\n<< /Type /Exb\n", 2),
+        fixture(b"7 0 obj\n<< /Type /Exa\n", 3),
+    ] {
+        rejected_without_output(&damaged, &limits);
+    }
+    let mut malformed_anchor = fixture(b"7 0 obj\n<< /Type /Exa\n", 2);
+    let end = malformed_anchor.len();
+    malformed_anchor[end - 7..end - 1].copy_from_slice(b"broken");
+    rejected_without_output(&malformed_anchor, &limits);
+    let mut oversized_anchor = fixture(b"7 0 obj\n<< /Type /Exa\n", 2);
+    let marker = b"/Values [3 9] >>\nendobj\n";
+    let insertion = oversized_anchor
+        .windows(marker.len())
+        .position(|window| window == marker)
+        .unwrap()
+        + marker.len()
+        - 7;
+    oversized_anchor.splice(insertion..insertion, [b' '; 2000]);
+    let row_length = u32::from_le_bytes(oversized_anchor[0x410..0x414].try_into().unwrap());
+    put_u32(&mut oversized_anchor, 0x410, row_length + 2000);
+    let tight = Limits {
+        max_allocation_bytes: 4096,
+        ..limits
+    };
+    let error = rejected_without_output(&oversized_anchor, &tight);
+    assert!(matches!(error, Error::PdfLimitExceeded { .. }));
+}
+
+#[test]
+fn ascii85_adjacent_replay_preserves_visible_content_and_rejects_false_length() {
+    fn fixture(interrupted: bool, broken: bool) -> Vec<u8> {
+        let mut body = Vec::new();
+        object(
+            &mut body,
+            1,
+            "<< /Type /Page /Parent 9 0 R /MediaBox [0 0 200 100] /Resources << >> /Contents 6 0 R >>",
+        );
+        // Original blue rectangle: q 0 0 1 rg 10 20 30 40 re f Q.
+        let payload = r#"E?HqX0H`(mEb?LL0H`,)+>Y\o1b^%mAKYS-;$m~>"#;
+        let header = "6 0 obj << /Length 7 0 R /Filter /ASCII85Decode >> stream\n";
+        if interrupted {
+            body.extend_from_slice(header.as_bytes());
+            body.extend_from_slice(&payload.as_bytes()[..11]);
+            body.push(b'\n');
+        }
+        body.extend_from_slice(header.as_bytes());
+        body.extend_from_slice(payload.as_bytes());
+        body.extend_from_slice(b"\nendstream\nendobj\n");
+        object(
+            &mut body,
+            7,
+            &(payload.len() + usize::from(broken)).to_string(),
+        );
+        fragment_caj(&body, &[1])
+    }
+    let limits = Limits {
+        io_chunk_bytes: 1,
+        ..Limits::default()
+    };
+    let (expected, _) = convert(
+        &fixture(false, false),
+        ConversionOptions::default(),
+        &limits,
+    )
+    .unwrap();
+    let (actual, report) =
+        convert(&fixture(true, false), ConversionOptions::default(), &limits).unwrap();
+    assert_eq!(report.pages_converted, 1);
+    assert_eq!(actual, expected);
+    assert_eq!(inspect(&actual).pages().len(), 1);
+    rejected_without_output(&fixture(true, true), &limits);
+}
