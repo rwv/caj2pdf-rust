@@ -5,7 +5,8 @@
 - Recover short interrupted ASCII85 CAJ streams when their immediately
   following Length object uniquely determines a validated complete replay.
   Also recover short cut `stream`/`endobj` keywords only when a fully parsed
-  object proves the exact prefix. Direct-Length Flate replay additionally
+  object proves the exact prefix, including an indirect reference cut before
+  its `R` token. Direct-Length Flate replay additionally
   requires an exact preceding-scalar repeat and independent codec validation.
   Unproved corruption remains an error.
 

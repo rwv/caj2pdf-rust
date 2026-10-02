@@ -363,7 +363,7 @@ test("CAJ later-copy recovery rejects changed prefixes without output", async ()
 
 test("ASCII85 replay preserves complete output and rejects a false length", async () => {
   const outputs = [];
-  for (const options of [{ interrupted: false }, {}, { keywordCut: true }]) {
+  for (const options of [{ interrupted: false }, {}, { cut: "keyword" }, { cut: "reference" }]) {
     const { writer, bytes } = collectingWriter();
     await convert(await wasmModule(), blobSource(new Blob([syntheticAscii85Caj(options)])),
       webWritableSink(writer), { chunkSize: 1 });
@@ -372,6 +372,7 @@ test("ASCII85 replay preserves complete output and rejects a false length", asyn
   }
   assert.deepEqual(outputs[1], outputs[0]);
   assert.deepEqual(outputs[2], outputs[0]);
+  assert.deepEqual(outputs[3], outputs[0]);
   const { writer, bytes } = collectingWriter();
   await assert.rejects(convert(await wasmModule(),
     blobSource(new Blob([syntheticAscii85Caj({ broken: true })])), webWritableSink(writer),

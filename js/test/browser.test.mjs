@@ -33,7 +33,8 @@ before(async () => {
     "/fixtures/scalar-replay.caj": syntheticScalarReplayCaj(),
     "/fixtures/scalar-clean.caj": syntheticScalarReplayCaj({ interrupted: false }),
     "/fixtures/scalar-broken.caj": syntheticScalarReplayCaj({ broken: true }),
-    "/fixtures/keyword-cut.caj": syntheticAscii85Caj({ keywordCut: true }),
+    "/fixtures/keyword-cut.caj": syntheticAscii85Caj({ cut: "keyword" }),
+    "/fixtures/reference-cut.caj": syntheticAscii85Caj({ cut: "reference" }),
     "/fixtures/ascii85-clean.caj": syntheticAscii85Caj({ interrupted: false }),
     "/fixtures/ascii85-broken.caj": syntheticAscii85Caj({ broken: true }),
     "/fixtures/recovered.caj": syntheticRecoveredCaj(),
@@ -200,6 +201,7 @@ test("Chromium: later-copy CAJ and stream replay run in a Worker", options, asyn
   assert.equal(result.ascii85.report.pagesConverted, 2);
   assert.deepEqual(result.ascii85.output, result.cleanAscii85.output);
   assert.deepEqual(result.keywordCut.output, result.cleanAscii85.output);
+  assert.deepEqual(result.referenceCut.output, result.cleanAscii85.output);
   await validatePdf(t, decode(result.ascii85.output), 2);
   assert.equal(result.brokenAscii85.error?.code, "MALFORMED_PDF");
   assert.equal(result.brokenAscii85.written, 0);

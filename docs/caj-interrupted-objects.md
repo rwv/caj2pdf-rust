@@ -475,6 +475,19 @@ rectangle PDF against its uninterrupted version; wrong checksums publish no
 output. Native qpdf and MuPDF checks confirm the same independently specified
 rectangle bounds. Receipts are in `caj2pdf-scalar-replay-public-20261002`.
 
-Issue-25 now stops at byte 954402 in another interrupted dictionary. There is
-still no complete PDF, and #226 remains open. External source spans and
-per-step diagnostics stay in `caj2pdf-caj-candidate-recovery-20261002`.
+### Cut indirect-reference suffix
+
+At byte 954402, object 268 contains `/Length 271 0` cut before `R`. The value
+parser has accepted `271` as an integer and reports generation zero where the
+next dictionary name should begin. The existing deferred-prefix path now
+permits that single `0` followed by whitespace, within its original 256-byte
+bound. The full scan must still prove the exact entire prefix against a complete
+same-reference dictionary; it does not infer or insert a missing reference.
+Original one-byte controls reject `0x`, `00`, nonzero generations, excessive
+whitespace and changed/missing counterparts. Public Node/browser controls
+compare a cut-reference stream with its uninterrupted PDF.
+
+Issue-25 now stops at byte 1572389, object 145, in another direct-Length stream
+interruption. There is still no complete PDF, and #226 remains open. External
+source spans and per-step diagnostics stay in
+`caj2pdf-caj-candidate-recovery-20261002`.

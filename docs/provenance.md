@@ -2147,3 +2147,8 @@ and the declared extent. Tests use original stored-deflate bytes and an authored
 blue rectangle; Python zlib is only an external black-box check of the observed
 source span. No implementation or document content was copied. Node test-fixture
 compression uses the built-in `node:zlib`, adding no package dependency.
+
+The cut-reference extension only advances over a literal generation-zero token
+at an existing dictionary-name error, retaining the bounded full-prefix proof.
+Its original positive/negative controls and public-adapter fixtures use authored
+PDF content; the source observation is a failure location, not copied data.

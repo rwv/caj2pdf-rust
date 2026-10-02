@@ -753,6 +753,30 @@ async fn interrupted_syntax_prefix<S: RangedSource, C: Cancellation>(
             }
         }
     }
+    // A cut before the R in an indirect reference leaves generation zero
+    // where the dictionary parser expects its next key. The complete-copy
+    // proof below must confirm this byte as part of the original value.
+    if *reason == "expected PDF name" && reader.byte(end).await? == Some(b'0') {
+        end += 1;
+        if !reader
+            .byte(end)
+            .await?
+            .is_some_and(|byte| byte.is_ascii_whitespace())
+        {
+            return Ok(None);
+        }
+        while end - start <= 256
+            && reader
+                .byte(end)
+                .await?
+                .is_some_and(|byte| byte.is_ascii_whitespace())
+        {
+            end += 1;
+        }
+        if end - start > 256 {
+            return Ok(None);
+        }
+    }
     // A dictionary cut between the two closing brackets reports its first
     // bracket as the invalid name. Retain that byte in the exact prefix proof.
     if reader.byte(end).await? == Some(b'>') {
@@ -2631,6 +2655,39 @@ mod candidate_tests {
                 ..
             })
         ));
+    }
+
+    #[test]
+    fn cut_reference_generation_requires_an_exact_later_dictionary() {
+        for space in [" ", "\r\n"] {
+            let prefix = format!("7 0 obj << /Probe 11 0{space}");
+            let suffix = "8 0 obj 42 endobj\n7 0 obj << /Probe 11 0 R >> endobj\n";
+            let bytes = format!("{prefix}{suffix}").into_bytes();
+            assert_eq!(scan(bytes, &mut []).unwrap().objects.len(), 2);
+            for changed in ["11", "12 0 R"] {
+                let bytes =
+                    format!("{prefix}8 0 obj 42 endobj\n7 0 obj << /Probe {changed} >> endobj\n");
+                assert!(scan(bytes.into_bytes(), &mut []).is_err());
+            }
+        }
+        for token in ["0x", "00", "1"] {
+            let bytes = format!(
+                "7 0 obj << /Probe 11 {token}\n8 0 obj 42 endobj\n7 0 obj << /Probe 11 0 R >> endobj\n"
+            );
+            assert!(scan(bytes.into_bytes(), &mut []).is_err());
+        }
+        let bytes = format!(
+            "7 0 obj << /Probe 11 0{}8 0 obj 42 endobj\n7 0 obj << /Probe 11 0 R >> endobj\n",
+            " ".repeat(257)
+        );
+        assert!(scan(bytes.into_bytes(), &mut []).is_err());
+        assert!(
+            scan(
+                b"7 0 obj << /Probe 11 0\n8 0 obj 42 endobj\n".to_vec(),
+                &mut []
+            )
+            .is_err()
+        );
     }
 
     #[test]
