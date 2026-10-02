@@ -4,29 +4,11 @@
 
 import argparse
 import hashlib
-import io
 import json
 from pathlib import Path
 import struct
 
-from PIL import Image
-
-
-def jpeg():
-    image = Image.new("RGB", (32, 24), "white")
-    for y in range(24):
-        for x in range(32):
-            color = (255, 255, 255)
-            if x < 3 or y < 3:
-                color = (0, 0, 0)
-            elif x > 24 and y > 15:
-                color = (255, 0, 0)
-            elif x < 12 and y > 10:
-                color = (0, 0, 255)
-            image.putpixel((x, y), color)
-    output = io.BytesIO()
-    image.save(output, format="JPEG", quality=100, subsampling=0)
-    return output.getvalue()
+from c8_image_fixture import jpeg
 
 
 def document(payload, *, x=0, y=0, width=320, height=240, markers=True, prefix=True):
