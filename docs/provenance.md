@@ -2381,3 +2381,13 @@ It does not copy other converters, retain source content or extract vendor code.
 The existing PDF writer handles device-dependent hairlines. The independently
 constructed control and core-generated control have identical MuPDF rasters;
 source/viewer differences remain documented rather than hidden by corrections.
+
+
+### Observed glyph style prefixes
+
+The added glyph-prefix admission uses original equal-input controls differing
+only in high style bits, at two independently measured sizes and with original
+Chinese/Latin geometric glyphs. It extends only the pure geometry evaluator;
+raw source words remain preserved. No converter or viewer implementation was
+copied. External captures/traces stay outside Git; the original generator and
+precise observation limits are recorded in `c8-native-records.md`.

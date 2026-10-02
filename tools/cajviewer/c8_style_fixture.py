@@ -217,6 +217,14 @@ def main():
     (args.output / f"{name}.caj").write_bytes(data)
     manifest.append({"name": name, "run_words": words, "bytes": len(data),
                      "sha256": hashlib.sha256(data).hexdigest()})
+    for flags in (0x0800, 0x0C00, 0x1000):
+        name = f"style-flags-{flags:04x}"
+        styles = [(flags | field << 5 | field, 0, 6) for field in (2, 8)]
+        data = document(styles, codes=(0xD6D0, 0xA0C1), width=600, height=600,
+                        first_x=4672, first_y=4294, row_step=230)
+        (args.output / f"{name}.caj").write_bytes(data)
+        manifest.append({"name": name, "styles": styles, "bytes": len(data),
+                         "sha256": hashlib.sha256(data).hexdigest()})
     # Short spans distinguish repeated glyphs clipped at the endpoint from
     # whole-glyph admission. Keep six isolated rows on one small square page.
     lengths = (10, 50, 89, 91, 180, 430)

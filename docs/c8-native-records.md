@@ -1391,3 +1391,26 @@ byte-identical pixels to the independently constructed PDF at 953.28 DPI; qpdf
 accepts it. This confirms implementation of the model, not removal of the
 recorded viewer hairline differences. Receipts: `segment-core-result.json` in
 the existing external metrics directory. No production profile is enabled here.
+
+
+### Admitted glyph style prefixes
+
+Original `style-flags-{0800,0c00,1000}` controls change only the high style bits,
+with a Chinese and Latin geometric glyph at each of size fields 2 and 8. At
+confirmed 993%, all three complete page interiors `(803,277,1573,1046)` are
+byte-identical and repeated captures match. The previously observed field-4
+controls provide an independent size case. Original font-call traces retain the
+HGHT/HGBZ resources and the 92/207 pixel requests at the final matched scale.
+Initial new-tab captures used 1448% with a different sidebar width; those are
+excluded from the matched comparison, not scaled or registered afterwards.
+
+The glyph geometry evaluator now explicitly admits these three prefixes,
+normalizing only its private size calculation. Raw parser styles remain intact;
+unknown prefixes and unknown size fields still fail. This proves the measured
+glyph geometry for the selected profile, not a universal no-op interpretation
+of high bits. Decoration admission is unchanged because these controls contain
+ordinary glyphs. No default font-selection or full-page acceptance follows.
+
+The generator reproduces all three observed inputs exactly. External inputs,
+matched repeats and traces are under `caj2pdf-c8-decoration-metrics-20261002`;
+`style-flags-matched-results.json` supersedes the initial unequal-zoom comparison.

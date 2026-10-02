@@ -454,7 +454,7 @@ fn c8_glyph_origins_are_signed_and_unknown_styles_are_errors() {
         .unwrap();
     close(b[4] - a[4], -20.0 * EMPIRICAL_COORDINATE_POINTS_PER_UNIT);
     close(b[5] - a[5], 20.0 * EMPIRICAL_COORDINATE_POINTS_PER_UNIT);
-    for style in [0x0884, 0x9084, 0x1004, 0x1080, 0x1024, 0x1089] {
+    for style in [0x0484, 0x1484, 0x9084, 0x1004, 0x1080, 0x1024, 0x1089] {
         assert!(
             empirical_c8_glyph_transform(page(), origin, origin, style, C8GlyphClass::Cjk).is_err()
         );
@@ -559,4 +559,31 @@ fn c8_segments_reproduce_independent_axes_and_preserve_endpoint_order() {
     let mut invalid = page;
     invalid.origin_points[0] = f64::INFINITY;
     assert!(empirical_c8_segment(invalid, [0, 0], [[0, 0], [1, 1]], 0xa381).is_err());
+}
+
+#[test]
+fn observed_glyph_style_prefixes_share_geometry_without_admitting_other_records() {
+    for field in [2, 8] {
+        for class in [C8GlyphClass::Cjk, C8GlyphClass::Latin] {
+            let style = 0x1000 | field << 5 | field;
+            let expected =
+                empirical_c8_glyph_transform(page(), [4652, 4274], [4672, 4294], style, class)
+                    .unwrap();
+            for flags in [0x0800, 0x0c00] {
+                let actual = empirical_c8_glyph_transform(
+                    page(),
+                    [4652, 4274],
+                    [4672, 4294],
+                    flags | field << 5 | field,
+                    class,
+                )
+                .unwrap();
+                assert_eq!(actual, expected);
+            }
+        }
+    }
+    // The independent glyph controls do not admit these decoration states.
+    assert!(
+        empirical_c8_horizontal_decoration(page(), [0, 0], [[0, 0], [100, 0]], 0x0884).is_err()
+    );
 }

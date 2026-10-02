@@ -230,7 +230,8 @@ pub enum C8GlyphClass {
 
 /// Evaluate the empirical C8 text matrix for the measured native style subset.
 ///
-/// Size fields 2 through 8 with high bits `0x1000` are admitted. The point-size
+/// Size fields 2 through 8 with observed high bits `0x0800`, `0x0c00` or
+/// `0x1000` share the measured glyph geometry. The point-size
 /// model is calibrated from original font controls, including held-out field 7;
 /// it is not an authoritative physical-unit definition. See the recorded
 /// geometry and rasterization limits in `docs/c8-native-records.md`.
@@ -247,7 +248,12 @@ pub fn empirical_c8_glyph_transform(
     class: C8GlyphClass,
 ) -> Result<[f64; 6]> {
     let [left, _, _, top] = page.media_box()?;
-    let (width, height, latin_offset) = c8_style_metrics(style)?;
+    if !matches!(style & 0xfc00, 0x0800 | 0x0c00 | 0x1000) {
+        return Err(Error::InvalidInput {
+            reason: "unverified C8 glyph style flags",
+        });
+    }
+    let (width, height, latin_offset) = c8_style_metrics((style & 0x03ff) | 0x1000)?;
     let unit = EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
     let mut x = left + (f64::from(position[0]) - f64::from(source_origin[0]) + 20.0) * unit;
     let mut y = top - (f64::from(position[1]) - f64::from(source_origin[1]) - 15.0) * unit - height;

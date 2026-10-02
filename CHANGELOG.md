@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Admit the independently controlled C8 glyph style prefixes `0800` and `0c00`
+  alongside `1000` in empirical text geometry; retain raw styles and explicit
+  rejection of unverified prefixes. Decoration admission remains unchanged.
+
 - Add allocation-free empirical C8 segment endpoint evaluation for the three
   independently observed hairline styles. Unknown styles remain errors;
   complete native-page conversion is still under development.
