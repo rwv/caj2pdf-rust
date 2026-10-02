@@ -2160,3 +2160,14 @@ parsed non-stream scalar/array objects. Original stored-deflate controls cover
 counted line endings, checksum failures and unsafe Length repairs; qpdf/MuPDF
 check authored rectangle outputs. ASCII85 prefix buffers remain capped at 4 KiB.
 No external document bytes, profiles, metadata or decoder code were copied.
+
+
+The issue-30 deferred Flate recovery uses original exact-anchor and deferred
+prefix checks, based on the source offsets recorded in
+`docs/caj-interrupted-objects.md`. The known Length scalar supplies only a local
+candidate boundary; a fully parsed counterpart must prove every retained byte.
+Earlier complete arrays and bare-header counterparts use the same proof, with
+ambiguous prior copies rejected. Tests contain authored scalar/array objects,
+stored-deflate rectangle content, checksum damage and opaque-stream decoys.
+No external source bytes or converter implementations were copied. All new
+code and generated controls are original MIT work.

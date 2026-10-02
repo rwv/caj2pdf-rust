@@ -102,11 +102,18 @@ export function syntheticFlateReplayCaj({ interrupted = true, broken = false, an
     .replace("/Resources << >> >>", "/Resources << >> /Contents 6 0 R >>");
   const payload = deflateSync("q 0 0 1 rg 10 20 30 40 re f Q\n%" + " ".repeat(1024) + "\n", { level: 0 });
   if (broken) payload[payload.length - 1] ^= 1;
-  const prior = anchor === "scalar" ? "7 0 obj 91 endobj\n"
+  const prior = anchor === "deferred" ? `7 0 obj ${payload.length} endobj\n`
+    : anchor === "scalar" ? "7 0 obj 91 endobj\n"
     : anchor === "array" ? "7 0 obj [13 29 47] endobj\n" : "";
-  const header = `6 0 obj << /Length ${payload.length + padding.length} /Filter /FlateDecode >> stream\n`;
+  const length = anchor === "deferred" ? "7 0 R" : payload.length + padding.length;
+  const header = `6 0 obj << /Length ${length} /Filter /FlateDecode >> stream\n`;
   const parts = [pageObjects, prior];
   if (interrupted) parts.push(header, payload.subarray(0, 12), "\n", prior);
+  if (anchor === "deferred") {
+    parts.push("8 0 obj [13 29 47] endobj\n");
+    if (interrupted) parts.push("8 0 obj [13\n");
+    parts.push("9 0 obj 42 endobj\n");
+  }
   parts.push(header, payload, padding, "\nendstream\nendobj\n");
   const body = Buffer.concat(parts.map((part) => Buffer.from(part)));
   const bytes = new Uint8Array(start + body.length);
