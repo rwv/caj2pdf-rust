@@ -34,6 +34,9 @@ before(async () => {
     "/fixtures/adjacent-flate-clean.caj": syntheticFlateReplayCaj({ anchor: null, interrupted: false }),
     "/fixtures/array-replay.caj": syntheticFlateReplayCaj({ anchor: "array", padding: "\n" }),
     "/fixtures/array-clean.caj": syntheticFlateReplayCaj({ anchor: "array", padding: "\n", interrupted: false }),
+    "/fixtures/deferred-replay.caj": syntheticFlateReplayCaj({ anchor: "deferred" }),
+    "/fixtures/deferred-clean.caj": syntheticFlateReplayCaj({ anchor: "deferred", interrupted: false }),
+    "/fixtures/deferred-broken.caj": syntheticFlateReplayCaj({ anchor: "deferred", broken: true }),
     "/fixtures/scalar-replay.caj": syntheticFlateReplayCaj(),
     "/fixtures/scalar-clean.caj": syntheticFlateReplayCaj({ interrupted: false }),
     "/fixtures/scalar-broken.caj": syntheticFlateReplayCaj({ broken: true }),
@@ -213,7 +216,9 @@ test("Chromium: later-copy CAJ and stream replay run in a Worker", options, asyn
   await validatePdf(t, decode(result.scalarReplay.output), 2);
   assert.equal(result.scalarBroken.error?.code, "MALFORMED_PDF");
   assert.equal(result.scalarBroken.written, 0);
-  for (const [recovered, clean] of [[result.adjacentFlate, result.adjacentClean], [result.arrayReplay, result.arrayClean]]) {
+  assert.equal(result.deferredBroken.error?.code, "MALFORMED_PDF");
+  assert.equal(result.deferredBroken.written, 0);
+  for (const [recovered, clean] of [[result.deferredReplay, result.deferredClean], [result.adjacentFlate, result.adjacentClean], [result.arrayReplay, result.arrayClean]]) {
     assert.deepEqual(recovered.output, clean.output);
     await validatePdf(t, decode(recovered.output), 2);
   }

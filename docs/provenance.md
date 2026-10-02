@@ -2361,3 +2361,13 @@ the existing clipped nonsemantic glyph writer. Its generated original PDF is
 byte-identical to the separately assembled endpoint diagnostic; known source
 raster residuals remain explicit. No external document content or font data is
 committed and no production native-format admission is inferred.
+
+The issue-30 deferred Flate recovery uses original exact-anchor and deferred
+prefix checks, based on the source offsets recorded in
+`docs/caj-interrupted-objects.md`. The known Length scalar supplies only a local
+candidate boundary; a fully parsed counterpart must prove every retained byte.
+Earlier complete arrays and bare-header counterparts use the same proof, with
+ambiguous prior copies rejected. Tests contain authored scalar/array objects,
+stored-deflate rectangle content, checksum damage and opaque-stream decoys.
+No external source bytes or converter implementations were copied. All new
+code and generated controls are original MIT work.

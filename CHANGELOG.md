@@ -37,6 +37,11 @@
   coordinate origin. Explicit header literals must include this field; use
   `None` for HN variants. This metadata does not enable C8 text conversion.
 
+- Recover an interrupted indirect Flate prefix anchored by an exact repeat of
+  its preceding Length object, only when the final scan proves a complete
+  counterpart. Reuse exact-prefix validation for earlier unique counterparts.
+  This enables the observed 141-page issue-30 conversion; visual acceptance
+  remains pending.
 
 - Recover short interrupted ASCII85 CAJ streams when their immediately
   following Length object uniquely determines a validated complete replay.

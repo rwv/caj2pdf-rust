@@ -541,3 +541,109 @@ a remaining missing-metadata target, not successful full-document conversion.
 The implementation does not invent metadata, silently drop the unresolved
 reference or claim full issue-25 support. Receipts remain outside Git in
 `caj2pdf-caj-candidate-recovery-20261002/issue25-replay-reviewed.json`.
+
+
+## Deferred stream prefix proved by a local Length replay
+
+For issue-30, object 7566 at 1819698 contains a 64-byte header and an interrupted
+Flate payload. The immediately preceding Length object 7565 at 1819675 repeats
+exactly once at relative offset 80, within the existing 256-byte anchor window.
+Its 22-byte object ends before the independently parsed object 14916 at 1819802.
+The trimmed 78-byte interrupted prefix matches the complete object at 2403619;
+independent zlib decoding validates 391 encoded bytes and 722 decoded bytes.
+External receipt: `caj2pdf-caj-candidate-recovery-20261002/issue30-deferred-scalar-boundary.json`.
+
+The scanner reuses the existing exact anchor search only after an indirect
+Flate codec failure, with the immediately preceding object required to be its
+known Length scalar. It retains the bounded prefix in the existing deferred
+index and continues after the anchor. The final full scan must independently
+reach and prove the complete same-reference object; a header hidden inside an
+opaque stream cannot satisfy this check. Missing, changed, conflicting or
+invalid-codec counterparts remain errors. Work budgets are not refunded.
+
+Final validation now also accepts a unique already parsed complete counterpart.
+This covers issue-30's 143-byte array prefix at 943121 (complete array at 439245)
+and bare object-number prefix at 1265856 (complete object 7460 at 1244640).
+Duplicate prior objects remain ambiguous during prefix admission. This reuses
+one exact-prefix proof rather than adding array-specific recovery code.
+
+The resulting native PDF has 141 pages, matching source metadata; qpdf passes
+and MuPDF renders every page. Output SHA256 is
+`01e138e904710100e75f39de16d2101a1b80fed345eaf5bceba1565a12e14efb`.
+A separate read of the source's 12-byte page-table records confirms that all
+141 page object IDs match qpdf's output page order. Independent qpdf extraction
+also confirms source/output encoded identity for repaired stream 7566 (391
+bytes) and image 7460 (10009 bytes); all 2741 ordered references in complete
+source array 64 match the output array. These checks target the recovered
+content, not every page's visual appearance.
+
+On commit `867fb33`, Node and a real Chromium Worker both produce the same PDF
+hash, 141 pages and 31 bookmarks. All four scratch stores finish at zero bytes;
+browser input/output cleanup leaves OPFS empty. Post-conversion WASM memory is
+4587520 bytes on both JS paths; this is not a peak-memory measurement. External
+receipts and reused public-adapter runners are in
+`caj2pdf-issue30-public-20261002` (`page-order.json`, `repaired-content.json`,
+`node/result.json`, `browser/result.json`). The selected CAJViewer results below supplement these structural checks;
+structural identity and cross-runtime agreement alone do not prove fidelity.
+Original MIT rectangle controls produce byte-identical clean/recovered PDFs
+through Node and a real Chromium Worker. Native qpdf/MuPDF checks reproduce
+blue bounds `(10,40,40,80)` at 72 DPI on the authored 100-point page. Missing
+counterparts, opaque-stream decoys, changed prefixes/checksums and ambiguous
+anchors are covered by original one-byte-read controls. External native
+receipt: `caj2pdf-caj-candidate-recovery-20261002/deferred-public-control.json`.
+
+
+### Issue-30 selected viewer comparison
+
+Pinned offline CAJViewer image
+`sha256:cb5049d3448b6d5bcfd371cf195d522d637869dce075cb1650d74198875171de`
+opened the unchanged source and accepted native PDF, using its original font
+resources plus the existing Noto CJK UI font. At 1600×1200, 96 DPI, single-page
+mode and displayed 80% zoom, independently inspected physical interiors are
+634×897 pixels at `(508,218,1142,1115)` (exclusive right/bottom).
+
+| Page | Changed RGB pixels | Source/output repeat differences |
+| --- | ---: | ---: |
+| 1 | 277905 | 0 / 0 |
+| 18 | 0 | 0 / 0 |
+| 25 | 0 | 0 / 0 |
+| 46 | 0 | 0 / 0 |
+| 141 | 16236 | 0 / 0 |
+
+Pages 18/25/46 cover the repaired array, image and Flate-stream page-table rows;
+their complete physical page crops match exactly. Visual inspection of all five
+selected pairs found no obvious missing content or layout loss. The cover and
+last-page residuals remain unclassified; this is not whole-document pixel
+parity or an independent text-diff claim. No resizing, content registration or
+comparison tolerance was applied.
+
+Several early navigation attempts retained page 141 or transient paint despite
+the requested page number. They are excluded. The selected captures have
+visually verified tab, page-number and zoom controls, plus identical repeats.
+The external `caj2pdf-caj30-viewer-20261002/comparison.json` names each accepted
+capture explicitly; `compare.py`, action receipts and diagnostic captures remain
+outside Git. The viewer container was stopped after collection.
+
+
+### Six-case regression review after deferred-prefix recovery
+
+A fresh native build of `4348b5b` was run against all six original #226 sources;
+each SHA256 matches `tests/conformance/matrix.json`. Results:
+
+| Case | Result |
+| --- | --- |
+| issue-25 | Located rejection at 455462, object 450: missing complete prefix counterpart. |
+| issue-30 | 141 pages, qpdf passes; unchanged accepted PDF hash above. |
+| issue-39 | Located rejection at 898312: invalid PDF value token. |
+| issue-85 Mingtang | Located rejection at 529945, object 4: no unique bounded Length repair. |
+| issue-90 4-[6] | Located rejection at 1318436, object 4474: invalid Flate framing. |
+| issue-92 | 58 pages, qpdf passes; unchanged `853491f2…24892` PDF hash recorded above. |
+
+All four rejected inputs leave no final output PDF. Reaching a later diagnostic
+is not a compatibility pass. The original issue-39 palette and issue-90 image
+ambiguities remain unresolved; no guessed replacement was admitted. Mingtang's
+later object-4 occurrence still needs an independently justified path through
+the anchored scanner. Source hashes, executable hash, exact commands, exit
+statuses and outputs are retained externally in
+`caj259-source-review-20261002/results.json`, with its small `run.py` driver.
+This review adds no new visual claim or whole-file conversion API.

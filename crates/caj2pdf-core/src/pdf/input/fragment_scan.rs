@@ -280,6 +280,11 @@ async fn scan_fragment<S: RangedSource, C: Cancellation>(
                         .filter(|candidate| candidate.object.reference == prefix.reference)
                         .nth(1)
                         .is_some()
+                        || objects
+                            .iter()
+                            .filter(|object| object.reference == prefix.reference)
+                            .nth(1)
+                            .is_some()
                     {
                         return Err(error);
                     }
@@ -396,6 +401,28 @@ async fn scan_fragment<S: RangedSource, C: Cancellation>(
                                 candidate_prefix_end(&mut reader, start, candidates).await?
                             {
                                 cursor = end;
+                                continue 'objects;
+                            }
+                            // An exact replay of the immediately preceding Length
+                            // scalar supplies a local boundary. The final scan must
+                            // still prove the interrupted stream's complete copy.
+                            if dictionary.value(b"Filter").and_then(exact_name).as_deref()
+                                == Some(b"FlateDecode")
+                                && objects.last().is_some_and(|object| object.reference == target)
+                                && lengths.iter().any(|(reference, _)| *reference == target)
+                                && let Some((next, prefix_length)) =
+                                    replay_anchor(&mut reader, start, data_start, &objects).await?
+                            {
+                                let count = next_object_count(pending_prefixes.len())?;
+                                let allocation = (count as u64) * std::mem::size_of::<FragmentObject>() as u64;
+                                limits.check_allocation(allocation)?;
+                                let refused = limits.allocation_refused("CAJ interrupted prefix index", allocation);
+                                reserve(&mut pending_prefixes, 1, refused)?;
+                                pending_prefixes.push(FragmentObject {
+                                    reference,
+                                    range: PdfRange { offset: body_start + start, length: prefix_length as u64 },
+                                });
+                                cursor = next;
                                 continue 'objects;
                             }
                             return Err(error);
@@ -648,9 +675,7 @@ async fn scan_fragment<S: RangedSource, C: Cancellation>(
             let Some(original) = original else {
                 return Err(failure);
             };
-            if original.range.offset <= prefix.range.offset
-                || prefix.range.length >= original.range.length
-            {
+            if prefix.range.length >= original.range.length {
                 return Err(failure);
             }
             let partial = reader
@@ -1184,6 +1209,34 @@ async fn object_anchored_replay<S: RangedSource, C: Cancellation>(
     objects: &[FragmentObject],
     work: &mut u64,
 ) -> Result<Option<u64>> {
+    let Some((next, prefix_length)) = replay_anchor(reader, start, data_start, objects).await?
+    else {
+        return Ok(None);
+    };
+    let prefix = reader.bytes(start, prefix_length).await?;
+    // The exact prefix includes the entire already parsed stream header.
+    if reader.bytes(next, prefix.len()).await? != prefix {
+        return Ok(None);
+    }
+    let data_at = next + data_start as u64;
+    if !flate_matches_length(reader, data_at, reference, length, work).await? {
+        return Ok(None);
+    }
+    reader
+        .check_stream_tail(data_at + length, Some(reference))
+        .await?;
+    Ok(Some(next))
+}
+
+/// Locate one exact replay of the immediately preceding non-stream object.
+/// Return the boundary after that anchor and the trimmed interrupted prefix.
+/// This locates a candidate only; callers must prove its complete counterpart.
+async fn replay_anchor<S: RangedSource, C: Cancellation>(
+    reader: &mut Reader<'_, S, C>,
+    start: u64,
+    data_start: usize,
+    objects: &[FragmentObject],
+) -> Result<Option<(u64, usize)>> {
     let Some(anchor) = objects.last() else {
         return Ok(None);
     };
@@ -1236,18 +1289,7 @@ async fn object_anchored_replay<S: RangedSource, C: Cancellation>(
         next += 1;
     }
     let next = start + next as u64;
-    // The exact prefix includes the entire already parsed stream header.
-    if reader.bytes(next, prefix.len()).await? != prefix {
-        return Ok(None);
-    }
-    let data_at = next + data_start as u64;
-    if !flate_matches_length(reader, data_at, reference, length, work).await? {
-        return Ok(None);
-    }
-    reader
-        .check_stream_tail(data_at + length, Some(reference))
-        .await?;
-    Ok(Some(next))
+    Ok(Some((next, prefix.len())))
 }
 
 /// Recognize a partial known object followed by an exact copy of a
@@ -2087,6 +2129,23 @@ mod tests {
     }
 
     #[test]
+    fn deferred_prefix_accepts_exact_prior_arrays_and_bare_headers() {
+        let original = b"7 0 obj [11 0 R 12 0 R 13 0 R] endobj\n";
+        for prefix in [b"7 0 obj [\n".as_slice(), b"7 0 obj [11 0 R 12\n", b"7\r\n"] {
+            let bytes = [original.as_slice(), prefix, b"9 0 obj 42 endobj\n"].concat();
+            let result = scan_bytes(bytes).unwrap();
+            assert_eq!(result.objects.len(), 2);
+            assert_eq!(result.objects[1].reference.number, 9);
+        }
+        for prefix in [b"7 0 obj [99\n".as_slice(), b"7 0 obj [11 0 R 99\n"] {
+            assert!(
+                scan_bytes([original.as_slice(), prefix, b"9 0 obj 42 endobj\n"].concat()).is_err()
+            );
+        }
+        assert!(scan_bytes([original.as_slice(), b"7 0 obj [11\n9 0 R\n"].concat()).is_err());
+    }
+
+    #[test]
     fn dictionary_prefix_recovery_requires_exact_prior_dictionary_bytes() {
         for bytes in [
             b"1 0 obj<< /A 7 >>endobj\n1 0 obj<< /A 8\n2 0 obj<<>>endobj\n".as_slice(),
@@ -2593,6 +2652,15 @@ mod candidate_tests {
 
     #[test]
     fn deferred_prefixes_require_real_later_counterparts() {
+        let too_short =
+            b"7 0 obj << /LongDictionaryName 3 >\n8 0 obj 42 endobj\n7 0 obj null endobj\n";
+        assert!(matches!(
+            scan(too_short.to_vec(), &mut []),
+            Err(Error::Pdf {
+                reason: "interrupted prefix has no exact complete counterpart",
+                ..
+            })
+        ));
         let bytes = [PREFIX, NEXT, ORIGINAL].concat();
         assert_eq!(scan(bytes, &mut []).unwrap().objects.len(), 2);
         let bytes = b"7 0 obj << /Box [1 3\n8 0 obj 42 endobj\n7 0 obj << /Box [1 3 9] >> endobj\n"
@@ -2644,6 +2712,98 @@ mod candidate_tests {
             b"1 0 obj << /Length 2 0 R /Filter /RunLengthDecode >> stream\nx\nendstream\nendobj\n2 0 obj 1 endobj\n",
         ] {
             assert!(scan(bytes.to_vec(), &mut []).is_err());
+        }
+    }
+
+    #[test]
+    fn deferred_flate_prefix_requires_a_real_later_copy_and_exact_length_anchor() {
+        use std::io::Write;
+        let mut encoder = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::none());
+        encoder.write_all(&[b'Q'; 1024]).unwrap();
+        let encoded = encoder.finish().unwrap();
+        let scalar = format!("6 0 obj {} endobj\n", encoded.len());
+        let header = b"7 0 obj << /Length 6 0 R /Filter /FlateDecode >> stream\n";
+        let prefix = [header.as_slice(), &encoded[..12], b"\n"].concat();
+        let complete = [header.as_slice(), &encoded, b"\nendstream\nendobj\n"].concat();
+        let intervening = b"8 0 obj << /Value 42 >> endobj\n";
+        let valid = [
+            scalar.as_bytes(),
+            &prefix,
+            scalar.as_bytes(),
+            intervening,
+            &complete,
+        ]
+        .concat();
+        let result = scan(valid, &mut []).unwrap();
+        assert_eq!(
+            result
+                .objects
+                .iter()
+                .map(|object| object.reference.number)
+                .collect::<Vec<_>>(),
+            [6, 8, 7]
+        );
+        assert!(result.patches.is_empty());
+
+        let mut changed = prefix.clone();
+        changed[header.len() + 8] ^= 1;
+        let mut corrupt = complete.clone();
+        corrupt[header.len() + encoded.len() - 1] ^= 1;
+        let decoy_header = format!("9 0 obj << /Length {} >> stream\n", complete.len());
+        let embedded = [decoy_header.as_bytes(), &complete, b"\nendstream\nendobj\n"].concat();
+        for bytes in [
+            [scalar.as_bytes(), &prefix, scalar.as_bytes(), intervening].concat(),
+            [
+                scalar.as_bytes(),
+                &changed,
+                scalar.as_bytes(),
+                intervening,
+                &complete,
+            ]
+            .concat(),
+            [
+                scalar.as_bytes(),
+                &prefix,
+                scalar.as_bytes(),
+                intervening,
+                &corrupt,
+            ]
+            .concat(),
+            [
+                scalar.as_bytes(),
+                &prefix,
+                scalar.as_bytes(),
+                intervening,
+                &embedded,
+            ]
+            .concat(),
+            [
+                scalar.as_bytes(),
+                &prefix,
+                b"6 0 obj 999 endobj\n",
+                intervening,
+                &complete,
+            ]
+            .concat(),
+            [
+                scalar.as_bytes(),
+                &prefix,
+                scalar.as_bytes(),
+                scalar.as_bytes(),
+                intervening,
+                &complete,
+            ]
+            .concat(),
+            [
+                scalar.as_bytes(),
+                intervening,
+                &prefix,
+                scalar.as_bytes(),
+                &complete,
+            ]
+            .concat(),
+        ] {
+            assert!(scan(bytes, &mut []).is_err());
         }
     }
 
