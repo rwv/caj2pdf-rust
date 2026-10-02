@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-//! Framing of the independently observed raw C8 native-page subset.
+//! Framing of independently observed raw C8 and HN-B native-page subsets.
 //! Events preserve uninterpreted words; they do not imply renderability.
 
 use super::{ErrorKind, Hnc8Reader, Location, Result, TextBudget, Variant, read_fixed};
@@ -12,6 +12,15 @@ use crate::{Cancellation, RangedSource};
 pub enum NativeRecord {
     /// A position, style or observed four-byte control, with its original tag.
     Control { tag: u16, value: u16 },
+    /// An observed eight-byte control (`81ff/1..=3`, `80cc/0204`,
+    /// or the HN-B `c052/a385` prefix).
+    /// The two payload words are atomic and uninterpreted. Preserving their
+    /// framing does not establish font, layout or resource semantics.
+    ExtendedControl {
+        tag: u16,
+        value: u16,
+        words: [u16; 2],
+    },
     /// A glyph code with the current run context. This is not Unicode.
     Glyph {
         x: u16,
@@ -28,6 +37,21 @@ pub enum NativeRecord {
     },
     /// Thirteen words after the image marker. Do not apply HN-A coordinates.
     Image { words: [u16; 13] },
+    /// The observed `810a/d300` image form with zero flags. Coordinates are
+    /// absolute source units without the older image form's high-bit markers.
+    /// `reference` locates the raw name bytes, excluding NUL and padding.
+    /// It is not a filesystem resource request. Match embedded descriptors in
+    /// record order; image orientation remains codec-specific.
+    ImageReference {
+        coordinate: super::RawTextCoordinate,
+        reference: super::Span,
+    },
+    /// The observed `80cc/01xx` encoded-string record. The low byte of
+    /// `value` counts all words, including the two-word header. `payload`
+    /// locates 0..=253 validated `e020..=e07e` words in the original source.
+    /// Its role is deliberately uninterpreted; this is not visible page text
+    /// or permission to discard a required resource reference.
+    EncodedString { value: u16, payload: super::Span },
     /// The final record, including its uninterpreted payload.
     End { value: u16 },
 }
@@ -59,7 +83,9 @@ pub trait NativeRecordVisitor {
 }
 
 impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
-    /// Visit the current C8 page's observed raw native records without allocating.
+    /// Visit admitted C8 or HN-B raw native records without allocating.
+    /// HN-B admits independently controlled glyph runs, controls, three drawing
+    /// forms and fixed-length image records. Other C8 framing is not inherited.
     /// Call `next_page` first. This does not consume image descriptors, decode
     /// characters or enable conversion. Unknown framing stops at its source byte.
     /// A failed/dropped operation poisons the reader, just like image traversal.
@@ -89,7 +115,7 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
             .page;
         self.poisoned = true;
         let result = async {
-            if self.header.variant != Variant::C8 {
+            if !matches!(self.header.variant, Variant::C8 | Variant::HnB) {
                 return Err(loc.error(ErrorKind::Unsupported {
                     field: "native record variant",
                     value: 0,
@@ -143,6 +169,33 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
                     .await?;
                 let tag = word(&bytes[..2]);
                 let value = word(&bytes[2..4]);
+                if self.header.variant == Variant::HnB
+                    && tag >= 0x8000
+                    && !matches!(
+                        (tag, value),
+                        (0x8001 | 0x8002 | 0x8004, _)
+                            | (0x801d, 0 | 3 | 4)
+                            | (0x801c, 4)
+                            | (0x8067, 6 | 7 | 9)
+                            | (0x8069, 0x1084)
+                            | (0x80ce, 0 | 1)
+                            | (0x8070 | 0x8071, 0x0024 | 0x002b)
+                            | (0x8070, 0x001c)
+                            | (0x8072, 0 | 0xc2c7 | 0xcdc1)
+                            | (0x8073, 0x001e | 0x001f | 0x0029 | 0x002a)
+                            | (0x8024, 0x2800 | 0x281d)
+                            | (0xc053, _)
+                            | (0xffff, 5)
+                            | (0x8006, 0xa381 | 0xa383 | 0xa385)
+                            | (0xc052, 0xa385)
+                            | (0x800a, 0xd300)
+                    )
+                {
+                    return Err(at.error(ErrorKind::Unsupported {
+                        field: "HN-B native record tag/value",
+                        value: (u64::from(tag) << 16) | u64::from(value),
+                    }));
+                }
                 let mut length = 4;
                 let record = match tag {
                     0x8001 => {
@@ -153,12 +206,84 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
                         style = Some(value);
                         NativeRecord::Control { tag, value }
                     }
-                    0x801d if matches!(value, 0 | 4) => NativeRecord::Control { tag, value },
-                    0x8067 if matches!(value, 5 | 6 | 8 | 9) => {
+                    0x801d if matches!(value, 0 | 3 | 4) => NativeRecord::Control { tag, value },
+                    0x8067
+                        if matches!(value, 5 | 6 | 8 | 9)
+                            || (self.header.variant == Variant::HnB && value == 7) =>
+                    {
                         NativeRecord::Control { tag, value }
                     }
-                    0x8006 if matches!(value, 0xa381 | 0xa383 | 0xa38b) => {
-                        length = if value == 0xa383 { 12 } else { 16 };
+                    0x801c | 0x8070 | 0x8071 if value == 4 => NativeRecord::Control { tag, value },
+                    0x80ce if value <= 1 => NativeRecord::Control { tag, value },
+                    0x8024 if matches!(value, 0x2800 | 0x281d) => {
+                        NativeRecord::Control { tag, value }
+                    }
+                    // Values were checked by the HN-B profile guard above.
+                    0x8069 | 0x8070 | 0x8071 | 0x8072 | 0x8073 | 0xc053 | 0xffff
+                        if self.header.variant == Variant::HnB =>
+                    {
+                        NativeRecord::Control { tag, value }
+                    }
+                    0x8021 if value == 0x2000 => NativeRecord::Control { tag, value },
+                    0x80d0 | 0x80d2 if value == 0 => NativeRecord::Control { tag, value },
+                    0x80d1 if value == 1 => NativeRecord::Control { tag, value },
+                    0x81ff | 0x80cc | 0xc052
+                        if matches!((tag, value), (0x81ff, 1..=3) | (0x80cc, 0x0204))
+                            || (self.header.variant == Variant::HnB
+                                && (tag, value) == (0xc052, 0xa385)) =>
+                    {
+                        length = 8;
+                        self.native_bytes(position + 4, end, &mut bytes[4..8], at)
+                            .await?;
+                        NativeRecord::ExtendedControl {
+                            tag,
+                            value,
+                            words: [word(&bytes[4..6]), word(&bytes[6..8])],
+                        }
+                    }
+                    0x80cc if (0x0102..=0x01ff).contains(&value) => {
+                        length = usize::from(value & 0xff) * 2;
+                        let mut consumed = 4;
+                        while consumed < length {
+                            let count = (length - consumed).min(bytes.len());
+                            self.native_bytes(
+                                position + consumed as u64,
+                                end,
+                                &mut bytes[..count],
+                                at,
+                            )
+                            .await?;
+                            for (index, pair) in
+                                bytes[..count].as_chunks::<2>().0.iter().enumerate()
+                            {
+                                if !(0xe020..=0xe07e).contains(&word(pair)) {
+                                    return Err(at
+                                        .at(position + (consumed + index * 2) as u64)
+                                        .error(ErrorKind::Unsupported {
+                                            field: "native encoded-string word",
+                                            value: u64::from(word(pair)),
+                                        }));
+                                }
+                            }
+                            consumed += count;
+                        }
+                        NativeRecord::EncodedString {
+                            value,
+                            payload: super::Span {
+                                offset: position + 4,
+                                length: length as u64 - 4,
+                            },
+                        }
+                    }
+                    0x8006
+                        if matches!(value, 0xa381 | 0xa383 | 0xa38b)
+                            || (self.header.variant == Variant::HnB && value == 0xa385) =>
+                    {
+                        length = if value == 0xa383 || self.header.variant == Variant::HnB {
+                            12
+                        } else {
+                            16
+                        };
                         self.native_bytes(position + 4, end, &mut bytes[4..length], at)
                             .await?;
                         if length == 16 && bytes[12..16] != [0xff, 0xff, 5, 0] {
@@ -186,10 +311,67 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
                         }
                         images += 1;
                         let mut words = [0; 13];
-                        for (out, pair) in words.iter_mut().zip(bytes[2..].chunks_exact(2)) {
+                        for (out, pair) in words.iter_mut().zip(bytes[2..].as_chunks::<2>().0) {
                             *out = word(pair);
                         }
                         NativeRecord::Image { words }
+                    }
+                    0x810a if value == 0xd300 => {
+                        self.native_bytes(position + 4, end, &mut bytes[4..16], at)
+                            .await?;
+                        let flags = word(&bytes[12..14]);
+                        if flags != 0 {
+                            return Err(at.at(position + 12).error(ErrorKind::Unsupported {
+                                field: "native image-reference flags",
+                                value: u64::from(flags),
+                            }));
+                        }
+                        let coordinate = super::RawTextCoordinate {
+                            x: word(&bytes[4..6]),
+                            y: word(&bytes[6..8]),
+                            width: word(&bytes[8..10]),
+                            height: word(&bytes[10..12]),
+                        };
+                        let name_bytes = usize::from(word(&bytes[14..16]));
+                        // The length excludes NUL; the complete record has
+                        // zero padding to a four-byte boundary. Preserve a
+                        // source span instead of allocating or opening a name.
+                        length = (16 + name_bytes + 1).next_multiple_of(4);
+                        let mut consumed = 16;
+                        while consumed < length {
+                            let count = (length - consumed).min(bytes.len());
+                            self.native_bytes(
+                                position + consumed as u64,
+                                end,
+                                &mut bytes[..count],
+                                at,
+                            )
+                            .await?;
+                            for (index, &byte) in bytes[..count].iter().enumerate() {
+                                if consumed + index >= 16 + name_bytes && byte != 0 {
+                                    return Err(at
+                                        .at(position + (consumed + index) as u64)
+                                        .malformed(
+                                            "native image reference",
+                                            "nonzero terminator or padding",
+                                        ));
+                                }
+                            }
+                            consumed += count;
+                        }
+                        if images == page.image_count {
+                            return Err(
+                                at.malformed("native image records", "exceed declared image count")
+                            );
+                        }
+                        images += 1;
+                        NativeRecord::ImageReference {
+                            coordinate,
+                            reference: super::Span {
+                                offset: position + 16,
+                                length: name_bytes as u64,
+                            },
+                        }
                     }
                     0x8004 => {
                         if position + 4 != end {
@@ -207,6 +389,12 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
                         NativeRecord::End { value }
                     }
                     x if x < 0x8000 => {
+                        if self.header.variant == Variant::HnB && style.is_none() {
+                            return Err(at.error(ErrorKind::Unsupported {
+                                field: "HN-B implicit native glyph style",
+                                value: 0,
+                            }));
+                        }
                         let (Some(y), Some(style)) = (y, style) else {
                             return Err(
                                 at.malformed("native glyph", "missing run position or style")

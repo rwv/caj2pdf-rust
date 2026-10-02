@@ -283,7 +283,9 @@ impl SequentialSink for PackedHashSink {
             });
         }
         for (index, byte) in bytes[..accepted].iter().enumerate() {
-            if (self.bytes + index as u64 + 1) % self.stride == 0 && byte & self.low_mask != 0 {
+            if (self.bytes + index as u64 + 1).is_multiple_of(self.stride)
+                && byte & self.low_mask != 0
+            {
                 return Err(Error::InvalidInput {
                     reason: "nonzero low row padding",
                 });

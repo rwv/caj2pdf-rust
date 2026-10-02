@@ -71,13 +71,13 @@ impl RangedSource for Bytes {
         if offset >= self.body_start {
             self.body_reads += 1;
         }
-        if let Some((at, fault)) = self.fault {
-            if offset >= at {
-                return match fault {
-                    ReadFault::Zero => Ok(0),
-                    ReadFault::Overreport => Ok(destination.len() + 1),
-                };
-            }
+        if let Some((at, fault)) = self.fault
+            && offset >= at
+        {
+            return match fault {
+                ReadFault::Zero => Ok(0),
+                ReadFault::Overreport => Ok(destination.len() + 1),
+            };
         }
         let offset = usize::try_from(offset).unwrap_or(usize::MAX);
         let count = self

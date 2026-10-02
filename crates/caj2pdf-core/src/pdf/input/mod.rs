@@ -796,17 +796,17 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                 let line = self.bytes(cursor, 20).await?;
                 let failure = self.malformed(cursor, None, "invalid fixed-width xref entry");
                 let slot = parse_xref_entry(&line).ok_or(failure)?;
-                if let XrefKind::InUse(offset) = slot.kind {
-                    if offset >= self.range.length {
-                        return Err(self.malformed(
-                            cursor,
-                            Some(PdfRef {
-                                number,
-                                generation: slot.generation,
-                            }),
-                            "xref object offset exceeds PDF range",
-                        ));
-                    }
+                if let XrefKind::InUse(offset) = slot.kind
+                    && offset >= self.range.length
+                {
+                    return Err(self.malformed(
+                        cursor,
+                        Some(PdfRef {
+                            number,
+                            generation: slot.generation,
+                        }),
+                        "xref object offset exceeds PDF range",
+                    ));
                 }
                 push_bounded(
                     &mut records,
@@ -855,7 +855,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
         .ok_or(self.malformed(at, Some(reference), "xref stream has invalid Index"))?;
         let mut rows = 0_u64;
         let mut previous_end = 0_u64;
-        for pair in indices.chunks_exact(2) {
+        for pair in indices.as_chunks::<2>().0 {
             let [start, count] = [pair[0], pair[1]];
             let failure = self.malformed(at, Some(reference), "xref Index range overflows");
             let end = start.checked_add(count).ok_or(failure)?;
@@ -982,7 +982,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
         };
         let mut records = Vec::new();
         let mut position = 0;
-        for pair in indices.chunks_exact(2) {
+        for pair in indices.as_chunks::<2>().0 {
             for number in pair[0]..pair[0] + pair[1] {
                 // A one-byte row can fit millions of entries in the bounded
                 // stream, so check cancellation during row parsing as well.
@@ -1346,22 +1346,23 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
             }
             let (head, location) = self.load_object(*offset, reference, slots).await?;
             check_live_object_end(self.range, *offset, reference, location, index.logical_end)?;
-            if let ObjectTail::Stream { data_start } = &head.tail {
-                if *data_start > 0 && head.bytes[*data_start - 1] == b'\r' {
-                    let failure = self.malformed(
-                        *offset,
-                        Some(reference),
-                        "stream separator offset overflows",
-                    );
-                    let patch_at = offset.checked_add(*data_start as u64 - 1).ok_or(failure)?;
-                    push_bounded(
-                        &mut index.stream_separator_patches,
-                        patch_at,
-                        self.limits.max_allocation_bytes / 8,
-                        "PDF stream separator patches",
-                    )
-                    .map_err(self.locator(patch_at, Some(reference)))?;
-                }
+            if let ObjectTail::Stream { data_start } = &head.tail
+                && *data_start > 0
+                && head.bytes[*data_start - 1] == b'\r'
+            {
+                let failure = self.malformed(
+                    *offset,
+                    Some(reference),
+                    "stream separator offset overflows",
+                );
+                let patch_at = offset.checked_add(*data_start as u64 - 1).ok_or(failure)?;
+                push_bounded(
+                    &mut index.stream_separator_patches,
+                    patch_at,
+                    self.limits.max_allocation_bytes / 8,
+                    "PDF stream separator patches",
+                )
+                .map_err(self.locator(patch_at, Some(reference)))?;
             }
             if let Some(dictionary) = &head.dictionary {
                 let kind = dictionary

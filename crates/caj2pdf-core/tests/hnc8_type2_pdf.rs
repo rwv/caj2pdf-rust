@@ -323,10 +323,10 @@ impl RangedSource for Source {
         self.max_request = self.max_request.max(destination.len());
         if self.payload_start == Some(offset) {
             self.payload_passes += 1;
-            if let Some((pass, index)) = self.mutate_at_pass {
-                if self.payload_passes == pass {
-                    self.bytes[index] ^= 1;
-                }
+            if let Some((pass, index)) = self.mutate_at_pass
+                && self.payload_passes == pass
+            {
+                self.bytes[index] ^= 1;
             }
             if self.zero_at_pass == Some(self.payload_passes) {
                 return Ok(0);

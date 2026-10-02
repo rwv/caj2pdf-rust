@@ -327,12 +327,20 @@ fn page_and_offset_rounding_must_not_accumulate_beyond_translation_tolerance() {
         ((rounded_y - bottom) - (page.size.height_points - offset)).abs()
             > EMPIRICAL_PLACEMENT_TOLERANCE_POINTS
     );
-    assert!(matches!(
-        empirical_image_transform(page, 1, 1, point(0, 14)),
-        Err(Error::InvalidInput {
-            reason: "empirical PDF origin cannot preserve the selected coordinate precision"
-        })
-    ));
+    match empirical_image_transform(page, 1, 1, point(0, 14)) {
+        // x87 may retain enough intermediate precision to avoid the two
+        // accumulated binary64 rounding errors demonstrated above. Accept
+        // success only for the one binary64 y within the existing tolerance
+        // of the exact result: 2^38 + 54/25 - 3360/2473. Its neighbors miss by
+        // -0.0000567930524666 and +0.0000652772600334 points respectively.
+        Ok(ctm) => assert_eq!(ctm[5].to_bits(), 0x4250_0000_0000_3349),
+        Err(error) => assert!(matches!(
+            error,
+            Error::InvalidInput {
+                reason: "empirical PDF origin cannot preserve the selected coordinate precision"
+            }
+        )),
+    }
 }
 
 #[test]

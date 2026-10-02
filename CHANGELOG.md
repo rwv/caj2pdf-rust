@@ -2,6 +2,37 @@
 
 ## Unreleased
 
+- Add bounded caller-supplied TrueType resources and sequential PDF glyph,
+  image and vector content pages. This shared API does not enable native
+  C8/HN-B conversion or production JavaScript font resources.
+- **Breaking:** raise the minimum Rust version to 1.88.0 for the maintained
+  MIT `xberg-ttf-parser` font metadata dependency.
+
+- **Breaking:** add `NativeRecord::ImageReference` for the measured C8
+  `810a/d300` profile. Exhaustive matches must handle its coordinates and
+  opaque source-span reference. Names are never opened as external files;
+  complete native-page conversion remains unsupported.
+- Admit verified 28-byte HN-B native image records with bounded reads and
+  exact descriptor-count checks, plus independently verified following drawing
+  and style controls. Mixed-page rendering remains unsupported;
+  raw traversal does not establish full document conversion.
+
+- Extend bounded HN-B native-record traversal across both verified index
+  layouts, preserving observed run controls, raw numeric values, the atomic
+  `c052/a385` prefix and 12-byte drawing records. Implicit glyph styles are
+  explicitly unsupported rather than reported as malformed. This does not
+  enable complete HN-B rendering or expand CLI/JavaScript conversion support.
+
+- **Breaking:** add `NativeRecord::ExtendedControl` and preserve additional
+  verified C8 control records. Exhaustive native matches must handle their
+  raw payloads; exact transform/resource semantics remain unimplemented.
+  This does not expand public CLI/JavaScript conversion support.
+
+- **Breaking:** add `NativeRecord::EncodedString` for verified bounded C8
+  `80cc/01xx` framing. Exhaustive native record matches must handle this raw
+  event; unknown rendering semantics remain unsupported. CLI/JS behavior
+  and complete-document support are unchanged.
+
 - Read the verified compact HN-B page index using its explicit layout marker.
   Native-text conversion for these pages remains unsupported.
 - **Breaking:** validate the HN-B layout marker at offset 136; unknown values

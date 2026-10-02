@@ -118,10 +118,10 @@ impl RangedSource for Source {
         self.read_calls += 1;
         self.max_request = self.max_request.max(destination.len());
         self.max_offset = self.max_offset.max(offset);
-        if let Some((from, fault)) = self.fault_from {
-            if offset >= from {
-                return Err(fault.error());
-            }
+        if let Some((from, fault)) = self.fault_from
+            && offset >= from
+        {
+            return Err(fault.error());
         }
         if self.overreport_from.is_some_and(|from| offset >= from) {
             return Ok(destination.len() + 1);
@@ -138,10 +138,10 @@ impl RangedSource for Source {
             .min(self.max_read);
         if count != 0 {
             destination[..count].copy_from_slice(&self.bytes[start..start + count]);
-            if let Some((from, flag)) = &self.cancel_after_read {
-                if offset >= *from {
-                    flag.set(true);
-                }
+            if let Some((from, flag)) = &self.cancel_after_read
+                && offset >= *from
+            {
+                flag.set(true);
             }
         }
         Ok(count)

@@ -50,7 +50,9 @@ fn hex_bytes(field: &str) -> Vec<u8> {
     let digits = field.as_bytes();
     assert_eq!(digits.len() % 2, 0, "fixture hex length must be even");
     digits
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|pair| {
             let nibble = |byte: u8| match byte {
                 b'0'..=b'9' => byte - b'0',

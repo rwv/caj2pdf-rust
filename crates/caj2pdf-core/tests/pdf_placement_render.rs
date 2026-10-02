@@ -439,7 +439,7 @@ fn inspect_pdf(
         let words: Vec<_> = content.split_ascii_whitespace().collect();
         assert_eq!(words.len() % 11, 0, "only isolated affine image draws");
         let mut page_draws = Vec::new();
-        for operation in words.chunks_exact(11) {
+        for operation in words.as_chunks::<11>().0 {
             assert_eq!(
                 [operation[0], operation[7], operation[9], operation[10]],
                 ["q", "cm", "Do", "Q"]
