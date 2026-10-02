@@ -1268,3 +1268,11 @@ captures in `caj2pdf-c8-decoration-metrics-20261002`. The first screenshot is na
 `endpoints600` after an attempted UI entry, but the visible confirmed zoom is
 486%, not 600%; the maximized view confirms 993%. No inference uses the attempted
 zoom. The generator reproduces the captured input bytes exactly.
+
+
+The PDF writer now exposes `glyph_with_clip` with a local, positive-extent
+rectangle in page coordinates. Independent original-fixture rendering verifies
+cutoff at x=35 and an unaffected later glyph outside that rectangle. Required
+clipping mechanics are available without page-content buffering. The method
+retains ordinary Unicode mapping: C8 repetition, font selection, placement and
+nonsemantic alias handling still need integration before production admission.

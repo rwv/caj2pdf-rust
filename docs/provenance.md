@@ -2317,3 +2317,15 @@ check signed origins and rejection of unverified styles. An external original
 PDF generated through the core helper matches the earlier authored control's
 rasters; external font binaries and captures remain outside Git. No production
 format-support claim is inferred from this low-level geometry delivery.
+
+
+### Scoped glyph clipping
+
+`ContentPageWriter::glyph_with_clip` is original MIT output glue extending the
+existing shared glyph writer with a local PDF rectangle clip. It does not copy
+viewer or converter implementation. The original geometric font fixture checks
+partial clipping and an unaffected later glyph; malformed extents, short writes,
+restore failure, cancellation and abandoned draws retain failed-page behavior.
+External qpdf/MuPDF receipts are in `caj2pdf-c8-clipped-glyph-20261002`. The API
+retains the ordinary font Unicode map; nonsemantic decoration integration remains
+separate and is not claimed by the clipping primitive.

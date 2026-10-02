@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Add scoped rectangular glyph clipping to the streaming PDF content writer,
+  preserving later graphics state and failed-page poisoning. This primitive
+  does not yet enable C8 decoration conversion.
+
 - Add an allocation-free empirical C8 glyph transform for measured style fields,
   with explicit CJK/Latin geometry classes and rejection of unknown styles.
   This low-level helper does not enable native-text conversion.

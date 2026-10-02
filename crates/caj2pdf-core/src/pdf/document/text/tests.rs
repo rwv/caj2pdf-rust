@@ -108,6 +108,10 @@ fn embedded_font_and_ordered_mixed_page_reopen() {
             .glyph_with_gray(0, 'A', matrix(60.0), 68)
             .await
             .unwrap();
+        content
+            .glyph_with_clip(0, 'A', matrix(30.0), [30.0, 50.0, 5.0, 20.0])
+            .await
+            .unwrap();
         content.glyph(0, 'A', matrix(90.0)).await.unwrap();
         assert_eq!(content.finish().await.unwrap(), 1);
         document.finish().await.unwrap()
@@ -246,12 +250,12 @@ fn invalid_polygons_and_output_failure_poison_the_content_page() {
 
 #[test]
 fn failed_or_abandoned_content_cannot_be_finished() {
-    for case in 0..9 {
+    for case in 0..14 {
         let mut source = SeekableSource::new(Cursor::new(drawing_font())).unwrap();
         let limits = Limits::default();
         let mut font = run(TrueTypeFont::read(&mut source, &limits, &NEVER)).unwrap();
         let mut sink = Sink {
-            fail_on_restore: case == 8,
+            fail_on_restore: case == 8 || case == 9,
             ..Sink::default()
         };
         run(async {
@@ -275,6 +279,16 @@ fn failed_or_abandoned_content_cannot_be_finished() {
                 5 => content.segment([0.0, 0.0], [1.0, 1.0], -1.0).await,
                 6 => content.segment([f64::INFINITY, 0.0], [1.0, 1.0], 1.0).await,
                 8 => content.glyph_with_gray(0, 'A', matrix(0.0), 68).await,
+                9..=13 => {
+                    let clip = match case {
+                        10 => [0.0, 0.0, 0.0, 1.0],
+                        11 => [0.0, 0.0, 1.0, -1.0],
+                        12 => [f64::NAN, 0.0, 1.0, 1.0],
+                        13 => [MAX_PDF_INTEGER as f64, 0.0, 1.0, 1.0],
+                        _ => [0.0, 0.0, 1.0, 1.0],
+                    };
+                    content.glyph_with_clip(0, 'A', matrix(0.0), clip).await
+                }
                 _ => {
                     content.failed = true;
                     content.glyph(0, 'A', matrix(0.0)).await
@@ -491,6 +505,8 @@ fn cancellation_and_abandoned_draws_cannot_publish_a_partial_page() {
         (true, 1),
         (false, 2),
         (true, 2),
+        (false, 3),
+        (true, 3),
     ] {
         let mut source = FontSource::new();
         let limits = Limits::default();
@@ -506,6 +522,9 @@ fn cancellation_and_abandoned_draws_cannot_publish_a_partial_page() {
         let draw = async {
             if kind == 1 {
                 page.fill_polygon(&[[10.0, 10.0], [30.0, 10.0], [20.0, 30.0]])
+                    .await
+            } else if kind == 3 {
+                page.glyph_with_clip(0, 'A', matrix(10.0), [10.0, 50.0, 5.0, 20.0])
                     .await
             } else if kind == 2 {
                 page.glyph_with_gray(0, 'A', matrix(10.0), 68).await

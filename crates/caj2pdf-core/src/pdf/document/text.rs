@@ -277,7 +277,8 @@ impl<W: SequentialSink, C: Cancellation> ContentPageWriter<'_, '_, '_, W, C> {
     /// Font size is one; matrix scales are in PDF points per em. For example,
     /// `[12, 0, 0, 12, x, y]` draws an upright 12-point glyph at its baseline.
     pub async fn glyph(&mut self, font: usize, character: char, transform: [f64; 6]) -> Result<()> {
-        self.draw_glyph(font, character, transform, None).await
+        self.draw_glyph(font, character, transform, None, None)
+            .await
     }
 
     /// Draw a glyph in DeviceGray: zero is black and 255 is white.
@@ -289,7 +290,22 @@ impl<W: SequentialSink, C: Cancellation> ContentPageWriter<'_, '_, '_, W, C> {
         transform: [f64; 6],
         gray: u8,
     ) -> Result<()> {
-        self.draw_glyph(font, character, transform, Some(gray))
+        self.draw_glyph(font, character, transform, Some(gray), None)
+            .await
+    }
+
+    /// Draw one glyph clipped to `[left, bottom, width, height]` in PDF points.
+    /// Extents must be positive. Clipping is local to this draw and does not
+    /// affect later content. This retains the ordinary glyph's Unicode mapping;
+    /// it does not by itself mark a font alias as nonsemantic decoration.
+    pub async fn glyph_with_clip(
+        &mut self,
+        font: usize,
+        character: char,
+        transform: [f64; 6],
+        clip: [f64; 4],
+    ) -> Result<()> {
+        self.draw_glyph(font, character, transform, None, Some(clip))
             .await
     }
 
@@ -299,6 +315,7 @@ impl<W: SequentialSink, C: Cancellation> ContentPageWriter<'_, '_, '_, W, C> {
         character: char,
         transform: [f64; 6],
         gray: Option<u8>,
+        clip: Option<[f64; 4]>,
     ) -> Result<()> {
         self.start_draw()?;
         let resource = self.fonts.get(font).ok_or(Error::InvalidInput {
@@ -310,10 +327,25 @@ impl<W: SequentialSink, C: Cancellation> ContentPageWriter<'_, '_, '_, W, C> {
             });
         }
         let matrix = DecimalMatrix::new(transform)?;
+        if gray.is_some() || clip.is_some() {
+            self.document.writer.write_stream_bytes(b"q ").await?;
+        }
+        if let Some([left, bottom, width, height]) = clip {
+            DecimalMatrix::new([left, bottom, width, height, left + width, bottom + height])?;
+            if width <= 0.0 || height <= 0.0 {
+                return Err(Error::InvalidInput {
+                    reason: "PDF glyph clipping extents must be positive",
+                });
+            }
+            self.document
+                .writer
+                .write_stream_bytes(format!("{left} {bottom} {width} {height} re W n\n").as_bytes())
+                .await?;
+        }
         if let Some(gray) = gray {
             self.document
                 .writer
-                .write_stream_bytes(format!("q {:.6} g\n", f64::from(gray) / 255.0).as_bytes())
+                .write_stream_bytes(format!("{:.6} g\n", f64::from(gray) / 255.0).as_bytes())
                 .await?;
         }
         self.document
@@ -328,7 +360,7 @@ impl<W: SequentialSink, C: Cancellation> ContentPageWriter<'_, '_, '_, W, C> {
             .writer
             .write_stream_bytes(format!(" Tm <{:04X}> Tj ET\n", character as u32).as_bytes())
             .await?;
-        if gray.is_some() {
+        if gray.is_some() || clip.is_some() {
             self.document.writer.write_stream_bytes(b"Q\n").await?;
         }
         self.failed = false;
