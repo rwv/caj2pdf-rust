@@ -212,3 +212,49 @@ and `source-span-coverage.json` retain the bounded decode and interval checks.
 The ordinary-copy/runtime smoke evidence supplements the frozen #223 report;
 it does not retroactively make that report's intentionally limited prototype a
 complete extractor.
+
+### HN-B native image framing (issue #250)
+
+`tools/cajviewer/hnb_image_fixture.py` generates 13 original one-page controls
+outside the repository. The pinned offline CAJViewer accepts the 20-byte index,
+28-byte `800a/d300` image record and chained type-2 descriptors. Changing x, y,
+width or header origins independently changes the displayed image as expected;
+two images consume consecutive descriptors. Text following the 28-byte record
+remains visible. The visitor preserves all 13 raw words, source order and exact
+image counts; this is framing support, not a new public conversion profile.
+The compact 12-byte index still rejects nonzero third words.
+
+The generated inputs reproduce the independently captured controls byte-for-byte.
+External receipts are in `caj2pdf-hnb-image-controls-20261001`; every selected page
+crop repeats identically at 971% zoom. No source documents or captures are bundled.
+
+Mixed-page rendering is unresolved: a glyph followed by a green JPEG changes
+`(68,68,68)` to `(0,4,0)`, consistent with bitwise AND against decoded `(1,180,0)`
+and inconsistent with Multiply. However image A → glyph → image B renders B
+opaquely, while glyph → A → B retains cumulative AND in the overlap. These
+controls rule out a universal image blend. They do not yet establish the state
+that selects the operation; do not implement a guessed global blend or claim
+complete HN-B conversion from raw record admission.
+
+The following HN-B `8006/a383` drawing is independently verified as 12 bytes:
+original bare and `ffff/5`-suffixed controls render identically, and a following
+y control changes the glyph row independently. The visible segment occupies
+only the added drawing region. `8072/cdc1` bare/next-y controls preserve their
+following glyphs; unchanged pixels do not establish that this control is a no-op.
+Both records reuse the existing raw events. Seven controls in
+`hnb_index_fixture.py` reproduce the external inputs byte-for-byte, with repeated
+identical crops (`remaining-record-comparison.json`).
+
+After these admissions, the pinned issue-65 page 6 traverses all four raw records.
+Page 1 traverses 283 records (235 raw glyphs) before another unsupported control
+at offset 1500. Other pages retain explicit style/control failures. No complete
+page rendering or document-conversion acceptance is claimed.
+
+Four further original bare/next-y controls verify raw `801d/0003` and
+`8070/001c` framing. All repeat identically and preserve the following row;
+changes are confined to the affected first-row glyphs. The generator reproduces
+captured input bytes exactly (`style-inputs.json`, `style-comparison.json`).
+Only the observed raw values are admitted; this does not establish physical
+font units or admit the corresponding untested `8071` value. The issue-65 probe
+then reaches page-1 offset 1532 and page-3/page-4 offsets 53366/57046 before the
+next unsupported controls; implicit-style failures on pages 2/5 remain.

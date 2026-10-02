@@ -37,6 +37,15 @@ pub enum NativeRecord {
     },
     /// Thirteen words after the image marker. Do not apply HN-A coordinates.
     Image { words: [u16; 13] },
+    /// The observed `810a/d300` image form with zero flags. Coordinates are
+    /// absolute source units without the older image form's high-bit markers.
+    /// `reference` locates the raw name bytes, excluding NUL and padding.
+    /// It is not a filesystem resource request. Match embedded descriptors in
+    /// record order; image orientation remains codec-specific.
+    ImageReference {
+        coordinate: super::RawTextCoordinate,
+        reference: super::Span,
+    },
     /// The observed `80cc/01xx` encoded-string record. The low byte of
     /// `value` counts all words, including the two-word header. `payload`
     /// locates 0..=253 validated `e020..=e07e` words in the original source.
@@ -75,8 +84,8 @@ pub trait NativeRecordVisitor {
 
 impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
     /// Visit admitted C8 or HN-B raw native records without allocating.
-    /// HN-B admits independently controlled glyph runs, controls and two drawing
-    /// forms. Other C8 drawing, image and control framing is not inherited.
+    /// HN-B admits independently controlled glyph runs, controls, three drawing
+    /// forms and fixed-length image records. Other C8 framing is not inherited.
     /// Call `next_page` first. This does not consume image descriptors, decode
     /// characters or enable conversion. Unknown framing stops at its source byte.
     /// A failed/dropped operation poisons the reader, just like image traversal.
@@ -165,19 +174,21 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
                     && !matches!(
                         (tag, value),
                         (0x8001 | 0x8002 | 0x8004, _)
-                            | (0x801d, 0 | 4)
+                            | (0x801d, 0 | 3 | 4)
                             | (0x801c, 4)
                             | (0x8067, 6 | 7 | 9)
                             | (0x8069, 0x1084)
                             | (0x80ce, 0 | 1)
                             | (0x8070 | 0x8071, 0x0024 | 0x002b)
-                            | (0x8072, 0 | 0xc2c7)
+                            | (0x8070, 0x001c)
+                            | (0x8072, 0 | 0xc2c7 | 0xcdc1)
                             | (0x8073, 0x001e | 0x001f | 0x0029 | 0x002a)
                             | (0x8024, 0x2800 | 0x281d)
                             | (0xc053, _)
                             | (0xffff, 5)
-                            | (0x8006, 0xa381 | 0xa385)
+                            | (0x8006, 0xa381 | 0xa383 | 0xa385)
                             | (0xc052, 0xa385)
+                            | (0x800a, 0xd300)
                     )
                 {
                     return Err(at.error(ErrorKind::Unsupported {
@@ -302,6 +313,63 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
                             *out = word(pair);
                         }
                         NativeRecord::Image { words }
+                    }
+                    0x810a if value == 0xd300 => {
+                        self.native_bytes(position + 4, end, &mut bytes[4..16], at)
+                            .await?;
+                        let flags = word(&bytes[12..14]);
+                        if flags != 0 {
+                            return Err(at.at(position + 12).error(ErrorKind::Unsupported {
+                                field: "native image-reference flags",
+                                value: u64::from(flags),
+                            }));
+                        }
+                        let coordinate = super::RawTextCoordinate {
+                            x: word(&bytes[4..6]),
+                            y: word(&bytes[6..8]),
+                            width: word(&bytes[8..10]),
+                            height: word(&bytes[10..12]),
+                        };
+                        let name_bytes = usize::from(word(&bytes[14..16]));
+                        // The length excludes NUL; the complete record has
+                        // zero padding to a four-byte boundary. Preserve a
+                        // source span instead of allocating or opening a name.
+                        length = (16 + name_bytes + 1).next_multiple_of(4);
+                        let mut consumed = 16;
+                        while consumed < length {
+                            let count = (length - consumed).min(bytes.len());
+                            self.native_bytes(
+                                position + consumed as u64,
+                                end,
+                                &mut bytes[..count],
+                                at,
+                            )
+                            .await?;
+                            for (index, &byte) in bytes[..count].iter().enumerate() {
+                                if consumed + index >= 16 + name_bytes && byte != 0 {
+                                    return Err(at
+                                        .at(position + (consumed + index) as u64)
+                                        .malformed(
+                                            "native image reference",
+                                            "nonzero terminator or padding",
+                                        ));
+                                }
+                            }
+                            consumed += count;
+                        }
+                        if images == page.image_count {
+                            return Err(
+                                at.malformed("native image records", "exceed declared image count")
+                            );
+                        }
+                        images += 1;
+                        NativeRecord::ImageReference {
+                            coordinate,
+                            reference: super::Span {
+                                offset: position + 16,
+                                length: name_bytes as u64,
+                            },
+                        }
                     }
                     0x8004 => {
                         if position + 4 != end {
