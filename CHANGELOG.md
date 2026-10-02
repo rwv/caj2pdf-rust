@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Correct off-page image placement for verified raw HN-A `800a/d300` records
+  carrying coordinate marker bits. Raw inspection values remain unchanged;
+  this does not claim complete HN-A pixel fidelity.
+
 - Extend bounded HN-B native-record traversal across both verified index
   layouts, preserving observed run controls, raw numeric values, the atomic
   `c052/a385` prefix and 12-byte drawing records. Implicit glyph styles are

@@ -105,7 +105,22 @@ pub async fn read_text_coordinates<S: RangedSource, C: Cancellation>(
     cancellation: &C,
     budget: TextBudget,
 ) -> Result<TextCoordinates> {
-    read_coordinates(source, header, page, limits, cancellation, budget, true).await
+    read_coordinates(
+        source,
+        header,
+        page,
+        limits,
+        cancellation,
+        budget,
+        ReadPurpose::Inspect,
+    )
+    .await
+}
+
+#[derive(Clone, Copy, PartialEq)]
+pub(super) enum ReadPurpose {
+    Inspect,
+    Compose,
 }
 
 /// Composition alone may receive fewer coordinates than descriptors. It must
@@ -117,8 +132,9 @@ pub(super) async fn read_coordinates<S: RangedSource, C: Cancellation>(
     limits: &Limits,
     cancellation: &C,
     budget: TextBudget,
-    exact_images: bool,
+    purpose: ReadPurpose,
 ) -> Result<TextCoordinates> {
+    let exact_images = purpose == ReadPurpose::Inspect;
     if header.variant == Variant::HnB {
         return Err(location(header, page).error(ErrorKind::Unsupported {
             field: "text framing variant",
@@ -169,12 +185,15 @@ pub(super) async fn read_coordinates<S: RangedSource, C: Cancellation>(
             budget,
             loc,
             if prefixed_raw {
-                Some(records::Records::with_page_prefix(
-                    budget.max_records,
-                    exact_images,
-                ))
+                Some(
+                    records::Records::with_page_prefix(budget.max_records, exact_images)
+                        .decode_raw_hna_markers(purpose == ReadPurpose::Compose),
+                )
             } else {
-                (tag == 0x800a).then(|| records::Records::new(budget.max_records, exact_images))
+                (tag == 0x800a).then(|| {
+                    records::Records::new(budget.max_records, exact_images)
+                        .decode_raw_hna_markers(purpose == ReadPurpose::Compose)
+                })
             },
         )
         .await
