@@ -289,3 +289,21 @@ rule. No final PDF is produced. Evidence is retained externally in
 `issue-30-header-and-length.json`. Original negative fixtures cover missing or
 conflicting counterparts, nonzero generations, invalid keywords, hidden objects
 in streams, bad lengths and unresolved future lengths.
+
+### Interrupted `obj` keyword
+
+The header rule also permits `number 0 o` and `number 0 ob`, with the same
+64-byte bound and mandatory exact later counterpart. It consumes only the
+fixed partial keyword and following whitespace, not arbitrary text. A malformed
+adjacent-header candidate now lets the remaining proof rules run; I/O, resource
+and cancellation errors still propagate immediately. Original controls reject
+unknown keywords, nonzero generations and excessive whitespace, and confirm
+that a candidate's syntax limit is propagated.
+
+Issue-30 now stops at 1254859: scalar object 7461 is cut inside its `endobj`
+terminator. That rule is not yet supported. Issue-25 reaches an unresolved
+indirect Length at 565829 (object 373); deferred prefixes have not yet received
+final whole-fragment verification, so this progress is not successful recovery.
+Both fail without a final PDF. Issue-92 still converts to the identical SHA256
+recorded above and passes qpdf. New external receipts are
+`keyword-regression-results.json`, alongside the earlier source observations.

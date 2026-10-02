@@ -598,12 +598,29 @@ async fn interrupted_syntax_prefix<S: RangedSource, C: Cancellation>(
     else {
         return Ok(None);
     };
+    let header_error = *reason == "unexpected PDF keyword";
     let mut end = offset.saturating_sub(reader.range.offset);
-    if end <= start
-        || end - start > 256
-        || (*reason == "unexpected PDF keyword" && end - start > 64)
-    {
+    if end <= start || end - start > 256 || (header_error && end - start > 64) {
         return Ok(None);
+    }
+    // A cut inside `obj` leaves only `o` or `ob` at the parser error.
+    // Consume that fixed keyword prefix, never an arbitrary token.
+    if header_error && reader.byte(end).await? == Some(b'o') {
+        end += 1;
+        if reader.byte(end).await? == Some(b'b') {
+            end += 1;
+        }
+        while end - start <= 64
+            && reader
+                .byte(end)
+                .await?
+                .is_some_and(|byte| byte.is_ascii_whitespace())
+        {
+            end += 1;
+        }
+        if end - start > 64 {
+            return Ok(None);
+        }
     }
     // A dictionary cut between the two closing brackets reports its first
     // bracket as the invalid name. Retain that byte in the exact prefix proof.
@@ -636,14 +653,17 @@ async fn interrupted_syntax_prefix<S: RangedSource, C: Cancellation>(
         let prefix = bytes[..boundary].trim_ascii_end();
         match reader.load_head(start + boundary as u64, None).await {
             Ok(_) => {
-                if *reason == "unexpected PDF keyword" {
+                if header_error {
                     let mut fields = prefix
                         .split(u8::is_ascii_whitespace)
                         .filter(|field| !field.is_empty());
                     let number = fields.next().and_then(exact_unsigned);
                     let generation = fields.next();
+                    let keyword = fields.next();
                     if number != Some(u64::from(reference.number))
                         || !matches!(generation, None | Some(b"0"))
+                        || !matches!(keyword, None | Some(b"o" | b"ob"))
+                        || (keyword.is_some() && generation != Some(b"0"))
                         || fields.next().is_some()
                     {
                         return Ok(None);
@@ -773,7 +793,14 @@ async fn adjacent_header_end<S: RangedSource, C: Cancellation>(
     if fields.next() != Some(b"0".as_slice()) || fields.next().is_some() {
         return Ok(None);
     }
-    let head = reader.load_head(end, None).await?;
+    let head = match reader.load_head(end, None).await {
+        Ok(head) => head,
+        Err(Error::Pdf {
+            kind: PdfErrorKind::Malformed,
+            ..
+        }) => return Ok(None),
+        Err(error) => return Err(error),
+    };
     if number == Some(u64::from(head.reference.number))
         && head.reference.generation == 0
         && head.bytes.starts_with(prefix)
@@ -2164,7 +2191,7 @@ mod candidate_tests {
 
     #[test]
     fn unfinished_headers_require_a_real_later_object() {
-        for prefix in ["7", "7 0"] {
+        for prefix in ["7", "7 0", "7 0 o", "7 0 ob"] {
             let bytes = format!("{prefix}\n8 0 obj 42 endobj\n7 0 obj << /Value 19 >> endobj\n")
                 .into_bytes();
             let result = scan(bytes, &mut []).unwrap();
@@ -2181,16 +2208,40 @@ mod candidate_tests {
             "7\n8 0 obj 42 endobj\n",
             "7 1\n8 0 obj 42 endobj\n7 0 obj 19 endobj\n",
             "7 0 nonsense\n8 0 obj 42 endobj\n7 0 obj 19 endobj\n",
+            "7 0 ox\n8 0 obj 42 endobj\n7 0 obj 19 endobj\n",
+            "7 1 o\n8 0 obj 42 endobj\n7 0 obj 19 endobj\n",
             "7\n8 0 obj 42 endobj\n7 0 obj 19 endobj\n7 0 obj 20 endobj\n",
             "7 0\n8 0 obj 42 endobj\n7 1 obj 19 endobj\n",
         ] {
             assert!(scan(bytes.as_bytes().to_vec(), &mut []).is_err(), "{bytes}");
         }
+        let mut padded = b"7 0 ob".to_vec();
+        padded.extend_from_slice(&[b' '; 65]);
+        padded.extend_from_slice(b"8 0 obj 42 endobj\n7 0 obj 19 endobj\n");
+        assert!(scan(padded, &mut []).is_err());
         let payload = b"7 0 obj 19 endobj";
         let mut fake = format!("7\n8 0 obj << /Length {} >> stream\n", payload.len()).into_bytes();
         fake.extend_from_slice(payload);
         fake.extend_from_slice(b"\nendstream\nendobj\n");
         assert!(scan(fake, &mut []).is_err());
+    }
+
+    #[test]
+    fn unfinished_header_candidate_propagates_syntax_limits() {
+        let mut bytes = b"7 0\n8 0 obj << /Long (".to_vec();
+        bytes.extend_from_slice(&[b'A'; 2000]);
+        bytes.extend_from_slice(b") >> endobj\n7 0 obj 42 endobj\n");
+        let size = bytes.len() as u64;
+        let mut source = SeekableSource::new(Cursor::new(bytes)).unwrap();
+        let limits = Limits {
+            max_allocation_bytes: 4096,
+            io_chunk_bytes: 1,
+            ..Limits::default()
+        };
+        assert!(matches!(
+            run(scan_fragment_objects(&mut source, 0, size, &limits, &NEVER)),
+            Err(Error::PdfLimitExceeded { .. })
+        ));
     }
 
     #[test]
