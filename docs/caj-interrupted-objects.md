@@ -583,11 +583,43 @@ browser input/output cleanup leaves OPFS empty. Post-conversion WASM memory is
 4587520 bytes on both JS paths; this is not a peak-memory measurement. External
 receipts and reused public-adapter runners are in
 `caj2pdf-issue30-public-20261002` (`page-order.json`, `repaired-content.json`,
-`node/result.json`, `browser/result.json`). Selected CAJViewer comparison remains
-open; structural identity and cross-runtime agreement do not prove fidelity.
+`node/result.json`, `browser/result.json`). The selected CAJViewer results below supplement these structural checks;
+structural identity and cross-runtime agreement alone do not prove fidelity.
 Original MIT rectangle controls produce byte-identical clean/recovered PDFs
 through Node and a real Chromium Worker. Native qpdf/MuPDF checks reproduce
 blue bounds `(10,40,40,80)` at 72 DPI on the authored 100-point page. Missing
 counterparts, opaque-stream decoys, changed prefixes/checksums and ambiguous
 anchors are covered by original one-byte-read controls. External native
 receipt: `caj2pdf-caj-candidate-recovery-20261002/deferred-public-control.json`.
+
+
+### Issue-30 selected viewer comparison
+
+Pinned offline CAJViewer image
+`sha256:cb5049d3448b6d5bcfd371cf195d522d637869dce075cb1650d74198875171de`
+opened the unchanged source and accepted native PDF, using its original font
+resources plus the existing Noto CJK UI font. At 1600×1200, 96 DPI, single-page
+mode and displayed 80% zoom, independently inspected physical interiors are
+634×897 pixels at `(508,218,1142,1115)` (exclusive right/bottom).
+
+| Page | Changed RGB pixels | Source/output repeat differences |
+| --- | ---: | ---: |
+| 1 | 277905 | 0 / 0 |
+| 18 | 0 | 0 / 0 |
+| 25 | 0 | 0 / 0 |
+| 46 | 0 | 0 / 0 |
+| 141 | 16236 | 0 / 0 |
+
+Pages 18/25/46 cover the repaired array, image and Flate-stream page-table rows;
+their complete physical page crops match exactly. Visual inspection of all five
+selected pairs found no obvious missing content or layout loss. The cover and
+last-page residuals remain unclassified; this is not whole-document pixel
+parity or an independent text-diff claim. No resizing, content registration or
+comparison tolerance was applied.
+
+Several early navigation attempts retained page 141 or transient paint despite
+the requested page number. They are excluded. The selected captures have
+visually verified tab, page-number and zoom controls, plus identical repeats.
+The external `caj2pdf-caj30-viewer-20261002/comparison.json` names each accepted
+capture explicitly; `compare.py`, action receipts and diagnostic captures remain
+outside Git. The viewer container was stopped after collection.
