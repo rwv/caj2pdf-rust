@@ -128,7 +128,7 @@ export function syntheticType1Hn() {
 }
 
 /** The same original mixed-image page with paired raw page-prefix records. */
-export function syntheticPrefixedHn() {
+export function syntheticPrefixedHn(markers = false) {
   const original = syntheticHn(true, true);
   const index = 0x15c + 2 * 308;
   const text = index + 20;
@@ -144,6 +144,13 @@ export function syntheticPrefixedHn() {
   const textLength = 60 + extra;
   view.setUint32(index + 4, textLength, true);
   for (let i = 0; i < 2; i++) {
+    if (markers) {
+      const record = text + extra + i * 28;
+      view.setUint16(record + 2, 0xd300, true);
+      for (const field of [4, 8]) {
+        view.setUint16(record + field, view.getUint16(record + field, true) | 0xc000, true);
+      }
+    }
     const descriptor = text + textLength + i * 61;
     view.setUint32(descriptor + 4, descriptor + 12, true);
   }

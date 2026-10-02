@@ -17,6 +17,7 @@ pub(super) struct Records {
     ended: bool,
     exact_images: bool,
     page_prefix: bool,
+    decode_raw_hna_markers: bool,
 }
 
 impl Records {
@@ -31,6 +32,7 @@ impl Records {
             ended: false,
             exact_images,
             page_prefix: false,
+            decode_raw_hna_markers: false,
         }
     }
 
@@ -39,6 +41,13 @@ impl Records {
             page_prefix: true,
             ..Self::new(limit, exact_images)
         }
+    }
+
+    /// Composition of the verified raw HN-A profile decodes image marker bits;
+    /// public inspection and compressed/unverified profiles preserve raw words.
+    pub(super) fn decode_raw_hna_markers(mut self, enabled: bool) -> Self {
+        self.decode_raw_hna_markers = enabled;
+        self
     }
 
     pub(super) fn consume(
@@ -63,6 +72,15 @@ impl Records {
                     width: u16::from_le_bytes([self.bytes[8], self.bytes[9]]),
                     height: u16::from_le_bytes([self.bytes[10], self.bytes[11]]),
                 };
+                let coordinate = &mut coordinates[self.images];
+                if self.decode_raw_hna_markers
+                    && self.bytes[2..4] == [0, 0xd3]
+                    && coordinate.x & 0xc000 == 0xc000
+                    && coordinate.width & 0xc000 == 0xc000
+                {
+                    coordinate.x &= 0x3fff;
+                    coordinate.width &= 0x3fff;
+                }
                 self.images += 1;
             } else {
                 if self.count == self.limit {

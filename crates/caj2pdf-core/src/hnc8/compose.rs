@@ -704,7 +704,7 @@ where
                 limits,
                 cancellation,
                 options.text,
-                false,
+                super::text::ReadPurpose::Compose,
             )
             .await
             .map_err(|error| container(error, ComposeStage::Text))?;
