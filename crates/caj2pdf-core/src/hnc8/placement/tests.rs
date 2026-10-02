@@ -397,3 +397,71 @@ fn point(x: u16, y: u16) -> RawTextCoordinate {
         ..Default::default()
     }
 }
+
+#[test]
+fn c8_glyph_sizes_predict_independent_original_controls() {
+    let origin = [4652, 4274];
+    for (field, expected_pixels) in [
+        (2, 318),
+        (3, 352),
+        (4, 397),
+        (5, 477),
+        (6, 545),
+        (7, 636),
+        (8, 715),
+    ] {
+        let style = 0x1000 | field << 5 | field;
+        let cjk =
+            empirical_c8_glyph_transform(page(), origin, [4672, 4294], style, C8GlyphClass::Cjk)
+                .unwrap();
+        let latin =
+            empirical_c8_glyph_transform(page(), origin, [4672, 4294], style, C8GlyphClass::Latin)
+                .unwrap();
+        // Original square fonts, 96 DPI, displayed 3420%. Field 7 was held out
+        // from model calibration. These are measurements, not size-table copies.
+        assert_eq!(
+            (cjk[3] * 96.0 / 72.0 * 34.2).floor(),
+            f64::from(expected_pixels)
+        );
+        assert_eq!(cjk[..4], latin[..4]);
+        assert!(latin[4] > cjk[4]);
+        assert!(latin[5] < cjk[5]);
+        let shifted = empirical_c8_glyph_transform(
+            page(),
+            [4672, 4294],
+            [4692, 4314],
+            style,
+            C8GlyphClass::Cjk,
+        )
+        .unwrap();
+        assert_eq!(shifted, cjk);
+    }
+    // Independent horizontal/vertical fields preserve each axis's size.
+    let matrix =
+        empirical_c8_glyph_transform(page(), origin, [4672, 4294], 0x1065, C8GlyphClass::Cjk)
+            .unwrap();
+    assert!(matrix[0] < matrix[3]);
+    close(matrix[0], 7.724252491694352);
+    close(matrix[3], 10.465116279069768);
+}
+
+#[test]
+fn c8_glyph_origins_are_signed_and_unknown_styles_are_errors() {
+    let origin = [4652, 4274];
+    let a = empirical_c8_glyph_transform(page(), origin, [4652, 4274], 0x1084, C8GlyphClass::Cjk)
+        .unwrap();
+    let b = empirical_c8_glyph_transform(page(), origin, [4632, 4254], 0x1084, C8GlyphClass::Cjk)
+        .unwrap();
+    close(b[4] - a[4], -20.0 * EMPIRICAL_COORDINATE_POINTS_PER_UNIT);
+    close(b[5] - a[5], 20.0 * EMPIRICAL_COORDINATE_POINTS_PER_UNIT);
+    for style in [0x0884, 0x9084, 0x1004, 0x1080, 0x1024, 0x1089] {
+        assert!(
+            empirical_c8_glyph_transform(page(), origin, origin, style, C8GlyphClass::Cjk).is_err()
+        );
+    }
+    let mut invalid = page();
+    invalid.size.height_points = f64::NAN;
+    assert!(
+        empirical_c8_glyph_transform(invalid, origin, origin, 0x1084, C8GlyphClass::Cjk).is_err()
+    );
+}

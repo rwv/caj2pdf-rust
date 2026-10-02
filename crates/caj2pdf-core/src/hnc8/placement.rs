@@ -220,6 +220,67 @@ fn image_transform(
     Ok([size.width_points, 0.0, 0.0, -size.height_points, x, y])
 }
 
+/// Glyph classes independently measured with original C8 font controls.
+/// This class does not select a font or decode a source character.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum C8GlyphClass {
+    Cjk,
+    Latin,
+}
+
+/// Evaluate the empirical C8 text matrix for the measured native style subset.
+///
+/// Size fields 2 through 8 with high bits `0x1000` are admitted. The point-size
+/// model is calibrated from original font controls, including held-out field 7;
+/// it is not an authoritative physical-unit definition. See the recorded
+/// geometry and rasterization limits in `docs/c8-native-records.md`.
+///
+/// `position` and `source_origin` are raw x/y words. Subtraction is signed;
+/// off-page glyphs remain off-page. Font selection, character decoding, color
+/// and page-content admission are the caller's separate responsibilities.
+/// This helper does not enable production native-text conversion.
+pub fn empirical_c8_glyph_transform(
+    page: EmpiricalPageGeometry,
+    source_origin: [u16; 2],
+    position: [u16; 2],
+    style: u16,
+    class: C8GlyphClass,
+) -> Result<[f64; 6]> {
+    let [left, _, _, top] = page.media_box()?;
+    if style & 0xfc00 != 0x1000 {
+        return Err(Error::InvalidInput {
+            reason: "unverified C8 glyph style flags",
+        });
+    }
+    let metrics = |field| -> Result<(f64, f64)> {
+        let (step, latin_offset) = match field {
+            2 => (28, 9),
+            3 => (31, 9),
+            4 => (35, 8),
+            5 => (42, 6),
+            6 => (48, 5),
+            7 => (56, 3),
+            8 => (63, 1),
+            _ => {
+                return Err(Error::InvalidInput {
+                    reason: "unverified C8 glyph size field",
+                });
+            }
+        };
+        Ok((f64::from(step) * 75.0 / 301.0, f64::from(latin_offset)))
+    };
+    let (width, _) = metrics((style >> 5) & 31)?;
+    let (height, latin_offset) = metrics(style & 31)?;
+    let unit = EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
+    let mut x = left + (f64::from(position[0]) - f64::from(source_origin[0]) + 20.0) * unit;
+    let mut y = top - (f64::from(position[1]) - f64::from(source_origin[1]) - 15.0) * unit - height;
+    if class == C8GlyphClass::Latin {
+        x += width / 8.0;
+        y -= latin_offset * unit;
+    }
+    Ok([width, 0.0, 0.0, height, x, y])
+}
+
 fn pixel_size(pixel_width: u32, pixel_height: u32) -> Result<PageSpec> {
     if pixel_width == 0 || pixel_height == 0 {
         return Err(Error::InvalidInput {

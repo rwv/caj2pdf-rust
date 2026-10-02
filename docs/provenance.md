@@ -2305,3 +2305,15 @@ parsed non-stream scalar/array objects. Original stored-deflate controls cover
 counted line endings, checksum failures and unsafe Length repairs; qpdf/MuPDF
 check authored rectangle outputs. ASCII85 prefix buffers remain capped at 4 KiB.
 No external document bytes, profiles, metadata or decoder code were copied.
+
+### Empirical native glyph geometry
+
+The C8 glyph transform and its CJK/Latin geometry classes are original MIT
+code based on the authored geometric-font controls documented in
+`c8-native-records.md`. The empirical rational scale is a calibrated model,
+not copied format metadata or an external implementation. Tests retain the
+independently measured size predictions, including a held-out style, and
+check signed origins and rejection of unverified styles. An external original
+PDF generated through the core helper matches the earlier authored control's
+rasters; external font binaries and captures remain outside Git. No production
+format-support claim is inferred from this low-level geometry delivery.

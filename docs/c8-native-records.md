@@ -752,6 +752,28 @@ and `field7-heldout.tsv`. The original diagnostic writer is
 `caj2pdf-c8-render-preview-20261001/src/bin/candidate_geometry.rs`. No external
 font outlines, source text or screenshots enter the repository.
 
+### Core empirical glyph geometry
+
+`empirical_c8_glyph_transform` now evaluates this measured geometry in the
+existing placement module. It takes checked page geometry, raw header origin,
+raw glyph position, style and an explicit CJK/Latin glyph class. It validates
+page geometry and rejects unknown high style bits or size fields outside 2–8.
+The two size axes remain independent; origins are subtracted without unsigned
+underflow, and off-page positions are preserved. `C8GlyphClass` describes a
+geometry class only: it does not identify a font resource or classify arbitrary
+source character codes.
+
+The evaluator uses the documented empirical size model and observed Latin
+offsets (9/9/8/6/5/3/1 source units for fields 2–8). It is allocation-free and
+performs no I/O. An external original PDF control now calls this core helper
+instead of repeating its geometry expressions. qpdf accepts the result, and
+MuPDF rasters at 72 and 3283.2 DPI are byte-identical to the earlier independently
+constructed gray PDF control. This validates the implementation against that
+control, not exact parity with CAJViewer: the documented source/PDF edge and
+frame differences remain. Production native-text conversion is still disabled
+until the remaining style, decoration and complete-page checks are satisfied.
+Receipts are in `caj2pdf-c8-core-geometry-20261002/results.json`.
+
 ### Glyph gray level and writer support
 
 A follow-up public FreeType trace on the same original field-7 fonts reports

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Add an allocation-free empirical C8 glyph transform for measured style fields,
+  with explicit CJK/Latin geometry classes and rejection of unknown styles.
+  This low-level helper does not enable native-text conversion.
+
 - Add scoped grayscale glyph output to the streaming PDF content writer.
   Native C8/HN-B conversion remains under development.
 
