@@ -132,3 +132,32 @@ object 4479 or scan compressed payloads for headers.
 These observations classify the next work; they do not complete #226 or prove
 any document irrecoverable. External receipts include per-case scanner offsets,
 `remaining-three-prefixes.json`, and the independent Flate observations.
+
+## Later copies reachable from page-table anchors
+
+A diagnostic run starts the existing bounded fragment scanner at each nonempty
+CAJ page-table span, without searching for headers. Three independently parsed
+spans contain the later copies needed by the earlier failures:
+
+| Source | Page-table row | Span start | Complete matching object |
+| --- | ---: | ---: | --- |
+| issue-25 | 3 | 455713 | 27 at 457263, 121 bytes |
+| issue-30 | 2 | 191410 | 2 at 191653, 1058 bytes |
+| issue-92 | 4 | 268684 | 186 at 269578, 20545 bytes |
+
+Every successful diagnostic span contains its declared page object. Across
+the six documents, successful/failed span scans are respectively 9/69, 53/5,
+101/40, 78/2, 179/55 and 0/60 in issue-25/92/30/39/85/90 order. These are local
+object-framing observations, not successfully converted pages or documents.
+In particular, the Mingtang row containing object 4 fails later in that span;
+the current scanner does not return a validated index for that failed span.
+
+This evidence supports investigating a bounded later-copy index rooted in
+container offsets. Any production rule must still verify that a candidate is
+an actual object reached by the final complete scan, not bytes inside another
+stream; reject conflicting candidates; and account for additional reads,
+decoded work and metadata. A page-table offset alone does not certify an
+object boundary. No such production recovery is admitted by this diagnostic.
+The temporary Rust probe was removed after execution. Source hashes match the
+matrix; receipts are `page-table-anchors.json`, `all-anchor-probe.log` and
+`all-anchor-summary.json` in the existing external evidence directory.
