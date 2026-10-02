@@ -717,6 +717,41 @@ image placement under #233/#240; font size/baseline and separator fidelity
 remain unresolved.
 
 
+## Held-out font-size model (#240)
+
+The six required equal-size fields admit a common empirical model
+`floor(zoom_percent * step * k)`, with steps 28/31/35/42/48/63 for fields
+2/3/4/5/6/8. Intersecting the observed 3420%, 2896%, 1563% and 193–200%
+integer-height intervals gives `0.003321494343593791 <= k <
+0.0033228076692877633`. These step assignments are a model inferred from
+observations, not a recovered format specification.
+
+Before opening a new original field-7 control, a step of 56 predicted exactly
+636 pixels at 3420% throughout that interval. Both CJK and Latin glyphs request
+636 pixels through the public FreeType API and render four 636-pixel squares;
+the full page crop repeats identically. Field 7 is a validation control, not
+an expansion of the supported production profile. The existing generator
+reproduces its bytes as `anchor-field7-large-page.caj`.
+
+A separate original PDF emitted through the existing Rust font/PDF writer
+uses the convenient empirical candidate `step * 75 / 301` points, which lies
+inside the measured interval. Its CJK top is `y - 15`, with x offset 20 source
+units; Latin additionally uses `em / 8` horizontally and
+`min(9, round(17 - em / 10))` vertically. At independently verified page bounds,
+the first Latin box agrees exactly with the C8 control. The other measured
+edges differ by 0–2 pixels at this high magnification. Repeated PDF captures
+are stable, and qpdf accepts the PDF. The source square interior is RGB
+68/68/68 while the PDF is black: this is a geometry experiment, not pixel parity.
+Neither that color difference nor the remaining edge differences are classified
+as renderer-only by this experiment. Do not enable a production profile from
+this result alone.
+
+Pre-capture prediction, public API trace and both geometry reports are external:
+`caj2pdf-c8-anchor-ft-metrics-20261002/field7-{prediction,result,pdf-result}.json`
+and `field7-heldout.tsv`. The original diagnostic writer is
+`caj2pdf-c8-render-preview-20261001/src/bin/candidate_geometry.rs`. No external
+font outlines, source text or screenshots enter the repository.
+
 ## Independent size fields and original glyph anchors (#240)
 
 The style fixture generator now reproduces eight original `axis-*` controls:

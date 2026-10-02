@@ -126,7 +126,8 @@ def main():
     }
     # Hold page geometry fixed across the six sizes required by issue-66.
     # Both rows and both scripts remain unclipped, including the largest size.
-    for field in (2, 3, 4, 5, 6, 8):
+    for field in (2, 3, 4, 5, 6, 7, 8):
+        # Field 7 is a held-out size-model control, not a support claim.
         name = f"anchor-field{field}-large-page"
         style = 0x1000 | (field << 5) | field
         fixtures.append((name, [(style, 0, 6)], None, None))
