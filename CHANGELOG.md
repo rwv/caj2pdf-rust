@@ -5,7 +5,9 @@
 - Recover bounded interrupted CAJ objects when a later complete copy is
   independently parsed from a page-table span and confirmed by the full scan.
   Ambiguous copies and unresolved corruption remain errors.
-
+- Correct off-page image placement for verified raw HN-A `800a/d300` records
+  carrying coordinate marker bits. Raw inspection values remain unchanged;
+  this does not claim complete HN-A pixel fidelity.
 - Add bounded caller-supplied TrueType resources and sequential PDF glyph,
   image and vector content pages. This shared API does not enable native
   C8/HN-B conversion or production JavaScript font resources.

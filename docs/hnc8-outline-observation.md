@@ -1,5 +1,13 @@
 # HN/C8 outline investigation and implementation proposal
 
+> Historical investigation record. HN-A outline implementation and the selected
+> complete-document checks subsequently finished in
+> [#119](https://github.com/rwv/caj2pdf-rust/issues/119); see the
+> [field evidence and native integration](hnc8-outline-fields.md). C8/HN-B
+> bookmarks remain tracked by [#221](https://github.com/rwv/caj2pdf-rust/issues/221).
+> Status and execution restrictions below describe the original investigation,
+> not current project status or a new approval requirement.
+
 Status: **CLOSED — DISCOVERY COMPLETE, COMPATIBILITY UNVERIFIED.** The single
 selected-source Stage A for
 [issue #119](https://github.com/rwv/caj2pdf-rust/issues/119), a child of #10,

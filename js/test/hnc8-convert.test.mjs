@@ -197,7 +197,7 @@ test("type-1 JPEG uses the bounded public path and preserves its encoded image",
 
 test("paired raw HN prefix preserves independently validated mixed-image output", async (t) => {
   const outputs = [];
-  for (const bytes of [syntheticHn(true, true), syntheticPrefixedHn()]) {
+  for (const bytes of [syntheticHn(true, true), syntheticPrefixedHn(), syntheticPrefixedHn(true)]) {
     const scratch = stores(); const parts = [];
     const report = await convert(await newInstance(), blobSource(new Blob([bytes])), sink(parts), { chunkSize: 3, hnc8: { qmStates, scratch } });
     assert.equal(report.pagesConverted, 1);
@@ -205,5 +205,6 @@ test("paired raw HN prefix preserves independently validated mixed-image output"
     outputs.push(Buffer.concat(parts));
   }
   assert.deepEqual(outputs[0], outputs[1]);
+  assert.deepEqual(outputs[0], outputs[2]);
   await validateMultiImageHn(t, outputs[1]);
 });

@@ -2,8 +2,10 @@
 
 # HN outline field validation plan
 
-This is the current plan for [#137](https://github.com/rwv/caj2pdf-rust/issues/137),
-which supplies field evidence for the original Rust reader in #119. It replaces
+This is the completed investigation plan for
+[#137](https://github.com/rwv/caj2pdf-rust/issues/137), which supplied field
+evidence for the original Rust reader delivered in
+[#119](https://github.com/rwv/caj2pdf-rust/issues/119). It replaced
 the earlier Stage B proposal. Historical Stage A observations and failures remain
 in [their report](hnc8-outline-stage-a-results.md); no result is reclassified.
 

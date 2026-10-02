@@ -1436,3 +1436,51 @@ fn prefixed_image_only_and_cancellation_keep_the_same_bounded_contract() {
     }
     assert!(completed);
 }
+
+#[test]
+fn raw_hna_composition_decodes_only_verified_image_markers_and_keeps_inspection_raw() {
+    for (marker, x, width, expected_x, expected_width) in [
+        (0xd300_u16, 0xc014_u16, 0xc118_u16, 20, 280),
+        (0xd300, 20, 280, 20, 280),
+        (0xd301, 0xc014, 0xc118, 0xc014, 0xc118),
+        (0xd300, 0x8014, 0xc118, 0x8014, 0xc118),
+        (0xd300, 0xc014, 0x8118, 0xc014, 0x8118),
+    ] {
+        for chunk in [1, 3, 31] {
+            let mut f = prefixed_raw_fixture();
+            let image = 512 + 32;
+            f.source.bytes[image + 2..image + 4].copy_from_slice(&marker.to_le_bytes());
+            f.source.bytes[image + 4..image + 6].copy_from_slice(&x.to_le_bytes());
+            f.source.bytes[image + 8..image + 10].copy_from_slice(&width.to_le_bytes());
+            f.source.short = 2;
+            let inspected = f.normal().unwrap();
+            assert_eq!(inspected.coordinates[0].x, x);
+            assert_eq!(inspected.coordinates[0].width, width);
+            let composed = block_on(read_coordinates(
+                &mut f.source,
+                f.header,
+                f.page,
+                &Limits {
+                    io_chunk_bytes: chunk,
+                    ..Limits::default()
+                },
+                &NeverCancel,
+                TextBudget::default(),
+                ReadPurpose::Compose,
+            ))
+            .unwrap();
+            assert_eq!(
+                composed.coordinates,
+                [RawTextCoordinate {
+                    x: expected_x,
+                    y: 31,
+                    width: expected_width,
+                    height: 907,
+                }]
+            );
+            assert_eq!(composed.encoded_sha256, inspected.encoded_sha256);
+            assert_eq!(composed.decoded_sha256, inspected.decoded_sha256);
+            assert!(composed.max_source_request_bytes <= chunk);
+        }
+    }
+}
