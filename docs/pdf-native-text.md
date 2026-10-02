@@ -108,3 +108,26 @@ The expanded harness WASM SHA256 is
 it supersedes the initial positive-only harness for subsequent reruns.
 These are core cancellation/output invariants executed under WASM, not
 JavaScript adapter cleanup or host-driven asynchronous cancellation tests.
+
+## Independently deliverable foundation (#239)
+
+The font/PDF primitives are extracted from the rendering draft without changing
+its four font/text implementation and fixture files. This increment contains
+no C8/HN-B profile admission, native-origin field or format-specific style rule.
+The Rust 1.88 minimum requires mechanical Clippy updates in existing code;
+its native format behavior remains unchanged.
+
+On 2026-10-02 the extracted tree passed the full coverage gate (31489/31489
+lines), workspace all-target/all-feature Clippy, the Rust 1.88 workspace check,
+and cargo-deny licenses/sources/advisories/bans. Fresh native export passes
+qpdf, Unicode extraction and the six pixel checks above. Rebuilding the
+external core harness against the extracted tree passed Node v24.13.0 and a
+real Chromium Worker, including all four negative cases. The PDF remains
+142360 bytes with SHA256 `bc9bd48bd72ccce51d15c73f2f83ac643a369224d2657f5500c1f167b814a9fd`.
+The fresh harness WASM SHA256 is
+`5cbb113d2ce232598a62ffa78b8e5baec433a359977c94979d28cbc22fc1dc52`.
+
+Receipts are external in `caj2pdf-font-foundation-native-20261002` and
+`caj2pdf-font-foundation-runtime-20261002`. Hosted platform gates remain
+required before merging. This is core-runtime evidence for #239; production
+caller-font transport remains #252 and complete C8 rendering remains #233.
