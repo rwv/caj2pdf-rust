@@ -13,6 +13,7 @@ struct Sink {
     bytes: Vec<u8>,
     max_request: usize,
     fail_after: Option<usize>,
+    fail_on_restore: bool,
     fail_now: std::rc::Rc<std::cell::Cell<bool>>,
     pending: std::rc::Rc<std::cell::Cell<bool>>,
 }
@@ -22,7 +23,8 @@ impl SequentialSink for Sink {
             std::future::pending::<()>().await;
         }
         self.max_request = self.max_request.max(bytes.len());
-        if self.fail_now.get()
+        if (self.fail_on_restore && bytes.starts_with(b"Q\n"))
+            || self.fail_now.get()
             || self
                 .fail_after
                 .is_some_and(|limit| self.bytes.len() >= limit)
@@ -102,6 +104,11 @@ fn embedded_font_and_ordered_mixed_page_reopen() {
             .await
             .unwrap();
         content.glyph(0, '中', matrix(10.0)).await.unwrap();
+        content
+            .glyph_with_gray(0, 'A', matrix(60.0), 68)
+            .await
+            .unwrap();
+        content.glyph(0, 'A', matrix(90.0)).await.unwrap();
         assert_eq!(content.finish().await.unwrap(), 1);
         document.finish().await.unwrap()
     });
@@ -124,6 +131,10 @@ fn embedded_font_and_ordered_mixed_page_reopen() {
     let image = text.find("/Im0 Do").unwrap();
     let chinese = text.find("<4E2D> Tj").unwrap();
     assert!(a < image && image < chinese);
+    let gray = text.split("q 0.266667 g\n").nth(1).unwrap();
+    let (gray, following) = gray.split_once("Q\n").unwrap();
+    assert!(gray.contains("60 50 Tm <0041> Tj ET"));
+    assert!(following.contains("90 50 Tm <0041> Tj ET"));
     let mut pdf = SeekableSource::new(Cursor::new(sink.bytes.clone())).unwrap();
     let size = pdf.size();
     let index = run(crate::pdf::PdfIndex::open(
@@ -235,11 +246,14 @@ fn invalid_polygons_and_output_failure_poison_the_content_page() {
 
 #[test]
 fn failed_or_abandoned_content_cannot_be_finished() {
-    for case in 0..8 {
+    for case in 0..9 {
         let mut source = SeekableSource::new(Cursor::new(drawing_font())).unwrap();
         let limits = Limits::default();
         let mut font = run(TrueTypeFont::read(&mut source, &limits, &NEVER)).unwrap();
-        let mut sink = Sink::default();
+        let mut sink = Sink {
+            fail_on_restore: case == 8,
+            ..Sink::default()
+        };
         run(async {
             let mut document = PdfDocument::new(&mut sink, &limits, &NEVER).await.unwrap();
             let font = document.add_font(&mut font).await.unwrap();
@@ -260,6 +274,7 @@ fn failed_or_abandoned_content_cannot_be_finished() {
                 }
                 5 => content.segment([0.0, 0.0], [1.0, 1.0], -1.0).await,
                 6 => content.segment([f64::INFINITY, 0.0], [1.0, 1.0], 1.0).await,
+                8 => content.glyph_with_gray(0, 'A', matrix(0.0), 68).await,
                 _ => {
                     content.failed = true;
                     content.glyph(0, 'A', matrix(0.0)).await
@@ -469,7 +484,14 @@ fn cancellation_and_abandoned_draws_cannot_publish_a_partial_page() {
             self.0.get()
         }
     }
-    for (pending, polygon) in [(false, false), (true, false), (false, true), (true, true)] {
+    for (pending, kind) in [
+        (false, 0),
+        (true, 0),
+        (false, 1),
+        (true, 1),
+        (false, 2),
+        (true, 2),
+    ] {
         let mut source = FontSource::new();
         let limits = Limits::default();
         let mut font = run(TrueTypeFont::read(&mut source, &limits, &NEVER)).unwrap();
@@ -482,9 +504,11 @@ fn cancellation_and_abandoned_draws_cannot_publish_a_partial_page() {
         let fonts = [&font];
         let mut page = run(document.begin_content_page(page(), &fonts, &[])).unwrap();
         let draw = async {
-            if polygon {
+            if kind == 1 {
                 page.fill_polygon(&[[10.0, 10.0], [30.0, 10.0], [20.0, 30.0]])
                     .await
+            } else if kind == 2 {
+                page.glyph_with_gray(0, 'A', matrix(10.0), 68).await
             } else {
                 page.glyph(0, 'A', matrix(10.0)).await
             }

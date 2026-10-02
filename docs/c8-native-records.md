@@ -752,6 +752,33 @@ and `field7-heldout.tsv`. The original diagnostic writer is
 `caj2pdf-c8-render-preview-20261001/src/bin/candidate_geometry.rs`. No external
 font outlines, source text or screenshots enter the repository.
 
+### Glyph gray level and writer support
+
+A follow-up public FreeType trace on the same original field-7 fonts reports
+maximum bitmap coverage 255 with 256 gray levels. The instrumented source
+crop is byte-identical to the earlier capture, whose uniform glyph interiors
+are RGB 68/68/68. The retained original `c8-axis-reference-5` print raster also
+has that interior gray level (867,306 pixels); therefore the difference cannot
+be dismissed as screen-only behavior. This does not infer a general color rule
+for every native profile or unknown style.
+
+`ContentPageWriter::glyph_with_gray` now supplies a local DeviceGray value,
+with zero black and 255 white. It shares font lookup, glyph validation and
+streaming text output with `glyph`, restoring graphics state after the draw.
+The writer itself contains no C8-specific gray constant. Original mixed-page
+tests cover short writes, a gray glyph followed by a black glyph, cancellation,
+abandoned draws and failure while restoring graphics state. The independent
+qpdf/MuPDF export renders RGB 68/68/68 for the gray glyph and 0/0/0 for the next
+glyph. Existing plain glyph calls retain their output representation.
+
+The held-out candidate PDF now uses gray 68. In the pinned viewer, source and
+PDF glyph interiors agree at 68/68/68 and each page crop repeats identically.
+The unaligned full-page crops still differ at 13,656 pixels, including page
+frame and glyph edges. Color preservation is implemented; geometry and full
+native conversion acceptance remain open. Receipts are external under
+`caj2pdf-c8-gray-20261002` and
+`caj2pdf-c8-anchor-ft-metrics-20261002/field7-gray-result.json`.
+
 ## Independent size fields and original glyph anchors (#240)
 
 The style fixture generator now reproduces eight original `axis-*` controls:

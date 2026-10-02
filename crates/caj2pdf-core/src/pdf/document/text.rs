@@ -277,6 +277,29 @@ impl<W: SequentialSink, C: Cancellation> ContentPageWriter<'_, '_, '_, W, C> {
     /// Font size is one; matrix scales are in PDF points per em. For example,
     /// `[12, 0, 0, 12, x, y]` draws an upright 12-point glyph at its baseline.
     pub async fn glyph(&mut self, font: usize, character: char, transform: [f64; 6]) -> Result<()> {
+        self.draw_glyph(font, character, transform, None).await
+    }
+
+    /// Draw a glyph in DeviceGray: zero is black and 255 is white.
+    /// The color is local to this glyph; later content retains its prior color.
+    pub async fn glyph_with_gray(
+        &mut self,
+        font: usize,
+        character: char,
+        transform: [f64; 6],
+        gray: u8,
+    ) -> Result<()> {
+        self.draw_glyph(font, character, transform, Some(gray))
+            .await
+    }
+
+    async fn draw_glyph(
+        &mut self,
+        font: usize,
+        character: char,
+        transform: [f64; 6],
+        gray: Option<u8>,
+    ) -> Result<()> {
         self.start_draw()?;
         let resource = self.fonts.get(font).ok_or(Error::InvalidInput {
             reason: "PDF page font index is out of range",
@@ -287,6 +310,12 @@ impl<W: SequentialSink, C: Cancellation> ContentPageWriter<'_, '_, '_, W, C> {
             });
         }
         let matrix = DecimalMatrix::new(transform)?;
+        if let Some(gray) = gray {
+            self.document
+                .writer
+                .write_stream_bytes(format!("q {:.6} g\n", f64::from(gray) / 255.0).as_bytes())
+                .await?;
+        }
         self.document
             .writer
             .write_stream_bytes(format!("BT /F{font} 1 Tf\n").as_bytes())
@@ -299,6 +328,9 @@ impl<W: SequentialSink, C: Cancellation> ContentPageWriter<'_, '_, '_, W, C> {
             .writer
             .write_stream_bytes(format!(" Tm <{:04X}> Tj ET\n", character as u32).as_bytes())
             .await?;
+        if gray.is_some() {
+            self.document.writer.write_stream_bytes(b"Q\n").await?;
+        }
         self.failed = false;
         Ok(())
     }

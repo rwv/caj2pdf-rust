@@ -2214,3 +2214,13 @@ outlines. The existing original geometric fonts and pinned offline viewer
 provide the observations recorded in `c8-native-records.md`; generated inputs,
 font binaries and captures stay outside Git. These controls refine the #240
 baseline investigation and do not establish complete C8 rendering.
+
+### Scoped grayscale text
+
+The grayscale glyph writer reuses the original font/content implementation
+and PDF graphics-state/DeviceGray operators. Original rectangle/triangle fonts
+verify color isolation, short writes and failed-output poisoning. The C8
+reference observations use only generated geometric fonts and authored controls;
+the public FreeType shim records bitmap statistics, not bitmap or outline data.
+The separately retained original print raster supplies appearance evidence.
+No external source code, fonts, spools or screenshots are included in Git.

@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Add scoped grayscale glyph output to the streaming PDF content writer.
+  Native C8/HN-B conversion remains under development.
+
 - **Breaking:** frame admitted C8 `8006` and `8010/1` drawings as 12-byte records and
   preserve following `ffff/5` controls independently. Raw visitor event counts
   change; following position/style/end records are no longer consumed as footers.
