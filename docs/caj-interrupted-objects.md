@@ -265,3 +265,27 @@ in the independent byte inventory; this does not establish irrecoverability.
 The fresh release WASM build and 41 Node/Chromium tests pass without skips.
 Re-running issue-92 with this change produces the identical PDF SHA256 recorded
 above and again passes qpdf, preserving the first complete-source result.
+
+### Later complete headers and already indexed lengths
+
+The deferred proof now accepts an unfinished header consisting solely of an
+object number, or an object number plus generation zero. It keeps the existing
+64-byte header budget, accepts only a normal next-object boundary within the
+same three adjacent lexical positions, and requires the complete scan to find
+an exact later same-reference object. Missing, conflicting or stream-embedded
+counterparts remain errors. Arbitrary broken keywords are not admitted.
+
+For an indirect Length whose filter cannot be independently framed, the scanner
+can use a scalar object already parsed from the fragment. It still checks the
+stream tail, rejects conflicting duplicate objects, and verifies the final
+resolved Length. It does not scan opaque payloads for markers or implement a
+new filter decoder. A future unresolved scalar retains an unsupported error.
+
+These rules advance unchanged issue-30 past the unfinished 7422 header and
+ASCII85 stream object 15417 (referencing already parsed Length 15420 = 986).
+The next failure is byte 1206814: a 15431 header cut inside `obj`. A complete
+15431 header exists at 1271891, but that observation is not yet an admitted
+rule. No final PDF is produced. Evidence is retained externally in
+`issue-30-header-and-length.json`. Original negative fixtures cover missing or
+conflicting counterparts, nonzero generations, invalid keywords, hidden objects
+in streams, bad lengths and unresolved future lengths.

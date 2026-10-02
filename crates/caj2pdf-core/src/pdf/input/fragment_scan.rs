@@ -129,7 +129,8 @@ pub(crate) async fn scan_fragment_objects<S: RangedSource, C: Cancellation>(
 /// Scan indirect objects with the existing PDF syntax parser, advancing over
 /// stream payloads by `/Length` rather than searching them for object markers.
 /// Supported indirect lengths are measured from zlib, JPEG or Group-4 framing
-/// and verified against the referenced scalar after indexing.
+/// and verified against the referenced scalar after indexing. Other filters
+/// may use an already parsed scalar, with normal tail and duplicate checks.
 /// A narrowly bounded repair accepts a unique nearby `endstream`/`endobj`
 /// delimiter when a direct length is understated. An ambiguous marker is an
 /// error. Bytes after the complete final object are excluded from the plan.
@@ -292,14 +293,15 @@ pub(crate) async fn scan_fragment_with_candidates<S: RangedSource, C: Cancellati
                             )
                             .await
                         }
-                        _ => {
-                            return Err(reader.problem(
+                        _ => lengths
+                            .iter()
+                            .find_map(|(reference, value)| (*reference == target).then_some(*value))
+                            .ok_or_else(|| reader.problem(
                                 start,
                                 Some(reference),
                                 PdfErrorKind::UnsupportedFeature,
-                                "indirect CAJ stream Length requires a supported framed filter",
-                            ));
-                        }
+                                "indirect CAJ stream Length requires a known scalar or supported framed filter",
+                            )),
                     };
                     let length = match measured {
                         Ok(length) => length,
@@ -587,14 +589,20 @@ async fn interrupted_syntax_prefix<S: RangedSource, C: Cancellation>(
     let Error::Pdf {
         offset,
         reason:
-            "expected PDF name" | "invalid PDF value token" | "PDF object lacks endobj or stream",
+            reason @ ("expected PDF name"
+            | "invalid PDF value token"
+            | "PDF object lacks endobj or stream"
+            | "unexpected PDF keyword"),
         ..
     } = error
     else {
         return Ok(None);
     };
     let mut end = offset.saturating_sub(reader.range.offset);
-    if end <= start || end - start > 256 {
+    if end <= start
+        || end - start > 256
+        || (*reason == "unexpected PDF keyword" && end - start > 64)
+    {
         return Ok(None);
     }
     // A dictionary cut between the two closing brackets reports its first
@@ -628,6 +636,19 @@ async fn interrupted_syntax_prefix<S: RangedSource, C: Cancellation>(
         let prefix = bytes[..boundary].trim_ascii_end();
         match reader.load_head(start + boundary as u64, None).await {
             Ok(_) => {
+                if *reason == "unexpected PDF keyword" {
+                    let mut fields = prefix
+                        .split(u8::is_ascii_whitespace)
+                        .filter(|field| !field.is_empty());
+                    let number = fields.next().and_then(exact_unsigned);
+                    let generation = fields.next();
+                    if number != Some(u64::from(reference.number))
+                        || !matches!(generation, None | Some(b"0"))
+                        || fields.next().is_some()
+                    {
+                        return Ok(None);
+                    }
+                }
                 return Ok(Some((
                     start + boundary as u64,
                     FragmentObject {
@@ -2118,6 +2139,58 @@ mod candidate_tests {
             b"7 0 obj << /Box [1 3\n8 0 obj 42 endobj\n7 0 obj << /Box [1 4 9] >> endobj\n"
                 .to_vec();
         assert!(scan(changed, &mut []).is_err());
+    }
+
+    #[test]
+    fn prior_indirect_lengths_frame_opaque_streams_without_searching_payloads() {
+        let payload = b"opaque endstream endobj 99 0 obj";
+        let mut bytes = format!(
+            "2 0 obj {} endobj\n1 0 obj << /Length 2 0 R /Filter /ASCII85Decode >> stream\n",
+            payload.len()
+        )
+        .into_bytes();
+        bytes.extend_from_slice(payload);
+        bytes.extend_from_slice(b"\nendstream\nendobj\n");
+        assert_eq!(scan(bytes.clone(), &mut []).unwrap().objects.len(), 2);
+        bytes.extend_from_slice(b"2 0 obj 1 endobj\n");
+        assert!(scan(bytes, &mut []).is_err());
+        for bytes in [
+            b"2 0 obj 1 endobj\n1 0 obj << /Length 2 0 R /Filter /ASCII85Decode >> stream\nlong\nendstream\nendobj\n".as_slice(),
+            b"1 0 obj << /Length 2 0 R /Filter /ASCII85Decode >> stream\nx\nendstream\nendobj\n2 0 obj 1 endobj\n",
+        ] {
+            assert!(scan(bytes.to_vec(), &mut []).is_err());
+        }
+    }
+
+    #[test]
+    fn unfinished_headers_require_a_real_later_object() {
+        for prefix in ["7", "7 0"] {
+            let bytes = format!("{prefix}\n8 0 obj 42 endobj\n7 0 obj << /Value 19 >> endobj\n")
+                .into_bytes();
+            let result = scan(bytes, &mut []).unwrap();
+            assert_eq!(
+                result
+                    .objects
+                    .iter()
+                    .map(|object| object.reference.number)
+                    .collect::<Vec<_>>(),
+                [8, 7]
+            );
+        }
+        for bytes in [
+            "7\n8 0 obj 42 endobj\n",
+            "7 1\n8 0 obj 42 endobj\n7 0 obj 19 endobj\n",
+            "7 0 nonsense\n8 0 obj 42 endobj\n7 0 obj 19 endobj\n",
+            "7\n8 0 obj 42 endobj\n7 0 obj 19 endobj\n7 0 obj 20 endobj\n",
+            "7 0\n8 0 obj 42 endobj\n7 1 obj 19 endobj\n",
+        ] {
+            assert!(scan(bytes.as_bytes().to_vec(), &mut []).is_err(), "{bytes}");
+        }
+        let payload = b"7 0 obj 19 endobj";
+        let mut fake = format!("7\n8 0 obj << /Length {} >> stream\n", payload.len()).into_bytes();
+        fake.extend_from_slice(payload);
+        fake.extend_from_slice(b"\nendstream\nendobj\n");
+        assert!(scan(fake, &mut []).is_err());
     }
 
     #[test]
