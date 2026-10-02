@@ -166,6 +166,7 @@ pub(crate) async fn scan_fragment_with_candidates<S: RangedSource, C: Cancellati
     let mut patches = Vec::new();
     let mut lengths = Vec::new();
     let mut pending_lengths = Vec::new();
+    let mut pending_prefixes = Vec::new();
     let mut cursor = 0_u64;
     let mut final_object_repaired = false;
     let minimum_relative = minimum_end - body_start;
@@ -204,11 +205,33 @@ pub(crate) async fn scan_fragment_with_candidates<S: RangedSource, C: Cancellati
                     cursor = end;
                     continue;
                 }
-                if let Some(end) = adjacent_header_end(&mut reader, start, &error).await? {
+                if let Some(end) = adjacent_header_end(&mut reader, start, &error, &objects).await?
+                {
                     cursor = end;
                     continue;
                 }
                 if let Some(end) = candidate_prefix_end(&mut reader, start, candidates).await? {
+                    cursor = end;
+                    continue;
+                }
+                if let Some((end, prefix)) =
+                    interrupted_syntax_prefix(&mut reader, start, &error).await?
+                {
+                    if candidates
+                        .iter()
+                        .filter(|candidate| candidate.object.reference == prefix.reference)
+                        .nth(1)
+                        .is_some()
+                    {
+                        return Err(error);
+                    }
+                    let count = next_object_count(pending_prefixes.len())?;
+                    let allocation = (count as u64) * std::mem::size_of::<FragmentObject>() as u64;
+                    limits.check_allocation(allocation)?;
+                    let refused =
+                        limits.allocation_refused("CAJ interrupted prefix index", allocation);
+                    reserve(&mut pending_prefixes, 1, refused)?;
+                    pending_prefixes.push(prefix);
                     cursor = end;
                     continue;
                 }
@@ -501,6 +524,41 @@ pub(crate) async fn scan_fragment_with_candidates<S: RangedSource, C: Cancellati
         }
     }
     objects.truncate(kept);
+    for prefix in pending_prefixes {
+        let original = objects
+            .binary_search_by_key(&prefix.reference, |object| object.reference)
+            .ok()
+            .map(|index| objects[index]);
+        let failure = reader.problem(
+            prefix.range.offset - body_start,
+            Some(prefix.reference),
+            PdfErrorKind::Malformed,
+            "interrupted prefix has no exact complete counterpart",
+        );
+        let Some(original) = original else {
+            return Err(failure);
+        };
+        if original.range.offset <= prefix.range.offset
+            || prefix.range.length >= original.range.length
+        {
+            return Err(failure);
+        }
+        let partial = reader
+            .bytes(
+                prefix.range.offset - body_start,
+                prefix.range.length as usize,
+            )
+            .await?;
+        let complete = reader
+            .bytes(
+                original.range.offset - body_start,
+                prefix.range.length as usize,
+            )
+            .await?;
+        if partial != complete {
+            return Err(failure);
+        }
+    }
     objects.sort_unstable_by_key(|object| object.range.offset);
     let scan = FragmentScan {
         objects,
@@ -517,6 +575,66 @@ pub(crate) async fn scan_fragment_with_candidates<S: RangedSource, C: Cancellati
         }
     }
     Ok(scan)
+}
+
+/// Defer a short syntax interruption until the complete scan can prove its
+/// exact counterpart. The parser supplies the sole boundary; no marker search.
+async fn interrupted_syntax_prefix<S: RangedSource, C: Cancellation>(
+    reader: &mut Reader<'_, S, C>,
+    start: u64,
+    error: &Error,
+) -> Result<Option<(u64, FragmentObject)>> {
+    let Error::Pdf {
+        offset,
+        reason:
+            "expected PDF name" | "invalid PDF value token" | "PDF object lacks endobj or stream",
+        ..
+    } = error
+    else {
+        return Ok(None);
+    };
+    let end = offset.saturating_sub(reader.range.offset);
+    if end <= start || end - start > 256 {
+        return Ok(None);
+    }
+    let bytes = reader.bytes(start, (end - start) as usize).await?;
+    let Some((reference, _)) = replay_prefix(&bytes) else {
+        return Ok(None);
+    };
+    let mut boundary = bytes.len();
+    // An array/value parser can consume the first one or two numeric fields
+    // of the next `number generation obj` header before rejecting `obj`.
+    // Try only these adjacent lexical boundaries, never search later bytes.
+    for _ in 0..3 {
+        if boundary == 0 {
+            break;
+        }
+        let prefix = bytes[..boundary].trim_ascii_end();
+        match reader.load_head(start + boundary as u64, None).await {
+            Ok(_) => {
+                return Ok(Some((
+                    start + boundary as u64,
+                    FragmentObject {
+                        reference,
+                        range: PdfRange {
+                            offset: reader.range.offset + start,
+                            length: prefix.len() as u64,
+                        },
+                    },
+                )));
+            }
+            Err(Error::Pdf {
+                kind: PdfErrorKind::Malformed,
+                ..
+            }) => {}
+            Err(error) => return Err(error),
+        }
+        boundary = prefix
+            .iter()
+            .rposition(u8::is_ascii_whitespace)
+            .map_or(0, |index| index + 1);
+    }
+    Ok(None)
 }
 
 /// Compare an interrupted object with a uniquely indexed later copy. A
@@ -587,11 +705,13 @@ async fn candidate_prefix_end<S: RangedSource, C: Cancellation>(
 }
 
 /// Admit only an unfinished `number 0` header immediately followed by its
-/// complete same-reference object. No object body is discarded or searched.
+/// complete same-reference object, or exactly repeating an already indexed
+/// header. No object body is discarded or searched.
 async fn adjacent_header_end<S: RangedSource, C: Cancellation>(
     reader: &mut Reader<'_, S, C>,
     start: u64,
     error: &Error,
+    objects: &[FragmentObject],
 ) -> Result<Option<u64>> {
     let Error::Pdf {
         offset,
@@ -617,18 +737,30 @@ async fn adjacent_header_end<S: RangedSource, C: Cancellation>(
         return Ok(None);
     }
     let head = reader.load_head(end, None).await?;
-    if number != Some(u64::from(head.reference.number))
-        || head.reference.generation != 0
-        || !head.bytes.starts_with(prefix)
+    if number == Some(u64::from(head.reference.number))
+        && head.reference.generation == 0
+        && head.bytes.starts_with(prefix)
     {
+        return Ok(Some(end));
+    }
+    let mut matches = objects.iter().filter(|object| {
+        number == Some(u64::from(object.reference.number)) && object.reference.generation == 0
+    });
+    let Some(original) = matches.next() else {
+        return Ok(None);
+    };
+    if matches.next().is_some() {
         return Ok(None);
     }
-    Ok(Some(end))
+    let original_prefix = reader
+        .bytes(original.range.offset - reader.range.offset, prefix.len())
+        .await?;
+    Ok((original_prefix == prefix).then_some(end))
 }
 
 /// A dictionary-key or value error can identify an interrupted duplicate header.
-/// Only discard a bounded exact prefix of one already validated non-stream
-/// dictionary. Its exact shared prefix and trailing whitespace supply the
+/// Only discard a bounded exact dictionary prefix of one already validated
+/// object, including stream dictionaries before their payload. Its exact shared prefix and trailing whitespace supply the
 /// boundary without a marker search. The main loop must then parse a complete
 /// next object and validate all links.
 async fn dictionary_prefix_end<S: RangedSource, C: Cancellation>(
@@ -667,9 +799,7 @@ async fn dictionary_prefix_end<S: RangedSource, C: Cancellation>(
     }
     let original_start = original.range.offset - reader.range.offset;
     let original_head = reader.load_head(original_start, Some(reference)).await?;
-    if original_head.dictionary.is_none()
-        || !matches!(original_head.tail, ObjectTail::EndObject { .. })
-    {
+    if original_head.dictionary.is_none() {
         return Ok(None);
     }
     let shared = bytes
@@ -686,6 +816,7 @@ async fn dictionary_prefix_end<S: RangedSource, C: Cancellation>(
     // for a later marker. The suffix must parse as a new indirect object;
     // changing a value alone cannot make an arbitrary suffix into an object.
     if shared as u64 >= original.range.length
+        || matches!(original_head.tail, ObjectTail::Stream { data_start } if shared >= data_start)
         || !bytes.get(boundary).is_some_and(u8::is_ascii_digit)
     {
         return Ok(None);
@@ -1230,7 +1361,6 @@ mod tests {
             (b"1 0 obj\n<<\n/Length\n", b"2 0 obj\n2\nendobj"),
             (b"1 0 obj\n<<\n/Length\n", b"2 0 obj\nnull\nendobj"),
             (b"1 0 obj\n<<\n/Length\n", b"2 0 obj 1\nendobj"),
-            (b"1 0 obj\n<<\n/Length\n", b"4 0 obj\n1\nendobj"),
             (b"1 0 obj\n<<\n/Length\n", b"2 0 obj\n1\nendobjJUNK"),
         ] {
             let bytes = replay_fixture(prefix, scalar);
@@ -1354,6 +1484,78 @@ mod tests {
     }
 
     #[test]
+    fn interrupted_length_prefixes_preserve_intervening_objects() {
+        let jpeg = [0xff, 0xd8, 0xff, 0xda, 0, 2, 7, 0xff, 0xd9];
+        for (prefix, following, final_scalar, succeeds) in [
+            (
+                "2 0 obj 9",
+                "3 0 obj 15336 endobj",
+                "2 0 obj 9 endobj",
+                true,
+            ),
+            (
+                "2 0 obj 9",
+                "3 0 obj 15336 endobj",
+                "2 0 obj 8 endobj",
+                false,
+            ),
+            ("2 0 obj 9", "3 0 obj 15336 endobj", "", false),
+            (
+                "2 0 obj 8",
+                "3 0 obj 15336 endobj",
+                "2 0 obj 9 endobj",
+                false,
+            ),
+            (
+                "2 1 obj 9",
+                "3 0 obj 15336 endobj",
+                "2 0 obj 9 endobj",
+                false,
+            ),
+            (
+                "2 0 obj 9 extra",
+                "3 0 obj 15336 endobj",
+                "2 0 obj 9 endobj",
+                false,
+            ),
+            (
+                "2 0 obj 9",
+                "3 0 obj << /Broken @ >> endobj",
+                "2 0 obj 9 endobj",
+                false,
+            ),
+        ] {
+            let mut bytes = b"1 0 obj\n<< /Filter /DCTDecode /Length 2 0 R >>\nstream\n".to_vec();
+            bytes.extend_from_slice(&jpeg);
+            bytes.extend_from_slice(
+                format!("\nendstream\nendobj\n{prefix}\n{following}\n{final_scalar}\n").as_bytes(),
+            );
+            let result = scan_bytes(bytes);
+            assert_eq!(
+                result.is_ok(),
+                succeeds,
+                "{prefix}, {following}, {final_scalar}"
+            );
+            if let Ok(scan) = result {
+                assert_eq!(
+                    scan.objects
+                        .iter()
+                        .map(|o| o.reference.number)
+                        .collect::<Vec<_>>(),
+                    [1, 3, 2]
+                );
+                assert_eq!(
+                    scan.resolve_length(PdfRef {
+                        number: 3,
+                        generation: 0
+                    }),
+                    Some(15336)
+                );
+            }
+        }
+    }
+
+    #[test]
     fn compacts_identical_complete_objects_and_keeps_source_order() {
         let first = b"3 0 obj\nnull\nendobj\n2 0 obj\n7\nendobj\n";
         let mut bytes = first.to_vec();
@@ -1432,6 +1634,30 @@ mod tests {
     }
 
     #[test]
+    fn unfinished_headers_require_a_unique_identical_known_header() {
+        for (prior, prefix, succeeds) in [
+            ("7 0 obj 11 endobj\n", "7 0", true),
+            ("7 0 obj << /Original 19 >> endobj\n", "7 0", true),
+            ("7 0 obj 11 endobj\n", "7\t0", false),
+            ("6 0 obj 11 endobj\n", "7 0", false),
+            ("7 0 obj 11 endobj\n7 0 obj 11 endobj\n", "7 0", false),
+        ] {
+            let bytes = format!("{prior}{prefix}\n8 0 obj << /Next 23 >> endobj\n").into_bytes();
+            let result = scan_bytes(bytes);
+            assert_eq!(result.is_ok(), succeeds, "{prior:?}, {prefix:?}");
+            if let Ok(scan) = result {
+                assert_eq!(
+                    scan.objects
+                        .iter()
+                        .map(|o| o.reference.number)
+                        .collect::<Vec<_>>(),
+                    [7, 8]
+                );
+            }
+        }
+    }
+
+    #[test]
     fn recovers_known_dictionary_prefix_at_the_syntax_error_boundary() {
         let original = b"1 0 obj<< /A 7 /B << /C 9 >> >>endobj\n";
         for prefix in [
@@ -1478,18 +1704,38 @@ mod tests {
     }
 
     #[test]
-    fn dictionary_prefix_recovery_requires_an_exact_prior_nonstream_dictionary() {
+    fn dictionary_prefix_recovery_requires_exact_prior_dictionary_bytes() {
         for bytes in [
             b"1 0 obj<< /A 7 >>endobj\n1 0 obj<< /A 8\n2 0 obj<<>>endobj\n".as_slice(),
             b"1 0 obj<< /A 7 >>endobj\n3 0 obj<<\n2 0 obj<<>>endobj\n",
             b"1 0 obj<< /A 7 /Bee 9 >>endobj\n1 0 obj<< /A 7 /Boo 9\n2 0 obj<<>>endobj\n",
             b"4294967296 0 obj<<\n2 0 obj<<>>endobj\n",
-            b"1 0 obj<< /Length 1 >>stream\nx\nendstream\nendobj\n1 0 obj<<\n2 0 obj<<>>endobj\n",
             b"1 0 obj<< /A 7 >>endobj\n1 0 obj<<\n2 0 R\n",
             b"1 0 obj<< /A (literal) >>endobj\n1 0 obj<< /A (literal\n2 0 obj<<>>endobj\n",
         ] {
             assert!(scan_bytes(bytes.to_vec()).is_err());
         }
+    }
+
+    #[test]
+    fn a_known_stream_dictionary_prefix_does_not_discard_its_payload() {
+        let original = b"1 0 obj<< /Length 1 >>stream\nx\nendstream\nendobj\n";
+        let mut bytes = original.to_vec();
+        bytes.extend_from_slice(b"1 0 obj<< /Length\n2 0 obj<< /Next 7 >>endobj\n");
+        let scan = scan_bytes(bytes).unwrap();
+        assert_eq!(scan.objects.len(), 2);
+        assert_eq!(scan.objects[0].range.offset, 0);
+        assert_eq!(scan.objects[0].range.length, original.len() as u64 - 1);
+        assert_eq!(scan.objects[1].reference.number, 2);
+        let bytes = replay_fixture(b"1 0 obj\n<<\n/Length\n", b"4 0 obj\n1\nendobj");
+        let scan = scan_bytes(bytes).unwrap();
+        assert_eq!(
+            scan.objects
+                .iter()
+                .map(|o| o.reference.number)
+                .collect::<Vec<_>>(),
+            [1, 2, 4, 3]
+        );
     }
 
     #[test]
@@ -1821,6 +2067,72 @@ mod candidate_tests {
         bytes.extend_from_slice(&complete);
         assert_eq!(scan(bytes, &mut candidates).unwrap().objects.len(), 2);
         assert!(candidates[0].used);
+    }
+
+    #[test]
+    fn deferred_prefixes_require_real_later_counterparts() {
+        let bytes = [PREFIX, NEXT, ORIGINAL].concat();
+        assert_eq!(scan(bytes, &mut []).unwrap().objects.len(), 2);
+        let bytes = b"7 0 obj << /Box [1 3\n8 0 obj 42 endobj\n7 0 obj << /Box [1 3 9] >> endobj\n"
+            .to_vec();
+        assert_eq!(scan(bytes, &mut []).unwrap().objects.len(), 2);
+        let mut fake = PREFIX.to_vec();
+        fake.extend_from_slice(
+            format!("8 0 obj << /Length {} >> stream\n", ORIGINAL.len()).as_bytes(),
+        );
+        fake.extend_from_slice(ORIGINAL);
+        fake.extend_from_slice(b"\nendstream\nendobj\n");
+        assert!(matches!(
+            scan(fake, &mut []),
+            Err(Error::Pdf {
+                reason: "interrupted prefix has no exact complete counterpart",
+                ..
+            })
+        ));
+        let changed =
+            b"7 0 obj << /Box [1 3\n8 0 obj 42 endobj\n7 0 obj << /Box [1 4 9] >> endobj\n"
+                .to_vec();
+        assert!(scan(changed, &mut []).is_err());
+    }
+
+    #[test]
+    fn deferred_boundary_probe_preserves_syntax_limits() {
+        fn probe(
+            bytes: Vec<u8>,
+            boundary: u64,
+            limit: u64,
+        ) -> Result<Option<(u64, FragmentObject)>> {
+            let size = bytes.len() as u64;
+            let mut source = SeekableSource::new(Cursor::new(bytes)).unwrap();
+            let limits = Limits {
+                max_allocation_bytes: limit,
+                io_chunk_bytes: 1,
+                ..Limits::default()
+            };
+            let mut reader = Reader::new(
+                &mut source,
+                PdfRange {
+                    offset: 0,
+                    length: size,
+                },
+                &limits,
+                &NEVER,
+            )
+            .unwrap();
+            let error = reader.malformed(boundary, None, "expected PDF name");
+            run(interrupted_syntax_prefix(&mut reader, 0, &error))
+        }
+        // A short, malformed header cannot create a pending object or loop
+        // when walking back to the first token exhausts the prefix.
+        assert!(probe(b"7 ?".to_vec(), 2, 4096).unwrap().is_none());
+        let mut bytes = PREFIX.to_vec();
+        bytes.extend_from_slice(b"8 0 obj << /Long (");
+        bytes.extend_from_slice(&[b'A'; 2000]);
+        bytes.extend_from_slice(b") >> endobj");
+        assert!(matches!(
+            probe(bytes, PREFIX.len() as u64, 4096),
+            Err(Error::PdfLimitExceeded { .. })
+        ));
     }
 
     #[test]

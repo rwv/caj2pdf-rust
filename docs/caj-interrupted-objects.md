@@ -2,8 +2,11 @@
 
 # Interrupted CAJ PDF objects
 
-Tracking: #226. This work does not yet complete conversion of the six failed
-baseline sources. Source files and diagnostic mutations remain outside Git.
+Tracking: #226. Issue-92 now converts all 58 pages and passes PDF structure,
+page-order and rasterization checks; independent viewer comparison is NOT_RUN.
+The other five baseline sources remain unsupported. Source files and diagnostic
+mutations remain outside Git. Earlier sections retain the investigation history;
+the latest result is recorded at the end.
 
 ## Measured prefixes
 
@@ -47,7 +50,7 @@ object, including cuts after an opening dictionary, inside a key and between
 closing brackets, plus cuts at and within an array. Negative controls cover altered data, unknown/overflowing
 object IDs, streams, literals and non-object suffixes.
 
-## Current real-source result
+## Initial real-source result (historical)
 
 The original issue-92 source passes its interrupted dictionary prefixes with
 this rule, then stops at byte 288441, object 186, because stream Length has no
@@ -200,3 +203,42 @@ zero skipped, including a Dedicated Worker later-copy success and changed-prefix
 rejection. Their original outputs pass the existing qpdf check. These results
 validate the recovery mechanism and adapters; the six external failures above
 remain open, and hosted platform gates are still required before merge.
+
+## Deferred syntax proof and first complete source
+
+A short interrupted dictionary, array or scalar can now be deferred until the
+complete forward scan proves a later same-reference counterpart. The boundary
+comes from the syntax error, or at most two immediately preceding lexical
+tokens when parsing consumed the next object's numeric header. It never searches
+ahead for object markers. Only reference/range metadata is retained; each prefix
+is at most 256 bytes. Before acceptance, the prefix must match the complete
+object byte for byte, excluding only trailing ASCII whitespace. Existing
+duplicate checks reject conflicting complete copies. Stream-embedded fake
+objects cannot satisfy this proof, and indirect Length verification still runs.
+
+A repeated unfinished `number 0` header can also use a unique already indexed
+object with an identical header prefix. A known dictionary prefix may belong to
+a stream object only when the interruption remains inside its dictionary, before
+payload bytes; the entire previously validated stream is preserved. These rules
+are covered by original controls for changed bytes, absent counterparts, malformed
+following syntax, stream-embedded decoys and propagated resource limits.
+
+On the original issue-92 input (SHA256
+`49be4cec9ac6334b02355b30785407b9c9048bf1cf392cf470e670349dc51f50`),
+the implementation produces a 633,831-byte PDF with SHA256
+`853491f2e51ce91da80e8498b3223dbc29e2ac98a0d39229bb92ffc99eb24892`.
+`qpdf --check` succeeds; all 58 output page object IDs match the ordered source
+page-table IDs, and MuPDF renders all 58 pages. This is complete conversion and
+structural evidence, not a claim that every page has been visually verified.
+CAJViewer comparison remains **NOT_RUN**. External receipts and renders are in
+`caj2pdf-caj-candidate-recovery-20261002`, including
+`issue-92-first-complete-check.json`.
+
+Issue-25 still fails at 466247 (unfinished header); issue-30 at 463864
+(dictionary syntax). Issue-39, Mingtang issue-85 and issue-90 retain their prior
+failures. None is declared irrecoverable solely because this implementation
+still rejects it. #226 remains open for those cases and independent content
+validation. The 41 Node/Chromium tests pass without skips against freshly built
+WASM, including original fixtures that require anchored stream recovery as well
+as deferred dictionary proof. Hosted CI and the final reviewed commit remain
+separate release gates.

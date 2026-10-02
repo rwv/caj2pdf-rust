@@ -1752,6 +1752,9 @@ fn later_page_anchor_recovers_a_dictionary_without_changing_output() {
             "<< /Type /Page /Parent 9 0 R /MediaBox [0 0 90 120] /Resources << >> /Probe 7 0 R >>",
         );
         body.extend_from_slice(prefix);
+        if !prefix.is_empty() {
+            body.extend_from_slice(b"8 0 obj\n<< /Length 600 >>\nstream\nZZZZZ\n");
+        }
         let split = body.len();
         object(
             &mut body,
@@ -1759,6 +1762,11 @@ fn later_page_anchor_recovers_a_dictionary_without_changing_output() {
             "<< /Type /Page /Parent 9 0 R /MediaBox [0 0 120 90] /Resources << >> /Probe 7 0 R >>",
         );
         object(&mut body, 7, "<< /Type /Example /Values [3 9] >>");
+        object(
+            &mut body,
+            8,
+            &format!("<< /Length 600 >>\nstream\n{}\nendstream", "Z".repeat(600)),
+        );
         let mut bytes = fragment_caj(&body, &[1, anchor_id]);
         let body_start = 0x400 + 2 * 12;
         put_u32(&mut bytes, 0x404, split as u32);
@@ -1788,7 +1796,13 @@ fn later_page_anchor_recovers_a_dictionary_without_changing_output() {
     malformed_anchor[end - 7..end - 1].copy_from_slice(b"broken");
     rejected_without_output(&malformed_anchor, &limits);
     let mut oversized_anchor = fixture(b"7 0 obj\n<< /Type /Exa\n", 2);
-    let insertion = oversized_anchor.len() - 7;
+    let marker = b"/Values [3 9] >>\nendobj\n";
+    let insertion = oversized_anchor
+        .windows(marker.len())
+        .position(|window| window == marker)
+        .unwrap()
+        + marker.len()
+        - 7;
     oversized_anchor.splice(insertion..insertion, [b' '; 2000]);
     let row_length = u32::from_le_bytes(oversized_anchor[0x410..0x414].try_into().unwrap());
     put_u32(&mut oversized_anchor, 0x410, row_length + 2000);

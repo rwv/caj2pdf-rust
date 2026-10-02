@@ -97,8 +97,10 @@ export function syntheticLaterCopyCaj(broken = false) {
   const start = table + 24;
   const original = new TextDecoder().decode(base.subarray(start));
   const split = original.indexOf("4 0 obj");
-  const first = text.encode(original.slice(0, split) + `7 0 obj\n<< /Type /Ex${broken ? "b" : "a"}\n`);
-  const second = text.encode(original.slice(split) + "7 0 obj\n<< /Type /Example /Values [3 9] >>\nendobj\n");
+  const first = text.encode(original.slice(0, split) + `7 0 obj\n<< /Type /Ex${broken ? "b" : "a"}\n` +
+    "8 0 obj\n<< /Length 600 >>\nstream\nZZZZZ\n");
+  const second = text.encode(original.slice(split) + "7 0 obj\n<< /Type /Example /Values [3 9] >>\nendobj\n" +
+    `8 0 obj\n<< /Length 600 >>\nstream\n${"Z".repeat(600)}\nendstream\nendobj\n`);
   const bytes = new Uint8Array(start + first.length + second.length);
   bytes.set(base.subarray(0, start));
   bytes.set(first, start);

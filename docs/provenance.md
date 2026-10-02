@@ -2094,3 +2094,14 @@ cancellation and dropped pending operations. Independent local qpdf,
 Poppler and fontTools checks concern these original fixtures only, not
 successful native C8 document conversion. Test exports and external fonts
 remain outside Git.
+
+### CAJ deferred prefix validation
+
+The additional interrupted-header, dictionary/array/scalar-prefix and known
+stream-dictionary rules in `pdf/input/fragment_scan.rs` are original MIT work
+based on independent byte comparisons in the hash-pinned CAJ inputs. No Python,
+Go or vendor implementation was copied or translated. Synthetic positive and
+negative controls use invented PDF objects and payloads; external documents and
+the issue-92 PDF/render receipts remain outside Git. See
+[caj-interrupted-objects.md](caj-interrupted-objects.md) for bounded proof rules
+and the distinction between complete conversion and pending viewer fidelity.
