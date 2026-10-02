@@ -32,7 +32,7 @@ pub struct C8PageFonts {
 /// Fonts are embedded once per document and may share resource indices.
 ///
 /// Records are consumed one at a time; no glyph or page-content vector is kept.
-/// This initial translation admits measured ordinary CJK/ASCII glyphs, segments,
+/// This translation admits measured CJK/ASCII and symbol glyphs, segments,
 /// horizontal decoration and the controlled image form. Required symbols and
 /// other unresolved controls fail explicitly rather than being skipped. It does
 /// not establish whole-document C8 support or provide the adapter font transport.
@@ -169,6 +169,9 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
                         (C8GlyphClass::Cjk, self.roles.latin, Some(0.0))
                     }
                     0xa3ba => (C8GlyphClass::Cjk, latin, Some(1.0 / 8.0)),
+                    0xa3a8 | 0xa3a9 => (C8GlyphClass::Cjk, latin, None),
+                    0xa1a1 => (C8GlyphClass::Cjk, self.roles.cjk, None),
+                    0xa1a2 => (C8GlyphClass::Latin, latin, None),
                     _ if character.is_ascii_alphanumeric() => (C8GlyphClass::Latin, latin, None),
                     _ if ('\u{3400}'..='\u{9fff}').contains(&character) => {
                         (C8GlyphClass::Cjk, self.roles.cjk, None)
@@ -182,6 +185,32 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
                     // resource choice does not imply ordinary Latin geometry.
                     transform[5] += transform[3] * fraction
                         - 15.0 * super::EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
+                }
+                if code == 0xa1a2 {
+                    // Ideographic comma shares the ordinary Latin baseline,
+                    // but retains the CJK horizontal origin.
+                    transform[4] -= transform[0] / 8.0;
+                }
+                if matches!(code, 0xa3a8 | 0xa3a9) {
+                    // Raw coordinate offsets measured across the seven admitted
+                    // size fields, then checked with independent width/height
+                    // controls. Columns: opening x, closing x, downward y.
+                    const OFFSETS: [[i16; 3]; 7] = [
+                        [18, 16, 3],
+                        [19, 18, 1],
+                        [22, 21, 0],
+                        [26, 25, -4],
+                        [30, 28, -7],
+                        [35, 33, -10],
+                        [39, 37, -14],
+                    ];
+                    // The matrix evaluator above has validated both fields.
+                    let width = usize::from((style >> 5) & 31) - 2;
+                    let height = usize::from(style & 31) - 2;
+                    let column = usize::from(code == 0xa3a9);
+                    let unit = super::EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
+                    transform[4] += f64::from(OFFSETS[width][column]) * unit;
+                    transform[5] -= f64::from(OFFSETS[height][2]) * unit;
                 }
                 // Original source controls establish this gray for the admitted
                 // ordinary text profile; keep it local to each glyph draw.

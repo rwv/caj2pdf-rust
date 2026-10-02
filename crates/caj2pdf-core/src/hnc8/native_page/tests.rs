@@ -284,7 +284,7 @@ fn native_records_drive_actual_mixed_page_in_source_order() {
 fn unsupported_content_and_missing_glyphs_poison_the_open_page() {
     for tail in [
         vec![[4800, 0xa0a6]],
-        vec![[4800, 0xa3a8]],
+        vec![[4800, 0xa3db]],
         vec![[4800, 0xa0c2]],
         vec![[4800, 0xa080]],
         vec![[0x801d, 3]],
@@ -458,6 +458,92 @@ fn controlled_symbols_preserve_unicode_resource_state_and_common_baseline() {
                 count += 1;
             }
             assert_eq!(count, 2);
+        }
+    }
+}
+
+#[test]
+fn parentheses_preserve_independent_axes_and_active_resource() {
+    // Predictions from the original independent-axis source control.
+    for (style, opening_x, closing_x, down) in [
+        (0x1067, 19.0, 18.0, -10.0),
+        (0x10e3, 35.0, 33.0, 1.0),
+        (0x1048, 18.0, 16.0, -14.0),
+        (0x1102, 39.0, 37.0, 3.0),
+    ] {
+        for (code, x_offset) in [(0xa3a8, opening_x), (0xa3a9, closing_x)] {
+            let words = [
+                [0x8001, 4394],
+                [0x8002, style],
+                [4902, code],
+                [0x801d, 4],
+                [4902, code],
+                [0x8004, 1],
+            ];
+            let (result, pdf, finished) = convert(&words, 0, &[], roles(), 11);
+            assert_eq!(result.unwrap(), 0);
+            assert!(finished);
+            let text = String::from_utf8_lossy(&pdf);
+            assert!(text.contains("/F1 1 Tf"));
+            assert!(text.contains("/F2 1 Tf"));
+            let unicode = if code == 0xa3a8 { 0xff08 } else { 0xff09 };
+            assert_eq!(text.matches(&format!("<{unicode:04X}> Tj")).count(), 2);
+            let mut count = 0;
+            for (matrix, _) in text.lines().filter_map(|line| line.split_once(" Tm ")) {
+                let values: Vec<f64> = matrix
+                    .split_whitespace()
+                    .map(|word| word.parse().unwrap())
+                    .collect();
+                let unit = super::super::EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
+                assert!((values[4] - (270.0 + x_offset) * unit).abs() < 0.000001);
+                assert!((values[5] - ((495.0 - down) * unit - values[3])).abs() < 0.000002);
+                count += 1;
+            }
+            assert_eq!(count, 2);
+        }
+    }
+    // Invalid fields fail before indexing the measured offset table.
+    for style in [0x1024, 0x1081, 0x1124, 0x1089] {
+        let words = [[0x8001, 4394], [0x8002, style], [4902, 0xa3a8], [0x8004, 1]];
+        let (result, _, finished) = convert(&words, 0, &[], roles(), 11);
+        assert!(result.is_err());
+        assert!(!finished);
+    }
+}
+
+#[test]
+fn ideographic_space_and_comma_keep_distinct_resources_and_baselines() {
+    for (style, latin_down) in [(0x1067, 3.0), (0x10e3, 9.0), (0x1048, 1.0), (0x1102, 9.0)] {
+        for (code, unicode) in [(0xa1a1, 0x3000), (0xa1a2, 0x3001)] {
+            let words = [
+                [0x8001, 4394],
+                [0x8002, style],
+                [4902, code],
+                [0x801d, 4],
+                [4902, code],
+                [0x8004, 1],
+            ];
+            let (result, pdf, finished) = convert(&words, 0, &[], roles(), 11);
+            assert_eq!(result.unwrap(), 0);
+            assert!(finished);
+            let text = String::from_utf8_lossy(&pdf);
+            assert_eq!(text.matches(&format!("<{unicode:04X}> Tj")).count(), 2);
+            if code == 0xa1a1 {
+                assert_eq!(text.matches("/F0 1 Tf").count(), 2);
+            } else {
+                assert!(text.contains("/F1 1 Tf"));
+                assert!(text.contains("/F2 1 Tf"));
+            }
+            let down = if code == 0xa1a1 { 0.0 } else { latin_down };
+            for (matrix, _) in text.lines().filter_map(|line| line.split_once(" Tm ")) {
+                let values: Vec<f64> = matrix
+                    .split_whitespace()
+                    .map(|word| word.parse().unwrap())
+                    .collect();
+                let unit = super::super::EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
+                assert!((values[4] - 270.0 * unit).abs() < 0.000001);
+                assert!((values[5] - ((495.0 - down) * unit - values[3])).abs() < 0.000002);
+            }
         }
     }
 }

@@ -1669,3 +1669,65 @@ for the ordinary roles, the real six-page diagnostic now reaches page 1 byte 280
 (`a3a8`, opening parenthesis); its partial PDF remains unfinished. This checkpoint
 still uses previously decoded image sidecars and does not claim production
 orchestration, public font transport or complete-document acceptance.
+
+### Parentheses, ideographic space and comma
+
+The earlier em-fraction hypothesis is insufficient for raw `a3a8`/`a3a9`
+(fullwidth opening/closing parentheses). Original `paren-detail-*` controls
+compare identical marker outlines across all seven admitted size fields at a
+matched 2233% view. The measured offsets are expressed in source coordinate
+units relative to the existing CJK matrix, not tuned to the external document:
+
+| Size field | Opening x | Closing x | Downward y (both) |
+| --- | --- | --- | --- |
+| 2 | 18 | 16 | 3 |
+| 3 | 19 | 18 | 1 |
+| 4 | 22 | 21 | 0 |
+| 5 | 26 | 25 | -4 |
+| 6 | 30 | 28 | -7 |
+| 7 | 35 | 33 | -10 |
+| 8 | 39 | 37 | -14 |
+
+A single small table supplies x from the width field and y from the height
+field, after the existing matrix evaluator validates both fields. Both codes
+use the active ordinary/alternate Latin resource. No new public geometry API,
+font lookup or document-specific correction is introduced.
+
+Before admitting this table, `paren-axes-heldout` changes the authored position,
+uses alternate resource state and independent width/height pairs (3,7), (7,3),
+(2,8), (8,2). At 919%, its opening/closing target-minus-reference box origins are
+(261,-12)/(498,-12), (280,1)/(516,1), (260,-17)/(495,-17) and
+(285,3)/(520,3) pixels for authored horizontal separations of 200/400 units.
+All resource markers identify alternate Latin; the CJK reference retains its
+own marker. Repeat captures are identical. All glyphs fit the held-out page.
+These observations validate independent axes within the empirical coordinate
+model, not pixel equality between different PDF and viewer rasterizers.
+
+Some high-magnification detail captures clip the *right edge* of the target:
+opening field 8 and closing fields 7/8. Only their visible top/left origins are
+used for the offset measurement; their clipped widths are not accepted as
+extent evidence. The held-out independent-axis page contains complete glyphs
+for these sizes. Earlier unmaximized or improperly positioned observations are
+not used to derive the table. External `paren-detail-measurements.json` and
+`paren-axes-results.json` retain the exact boxes and limitations.
+
+`space-comma-axes-heldout` independently substitutes raw `a1a1` (U+3000) and
+`a1a2` (U+3001), with the same four independent-axis configurations. The space
+uses the CJK resource and origin under both ordinary and alternate states;
+it is emitted as Unicode text, never unconditionally skipped. A caller font
+may naturally have an empty space outline. The comma uses the active Latin
+resource and the existing Latin baseline, but retains the CJK x origin. Thus
+it reuses the Latin matrix with its horizontal em/8 addition removed.
+At 919%, space-minus-CJK origins are (238,0) on every row; comma-minus-CJK origins
+are (475,3), (475,10), (475,1), (475,10). Resource markers are CJK/CJK/alternate
+Latin on every row, and full-page captures repeat identically. This agrees
+with the earlier six-size comma controls without introducing a new size model.
+
+The generator reproduces all 16 new inputs exactly. Predictions, input hashes,
+action receipts and observations remain external in
+`caj2pdf-c8-required-glyph-roles-20261002`, including
+`paren-axes-prediction.json`, `space-comma-prediction.json` and
+`space-comma-results.json`. Tests run actual native traversal and PDF emission,
+checking Unicode, both resource states, independent axes and invalid size fields
+before table indexing. The real-source diagnostic now reaches page 1 byte 2432;
+remaining required symbols/controls and full-document orchestration stay open.
