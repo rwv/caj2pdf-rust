@@ -93,27 +93,27 @@ impl<'a, S: RangedSource> KdhPdfSource<'a, S> {
                 history.push(byte);
                 if history.ends_with(b"%%EOF") {
                     let marker = at + index as u64 - 4;
-                    if let Some(xref) = history.startxref_before_eof() {
-                        if xref < marker - PDF_START
-                            && eof.is_none_or(|(previous, _)| xref > previous - PDF_START)
-                        {
-                            let (valid, bytes_read) =
-                                xref_target_is_plausible(source, xref, size, limits, cancellation)
-                                    .await?;
-                            candidate_bytes_read = candidate_bytes_read
-                                .checked_add(bytes_read)
-                                .ok_or(Error::InvalidInput {
-                                    reason: "KDH input byte count overflows",
-                                })?;
-                            if valid {
-                                if eof.is_some() {
-                                    return Err(Error::Kdh {
-                                        offset: marker,
-                                        reason: "ambiguous PDF end in KDH trailer",
-                                    });
-                                }
-                                eof = Some((marker, xref));
+                    if let Some(xref) = history.startxref_before_eof()
+                        && xref < marker - PDF_START
+                        && eof.is_none_or(|(previous, _)| xref > previous - PDF_START)
+                    {
+                        let (valid, bytes_read) =
+                            xref_target_is_plausible(source, xref, size, limits, cancellation)
+                                .await?;
+                        let overflow = Error::InvalidInput {
+                            reason: "KDH input byte count overflows",
+                        };
+                        candidate_bytes_read = candidate_bytes_read
+                            .checked_add(bytes_read)
+                            .ok_or(overflow)?;
+                        if valid {
+                            if eof.is_some() {
+                                return Err(Error::Kdh {
+                                    offset: marker,
+                                    reason: "ambiguous PDF end in KDH trailer",
+                                });
                             }
+                            eof = Some((marker, xref));
                         }
                     }
                 }

@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Add bounded caller-supplied TrueType resources and sequential PDF glyph,
+  image and vector content pages. This shared API does not enable native
+  C8/HN-B conversion or production JavaScript font resources.
+- **Breaking:** raise the minimum Rust version to 1.88.0 for the maintained
+  MIT `xberg-ttf-parser` font metadata dependency.
+
 - **Breaking:** add `NativeRecord::ImageReference` for the measured C8
   `810a/d300` profile. Exhaustive matches must handle its coordinates and
   opaque source-span reference. Names are never opened as external files;

@@ -385,10 +385,10 @@ impl RangedSource for Source {
             .min(destination.len())
             .min(self.max_read);
         destination[..count].copy_from_slice(&self.bytes[start..start + count]);
-        if let Some((trigger, index, value)) = self.rewrite {
-            if trigger == offset {
-                self.bytes[index] = value;
-            }
+        if let Some((trigger, index, value)) = self.rewrite
+            && trigger == offset
+        {
+            self.bytes[index] = value;
         }
         Ok(count)
     }

@@ -660,7 +660,7 @@ fn xref_stream_data_corruption_and_unsupported_rows_are_located() {
         .unwrap()
         + 7;
     let mut wider_rows = Vec::new();
-    for row in bad_generation[data_at..data_at + 35].chunks_exact(7) {
+    for row in bad_generation[data_at..data_at + 35].as_chunks::<7>().0 {
         wider_rows.extend_from_slice(&row[..5]);
         wider_rows.push(0);
         wider_rows.extend_from_slice(&row[5..]);
@@ -1791,7 +1791,10 @@ fn classic_incremental_prev_and_crlf_xref_are_accepted() {
         .windows(marker.len())
         .position(|part| part == marker)
         .unwrap();
-    for row in crlf[header + marker.len()..header + marker.len() + 6 * 20].chunks_exact_mut(20) {
+    for row in crlf[header + marker.len()..header + marker.len() + 6 * 20]
+        .as_chunks_mut::<20>()
+        .0
+    {
         assert_eq!(&row[18..], b" \n");
         row[18] = b'\r';
     }

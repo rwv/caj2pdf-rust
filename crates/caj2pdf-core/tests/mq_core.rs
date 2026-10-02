@@ -97,10 +97,10 @@ impl RangedSource for Source {
         if count > 0 {
             destination[..count].copy_from_slice(&self.bytes[start..start + count]);
         }
-        if let Some((reads, flag)) = &self.cancel_after {
-            if self.seen.len() == *reads {
-                flag.set(true);
-            }
+        if let Some((reads, flag)) = &self.cancel_after
+            && self.seen.len() == *reads
+        {
+            flag.set(true);
         }
         Ok(count)
     }
