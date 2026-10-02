@@ -824,6 +824,23 @@ the explicitly configured 3200×2400 grid; repository capture defaults and
 production code are unchanged.
 
 
+A later check rereads the original fixture records (row y values 4294 and
+4524, a delta of 230) and verifies the vertical ink bounds in the retained
+captures. Across all six styles, the row delta is 465 pixels at displayed
+1563% and 1018 pixels at displayed 3420%. Dividing the recorded page-interior
+height by 500 instead predicts 464.14 and 1016.14 pixels. Thus the cropped
+page height must not be treated as an exact content scale when deriving
+subpixel font metrics. This observation does not establish which intermediate
+rounding or frame convention causes the difference, and is not a new font
+size rule. The next control should measure several known coordinate intervals
+on one page to distinguish uniform content scaling from intermediate rounding;
+repeating the same six style screenshots would not decide that question.
+The external `caj2pdf-c8-scale-check-20261002/check.py` and `results.json`
+record source hashes and the calculation. Vertical bounds are independently
+rechecked at grayscale threshold 128; horizontal edge thresholds are not used
+for this conclusion.
+
+
 A public FreeType forwarding trace on the same six controls confirms requested
 pixel heights 318/352/397/477/545/715 at displayed 3420%. Both original geometric
 faces request the same size, use the identity 16.16 transform, and produce
