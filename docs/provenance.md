@@ -2349,3 +2349,15 @@ fixture independently confirms visible clipped decoration and preserved ordinary
 text. Receipts are `caj2pdf-c8-decoration-text-20261002` and
 `caj2pdf-c8-decoration-writer-20261002`. These are tested extractor results, not
 universal extractor behavior or a PDF/UA conformance claim.
+
+
+### Empirical horizontal decoration placement
+
+The horizontal decoration evaluator is original MIT arithmetic derived from the
+original size-inheritance, unequal-axis and short-span controls documented in
+`c8-native-records.md`. It reuses the independently measured text size metrics,
+not another converter's layout implementation. The constant-size result feeds
+the existing clipped nonsemantic glyph writer. Its generated original PDF is
+byte-identical to the separately assembled endpoint diagnostic; known source
+raster residuals remain explicit. No external document content or font data is
+committed and no production native-format admission is inferred.

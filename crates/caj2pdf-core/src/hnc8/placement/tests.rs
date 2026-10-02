@@ -465,3 +465,64 @@ fn c8_glyph_origins_are_signed_and_unknown_styles_are_errors() {
         empirical_c8_glyph_transform(invalid, origin, origin, 0x1084, C8GlyphClass::Cjk).is_err()
     );
 }
+
+#[test]
+fn c8_horizontal_decoration_preserves_partial_marks_and_independent_axes() {
+    let page = source_page_geometry([600, 600]).unwrap();
+    let origin = [4652, 4274];
+    for (length, count) in [(10, 1), (50, 1), (89, 1), (91, 2), (180, 3), (430, 5)] {
+        let d = empirical_c8_horizontal_decoration(
+            page,
+            origin,
+            [[4712, 4334], [4712 + length, 4334]],
+            0x1084,
+        )
+        .unwrap();
+        // Counts independently observed at 486% and 993%, including partial tails.
+        assert_eq!(d.glyph_count, count);
+        close(d.first_glyph[4], 5.822887181560857);
+        close(d.first_glyph[5], 48.045519517768646);
+        close(
+            d.clip[2],
+            f64::from(length) * EMPIRICAL_COORDINATE_POINTS_PER_UNIT,
+        );
+        assert_eq!(d.clip[1], 0.0);
+        assert_eq!(d.clip[3], page.size.height_points);
+    }
+    let a = empirical_c8_horizontal_decoration(page, origin, [[4712, 4334], [5142, 4334]], 0x1048)
+        .unwrap();
+    let b = empirical_c8_horizontal_decoration(page, origin, [[4712, 4334], [5142, 4334]], 0x1102)
+        .unwrap();
+    assert!(a.first_glyph[0] < b.first_glyph[0]);
+    assert!(a.first_glyph[3] > b.first_glyph[3]);
+    assert!(a.glyph_count > b.glyph_count);
+    assert_eq!(a.clip, b.clip);
+    let shifted = empirical_c8_horizontal_decoration(
+        page,
+        [4672, 4294],
+        [[4732, 4354], [5162, 4354]],
+        0x1048,
+    )
+    .unwrap();
+    assert_eq!(a, shifted);
+    let maximum =
+        empirical_c8_horizontal_decoration(page, origin, [[0, 0], [u16::MAX, 0]], 0x1042).unwrap();
+    assert!(maximum.first_glyph[4] < 0.0);
+    assert!(maximum.glyph_count < 1000);
+}
+
+#[test]
+fn c8_horizontal_decoration_rejects_unverified_geometry_and_styles() {
+    for points in [
+        [[1, 1], [1, 1]],
+        [[2, 1], [1, 1]],
+        [[1, 1], [1, 2]],
+        [[1, 1], [2, 2]],
+    ] {
+        assert!(empirical_c8_horizontal_decoration(page(), [0, 0], points, 0x1084).is_err());
+    }
+    assert!(empirical_c8_horizontal_decoration(page(), [0, 0], [[0, 0], [1, 0]], 0x1080).is_err());
+    let mut invalid = page();
+    invalid.size.width_points = f64::NAN;
+    assert!(empirical_c8_horizontal_decoration(invalid, [0, 0], [[0, 0], [1, 0]], 0x1084).is_err());
+}

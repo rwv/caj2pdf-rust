@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Add constant-space empirical placement for forward horizontal C8 decorations,
+  sharing native text size rules and preserving partial final marks through
+  endpoint clipping. Complete native-page conversion remains under development.
+
 - Add clipped decorative font glyph output with Artifact and empty ActualText
   marking, preserving ordinary text extraction in Poppler and MuPDF checks.
   C8 repetition and font/style integration remain under development.

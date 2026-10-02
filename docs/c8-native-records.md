@@ -1315,3 +1315,16 @@ separator, as expected for a page containing only decoration. External receipts:
 captures and the authored `decoration_endpoints.rs` in the existing external
 render-preview package. The first PDF captures used different automatic zooms;
 only the final visibly confirmed 993% capture is compared quantitatively.
+
+
+`empirical_c8_horizontal_decoration` now evaluates this model in the core. It
+returns the first glyph matrix, one endpoint clip and a bounded repetition count;
+callers stream each mark through `decoration_glyph`, incrementing x by index times
+nominal width. It shares size validation with ordinary glyph placement and has
+no allocations or I/O. Only forward horizontal nonempty spans are admitted.
+Original control counts, unequal axes, origin translation, signed off-page
+positions, maximum raw span, unsupported directions/styles and invalid pages
+are covered. Replacing the external diagnostic's manually assembled placement
+with this helper produces a byte-identical PDF, preserving the recorded source
+comparison rather than starting a new calibration. Font/style selection and
+complete-document integration remain open.

@@ -43,8 +43,9 @@ pub use native::{
 };
 pub use placement::{
     C8GlyphClass, EMPIRICAL_COORDINATE_POINTS_PER_UNIT, EMPIRICAL_PIXEL_POINTS,
-    EMPIRICAL_PLACEMENT_TOLERANCE_POINTS, EmpiricalPageGeometry, empirical_c8_glyph_transform,
-    empirical_image_transform, empirical_page_from_pixels, empirical_page_from_type0,
+    EMPIRICAL_PLACEMENT_TOLERANCE_POINTS, EmpiricalC8HorizontalDecoration, EmpiricalPageGeometry,
+    empirical_c8_glyph_transform, empirical_c8_horizontal_decoration, empirical_image_transform,
+    empirical_page_from_pixels, empirical_page_from_type0,
 };
 pub use text::{
     RawTextCoordinate, TEXT_DECODER_RESERVATION_BYTES, TextBudget, TextCoordinates,
