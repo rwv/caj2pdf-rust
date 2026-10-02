@@ -172,7 +172,11 @@ jobs:
           sudo apt-get update
           sudo apt-get install --no-install-recommends -y qemu-user qpdf mupdf-tools
           key="$(echo "$TARGET" | tr '[:lower:]-' '[:upper:]_')"
-          if [[ "$QEMU" == loongarch64 ]]; then bash scripts/install-loongarch-qemu.sh; fi
+          if [[ "$QEMU" == loongarch64 ]]; then
+            bash scripts/install-loongarch-qemu.sh
+            # LLVM #226712: relaxation can oscillate when linking large tests.
+            echo "RUSTFLAGS=$RUSTFLAGS -C link-arg=--no-relax" >> "$GITHUB_ENV"
+          fi
           runner="qemu-$QEMU"
           if [[ -n "$CPU" ]]; then runner+=" -cpu $CPU"; fi
           echo "CARGO_TARGET_${key}_RUNNER=$runner" >> "$GITHUB_ENV"
