@@ -806,6 +806,23 @@ are not an exact point-size table or a production support claim.
 External inputs/captures and measurements remain in
 `caj2pdf-c8-six-anchor-inputs-20261002` and `caj2pdf-c8-six-anchor-20261002`.
 
+A held-out scale uses the identical six inputs and fonts on a 3200×2400,
+96-DPI display. Fit-height is displayed as 3420%, with inspected interiors
+2210×2209 pixels. Measured square heights are 318/352/397/477/545/715 pixels;
+both rows have Latin-minus-CJK offsets 40/40/36/27/22/5 pixels, and all repeats
+match. Predictions were written before capturing: source offsets
+9/9/8/6/5/1 versus `17 * page_scale - max(square_height, 80 * page_scale) / 10`.
+The latter predicts 20.64 and 3.64 pixels for fields 6 and 8, outside a
+one-pixel final-raster rounding difference from the observed 22 and 5. Thus
+that candidate plus final rounding is insufficient. The integer-offset
+candidate remains consistent with these controls; exact font-size mapping
+and the viewer's intermediate rounding are still unresolved. Do not infer
+an arbitrary-font baseline rule solely from the geometric font.
+Receipts and pre-capture predictions are in
+`caj2pdf-c8-six-anchor-highscale-20261002`. Its external capture helper uses
+the explicitly configured 3200×2400 grid; repository capture defaults and
+production code are unchanged.
+
 
 ### Additional raw drawing value `8006/a385`
 
