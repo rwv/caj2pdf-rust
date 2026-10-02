@@ -49,6 +49,7 @@ dependencies = [
  "fax",
  "flate2",
  "sha2",
+ "xberg-ttf-parser",
 ]
 
 [[package]]
@@ -274,3 +275,9 @@ checksum = "ae137229bcbd6cdf0f7b80a31df61766145077ddf49416a728b02cb3921ff3fc"
 dependencies = [
  "windows-link",
 ]
+
+[[package]]
+name = "xberg-ttf-parser"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "92b07d4e7aae5dd7a6c145dfbce4f5dbec692b5e1bb56149841401c4f197956b"

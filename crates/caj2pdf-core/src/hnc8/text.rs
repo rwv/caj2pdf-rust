@@ -254,7 +254,7 @@ fn validate_metadata(
     } else {
         // HN-B was rejected before metadata validation.
         header.page_index.offset >= 0x15c
-            && (header.page_index.offset - 0x15c) % super::OUTLINE_RECORD_BYTES == 0
+            && (header.page_index.offset - 0x15c).is_multiple_of(super::OUTLINE_RECORD_BYTES)
             && (header.page_index.offset - 0x15c) / super::OUTLINE_RECORD_BYTES <= i32::MAX as u64
     };
     if !index_start_valid {

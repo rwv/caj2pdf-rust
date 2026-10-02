@@ -98,14 +98,14 @@ impl RangedSource for GeneratedSource {
     async fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> Result<usize> {
         self.calls += 1;
         self.max_request = self.max_request.max(destination.len());
-        if let Some((allowed, fault)) = self.fault_after_calls {
-            if self.calls > allowed {
-                return match fault {
-                    Fault::Zero => Ok(0),
-                    Fault::Overreport => Ok(destination.len() + 1),
-                    Fault::Io => Err(Error::Io(io::Error::other("synthetic source failure"))),
-                };
-            }
+        if let Some((allowed, fault)) = self.fault_after_calls
+            && self.calls > allowed
+        {
+            return match fault {
+                Fault::Zero => Ok(0),
+                Fault::Overreport => Ok(destination.len() + 1),
+                Fault::Io => Err(Error::Io(io::Error::other("synthetic source failure"))),
+            };
         }
         assert!(offset <= self.size, "reader requested a nonexistent range");
         if let Some(expected) = self.next_offset {
@@ -120,10 +120,10 @@ impl RangedSource for GeneratedSource {
         }
         self.bytes += count as u64;
         self.next_offset = Some(offset + count as u64);
-        if let Some((threshold, flag)) = &self.cancel_after_bytes {
-            if self.bytes >= *threshold {
-                flag.set(true);
-            }
+        if let Some((threshold, flag)) = &self.cancel_after_bytes
+            && self.bytes >= *threshold
+        {
+            flag.set(true);
         }
         Ok(count)
     }

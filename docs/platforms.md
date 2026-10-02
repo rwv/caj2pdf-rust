@@ -38,10 +38,12 @@ binaries are not notarized; local OS trust prompts may apply.
 
 ## What each target checks
 
-Core unit tests include independent qpdf/MuPDF rendering. On illumos and Android, the two
-core tests requiring local PDF validators are explicitly filtered because those
-packages are unavailable; the VM-produced PDF is instead checked and rendered
-on the host. This is 499 core tests plus separate validation, not 501 passes. Portable CLI tests
+Core unit tests include independent qpdf/MuPDF rendering. On illumos and Android,
+the three tests requiring local PDF validators are explicitly filtered because
+those packages are unavailable; target-produced PDFs are instead checked and
+rendered on the host. The new mixed-image codec/draw-order test runs separately
+without validators. Run reports distinguish executed and filtered tests; the
+499-test count in the published baseline predates this addition. Portable CLI tests
 execute Unicode paths, inspect/page counts, stdin/stdout conversion equality,
 existing-output refusal, hard-link/input protection and failed-output cleanup.
 Cross-platform tests do not use Unix-only `/dev` test fixtures. QEMU validates

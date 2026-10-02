@@ -82,10 +82,10 @@ impl RangedSource for Source {
         destination: &mut [u8],
     ) -> caj2pdf_core::Result<usize> {
         self.reads.push((offset, destination.len()));
-        if let Some((after, flag)) = &self.cancel_after_reads {
-            if self.reads.len() >= *after {
-                flag.set(true);
-            }
+        if let Some((after, flag)) = &self.cancel_after_reads
+            && self.reads.len() >= *after
+        {
+            flag.set(true);
         }
         match self.fault {
             Fault::Overreport => return Ok(destination.len() + 1),
