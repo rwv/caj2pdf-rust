@@ -2391,3 +2391,14 @@ Chinese/Latin geometric glyphs. It extends only the pure geometry evaluator;
 raw source words remain preserved. No converter or viewer implementation was
 copied. External captures/traces stay outside Git; the original generator and
 precise observation limits are recorded in `c8-native-records.md`.
+
+
+### C8 initial state and combined font controls
+
+The original style generator can omit initial ordinary controls and generate
+observed combined weight/font states. These fixtures contain only authored
+positions and test characters. The experiment reuses original geometric fonts
+and observes public FreeType resource/glyph identifiers without copying viewer
+implementation, outlines or bitmap data. Fresh-process checks resolve cached
+font-call ambiguity for two combinations. Scope and remaining interpretation
+limits are recorded in `c8-native-records.md`; all committed changes are MIT.

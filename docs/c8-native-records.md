@@ -1414,3 +1414,52 @@ ordinary glyphs. No default font-selection or full-page acceptance follows.
 The generator reproduces all three observed inputs exactly. External inputs,
 matched repeats and traces are under `caj2pdf-c8-decoration-metrics-20261002`;
 `style-flags-matched-results.json` supersedes the initial unequal-zoom comparison.
+
+
+## Initial state and combined ordinary font controls (2026-10-02)
+
+A fresh bounded inventory at draft `1f4ab71` visits all six issue-66 pages:
+6,638 glyphs decode without an unknown character, and the existing glyph,
+segment and horizontal-decoration evaluators reject none of their geometry.
+This diagnostic provisionally classifies ASCII alphanumerics as Latin; it
+neither proves all glyph classes nor admits control semantics or conversion.
+Some glyphs precede the first `8067` control, and page 6 combines `801d/4`
+with `8067` values 5, 6, 8 and 9. Initial absence must not be mistaken for an
+explicit source `8067/0` record.
+
+The original style generator now supplies three omitted-initial-state controls
+(`initial-default`, `initial-font-default`, `initial-weight-default`) and
+`weight-font5/8/9`. Each contains eight fixed-position rows of `中文AM1` at
+style `1084`. Only the identified controls change relative to the existing
+baseline (`801d/0`, `8067/6`) or weight (`801d/4`, `8067/6`) fixture. The
+omission is applied to every row; it does not simulate a reset after a prior
+nondefault state or establish cross-page state persistence.
+
+In the pinned offline viewer with the existing original geometric fonts, at
+57% and page interior `(648,387,1023,936)`, each omission control is byte-equal
+to the baseline page crop. Each combined-weight control equals the weight
+crop. All repeated captures agree. Incremental public FreeType metadata shows
+HGHT for Chinese and HGBZ for the baseline/default Latin glyphs; the weight
+controls use HGHT and HGHZ. Because the original resources intentionally share
+outlines, crop equality alone would not identify resource selection.
+
+The initial combined-weight 8/9 traces were cached and therefore insufficient
+for resource attribution. Fresh viewer processes reproduce both crops and
+independently load HGHT glyphs 1/2 and HGHZ glyphs 1/3, matching the weight
+control. Only appended trace lines after the initial unrelated document are
+used for those observations. No vendor outline or bitmap data was extracted.
+
+This supports the observed initial ordinary resource choice and these tested
+weight/font combinations. It does not establish a universal bold bit, arbitrary
+font values, punctuation/symbol role selection, or ignored semantics for other
+controls. Keep the decoration resource separate, as established above. The next
+integration work must preserve these explicit roles and resolve required
+remaining controls rather than adding a blanket no-op branch.
+
+External receipts: `caj2pdf-c8-render-preview-20261001/current-role-inventory.txt`
+and `caj2pdf-c8-decoration-metrics-20261002/state-results.json`,
+`state-fresh-results.json`, paired captures and incremental traces. Generated
+inputs are in `caj2pdf-c8-state-controls-20261002`; all six new fixtures reproduce
+byte for byte from the committed generator, and omitted control tags are absent.
+These are original control observations, not complete-document compatibility
+passes. Source documents, captures, external fonts and traces remain outside Git.

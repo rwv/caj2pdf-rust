@@ -22,7 +22,7 @@ VARIANTS = (
 )
 
 
-def document(styles, control_record=None, drawing=None, codes=None, *, row_step=500, height=7469, drawing_dy=50, width=5105, first_x=5200, first_y=4700, run_words=()):
+def document(styles, control_record=None, drawing=None, codes=None, *, row_step=500, height=7469, drawing_dy=50, width=5105, first_x=5200, first_y=4700, run_words=(), omit_controls=()):
     """One original page, with 中文AM1 as the default test string."""
     if codes is None:
         codes = (0xD6D0, 0xCEC4, 0xA0C1, 0xA0CD, 0xA0B1)
@@ -34,6 +34,7 @@ def document(styles, control_record=None, drawing=None, codes=None, *, row_step=
             (0x801D, control),
             (0x8067, font),
         ]
+        pairs = [pair for pair in pairs if pair[0] not in omit_controls]
         if control_record is not None:
             pairs.append(control_record)
         if drawing is not None:
@@ -158,6 +159,19 @@ def main():
             fixtures.append((name, [(0x1000 | (horizontal << 5) | vertical, 0, 6)], None, None))
             symbols[name] = (code,)
             anchor_geometry[name] = {"width": 150, "height": 100, "first_x": 4672, "first_y": 4294}
+    # Separate omitted initial state from an explicit zero-valued control.
+    # Required by the observed profile before its first font selection.
+    for name, omitted in (
+        ("initial-default", (0x801D, 0x8067)),
+        ("initial-font-default", (0x8067,)),
+        ("initial-weight-default", (0x801D,)),
+    ):
+        fixtures.append((name, baseline, None, None))
+        anchor_geometry[name] = {"omit_controls": omitted}
+    # Complete the observed ordinary-text weight/font combinations, holding
+    # position, size and character codes fixed against the existing weight case.
+    for font in (5, 8, 9):
+        fixtures.append((f"weight-font{font}", [(0x1084, 4, font)] * 8, None, None))
     manifest = []
     for name, styles, control_record, drawing in fixtures:
         geometry = {"row_step": 350, "height": 3200} if name == "size-profile" else {}
