@@ -174,7 +174,7 @@
     "native_binary_sha256": "47f3e22f31053e138aad65b1644da3382c592c0b518cd14ff9893442919b89b1",
     "wasm_sha256": "2109a7586359223d888708cb88de5d63deda70901789bb587f7d16bed475333c",
     "node_version": "v24.13.0",
-    "scope": "Fresh CLI, Node public example and real Chromium dedicated Worker conversions of both complete documents. Native qpdf --check passes. PDF hashes match the historical results above; this does not resolve historical page-geometry differences or claim fresh source visual inspection.",
+    "scope": "Fresh CLI, Node public example and real Chromium dedicated Worker conversions of both complete documents. Native qpdf --check passes. PDF hashes match the historical results above. Selected source/output pages were independently inspected as recorded below; residual geometry/rendering differences remain unresolved.",
     "memory_note": "Browser input spooled to OPFS with 128 MiB cap; four scratch stores capped at 64 MiB each; output written sequentially to OPFS. SHA256 reads complete output only after conversion. Server fixture buffers are outside converter accounting. Reported WASM bytes are post-conversion, not peak memory.",
     "samples": [
       {
@@ -224,6 +224,119 @@
         }
       }
     ],
-    "remaining": "Independent selected-page content/geometry acceptance in #249/#219. The first browser attempt hit the harness 30-second CDP timeout; completed evidence uses short polling with a 180-second per-document limit."
+    "remaining": "Classify and resolve remaining selected-page geometry/rendering differences in #219 before full #249 fidelity acceptance. The first browser attempt hit the harness 30-second CDP timeout; completed evidence uses short polling with a 180-second per-document limit.",
+    "selected_page_viewer": {
+      "viewer_image": "sha256:cb5049d3448b6d5bcfd371cf195d522d637869dce075cb1650d74198875171de",
+      "environment": "Fresh offline read-only container, Xvfb 1600x1200 at 96 DPI, original vendor document fonts, no preload or geometric font overrides. A: 50% zoom; Zhouli: 47%.",
+      "observations": "Page counters and full page bounds verified. Both covers and final pages retain visible content without an obvious omission. A page 75 is visibly blank in both source and PDF, with exact crop equality. Other four pages reproduce the historical changed-pixel counts exactly; they are not accepted as renderer-only differences.",
+      "pages": [
+        {
+          "document": "a",
+          "page": 1,
+          "crop_xyxy": [
+            649,
+            357,
+            1023,
+            899
+          ],
+          "pixels": 202708,
+          "changed_pixels": 171289,
+          "difference_bbox": [
+            0,
+            0,
+            374,
+            542
+          ],
+          "repeats": {
+            "source": true,
+            "output": true
+          }
+        },
+        {
+          "document": "a",
+          "page": 75,
+          "crop_xyxy": [
+            649,
+            357,
+            1023,
+            899
+          ],
+          "pixels": 202708,
+          "changed_pixels": 0,
+          "difference_bbox": null,
+          "repeats": {
+            "source": true,
+            "output": true
+          }
+        },
+        {
+          "document": "a",
+          "page": 125,
+          "crop_xyxy": [
+            649,
+            426,
+            1023,
+            968
+          ],
+          "pixels": 202708,
+          "changed_pixels": 28222,
+          "difference_bbox": [
+            64,
+            15,
+            370,
+            510
+          ],
+          "repeats": {
+            "source": true,
+            "output": true
+          }
+        },
+        {
+          "document": "zhouli",
+          "page": 1,
+          "crop_xyxy": [
+            650,
+            357,
+            1022,
+            883
+          ],
+          "pixels": 195672,
+          "changed_pixels": 190660,
+          "difference_bbox": [
+            0,
+            0,
+            372,
+            526
+          ],
+          "repeats": {
+            "source": true,
+            "output": true
+          }
+        },
+        {
+          "document": "zhouli",
+          "page": 160,
+          "crop_xyxy": [
+            650,
+            443,
+            1022,
+            968
+          ],
+          "pixels": 195300,
+          "changed_pixels": 12851,
+          "difference_bbox": [
+            45,
+            39,
+            321,
+            489
+          ],
+          "repeats": {
+            "source": true,
+            "output": true
+          }
+        }
+      ],
+      "limits": "Only the named pages were visually inspected; no whole-document visual or text-parity claim. Crops use fixed physical page bounds, without resizing, registration or tolerance. External screenshots remain outside Git."
+    }
   }
 }
