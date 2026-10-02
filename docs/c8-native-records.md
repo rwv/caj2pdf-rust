@@ -1182,3 +1182,35 @@ Only the observed raw values are admitted; this does not establish physical
 font units or admit the corresponding untested `8071` value. The issue-65 probe
 then reaches page-1 offset 1532 and page-3/page-4 offsets 53366/57046 before the
 next unsupported controls; implicit-style failures on pages 2/5 remain.
+
+
+### Decoration inherits active size (2026-10-02)
+
+Three original `decoration-inherited-size{2,4,8}` controls place the explicit
+style before the same horizontal `8010/1` record, with no ordinary glyphs.
+They use the existing original quarter-width, upper-half decoration outline
+with doubled advance. At the same displayed 57% zoom and physical page bounds
+`(648,387,1023,936)`, all three repeated page captures are byte-identical.
+The final document-rendering FreeType requests are respectively 5, 6 and 11
+pixels in both axes; thumbnail requests are excluded. The 6/11 predictions
+were recorded before their captures using `floor(step * 57 / 301)`.
+
+| Size field | Requested pixels | Dark-pixel bounds relative to page | Separate x runs | Observed start spacing |
+| --- | --- | --- | --- | --- |
+| 2 | 5 | `(17,35,334,36)` | 64 | 5 or 6 pixels |
+| 4 | 6 | `(17,34,331,37)` | 53 | 6 or 7 pixels |
+| 8 | 11 | `(17,32,329,37)` | 29 | 11 or 12 pixels |
+
+Bounds are exclusive; runs use RGB channels all below 128, without registration
+or resizing. Fractional sampling can move a thresholded run start; these values
+must not be misreported as uniformly integer-spaced glyph origins. This isolates
+active-size inheritance and disproves a fixed-size/fixed-count decoration.
+It does not yet establish exact source-space repetition, endpoint clipping,
+color or font selection. Earlier advance controls still show that doubling the
+font advance does not double the repetition step. Keep these distinctions when
+implementing the PDF rule; arbitrary zoom pixel parity is not a physical-unit
+specification, and the production profile remains gated on required content.
+
+External receipts: `caj2pdf-c8-decoration-metrics-20261002`, including input
+hashes, predictions, public font-API traces, repeated captures and `results.json`.
+Only the original generator and these findings are committed.
