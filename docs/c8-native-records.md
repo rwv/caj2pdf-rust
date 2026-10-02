@@ -1214,3 +1214,22 @@ specification, and the production profile remains gated on required content.
 External receipts: `caj2pdf-c8-decoration-metrics-20261002`, including input
 hashes, predictions, public font-API traces, repeated captures and `results.json`.
 Only the original generator and these findings are committed.
+
+
+The two unequal-axis controls `decoration-inherited-axis2-8` and `axis8-2`
+separate width and height. Both repeat identically at the same page bounds and
+57% zoom. Width field 2 gives 64 runs with dark bounds `(17,32,334,36)`;
+width field 8 gives 29 runs with bounds `(17,35,329,37)`. Horizontal count and
+spacing therefore follow the width field independently of height; changing
+height changes the mark's vertical extent.
+
+The predicted *effective* dimensions of 5×11 and 11×5 pixels hold, but the
+prediction of anisotropic FreeType size requests is false. The viewer requests
+`(width=0,height=11)` or `(0,5)`, producing square em metrics, then sets x scale
+`29789/65536` (approximately 5/11) or `144179/65536` (approximately 11/5),
+with identity y scale. This explains the final bitmap dimensions without
+mistaking `FT_Size` for effective glyph width. Preserve this failed prediction
+alongside the observation: PDF transforms can represent independent axes, but
+these screen operations still do not specify a zoom-independent repeat count.
+Receipts are `axis-predictions.json`, `axis-results.json` and the corresponding
+traces/captures in the same external metrics directory.

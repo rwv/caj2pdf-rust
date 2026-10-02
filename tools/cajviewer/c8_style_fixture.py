@@ -207,9 +207,11 @@ def main():
         manifest.append({"name": name, "run_words": words, "bytes": len(data),
                          "sha256": hashlib.sha256(data).hexdigest()})
     # Isolate active size inheritance: no ordinary glyphs overlap the decoration.
-    for field in (2, 4, 8):
-        name = f"decoration-inherited-size{field}"
-        style = 0x1000 | (field << 5) | field
+    for horizontal, vertical in ((2, 2), (4, 4), (8, 8), (2, 8), (8, 2)):
+        suffix = (f"size{horizontal}" if horizontal == vertical
+                  else f"axis{horizontal}-{vertical}")
+        name = f"decoration-inherited-{suffix}"
+        style = 0x1000 | (horizontal << 5) | vertical
         words = (0x8010, 1, 4900, 4800, 9200, 4800)
         data = document([(style, 0, 6)], codes=(), run_words=words)
         (args.output / f"{name}.caj").write_bytes(data)
