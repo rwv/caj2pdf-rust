@@ -1794,3 +1794,31 @@ with input/output hashes retained outside Git. It is not bundled, automatically
 selected or used to claim source-font fidelity. With that resource, traversal
 reaches **page 1 byte 4492, control `8072/1042`**. Its effects on the following
 segment require verification; it remains rejected. No partial PDF is finished.
+
+
+### Mixed-page control and end-record checkpoint (2026-10-02)
+
+Original `c8_image_fixture.py` controls combine glyphs, all three admitted
+segment styles, decoration and an asymmetric JPEG. The 23 control variants
+cover admitted 8072/8073/8074 values and c053/c054 payload boundaries.
+Eight additional variants use end payloads 0, 39 through 44, and 65535.
+Pinned offline Viewer captures of the complete page interior at fit-width
+repeat identically and differ by zero pixels from the baseline end-1 page.
+The fixed interior is 376 by 564 pixels; no registration, masks or tolerance
+are applied. A fresh-process baseline also matches the first batch.
+External receipts are `mixed-control-results-batch1.json`,
+`mixed-control-results-batch2.json`, and `mixed-end-results.json` under
+`caj2pdf-c8-required-glyph-roles-20261002`. External captures stay outside Git.
+
+The composer treats admitted controls and the end payload as nonpainting.
+The reader still requires the end record to terminate the indexed span
+exactly and validates image counts. Raw end payloads remain observable;
+this does not assign semantic meaning to them. Regression tests preserve
+explicit rejection of premature ends and unverified control values.
+
+The pinned six-page source now completes diagnostic native-page composition.
+qpdf reports no syntax/stream errors; MuPDF reports six pages and the three
+expected image dimensions (848x251, 866x388, 666x172). This uses explicitly
+supplied external diagnostic fonts and decoded image sidecars. It does not
+prove source-font fidelity, complete visual parity, production codec
+orchestration, or public CLI/Node/browser acceptance. Those remain #233/#252.

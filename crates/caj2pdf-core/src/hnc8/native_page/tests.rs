@@ -288,14 +288,15 @@ fn unsupported_content_and_missing_glyphs_poison_the_open_page() {
         vec![[4800, 0xa0c2]],
         vec![[4800, 0xa080]],
         vec![[0x801d, 3]],
+        vec![[0x8072, 1]],
+        vec![[0x8073, 43]],
+        vec![[0x8074, 0xffff]],
         vec![[0x8006, 0xa385], [4682, 4350], [4912, 4350]],
         vec![[0x8004, 0]],
     ] {
         let mut words = ordinary();
         words.extend(tail);
-        if words.last() != Some(&[0x8004, 0]) {
-            words.push([0x8004, 1]);
-        }
+        words.push([0x8004, 1]);
         let (result, _, finished) = convert(&words, 0, &[], roles(), 0);
         let error = result.unwrap_err();
         assert_eq!(error.page, Some(1));
@@ -629,5 +630,68 @@ fn quotation_marks_and_middle_dot_reuse_controlled_offsets() {
                 assert!((values[5] - ((495.0 - down) * unit - values[3])).abs() < 0.000002);
             }
         }
+    }
+}
+
+#[test]
+fn controlled_nonpainting_records_preserve_mixed_page_output() {
+    let make_words = |control: Option<[u16; 2]>| {
+        let mut words = vec![[0x8001, 4350], [0x8002, 0x1084], [0x801d, 4], [0x8067, 6]];
+        let mut operations = vec![vec![[4682, 0xd6d0], [4772, 0xa0c1]]];
+        for style in [0xa381, 0xa383, 0xa38b] {
+            let mut operation = vec![[0x8006, style], [4682, 4350], [4912, 4380]];
+            if style != 0xa383 {
+                operation.push([0xffff, 5]);
+            }
+            operations.push(operation);
+        }
+        operations.push(vec![[0x8010, 1], [4682, 4524], [4832, 4524], [0xffff, 5]]);
+        operations.push(image());
+        for operation in operations {
+            if let Some(control) = control {
+                words.push(control);
+            }
+            words.extend(operation);
+        }
+        words.push([0x8004, 1]);
+        words
+    };
+    let (result, baseline, finished) = convert(&make_words(None), 1, &[false], roles(), 0);
+    assert_eq!(result.unwrap(), 0);
+    assert!(finished);
+    for (tag, values) in [
+        (0x8072, &[0, 0x1042, 0xa3a8, 0xa0f2][..]),
+        (0x8073, &[38, 39, 40, 41, 42][..]),
+        (0x8074, &[0, 0xb4a2, 0xd4b4, 0x24a7, 0xa1a1, 0xa3a9][..]),
+        (0xc053, &[0, 0x1377, 0x137b, 5200, 5700, 0xffff][..]),
+        (
+            0xc054,
+            &[0, 0x139e, 0x15a8, 0x1607, 0x1676, 5200, 5700, 0xffff][..],
+        ),
+    ] {
+        for &value in values {
+            let (result, pdf, finished) =
+                convert(&make_words(Some([tag, value])), 1, &[false], roles(), 0);
+            assert_eq!(result.unwrap(), 0);
+            assert!(finished);
+            assert_eq!(pdf, baseline, "control {tag:04x}/{value:04x}");
+        }
+    }
+}
+
+#[test]
+fn end_payload_does_not_change_rendered_content() {
+    let mut words = ordinary();
+    words.extend(image());
+    words.push([0x8004, 1]);
+    let (result, baseline, finished) = convert(&words, 1, &[false], roles(), 0);
+    assert_eq!(result.unwrap(), 0);
+    assert!(finished);
+    for value in [0, 39, 40, 41, 42, 43, 44, 0xffff] {
+        *words.last_mut().unwrap() = [0x8004, value];
+        let (result, pdf, finished) = convert(&words, 1, &[false], roles(), 0);
+        assert_eq!(result.unwrap(), 0);
+        assert!(finished);
+        assert_eq!(pdf, baseline, "end payload {value:04x}");
     }
 }

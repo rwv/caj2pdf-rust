@@ -140,6 +140,25 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
                 tag: 0x8067,
                 value: 5 | 6 | 8 | 9,
             } => (),
+            // Original mixed controls preserve glyphs, all admitted segment
+            // styles, decoration and images. This concerns rendering only;
+            // the underlying visitor still exposes every raw control payload.
+            NativeRecord::Control {
+                tag: 0x8072,
+                value: 0 | 0x1042 | 0xa3a8 | 0xa0f2,
+            }
+            | NativeRecord::Control {
+                tag: 0x8073,
+                value: 38..=42,
+            }
+            | NativeRecord::Control {
+                tag: 0x8074,
+                value: 0 | 0xb4a2 | 0xd4b4 | 0x24a7 | 0xa1a1 | 0xa3a9,
+            }
+            | NativeRecord::Control {
+                tag: 0xc053 | 0xc054,
+                ..
+            } => (),
             NativeRecord::Glyph { x, y, style, code } => {
                 let character = decode_native_character(code)
                     .ok_or_else(|| invalid("unsupported C8 native character"))?;
@@ -290,7 +309,7 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
                 tag: 0xffff,
                 value: 5,
             }
-            | NativeRecord::End { value: 1 } => (),
+            | NativeRecord::End { .. } => (),
             _ => return Err(invalid("unverified C8 native rendering record")),
         }
         Ok(())
