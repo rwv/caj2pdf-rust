@@ -2371,3 +2371,13 @@ ambiguous prior copies rejected. Tests contain authored scalar/array objects,
 stored-deflate rectangle content, checksum damage and opaque-stream decoys.
 No external source bytes or converter implementations were copied. All new
 code and generated controls are original MIT work.
+
+
+### Empirical segment endpoints
+
+The C8 segment endpoint helper is original MIT arithmetic based on the original
+three-style diagonal and independent axis controls in `c8-native-records.md`.
+It does not copy other converters, retain source content or extract vendor code.
+The existing PDF writer handles device-dependent hairlines. The independently
+constructed control and core-generated control have identical MuPDF rasters;
+source/viewer differences remain documented rather than hidden by corrections.

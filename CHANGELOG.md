@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Add allocation-free empirical C8 segment endpoint evaluation for the three
+  independently observed hairline styles. Unknown styles remain errors;
+  complete native-page conversion is still under development.
+
 - Add constant-space empirical placement for forward horizontal C8 decorations,
   sharing native text size rules and preserving partial final marks through
   endpoint clipping. Complete native-page conversion remains under development.

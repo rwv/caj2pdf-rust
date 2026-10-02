@@ -307,6 +307,37 @@ pub fn empirical_c8_horizontal_decoration(
     })
 }
 
+/// Evaluate endpoints for observed C8 `8006/a381`, `a383` and `a38b` segments.
+/// Callers must establish the record tag separately. Emit these endpoints with
+/// the existing PDF segment writer's zero width (device-dependent hairline).
+/// The empirical source margin is independent of text/decoration baselines.
+/// Raster width and antialiasing differ across PDF renderers; this is not a
+/// pixel-parity guarantee. Unknown styles are rejected, including `a385` whose
+/// framing alone does not establish the same rendering semantics.
+///
+/// Endpoints retain order and signed off-page positions. This allocation-free
+/// evaluator performs no font selection or complete-page admission.
+pub fn empirical_c8_segment(
+    page: EmpiricalPageGeometry,
+    source_origin: [u16; 2],
+    points: [[u16; 2]; 2],
+    style: u16,
+) -> Result<[[f64; 2]; 2]> {
+    let [left, _, _, top] = page.media_box()?;
+    if !matches!(style, 0xa381 | 0xa383 | 0xa38b) {
+        return Err(Error::InvalidInput {
+            reason: "unverified C8 segment style",
+        });
+    }
+    let unit = EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
+    Ok(points.map(|[x, y]| {
+        [
+            left + (f64::from(x) - f64::from(source_origin[0]) + 20.0) * unit,
+            top - (f64::from(y) - f64::from(source_origin[1]) + 20.0) * unit,
+        ]
+    }))
+}
+
 fn c8_style_metrics(style: u16) -> Result<(f64, f64, f64)> {
     if style & 0xfc00 != 0x1000 {
         return Err(Error::InvalidInput {

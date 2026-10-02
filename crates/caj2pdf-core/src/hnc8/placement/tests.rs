@@ -526,3 +526,37 @@ fn c8_horizontal_decoration_rejects_unverified_geometry_and_styles() {
     invalid.size.width_points = f64::NAN;
     assert!(empirical_c8_horizontal_decoration(invalid, [0, 0], [[0, 0], [1, 0]], 0x1084).is_err());
 }
+
+#[test]
+fn c8_segments_reproduce_independent_axes_and_preserve_endpoint_order() {
+    let page = source_page_geometry([600, 600]).unwrap();
+    for style in [0xa381, 0xa383, 0xa38b] {
+        let horizontal =
+            empirical_c8_segment(page, [4652, 4274], [[4682, 4304], [4832, 4304]], style).unwrap();
+        // Original segment-axes control: relative endpoints (30,30)/(180,30).
+        close(horizontal[0][0], 12000.0 / 2473.0);
+        close(horizontal[1][0], 48000.0 / 2473.0);
+        close(horizontal[0][1], 132000.0 / 2473.0);
+        assert_eq!(horizontal[0][1], horizontal[1][1]);
+        let reverse =
+            empirical_c8_segment(page, [4652, 4274], [[4832, 4304], [4682, 4304]], style).unwrap();
+        assert_eq!(reverse, [horizontal[1], horizontal[0]]);
+        let vertical =
+            empirical_c8_segment(page, [4652, 4274], [[4902, 4524], [4902, 4704]], style).unwrap();
+        assert_eq!(vertical[0][0], vertical[1][0]);
+        assert!(vertical[0][1] > vertical[1][1]);
+        let shifted =
+            empirical_c8_segment(page, [4672, 4294], [[4702, 4324], [4852, 4324]], style).unwrap();
+        assert_eq!(shifted, horizontal);
+    }
+    let off_page =
+        empirical_c8_segment(page, [100, 100], [[0, 0], [u16::MAX, u16::MAX]], 0xa381).unwrap();
+    assert!(off_page[0][0] < 0.0);
+    assert!(off_page[1][1] < 0.0);
+    for style in [0xa385, 0xa382, 1] {
+        assert!(empirical_c8_segment(page, [0, 0], [[0, 0], [1, 1]], style).is_err());
+    }
+    let mut invalid = page;
+    invalid.origin_points[0] = f64::INFINITY;
+    assert!(empirical_c8_segment(invalid, [0, 0], [[0, 0], [1, 1]], 0xa381).is_err());
+}

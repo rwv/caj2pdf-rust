@@ -1379,3 +1379,15 @@ unsupported. qpdf accepts the authored PDF. External receipts are
 and repeated source/PDF captures in `caj2pdf-c8-decoration-metrics-20261002`.
 The generator reproduces the observed input byte-for-byte; no external content
 or raster captures are committed.
+
+
+`empirical_c8_segment` now implements the measured endpoint evaluator for
+`a381/a383/a38b`, sharing the empirical coordinate unit and retaining source
+endpoint order and signed off-page coordinates. Callers separately establish
+the `8006` record and emit the endpoints using zero-width PDF segments. Unknown
+styles, including framing-only `a385`, and invalid page geometry fail explicitly.
+The original horizontal/vertical control generated through this helper renders
+byte-identical pixels to the independently constructed PDF at 953.28 DPI; qpdf
+accepts it. This confirms implementation of the model, not removal of the
+recorded viewer hairline differences. Receipts: `segment-core-result.json` in
+the existing external metrics directory. No production profile is enabled here.
