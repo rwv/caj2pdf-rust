@@ -522,6 +522,7 @@ fn maps_verified_alphanumeric_and_gbk_codes_without_inventing_unknowns() {
         (0xa3ac, '\u{ff0c}'),
         (0xa3b0, '\u{ff10}'),
         (0xa0a6, '\u{ff06}'),
+        (0xa0ad, '\u{ff0d}'),
         (0xa0ae, '\u{ff0e}'),
         (0xa0af, '\u{ff0f}'),
         (0xa0ba, ':'),

@@ -2,8 +2,10 @@
 
 # Compact HN-B page index
 
-Tracking: #236, under page-completeness issue #220. This is container metadata
-support, not native-text rendering or successful conversion of the source.
+Tracking: #236 (indexing), #241 (native rendering) and #250 (mixed images),
+under #220. The initial sections establish indexing only; later sections
+record rendering controls and document checkpoints. Historical failures are
+superseded by the latest checkpoint below, not universal support claims.
 
 ## Evidence and discriminator
 
@@ -1165,3 +1167,49 @@ an unsupported native character. Its character/resource/placement mapping
 still needs independent verification; do not infer it solely from adjacent
 byte values. Conversion publishes no final PDF, and full-document acceptance
 remains open.
+
+### Fullwidth hyphen and six-page issue-65 checkpoint
+
+Original `explicit_hyphen_controls()` compare `A0AD`, `A3AD` and `AAB2`
+under paired 36 axes in Latin states 0, 3 and 4. Marker geometry agrees,
+but geometry alone cannot distinguish their Unicode meanings. Ordinary
+CAJViewer Copy on the original single-character A0AD fixture returns UTF-8
+U+FF0D followed by CR/LF. The clipboard receipt records a fresh ownership
+transition and complete transfer. Ctrl+C invokes enhanced copy in this viewer;
+the accepted observation uses the ordinary Copy menu item instead.
+
+The mapping is U+FF0D FULLWIDTH HYPHEN-MINUS, using the selected Latin
+resource and the existing fullwidth baseline. Original unit controls check
+all three resources, Unicode and placement against A3AD; C8 rendering of this
+new HN-B code remains refused. Initial state-3/state-4 black captures and a
+clipboard timeout after viewer exit are excluded. Accepted replacement
+captures are identified in `hn-hyphen-comparison.json`; the Unicode receipt
+is `hyphen-copy-a0ad.json`.
+
+The pinned issue-65 source SHA-256 is
+`e1b17805a87f62097987c41f2821836d6b774caaf035c9846be966c965f08a49`.
+All six pages now convert through CLI, Node and a real Chromium Worker.
+With the same original marker fonts (symbols and state-3 share one resource),
+all three produce 3,647,058 bytes and SHA-256
+`9797b27f8b99ad872c3ace17c097db1bcee2221db83482525a170869492c8237`.
+The PDF has six 501.1565 by 736.11 point pages and passes qpdf.
+
+All six identified viewer pages have identical repeated captures with
+nonblank page content. Manual source/output inspection checks title and
+paragraph groups, section headings, reference layout, page numbers and
+image orientation/placement. Pages 1 and 6 retain their exact source JPEG
+payloads: 34,458 bytes at source offset 6,420 and 790,923 bytes at offset
+71,106. Pages 2–5 have no image resources. This separates payload preservation
+from the independent visual placement check. Marker fonts establish scoped
+layout/resource evidence, not readable-font equivalence or pixel identity.
+
+Node and Worker receipts report maximum source/output requests of 262,144
+bytes, font reads of 1,112 bytes, and no remaining scratch files. Their
+post-conversion WASM allocation of 1,966,080 bytes is not a peak measurement.
+Runtime receipts, `issue65-complete-checkpoint.json`, source captures and
+rendered PDFs remain outside Git in `caj2pdf-hnb-rendering-20261003`.
+
+This checkpoint does not close #241/#250: final-head three-document
+regressions, the acceptance/test audit, review and CI remain required.
+Bookmarks remain #221 and measured peak memory remains #222. Unknown
+image-after-text operations still return explicit errors.

@@ -75,6 +75,7 @@ pub enum NativeRecord {
 pub fn decode_native_character(code: u16) -> Option<char> {
     match code {
         0xa0a6 => return Some('＆'),
+        0xa0ad => return Some('－'),
         0xa0ae => return Some('．'),
         0xa0af => return Some('／'),
         0xa0ba => return Some(':'),

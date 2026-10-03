@@ -1529,3 +1529,39 @@ fn hnb_fullwidth_at_sign_matches_controlled_comma_placement_and_resource() {
         assert_eq!(glyphs[0], glyphs[1]);
     }
 }
+
+#[test]
+fn hnb_fullwidth_hyphen_keeps_unicode_and_explicit_axis_placement() {
+    for (state, font) in [(0, 1), (3, 0), (4, 2)] {
+        let mut glyphs = Vec::new();
+        for code in [0xa3ad, 0xa0ad] {
+            let words = [
+                [0x8001, 4394],
+                [0x8002, 0],
+                [0x8070, 36],
+                [0x8071, 36],
+                [0x801d, state],
+                [4902, code],
+                [0x8004, 1],
+            ];
+            let mut fonts = roles();
+            fonts.latin_state3 = Some(0);
+            let (result, pdf, finished) = convert(&words, 0, &[], fonts, 13);
+            result.unwrap();
+            assert!(finished);
+            let text = String::from_utf8_lossy(&pdf);
+            assert!(text.contains(&format!("/F{font} 1 Tf")));
+            assert!(text.contains("<FF0D> Tj"));
+            glyphs.push(
+                text.lines()
+                    .find(|line| line.contains(" Tm "))
+                    .unwrap()
+                    .to_owned(),
+            );
+            if code == 0xa0ad {
+                assert!(convert(&words, 0, &[], fonts, 11).0.is_err());
+            }
+        }
+        assert_eq!(glyphs[0], glyphs[1]);
+    }
+}

@@ -2607,5 +2607,15 @@ Original HN-B `801c/4`/axis-reset controls and regular-style flag pairs extend
 the existing geometric fixtures. They establish reset behavior and equivalent
 flags over the controlled size fields without deriving code from another
 converter. Original state-3 markers reveal a distinct Latin resource; that
-state is intentionally still unimplemented pending an explicit resource
-contract. Black viewer frames are excluded from all comparison evidence.
+state now has an explicit optional caller-supplied resource contract, as
+documented in `hnb-compact-index.md`. Black viewer frames are excluded from
+all comparison evidence.
+
+
+The A0AD mapping to U+FF0D is original work from a single-character synthetic
+fixture and ordinary viewer clipboard observation. Original paired-36-axis
+controls compare three resource states against existing hyphen encodings;
+no vendor outlines, converter implementation or corpus text is copied.
+The six-page issue-65 checkpoint uses external documents and original marker
+fonts only for external validation. Exact retained JPEG payloads are checked
+outside Git; no source images, derived PDFs or captures are redistributed.
