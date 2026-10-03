@@ -1159,7 +1159,7 @@ fn mode_zero_hyphen_requires_verified_geometry_and_symbol_resource() {
 }
 
 #[test]
-fn mode_zero_state72_zero_preserves_fonts_and_explicit_axes() {
+fn mode_zero_controlled_states_preserve_fonts_and_explicit_axes() {
     for (style, axes) in [(0x1084, false), (0x04e7, false), (0, true)] {
         let mut words = vec![[0x8001, 4350], [0x8002, style], [0x801d, 4]];
         if axes {
@@ -1175,9 +1175,24 @@ fn mode_zero_state72_zero_preserves_fonts_and_explicit_axes() {
         words.extend([[4682, 0xd6d0], [4772, 0xa3c1], [4862, 0xa980], [0x8004, 1]]);
         let (result, baseline, finished) = convert(&words, 0, &[], roles(), 18);
         assert!(result.is_ok() && finished);
-        words.insert(insertion, [0x8072, 0]);
-        let (result, actual, finished) = convert(&words, 0, &[], roles(), 18);
-        assert!(result.is_ok() && finished);
-        assert_eq!(actual, baseline);
+        for control in [
+            [0x8072, 0],
+            [0x8072, 0xc2c7],
+            [0x80ce, 1],
+            [0x8073, 41],
+            [0x8073, 42],
+            [0x8073, 43],
+            [0x8074, 0xc8ce],
+            [0x8074, 0xb5c8],
+            [0x8074, 0xb5c4],
+            [0xc053, 0xe9],
+            [0xc053, 0xb47],
+        ] {
+            let mut controlled = words.clone();
+            controlled.insert(insertion, control);
+            let (result, actual, finished) = convert(&controlled, 0, &[], roles(), 18);
+            assert!(result.is_ok() && finished);
+            assert_eq!(actual, baseline);
+        }
     }
 }

@@ -451,7 +451,11 @@ impl<W: SequentialSink, C: Cancellation> PageWriter<'_, '_, '_, '_, W, C> {
         match record {
             NativeRecord::Control { tag: 0x8001, .. }
             // Original paired rows preserve resources, geometry and explicit axes.
-            | NativeRecord::Control { tag: 0x8072, value: 0 }
+            | NativeRecord::Control { tag: 0x8072, value: 0 | 0xc2c7 }
+            | NativeRecord::Control { tag: 0x8073, value: 41..=43 }
+            | NativeRecord::Control { tag: 0x8074, value: 0xc8ce | 0xb5c8 | 0xb5c4 }
+            | NativeRecord::Control { tag: 0xc053, .. }
+            | NativeRecord::Control { tag: 0x80ce, value: 1 }
             | NativeRecord::Control {
                 tag: 0x801d,
                 value: 0 | 4,

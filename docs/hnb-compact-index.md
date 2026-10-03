@@ -876,3 +876,48 @@ remains an explicit unsupported hyphen geometry. External receipts are
 grid retains the established alphabet/symbol baseline and resource classes.
 Rasterization residuals remain as described above; these controls do not
 establish exact source/PDF pixel equality.
+
+### Mode-0 remaining state controls and first complete issue-63 CLI output
+
+The same paired-row controls now cover `80ce/1`, `8073/41..43` (decimal),
+`8074/c8ce,b5c8,b5c4`, `8072/c2c7`, and low/high `c053` numeric payloads.
+Across ordinary, seven-size and explicit-36 axes, all valid captures preserve
+CJK, ordinary/alternate Latin, space and colon markers, including the second
+row's geometry. The writer retains its state for these admitted controls;
+`c053` remains an opaque fixed-width numeric record rather than a list of
+sample-specific payloads. Other required controls still fail explicitly.
+
+External receipts are `legacy-statece1-{inputs,comparison}.json` and
+`legacy-metadata-{inputs,comparison,retry-comparison}.json`. The viewer exited
+partway through the larger batch; black frames are explicitly excluded.
+The eight affected cases were reopened in a fresh viewer process and repeat
+identically to their nonempty baseline. No black frame counts as evidence.
+
+The first complete issue-63 CLI output contains four pages, 7,929 glyph
+operations and four embedded original marker fonts; qpdf reports no syntax
+or stream errors. Its SHA256 is
+`3f904cb5ab0d5944ed8341b5fa59629884ceab0269999205f320b6af31545d07`
+and size is 2,790,855 bytes. Source fonts are deliberately substituted;
+whole-document visual fidelity and final cross-runtime acceptance remain
+separate outstanding checks.
+
+Node and a real browser Worker now produce the identical four-page hash.
+Both record maximum document requests of 20 bytes, font/output chunks of
+1,112 bytes, cleared scratch and no remaining temporary files. Their final
+WASM memory is 1,572,864 bytes, explicitly not a peak-memory measurement.
+The existing mode-2 issue-100 CLI hash remains unchanged.
+
+All four issue-63 pages have a manual marker-layout comparison against
+independent MuPDF raster output: headings, two-column ordering, row
+arrangement and the large blank remainder on the final page agree at the
+inspected zoom. This is scoped layout evidence, not exact pixel or
+readable-font parity. `issue63-complete-checkpoint.json` records the actual
+captures. An initial navigation attempt only edited the page box without
+submitting; its page-labelled screenshots are excluded. The replacement
+captures explicitly show source page indicators 2/4, 3/4 and 4/4.
+
+The current checkpoint passes strict workspace Clippy, all 162 JavaScript
+tests with rebuilt WASM (zero skips), and 34,581/34,581 Rust source lines
+with 100% coverage in each file. Optional external Rust corpus tests remain
+NOT_RUN in the coverage job. Full HN-B acceptance still requires issue-65,
+review, exact-head CI and the remaining fidelity/late-failure checks.

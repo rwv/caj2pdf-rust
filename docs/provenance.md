@@ -2585,3 +2585,11 @@ adds six original paired-row controls for `8072/0`, distinguishing resource
 selection and explicit-axis persistence with original markers in the pinned
 offline viewer. Source hashes, repeated captures and comparisons remain
 external; scoped findings are recorded in `docs/hnb-compact-index.md`.
+
+Remaining mode-0 metadata admission uses the same original paired-row
+fixture generator: `80ce/1`, `8073/41..43`, the observed `8074` values,
+`8072/c2c7` and low/high opaque `c053` payloads. Three geometry contexts
+preserve distinct original CJK, Latin and symbol markers. Viewer-exit black
+frames were excluded and recaptured in a fresh process. The complete
+issue-63 CLI/Node/Worker checkpoint and its scoped four-page marker-layout
+comparison contain no imported implementation or committed external content.

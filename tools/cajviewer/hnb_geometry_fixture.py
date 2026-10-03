@@ -376,7 +376,7 @@ def legacy_hyphen_controls():
             yield f"legacy-symbol-{label}-{kind}", bytes(data)
 
 
-def legacy_state_controls():
+def legacy_state_controls(tag=0x8072, value=0, label="state72zero"):
     """Paired mode-0 rows distinguish state changes from resource/axis resets."""
     for name, style, axes in (("normal", 0x1084, ()), ("seven", 0x04E7, ()),
                               ("axes", 0, (0x8070, 36, 0x8071, 36))):
@@ -384,7 +384,7 @@ def legacy_state_controls():
             words = axes + (100, 0xD6D0, 300, 0xA3C1, 450, 0xA980,
                             0x8001, 250)
             if state:
-                words += (0x8072, 0)
+                words += (tag, value)
             words += (100, 0xD6D0, 300, 0xA3C1, 450, 0xA980,
                       600, 0xA1A1, 750, 0xA3BA)
             data = bytearray(hn_container(document(
@@ -393,7 +393,23 @@ def legacy_state_controls():
             struct.pack_into("<I", data, 148, 0)
             struct.pack_into("<HHHHHHHHHH", data, 152,
                              0x8003, 950, 0x8003, 500, 0x8003, 0, 0, 1, 950, 500)
-            yield f"legacy-state72zero-{name}-{'state' if state else 'base'}", bytes(data)
+            yield f"legacy-{label}-{name}-{'state' if state else 'base'}", bytes(data)
+
+
+LEGACY_METADATA_CONTROLS = (
+    (0x8073, 41, "state73-41"), (0x8073, 42, "state73-42"),
+    (0x8073, 43, "state73-43"), (0x8074, 0xC8CE, "state74-c8ce"),
+    (0x8074, 0xB5C8, "state74-b5c8"), (0x8074, 0xB5C4, "state74-b5c4"),
+    (0x8072, 0xC2C7, "state72-c2c7"), (0xC053, 0xE9, "statec053-low"),
+    (0xC053, 0xB47, "statec053-high"),
+)
+
+
+def legacy_metadata_controls():
+    for tag, value, label in LEGACY_METADATA_CONTROLS:
+        for name, data in legacy_state_controls(tag, value, label):
+            if name.endswith("-state"):
+                yield name, data
 
 
 def legacy_symbol_controls():
@@ -535,7 +551,7 @@ def main():
         manifest.append({"file": filename, "code": code, "alternate": alt, "dx": dx,
                          "x": x, "y": y, "sha256": hashlib.sha256(data).hexdigest()})
     for name, data in (*end_controls(), *issue63_style_controls(), *native_mode_controls(),
-                       *legacy_geometry_controls(), *legacy_metric_controls(), *legacy_run_controls(), *legacy_digit_controls(), *legacy_line_width_controls(), *legacy_symbol_grids(), *legacy_hyphen_controls(), *legacy_state_controls(), *legacy_symbol_controls()):
+                       *legacy_geometry_controls(), *legacy_metric_controls(), *legacy_run_controls(), *legacy_digit_controls(), *legacy_line_width_controls(), *legacy_symbol_grids(), *legacy_hyphen_controls(), *legacy_state_controls(), *legacy_state_controls(0x80CE, 1, "statece1"), *legacy_metadata_controls(), *legacy_symbol_controls()):
         filename = name + ".caj"
         (args.output / filename).write_bytes(data)
         manifest.append({"file": filename, "sha256": hashlib.sha256(data).hexdigest()})
