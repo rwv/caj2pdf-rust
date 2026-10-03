@@ -211,6 +211,24 @@ External documents, fonts and rendered evidence are not distributed. #242 owns
 additional-profile final acceptance; #222 owns packaged release/corpus and
 peak-memory acceptance.
 
+### Packaged HN-B regression repeat
+
+At core `4910da9`, the actual npm package repeats the explicit-font
+`issue-100`, `issue-63` and `issue-65` documents through Node and real browser
+Workers. All 4/4/6 pages complete, each output matches the current native CLI,
+and scratch/OPFS cleanup passes. Compared with reviewed HN-B `385f3d2`, qpdf
+QDF shows only additional F4–F7 font-resource references before the xref table;
+content and embedded-resource streams are unchanged. All 14 page renders at
+72 dpi are byte-identical. Changed PDF hashes reflect this serialization
+change, not original-font parity or a new source-fidelity claim.
+
+External receipts are `packaged4910da9-hnb-regression.json`,
+`packaged4910da9-hnb-qdf-comparison.json` and `hnb-4910da9-cli-regression.json`
+in the existing acceptance directory. #265 completes the next-gap triage:
+no additional independent parser gap is demonstrated by the current corpus
+with required caller resources. Unseen native modes and nonempty HN-B/C8
+outlines remain unverified; #221 retains bookmark ownership.
+
 ### Representative memory preflight (2026-10-03)
 
 Core `4910da9` and the actual extracted npm preflight tarball were measured on
