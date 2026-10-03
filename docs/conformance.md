@@ -159,12 +159,20 @@ font-free corpus baseline or an independent proof of every character mapping.
 Caller-supplied fonts change face, weight, bearings and punctuation spacing.
 Decoration contour multiplicity and zoom-dependent repetition are independently
 classified with original controls. No source-font fidelity or pixel equality is
-claimed. C8 bookmarks and additional native profiles remain unsupported; unknown
-required content fails explicitly. See the current status and original-control
+claimed. The additional `issue-90/4-[21].caj` and `4-[24].caj` profiles
+complete all 4/5 pages with explicit marker resources through CLI/Node/Worker,
+with matching output hashes and successful scratch cleanup. All nine pages
+received source-layout inspection; PDF tracing preserves all 14,300 decoded
+glyphs in order. This is conditional rendering/transport evidence, not an
+independent transcription or a reclassification of the font-free baseline.
+See [additional C8 controls](c8-native-controls.md#complete-document-runtime-and-visual-checkpoint-c2df122).
+Bookmarks and unverified native profiles remain unsupported; unknown required
+content fails explicitly. See the current status and original-control
 evidence in [C8 native records](c8-native-records.md), and the resource contracts
 in [CLI usage](cli.md#native-c8-font-resources) and [JavaScript usage](../js/README.md).
-External documents, fonts and rendered evidence are not distributed. #233 owns
-final acceptance; #222 owns packaged release/corpus and peak-memory acceptance.
+External documents, fonts and rendered evidence are not distributed. #242 owns
+additional-profile final acceptance; #222 owns packaged release/corpus and
+peak-memory acceptance.
 
 ### Known Python-reference differences
 

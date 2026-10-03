@@ -119,10 +119,18 @@ is not emitted as document text. Fonts must cover the Unicode characters
 required by their assigned roles. No system lookup or missing-glyph fallback
 is performed; substitution/font-identity limitations remain explicit.
 
+The additional C8 profiles may require `--font-latin-state3 FILE`,
+`--font-latin-state28 FILE` and `--font-latin-state31 FILE`. These are explicit
+resources for observed source font states, not automatic fallbacks. Supply a
+role when the document requires it; missing required roles fail with a located
+error. At most eight distinct sources are accepted, including the ordinary,
+decoration and HN-B symbol roles. Node/browser expose the matching
+`latinState3`, `latinState28` and `latinState31` options.
+
 Font path flags accept separate values or `--font-cjk=FILE` spelling.
 Separate values preserve non-UTF-8 paths. Repeating a role, omitting one of
 the three ordinary roles, or using `-` as a font path is a usage error.
-Reuse the same path for multiple roles to embed it once. Native C8 font
+Reuse the same path for multiple roles to embed it once. Native C8/HN-B font
 options are rejected for other document formats.
 
 Files are read through ranged/seekable handles. Forward-only named inputs

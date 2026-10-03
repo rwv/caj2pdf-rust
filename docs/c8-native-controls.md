@@ -1167,3 +1167,37 @@ External receipts under `caj2pdf-hnb-rendering-20261003`:
 `c8-six-c2df122-cli.json`, and
 `c8-acceptance-c2df122/{capture-stability,pdf-pages}.json`.
 Source documents, text, PDFs, fonts and captures remain outside Git.
+
+
+### Acceptance review follow-up (`3ff51b8`)
+
+The source-record visitor and independent MuPDF PDF text trace agree exactly
+on every page: four-page input 1,536 / 1,133 / 1,046 / 2,864 glyphs; five-page
+input 1,438 / 1,347 / 921 / 1,169 / 2,846 glyphs (14,300 total). The external
+`c8-acceptance-c2df122/unicode-transport.json` records counts and equality;
+character sequences remain outside Git. This proves transport of the admitted
+mapping, not independent correctness of every decoded character.
+
+The observed horizontal-line residual matches the already documented original
+`segment-axes` controls in `c8-native-records.md`: source and PDF endpoints agree,
+while the same PDF has different integrated hairline darkness in CAJViewer and
+MuPDF. Retain the nominal zero-width representation and explicit raster limits;
+no new thickness, gray compensation or page-specific adjustment is warranted.
+This classifies the residual without asserting arbitrary source stroke parity.
+
+Existing failure-path coverage is reused:
+- Core `native_document_streams_text_and_all_shared_image_codecs` checks short
+  source/font reads, short sequential writes, bounded requests and scratch reuse.
+- Core `native_document_late_unknown_record_cannot_finish_pdf` checks page-2
+  failure and unfinished output; the font/I/O/cancellation test exercises errors.
+- CLI `native_c8_font_failures_preserve_inputs_and_atomic_output` checks staged
+  failure, existing destination preservation and absence of leftover files.
+- Node `c8-fonts.test.mjs` and real Worker `hnc8-worker.mjs` check font errors,
+  cancellation and scratch cleanup; the shared renderer's HN-B late-page test
+  checks unfinished first-page output and cleanup through the same adapters.
+
+Review confirms HN-B's parser guard rejects C8-only drawing/control tags before
+composition, descriptor counts bound image access, and the polyline writer uses
+fixed scratch for at most eight points. The font transport extends existing
+roles and shares font sources; it introduces no system font search or new
+renderer. Final hosted checks on the reviewed PR head remain required.

@@ -199,7 +199,7 @@ export interface C8Fonts {
   alternateLatin: RangedSource;
   /** Semantic symbols/spaces required by the admitted HN-B mode-0 records. */
   symbols?: RangedSource;
-  /** Optional explicit font selected by HN-B state 801d/3. */
+  /** Optional explicit font selected by HN-B/C8 state 801d/3. */
   latinState3?: RangedSource;
   /** Distinct caller-supplied resources for verified C8 Latin states. */
   latinState28?: RangedSource;
