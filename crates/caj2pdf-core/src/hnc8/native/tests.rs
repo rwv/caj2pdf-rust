@@ -1979,3 +1979,33 @@ fn hnb_end_stops_before_opaque_tail_and_next_page_uses_its_index() {
     let error = parse(&mut c8, TextBudget::default(), &mut Visitor::default()).unwrap_err();
     assert_eq!(error.kind.field(), "native page end");
 }
+
+#[test]
+fn native_mode_keeps_independently_copied_alphabets_separate() {
+    for (first, ascii) in [
+        (0xa980, b'A'),
+        (0xa99a, b'a'),
+        (0xa3c1, b'A'),
+        (0xa3e1, b'a'),
+    ] {
+        for index in 0..26_u8 {
+            assert_eq!(
+                decode_native_character_for_mode(0, first + u16::from(index)),
+                Some(char::from(ascii + index))
+            );
+        }
+    }
+    for (code, character) in [(0xa0c1, 'A'), (0xa3c1, 'Ａ'), (0xd6d0, '中')] {
+        assert_eq!(decode_native_character_for_mode(2, code), Some(character));
+    }
+    // Do not import mode-2 aliases, adjacent symbols or unverified classes.
+    for code in [
+        0xa0c1, 0xa97f, 0xa9b4, 0xa3c0, 0xa3db, 0xa3e0, 0xa3fb, 0xd6d0, 0xffff,
+    ] {
+        assert_eq!(decode_native_character_for_mode(0, code), None);
+    }
+    for mode in [1, 3, u32::MAX] {
+        assert_eq!(decode_native_character_for_mode(mode, 0xa980), None);
+    }
+    assert_eq!(decode_native_character_for_mode(2, 0xffff), None);
+}

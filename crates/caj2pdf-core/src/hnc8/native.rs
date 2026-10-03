@@ -93,6 +93,24 @@ pub fn decode_native_character(code: u16) -> Option<char> {
         .filter(|c| !c.is_control() && !(0xe000..=0xf8ff).contains(&u32::from(*c)))
 }
 
+/// Decode characters whose interpretation is verified for the supplied native mode.
+///
+/// Obtain the raw mode from [`super::Header::native_mode`]. Mode 2 uses the
+/// established mapping above. Mode 0 currently admits only the independently
+/// controlled Latin alphabets; its remaining glyph classes are unverified here.
+/// Unknown modes/codes return `None`. A decoded letter does not select its font
+/// resource or establish placement: mode-0 A9 and A3 letters use distinct fonts.
+pub fn decode_native_character_for_mode(mode: u32, code: u16) -> Option<char> {
+    match (mode, code) {
+        (2, _) => decode_native_character(code),
+        (0, 0xa980..=0xa999) => Some(char::from(b'A' + (code - 0xa980) as u8)),
+        (0, 0xa99a..=0xa9b3) => Some(char::from(b'a' + (code - 0xa99a) as u8)),
+        (0, 0xa3c1..=0xa3da) => Some(char::from(b'A' + (code - 0xa3c1) as u8)),
+        (0, 0xa3e1..=0xa3fa) => Some(char::from(b'a' + (code - 0xa3e1) as u8)),
+        _ => None,
+    }
+}
+
 /// Decode only the established image-coordinate fields of the raw C8 profile.
 ///
 /// `words` is the payload of [`NativeRecord::Image`]. The observed `d300`

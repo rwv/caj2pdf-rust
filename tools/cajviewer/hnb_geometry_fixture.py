@@ -207,6 +207,46 @@ def native_mode_controls():
         yield f"legacy-{name}", bytes(data)
 
 
+def legacy_geometry_control(width=600, height=400, dx=0, dy=0, style=0x1084):
+    data = bytearray(hn_container(document(
+        [(style, 0, 6)], codes=(), width=width, height=height,
+        first_x=100 + dx, first_y=100 + dy,
+        run_words=(100 + dx, 0xD6D0, 300 + dx, 0xA3C1, 450 + dx, 0xA980))))
+    struct.pack_into("<I", data, 148, 0)
+    struct.pack_into("<HHHHHHHHHH", data, 152,
+                     0x8003, width, 0x8003, height, 0x8003, 0, 0, 1, width, height)
+    return bytes(data)
+
+
+def legacy_geometry_controls():
+    """Vary page metadata, positions, styles and optional resource controls."""
+    for name, width, height, dx, dy in (
+        ("base", 600, 400, 0, 0), ("wide", 800, 400, 0, 0),
+        ("tall", 600, 600, 0, 0), ("shiftx", 600, 400, 30, 0),
+        ("shifty", 600, 400, 0, 40),
+    ):
+        yield f"legacy-geometry-{name}", legacy_geometry_control(width, height, dx, dy)
+    base = legacy_geometry_control()
+    for name, offset, value in (
+        ("originx", 164, 30), ("originy", 166, 41),
+        ("extent-width", 168, 800), ("prefix-width", 154, 800),
+        ("extent-height", 170, 600), ("prefix-height", 158, 600),
+    ):
+        data = bytearray(base)
+        struct.pack_into("<H", data, offset, value)
+        yield f"legacy-header-{name}", bytes(data)
+    for style in (0, 0x0484, 0x04E7, 0x0884, 0x0CA4, 0x0CE7,
+                  0x1000, 0x1084, 0x10A4, 0x154A, 0x9C84):
+        yield f"legacy-style-{style:04x}", legacy_geometry_control(style=style)
+    data = bytearray(base)
+    del data[236:244]  # Remove authored 801d/8067 controls; retain glyph order.
+    struct.pack_into("<I", data, 220, len(data) - 228)
+    yield "legacy-default-resources", bytes(data)
+    data = bytearray(base)
+    struct.pack_into("<H", data, 238, 4)
+    yield "legacy-alternate4", bytes(data)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("output", type=Path, help="new directory outside the repository")
@@ -309,7 +349,8 @@ def main():
         (args.output / filename).write_bytes(data)
         manifest.append({"file": filename, "code": code, "alternate": alt, "dx": dx,
                          "x": x, "y": y, "sha256": hashlib.sha256(data).hexdigest()})
-    for name, data in (*end_controls(), *issue63_style_controls(), *native_mode_controls()):
+    for name, data in (*end_controls(), *issue63_style_controls(), *native_mode_controls(),
+                       *legacy_geometry_controls()):
         filename = name + ".caj"
         (args.output / filename).write_bytes(data)
         manifest.append({"file": filename, "sha256": hashlib.sha256(data).hexdigest()})

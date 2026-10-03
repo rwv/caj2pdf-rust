@@ -636,3 +636,46 @@ Nine original controls in `hnb_geometry_fixture.py` reproduce the external
 `legacy-alphabet-inputs.json` hashes in `caj2pdf-hnb-rendering-20261003`.
 Source text, fonts and captures stay outside Git. Metadata tests preserve
 0, 2 and unknown values, HN-A absence, one-byte reads and located truncation.
+
+## Mode-0 Latin decoding and geometry controls
+
+`decode_native_character_for_mode` now separates mode-0 Latin alphabets from
+the existing mode-2 decoder. It admits the four independently copied alphabet
+ranges and rejects unknown modes and unverified mode-0 classes, including A0
+aliases. It does not select a font or enable complete mode-0 conversion. The
+ordinary A3 and heavier A9 letters remain distinct raw codes even though their
+Unicode scalars agree; the renderer must retain that resource distinction.
+
+Twenty-four further original controls use a mode-0 header with authored
+`8003` metadata pairs and three glyphs: CJK, A3 Latin and A9 Latin. The pinned
+viewer is mounted with the existing original marker fonts, whose three hole
+positions identify the selected resources without vendor outlines. A3 uses
+the ordinary Latin role and A9 the alternate Latin role. Removing the optional
+`801d/8067` records or changing `801d` to 4 leaves this three-glyph control
+unchanged; both captures repeat identically. This matches the source document's
+absence of those optional resource records, without requiring another font API.
+
+Changing width/height at offsets 168/170 changes the page frame; changing the
+corresponding authored metadata values at 154/158 does not affect these
+controls. Changing origins at 164/166 shifts glyphs in the expected opposite
+direction. Independent x/y glyph shifts and changed page height confirm the
+axes. The observed frame ratios are consistent with adding 100 source units
+to each declared page extent in mode 0. An independent three-glyph PDF using
+that frame and the existing 35-unit font-size model approximately matches the
+marker positions; raster edges differ by about a pixel and the diagnostic PDF
+uses black rather than the native viewer's gray. This is a candidate geometry
+model, not a pixel-equality or full-document fidelity result.
+
+Original style controls compare every style observed in issue-63. Required
+font baselines, other symbol placement and complete mode-0 translation remain
+open. Reuse the shared writer and existing explicit font roles; do not apply
+mode-2 geometry merely because a style word is the same.
+
+`hnb_geometry_fixture.py` reproduces all 24 geometry/header/style/resource input
+hashes. External `legacy-{geometry,header,style,resource}-inputs.json`,
+`legacy-geometry-bounds.json`, `legacy-header-comparison.json`,
+`legacy-resource-comparison.json`, `src/bin/legacy_pdf.rs` and the pinned
+`legacy-viewer` captures in `caj2pdf-hnb-rendering-20261003` retain receipts.
+The production decoder's alphabet/unknown-mode regressions pass with strict
+workspace Clippy and 34,404/34,404 Rust line coverage. No corpus, fonts, extracted
+text or captures enter the repository.

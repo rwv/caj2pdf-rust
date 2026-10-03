@@ -2540,3 +2540,10 @@ vary only the HN-B header mode word and use original alphabet sequences to
 observe mode-dependent character interpretation in the pinned viewer. The
 nine-control generator contains no external text, font outlines or vendor
 implementation. This metadata addition does not claim mode-0 rendering support.
+
+The mode-aware Latin decoder uses original alphabet controls and independently
+copied Unicode sequences; four bounded arithmetic ranges are original MIT
+code, not a vendor mapping table. Twenty-four additional original geometry and
+resource controls use the existing authored marker fonts. Vendor resources,
+source documents and derived captures remain external. Geometry observations
+do not promote the unfinished mode-0 renderer.

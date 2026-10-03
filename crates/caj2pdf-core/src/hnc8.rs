@@ -40,7 +40,8 @@ pub use convert_jpeg::{
 };
 pub use jpeg::{JpegBudget, JpegColor, JpegInfo, read_type2_jpeg_info};
 pub use native::{
-    NativeRecord, NativeRecordVisitor, decode_native_character, decode_native_image_coordinate,
+    NativeRecord, NativeRecordVisitor, decode_native_character, decode_native_character_for_mode,
+    decode_native_image_coordinate,
 };
 pub use native_page::{C8PageFonts, write_c8_native_page};
 pub use placement::{
