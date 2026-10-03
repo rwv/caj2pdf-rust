@@ -1246,7 +1246,7 @@ fn cancellation_inside_a_fixed_read_and_before_a_page_row_is_located() {
 }
 
 #[test]
-fn native_origin_preserves_unsigned_c8_words_without_guessing_hn_fields() {
+fn native_origin_preserves_unsigned_c8_and_hnb_words() {
     let limits = Limits::default();
     for variant in [Variant::C8, Variant::HnA, Variant::HnB] {
         for origin in [[4652_u16, 4274_u16], [0, u16::MAX]] {
@@ -1255,8 +1255,9 @@ fn native_origin_preserves_unsigned_c8_words_without_guessing_hn_fields() {
             } else {
                 hn(variant, 1, 0).0
             };
-            bytes[28..30].copy_from_slice(&origin[0].to_le_bytes());
-            bytes[30..32].copy_from_slice(&origin[1].to_le_bytes());
+            let offset = if variant == Variant::C8 { 28 } else { 164 };
+            bytes[offset..offset + 2].copy_from_slice(&origin[0].to_le_bytes());
+            bytes[offset + 2..offset + 4].copy_from_slice(&origin[1].to_le_bytes());
             let mut source = Source::new(bytes);
             source.max_read = 1;
             let reader = ready(Hnc8Reader::open(
@@ -1268,7 +1269,7 @@ fn native_origin_preserves_unsigned_c8_words_without_guessing_hn_fields() {
             .unwrap();
             assert_eq!(
                 reader.header().native_origin,
-                (variant == Variant::C8).then_some(origin)
+                (variant != Variant::HnA).then_some(origin)
             );
             assert!(source.largest_request <= 4);
         }
@@ -1310,16 +1311,13 @@ fn declared_page_extents_use_variant_offsets_and_bounded_reads() {
             Budget::default(),
         ))
         .unwrap();
-        assert_eq!(
-            reader.header().page_size,
-            if variant == Variant::HnB {
-                None
-            } else {
-                Some([0x8123, 0x4567])
-            }
-        );
+        assert_eq!(reader.header().page_size, Some([0x8123, 0x4567]));
     }
-    for (mut bytes, offset) in [(c8(1), 32), (hn(Variant::HnA, 1, 0).0, 168)] {
+    for (mut bytes, offset) in [
+        (c8(1), 32),
+        (hn(Variant::HnA, 1, 0).0, 168),
+        (hn(Variant::HnB, 1, 0).0, 168),
+    ] {
         bytes.truncate(offset + 3);
         let mut source = Source::new(bytes);
         let error = ready(Hnc8Reader::open(
@@ -1461,4 +1459,47 @@ fn compact_hnb_index_truncation_budgets_and_cancellation_remain_bounded() {
     };
     let mut reader = ready(Hnc8Reader::open(&mut source, &limits, &NEVER, budget)).unwrap();
     assert_eq!(ready(reader.next_page()).unwrap_err().offset, 220);
+}
+
+#[test]
+fn native_modes_preserve_raw_values_without_assuming_character_semantics() {
+    let limits = Limits::default();
+    for variant in [Variant::C8, Variant::HnA, Variant::HnB] {
+        for mode in [0_u32, 2, u32::MAX] {
+            let (mut bytes, offset) = if variant == Variant::C8 {
+                (c8(1), 12)
+            } else {
+                (hn(variant, 1, 0).0, 148)
+            };
+            bytes[offset..offset + 4].copy_from_slice(&mode.to_le_bytes());
+            let mut source = Source::new(bytes);
+            source.max_read = 1;
+            let reader = ready(Hnc8Reader::open(
+                &mut source,
+                &limits,
+                &NEVER,
+                Budget::default(),
+            ))
+            .unwrap();
+            assert_eq!(
+                reader.header().native_mode,
+                (variant != Variant::HnA).then_some(mode)
+            );
+            assert!(source.largest_request <= 4);
+        }
+    }
+    for length in 12..16 {
+        let mut bytes = c8(1);
+        bytes.truncate(length);
+        let error = ready(Hnc8Reader::open(
+            &mut Source::new(bytes),
+            &limits,
+            &NEVER,
+            Budget::default(),
+        ))
+        .err()
+        .unwrap();
+        assert_eq!(error.offset, 12);
+        assert_eq!(error.kind.field(), "native mode");
+    }
 }

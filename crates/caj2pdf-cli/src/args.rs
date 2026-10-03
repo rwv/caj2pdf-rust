@@ -26,7 +26,7 @@ pub struct ConvertOptions {
     pub qm_states: Option<PathBuf>,
     pub mq_states: Option<PathBuf>,
     pub no_bookmarks: bool,
-    pub fonts: [Option<PathBuf>; 4],
+    pub fonts: [Option<PathBuf>; 6],
     pub decoration_char: Option<char>,
 }
 
@@ -38,7 +38,7 @@ pub enum Command {
         input: Endpoint,
         output: Option<Endpoint>,
         force: bool,
-        options: ConvertOptions,
+        options: Box<ConvertOptions>,
     },
     Inspect {
         input: Endpoint,
@@ -64,7 +64,7 @@ Usage:
 Conversion writes INPUT's sibling .pdf file unless -o is given. Use - for
 standard input or output; standard input without -o writes to standard output.
 Supported inputs: CAJ, KDH, PDF, experimental HN/C8 image pages,
-and the admitted native C8 profile with explicit fonts.
+and admitted native C8/HN-B text profiles with explicit fonts.
 HN/C8 uses built-in standard codec states; TEB remains unsupported.
 C8/HN-B currently require --no-bookmarks.
 
@@ -74,10 +74,12 @@ Options:
   --no-bookmarks      Skip CAJ/HN outline import (required for C8/HN-B)
   --qm-states FILE    Experimental QM states for HN/C8 type-0 images
   --mq-states FILE    Experimental MQ states for arithmetic JBIG2 images
-  --font-cjk FILE     Explicit native C8 CJK font (requires both Latin roles)
-  --font-latin FILE   Explicit native C8 ordinary Latin font
-  --font-alternate-latin FILE  Explicit native C8 alternate Latin font
-  --font-decoration FILE      Optional native C8 decoration font
+  --font-cjk FILE     Explicit native C8/HN-B CJK font (requires both Latin roles)
+  --font-latin FILE   Explicit native C8/HN-B ordinary Latin font
+  --font-alternate-latin FILE  Explicit native C8/HN-B alternate Latin font
+  --font-latin-state3 FILE    Optional HN-B state-3 Latin font
+  --font-symbols FILE         Optional HN-B mode-0 semantic symbol font
+  --font-decoration FILE      Optional native C8/HN-B decoration font
   --decoration-char CHAR      Decoration alias (default: ►; not document text)
   -h, --help           Print help (also: caj2pdf COMMAND --help)
   -V, --version        Print version
@@ -161,6 +163,8 @@ fn font_option(name: &str) -> Option<usize> {
         "--font-latin" => Some(1),
         "--font-alternate-latin" => Some(2),
         "--font-decoration" => Some(3),
+        "--font-symbols" => Some(4),
+        "--font-latin-state3" => Some(5),
         _ => None,
     }
 }
@@ -267,7 +271,8 @@ pub fn parse<I: IntoIterator<Item = OsString>>(args: I) -> Result<Command, Strin
 
     if options.fonts.iter().any(Option::is_some) && options.fonts[..3].iter().any(Option::is_none) {
         return Err(
-            "native C8 fonts require --font-cjk, --font-latin and --font-alternate-latin".into(),
+            "native C8/HN-B fonts require --font-cjk, --font-latin and --font-alternate-latin"
+                .into(),
         );
     }
     if options.decoration_char.is_some() && options.fonts[3].is_none() {
@@ -292,7 +297,7 @@ pub fn parse<I: IntoIterator<Item = OsString>>(args: I) -> Result<Command, Strin
             input,
             output,
             force,
-            options,
+            options: Box::new(options),
         },
         Topic::Inspect => Command::Inspect {
             input,

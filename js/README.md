@@ -497,20 +497,22 @@ only a transient `NoModificationAllowedError` (at most three attempts, with
 is an `AggregateError`: `cause` and `errors[0]` hold the original failure,
 `errors[1]` holds the removal failure. The temporary file may then remain.
 
-### Explicit fonts for native C8 pages
+### Explicit fonts for native C8 and HN-B pages
 
-The admitted native C8 profile accepts caller-owned ranged font sources:
+The admitted native C8 and HN-B text/vector profiles accept caller-owned ranged font sources:
 
 ```js
 await convert(wasm, documentSource, outputSink, {
-  includeBookmarks: false, // C8 bookmarks are not supported yet.
+  includeBookmarks: false, // C8/HN-B bookmarks are not supported yet.
   hnc8: {
     scratch, // Existing four reusable stores for image decoding, when needed.
     fonts: {
       cjk: textFontSource,
       latin: textFontSource,
       alternateLatin: alternateFontSource,
-      decoration: { source: symbolFontSource, character: "►" },
+      decoration: { source: decorationFontSource, character: "►" },
+      symbols: symbolFontSource, // Optional semantic HN-B mode-0 symbols/space.
+      latinState3: state3FontSource, // Optional distinct HN-B 801d/3 Latin resource.
     },
   },
 });
@@ -531,7 +533,8 @@ Reads share one WASM staging buffer with document and scratch I/O. Errors
 and cancellation use the existing cleanup path. The caller must discard
 partial output after failure, including a final flush failure.
 
-This enables only the independently admitted native C8 profile. It does
-not establish general HN-B text support or source-font identity. Use the
+This enables only the independently admitted native profiles. HN-B mixed
+images and unverified glyph/style combinations remain explicit errors;
+source-font identity is not inferred. Use the
 matching JavaScript and WASM builds; older WASM binaries cannot accept
 font registration. Existing image-only conversions require no font options.

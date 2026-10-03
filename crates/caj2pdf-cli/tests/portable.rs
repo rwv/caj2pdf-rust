@@ -149,6 +149,7 @@ fn native_c8_fonts_are_ranged_reused_and_protected() {
     fs::write(dir.0.join("字体.ttf"), font).unwrap();
     let mut input = vec![0u8; 100];
     input[0] = 0xc8;
+    input[12] = 2;
     input[8] = 1;
     input[32] = 100;
     input[34] = 200;
@@ -184,5 +185,52 @@ fn native_c8_fonts_are_ranged_reused_and_protected() {
         assert_eq!(fs::read(dir.0.join("字体.ttf")).unwrap(), font);
         assert_eq!(fs::read(dir.0.join("native.pdf")).unwrap(), pdf);
     }
+    dir.clean();
+}
+
+#[test]
+fn late_hnb_error_preserves_destination_and_removes_staging() {
+    let dir = Directory::new();
+    fs::write(
+        dir.0.join("font.ttf"),
+        include_bytes!("../../../tests/fonts/geometric.ttf"),
+    )
+    .unwrap();
+    let mut input = vec![0u8; 240];
+    input[..4].copy_from_slice(b"HN\0\0");
+    for (at, value) in [(4, 200u32), (8, 136), (144, 2), (148, 2)] {
+        input[at..at + 4].copy_from_slice(&value.to_le_bytes());
+    }
+    input[168..170].copy_from_slice(&100u16.to_le_bytes());
+    input[170..172].copy_from_slice(&200u16.to_le_bytes());
+    for page in 0..2 {
+        let offset = input.len() as u32;
+        let row = 216 + page * 12;
+        input[row..row + 4].copy_from_slice(&offset.to_le_bytes());
+        input[row + 4..row + 8].copy_from_slice(&14u32.to_le_bytes());
+        for word in [0x8001u16, 60, 0x8002, 0x1084, 30, 0xa0c1, 0x8004] {
+            input.extend(word.to_le_bytes());
+        }
+    }
+    fs::write(dir.0.join("input.hn"), &input).unwrap();
+    let args = [
+        "input.hn",
+        "-o",
+        "output.pdf",
+        "--force",
+        "--no-bookmarks",
+        "--font-cjk=font.ttf",
+        "--font-latin=font.ttf",
+        "--font-alternate-latin=font.ttf",
+    ];
+    success(&dir.run(&args));
+    let original = fs::read(dir.0.join("output.pdf")).unwrap();
+    assert!(String::from_utf8_lossy(&original).contains("/Count 2"));
+    input[254..256].copy_from_slice(&0x8099u16.to_le_bytes());
+    fs::write(dir.0.join("input.hn"), input).unwrap();
+    let failed = dir.run(&args);
+    assert!(!failed.status.success());
+    assert!(String::from_utf8_lossy(&failed.stderr).contains("page 2"));
+    assert_eq!(fs::read(dir.0.join("output.pdf")).unwrap(), original);
     dir.clean();
 }

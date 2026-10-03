@@ -47,7 +47,7 @@ impl RangedSource for Source {
 mod original_font {
     include!("../../../tests/common/font_fixture.rs");
 }
-pub(crate) use original_font::drawing_font;
+pub(crate) use original_font::{drawing_font, symbol_font};
 use original_font::{entry, put16, put32};
 
 fn fixture() -> Source {
@@ -292,6 +292,10 @@ fn many_character_maps_cannot_multiply_mapping_work_without_a_bound() {
 
 #[test]
 fn shared_cross_runtime_font_matches_original_generator() {
+    assert_eq!(
+        symbol_font(),
+        include_bytes!("../../../../../tests/fonts/symbols.ttf")
+    );
     assert_eq!(
         drawing_font(),
         include_bytes!("../../../../../tests/fonts/geometric.ttf")

@@ -32,88 +32,103 @@ fn roles() -> C8PageFonts {
         latin: 0,
         alternate_latin: 0,
         decoration: None,
+        symbols: None,
+        latin_state3: None,
     }
 }
 
 #[test]
 fn native_document_streams_text_and_all_shared_image_codecs() {
-    let rows = vec![vec![false, true, false], vec![true, false, true]];
-    let fixture = fixture_with_text(
-        Variant::C8,
-        &[
-            vec![],
-            vec![
-                Record::type0(&rows, 20, 40),
-                Record::jpeg(3, 2, 120, 30, 50),
-                type3_record(3, 2, 40, 60),
+    // Optional roles may alias an existing source without duplicate embedding.
+    for (symbols, latin_state3) in [
+        (None, None),
+        (Some(0), None),
+        (None, Some(0)),
+        (Some(0), Some(0)),
+    ] {
+        let font_roles = C8PageFonts {
+            symbols,
+            latin_state3,
+            ..roles()
+        };
+        let rows = vec![vec![false, true, false], vec![true, false, true]];
+        let fixture = fixture_with_text(
+            Variant::C8,
+            &[
+                vec![],
+                vec![
+                    Record::type0(&rows, 20, 40),
+                    Record::jpeg(3, 2, 120, 30, 50),
+                    type3_record(3, 2, 40, 60),
+                ],
+                vec![],
             ],
-            vec![],
-        ],
-        native_text,
-    );
-    let mut source = Source::new(fixture.bytes);
-    source.short = 3;
-    let mut fonts = [Source::new(crate::pdf::drawing_font())];
-    fonts[0].short = 3;
-    let mut sink = Sink {
-        short: Some(7),
-        ..Default::default()
-    };
-    let limits = Limits {
-        io_chunk_bytes: 64,
-        ..Default::default()
-    };
-    let mut rows = Scratch::default();
-    let mut first = Scratch::default();
-    let mut second = Scratch::default();
-    let mut refined = Scratch::default();
-    let report = ready(convert_c8_native_pdf(
-        &mut source,
-        &mut sink,
-        C8FontSources {
-            sources: &mut fonts,
-            roles: roles(),
-        },
-        Some(&table()),
-        ComposeWorkspaces {
-            rows: &mut rows,
-            type3: Some(ComposeType3Workspaces {
-                table: &mq_table(&limits),
-                first: &mut first,
-                second: &mut second,
-                refined: &mut refined,
-            }),
-        },
-        ComposeOptions::default(),
-        &limits,
-        &NeverCancel,
-    ))
-    .unwrap();
-    assert_eq!(report.output_pages, 3);
-    assert_eq!(report.conversion.pages_converted, 3);
-    assert_eq!(report.no_image_pages, 2);
-    assert_eq!(
-        (report.type0_images, report.jpeg_images, report.type3_images),
-        (1, 1, 1)
-    );
-    assert!(source.max_request <= 64 && fonts[0].max_request <= 64 && sink.max_request <= 64);
-    for store in [&rows, &first, &second, &refined] {
-        assert!(store.bytes.is_empty());
+            native_text,
+        );
+        let mut source = Source::new(fixture.bytes);
+        source.short = 3;
+        let mut fonts = [Source::new(crate::pdf::drawing_font())];
+        fonts[0].short = 3;
+        let mut sink = Sink {
+            short: Some(7),
+            ..Default::default()
+        };
+        let limits = Limits {
+            io_chunk_bytes: 64,
+            ..Default::default()
+        };
+        let mut rows = Scratch::default();
+        let mut first = Scratch::default();
+        let mut second = Scratch::default();
+        let mut refined = Scratch::default();
+        let report = ready(convert_c8_native_pdf(
+            &mut source,
+            &mut sink,
+            C8FontSources {
+                sources: &mut fonts,
+                roles: font_roles,
+            },
+            Some(&table()),
+            ComposeWorkspaces {
+                rows: &mut rows,
+                type3: Some(ComposeType3Workspaces {
+                    table: &mq_table(&limits),
+                    first: &mut first,
+                    second: &mut second,
+                    refined: &mut refined,
+                }),
+            },
+            ComposeOptions::default(),
+            &limits,
+            &NeverCancel,
+        ))
+        .unwrap();
+        assert_eq!(report.output_pages, 3);
+        assert_eq!(report.conversion.pages_converted, 3);
+        assert_eq!(report.no_image_pages, 2);
+        assert_eq!(
+            (report.type0_images, report.jpeg_images, report.type3_images),
+            (1, 1, 1)
+        );
+        assert!(source.max_request <= 64 && fonts[0].max_request <= 64 && sink.max_request <= 64);
+        for store in [&rows, &first, &second, &refined] {
+            assert!(store.bytes.is_empty());
+        }
+        let pdf = String::from_utf8_lossy(&sink.bytes);
+        assert_eq!(
+            pdf.matches("/FontFile2 ").count(),
+            1,
+            "shared roles embed one font"
+        );
+        assert!(pdf.contains("/Count 3"));
+        assert_eq!(pdf.matches("<0041> Tj").count(), 6);
+        assert!(pdf.ends_with("%%EOF\n"));
     }
-    let pdf = String::from_utf8_lossy(&sink.bytes);
-    assert_eq!(
-        pdf.matches("/FontFile2 ").count(),
-        1,
-        "shared roles embed one font"
-    );
-    assert!(pdf.contains("/Count 3"));
-    assert_eq!(pdf.matches("<0041> Tj").count(), 6);
-    assert!(pdf.ends_with("%%EOF\n"));
 }
 
 #[test]
 fn native_document_checks_resource_contract_before_output() {
-    for count in [0, 1, 5] {
+    for count in [0, 1, 7] {
         let mut fonts: Vec<_> = (0..count)
             .map(|_| Source::new(crate::pdf::drawing_font()))
             .collect();
@@ -254,5 +269,66 @@ fn native_document_font_io_output_and_cancellation_fail_explicitly() {
         if mode != 3 {
             assert!(!sink.bytes.ends_with(b"%%EOF\n"));
         }
+    }
+}
+
+#[test]
+fn hnb_native_document_streams_every_compact_page_and_keeps_late_errors_located() {
+    for corrupt in [false, true] {
+        let mut bytes = vec![0; 216 + 3 * 12];
+        bytes[..4].copy_from_slice(b"HN\0\0");
+        bytes[4..8].copy_from_slice(&200_u32.to_le_bytes());
+        bytes[8..12].copy_from_slice(&136_u32.to_le_bytes());
+        bytes[144..148].copy_from_slice(&3_u32.to_le_bytes());
+        bytes[148] = 2;
+        bytes[168..170].copy_from_slice(&100_u16.to_le_bytes());
+        bytes[170..172].copy_from_slice(&200_u16.to_le_bytes());
+        for page in 0..3 {
+            let mut records = native_text(&[]);
+            records.truncate(records.len() - 2); // Verified bare HN-B page end.
+            if corrupt && page == 2 {
+                records[..2].copy_from_slice(&0x8099_u16.to_le_bytes());
+            }
+            let row = 216 + page * 12;
+            let offset = bytes.len() as u32;
+            bytes[row..row + 4].copy_from_slice(&offset.to_le_bytes());
+            bytes[row + 4..row + 8].copy_from_slice(&(records.len() as u32).to_le_bytes());
+            bytes.extend(records);
+        }
+        let mut source = Source::new(bytes);
+        source.short = 3;
+        let mut fonts = [Source::new(crate::pdf::drawing_font())];
+        fonts[0].short = 3;
+        let mut sink = Sink {
+            short: Some(7),
+            ..Default::default()
+        };
+        let mut scratch = Scratch::default();
+        let result = ready(convert_c8_native_pdf(
+            &mut source,
+            &mut sink,
+            C8FontSources {
+                sources: &mut fonts,
+                roles: roles(),
+            },
+            None,
+            &mut scratch,
+            ComposeOptions::default(),
+            &Limits::default(),
+            &NeverCancel,
+        ));
+        if corrupt {
+            assert_eq!(result.unwrap_err().page, Some(3));
+            assert!(!sink.bytes.ends_with(b"%%EOF\n"));
+        } else {
+            let report = result.unwrap();
+            assert_eq!(report.output_pages, 3);
+            assert_eq!(report.no_image_pages, 3);
+            let pdf = String::from_utf8_lossy(&sink.bytes);
+            assert!(pdf.contains("/Count 3"));
+            assert_eq!(pdf.matches("<0041> Tj").count(), 3);
+            assert!(pdf.ends_with("%%EOF\n"));
+        }
+        assert!(scratch.bytes.is_empty());
     }
 }

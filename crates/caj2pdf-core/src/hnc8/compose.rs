@@ -861,7 +861,13 @@ where
         check_metadata(plan_bytes + placement_bytes, options.budget)
             .map_err(at.io(ComposeStage::Preflight))?;
         let mut coordinates = Vec::new();
-        let mut page_size = header.page_size;
+        // Legacy HN-B image-only composition derives its canvas from the image.
+        // Its header extents are admitted for native text composition separately.
+        let mut page_size = if header.variant == Variant::HnB {
+            None
+        } else {
+            header.page_size
+        };
         if header.variant != Variant::HnB {
             let text = super::text::read_coordinates(
                 reader.source_mut(),

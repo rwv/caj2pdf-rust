@@ -166,7 +166,7 @@ and decoder state in addition to the I/O chunk.
 
 ## Native C8 font resources
 
-`C8FontSources` gives the core one to four explicit ranged resources and
+`C8FontSources` gives the core one to five explicit ranged resources and
 role indices. Repeated roles can share an embedded font. JavaScript exposes
 named roles under `hnc8.fonts` and deduplicates identical source objects.
 It does not discover fonts, collect a whole font in a JavaScript buffer,
@@ -174,10 +174,10 @@ or create another scheduler. Existing spool helpers can turn a forward-only
 font into a caller-owned ranged source with bounded temporary storage.
 
 The WASM host registers resource sizes before the first poll using
-`caj2pdf_c8_add_font(size)` (returns IDs 1–4), then assigns zero-based role
+`caj2pdf_c8_add_font(size)` (returns IDs 1–5), then assigns zero-based role
 indices using `caj2pdf_c8_set_fonts(cjk, latin, alternate, decoration, alias)`.
 A decoration index of `0xffffffff` means absent. `caj2pdf_io_request_resource()`
-identifies each ordinary read: 0 is the document, 1–4 are registered fonts.
+identifies each ordinary read: 0 is the document, 1–6 are registered fonts.
 The staging buffer, pending-request slot, completion and cancellation rules
 are shared with existing I/O. Registration is rejected after polling,
 excess resources are rejected, and sizes/roles are validated.
@@ -188,3 +188,30 @@ must handle it. Raw hosts using fonts must route reads by the new resource
 getter; older hosts that register no fonts continue receiving document reads.
 Use matching JS/WASM artifacts for the new font API. This does not change
 the core `RangedSource` trait or existing image-only conversion options.
+
+HN-B mode 0 can additionally require a semantic `symbols` font for spaces
+and punctuation. It is optional at registration, but required when a page
+uses those characters; there is no implicit decoration/CJK fallback.
+Raw WASM hosts supplying it call
+`caj2pdf_c8_set_fonts_with_symbols(cjk, latin, alternate, decoration, alias, symbols)`.
+The final argument is a zero-based resource index, or `0xffffffff` for absent.
+The original five-argument export remains available and marks symbols absent.
+JavaScript selects the new export only when `hnc8.fonts.symbols` is supplied.
+
+**Unstable Rust API change:** `C8PageFonts` gains `symbols: Option<usize>`;
+existing struct literals should set `None` unless supplying the resource.
+`Engine::set_c8_fonts` gains a final symbol index (`u32::MAX` for absent).
+Font resource capacity is six; the four image scratch stores are unchanged.
+
+HN-B state `801d/3` selects an explicitly supplied `latinState3` resource.
+Register it with `caj2pdf_c8_set_latin_state3(index)` after the base roles and
+before polling. The index is zero-based; omit the call when absent. Invalid,
+duplicate or late registration fails. Existing font exports remain unchanged.
+The state fails explicitly when its resource is absent. Original controls
+establish the Latin resource change and matching bounds for the tested style;
+they do not identify a vendor font or establish every punctuation mapping.
+
+**Unstable Rust API change:** `C8PageFonts` also gains
+`latin_state3: Option<usize>`; existing literals should use `None` unless
+supplying that role. `Engine::set_c8_fonts` retains its current signature;
+`Engine::set_c8_latin_state3` supplies the optional additional role.

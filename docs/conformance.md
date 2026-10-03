@@ -26,9 +26,9 @@ The same conversion core serves all three interfaces.
 | CAJ | Supported within the [CLI profile](cli.md) | Representative 75-page output with 58 bookmarks is identical across interfaces; selected viewer pages 1 and 75 match. Optional legacy Python ordering is deferred (#21). |
 | KDH | Supported for validated embedded PDFs | Representative one-page output is identical across interfaces and matches the selected viewer page. |
 | HN-A | Experimental image-page conversion | The complete 163-page, 96-bookmark pre-compression output was identical across interfaces; the current compression checks below preserve decoded pixels and mapping. Declared page/display extents are used; selected frame sizes match, but exact pixels differ. Physical units remain empirical. |
-| C8 | Experimental image-page conversion | Current compressed four-page output is identical across interfaces. Explicit bookmark omission is required; outline semantics are unverified. Selected frame sizes match, but exact pixels differ. |
-| HN-B | Experimental single-JPEG image-bearing rows | Unknown outlines require explicit omission. A source row without image content is rejected by public conversion, never silently dropped. No vendor rendering parity is claimed here. |
-| TEB, unrecognized layouts, unsupported image modes, pure-text/searchable HN | Rejected | No OCR or silent omission fallback. Located errors identify unsupported HN/C8 content. |
+| C8 | Experimental image pages and admitted raw native profile | Compressed four-page image output and the [initial six-page native profile](c8-native-records.md) have runtime checkpoints. Native pages require explicit fonts. Bookmark omission remains required; additional native profiles are tracked in #242. Font/raster differences remain explicit. |
+| HN-B | Experimental image pages and admitted native mode-0/mode-2 profiles | With explicit fonts and bookmark omission, the selected 4/4/6-page documents convert through CLI/Node/Worker with identical per-document outputs. Native mode 2 supports leading images; image-after-text and mode-0 images remain errors. [Independent controls and scoped layout checks](hnb-compact-index.md) do not establish original-font pixel parity. |
+| TEB, unrecognized layouts, unsupported image/native modes | Rejected | No OCR or silent omission fallback. Located errors identify unsupported HN/C8 content. |
 
 Arithmetic HN/C8 images use built-in standard QM/MQ states. Optional custom
 state overrides remain supported. The owner-directed adoption and upstream

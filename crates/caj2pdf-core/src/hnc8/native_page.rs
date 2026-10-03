@@ -5,7 +5,7 @@
 use super::{
     C8GlyphClass, EmpiricalPageGeometry, ErrorKind, Hnc8Reader, Location, NativeRecord,
     NativeRecordVisitor, Result, TextBudget, Variant, decode_native_character,
-    decode_native_image_coordinate, empirical_c8_glyph_transform,
+    decode_native_character_for_mode, decode_native_image_coordinate,
     empirical_c8_horizontal_decoration, empirical_c8_segment,
 };
 use crate::pdf::{ContentPageWriter, FontObject, ImageObject, PdfDocument};
@@ -22,9 +22,14 @@ pub struct C8PageFonts {
     pub alternate_latin: usize,
     /// Font index and nonsemantic character-map alias for horizontal decoration.
     pub decoration: Option<(usize, char)>,
+    /// Semantic symbols and spaces in the controlled HN-B mode-0 profile.
+    /// Required only when a page uses that resource; never an implicit fallback.
+    pub symbols: Option<usize>,
+    /// Explicit HN-B Latin resource selected by `801d/3`.
+    pub latin_state3: Option<usize>,
 }
 
-/// Write and finish the current C8 native page using already embedded resources.
+/// Write and finish the current C8 or text/vector HN-B native page using already embedded resources.
 ///
 /// Call `next_page` first. Images must be supplied in descriptor order, decoded
 /// through the existing codecs. `top_first` identifies each emitted image's row
@@ -65,11 +70,26 @@ where
             source,
         })
     };
-    if header.variant != Variant::C8 {
+    if !matches!(header.variant, Variant::C8 | Variant::HnB) {
         return Err(loc.error(ErrorKind::Unsupported {
             field: "native page composition variant",
             value: 0,
         }));
+    }
+    // Character mapping, font selection and placement are mode-specific.
+    // Only HN-B has independently controlled mode-0 rendering records.
+    if header.native_mode != Some(2)
+        && !(header.variant == Variant::HnB && header.native_mode == Some(0))
+    {
+        return Err(loc.error(ErrorKind::Unsupported {
+            field: "native page rendering mode",
+            value: u64::from(header.native_mode.unwrap_or(u32::MAX)),
+        }));
+    }
+    if header.variant == Variant::HnB && header.native_mode == Some(0) && !images.is_empty() {
+        return Err(source_error(invalid(
+            "unverified HN-B mode-0 image composition",
+        )));
     }
     let current = reader
         .current
@@ -80,12 +100,17 @@ where
             "native page image resources differ from declared count",
         )));
     }
-    let geometry = super::placement::source_page_geometry(
-        header
-            .page_size
-            .ok_or_else(|| source_error(invalid("native page size is missing")))?,
-    )
-    .map_err(source_error)?;
+    let size = header
+        .page_size
+        .ok_or_else(|| source_error(invalid("native page size is missing")))?;
+    let mut geometry = super::placement::source_page_geometry(size).map_err(source_error)?;
+    let legacy = header.native_mode == Some(0);
+    if legacy {
+        // Add in source units before conversion, without overflowing u16 extents.
+        let unit = super::EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
+        geometry.size.width_points = (f64::from(size[0]) + 100.0) * unit;
+        geometry.size.height_points = (f64::from(size[1]) + 100.0) * unit;
+    }
     let origin = header
         .native_origin
         .ok_or_else(|| source_error(invalid("native page origin is missing")))?;
@@ -100,8 +125,13 @@ where
         origin,
         top_first,
         image: 0,
+        non_image_painted: false,
         style: None,
-        alternate: false,
+        axes: [None; 2],
+        latin: roles.latin,
+        skew: 0.0,
+        variant: header.variant,
+        legacy,
     };
     reader.visit_native_records(budget, &mut writer).await?;
     page.finish().await.map_err(source_error)
@@ -118,23 +148,81 @@ struct PageWriter<'p, 'd, 'a, 'r, W: SequentialSink, C: Cancellation> {
     origin: [u16; 2],
     top_first: &'r [bool],
     image: usize,
+    non_image_painted: bool,
     style: Option<u16>,
-    alternate: bool,
+    axes: [Option<u16>; 2],
+    latin: usize,
+    skew: f64,
+    variant: Variant,
+    legacy: bool,
 }
 
 impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, '_, '_, '_, W, C> {
     async fn visit(&mut self, _: u64, record: NativeRecord) -> crate::Result<()> {
+        if self.legacy {
+            return self.visit_mode_zero(record).await;
+        }
+        if matches!(
+            record,
+            NativeRecord::Glyph { .. } | NativeRecord::Drawing { .. }
+        ) {
+            self.non_image_painted = true;
+        }
         match record {
             NativeRecord::Control { tag: 0x8001, .. } => (), // y is carried by each glyph.
-            NativeRecord::Control { tag: 0x8002, value } => self.style = Some(value),
+            NativeRecord::Control {
+                tag: 0x8024,
+                value: 0x2800,
+            } => self.skew = 0.0,
+            NativeRecord::Control {
+                tag: 0x8024,
+                value: 0x281d,
+            } => self.skew = 0.24,
+            NativeRecord::Control {
+                tag: 0x8024,
+                value: 0x2815,
+            } if self.variant == Variant::HnB => self.skew = 0.105,
+            NativeRecord::Control { tag: 0x8002, value } => {
+                self.style = Some(value);
+                self.axes = [None; 2];
+            }
+            NativeRecord::Control {
+                tag: 0x801c,
+                value: 4,
+            } if self.variant == Variant::HnB => (),
+            NativeRecord::Control {
+                tag: 0x8070,
+                value: value @ (28 | 43),
+            } if self.variant == Variant::HnB => self.axes[0] = Some(value),
+            NativeRecord::Control {
+                tag: 0x8071,
+                value: value @ (28 | 43),
+            } if self.variant == Variant::HnB => self.axes[1] = Some(value),
+            NativeRecord::Control {
+                tag: 0x8070,
+                value: 36,
+            } => self.axes[0] = Some(36),
+            NativeRecord::Control {
+                tag: 0x8071,
+                value: 36,
+            } => self.axes[1] = Some(36),
             NativeRecord::Control {
                 tag: 0x801d,
                 value: 0,
-            } => self.alternate = false,
+            } => self.latin = self.roles.latin,
             NativeRecord::Control {
                 tag: 0x801d,
                 value: 4,
-            } => self.alternate = true,
+            } => self.latin = self.roles.alternate_latin,
+            NativeRecord::Control {
+                tag: 0x801d,
+                value: 3,
+            } if self.variant == Variant::HnB => {
+                self.latin = self
+                    .roles
+                    .latin_state3
+                    .ok_or_else(|| invalid("missing HN-B state-3 Latin font resource"))?;
+            }
             // Independently controlled ordinary resource combinations.
             NativeRecord::Control {
                 tag: 0x8067,
@@ -159,18 +247,100 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
                 tag: 0xc053 | 0xc054,
                 ..
             } => (),
+            NativeRecord::Control {
+                tag: 0x8067,
+                value: 7,
+            }
+            | NativeRecord::Control {
+                tag: 0x8069,
+                value: 0x1084,
+            }
+            | NativeRecord::Control {
+                tag: 0x80ce,
+                value: 1,
+            }
+            | NativeRecord::Control {
+                tag: 0x8072,
+                value: 0x1084 | 0xa0f3 | 0xa0e7 | 0xc2db | 0xd2f2 | 0xcdc1,
+            }
+            | NativeRecord::Control {
+                tag: 0x8073,
+                value: 30..=32 | 79..=83,
+            }
+            | NativeRecord::Control {
+                tag: 0x8074,
+                value: 0xb7bd | 0xcfc8 | 0xc8cb | 0x2815 | 0xa0ec | 0xd3c9 | 0xb0d7 | 0xd1e9,
+            }
+            | NativeRecord::ExtendedControl {
+                tag: 0xc052,
+                value: 0xa385,
+                ..
+            } if self.variant == Variant::HnB => (),
             NativeRecord::Glyph { x, y, style, code } => {
+                // Original CJK/Latin/symbol pairs establish these regular flags
+                // across fields 2..=8, including a rectangular held-out control.
+                let style = if self.variant == Variant::HnB
+                    && style & 0xfc00 == 0x0400
+                    && (2..=8).contains(&((style >> 5) & 31))
+                    && (2..=8).contains(&(style & 31))
+                {
+                    (style & 0x03ff) | 0x1000
+                } else {
+                    style
+                };
                 let character = decode_native_character(code)
                     .ok_or_else(|| invalid("unsupported C8 native character"))?;
-                let latin = if self.alternate {
-                    self.roles.alternate_latin
+                if style == 0x114a && self.variant != Variant::HnB {
+                    return Err(invalid("unverified C8 title style"));
+                }
+                if matches!(style, 0xe58c | 0x114a | 0x154a)
+                    && self.axes == [None; 2]
+                    && !('㐀'..='鿿').contains(&character)
+                {
+                    return Err(invalid("unverified large native glyph class"));
+                }
+                let axis_offset = if self.variant == Variant::HnB {
+                    match (self.axes, code) {
+                        ([Some(43), Some(43)], 0xa3a8) => Some((27.0, -4.0)),
+                        ([Some(43), Some(43)], 0xa1b0 | 0xa1b1 | 0xa3a9) => Some((25.0, -4.0)),
+                        ([Some(43), Some(43)], 0xa1b6) => Some((30.0, -4.0)),
+                        ([Some(43), Some(43)], 0xa1b7) => Some((20.0, -4.0)),
+                        ([Some(43), Some(43)], 0xa1b2 | 0xa1b3) => Some((25.0, 4.0)),
+                        ([Some(28), Some(28)], 0xa1b2 | 0xa1b3) => Some((16.0, 8.0)),
+                        _ => None,
+                    }
                 } else {
-                    self.roles.latin
+                    None
                 };
+                if matches!(code, 0xa1b2 | 0xa1b3 | 0xa1b6 | 0xa1b7)
+                    && axis_offset.is_none()
+                    && (self.variant != Variant::HnB
+                        || !(style == 0x10a5
+                            || (matches!(style, 0x08a5 | 0x0ca5 | 0x1084 | 0x0884)
+                                && matches!(code, 0xa1b2 | 0xa1b3)))
+                        || self.axes != [None; 2])
+                {
+                    return Err(invalid("unverified native bracket geometry"));
+                }
+                if self.axes != [None; 2]
+                    && axis_offset.is_none()
+                    && matches!(
+                        code,
+                        0xa1a4 | 0xa1af | 0xa1b0 | 0xa1b1 | 0xa3a8 | 0xa3a9 | 0xa3db | 0xa3dd
+                    )
+                {
+                    return Err(invalid("unverified explicit-axis punctuation offsets"));
+                }
+                let latin = self.latin;
                 // Select by raw code: Unicode alone does not establish the
                 // resource or placement of the source's symbol variants.
                 let (class, font, baseline_fraction) = match code {
                     0xa0a6
+                    | 0xa0ae
+                    | 0xa0af
+                    | 0xa0ba
+                    | 0xaab1
+                    | 0xaab2
                     | 0xa1aa
                     | 0xa1ad
                     | 0xa1ae
@@ -188,69 +358,113 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
                     0xa1c6 | 0xa1c8 | 0xa9aa | 0xaab3 | 0xaca3 => {
                         (C8GlyphClass::Cjk, self.roles.latin, Some(0.0))
                     }
+                    0xa0ad | 0xa3c0 if self.variant == Variant::HnB => {
+                        (C8GlyphClass::Cjk, latin, Some(0.0))
+                    }
                     0xa1a4 | 0xa3ba => (C8GlyphClass::Cjk, latin, Some(1.0 / 8.0)),
-                    0xa1b0 | 0xa1b1 | 0xa3a8 | 0xa3a9 => (C8GlyphClass::Cjk, latin, None),
+                    0xa1b0 | 0xa1b1 | 0xa1b2 | 0xa1b3 | 0xa1b6 | 0xa1b7 | 0xa3a8 | 0xa3a9 => {
+                        (C8GlyphClass::Cjk, latin, None)
+                    }
                     0xa3db | 0xa3dd => (C8GlyphClass::Cjk, self.roles.latin, None),
                     0xa1a1 => (C8GlyphClass::Cjk, self.roles.cjk, None),
                     0xa1a2 => (C8GlyphClass::Latin, latin, None),
+                    0xa1a3 if self.variant == Variant::HnB => (C8GlyphClass::Latin, latin, None),
                     _ if character.is_ascii_alphanumeric() => (C8GlyphClass::Latin, latin, None),
                     _ if ('\u{3400}'..='\u{9fff}').contains(&character) => {
                         (C8GlyphClass::Cjk, self.roles.cjk, None)
                     }
                     _ => return Err(invalid("unverified C8 glyph resource or placement class")),
                 };
-                let mut transform =
-                    empirical_c8_glyph_transform(self.geometry, self.origin, [x, y], style, class)?;
+                let mut transform = super::placement::native_glyph_transform(
+                    self.geometry,
+                    self.origin,
+                    [x, y],
+                    style,
+                    class,
+                    self.axes,
+                )?;
                 if let Some(fraction) = baseline_fraction {
                     // Controlled symbol baselines use independent em height;
                     // resource choice does not imply ordinary Latin geometry.
                     transform[5] += transform[3] * fraction
                         - 15.0 * super::EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
                 }
-                if code == 0xa1a2 {
-                    // Ideographic comma shares the ordinary Latin baseline,
+                if matches!(code, 0xa1a2 | 0xa1a3) {
+                    // Verified ideographic punctuation shares the Latin baseline,
                     // but retains the CJK horizontal origin.
                     transform[4] -= transform[0] / 8.0;
                 }
-                let offset_columns = match code {
-                    0xa3a8 => Some((0, 2)),
-                    0xa1b0 | 0xa1b1 | 0xa3a9 => Some((1, 2)),
-                    0xa3db | 0xa3dd => Some((3, 4)),
-                    _ => None,
-                };
-                if let Some((x_column, y_column)) = offset_columns {
-                    // Raw offsets checked with independent width/height controls.
-                    // Columns: opening-parenthesis x, closing-parenthesis x,
-                    // parenthesis downward y, square-bracket x and downward y.
-                    const OFFSETS: [[i16; 5]; 7] = [
-                        [18, 16, 3, 24, 1],
-                        [19, 18, 1, 27, -1],
-                        [22, 21, 0, 30, -3],
-                        [26, 25, -4, 36, -7],
-                        [30, 28, -7, 41, -10],
-                        [35, 33, -10, 48, -15],
-                        [39, 37, -14, 54, -18],
-                    ];
-                    // The matrix evaluator above has validated both fields.
-                    let width = usize::from((style >> 5) & 31) - 2;
-                    let height = usize::from(style & 31) - 2;
+                if let Some((dx, dy)) = axis_offset {
                     let unit = super::EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
-                    transform[4] += f64::from(OFFSETS[width][x_column]) * unit;
-                    transform[5] -= f64::from(OFFSETS[height][y_column]) * unit;
+                    transform[4] += dx * unit;
+                    transform[5] -= dy * unit;
+                } else {
+                    if matches!(code, 0xa1b2 | 0xa1b3) {
+                        // Original pairs establish separate size-4/size-5 offsets;
+                        // resource selection remains independent of placement.
+                        let unit = super::EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
+                        let (dx, dy) = if style & 0x03ff == 0x0084 {
+                            (21.0, 6.0)
+                        } else {
+                            (25.0, 5.0)
+                        };
+                        transform[4] += dx * unit;
+                        transform[5] -= dy * unit;
+                    }
+                    let offset_columns = match code {
+                        0xa1b6 | 0xa1b7 | 0xa3a8 => Some((0, 2)),
+                        0xa1b0 | 0xa1b1 | 0xa3a9 => Some((1, 2)),
+                        0xa3db | 0xa3dd => Some((3, 4)),
+                        _ => None,
+                    };
+                    if let Some((x_column, y_column)) = offset_columns {
+                        // Raw offsets checked with independent width/height controls.
+                        // Columns: opening-parenthesis x, closing-parenthesis x,
+                        // parenthesis downward y, square-bracket x and downward y.
+                        const OFFSETS: [[i16; 5]; 7] = [
+                            [18, 16, 3, 24, 1],
+                            [19, 18, 1, 27, -1],
+                            [22, 21, 0, 30, -3],
+                            [26, 25, -4, 36, -7],
+                            [30, 28, -7, 41, -10],
+                            [35, 33, -10, 48, -15],
+                            [39, 37, -14, 54, -18],
+                        ];
+                        // The matrix evaluator above has validated both fields.
+                        let width = usize::from((style >> 5) & 31) - 2;
+                        let height = usize::from(style & 31) - 2;
+                        let unit = super::EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
+                        // Controlled HN-B style-5 book marks share parenthesis y;
+                        // their x differs by +4/-6 source units from the opener.
+                        let book_x = match code {
+                            0xa1b6 => 4,
+                            0xa1b7 => -6,
+                            _ => 0,
+                        };
+                        transform[4] += f64::from(OFFSETS[width][x_column] + book_x) * unit;
+                        transform[5] -= f64::from(OFFSETS[height][y_column]) * unit;
+                    }
+                    if matches!(code, 0xa1a4 | 0xa1af) {
+                        // Middle dot and right single quote share a horizontal
+                        // correction but keep their separately controlled baselines.
+                        const X_OFFSETS: [i16; 7] = [7, 7, 8, 10, 11, 13, 15];
+                        let width = usize::from((style >> 5) & 31) - 2;
+                        transform[4] += f64::from(X_OFFSETS[width])
+                            * super::EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
+                    }
                 }
-                if matches!(code, 0xa1a4 | 0xa1af) {
-                    // Middle dot and right single quote share a horizontal
-                    // correction but keep their separately controlled baselines.
-                    const X_OFFSETS: [i16; 7] = [7, 7, 8, 10, 11, 13, 15];
-                    let width = usize::from((style >> 5) & 31) - 2;
-                    transform[4] +=
-                        f64::from(X_OFFSETS[width]) * super::EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
+                if self.skew != 0.0 {
+                    // Measured width-relative shear; style changes retain it.
+                    transform[2] = transform[0] * self.skew;
                 }
                 // Original source controls establish this gray for the admitted
                 // ordinary text profile; keep it local to each glyph draw.
                 self.page
                     .glyph_with_gray(font, character, transform, 68)
                     .await?;
+            }
+            NativeRecord::Drawing { .. } | NativeRecord::Image { .. } if self.skew != 0.0 => {
+                return Err(invalid("unverified drawing or image in skewed text state"));
             }
             NativeRecord::Drawing {
                 tag: 0x8006,
@@ -265,6 +479,9 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
                 style: 1,
                 points,
             } => {
+                if self.axes != [None; 2] {
+                    return Err(invalid("unverified explicit-axis decoration"));
+                }
                 let (font, alias) = self
                     .roles
                     .decoration
@@ -283,6 +500,11 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
                 }
             }
             NativeRecord::Image { words } => {
+                // HN-B controls establish opaque leading images. Images after
+                // text can use a different raster operation and remain explicit.
+                if self.variant == Variant::HnB && self.non_image_painted {
+                    return Err(invalid("unverified HN-B image after text or drawing"));
+                }
                 let coordinate = decode_native_image_coordinate(&words)
                     .ok_or_else(|| invalid("unsupported C8 native image coordinates"))?;
                 // Independent tail controls vary all eight low bytes without
@@ -311,6 +533,131 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
             }
             | NativeRecord::End { .. } => (),
             _ => return Err(invalid("unverified C8 native rendering record")),
+        }
+        Ok(())
+    }
+}
+
+impl<W: SequentialSink, C: Cancellation> PageWriter<'_, '_, '_, '_, W, C> {
+    async fn visit_mode_zero(&mut self, record: NativeRecord) -> crate::Result<()> {
+        match record {
+            NativeRecord::Control { tag: 0x8001, .. }
+            // Original paired rows preserve resources, geometry and explicit axes.
+            | NativeRecord::Control { tag: 0x8072, value: 0 | 0xc2c7 }
+            | NativeRecord::Control { tag: 0x8073, value: 41..=43 }
+            | NativeRecord::Control { tag: 0x8074, value: 0xc8ce | 0xb5c8 | 0xb5c4 }
+            | NativeRecord::Control { tag: 0xc053, .. }
+            | NativeRecord::Control { tag: 0x80ce, value: 1 }
+            | NativeRecord::Control {
+                tag: 0x801d,
+                value: 0 | 4,
+            }
+            | NativeRecord::Control {
+                tag: 0x8067,
+                value: 6,
+            }
+            | NativeRecord::Control {
+                tag: 0xffff,
+                value: 5,
+            }
+            | NativeRecord::End { .. } => (),
+            NativeRecord::Control { tag: 0x8002, .. } => self.axes = [None; 2],
+            NativeRecord::Control {
+                tag: 0x8070,
+                value: 36,
+            } => self.axes[0] = Some(36),
+            NativeRecord::Control {
+                tag: 0x8071,
+                value: 36,
+            } => self.axes[1] = Some(36),
+            NativeRecord::Drawing {
+                tag: 0x8006,
+                style: 0xa385,
+                points,
+            } => {
+                // Both mode-0 endpoints can carry the high-bit marker. The
+                // controlled y origin is five units above the mode-2 segment.
+                let points =
+                    points.map(|[x, y]| [if x & 0xc000 == 0xc000 { x & 0x3fff } else { x }, y]);
+                let mut ends = empirical_c8_segment(self.geometry, self.origin, points, 0xa385)?;
+                for end in &mut ends {
+                    end[1] += 5.0 * super::EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
+                }
+                self.page.segment(ends[0], ends[1], 0.0).await?;
+            }
+            NativeRecord::Glyph { x, y, style, code } => {
+                let character = decode_native_character_for_mode(0, code)
+                    .ok_or_else(|| invalid("unsupported HN-B mode-0 character"))?;
+                // The raw alphabet selects its resource independently of 801d.
+                // Digits have a separate matrix; remaining symbols need another resource.
+                let (class, font) = match code {
+                    0x9ff5
+                    | 0xa1a1..=0xa1a3
+                    | 0xa1aa
+                    | 0xa1ae..=0xa1b1
+                    | 0xa3a7
+                    | 0xa3ab..=0xa3ae
+                    | 0xa3ba
+                    | 0xa3bb
+                    | 0xa3bf
+                    | 0xa3db
+                    | 0xa3dd
+                    | 0xaab1
+                    | 0xaab2 => {
+                        let class = if matches!(code, 0xa3ba | 0xa3db | 0xa3dd) {
+                            C8GlyphClass::Cjk
+                        } else {
+                            C8GlyphClass::Latin
+                        };
+                        (
+                            class,
+                            self.roles.symbols.ok_or_else(|| {
+                                invalid("missing HN-B mode-0 symbol font resource")
+                            })?,
+                        )
+                    }
+                    0xa3a8 | 0xa3a9 => (C8GlyphClass::Cjk, self.roles.latin),
+                    0xa3af => (C8GlyphClass::Cjk, self.roles.cjk),
+                    0xa980..=0xa9b3 => (C8GlyphClass::Latin, self.roles.alternate_latin),
+                    0xa3b0..=0xa3b9 | 0xa3c1..=0xa3da | 0xa3e1..=0xa3fa => {
+                        (C8GlyphClass::Latin, self.roles.latin)
+                    }
+                    // The mode-0 decoder accepts only Han after the explicit
+                    // alphabet and symbol classes handled above.
+                    _ => (C8GlyphClass::Cjk, self.roles.cjk),
+                };
+                let mut transform = if (0xa3b0..=0xa3b9).contains(&code) {
+                    super::placement::mode_zero_digit_transform(
+                        self.geometry,
+                        self.origin,
+                        [x, y],
+                        style,
+                        self.axes,
+                    )?
+                } else {
+                    super::placement::mode_zero_glyph_transform(
+                        self.geometry,
+                        self.origin,
+                        [x, y],
+                        style,
+                        class,
+                        self.axes,
+                    )?
+                };
+                if code == 0xaab2 {
+                    let left = match (style & 31, self.axes) {
+                        (_, [Some(36), Some(36)]) | (4, [None, None]) => 33.0,
+                        (0, [None, None]) => 31.0,
+                        (5, [None, None]) => 34.0,
+                        _ => return Err(invalid("unverified HN-B mode-0 hyphen geometry")),
+                    };
+                    transform[4] -= left * super::EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
+                }
+                self.page
+                    .glyph_with_gray(font, character, transform, 68)
+                    .await?;
+            }
+            _ => return Err(invalid("unverified HN-B mode-0 rendering record")),
         }
         Ok(())
     }

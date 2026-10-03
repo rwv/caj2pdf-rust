@@ -2,8 +2,10 @@
 
 # Compact HN-B page index
 
-Tracking: #236, under page-completeness issue #220. This is container metadata
-support, not native-text rendering or successful conversion of the source.
+Tracking: #236 (indexing), #241 (native rendering) and #250 (mixed images),
+under #220. The initial sections establish indexing only; later sections
+record rendering controls and document checkpoints. Historical failures are
+superseded by the latest checkpoint below, not universal support claims.
 
 ## Evidence and discriminator
 
@@ -327,3 +329,912 @@ The generator reproduces all four controls; receipts are
 `context-{inputs,comparison}.json` in the preceding external directory.
 The pending implementation must model explicit axis controls and verified
 default/reset behavior before admitting these runs for rendering.
+
+### First-document rendering follow-up (#241)
+
+Original bare/following-y controls at confirmed 57% establish four-byte framing
+for `8074/b7bd`, `8074/cfc8`, `8067/5` and `8072/1084`. Bare controls match the
+baseline; an immediately following y record independently moves the first row.
+All captures repeat. The bounded visitor preserves these raw controls; no
+font, glyph or no-op semantics are inferred. Existing table tests cover both
+index widths, short reads, following glyph context and neighboring rejections.
+The original generator retains the controls. External receipts are in
+`caj2pdf-hnb-rendering-20261003`; no source content or fonts are committed.
+
+The unchanged issue-100 input now reaches the indexed ends of pages 2/3, where
+only the two-byte `8004` tag remains. Page 4 reaches `8073/0020` at byte 26308.
+These remain explicit failures pending original boundary controls; two-byte
+terminators must not be treated as established corruption. First-page traversal
+still succeeds, but no complete-document rendering is claimed. Rendering must
+also interpret the retained state through the shared pipeline, not discard it.
+
+### Two-byte ends and numeric control payloads
+
+Original two-page controls remove only the end payload from each indexed page
+and update lengths/offsets for both 12- and 20-byte indexes. Pinned Viewer retains
+the first-page pixels and opens the following page. Both fixtures regenerate
+exactly. The visitor accepts a bare `8004` only as the final two indexed bytes
+of HN-B; other short records retain truncation errors, and C8 remains unchanged.
+`NativeRecord::End.value` is now `Option<u16>`: `None` preserves the absence of a
+payload, while four-byte records return `Some(raw_value)`. This is a breaking
+v0.x Rust visitor change; consumers constructing records must wrap old values
+in `Some`, and inspection must handle `None` without inventing a page ordinal.
+
+Original bare/following-y controls also establish `8073/0020`. For `8074`, two
+source-valued controls and marker-like payloads `8004`/`ffff` all retain the
+following independent y record. Preserve its numeric payload generally instead
+of enumerating sample values. This establishes framing, not a no-op, font name
+or character interpretation. Unknown neighboring tags still fail. Receipts:
+`caj2pdf-hnb-rendering-20261003/{end-comparison,8074-payload-comparison}.json`.
+
+With these rules, the unchanged issue-100 source traverses all four pages:
+1,471/1,678/1,593/1,795 records and 1,302/1,555/1,470/1,642 raw glyphs.
+This completes its bounded framing checkpoint only. Unicode/resource/state
+interpretation and complete native-page rendering remain acceptance gates.
+
+## Native header geometry
+
+Original paired HN-B/C8 controls independently vary x origin, y origin, width
+and height with a fixed single glyph. HN-B words at 164/166 match C8 28/30;
+HN-B width/height at 168/170 match C8 32/34. All five paired viewport comparisons
+and repeats are pixel-identical. The 400-by-400 baseline displays at 729%;
+changing width to 500 gives the expected wider frame at 583%. This corroborates
+reuse of the already measured native coordinate model, not image-only placement.
+
+`hnb_geometry_fixture.py` generates all ten original controls. External hashes,
+comparisons and captures are in `caj2pdf-hnb-rendering-20261003`, files
+`native-geometry-inputs.json`, `native-geometry-comparison.json`, and directory
+`native-geometry-viewer`. Comparison bounds `(640,350,1040,970)` include the
+page frame and content; no alignment or rescaling is applied.
+
+The container exposes these raw unsigned words with fixed four-byte reads.
+Zero extents remain inspectable and fail when native composition requires a
+valid canvas. Legacy HN-B image-only composition continues to derive its canvas
+from the image. This metadata admission does not complete HN-B native rendering.
+
+## Native text/vector resource-state admission
+
+Twelve original controls (baseline plus eleven variations) combine ordinary
+and alternate Latin resource markers, unequal width/height styles, a CJK glyph,
+Latin A, a fullwidth punctuation alias, and an asymmetric segment. At 265%,
+all compared viewports and repeats are pixel-identical to baseline. The existing
+original font resources have distinct internal marker positions, so resource
+substitution is observable. Inputs are reproducible with
+`hnb_geometry_fixture.py`; external `resource-mixed-inputs.json` and
+`resource-mixed-comparison.json` record hashes and comparisons, with captures in
+`caj2pdf-hnb-rendering-20261003/native-geometry-viewer`. Comparison bounds are
+`(640,350,1040,970)`; no registration or rescaling is applied.
+
+These observations admit `8067/7`, `8069/1084`, `80ce/1`, `8072/1084`,
+`8073/30..32` (decimal), and `8074/b7bd,cfc8,c8cb` as nonpainting controls in
+the measured text/vector profile. The observed `c052/a385` extended control
+preserves the same operations; earlier independently varied opaque payload
+controls establish its boundary. Raw inspection retains all values. This does
+not establish the semantics of other flags, arbitrary resource states or
+image mixing. In particular, `80ce/0` is not admitted.
+
+The existing sequential page writer now accepts HN-B text/vector pages with
+verified header geometry. It refuses HN-B image composition pending #250.
+Original short-I/O PDF regressions compare the HN-B and C8 baseline and each
+admitted HN-B control. The complete-document orchestrator and adapters remain
+separate pending work. An external direct-page integration probe on issue-100
+reaches page 1 offset 1464, raw code `a1a3`, then fails explicitly on unverified
+glyph resource/placement. Unicode decoding alone did not prove this mapping.
+The unfinished external probe PDF is not a compatibility pass.
+
+## Ideographic punctuation checkpoint
+
+Original single-glyph controls compare `a1a3`, `a1b6`, `a1b7` with the existing
+`a1a2`, `a0a6` and opening-parenthesis rules under unequal styles `1067`/`10e3`
+and resource states 0/4. Original font markers distinguish resource selection.
+The HN-B ideographic full stop (`a1a3`, U+3002) matches `a1a2` geometry/resource
+in these contexts: CJK horizontal origin, active Latin resource and ordinary
+Latin baseline. The page writer reuses that branch only for HN-B. Existing
+short-I/O Unicode, font-role and matrix tests include the new code.
+
+The initial batch lost the viewer process and produced invalid black captures;
+these are excluded. A restarted viewer with one tab closed after each sample
+produced stable `valid-punct-*` captures. The first ordinary `1067` pair had a
+43-pixel residual; a separate recapture (`confirmed-punct-*`) and both repeats
+match exactly. No tolerance is used to hide this difference. The other three
+full-stop/comma contexts match exactly. A later C8-wrapper attempt again lost
+the viewer; those captures do not establish C8 support. The crash cause is not
+established and is not evidence that the source format is invalid.
+
+External inputs/comparisons are `punctuation-inputs.json`,
+`punctuation-comparison.json`, and `punctuation-confirmation.json` in
+`caj2pdf-hnb-rendering-20261003`; captures are in `native-geometry-viewer`.
+The generator reproduces original HN-B controls and the separate diagnostic
+C8 wrappers. The two book-title marks have distinct horizontal offsets while
+sharing the measured parenthesis vertical extent; their rendering remains
+unverified. Complete-document acceptance remains open.
+
+## Style-5 book-title marks and first complete page-writer run
+
+The issue-100 inventory contains 16 occurrences each of `a1b6`/`a1b7`, all
+with style `10a5` and no explicit axis override. Original marker-font controls
+at 729% compare both marks with an opening parenthesis at the same coordinates.
+The left mark matches that parenthesis shifted +4 source units horizontally;
+the right matches -6. Ordinary/alternate resource controls and held-out
+coordinates `(4793,4357)` match exactly, with stable repeats. The initial +3
+left candidate is rejected. Thus this style reuses the existing parenthesis
+baseline/downward offset (-4 units) with x offsets 30/20 units from the CJK
+origin. Other styles/explicit axes remain errors pending evidence.
+
+`hnb_geometry_fixture.py` reproduces all sixteen original inputs. External
+receipts `book-five-inputs.json`, `book-confirm-inputs.json` and
+`book-confirm-comparison.json`, with `book-viewer` captures, are in
+`caj2pdf-hnb-rendering-20261003`. The two raw codes retain U+300A/U+300B;
+no source-document text or third-party font outlines are committed.
+
+The direct page-writer probe now emits all four issue-100 pages using original
+marker fonts; independent `pdfinfo` reports four pages. This is a complete
+record/output-path checkpoint, not a real-font visual fidelity pass. The native
+document orchestrator now accepts the measured HN-B text/vector profile, and
+CLI/WASM font dispatch reaches it. A three-page original compact fixture checks
+short I/O, bare page ends, page preservation and a located failure on the last
+page without a finished PDF. Existing C8 APIs retain their names for now;
+HN-A with explicit native fonts and unverified HN-B images remain refused.
+
+## First HN-B cross-runtime checkpoint
+
+At core commit `55d8f2e`, a freshly built release WASM module converts all four
+issue-100 pages through public Node and an actual Chromium Worker. The same
+three original marker-font resources are supplied as CLI. All three outputs
+have SHA256 `0410f9f114be13eaf688290cb21c06c05fbd84844e0b380276842a5a1a8f7445`.
+Both JavaScript runs report four pages and 2,103,960 output bytes. Maximum
+observed document read request is 12 bytes; font read and output chunk maxima
+are 1,112 bytes. Scratch stores are cleared and the Node scratch directory /
+Worker OPFS are empty after disposal. Post-conversion WASM memory is
+1,572,864 bytes; this is not a peak-memory measurement.
+
+External `node.mjs`, `node.json`, `browser.mjs`, and `browser.json` in
+`caj2pdf-hnb-rendering-20261003` record these checks. The browser uses bounded
+OPFS spooling for forward-only document/font responses and sequential OPFS
+output. Diagnostic hashing is separate from conversion memory. Original public
+fixtures now include a two-page compact HN-B document in the existing font
+tests. Four Node tests and the selected Chromium Worker test pass without
+skips, checking page/glyph counts, bounded font reads and cleanup. Runtime
+agreement does not establish source fidelity.
+
+A separate CLI probe with a local caller-owned Chinese TrueType font produces
+a readable four-page PDF, accepted by qpdf. Output page 1 was inspected;
+independent source-page visual comparison is pending. The font is an explicit
+substitution. A prior font lacking U+2219 failed at its located glyph without
+publishing a final PDF. External `readable-checkpoint.json` records hashes and
+limits. No font, source text or derived source PDF is distributed.
+
+## Four-page content and source-layout audit
+
+An independent PDF parser checks the actual page content streams against the
+source visitor's Unicode sequence: 1,302 / 1,555 / 1,470 / 1,642 glyphs on
+pages 1–4, in identical order, for CLI marker-font, Node marker-font and CLI
+readable-font output. All frames are 459.619895 × 711.168621 points. This checks
+that composition preserves decoded content; it does not independently prove
+every character mapping. The source hash still matches the pinned matrix.
+
+Pinned offline CAJViewer with its ordinary resources displays four source
+pages at 62%. All four source captures repeat identically. Manual comparison
+with the readable PDF confirms page identity, major paragraph/section layout,
+headers, first-page title/author/abstract, and last-page references/English
+abstract. Long header rules have corresponding PDF segment positions; source
+raster edges span adjacent rows, so no pixel-equality claim is made. The font
+substitution changes outlines/weight and spacing appearance. Page 4's continuous
+viewer viewport includes the preceding page's tail and omits part of the bottom
+blank margin; it is not treated as an identically cropped full-page image.
+
+External `issue100-content-preservation.json`, `issue100-visual-geometry.json`,
+`source-viewer/source-page{1..4}*.png` and readable-page renders preserve the
+receipts. Source-copy attempts left fresh clipboard sentinels unchanged: no
+independent text diff is claimed. Those attempts are NOT_RUN, not successful
+text comparisons. Source documents, derived text/fonts/PDFs/captures stay
+outside Git. The first document now has full conversion and scoped source
+layout evidence; issue #241 still requires the other two documents.
+
+On current code, issue-63 first stops at page 1 byte 304, style `154a`. The
+native visitor also locates an `8004` record followed by additional indexed
+content on pages 2/3, and `8073/002b` on page 4. Required styles include `0484`,
+`1000`, `154a` and `9c84`; five raw codes `a99a..a99e` are not mapped. These are
+concrete next-document gaps, not corruption findings or permission to skip
+trailing records. External `issue63-inventory.txt` records the bounded inventory;
+no issue-63 conversion success is claimed.
+
+## Full HN-B end records and opaque indexed tails
+
+Original `end-continuation-*` controls place two different visible glyphs on
+one page. In pinned offline CAJViewer, inserting a full `8004` record between
+them suppresses the second glyph for values 0, 1, 44, 45 and 65535. The baseline
+shows both. `end-tail-*` controls repeat this with 12- and 20-byte indexes,
+including five unaligned opaque bytes after the end. Single-page captures
+match the one-glyph reference exactly and repeat identically. A two-page
+20-byte-index control retains the first page's one glyph and the next page's
+two glyphs; continuous-view positioning differs, so this is not claimed as a
+pixel-identical comparison against the single-page captures.
+
+`tools/cajviewer/hnb_geometry_fixture.py` reproduces all 13 controls with the
+same SHA256 hashes as the captured inputs. External receipts are
+`end-continuation-inputs.json`, `end-continuation-comparison.json`,
+`end-tail-inputs.json`, `end-tail-comparison.json` and `end-tail-navigation.json`
+in `caj2pdf-hnb-rendering-20261003`. The fixed single-page crop in the two-page
+entry of `end-tail-comparison.json` does not align with that page; use the
+navigation receipt and visible page content for that control.
+
+The HN-B visitor now stops at the full end record without interpreting later
+bytes in that indexed span. It retains index bounds, image-count checks and
+next-page indexing. The two-byte bare-end rule is unchanged. C8 retains its
+strict terminal-position requirement. Original parser regressions cover both
+index widths, one-byte reads, a finite event budget, unknown/unaligned tails,
+and correct next-page glyphs. This admits end semantics, not all of issue-63's
+remaining styles, characters or complete conversion.
+
+The refreshed external `issue63-end-inventory.txt` now traverses pages 1–3
+successfully: 2,706 / 3,974 / 2,273 native events and 2,060 / 2,569 / 1,902
+glyphs. Page 4 still refuses `8073/002b` at byte 69,876. These visitor counts
+are not rendered-document acceptance; style `154a` still blocks conversion.
+
+## Additional native glyph sizes and style flags
+
+Original two-glyph controls establish that exact styles `0484` and `9c84`
+share `1084` geometry. Exact `154a` matches explicit 84×84 axes, while the
+adjacent 83 and 85 controls visibly differ. Repeating with alternate font
+selection and shifted coordinates preserves equality. Corresponding original
+C8 wrappers match the HN-B controls, so the shared geometry helper admits
+these exact cases. `154a` is admitted only for CJK glyphs; its Latin baseline,
+other field-10 styles and decorations remain unverified. No general high-bit
+mask or extrapolated size table is introduced.
+
+The existing `hnb_geometry_fixture.py` reproduces all 26 original input hashes.
+External `issue63-style-{inputs,held-inputs,c8-inputs,comparison}.json` and
+captures in `caj2pdf-hnb-rendering-20261003` record the comparisons. A viewer
+crash produced black initial `c8-1084` captures; they were excluded. After
+confirming the viewer child had exited, a restarted viewer's baseline and
+repeat matched the HN-B baseline. No black-frame equality is evidence.
+
+Existing placement regressions now cover both new field-4 flag variants and
+the measured field-10 CJK size, preserving signed origins and explicit errors
+for neighboring unverified styles, Latin field-10 geometry and decorations.
+
+The public CLI now passes the former byte-304 style failure and stops at byte
+1,180 (`a980`) on an unverified glyph resource/placement class. It publishes
+no final PDF on failure. The 22 placement tests, strict workspace Clippy and
+34,379/34,379 Rust line coverage pass. This is still not issue-63 conversion.
+
+The initial `a9xx` controls used native mode 2: their copied digits and visible
+circles/dark boxes are evidence only for that mode. They do not describe the
+mode-0 issue-63 document. See the mode discrimination below; do not apply these
+observations across profiles.
+
+
+## Native mode distinguishes character interpretation
+
+A paired original HN-B control changes only the little-endian word at offset
+148 from 2 to 0. The same `a980/a98a/a996/a99a/a99b/a99c/a99d` records now display
+`A/K/W/a/b/c/d`, instead of the mode-2 enclosed digits. Full original alphabet
+controls show `a980..a999` as A–Z and `a99a..a9b3` as a–z. Mode-0 `a3c1..a3da`
+and `a3e1..a3fa` display ordinary Latin letters with a different weight;
+`a0c1..a0da` do not retain the mode-2 ASCII interpretation. Clipboard results
+for the alphabet controls agree with their visible letters, allowing whitespace
+introduced by the original fixed glyph advances. This distinguishes decoding
+from font selection; exact resource and placement rules still need controls.
+
+The pinned issue-63 file has mode 0, while issue-100, issue-65 and the two
+additional C8 samples have mode 2. A selected source abstract can be copied
+through the viewer's ordinary Copy menu; the resulting text agrees with the
+Latin-label interpretation. Ctrl+C opens an enhanced-copy menu in that source
+workflow and initially left a sentinel unchanged. The first mode-0 capture
+attempts retained that menu and the wrong document, so they are excluded;
+`issue63-a9-mode0-0-retry.png` shows the actual opened original control.
+
+`Header::native_mode` now preserves the raw word at C8 offset 12 / HN-B offset
+148, with `None` for HN-A. Unknown values are retained as metadata, without
+promoting them to supported rendering. This is a breaking public struct
+addition in v0.x. The existing standalone character helper describes the
+mode-2 subset; mode-aware conversion and legacy geometry remain unfinished.
+Do not treat the recently verified mode-2 style constants as mode-0 geometry
+acceptance. #241 still owns complete issue-63 conversion through all runtimes.
+
+Nine original controls in `hnb_geometry_fixture.py` reproduce the external
+`issue63-a9-inputs.json`, `issue63-a9-mode-inputs.json` and
+`legacy-alphabet-inputs.json` hashes in `caj2pdf-hnb-rendering-20261003`.
+Source text, fonts and captures stay outside Git. Metadata tests preserve
+0, 2 and unknown values, HN-A absence, one-byte reads and located truncation.
+
+## Mode-0 Latin decoding and geometry controls
+
+`decode_native_character_for_mode` now separates mode-0 Latin alphabets from
+the existing mode-2 decoder. It admits the four independently copied alphabet
+ranges and rejects unknown modes and unverified mode-0 classes, including A0
+aliases. It does not select a font or enable complete mode-0 conversion. The
+ordinary A3 and heavier A9 letters remain distinct raw codes even though their
+Unicode scalars agree; the renderer must retain that resource distinction.
+
+Twenty-four further original controls use a mode-0 header with authored
+`8003` metadata pairs and three glyphs: CJK, A3 Latin and A9 Latin. The pinned
+viewer is mounted with the existing original marker fonts, whose three hole
+positions identify the selected resources without vendor outlines. A3 uses
+the ordinary Latin role and A9 the alternate Latin role. Removing the optional
+`801d/8067` records or changing `801d` to 4 leaves this three-glyph control
+unchanged; both captures repeat identically. This matches the source document's
+absence of those optional resource records, without requiring another font API.
+
+Changing width/height at offsets 168/170 changes the page frame; changing the
+corresponding authored metadata values at 154/158 does not affect these
+controls. Changing origins at 164/166 shifts glyphs in the expected opposite
+direction. Independent x/y glyph shifts and changed page height confirm the
+axes. The observed frame ratios are consistent with adding 100 source units
+to each declared page extent in mode 0. An independent three-glyph PDF using
+that frame and the existing 35-unit font-size model approximately matches the
+marker positions; raster edges differ by about a pixel and the diagnostic PDF
+uses black rather than the native viewer's gray. This is a candidate geometry
+model, not a pixel-equality or full-document fidelity result.
+
+Original style controls compare every style observed in issue-63. Required
+font baselines, other symbol placement and complete mode-0 translation remain
+open. Reuse the shared writer and existing explicit font roles; do not apply
+mode-2 geometry merely because a style word is the same.
+
+`hnb_geometry_fixture.py` reproduces all 24 geometry/header/style/resource input
+hashes. External `legacy-{geometry,header,style,resource}-inputs.json`,
+`legacy-geometry-bounds.json`, `legacy-header-comparison.json`,
+`legacy-resource-comparison.json`, `src/bin/legacy_pdf.rs` and the pinned
+`legacy-viewer` captures in `caj2pdf-hnb-rendering-20261003` retain receipts.
+The production decoder's alphabet/unknown-mode regressions pass with strict
+workspace Clippy and 34,404/34,404 Rust line coverage. No corpus, fonts, extracted
+text or captures enter the repository.
+
+## Complete mode-0 character inventory for issue-63
+
+Three original 13-glyph controls independently check GB2312 Han characters,
+digits and the required punctuation by visible output and copied Unicode.
+Mode 0 maps its digits to ASCII, `a3a7` to U+2019 and `aab1` to a period;
+these differ from mode 2. Its copied space is represented as ASCII space.
+A separate original control establishes `9ff5` as U+FF0F, not the GB18030 Han
+character returned for that word in mode 2. The decoder retains the existing
+GB2312 Han mapping only within its valid rows/cells, filtering unassigned
+private-use entries; it does not fall back to arbitrary GBK extensions or A0
+aliases. Unknown modes and unverified symbols remain explicit `None` results.
+
+Six original mixed-glyph controls show no rendering change for the required
+metadata states, including `8073/002b`; repeats are identical. The visitor now
+admits that atomic control and preserves its raw value. A mode-0 `8004/44`
+control suppresses the two subsequent glyphs while retaining the preceding
+CJK glyph, independently confirming terminal behavior for this mode too.
+
+The public reader/visitor plus mode-aware decoder now traverses all four
+issue-63 pages: 2,706 / 3,974 / 2,273 / 2,218 events, with
+2,060 / 2,569 / 1,902 / 1,398 glyphs (7,929 total). No unknown character code
+remains in that inventory. This is not PDF conversion or fidelity acceptance:
+the shared page writer still needs mode-aware geometry/resource integration.
+
+Original marker-font captures show that several symbols, including `9ff5`,
+are not drawn through the three currently mounted CJK/Latin resources. Their
+Unicode is verified but resource/placement is not yet admitted. Font cmap/name
+metadata was inspected externally without reading or copying outlines into the
+project. An additional original HGSS marker did not replace the slash; that
+negative result does not identify its source font and must not be reported as
+a successful resource match. Caller substitution must remain explicit rather
+than being silently assigned to a guessed font role.
+
+Eleven original controls in `hnb_geometry_fixture.py` reproduce the external
+`legacy-required-symbols-inputs.json`, `legacy-9ff5-input.json` and
+`legacy-control-inputs.json` hashes. Copy/capture receipts,
+`legacy-control-comparison.json`, `issue63-mode-aware-inventory.txt` and
+`symbol-font-cmap-metadata.json` remain in the external
+`caj2pdf-hnb-rendering-20261003` directory. All 36 native visitor/decoder tests,
+strict workspace Clippy and 34,415/34,415 Rust line coverage pass. Full runtime,
+visual, cleanup and reviewed-head CI acceptance for #241 remains open.
+
+### Rendering mode boundary
+
+The native page writer now requires mode 2 before opening a content page.
+Missing metadata, mode 0 and unknown modes fail explicitly instead of using
+mode-2 character/resource/placement rules. Mode-0 decoding remains available
+to the bounded record visitor; complete mode-0 rendering remains unfinished
+under #241. Original native rendering fixtures now explicitly declare mode 2
+in Rust and JavaScript. This guard will be expanded when mode-0 placement and
+resource selection are integrated and independently verified.
+
+### Mode-0 CJK and alphabet rendering checkpoint
+
+The writer now admits the independently controlled HN-B mode-0 CJK and A3/A9
+alphabet subset. It keeps mode-0 resource/geometry translation separate from
+the unchanged mode-2 path, reusing bounded fonts and sequential PDF output.
+Missing/unknown modes and C8 mode 0 still fail explicitly. This supersedes the
+initial mode-0 guard above; it does not complete issue-63 or #241.
+
+Original single-marker comparisons establish size 21 for styles `0`/`1000`
+and size 84 for `154a`: the corresponding explicit-axis controls match exactly,
+while adjacent sizes 20/22 and 83/85 differ. Field 4, wide field 5/4 and field 7
+match explicit 35/35, 42/35 and 56/56 controls. Page extents add 100 source units
+before point conversion. CJK and alphabet origins follow the controlled mode-0
+model, without the mode-2 Latin horizontal addition. Raw A3/A9 selects ordinary
+and alternate Latin respectively, independently of `801d/4`.
+
+Twelve original controls convert through the CLI and pass qpdf. Seven source/
+PDF pairs check the base, changed width/height, changed x/y origin, size zero
+and title. At the recorded fit-width zoom, page-height edges differ by at most
+one pixel, and thresholded glyph rectangle edges differ by one pixel except
+size zero (two pixels). These are scoped geometry observations, not exact
+pixel equality or whole-document fidelity. The first batch's black captures
+after a viewer crash are excluded; the affected comparisons were repeated
+with fewer open tabs and visible source/output pages.
+
+The new nonoverlapping run controls identify ordinary-Latin digits with a
+different origin/baseline from letters. They are not admitted by this change.
+Original plain/marked `a385` line captures also match each other, including
+both marked x coordinates, but mode-0 segment translation remains unfinished.
+Spaces, symbols, digits and other required controls still return located errors.
+The actual issue-63 document currently fails at byte 404 (`a1a1`, a space),
+without publishing a partial final PDF. Its full four-page acceptance remains
+open. The issue-100 CLI regression retains SHA256
+`0410f9f114be13eaf688290cb21c06c05fbd84844e0b380276842a5a1a8f7445`.
+
+Original two-page mode-0 alphabet fixtures pass the public Node and real
+Chromium Worker paths, including bounded font reads and scratch cleanup.
+All 161 JS tests pass with rebuilt WASM and no skips. Strict workspace Clippy
+and 34,501/34,501 Rust line coverage pass, including the per-file gate. External
+corpus checks omitted by that test run are not counted as compatibility passes.
+
+The existing generator now reproduces 16 metric and eight run/line controls.
+Their hashes and comparison receipts are external under
+`caj2pdf-hnb-rendering-20261003`: `legacy-metric-inputs.json`,
+`legacy-metric-comparison.json`, `legacy-run-inputs.json`,
+`legacy-line-comparison.json`, `legacy-mode0-cli-checkpoint.json` and
+`legacy-mode0-render-comparison.json`. Source documents, fonts, captures and
+PDFs remain outside Git. Peak memory and full release acceptance remain #222.
+
+### Mode-0 digits, punctuation and segments
+
+Isolated large-fit controls now separate CJK, alphabet and digit placement for
+size zero, field 4, field 5/4, field 5 and explicit 36. Alphabet baselines use
+10 source units independently of the mode-2 size-dependent table. Ordinary
+Latin digits use measured size-specific offsets, including their different
+horizontal origin. An original `801d/4` digit control is identical to its
+ordinary-state counterpart. Parentheses use the ordinary Latin font with CJK
+geometry; the A3 slash uses the CJK font. The distinct `9ff5` slash remains a
+separate, unsupported symbol resource. Unicode identity is retained.
+
+Mode-0 `a385` segments decode markers on both x endpoints and use their measured
+y origin. Plain/marked originals match, and a diagonal control preserves its
+endpoints. Small/large page controls integrate to approximately one black
+pixel across the source stroke at both fit scales, distinguishing a device
+hairline from a stroke that scales in source units. PDF uses zero-width
+hairlines. MuPDF renders them lighter than the viewer in this capture; exact
+stroke darkness is not claimed. Measured segment rectangle edges differ by
+up to three pixels in the recorded fit-width comparison.
+
+Digit/alphabet offsets relative to the CJK anchor agree within one pixel in
+the isolated large-fit comparison. Absolute glyph edges retain 3–4-pixel
+residuals at that larger zoom (roughly 970%), including the CJK anchor; these
+are not exact pixel matches. The three isolated punctuation controls have the
+same CJK rectangle, retaining the same absolute residual. These checks do not
+complete issue-63 acceptance.
+
+A broader original-font experiment replaces all 81 remaining viewer font files
+with independently generated marker fonts, while preserving the existing CJK
+and two Latin markers. Only resource filenames/family names are reused; no
+vendor outlines or implementation are copied. Five nonoverlapping 28-glyph
+original grids show a stable fourth resource group: space, ideographic
+punctuation, quotes, ordinary punctuation and the `9ff5` slash. Parentheses,
+A3 slash and digits retain their distinct existing roles across these grids.
+This establishes an explicit caller symbol-font role as the next step; it does
+not require identifying or redistributing each original font.
+
+The fourth marker also makes `a1a1` space visible. The earlier three-font-only
+space/absence equality therefore does **not** establish a layout-only no-op:
+the original space glyph was empty in a different resource. A provisional
+skip-space implementation was removed before commit. Spaces and the remaining
+symbols continue to fail explicitly until their resource path is implemented.
+The real issue-63 document still fails at byte 404 without a final output file.
+The issue-100 CLI regression remains byte-identical to the prior checkpoint.
+
+The current CLI passes 22 new original controls with qpdf, including the
+space-absent control, and rejects both space-bearing controls without publishing
+PDFs. Three earlier segment controls
+also convert and pass qpdf. Rust tests include the new digit/punctuation font
+roles, Unicode, unsupported geometry, late failure and both marked endpoints.
+Strict Clippy, all 161 JS tests with rebuilt WASM (no skips), and
+34,554/34,554 Rust line coverage pass, including the per-file gate.
+
+The existing generator adds 22 digit/punctuation/space controls, five symbol
+grids and two stroke-width controls. External receipts remain under
+`caj2pdf-hnb-rendering-20261003`: `legacy-digit-inputs.json`,
+`legacy-digit-comparison.json`, `legacy-digit-pdf-comparison.json`,
+`legacy-punctuation-pdf-comparison.json`, `legacy-digits-current-cli.json`,
+`legacy-symbol-grid-{inputs,comparison}.json`, `legacy-line-width-comparison.json`
+and `legacy-line-pdf-comparison.json`. Failed/black PDF-viewer captures are
+excluded; valid source captures are compared with independent MuPDF renders.
+The earlier provisional skip-space CLI receipt is superseded by the current
+receipt. Whole-document/runtime/fidelity and peak-memory acceptance remain open.
+
+### Mode-0 symbol transport and `8072/0` paired controls
+
+An optional semantic `symbols` font role carries space and the controlled
+punctuation classes through the existing ranged transport. It is distinct
+from the decoration alias. Missing resources remain located errors. Original
+space/colon fixtures run through Node and a real Chromium Worker, including
+short font reads, shared-font embedding and temporary-store cleanup.
+
+Six original `legacy-state72zero-*` controls compare two rows with and without
+`8072/0` between them, using style `1084`, style `04e7`, and explicit 36-by-36
+axes. The rows distinguish CJK, ordinary Latin, alternate Latin and semantic
+symbol markers; space and colon follow the state record. With the pinned
+offline all-marker viewer, all three baseline/state page crops match, and
+all six repeated captures match. This admits retaining the current rendering
+state for `8072/0` in the controlled mode-0 path; other values are not implied.
+The core regression also checks that explicit axes and font selection survive.
+
+Receipts remain outside Git in `caj2pdf-hnb-rendering-20261003/`:
+`legacy-state72zero-inputs.json`, `legacy-state72zero-comparison.json`, and
+`all-symbol-viewer/legacy-state72zero-*.png`. Page crops use desktop bounds
+(648, 555, 1022, 769); visible page identity and nonempty marker rows were
+checked. These controls do not establish full-document fidelity.
+
+The original six isolated dot/hyphen comparisons preserve the same vertical
+position and dimensions. Their observed left offsets admit the mode-0 AAB2
+hyphen correction for zero, field-four and field-five sizes; field seven
+remains an explicit unsupported hyphen geometry. External receipts are
+`legacy-symbol-placement-comparison.json`. The additional seven-size symbol
+grid retains the established alphabet/symbol baseline and resource classes.
+Rasterization residuals remain as described above; these controls do not
+establish exact source/PDF pixel equality.
+
+### Mode-0 remaining state controls and first complete issue-63 CLI output
+
+The same paired-row controls now cover `80ce/1`, `8073/41..43` (decimal),
+`8074/c8ce,b5c8,b5c4`, `8072/c2c7`, and low/high `c053` numeric payloads.
+Across ordinary, seven-size and explicit-36 axes, all valid captures preserve
+CJK, ordinary/alternate Latin, space and colon markers, including the second
+row's geometry. The writer retains its state for these admitted controls;
+`c053` remains an opaque fixed-width numeric record rather than a list of
+sample-specific payloads. Other required controls still fail explicitly.
+
+External receipts are `legacy-statece1-{inputs,comparison}.json` and
+`legacy-metadata-{inputs,comparison,retry-comparison}.json`. The viewer exited
+partway through the larger batch; black frames are explicitly excluded.
+The eight affected cases were reopened in a fresh viewer process and repeat
+identically to their nonempty baseline. No black frame counts as evidence.
+
+The first complete issue-63 CLI output contains four pages, 7,929 glyph
+operations and four embedded original marker fonts; qpdf reports no syntax
+or stream errors. Its SHA256 is
+`3f904cb5ab0d5944ed8341b5fa59629884ceab0269999205f320b6af31545d07`
+and size is 2,790,855 bytes. Source fonts are deliberately substituted;
+whole-document visual fidelity and final cross-runtime acceptance remain
+separate outstanding checks.
+
+Node and a real browser Worker now produce the identical four-page hash.
+Both record maximum document requests of 20 bytes, font/output chunks of
+1,112 bytes, cleared scratch and no remaining temporary files. Their final
+WASM memory is 1,572,864 bytes, explicitly not a peak-memory measurement.
+The existing mode-2 issue-100 CLI hash remains unchanged.
+
+All four issue-63 pages have a manual marker-layout comparison against
+independent MuPDF raster output: headings, two-column ordering, row
+arrangement and the large blank remainder on the final page agree at the
+inspected zoom. This is scoped layout evidence, not exact pixel or
+readable-font parity. `issue63-complete-checkpoint.json` records the actual
+captures. An initial navigation attempt only edited the page box without
+submitting; its page-labelled screenshots are excluded. The replacement
+captures explicitly show source page indicators 2/4, 3/4 and 4/4.
+
+The current checkpoint passes strict workspace Clippy, all 162 JavaScript
+tests with rebuilt WASM (zero skips), and 34,581/34,581 Rust source lines
+with 100% coverage in each file. Optional external Rust corpus tests remain
+NOT_RUN in the coverage job. Full HN-B acceptance still requires issue-65,
+review, exact-head CI and the remaining fidelity/late-failure checks.
+
+## Leading HN-B images: implementation checkpoint
+
+The mode-2 writer now accepts leading image records through the shared codecs
+and sequential PDF content writer. Sequential leading images retain descriptor
+order; subsequent text paints over them. Once a glyph or drawing has occurred,
+a later HN-B image remains an explicit located error. Existing controls show
+context-dependent bitwise image/text raster operations, so neither opaque
+replacement nor Multiply is used as an unverified fallback. Mode-0 image
+composition remains unsupported.
+
+The original HN-B image fixture generator now explicitly declares its 20-byte
+index with marker `0xc8` at byte 136. Its prior generated header omitted that
+marker, despite authoring 20-byte rows; production compact-index validation
+is unchanged. Fresh generated inputs are outside Git under
+`caj2pdf-hnb-rendering-20261003/input/leading-images`. Nine leading-image
+controls convert and pass qpdf; four text-before-image/interleaved cases fail
+explicitly. `hnb-leading-images-cli.json` records every outcome. An independent
+MuPDF raster of the image-then-text control agrees with the pinned viewer's
+orientation, placement and foreground-glyph order, with ordinary raster-edge
+residuals. This is not whole-document acceptance.
+
+Original paired CJK title controls establish identical visible geometry for
+mode-2 styles `114a` and the already calibrated `154a`; repeats match.
+`title-style-comparison.json` records hashes and captures. The newly admitted
+`114a` path is restricted to HN-B CJK; unverified Latin/C8 uses still fail.
+The real six-page issue-65 document now traverses its first image and title,
+then stops at byte 432 on required `801c/4`. Explicit-axis and remaining native
+style/control work is still required. No final PDF is published on this error.
+
+The original ordinary-index mixed fixture also runs through Node and a real
+Chromium Worker, reusing the existing original JPEG fixture. Tests assert
+that JPEG bytes are retained and the image operator precedes both glyphs;
+font reads and scratch cleanup use the existing bounded helpers. A separate
+Node case places text first and requires the specific image-after-text error,
+then verifies scratch cleanup. Its initial type-0 descriptor was corrected to
+HN-B's admitted type-2 JPEG form; a header-stage failure is not counted as
+rendering or cleanup evidence for the unsupported-order branch.
+
+Local validation: strict Clippy, 34,595/34,595 Rust source lines (100% in every
+file), and 163 JavaScript tests with rebuilt WASM pass. The real issue-65
+conversion remains incomplete at byte 432 and publishes no final PDF.
+
+### HN-B state reset and regular style flags
+
+Six original paired CJK/Latin controls establish that `801c/4` preserves
+ordinary rendering and existing explicit-36 axes, while a following `8002`
+style record resets prior 43-by-43 axes. The writer now records these HN-B
+axis values and retains the existing style-reset behavior. Rendering a glyph
+with active 43 axes is still rejected until its geometry is verified.
+`state-axis-reset-comparison.json` stores hashes and repeated comparisons.
+
+Eight pairs cover size fields 2 through 8 plus a rectangular 5-by-4 case.
+With distinct original CJK/Latin/asterisk markers, HN-B flags `0400` and
+`1000` produce identical page crops. The writer normalizes only this verified
+flag family, with both size fields limited to 2..=8, and reuses existing size
+metrics. It does not admit untested title sizes or alter C8 flag admission.
+`normal-flags-comparison.json` and `normal-flags-retry-comparison.json` retain
+the evidence: the final baseline initially had a viewer-exit black frame,
+which was excluded and recaptured in a fresh process. The earlier two-case
+`small-style-comparison.json` is retained as the first observation.
+
+The real issue-65 document now reaches byte 1500 (`801d/3`). Four original
+resource controls distinguish states 0, 3 and 4, including 4 followed by 3.
+State 3 changes the Latin marker to the fourth original marker group while
+preserving the CJK marker; 4-then-3 matches 3. Consequently it must not be
+ignored or mapped to ordinary/alternate Latin without an explicit resource
+contract. `resource-three-comparison.json` records the repeated observations.
+This state remains unsupported in the writer.
+
+The bounded six-page inventory (`issue65-current-inventory.txt`) also locates
+remaining parser rules `8024/2815`, `8071/28`, implicit styles on pages 2/5,
+and active 43-by-43 axes on pages 3/4. Page 6 traverses its image records.
+These are pending semantics, not complete-document support. Local coverage
+for the admitted reset/style changes is 34,604/34,604 lines, also 100% per file.
+
+The rebuilt WASM passes all 163 JavaScript tests with zero skips; strict
+workspace Clippy passes. The complete regular-flag generator subsumes the
+initial two-case small-style probe, avoiding duplicate committed generators.
+The viewer's hard timeout was restarted only after container exit 124 was
+confirmed; no failed capture is promoted into rendering evidence.
+
+### State-3 Latin resource checkpoint
+
+Original `resource_three_controls()` pairs compare states 0, 3, 4 and 4→3
+under style `10a5`. Repeated viewer captures distinguish the state-3 Latin
+marker from the ordinary and alternate resources, while preserving the CJK
+marker. Their measured bounds match: CJK `(698,513)-(832,647)` and Latin
+`(864,520)-(998,654)` in the controlled viewer frame. This establishes the
+resource switch for that control, not the original vendor font identity.
+External receipts are `resource-three-comparison.json` and
+`resource-three-bounds.json` under `caj2pdf-hnb-rendering-20261003`.
+
+The optional `latin_state3` core role / `latinState3` JS role /
+`--font-latin-state3` CLI flag transports a caller-supplied ranged font through
+the existing bounded path. States 0 and 4 restore their respective resources.
+Missing state-3 resources fail explicitly. Original Node and real Worker
+fixtures exercise the role with short font reads and two-page output.
+
+The real issue-65 retry using original marker substitutes now fails at page 1
+byte 1504 on the `A1B2` glyph resource/placement class, after the state record
+at byte 1500. No complete output is published. Its punctuation mapping, later
+style/axis controls and full six-page fidelity remain open under #241/#250.
+
+### Controlled HN-B tortoise-shell brackets
+
+Original `state_three_punctuation_controls()` establish `A1B2` / `A1B3`
+(Unicode U+3014 / U+3015) in styles `10a5` and `08a5`, without explicit axes.
+Both follow the selected Latin resource in states 0, 3 and 4. Six paired
+marker crops equal the already verified opening book mark shifted left 5
+and down 9 source units. Two held-out pairs change the page size and glyph
+origin and retain exact crop equality; a left-4/down-10 alternative does not.
+This gives offsets right 25 and down 5 from the CJK transform. The implementation
+admits only these controlled styles; other styles/axes remain explicit errors.
+
+All six `08a5` controls reproduce their `10a5` crops, convert with caller-supplied
+original marker fonts and pass qpdf. Repeated screenshots agree. Initial
+`08a5` black captures followed confirmed viewer process exit and are excluded;
+replacement captures use the `-retry-` suffix. External inputs/captures and
+`state3-punctuation-comparison.json` stay under
+`caj2pdf-hnb-rendering-20261003`. These are marker-resource and geometry checks,
+not readable-font identity or universal rendering parity.
+
+The issue-65 retry now reaches page 1 byte 1532 (`8024/2815`) after the complete
+bracketed run. That required control remains unsupported, no final PDF is
+published, and full six-page acceptance under #241/#250 remains open.
+
+### Smaller native shear (`8024/2815`)
+
+Original `small_skew_controls()` compare reset, `2815` and existing `281d`
+across styles `1084`, `10a5` and rectangular `10a4`. Measured left-edge slopes
+for `2815` are approximately -0.1048, -0.1046 and -0.1267 respectively; the
+rectangular case establishes width-relative rather than height-relative shear.
+The admitted coefficient is 0.105 times glyph width. The existing `281d`
+coefficient remains 0.24; no rule for other raw values is inferred.
+
+Separate `08a5` controls retain CJK and state-3 Latin anchors. Reset `2800`
+returns exactly to the baseline crop, and a style record preserves active
+shear; each capture repeats identically. Thirteen original controls convert
+and pass qpdf. MuPDF's rectangular output edge slope is approximately -0.1252
+versus the viewer's -0.1267, with pixel rounding/rasterizer residuals still
+explicit. This is controlled transform evidence, not universal pixel parity.
+
+External receipts are `skew21-inputs.json`, `skew21-comparison.json`,
+`skew21-edge-fit.json`, and `skew21-latin-comparison.json` under the existing
+`caj2pdf-hnb-rendering-20261003` evidence root. The new value is HN-B-specific;
+C8 admission and unresolved drawing/image behavior remain unchanged.
+
+The real issue-65 input now reaches page 1 byte 1944, where paired explicit
+43 axes precede a required glyph. Those axes remain unverified by this change,
+so the conversion fails explicitly and publishes no final PDF. The earlier
+brackets and intervening repeated shear/reset records no longer block it.
+
+### Explicit 28/43 axes and implicit styles
+
+Original `paired_axis_controls()` establish independent width/height settings
+28 and 43, with the existing paired-36 case retained as a regression. Width
+and height use the established `size * 75 / 301` point scale. Latin baselines
+are respectively 9 and 6 source units for heights 28 and 43; horizontal Latin
+inset remains one eighth of the independently specified width.
+
+The four 28/43 combinations produce identical repeated marker crops with an
+omitted style record and with explicit style 0. This admits implicit HN-B style
+only when both current axes are in that verified set. Missing/partial axes
+remain unsupported; a style record clears the axis state. The parser tracks
+current values so overwriting one axis cannot retain a stale admission bit.
+Existing C8 and mode-0 profile admission is unchanged.
+
+Twelve original axis controls convert and pass qpdf. External receipts are
+`next-axes-captures.json`, `axes-mixed-comparison.json` and
+`axes-output-checks.json` in the existing evidence root. A capture attempt
+interrupted by the container's confirmed exit-124 time limit was retried
+under the same pinned container configuration. No failed capture is evidence.
+
+The real issue-65 conversion now reaches page 1 byte 2232, an `A1B0` quotation
+mark under explicit 43 axes. Punctuation offsets under these axes remain a
+located error; there is still no completed final PDF. A refreshed bounded
+record inventory reaches later records on all five text pages, but encounters
+additional required metadata values near their ends. These diagnostic counts
+are not complete-document conversion or fidelity acceptance.
+
+### Required axis-dependent punctuation and smaller brackets
+
+Original `axis_punctuation_controls()` compare CJK/Latin anchors, quotations,
+parentheses and both bracket families under paired 43 axes. They establish
+source-unit offsets from the CJK matrix: opening parenthesis `(27,-4)`, closing
+parenthesis/quotation `(25,-4)`, opening/closing book marks `(30,-4)` /
+`(20,-4)`, and tortoise-shell brackets `(25,4)`. Paired 28 tortoise-shell
+brackets use `(16,8)`. Unverified mixed-axis punctuation remains an error.
+These are controlled offsets, not an extrapolation of the regular style table.
+
+The 43-axis quotation pair equals the closing-parenthesis crop. Book-mark
+translation controls distinguish the +3/-7 offsets from the opener instead
+of the regular style-5 +4/-6. The right-book pair is pixel-identical; the
+left pair retains matching bounds with raster-edge differences. The 43
+bracket equals the book mark shifted left 5/down 8; down 9 does not match.
+The 28 bracket/shifted-Latin control has a one-pixel vertical residual, which
+is recorded rather than claimed as exact equality.
+
+Additional regular controls establish style `1084`/`0884` brackets at `(21,6)`
+and `0ca5` matching the existing style-5 `(25,5)` rule. The admitted style
+set stays explicit. All 33 original controls convert, pass qpdf and render.
+Relative glyph bounding boxes differ from pinned-viewer controls by at most
+one pixel across the compared principal cases; all repeated captures agree.
+This does not establish exact typography or complete-document fidelity.
+
+External inputs/captures are under the existing evidence root. Output and
+relative-box measurements are in `axis-punctuation-output/checks.json` and
+`comparison.json`. Initial refined-reference black frames followed confirmed
+viewer process exit and are excluded; use their `-retry-`/`-fit-` replacements.
+A subsequent unrelated at-sign probe stopped at the container's confirmed
+exit-124 limit and supplies no accepted rendering evidence.
+
+The issue-65 retry now reaches page 1 byte 5832, after the body and earlier
+bracketed metadata. An unverified glyph resource/placement class still fails
+there. Later page-tail metadata also remains under investigation; no final
+PDF is published and #241/#250 acceptance remains open.
+
+### Fullwidth at sign and page-tail controls
+
+Original `page_tail_controls()` establish HN-B `A3C0` (U+FF20) against the
+already mapped fullwidth comma: the marker crops match exactly in ordinary,
+state-3 and alternate Latin resources. C8 admission is unchanged.
+
+The same generator tests the actual required page-tail controls: `8072` with
+`a0f3`, `a0e7`, `c2db`, `d2f2`, `cdc1`; `8073` with decimal 79–83; and `8074`
+with `2815`, `a0ec`, `d3c9`, `b0d7`, `d1e9`. Paired CJK/Latin marker crops
+remain identical to the baseline. Only these observed values are added to
+the existing no-paint control handling; other unknown required values remain
+located failures. The 22 original inputs convert and pass qpdf, repeated
+captures agree, and every metadata-control PDF is byte-identical to baseline.
+External receipts are `hn-at-symbol-comparison.json`, `page-tail-inputs.json`
+and `page-tail-output/checks.json` under the existing evidence root.
+
+Current CLI regressions of issue-100 and issue-63 retain their original full
+four-page output hashes (`0410f9f…7445` and `3f904cb5…5d07` respectively) and
+pass qpdf. Full hashes are in `page-tail-regressions.json` and earlier sections.
+This is a native regression check, not a new full-runtime fidelity claim.
+
+The six-page issue-65 input now reaches page 1 byte 6336, where `A0AD` remains
+an unsupported native character. Its character/resource/placement mapping
+still needs independent verification; do not infer it solely from adjacent
+byte values. Conversion publishes no final PDF, and full-document acceptance
+remains open.
+
+### Fullwidth hyphen and six-page issue-65 checkpoint
+
+Original `explicit_hyphen_controls()` compare `A0AD`, `A3AD` and `AAB2`
+under paired 36 axes in Latin states 0, 3 and 4. Marker geometry agrees,
+but geometry alone cannot distinguish their Unicode meanings. Ordinary
+CAJViewer Copy on the original single-character A0AD fixture returns UTF-8
+U+FF0D followed by CR/LF. The clipboard receipt records a fresh ownership
+transition and complete transfer. Ctrl+C invokes enhanced copy in this viewer;
+the accepted observation uses the ordinary Copy menu item instead.
+
+The mapping is U+FF0D FULLWIDTH HYPHEN-MINUS, using the selected Latin
+resource and the existing fullwidth baseline. Original unit controls check
+all three resources, Unicode and placement against A3AD; C8 rendering of this
+new HN-B code remains refused. Initial state-3/state-4 black captures and a
+clipboard timeout after viewer exit are excluded. Accepted replacement
+captures are identified in `hn-hyphen-comparison.json`; the Unicode receipt
+is `hyphen-copy-a0ad.json`.
+
+The pinned issue-65 source SHA-256 is
+`e1b17805a87f62097987c41f2821836d6b774caaf035c9846be966c965f08a49`.
+All six pages now convert through CLI, Node and a real Chromium Worker.
+With the same original marker fonts (symbols and state-3 share one resource),
+all three produce 3,647,058 bytes and SHA-256
+`9797b27f8b99ad872c3ace17c097db1bcee2221db83482525a170869492c8237`.
+The PDF has six 501.1565 by 736.11 point pages and passes qpdf.
+
+All six identified viewer pages have identical repeated captures with
+nonblank page content. Manual source/output inspection checks title and
+paragraph groups, section headings, reference layout, page numbers and
+image orientation/placement. Pages 1 and 6 retain their exact source JPEG
+payloads: 34,458 bytes at source offset 6,420 and 790,923 bytes at offset
+71,106. Pages 2–5 have no image resources. This separates payload preservation
+from the independent visual placement check. Marker fonts establish scoped
+layout/resource evidence, not readable-font equivalence or pixel identity.
+
+Node and Worker receipts report maximum source/output requests of 262,144
+bytes, font reads of 1,112 bytes, and no remaining scratch files. Their
+post-conversion WASM allocation of 1,966,080 bytes is not a peak measurement.
+Runtime receipts, `issue65-complete-checkpoint.json`, source captures and
+rendered PDFs remain outside Git in `caj2pdf-hnb-rendering-20261003`.
+
+This checkpoint does not close #241/#250: final-head three-document
+regressions, the acceptance/test audit, review and CI remain required.
+Bookmarks remain #221 and measured peak memory remains #222. Unknown
+image-after-text operations still return explicit errors.
+
+
+### Final runtime regression and late-failure audit
+
+The `400a099` conversion implementation was rebuilt and all three selected
+inputs rerun through CLI, Node and real Chromium Worker. Each runtime retains
+the complete output hash recorded above for issue-100, issue-63 and issue-65;
+all native PDFs pass qpdf. Node and Worker scratch receipts are empty after
+each conversion. External files use the `final400a099` suffix. These runs do
+not add a new fidelity or peak-memory claim.
+
+The acceptance audit reuses existing short-read/write and parser span tests.
+`hnb_truncated_record_keeps_the_next_page_unread_and_poisons_cursor` and
+`hnb_truncated_image_does_not_consume_the_following_page` cover HN-B page
+boundaries; `hnb_native_document_streams_every_compact_page_and_keeps_late_errors_located`
+covers a complete first/second page followed by a located third-page failure.
+Shared codec, source/output fault and cancellation tests remain applicable.
+
+An uncovered public-adapter case is now explicit: an original two-page HN-B
+input with an unknown second-page record. Node and real Worker require a
+page-2 HNC8 error, evidence that the first-page glyph was written, no PDF EOF,
+and empty scratch. The portable CLI test first converts the valid control,
+then corrupts its second page and verifies that the existing destination is
+unchanged and staging files are removed. These tests add no external fixture
+or alternative conversion path.

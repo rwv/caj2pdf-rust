@@ -354,3 +354,9 @@ Blocking OS I/O and forced process termination cannot guarantee normal cleanup.
 The Linux 100% instrumented-line gate measures Linux-compiled Rust; separate
 Windows execution tests validate the Windows-only adapter, without claiming
 100% cross-platform coverage.
+
+For HN-B profiles that require them, `--font-symbols FILE` supplies semantic
+mode-0 symbols and spaces, and `--font-latin-state3 FILE` supplies the distinct
+Latin resource selected by state `801d/3`. Both use the existing bounded font
+reader. Missing required resources fail explicitly; supplying a substitute
+font does not establish source typeface fidelity.

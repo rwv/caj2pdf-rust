@@ -231,7 +231,11 @@ pub enum C8GlyphClass {
 /// Evaluate the empirical C8 text matrix for the measured native style subset.
 ///
 /// Size fields 2 through 8 with observed high bits `0x0800`, `0x0c00` or
-/// `0x1000` share the measured glyph geometry. The point-size
+/// `0x1000` share the measured glyph geometry. Independently controlled
+/// `0x04e7` and `0x14e7` also share field-7 geometry; `0x0484` and `0x9c84`
+/// share field-4 geometry. The observed `0xe58c` and `0x154a` CJK forms use
+/// measured sizes 109 and 84 respectively; their Latin baselines are unknown.
+/// The point-size
 /// model is calibrated from original font controls, including held-out field 7;
 /// it is not an authoritative physical-unit definition. See the recorded
 /// geometry and rasterization limits in `docs/c8-native-records.md`.
@@ -247,13 +251,49 @@ pub fn empirical_c8_glyph_transform(
     style: u16,
     class: C8GlyphClass,
 ) -> Result<[f64; 6]> {
+    native_glyph_transform(page, source_origin, position, style, class, [None; 2])
+}
+
+pub(super) fn native_glyph_transform(
+    page: EmpiricalPageGeometry,
+    source_origin: [u16; 2],
+    position: [u16; 2],
+    style: u16,
+    class: C8GlyphClass,
+    axes: [Option<u16>; 2],
+) -> Result<[f64; 6]> {
     let [left, _, _, top] = page.media_box()?;
-    if !matches!(style & 0xfc00, 0x0800 | 0x0c00 | 0x1000) {
-        return Err(Error::InvalidInput {
-            reason: "unverified C8 glyph style flags",
-        });
-    }
-    let (width, height, latin_offset) = c8_style_metrics((style & 0x03ff) | 0x1000)?;
+    let (width, height, latin_offset) = if axes != [None; 2] {
+        let (width, height, baseline) = match axes {
+            [Some(36), Some(36)] => (36.0, 36.0, 8.0),
+            [Some(width @ (28 | 43)), Some(height @ (28 | 43))] => (
+                f64::from(width),
+                f64::from(height),
+                if height == 28 { 9.0 } else { 6.0 },
+            ),
+            _ => {
+                return Err(Error::InvalidInput {
+                    reason: "unverified native explicit glyph axes",
+                });
+            }
+        };
+        (width * 75.0 / 301.0, height * 75.0 / 301.0, baseline)
+    } else if matches!(style, 0xe58c | 0x114a | 0x154a) && class == C8GlyphClass::Cjk {
+        // Original controls distinguish explicit 109 and 84 from adjacent
+        // sizes. Latin baselines and other size-field flags remain unverified.
+        let size = if style == 0xe58c { 109.0 } else { 84.0 };
+        let em = size * 75.0 / 301.0;
+        (em, em, 0.0)
+    } else {
+        if !matches!(style & 0xfc00, 0x0800 | 0x0c00 | 0x1000)
+            && !matches!(style, 0x04e7 | 0x14e7 | 0x0484 | 0x9c84)
+        {
+            return Err(Error::InvalidInput {
+                reason: "unverified C8 glyph style flags",
+            });
+        }
+        c8_style_metrics((style & 0x03ff) | 0x1000)?
+    };
     let unit = EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
     let mut x = left + (f64::from(position[0]) - f64::from(source_origin[0]) + 20.0) * unit;
     let mut y = top - (f64::from(position[1]) - f64::from(source_origin[1]) - 15.0) * unit - height;
@@ -262,6 +302,95 @@ pub fn empirical_c8_glyph_transform(
         y -= latin_offset * unit;
     }
     Ok([width, 0.0, 0.0, height, x, y])
+}
+
+/// Independently controlled HN-B mode-0 CJK and Latin placement.
+/// Resource selection and the mode-0 page extent addition are handled by the
+/// page writer. Unobserved styles/classes are not inferred from mode 2.
+pub(super) fn mode_zero_glyph_transform(
+    page: EmpiricalPageGeometry,
+    source_origin: [u16; 2],
+    position: [u16; 2],
+    style: u16,
+    class: C8GlyphClass,
+    axes: [Option<u16>; 2],
+) -> Result<[f64; 6]> {
+    if axes == [None; 2] && matches!(style, 0 | 0x1000) {
+        let [left, _, _, top] = page.media_box()?;
+        let unit = EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
+        let em = 21.0 * 75.0 / 301.0;
+        let baseline = if class == C8GlyphClass::Latin {
+            10.0
+        } else {
+            0.0
+        };
+        return Ok([
+            em,
+            0.0,
+            0.0,
+            em,
+            left + (f64::from(position[0]) - f64::from(source_origin[0]) + 20.0) * unit,
+            top - (f64::from(position[1]) - f64::from(source_origin[1]) + baseline) * unit - em,
+        ]);
+    }
+    if !matches!(
+        style,
+        0 | 0x0484 | 0x0884 | 0x1084 | 0x9c84 | 0x0ca4 | 0x10a4 | 0x10a5 | 0x04e7 | 0x0ce7
+    ) && !(class == C8GlyphClass::Cjk && style == 0x154a)
+    {
+        return Err(Error::InvalidInput {
+            reason: "unverified HN-B mode-0 glyph style",
+        });
+    }
+    let mut transform = native_glyph_transform(
+        page,
+        source_origin,
+        position,
+        style,
+        C8GlyphClass::Cjk,
+        axes,
+    )?;
+    let baseline = if class == C8GlyphClass::Latin {
+        10.0
+    } else {
+        0.0
+    };
+    transform[5] -= (15.0 + baseline) * EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
+    Ok(transform)
+}
+
+/// Required mode-0 digits share the ordinary Latin font, but not alphabet
+/// positioning. Offsets are empirical source units from isolated controls;
+/// only the observed height fields and explicit-36 pair are admitted.
+pub(super) fn mode_zero_digit_transform(
+    page: EmpiricalPageGeometry,
+    source_origin: [u16; 2],
+    position: [u16; 2],
+    style: u16,
+    axes: [Option<u16>; 2],
+) -> Result<[f64; 6]> {
+    let (left, down) = match (style, axes) {
+        (_, [Some(36), Some(36)]) => (22.0, 18.0),
+        (0 | 0x1000, [None, None]) => (21.0, 15.0),
+        (0x0484 | 0x0884 | 0x1084 | 0x9c84 | 0x0ca4 | 0x10a4, [None, None]) => (22.0, 18.0),
+        (0x10a5, [None, None]) => (22.0, 20.0),
+        _ => {
+            return Err(Error::InvalidInput {
+                reason: "unverified HN-B mode-0 digit geometry",
+            });
+        }
+    };
+    let mut transform = mode_zero_glyph_transform(
+        page,
+        source_origin,
+        position,
+        style,
+        C8GlyphClass::Cjk,
+        axes,
+    )?;
+    transform[4] -= left * EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
+    transform[5] -= down * EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
+    Ok(transform)
 }
 
 /// Constant-size description of a forward horizontal C8 decoration.
@@ -313,13 +442,14 @@ pub fn empirical_c8_horizontal_decoration(
     })
 }
 
-/// Evaluate endpoints for observed C8 `8006/a381`, `a383` and `a38b` segments.
+/// Evaluate endpoints for observed native `8006/a381`, `a383`, `a385` and `a38b` segments.
 /// Callers must establish the record tag separately. Emit these endpoints with
 /// the existing PDF segment writer's zero width (device-dependent hairline).
 /// The empirical source margin is independent of text/decoration baselines.
 /// Raster width and antialiasing differ across PDF renderers; this is not a
-/// pixel-parity guarantee. Unknown styles are rejected, including `a385` whose
-/// framing alone does not establish the same rendering semantics.
+/// pixel-parity guarantee. For independently controlled `a385`, paired `c000`
+/// bits in the first x word mark its low 14-bit coordinate. Other words retain
+/// their raw values. Unknown styles are rejected.
 ///
 /// Endpoints retain order and signed off-page positions. This allocation-free
 /// evaluator performs no font selection or complete-page admission.
@@ -330,12 +460,16 @@ pub fn empirical_c8_segment(
     style: u16,
 ) -> Result<[[f64; 2]; 2]> {
     let [left, _, _, top] = page.media_box()?;
-    if !matches!(style, 0xa381 | 0xa383 | 0xa38b) {
+    if !matches!(style, 0xa381 | 0xa383 | 0xa385 | 0xa38b) {
         return Err(Error::InvalidInput {
             reason: "unverified C8 segment style",
         });
     }
     let unit = EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
+    let mut points = points;
+    if style == 0xa385 && points[0][0] & 0xc000 == 0xc000 {
+        points[0][0] &= 0x3fff;
+    }
     Ok(points.map(|[x, y]| {
         [
             left + (f64::from(x) - f64::from(source_origin[0]) + 20.0) * unit,

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 import { blobSource, convert, loadModule, spoolToOpfs, syncAccessHandleScratch } from "../browser.mjs";
-import { qmStates, syntheticNativeC8, syntheticHn, syntheticType1Hn, syntheticPrefixedHn } from "./hnc8-fixtures.mjs";
+import { qmStates, syntheticNativeC8, syntheticNativeHnb, syntheticNativeHnbMixed, syntheticNativeHnbAxes, syntheticHn, syntheticType1Hn, syntheticPrefixedHn } from "./hnc8-fixtures.mjs";
 
 const root = await navigator.storage.getDirectory();
 const names = [];
@@ -51,17 +51,39 @@ try {
     fontMaxRead = Math.max(fontMaxRead, length);
     return rangedFont.readAt(offset, Math.min(length, 3), signal);
   } };
+  const symbolBlob = await (await fetch("/fixtures/symbols.ttf")).blob();
+  const symbolSpool = await spoolToOpfs(symbolBlob.stream(), { maxBytes: BigInt(symbolBlob.size) });
+  fontSpools.push(symbolSpool);
+  const symbols = { size: symbolSpool.source.size, async readAt(offset, length, signal) {
+    fontMaxRead = Math.max(fontMaxRead, length);
+    return symbolSpool.source.readAt(offset, Math.min(length, 3), signal);
+  } };
   const nativePdfs = [];
-  for (const mixed of [false, true]) {
+  for (const [input, pages, hasSymbols, hasState3] of [[syntheticNativeC8(), 1], [syntheticNativeC8(true), 1], [syntheticNativeHnb(), 2], [syntheticNativeHnb(0), 2, true], [syntheticNativeHnbMixed(), 1], [syntheticNativeHnb(2, true), 2, false, true], [syntheticNativeHnbAxes(), 2]]) {
     const pdf = [];
-    const native = await convert(module, blobSource(new Blob([syntheticNativeC8(mixed)])), {
+    const native = await convert(module, blobSource(new Blob([input])), {
       async writeChunk(bytes) { pdf.push(...bytes); return bytes.length; }, async flush() {},
     }, { includeBookmarks: false, chunkSize: 32, hnc8: {
-      fonts: { cjk: font, latin: font, alternateLatin: font }, qmStates, scratch,
+      fonts: { cjk: font, latin: font, alternateLatin: font, ...(hasSymbols ? { symbols } : {}), ...(hasState3 ? { latinState3: { ...font } } : {}) }, qmStates, scratch,
     } });
-    if (native.pagesConverted !== 1) throw new Error("native C8 page count mismatch");
+    if (native.pagesConverted !== pages) throw new Error("native C8/HN-B page count mismatch");
     nativePdfs.push(pdf);
   }
+  const lateInput = syntheticNativeHnb();
+  const lateView = new DataView(lateInput.buffer);
+  lateView.setUint16(lateView.getUint32(228, true), 0x8099, true);
+  const lateParts = [];
+  try {
+    await convert(module, blobSource(new Blob([lateInput])), {
+      async writeChunk(bytes) { lateParts.push(...bytes); return bytes.length; }, async flush() {},
+    }, { includeBookmarks: false, chunkSize: 32, hnc8: { fonts: { cjk: font, latin: font, alternateLatin: font }, scratch } });
+    throw new Error("late HN-B record unexpectedly succeeded");
+  } catch (error) {
+    if (error.code !== "HNC8" || !/page 2/.test(error.message)) throw error;
+  }
+  const latePdf = new TextDecoder().decode(new Uint8Array(lateParts));
+  if (!latePdf.includes("<0041> Tj") || latePdf.includes("%%EOF")) throw new Error("late HN-B failure did not preserve unfinished first-page output");
+  if (!scratch.every((store) => store.size === 0n)) throw new Error("late HN-B failure left scratch data");
   const fontFailures = [];
   for (const mode of ["missing-glyph", "read-error", "cancel"]) {
     const input = syntheticNativeC8();

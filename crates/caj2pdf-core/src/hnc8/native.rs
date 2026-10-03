@@ -53,15 +53,21 @@ pub enum NativeRecord {
     /// Its role is deliberately uninterpreted; this is not visible page text
     /// or permission to discard a required resource reference.
     EncodedString { value: u16, payload: super::Span },
-    /// The final record, including its uninterpreted payload.
-    End { value: u16 },
+    /// The final record and its uninterpreted payload, if present.
+    /// Verified HN-B pages may end with only the two-byte `8004` tag.
+    /// HN-B indexed spans may also contain opaque bytes after a full end record;
+    /// those bytes are not native rendering events.
+    End { value: Option<u16> },
 }
 
-/// Decode the admitted C8 native character subset without allocating.
+/// Decode the admitted mode-2 C8/HN-B native character subset without allocating.
+///
+/// This helper does not select a profile from a container. Mode 0 has distinct
+/// character semantics; callers must not infer them from this mode-2 mapping.
 ///
 /// Ordinary codes use their big-endian two-byte GB18030 value. The independently
 /// verified A0-prefixed letters/digits use ASCII plus 0x80 in the low byte.
-/// Three independently observed symbol codes have explicit Unicode mappings.
+/// Independently observed symbol codes have explicit Unicode mappings.
 /// Other A0 codes, private-use mappings and malformed sequences return `None`;
 /// they must remain explicit unsupported glyphs rather than blank substitutions.
 /// This maps characters only: fonts, metrics, drawing/text order and complete
@@ -69,6 +75,12 @@ pub enum NativeRecord {
 pub fn decode_native_character(code: u16) -> Option<char> {
     match code {
         0xa0a6 => return Some('＆'),
+        0xa0ad => return Some('－'),
+        0xa0ae => return Some('．'),
+        0xa0af => return Some('／'),
+        0xa0ba => return Some(':'),
+        0xaab1 => return Some('∙'),
+        0xaab2 => return Some('-'),
         0xaab3 => return Some('∗'),
         0xaca3 => return Some('►'),
         _ => {}
@@ -80,6 +92,52 @@ pub fn decode_native_character(code: u16) -> Option<char> {
     }
     crate::gb18030::decode_two_byte(lead, second)
         .filter(|c| !c.is_control() && !(0xe000..=0xf8ff).contains(&u32::from(*c)))
+}
+
+/// Decode characters whose interpretation is verified for the supplied native mode.
+///
+/// Obtain the raw mode from [`super::Header::native_mode`]. Mode 2 uses the
+/// established mapping above. Mode 0 admits independently controlled Latin
+/// alphabets, digits, punctuation and the ordinary GB2312 Han range.
+/// Unknown modes/codes return `None`. A decoded letter does not select its font
+/// resource or establish placement: mode-0 A9 and A3 letters use distinct fonts.
+pub fn decode_native_character_for_mode(mode: u32, code: u16) -> Option<char> {
+    match (mode, code) {
+        (2, _) => decode_native_character(code),
+        (0, 0xa980..=0xa999) => Some(char::from(b'A' + (code - 0xa980) as u8)),
+        (0, 0xa99a..=0xa9b3) => Some(char::from(b'a' + (code - 0xa99a) as u8)),
+        (0, 0xa3c1..=0xa3da) => Some(char::from(b'A' + (code - 0xa3c1) as u8)),
+        (0, 0xa3e1..=0xa3fa) => Some(char::from(b'a' + (code - 0xa3e1) as u8)),
+        (0, 0xa3b0..=0xa3b9) => Some(char::from(b'0' + (code - 0xa3b0) as u8)),
+        (0, 0xa1a1) => Some(' '),
+        (0, 0x9ff5) => Some('／'),
+        (0, 0xa3a7) => Some('’'),
+        (0, 0xaab1) => Some('.'),
+        (0, 0xaab2) => Some('-'),
+        (
+            0,
+            0xa1a2
+            | 0xa1a3
+            | 0xa1aa
+            | 0xa1ae
+            | 0xa1af
+            | 0xa1b0
+            | 0xa1b1
+            | 0xa3a8
+            | 0xa3a9
+            | 0xa3ab..=0xa3af
+            | 0xa3ba
+            | 0xa3bb
+            | 0xa3bf
+            | 0xa3db
+            | 0xa3dd,
+        ) => crate::gb18030::decode_two_byte((code >> 8) as u8, code as u8),
+        (0, 0xb0a1..=0xf7fe) if (0xa1..=0xfe).contains(&(code & 0xff)) => {
+            crate::gb18030::decode_two_byte((code >> 8) as u8, code as u8)
+                .filter(|character| ('\u{4e00}'..='\u{9fff}').contains(character))
+        }
+        _ => None,
+    }
 }
 
 /// Decode only the established image-coordinate fields of the raw C8 profile.
@@ -190,6 +248,7 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
             let mut count = 0;
             let mut images = 0;
             let (mut y, mut style) = (None, None);
+            let mut explicit_axes = [None; 2];
             while position < end {
                 let at = loc.at(position);
                 if count == budget.max_records {
@@ -200,9 +259,18 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
                     ));
                 }
                 let mut bytes = [0_u8; 28];
-                self.native_bytes(position, end, &mut bytes[..4], at)
+                let bare_end = self.header.variant == Variant::HnB && end - position == 2;
+                let mut length = if bare_end { 2 } else { 4 };
+                self.native_bytes(position, end, &mut bytes[..length], at)
                     .await?;
                 let tag = word(&bytes[..2]);
+                if bare_end && tag != 0x8004 {
+                    return Err(at.error(ErrorKind::Truncated {
+                        field: "native record",
+                        expected: 4,
+                        available: 2,
+                    }));
+                }
                 let value = word(&bytes[2..4]);
                 if self.header.variant == Variant::HnB
                     && tag >= 0x8000
@@ -211,14 +279,20 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
                         (0x8001 | 0x8002 | 0x8004, _)
                             | (0x801d, 0 | 3 | 4)
                             | (0x801c, 4)
-                            | (0x8067, 6 | 7 | 9)
+                            | (0x8067, 5 | 6 | 7 | 9)
                             | (0x8069, 0x1084)
                             | (0x80ce, 0 | 1)
-                            | (0x8070 | 0x8071, 0x0024 | 0x002b)
-                            | (0x8070, 0x001c)
-                            | (0x8072, 0 | 0xc2c7 | 0xcdc1)
-                            | (0x8073, 0x001e | 0x001f | 0x0029 | 0x002a)
-                            | (0x8024, 0x2800 | 0x281d)
+                            | (0x8070 | 0x8071, 0x001c | 0x0024 | 0x002b)
+                            | (
+                                0x8072,
+                                0 | 0x1084 | 0xc2c7 | 0xcdc1 | 0xa0f3 | 0xa0e7 | 0xc2db | 0xd2f2
+                            )
+                            | (0x8074, _)
+                            | (
+                                0x8073,
+                                0x001e | 0x001f | 0x0020 | 0x0029 | 0x002a | 0x002b | 79..=83
+                            )
+                            | (0x8024, 0x2800 | 0x2815 | 0x281d)
                             | (0xc053, _)
                             | (0xffff, 5)
                             | (0x8006, 0xa381 | 0xa383 | 0xa385)
@@ -231,7 +305,6 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
                         value: (u64::from(tag) << 16) | u64::from(value),
                     }));
                 }
-                let mut length = 4;
                 let record = match tag {
                     0x8001 => {
                         y = Some(value);
@@ -239,6 +312,7 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
                     }
                     0x8002 => {
                         style = Some(value);
+                        explicit_axes = [None; 2];
                         NativeRecord::Control { tag, value }
                     }
                     0x801d if matches!(value, 0 | 3 | 4) => NativeRecord::Control { tag, value },
@@ -248,9 +322,13 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
                     {
                         NativeRecord::Control { tag, value }
                     }
+                    0x8070 | 0x8071 if value == 36 => NativeRecord::Control { tag, value },
                     0x801c | 0x8070 | 0x8071 if value == 4 => NativeRecord::Control { tag, value },
                     0x80ce if value <= 1 => NativeRecord::Control { tag, value },
-                    0x8024 if matches!(value, 0x2800 | 0x281d) => {
+                    0x8024
+                        if matches!(value, 0x2800 | 0x281d)
+                            || (self.header.variant == Variant::HnB && value == 0x2815) =>
+                    {
                         NativeRecord::Control { tag, value }
                     }
                     // Values were checked by the HN-B profile guard above.
@@ -404,7 +482,7 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
                         }
                     }
                     0x8004 => {
-                        if position + 4 != end {
+                        if self.header.variant != Variant::HnB && position + length as u64 != end {
                             return Err(at.malformed(
                                 "native page end",
                                 "trailing bytes in indexed text span",
@@ -416,9 +494,18 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
                                 "differ from declared image count",
                             ));
                         }
-                        NativeRecord::End { value }
+                        NativeRecord::End {
+                            value: (!bare_end).then_some(value),
+                        }
                     }
                     x if x < 0x8000 => {
+                        // Paired verified HN-B axes fully specify the glyph
+                        // matrix even when no style record precedes this run.
+                        let style = style.or_else(|| {
+                            (self.header.variant == Variant::HnB
+                                && matches!(explicit_axes, [Some(28 | 43), Some(28 | 43)]))
+                            .then_some(0)
+                        });
                         if self.header.variant == Variant::HnB && style.is_none() {
                             return Err(at.error(ErrorKind::Unsupported {
                                 field: "HN-B implicit native glyph style",
@@ -444,6 +531,9 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
                         }));
                     }
                 };
+                if matches!(tag, 0x8070 | 0x8071) {
+                    explicit_axes[usize::from(tag - 0x8070)] = Some(value);
+                }
                 visitor.visit(position, record).await.map_err(|source| {
                     at.error(ErrorKind::Source {
                         field: "native record visitor",

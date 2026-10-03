@@ -40,7 +40,8 @@ pub use convert_jpeg::{
 };
 pub use jpeg::{JpegBudget, JpegColor, JpegInfo, read_type2_jpeg_info};
 pub use native::{
-    NativeRecord, NativeRecordVisitor, decode_native_character, decode_native_image_coordinate,
+    NativeRecord, NativeRecordVisitor, decode_native_character, decode_native_character_for_mode,
+    decode_native_image_coordinate,
 };
 pub use native_page::{C8PageFonts, write_c8_native_page};
 pub use placement::{
@@ -96,11 +97,15 @@ impl Span {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Header {
     pub variant: Variant,
-    /// Raw C8 origin words at offsets 28/30; unknown for HN variants.
+    /// Raw native mode at C8 offset 12 or HN-B offset 148; unknown for HN-A.
+    /// Independently controlled modes 0 and 2 interpret some character codes
+    /// differently. Preserving this word does not admit its rendering profile.
+    pub native_mode: Option<u32>,
+    /// Raw C8 origin at 28/30 or HN-B origin at 164/166; unknown for HN-A.
     /// The verified native-record profile subtracts these from record coordinates.
     /// This does not establish image placement or font baseline semantics.
     pub native_origin: Option<[u16; 2]>,
-    /// Declared HN-A/C8 page extents in source units. HN-B is unverified.
+    /// Declared page extents in source units; native HN-B uses these too.
     pub page_size: Option<[u16; 2]>,
     pub page_count: u32,
     pub page_index: Span,
@@ -548,15 +553,33 @@ impl<'a, S: RangedSource, C: Cancellation> Hnc8Reader<'a, S, C> {
                 u64::from(page_count),
             ));
         }
-        let native_origin = if variant == Variant::C8 {
+        let native_mode = if variant != Variant::HnA {
+            let offset = count_offset + 4;
+            let mut mode = [0; 4];
+            read_fixed(
+                source,
+                limits,
+                cancellation,
+                offset,
+                &mut mode,
+                loc.at(offset),
+                "native mode",
+            )
+            .await?;
+            Some(u32::from_le_bytes(mode))
+        } else {
+            None
+        };
+        let native_origin = if variant != Variant::HnA {
+            let offset = count_offset + 20;
             let mut origin = [0; 4];
             read_fixed(
                 source,
                 limits,
                 cancellation,
-                28,
+                offset,
                 &mut origin,
-                loc.at(28),
+                loc.at(offset),
                 "native coordinate origin",
             )
             .await?;
@@ -567,9 +590,7 @@ impl<'a, S: RangedSource, C: Cancellation> Hnc8Reader<'a, S, C> {
         } else {
             None
         };
-        let page_size = if variant == Variant::HnB {
-            None
-        } else {
+        let page_size = {
             let offset = count_offset + 24;
             let mut size = [0; 4];
             read_fixed(
@@ -658,6 +679,7 @@ impl<'a, S: RangedSource, C: Cancellation> Hnc8Reader<'a, S, C> {
             budget,
             header: Header {
                 variant,
+                native_mode,
                 native_origin,
                 page_size,
                 page_count,

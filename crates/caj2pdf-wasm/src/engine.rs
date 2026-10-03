@@ -57,7 +57,7 @@ pub enum Status {
 pub enum Request {
     /// Copy up to `length` source bytes at `offset` into the staging buffer.
     Read {
-        /// 0 is the document; 1..=4 are explicitly registered font resources.
+        /// 0 is the document; 1..=6 are explicitly registered font resources.
         resource: u32,
         offset: u64,
         length: usize,
@@ -467,7 +467,7 @@ impl Engine {
     }
 
     /// Select zero-based font source indices before polling. A missing
-    /// decoration uses `u32::MAX`; otherwise its alias is a Unicode scalar.
+    /// decoration/symbol role uses `u32::MAX`; decoration aliases are Unicode scalars.
     pub fn set_c8_fonts(
         &mut self,
         cjk: u32,
@@ -475,13 +475,19 @@ impl Engine {
         alternate: u32,
         decoration: u32,
         alias: u32,
+        symbols: u32,
     ) -> bool {
         !self.started
             && self
                 .shared
                 .borrow_mut()
                 .fonts
-                .set(cjk, latin, alternate, decoration, alias)
+                .set(cjk, latin, alternate, decoration, alias, symbols)
+    }
+
+    /// Assign the optional state-3 Latin role after the base roles, before polling.
+    pub fn set_c8_latin_state3(&mut self, index: u32) -> bool {
+        !self.started && self.shared.borrow_mut().fonts.set_latin_state3(index)
     }
 
     fn complete(&self, accept: impl FnOnce(Request) -> Option<Response>) -> bool {
@@ -552,9 +558,11 @@ async fn run(
             resolve_format(&mut source, format, &limits, &cancellation).await?
         }
     };
-    if source.shared.borrow().fonts.count() != 0 && format != InputFormat::C8 {
+    if source.shared.borrow().fonts.count() != 0
+        && !matches!(format, InputFormat::C8 | InputFormat::Hn)
+    {
         return Err(Error::InvalidInput {
-            reason: "explicit C8 font resources require a C8 document",
+            reason: "explicit native font resources require a C8 or HN-B document",
         });
     }
     source.shared.borrow_mut().format = Some(format);

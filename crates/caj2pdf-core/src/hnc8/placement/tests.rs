@@ -454,7 +454,9 @@ fn c8_glyph_origins_are_signed_and_unknown_styles_are_errors() {
         .unwrap();
     close(b[4] - a[4], -20.0 * EMPIRICAL_COORDINATE_POINTS_PER_UNIT);
     close(b[5] - a[5], 20.0 * EMPIRICAL_COORDINATE_POINTS_PER_UNIT);
-    for style in [0x0484, 0x1484, 0x9084, 0x1004, 0x1080, 0x1024, 0x1089] {
+    for style in [
+        0x0485, 0x9c85, 0x1484, 0x9084, 0x1004, 0x1080, 0x1024, 0x1089,
+    ] {
         assert!(
             empirical_c8_glyph_transform(page(), origin, origin, style, C8GlyphClass::Cjk).is_err()
         );
@@ -553,7 +555,7 @@ fn c8_segments_reproduce_independent_axes_and_preserve_endpoint_order() {
         empirical_c8_segment(page, [100, 100], [[0, 0], [u16::MAX, u16::MAX]], 0xa381).unwrap();
     assert!(off_page[0][0] < 0.0);
     assert!(off_page[1][1] < 0.0);
-    for style in [0xa385, 0xa382, 1] {
+    for style in [0xa384, 0xa382, 1] {
         assert!(empirical_c8_segment(page, [0, 0], [[0, 0], [1, 1]], style).is_err());
     }
     let mut invalid = page;
@@ -591,4 +593,155 @@ fn observed_glyph_style_prefixes_share_geometry_without_admitting_other_records(
     assert!(
         empirical_c8_horizontal_decoration(page(), [0, 0], [[0, 0], [100, 0]], 0x0884).is_err()
     );
+}
+
+#[test]
+fn independently_controlled_variants_preserve_both_glyph_classes() {
+    for (reference, styles) in [(0x10e7, [0x04e7, 0x14e7]), (0x1084, [0x0484, 0x9c84])] {
+        for class in [C8GlyphClass::Cjk, C8GlyphClass::Latin] {
+            let expected =
+                empirical_c8_glyph_transform(page(), [4652, 4274], [5200, 4700], reference, class)
+                    .unwrap();
+            for style in styles {
+                let actual =
+                    empirical_c8_glyph_transform(page(), [4652, 4274], [5200, 4700], style, class)
+                        .unwrap();
+                for (actual, expected) in actual.into_iter().zip(expected) {
+                    close(actual, expected);
+                }
+                assert!(
+                    empirical_c8_horizontal_decoration(page(), [0, 0], [[0, 0], [100, 0]], style,)
+                        .is_err()
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn large_cjk_control_uses_verified_em_and_existing_signed_origin() {
+    for (style, expected_em) in [(0xe58c, 27.159468438538206), (0x154a, 20.930232558139537)] {
+        let actual = empirical_c8_glyph_transform(
+            page(),
+            [4652, 4274],
+            [4672, 4294],
+            style,
+            C8GlyphClass::Cjk,
+        )
+        .unwrap();
+        close(actual[0], expected_em);
+        close(actual[3], expected_em);
+        close(
+            actual[4],
+            page().origin_points[0] + 40.0 * EMPIRICAL_COORDINATE_POINTS_PER_UNIT,
+        );
+        let shifted = empirical_c8_glyph_transform(
+            page(),
+            [4672, 4294],
+            [4692, 4314],
+            style,
+            C8GlyphClass::Cjk,
+        )
+        .unwrap();
+        assert_eq!(actual, shifted);
+        assert!(
+            empirical_c8_glyph_transform(page(), [0, 0], [0, 0], style, C8GlyphClass::Latin,)
+                .is_err()
+        );
+    }
+    for style in [0x118c, 0xe58b, 0xe56c] {
+        assert!(
+            empirical_c8_glyph_transform(page(), [0, 0], [0, 0], style, C8GlyphClass::Cjk,)
+                .is_err()
+        );
+    }
+}
+
+#[test]
+fn a385_line_marker_preserves_independently_checked_endpoints() {
+    for points in [[[4757, 4800], [6300, 4800]], [[4690, 4350], [4900, 4500]]] {
+        let expected = empirical_c8_segment(page(), [4652, 4274], points, 0xa381).unwrap();
+        let mut marked = points;
+        marked[0][0] |= 0xc000;
+        // x87 targets may retain different intermediate precision. Use the
+        // existing point tolerance, as for the other geometry controls.
+        for input in [points, marked] {
+            let actual = empirical_c8_segment(page(), [4652, 4274], input, 0xa385).unwrap();
+            for (actual, expected) in actual
+                .into_iter()
+                .flatten()
+                .zip(expected.into_iter().flatten())
+            {
+                close(actual, expected);
+            }
+        }
+        assert_ne!(
+            empirical_c8_segment(page(), [4652, 4274], marked, 0xa381).unwrap(),
+            expected
+        );
+    }
+}
+
+#[test]
+fn mode_zero_geometry_uses_its_measured_origins_and_size_zero() {
+    let page = source_page_geometry([700, 500]).unwrap();
+    let unit = EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
+    for (style, class, size, baseline) in [
+        (0x1084, C8GlyphClass::Cjk, 35.0, 0.0),
+        (0x1084, C8GlyphClass::Latin, 35.0, 10.0),
+        (0, C8GlyphClass::Cjk, 21.0, 0.0),
+        (0x1000, C8GlyphClass::Latin, 21.0, 10.0),
+        (0x154a, C8GlyphClass::Cjk, 84.0, 0.0),
+    ] {
+        let m =
+            mode_zero_glyph_transform(page, [30, 41], [100, 140], style, class, [None; 2]).unwrap();
+        close(m[0], size * 75.0 / 301.0);
+        close(m[3], size * 75.0 / 301.0);
+        close(m[4], 90.0 * unit);
+        close(m[5], (401.0 - baseline) * unit - size * 75.0 / 301.0);
+    }
+    let bad_page = EmpiricalPageGeometry {
+        origin_points: [f64::NAN, 0.0],
+        ..page
+    };
+    assert!(
+        mode_zero_glyph_transform(bad_page, [0; 2], [100; 2], 0, C8GlyphClass::Cjk, [None; 2])
+            .is_err()
+    );
+    assert!(
+        mode_zero_glyph_transform(
+            page,
+            [0; 2],
+            [100; 2],
+            0x154a,
+            C8GlyphClass::Latin,
+            [None; 2]
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn mode_zero_digits_have_measured_height_specific_offsets() {
+    let page = source_page_geometry([300, 300]).unwrap();
+    let unit = EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
+    for (style, axes, em, raw_x, raw_y) in [
+        (0x1000, [None; 2], 21.0, 19.0, 64.0),
+        (0x1084, [None; 2], 35.0, 18.0, 67.0),
+        (0x10a5, [None; 2], 42.0, 18.0, 69.0),
+        (0, [Some(36); 2], 36.0, 18.0, 67.0),
+    ] {
+        let m = mode_zero_digit_transform(page, [0, 1], [20, 50], style, axes).unwrap();
+        close(m[0], em * 75.0 / 301.0);
+        close(m[3], em * 75.0 / 301.0);
+        close(m[4], raw_x * unit);
+        close(m[5], (300.0 - raw_y) * unit - em * 75.0 / 301.0);
+    }
+    for (style, axes) in [
+        (0x154a, [None; 2]),
+        (0x1084, [Some(36), None]),
+        (0xe58c, [Some(36); 2]),
+    ] {
+        assert!(mode_zero_digit_transform(page, [0; 2], [20, 50], style, axes).is_err());
+    }
 }

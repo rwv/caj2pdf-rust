@@ -45,17 +45,19 @@ same-document handle validation.
 ## Command-line usage
 
 The `caj2pdf` CLI converts CAJ, KDH and PDF inputs, and supports
-experimental HN/C8 image-page conversion and the admitted native C8 profile
+experimental HN/C8 image-page conversion and the admitted native C8/HN-B profiles
 with explicit caller fonts. HN/C8 arithmetic images use
 built-in standard QM/MQ states; optional state files override those defaults. The same core converter is available through
 [Node and browser WASM](js/README.md), using caller-owned bounded scratch stores.
-See the [support matrix and release status](docs/conformance.md#v01-support-and-release-status)
+See the [support matrix and release status](docs/conformance.md#current-support-and-release-status)
 for verified profiles and remaining HN/C8 rendering differences.
 TEB is recognized and unsupported. Build with `cargo build --release -p caj2pdf-cli`.
 
 For C8/HN-B, explicitly disable bookmark import until those outline semantics
-are verified. Unsupported profiles, including image-less HN-B source rows,
-fail rather than silently losing pages. See the [CLI reference](docs/cli.md)
+are verified. Native text pages require explicit fonts; unsupported records
+fail rather than silently losing pages. HN-B mode-2 leading images and the
+controlled mode-0 text profile are described in the
+[HN-B findings](docs/hnb-compact-index.md). See the [CLI reference](docs/cli.md)
 for runtime state-file syntax and limitations. The existing
 [page composer](docs/hnc8-page-composition.md),
 [repeated-group rules](docs/hnc8-repeated-groups.md), and

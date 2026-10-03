@@ -217,7 +217,10 @@ fn streams_raw_glyph_context_and_atomic_drawing_image_records() {
                 words: [0xd300, 0x8004, 0x8006, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
             }
         );
-        assert_eq!(visitor.events[15], (208, NativeRecord::End { value: 39 }));
+        assert_eq!(
+            visitor.events[15],
+            (208, NativeRecord::End { value: Some(39) })
+        );
     }
 }
 
@@ -519,6 +522,12 @@ fn maps_verified_alphanumeric_and_gbk_codes_without_inventing_unknowns() {
         (0xa3ac, '\u{ff0c}'),
         (0xa3b0, '\u{ff10}'),
         (0xa0a6, '\u{ff06}'),
+        (0xa0ad, '\u{ff0d}'),
+        (0xa0ae, '\u{ff0e}'),
+        (0xa0af, '\u{ff0f}'),
+        (0xa0ba, ':'),
+        (0xaab1, '\u{2219}'),
+        (0xaab2, '-'),
         (0xaab3, '\u{2217}'),
         (0xaca3, '\u{25ba}'),
     ] {
@@ -537,7 +546,7 @@ fn maps_verified_alphanumeric_and_gbk_codes_without_inventing_unknowns() {
         0xa0a7,
         0xa0a0,
         0xa0ff,
-        0xaab2,
+        0xaab5,
         0xaab4,
         0xaca2,
         0xaca4,
@@ -647,7 +656,10 @@ fn preserves_additional_controls_and_atomic_8010_payload() {
                 }
             )
         );
-        assert_eq!(visitor.events[10], (148, NativeRecord::End { value: 1 }));
+        assert_eq!(
+            visitor.events[10],
+            (148, NativeRecord::End { value: Some(1) })
+        );
     }
     let error = parse(
         &mut fixture(&[[0x8010, 1], [7, 9], [21, 13], [0xffff, 6]], 0),
@@ -756,7 +768,10 @@ fn a385_drawing_preserves_coordinates_and_following_glyph_context() {
                 }
             )
         );
-        assert_eq!(visitor.events[5], (128, NativeRecord::End { value: 1 }));
+        assert_eq!(
+            visitor.events[5],
+            (128, NativeRecord::End { value: Some(1) })
+        );
         assert!(source.max_request <= 28);
     }
 }
@@ -1292,7 +1307,10 @@ fn reference_and_legacy_images_share_the_declared_page_count() {
         visitor.events[1],
         (124, NativeRecord::Image { .. })
     ));
-    assert_eq!(visitor.events[2], (152, NativeRecord::End { value: 1 }));
+    assert_eq!(
+        visitor.events[2],
+        (152, NativeRecord::End { value: Some(1) })
+    );
 }
 
 fn hnb_source(width: usize, pages: &[&[[u16; 2]]]) -> Source {
@@ -1384,7 +1402,7 @@ fn hnb_glyph_runs_use_both_verified_indexes_without_crossing_pages() {
                         Some(&(
                             start + (words.len() as u64 - 1) * 4,
                             NativeRecord::End {
-                                value: page as u16 + 1
+                                value: Some(page as u16 + 1)
                             }
                         ))
                     );
@@ -1403,7 +1421,8 @@ fn hnb_does_not_inherit_unverified_c8_records_or_font_controls() {
         [0x80cc, 0x0102],
         [0x800a, 0xd301],
         [0x801d, 1],
-        [0x8067, 5],
+        [0x8067, 10],
+        [0x8075, 0xb7bd],
         [0xc052, 0xa384],
     ] {
         let mut source = hnb_source(
@@ -1430,7 +1449,7 @@ fn hnb_does_not_inherit_unverified_c8_records_or_font_controls() {
 fn hnb_truncated_record_keeps_the_next_page_unread_and_poisons_cursor() {
     for width in [12, 20] {
         for length in 1..4_u32 {
-            let mut source = hnb_source(width, &[&[[0x8004, 1]], &[[0x8004, 2]]]);
+            let mut source = hnb_source(width, &[&[[0x8001, 4700]], &[[0x8004, 2]]]);
             source.bytes[220..224].copy_from_slice(&length.to_le_bytes());
             run(async {
                 let limits = Limits::default();
@@ -1520,6 +1539,11 @@ fn hnb_prefix_is_one_atomic_eight_byte_record() {
 #[test]
 fn hnb_run_controls_and_drawing_preserve_following_glyph_context() {
     let controls = [
+        [0x8074, 0xb7bd],
+        [0x8074, 0xcfc8],
+        [0x8074, 0x8004],
+        [0x8074, 0xffff],
+        [0x8067, 5],
         [0x801d, 3],
         [0x801d, 4],
         [0x8070, 0x001c],
@@ -1535,8 +1559,11 @@ fn hnb_run_controls_and_drawing_preserve_following_glyph_context() {
         [0x8071, 0x002b],
         [0x8073, 0x001e],
         [0x8073, 0x001f],
+        [0x8073, 0x0020],
         [0x8073, 0x0029],
         [0x8073, 0x002a],
+        [0x8073, 0x002b],
+        [0x8072, 0x1084],
         [0x8072, 0xc2c7],
         [0x8072, 0xcdc1],
         [0x8072, 0],
@@ -1638,7 +1665,7 @@ fn hnb_run_controls_and_drawing_preserve_following_glyph_context() {
                 parse(&mut source, TextBudget::default(), &mut visitor).unwrap(),
                 2
             );
-            assert_eq!(visitor.events[1].1, NativeRecord::End { value: 1 });
+            assert_eq!(visitor.events[1].1, NativeRecord::End { value: Some(1) });
         }
         for length in 1..12_u32 {
             let mut source = hnb_source(
@@ -1697,12 +1724,11 @@ fn hnb_run_controls_and_drawing_preserve_following_glyph_context() {
     }
     // These values remain HN-B-only. Independently admitted C8 numeric
     // controls and a385 drawings have their own positive tests above.
+    // Explicit axis 36 is now shared; native-page tests cover both orders.
     for control in [
         [0x8067, 7],
         [0x8069, 0x1084],
-        [0x8070, 0x0024],
         [0x8070, 0x002b],
-        [0x8071, 0x0024],
         [0x8071, 0x002b],
     ] {
         let mut source = fixture(&[control, [0x8004, 1]], 0);
@@ -1716,18 +1742,25 @@ fn hnb_run_controls_and_drawing_preserve_following_glyph_context() {
 }
 
 #[test]
-fn hnb_implicit_style_is_unsupported_rather_than_proven_malformed() {
+fn hnb_implicit_style_requires_verified_paired_axes() {
     for width in [12, 20] {
-        for controls in [
-            vec![],
-            vec![[0x8070, 0x002b]],
-            vec![[0x8071, 0x002b]],
-            vec![[0x8070, 0x002b], [0x8071, 0x002b]],
+        for (controls, admitted) in [
+            (vec![], false),
+            (vec![[0x8070, 0x002b]], false),
+            (vec![[0x8071, 0x002b]], false),
+            (vec![[0x8070, 0x002b], [0x8071, 0x002b]], true),
         ] {
             let mut words = vec![[0x8001, 4700]];
             words.extend(controls);
             words.extend([[5200, 0xd6d0], [0x8004, 1]]);
             let mut source = hnb_source(width, &[&words]);
+            if admitted {
+                assert_eq!(
+                    parse(&mut source, TextBudget::default(), &mut Visitor::default()).unwrap(),
+                    5
+                );
+                continue;
+            }
             let error =
                 parse(&mut source, TextBudget::default(), &mut Visitor::default()).unwrap_err();
             assert!(matches!(
@@ -1834,4 +1867,199 @@ fn hnb_truncated_image_does_not_consume_the_following_page() {
             ));
         });
     }
+}
+
+#[test]
+fn hnb_bare_end_tags_stay_inside_each_indexed_page() {
+    for width in [12, 20] {
+        for short in [1, 3, 28] {
+            let mut source = hnb_source(width, &[&[[0x8004, 1]], &[[0x8004, 2]]]);
+            let start = 216 + width * 2;
+            source.bytes.drain(start + 2..start + 4);
+            source.bytes.truncate(start + 4);
+            source.bytes[220..224].copy_from_slice(&2u32.to_le_bytes());
+            source.bytes[216 + width..220 + width]
+                .copy_from_slice(&((start + 2) as u32).to_le_bytes());
+            source.bytes[220 + width..224 + width].copy_from_slice(&2u32.to_le_bytes());
+            source.short = short;
+            run(async {
+                let limits = Limits::default();
+                let cancel = Cancel::default();
+                let mut reader =
+                    Hnc8Reader::open(&mut source, &limits, &cancel, Default::default())
+                        .await
+                        .unwrap();
+                for page in 0..2 {
+                    reader.next_page().await.unwrap().unwrap();
+                    let mut visitor = Visitor::default();
+                    assert_eq!(
+                        reader
+                            .visit_native_records(TextBudget::default(), &mut visitor)
+                            .await
+                            .unwrap(),
+                        1
+                    );
+                    assert_eq!(
+                        visitor.events,
+                        [(start as u64 + page * 2, NativeRecord::End { value: None })]
+                    );
+                }
+                assert!(reader.next_page().await.unwrap().is_none());
+            });
+        }
+    }
+    let mut source = hnb_source(12, &[&[[0x8074, 0xb7bd]]]);
+    source.bytes.truncate(230);
+    source.bytes[220..224].copy_from_slice(&2u32.to_le_bytes());
+    let error = parse(&mut source, TextBudget::default(), &mut Visitor::default()).unwrap_err();
+    assert!(matches!(
+        error.kind,
+        ErrorKind::Truncated {
+            field: "native record",
+            expected: 4,
+            available: 2,
+        }
+    ));
+    let mut c8 = fixture(&[[0x8004, 1]], 0);
+    c8.bytes.truncate(102);
+    c8.bytes[84..88].copy_from_slice(&2u32.to_le_bytes());
+    assert!(parse(&mut c8, TextBudget::default(), &mut Visitor::default()).is_err());
+}
+
+#[test]
+fn hnb_end_stops_before_opaque_tail_and_next_page_uses_its_index() {
+    for width in [12, 20] {
+        let first = [
+            [0x8001, 4700],
+            [0x8002, 0x1084],
+            [5200, 0xd6d0],
+            [0x8004, 44],
+            [5300, 0xcec4],
+            [0x8099, 0xffff],
+        ];
+        let second = [
+            [0x8001, 4800],
+            [0x8002, 0x1084],
+            [5300, 0xcec4],
+            [0x8004, 45],
+        ];
+        let mut source = hnb_source(width, &[&first, &second]);
+        let second_at = 216 + width * 2 + first.len() * 4;
+        source
+            .bytes
+            .splice(second_at..second_at, [0xff, 0x01, 0x80]);
+        source.bytes[220..224].copy_from_slice(&(first.len() as u32 * 4 + 3).to_le_bytes());
+        source.bytes[216 + width..220 + width]
+            .copy_from_slice(&((second_at + 3) as u32).to_le_bytes());
+        source.short = 1;
+        run(async {
+            let limits = Limits::default();
+            let cancel = Cancel::default();
+            let mut reader = Hnc8Reader::open(&mut source, &limits, &cancel, Default::default())
+                .await
+                .unwrap();
+            for (code, value) in [(0xd6d0, 44), (0xcec4, 45)] {
+                reader.next_page().await.unwrap().unwrap();
+                let mut visitor = Visitor::default();
+                let budget = TextBudget {
+                    max_records: 4,
+                    ..Default::default()
+                };
+                assert_eq!(
+                    reader
+                        .visit_native_records(budget, &mut visitor)
+                        .await
+                        .unwrap(),
+                    4
+                );
+                assert!(
+                    matches!(visitor.events[2].1, NativeRecord::Glyph { code: actual, .. } if actual == code)
+                );
+                assert_eq!(
+                    visitor.events[3].1,
+                    NativeRecord::End { value: Some(value) }
+                );
+            }
+            assert!(reader.next_page().await.unwrap().is_none());
+        });
+    }
+    // C8 retains its independently established strict terminal position.
+    let mut c8 = fixture(&[[0x8004, 1], [0x8099, 0xffff]], 0);
+    let error = parse(&mut c8, TextBudget::default(), &mut Visitor::default()).unwrap_err();
+    assert_eq!(error.kind.field(), "native page end");
+}
+
+#[test]
+fn native_mode_keeps_independently_copied_alphabets_separate() {
+    for (first, ascii) in [
+        (0xa980, b'A'),
+        (0xa99a, b'a'),
+        (0xa3c1, b'A'),
+        (0xa3e1, b'a'),
+    ] {
+        for index in 0..26_u8 {
+            assert_eq!(
+                decode_native_character_for_mode(0, first + u16::from(index)),
+                Some(char::from(ascii + index))
+            );
+        }
+    }
+    for (code, character) in [(0xa0c1, 'A'), (0xa3c1, 'Ａ'), (0xd6d0, '中')] {
+        assert_eq!(decode_native_character_for_mode(2, code), Some(character));
+    }
+    // Do not import mode-2 aliases, adjacent symbols or unverified classes.
+    for code in [
+        0xa0c1, 0xa97f, 0xa9b4, 0xa3c0, 0xa3dc, 0xa3e0, 0xa3fb, 0x8140, 0xffff,
+    ] {
+        assert_eq!(decode_native_character_for_mode(0, code), None);
+    }
+    for mode in [1, 3, u32::MAX] {
+        assert_eq!(decode_native_character_for_mode(mode, 0xa980), None);
+    }
+    assert_eq!(decode_native_character_for_mode(2, 0xffff), None);
+}
+
+#[test]
+fn mode0_required_symbols_and_han_match_original_copy_controls() {
+    let groups: &[(&[u16], &str)] = &[
+        (
+            &[
+                0xb0a1, 0xb5d8, 0xccec, 0xd6d0, 0xcec4, 0xf7fe, 0xa1a1, 0xa1a2, 0xa1a3, 0xa1aa,
+                0xa1ae, 0xa1af, 0xa1b0,
+            ],
+            "啊地天中文齄 、。—‘’“",
+        ),
+        (
+            &[
+                0xa1b1, 0xa3a7, 0xa3a8, 0xa3a9, 0xa3ab, 0xa3ac, 0xa3ad, 0xa3ae, 0xa3af, 0xa3b0,
+                0xa3b1, 0xa3b2, 0xa3b3,
+            ],
+            "”’（）＋，－．／0123",
+        ),
+        (
+            &[
+                0xa3b4, 0xa3b5, 0xa3b6, 0xa3b7, 0xa3b8, 0xa3b9, 0xa3ba, 0xa3bb, 0xa3bf, 0xa3db,
+                0xa3dd, 0xaab1, 0xaab2,
+            ],
+            "456789：；？［］.-",
+        ),
+    ];
+    for &(codes, expected) in groups {
+        let actual: Option<String> = codes
+            .iter()
+            .map(|&code| decode_native_character_for_mode(0, code))
+            .collect();
+        assert_eq!(actual.as_deref(), Some(expected));
+    }
+    // Classic Han rows exclude their holes, extensions and unassigned cells.
+    for code in [
+        0xb0a0, 0xb0ff, 0xb100, 0xd7fa, 0xf7ff, 0xf8a1, 0xa0c1, 0xaab3,
+    ] {
+        assert_eq!(decode_native_character_for_mode(0, code), None);
+    }
+    assert_eq!(decode_native_character_for_mode(0, 0x9ff5), Some('／'));
+    assert_eq!(decode_native_character_for_mode(2, 0x9ff5), Some('燉'));
+    assert_eq!(decode_native_character_for_mode(2, 0xaab1), Some('∙'));
+    assert_eq!(decode_native_character_for_mode(2, 0xa3a7), Some('＇'));
+    assert_eq!(decode_native_character_for_mode(2, 0xa3b0), Some('０'));
 }

@@ -1176,6 +1176,7 @@ fn late_malformed_paired_raw_hn_page_never_publishes_a_partial_pdf() {
 fn native_c8_pages(late_missing_glyph: bool) -> Vec<u8> {
     let mut bytes = vec![0; 120];
     bytes[0] = 0xc8;
+    put_u32(&mut bytes, 12, 2);
     put_u32(&mut bytes, 8, 2);
     bytes[32..34].copy_from_slice(&100u16.to_le_bytes());
     bytes[34..36].copy_from_slice(&200u16.to_le_bytes());
@@ -1308,7 +1309,7 @@ fn native_c8_font_failures_preserve_inputs_and_atomic_output() {
     scratch.write("input.c8", &fixture("valid_nested_outline.pdf"));
     let mut args = vec!["input.c8", "--force", "-o", "out.pdf"];
     args.extend(flags);
-    assert_failure(&scratch.run(args), 1, "require a C8 document");
+    assert_failure(&scratch.run(args), 1, "require a C8 or HN-B document");
     assert_eq!(
         fs::read(scratch.path("out.pdf")).unwrap(),
         b"existing destination"

@@ -921,6 +921,7 @@ fn hna_inspection_rejects_invalid_records_and_resource_limits() {
 fn native_c8() -> Vec<u8> {
     let mut bytes = vec![0u8; 100];
     bytes[0] = 0xc8;
+    put_u32(&mut bytes, 12, 2);
     put_u32(&mut bytes, 8, 1);
     bytes[32..34].copy_from_slice(&100u16.to_le_bytes());
     bytes[34..36].copy_from_slice(&200u16.to_le_bytes());
@@ -952,7 +953,7 @@ fn native_c8_font_resources_share_the_bounded_request_channel() {
     let font = include_bytes!("../../../../tests/fonts/geometric.ttf");
     let mut engine = Engine::start(bytes.len() as u64, limits(32), native_operation()).unwrap();
     assert_eq!(engine.add_font_source(font.len() as u64), 1);
-    assert!(engine.set_c8_fonts(0, 0, 0, 0, 'A' as u32));
+    assert!(engine.set_c8_fonts(0, 0, 0, 0, 'A' as u32, u32::MAX));
     let run = drive_resources(&mut engine, &bytes, &[font], Some(3), None);
     assert!(engine.result().unwrap().is_ok(), "{}", engine.message());
     assert!(run.max_read <= 32 && run.max_write <= 32);
@@ -963,7 +964,7 @@ fn native_c8_font_resources_share_the_bounded_request_channel() {
             .count(),
         1
     );
-    assert!(!engine.set_c8_fonts(0, 0, 0, u32::MAX, 0));
+    assert!(!engine.set_c8_fonts(0, 0, 0, u32::MAX, 0, u32::MAX));
     assert_eq!(engine.add_font_source(10), 0);
 }
 
@@ -972,17 +973,24 @@ fn font_configuration_rejects_invalid_or_late_resources() {
     let mut engine = Engine::start(116, limits(32), native_operation()).unwrap();
     assert_eq!(engine.add_font_source(0), 0);
     assert_eq!(engine.add_font_source(u64::MAX), 0);
-    assert!(!engine.set_c8_fonts(0, 0, 0, u32::MAX, 0));
-    for id in 1..=4 {
+    assert!(!engine.set_c8_fonts(0, 0, 0, u32::MAX, 0, u32::MAX));
+    for id in 1..=6 {
         assert_eq!(engine.add_font_source(100), id);
     }
     assert_eq!(engine.add_font_source(100), 0);
-    for (decoration, alias) in [(4, 65), (0, 0xd800), (0, 0x10000)] {
-        assert!(!engine.set_c8_fonts(0, 0, 0, decoration, alias));
+    for (decoration, alias) in [(6, 65), (0, 0xd800), (0, 0x10000)] {
+        assert!(!engine.set_c8_fonts(0, 0, 0, decoration, alias, u32::MAX));
     }
-    assert!(engine.set_c8_fonts(0, 1, 2, u32::MAX, 0));
-    assert!(!engine.set_c8_fonts(0, 1, 2, u32::MAX, 0));
+    assert!(!engine.set_c8_fonts(0, 1, 2, u32::MAX, 0, 6));
+    assert!(!engine.set_c8_latin_state3(5));
+    assert!(engine.set_c8_fonts(0, 1, 2, 3, 65, 4));
+    assert!(!engine.set_c8_latin_state3(6));
+    assert!(engine.set_c8_latin_state3(5));
+    assert!(!engine.set_c8_latin_state3(5));
+    assert!(!engine.set_c8_fonts(0, 1, 2, u32::MAX, 0, u32::MAX));
     assert_eq!(engine.add_font_source(100), 0);
+    assert_eq!(engine.poll(), Status::Read);
+    assert!(!engine.set_c8_latin_state3(5));
     let mut copy = Engine::start(
         1,
         limits(32),

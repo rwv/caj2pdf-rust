@@ -170,6 +170,28 @@ pub fn drawing_font() -> Vec<u8> {
     put16(&mut bytes, os2 + 74, 800);
     put16(&mut bytes, os2 + 76, 200);
     put16(&mut bytes, os2 + 88, 700);
+    finish_checksums(&mut bytes);
+    bytes
+}
+
+/// Original rectangle/triangle relabelled as space and fullwidth colon.
+/// A visible space deliberately catches implementations that drop the record.
+pub fn symbol_font() -> Vec<u8> {
+    let mut bytes = drawing_font();
+    let cmap_entry = entry(&bytes, b"cmap");
+    let cmap = span(bytes[cmap_entry..cmap_entry + 16].try_into().unwrap()).0 as usize;
+    for (index, code) in [0x20, 0xff1a].into_iter().enumerate() {
+        put32(&mut bytes, cmap + 28 + index * 12, code);
+        put32(&mut bytes, cmap + 32 + index * 12, code);
+    }
+    finish_checksums(&mut bytes);
+    bytes
+}
+
+fn finish_checksums(bytes: &mut [u8]) {
+    let head_entry = entry(bytes, b"head");
+    let head = span(bytes[head_entry..head_entry + 16].try_into().unwrap()).0 as usize;
+    put32(bytes, head + 8, 0);
     let sum = |bytes: &[u8]| {
         bytes.chunks(4).fold(0_u32, |sum, chunk| {
             let mut word = [0; 4];
@@ -179,18 +201,17 @@ pub fn drawing_font() -> Vec<u8> {
     };
     let count = u16::from_be_bytes([bytes[4], bytes[5]]) as usize;
     let power = 1 << count.ilog2();
-    put16(&mut bytes, 6, power * 16);
-    put16(&mut bytes, 8, count.ilog2() as u16);
-    put16(&mut bytes, 10, count as u16 * 16 - power * 16);
+    put16(bytes, 6, power * 16);
+    put16(bytes, 8, count.ilog2() as u16);
+    put16(bytes, 10, count as u16 * 16 - power * 16);
     for i in 0..count {
         let at = 12 + i * 16;
         let (offset, length) = span(bytes[at..at + 16].try_into().unwrap());
         let checksum = sum(&bytes[offset as usize..(offset + length) as usize]);
-        put32(&mut bytes, at + 4, checksum);
+        put32(bytes, at + 4, checksum);
     }
-    let adjustment = 0xb1b0afba_u32.wrapping_sub(sum(&bytes));
-    put32(&mut bytes, head + 8, adjustment);
-    bytes
+    let adjustment = 0xb1b0afba_u32.wrapping_sub(sum(bytes));
+    put32(bytes, head + 8, adjustment);
 }
 
 fn span(entry: &[u8; 16]) -> (u64, u64) {
@@ -201,5 +222,10 @@ fn span(entry: &[u8; 16]) -> (u64, u64) {
 // Also usable as a standalone generator for cross-runtime test fixtures.
 fn main() {
     use std::io::Write;
-    std::io::stdout().write_all(&drawing_font()).unwrap();
+    let bytes = match std::env::args().nth(1).as_deref() {
+        None => drawing_font(),
+        Some("symbols") => symbol_font(),
+        _ => panic!("expected no argument or symbols"),
+    };
+    std::io::stdout().write_all(&bytes).unwrap();
 }

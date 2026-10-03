@@ -26,7 +26,7 @@ def jpeg(green=False):
 def document(order, *, dx=0, dy=0, dw=0, origin_delta=0):
     header = bytearray(216)
     struct.pack_into("<III", header, 0, 0x4E48, 200, 136)
-    struct.pack_into("<IIII", header, 136, 0, 0, 1, 2)
+    struct.pack_into("<IIII", header, 136, 0xC8, 0, 1, 2)
     header[152:164] = "北大二扫1.00".encode("gbk")
     struct.pack_into("<HHHH", header, 164, 4652 + origin_delta,
                      4274 + origin_delta, 300, 230)

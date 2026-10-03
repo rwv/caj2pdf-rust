@@ -98,8 +98,8 @@ pub fn convert<W: Write>(
         let mut source = ranged(&mut input.file)?;
         let mut sink = WriteSink::new(writer);
         let format = detect(&mut source, limits).await?;
-        if resources.has_fonts() && format != InputFormat::C8 {
-            return Err("explicit C8 fonts require a C8 document".into());
+        if resources.has_fonts() && !matches!(format, InputFormat::C8 | InputFormat::Hn) {
+            return Err("explicit native fonts require a C8 or HN-B document".into());
         }
         match format {
             InputFormat::Pdf => copy_pdf(&mut source, &mut sink, limits, &ProcessCancellation)

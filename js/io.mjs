@@ -400,10 +400,17 @@ async function drive(exports, start, source, sink, chunkSize, signal, finish = r
       if (typeof exports.caj2pdf_c8_add_font !== "function" || typeof exports.caj2pdf_c8_set_fonts !== "function" || typeof exports.caj2pdf_io_request_resource !== "function") {
         throw new Error("this WASM build does not support C8 font resources");
       }
+      const setFonts = hnc8.fonts.symbols === undefined ? exports.caj2pdf_c8_set_fonts : exports.caj2pdf_c8_set_fonts_with_symbols;
+      if (typeof setFonts !== "function") throw new Error("this WASM build does not support native symbol fonts");
       for (const [index, font] of hnc8.fonts.sources.entries()) {
         if (exports.caj2pdf_c8_add_font(font.size) !== index + 1) throw new RangeError("WASM rejected a C8 font resource");
       }
-      if (exports.caj2pdf_c8_set_fonts(...hnc8.fonts.roles) !== 1) throw new RangeError("WASM rejected C8 font roles");
+      const accepted = hnc8.fonts.symbols === undefined ? setFonts(...hnc8.fonts.roles) : setFonts(...hnc8.fonts.roles, hnc8.fonts.symbols);
+      if (accepted !== 1) throw new RangeError("WASM rejected C8 font roles");
+      if (hnc8.fonts.latinState3 !== undefined) {
+        if (typeof exports.caj2pdf_c8_set_latin_state3 !== "function") throw new Error("this WASM build does not support HN-B state-3 Latin fonts");
+        if (exports.caj2pdf_c8_set_latin_state3(hnc8.fonts.latinState3) !== 1) throw new RangeError("WASM rejected the state-3 Latin font role");
+      }
     }
     for (const row of hnc8?.states ?? []) {
       if (exports.caj2pdf_hnc8_add_state(...row) !== 1) {
@@ -538,7 +545,7 @@ function hnc8Config(options) {
   }
   let fonts;
   if (options.fonts !== undefined) {
-    const { cjk, latin, alternateLatin, decoration } = options.fonts ?? {};
+    const { cjk, latin, alternateLatin, decoration, symbols, latinState3 } = options.fonts ?? {};
     const sources = [];
     const index = (source) => {
       requireSource(source);
@@ -555,7 +562,7 @@ function hnc8Config(options) {
       if (typeof character !== "string" || [...character].length !== 1 || character.codePointAt(0) > 0xffff || (character.charCodeAt(0) >= 0xd800 && character.charCodeAt(0) <= 0xdfff)) throw new TypeError("decoration character must be one BMP Unicode scalar");
       roles.push(index(decoration.source), character.codePointAt(0));
     }
-    fonts = { sources, roles };
+    fonts = { sources, roles, symbols: symbols === undefined ? undefined : index(symbols), latinState3: latinState3 === undefined ? undefined : index(latinState3) };
   }
   return { scratch, states, fonts };
 }

@@ -166,11 +166,88 @@ export function syntheticNativeC8(mixed = false) {
   const bytes = new Uint8Array(end + (mixed ? 61 : 0));
   const view = new DataView(bytes.buffer);
   const u32 = (at, value) => view.setUint32(at, value, true);
-  bytes[0] = 0xc8; u32(8, 1);
+  bytes[0] = 0xc8; u32(8, 1); u32(12, 2);
   view.setUint16(32, 100, true); view.setUint16(34, 200, true);
   u32(80, 100); u32(84, words.length * 4); u32(88, Number(mixed));
   for (const [i, value] of words.flat().entries()) view.setUint16(100 + i * 2, value, true);
   if (mixed) { u32(end, 0); u32(end + 4, end + 12); u32(end + 8, 49); bytes.set(syntheticHn().slice(-49), end + 12); }
   u32(96, bytes.length);
+  return bytes;
+}
+
+/** Original two-page compact HN-B text fixture using bare page ends. */
+export function syntheticNativeHnb(mode = 2, latinState3 = false) {
+  let text = syntheticNativeC8().slice(100, -2);
+  if (mode === 0) {
+    const extended = new Uint8Array(text.length + 8);
+    extended.set(text.subarray(0, -2));
+    const records = new DataView(extended.buffer);
+    records.setUint16(10, 0xa3c1, true);
+    for (const [index, word] of [40, 0xa1a1, 60, 0xa3ba, 0x8004].entries()) {
+      records.setUint16(text.length - 2 + index * 2, word, true);
+    }
+    text = extended;
+  }
+  if (latinState3) {
+    const extended = new Uint8Array(text.length + 4);
+    extended.set(text.subarray(0, 8));
+    new DataView(extended.buffer).setUint16(8, 0x801d, true);
+    new DataView(extended.buffer).setUint16(10, 3, true);
+    extended.set(text.subarray(8), 12);
+    text = extended;
+  }
+  const bytes = new Uint8Array(240 + text.length * 2);
+  const view = new DataView(bytes.buffer);
+  const u32 = (at, value) => view.setUint32(at, value, true);
+  bytes.set([0x48, 0x4e]); u32(4, 200); u32(8, 136); u32(144, 2); u32(148, mode);
+  view.setUint16(168, 100, true); view.setUint16(170, 200, true);
+  for (let page = 0; page < 2; page++) {
+    const offset = 240 + page * text.length;
+    u32(216 + page * 12, offset); u32(220 + page * 12, text.length);
+    bytes.set(text, offset);
+  }
+  return bytes;
+}
+
+/** Original ordinary-index HN-B page with one image followed by two glyphs. */
+export function syntheticNativeHnbMixed() {
+  const c8 = syntheticNativeC8(true);
+  const old = new DataView(c8.buffer);
+  const length = old.getUint32(84, true);
+  const jpeg = syntheticType1Hn().jpeg;
+  const bytes = new Uint8Array(236 + length + 12 + jpeg.length);
+  const view = new DataView(bytes.buffer);
+  const u32 = (at, value) => view.setUint32(at, value, true);
+  bytes.set([0x48, 0x4e]); u32(4, 200); u32(8, 136);
+  u32(136, 0xc8); u32(144, 1); u32(148, 2);
+  bytes.set(c8.subarray(28, 36), 164);
+  u32(216, 236); u32(220, length); u32(224, 1); u32(232, bytes.length);
+  // Move the original image ahead of both original glyphs.
+  bytes.set(c8.subarray(112, 140), 236);
+  bytes.set(c8.subarray(100, 112), 264);
+  bytes.set(c8.subarray(140, 100 + length), 276);
+  u32(236 + length, 2);
+  u32(236 + length + 4, 236 + length + 12);
+  u32(236 + length + 8, jpeg.length);
+  bytes.set(jpeg, 236 + length + 12);
+  return bytes;
+}
+
+/** Original compact HN-B with rectangular axes and no style record. */
+export function syntheticNativeHnbAxes() {
+  const base = syntheticNativeHnb();
+  const bytes = new Uint8Array(276);
+  bytes.set(base.subarray(0, 240));
+  const view = new DataView(bytes.buffer);
+  for (let page = 0; page < 2; page++) {
+    const offset = 240 + page * 18;
+    view.setUint32(216 + page * 12, offset, true);
+    view.setUint32(220 + page * 12, 18, true);
+    bytes.set(base.subarray(240, 244), offset);
+    for (const [index, word] of [0x8070, 43, 0x8071, 28].entries()) {
+      view.setUint16(offset + 4 + index * 2, word, true);
+    }
+    bytes.set(base.subarray(248, 254), offset + 12);
+  }
   return bytes;
 }

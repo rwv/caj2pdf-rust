@@ -21,7 +21,7 @@ def page(rows, codes, number):
     return data
 
 
-def document(width, marker, prefix=(), run=(), first_style=(0x8002, 0x1084)):
+def document(width, marker, prefix=(), run=(), first_style=(0x8002, 0x1084), bare_end=False):
     # Unequal spans and distinct invented strings expose incorrect page lookup.
     pages = [page(8, (0xD6D0, 0xCEC4, 0xA0C1, 0xA0CD, 0xA0B1), 1),
              page(4, (0xA0D0, 0xA0C1, 0xA0C7, 0xA0C5, 0xA0B2), 2)]
@@ -36,6 +36,8 @@ def document(width, marker, prefix=(), run=(), first_style=(0x8002, 0x1084)):
     offset = 216 + 2 * width
     index = bytearray()
     for data in pages:
+        if bare_end:
+            del data[-2:]
         index.extend(struct.pack("<III", offset, len(data), 0))
         index.extend(bytes(width - 12))
         offset += len(data)
@@ -55,6 +57,12 @@ def main():
             (args.output / name).write_bytes(data)
             manifest.append({"file": name, "marker": marker, "row_bytes": width,
                              "bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()})
+    for width in (12, 20):
+        data = document(width, 0 if width == 12 else 200, bare_end=True)
+        name = f"hnb-bare-end-{width}.caj"
+        (args.output / name).write_bytes(data)
+        manifest.append({"file": name, "row_bytes": width, "bare_end": True,
+                         "bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()})
     for suffix, prefix in (
         ("none", ()), ("bare", (0xC052, 0xA385)),
         ("footer", (0xC052, 0xA385, 0xFFFF, 5)),
@@ -119,9 +127,10 @@ def main():
         (0x80CE, (0, 1), 1),
         (0x8070, (0x0024, 0x002B), 4),
         (0x8071, (0x0024, 0x002B), 4),
-        (0x8073, (0x001E, 0x001F, 0x0029, 0x002A), 4),
-        (0x8072, (0xC2C7,), 4),
-        (0x8067, (9,), 4),
+        (0x8073, (0x001E, 0x001F, 0x0020, 0x0029, 0x002A), 4),
+        (0x8072, (0x1084, 0xC2C7), 4),
+        (0x8067, (5, 9), 4),
+        (0x8074, (0xB7BD, 0xCFC8, 0x8004, 0xFFFF), 4),
     ):
         for value in values:
             for suffix, following in (("bare", ()), ("next-y", (0x8001, 5000))):

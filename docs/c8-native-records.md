@@ -1941,3 +1941,283 @@ is not a total browser/process peak measurement. Receipts remain external:
 `native-browser-six-page-checkpoint.json` in
 `caj2pdf-c8-render-preview-20261001`. CLI font-path syntax, output protection
 and substitution limits are documented in `docs/cli.md`.
+
+### Paired HN-B/C8 geometry controls (issue #241)
+
+At HN-B framing checkpoint `210c846`, three original single-page control
+streams were wrapped separately in C8 and compact HN-B containers. They use
+original geometric fonts, not vendor glyph outlines. The controls cover:
+
+- A fourteen-row style grid: `0000`, `04e7`, `0842`, `0884`, `0c84`, `0cc6`,
+  `1042`, `1064`, `1084`, `10a5`, `14e7`, `e58c`, `08a5`, and `10c6`.
+- Style zero with independent `8070/0024` and `8071/0024` axis controls.
+- A nonzero header-origin change, with unchanged glyph coordinates.
+
+In the pinned offline viewer at 57%, each C8/HN-B pair has identical pixels
+inside the independently identified page interior `(648, 387, 1023, 936)`;
+each capture also matches its repeat. The earlier comparison crop started
+above this single-page frame and omitted part of the blank footer; the
+corrected full-interior comparison retains all three matches. External input
+hashes, screenshot hashes and comparisons are in
+`caj2pdf-hnb-rendering-20261003/geometry-controls.json` and
+`geometry-comparison.json`. External captures and fonts remain outside Git.
+
+These controls establish agreement between the two container interpretations
+for these streams. They do not establish PDF fidelity, a formula for new size
+fields, or complete HN-B support. In particular, style zero visibly renders
+glyphs and cannot be discarded as empty content. The next implementation
+checkpoint must independently verify the missing style/axis metrics, character
+mappings and required drawings before admitting the complete issue-100
+document to the shared renderer. Preserve existing image-only HN-B geometry
+until a change to that path has its own evidence.
+
+A subsequent single-variable HN-B axis experiment retains positions and original
+fonts: style zero alone, width-only `8070/36`, height-only `8071/36`, both axes
+72, and style `1084` with both axes 72. All five captures repeat exactly.
+At 57%, thresholded first-row bounds relative to the same page interior are
+respectively `(40,29,147,32)`, `(40,29,150,32)`, `(40,29,147,35)`, and
+`(40,29,157,42)` for both final cases. The two final page interiors are also
+pixel-identical. This independently demonstrates axis-specific sizing and
+that explicit axes can override a nonzero style; treating these controls as
+ignorable would lose visible geometry. These screen bounds are diagnostics,
+not PDF-unit constants. Derive physical sizing and baseline behavior before
+extending the production transform. External predictions, original source
+hashes and measurements are `axis-controls.json` and `axis-comparison.json`
+in the same receipt directory.
+
+The follow-up explicit-size controls establish a state transition: explicit
+width/height 35 at style zero matches style `1084` pixel-for-pixel, including
+Latin positions. Applying `8002/1084` after explicit axes 72 restores that same
+page, so a subsequent style record resets the explicit axes. Repeated captures
+are stable. The proposed field-12/explicit-112 equivalence fails and must not
+be admitted from this experiment. Receipts are `axis-model-controls.json` and
+`axis-model-comparison.json`; `tools/cajviewer/hnb_geometry_fixture.py`
+reproduces all eleven original input byte sequences from these two experiments.
+These controls support reusing verified metrics with explicit mutable axis
+state, but do not establish arbitrary-size baseline rounding.
+
+At confirmed 971% zoom, original 300×250-unit HN-B anchor pages compare
+explicit 35/36 with the admitted field-4 geometry. Explicit 35 and field 4
+retain identical source interiors. A separate PDF written through the existing
+Rust font/PDF API uses `axis * 75 / 301` points and the existing empirical
+Latin baseline model. A fresh viewer session checks both values with repeats.
+Relative CJK top/left differences (PDF minus source) are `(-1,-1)` for 35
+and `(-2,-1)` for 36; Latin top differences are 0 and -2 pixels. These are
+thresholded diagnostics at independently identified page frames, not alignment
+corrections. The known size also has edge residuals, but that does not prove
+the extra vertical residual for 36 is renderer-only. Keep this qualification
+when evaluating the explicit-axis model. Receipts are
+`caj2pdf-hnb-rendering-20261003/axis-validation-comparison.json` and the
+`axis-validation-viewer` repeated captures. No source-specific offset is added.
+
+### Additional field-7 styles
+
+Original HN-B controls `04e7`, `14e7`, and `10e7` produce pixel-identical
+page interiors at 57%, including CJK and Latin resource-marker glyphs; each
+repeats identically. Earlier paired C8/HN-B controls also agree for these
+styles. The shared glyph transform therefore admits exactly `04e7` and
+`14e7` using its existing field-7 metrics. Other sizes with these high bits
+and decoration states remain rejected. The original generator preserves these
+three controls; external hashes and repeated comparisons are in
+`caj2pdf-hnb-rendering-20261003/style-equivalence-{inputs,comparison}.json`.
+
+The same experiment finds `e58c` equivalent to explicit axes 110, while
+style zero differs from explicit axes 16 in Latin placement. Those findings
+do not yet extend the transform's admitted size fields. Complete HN-B
+rendering remains open in #241.
+
+### Effective style inventory for the first HN-B document
+
+A bounded native-record traversal of the pinned issue-100 input tracks axis
+controls and resets them at each `8002` style record. All 38 style-zero glyphs
+on page 1 occur with explicit width and height `0x24` (36); there are no
+default-zero glyphs in this document. The same page has twelve `e58c` glyphs
+without explicit axes. Remaining pages use ordinary size fields. This narrows
+the first-document implementation to explicit 36 and the observed large size,
+in addition to remaining character/drawing rules; do not delay that delivery
+for default-zero baseline calibration. The external count-only result is
+`caj2pdf-hnb-rendering-20261003/effective-style-inventory.txt` and contains no
+extracted source text.
+
+Separately, original 300×250-unit controls at 971% distinguish default zero
+from explicit 16 and establish pixel-identical interiors for default zero and
+explicit 21, including Latin placement. Repeats are identical. This corrects
+the low-zoom ambiguity; it does not yet admit default-zero PDF geometry.
+The existing generator now reproduces all six high-zoom anchor inputs exactly.
+Receipts are `axis-zero-anchor-comparison.json` and
+`axis-zero-heldout-comparison.json` in the same external directory.
+
+### Large-size discriminator supersedes low-zoom equality
+
+The earlier 57% equality between `e58c` and explicit axes 110 is insufficient
+to identify the size. Original single-CJK controls on a 400×400-unit page at
+confirmed 729% separate them: thresholded glyph bounds relative to the same
+page frame are `(37,6,298,265)` for `e58c` and `(37,6,301,268)` for explicit
+110. Repeats match. Held-out explicit values 108 and 109 distinguish the
+remaining candidates: 109 has a pixel-identical page interior to `e58c`; 108
+does not. Use 109 for subsequent model validation, not the rejected 110.
+External receipts are `large-anchor-comparison.json` and
+`large-anchor-heldout-comparison.json` under
+`caj2pdf-hnb-rendering-20261003`; no production size admission is made yet.
+
+A count-only character-class inventory additionally confirms that all twelve
+`e58c` glyphs in issue-100 are Han. Its 38 explicit-36 glyphs consist of thirty
+ASCII alphanumerics and eight unresolved raw codes. This identifies which
+baseline/resource rules are required without extracting or committing text.
+
+The independent PDF control with size `109 * 75 / 301` points retains
+source top/right boundaries at 729%; its thresholded left/bottom edges differ
+by one pixel (source `(37,6,298,265)`, PDF `(36,6,298,266)` relative to the
+same frame). Both repeats are stable. Glyph color is intentionally different
+in this geometric experiment; no pixel-equality claim is made. Receipt:
+`large-anchor109-pdf-comparison.json`. The shared transform now admits exact
+style `e58c` for CJK placement using size 109 and the existing origin model.
+Latin placement, other field-12 styles and decoration states remain errors.
+This supplies the measured large-Han geometry needed by issue-100, not full
+HN-B rendering.
+
+### HN-B symbol-copy candidates
+
+An original seven-glyph control brackets unresolved `a0ae`, `a0af`, `a0ba`,
+`aab1`, `aab2` with known A/M glyphs. Ordinary selection and Ctrl+C after a
+fresh clipboard sentinel returns, respectively, U+FF0E, U+FF0F, U+003A,
+U+2219 and U+002D, with inserted spaces. A separately generated reversed
+control after a different sentinel reverses the complete sequence. The
+existing generator reproduces both source byte sequences. External source
+hashes and exact copied code points are in `unknown-symbols-input.json`,
+`unknown-symbols-reversed-input.json` and `symbol-copy-comparison.json` under
+`caj2pdf-hnb-rendering-20261003`. These are original test characters.
+
+These are semantic candidates, not production mappings: prior C8 controls
+show viewer-copy punctuation normalization. Corroborate visible glyph identity
+and resource/placement before admitting the symbols to rendering. No arbitrary
+A0 punctuation range or private-use Unicode fallback is added.
+
+The follow-up visible control uses the same seven authored raw codes with a
+smaller canvas and fixed positions. A separate offline viewer session retains
+its normal font resources (no extracted outlines or font files enter Git). At
+291%, repeated captures show period, slash, colon, dot and short horizontal
+stroke in the expected order, bracketed by A/M. Together with the fresh-sentinel
+forward/reversed copy controls, these establish explicit mappings `a0ae` →
+U+FF0E, `a0af` → U+FF0F, `a0ba` → U+003A, `aab1` → U+2219 and `aab2` →
+U+002D. The decoder now preserves these exact scalars, including the fullwidth
+forms, instead of inferring an ASCII punctuation range. This is character
+identity evidence, not verified resource/placement or complete rendering.
+External captures: `caj2pdf-hnb-rendering-20261003/symbol-visible-viewer`; the
+original `unknown-symbols-visible.caj` stays in the external input directory.
+
+Original full-em resource-marker controls establish that all five added
+symbols select the active Latin resource, including after `801d/4`; their
+baseline differs from ordinary A/M exactly as the existing `a0a6` symbol
+class does. Two independent unequal-axis pages (`1067`, `10e3`) replace only
+these five raw codes with `a0a6`, preserving coordinates and fonts. Both
+source/reference page interiors are pixel-identical, and all repeats match.
+External hashes and comparisons are `symbol-axis-comparison.json`; regular
+and alternate resource captures are in the same `symbol-viewer` directory.
+The native page writer therefore reuses its active-Latin, CJK-origin, zero
+baseline-fraction branch for these five codes. Existing Unicode/resource/
+unequal-axis PDF tests include them. No offsets, allocations or new rendering
+abstraction are introduced. HN-B page admission remains separately incomplete.
+
+### Explicit 36-axis composition checkpoint
+
+The shared page writer retains two optional axis words. The independently
+controlled `8070/36` and `8071/36` pair overrides the active style; `8002`
+resets both. Glyph composition uses the existing empirical origin model,
+`36 * 75 / 301` points per em and the observed adjacent-size Latin baseline
+offset of eight source units. Original source/PDF anchor measurements and
+their 1–2-pixel residuals remain recorded above; no pixel compensation or
+parity claim is added. Paired C8/HN-B original controls establish this same
+record behavior; the C8 visitor now also admits these exact control values.
+
+An incomplete pair, other explicit values, unverified size-dependent
+punctuation offsets and explicit-axis decorations remain located errors.
+Large-style non-Han glyphs are likewise refused before indexing ordinary-size
+offset tables. Tests cover actual sequential PDF matrices, axis order, reset
+to ordinary style, partial pairs and failure cases with short reads/writes.
+The state is constant-size and the public ordinary-style helper is unchanged.
+HN-B full-page admission still depends on remaining drawing/control integration.
+
+### Verified `a385` line start marker
+
+The first issue-100 page contains `a385` endpoints `(53909,5026)` and
+`(9235,5026)`. Treating 53909 literally would draw from outside its canvas.
+Original HN-B controls compare `a381`, plain `a385`, and `a385` with only
+`c000` set on the first x word. Their horizontal interiors are identical at
+146%. A held-out small-page diagonal with different endpoints agrees at 729%;
+all repeats match. Separately authored C8 wrappers for the ordinary and marked
+diagonal also match the HN-B reference. Hashes and captures are recorded in
+`line-controls.json`, `line-diagonal-inputs.json`, `line-comparison.json`,
+`line-diagonal-comparison.json` and `line-diagonal-c8-comparison.json` under
+`caj2pdf-hnb-rendering-20261003`. The generator reproduces all six HN-B inputs.
+
+The existing segment evaluator now admits `a385`, clearing the paired `c000`
+bits only in its first x coordinate. Other words and other styles retain raw
+values. It shares the independently established endpoint/origin and hairline
+output with ordinary segments. Original regressions cover both geometries and
+retain distinct behavior for another style's high coordinate. Raw inspection
+records are unchanged; no blanket coordinate mask or new renderer is added.
+
+### HN-B skew state and independent-axis discriminator
+
+Original single-glyph controls confirm `8024/281d` activates a visible tilt,
+`8024/2800` restores the baseline exactly, and a subsequent `8002/1084` does
+not reset the tilt. All 729% page interiors repeat identically. Two unequal
+size controls (`1067`, `10e3`) distinguish the transform's axes: the narrower,
+taller glyph shifts near its top by about 18 screen pixels, while the wider,
+shorter glyph shifts by about 31. Thus the displacement follows width, not
+height. Small-glyph edge differences alone do not establish horizontal
+compression; the larger control below distinguishes that hypothesis. Do not
+infer an angle directly from the payload or discard this control as a no-op.
+
+The existing generator reproduces all eight inputs. Receipts are
+`skew-inputs.json`, `skew-state-comparison.json`, `skew-axis-inputs.json`,
+`skew-axis-comparison.json` and repeated `skew-viewer` captures in
+`caj2pdf-hnb-rendering-20261003`. These are original full-em font controls;
+no external document text or outlines enter Git.
+
+### Held-out large-glyph skew measurement
+
+The same original control at the independently established `e58c` size
+(`109 * 75 / 301` points per em) retains its approximately 262-screen-pixel
+width while shifting the top rightward by about 63 pixels at 729% zoom.
+This contradicts a horizontal scale correction inferred from the smaller
+rasterized glyphs. The generator includes both large baseline and tilted
+controls as `skew-axis-e58c-{base,skew}.caj`.
+
+An independently constructed PDF uses the existing original full-em marker
+font, gray 68, the established origin and baseline, and the matrix
+`[width, 0, width * 0.24, height, x, y]`. Source and PDF top/left positions
+agree; the PDF's right and bottom edges differ by one screen pixel. Repeated
+captures are stable. No compensating translation or horizontal scaling is
+introduced. This supports a width-relative shear for this exact control;
+it does not establish arbitrary `8024` payloads, skewed decorations or mixed
+image behavior, and production admission remains separate.
+
+External receipts in `caj2pdf-hnb-rendering-20261003` are
+`skew-large-inputs.json`, `skew-large-comparison.json`, and
+`skew-large-pdf-comparison.json`, with repeated `skew-viewer` captures.
+The original source controls have SHA256 values
+`737f359f84cdfaebfec360fc0a3fda3603009bcd3e7525d96b0a12cb1aefb046`
+(baseline) and
+`0234a4a08bf8ce3e1a0188a58a3be642d146620da7e76ea86f23287927a0e520`
+(tilted). These controls use synthetic glyph outlines and contain no copied
+source-document content.
+
+### Shared skew composition
+
+Separately generated C8 wrappers for baseline, active skew, explicit reset and
+style-change persistence match all four HN-B page interiors exactly at 729%;
+all repeated captures match. The page is the same 400-by-400 source canvas,
+with comparison bounds `(648,474,1024,850)`. External receipts are
+`skew-c8-inputs.json` and `skew-c8-comparison.json` in the same evidence root.
+The original fixture generator reproduces these wrappers.
+
+The incremental page writer retains one boolean: `8024/281d` enables the
+measured width-relative shear, `8024/2800` disables it, and `8002` retains it.
+Only the glyph matrix's off-diagonal x component changes. No additional
+buffers, renderer or font lookup is introduced. PDF-matrix regressions cover
+unequal axes, the large controlled glyph, style persistence and explicit reset.
+Drawing/image events while this state is active remain explicit errors pending
+independent mixed-content controls. HN-B page admission and complete-document
+acceptance remain open in #241.

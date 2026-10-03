@@ -158,7 +158,7 @@ pub extern "C" fn caj2pdf_io_request_store() -> u32 {
     })
 }
 
-/// Read resource identifier: 0 for the document, 1..=4 for registered fonts.
+/// Read resource identifier: 0 for the document, 1..=6 for registered fonts.
 #[unsafe(no_mangle)]
 pub extern "C" fn caj2pdf_io_request_resource() -> u32 {
     with_engine(0, |engine| match engine.request() {
@@ -167,7 +167,7 @@ pub extern "C" fn caj2pdf_io_request_resource() -> u32 {
     })
 }
 
-/// Register a stable ranged font source before polling; returns 1..=4 or 0.
+/// Register a stable ranged font source before polling; returns 1..=6 or 0.
 #[unsafe(no_mangle)]
 pub extern "C" fn caj2pdf_c8_add_font(size: u64) -> u32 {
     with_engine(0, |engine| engine.add_font_source(size))
@@ -183,8 +183,30 @@ pub extern "C" fn caj2pdf_c8_set_fonts(
     alias: u32,
 ) -> u32 {
     with_engine(0, |engine| {
-        engine.set_c8_fonts(cjk, latin, alternate, decoration, alias) as u32
+        engine.set_c8_fonts(cjk, latin, alternate, decoration, alias, u32::MAX) as u32
     })
+}
+
+/// Assign font roles including optional semantic symbols (`u32::MAX` if absent).
+/// The original five-argument export continues to select no symbol resource.
+#[unsafe(no_mangle)]
+pub extern "C" fn caj2pdf_c8_set_fonts_with_symbols(
+    cjk: u32,
+    latin: u32,
+    alternate: u32,
+    decoration: u32,
+    alias: u32,
+    symbols: u32,
+) -> u32 {
+    with_engine(0, |engine| {
+        engine.set_c8_fonts(cjk, latin, alternate, decoration, alias, symbols) as u32
+    })
+}
+
+/// Assign the optional HN-B state-3 Latin index after the base font roles.
+#[unsafe(no_mangle)]
+pub extern "C" fn caj2pdf_c8_set_latin_state3(index: u32) -> u32 {
+    with_engine(0, |engine| engine.set_c8_latin_state3(index) as u32)
 }
 
 /// Append a validated caller-owned codec state before the first poll.

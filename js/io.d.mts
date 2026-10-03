@@ -197,6 +197,10 @@ export interface C8Fonts {
   cjk: RangedSource;
   latin: RangedSource;
   alternateLatin: RangedSource;
+  /** Semantic symbols/spaces required by the admitted HN-B mode-0 records. */
+  symbols?: RangedSource;
+  /** Optional explicit font selected by HN-B state 801d/3. */
+  latinState3?: RangedSource;
   /** Nonsemantic decoration alias; must be one BMP Unicode scalar. */
   decoration?: { source: RangedSource; character: string };
 }
