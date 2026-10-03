@@ -378,6 +378,24 @@ def required_greek_documents():
             run_words=(0x80CE, 1))
 
 
+def radical_record_documents():
+    """Investigate observed radical drawing framing without admitting it."""
+    from c8_style_fixture import document as style_document
+
+    for label, words in (
+        ("base", ()),
+        ("record", (0x8090, 0xA3E6, 0xC000 | 4702, 4364, 0xC08F, 125)),
+        ("short", (0x8090, 0xA3E6, 0xC000 | 4702, 4364, 0xC08F, 60)),
+        ("moved", (0x8090, 0xA3E6, 0xC000 | 4762, 4404, 0xC08F, 125)),
+        ("narrow", (0x8090, 0xA3E6, 0xC000 | 4702, 4364, 0xC040, 125)),
+        ("unflagged", (0x8090, 0xA3E6, 4702, 4364, 143, 125)),
+    ):
+        yield f"radical-{label}.caj", style_document(
+            [(0x1021, 3, 6)], codes=(), width=600, height=500, first_y=4334,
+            run_words=(*words, 0x8001, 4514, 0x8002, 0x10A5,
+                       4672, 0xD6D0, 4922, 0xA0C1))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("output", type=Path, help="new directory outside the repository")
@@ -397,7 +415,8 @@ def main():
                        *record_9002_documents(), *additional_style_documents(),
                        *skew_281c_documents(), *low_letter_documents(),
                        *field1_documents(), *small_bracket_documents(),
-                       *state3_documents(), *required_greek_documents()):
+                       *state3_documents(), *required_greek_documents(),
+                       *radical_record_documents()):
         (args.output / name).write_bytes(data)
         manifest.append({"file": name, "sha256": hashlib.sha256(data).hexdigest()})
     (args.output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")

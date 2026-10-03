@@ -736,3 +736,32 @@ in each state, with 1–2 pixel outer-edge residuals retained at 182%.
 `c8-greek-required-output/checks.json` records these checks and complete-input
 retries: four-page `8090/a3e6` at byte 22512, five-page `80d5/0` at byte 20808.
 Both remain located failures without a published final PDF.
+
+## Investigating `8090/a3e6` radical drawing (not admitted)
+
+Six original `radical_record_documents()` controls establish that the observed
+candidate 12-byte record paints a radical shape, not a ignorable state change.
+At fixed coordinates, changing the last word 125 to 60 reduces its vertical
+extent while preserving horizontal extent; changing the preceding low value
+143 to 64 reduces horizontal extent while preserving vertical extent. Moving
+the candidate position by (60,40) translates the shape. The following CJK/Latin
+anchors remain available for state/placement comparison. Flagged (`c000` bits)
+and unflagged coordinate/extent controls render identically in this experiment.
+These observations do not establish every flag combination or final framing.
+
+All six nonblank page crops repeat exactly. Relative to the page crop, the
+baseline-subtracted bounds (including antialiasing) are: observed (1,53)-(133,139),
+short (1,53)-(133,98), moved (39,78)-(171,142), narrow (1,53)-(84,139). The cropped
+"top region" measurement clips the moved shape and is not its complete bounds;
+use the baseline-subtracted measurements. The root's exact path vertices,
+stroke width/join and coordinate anchoring remain unverified. Keep conversion
+explicitly unsupported until these are established with asymmetric controls
+and malformed/truncated framing tests in the existing parser/composer.
+
+External evidence: `input/c8-record8090/manifest.json`,
+`c8-record8090-observations.json`, and identified-family-viewer
+`record8090-{base,record,short,moved,narrow,unflagged}-{a,b}.png` in the existing
+root. Crop (648,505)-(1024,819), viewer fit 486%. The first `record8090-initial`
+capture shows the startup document and is excluded; `record8090-confirmed`
+shows the correct input. The viewer was restarted after confirmed exit 124.
+No production behavior or complete-document support changes in this step.

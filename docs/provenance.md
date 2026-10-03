@@ -2807,3 +2807,11 @@ establish epsilon/theta for the two raw codes required by the selected documents
 The writer reuses existing Unicode decoding and symbol placement. Adjacent codes
 are not extrapolated; clipboard anomalies for unrelated controls are retained
 in external evidence. No external font outlines or document content are committed.
+
+### C8 radical drawing investigation
+
+Six original MIT controls isolate the candidate `8090/a3e6` drawing's position,
+horizontal/vertical extents and high coordinate bits, using authored coordinates
+and existing original marker fonts. They establish visible radical output but
+not yet its exact vector path or complete framing. External captures remain
+outside Git; the parser still rejects the record explicitly.
