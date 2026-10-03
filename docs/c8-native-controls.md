@@ -1083,3 +1083,37 @@ Both real inputs now pass page-1 through page-3 composition. The four-page
 source stops at page 4 byte 180746 and the five-page source at page 4 byte
 249257, both on glyph resource/placement errors. Neither publishes a final
 PDF. Composition progress does not establish independent full-page fidelity.
+
+
+### Parallel and prime: glyph-triggered Latin state
+
+Fresh ordinary Copy independently confirms raw `a1ce` as U+2225 and `a1e4`
+as U+2032. The first paired controls unexpectedly render every following
+symbol/letter with ordinary Latin, even after selecting state 3 or 4. Separate
+original `parallel_prime_documents()` controls resolve the cause: preceding
+Latin A uses marker 22/63; parallel uses marker 23 and leaves following A at
+23; an explicit repeated state selection restores 22/63. Prime alone preserves
+22/63 throughout. All repeated source crops are stable. Both glyphs use the
+existing symbol baseline. The viewer comma-copy anomaly remains separate.
+
+The C8 parallel branch therefore resets the existing active Latin resource;
+prime reuses the current-Latin symbol branch. No new state object is added.
+Tests verify Unicode, post-symbol resource persistence, explicit recovery and
+unchanged HN-B rejection. Seven generated controls reproduce byte for byte,
+pass CLI/qpdf and preserve independently checked Unicode sequences.
+
+External evidence under the existing root:
+`input/c8-member-leq/manifest.json` (historical research directory name only;
+the symbols were identified through Copy, not inferred from this name),
+`c8-member-leq-copy.json`, `c8-member-leq-observations.json`,
+`input/c8-parallel-prime-state/manifest.json`,
+`c8-parallel-prime-state-observations.json`, and
+`c8-parallel-prime-output/checks.json`. The viewer timed out during the first
+Copy attempt; after confirmed exit 124 it was restarted and Copy revalidated.
+Selected captures are excluded from rendering measurements.
+
+Both complete selected inputs now produce PDFs with the expected 4/5 pages
+and pass qpdf, using explicit original marker fonts and `--no-bookmarks`.
+This is native conversion/syntax success, not final compatibility acceptance.
+Independent whole-page content/geometry comparison, Node/real Worker checks,
+the original six-page C8 regression and final hosted CI remain outstanding.

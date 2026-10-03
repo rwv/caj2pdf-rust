@@ -1905,6 +1905,7 @@ fn c8_required_symbols_follow_latin_state_and_symbol_baseline() {
         for (code, unicode) in [
             (0xa1c1, "00D7"),
             (0xa1de, "221E"),
+            (0xa1e4, "2032"),
             (0xa6b8, "03A9"),
             (0xa6c4, "03B4"),
             (0xa6c5, "03B5"),
@@ -2064,5 +2065,40 @@ fn opaque_c8_controls_do_not_broaden_hnb_admission() {
         let (result, _, finished) = convert(&words, 0, &[], roles(), 12);
         assert!(result.is_err());
         assert!(!finished);
+    }
+}
+
+#[test]
+fn c8_parallel_resets_latin_until_an_explicit_resource_selection() {
+    for (state, selected) in [(3, 0), (4, 2)] {
+        let mut fonts = roles();
+        fonts.latin_state3 = Some(0);
+        for (code, first, unicode) in [(0xa1ce, 1, "2225"), (0xa1e4, selected, "2032")] {
+            let words = [
+                [0x8001, 4350],
+                [0x8002, 0x10a5],
+                [0x801d, state],
+                [4682, code],
+                [4782, 0xa0c1],
+                [0x801d, state],
+                [4882, 0xa0c1],
+                [0x8004, 1],
+            ];
+            let (result, pdf, finished) = convert(&words, 0, &[], fonts, 11);
+            result.unwrap();
+            assert!(finished);
+            let text = String::from_utf8_lossy(&pdf);
+            assert!(text.contains(&format!("<{unicode}> Tj")));
+            let resources: Vec<_> = text.lines().filter(|line| line.contains(" 1 Tf")).collect();
+            assert_eq!(
+                resources,
+                [
+                    format!("BT /F{first} 1 Tf"),
+                    format!("BT /F{first} 1 Tf"),
+                    format!("BT /F{selected} 1 Tf")
+                ]
+            );
+            assert!(convert(&words, 0, &[], fonts, 13).0.is_err());
+        }
     }
 }

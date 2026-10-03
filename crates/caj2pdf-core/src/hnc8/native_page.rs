@@ -471,7 +471,12 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
                     0xa1c6 | 0xa1c8 | 0xa9aa | 0xaab3 | 0xaca3 => {
                         (C8GlyphClass::Cjk, self.roles.latin, Some(0.0))
                     }
-                    0xa1c1 | 0xa1de | 0xa6b8 | 0xa6c4 | 0xa6c5 | 0xa6c8
+                    0xa1ce if self.variant == Variant::C8 => {
+                        // Original following-glyph controls confirm this persistent reset.
+                        self.latin = self.roles.latin;
+                        (C8GlyphClass::Cjk, self.latin, Some(0.0))
+                    }
+                    0xa1c1 | 0xa1de | 0xa1e4 | 0xa6b8 | 0xa6c4 | 0xa6c5 | 0xa6c8
                         if self.variant == Variant::C8 =>
                     {
                         (C8GlyphClass::Cjk, latin, Some(0.0))

@@ -412,6 +412,23 @@ def times_omega_documents():
             run_words=(0x80CE, 1))
 
 
+def parallel_prime_documents():
+    """Distinguish symbol geometry from a persistent Latin resource reset."""
+    from c8_style_fixture import document as style_document
+
+    for state in (0, 3, 4):
+        yield f"parallel-prime-{state}.caj", style_document(
+            [(0x10A5, state, 6)], codes=(0xA1CE, 0xA1E4, 0xA3AC, 0xA0C1),
+            width=1600, height=500, first_x=4672, first_y=4334,
+            run_words=(0x80CE, 1))
+    for state in (3, 4):
+        for label, code in (("parallel", 0xA1CE), ("prime", 0xA1E4)):
+            yield f"{label}-state-{state}.caj", style_document(
+                [(0x10A5, state, 6)], codes=(), width=1600, height=500, first_y=4334,
+                run_words=(0x80CE, 1, 4672, 0xA0C1, 5022, code, 5372, 0xA0C1,
+                           0x801D, state, 5722, 0xA0C1))
+
+
 def radical_record_documents():
     """Investigate observed radical drawing framing without admitting it."""
     from c8_style_fixture import document as style_document
@@ -564,7 +581,7 @@ def main():
                        *radical_alias_documents(), *low_p_documents(),
                        *radical_value_documents(), *control_80d3_documents(),
                        *opaque_73_74_documents(), *delta_infinity_documents(),
-                       *times_omega_documents()):
+                       *times_omega_documents(), *parallel_prime_documents()):
         (args.output / name).write_bytes(data)
         manifest.append({"file": name, "sha256": hashlib.sha256(data).hexdigest()})
     (args.output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
