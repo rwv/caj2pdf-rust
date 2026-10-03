@@ -2046,3 +2046,21 @@ the low-zoom ambiguity; it does not yet admit default-zero PDF geometry.
 The existing generator now reproduces all six high-zoom anchor inputs exactly.
 Receipts are `axis-zero-anchor-comparison.json` and
 `axis-zero-heldout-comparison.json` in the same external directory.
+
+### Large-size discriminator supersedes low-zoom equality
+
+The earlier 57% equality between `e58c` and explicit axes 110 is insufficient
+to identify the size. Original single-CJK controls on a 400×400-unit page at
+confirmed 729% separate them: thresholded glyph bounds relative to the same
+page frame are `(37,6,298,265)` for `e58c` and `(37,6,301,268)` for explicit
+110. Repeats match. Held-out explicit values 108 and 109 distinguish the
+remaining candidates: 109 has a pixel-identical page interior to `e58c`; 108
+does not. Use 109 for subsequent model validation, not the rejected 110.
+External receipts are `large-anchor-comparison.json` and
+`large-anchor-heldout-comparison.json` under
+`caj2pdf-hnb-rendering-20261003`; no production size admission is made yet.
+
+A count-only character-class inventory additionally confirms that all twelve
+`e58c` glyphs in issue-100 are Han. Its 38 explicit-36 glyphs consist of thirty
+ASCII alphanumerics and eight unresolved raw codes. This identifies which
+baseline/resource rules are required without extracting or committing text.
