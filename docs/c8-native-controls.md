@@ -708,3 +708,31 @@ three ordinary-state PDFs have identical outer bounds; compared with the viewer
 crop their edges differ by 1–2 pixels at 182%. These residuals remain explicit.
 Node and real Worker tests include a distinct state-3 font source, bounded short
 reads and cleanup, reusing the existing font transport tests.
+
+## Required Greek letters
+
+Three original `required_greek_documents()` controls establish raw `a6c5`
+(U+03B5 epsilon) and `a6c8` (U+03B8 theta) in ordinary mode/style `10a5`.
+Both follow the current Latin resource: markers 23, 22, 63 for states 0, 3, 4.
+Their vertical bounds equal the fullwidth-comma symbol control rather than the
+ordinary Latin A baseline. Repeated nonblank crops are identical. Only these
+two raw codes are admitted in C8; adjacent Greek codes and HN-B are not inferred.
+
+Fresh ordinary Copy, selected by its visible menu item, independently returns
+U+03B5 and U+03B8. The same transaction returns U+0082 for the comma control;
+that anomalous control value is retained, not treated as evidence of comma
+Unicode or used to change the existing mapping. Selection-highlighted/menu
+captures are not rendering baselines.
+
+External receipts under the existing root: `input/c8-greek-required/manifest.json`,
+`c8-greek-required-observations.json`, `identified-family-viewer/c8-greek-*-{a,b}.png`,
+`greek-copy-menu-ready.png`, and `greek-copy{,-validation}.json` in that viewer
+directory. The copied payload has a fresh selection-owner transition and full
+bounded transfer; this scoped evidence is not universal searchable-text parity.
+
+The three supported controls reproduce exactly and pass CLI/qpdf and independent
+Unicode extraction. Independent PDF raster markers match all four source glyphs
+in each state, with 1–2 pixel outer-edge residuals retained at 182%.
+`c8-greek-required-output/checks.json` records these checks and complete-input
+retries: four-page `8090/a3e6` at byte 22512, five-page `80d5/0` at byte 20808.
+Both remain located failures without a published final PDF.

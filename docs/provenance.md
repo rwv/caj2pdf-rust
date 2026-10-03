@@ -2799,3 +2799,11 @@ selection, mode/style persistence and explicit switching. The implementation
 reuses the existing caller-supplied state-3 role after comparing original marker
 resources; HN-B behavior alone is not used as evidence. No source font outlines,
 external documents or screenshots are committed.
+
+### Required C8 Greek letters
+
+Original MIT resource/baseline controls and a fresh ordinary-copy transaction
+establish epsilon/theta for the two raw codes required by the selected documents.
+The writer reuses existing Unicode decoding and symbol placement. Adjacent codes
+are not extrapolated; clipboard anomalies for unrelated controls are retained
+in external evidence. No external font outlines or document content are committed.

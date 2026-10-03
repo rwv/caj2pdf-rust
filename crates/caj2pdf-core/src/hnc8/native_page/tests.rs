@@ -1890,3 +1890,44 @@ fn small_glyph_punctuation_is_rejected_before_regular_offset_lookup() {
         }
     }
 }
+
+#[test]
+fn c8_required_greek_letters_follow_latin_state_and_symbol_baseline() {
+    for (state, font) in [(0, 1), (3, 0), (4, 2)] {
+        for (code, unicode) in [(0xa6c5, "03B5"), (0xa6c8, "03B8")] {
+            let mut fonts = roles();
+            fonts.latin_state3 = Some(0);
+            let mut matrices = Vec::new();
+            for raw in [code, 0xa3ac] {
+                let words = [
+                    [0x8001, 4350],
+                    [0x8002, 0x10a5],
+                    [0x801d, state],
+                    [4682, raw],
+                    [0x8004, 1],
+                ];
+                let (result, pdf, finished) = convert(&words, 0, &[], fonts, 11);
+                result.unwrap();
+                assert!(finished);
+                let text = String::from_utf8_lossy(&pdf);
+                assert!(text.contains(&format!("/F{font} 1 Tf")));
+                if raw == code {
+                    assert!(text.contains(&format!("<{unicode}> Tj")));
+                    assert!(convert(&words, 0, &[], fonts, 13).0.is_err());
+                }
+                matrices.push(
+                    text.lines()
+                        .find_map(|line| line.split_once(" Tm "))
+                        .unwrap()
+                        .0
+                        .to_owned(),
+                );
+            }
+            assert_eq!(matrices[0], matrices[1]);
+        }
+    }
+    for code in [0xa6c4, 0xa6c6, 0xa6c7, 0xa6c9] {
+        let words = [[0x8001, 4350], [0x8002, 0x10a5], [4682, code], [0x8004, 1]];
+        assert!(convert(&words, 0, &[], roles(), 11).0.is_err());
+    }
+}

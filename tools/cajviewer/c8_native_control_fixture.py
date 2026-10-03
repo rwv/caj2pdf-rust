@@ -367,6 +367,17 @@ def state3_documents():
             first_y=4334, run_words=words)
 
 
+def required_greek_documents():
+    """Compare required Greek letters to symbol and Latin baseline controls."""
+    from c8_style_fixture import document as style_document
+
+    for state in (0, 3, 4):
+        yield f"greek-{state}.caj", style_document(
+            [(0x10A5, state, 6)], codes=(0xA6C5, 0xA6C8, 0xA3AC, 0xA0C1),
+            width=1600, height=500, first_x=4672, first_y=4334,
+            run_words=(0x80CE, 1))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("output", type=Path, help="new directory outside the repository")
@@ -386,7 +397,7 @@ def main():
                        *record_9002_documents(), *additional_style_documents(),
                        *skew_281c_documents(), *low_letter_documents(),
                        *field1_documents(), *small_bracket_documents(),
-                       *state3_documents()):
+                       *state3_documents(), *required_greek_documents()):
         (args.output / name).write_bytes(data)
         manifest.append({"file": name, "sha256": hashlib.sha256(data).hexdigest()})
     (args.output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
