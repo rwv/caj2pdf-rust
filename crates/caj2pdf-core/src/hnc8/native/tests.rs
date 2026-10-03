@@ -1741,18 +1741,25 @@ fn hnb_run_controls_and_drawing_preserve_following_glyph_context() {
 }
 
 #[test]
-fn hnb_implicit_style_is_unsupported_rather_than_proven_malformed() {
+fn hnb_implicit_style_requires_verified_paired_axes() {
     for width in [12, 20] {
-        for controls in [
-            vec![],
-            vec![[0x8070, 0x002b]],
-            vec![[0x8071, 0x002b]],
-            vec![[0x8070, 0x002b], [0x8071, 0x002b]],
+        for (controls, admitted) in [
+            (vec![], false),
+            (vec![[0x8070, 0x002b]], false),
+            (vec![[0x8071, 0x002b]], false),
+            (vec![[0x8070, 0x002b], [0x8071, 0x002b]], true),
         ] {
             let mut words = vec![[0x8001, 4700]];
             words.extend(controls);
             words.extend([[5200, 0xd6d0], [0x8004, 1]]);
             let mut source = hnb_source(width, &[&words]);
+            if admitted {
+                assert_eq!(
+                    parse(&mut source, TextBudget::default(), &mut Visitor::default()).unwrap(),
+                    5
+                );
+                continue;
+            }
             let error =
                 parse(&mut source, TextBudget::default(), &mut Visitor::default()).unwrap_err();
             assert!(matches!(

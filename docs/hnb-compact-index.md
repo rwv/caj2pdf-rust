@@ -1073,3 +1073,31 @@ The real issue-65 input now reaches page 1 byte 1944, where paired explicit
 43 axes precede a required glyph. Those axes remain unverified by this change,
 so the conversion fails explicitly and publishes no final PDF. The earlier
 brackets and intervening repeated shear/reset records no longer block it.
+
+### Explicit 28/43 axes and implicit styles
+
+Original `paired_axis_controls()` establish independent width/height settings
+28 and 43, with the existing paired-36 case retained as a regression. Width
+and height use the established `size * 75 / 301` point scale. Latin baselines
+are respectively 9 and 6 source units for heights 28 and 43; horizontal Latin
+inset remains one eighth of the independently specified width.
+
+The four 28/43 combinations produce identical repeated marker crops with an
+omitted style record and with explicit style 0. This admits implicit HN-B style
+only when both current axes are in that verified set. Missing/partial axes
+remain unsupported; a style record clears the axis state. The parser tracks
+current values so overwriting one axis cannot retain a stale admission bit.
+Existing C8 and mode-0 profile admission is unchanged.
+
+Twelve original axis controls convert and pass qpdf. External receipts are
+`next-axes-captures.json`, `axes-mixed-comparison.json` and
+`axes-output-checks.json` in the existing evidence root. A capture attempt
+interrupted by the container's confirmed exit-124 time limit was retried
+under the same pinned container configuration. No failed capture is evidence.
+
+The real issue-65 conversion now reaches page 1 byte 2232, an `A1B0` quotation
+mark under explicit 43 axes. Punctuation offsets under these axes remain a
+located error; there is still no completed final PDF. A refreshed bounded
+record inventory reaches later records on all five text pages, but encounters
+additional required metadata values near their ends. These diagnostic counts
+are not complete-document conversion or fidelity acceptance.

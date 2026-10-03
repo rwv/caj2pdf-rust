@@ -232,3 +232,22 @@ export function syntheticNativeHnbMixed() {
   bytes.set(jpeg, 236 + length + 12);
   return bytes;
 }
+
+/** Original compact HN-B with rectangular axes and no style record. */
+export function syntheticNativeHnbAxes() {
+  const base = syntheticNativeHnb();
+  const bytes = new Uint8Array(276);
+  bytes.set(base.subarray(0, 240));
+  const view = new DataView(bytes.buffer);
+  for (let page = 0; page < 2; page++) {
+    const offset = 240 + page * 18;
+    view.setUint32(216 + page * 12, offset, true);
+    view.setUint32(220 + page * 12, 18, true);
+    bytes.set(base.subarray(240, 244), offset);
+    for (const [index, word] of [0x8070, 43, 0x8071, 28].entries()) {
+      view.setUint16(offset + 4 + index * 2, word, true);
+    }
+    bytes.set(base.subarray(248, 254), offset + 12);
+  }
+  return bytes;
+}

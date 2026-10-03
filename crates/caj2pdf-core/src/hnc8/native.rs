@@ -247,6 +247,7 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
             let mut count = 0;
             let mut images = 0;
             let (mut y, mut style) = (None, None);
+            let mut explicit_axes = [None; 2];
             while position < end {
                 let at = loc.at(position);
                 if count == budget.max_records {
@@ -280,8 +281,7 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
                             | (0x8067, 5 | 6 | 7 | 9)
                             | (0x8069, 0x1084)
                             | (0x80ce, 0 | 1)
-                            | (0x8070 | 0x8071, 0x0024 | 0x002b)
-                            | (0x8070, 0x001c)
+                            | (0x8070 | 0x8071, 0x001c | 0x0024 | 0x002b)
                             | (0x8072, 0 | 0x1084 | 0xc2c7 | 0xcdc1)
                             | (0x8074, _)
                             | (0x8073, 0x001e | 0x001f | 0x0020 | 0x0029 | 0x002a | 0x002b)
@@ -305,6 +305,7 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
                     }
                     0x8002 => {
                         style = Some(value);
+                        explicit_axes = [None; 2];
                         NativeRecord::Control { tag, value }
                     }
                     0x801d if matches!(value, 0 | 3 | 4) => NativeRecord::Control { tag, value },
@@ -491,6 +492,13 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
                         }
                     }
                     x if x < 0x8000 => {
+                        // Paired verified HN-B axes fully specify the glyph
+                        // matrix even when no style record precedes this run.
+                        let style = style.or_else(|| {
+                            (self.header.variant == Variant::HnB
+                                && matches!(explicit_axes, [Some(28 | 43), Some(28 | 43)]))
+                            .then_some(0)
+                        });
                         if self.header.variant == Variant::HnB && style.is_none() {
                             return Err(at.error(ErrorKind::Unsupported {
                                 field: "HN-B implicit native glyph style",
@@ -516,6 +524,9 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
                         }));
                     }
                 };
+                if matches!(tag, 0x8070 | 0x8071) {
+                    explicit_axes[usize::from(tag - 0x8070)] = Some(value);
+                }
                 visitor.visit(position, record).await.map_err(|source| {
                     at.error(ErrorKind::Source {
                         field: "native record visitor",

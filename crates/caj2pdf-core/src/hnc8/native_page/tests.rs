@@ -1282,7 +1282,7 @@ fn hnb_state_and_axis_43_registration_preserve_verified_style_reset() {
         assert_eq!(actual, baseline);
     }
     let mut words = base;
-    words.splice(2..2, [[0x8070, 43], [0x8071, 43]]);
+    words.splice(2..2, [[0x8070, 43]]);
     words.push([0x8004, 1]);
     let (result, _, finished) = convert(&words, 0, &[], roles(), 12);
     assert!(result.is_err());
@@ -1381,6 +1381,53 @@ fn hnb_tortoise_shell_brackets_preserve_controlled_offsets_and_resources() {
                 assert!(convert(&other, 0, &[], fonts, 13).0.is_err());
                 assert!(convert(&words, 0, &[], fonts, 11).0.is_err());
             }
+        }
+    }
+}
+
+#[test]
+fn hnb_paired_axes_define_dimensions_and_allow_implicit_style() {
+    for (width, height) in [(28, 28), (43, 43), (28, 43), (43, 28)] {
+        let words = [
+            [0x8001, 4350],
+            [0x8070, width],
+            [0x8071, height],
+            [4682, 0xd6d0],
+            [4772, 0xa0c1],
+            [0x8004, 1],
+        ];
+        let (result, implicit, finished) = convert(&words, 0, &[], roles(), 12);
+        result.unwrap();
+        assert!(finished);
+        let mut explicit = words.to_vec();
+        explicit.insert(1, [0x8002, 0]);
+        let (result, pdf, _) = convert(&explicit, 0, &[], roles(), 12);
+        result.unwrap();
+        assert_eq!(implicit, pdf);
+        let text = String::from_utf8_lossy(&pdf);
+        let matrices: Vec<Vec<f64>> = text
+            .lines()
+            .filter_map(|line| line.split_once(" Tm "))
+            .map(|(matrix, _)| {
+                matrix
+                    .split_whitespace()
+                    .map(|v| v.parse().unwrap())
+                    .collect()
+            })
+            .collect();
+        let w = f64::from(width) * 75.0 / 301.0;
+        let h = f64::from(height) * 75.0 / 301.0;
+        let unit = super::super::EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
+        assert!((matrices[0][0] - w).abs() < 0.000001);
+        assert!((matrices[0][3] - h).abs() < 0.000001);
+        assert!((matrices[1][4] - matrices[0][4] - 90.0 * unit - w / 8.0).abs() < 0.000002);
+        let baseline = if height == 28 { 9.0 } else { 6.0 };
+        assert!((matrices[0][5] - matrices[1][5] - baseline * unit).abs() < 0.000002);
+        assert!(convert(&words, 0, &[], roles(), 0).0.is_err());
+        for missing in [1, 2] {
+            let mut partial = words.to_vec();
+            partial.remove(missing);
+            assert!(convert(&partial, 0, &[], roles(), 12).0.is_err());
         }
     }
 }

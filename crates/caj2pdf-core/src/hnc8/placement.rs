@@ -264,13 +264,20 @@ pub(super) fn native_glyph_transform(
 ) -> Result<[f64; 6]> {
     let [left, _, _, top] = page.media_box()?;
     let (width, height, latin_offset) = if axes != [None; 2] {
-        if axes != [Some(36); 2] {
-            return Err(Error::InvalidInput {
-                reason: "unverified native explicit glyph axes",
-            });
-        }
-        let em = 36.0 * 75.0 / 301.0;
-        (em, em, 8.0)
+        let (width, height, baseline) = match axes {
+            [Some(36), Some(36)] => (36.0, 36.0, 8.0),
+            [Some(width @ (28 | 43)), Some(height @ (28 | 43))] => (
+                f64::from(width),
+                f64::from(height),
+                if height == 28 { 9.0 } else { 6.0 },
+            ),
+            _ => {
+                return Err(Error::InvalidInput {
+                    reason: "unverified native explicit glyph axes",
+                });
+            }
+        };
+        (width * 75.0 / 301.0, height * 75.0 / 301.0, baseline)
     } else if matches!(style, 0xe58c | 0x114a | 0x154a) && class == C8GlyphClass::Cjk {
         // Original controls distinguish explicit 109 and 84 from adjacent
         // sizes. Latin baselines and other size-field flags remain unverified.
