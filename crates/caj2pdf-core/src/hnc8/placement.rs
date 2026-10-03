@@ -313,7 +313,7 @@ pub(super) fn mode_zero_glyph_transform(
         let unit = EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
         let em = 21.0 * 75.0 / 301.0;
         let baseline = if class == C8GlyphClass::Latin {
-            8.0
+            10.0
         } else {
             0.0
         };
@@ -335,11 +335,54 @@ pub(super) fn mode_zero_glyph_transform(
             reason: "unverified HN-B mode-0 glyph style",
         });
     }
-    let mut transform = native_glyph_transform(page, source_origin, position, style, class, axes)?;
-    transform[5] -= 15.0 * EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
-    if class == C8GlyphClass::Latin {
-        transform[4] -= transform[0] / 8.0;
-    }
+    let mut transform = native_glyph_transform(
+        page,
+        source_origin,
+        position,
+        style,
+        C8GlyphClass::Cjk,
+        axes,
+    )?;
+    let baseline = if class == C8GlyphClass::Latin {
+        10.0
+    } else {
+        0.0
+    };
+    transform[5] -= (15.0 + baseline) * EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
+    Ok(transform)
+}
+
+/// Required mode-0 digits share the ordinary Latin font, but not alphabet
+/// positioning. Offsets are empirical source units from isolated controls;
+/// only the observed height fields and explicit-36 pair are admitted.
+pub(super) fn mode_zero_digit_transform(
+    page: EmpiricalPageGeometry,
+    source_origin: [u16; 2],
+    position: [u16; 2],
+    style: u16,
+    axes: [Option<u16>; 2],
+) -> Result<[f64; 6]> {
+    let (left, down) = match (style, axes) {
+        (_, [Some(36), Some(36)]) => (22.0, 18.0),
+        (0 | 0x1000, [None, None]) => (21.0, 15.0),
+        (0x0484 | 0x0884 | 0x1084 | 0x9c84 | 0x0ca4 | 0x10a4, [None, None]) => (22.0, 18.0),
+        (0x10a5, [None, None]) => (22.0, 20.0),
+        _ => {
+            return Err(Error::InvalidInput {
+                reason: "unverified HN-B mode-0 digit geometry",
+            });
+        }
+    };
+    let mut transform = mode_zero_glyph_transform(
+        page,
+        source_origin,
+        position,
+        style,
+        C8GlyphClass::Cjk,
+        axes,
+    )?;
+    transform[4] -= left * EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
+    transform[5] -= down * EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
     Ok(transform)
 }
 

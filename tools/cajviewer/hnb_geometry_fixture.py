@@ -292,6 +292,78 @@ def legacy_run_controls():
         yield f"legacy-line-{name}", bytes(data)
 
 
+def legacy_digit_controls():
+    """Isolate required glyph origins at a larger fit-width scale."""
+    for label, style, axes in (
+        ("zero", 0x1000, ()), ("four", 0x1084, ()),
+        ("wide", 0x10A4, ()), ("five", 0x10A5, ()),
+        ("explicit36", 0, (36, 36)),
+    ):
+        for kind, code in (("han", 0xD6D0), ("letter", 0xA3C1), ("digit", 0xA3B0)):
+            data = bytearray(legacy_geometry_control(width=200, height=200, style=style))
+            struct.pack_into("<H", data, 230, 50)
+            data[244:256] = struct.pack("<HH", 20, code)
+            if axes:
+                data[244:244] = struct.pack("<HHHH", 0x8070, axes[0], 0x8071, axes[1])
+            struct.pack_into("<I", data, 220, len(data) - 228)
+            yield f"legacy-digit-{label}-{kind}", bytes(data)
+            if label == "four" and kind == "digit":
+                struct.pack_into("<H", data, 238, 4)
+                yield "legacy-digit-four-alternate", bytes(data)
+    for label, code in (("open", 0xA3A8), ("close", 0xA3A9), ("slash", 0xA3AF)):
+        data = bytearray(legacy_geometry_control(width=200, height=200))
+        struct.pack_into("<H", data, 230, 50)
+        data[244:256] = struct.pack("<HH", 20, code)
+        struct.pack_into("<I", data, 220, len(data) - 228)
+        yield f"legacy-punctuation-{label}", bytes(data)
+    base = bytearray(legacy_geometry_control())
+    struct.pack_into("<H", base, 250, 0xA1A1)
+    yield "legacy-space-middle", bytes(base)
+    data = bytearray(base)
+    del data[248:252]
+    struct.pack_into("<I", data, 220, len(data) - 228)
+    yield "legacy-space-absent", bytes(data)
+    data = bytearray(base)
+    struct.pack_into("<H", data, 248, 600)
+    yield "legacy-space-moved", bytes(data)
+
+
+def legacy_line_width_controls():
+    """Separate device hairlines from strokes that scale with source units."""
+    for name, width, height in (("small", 200, 200), ("large", 600, 400)):
+        data = bytearray(legacy_geometry_control(width=width, height=height))
+        del data[244:256]
+        data[228:228] = struct.pack("<HHHHHHHH", 0x8006, 0xA385, 20, 150, 180, 150, 0xFFFF, 5)
+        struct.pack_into("<I", data, 220, len(data) - 228)
+        yield f"legacy-line-width-{name}", bytes(data)
+
+
+def legacy_symbol_grids():
+    """Nonoverlapping required symbols with explicit ordinary-font anchors."""
+    codes = (
+        0xD6D0, 0xA3C1, 0xA980, 0xA3B0, 0xA1A1,
+        0xA1A2, 0xA1A3, 0xA1AA, 0xA1AE, 0xA1AF,
+        0xA1B0, 0xA1B1, 0xA3A7, 0xA3A8, 0xA3A9,
+        0xA3AB, 0xA3AC, 0xA3AD, 0xA3AE, 0xA3AF,
+        0xA3BA, 0xA3BB, 0xA3BF, 0xA3DB, 0xA3DD,
+        0xAAB1, 0xAAB2, 0x9FF5,
+    )
+    for label, style, axes in (
+        ("zero", 0x1000, ()), ("four", 0x1084, ()),
+        ("wide", 0x10A4, ()), ("five", 0x10A5, ()),
+        ("explicit36", 0, (36, 36)),
+    ):
+        data = bytearray(legacy_geometry_control(width=1100, height=1100, style=style))
+        words = []
+        if axes: words.extend((0x8070, axes[0], 0x8071, axes[1]))
+        for i, code in enumerate(codes):
+            if i % 5 == 0: words.extend((0x8001, 100 + i // 5 * 150))
+            words.extend((100 + i % 5 * 200, code))
+        data[244:256] = struct.pack("<" + "H" * len(words), *words)
+        struct.pack_into("<I", data, 220, len(data) - 228)
+        yield f"legacy-symbol-grid-{label}", bytes(data)
+
+
 def legacy_symbol_controls():
     """Original Unicode-copy controls for the required mode-0 classes."""
     codes = (
@@ -431,7 +503,7 @@ def main():
         manifest.append({"file": filename, "code": code, "alternate": alt, "dx": dx,
                          "x": x, "y": y, "sha256": hashlib.sha256(data).hexdigest()})
     for name, data in (*end_controls(), *issue63_style_controls(), *native_mode_controls(),
-                       *legacy_geometry_controls(), *legacy_metric_controls(), *legacy_run_controls(), *legacy_symbol_controls()):
+                       *legacy_geometry_controls(), *legacy_metric_controls(), *legacy_run_controls(), *legacy_digit_controls(), *legacy_line_width_controls(), *legacy_symbol_grids(), *legacy_symbol_controls()):
         filename = name + ".caj"
         (args.output / filename).write_bytes(data)
         manifest.append({"file": filename, "sha256": hashlib.sha256(data).hexdigest()})

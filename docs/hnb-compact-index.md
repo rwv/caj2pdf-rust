@@ -780,3 +780,67 @@ Their hashes and comparison receipts are external under
 `legacy-line-comparison.json`, `legacy-mode0-cli-checkpoint.json` and
 `legacy-mode0-render-comparison.json`. Source documents, fonts, captures and
 PDFs remain outside Git. Peak memory and full release acceptance remain #222.
+
+### Mode-0 digits, punctuation and segments
+
+Isolated large-fit controls now separate CJK, alphabet and digit placement for
+size zero, field 4, field 5/4, field 5 and explicit 36. Alphabet baselines use
+10 source units independently of the mode-2 size-dependent table. Ordinary
+Latin digits use measured size-specific offsets, including their different
+horizontal origin. An original `801d/4` digit control is identical to its
+ordinary-state counterpart. Parentheses use the ordinary Latin font with CJK
+geometry; the A3 slash uses the CJK font. The distinct `9ff5` slash remains a
+separate, unsupported symbol resource. Unicode identity is retained.
+
+Mode-0 `a385` segments decode markers on both x endpoints and use their measured
+y origin. Plain/marked originals match, and a diagonal control preserves its
+endpoints. Small/large page controls integrate to approximately one black
+pixel across the source stroke at both fit scales, distinguishing a device
+hairline from a stroke that scales in source units. PDF uses zero-width
+hairlines. MuPDF renders them lighter than the viewer in this capture; exact
+stroke darkness is not claimed. Measured segment rectangle edges differ by
+up to three pixels in the recorded fit-width comparison.
+
+Digit/alphabet offsets relative to the CJK anchor agree within one pixel in
+the isolated large-fit comparison. Absolute glyph edges retain 3–4-pixel
+residuals at that larger zoom (roughly 970%), including the CJK anchor; these
+are not exact pixel matches. The three isolated punctuation controls have the
+same CJK rectangle, retaining the same absolute residual. These checks do not
+complete issue-63 acceptance.
+
+A broader original-font experiment replaces all 81 remaining viewer font files
+with independently generated marker fonts, while preserving the existing CJK
+and two Latin markers. Only resource filenames/family names are reused; no
+vendor outlines or implementation are copied. Five nonoverlapping 28-glyph
+original grids show a stable fourth resource group: space, ideographic
+punctuation, quotes, ordinary punctuation and the `9ff5` slash. Parentheses,
+A3 slash and digits retain their distinct existing roles across these grids.
+This establishes an explicit caller symbol-font role as the next step; it does
+not require identifying or redistributing each original font.
+
+The fourth marker also makes `a1a1` space visible. The earlier three-font-only
+space/absence equality therefore does **not** establish a layout-only no-op:
+the original space glyph was empty in a different resource. A provisional
+skip-space implementation was removed before commit. Spaces and the remaining
+symbols continue to fail explicitly until their resource path is implemented.
+The real issue-63 document still fails at byte 404 without a final output file.
+The issue-100 CLI regression remains byte-identical to the prior checkpoint.
+
+The current CLI passes 22 new original controls with qpdf, including the
+space-absent control, and rejects both space-bearing controls without publishing
+PDFs. Three earlier segment controls
+also convert and pass qpdf. Rust tests include the new digit/punctuation font
+roles, Unicode, unsupported geometry, late failure and both marked endpoints.
+Strict Clippy, all 161 JS tests with rebuilt WASM (no skips), and
+34,554/34,554 Rust line coverage pass, including the per-file gate.
+
+The existing generator adds 22 digit/punctuation/space controls, five symbol
+grids and two stroke-width controls. External receipts remain under
+`caj2pdf-hnb-rendering-20261003`: `legacy-digit-inputs.json`,
+`legacy-digit-comparison.json`, `legacy-digit-pdf-comparison.json`,
+`legacy-punctuation-pdf-comparison.json`, `legacy-digits-current-cli.json`,
+`legacy-symbol-grid-{inputs,comparison}.json`, `legacy-line-width-comparison.json`
+and `legacy-line-pdf-comparison.json`. Failed/black PDF-viewer captures are
+excluded; valid source captures are compared with independent MuPDF renders.
+The earlier provisional skip-space CLI receipt is superseded by the current
+receipt. Whole-document/runtime/fidelity and peak-memory acceptance remain open.

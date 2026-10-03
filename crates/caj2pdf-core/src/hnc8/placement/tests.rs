@@ -688,9 +688,9 @@ fn mode_zero_geometry_uses_its_measured_origins_and_size_zero() {
     let unit = EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
     for (style, class, size, baseline) in [
         (0x1084, C8GlyphClass::Cjk, 35.0, 0.0),
-        (0x1084, C8GlyphClass::Latin, 35.0, 8.0),
+        (0x1084, C8GlyphClass::Latin, 35.0, 10.0),
         (0, C8GlyphClass::Cjk, 21.0, 0.0),
-        (0x1000, C8GlyphClass::Latin, 21.0, 8.0),
+        (0x1000, C8GlyphClass::Latin, 21.0, 10.0),
         (0x154a, C8GlyphClass::Cjk, 84.0, 0.0),
     ] {
         let m =
@@ -719,4 +719,29 @@ fn mode_zero_geometry_uses_its_measured_origins_and_size_zero() {
         )
         .is_err()
     );
+}
+
+#[test]
+fn mode_zero_digits_have_measured_height_specific_offsets() {
+    let page = source_page_geometry([300, 300]).unwrap();
+    let unit = EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
+    for (style, axes, em, raw_x, raw_y) in [
+        (0x1000, [None; 2], 21.0, 19.0, 64.0),
+        (0x1084, [None; 2], 35.0, 18.0, 67.0),
+        (0x10a5, [None; 2], 42.0, 18.0, 69.0),
+        (0, [Some(36); 2], 36.0, 18.0, 67.0),
+    ] {
+        let m = mode_zero_digit_transform(page, [0, 1], [20, 50], style, axes).unwrap();
+        close(m[0], em * 75.0 / 301.0);
+        close(m[3], em * 75.0 / 301.0);
+        close(m[4], raw_x * unit);
+        close(m[5], (300.0 - raw_y) * unit - em * 75.0 / 301.0);
+    }
+    for (style, axes) in [
+        (0x154a, [None; 2]),
+        (0x1084, [Some(36), None]),
+        (0xe58c, [Some(36); 2]),
+    ] {
+        assert!(mode_zero_digit_transform(page, [0; 2], [20, 50], style, axes).is_err());
+    }
 }

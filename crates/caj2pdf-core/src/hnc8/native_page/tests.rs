@@ -123,7 +123,7 @@ fn convert(
     mode: u8,
 ) -> (Result<u32>, Vec<u8>, bool) {
     let mut input = fixture(words, declared);
-    if matches!(mode, 12 | 13 | 18) {
+    if matches!(mode, 12 | 13 | 18 | 19) {
         // Original compact HN-B wrapper around the same authored record stream.
         let c8 = &input.bytes;
         let mut bytes = vec![0; 228];
@@ -131,7 +131,7 @@ fn convert(
         bytes[4..8].copy_from_slice(&200_u32.to_le_bytes());
         bytes[8..12].copy_from_slice(&136_u32.to_le_bytes());
         bytes[144..148].copy_from_slice(&1_u32.to_le_bytes());
-        bytes[148] = if mode == 18 { 0 } else { 2 };
+        bytes[148] = if matches!(mode, 18 | 19) { 0 } else { 2 };
         bytes[164..172].copy_from_slice(&c8[28..36]);
         bytes[216..220].copy_from_slice(&228_u32.to_le_bytes());
         bytes[220..224].copy_from_slice(&(c8.len() as u32 - 100).to_le_bytes());
@@ -169,7 +169,7 @@ fn convert(
         }
         let mut document = PdfDocument::new(&mut sink, &limits, &cancel).await.unwrap();
         let mut font_bytes = crate::pdf::drawing_font();
-        if matches!(mode, 11 | 13) {
+        if matches!(mode, 11 | 13 | 19) {
             // Relabel an original glyph as the test's source symbol.
             // No source font outline or character shape is imported.
             let table = font_bytes[12..]
@@ -183,7 +183,12 @@ fn convert(
                 .iter()
                 .find(|pair| pair[0] < 0x8000 && pair[1] >= 0xa000)
                 .unwrap()[1];
-            let character = decode_native_character(code).unwrap() as u32;
+            let character = if mode == 19 {
+                decode_native_character_for_mode(0, code)
+            } else {
+                decode_native_character(code)
+            }
+            .unwrap() as u32;
             assert_ne!(character, 65);
             // Keep the two format-12 groups sorted for ASCII punctuation too.
             let group = offset + if character < 65 { 28 } else { 40 };
@@ -1010,10 +1015,10 @@ fn mode_zero_styles_axes_and_late_failures_remain_explicit() {
     for tail in [
         vec![[4772, 0xa0c1]], // Mode-2 alias is not a mode-0 alphabet.
         vec![[4772, 0x9ff5]], // Decoded symbol still lacks verified placement.
-        vec![[4772, 0xa3b0]], // Digits have a distinct measured baseline.
+        vec![[4772, 0xa1a1]], // Space also uses the separate symbol resource.
         vec![[4772, 0xa3c2]], // Caller font lacks B.
         vec![[0x8072, 0]],
-        vec![[0x8006, 0xa385], [4682, 4350], [4912, 4350], [0xffff, 5]],
+        vec![[0x8006, 0xa381], [4682, 4350], [4912, 4350], [0xffff, 5]],
         vec![[0x8002, 0x1042], [4772, 0xa3c1]],
         vec![[0x8070, 36], [4772, 0xa3c1]],
     ] {
@@ -1025,5 +1030,79 @@ fn mode_zero_styles_axes_and_late_failures_remain_explicit() {
         assert_eq!(error.page, Some(1));
         assert!(error.offset >= 240);
         assert!(!finished);
+    }
+}
+
+#[test]
+fn mode_zero_digits_keep_unicode_and_use_ordinary_latin_with_independent_offsets() {
+    for (style, axes) in [
+        (0x1000, false),
+        (0x1084, false),
+        (0x10a4, false),
+        (0x10a5, false),
+        (0, true),
+    ] {
+        let mut words = vec![[0x8001, 4350], [0x8002, style], [0x801d, 4]];
+        if axes {
+            words.extend([[0x8070, 36], [0x8071, 36]]);
+        }
+        words.extend([[4772, 0xa3b0], [0x8004, 1]]);
+        let (result, pdf, finished) = convert(&words, 0, &[], roles(), 19);
+        assert!(result.is_ok(), "{style:x}: {result:?}");
+        assert!(finished);
+        let text = String::from_utf8_lossy(&pdf);
+        assert!(text.contains("/F1 1 Tf"));
+        assert!(text.contains("<0030> Tj"));
+        assert!(!text.contains("/F2 1 Tf"));
+    }
+    let words = [
+        [0x8001, 4350],
+        [0x8002, 0x154a],
+        [4772, 0xa3b0],
+        [0x8004, 1],
+    ];
+    assert!(convert(&words, 0, &[], roles(), 19).0.is_err());
+}
+
+#[test]
+fn mode_zero_a385_lines_decode_markers_on_both_endpoints() {
+    let mut expected = None;
+    for marked in [false, true] {
+        let mark = if marked { 0xc000 } else { 0 };
+        let words = [
+            [0x8006, 0xa385],
+            [100 | mark, 200],
+            [500 | mark, 300],
+            [0xffff, 5],
+            [0x8001, 4350],
+            [0x8002, 0x1084],
+            [4682, 0xd6d0],
+            [0x8004, 1],
+        ];
+        let (result, pdf, finished) = convert(&words, 0, &[], roles(), 18);
+        assert!(result.is_ok(), "{result:?}");
+        assert!(finished);
+        if let Some(plain) = &expected {
+            assert_eq!(&pdf, plain);
+        } else {
+            expected = Some(pdf);
+        }
+    }
+}
+
+#[test]
+fn mode_zero_parentheses_and_slash_use_their_controlled_font_roles() {
+    for (code, character, role) in [
+        (0xa3a8, "FF08", 1),
+        (0xa3a9, "FF09", 1),
+        (0xa3af, "FF0F", 0),
+    ] {
+        let words = [[0x8001, 4350], [0x8002, 0x1084], [4772, code], [0x8004, 1]];
+        let (result, pdf, finished) = convert(&words, 0, &[], roles(), 19);
+        assert!(result.is_ok(), "{code:x}: {result:?}");
+        assert!(finished);
+        let text = String::from_utf8_lossy(&pdf);
+        assert!(text.contains(&format!("/F{role} 1 Tf")));
+        assert!(text.contains(&format!("<{character}> Tj")));
     }
 }

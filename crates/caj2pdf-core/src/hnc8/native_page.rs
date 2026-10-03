@@ -455,6 +455,10 @@ impl<W: SequentialSink, C: Cancellation> PageWriter<'_, '_, '_, '_, W, C> {
                 tag: 0x8067,
                 value: 6,
             }
+            | NativeRecord::Control {
+                tag: 0xffff,
+                value: 5,
+            }
             | NativeRecord::End { .. } => (),
             NativeRecord::Control { tag: 0x8002, .. } => self.axes = [None; 2],
             NativeRecord::Control {
@@ -465,14 +469,33 @@ impl<W: SequentialSink, C: Cancellation> PageWriter<'_, '_, '_, '_, W, C> {
                 tag: 0x8071,
                 value: 36,
             } => self.axes[1] = Some(36),
+            NativeRecord::Drawing {
+                tag: 0x8006,
+                style: 0xa385,
+                points,
+            } => {
+                // Both mode-0 endpoints can carry the high-bit marker. The
+                // controlled y origin is five units above the mode-2 segment.
+                let points =
+                    points.map(|[x, y]| [if x & 0xc000 == 0xc000 { x & 0x3fff } else { x }, y]);
+                let mut ends = empirical_c8_segment(self.geometry, self.origin, points, 0xa385)?;
+                for end in &mut ends {
+                    end[1] += 5.0 * super::EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
+                }
+                self.page.segment(ends[0], ends[1], 0.0).await?;
+            }
             NativeRecord::Glyph { x, y, style, code } => {
                 let character = decode_native_character_for_mode(0, code)
                     .ok_or_else(|| invalid("unsupported HN-B mode-0 character"))?;
                 // The raw alphabet selects its resource independently of 801d.
-                // Digits and symbols have separate, not yet admitted placement.
+                // Digits have a separate matrix; remaining symbols need another resource.
                 let (class, font) = match code {
+                    0xa3a8 | 0xa3a9 => (C8GlyphClass::Cjk, self.roles.latin),
+                    0xa3af => (C8GlyphClass::Cjk, self.roles.cjk),
                     0xa980..=0xa9b3 => (C8GlyphClass::Latin, self.roles.alternate_latin),
-                    0xa3c1..=0xa3da | 0xa3e1..=0xa3fa => (C8GlyphClass::Latin, self.roles.latin),
+                    0xa3b0..=0xa3b9 | 0xa3c1..=0xa3da | 0xa3e1..=0xa3fa => {
+                        (C8GlyphClass::Latin, self.roles.latin)
+                    }
                     _ if ('\u{4e00}'..='\u{9fff}').contains(&character) => {
                         (C8GlyphClass::Cjk, self.roles.cjk)
                     }
@@ -482,14 +505,24 @@ impl<W: SequentialSink, C: Cancellation> PageWriter<'_, '_, '_, '_, W, C> {
                         ));
                     }
                 };
-                let transform = super::placement::mode_zero_glyph_transform(
-                    self.geometry,
-                    self.origin,
-                    [x, y],
-                    style,
-                    class,
-                    self.axes,
-                )?;
+                let transform = if (0xa3b0..=0xa3b9).contains(&code) {
+                    super::placement::mode_zero_digit_transform(
+                        self.geometry,
+                        self.origin,
+                        [x, y],
+                        style,
+                        self.axes,
+                    )?
+                } else {
+                    super::placement::mode_zero_glyph_transform(
+                        self.geometry,
+                        self.origin,
+                        [x, y],
+                        style,
+                        class,
+                        self.axes,
+                    )?
+                };
                 self.page
                     .glyph_with_gray(font, character, transform, 68)
                     .await?;
