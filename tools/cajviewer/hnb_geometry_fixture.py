@@ -177,6 +177,36 @@ def issue63_style_controls():
             yield f"{prefix}-{name}", data if c8 else hn_container(data)
 
 
+def native_mode_controls():
+    """Original mode-only and alphabet controls; no glyph outlines are copied."""
+    groups = ((0xA980, 0xA98A, 0xA996, 0xA99A, 0xA99B, 0xA99C, 0xA99D),
+              (0xA99E, 0xA9A8, 0xA9AB, 0xA9AC, 0xA9AD, 0xA9B2))
+    for index, codes in enumerate(groups):
+        words = tuple(word for i, code in enumerate(codes) for word in (4672 + i * 100, code))
+        for mode in (2, 0):
+            data = bytearray(hn_container(document(
+                [(0x1084, 0, 6)], codes=(), width=800, height=250,
+                first_x=4672, first_y=4374, run_words=words)))
+            struct.pack_into("<I", data, 148, mode)
+            suffix = "" if mode == 2 else "mode0-"
+            yield f"issue63-a9-{suffix}{index}", bytes(data)
+    for name, codes in (("a9upper", range(0xA980, 0xA99A)),
+                        ("a9lower", range(0xA99A, 0xA9B4)),
+                        ("a3upper", range(0xA3C1, 0xA3DB)),
+                        ("a3lower", range(0xA3E1, 0xA3FB)),
+                        ("a0upper", range(0xA0C1, 0xA0DB))):
+        words = []
+        for i, code in enumerate(codes):
+            if i == 13:
+                words.extend((0x8001, 4474))
+            words.extend((4672 + i % 13 * 65, code))
+        data = bytearray(hn_container(document(
+            [(0x1084, 0, 6)], codes=(), width=950, height=400,
+            first_x=4672, first_y=4374, run_words=tuple(words))))
+        struct.pack_into("<I", data, 148, 0)
+        yield f"legacy-{name}", bytes(data)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("output", type=Path, help="new directory outside the repository")
@@ -279,7 +309,7 @@ def main():
         (args.output / filename).write_bytes(data)
         manifest.append({"file": filename, "code": code, "alternate": alt, "dx": dx,
                          "x": x, "y": y, "sha256": hashlib.sha256(data).hexdigest()})
-    for name, data in (*end_controls(), *issue63_style_controls()):
+    for name, data in (*end_controls(), *issue63_style_controls(), *native_mode_controls()):
         filename = name + ".caj"
         (args.output / filename).write_bytes(data)
         manifest.append({"file": filename, "sha256": hashlib.sha256(data).hexdigest()})

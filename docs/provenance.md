@@ -2534,3 +2534,9 @@ based on independently generated HN-B/C8 controls. The measured 84-unit size
 is distinguished from adjacent candidates, with changed font/coordinates as
 held-out controls. No vendor implementation, font outlines or corpus text is
 included. Existing glyph geometry and regression helpers are reused.
+
+Native mode preservation is independently authored MIT code. Original controls
+vary only the HN-B header mode word and use original alphabet sequences to
+observe mode-dependent character interpretation in the pinned viewer. The
+nine-control generator contains no external text, font outlines or vendor
+implementation. This metadata addition does not claim mode-0 rendering support.

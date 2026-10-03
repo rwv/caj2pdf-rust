@@ -597,13 +597,42 @@ The public CLI now passes the former byte-304 style failure and stops at byte
 no final PDF on failure. The 22 placement tests, strict workspace Clippy and
 34,379/34,379 Rust line coverage pass. This is still not issue-63 conversion.
 
-Initial original `a9xx` probes reveal a separate character/resource problem:
-viewer selection copies `a980/a98a/a996/a99a/a99b/a99c/a99d` as digits
-`0/0/2/6/7/8/9`, while their visible forms contain circles or dark boxes.
-Blind ordinary GB18030 mappings would be wrong for that subset. A second
-control copies `a99e` as U+E7FB and the tested line-drawing codes as their
-ordinary Unicode values. These are investigation results only; do not erase
-the visible enclosures, invent Unicode equivalents or accept arbitrary private
-use codes. External `issue63-a9-inputs.json`, captures and clipboard receipts
-retain the original control evidence. Required mapping, font resource and
-placement remain unresolved in #241.
+The initial `a9xx` controls used native mode 2: their copied digits and visible
+circles/dark boxes are evidence only for that mode. They do not describe the
+mode-0 issue-63 document. See the mode discrimination below; do not apply these
+observations across profiles.
+
+
+## Native mode distinguishes character interpretation
+
+A paired original HN-B control changes only the little-endian word at offset
+148 from 2 to 0. The same `a980/a98a/a996/a99a/a99b/a99c/a99d` records now display
+`A/K/W/a/b/c/d`, instead of the mode-2 enclosed digits. Full original alphabet
+controls show `a980..a999` as A–Z and `a99a..a9b3` as a–z. Mode-0 `a3c1..a3da`
+and `a3e1..a3fa` display ordinary Latin letters with a different weight;
+`a0c1..a0da` do not retain the mode-2 ASCII interpretation. Clipboard results
+for the alphabet controls agree with their visible letters, allowing whitespace
+introduced by the original fixed glyph advances. This distinguishes decoding
+from font selection; exact resource and placement rules still need controls.
+
+The pinned issue-63 file has mode 0, while issue-100, issue-65 and the two
+additional C8 samples have mode 2. A selected source abstract can be copied
+through the viewer's ordinary Copy menu; the resulting text agrees with the
+Latin-label interpretation. Ctrl+C opens an enhanced-copy menu in that source
+workflow and initially left a sentinel unchanged. The first mode-0 capture
+attempts retained that menu and the wrong document, so they are excluded;
+`issue63-a9-mode0-0-retry.png` shows the actual opened original control.
+
+`Header::native_mode` now preserves the raw word at C8 offset 12 / HN-B offset
+148, with `None` for HN-A. Unknown values are retained as metadata, without
+promoting them to supported rendering. This is a breaking public struct
+addition in v0.x. The existing standalone character helper describes the
+mode-2 subset; mode-aware conversion and legacy geometry remain unfinished.
+Do not treat the recently verified mode-2 style constants as mode-0 geometry
+acceptance. #241 still owns complete issue-63 conversion through all runtimes.
+
+Nine original controls in `hnb_geometry_fixture.py` reproduce the external
+`issue63-a9-inputs.json`, `issue63-a9-mode-inputs.json` and
+`legacy-alphabet-inputs.json` hashes in `caj2pdf-hnb-rendering-20261003`.
+Source text, fonts and captures stay outside Git. Metadata tests preserve
+0, 2 and unknown values, HN-A absence, one-byte reads and located truncation.

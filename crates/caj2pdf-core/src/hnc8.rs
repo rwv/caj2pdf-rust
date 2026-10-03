@@ -96,6 +96,10 @@ impl Span {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Header {
     pub variant: Variant,
+    /// Raw native mode at C8 offset 12 or HN-B offset 148; unknown for HN-A.
+    /// Independently controlled modes 0 and 2 interpret some character codes
+    /// differently. Preserving this word does not admit its rendering profile.
+    pub native_mode: Option<u32>,
     /// Raw C8 origin at 28/30 or HN-B origin at 164/166; unknown for HN-A.
     /// The verified native-record profile subtracts these from record coordinates.
     /// This does not establish image placement or font baseline semantics.
@@ -548,6 +552,23 @@ impl<'a, S: RangedSource, C: Cancellation> Hnc8Reader<'a, S, C> {
                 u64::from(page_count),
             ));
         }
+        let native_mode = if variant != Variant::HnA {
+            let offset = count_offset + 4;
+            let mut mode = [0; 4];
+            read_fixed(
+                source,
+                limits,
+                cancellation,
+                offset,
+                &mut mode,
+                loc.at(offset),
+                "native mode",
+            )
+            .await?;
+            Some(u32::from_le_bytes(mode))
+        } else {
+            None
+        };
         let native_origin = if variant != Variant::HnA {
             let offset = count_offset + 20;
             let mut origin = [0; 4];
@@ -657,6 +678,7 @@ impl<'a, S: RangedSource, C: Cancellation> Hnc8Reader<'a, S, C> {
             budget,
             header: Header {
                 variant,
+                native_mode,
                 native_origin,
                 page_size,
                 page_count,

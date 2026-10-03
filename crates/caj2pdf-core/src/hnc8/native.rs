@@ -60,7 +60,10 @@ pub enum NativeRecord {
     End { value: Option<u16> },
 }
 
-/// Decode the admitted C8/HN-B native character subset without allocating.
+/// Decode the admitted mode-2 C8/HN-B native character subset without allocating.
+///
+/// This helper does not select a profile from a container. Mode 0 has distinct
+/// character semantics; callers must not infer them from this mode-2 mapping.
 ///
 /// Ordinary codes use their big-endian two-byte GB18030 value. The independently
 /// verified A0-prefixed letters/digits use ASCII plus 0x80 in the low byte.
