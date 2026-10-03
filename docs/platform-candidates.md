@@ -76,7 +76,8 @@ Linux candidates. `scripts/install-i586-gnu.py` downloads five SHA256-pinned
 Debian Jessie i386 development/runtime packages into runner scratch space.
 It relocates absolute library symlinks inside that sysroot without changing
 library bytes. Clang/LLD link the official Rust target against glibc 2.19;
-QEMU 10.0.13 executes it with `-cpu pentium`. The archived sysroot is a build
+QEMU 10.0.13 executes it with `-cpu pentium` and explicit guest library
+search paths, preventing the host loader cache from selecting Ubuntu libc. The archived sysroot is a build
 and test input, not a host installation or a bundled CLI dependency.
 
 This addresses the earlier Ubuntu i386 runtime's unsupported CPU instructions.

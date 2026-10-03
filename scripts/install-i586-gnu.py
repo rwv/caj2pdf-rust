@@ -70,7 +70,10 @@ linker.write_text("#!/bin/sh\nexec " + shlex.join([
 ]) + ' "$@" ' + shlex.join([f"-fuse-ld={lld}", "-Wl,--fatal-warnings"]) + "\n")
 linker.chmod(0o755)
 qemu = root / "qemu/usr/bin/qemu-i386"
-runner = f"{qemu} -cpu pentium -L {sysroot}"
+# QEMU -L redirects existing paths, but does not isolate the host ld.so.cache.
+# Search the pinned guest libraries before consulting that cache.
+runner = (f"{qemu} -cpu pentium -L {sysroot} "
+          "-E LD_LIBRARY_PATH=/lib/i386-linux-gnu:/usr/lib/i386-linux-gnu")
 subprocess.run([clang, "--version"], check=True)
 subprocess.run([lld, "--version"], check=True)
 subprocess.run([str(qemu), "--version"], check=True)
