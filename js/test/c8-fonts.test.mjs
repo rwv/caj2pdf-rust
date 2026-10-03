@@ -8,27 +8,32 @@ import { newInstance, tempDirectory, validatePdf } from "./helpers.mjs";
 import { syntheticNativeC8, syntheticNativeHnb, qmStates } from "./hnc8-fixtures.mjs";
 
 const fontBytes = await readFile(new URL("../../tests/fonts/geometric.ttf", import.meta.url));
+const symbolBytes = await readFile(new URL("../../tests/fonts/symbols.ttf", import.meta.url));
 const source = (bytes) => blobSource(new Blob([bytes]));
 const sink = (parts = []) => ({ async writeChunk(bytes) { parts.push(bytes.slice()); return bytes.length; }, async flush() {} });
 const roles = (font) => ({ cjk: font, latin: font, alternateLatin: font });
 
 test("native C8/HN-B public Node path reuses ranged fonts and preserves pages", async (t) => {
-  for (const [inputBytes, pages, glyphs] of [[syntheticNativeC8(), 1, 1], [syntheticNativeC8(true), 1, 2], [syntheticNativeHnb(), 2, 2], [syntheticNativeHnb(0), 2, 2]]) {
+  for (const [inputBytes, pages, glyphs, hasSymbols] of [[syntheticNativeC8(), 1, 1], [syntheticNativeC8(true), 1, 2], [syntheticNativeHnb(), 2, 2], [syntheticNativeHnb(0), 2, 2, true]]) {
     let maxRead = 0;
     const input = source(fontBytes);
     const font = { size: input.size, async readAt(offset, length, signal) { maxRead = Math.max(maxRead, length); return input.readAt(offset, Math.min(length, 3), signal); } };
     const parts = [];
     await withHnc8Scratch(async (scratch) => {
       const result = await convert(await newInstance(), source(inputBytes), sink(parts), {
-        includeBookmarks: false, chunkSize: 32, hnc8: { fonts: roles(font), scratch, qmStates },
+        includeBookmarks: false, chunkSize: 32, hnc8: { fonts: { ...roles(font), ...(hasSymbols ? { symbols: source(symbolBytes) } : {}) }, scratch, qmStates },
       });
       assert.equal(result.pagesConverted, pages);
       assert.ok(scratch.every((store) => store.size === 0n));
     });
     assert.ok(maxRead > 0 && maxRead <= 32);
     const pdf = Buffer.concat(parts);
-    assert.equal(pdf.toString("latin1").match(/\/FontFile2 /g).length, 1);
+    assert.equal(pdf.toString("latin1").match(/\/FontFile2 /g).length, hasSymbols ? 2 : 1);
     assert.equal(pdf.toString("latin1").match(/<0041> Tj/g).length, glyphs);
+    if (hasSymbols) {
+      assert.equal(pdf.toString("latin1").match(/<0020> Tj/g).length, pages);
+      assert.equal(pdf.toString("latin1").match(/<FF1A> Tj/g).length, pages);
+    }
     await validatePdf(t, pdf, pages);
   }
 });
@@ -97,4 +102,17 @@ test("forward-only fonts enforce spool limits and dispose after conversion outco
       assert.deepEqual(await readdir(directory), []);
     }
   } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test("HN-B symbols require an explicit usable font and clean scratch on failure", async () => {
+  const wasm = await newInstance();
+  const font = source(fontBytes);
+  for (const symbols of [undefined, font]) {
+    await withHnc8Scratch(async (scratch) => {
+      await assert.rejects(convert(wasm, source(syntheticNativeHnb(0)), sink(), {
+        includeBookmarks: false, hnc8: { fonts: { ...roles(font), symbols }, scratch },
+      }), { code: "HNC8" });
+      assert.ok(scratch.every((store) => store.size === 0n));
+    });
+  }
 });

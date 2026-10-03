@@ -51,13 +51,20 @@ try {
     fontMaxRead = Math.max(fontMaxRead, length);
     return rangedFont.readAt(offset, Math.min(length, 3), signal);
   } };
+  const symbolBlob = await (await fetch("/fixtures/symbols.ttf")).blob();
+  const symbolSpool = await spoolToOpfs(symbolBlob.stream(), { maxBytes: BigInt(symbolBlob.size) });
+  fontSpools.push(symbolSpool);
+  const symbols = { size: symbolSpool.source.size, async readAt(offset, length, signal) {
+    fontMaxRead = Math.max(fontMaxRead, length);
+    return symbolSpool.source.readAt(offset, Math.min(length, 3), signal);
+  } };
   const nativePdfs = [];
-  for (const [input, pages] of [[syntheticNativeC8(), 1], [syntheticNativeC8(true), 1], [syntheticNativeHnb(), 2], [syntheticNativeHnb(0), 2]]) {
+  for (const [input, pages, hasSymbols] of [[syntheticNativeC8(), 1], [syntheticNativeC8(true), 1], [syntheticNativeHnb(), 2], [syntheticNativeHnb(0), 2, true]]) {
     const pdf = [];
     const native = await convert(module, blobSource(new Blob([input])), {
       async writeChunk(bytes) { pdf.push(...bytes); return bytes.length; }, async flush() {},
     }, { includeBookmarks: false, chunkSize: 32, hnc8: {
-      fonts: { cjk: font, latin: font, alternateLatin: font }, qmStates, scratch,
+      fonts: { cjk: font, latin: font, alternateLatin: font, ...(hasSymbols ? { symbols } : {}) }, qmStates, scratch,
     } });
     if (native.pagesConverted !== pages) throw new Error("native C8/HN-B page count mismatch");
     nativePdfs.push(pdf);

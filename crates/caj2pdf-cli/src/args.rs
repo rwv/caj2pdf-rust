@@ -26,7 +26,7 @@ pub struct ConvertOptions {
     pub qm_states: Option<PathBuf>,
     pub mq_states: Option<PathBuf>,
     pub no_bookmarks: bool,
-    pub fonts: [Option<PathBuf>; 4],
+    pub fonts: [Option<PathBuf>; 5],
     pub decoration_char: Option<char>,
 }
 
@@ -77,6 +77,7 @@ Options:
   --font-cjk FILE     Explicit native C8/HN-B CJK font (requires both Latin roles)
   --font-latin FILE   Explicit native C8/HN-B ordinary Latin font
   --font-alternate-latin FILE  Explicit native C8/HN-B alternate Latin font
+  --font-symbols FILE         Optional HN-B mode-0 semantic symbol font
   --font-decoration FILE      Optional native C8/HN-B decoration font
   --decoration-char CHAR      Decoration alias (default: ►; not document text)
   -h, --help           Print help (also: caj2pdf COMMAND --help)
@@ -161,6 +162,7 @@ fn font_option(name: &str) -> Option<usize> {
         "--font-latin" => Some(1),
         "--font-alternate-latin" => Some(2),
         "--font-decoration" => Some(3),
+        "--font-symbols" => Some(4),
         _ => None,
     }
 }

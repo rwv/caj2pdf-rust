@@ -328,8 +328,8 @@ pub(super) fn mode_zero_glyph_transform(
     }
     if !matches!(
         style,
-        0 | 0x0484 | 0x0884 | 0x1084 | 0x9c84 | 0x0ca4 | 0x10a4 | 0x10a5
-    ) && !(class == C8GlyphClass::Cjk && matches!(style, 0x04e7 | 0x0ce7 | 0x154a))
+        0 | 0x0484 | 0x0884 | 0x1084 | 0x9c84 | 0x0ca4 | 0x10a4 | 0x10a5 | 0x04e7 | 0x0ce7
+    ) && !(class == C8GlyphClass::Cjk && style == 0x154a)
     {
         return Err(Error::InvalidInput {
             reason: "unverified HN-B mode-0 glyph style",

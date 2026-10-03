@@ -42,6 +42,6 @@ export function nativeC8Fonts(
   font: import('../../node.mjs').RangedSource,
 ) {
   return convert(wasm, source, sink, { includeBookmarks: false, hnc8: {
-    fonts: { cjk: font, latin: font, alternateLatin: font, decoration: { source: font, character: 'A' } },
+    fonts: { cjk: font, latin: font, alternateLatin: font, symbols: font, decoration: { source: font, character: 'A' } },
   } });
 }

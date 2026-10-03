@@ -177,8 +177,17 @@ export function syntheticNativeC8(mixed = false) {
 
 /** Original two-page compact HN-B text fixture using bare page ends. */
 export function syntheticNativeHnb(mode = 2) {
-  const text = syntheticNativeC8().slice(100, -2);
-  if (mode === 0) new DataView(text.buffer).setUint16(10, 0xa3c1, true);
+  let text = syntheticNativeC8().slice(100, -2);
+  if (mode === 0) {
+    const extended = new Uint8Array(text.length + 8);
+    extended.set(text.subarray(0, -2));
+    const records = new DataView(extended.buffer);
+    records.setUint16(10, 0xa3c1, true);
+    for (const [index, word] of [40, 0xa1a1, 60, 0xa3ba, 0x8004].entries()) {
+      records.setUint16(text.length - 2 + index * 2, word, true);
+    }
+    text = extended;
+  }
   const bytes = new Uint8Array(240 + text.length * 2);
   const view = new DataView(bytes.buffer);
   const u32 = (at, value) => view.setUint32(at, value, true);

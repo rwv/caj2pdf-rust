@@ -32,6 +32,7 @@ fn roles() -> C8PageFonts {
         latin: 0,
         alternate_latin: 0,
         decoration: None,
+        symbols: None,
     }
 }
 
@@ -113,7 +114,7 @@ fn native_document_streams_text_and_all_shared_image_codecs() {
 
 #[test]
 fn native_document_checks_resource_contract_before_output() {
-    for count in [0, 1, 5] {
+    for count in [0, 1, 6] {
         let mut fonts: Vec<_> = (0..count)
             .map(|_| Source::new(crate::pdf::drawing_font()))
             .collect();

@@ -22,6 +22,9 @@ pub struct C8PageFonts {
     pub alternate_latin: usize,
     /// Font index and nonsemantic character-map alias for horizontal decoration.
     pub decoration: Option<(usize, char)>,
+    /// Semantic symbols and spaces in the controlled HN-B mode-0 profile.
+    /// Required only when a page uses that resource; never an implicit fallback.
+    pub symbols: Option<usize>,
 }
 
 /// Write and finish the current C8 or text/vector HN-B native page using already embedded resources.
@@ -447,6 +450,8 @@ impl<W: SequentialSink, C: Cancellation> PageWriter<'_, '_, '_, '_, W, C> {
     async fn visit_mode_zero(&mut self, record: NativeRecord) -> crate::Result<()> {
         match record {
             NativeRecord::Control { tag: 0x8001, .. }
+            // Original paired rows preserve resources, geometry and explicit axes.
+            | NativeRecord::Control { tag: 0x8072, value: 0 }
             | NativeRecord::Control {
                 tag: 0x801d,
                 value: 0 | 4,
@@ -490,22 +495,42 @@ impl<W: SequentialSink, C: Cancellation> PageWriter<'_, '_, '_, '_, W, C> {
                 // The raw alphabet selects its resource independently of 801d.
                 // Digits have a separate matrix; remaining symbols need another resource.
                 let (class, font) = match code {
+                    0x9ff5
+                    | 0xa1a1..=0xa1a3
+                    | 0xa1aa
+                    | 0xa1ae..=0xa1b1
+                    | 0xa3a7
+                    | 0xa3ab..=0xa3ae
+                    | 0xa3ba
+                    | 0xa3bb
+                    | 0xa3bf
+                    | 0xa3db
+                    | 0xa3dd
+                    | 0xaab1
+                    | 0xaab2 => {
+                        let class = if matches!(code, 0xa3ba | 0xa3db | 0xa3dd) {
+                            C8GlyphClass::Cjk
+                        } else {
+                            C8GlyphClass::Latin
+                        };
+                        (
+                            class,
+                            self.roles.symbols.ok_or_else(|| {
+                                invalid("missing HN-B mode-0 symbol font resource")
+                            })?,
+                        )
+                    }
                     0xa3a8 | 0xa3a9 => (C8GlyphClass::Cjk, self.roles.latin),
                     0xa3af => (C8GlyphClass::Cjk, self.roles.cjk),
                     0xa980..=0xa9b3 => (C8GlyphClass::Latin, self.roles.alternate_latin),
                     0xa3b0..=0xa3b9 | 0xa3c1..=0xa3da | 0xa3e1..=0xa3fa => {
                         (C8GlyphClass::Latin, self.roles.latin)
                     }
-                    _ if ('\u{4e00}'..='\u{9fff}').contains(&character) => {
-                        (C8GlyphClass::Cjk, self.roles.cjk)
-                    }
-                    _ => {
-                        return Err(invalid(
-                            "unverified HN-B mode-0 glyph resource or placement",
-                        ));
-                    }
+                    // The mode-0 decoder accepts only Han after the explicit
+                    // alphabet and symbol classes handled above.
+                    _ => (C8GlyphClass::Cjk, self.roles.cjk),
                 };
-                let transform = if (0xa3b0..=0xa3b9).contains(&code) {
+                let mut transform = if (0xa3b0..=0xa3b9).contains(&code) {
                     super::placement::mode_zero_digit_transform(
                         self.geometry,
                         self.origin,
@@ -523,6 +548,15 @@ impl<W: SequentialSink, C: Cancellation> PageWriter<'_, '_, '_, '_, W, C> {
                         self.axes,
                     )?
                 };
+                if code == 0xaab2 {
+                    let left = match (style & 31, self.axes) {
+                        (_, [Some(36), Some(36)]) | (4, [None, None]) => 33.0,
+                        (0, [None, None]) => 31.0,
+                        (5, [None, None]) => 34.0,
+                        _ => return Err(invalid("unverified HN-B mode-0 hyphen geometry")),
+                    };
+                    transform[4] -= left * super::EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
+                }
                 self.page
                     .glyph_with_gray(font, character, transform, 68)
                     .await?;

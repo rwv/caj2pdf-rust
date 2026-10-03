@@ -844,3 +844,35 @@ and `legacy-line-pdf-comparison.json`. Failed/black PDF-viewer captures are
 excluded; valid source captures are compared with independent MuPDF renders.
 The earlier provisional skip-space CLI receipt is superseded by the current
 receipt. Whole-document/runtime/fidelity and peak-memory acceptance remain open.
+
+### Mode-0 symbol transport and `8072/0` paired controls
+
+An optional semantic `symbols` font role carries space and the controlled
+punctuation classes through the existing ranged transport. It is distinct
+from the decoration alias. Missing resources remain located errors. Original
+space/colon fixtures run through Node and a real Chromium Worker, including
+short font reads, shared-font embedding and temporary-store cleanup.
+
+Six original `legacy-state72zero-*` controls compare two rows with and without
+`8072/0` between them, using style `1084`, style `04e7`, and explicit 36-by-36
+axes. The rows distinguish CJK, ordinary Latin, alternate Latin and semantic
+symbol markers; space and colon follow the state record. With the pinned
+offline all-marker viewer, all three baseline/state page crops match, and
+all six repeated captures match. This admits retaining the current rendering
+state for `8072/0` in the controlled mode-0 path; other values are not implied.
+The core regression also checks that explicit axes and font selection survive.
+
+Receipts remain outside Git in `caj2pdf-hnb-rendering-20261003/`:
+`legacy-state72zero-inputs.json`, `legacy-state72zero-comparison.json`, and
+`all-symbol-viewer/legacy-state72zero-*.png`. Page crops use desktop bounds
+(648, 555, 1022, 769); visible page identity and nonempty marker rows were
+checked. These controls do not establish full-document fidelity.
+
+The original six isolated dot/hyphen comparisons preserve the same vertical
+position and dimensions. Their observed left offsets admit the mode-0 AAB2
+hyphen correction for zero, field-four and field-five sizes; field seven
+remains an explicit unsupported hyphen geometry. External receipts are
+`legacy-symbol-placement-comparison.json`. The additional seven-size symbol
+grid retains the established alphabet/symbol baseline and resource classes.
+Rasterization residuals remain as described above; these controls do not
+establish exact source/PDF pixel equality.

@@ -57,7 +57,7 @@ pub enum Status {
 pub enum Request {
     /// Copy up to `length` source bytes at `offset` into the staging buffer.
     Read {
-        /// 0 is the document; 1..=4 are explicitly registered font resources.
+        /// 0 is the document; 1..=5 are explicitly registered font resources.
         resource: u32,
         offset: u64,
         length: usize,
@@ -467,7 +467,7 @@ impl Engine {
     }
 
     /// Select zero-based font source indices before polling. A missing
-    /// decoration uses `u32::MAX`; otherwise its alias is a Unicode scalar.
+    /// decoration/symbol role uses `u32::MAX`; decoration aliases are Unicode scalars.
     pub fn set_c8_fonts(
         &mut self,
         cjk: u32,
@@ -475,13 +475,14 @@ impl Engine {
         alternate: u32,
         decoration: u32,
         alias: u32,
+        symbols: u32,
     ) -> bool {
         !self.started
             && self
                 .shared
                 .borrow_mut()
                 .fonts
-                .set(cjk, latin, alternate, decoration, alias)
+                .set(cjk, latin, alternate, decoration, alias, symbols)
     }
 
     fn complete(&self, accept: impl FnOnce(Request) -> Option<Response>) -> bool {

@@ -91,6 +91,7 @@ fn roles() -> C8PageFonts {
         latin: 1,
         alternate_latin: 2,
         decoration: Some((1, 'A')),
+        symbols: None,
     }
 }
 fn image() -> Vec<[u16; 2]> {
@@ -123,7 +124,7 @@ fn convert(
     mode: u8,
 ) -> (Result<u32>, Vec<u8>, bool) {
     let mut input = fixture(words, declared);
-    if matches!(mode, 12 | 13 | 18 | 19) {
+    if matches!(mode, 12 | 13 | 18 | 19 | 20) {
         // Original compact HN-B wrapper around the same authored record stream.
         let c8 = &input.bytes;
         let mut bytes = vec![0; 228];
@@ -131,7 +132,7 @@ fn convert(
         bytes[4..8].copy_from_slice(&200_u32.to_le_bytes());
         bytes[8..12].copy_from_slice(&136_u32.to_le_bytes());
         bytes[144..148].copy_from_slice(&1_u32.to_le_bytes());
-        bytes[148] = if matches!(mode, 18 | 19) { 0 } else { 2 };
+        bytes[148] = if matches!(mode, 18..=20) { 0 } else { 2 };
         bytes[164..172].copy_from_slice(&c8[28..36]);
         bytes[216..220].copy_from_slice(&228_u32.to_le_bytes());
         bytes[220..224].copy_from_slice(&(c8.len() as u32 - 100).to_le_bytes());
@@ -168,7 +169,11 @@ fn convert(
             _ => (),
         }
         let mut document = PdfDocument::new(&mut sink, &limits, &cancel).await.unwrap();
-        let mut font_bytes = crate::pdf::drawing_font();
+        let mut font_bytes = if mode == 20 {
+            crate::pdf::symbol_font()
+        } else {
+            crate::pdf::drawing_font()
+        };
         if matches!(mode, 11 | 13 | 19) {
             // Relabel an original glyph as the test's source symbol.
             // No source font outline or character shape is imported.
@@ -181,7 +186,7 @@ fn convert(
             let offset = u32::from_be_bytes(table[8..12].try_into().unwrap()) as usize;
             let code = words
                 .iter()
-                .find(|pair| pair[0] < 0x8000 && pair[1] >= 0xa000)
+                .find(|pair| pair[0] < 0x8000 && (pair[1] >= 0xa000 || pair[1] == 0x9ff5))
                 .unwrap()[1];
             let character = if mode == 19 {
                 decode_native_character_for_mode(0, code)
@@ -1014,10 +1019,10 @@ fn mode_zero_styles_axes_and_late_failures_remain_explicit() {
     }
     for tail in [
         vec![[4772, 0xa0c1]], // Mode-2 alias is not a mode-0 alphabet.
-        vec![[4772, 0x9ff5]], // Decoded symbol still lacks verified placement.
+        vec![[4772, 0x9ff5]], // Decoded symbol requires an explicit symbol font.
         vec![[4772, 0xa1a1]], // Space also uses the separate symbol resource.
         vec![[4772, 0xa3c2]], // Caller font lacks B.
-        vec![[0x8072, 0]],
+        vec![[0x8072, 1]],
         vec![[0x8006, 0xa381], [4682, 4350], [4912, 4350], [0xffff, 5]],
         vec![[0x8002, 0x1042], [4772, 0xa3c1]],
         vec![[0x8070, 36], [4772, 0xa3c1]],
@@ -1104,5 +1109,75 @@ fn mode_zero_parentheses_and_slash_use_their_controlled_font_roles() {
         let text = String::from_utf8_lossy(&pdf);
         assert!(text.contains(&format!("/F{role} 1 Tf")));
         assert!(text.contains(&format!("<{character}> Tj")));
+    }
+}
+
+#[test]
+fn mode_zero_space_and_colon_use_explicit_symbol_resource() {
+    let words = [
+        [0x8001, 4350],
+        [0x8002, 0x04e7],
+        [4772, 0xa1a1],
+        [4862, 0xa3ba],
+        [0x8004, 1],
+    ];
+    let mut fonts = roles();
+    fonts.symbols = Some(2);
+    let (result, pdf, finished) = convert(&words, 0, &[], fonts, 20);
+    assert!(result.is_ok(), "{result:?}");
+    assert!(finished);
+    let text = String::from_utf8_lossy(&pdf);
+    assert!(text.contains("/F2 1 Tf"));
+    assert!(text.contains("<0020> Tj"));
+    assert!(text.contains("<FF1A> Tj"));
+    for symbols in [None, Some(3)] {
+        fonts.symbols = symbols;
+        let (result, _, finished) = convert(&words, 0, &[], fonts, 20);
+        assert!(result.is_err());
+        assert!(!finished);
+    }
+}
+
+#[test]
+fn mode_zero_hyphen_requires_verified_geometry_and_symbol_resource() {
+    for (style, accepted) in [
+        (0x1000, true),
+        (0x1084, true),
+        (0x10a5, true),
+        (0x04e7, false),
+    ] {
+        let words = [[0x8001, 4350], [0x8002, style], [4772, 0xaab2], [0x8004, 1]];
+        let mut fonts = roles();
+        fonts.symbols = Some(2);
+        let (result, pdf, finished) = convert(&words, 0, &[], fonts, 19);
+        assert_eq!(result.is_ok(), accepted, "{style:x}: {result:?}");
+        assert_eq!(finished, accepted);
+        if accepted {
+            assert!(String::from_utf8_lossy(&pdf).contains("/F2 1 Tf"));
+        }
+    }
+}
+
+#[test]
+fn mode_zero_state72_zero_preserves_fonts_and_explicit_axes() {
+    for (style, axes) in [(0x1084, false), (0x04e7, false), (0, true)] {
+        let mut words = vec![[0x8001, 4350], [0x8002, style], [0x801d, 4]];
+        if axes {
+            words.extend([[0x8070, 36], [0x8071, 36]]);
+        }
+        words.extend([
+            [4682, 0xd6d0],
+            [4772, 0xa3c1],
+            [4862, 0xa980],
+            [0x8001, 4500],
+        ]);
+        let insertion = words.len();
+        words.extend([[4682, 0xd6d0], [4772, 0xa3c1], [4862, 0xa980], [0x8004, 1]]);
+        let (result, baseline, finished) = convert(&words, 0, &[], roles(), 18);
+        assert!(result.is_ok() && finished);
+        words.insert(insertion, [0x8072, 0]);
+        let (result, actual, finished) = convert(&words, 0, &[], roles(), 18);
+        assert!(result.is_ok() && finished);
+        assert_eq!(actual, baseline);
     }
 }

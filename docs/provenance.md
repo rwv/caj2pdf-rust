@@ -2576,3 +2576,12 @@ that stronger control and removed before commit. External captures, marker
 font copies, CLI PDFs and comparison receipts remain outside the repository.
 PDF device hairlines and the empirical coordinate model retain documented
 renderer/zoom residuals; complete mode-0 document fidelity is not claimed.
+
+The optional mode-0 semantic symbol font transport and original
+`tests/fonts/symbols.ttf` fixture reuse project-owned ranged I/O and geometric
+outlines. The visible space and colon shapes are deliberately synthetic.
+No vendor outlines or document text are imported. `legacy_state_controls`
+adds six original paired-row controls for `8072/0`, distinguishing resource
+selection and explicit-axis persistence with original markers in the pinned
+offline viewer. Source hashes, repeated captures and comparisons remain
+external; scoped findings are recorded in `docs/hnb-compact-index.md`.

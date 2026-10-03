@@ -510,7 +510,8 @@ await convert(wasm, documentSource, outputSink, {
       cjk: textFontSource,
       latin: textFontSource,
       alternateLatin: alternateFontSource,
-      decoration: { source: symbolFontSource, character: "►" },
+      decoration: { source: decorationFontSource, character: "►" },
+      symbols: symbolFontSource, // Optional semantic HN-B mode-0 symbols/space.
     },
   },
 });

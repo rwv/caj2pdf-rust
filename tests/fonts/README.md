@@ -15,3 +15,15 @@ rustc --edition 2024 crates/caj2pdf-core/tests/common/font_fixture.rs -o /tmp/ca
 `shared_cross_runtime_font_matches_original_generator` checks the committed
 bytes against the generator. Rust, Node and browser Worker tests use the
 same resource. This font is test data and is not bundled as a conversion font.
+
+## Symbol transport fixture
+
+`symbols.ttf` uses the same original shapes, labelled U+0020 (rectangle)
+and U+FF1A (triangle). Its deliberately visible space catches accidental
+space-record omission; it is not a real-language typeface.
+
+```sh
+/tmp/caj2pdf-font-fixture symbols > tests/fonts/symbols.ttf
+```
+
+The core font test also checks these bytes against the original generator.

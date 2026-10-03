@@ -13,7 +13,7 @@ use caj2pdf_core::{
 
 #[derive(Default)]
 pub(super) struct Fonts {
-    sizes: [u64; 4],
+    sizes: [u64; 5],
     count: usize,
     roles: Option<caj2pdf_core::hnc8::C8PageFonts>,
 }
@@ -36,6 +36,7 @@ impl Fonts {
         alternate: u32,
         decoration: u32,
         alias: u32,
+        symbols: u32,
     ) -> bool {
         if self.roles.is_some()
             || [cjk, latin, alternate]
@@ -55,11 +56,19 @@ impl Fonts {
             }
             Some((decoration as usize, character))
         };
+        let symbols = if symbols == u32::MAX {
+            None
+        } else if symbols as usize >= self.count {
+            return false;
+        } else {
+            Some(symbols as usize)
+        };
         self.roles = Some(caj2pdf_core::hnc8::C8PageFonts {
             cjk: cjk as usize,
             latin: latin as usize,
             alternate_latin: alternate as usize,
             decoration,
+            symbols,
         });
         true
     }
@@ -197,7 +206,7 @@ pub(super) async fn convert(
         let roles = fonts.roles.ok_or(Error::InvalidInput {
             reason: "C8 font resources require explicit roles",
         })?;
-        let mut sources = std::array::from_fn::<_, 4, _>(|index| BridgeSource {
+        let mut sources = std::array::from_fn::<_, 5, _>(|index| BridgeSource {
             resource: index as u32 + 1,
             shared: Rc::clone(&source.shared),
             size: fonts.sizes[index],

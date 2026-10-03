@@ -351,17 +351,49 @@ def legacy_symbol_grids():
     for label, style, axes in (
         ("zero", 0x1000, ()), ("four", 0x1084, ()),
         ("wide", 0x10A4, ()), ("five", 0x10A5, ()),
-        ("explicit36", 0, (36, 36)),
+        ("explicit36", 0, (36, 36)), ("seven", 0x04E7, ()),
     ):
-        data = bytearray(legacy_geometry_control(width=1100, height=1100, style=style))
+        step = 200 if style == 0x04E7 else 150
+        data = bytearray(legacy_geometry_control(width=1100, height=1400 if style == 0x04E7 else 1100, style=style))
         words = []
         if axes: words.extend((0x8070, axes[0], 0x8071, axes[1]))
         for i, code in enumerate(codes):
-            if i % 5 == 0: words.extend((0x8001, 100 + i // 5 * 150))
+            if i % 5 == 0: words.extend((0x8001, 100 + i // 5 * step))
             words.extend((100 + i % 5 * 200, code))
         data[244:256] = struct.pack("<" + "H" * len(words), *words)
         struct.pack_into("<I", data, 220, len(data) - 228)
         yield f"legacy-symbol-grid-{label}", bytes(data)
+
+
+def legacy_hyphen_controls():
+    """Isolate the required symbol offset at a large fit-width scale."""
+    for label, style in (("zero", 0x1000), ("four", 0x1084), ("five", 0x10A5)):
+        for kind, code in (("dot", 0xAAB1), ("hyphen", 0xAAB2)):
+            data = bytearray(legacy_geometry_control(width=200, height=200, style=style))
+            struct.pack_into("<H", data, 230, 50)
+            data[244:256] = struct.pack("<HH", 100, code)
+            struct.pack_into("<I", data, 220, len(data) - 228)
+            yield f"legacy-symbol-{label}-{kind}", bytes(data)
+
+
+def legacy_state_controls():
+    """Paired mode-0 rows distinguish state changes from resource/axis resets."""
+    for name, style, axes in (("normal", 0x1084, ()), ("seven", 0x04E7, ()),
+                              ("axes", 0, (0x8070, 36, 0x8071, 36))):
+        for state in (False, True):
+            words = axes + (100, 0xD6D0, 300, 0xA3C1, 450, 0xA980,
+                            0x8001, 250)
+            if state:
+                words += (0x8072, 0)
+            words += (100, 0xD6D0, 300, 0xA3C1, 450, 0xA980,
+                      600, 0xA1A1, 750, 0xA3BA)
+            data = bytearray(hn_container(document(
+                [(style, 4, 6)], codes=(), width=950, height=500,
+                first_x=100, first_y=100, run_words=words)))
+            struct.pack_into("<I", data, 148, 0)
+            struct.pack_into("<HHHHHHHHHH", data, 152,
+                             0x8003, 950, 0x8003, 500, 0x8003, 0, 0, 1, 950, 500)
+            yield f"legacy-state72zero-{name}-{'state' if state else 'base'}", bytes(data)
 
 
 def legacy_symbol_controls():
@@ -503,7 +535,7 @@ def main():
         manifest.append({"file": filename, "code": code, "alternate": alt, "dx": dx,
                          "x": x, "y": y, "sha256": hashlib.sha256(data).hexdigest()})
     for name, data in (*end_controls(), *issue63_style_controls(), *native_mode_controls(),
-                       *legacy_geometry_controls(), *legacy_metric_controls(), *legacy_run_controls(), *legacy_digit_controls(), *legacy_line_width_controls(), *legacy_symbol_grids(), *legacy_symbol_controls()):
+                       *legacy_geometry_controls(), *legacy_metric_controls(), *legacy_run_controls(), *legacy_digit_controls(), *legacy_line_width_controls(), *legacy_symbol_grids(), *legacy_hyphen_controls(), *legacy_state_controls(), *legacy_symbol_controls()):
         filename = name + ".caj"
         (args.output / filename).write_bytes(data)
         manifest.append({"file": filename, "sha256": hashlib.sha256(data).hexdigest()})
