@@ -299,15 +299,31 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
                 {
                     return Err(invalid("unverified large native glyph class"));
                 }
+                let axis_offset = if self.variant == Variant::HnB {
+                    match (self.axes, code) {
+                        ([Some(43), Some(43)], 0xa3a8) => Some((27.0, -4.0)),
+                        ([Some(43), Some(43)], 0xa1b0 | 0xa1b1 | 0xa3a9) => Some((25.0, -4.0)),
+                        ([Some(43), Some(43)], 0xa1b6) => Some((30.0, -4.0)),
+                        ([Some(43), Some(43)], 0xa1b7) => Some((20.0, -4.0)),
+                        ([Some(43), Some(43)], 0xa1b2 | 0xa1b3) => Some((25.0, 4.0)),
+                        ([Some(28), Some(28)], 0xa1b2 | 0xa1b3) => Some((16.0, 8.0)),
+                        _ => None,
+                    }
+                } else {
+                    None
+                };
                 if matches!(code, 0xa1b2 | 0xa1b3 | 0xa1b6 | 0xa1b7)
+                    && axis_offset.is_none()
                     && (self.variant != Variant::HnB
                         || !(style == 0x10a5
-                            || (style == 0x08a5 && matches!(code, 0xa1b2 | 0xa1b3)))
+                            || (matches!(style, 0x08a5 | 0x0ca5 | 0x1084 | 0x0884)
+                                && matches!(code, 0xa1b2 | 0xa1b3)))
                         || self.axes != [None; 2])
                 {
                     return Err(invalid("unverified native bracket geometry"));
                 }
                 if self.axes != [None; 2]
+                    && axis_offset.is_none()
                     && matches!(
                         code,
                         0xa1a4 | 0xa1af | 0xa1b0 | 0xa1b1 | 0xa3a8 | 0xa3a9 | 0xa3db | 0xa3dd
@@ -375,53 +391,64 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
                     // but retains the CJK horizontal origin.
                     transform[4] -= transform[0] / 8.0;
                 }
-                if matches!(code, 0xa1b2 | 0xa1b3) {
-                    // Original style-5 pairs equal the opening book mark
-                    // shifted left 5 and down 9 source units in states 0/3/4.
+                if let Some((dx, dy)) = axis_offset {
                     let unit = super::EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
-                    transform[4] += 25.0 * unit;
-                    transform[5] -= 5.0 * unit;
-                }
-                let offset_columns = match code {
-                    0xa1b6 | 0xa1b7 | 0xa3a8 => Some((0, 2)),
-                    0xa1b0 | 0xa1b1 | 0xa3a9 => Some((1, 2)),
-                    0xa3db | 0xa3dd => Some((3, 4)),
-                    _ => None,
-                };
-                if let Some((x_column, y_column)) = offset_columns {
-                    // Raw offsets checked with independent width/height controls.
-                    // Columns: opening-parenthesis x, closing-parenthesis x,
-                    // parenthesis downward y, square-bracket x and downward y.
-                    const OFFSETS: [[i16; 5]; 7] = [
-                        [18, 16, 3, 24, 1],
-                        [19, 18, 1, 27, -1],
-                        [22, 21, 0, 30, -3],
-                        [26, 25, -4, 36, -7],
-                        [30, 28, -7, 41, -10],
-                        [35, 33, -10, 48, -15],
-                        [39, 37, -14, 54, -18],
-                    ];
-                    // The matrix evaluator above has validated both fields.
-                    let width = usize::from((style >> 5) & 31) - 2;
-                    let height = usize::from(style & 31) - 2;
-                    let unit = super::EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
-                    // Controlled HN-B style-5 book marks share parenthesis y;
-                    // their x differs by +4/-6 source units from the opener.
-                    let book_x = match code {
-                        0xa1b6 => 4,
-                        0xa1b7 => -6,
-                        _ => 0,
+                    transform[4] += dx * unit;
+                    transform[5] -= dy * unit;
+                } else {
+                    if matches!(code, 0xa1b2 | 0xa1b3) {
+                        // Original pairs establish separate size-4/size-5 offsets;
+                        // resource selection remains independent of placement.
+                        let unit = super::EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
+                        let (dx, dy) = if style & 0x03ff == 0x0084 {
+                            (21.0, 6.0)
+                        } else {
+                            (25.0, 5.0)
+                        };
+                        transform[4] += dx * unit;
+                        transform[5] -= dy * unit;
+                    }
+                    let offset_columns = match code {
+                        0xa1b6 | 0xa1b7 | 0xa3a8 => Some((0, 2)),
+                        0xa1b0 | 0xa1b1 | 0xa3a9 => Some((1, 2)),
+                        0xa3db | 0xa3dd => Some((3, 4)),
+                        _ => None,
                     };
-                    transform[4] += f64::from(OFFSETS[width][x_column] + book_x) * unit;
-                    transform[5] -= f64::from(OFFSETS[height][y_column]) * unit;
-                }
-                if matches!(code, 0xa1a4 | 0xa1af) {
-                    // Middle dot and right single quote share a horizontal
-                    // correction but keep their separately controlled baselines.
-                    const X_OFFSETS: [i16; 7] = [7, 7, 8, 10, 11, 13, 15];
-                    let width = usize::from((style >> 5) & 31) - 2;
-                    transform[4] +=
-                        f64::from(X_OFFSETS[width]) * super::EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
+                    if let Some((x_column, y_column)) = offset_columns {
+                        // Raw offsets checked with independent width/height controls.
+                        // Columns: opening-parenthesis x, closing-parenthesis x,
+                        // parenthesis downward y, square-bracket x and downward y.
+                        const OFFSETS: [[i16; 5]; 7] = [
+                            [18, 16, 3, 24, 1],
+                            [19, 18, 1, 27, -1],
+                            [22, 21, 0, 30, -3],
+                            [26, 25, -4, 36, -7],
+                            [30, 28, -7, 41, -10],
+                            [35, 33, -10, 48, -15],
+                            [39, 37, -14, 54, -18],
+                        ];
+                        // The matrix evaluator above has validated both fields.
+                        let width = usize::from((style >> 5) & 31) - 2;
+                        let height = usize::from(style & 31) - 2;
+                        let unit = super::EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
+                        // Controlled HN-B style-5 book marks share parenthesis y;
+                        // their x differs by +4/-6 source units from the opener.
+                        let book_x = match code {
+                            0xa1b6 => 4,
+                            0xa1b7 => -6,
+                            _ => 0,
+                        };
+                        transform[4] += f64::from(OFFSETS[width][x_column] + book_x) * unit;
+                        transform[5] -= f64::from(OFFSETS[height][y_column]) * unit;
+                    }
+                    if matches!(code, 0xa1a4 | 0xa1af) {
+                        // Middle dot and right single quote share a horizontal
+                        // correction but keep their separately controlled baselines.
+                        const X_OFFSETS: [i16; 7] = [7, 7, 8, 10, 11, 13, 15];
+                        let width = usize::from((style >> 5) & 31) - 2;
+                        transform[4] += f64::from(X_OFFSETS[width])
+                            * super::EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
+                    }
                 }
                 if self.skew != 0.0 {
                     // Measured width-relative shear; style changes retain it.

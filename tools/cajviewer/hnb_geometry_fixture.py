@@ -464,6 +464,34 @@ def paired_axis_controls():
         ))
 
 
+def axis_punctuation_controls():
+    cases = [(f"axis43-punctuation-{code:04x}", 43, code, 0, 0)
+             for code in (0xD6D0, 0xA0C1, 0xA1B0, 0xA1B1, 0xA1B2,
+                          0xA1B3, 0xA1B6, 0xA1B7, 0xA3A8, 0xA3A9)]
+    cases.extend((f"axis28-punctuation-{code:04x}", 28, code, 0, 0)
+                 for code in (0xD6D0, 0xA0C1, 0xA1B2, 0xA1B3))
+    cases.extend([
+        ("axis43-book-left-reference", 43, 0xA3A8, 4, 0),
+        ("axis43-book-right-reference", 43, 0xA3A8, -6, 0),
+        ("axis43-book-left-reference3", 43, 0xA3A8, 3, 0),
+        ("axis43-book-right-reference7", 43, 0xA3A8, -7, 0),
+        ("axis43-bracket-reference8", 43, 0xA1B6, -5, 8),
+        ("axis43-bracket-reference9", 43, 0xA1B6, -5, 9),
+        ("axis28-bracket-latin-reference", 28, 0xA0C1, 7, -1),
+    ])
+    for name, size, code, dx, dy in cases:
+        yield name, hn_container(document(
+            [(0, 0, 6)], codes=(), width=300, height=250, first_y=4294 + dy,
+            run_words=(0x8070, size, 0x8071, size, 4672 + dx, code),
+        ))
+    for style in (0x1084, 0x0884, 0x10A5, 0x0CA5):
+        for code in (0xD6D0, 0xA1B2, 0xA1B3):
+            yield f"normal-bracket-{style:04x}-{code:04x}", hn_container(document(
+                [(style, 0, 6)], codes=(code,), width=300, height=250,
+                first_x=4672, first_y=4294,
+            ))
+
+
 def title_style_controls():
     """Compare the required mode-2 title with the independently calibrated form."""
     for style in (0x114A, 0x154A):
@@ -647,7 +675,7 @@ def main():
         manifest.append({"file": filename, "code": code, "alternate": alt, "dx": dx,
                          "x": x, "y": y, "sha256": hashlib.sha256(data).hexdigest()})
     for name, data in (*end_controls(), *issue63_style_controls(), *native_mode_controls(),
-                       *legacy_geometry_controls(), *legacy_metric_controls(), *legacy_run_controls(), *legacy_digit_controls(), *legacy_line_width_controls(), *legacy_symbol_grids(), *legacy_hyphen_controls(), *title_style_controls(), *resource_three_controls(), *state_three_punctuation_controls(), *small_skew_controls(), *paired_axis_controls(), *normal_style_flag_controls(), *state_axis_reset_controls(), *legacy_state_controls(), *legacy_state_controls(0x80CE, 1, "statece1"), *legacy_metadata_controls(), *legacy_symbol_controls()):
+                       *legacy_geometry_controls(), *legacy_metric_controls(), *legacy_run_controls(), *legacy_digit_controls(), *legacy_line_width_controls(), *legacy_symbol_grids(), *legacy_hyphen_controls(), *title_style_controls(), *resource_three_controls(), *state_three_punctuation_controls(), *small_skew_controls(), *paired_axis_controls(), *axis_punctuation_controls(), *normal_style_flag_controls(), *state_axis_reset_controls(), *legacy_state_controls(), *legacy_state_controls(0x80CE, 1, "statece1"), *legacy_metadata_controls(), *legacy_symbol_controls()):
         filename = name + ".caj"
         (args.output / filename).write_bytes(data)
         manifest.append({"file": filename, "sha256": hashlib.sha256(data).hexdigest()})

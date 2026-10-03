@@ -1347,7 +1347,13 @@ fn hnb_state_three_requires_explicit_resource_and_switches_back() {
 
 #[test]
 fn hnb_tortoise_shell_brackets_preserve_controlled_offsets_and_resources() {
-    for style in [0x10a5, 0x08a5] {
+    for (style, dx, dy) in [
+        (0x10a5, 25.0, 5.0),
+        (0x08a5, 25.0, 5.0),
+        (0x0ca5, 25.0, 5.0),
+        (0x1084, 21.0, 6.0),
+        (0x0884, 21.0, 6.0),
+    ] {
         for (code, unicode) in [(0xa1b2, 0x3014), (0xa1b3, 0x3015)] {
             for (state, font) in [(0, 1), (3, 0), (4, 2)] {
                 let words = [
@@ -1374,10 +1380,10 @@ fn hnb_tortoise_shell_brackets_preserve_controlled_offsets_and_resources() {
                     .map(|v| v.parse().unwrap())
                     .collect();
                 let unit = super::super::EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
-                assert!((m[4] - 295.0 * unit).abs() < 0.000001);
-                assert!((m[5] - (490.0 * unit - m[3])).abs() < 0.000002);
+                assert!((m[4] - (270.0 + dx) * unit).abs() < 0.000001);
+                assert!((m[5] - ((495.0 - dy) * unit - m[3])).abs() < 0.000002);
                 let mut other = words;
-                other[1][1] = 0x1084;
+                other[1][1] = 0x1063;
                 assert!(convert(&other, 0, &[], fonts, 13).0.is_err());
                 assert!(convert(&words, 0, &[], fonts, 11).0.is_err());
             }
@@ -1429,5 +1435,48 @@ fn hnb_paired_axes_define_dimensions_and_allow_implicit_style() {
             partial.remove(missing);
             assert!(convert(&partial, 0, &[], roles(), 12).0.is_err());
         }
+    }
+}
+
+#[test]
+fn hnb_axis_punctuation_preserves_verified_offsets() {
+    for (size, code, unicode, dx, dy) in [
+        (43, 0xa3a8, 0xff08, 27.0, -4.0),
+        (43, 0xa3a9, 0xff09, 25.0, -4.0),
+        (43, 0xa1b0, 0x201c, 25.0, -4.0),
+        (43, 0xa1b1, 0x201d, 25.0, -4.0),
+        (43, 0xa1b6, 0x300a, 30.0, -4.0),
+        (43, 0xa1b7, 0x300b, 20.0, -4.0),
+        (43, 0xa1b2, 0x3014, 25.0, 4.0),
+        (43, 0xa1b3, 0x3015, 25.0, 4.0),
+        (28, 0xa1b2, 0x3014, 16.0, 8.0),
+        (28, 0xa1b3, 0x3015, 16.0, 8.0),
+    ] {
+        let words = [
+            [0x8001, 4394],
+            [0x8070, size],
+            [0x8071, size],
+            [4902, code],
+            [0x8004, 1],
+        ];
+        let (result, pdf, finished) = convert(&words, 0, &[], roles(), 13);
+        result.unwrap();
+        assert!(finished);
+        let text = String::from_utf8_lossy(&pdf);
+        assert!(text.contains(&format!("<{unicode:04X}> Tj")));
+        let (matrix, _) = text
+            .lines()
+            .find_map(|line| line.split_once(" Tm "))
+            .unwrap();
+        let m: Vec<f64> = matrix
+            .split_whitespace()
+            .map(|v| v.parse().unwrap())
+            .collect();
+        let unit = super::super::EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
+        assert!((m[4] - (270.0 + dx) * unit).abs() < 0.000001);
+        assert!((m[5] - ((495.0 - dy) * unit - m[3])).abs() < 0.000002);
+        let mut mixed = words;
+        mixed[2][1] = if size == 43 { 28 } else { 43 };
+        assert!(convert(&mixed, 0, &[], roles(), 13).0.is_err());
     }
 }

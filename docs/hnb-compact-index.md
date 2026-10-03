@@ -1101,3 +1101,40 @@ located error; there is still no completed final PDF. A refreshed bounded
 record inventory reaches later records on all five text pages, but encounters
 additional required metadata values near their ends. These diagnostic counts
 are not complete-document conversion or fidelity acceptance.
+
+### Required axis-dependent punctuation and smaller brackets
+
+Original `axis_punctuation_controls()` compare CJK/Latin anchors, quotations,
+parentheses and both bracket families under paired 43 axes. They establish
+source-unit offsets from the CJK matrix: opening parenthesis `(27,-4)`, closing
+parenthesis/quotation `(25,-4)`, opening/closing book marks `(30,-4)` /
+`(20,-4)`, and tortoise-shell brackets `(25,4)`. Paired 28 tortoise-shell
+brackets use `(16,8)`. Unverified mixed-axis punctuation remains an error.
+These are controlled offsets, not an extrapolation of the regular style table.
+
+The 43-axis quotation pair equals the closing-parenthesis crop. Book-mark
+translation controls distinguish the +3/-7 offsets from the opener instead
+of the regular style-5 +4/-6. The right-book pair is pixel-identical; the
+left pair retains matching bounds with raster-edge differences. The 43
+bracket equals the book mark shifted left 5/down 8; down 9 does not match.
+The 28 bracket/shifted-Latin control has a one-pixel vertical residual, which
+is recorded rather than claimed as exact equality.
+
+Additional regular controls establish style `1084`/`0884` brackets at `(21,6)`
+and `0ca5` matching the existing style-5 `(25,5)` rule. The admitted style
+set stays explicit. All 33 original controls convert, pass qpdf and render.
+Relative glyph bounding boxes differ from pinned-viewer controls by at most
+one pixel across the compared principal cases; all repeated captures agree.
+This does not establish exact typography or complete-document fidelity.
+
+External inputs/captures are under the existing evidence root. Output and
+relative-box measurements are in `axis-punctuation-output/checks.json` and
+`comparison.json`. Initial refined-reference black frames followed confirmed
+viewer process exit and are excluded; use their `-retry-`/`-fit-` replacements.
+A subsequent unrelated at-sign probe stopped at the container's confirmed
+exit-124 limit and supplies no accepted rendering evidence.
+
+The issue-65 retry now reaches page 1 byte 5832, after the body and earlier
+bracketed metadata. An unverified glyph resource/placement class still fails
+there. Later page-tail metadata also remains under investigation; no final
+PDF is published and #241/#250 acceptance remains open.
