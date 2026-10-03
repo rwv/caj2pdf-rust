@@ -496,3 +496,42 @@ only a transient `NoModificationAllowedError` (at most three attempts, with
 10 ms and 50 ms delays). If the failed spool still cannot be removed, rejection
 is an `AggregateError`: `cause` and `errors[0]` hold the original failure,
 `errors[1]` holds the removal failure. The temporary file may then remain.
+
+### Explicit fonts for native C8 pages
+
+The admitted native C8 profile accepts caller-owned ranged font sources:
+
+```js
+await convert(wasm, documentSource, outputSink, {
+  includeBookmarks: false, // C8 bookmarks are not supported yet.
+  hnc8: {
+    scratch, // Existing four reusable stores for image decoding, when needed.
+    fonts: {
+      cjk: textFontSource,
+      latin: textFontSource,
+      alternateLatin: alternateFontSource,
+      decoration: { source: symbolFontSource, character: "►" },
+    },
+  },
+});
+```
+
+Each font uses the same `size: bigint` / `readAt(offset, length, signal)`
+contract as the document. Browser `blobSource` and Node `fileHandleSource`
+work for fonts too. Reuse the same source object across roles to embed it
+once. No system-font lookup or implicit missing-glyph fallback is performed.
+The optional decoration character is a nonsemantic BMP alias, not document
+text. Ordinary roles are explicit because source role selection differs
+from Unicode/script selection.
+
+Keep sources stable and open until conversion settles; the converter does
+not close caller-owned resources. Forward-only fonts can use the existing
+bounded spooling helpers; dispose their returned handles in `finally`.
+Reads share one WASM staging buffer with document and scratch I/O. Errors
+and cancellation use the existing cleanup path. The caller must discard
+partial output after failure, including a final flush failure.
+
+This enables only the independently admitted native C8 profile. It does
+not establish general HN-B text support or source-font identity. Use the
+matching JavaScript and WASM builds; older WASM binaries cannot accept
+font registration. Existing image-only conversions require no font options.

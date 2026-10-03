@@ -158,6 +158,35 @@ pub extern "C" fn caj2pdf_io_request_store() -> u32 {
     })
 }
 
+/// Read resource identifier: 0 for the document, 1..=4 for registered fonts.
+#[unsafe(no_mangle)]
+pub extern "C" fn caj2pdf_io_request_resource() -> u32 {
+    with_engine(0, |engine| match engine.request() {
+        Some(Request::Read { resource, .. }) => resource,
+        _ => 0,
+    })
+}
+
+/// Register a stable ranged font source before polling; returns 1..=4 or 0.
+#[unsafe(no_mangle)]
+pub extern "C" fn caj2pdf_c8_add_font(size: u64) -> u32 {
+    with_engine(0, |engine| engine.add_font_source(size))
+}
+
+/// Assign zero-based font indices and the optional decoration alias.
+#[unsafe(no_mangle)]
+pub extern "C" fn caj2pdf_c8_set_fonts(
+    cjk: u32,
+    latin: u32,
+    alternate: u32,
+    decoration: u32,
+    alias: u32,
+) -> u32 {
+    with_engine(0, |engine| {
+        engine.set_c8_fonts(cjk, latin, alternate, decoration, alias) as u32
+    })
+}
+
 /// Append a validated caller-owned codec state before the first poll.
 #[unsafe(no_mangle)]
 pub extern "C" fn caj2pdf_hnc8_add_state(

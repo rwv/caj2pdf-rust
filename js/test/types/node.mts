@@ -34,3 +34,14 @@ export function useHn(
 ) {
   return convert(wasm, source, sink, { hnc8, includeBookmarks: false });
 }
+
+export function nativeC8Fonts(
+  wasm: import('../../node.mjs').WasmInput,
+  source: import('../../node.mjs').RangedSource,
+  sink: import('../../node.mjs').SequentialSink,
+  font: import('../../node.mjs').RangedSource,
+) {
+  return convert(wasm, source, sink, { includeBookmarks: false, hnc8: {
+    fonts: { cjk: font, latin: font, alternateLatin: font, decoration: { source: font, character: 'A' } },
+  } });
+}
