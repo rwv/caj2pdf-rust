@@ -2428,3 +2428,11 @@ and geometry fixed; repeated viewer output supports the admitted `c0xx` class
 without literal sample matching. Unknown prefixes and unresolved glyph/control
 semantics remain explicit errors. The required six-page source still stops at
 its first unresolved glyph; this is not recorded as a compatibility pass.
+
+
+HN-B bare page ends and numeric controls (#241): the original
+`hnb_index_fixture.py` controls independently vary indexed two-byte endings,
+`8073/0020`, and numeric/marker-like `8074` payloads. Pinned offline Viewer
+captures establish boundaries only. The original MIT reader reuses its fixed
+buffer and raw events; no external converter code or document text was copied.
+External captures remain in `caj2pdf-hnb-rendering-20261003`.

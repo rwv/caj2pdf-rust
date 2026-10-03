@@ -345,3 +345,27 @@ These remain explicit failures pending original boundary controls; two-byte
 terminators must not be treated as established corruption. First-page traversal
 still succeeds, but no complete-document rendering is claimed. Rendering must
 also interpret the retained state through the shared pipeline, not discard it.
+
+### Two-byte ends and numeric control payloads
+
+Original two-page controls remove only the end payload from each indexed page
+and update lengths/offsets for both 12- and 20-byte indexes. Pinned Viewer retains
+the first-page pixels and opens the following page. Both fixtures regenerate
+exactly. The visitor accepts a bare `8004` only as the final two indexed bytes
+of HN-B; other short records retain truncation errors, and C8 remains unchanged.
+`NativeRecord::End.value` is now `Option<u16>`: `None` preserves the absence of a
+payload, while four-byte records return `Some(raw_value)`. This is a breaking
+v0.x Rust visitor change; consumers constructing records must wrap old values
+in `Some`, and inspection must handle `None` without inventing a page ordinal.
+
+Original bare/following-y controls also establish `8073/0020`. For `8074`, two
+source-valued controls and marker-like payloads `8004`/`ffff` all retain the
+following independent y record. Preserve its numeric payload generally instead
+of enumerating sample values. This establishes framing, not a no-op, font name
+or character interpretation. Unknown neighboring tags still fail. Receipts:
+`caj2pdf-hnb-rendering-20261003/{end-comparison,8074-payload-comparison}.json`.
+
+With these rules, the unchanged issue-100 source traverses all four pages:
+1,471/1,678/1,593/1,795 records and 1,302/1,555/1,470/1,642 raw glyphs.
+This completes its bounded framing checkpoint only. Unicode/resource/state
+interpretation and complete native-page rendering remain acceptance gates.

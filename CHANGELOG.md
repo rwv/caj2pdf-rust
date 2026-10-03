@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **Breaking:** `hnc8::NativeRecord::End.value` is now `Option<u16>` to preserve
+  HN-B two-byte page ends. Wrap existing explicit values in `Some`; handle
+  `None` as an absent payload, not a default ordinal. C8 retains four-byte ends.
+
 - Add experimental complete-document conversion for the observed raw C8 native
   profile through Rust, CLI, Node and browser Workers. Stream text, drawings and
   images in source order using shared codecs and reusable bounded scratch.

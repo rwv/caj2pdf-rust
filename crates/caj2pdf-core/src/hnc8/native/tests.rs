@@ -217,7 +217,10 @@ fn streams_raw_glyph_context_and_atomic_drawing_image_records() {
                 words: [0xd300, 0x8004, 0x8006, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
             }
         );
-        assert_eq!(visitor.events[15], (208, NativeRecord::End { value: 39 }));
+        assert_eq!(
+            visitor.events[15],
+            (208, NativeRecord::End { value: Some(39) })
+        );
     }
 }
 
@@ -647,7 +650,10 @@ fn preserves_additional_controls_and_atomic_8010_payload() {
                 }
             )
         );
-        assert_eq!(visitor.events[10], (148, NativeRecord::End { value: 1 }));
+        assert_eq!(
+            visitor.events[10],
+            (148, NativeRecord::End { value: Some(1) })
+        );
     }
     let error = parse(
         &mut fixture(&[[0x8010, 1], [7, 9], [21, 13], [0xffff, 6]], 0),
@@ -756,7 +762,10 @@ fn a385_drawing_preserves_coordinates_and_following_glyph_context() {
                 }
             )
         );
-        assert_eq!(visitor.events[5], (128, NativeRecord::End { value: 1 }));
+        assert_eq!(
+            visitor.events[5],
+            (128, NativeRecord::End { value: Some(1) })
+        );
         assert!(source.max_request <= 28);
     }
 }
@@ -1292,7 +1301,10 @@ fn reference_and_legacy_images_share_the_declared_page_count() {
         visitor.events[1],
         (124, NativeRecord::Image { .. })
     ));
-    assert_eq!(visitor.events[2], (152, NativeRecord::End { value: 1 }));
+    assert_eq!(
+        visitor.events[2],
+        (152, NativeRecord::End { value: Some(1) })
+    );
 }
 
 fn hnb_source(width: usize, pages: &[&[[u16; 2]]]) -> Source {
@@ -1384,7 +1396,7 @@ fn hnb_glyph_runs_use_both_verified_indexes_without_crossing_pages() {
                         Some(&(
                             start + (words.len() as u64 - 1) * 4,
                             NativeRecord::End {
-                                value: page as u16 + 1
+                                value: Some(page as u16 + 1)
                             }
                         ))
                     );
@@ -1404,7 +1416,7 @@ fn hnb_does_not_inherit_unverified_c8_records_or_font_controls() {
         [0x800a, 0xd301],
         [0x801d, 1],
         [0x8067, 10],
-        [0x8074, 0xb7bc],
+        [0x8075, 0xb7bd],
         [0xc052, 0xa384],
     ] {
         let mut source = hnb_source(
@@ -1431,7 +1443,7 @@ fn hnb_does_not_inherit_unverified_c8_records_or_font_controls() {
 fn hnb_truncated_record_keeps_the_next_page_unread_and_poisons_cursor() {
     for width in [12, 20] {
         for length in 1..4_u32 {
-            let mut source = hnb_source(width, &[&[[0x8004, 1]], &[[0x8004, 2]]]);
+            let mut source = hnb_source(width, &[&[[0x8001, 4700]], &[[0x8004, 2]]]);
             source.bytes[220..224].copy_from_slice(&length.to_le_bytes());
             run(async {
                 let limits = Limits::default();
@@ -1523,6 +1535,8 @@ fn hnb_run_controls_and_drawing_preserve_following_glyph_context() {
     let controls = [
         [0x8074, 0xb7bd],
         [0x8074, 0xcfc8],
+        [0x8074, 0x8004],
+        [0x8074, 0xffff],
         [0x8067, 5],
         [0x801d, 3],
         [0x801d, 4],
@@ -1539,6 +1553,7 @@ fn hnb_run_controls_and_drawing_preserve_following_glyph_context() {
         [0x8071, 0x002b],
         [0x8073, 0x001e],
         [0x8073, 0x001f],
+        [0x8073, 0x0020],
         [0x8073, 0x0029],
         [0x8073, 0x002a],
         [0x8072, 0x1084],
@@ -1643,7 +1658,7 @@ fn hnb_run_controls_and_drawing_preserve_following_glyph_context() {
                 parse(&mut source, TextBudget::default(), &mut visitor).unwrap(),
                 2
             );
-            assert_eq!(visitor.events[1].1, NativeRecord::End { value: 1 });
+            assert_eq!(visitor.events[1].1, NativeRecord::End { value: Some(1) });
         }
         for length in 1..12_u32 {
             let mut source = hnb_source(
@@ -1839,4 +1854,61 @@ fn hnb_truncated_image_does_not_consume_the_following_page() {
             ));
         });
     }
+}
+
+#[test]
+fn hnb_bare_end_tags_stay_inside_each_indexed_page() {
+    for width in [12, 20] {
+        for short in [1, 3, 28] {
+            let mut source = hnb_source(width, &[&[[0x8004, 1]], &[[0x8004, 2]]]);
+            let start = 216 + width * 2;
+            source.bytes.drain(start + 2..start + 4);
+            source.bytes.truncate(start + 4);
+            source.bytes[220..224].copy_from_slice(&2u32.to_le_bytes());
+            source.bytes[216 + width..220 + width]
+                .copy_from_slice(&((start + 2) as u32).to_le_bytes());
+            source.bytes[220 + width..224 + width].copy_from_slice(&2u32.to_le_bytes());
+            source.short = short;
+            run(async {
+                let limits = Limits::default();
+                let cancel = Cancel::default();
+                let mut reader =
+                    Hnc8Reader::open(&mut source, &limits, &cancel, Default::default())
+                        .await
+                        .unwrap();
+                for page in 0..2 {
+                    reader.next_page().await.unwrap().unwrap();
+                    let mut visitor = Visitor::default();
+                    assert_eq!(
+                        reader
+                            .visit_native_records(TextBudget::default(), &mut visitor)
+                            .await
+                            .unwrap(),
+                        1
+                    );
+                    assert_eq!(
+                        visitor.events,
+                        [(start as u64 + page * 2, NativeRecord::End { value: None })]
+                    );
+                }
+                assert!(reader.next_page().await.unwrap().is_none());
+            });
+        }
+    }
+    let mut source = hnb_source(12, &[&[[0x8074, 0xb7bd]]]);
+    source.bytes.truncate(230);
+    source.bytes[220..224].copy_from_slice(&2u32.to_le_bytes());
+    let error = parse(&mut source, TextBudget::default(), &mut Visitor::default()).unwrap_err();
+    assert!(matches!(
+        error.kind,
+        ErrorKind::Truncated {
+            field: "native record",
+            expected: 4,
+            available: 2,
+        }
+    ));
+    let mut c8 = fixture(&[[0x8004, 1]], 0);
+    c8.bytes.truncate(102);
+    c8.bytes[84..88].copy_from_slice(&2u32.to_le_bytes());
+    assert!(parse(&mut c8, TextBudget::default(), &mut Visitor::default()).is_err());
 }

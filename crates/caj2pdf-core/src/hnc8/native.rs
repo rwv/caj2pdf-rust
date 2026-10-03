@@ -53,8 +53,9 @@ pub enum NativeRecord {
     /// Its role is deliberately uninterpreted; this is not visible page text
     /// or permission to discard a required resource reference.
     EncodedString { value: u16, payload: super::Span },
-    /// The final record, including its uninterpreted payload.
-    End { value: u16 },
+    /// The final record and its uninterpreted payload, if present.
+    /// Verified HN-B pages may end with only the two-byte `8004` tag.
+    End { value: Option<u16> },
 }
 
 /// Decode the admitted C8 native character subset without allocating.
@@ -200,9 +201,18 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
                     ));
                 }
                 let mut bytes = [0_u8; 28];
-                self.native_bytes(position, end, &mut bytes[..4], at)
+                let bare_end = self.header.variant == Variant::HnB && end - position == 2;
+                let mut length = if bare_end { 2 } else { 4 };
+                self.native_bytes(position, end, &mut bytes[..length], at)
                     .await?;
                 let tag = word(&bytes[..2]);
+                if bare_end && tag != 0x8004 {
+                    return Err(at.error(ErrorKind::Truncated {
+                        field: "native record",
+                        expected: 4,
+                        available: 2,
+                    }));
+                }
                 let value = word(&bytes[2..4]);
                 if self.header.variant == Variant::HnB
                     && tag >= 0x8000
@@ -217,8 +227,8 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
                             | (0x8070 | 0x8071, 0x0024 | 0x002b)
                             | (0x8070, 0x001c)
                             | (0x8072, 0 | 0x1084 | 0xc2c7 | 0xcdc1)
-                            | (0x8074, 0xb7bd | 0xcfc8)
-                            | (0x8073, 0x001e | 0x001f | 0x0029 | 0x002a)
+                            | (0x8074, _)
+                            | (0x8073, 0x001e | 0x001f | 0x0020 | 0x0029 | 0x002a)
                             | (0x8024, 0x2800 | 0x281d)
                             | (0xc053, _)
                             | (0xffff, 5)
@@ -232,7 +242,6 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
                         value: (u64::from(tag) << 16) | u64::from(value),
                     }));
                 }
-                let mut length = 4;
                 let record = match tag {
                     0x8001 => {
                         y = Some(value);
@@ -405,7 +414,7 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
                         }
                     }
                     0x8004 => {
-                        if position + 4 != end {
+                        if position + length as u64 != end {
                             return Err(at.malformed(
                                 "native page end",
                                 "trailing bytes in indexed text span",
@@ -417,7 +426,9 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
                                 "differ from declared image count",
                             ));
                         }
-                        NativeRecord::End { value }
+                        NativeRecord::End {
+                            value: (!bare_end).then_some(value),
+                        }
                     }
                     x if x < 0x8000 => {
                         if self.header.variant == Variant::HnB && style.is_none() {
