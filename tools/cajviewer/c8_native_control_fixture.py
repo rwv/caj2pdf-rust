@@ -317,6 +317,18 @@ def low_letter_documents():
                     yield f"low-{state}-{variant}-skew.caj", skew
 
 
+def low_p_documents():
+    """Reuse the low-letter controls for the independently observed U+0070."""
+    for name, source in low_letter_documents():
+        data = bytearray(source)
+        for offset in range(100, len(data), 4):
+            x, code = struct.unpack_from("<HH", data, offset)
+            if x < 0x8000 and code in (0x006C, 0xA0EC):
+                struct.pack_into("<H", data, offset + 2,
+                                 {0x006C: 0x0070, 0xA0EC: 0xA0F0}[code])
+        yield name.replace("low-", "low70-", 1), data
+
+
 def field1_documents():
     """Isolate small glyph axes and Latin baseline with original marker fonts."""
     from c8_style_fixture import document as style_document
@@ -489,7 +501,7 @@ def main():
                        *state3_documents(), *required_greek_documents(),
                        *radical_record_documents(), *radical_detail_documents(),
                        *page_end_control_documents(), *field0_documents(),
-                       *radical_alias_documents()):
+                       *radical_alias_documents(), *low_p_documents()):
         (args.output / name).write_bytes(data)
         manifest.append({"file": name, "sha256": hashlib.sha256(data).hexdigest()})
     (args.output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")

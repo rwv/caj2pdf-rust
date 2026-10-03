@@ -935,3 +935,28 @@ identical. External evidence under the existing 20261003 root:
 page 2 byte 39496 on an unsupported native character. The five-page document
 remains at page 2 byte 22528. Neither publishes a final PDF; full-document
 acceptance remains outstanding.
+
+
+### Observed C8 low-byte letter `0070`
+
+The existing low-letter controls are reused by `low_p_documents()`. Fresh
+ordinary Copy returns 26 U+0070 characters and two CJK anchors; clipboard
+ownership/revision and complete UTF-8 transfer pass the independent validator.
+Ten original source controls reproduce byte for byte. Clean repeat captures
+are identical. States 0/4 and modes 0/1 match the shifted-CJK reference exactly,
+as does the explicit skew pair. Ordinary Latin `a0f0` differs. This establishes
+the CJK resource and existing symbol baseline for this exact additional code.
+
+The C8 writer maps `0070` to U+0070 through the same path as `006c`; the generic
+decoder and HN-B admission remain unchanged. Existing tests now cover both
+letters, both states/modes, skew, baseline equivalence and adjacent unsupported
+codes. No additional font role or rendering abstraction is introduced.
+
+All ten controls pass CLI/qpdf and independent Unicode extraction. Mode and
+shifted-reference raster pairs, including skew, are identical with the original
+marker fonts. External receipts under the existing 20261003 root are
+`c8-low70-copy.json`, `c8-low70-observations.json` and
+`c8-low70-output/checks.json`. The four-page input now reaches page 2 byte
+39708 (`8090/a3b1`); the five-page input remains at page 2 byte 22528 (`a1de`).
+Neither publishes a final PDF. These controls do not establish complete-document
+fidelity or support for all low-byte characters.
