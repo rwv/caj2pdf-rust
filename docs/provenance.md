@@ -2831,3 +2831,11 @@ short reads, every truncated length, raw payload preservation and the following
 glyph context. The parser reuses the existing Drawing event and bounded reader;
 no source document data or external implementation is copied. Rendering remains
 explicitly unsupported pending the separate measured path implementation.
+
+### Radical continuous-path output
+
+The original measured five-point path is implemented through a small bounded
+internal PDF stroke method. A new authored black-state control confirms gray
+inheritance independently. Original parser/composer and sink-failure tests
+cover the change; no viewer binary, font outlines, foreign implementation or
+external source-document content is committed.

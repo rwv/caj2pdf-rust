@@ -567,6 +567,41 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
                 return Err(invalid("unverified drawing or image in skewed text state"));
             }
             NativeRecord::Drawing {
+                tag: 0x8090,
+                style: 0xa3e6,
+                points: [[raw_x, y], [raw_width, height]],
+            } => {
+                let flags = raw_x & 0xc000;
+                let width = raw_width & 0x3fff;
+                if !matches!(flags, 0 | 0xc000)
+                    || raw_width & 0xc000 != flags
+                    || y & 0xc000 != 0
+                    || height & 0xc000 != 0
+                    || width < 30
+                    || height < 45
+                    || self.axes != [None; 2]
+                {
+                    return Err(invalid("unverified C8 radical flags, dimensions or axes"));
+                }
+                let unit = super::EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
+                let [left, _, _, top] = self.geometry.media_box()?;
+                let x = f64::from(raw_x & 0x3fff) - f64::from(self.origin[0]);
+                let y = f64::from(y) - f64::from(self.origin[1]);
+                let width = f64::from(width);
+                let height = f64::from(height);
+                let path = [
+                    [x - 45.0, y + height - 25.0],
+                    [x - 25.0, y + height - 45.0],
+                    [x + 10.0, y + height],
+                    [x + 30.0, y],
+                    [x + width + 20.0, y],
+                ]
+                .map(|[x, y]| [left + x * unit, top - y * unit]);
+                self.page
+                    .stroke_polyline(&path, 4.0 * unit, self.gray)
+                    .await?;
+            }
+            NativeRecord::Drawing {
                 tag: 0x8006,
                 style,
                 points,

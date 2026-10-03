@@ -818,3 +818,36 @@ following glyph context. Every truncation length from 1 through 11 is rejected
 within the indexed page span; adjacent record values remain unsupported. No
 new event type, allocation strategy or output behavior is introduced. The page
 composer still rejects the drawing, so full-document acceptance remains open.
+
+### Radical rendering integration
+
+The composer now emits the measured five-point path through a bounded internal
+polyline writer (two to eight points, fixed decimal scratch, sequential output).
+It explicitly sets butt caps, miter joins and miter limit 10, and preserves the
+current gray inside a saved graphics state. A seventh detail control verifies
+that the existing black color record changes the radical from gray 68 to 0;
+both black captures repeat. No font glyph or raster image substitutes for the
+native drawing.
+
+Admission requires matching x/width high-bit pairs (both absent or both `c000`),
+untagged y/height, width at least 30 and height at least 45 source units, and no
+explicit glyph-axis override. The existing skew guard also rejects radical
+output in an unverified skewed state. Smaller/other flagged shapes remain
+unsupported rather than guessing degenerate geometry. HN-B admission is unchanged.
+
+Tests cover connected output and following-glyph order, preserved raw flags,
+invalid dimensions/axes, bounded point count, nonfinite/out-of-range numbers,
+negative width, failed sink, cancellation and abandoned writes. A failed draw
+poisons the page and document as in the existing glyph/polygon paths. This
+internal method does not add a public conversion API or retain page geometry.
+
+All 13 original controls reproduce and pass qpdf through the actual CLI. Actual
+converter/source edge residuals are (-1,2,1,1) for the unclipped gray detail
+controls, and (0,2,0,0) for black; the clipped wide case is not used to verify
+its endpoint. These remain documented raster differences, without compensating
+coordinate shifts. External receipts: `c8-radical-render-output/checks.json`
+and `c8-radical-black-observations.json`. Four-page conversion now reaches
+`80d5/0` at byte 23184 (followed by `8004/11` and encoded metadata); five-page
+still reaches `80d5/0` at byte 20808 (followed by `8004/10`). Both remain explicit
+failures without a published final PDF. Existing notes marked "pending" above
+record earlier investigation stages; this section is the runtime checkpoint.

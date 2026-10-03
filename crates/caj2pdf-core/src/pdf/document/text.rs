@@ -448,6 +448,56 @@ impl<W: SequentialSink, C: Cancellation> ContentPageWriter<'_, '_, '_, W, C> {
         Ok(())
     }
 
+    /// Stroke a bounded continuous path with butt caps and miter joins.
+    /// Fixed decimal scratch and sequential writes avoid retaining page paths.
+    pub(crate) async fn stroke_polyline(
+        &mut self,
+        points: &[[f64; 2]],
+        width: f64,
+        gray: u8,
+    ) -> Result<()> {
+        self.start_draw()?;
+        if !(2..=8).contains(&points.len()) || width < 0.0 {
+            return Err(Error::InvalidInput {
+                reason: "PDF polyline requires two to eight points and nonnegative width",
+            });
+        }
+        let mut command = DecimalMatrix {
+            bytes: [0; MATRIX_TEXT_BYTES],
+            length: 0,
+        };
+        command.push(width)?;
+        self.document
+            .writer
+            .write_stream_bytes(b"q 0 J 0 j 10 M ")
+            .await?;
+        self.document
+            .writer
+            .write_stream_bytes(command.as_bytes())
+            .await?;
+        self.document
+            .writer
+            .write_stream_bytes(format!(" w {:.6} G\n", f64::from(gray) / 255.0).as_bytes())
+            .await?;
+        for (index, point) in points.iter().enumerate() {
+            let mut command = DecimalMatrix {
+                bytes: [0; MATRIX_TEXT_BYTES],
+                length: 0,
+            };
+            command.push(point[0])?;
+            command.push(point[1])?;
+            self.document
+                .writer
+                .write_stream_bytes(command.as_bytes())
+                .await?;
+            let operator = if index == 0 { b" m\n" } else { b" l\n" };
+            self.document.writer.write_stream_bytes(operator).await?;
+        }
+        self.document.writer.write_stream_bytes(b"S Q\n").await?;
+        self.failed = false;
+        Ok(())
+    }
+
     /// Fill a closed black polygon using PDF's nonzero winding rule.
     /// Three to eight vertices cover small native decorations without retaining
     /// an unbounded path. Points are streamed through fixed decimal scratch;

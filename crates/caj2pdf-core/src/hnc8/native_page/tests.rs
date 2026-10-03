@@ -1931,3 +1931,45 @@ fn c8_required_greek_letters_follow_latin_state_and_symbol_baseline() {
         assert!(convert(&words, 0, &[], roles(), 11).0.is_err());
     }
 }
+
+#[test]
+fn c8_radical_outputs_one_joined_path_and_rejects_unverified_geometry() {
+    for flag in [0, 0xc000] {
+        let words = [
+            [0x8001, 4350],
+            [0x8002, 0x1021],
+            [0x8090, 0xa3e6],
+            [4802 | flag, 4354],
+            [143 | flag, 125],
+            [4682, 0xa0c1],
+            [0x8004, 1],
+        ];
+        let (result, pdf, finished) = convert(&words, 0, &[], roles(), 0);
+        result.unwrap();
+        assert!(finished);
+        let text = String::from_utf8_lossy(&pdf);
+        assert_eq!(text.matches(" m\n").count(), 1);
+        assert_eq!(text.matches(" l\n").count(), 4);
+        assert_eq!(text.matches("S Q\n").count(), 1);
+        assert!(text.find("S Q").unwrap() < text.find("<0041> Tj").unwrap());
+        assert!(convert(&words, 0, &[], roles(), 12).0.is_err());
+    }
+    for (x, y, width, height, axis) in [
+        (0x4000, 4354, 143, 125, false),
+        (4802, 4354, 0xc08f, 125, false),
+        (4802, 0x4000, 143, 125, false),
+        (4802, 4354, 143, 0x4000, false),
+        (4802, 4354, 29, 125, false),
+        (4802, 4354, 143, 44, false),
+        (4802, 4354, 143, 125, true),
+    ] {
+        let mut words = vec![[0x8001, 4350], [0x8002, 0x1021]];
+        if axis {
+            words.push([0x8070, 36]);
+        }
+        words.extend([[0x8090, 0xa3e6], [x, y], [width, height], [0x8004, 1]]);
+        let (result, _, finished) = convert(&words, 0, &[], roles(), 0);
+        assert!(result.is_err());
+        assert!(!finished);
+    }
+}

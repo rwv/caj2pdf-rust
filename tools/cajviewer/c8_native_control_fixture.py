@@ -413,6 +413,11 @@ def radical_detail_documents():
             first_y=4334,
             run_words=(0x8090, 0xA3E6, 0xC000 | x, y, 0xC000 | width, height))
 
+    yield "radical-detail-black.caj", style_document(
+        [(0x1021, 3, 6)], codes=(), width=400, height=400, first_y=4334,
+        run_words=(0x81FF, 1, 0, 200, 0x8090, 0xA3E6,
+                   0xC000 | 4802, 4354, 0xC08F, 125))
+
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
