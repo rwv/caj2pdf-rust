@@ -92,6 +92,7 @@ fn roles() -> C8PageFonts {
         alternate_latin: 2,
         decoration: Some((1, 'A')),
         symbols: None,
+        latin_state3: None,
     }
 }
 fn image() -> Vec<[u16; 2]> {
@@ -1302,4 +1303,39 @@ fn hnb_regular_style_flags_preserve_controlled_resources_and_geometry() {
             assert_eq!(actual, baseline);
         }
     }
+}
+
+#[test]
+fn hnb_state_three_requires_explicit_resource_and_switches_back() {
+    let words = [
+        [0x8001, 4350],
+        [0x8002, 0x10a5],
+        [0x801d, 3],
+        [4682, 0xa0c1],
+        [0x801d, 4],
+        [4772, 0xa0c1],
+        [0x801d, 3],
+        [4862, 0xa0c1],
+        [0x801d, 0],
+        [4952, 0xa0c1],
+        [0x8004, 1],
+    ];
+    let mut fonts = roles();
+    for index in [None, Some(3)] {
+        fonts.latin_state3 = index;
+        let (result, _, finished) = convert(&words, 0, &[], fonts, 12);
+        assert!(result.is_err());
+        assert!(!finished);
+    }
+    fonts.latin_state3 = Some(0);
+    let (result, pdf, finished) = convert(&words, 0, &[], fonts, 12);
+    assert!(result.is_ok(), "{result:?}");
+    assert!(finished);
+    let text = String::from_utf8_lossy(&pdf);
+    let mut at = 0;
+    for role in [0, 2, 0, 1] {
+        let token = format!("/F{role} 1 Tf");
+        at += text[at..].find(&token).unwrap() + token.len();
+    }
+    assert_eq!(text.matches("<0041> Tj").count(), 4);
 }

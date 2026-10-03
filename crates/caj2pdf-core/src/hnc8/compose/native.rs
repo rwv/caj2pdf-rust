@@ -7,7 +7,7 @@ use crate::hnc8::{C8PageFonts, write_c8_native_page};
 use crate::pdf::{FontObject, ImageObject, TrueTypeFont};
 
 /// Explicit ranged font sources, embedded once per document.
-/// Multiple roles may reference one source index. At most five distinct
+/// Multiple roles may reference one source index. At most six distinct
 /// resources are needed by the admitted profile; no system fonts are searched.
 pub struct C8FontSources<'a, F> {
     pub sources: &'a mut [F],
@@ -43,17 +43,18 @@ where
     validate(options, limits)?;
     let roles = fonts.roles;
     let count = fonts.sources.len();
-    if !(1..=5).contains(&count)
+    if !(1..=6).contains(&count)
         || [roles.cjk, roles.latin, roles.alternate_latin]
             .into_iter()
             .chain(roles.decoration.map(|(index, _)| index))
             .chain(roles.symbols)
+            .chain(roles.latin_state3)
             .any(|index| index >= count)
     {
         return Err(At::NONE.error(
             ComposeStage::Preflight,
             ComposeErrorKind::InvalidOptions(
-                "C8 font roles require 1..=5 explicit resources with valid indices",
+                "C8 font roles require 1..=6 explicit resources with valid indices",
             ),
         ));
     }
@@ -101,6 +102,7 @@ where
         &handles[roles.alternate_latin],
         &handles[roles.decoration.map_or(roles.cjk, |(index, _)| index)],
         &handles[roles.symbols.unwrap_or(roles.cjk)],
+        &handles[roles.latin_state3.unwrap_or(roles.cjk)],
     ];
     let page_roles = C8PageFonts {
         cjk: 0,
@@ -108,6 +110,7 @@ where
         alternate_latin: 2,
         decoration: roles.decoration.map(|(_, alias)| (3, alias)),
         symbols: roles.symbols.map(|_| 4),
+        latin_state3: roles.latin_state3.map(|_| 5),
     };
     let mut report = ComposeReport::new(header);
     let mut workspaces = workspaces.into();
@@ -191,7 +194,13 @@ where
         report.output_pages = write_c8_native_page(
             &mut reader,
             &mut document,
-            &references[..if roles.symbols.is_some() { 5 } else { 4 }],
+            &references[..if roles.latin_state3.is_some() {
+                6
+            } else if roles.symbols.is_some() {
+                5
+            } else {
+                4
+            }],
             page_roles,
             &images,
             &top_first,

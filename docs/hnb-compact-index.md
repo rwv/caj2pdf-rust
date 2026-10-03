@@ -1002,3 +1002,25 @@ workspace Clippy passes. The complete regular-flag generator subsumes the
 initial two-case small-style probe, avoiding duplicate committed generators.
 The viewer's hard timeout was restarted only after container exit 124 was
 confirmed; no failed capture is promoted into rendering evidence.
+
+### State-3 Latin resource checkpoint
+
+Original `resource_three_controls()` pairs compare states 0, 3, 4 and 4→3
+under style `10a5`. Repeated viewer captures distinguish the state-3 Latin
+marker from the ordinary and alternate resources, while preserving the CJK
+marker. Their measured bounds match: CJK `(698,513)-(832,647)` and Latin
+`(864,520)-(998,654)` in the controlled viewer frame. This establishes the
+resource switch for that control, not the original vendor font identity.
+External receipts are `resource-three-comparison.json` and
+`resource-three-bounds.json` under `caj2pdf-hnb-rendering-20261003`.
+
+The optional `latin_state3` core role / `latinState3` JS role /
+`--font-latin-state3` CLI flag transports a caller-supplied ranged font through
+the existing bounded path. States 0 and 4 restore their respective resources.
+Missing state-3 resources fail explicitly. Original Node and real Worker
+fixtures exercise the role with short font reads and two-page output.
+
+The real issue-65 retry using original marker substitutes now fails at page 1
+byte 1504 on the `A1B2` glyph resource/placement class, after the state record
+at byte 1500. No complete output is published. Its punctuation mapping, later
+style/axis controls and full six-page fidelity remain open under #241/#250.

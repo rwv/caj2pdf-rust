@@ -57,7 +57,7 @@ pub enum Status {
 pub enum Request {
     /// Copy up to `length` source bytes at `offset` into the staging buffer.
     Read {
-        /// 0 is the document; 1..=5 are explicitly registered font resources.
+        /// 0 is the document; 1..=6 are explicitly registered font resources.
         resource: u32,
         offset: u64,
         length: usize,
@@ -483,6 +483,11 @@ impl Engine {
                 .borrow_mut()
                 .fonts
                 .set(cjk, latin, alternate, decoration, alias, symbols)
+    }
+
+    /// Assign the optional state-3 Latin role after the base roles, before polling.
+    pub fn set_c8_latin_state3(&mut self, index: u32) -> bool {
+        !self.started && self.shared.borrow_mut().fonts.set_latin_state3(index)
     }
 
     fn complete(&self, accept: impl FnOnce(Request) -> Option<Response>) -> bool {

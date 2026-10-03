@@ -974,17 +974,23 @@ fn font_configuration_rejects_invalid_or_late_resources() {
     assert_eq!(engine.add_font_source(0), 0);
     assert_eq!(engine.add_font_source(u64::MAX), 0);
     assert!(!engine.set_c8_fonts(0, 0, 0, u32::MAX, 0, u32::MAX));
-    for id in 1..=5 {
+    for id in 1..=6 {
         assert_eq!(engine.add_font_source(100), id);
     }
     assert_eq!(engine.add_font_source(100), 0);
-    for (decoration, alias) in [(5, 65), (0, 0xd800), (0, 0x10000)] {
+    for (decoration, alias) in [(6, 65), (0, 0xd800), (0, 0x10000)] {
         assert!(!engine.set_c8_fonts(0, 0, 0, decoration, alias, u32::MAX));
     }
-    assert!(!engine.set_c8_fonts(0, 1, 2, u32::MAX, 0, 5));
+    assert!(!engine.set_c8_fonts(0, 1, 2, u32::MAX, 0, 6));
+    assert!(!engine.set_c8_latin_state3(5));
     assert!(engine.set_c8_fonts(0, 1, 2, 3, 65, 4));
+    assert!(!engine.set_c8_latin_state3(6));
+    assert!(engine.set_c8_latin_state3(5));
+    assert!(!engine.set_c8_latin_state3(5));
     assert!(!engine.set_c8_fonts(0, 1, 2, u32::MAX, 0, u32::MAX));
     assert_eq!(engine.add_font_source(100), 0);
+    assert_eq!(engine.poll(), Status::Read);
+    assert!(!engine.set_c8_latin_state3(5));
     let mut copy = Engine::start(
         1,
         limits(32),

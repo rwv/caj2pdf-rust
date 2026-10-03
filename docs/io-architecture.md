@@ -177,7 +177,7 @@ The WASM host registers resource sizes before the first poll using
 `caj2pdf_c8_add_font(size)` (returns IDs 1–5), then assigns zero-based role
 indices using `caj2pdf_c8_set_fonts(cjk, latin, alternate, decoration, alias)`.
 A decoration index of `0xffffffff` means absent. `caj2pdf_io_request_resource()`
-identifies each ordinary read: 0 is the document, 1–5 are registered fonts.
+identifies each ordinary read: 0 is the document, 1–6 are registered fonts.
 The staging buffer, pending-request slot, completion and cancellation rules
 are shared with existing I/O. Registration is rejected after polling,
 excess resources are rejected, and sizes/roles are validated.
@@ -201,4 +201,17 @@ JavaScript selects the new export only when `hnc8.fonts.symbols` is supplied.
 **Unstable Rust API change:** `C8PageFonts` gains `symbols: Option<usize>`;
 existing struct literals should set `None` unless supplying the resource.
 `Engine::set_c8_fonts` gains a final symbol index (`u32::MAX` for absent).
-Font resource capacity is five; the four image scratch stores are unchanged.
+Font resource capacity is six; the four image scratch stores are unchanged.
+
+HN-B state `801d/3` selects an explicitly supplied `latinState3` resource.
+Register it with `caj2pdf_c8_set_latin_state3(index)` after the base roles and
+before polling. The index is zero-based; omit the call when absent. Invalid,
+duplicate or late registration fails. Existing font exports remain unchanged.
+The state fails explicitly when its resource is absent. Original controls
+establish the Latin resource change and matching bounds for the tested style;
+they do not identify a vendor font or establish every punctuation mapping.
+
+**Unstable Rust API change:** `C8PageFonts` also gains
+`latin_state3: Option<usize>`; existing literals should use `None` unless
+supplying that role. `Engine::set_c8_fonts` retains its current signature;
+`Engine::set_c8_latin_state3` supplies the optional additional role.

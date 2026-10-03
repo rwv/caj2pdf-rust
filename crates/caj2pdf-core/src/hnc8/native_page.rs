@@ -25,6 +25,8 @@ pub struct C8PageFonts {
     /// Semantic symbols and spaces in the controlled HN-B mode-0 profile.
     /// Required only when a page uses that resource; never an implicit fallback.
     pub symbols: Option<usize>,
+    /// Explicit HN-B Latin resource selected by `801d/3`.
+    pub latin_state3: Option<usize>,
 }
 
 /// Write and finish the current C8 or text/vector HN-B native page using already embedded resources.
@@ -126,7 +128,7 @@ where
         non_image_painted: false,
         style: None,
         axes: [None; 2],
-        alternate: false,
+        latin: roles.latin,
         skew: false,
         variant: header.variant,
         legacy,
@@ -149,7 +151,7 @@ struct PageWriter<'p, 'd, 'a, 'r, W: SequentialSink, C: Cancellation> {
     non_image_painted: bool,
     style: Option<u16>,
     axes: [Option<u16>; 2],
-    alternate: bool,
+    latin: usize,
     skew: bool,
     variant: Variant,
     legacy: bool,
@@ -203,11 +205,20 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
             NativeRecord::Control {
                 tag: 0x801d,
                 value: 0,
-            } => self.alternate = false,
+            } => self.latin = self.roles.latin,
             NativeRecord::Control {
                 tag: 0x801d,
                 value: 4,
-            } => self.alternate = true,
+            } => self.latin = self.roles.alternate_latin,
+            NativeRecord::Control {
+                tag: 0x801d,
+                value: 3,
+            } if self.variant == Variant::HnB => {
+                self.latin = self
+                    .roles
+                    .latin_state3
+                    .ok_or_else(|| invalid("missing HN-B state-3 Latin font resource"))?;
+            }
             // Independently controlled ordinary resource combinations.
             NativeRecord::Control {
                 tag: 0x8067,
@@ -297,11 +308,7 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
                 {
                     return Err(invalid("unverified explicit-axis punctuation offsets"));
                 }
-                let latin = if self.alternate {
-                    self.roles.alternate_latin
-                } else {
-                    self.roles.latin
-                };
+                let latin = self.latin;
                 // Select by raw code: Unicode alone does not establish the
                 // resource or placement of the source's symbol variants.
                 let (class, font, baseline_fraction) = match code {
