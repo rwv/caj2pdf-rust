@@ -38,7 +38,7 @@ pub enum Command {
         input: Endpoint,
         output: Option<Endpoint>,
         force: bool,
-        options: ConvertOptions,
+        options: Box<ConvertOptions>,
     },
     Inspect {
         input: Endpoint,
@@ -297,7 +297,7 @@ pub fn parse<I: IntoIterator<Item = OsString>>(args: I) -> Result<Command, Strin
             input,
             output,
             force,
-            options,
+            options: Box::new(options),
         },
         Topic::Inspect => Command::Inspect {
             input,
