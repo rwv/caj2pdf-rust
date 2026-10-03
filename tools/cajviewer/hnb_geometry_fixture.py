@@ -121,7 +121,7 @@ def main():
         (args.output / filename).write_bytes(data)
         manifest.append({"file": filename, "words": words,
                          "sha256": hashlib.sha256(data).hexdigest()})
-    for style in (0x1067, 0x10E3):
+    for style in (0x1067, 0x10E3, 0xE58C):
         for name, words in (("base", ()), ("skew", (0x8024, 0x281D))):
             data = skew_control(words, style)
             filename = f"skew-axis-{style:04x}-{name}.caj"

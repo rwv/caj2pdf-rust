@@ -2166,12 +2166,40 @@ not reset the tilt. All 729% page interiors repeat identically. Two unequal
 size controls (`1067`, `10e3`) distinguish the transform's axes: the narrower,
 taller glyph shifts near its top by about 18 screen pixels, while the wider,
 shorter glyph shifts by about 31. Thus the displacement follows width, not
-height. Horizontal extents also contract; a pure height-based shear is not
-established. Do not infer an angle directly from the payload or discard this
-control as a no-op. Exact coefficients remain to be independently validated.
+height. Small-glyph edge differences alone do not establish horizontal
+compression; the larger control below distinguishes that hypothesis. Do not
+infer an angle directly from the payload or discard this control as a no-op.
 
 The existing generator reproduces all eight inputs. Receipts are
 `skew-inputs.json`, `skew-state-comparison.json`, `skew-axis-inputs.json`,
 `skew-axis-comparison.json` and repeated `skew-viewer` captures in
 `caj2pdf-hnb-rendering-20261003`. These are original full-em font controls;
 no external document text or outlines enter Git.
+
+### Held-out large-glyph skew measurement
+
+The same original control at the independently established `e58c` size
+(`109 * 75 / 301` points per em) retains its approximately 262-screen-pixel
+width while shifting the top rightward by about 63 pixels at 729% zoom.
+This contradicts a horizontal scale correction inferred from the smaller
+rasterized glyphs. The generator includes both large baseline and tilted
+controls as `skew-axis-e58c-{base,skew}.caj`.
+
+An independently constructed PDF uses the existing original full-em marker
+font, gray 68, the established origin and baseline, and the matrix
+`[width, 0, width * 0.24, height, x, y]`. Source and PDF top/left positions
+agree; the PDF's right and bottom edges differ by one screen pixel. Repeated
+captures are stable. No compensating translation or horizontal scaling is
+introduced. This supports a width-relative shear for this exact control;
+it does not establish arbitrary `8024` payloads, skewed decorations or mixed
+image behavior, and production admission remains separate.
+
+External receipts in `caj2pdf-hnb-rendering-20261003` are
+`skew-large-inputs.json`, `skew-large-comparison.json`, and
+`skew-large-pdf-comparison.json`, with repeated `skew-viewer` captures.
+The original source controls have SHA256 values
+`737f359f84cdfaebfec360fc0a3fda3603009bcd3e7525d96b0a12cb1aefb046`
+(baseline) and
+`0234a4a08bf8ce3e1a0188a58a3be642d146620da7e76ea86f23287927a0e520`
+(tilted). These controls use synthetic glyph outlines and contain no copied
+source-document content.
