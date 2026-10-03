@@ -1722,12 +1722,11 @@ fn hnb_run_controls_and_drawing_preserve_following_glyph_context() {
     }
     // These values remain HN-B-only. Independently admitted C8 numeric
     // controls and a385 drawings have their own positive tests above.
+    // Explicit axis 36 is now shared; native-page tests cover both orders.
     for control in [
         [0x8067, 7],
         [0x8069, 0x1084],
-        [0x8070, 0x0024],
         [0x8070, 0x002b],
-        [0x8071, 0x0024],
         [0x8071, 0x002b],
     ] {
         let mut source = fixture(&[control, [0x8004, 1]], 0);
