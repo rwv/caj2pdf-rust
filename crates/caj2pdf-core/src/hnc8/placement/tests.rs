@@ -454,7 +454,9 @@ fn c8_glyph_origins_are_signed_and_unknown_styles_are_errors() {
         .unwrap();
     close(b[4] - a[4], -20.0 * EMPIRICAL_COORDINATE_POINTS_PER_UNIT);
     close(b[5] - a[5], 20.0 * EMPIRICAL_COORDINATE_POINTS_PER_UNIT);
-    for style in [0x0484, 0x1484, 0x9084, 0x1004, 0x1080, 0x1024, 0x1089] {
+    for style in [
+        0x0485, 0x9c85, 0x1484, 0x9084, 0x1004, 0x1080, 0x1024, 0x1089,
+    ] {
         assert!(
             empirical_c8_glyph_transform(page(), origin, origin, style, C8GlyphClass::Cjk).is_err()
         );
@@ -594,54 +596,59 @@ fn observed_glyph_style_prefixes_share_geometry_without_admitting_other_records(
 }
 
 #[test]
-fn independently_controlled_field7_variants_preserve_both_glyph_classes() {
-    for class in [C8GlyphClass::Cjk, C8GlyphClass::Latin] {
-        let expected =
-            empirical_c8_glyph_transform(page(), [4652, 4274], [5200, 4700], 0x10e7, class)
-                .unwrap();
-        for style in [0x04e7, 0x14e7] {
-            let actual =
-                empirical_c8_glyph_transform(page(), [4652, 4274], [5200, 4700], style, class)
+fn independently_controlled_variants_preserve_both_glyph_classes() {
+    for (reference, styles) in [(0x10e7, [0x04e7, 0x14e7]), (0x1084, [0x0484, 0x9c84])] {
+        for class in [C8GlyphClass::Cjk, C8GlyphClass::Latin] {
+            let expected =
+                empirical_c8_glyph_transform(page(), [4652, 4274], [5200, 4700], reference, class)
                     .unwrap();
-            for (actual, expected) in actual.into_iter().zip(expected) {
-                close(actual, expected);
+            for style in styles {
+                let actual =
+                    empirical_c8_glyph_transform(page(), [4652, 4274], [5200, 4700], style, class)
+                        .unwrap();
+                for (actual, expected) in actual.into_iter().zip(expected) {
+                    close(actual, expected);
+                }
+                assert!(
+                    empirical_c8_horizontal_decoration(page(), [0, 0], [[0, 0], [100, 0]], style,)
+                        .is_err()
+                );
             }
-            assert!(
-                empirical_c8_horizontal_decoration(page(), [0, 0], [[0, 0], [100, 0]], style,)
-                    .is_err()
-            );
         }
     }
 }
 
 #[test]
 fn large_cjk_control_uses_verified_em_and_existing_signed_origin() {
-    let actual = empirical_c8_glyph_transform(
-        page(),
-        [4652, 4274],
-        [4672, 4294],
-        0xe58c,
-        C8GlyphClass::Cjk,
-    )
-    .unwrap();
-    close(actual[0], 27.159468438538206);
-    close(actual[3], 27.159468438538206);
-    close(
-        actual[4],
-        page().origin_points[0] + 40.0 * EMPIRICAL_COORDINATE_POINTS_PER_UNIT,
-    );
-    let shifted = empirical_c8_glyph_transform(
-        page(),
-        [4672, 4294],
-        [4692, 4314],
-        0xe58c,
-        C8GlyphClass::Cjk,
-    )
-    .unwrap();
-    assert_eq!(actual, shifted);
-    assert!(
-        empirical_c8_glyph_transform(page(), [0, 0], [0, 0], 0xe58c, C8GlyphClass::Latin,).is_err()
-    );
+    for (style, expected_em) in [(0xe58c, 27.159468438538206), (0x154a, 20.930232558139537)] {
+        let actual = empirical_c8_glyph_transform(
+            page(),
+            [4652, 4274],
+            [4672, 4294],
+            style,
+            C8GlyphClass::Cjk,
+        )
+        .unwrap();
+        close(actual[0], expected_em);
+        close(actual[3], expected_em);
+        close(
+            actual[4],
+            page().origin_points[0] + 40.0 * EMPIRICAL_COORDINATE_POINTS_PER_UNIT,
+        );
+        let shifted = empirical_c8_glyph_transform(
+            page(),
+            [4672, 4294],
+            [4692, 4314],
+            style,
+            C8GlyphClass::Cjk,
+        )
+        .unwrap();
+        assert_eq!(actual, shifted);
+        assert!(
+            empirical_c8_glyph_transform(page(), [0, 0], [0, 0], style, C8GlyphClass::Latin,)
+                .is_err()
+        );
+    }
     for style in [0x118c, 0xe58b, 0xe56c] {
         assert!(
             empirical_c8_glyph_transform(page(), [0, 0], [0, 0], style, C8GlyphClass::Cjk,)

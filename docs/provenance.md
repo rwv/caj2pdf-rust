@@ -2528,3 +2528,9 @@ original two-glyph/opaque-tail controls in `hnb_geometry_fixture.py` establish
 termination and next-page indexing using the pinned viewer as a black box.
 The generator reproduces captured input hashes; it contains no vendor code,
 external document bytes, fonts or copied text. C8 end handling is unchanged.
+
+Exact native styles `0484`, `9c84` and CJK `154a` are original MIT extensions
+based on independently generated HN-B/C8 controls. The measured 84-unit size
+is distinguished from adjacent candidates, with changed font/coordinates as
+held-out controls. No vendor implementation, font outlines or corpus text is
+included. Existing glyph geometry and regression helpers are reused.

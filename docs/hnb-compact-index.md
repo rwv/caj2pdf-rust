@@ -569,3 +569,41 @@ The refreshed external `issue63-end-inventory.txt` now traverses pages 1–3
 successfully: 2,706 / 3,974 / 2,273 native events and 2,060 / 2,569 / 1,902
 glyphs. Page 4 still refuses `8073/002b` at byte 69,876. These visitor counts
 are not rendered-document acceptance; style `154a` still blocks conversion.
+
+## Additional native glyph sizes and style flags
+
+Original two-glyph controls establish that exact styles `0484` and `9c84`
+share `1084` geometry. Exact `154a` matches explicit 84×84 axes, while the
+adjacent 83 and 85 controls visibly differ. Repeating with alternate font
+selection and shifted coordinates preserves equality. Corresponding original
+C8 wrappers match the HN-B controls, so the shared geometry helper admits
+these exact cases. `154a` is admitted only for CJK glyphs; its Latin baseline,
+other field-10 styles and decorations remain unverified. No general high-bit
+mask or extrapolated size table is introduced.
+
+The existing `hnb_geometry_fixture.py` reproduces all 26 original input hashes.
+External `issue63-style-{inputs,held-inputs,c8-inputs,comparison}.json` and
+captures in `caj2pdf-hnb-rendering-20261003` record the comparisons. A viewer
+crash produced black initial `c8-1084` captures; they were excluded. After
+confirming the viewer child had exited, a restarted viewer's baseline and
+repeat matched the HN-B baseline. No black-frame equality is evidence.
+
+Existing placement regressions now cover both new field-4 flag variants and
+the measured field-10 CJK size, preserving signed origins and explicit errors
+for neighboring unverified styles, Latin field-10 geometry and decorations.
+
+The public CLI now passes the former byte-304 style failure and stops at byte
+1,180 (`a980`) on an unverified glyph resource/placement class. It publishes
+no final PDF on failure. The 22 placement tests, strict workspace Clippy and
+34,379/34,379 Rust line coverage pass. This is still not issue-63 conversion.
+
+Initial original `a9xx` probes reveal a separate character/resource problem:
+viewer selection copies `a980/a98a/a996/a99a/a99b/a99c/a99d` as digits
+`0/0/2/6/7/8/9`, while their visible forms contain circles or dark boxes.
+Blind ordinary GB18030 mappings would be wrong for that subset. A second
+control copies `a99e` as U+E7FB and the tested line-drawing codes as their
+ordinary Unicode values. These are investigation results only; do not erase
+the visible enclosures, invent Unicode equivalents or accept arbitrary private
+use codes. External `issue63-a9-inputs.json`, captures and clipboard receipts
+retain the original control evidence. Required mapping, font resource and
+placement remain unresolved in #241.

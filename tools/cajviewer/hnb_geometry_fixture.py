@@ -157,6 +157,26 @@ def end_controls():
         yield f"end-tail-{name}", bytes(header + index) + b"".join(payloads)
 
 
+def issue63_style_controls():
+    """Compare required styles against independent explicit-size controls."""
+    ordinary = [(f"style{style:04x}", style, ()) for style in
+                (0x154A, 0x114A, 0x0484, 0x1084, 0x9C84, 0x0C84, 0x1000, 0)]
+    ordinary.extend((f"explicit{size}", 0, (0x8070, size, 0x8071, size))
+                    for size in (35, 36, 78, 83, 84, 85, 87, 88))
+    held = [("154a", 0x154A, ()), ("84", 0, (0x8070, 84, 0x8071, 84)),
+            ("0484", 0x0484, ()), ("9c84", 0x9C84, ()), ("1084", 0x1084, ())]
+    for prefix, controls, alternate, x, y, c8 in (
+        ("issue63", ordinary, 0, 4672, 4374, False),
+        ("issue63-held", held, 4, 4693, 4357, False),
+        ("issue63-c8", held, 4, 4693, 4357, True),
+    ):
+        for name, style, words in controls:
+            data = document([(style, alternate, 6)], codes=(), width=600, height=400,
+                            first_x=x, first_y=y,
+                            run_words=words + (x, 0xD6D0, x + 200, 0xA0C1))
+            yield f"{prefix}-{name}", data if c8 else hn_container(data)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("output", type=Path, help="new directory outside the repository")
@@ -259,7 +279,7 @@ def main():
         (args.output / filename).write_bytes(data)
         manifest.append({"file": filename, "code": code, "alternate": alt, "dx": dx,
                          "x": x, "y": y, "sha256": hashlib.sha256(data).hexdigest()})
-    for name, data in end_controls():
+    for name, data in (*end_controls(), *issue63_style_controls()):
         filename = name + ".caj"
         (args.output / filename).write_bytes(data)
         manifest.append({"file": filename, "sha256": hashlib.sha256(data).hexdigest()})

@@ -232,8 +232,9 @@ pub enum C8GlyphClass {
 ///
 /// Size fields 2 through 8 with observed high bits `0x0800`, `0x0c00` or
 /// `0x1000` share the measured glyph geometry. Independently controlled
-/// `0x04e7` and `0x14e7` also share field-7 geometry. The observed `0xe58c`
-/// CJK form uses independently measured size 109; its Latin baseline is unknown.
+/// `0x04e7` and `0x14e7` also share field-7 geometry; `0x0484` and `0x9c84`
+/// share field-4 geometry. The observed `0xe58c` and `0x154a` CJK forms use
+/// measured sizes 109 and 84 respectively; their Latin baselines are unknown.
 /// The point-size
 /// model is calibrated from original font controls, including held-out field 7;
 /// it is not an authoritative physical-unit definition. See the recorded
@@ -270,13 +271,15 @@ pub(super) fn native_glyph_transform(
         }
         let em = 36.0 * 75.0 / 301.0;
         (em, em, 8.0)
-    } else if style == 0xe58c && class == C8GlyphClass::Cjk {
-        // Original high-magnification controls distinguish explicit 109 from
-        // 108/110. Latin baseline and other field-12 flags remain unverified.
-        let em = 109.0 * 75.0 / 301.0;
+    } else if matches!(style, 0xe58c | 0x154a) && class == C8GlyphClass::Cjk {
+        // Original controls distinguish explicit 109 and 84 from adjacent
+        // sizes. Latin baselines and other size-field flags remain unverified.
+        let size = if style == 0xe58c { 109.0 } else { 84.0 };
+        let em = size * 75.0 / 301.0;
         (em, em, 0.0)
     } else {
-        if !matches!(style & 0xfc00, 0x0800 | 0x0c00 | 0x1000) && !matches!(style, 0x04e7 | 0x14e7)
+        if !matches!(style & 0xfc00, 0x0800 | 0x0c00 | 0x1000)
+            && !matches!(style, 0x04e7 | 0x14e7 | 0x0484 | 0x9c84)
         {
             return Err(Error::InvalidInput {
                 reason: "unverified C8 glyph style flags",
