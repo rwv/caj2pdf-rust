@@ -155,7 +155,7 @@ fn streams_raw_glyph_context_and_atomic_drawing_image_records() {
         let mut visitor = Visitor::default();
         assert_eq!(
             parse(&mut source, TextBudget::default(), &mut visitor).unwrap(),
-            14
+            16
         );
         assert!(source.max_request <= 24);
         assert_eq!(
@@ -199,15 +199,25 @@ fn streams_raw_glyph_context_and_atomic_drawing_image_records() {
                 }
             )
         );
-        assert_eq!(visitor.events[10].0, 152);
-        assert_eq!(visitor.events[11].0, 164);
         assert_eq!(
-            visitor.events[12].1,
+            visitor.events[10],
+            (
+                148,
+                NativeRecord::Control {
+                    tag: 0xffff,
+                    value: 5
+                }
+            )
+        );
+        assert_eq!(visitor.events[11].0, 152);
+        assert_eq!(visitor.events[12].0, 164);
+        assert_eq!(
+            visitor.events[14].1,
             NativeRecord::Image {
                 words: [0xd300, 0x8004, 0x8006, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
             }
         );
-        assert_eq!(visitor.events[13], (208, NativeRecord::End { value: 39 }));
+        assert_eq!(visitor.events[15], (208, NativeRecord::End { value: 39 }));
     }
 }
 
@@ -215,16 +225,17 @@ fn streams_raw_glyph_context_and_atomic_drawing_image_records() {
 fn unsupported_records_stop_without_consuming_their_payload_as_glyphs() {
     for pair in [
         [0x8006, 0],
-        [0x8010, 1],
-        [0xc053, 7],
-        [0xc054, 8],
-        [0x8072, 0],
-        [0x8073, 0],
-        [0x8074, 0],
+        [0x8006, 0xa384],
+        [0x8010, 0],
+        [0x8010, 0xa381],
+        [0xc052, 7],
+        [0xc055, 8],
+        [0x8071, 0],
+        [0x8075, 0],
         [0x801d, 1],
         [0x8067, 0],
         [0x800a, 0],
-        [0xffff, 5],
+        [0xffff, 4],
     ] {
         let mut source = fixture(
             &[[0x8001, 5], [0x8002, 7], pair, [13, 0xcec4], [0x8004, 0]],
@@ -248,7 +259,6 @@ fn context_end_and_image_counts_are_checked() {
         vec![],
         vec![[0x8001, 5]],
         vec![[0x8004, 0], [0x8004, 0]],
-        vec![[0x8006, 0xa381], [1, 2], [3, 4], [0x8004, 0]],
     ] {
         let error = parse(
             &mut fixture(&words, 0),
@@ -279,8 +289,12 @@ fn context_end_and_image_counts_are_checked() {
 fn never_reads_past_indexed_span_for_any_truncated_record() {
     for words in [
         vec![[0x8004, 0]],
-        vec![[0x8006, 0xa381], [1, 2], [3, 4], [0xffff, 5]],
+        vec![[0x8006, 0xa381], [1, 2], [3, 4]],
         vec![[0x8006, 0xa383], [1, 2], [3, 4]],
+        vec![[0x8006, 0xa385], [1, 2], [3, 4]],
+        vec![[0x8010, 1], [1, 2], [3, 4]],
+        vec![[0xc053, 0xffff]],
+        vec![[0x8073, 0x8004]],
         vec![
             [0x800a, 0xd300],
             [1, 2],
@@ -504,6 +518,9 @@ fn maps_verified_alphanumeric_and_gbk_codes_without_inventing_unknowns() {
         (0xa1a1, '\u{3000}'),
         (0xa3ac, '\u{ff0c}'),
         (0xa3b0, '\u{ff10}'),
+        (0xa0a6, '\u{ff06}'),
+        (0xaab3, '\u{2217}'),
+        (0xaca3, '\u{25ba}'),
     ] {
         assert_eq!(decode_native_character(code), Some(expected));
     }
@@ -516,10 +533,14 @@ fn maps_verified_alphanumeric_and_gbk_codes_without_inventing_unknowns() {
         0x817f,
         0xffff,
         0xa001,
-        0xa0a6,
+        0xa0a5,
+        0xa0a7,
         0xa0a0,
         0xa0ff,
-        0xaab3,
+        0xaab2,
+        0xaab4,
+        0xaca2,
+        0xaca4,
         0xaaa1,
     ] {
         assert_eq!(decode_native_character(code), None, "{code:04x}");
@@ -537,7 +558,7 @@ fn a_text_consumer_rejects_unmapped_glyphs_at_their_source_record() {
             Ok(())
         }
     }
-    for code in [0xcec4, 0xa0da, 0xa0a6, 0xffff] {
+    for code in [0xcec4, 0xa0da, 0xa0a5, 0xffff] {
         let mut source = fixture(&[[0x8001, 3], [0x8002, 5], [11, code], [0x8004, 0]], 0);
         let limits = Limits::default();
         let cancel = Cancel::default();
@@ -564,6 +585,246 @@ fn a_text_consumer_rejects_unmapped_glyphs_at_their_source_record() {
                 }
             ));
             assert!(reader.poisoned);
+        }
+    }
+}
+
+#[test]
+fn preserves_additional_controls_and_atomic_8010_payload() {
+    for short in [1, 3, 28] {
+        let mut words = vec![[0x8001, 4700], [0x8002, 0x1084]];
+        for tag in [0x8072, 0x8073, 0x8074, 0xc053, 0xc054] {
+            // Marker-looking values must remain payload, not terminate the page.
+            words.push([tag, 0x8004]);
+        }
+        words.extend([
+            [0x8010, 1],
+            [0x8004, 0x8001],
+            [0x8006, 0xffff],
+            [0xffff, 5],
+            [5200, 0xd6d0],
+            [0x8004, 1],
+        ]);
+        let mut source = fixture(&words, 0);
+        source.short = short;
+        let mut visitor = Visitor::default();
+        assert_eq!(
+            parse(&mut source, TextBudget::default(), &mut visitor).unwrap(),
+            11
+        );
+        for (index, tag) in [0x8072, 0x8073, 0x8074, 0xc053, 0xc054]
+            .into_iter()
+            .enumerate()
+        {
+            assert_eq!(
+                visitor.events[index + 2],
+                (
+                    108 + index as u64 * 4,
+                    NativeRecord::Control { tag, value: 0x8004 }
+                )
+            );
+        }
+        assert_eq!(
+            visitor.events[7],
+            (
+                128,
+                NativeRecord::Drawing {
+                    tag: 0x8010,
+                    style: 1,
+                    points: [[0x8004, 0x8001], [0x8006, 0xffff]],
+                }
+            )
+        );
+        assert_eq!(
+            visitor.events[9],
+            (
+                144,
+                NativeRecord::Glyph {
+                    x: 5200,
+                    y: 4700,
+                    style: 0x1084,
+                    code: 0xd6d0,
+                }
+            )
+        );
+        assert_eq!(visitor.events[10], (148, NativeRecord::End { value: 1 }));
+    }
+    let error = parse(
+        &mut fixture(&[[0x8010, 1], [7, 9], [21, 13], [0xffff, 6]], 0),
+        TextBudget::default(),
+        &mut Visitor::default(),
+    )
+    .unwrap_err();
+    assert_eq!(error.offset, 112);
+    assert!(matches!(error.kind, ErrorKind::Unsupported { .. }));
+}
+
+#[test]
+fn native_image_coordinates_keep_source_axes_and_reject_unknown_profiles() {
+    let mut words = [0; 13];
+    words[..5].copy_from_slice(&[0xd300, 0xc000 | 4682, 4314, 0xc000 | 80, 50]);
+    let coordinate = decode_native_image_coordinate(&words).unwrap();
+    assert_eq!(
+        (
+            coordinate.x,
+            coordinate.y,
+            coordinate.width,
+            coordinate.height
+        ),
+        (4682, 4314, 80, 50)
+    );
+    for (field, delta) in [(1, 20), (2, 20), (3, 20), (4, 20)] {
+        let mut changed = words;
+        changed[field] += delta;
+        let decoded = decode_native_image_coordinate(&changed).unwrap();
+        let mut expected = [4682, 4314, 80, 50];
+        expected[field - 1] += delta;
+        assert_eq!(
+            [decoded.x, decoded.y, decoded.width, decoded.height],
+            expected
+        );
+    }
+    for (field, value) in [
+        (0, 0xd301),
+        (1, 0),
+        (1, 0x4000),
+        (1, 0x8000),
+        (3, 0),
+        (3, 0x4001),
+        (3, 0x8001),
+        (3, 0xc000),
+        (4, 0),
+    ] {
+        let mut invalid = words;
+        invalid[field] = value;
+        assert!(decode_native_image_coordinate(&invalid).is_none());
+    }
+    words[..5].copy_from_slice(&[0xd300, 0xffff, 0xffff, 0xffff, 0xffff]);
+    let extreme = decode_native_image_coordinate(&words).unwrap();
+    assert_eq!(
+        [extreme.x, extreme.y, extreme.width, extreme.height],
+        [0x3fff, 0xffff, 0x3fff, 0xffff]
+    );
+    words[1] = 0xc000;
+    words[2] = 0;
+    let origin = decode_native_image_coordinate(&words).unwrap();
+    assert_eq!([origin.x, origin.y], [0, 0]);
+}
+
+#[test]
+fn a385_drawing_preserves_coordinates_and_following_glyph_context() {
+    for short in [1, 3, 7, 28] {
+        let mut source = fixture(
+            &[
+                [0x8001, 47],
+                [0x8002, 0x1084],
+                [0x8006, 0xa385],
+                [0x8004, 17],
+                [23, 0x8001],
+                [0xffff, 5],
+                [31, 0xd6d0],
+                [0x8004, 1],
+            ],
+            0,
+        );
+        source.short = short;
+        let mut visitor = Visitor::default();
+        assert_eq!(
+            parse(&mut source, TextBudget::default(), &mut visitor).unwrap(),
+            6
+        );
+        assert_eq!(
+            visitor.events[2],
+            (
+                108,
+                NativeRecord::Drawing {
+                    tag: 0x8006,
+                    style: 0xa385,
+                    points: [[0x8004, 17], [23, 0x8001]],
+                }
+            )
+        );
+        assert_eq!(
+            visitor.events[4],
+            (
+                124,
+                NativeRecord::Glyph {
+                    x: 31,
+                    y: 47,
+                    style: 0x1084,
+                    code: 0xd6d0,
+                }
+            )
+        );
+        assert_eq!(visitor.events[5], (128, NativeRecord::End { value: 1 }));
+        assert!(source.max_request <= 28);
+    }
+}
+
+#[test]
+fn drawing_boundary_preserves_independent_y_end_and_control_records() {
+    for (tag, value) in [
+        (0x8006, 0xa381),
+        (0x8006, 0xa383),
+        (0x8006, 0xa385),
+        (0x8006, 0xa38b),
+        (0x8010, 1),
+    ] {
+        for short in [1, 3, 7, 28] {
+            let mut source = fixture(
+                &[
+                    [0x8001, 47],
+                    [0x8002, 0x1084],
+                    [tag, value],
+                    [0x8004, 17],
+                    [23, 0x8001],
+                    [0x8001, 71],
+                    [31, 0xd6d0],
+                    [0xffff, 5],
+                    [0x8004, 1],
+                ],
+                0,
+            );
+            source.short = short;
+            let mut visitor = Visitor::default();
+            assert_eq!(
+                parse(&mut source, TextBudget::default(), &mut visitor).unwrap(),
+                7
+            );
+            assert_eq!(
+                visitor.events[3],
+                (
+                    120,
+                    NativeRecord::Control {
+                        tag: 0x8001,
+                        value: 71
+                    }
+                )
+            );
+            assert_eq!(
+                visitor.events[4].1,
+                NativeRecord::Glyph {
+                    x: 31,
+                    y: 71,
+                    style: 0x1084,
+                    code: 0xd6d0
+                }
+            );
+            assert_eq!(
+                visitor.events[5],
+                (
+                    128,
+                    NativeRecord::Control {
+                        tag: 0xffff,
+                        value: 5
+                    }
+                )
+            );
+            let mut source = fixture(&[[tag, value], [1, 2], [3, 4], [0x8004, 1]], 0);
+            assert_eq!(
+                parse(&mut source, TextBudget::default(), &mut Visitor::default()).unwrap(),
+                2
+            );
         }
     }
 }
@@ -1434,6 +1695,8 @@ fn hnb_run_controls_and_drawing_preserve_following_glyph_context() {
             ErrorKind::Unsupported { .. }
         ));
     }
+    // These values remain HN-B-only. Independently admitted C8 numeric
+    // controls and a385 drawings have their own positive tests above.
     for control in [
         [0x8067, 7],
         [0x8069, 0x1084],
@@ -1441,15 +1704,6 @@ fn hnb_run_controls_and_drawing_preserve_following_glyph_context() {
         [0x8070, 0x002b],
         [0x8071, 0x0024],
         [0x8071, 0x002b],
-        [0x8073, 0x001e],
-        [0x8073, 0x001f],
-        [0x8073, 0x0029],
-        [0x8073, 0x002a],
-        [0x8072, 0xc2c7],
-        [0x8072, 0xcdc1],
-        [0x8072, 0],
-        [0xc053, 0x00e9],
-        [0x8006, 0xa385],
     ] {
         let mut source = fixture(&[control, [0x8004, 1]], 0);
         assert!(matches!(

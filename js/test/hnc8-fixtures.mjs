@@ -156,3 +156,21 @@ export function syntheticPrefixedHn(markers = false) {
   }
   return bytes;
 }
+
+/** Original native C8 page: geometric-font A, optionally a type-0 image, then A. */
+export function syntheticNativeC8(mixed = false) {
+  const words = [[0x8001, 60], [0x8002, 0x1084], [30, 0xa0c1]];
+  if (mixed) words.push([0x800a, 0xd300], [0xc014, 40], [0xc050, 40], [0xc050, 0xc033], [0xc037, 0xc000], [0xc06c, 0xc032], [0xc0f2, 0xc07a], [45, 0xa0c1]);
+  words.push([0x8004, 39]);
+  const end = 100 + words.length * 4;
+  const bytes = new Uint8Array(end + (mixed ? 61 : 0));
+  const view = new DataView(bytes.buffer);
+  const u32 = (at, value) => view.setUint32(at, value, true);
+  bytes[0] = 0xc8; u32(8, 1);
+  view.setUint16(32, 100, true); view.setUint16(34, 200, true);
+  u32(80, 100); u32(84, words.length * 4); u32(88, Number(mixed));
+  for (const [i, value] of words.flat().entries()) view.setUint16(100 + i * 2, value, true);
+  if (mixed) { u32(end, 0); u32(end + 4, end + 12); u32(end + 8, 49); bytes.set(syntheticHn().slice(-49), end + 12); }
+  u32(96, bytes.length);
+  return bytes;
+}

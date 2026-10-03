@@ -3,8 +3,8 @@
 ## Unreleased
 
 - Fix marked image coordinates in paired compressed HN-A composition; retain
-  raw coordinate words for inspection. Shortened-page clipping fidelity remains
-  under investigation.
+  raw coordinate words for inspection. Original controls distinguish clipped
+  raster sampling from physical geometry; no pixel-parity guarantee is made.
 
 
 - **Breaking:** use verified HN-A paired `8003` per-page dimensions for page
@@ -12,6 +12,42 @@
   `hnc8::TextCoordinates` gains `page_size`; update explicit struct literals.
   Raw and compressed paired pages share the rule. Other framing retains header
   fallback; zero per-page extents fail explicitly during composition.
+- Add experimental complete-document conversion for the observed raw C8 native
+  profile through Rust, CLI, Node and browser Workers. Stream text, drawings and
+  images in source order using shared codecs and reusable bounded scratch.
+  Supply explicit ranged TrueType fonts; missing resources/glyphs and unknown
+  required records fail rather than dropping content. C8 bookmarks, other C8
+  native profiles and HN-B native rendering remain unsupported.
+- Add CLI `--font-cjk`, `--font-latin`, `--font-alternate-latin`, optional
+  `--font-decoration` and `--decoration-char`; JavaScript exposes the same roles
+  through `hnc8.fonts`. Shared sources embed once. Forward-only fonts use existing
+  bounded spooling helpers; callers retain ownership and cleanup responsibility.
+- **Breaking:** `caj2pdf_wasm::engine::Request::Read` gains `resource`: 0 identifies
+  the document and 1–4 identify registered fonts. Raw hosts must route reads by
+  resource and register fonts before polling; bundled JavaScript handles this.
+- Add measured C8 glyph, image, hairline and horizontal-decoration placement,
+  including style prefixes `0800`/`0c00`/`1000`, separate size axes and clipped
+  final decoration marks. Unknown styles remain errors. Font substitution and
+  zoom-dependent viewer rasterization are explicit limits; no pixel-parity claim.
+- Add scoped grayscale/clipped glyph output and nonsemantic decoration marking
+  to the incremental PDF writer. Decoration aliases are excluded from extractors
+  that honor empty `ActualText`.
+
+- **Breaking:** frame admitted C8 `8006` and `8010/1` drawings as 12-byte records and
+  preserve following `ffff/5` controls independently. Raw visitor event counts
+  change; following position/style/end records are no longer consumed as footers.
+
+- Preserve the independently controlled `8006/a385` C8 drawing record in
+  bounded native traversal; HN-B rendering and stroke interpretation remain
+  unsupported.
+
+- Add allocation-free decoding of the independently controlled C8 native image
+  coordinate profile. Unknown prefixes and zero extents remain unsupported;
+  the document composer applies these fields in source draw order.
+
+- **Breaking:** add `hnc8::Header::native_origin` for the observed C8 native
+  coordinate origin. Explicit header literals must include this field; use
+  `None` for HN variants.
 
 - Recover an interrupted indirect Flate prefix anchored by an exact repeat of
   its preceding Length object, only when the final scan proves a complete
@@ -36,8 +72,8 @@
   carrying coordinate marker bits. Raw inspection values remain unchanged;
   this does not claim complete HN-A pixel fidelity.
 - Add bounded caller-supplied TrueType resources and sequential PDF glyph,
-  image and vector content pages. This shared API does not enable native
-  C8/HN-B conversion or production JavaScript font resources.
+  image and vector content pages. C8 conversion uses this shared API; HN-B
+  native-page translation remains a follow-up.
 - **Breaking:** raise the minimum Rust version to 1.88.0 for the maintained
   MIT `xberg-ttf-parser` font metadata dependency.
 
@@ -72,11 +108,12 @@
   and nonzero compact-row third words now fail explicitly.
 
 - Admit the measured paired raw HN-A page-prefix profile through the bounded
-  text reader; C8 raw framing remains unsupported.
+  text reader.
 
 - Add a bounded raw C8 native-record visitor for incremental parser work;
-  add allocation-free decoding of verified native character codes. Complete
-  native text rendering remains unsupported.
+  add allocation-free decoding of verified native character codes. Preserve
+  raw controls and coordinates; framing admission alone does not establish
+  renderability for additional profiles.
 
 - Support validated type-1 JPEG image records in experimental HN-A/C8 conversion.
 - Select the existing, narrowly scoped HN/C8 JBIG2 text-header compatibility

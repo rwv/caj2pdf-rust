@@ -1172,3 +1172,149 @@ fn late_malformed_paired_raw_hn_page_never_publishes_a_partial_pdf() {
         ["bad.hn", "good.hn", "good.pdf", "keep.pdf"]
     );
 }
+
+fn native_c8_pages(late_missing_glyph: bool) -> Vec<u8> {
+    let mut bytes = vec![0; 120];
+    bytes[0] = 0xc8;
+    put_u32(&mut bytes, 8, 2);
+    bytes[32..34].copy_from_slice(&100u16.to_le_bytes());
+    bytes[34..36].copy_from_slice(&200u16.to_le_bytes());
+    for page in 0..2 {
+        let start = bytes.len();
+        let mut words = vec![
+            [0x8001u16, 60],
+            [0x8002, 0x1084],
+            [
+                30,
+                if page == 1 && late_missing_glyph {
+                    0xa0c2
+                } else {
+                    0xa0c1
+                },
+            ],
+        ];
+        if page == 0 {
+            words.extend([
+                [0x800a, 0xd300],
+                [0xc014, 40],
+                [0xc050, 40],
+                [0xc050, 0xc033],
+                [0xc037, 0xc000],
+                [0xc06c, 0xc032],
+                [0xc0f2, 0xc07a],
+                [45, 0xa0c1],
+            ]);
+        }
+        words.push([0x8004, 39 + page as u16]);
+        let row = 80 + page * 20;
+        put_u32(&mut bytes, row, start as u32);
+        put_u32(&mut bytes, row + 4, words.len() as u32 * 4);
+        put_u32(&mut bytes, row + 8, u32::from(page == 0));
+        bytes.extend(words.into_iter().flatten().flat_map(u16::to_le_bytes));
+        if page == 0 {
+            let payload = bytes.len() + 12;
+            bytes.extend(0u32.to_le_bytes());
+            bytes.extend((payload as u32).to_le_bytes());
+            bytes.extend(49u32.to_le_bytes());
+            let hn = image_hn();
+            bytes.extend(&hn[hn.len() - 49..]);
+        }
+        let end = bytes.len() as u32;
+        put_u32(&mut bytes, row + 16, end);
+    }
+    bytes
+}
+
+#[test]
+fn native_c8_cli_reuses_fonts_and_streams_mixed_and_text_only_pages() {
+    let scratch = Scratch::new("c8-fonts");
+    let input = native_c8_pages(false);
+    scratch.write("input.c8", &input);
+    scratch.write(
+        "font.ttf",
+        include_bytes!("../../../tests/fonts/geometric.ttf"),
+    );
+    let flags = [
+        "--font-cjk=font.ttf",
+        "--font-latin=font.ttf",
+        "--font-alternate-latin=font.ttf",
+        "--no-bookmarks",
+    ];
+    let mut args = vec!["input.c8", "-o", "out.pdf"];
+    args.extend(flags);
+    assert_success(&scratch.run(args));
+    let pdf = fs::read(scratch.path("out.pdf")).unwrap();
+    assert_eq!(
+        String::from_utf8_lossy(&pdf).matches("/FontFile2 ").count(),
+        1
+    );
+    assert_eq!(validate_pdf(&scratch.path("out.pdf")).0, 2);
+    let mut pipe_args = vec!["-"];
+    pipe_args.extend(flags);
+    let pipe = scratch.run_with_stdin(&pipe_args, &input);
+    assert_success(&pipe);
+    assert_eq!(pipe.stdout, pdf);
+    assert_eq!(scratch.entries(), ["font.ttf", "input.c8", "out.pdf"]);
+}
+
+#[test]
+fn native_c8_font_failures_preserve_inputs_and_atomic_output() {
+    let scratch = Scratch::new("c8-font-errors");
+    let font = include_bytes!("../../../tests/fonts/geometric.ttf");
+    scratch.write("font.ttf", font);
+    scratch.write("input.c8", &native_c8_pages(true));
+    scratch.write("out.pdf", b"existing destination");
+    fs::hard_link(scratch.path("font.ttf"), scratch.path("alias.ttf")).unwrap();
+    let flags = [
+        "--font-cjk=font.ttf",
+        "--font-latin=font.ttf",
+        "--font-alternate-latin=font.ttf",
+        "--no-bookmarks",
+    ];
+    for target in ["font.ttf", "alias.ttf", "out.pdf", "new.pdf"] {
+        let mut args = vec!["input.c8", "--force", "-o", target];
+        args.extend(flags);
+        let output = scratch.run(args);
+        assert_failure(
+            &output,
+            1,
+            if target.ends_with("ttf") {
+                "input"
+            } else {
+                "page 2"
+            },
+        );
+        assert_eq!(fs::read(scratch.path("font.ttf")).unwrap(), font);
+        assert_eq!(
+            fs::read(scratch.path("out.pdf")).unwrap(),
+            b"existing destination"
+        );
+        assert!(!scratch.path("new.pdf").exists());
+    }
+    scratch.write("input.c8", &native_c8_pages(false));
+    scratch.write("font.ttf", b"invalid font");
+    let mut args = vec!["input.c8", "--force", "-o", "out.pdf"];
+    args.extend(flags);
+    assert_failure(&scratch.run(args), 1, "cannot convert");
+    assert_eq!(
+        fs::read(scratch.path("out.pdf")).unwrap(),
+        b"existing destination"
+    );
+    fs::remove_file(scratch.path("font.ttf")).unwrap();
+    let mut args = vec!["input.c8", "--force", "-o", "out.pdf"];
+    args.extend(flags);
+    assert_failure(&scratch.run(args), 1, "font.ttf");
+    scratch.write("font.ttf", font);
+    scratch.write("input.c8", &fixture("valid_nested_outline.pdf"));
+    let mut args = vec!["input.c8", "--force", "-o", "out.pdf"];
+    args.extend(flags);
+    assert_failure(&scratch.run(args), 1, "require a C8 document");
+    assert_eq!(
+        fs::read(scratch.path("out.pdf")).unwrap(),
+        b"existing destination"
+    );
+    assert_eq!(
+        scratch.entries(),
+        ["alias.ttf", "font.ttf", "input.c8", "out.pdf"]
+    );
+}

@@ -396,6 +396,15 @@ async function drive(exports, start, source, sink, chunkSize, signal, finish = r
   let failed = false;
   let requests = 0;
   try {
+    if (hnc8?.fonts) {
+      if (typeof exports.caj2pdf_c8_add_font !== "function" || typeof exports.caj2pdf_c8_set_fonts !== "function" || typeof exports.caj2pdf_io_request_resource !== "function") {
+        throw new Error("this WASM build does not support C8 font resources");
+      }
+      for (const [index, font] of hnc8.fonts.sources.entries()) {
+        if (exports.caj2pdf_c8_add_font(font.size) !== index + 1) throw new RangeError("WASM rejected a C8 font resource");
+      }
+      if (exports.caj2pdf_c8_set_fonts(...hnc8.fonts.roles) !== 1) throw new RangeError("WASM rejected C8 font roles");
+    }
     for (const row of hnc8?.states ?? []) {
       if (exports.caj2pdf_hnc8_add_state(...row) !== 1) {
         throw new RangeError("WASM rejected a caller HN/C8 codec state");
@@ -450,8 +459,11 @@ async function drive(exports, start, source, sink, chunkSize, signal, finish = r
         if (length > chunkSize) {
           throw new Error("WASM requested more than the configured chunk size");
         }
-        checkRange(source.size, offset, BigInt(length));
-        const bytes = await source.readAt(offset, length, signal);
+        const resource = exports.caj2pdf_io_request_resource?.() ?? 0;
+        const input = resource === 0 ? source : hnc8?.fonts?.sources[resource - 1];
+        if (!Number.isInteger(resource) || resource < 0 || input == null) throw new Error("WASM requested an unregistered input resource");
+        checkRange(input.size, offset, BigInt(length));
+        const bytes = await input.readAt(offset, length, signal);
         checkAbort(signal);
         if (!(bytes instanceof Uint8Array) || bytes.byteLength > length) {
           throw new TypeError("source must return a bounded Uint8Array");
@@ -524,7 +536,28 @@ function hnc8Config(options) {
       states.push([table, qe, nextLps, nextMps, Number(switchMps)]);
     }
   }
-  return { scratch, states };
+  let fonts;
+  if (options.fonts !== undefined) {
+    const { cjk, latin, alternateLatin, decoration } = options.fonts ?? {};
+    const sources = [];
+    const index = (source) => {
+      requireSource(source);
+      if (source.size === 0n) throw new RangeError("font source must not be empty");
+      let id = sources.indexOf(source);
+      if (id < 0) { id = sources.length; sources.push(source); }
+      return id;
+    };
+    const roles = [index(cjk), index(latin), index(alternateLatin)];
+    if (decoration === undefined) {
+      roles.push(0xffffffff, 0);
+    } else {
+      const character = decoration?.character;
+      if (typeof character !== "string" || [...character].length !== 1 || character.codePointAt(0) > 0xffff || (character.charCodeAt(0) >= 0xd800 && character.charCodeAt(0) <= 0xdfff)) throw new TypeError("decoration character must be one BMP Unicode scalar");
+      roles.push(index(decoration.source), character.codePointAt(0));
+    }
+    fonts = { sources, roles };
+  }
+  return { scratch, states, fonts };
 }
 
 const OPERATION_CONVERT = 1;

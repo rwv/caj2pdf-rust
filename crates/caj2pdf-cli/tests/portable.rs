@@ -141,3 +141,48 @@ fn malformed_input_preserves_destination_and_removes_staging() {
     assert_eq!(fs::read(dir.0.join("output.pdf")).unwrap(), b"keep me");
     dir.clean();
 }
+
+#[test]
+fn native_c8_fonts_are_ranged_reused_and_protected() {
+    let dir = Directory::new();
+    let font = include_bytes!("../../../tests/fonts/geometric.ttf");
+    fs::write(dir.0.join("字体.ttf"), font).unwrap();
+    let mut input = vec![0u8; 100];
+    input[0] = 0xc8;
+    input[8] = 1;
+    input[32] = 100;
+    input[34] = 200;
+    input[80] = 100;
+    input[84] = 16;
+    input[96] = 116;
+    for word in [0x8001u16, 60, 0x8002, 0x1084, 30, 0xa0c1, 0x8004, 39] {
+        input.extend(word.to_le_bytes());
+    }
+    fs::write(dir.0.join("input.c8"), &input).unwrap();
+    let flags = [
+        "--font-cjk=字体.ttf",
+        "--font-latin=字体.ttf",
+        "--font-alternate-latin=字体.ttf",
+        "--no-bookmarks",
+    ];
+    let mut args = vec!["input.c8", "-o", "native.pdf"];
+    args.extend(flags);
+    success(&dir.run(&args));
+    let pdf = fs::read(dir.0.join("native.pdf")).unwrap();
+    assert!(pdf.ends_with(b"%%EOF\n"));
+    assert_eq!(
+        String::from_utf8_lossy(&pdf).matches("/FontFile2 ").count(),
+        1
+    );
+    assert!(String::from_utf8_lossy(&pdf).contains("<0041> Tj"));
+    for target in ["字体.ttf", "native.pdf"] {
+        input[110..112].copy_from_slice(&0xa0c2u16.to_le_bytes());
+        fs::write(dir.0.join("input.c8"), &input).unwrap();
+        let mut args = vec!["input.c8", "-o", target, "--force"];
+        args.extend(flags);
+        assert!(!dir.run(&args).status.success());
+        assert_eq!(fs::read(dir.0.join("字体.ttf")).unwrap(), font);
+        assert_eq!(fs::read(dir.0.join("native.pdf")).unwrap(), pdf);
+    }
+    dir.clean();
+}

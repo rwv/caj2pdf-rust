@@ -24,19 +24,24 @@ use std::{io::Read, path::Path};
 const MAX_STATE_BYTES: u64 = 16 * 1024;
 
 #[derive(Default)]
-pub struct Tables {
+pub struct Resources {
     pub qm: Option<QmTable>,
     pub mq: Option<MqTable>,
     // Retain opened input identities so --force cannot overwrite a state file.
     pub inputs: Vec<Input>,
+    font_start: usize,
+    font_roles: Option<caj2pdf_core::hnc8::C8PageFonts>,
 }
 
-impl Tables {
+impl Resources {
+    pub fn has_fonts(&self) -> bool {
+        self.font_roles.is_some()
+    }
     pub fn load(options: &ConvertOptions, limits: &Limits) -> Result<Self, CliError> {
-        let mut tables = Self::default();
+        let mut resources = Self::default();
         if let Some(path) = &options.qm_states {
-            let rows = tables.read(path, 113)?;
-            tables.qm = Some(
+            let rows = resources.read(path, 113)?;
+            resources.qm = Some(
                 QmTable::new(
                     rows.into_iter()
                         .map(|[qe, lps, mps, switch]| QmState {
@@ -52,11 +57,11 @@ impl Tables {
                 })?,
             );
         } else {
-            tables.qm = Some(QmTable::standard());
+            resources.qm = Some(QmTable::standard());
         }
         if let Some(path) = &options.mq_states {
-            let rows = tables.read(path, 47)?;
-            tables.mq = Some(
+            let rows = resources.read(path, 47)?;
+            resources.mq = Some(
                 MqTable::new(
                     rows.into_iter()
                         .map(|[qe, lps, mps, switch]| MqState {
@@ -73,9 +78,37 @@ impl Tables {
                 })?,
             );
         } else {
-            tables.mq = Some(MqTable::standard());
+            resources.mq = Some(MqTable::standard());
         }
-        Ok(tables)
+        resources.font_start = resources.inputs.len();
+        if options.fonts.iter().any(Option::is_some) {
+            let mut paths = Vec::new();
+            let mut indices = [0; 4];
+            for (role, path) in options.fonts.iter().enumerate() {
+                if let Some(path) = path {
+                    indices[role] = if let Some(index) = paths.iter().position(|p| *p == path) {
+                        index
+                    } else {
+                        let index = paths.len();
+                        resources.inputs.push(open_input(
+                            &Endpoint::Path(path.clone()),
+                            limits.max_input_bytes,
+                        )?);
+                        paths.push(path);
+                        index
+                    };
+                }
+            }
+            resources.font_roles = Some(caj2pdf_core::hnc8::C8PageFonts {
+                cjk: indices[0],
+                latin: indices[1],
+                alternate_latin: indices[2],
+                decoration: options.fonts[3]
+                    .as_ref()
+                    .map(|_| (indices[3], options.decoration_char.unwrap_or('►'))),
+            });
+        }
+        Ok(resources)
     }
 
     fn read(&mut self, path: &Path, count: usize) -> Result<Vec<[u16; 4]>, CliError> {
@@ -143,7 +176,7 @@ impl ComposeVisitor for CompletePages {
 pub async fn convert<S: RangedSource, W: SequentialSink>(
     source: &mut S,
     sink: &mut W,
-    tables: &Tables,
+    resources: &mut Resources,
     include_bookmarks: bool,
     limits: &Limits,
 ) -> Result<ConversionReport, String> {
@@ -171,16 +204,42 @@ pub async fn convert<S: RangedSource, W: SequentialSink>(
     let mut first = scratch()?;
     let mut second = scratch()?;
     let mut refined = scratch()?;
-    let type3 = tables.mq.as_ref().map(|table| ComposeType3Workspaces {
+    let type3 = resources.mq.as_ref().map(|table| ComposeType3Workspaces {
         table,
         first: &mut first,
         second: &mut second,
         refined: &mut refined,
     });
+    if let Some(roles) = resources.font_roles {
+        let mut fonts = resources.inputs[resources.font_start..]
+            .iter_mut()
+            .map(|input| caj2pdf_core::native::SeekableSource::new(&mut input.file))
+            .collect::<caj2pdf_core::Result<Vec<_>>>()
+            .map_err(|e| e.to_string())?;
+        return caj2pdf_core::hnc8::convert_c8_native_pdf(
+            source,
+            sink,
+            caj2pdf_core::hnc8::C8FontSources {
+                sources: &mut fonts,
+                roles,
+            },
+            resources.qm.as_ref(),
+            ComposeWorkspaces {
+                rows: &mut rows,
+                type3,
+            },
+            options,
+            limits,
+            &ProcessCancellation,
+        )
+        .await
+        .map(|report| report.conversion)
+        .map_err(|e| e.to_string());
+    }
     convert_source_pages_pdf(
         source,
         sink,
-        tables.qm.as_ref(),
+        resources.qm.as_ref(),
         ComposeWorkspaces {
             rows: &mut rows,
             type3,
@@ -257,15 +316,15 @@ mod tests {
     #[test]
     fn default_states_are_available_without_allocating_tables() {
         let options = ConvertOptions::default();
-        let tables = Tables::load(&options, &Limits::default()).unwrap();
-        assert!(tables.qm.is_some());
-        assert!(tables.mq.is_some());
-        assert!(tables.inputs.is_empty());
+        let resources = Resources::load(&options, &Limits::default()).unwrap();
+        assert!(resources.qm.is_some());
+        assert!(resources.mq.is_some());
+        assert!(resources.inputs.is_empty());
         let limited = Limits {
             max_allocation_bytes: 0,
             ..Limits::default()
         };
-        assert!(Tables::load(&options, &limited).is_ok());
+        assert!(Resources::load(&options, &limited).is_ok());
     }
 
     #[test]

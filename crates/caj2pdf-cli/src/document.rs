@@ -91,13 +91,17 @@ pub fn convert<W: Write>(
     input: &mut Input,
     writer: W,
     limits: &Limits,
-    tables: &crate::hnc8::Tables,
+    resources: &mut crate::hnc8::Resources,
     include_bookmarks: bool,
 ) -> Result<(), CliError> {
     let result = block_on(async {
         let mut source = ranged(&mut input.file)?;
         let mut sink = WriteSink::new(writer);
-        match detect(&mut source, limits).await? {
+        let format = detect(&mut source, limits).await?;
+        if resources.has_fonts() && format != InputFormat::C8 {
+            return Err("explicit C8 fonts require a C8 document".into());
+        }
+        match format {
             InputFormat::Pdf => copy_pdf(&mut source, &mut sink, limits, &ProcessCancellation)
                 .await
                 .map_err(text),
@@ -114,7 +118,7 @@ pub fn convert<W: Write>(
                 .await
                 .map_err(text),
             InputFormat::Hn | InputFormat::C8 => {
-                crate::hnc8::convert(&mut source, &mut sink, tables, include_bookmarks, limits)
+                crate::hnc8::convert(&mut source, &mut sink, resources, include_bookmarks, limits)
                     .await
             }
             other => Err(unsupported(other)),

@@ -307,3 +307,27 @@ this does not prove fidelity for every real page. The generator retains the
 higher-resolution control. External receipts are
 `caj2pdf-hna-prefix-viewer-20261002/clipping-discriminator-results.json` and
 `caj2pdf-hna-clip-viewer-20261003/comparison.json`.
+
+
+## Corrected-build acceptance checkpoint
+
+At `d3dfdfb`, both complete HN-A documents (125 and 160 pages) convert through
+CLI, public Node and a real Chromium Worker with matching per-document hashes.
+Native PDFs pass qpdf; scratch is empty and the Worker leaves no OPFS entries.
+All 285 PDF page frames match independently read paired-prefix dimensions.
+All 329 emitted image pixel buffers match the previously source-checked outputs,
+including multiple-image pages. The marker correction is additionally exercised
+by original compressed controls through all three public paths.
+
+The five selected real pages retain their visible content. A page 75 remains an
+exact blank-page comparison. A pages 1/125 and Zhouli page 1 retain their image
+pixels and geometry; stable historical captures remain applicable. Zhouli page
+160 was recaptured after the dimension correction, with both page frame and
+content preserved. Remaining screen-pixel differences are documented separately
+from the corrected source-space defects, supported by original zoom/raster
+controls. This is scoped acceptance, not a universal pixel-parity claim.
+
+The machine-readable checkpoint in `tests/conformance/paired_raw_current.json`
+preserves historical records and adds candidate hashes, runtime reports, frame
+and image audits, selected-page findings and measurement limits. Final review
+and required CI on the branch synchronized with C8 remain merge gates.

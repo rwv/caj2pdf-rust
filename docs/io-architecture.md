@@ -163,3 +163,28 @@ and decoder state in addition to the I/O chunk.
 - [Browser `Blob.slice()`](https://developer.mozilla.org/en-US/docs/Web/API/Blob/slice)
 - [Node.js positioned `FileHandle.read`](https://nodejs.org/api/fs.html#filehandlereadbuffer-options)
 - [Browser writable-stream writer](https://developer.mozilla.org/en-US/docs/Web/API/WritableStreamDefaultWriter/write)
+
+## Native C8 font resources
+
+`C8FontSources` gives the core one to four explicit ranged resources and
+role indices. Repeated roles can share an embedded font. JavaScript exposes
+named roles under `hnc8.fonts` and deduplicates identical source objects.
+It does not discover fonts, collect a whole font in a JavaScript buffer,
+or create another scheduler. Existing spool helpers can turn a forward-only
+font into a caller-owned ranged source with bounded temporary storage.
+
+The WASM host registers resource sizes before the first poll using
+`caj2pdf_c8_add_font(size)` (returns IDs 1–4), then assigns zero-based role
+indices using `caj2pdf_c8_set_fonts(cjk, latin, alternate, decoration, alias)`.
+A decoration index of `0xffffffff` means absent. `caj2pdf_io_request_resource()`
+identifies each ordinary read: 0 is the document, 1–4 are registered fonts.
+The staging buffer, pending-request slot, completion and cancellation rules
+are shared with existing I/O. Registration is rejected after polling,
+excess resources are rejected, and sizes/roles are validated.
+
+**Unstable Rust API change:** `engine::Request::Read` now includes a
+`resource: u32` field. Native hosts matching or constructing that variant
+must handle it. Raw hosts using fonts must route reads by the new resource
+getter; older hosts that register no fonts continue receiving document reads.
+Use matching JS/WASM artifacts for the new font API. This does not change
+the core `RangedSource` trait or existing image-only conversion options.

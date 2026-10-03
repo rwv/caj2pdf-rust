@@ -191,7 +191,19 @@ export interface ProbabilityState {
   nextMps: number;
   switchMps: boolean;
 }
+/** Explicit C8 resources. Reuse the same source object across roles to embed once.
+ * Sources remain caller-owned and must stay stable until conversion settles. */
+export interface C8Fonts {
+  cjk: RangedSource;
+  latin: RangedSource;
+  alternateLatin: RangedSource;
+  /** Nonsemantic decoration alias; must be one BMP Unicode scalar. */
+  decoration?: { source: RangedSource; character: string };
+}
+
 export interface Hnc8Options {
+  /** Enables the admitted native C8 profile; currently requires includeBookmarks: false. */
+  fonts?: C8Fonts;
   /** Optional override; defaults to standard T.82 states. */
   qmStates?: readonly ProbabilityState[];
   /** Optional override; defaults to standard T.88 states. */

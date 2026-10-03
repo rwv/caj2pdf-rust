@@ -29,7 +29,8 @@ pub enum NativeRecord {
         code: u16,
     },
     /// Two coordinate pairs with a checked, variant-specific record boundary.
-    /// Neither stroke style nor physical geometry is assigned here.
+    /// Neither stroke style nor physical geometry is assigned here. In particular,
+    /// the observed `8010/1` form does not imply a visible `8006` stroke.
     Drawing {
         tag: u16,
         style: u16,
@@ -60,11 +61,18 @@ pub enum NativeRecord {
 ///
 /// Ordinary codes use their big-endian two-byte GB18030 value. The independently
 /// verified A0-prefixed letters/digits use ASCII plus 0x80 in the low byte.
+/// Three independently observed symbol codes have explicit Unicode mappings.
 /// Other A0 codes, private-use mappings and malformed sequences return `None`;
 /// they must remain explicit unsupported glyphs rather than blank substitutions.
 /// This maps characters only: fonts, metrics, drawing/text order and complete
 /// native page rendering still require separate validation.
 pub fn decode_native_character(code: u16) -> Option<char> {
+    match code {
+        0xa0a6 => return Some('＆'),
+        0xaab3 => return Some('∗'),
+        0xaca3 => return Some('►'),
+        _ => {}
+    }
     let [lead, second] = code.to_be_bytes();
     if lead == 0xa0 {
         let ascii = second.checked_sub(0x80)?;
@@ -72,6 +80,33 @@ pub fn decode_native_character(code: u16) -> Option<char> {
     }
     crate::gb18030::decode_two_byte(lead, second)
         .filter(|c| !c.is_control() && !(0xe000..=0xf8ff).contains(&u32::from(*c)))
+}
+
+/// Decode only the established image-coordinate fields of the raw C8 profile.
+///
+/// `words` is the payload of [`NativeRecord::Image`]. The observed `d300`
+/// profile stores x and width with `c000` high bits; y and height are unsigned
+/// words. Unknown prefixes and zero extents return `None`. Other payload words
+/// remain uninterpreted: this helper does not approve their rendering semantics.
+///
+/// Coordinates are absolute source units. Subtract [`super::Header::native_origin`]
+/// in signed or floating-point arithmetic, without a text-specific margin.
+/// Image row orientation depends on the decoded representation; this helper
+/// neither flips rows nor supplies a universal PDF image transform.
+pub fn decode_native_image_coordinate(words: &[u16; 13]) -> Option<super::RawTextCoordinate> {
+    if words[0] != 0xd300 || words[1] & 0xc000 != 0xc000 || words[3] & 0xc000 != 0xc000 {
+        return None;
+    }
+    let width = words[3] & 0x3fff;
+    if width == 0 || words[4] == 0 {
+        return None;
+    }
+    Some(super::RawTextCoordinate {
+        x: words[1] & 0x3fff,
+        y: words[2],
+        width,
+        height: words[4],
+    })
 }
 
 /// Receives one record at a time in source order, including all known controls.
@@ -275,22 +310,17 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
                             },
                         }
                     }
-                    0x8006
-                        if matches!(value, 0xa381 | 0xa383 | 0xa38b)
-                            || (self.header.variant == Variant::HnB && value == 0xa385) =>
+                    0x8072..=0x8074 | 0xc053 | 0xc054 => NativeRecord::Control { tag, value },
+                    0xffff if value == 5 => NativeRecord::Control { tag, value },
+                    0x8006 | 0x8010
+                        if matches!(
+                            (tag, value),
+                            (0x8006, 0xa381 | 0xa383 | 0xa385 | 0xa38b) | (0x8010, 1)
+                        ) =>
                     {
-                        length = if value == 0xa383 || self.header.variant == Variant::HnB {
-                            12
-                        } else {
-                            16
-                        };
+                        length = 12;
                         self.native_bytes(position + 4, end, &mut bytes[4..length], at)
                             .await?;
-                        if length == 16 && bytes[12..16] != [0xff, 0xff, 5, 0] {
-                            return Err(at
-                                .at(position + 12)
-                                .malformed("native drawing end", "expected ffff/0005"));
-                        }
                         NativeRecord::Drawing {
                             tag,
                             style: value,

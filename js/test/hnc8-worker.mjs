@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: MIT
 
-import { blobSource, convert, loadModule, syncAccessHandleScratch } from "../browser.mjs";
-import { qmStates, syntheticHn, syntheticType1Hn, syntheticPrefixedHn } from "./hnc8-fixtures.mjs";
+import { blobSource, convert, loadModule, spoolToOpfs, syncAccessHandleScratch } from "../browser.mjs";
+import { qmStates, syntheticNativeC8, syntheticHn, syntheticType1Hn, syntheticPrefixedHn } from "./hnc8-fixtures.mjs";
 
 const root = await navigator.storage.getDirectory();
 const names = [];
 const handles = [];
+const fontSpools = [];
 let result;
 try {
   const scratch = [];
@@ -37,11 +38,64 @@ try {
       throw new Error("paired raw prefix or image markers changed the mixed-image PDF");
     }
   }
-  result = { type1Pages: type1.pagesConverted, type1Pdf, standardPages: standard.pagesConverted, standardPdf, pages: report.pagesConverted, pdf: parts, cleared: scratch.every((store) => store.size === 0n) };
+  const fontBlob = await (await fetch("/fixtures/geometric.ttf")).blob();
+  try {
+    await spoolToOpfs(fontBlob.stream(), { maxBytes: BigInt(fontBlob.size) - 1n });
+    throw new Error("font spool limit was not enforced");
+  } catch (error) { if (error.code !== "LIMIT_EXCEEDED") throw error; }
+  const fontSpool = await spoolToOpfs(fontBlob.stream(), { maxBytes: BigInt(fontBlob.size) });
+  fontSpools.push(fontSpool);
+  const rangedFont = fontSpool.source;
+  let fontMaxRead = 0;
+  const font = { size: rangedFont.size, async readAt(offset, length, signal) {
+    fontMaxRead = Math.max(fontMaxRead, length);
+    return rangedFont.readAt(offset, Math.min(length, 3), signal);
+  } };
+  const nativePdfs = [];
+  for (const mixed of [false, true]) {
+    const pdf = [];
+    const native = await convert(module, blobSource(new Blob([syntheticNativeC8(mixed)])), {
+      async writeChunk(bytes) { pdf.push(...bytes); return bytes.length; }, async flush() {},
+    }, { includeBookmarks: false, chunkSize: 32, hnc8: {
+      fonts: { cjk: font, latin: font, alternateLatin: font }, qmStates, scratch,
+    } });
+    if (native.pagesConverted !== 1) throw new Error("native C8 page count mismatch");
+    nativePdfs.push(pdf);
+  }
+  const fontFailures = [];
+  for (const mode of ["missing-glyph", "read-error", "cancel"]) {
+    const input = syntheticNativeC8();
+    if (mode === "missing-glyph") new DataView(input.buffer).setUint16(110, 0xa0c2, true);
+    const controller = new AbortController();
+    const failure = new Error("caller Worker font read failed");
+    const failingFont = { size: font.size, async readAt(offset, length, signal) {
+      if (mode === "read-error") throw failure;
+      if (mode === "cancel") controller.abort();
+      return font.readAt(offset, length, signal);
+    } };
+    try {
+      await convert(module, blobSource(new Blob([input])), {
+        async writeChunk(bytes) { return bytes.length; }, async flush() {},
+      }, { includeBookmarks: false, chunkSize: 32, signal: controller.signal, hnc8: {
+        fonts: { cjk: failingFont, latin: failingFont, alternateLatin: failingFont }, scratch,
+      } });
+      throw new Error(`expected ${mode} to fail`);
+    } catch (error) {
+      if (mode === "missing-glyph" && error.code !== "HNC8") throw error;
+      if (mode === "read-error" && error !== failure) throw error;
+      if (mode === "cancel" && error.name !== "AbortError") throw error;
+      fontFailures.push(mode);
+    }
+    if (!scratch.every((store) => store.size === 0n)) throw new Error("font failure left scratch data");
+  }
+  result = { fontFailures, nativePdfs, fontMaxRead, type1Pages: type1.pagesConverted, type1Pdf, standardPages: standard.pagesConverted, standardPdf, pages: report.pagesConverted, pdf: parts, cleared: scratch.every((store) => store.size === 0n) };
 } catch (error) {
   result = { error: `${error.name}: ${error.message}` };
 } finally {
+  for (const spool of fontSpools) await spool.dispose();
   for (const handle of handles) handle.close();
   for (const name of names) await root.removeEntry(name);
 }
+result.remainingEntries = [];
+for await (const [name] of root.entries()) result.remainingEntries.push(name);
 postMessage(result);

@@ -1810,6 +1810,10 @@ fn dropped_pending_conversion_requires_caller_owned_store_disposal() {
 }
 
 fn render_original_pdf(bytes: &[u8]) -> Vec<u8> {
+    render_original_pdf_at(bytes, "0.7419")
+}
+
+fn render_original_pdf_at(bytes: &[u8], dpi: &str) -> Vec<u8> {
     use std::{
         fs,
         path::PathBuf,
@@ -1845,7 +1849,7 @@ fn render_original_pdf(bytes: &[u8]) -> Vec<u8> {
     );
     let rendered = Command::new("mutool")
         .args([
-            "draw", "-q", "-A", "0", "-r", "0.7419", "-c", "gray", "-F", "pgm", "-o",
+            "draw", "-q", "-A", "0", "-r", dpi, "-c", "gray", "-F", "pgm", "-o",
         ])
         .arg(&raster)
         .arg(&pdf)
@@ -2628,6 +2632,213 @@ fn missing_page_or_image_extent_fails_before_emitting_image_data() {
     }
 }
 
+fn mixed_codec_content_page() -> Vec<u8> {
+    // Capture the ordinary composer's checked source descriptors, not its PDF
+    // images. The second document decodes directly from the original source.
+    #[derive(Default)]
+    struct Plan(Vec<ComposedImage>);
+    impl ComposeVisitor for Plan {
+        async fn page(&mut self, page: ComposePage<'_>) -> crate::Result<()> {
+            self.0.extend_from_slice(page.images);
+            Ok(())
+        }
+    }
+    let pixels = rows(9);
+    let fixture = fixture(
+        Variant::C8,
+        &[vec![
+            Record::type0(&pixels, 0, 0),
+            Record::jpeg(8, 8, 155, 9, 0),
+            type3_record(3, 5, 18, 0),
+        ]],
+    );
+    let mut source = Source::new(fixture.bytes);
+    source.short = 3;
+    let limits = Limits {
+        io_chunk_bytes: 64,
+        ..Default::default()
+    };
+    let options = ComposeOptions::default();
+    let qm = table();
+    let mq = mq_table(&limits);
+    let (mut rows, mut first, mut second, mut refined) = (
+        Scratch::default(),
+        Scratch::default(),
+        Scratch::default(),
+        Scratch::default(),
+    );
+    let mut workspaces = ComposeWorkspaces {
+        rows: &mut rows,
+        type3: Some(ComposeType3Workspaces {
+            table: &mq,
+            first: &mut first,
+            second: &mut second,
+            refined: &mut refined,
+        }),
+    };
+    let mut plan = Plan::default();
+    let mut baseline = Sink::default();
+    let stores = workspaces.type3.as_mut().unwrap();
+    let mut report = ready(convert_source_pages_pdf(
+        &mut source,
+        &mut baseline,
+        Some(&qm),
+        ComposeWorkspaces {
+            rows: &mut *workspaces.rows,
+            type3: Some(ComposeType3Workspaces {
+                table: &mq,
+                first: &mut *stores.first,
+                second: &mut *stores.second,
+                refined: &mut *stores.refined,
+            }),
+        },
+        &mut plan,
+        options,
+        &limits,
+        &NeverCancel,
+    ))
+    .unwrap();
+    assert_eq!(plan.0.len(), 3);
+    let mut sink = Sink {
+        short: Some(7),
+        ..Default::default()
+    };
+    ready(async {
+        let mut font_source = Source::new(crate::pdf::drawing_font());
+        let mut font = crate::pdf::TrueTypeFont::read(&mut font_source, &limits, &NeverCancel)
+            .await
+            .unwrap();
+        let mut document = PdfDocument::new(&mut sink, &limits, &NeverCancel)
+            .await
+            .unwrap();
+        let font = document.add_font(&mut font).await.unwrap();
+        let mut handles = Vec::new();
+        let mut contexts = None;
+        for image in &mut plan.0 {
+            handles.push(
+                emit_image(
+                    &mut source,
+                    &mut document,
+                    image,
+                    At::NONE.image(image.record),
+                    &mut contexts,
+                    &mut workspaces,
+                    Some(&qm),
+                    options,
+                    &limits,
+                    &NeverCancel,
+                    &mut report,
+                )
+                .await
+                .unwrap(),
+            );
+        }
+        let fonts = [&font];
+        let mut page = document
+            .begin_content_page(
+                PageSpec {
+                    width_points: 120.0,
+                    height_points: 100.0,
+                },
+                &fonts,
+                &handles,
+            )
+            .await
+            .unwrap();
+        page.glyph(0, 'A', [20.0, 0.0, 0.0, 20.0, 10.0, 50.0])
+            .await
+            .unwrap();
+        page.image(0, [18.0, 0.0, 0.0, -6.0, 12.0, 60.0])
+            .await
+            .unwrap();
+        page.segment([10.0, 55.0], [90.0, 55.0], 2.0).await.unwrap();
+        page.image(1, [16.0, 0.0, 0.0, 16.0, 20.0, 48.0])
+            .await
+            .unwrap();
+        page.glyph(0, '中', [20.0, 0.0, 0.0, 20.0, 30.0, 50.0])
+            .await
+            .unwrap();
+        page.image(2, [6.0, 0.0, 0.0, 10.0, 34.0, 54.0])
+            .await
+            .unwrap();
+        page.fill_polygon(&[[32.0, 52.0], [42.0, 52.0], [37.0, 62.0]])
+            .await
+            .unwrap();
+        page.finish().await.unwrap();
+        assert_eq!(document.finish().await.unwrap().pages_converted, 1);
+    });
+    assert_eq!(
+        (report.type0_images, report.jpeg_images, report.type3_images),
+        (2, 2, 2)
+    );
+    let stores = workspaces.type3.as_mut().unwrap();
+    for store in [workspaces.rows, stores.first, stores.second, stores.refined] {
+        assert!(store.bytes.is_empty());
+        assert!(store.max_request <= 64);
+    }
+    assert_eq!(
+        crate::test_support::bilevel_pixels(&baseline.bytes),
+        crate::test_support::bilevel_pixels(&sink.bytes)
+    );
+    let content = String::from_utf8_lossy(&sink.bytes);
+    let operators = [
+        "<0041> Tj",
+        "/Im0 Do",
+        " l S Q",
+        "/Im1 Do",
+        "<4E2D> Tj",
+        "/Im2 Do",
+        "h f Q",
+    ];
+    let positions: Vec<_> = operators
+        .iter()
+        .map(|operator| content.find(operator).unwrap())
+        .collect();
+    assert!(positions.windows(2).all(|pair| pair[0] < pair[1]));
+    let decoded = crate::test_support::bilevel_pixels(&sink.bytes);
+    assert_eq!(decoded[0], reversed_packed(&pixels));
+    assert_eq!(decoded[1], vec![0x80, 0, 0, 0, 0]);
+    sink.bytes
+}
+
+#[test]
+fn decoded_images_share_a_content_page_with_glyphs_and_vectors() {
+    mixed_codec_content_page();
+}
+
+#[test]
+fn independent_render_checks_decoded_images_in_native_content_order() {
+    let raster = render_original_pdf_at(&mixed_codec_content_page(), "72");
+    let header = b"P5\n120 100\n255\n";
+    assert!(raster.starts_with(header));
+    let pixels = &raster[header.len()..];
+    assert_eq!(pixels.len(), 120 * 100);
+    let pixel = |x: usize, y: usize| pixels[(99 - y) * 120 + x];
+    assert_eq!(pixel(11, 55), 0); // Original A outline.
+    assert_eq!(pixel(80, 55), 0); // Uncovered segment.
+    assert_eq!(pixel(25, 55), 155); // JPEG overwrites the segment.
+    assert_eq!(pixel(37, 55), 0); // Polygon overwrites the white type-3 image.
+    assert_eq!(pixel(110, 90), 255);
+
+    // The real native-record translator uses the same PDF writer. This scale
+    // makes one raw source unit one pixel, independently fixing image bounds
+    // at x=30..110/y=40..90 in the 600-unit original fixture. The second,
+    // top-first image must cover the first image's reversed row order.
+    let raster = render_original_pdf_at(&super::super::native_page::mixed_page(), "741.9");
+    let header = b"P5\n600 600\n255\n";
+    assert!(raster.starts_with(header));
+    let pixels = &raster[header.len()..];
+    assert_eq!(pixels.len(), 600 * 600);
+    let pixel = |x: usize, y: usize| pixels[y * 600 + x];
+    assert_eq!(pixel(40, 50), 0);
+    assert_eq!(pixel(100, 50), 255);
+    assert_eq!(pixel(40, 80), 255);
+    assert_eq!(pixel(100, 80), 0);
+    assert_eq!(pixel(85, 120), 68); // Original CJK-labelled triangle.
+    assert_eq!(pixel(160, 120), 68); // Original Latin-labelled rectangle.
+    assert_eq!(pixel(550, 550), 255);
+}
+
 #[test]
 fn raw_hna_marked_images_keep_full_page_and_offset_geometry() {
     fn marked(records: &[Record], prefix: bool) -> Vec<u8> {
@@ -2759,3 +2970,4 @@ fn hna_zero_page_prefix_dimensions_fail_before_emitting_images() {
         assert!(!contains(&sink.bytes, b"/Subtype /Image"));
     }
 }
+mod native_document;
