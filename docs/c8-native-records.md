@@ -2157,3 +2157,21 @@ values. It shares the independently established endpoint/origin and hairline
 output with ordinary segments. Original regressions cover both geometries and
 retain distinct behavior for another style's high coordinate. Raw inspection
 records are unchanged; no blanket coordinate mask or new renderer is added.
+
+### HN-B skew state and independent-axis discriminator
+
+Original single-glyph controls confirm `8024/281d` activates a visible tilt,
+`8024/2800` restores the baseline exactly, and a subsequent `8002/1084` does
+not reset the tilt. All 729% page interiors repeat identically. Two unequal
+size controls (`1067`, `10e3`) distinguish the transform's axes: the narrower,
+taller glyph shifts near its top by about 18 screen pixels, while the wider,
+shorter glyph shifts by about 31. Thus the displacement follows width, not
+height. Horizontal extents also contract; a pure height-based shear is not
+established. Do not infer an angle directly from the payload or discard this
+control as a no-op. Exact coefficients remain to be independently validated.
+
+The existing generator reproduces all eight inputs. Receipts are
+`skew-inputs.json`, `skew-state-comparison.json`, `skew-axis-inputs.json`,
+`skew-axis-comparison.json` and repeated `skew-viewer` captures in
+`caj2pdf-hnb-rendering-20261003`. These are original full-em font controls;
+no external document text or outlines enter Git.

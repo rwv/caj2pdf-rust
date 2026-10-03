@@ -75,6 +75,13 @@ def line_control(style, marked, *, diagonal=False, c8_container=False):
     return bytes(c8) if c8_container else hn_container(c8)
 
 
+def skew_control(words, style=0x1084):
+    return hn_container(document(
+        [(style, 0, 6)], codes=(0xD6D0,), width=400, height=400,
+        first_x=4672, first_y=4374, run_words=words,
+    ))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("output", type=Path, help="new directory outside the repository")
@@ -103,6 +110,23 @@ def main():
             data = line_control(style, marked, diagonal=diagonal)
             (args.output / filename).write_bytes(data)
             manifest.append({"file": filename, "style": style, "marked": marked,
+                             "sha256": hashlib.sha256(data).hexdigest()})
+    for name, words in (
+        ("base", ()), ("skew", (0x8024, 0x281D)),
+        ("reset", (0x8024, 0x281D, 0x8024, 0x2800)),
+        ("style", (0x8024, 0x281D, 0x8002, 0x1084)),
+    ):
+        data = skew_control(words)
+        filename = f"skew-{name}.caj"
+        (args.output / filename).write_bytes(data)
+        manifest.append({"file": filename, "words": words,
+                         "sha256": hashlib.sha256(data).hexdigest()})
+    for style in (0x1067, 0x10E3):
+        for name, words in (("base", ()), ("skew", (0x8024, 0x281D))):
+            data = skew_control(words, style)
+            filename = f"skew-axis-{style:04x}-{name}.caj"
+            (args.output / filename).write_bytes(data)
+            manifest.append({"file": filename, "style": style, "words": words,
                              "sha256": hashlib.sha256(data).hexdigest()})
     (args.output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
 
