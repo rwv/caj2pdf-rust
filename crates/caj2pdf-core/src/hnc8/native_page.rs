@@ -224,6 +224,11 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
                 {
                     return Err(invalid("unverified large native glyph class"));
                 }
+                if matches!(code, 0xa1b6 | 0xa1b7)
+                    && (self.variant != Variant::HnB || style != 0x10a5 || self.axes != [None; 2])
+                {
+                    return Err(invalid("unverified native book-title mark geometry"));
+                }
                 if self.axes != [None; 2]
                     && matches!(
                         code,
@@ -264,7 +269,9 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
                         (C8GlyphClass::Cjk, self.roles.latin, Some(0.0))
                     }
                     0xa1a4 | 0xa3ba => (C8GlyphClass::Cjk, latin, Some(1.0 / 8.0)),
-                    0xa1b0 | 0xa1b1 | 0xa3a8 | 0xa3a9 => (C8GlyphClass::Cjk, latin, None),
+                    0xa1b0 | 0xa1b1 | 0xa1b6 | 0xa1b7 | 0xa3a8 | 0xa3a9 => {
+                        (C8GlyphClass::Cjk, latin, None)
+                    }
                     0xa3db | 0xa3dd => (C8GlyphClass::Cjk, self.roles.latin, None),
                     0xa1a1 => (C8GlyphClass::Cjk, self.roles.cjk, None),
                     0xa1a2 => (C8GlyphClass::Latin, latin, None),
@@ -295,7 +302,7 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
                     transform[4] -= transform[0] / 8.0;
                 }
                 let offset_columns = match code {
-                    0xa3a8 => Some((0, 2)),
+                    0xa1b6 | 0xa1b7 | 0xa3a8 => Some((0, 2)),
                     0xa1b0 | 0xa1b1 | 0xa3a9 => Some((1, 2)),
                     0xa3db | 0xa3dd => Some((3, 4)),
                     _ => None,
@@ -317,7 +324,14 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
                     let width = usize::from((style >> 5) & 31) - 2;
                     let height = usize::from(style & 31) - 2;
                     let unit = super::EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
-                    transform[4] += f64::from(OFFSETS[width][x_column]) * unit;
+                    // Controlled HN-B style-5 book marks share parenthesis y;
+                    // their x differs by +4/-6 source units from the opener.
+                    let book_x = match code {
+                        0xa1b6 => 4,
+                        0xa1b7 => -6,
+                        _ => 0,
+                    };
+                    transform[4] += f64::from(OFFSETS[width][x_column] + book_x) * unit;
                     transform[5] -= f64::from(OFFSETS[height][y_column]) * unit;
                 }
                 if matches!(code, 0xa1a4 | 0xa1af) {

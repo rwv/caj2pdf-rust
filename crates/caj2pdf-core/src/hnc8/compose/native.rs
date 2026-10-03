@@ -14,7 +14,7 @@ pub struct C8FontSources<'a, F> {
     pub roles: C8PageFonts,
 }
 
-/// Convert every page of the admitted raw C8 native profile.
+/// Convert every page of the admitted raw C8 or text/vector HN-B profile.
 ///
 /// Fonts are caller-owned stable ranged resources. Images use the same
 /// preflight, codecs and reusable scratch as image-only composition. Only
@@ -66,10 +66,12 @@ where
         offset: Some(0),
         ..At::NONE
     };
-    if header.variant != Variant::C8 || options.include_bookmarks {
+    if !matches!(header.variant, Variant::C8 | Variant::HnB) || options.include_bookmarks {
         return Err(at.error(
             ComposeStage::Preflight,
-            ComposeErrorKind::Unsupported("native composition requires C8 with bookmarks omitted"),
+            ComposeErrorKind::Unsupported(
+                "native composition requires C8 or HN-B with bookmarks omitted",
+            ),
         ));
     }
     let mut document = PdfDocument::new(sink, limits, cancellation)

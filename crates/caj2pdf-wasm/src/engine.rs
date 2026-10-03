@@ -552,9 +552,11 @@ async fn run(
             resolve_format(&mut source, format, &limits, &cancellation).await?
         }
     };
-    if source.shared.borrow().fonts.count() != 0 && format != InputFormat::C8 {
+    if source.shared.borrow().fonts.count() != 0
+        && !matches!(format, InputFormat::C8 | InputFormat::Hn)
+    {
         return Err(Error::InvalidInput {
-            reason: "explicit C8 font resources require a C8 document",
+            reason: "explicit native font resources require a C8 or HN-B document",
         });
     }
     source.shared.borrow_mut().format = Some(format);

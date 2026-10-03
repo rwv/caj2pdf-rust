@@ -256,3 +256,63 @@ fn native_document_font_io_output_and_cancellation_fail_explicitly() {
         }
     }
 }
+
+#[test]
+fn hnb_native_document_streams_every_compact_page_and_keeps_late_errors_located() {
+    for corrupt in [false, true] {
+        let mut bytes = vec![0; 216 + 3 * 12];
+        bytes[..4].copy_from_slice(b"HN\0\0");
+        bytes[4..8].copy_from_slice(&200_u32.to_le_bytes());
+        bytes[8..12].copy_from_slice(&136_u32.to_le_bytes());
+        bytes[144..148].copy_from_slice(&3_u32.to_le_bytes());
+        bytes[168..170].copy_from_slice(&100_u16.to_le_bytes());
+        bytes[170..172].copy_from_slice(&200_u16.to_le_bytes());
+        for page in 0..3 {
+            let mut records = native_text(&[]);
+            records.truncate(records.len() - 2); // Verified bare HN-B page end.
+            if corrupt && page == 2 {
+                records[..2].copy_from_slice(&0x8099_u16.to_le_bytes());
+            }
+            let row = 216 + page * 12;
+            let offset = bytes.len() as u32;
+            bytes[row..row + 4].copy_from_slice(&offset.to_le_bytes());
+            bytes[row + 4..row + 8].copy_from_slice(&(records.len() as u32).to_le_bytes());
+            bytes.extend(records);
+        }
+        let mut source = Source::new(bytes);
+        source.short = 3;
+        let mut fonts = [Source::new(crate::pdf::drawing_font())];
+        fonts[0].short = 3;
+        let mut sink = Sink {
+            short: Some(7),
+            ..Default::default()
+        };
+        let mut scratch = Scratch::default();
+        let result = ready(convert_c8_native_pdf(
+            &mut source,
+            &mut sink,
+            C8FontSources {
+                sources: &mut fonts,
+                roles: roles(),
+            },
+            None,
+            &mut scratch,
+            ComposeOptions::default(),
+            &Limits::default(),
+            &NeverCancel,
+        ));
+        if corrupt {
+            assert_eq!(result.unwrap_err().page, Some(3));
+            assert!(!sink.bytes.ends_with(b"%%EOF\n"));
+        } else {
+            let report = result.unwrap();
+            assert_eq!(report.output_pages, 3);
+            assert_eq!(report.no_image_pages, 3);
+            let pdf = String::from_utf8_lossy(&sink.bytes);
+            assert!(pdf.contains("/Count 3"));
+            assert_eq!(pdf.matches("<0041> Tj").count(), 3);
+            assert!(pdf.ends_with("%%EOF\n"));
+        }
+        assert!(scratch.bytes.is_empty());
+    }
+}

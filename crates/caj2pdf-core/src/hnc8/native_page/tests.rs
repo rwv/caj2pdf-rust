@@ -877,3 +877,36 @@ fn hnb_native_text_and_controlled_state_reuse_sequential_page_output() {
     assert!(result.is_err());
     assert!(!finished);
 }
+
+#[test]
+fn hnb_book_title_marks_preserve_verified_style_five_offsets_and_resources() {
+    for (code, unicode, x) in [(0xa1b6, 0x300a, 30.0), (0xa1b7, 0x300b, 20.0)] {
+        let words = [
+            [0x8001, 4394],
+            [0x8002, 0x10a5],
+            [4902, code],
+            [0x801d, 4],
+            [4902, code],
+            [0x8004, 1],
+        ];
+        let (result, pdf, finished) = convert(&words, 0, &[], roles(), 13);
+        result.unwrap();
+        assert!(finished);
+        let text = String::from_utf8_lossy(&pdf);
+        assert_eq!(text.matches(&format!("<{unicode:04X}> Tj")).count(), 2);
+        assert!(text.contains("/F1 1 Tf") && text.contains("/F2 1 Tf"));
+        for (matrix, _) in text.lines().filter_map(|line| line.split_once(" Tm ")) {
+            let m: Vec<f64> = matrix
+                .split_whitespace()
+                .map(|v| v.parse().unwrap())
+                .collect();
+            let unit = super::super::EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
+            assert!((m[4] - (270.0 + x) * unit).abs() < 0.000001);
+            assert!((m[5] - (499.0 * unit - m[3])).abs() < 0.000002);
+        }
+        assert!(convert(&words, 0, &[], roles(), 11).0.is_err());
+        let mut other = words;
+        other[1][1] = 0x1084;
+        assert!(convert(&other, 0, &[], roles(), 13).0.is_err());
+    }
+}

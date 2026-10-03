@@ -446,3 +446,30 @@ The generator reproduces original HN-B controls and the separate diagnostic
 C8 wrappers. The two book-title marks have distinct horizontal offsets while
 sharing the measured parenthesis vertical extent; their rendering remains
 unverified. Complete-document acceptance remains open.
+
+## Style-5 book-title marks and first complete page-writer run
+
+The issue-100 inventory contains 16 occurrences each of `a1b6`/`a1b7`, all
+with style `10a5` and no explicit axis override. Original marker-font controls
+at 729% compare both marks with an opening parenthesis at the same coordinates.
+The left mark matches that parenthesis shifted +4 source units horizontally;
+the right matches -6. Ordinary/alternate resource controls and held-out
+coordinates `(4793,4357)` match exactly, with stable repeats. The initial +3
+left candidate is rejected. Thus this style reuses the existing parenthesis
+baseline/downward offset (-4 units) with x offsets 30/20 units from the CJK
+origin. Other styles/explicit axes remain errors pending evidence.
+
+`hnb_geometry_fixture.py` reproduces all sixteen original inputs. External
+receipts `book-five-inputs.json`, `book-confirm-inputs.json` and
+`book-confirm-comparison.json`, with `book-viewer` captures, are in
+`caj2pdf-hnb-rendering-20261003`. The two raw codes retain U+300A/U+300B;
+no source-document text or third-party font outlines are committed.
+
+The direct page-writer probe now emits all four issue-100 pages using original
+marker fonts; independent `pdfinfo` reports four pages. This is a complete
+record/output-path checkpoint, not a real-font visual fidelity pass. The native
+document orchestrator now accepts the measured HN-B text/vector profile, and
+CLI/WASM font dispatch reaches it. A three-page original compact fixture checks
+short I/O, bare page ends, page preservation and a located failure on the last
+page without a finished PDF. Existing C8 APIs retain their names for now;
+HN-A with explicit native fonts and unverified HN-B images remain refused.

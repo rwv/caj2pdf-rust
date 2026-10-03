@@ -108,6 +108,11 @@ def punctuation_control(style, alternate, code, *, c8_container=False):
     return data if c8_container else hn_container(data)
 
 
+def book_control(code, alternate, dx=0, x=4772, y=4374):
+    return hn_container(document([(0x10A5, alternate, 6)], codes=(code,),
+                                 width=400, height=400, first_x=x + dx, first_y=y))
+
+
 def geometry_control(width, height, dx=0, dy=0, *, c8_container=False):
     data = bytearray(document(
         [(0x1084, 0, 6)], codes=(0xD6D0,), width=width, height=height,
@@ -199,6 +204,26 @@ def main():
             (args.output / filename).write_bytes(data)
             manifest.append({"file": filename, "style": style, "alternate": alternate,
                              "sha256": hashlib.sha256(data).hexdigest()})
+    books = [
+        (f"book-five-{alt}-{name}", code, alt, dx, 4772, 4374)
+        for alt in (0, 4)
+        for name, code, dx in (("left", 0xA1B6, 0), ("right", 0xA1B7, 0),
+                               ("paren", 0xA3A8, 0), ("left-candidate", 0xA3A8, 3),
+                               ("right-candidate", 0xA3A8, -6))
+    ]
+    books.extend((f"book-confirm-{name}", code, alt, dx, x, y)
+                 for name, code, dx, alt, x, y in (
+        ("left4-0", 0xA3A8, 4, 0, 4772, 4374), ("left4-4", 0xA3A8, 4, 4, 4772, 4374),
+        ("held-left", 0xA1B6, 0, 0, 4793, 4357), ("held-right", 0xA1B7, 0, 0, 4793, 4357),
+        ("held-left-reference", 0xA3A8, 4, 0, 4793, 4357),
+        ("held-right-reference", 0xA3A8, -6, 0, 4793, 4357),
+    ))
+    for name, code, alt, dx, x, y in books:
+        data = book_control(code, alt, dx, x, y)
+        filename = name + ".caj"
+        (args.output / filename).write_bytes(data)
+        manifest.append({"file": filename, "code": code, "alternate": alt, "dx": dx,
+                         "x": x, "y": y, "sha256": hashlib.sha256(data).hexdigest()})
     (args.output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
 
 

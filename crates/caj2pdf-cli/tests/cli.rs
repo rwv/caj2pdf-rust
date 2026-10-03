@@ -1308,7 +1308,7 @@ fn native_c8_font_failures_preserve_inputs_and_atomic_output() {
     scratch.write("input.c8", &fixture("valid_nested_outline.pdf"));
     let mut args = vec!["input.c8", "--force", "-o", "out.pdf"];
     args.extend(flags);
-    assert_failure(&scratch.run(args), 1, "require a C8 document");
+    assert_failure(&scratch.run(args), 1, "require a C8 or HN-B document");
     assert_eq!(
         fs::read(scratch.path("out.pdf")).unwrap(),
         b"existing destination"

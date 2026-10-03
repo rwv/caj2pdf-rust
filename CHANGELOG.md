@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Enable the observed HN-B text/vector profile through the shared native
+  document path and explicit CLI/WASM font resources. Original controls verify
+  style-5 book-title mark placement; other sizes remain explicit errors.
+  The first four-page marker-font conversion succeeds; real-font fidelity,
+  Node/browser acceptance and mixed-image HN-B support remain under review.
+
 - **Breaking:** HN-B `hnc8::Header.native_origin` and `page_size` now expose
   verified raw header words as `Some`, including zero extents. Do not use their
   presence as proof of complete native rendering support. Legacy image-only
@@ -25,7 +31,7 @@
   images in source order using shared codecs and reusable bounded scratch.
   Supply explicit ranged TrueType fonts; missing resources/glyphs and unknown
   required records fail rather than dropping content. C8 bookmarks, other C8
-  native profiles and HN-B native rendering remain unsupported.
+  native profiles and HN-B mixed-image native rendering remain unsupported.
 - Add CLI `--font-cjk`, `--font-latin`, `--font-alternate-latin`, optional
   `--font-decoration` and `--decoration-char`; JavaScript exposes the same roles
   through `hnc8.fonts`. Shared sources embed once. Forward-only fonts use existing

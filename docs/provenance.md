@@ -2509,3 +2509,10 @@ branch after original unequal-axis/resource-marker comparisons. The original
 MIT tests retain the distinct Unicode scalar. Failed/black viewer captures and
 the unverified C8 wrappers are explicitly excluded from admission evidence;
 see `hnb-compact-index.md`. No vendor code, outlines or document text is copied.
+
+HN-B style-5 book-title mark offsets are original MIT constants derived from
+independent source-coordinate translations of an existing original parenthesis
+control. Held-out coordinates and both resource states validate +4/-6 relative
+x offsets. The shared page writer, native document route and CLI/WASM dispatch
+reuse existing bounded I/O and fonts. Original compact multi-page tests cover
+late failure; real-document marker-font output is not claimed as visual fidelity.
