@@ -166,7 +166,7 @@ export function syntheticNativeC8(mixed = false) {
   const bytes = new Uint8Array(end + (mixed ? 61 : 0));
   const view = new DataView(bytes.buffer);
   const u32 = (at, value) => view.setUint32(at, value, true);
-  bytes[0] = 0xc8; u32(8, 1);
+  bytes[0] = 0xc8; u32(8, 1); u32(12, 2);
   view.setUint16(32, 100, true); view.setUint16(34, 200, true);
   u32(80, 100); u32(84, words.length * 4); u32(88, Number(mixed));
   for (const [i, value] of words.flat().entries()) view.setUint16(100 + i * 2, value, true);
@@ -181,7 +181,7 @@ export function syntheticNativeHnb() {
   const bytes = new Uint8Array(240 + text.length * 2);
   const view = new DataView(bytes.buffer);
   const u32 = (at, value) => view.setUint32(at, value, true);
-  bytes.set([0x48, 0x4e]); u32(4, 200); u32(8, 136); u32(144, 2);
+  bytes.set([0x48, 0x4e]); u32(4, 200); u32(8, 136); u32(144, 2); u32(148, 2);
   view.setUint16(168, 100, true); view.setUint16(170, 200, true);
   for (let page = 0; page < 2; page++) {
     const offset = 240 + page * text.length;

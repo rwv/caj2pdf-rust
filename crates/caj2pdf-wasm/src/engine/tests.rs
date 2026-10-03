@@ -921,6 +921,7 @@ fn hna_inspection_rejects_invalid_records_and_resource_limits() {
 fn native_c8() -> Vec<u8> {
     let mut bytes = vec![0u8; 100];
     bytes[0] = 0xc8;
+    put_u32(&mut bytes, 12, 2);
     put_u32(&mut bytes, 8, 1);
     bytes[32..34].copy_from_slice(&100u16.to_le_bytes());
     bytes[34..36].copy_from_slice(&200u16.to_le_bytes());

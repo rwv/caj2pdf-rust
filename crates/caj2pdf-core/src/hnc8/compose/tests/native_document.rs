@@ -265,6 +265,7 @@ fn hnb_native_document_streams_every_compact_page_and_keeps_late_errors_located(
         bytes[4..8].copy_from_slice(&200_u32.to_le_bytes());
         bytes[8..12].copy_from_slice(&136_u32.to_le_bytes());
         bytes[144..148].copy_from_slice(&3_u32.to_le_bytes());
+        bytes[148] = 2;
         bytes[168..170].copy_from_slice(&100_u16.to_le_bytes());
         bytes[170..172].copy_from_slice(&200_u16.to_le_bytes());
         for page in 0..3 {

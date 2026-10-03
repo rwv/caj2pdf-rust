@@ -149,6 +149,7 @@ fn native_c8_fonts_are_ranged_reused_and_protected() {
     fs::write(dir.0.join("字体.ttf"), font).unwrap();
     let mut input = vec![0u8; 100];
     input[0] = 0xc8;
+    input[12] = 2;
     input[8] = 1;
     input[32] = 100;
     input[34] = 200;

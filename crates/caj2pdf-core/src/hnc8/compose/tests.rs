@@ -152,6 +152,7 @@ fn fixture_with_text(
     if variant == Variant::HnB {
         bytes[0x88..0x8c].copy_from_slice(&0xc8_u32.to_le_bytes());
     }
+    bytes[count_at + 4] = 2; // Authored native records use mode 2.
     bytes[count_at..count_at + 4].copy_from_slice(&(pages.len() as i32).to_le_bytes());
     bytes[count_at + 24..count_at + 26].copy_from_slice(&100_u16.to_le_bytes());
     bytes[count_at + 26..count_at + 28].copy_from_slice(&200_u16.to_le_bytes());

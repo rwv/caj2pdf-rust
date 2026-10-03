@@ -1176,6 +1176,7 @@ fn late_malformed_paired_raw_hn_page_never_publishes_a_partial_pdf() {
 fn native_c8_pages(late_missing_glyph: bool) -> Vec<u8> {
     let mut bytes = vec![0; 120];
     bytes[0] = 0xc8;
+    put_u32(&mut bytes, 12, 2);
     put_u32(&mut bytes, 8, 2);
     bytes[32..34].copy_from_slice(&100u16.to_le_bytes());
     bytes[34..36].copy_from_slice(&200u16.to_le_bytes());

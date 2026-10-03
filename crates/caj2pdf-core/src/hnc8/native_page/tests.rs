@@ -69,6 +69,7 @@ fn fixture(words: &[[u16; 2]], images: u32) -> Source {
     let mut bytes = vec![0; 100];
     bytes[0] = 0xc8;
     bytes[8] = 1;
+    bytes[12] = 2;
     for (offset, value) in [(28, 4652u16), (30, 4274), (32, 600), (34, 600)] {
         bytes[offset..offset + 2].copy_from_slice(&value.to_le_bytes());
     }
@@ -130,6 +131,7 @@ fn convert(
         bytes[4..8].copy_from_slice(&200_u32.to_le_bytes());
         bytes[8..12].copy_from_slice(&136_u32.to_le_bytes());
         bytes[144..148].copy_from_slice(&1_u32.to_le_bytes());
+        bytes[148] = 2;
         bytes[164..172].copy_from_slice(&c8[28..36]);
         bytes[216..220].copy_from_slice(&228_u32.to_le_bytes());
         bytes[220..224].copy_from_slice(&(c8.len() as u32 - 100).to_le_bytes());
@@ -156,6 +158,13 @@ fn convert(
             3 => reader.header.page_size = None,
             4 => reader.header.native_origin = None,
             5 => reader.header.page_size = Some([0, 1]),
+            14 => reader.header.native_mode = None,
+            15 => reader.header.native_mode = Some(0),
+            16 => reader.header.native_mode = Some(99),
+            17 => {
+                reader.header.variant = Variant::HnB;
+                reader.header.native_mode = Some(0);
+            }
             _ => (),
         }
         let mut document = PdfDocument::new(&mut sink, &limits, &cancel).await.unwrap();
@@ -908,5 +917,24 @@ fn hnb_book_title_marks_preserve_verified_style_five_offsets_and_resources() {
         let mut other = words;
         other[1][1] = 0x1084;
         assert!(convert(&other, 0, &[], roles(), 13).0.is_err());
+    }
+}
+
+#[test]
+fn unverified_native_modes_cannot_use_mode_two_rendering() {
+    for mode in 14..=17 {
+        let (result, pdf, _) = convert(&ordinary(), 0, &[], roles(), mode);
+        let error = result.unwrap_err();
+        assert!(
+            matches!(
+                error.kind,
+                ErrorKind::Unsupported {
+                    field: "native page rendering mode",
+                    ..
+                }
+            ),
+            "{error:?}"
+        );
+        assert!(!String::from_utf8_lossy(&pdf).contains("/Type /Page "));
     }
 }

@@ -721,3 +721,13 @@ Eleven original controls in `hnb_geometry_fixture.py` reproduce the external
 `caj2pdf-hnb-rendering-20261003` directory. All 36 native visitor/decoder tests,
 strict workspace Clippy and 34,415/34,415 Rust line coverage pass. Full runtime,
 visual, cleanup and reviewed-head CI acceptance for #241 remains open.
+
+### Rendering mode boundary
+
+The native page writer now requires mode 2 before opening a content page.
+Missing metadata, mode 0 and unknown modes fail explicitly instead of using
+mode-2 character/resource/placement rules. Mode-0 decoding remains available
+to the bounded record visitor; complete mode-0 rendering remains unfinished
+under #241. Original native rendering fixtures now explicitly declare mode 2
+in Rust and JavaScript. This guard will be expanded when mode-0 placement and
+resource selection are integrated and independently verified.

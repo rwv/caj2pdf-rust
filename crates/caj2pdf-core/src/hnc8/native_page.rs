@@ -70,6 +70,14 @@ where
             value: 0,
         }));
     }
+    // Character mapping, font selection and placement are mode-specific.
+    // Mode 0 decoding exists, but its complete rendering path is not yet verified.
+    if header.native_mode != Some(2) {
+        return Err(loc.error(ErrorKind::Unsupported {
+            field: "native page rendering mode",
+            value: u64::from(header.native_mode.unwrap_or(u32::MAX)),
+        }));
+    }
     if header.variant == Variant::HnB && !images.is_empty() {
         return Err(source_error(invalid(
             "unverified HN-B native image composition",
