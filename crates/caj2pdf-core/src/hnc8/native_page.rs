@@ -170,6 +170,10 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
         }
         match record {
             NativeRecord::Control { tag: 0x8001, .. } => (), // y is carried by each glyph.
+            // The parser validates the bounded ASCII payload. Original mixed
+            // controls preserve font state, glyphs, drawings and images; the
+            // encoded value is not a resource path to open.
+            NativeRecord::EncodedString { .. } if self.variant == Variant::C8 => (),
             NativeRecord::Control {
                 tag: 0x8024,
                 value: 0x2800,

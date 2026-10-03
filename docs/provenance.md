@@ -2619,3 +2619,13 @@ no vendor outlines, converter implementation or corpus text is copied.
 The six-page issue-65 checkpoint uses external documents and original marker
 fonts only for external validation. Exact retained JPEG payloads are checked
 outside Git; no source images, derived PDFs or captures are redistributed.
+
+
+### C8 encoded-string rendering controls (#242)
+
+The extended original `c8_encoded_prefix_fixture.py` reuses the project's
+asymmetric JPEG, glyph/line/decoration controls and invented ASCII strings.
+Pinned offline viewer observations establish unchanged mixed-page painting
+and resource state for the admitted string profile. Only original MIT
+implementation and generator code are committed; screenshots, generated
+inputs and corpus content stay outside Git. See `c8-encoded-prefix.md`.

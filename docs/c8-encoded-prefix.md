@@ -58,3 +58,33 @@ This does not resolve subsequent controls such as `80ce/0001`, `8024`,
 `8021`, `81ff` or additional font/style semantics. Unknown required content
 continues to stop conversion. HN-B framing is separately tracked by #241;
 the C8 visitor is not automatically enabled for HN-B.
+
+
+## Rendering controls for the admitted C8 profile
+
+The extended original generator reuses `c8_image_fixture.mixed_control` for
+12 mixed-page inputs. Baselines and empty/plain/path-shaped/font-name/253-byte
+strings are compared in ordinary and alternate Latin states. Each string is
+inserted before CJK/Latin glyphs, three segment styles, decoration and an
+asymmetric image. The viewer uses distinct original marker fonts.
+
+All page crops at `(648,380,1024,944)` match their same-state baseline exactly;
+repeated captures are identical and nonblank. The Latin markers distinguish
+states 0 and 4, and remain unchanged by the strings. Captured inputs regenerate
+byte-for-byte. External evidence is `caj2pdf-hnb-rendering-20261003`, including
+`input/c8-prefix-rendering` and `c8-prefix-rendering-comparison.json`.
+
+The C8 renderer now consumes the already validated `EncodedString` event
+without painting or changing font/drawing state. The parser still validates
+length, printable encoding and indexed bounds with fixed storage. No payload
+is retained or interpreted as a file/font path; no resource is opened.
+HN-B and other record forms are not admitted by this rule. Original mixed-page
+Rust tests require byte-identical PDFs with and without the record; existing
+truncation/budget tests remain in effect. Full #242 document acceptance remains
+open until later required records are implemented and independently checked.
+
+The 12 original mixed controls also convert and pass qpdf; each PDF is
+byte-identical to its same-state baseline. External receipts are in
+`c8-prefix-output/checks.json`. The unchanged four-/five-page corpus retries
+advance to `80ce/1` at page-1 byte 224/236 respectively, then fail explicitly
+without publishing a final PDF. Those subsequent controls remain #242 work.

@@ -686,7 +686,7 @@ fn quotation_marks_and_middle_dot_reuse_controlled_offsets() {
 
 #[test]
 fn controlled_nonpainting_records_preserve_mixed_page_output() {
-    let make_words = |control: Option<[u16; 2]>| {
+    let make_words = |control: Option<&[[u16; 2]]>| {
         let mut words = vec![[0x8001, 4350], [0x8002, 0x1084], [0x801d, 4], [0x8067, 6]];
         let mut operations = vec![vec![[4682, 0xd6d0], [4772, 0xa0c1]]];
         for style in [0xa381, 0xa383, 0xa38b] {
@@ -700,7 +700,7 @@ fn controlled_nonpainting_records_preserve_mixed_page_output() {
         operations.push(image());
         for operation in operations {
             if let Some(control) = control {
-                words.push(control);
+                words.extend_from_slice(control);
             }
             words.extend(operation);
         }
@@ -722,11 +722,27 @@ fn controlled_nonpainting_records_preserve_mixed_page_output() {
     ] {
         for &value in values {
             let (result, pdf, finished) =
-                convert(&make_words(Some([tag, value])), 1, &[false], roles(), 0);
+                convert(&make_words(Some(&[[tag, value]])), 1, &[false], roles(), 0);
             assert_eq!(result.unwrap(), 0);
             assert!(finished);
             assert_eq!(pdf, baseline, "control {tag:04x}/{value:04x}");
         }
+    }
+    for payload in [
+        "".to_owned(),
+        "fixture!".to_owned(),
+        "E:\\fixture\\missing".to_owned(),
+        "font.ttf".to_owned(),
+        "x".repeat(252),
+    ] {
+        let mut raw = vec![0x80cc, 0x102 + payload.len() as u16];
+        raw.extend(payload.bytes().map(|byte| 0xe000 | u16::from(byte)));
+        assert_eq!(raw.len() % 2, 0);
+        let control = raw.as_chunks::<2>().0;
+        let (result, pdf, finished) = convert(&make_words(Some(control)), 1, &[false], roles(), 0);
+        assert_eq!(result.unwrap(), 0);
+        assert!(finished);
+        assert_eq!(pdf, baseline);
     }
 }
 

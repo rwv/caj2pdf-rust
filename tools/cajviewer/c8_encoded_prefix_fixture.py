@@ -30,6 +30,23 @@ def document(characters, *, in_run=False):
     return bytes(header + index + records)
 
 
+def mixed_documents():
+    """Exercise prefixes between glyphs, vectors, decoration and an image."""
+    from c8_image_fixture import jpeg, mixed_control
+
+    for state in (0, 4):
+        for label, value in (("baseline", None), ("empty", ""),
+                             ("word", "fixture"), ("path", "E:\\fixture\\missing"),
+                             ("font", "HGHT_CNKI.ttf"), ("max", "x" * 253)):
+            words = None if value is None else [
+                0x80CC, 0x102 + len(value), *(0xE000 | ord(c) for c in value)]
+            data = mixed_control(jpeg(), words)
+            if state == 0:
+                data = data.replace(struct.pack("<HH", 0x801D, 4),
+                                    struct.pack("<HH", 0x801D, 0))
+            yield f"prefix-{state}-{label}.caj", data
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("output", type=Path, help="new directory outside the repository")
@@ -43,6 +60,9 @@ def main():
         (args.output / name).write_bytes(data)
         manifest.append({"file": name, "characters": count,
                          "sha256": hashlib.sha256(data).hexdigest()})
+    for name, data in mixed_documents():
+        (args.output / name).write_bytes(data)
+        manifest.append({"file": name, "sha256": hashlib.sha256(data).hexdigest()})
     (args.output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
 
 
