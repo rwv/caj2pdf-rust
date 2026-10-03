@@ -1565,3 +1565,16 @@ fn hnb_fullwidth_hyphen_keeps_unicode_and_explicit_axis_placement() {
         assert_eq!(glyphs[0], glyphs[1]);
     }
 }
+
+#[test]
+fn large_title_punctuation_is_rejected_before_regular_offset_lookup() {
+    for style in [0x114a, 0x154a, 0xe58c] {
+        for code in [0xa1a4, 0xa1af, 0xa1b0, 0xa3a8, 0xa3db] {
+            let words = [[0x8001, 4350], [0x8002, style], [4682, code], [0x8004, 1]];
+            let (result, _, finished) = convert(&words, 0, &[], roles(), 13);
+            let error = result.unwrap_err();
+            assert_eq!(error.page, Some(1));
+            assert!(!finished);
+        }
+    }
+}

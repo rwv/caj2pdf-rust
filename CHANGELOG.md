@@ -15,6 +15,12 @@
   The raw WASM five-argument font setter remains available; additional roles
   use the exports documented in [I/O architecture](docs/io-architecture.md).
 
+- Reject unverified large-title punctuation with a located error before
+  regular-size offset lookup, avoiding an out-of-bounds panic.
+- **Breaking:** `hnc8::Header` gains `native_mode: Option<u32>`; update
+  explicit literals. `Engine::set_c8_fonts` gains a symbols argument; use
+  `u32::MAX` when absent. This Rust change does not alter the old WASM export.
+
 - **Breaking:** HN-B `hnc8::Header.native_origin` and `page_size` now expose
   verified raw header words as `Some`, including zero extents. Do not use their
   presence as proof of complete native rendering support. Legacy image-only

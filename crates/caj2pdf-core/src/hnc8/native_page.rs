@@ -293,7 +293,7 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
                 if style == 0x114a && self.variant != Variant::HnB {
                     return Err(invalid("unverified C8 title style"));
                 }
-                if matches!(style, 0xe58c | 0x114a)
+                if matches!(style, 0xe58c | 0x114a | 0x154a)
                     && self.axes == [None; 2]
                     && !('㐀'..='鿿').contains(&character)
                 {
