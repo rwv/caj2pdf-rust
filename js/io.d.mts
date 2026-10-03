@@ -201,6 +201,9 @@ export interface C8Fonts {
   symbols?: RangedSource;
   /** Optional explicit font selected by HN-B state 801d/3. */
   latinState3?: RangedSource;
+  /** Distinct caller-supplied resources for verified C8 Latin states. */
+  latinState28?: RangedSource;
+  latinState31?: RangedSource;
   /** Nonsemantic decoration alias; must be one BMP Unicode scalar. */
   decoration?: { source: RangedSource; character: string };
 }

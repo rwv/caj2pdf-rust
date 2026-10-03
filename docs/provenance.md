@@ -2688,3 +2688,12 @@ CJK resource/geometry. The shared renderer adds that observed glyph rule;
 no foreign font data or code is committed. `docs/c8-native-controls.md` records
 accepted evidence, excluded startup/name-changing trials and pending font
 transport. Source font files, captures and clipboard payloads stay external.
+
+### Transport for independently identified C8 Latin resources
+
+State-28 and state-31 roles are based on the identified original-marker controls
+above. Their original implementation extends the existing bounded font path
+with two optional indices and a fixed eight-resource capacity. Existing WASM
+registration exports are preserved; no vendor fonts or foreign code are
+included. See `docs/io-architecture.md` for Rust migration and
+`docs/c8-native-controls.md` for remaining complete-document limits.

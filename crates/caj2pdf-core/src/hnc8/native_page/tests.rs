@@ -93,6 +93,8 @@ fn roles() -> C8PageFonts {
         decoration: Some((1, 'A')),
         symbols: None,
         latin_state3: None,
+        latin_state28: None,
+        latin_state31: None,
     }
 }
 fn image() -> Vec<[u16; 2]> {
@@ -1709,5 +1711,46 @@ fn c8_fullwidth_j_uses_cjk_resource_independent_of_latin_selection() {
             matrix.split(" Tm ").next()
         );
         assert_eq!(decode_native_character(0xa3ca), Some('Ｊ'));
+    }
+}
+
+#[test]
+fn c8_extended_latin_states_require_distinct_resources_and_restore_selection() {
+    for state in [28, 31] {
+        let words = [
+            [0x8001, 4350],
+            [0x8002, 0x1084],
+            [0x801d, state],
+            [4682, 0xa0c1],
+            [0x801d, 4],
+            [4772, 0xa0c1],
+            [0x801d, state],
+            [4862, 0xa0c1],
+            [0x801d, 0],
+            [4952, 0xa0c1],
+            [0x8004, 1],
+        ];
+        for index in [None, Some(3), Some(0)] {
+            let mut fonts = roles();
+            if state == 28 {
+                fonts.latin_state28 = index;
+            } else {
+                fonts.latin_state31 = index;
+            }
+            let (result, pdf, finished) = convert(&words, 0, &[], fonts, 0);
+            if index == Some(0) {
+                result.unwrap();
+                assert!(finished);
+                let text = String::from_utf8_lossy(&pdf);
+                let mut at = 0;
+                for role in [0, 2, 0, 1] {
+                    let token = format!("/F{role} 1 Tf");
+                    at += text[at..].find(&token).unwrap() + token.len();
+                }
+            } else {
+                assert!(result.is_err());
+                assert!(!finished);
+            }
+        }
     }
 }

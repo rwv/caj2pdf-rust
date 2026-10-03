@@ -135,6 +135,14 @@ def font_state_documents():
                                 struct.pack("<HH", 4972, code))
             yield f"font-{state}-{label}.caj", data
 
+    for states in ((28, 31, 0), (31, 28, 4)):
+        parts = mixed_control(jpeg()).split(struct.pack("<HH", 0x801D, 4))
+        assert len(parts) == 4
+        data = parts[0] + b"".join(
+            struct.pack("<HH", 0x801D, state) + part
+            for state, part in zip(states, parts[1:]))
+        yield "transition-" + "-".join(map(str, states)) + ".caj", data
+
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)

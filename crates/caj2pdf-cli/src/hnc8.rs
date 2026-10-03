@@ -83,7 +83,7 @@ impl Resources {
         resources.font_start = resources.inputs.len();
         if options.fonts.iter().any(Option::is_some) {
             let mut paths = Vec::new();
-            let mut indices = [0; 6];
+            let mut indices = [0; 8];
             for (role, path) in options.fonts.iter().enumerate() {
                 if let Some(path) = path {
                     indices[role] = if let Some(index) = paths.iter().position(|p| *p == path) {
@@ -105,6 +105,8 @@ impl Resources {
                 alternate_latin: indices[2],
                 symbols: options.fonts[4].as_ref().map(|_| indices[4]),
                 latin_state3: options.fonts[5].as_ref().map(|_| indices[5]),
+                latin_state28: options.fonts[6].as_ref().map(|_| indices[6]),
+                latin_state31: options.fonts[7].as_ref().map(|_| indices[7]),
                 decoration: options.fonts[3]
                     .as_ref()
                     .map(|_| (indices[3], options.decoration_char.unwrap_or('►'))),

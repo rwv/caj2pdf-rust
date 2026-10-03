@@ -296,3 +296,38 @@ first `identified-family-viewer` ordinary-state-0 capture preceded document
 opening and is superseded by its `ready` capture. Neither trial supports a
 format or Unicode claim. Full-document acceptance remains pending the two
 font roles and subsequent required content in #242.
+
+## Extended Latin resources through public runtimes (#242)
+
+The verified state-28 and state-31 resources now use distinct optional roles:
+Rust `latin_state28` / `latin_state31`, JS `latinState28` / `latinState31`, and
+CLI `--font-latin-state28` / `--font-latin-state31`. They reuse the existing
+bounded source, shared-source embedding and temporary-spooling mechanisms.
+The fixed resource capacity increases from six to eight. No discovery,
+embedded-path opening, bundled vendor font or generic font framework is added.
+
+The new WASM `caj2pdf_c8_set_latin_state(state,index)` accepts only verified
+states 3, 28 and 31 after base registration and before polling. Existing base
+and state-3 exports retain their signatures. Missing roles and out-of-range,
+duplicate or late registration fail explicitly. State selection/restoration
+and optional source aliasing have original core tests; Node and real Worker
+controls exercise both distinct resources with short reads and scratch cleanup.
+Rust literal initializers need the two documented optional fields.
+
+All eight original font-state CLI controls pass qpdf using distinct identified
+state-28 and state-31 marker inputs. The complete four-/five-page sources now
+reach raw glyph `a3ef` at page-1 byte 676/688 respectively. Both fail explicitly
+without publishing a PDF. The following run contains additional fullwidth
+letters; verify the alphabet's mapping/resource/geometry as one original
+control group rather than opening a ticket per letter. External CLI receipts
+are `c8-font-roles-output/checks.json` under the existing evidence root. Full
+conversion, independent fidelity and final public-runtime acceptance remain
+open in #242.
+
+Two additional original transition controls (`28→31→0` and `31→28→4`)
+verify restoration in a single mixed page. Each repeated source glyph-row crop
+exactly equals its independently captured state baseline. Both PDFs pass qpdf;
+MuPDF identifies `HGB1_CNKI`, `HGB1X_CNKI`, then `HGBZ_CNKI` for the first
+sequence and the reversed extended pair followed by `HGHZ_CNKI` for the second.
+All ten font-state inputs reproduce their original bytes. Receipts:
+`c8-font-roles-output/transition-checks.json` and `render-checks.json`.

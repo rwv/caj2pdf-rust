@@ -203,7 +203,12 @@ pub extern "C" fn caj2pdf_c8_set_fonts_with_symbols(
     })
 }
 
-/// Assign the optional HN-B state-3 Latin index after the base font roles.
+/// Assign an optional verified Latin state (3, 28 or 31) after the base roles.
+#[unsafe(no_mangle)]
+pub extern "C" fn caj2pdf_c8_set_latin_state(state: u32, index: u32) -> u32 {
+    with_engine(0, |engine| engine.set_c8_latin_state(state, index) as u32)
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn caj2pdf_c8_set_latin_state3(index: u32) -> u32 {
     with_engine(0, |engine| engine.set_c8_latin_state3(index) as u32)

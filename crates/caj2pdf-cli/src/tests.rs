@@ -825,6 +825,8 @@ fn native_font_options_preserve_paths_and_validate_roles() {
         "--font-decoration=c",
         "--font-symbols=d",
         "--font-latin-state3=e",
+        "--font-latin-state28=f",
+        "--font-latin-state31=g",
         "--decoration-char",
         "A",
     ])
@@ -839,7 +841,9 @@ fn native_font_options_preserve_paths_and_validate_roles() {
             Some("b".into()),
             Some("c".into()),
             Some("d".into()),
-            Some("e".into())
+            Some("e".into()),
+            Some("f".into()),
+            Some("g".into())
         ]
     );
     assert_eq!(options.decoration_char, Some('A'));

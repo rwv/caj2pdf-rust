@@ -27,6 +27,9 @@ pub struct C8PageFonts {
     pub symbols: Option<usize>,
     /// Explicit HN-B Latin resource selected by `801d/3`.
     pub latin_state3: Option<usize>,
+    /// Explicit C8 Latin resources selected by `801d/28` and `801d/31`.
+    pub latin_state28: Option<usize>,
+    pub latin_state31: Option<usize>,
 }
 
 /// Write and finish the current C8 or text/vector HN-B native page using already embedded resources.
@@ -256,6 +259,17 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
                     .roles
                     .latin_state3
                     .ok_or_else(|| invalid("missing HN-B state-3 Latin font resource"))?;
+            }
+            NativeRecord::Control {
+                tag: 0x801d,
+                value: state @ (28 | 31),
+            } if self.variant == Variant::C8 => {
+                self.latin = if state == 28 {
+                    self.roles.latin_state28
+                } else {
+                    self.roles.latin_state31
+                }
+                .ok_or_else(|| invalid("missing C8 extended-state Latin font resource"))?;
             }
             // Independently controlled ordinary resource combinations.
             NativeRecord::Control {

@@ -485,9 +485,13 @@ impl Engine {
                 .set(cjk, latin, alternate, decoration, alias, symbols)
     }
 
-    /// Assign the optional state-3 Latin role after the base roles, before polling.
+    /// Assign a verified Latin role after the base roles, before polling.
+    pub fn set_c8_latin_state(&mut self, state: u32, index: u32) -> bool {
+        !self.started && self.shared.borrow_mut().fonts.set_latin_state(state, index)
+    }
+
     pub fn set_c8_latin_state3(&mut self, index: u32) -> bool {
-        !self.started && self.shared.borrow_mut().fonts.set_latin_state3(index)
+        self.set_c8_latin_state(3, index)
     }
 
     fn complete(&self, accept: impl FnOnce(Request) -> Option<Response>) -> bool {

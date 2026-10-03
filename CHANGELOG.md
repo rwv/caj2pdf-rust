@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **Breaking:** `C8PageFonts` adds optional `latin_state28` and `latin_state31`;
+  existing Rust initializers should set them to `None` unless supplying the
+  distinct C8 resources. CLI and JS expose matching optional font roles;
+  existing WASM registration exports remain compatible. At most eight distinct
+  ranged font sources are accepted. Complete additional C8 profiles remain
+  under validation; this does not claim whole-format support.
+
 - Enable the independently controlled HN-B mode-0/mode-2 native profiles
   through the shared bounded renderer and explicit CLI/Node/Worker fonts.
   The selected 4/4/6-page inputs have complete runtime checkpoints and scoped
