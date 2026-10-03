@@ -5,7 +5,7 @@ on:
       group:
         description: Candidate group to probe (never a release support claim)
         type: choice
-        options: [all, linux, bsd, android]
+        options: [all, linux, i586, bsd, android]
         default: all
 permissions:
   contents: read
@@ -13,6 +13,35 @@ concurrency:
   group: candidates-${{ github.ref }}-${{ inputs.group || 'all' }}
   cancel-in-progress: true
 jobs:
+  i586-gnu:
+    if: inputs.group == 'all' || inputs.group == 'linux' || inputs.group == 'i586'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Install isolated Pentium GNU toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y clang lld qpdf mupdf-tools
+          rustup target add i586-unknown-linux-gnu
+          python3 scripts/install-i586-gnu.py
+      - name: Execute core and CLI tests on Pentium
+        run: |
+          cargo test --locked --release -p caj2pdf-core --lib --target i586-unknown-linux-gnu
+          cargo test --locked --release -p caj2pdf-cli --test portable --target i586-unknown-linux-gnu
+      - name: Validate target output and package tested executable
+        run: |
+          $CARGO_TARGET_I586_UNKNOWN_LINUX_GNU_RUNNER target/i586-unknown-linux-gnu/release/caj2pdf tests/fixtures/valid_nested_outline.pdf -o "$RUNNER_TEMP/i586-output.pdf"
+          qpdf --check "$RUNNER_TEMP/i586-output.pdf"
+          test "$(qpdf --show-npages "$RUNNER_TEMP/i586-output.pdf")" = 2
+          mutool draw -q -o "$RUNNER_TEMP/i586-page-%d.png" "$RUNNER_TEMP/i586-output.pdf"
+          python3 scripts/package-native.py --target i586-unknown-linux-gnu --binary target/i586-unknown-linux-gnu/release/caj2pdf
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: candidate-i586-unknown-linux-gnu
+          path: dist/
+          if-no-files-found: error
+
   freebsd:
     if: inputs.group == 'all' || inputs.group == 'bsd'
     runs-on: ubuntu-24.04

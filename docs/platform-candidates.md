@@ -11,7 +11,7 @@ runners. Remaining work is tracked in [#214](https://github.com/rwv/caj2pdf-rust
 
 | Candidate | Observed blocker / next prerequisite |
 | --- | --- |
-| i586 GNU | Ubuntu i386 libc SIGILLs on QEMU Pentium. Supply a Pentium-compatible GNU sysroot. The i586 musl artifact passes that CPU model and is released. |
+| i586 GNU | An isolated Jessie GNU sysroot passes local Pentium tests; the `i586` candidate job must verify the installer on hosted CI before promotion. The i586 musl artifact is already released. |
 | MIPS32 musl, big/little endian | Tests passed but linker warnings revealed Rust soft-float / SDK hard-float ABI mismatch. Withdrawn from release inventory. Supply a matching soft-float SDK; do not hide warnings or silently change ABI. MIPS GNU variants are independently verified. |
 | RISC-V32 musl | Static std build lacks an unwinder; the dynamic SDK build links but SIGSEGVs before the harness with both distro QEMU and pinned QEMU 10.0.13. Diagnose runtime/ABI startup or provide a working static runtime. RISC-V32 GNU passes. |
 | m68k GNU | LLVM instruction selection fails while compiling std, before project code runs. Static relocation / non-PIE retry hits the same failure; ineffective flags were removed. A working compiler/std build is required. |
@@ -68,3 +68,22 @@ without external tools. Current test counts come from each run, not the
 historical baseline above.
 Absent external corpora remain NOT_RUN. Emulation does not certify every
 physical CPU or older kernel/libc release.
+
+## Pentium GNU candidate (#214)
+
+The `i586` dispatch group isolates `i586-unknown-linux-gnu` from the other
+Linux candidates. `scripts/install-i586-gnu.py` downloads five SHA256-pinned
+Debian Jessie i386 development/runtime packages into runner scratch space.
+It relocates absolute library symlinks inside that sysroot without changing
+library bytes. Clang/LLD link the official Rust target against glibc 2.19;
+QEMU 10.0.13 executes it with `-cpu pentium`. The archived sysroot is a build
+and test input, not a host installation or a bundled CLI dependency.
+
+This addresses the earlier Ubuntu i386 runtime's unsupported CPU instructions.
+Local core tests (677, no filters), portable CLI tests (six), and independently
+validated target-produced PDF output pass with Rust 1.98.1. The candidate job
+repeats these checks using the installer, then packages the tested executable.
+Hosted success and subsequent required-matrix integration remain necessary
+before release support is claimed. A glibc 2.19 runtime test does not establish
+compatibility with every historical kernel. No global compiler downgrade or
+production converter change is required.
