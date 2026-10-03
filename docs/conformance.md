@@ -146,6 +146,26 @@ PDF page permutation, malformed bitmap extents, oracle identity mismatches,
 invalid inspection metadata, missing output and timeout/error classification.
 They are not substitutes for an external corpus run or CAJViewer comparison.
 
+### Unreleased native C8 checkpoint
+
+The raw six-page `issue-66` profile now has an explicit-font conversion path
+through CLI, Node and a real browser Worker. All six pages convert through the
+shared codecs and incremental writer; the resulting PDFs have matching hashes.
+All six page renders received page-level source comparison, and independent
+MuPDF tracing preserves the 6,638 decoded glyphs in source sequence. This is a
+separate conditional checkpoint, not a rerun or reclassification of the earlier
+font-free corpus baseline or an independent proof of every character mapping.
+
+Caller-supplied fonts change face, weight, bearings and punctuation spacing.
+Decoration contour multiplicity and zoom-dependent repetition are independently
+classified with original controls. No source-font fidelity or pixel equality is
+claimed. C8 bookmarks and additional native profiles remain unsupported; unknown
+required content fails explicitly. See the current status and original-control
+evidence in [C8 native records](c8-native-records.md), and the resource contracts
+in [CLI usage](cli.md#native-c8-font-resources) and [JavaScript usage](../js/README.md).
+External documents, fonts and rendered evidence are not distributed. #233 owns
+final acceptance; #222 owns packaged release/corpus and peak-memory acceptance.
+
 ### Known Python-reference differences
 
 These are accepted v0.1 differences, with full source hashes and measurements in

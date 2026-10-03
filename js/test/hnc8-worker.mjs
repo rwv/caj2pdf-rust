@@ -62,7 +62,33 @@ try {
     if (native.pagesConverted !== 1) throw new Error("native C8 page count mismatch");
     nativePdfs.push(pdf);
   }
-  result = { nativePdfs, fontMaxRead, type1Pages: type1.pagesConverted, type1Pdf, standardPages: standard.pagesConverted, standardPdf, pages: report.pagesConverted, pdf: parts, cleared: scratch.every((store) => store.size === 0n) };
+  const fontFailures = [];
+  for (const mode of ["missing-glyph", "read-error", "cancel"]) {
+    const input = syntheticNativeC8();
+    if (mode === "missing-glyph") new DataView(input.buffer).setUint16(110, 0xa0c2, true);
+    const controller = new AbortController();
+    const failure = new Error("caller Worker font read failed");
+    const failingFont = { size: font.size, async readAt(offset, length, signal) {
+      if (mode === "read-error") throw failure;
+      if (mode === "cancel") controller.abort();
+      return font.readAt(offset, length, signal);
+    } };
+    try {
+      await convert(module, blobSource(new Blob([input])), {
+        async writeChunk(bytes) { return bytes.length; }, async flush() {},
+      }, { includeBookmarks: false, chunkSize: 32, signal: controller.signal, hnc8: {
+        fonts: { cjk: failingFont, latin: failingFont, alternateLatin: failingFont }, scratch,
+      } });
+      throw new Error(`expected ${mode} to fail`);
+    } catch (error) {
+      if (mode === "missing-glyph" && error.code !== "HNC8") throw error;
+      if (mode === "read-error" && error !== failure) throw error;
+      if (mode === "cancel" && error.name !== "AbortError") throw error;
+      fontFailures.push(mode);
+    }
+    if (!scratch.every((store) => store.size === 0n)) throw new Error("font failure left scratch data");
+  }
+  result = { fontFailures, nativePdfs, fontMaxRead, type1Pages: type1.pagesConverted, type1Pdf, standardPages: standard.pagesConverted, standardPdf, pages: report.pagesConverted, pdf: parts, cleared: scratch.every((store) => store.size === 0n) };
 } catch (error) {
   result = { error: `${error.name}: ${error.message}` };
 } finally {
