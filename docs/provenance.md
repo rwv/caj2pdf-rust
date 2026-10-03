@@ -2602,3 +2602,10 @@ original fixture's index marker is corrected to declare its authored 20-byte
 rows; external regenerated fixtures are not imported. Original paired `114a`
 and `154a` title controls establish equal CJK geometry without vendor outlines
 or implementation code. Full issue-65 acceptance remains open.
+
+Original HN-B `801c/4`/axis-reset controls and regular-style flag pairs extend
+the existing geometric fixtures. They establish reset behavior and equivalent
+flags over the controlled size fields without deriving code from another
+converter. Original state-3 markers reveal a distinct Latin resource; that
+state is intentionally still unimplemented pending an explicit resource
+contract. Black viewer frames are excluded from all comparison evidence.

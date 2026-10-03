@@ -1255,3 +1255,51 @@ fn hnb_title_style_114a_matches_controlled_cjk_154a_geometry() {
     words[2][1] = 0xa0c1;
     assert!(convert(&words, 0, &[], roles(), 12).0.is_err());
 }
+
+#[test]
+fn hnb_state_and_axis_43_registration_preserve_verified_style_reset() {
+    let base = ordinary();
+    let mut expected = base.clone();
+    expected.push([0x8004, 1]);
+    let baseline = convert(&expected, 0, &[], roles(), 12).1;
+    for controls in [
+        vec![[0x801c, 4]],
+        vec![[0x8070, 43], [0x8071, 43], [0x8002, 0x1084]],
+        vec![[0x801c, 4], [0x8070, 43], [0x8071, 43], [0x8002, 0x1084]],
+    ] {
+        let mut words = base.clone();
+        words.splice(2..2, controls);
+        words.push([0x8004, 1]);
+        let (result, actual, finished) = convert(&words, 0, &[], roles(), 12);
+        assert!(result.is_ok(), "{result:?}");
+        assert!(finished);
+        assert_eq!(actual, baseline);
+    }
+    let mut words = base;
+    words.splice(2..2, [[0x8070, 43], [0x8071, 43]]);
+    words.push([0x8004, 1]);
+    let (result, _, finished) = convert(&words, 0, &[], roles(), 12);
+    assert!(result.is_err());
+    assert!(!finished);
+}
+
+#[test]
+fn hnb_regular_style_flags_preserve_controlled_resources_and_geometry() {
+    for (width, height) in (2..=8).map(|field| (field, field)).chain([(5, 4)]) {
+        for (code, mode) in [(0xd6d0, 12), (0xa0c1, 12), (0xaab3, 13)] {
+            let size = (width << 5) | height;
+            let mut words = [
+                [0x8001, 4350],
+                [0x8002, 0x0400 | size],
+                [4682, code],
+                [0x8004, 1],
+            ];
+            let (result, actual, finished) = convert(&words, 0, &[], roles(), mode);
+            assert!(result.is_ok() && finished);
+            words[1][1] = 0x1000 | size;
+            let (result, baseline, finished) = convert(&words, 0, &[], roles(), mode);
+            assert!(result.is_ok() && finished);
+            assert_eq!(actual, baseline);
+        }
+    }
+}

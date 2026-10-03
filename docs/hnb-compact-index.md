@@ -963,3 +963,42 @@ rendering or cleanup evidence for the unsupported-order branch.
 Local validation: strict Clippy, 34,595/34,595 Rust source lines (100% in every
 file), and 163 JavaScript tests with rebuilt WASM pass. The real issue-65
 conversion remains incomplete at byte 432 and publishes no final PDF.
+
+### HN-B state reset and regular style flags
+
+Six original paired CJK/Latin controls establish that `801c/4` preserves
+ordinary rendering and existing explicit-36 axes, while a following `8002`
+style record resets prior 43-by-43 axes. The writer now records these HN-B
+axis values and retains the existing style-reset behavior. Rendering a glyph
+with active 43 axes is still rejected until its geometry is verified.
+`state-axis-reset-comparison.json` stores hashes and repeated comparisons.
+
+Eight pairs cover size fields 2 through 8 plus a rectangular 5-by-4 case.
+With distinct original CJK/Latin/asterisk markers, HN-B flags `0400` and
+`1000` produce identical page crops. The writer normalizes only this verified
+flag family, with both size fields limited to 2..=8, and reuses existing size
+metrics. It does not admit untested title sizes or alter C8 flag admission.
+`normal-flags-comparison.json` and `normal-flags-retry-comparison.json` retain
+the evidence: the final baseline initially had a viewer-exit black frame,
+which was excluded and recaptured in a fresh process. The earlier two-case
+`small-style-comparison.json` is retained as the first observation.
+
+The real issue-65 document now reaches byte 1500 (`801d/3`). Four original
+resource controls distinguish states 0, 3 and 4, including 4 followed by 3.
+State 3 changes the Latin marker to the fourth original marker group while
+preserving the CJK marker; 4-then-3 matches 3. Consequently it must not be
+ignored or mapped to ordinary/alternate Latin without an explicit resource
+contract. `resource-three-comparison.json` records the repeated observations.
+This state remains unsupported in the writer.
+
+The bounded six-page inventory (`issue65-current-inventory.txt`) also locates
+remaining parser rules `8024/2815`, `8071/28`, implicit styles on pages 2/5,
+and active 43-by-43 axes on pages 3/4. Page 6 traverses its image records.
+These are pending semantics, not complete-document support. Local coverage
+for the admitted reset/style changes is 34,604/34,604 lines, also 100% per file.
+
+The rebuilt WASM passes all 163 JavaScript tests with zero skips; strict
+workspace Clippy passes. The complete regular-flag generator subsumes the
+initial two-case small-style probe, avoiding duplicate committed generators.
+The viewer's hard timeout was restarted only after container exit 124 was
+confirmed; no failed capture is promoted into rendering evidence.

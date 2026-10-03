@@ -181,6 +181,18 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
                 self.axes = [None; 2];
             }
             NativeRecord::Control {
+                tag: 0x801c,
+                value: 4,
+            } if self.variant == Variant::HnB => (),
+            NativeRecord::Control {
+                tag: 0x8070,
+                value: 43,
+            } if self.variant == Variant::HnB => self.axes[0] = Some(43),
+            NativeRecord::Control {
+                tag: 0x8071,
+                value: 43,
+            } if self.variant == Variant::HnB => self.axes[1] = Some(43),
+            NativeRecord::Control {
                 tag: 0x8070,
                 value: 36,
             } => self.axes[0] = Some(36),
@@ -250,6 +262,17 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
                 ..
             } if self.variant == Variant::HnB => (),
             NativeRecord::Glyph { x, y, style, code } => {
+                // Original CJK/Latin/symbol pairs establish these regular flags
+                // across fields 2..=8, including a rectangular held-out control.
+                let style = if self.variant == Variant::HnB
+                    && style & 0xfc00 == 0x0400
+                    && (2..=8).contains(&((style >> 5) & 31))
+                    && (2..=8).contains(&(style & 31))
+                {
+                    (style & 0x03ff) | 0x1000
+                } else {
+                    style
+                };
                 let character = decode_native_character(code)
                     .ok_or_else(|| invalid("unsupported C8 native character"))?;
                 if style == 0x114a && self.variant != Variant::HnB {
