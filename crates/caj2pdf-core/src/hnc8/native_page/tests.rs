@@ -122,7 +122,7 @@ fn convert(
     mode: u8,
 ) -> (Result<u32>, Vec<u8>, bool) {
     let mut input = fixture(words, declared);
-    if mode == 12 {
+    if matches!(mode, 12 | 13) {
         // Original compact HN-B wrapper around the same authored record stream.
         let c8 = &input.bytes;
         let mut bytes = vec![0; 228];
@@ -160,7 +160,7 @@ fn convert(
         }
         let mut document = PdfDocument::new(&mut sink, &limits, &cancel).await.unwrap();
         let mut font_bytes = crate::pdf::drawing_font();
-        if mode == 11 {
+        if matches!(mode, 11 | 13) {
             // Relabel an original glyph as the test's source symbol.
             // No source font outline or character shape is imported.
             let table = font_bytes[12..]
@@ -531,9 +531,9 @@ fn parentheses_preserve_independent_axes_and_active_resource() {
 }
 
 #[test]
-fn ideographic_space_and_comma_keep_distinct_resources_and_baselines() {
+fn ideographic_space_and_punctuation_keep_distinct_resources_and_baselines() {
     for (style, latin_down) in [(0x1067, 3.0), (0x10e3, 9.0), (0x1048, 1.0), (0x1102, 9.0)] {
-        for (code, unicode) in [(0xa1a1, 0x3000), (0xa1a2, 0x3001)] {
+        for (code, unicode) in [(0xa1a1, 0x3000), (0xa1a2, 0x3001), (0xa1a3, 0x3002)] {
             let words = [
                 [0x8001, 4394],
                 [0x8002, style],
@@ -542,7 +542,13 @@ fn ideographic_space_and_comma_keep_distinct_resources_and_baselines() {
                 [4902, code],
                 [0x8004, 1],
             ];
-            let (result, pdf, finished) = convert(&words, 0, &[], roles(), 11);
+            let (result, pdf, finished) = convert(
+                &words,
+                0,
+                &[],
+                roles(),
+                if code == 0xa1a3 { 13 } else { 11 },
+            );
             assert_eq!(result.unwrap(), 0);
             assert!(finished);
             let text = String::from_utf8_lossy(&pdf);

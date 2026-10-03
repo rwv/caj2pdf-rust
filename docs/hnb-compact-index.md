@@ -419,3 +419,30 @@ separate pending work. An external direct-page integration probe on issue-100
 reaches page 1 offset 1464, raw code `a1a3`, then fails explicitly on unverified
 glyph resource/placement. Unicode decoding alone did not prove this mapping.
 The unfinished external probe PDF is not a compatibility pass.
+
+## Ideographic punctuation checkpoint
+
+Original single-glyph controls compare `a1a3`, `a1b6`, `a1b7` with the existing
+`a1a2`, `a0a6` and opening-parenthesis rules under unequal styles `1067`/`10e3`
+and resource states 0/4. Original font markers distinguish resource selection.
+The HN-B ideographic full stop (`a1a3`, U+3002) matches `a1a2` geometry/resource
+in these contexts: CJK horizontal origin, active Latin resource and ordinary
+Latin baseline. The page writer reuses that branch only for HN-B. Existing
+short-I/O Unicode, font-role and matrix tests include the new code.
+
+The initial batch lost the viewer process and produced invalid black captures;
+these are excluded. A restarted viewer with one tab closed after each sample
+produced stable `valid-punct-*` captures. The first ordinary `1067` pair had a
+43-pixel residual; a separate recapture (`confirmed-punct-*`) and both repeats
+match exactly. No tolerance is used to hide this difference. The other three
+full-stop/comma contexts match exactly. A later C8-wrapper attempt again lost
+the viewer; those captures do not establish C8 support. The crash cause is not
+established and is not evidence that the source format is invalid.
+
+External inputs/comparisons are `punctuation-inputs.json`,
+`punctuation-comparison.json`, and `punctuation-confirmation.json` in
+`caj2pdf-hnb-rendering-20261003`; captures are in `native-geometry-viewer`.
+The generator reproduces original HN-B controls and the separate diagnostic
+C8 wrappers. The two book-title marks have distinct horizontal offsets while
+sharing the measured parenthesis vertical extent; their rendering remains
+unverified. Complete-document acceptance remains open.

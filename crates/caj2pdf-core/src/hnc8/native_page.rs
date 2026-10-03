@@ -268,6 +268,7 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
                     0xa3db | 0xa3dd => (C8GlyphClass::Cjk, self.roles.latin, None),
                     0xa1a1 => (C8GlyphClass::Cjk, self.roles.cjk, None),
                     0xa1a2 => (C8GlyphClass::Latin, latin, None),
+                    0xa1a3 if self.variant == Variant::HnB => (C8GlyphClass::Latin, latin, None),
                     _ if character.is_ascii_alphanumeric() => (C8GlyphClass::Latin, latin, None),
                     _ if ('\u{3400}'..='\u{9fff}').contains(&character) => {
                         (C8GlyphClass::Cjk, self.roles.cjk, None)
@@ -288,8 +289,8 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
                     transform[5] += transform[3] * fraction
                         - 15.0 * super::EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
                 }
-                if code == 0xa1a2 {
-                    // Ideographic comma shares the ordinary Latin baseline,
+                if matches!(code, 0xa1a2 | 0xa1a3) {
+                    // Verified ideographic punctuation shares the Latin baseline,
                     // but retains the CJK horizontal origin.
                     transform[4] -= transform[0] / 8.0;
                 }

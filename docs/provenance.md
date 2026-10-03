@@ -2503,3 +2503,9 @@ distinct generated font markers and a segment. The committed generator and
 short-I/O tests contain only authored records; external captures and source
 integration probes remain outside Git. Scope and remaining punctuation/image
 limitations are recorded in `hnb-compact-index.md`.
+
+HN-B U+3002 placement reuses the independently controlled ideographic-comma
+branch after original unequal-axis/resource-marker comparisons. The original
+MIT tests retain the distinct Unicode scalar. Failed/black viewer captures and
+the unverified C8 wrappers are explicitly excluded from admission evidence;
+see `hnb-compact-index.md`. No vendor code, outlines or document text is copied.

@@ -102,6 +102,12 @@ def resource_control(words):
     ))
 
 
+def punctuation_control(style, alternate, code, *, c8_container=False):
+    data = document([(style, alternate, 6)], codes=(code,), width=400, height=400,
+                    first_x=4772, first_y=4374)
+    return data if c8_container else hn_container(data)
+
+
 def geometry_control(width, height, dx=0, dy=0, *, c8_container=False):
     data = bytearray(document(
         [(0x1084, 0, 6)], codes=(0xD6D0,), width=width, height=height,
@@ -180,6 +186,19 @@ def main():
         (args.output / filename).write_bytes(data)
         manifest.append({"file": filename, "words": words,
                          "sha256": hashlib.sha256(data).hexdigest()})
+    for style in (0x1067, 0x10E3):
+        for alternate in (0, 4):
+            for code in (0xA1A3, 0xA1B6, 0xA1B7, 0xA0A6, 0xA1A2, 0xA3A8):
+                data = punctuation_control(style, alternate, code)
+                filename = f"punct-{style:04x}-{alternate}-{code:04x}.caj"
+                (args.output / filename).write_bytes(data)
+                manifest.append({"file": filename, "style": style, "alternate": alternate,
+                                 "code": code, "sha256": hashlib.sha256(data).hexdigest()})
+            data = punctuation_control(style, alternate, 0xA1A3, c8_container=True)
+            filename = f"punct-c8-{style:04x}-{alternate}.caj"
+            (args.output / filename).write_bytes(data)
+            manifest.append({"file": filename, "style": style, "alternate": alternate,
+                             "sha256": hashlib.sha256(data).hexdigest()})
     (args.output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
 
 
