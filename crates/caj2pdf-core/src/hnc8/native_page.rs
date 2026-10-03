@@ -351,6 +351,12 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
                 } else {
                     style
                 };
+                if self.variant == Variant::HnB
+                    && self.axes == [None; 2]
+                    && matches!(style, 0x1000 | 0x1001 | 0x1020)
+                {
+                    return Err(invalid("unverified HN-B mode-2 zero-field glyph style"));
+                }
                 let character = match (self.variant, code) {
                     (Variant::C8, 0x006c) => 'l',
                     _ => decode_native_character(code)

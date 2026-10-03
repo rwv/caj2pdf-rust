@@ -783,9 +783,12 @@ fn four_unit_axes_preserve_measured_em_and_latin_baseline() {
 }
 
 #[test]
-fn field_one_glyph_controls_preserve_independent_axes_and_latin_baseline() {
+fn small_field_glyph_controls_preserve_independent_axes_and_latin_baseline() {
     let page = empirical_page_from_pixels(200, 200, [0.0; 2]).unwrap();
     for (style, width, height, offset) in [
+        (0x1000, 21.0, 21.0, 11.0),
+        (0x1001, 21.0, 24.0, 10.0),
+        (0x1020, 24.0, 21.0, 11.0),
         (0x1021, 24.0, 24.0, 10.0),
         (0x1022, 24.0, 28.0, 9.0),
         (0x1041, 28.0, 24.0, 10.0),

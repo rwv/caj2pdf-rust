@@ -280,14 +280,18 @@ pub(super) fn native_glyph_transform(
             }
         };
         (width * 75.0 / 301.0, height * 75.0 / 301.0, baseline)
-    } else if matches!(style, 0x1021 | 0x1022 | 0x1041) {
-        // Independent field-1 and unequal-axis controls; decoration and
-        // other field-1 combinations remain outside this glyph evidence.
-        let width = if style == 0x1041 { 28.0 } else { 24.0 };
-        let (height, baseline) = if style == 0x1022 {
-            (28.0, 9.0)
-        } else {
-            (24.0, 10.0)
+    } else if matches!(style, 0x1000 | 0x1001 | 0x1020 | 0x1021 | 0x1022 | 0x1041) {
+        // Independent small-field/unequal-axis controls. Decoration and
+        // other flag/field combinations remain outside this glyph evidence.
+        let width = match (style >> 5) & 31 {
+            0 => 21.0,
+            1 => 24.0,
+            _ => 28.0,
+        };
+        let (height, baseline) = match style & 31 {
+            0 => (21.0, 11.0),
+            1 => (24.0, 10.0),
+            _ => (28.0, 9.0),
         };
         (width * 75.0 / 301.0, height * 75.0 / 301.0, baseline)
     } else if matches!(style, 0xe58c | 0x114a | 0x154a) && class == C8GlyphClass::Cjk {

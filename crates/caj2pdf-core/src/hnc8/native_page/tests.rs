@@ -2013,3 +2013,21 @@ fn c8_image_references_reuse_descriptor_order_and_legacy_geometry() {
         assert!(!finished);
     }
 }
+
+#[test]
+fn c8_zero_field_styles_render_required_digit_without_broadening_hnb() {
+    for style in [0x1000, 0x1001, 0x1020] {
+        for (code, unicode, mode) in [(0xa0c1, "0041", 0), (0xa3b1, "FF11", 11)] {
+            let words = [[0x8001, 4350], [0x8002, style], [4682, code], [0x8004, 1]];
+            let (result, pdf, finished) = convert(&words, 0, &[], roles(), mode);
+            result.unwrap();
+            assert!(finished);
+            assert!(String::from_utf8_lossy(&pdf).contains(&format!("<{unicode}> Tj")));
+            assert!(
+                convert(&words, 0, &[], roles(), if mode == 0 { 12 } else { 13 })
+                    .0
+                    .is_err()
+            );
+        }
+    }
+}

@@ -883,3 +883,30 @@ inputs now advance to page 2. The four-page document stops at byte 24624 on
 `810a/d300` (image reference); the five-page document stops at byte 22528 on raw
 `a1de`. Neither publishes a final PDF. Passing page-1 composition is not yet
 independent full-page fidelity or whole-document acceptance.
+
+
+### Zero-field glyph dimensions
+
+Original `field0_documents()` controls distinguish `1000`, `1001`, `1020`
+from `1021` using CJK, Latin and fullwidth-digit markers, with an explicit
+21-by-21 axis reference and an alternate-Latin control. All six generated
+inputs reproduce the external source controls byte for byte. Repeated viewer
+crops are stable; the `1000` crop equals the explicit-axis reference exactly.
+Independent width/height changes establish a zero field as 21 source units,
+with Latin baseline offset 11 for zero height. This is not a zero-sized glyph.
+
+The existing glyph transform admits only the verified small-field styles.
+HN-B mode-2 zero-field styles remain rejected without explicit axes; its
+separate mode-0 rules are unchanged. Decoration and unverified punctuation
+retain their existing guards. No new font discovery or buffering is introduced.
+
+Five production controls pass CLI conversion and qpdf, with extracted content
+`中A１` (layout whitespace ignored). The explicit-axis control is a source
+reference, not an additional production admission. Source measurements are
+in external `c8-field0-observations.json`; conversion receipts are in
+`c8-field0-output/checks.json` under the existing 20261003 evidence root.
+These checks do not establish whole-document visual fidelity.
+
+The four-page source now reaches page 2 byte 36100, an unsupported record;
+the five-page source still stops at page 2 byte 22528, glyph `a1de`.
+Neither publishes a final PDF. Full-document acceptance remains open.

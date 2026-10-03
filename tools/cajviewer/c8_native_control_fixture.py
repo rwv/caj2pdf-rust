@@ -434,6 +434,21 @@ def page_end_control_documents():
             yield f"end-control-{state}-{label}.caj", data
 
 
+def field0_documents():
+    """Discriminate zero-field dimensions from zero size and field-1 metrics."""
+    from c8_style_fixture import document as style_document
+
+    for label, style, words, state in (
+        ("field0", 0x1000, (), 0), ("field1", 0x1021, (), 0),
+        ("width0", 0x1001, (), 0), ("height0", 0x1020, (), 0),
+        ("axis21", 0x1021, (0x8070, 21, 0x8071, 21), 0),
+        ("alternate", 0x1000, (), 4),
+    ):
+        yield f"field0-{label}.caj", style_document(
+            [(style, state, 6)], codes=(), width=300, height=250, first_y=4334,
+            run_words=(*words, 4672, 0xD6D0, 4752, 0xA0C1, 4832, 0xA3B1))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("output", type=Path, help="new directory outside the repository")
@@ -455,7 +470,7 @@ def main():
                        *field1_documents(), *small_bracket_documents(),
                        *state3_documents(), *required_greek_documents(),
                        *radical_record_documents(), *radical_detail_documents(),
-                       *page_end_control_documents()):
+                       *page_end_control_documents(), *field0_documents()):
         (args.output / name).write_bytes(data)
         manifest.append({"file": name, "sha256": hashlib.sha256(data).hexdigest()})
     (args.output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
