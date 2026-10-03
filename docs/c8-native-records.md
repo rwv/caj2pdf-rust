@@ -3,8 +3,40 @@
 # Observed C8 native records
 
 Implementation tracking: #232 (parser), #233 (rendering), parent #229.
-This note records source observations, not an accepted rendering profile.
-The production converter must keep rejecting required unknown semantics.
+
+## Current implementation and acceptance status
+
+Draft #235 at `8a3bd4c` implements bounded native-page translation, real image
+codec composition and explicit ranged font resources through CLI, Node and a
+browser Worker. The pinned six-page source completes through all three public
+paths with identical PDF hashes. This establishes a conversion checkpoint;
+independent source-fidelity acceptance and final PR review remain open.
+Required unknown records and unavailable glyph resources still fail explicitly.
+
+The sections below are a chronological evidence log. Statements that a rule or
+adapter is unimplemented describe the checkpoint in that section, not the current
+code. Later controls supersede earlier hypotheses only within their tested scope.
+The final runtime checkpoints describe the current resource contract and tests.
+
+### Outstanding six-page comparison
+
+Fresh pinned offline viewer captures on 2026-10-02 identify an unresolved page-6
+decoration difference. At 100% viewer zoom and a 96-DPI PDF raster, a threshold
+of all RGB channels below 128 produces 96 separate horizontal dark runs in the
+source decoration and 45 in the PDF. These are pixel runs, not proven glyph
+counts. The PDF uses an explicitly substituted decoration font. Outline
+multiplicity/extent and repetition placement must be distinguished before
+attributing the difference to fonts or to the converter. Do not claim source
+fidelity from the matching runtime hashes or dismiss this difference as sampling.
+
+The page-6 viewer is bottom-aligned: its inspected interior is
+`(495,203,1154,1168)`, not the common page-1–5 crop. The corrected interior repeats
+identically. The previous fixed crop included a tail of the preceding page and
+must not be cited as full page-6 coverage. External captures and the quantified
+receipt `page6-decoration-review.json` remain in
+`caj2pdf-c8-six-page-review-20261002`; no source text, font or capture is committed.
+
+## Historical observations
 
 ## Six-page inventory
 
@@ -15,7 +47,7 @@ remaining bytes inside those spans after that record. The file still has
 1,449 bytes after the last indexed text span; they are the application-info
 block classified below.
 
-| Page | Text offset | Text bytes | Images | Drawing starts `8006` | Additional unresolved high words |
+| Page | Text offset | Text bytes | Images | Drawing starts `8006` | High words unresolved at initial inventory |
 | --- | ---: | ---: | ---: | ---: | --- |
 | 1 | 200 | 4,756 | 1 | 2 | `8072` |
 | 2 | 7,421 | 7,944 | 0 | 73 | `8072`, `8073`, `8074` |
