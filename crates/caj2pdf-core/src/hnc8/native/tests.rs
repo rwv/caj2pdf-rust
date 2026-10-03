@@ -1403,7 +1403,8 @@ fn hnb_does_not_inherit_unverified_c8_records_or_font_controls() {
         [0x80cc, 0x0102],
         [0x800a, 0xd301],
         [0x801d, 1],
-        [0x8067, 5],
+        [0x8067, 10],
+        [0x8074, 0xb7bc],
         [0xc052, 0xa384],
     ] {
         let mut source = hnb_source(
@@ -1520,6 +1521,9 @@ fn hnb_prefix_is_one_atomic_eight_byte_record() {
 #[test]
 fn hnb_run_controls_and_drawing_preserve_following_glyph_context() {
     let controls = [
+        [0x8074, 0xb7bd],
+        [0x8074, 0xcfc8],
+        [0x8067, 5],
         [0x801d, 3],
         [0x801d, 4],
         [0x8070, 0x001c],
@@ -1537,6 +1541,7 @@ fn hnb_run_controls_and_drawing_preserve_following_glyph_context() {
         [0x8073, 0x001f],
         [0x8073, 0x0029],
         [0x8073, 0x002a],
+        [0x8072, 0x1084],
         [0x8072, 0xc2c7],
         [0x8072, 0xcdc1],
         [0x8072, 0],

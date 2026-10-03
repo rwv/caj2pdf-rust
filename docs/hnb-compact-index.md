@@ -327,3 +327,21 @@ The generator reproduces all four controls; receipts are
 `context-{inputs,comparison}.json` in the preceding external directory.
 The pending implementation must model explicit axis controls and verified
 default/reset behavior before admitting these runs for rendering.
+
+### First-document rendering follow-up (#241)
+
+Original bare/following-y controls at confirmed 57% establish four-byte framing
+for `8074/b7bd`, `8074/cfc8`, `8067/5` and `8072/1084`. Bare controls match the
+baseline; an immediately following y record independently moves the first row.
+All captures repeat. The bounded visitor preserves these raw controls; no
+font, glyph or no-op semantics are inferred. Existing table tests cover both
+index widths, short reads, following glyph context and neighboring rejections.
+The original generator retains the controls. External receipts are in
+`caj2pdf-hnb-rendering-20261003`; no source content or fonts are committed.
+
+The unchanged issue-100 input now reaches the indexed ends of pages 2/3, where
+only the two-byte `8004` tag remains. Page 4 reaches `8073/0020` at byte 26308.
+These remain explicit failures pending original boundary controls; two-byte
+terminators must not be treated as established corruption. First-page traversal
+still succeeds, but no complete-document rendering is claimed. Rendering must
+also interpret the retained state through the shared pipeline, not discard it.
