@@ -613,3 +613,39 @@ fn independently_controlled_field7_variants_preserve_both_glyph_classes() {
         }
     }
 }
+
+#[test]
+fn large_cjk_control_uses_verified_em_and_existing_signed_origin() {
+    let actual = empirical_c8_glyph_transform(
+        page(),
+        [4652, 4274],
+        [4672, 4294],
+        0xe58c,
+        C8GlyphClass::Cjk,
+    )
+    .unwrap();
+    close(actual[0], 27.159468438538206);
+    close(actual[3], 27.159468438538206);
+    close(
+        actual[4],
+        page().origin_points[0] + 40.0 * EMPIRICAL_COORDINATE_POINTS_PER_UNIT,
+    );
+    let shifted = empirical_c8_glyph_transform(
+        page(),
+        [4672, 4294],
+        [4692, 4314],
+        0xe58c,
+        C8GlyphClass::Cjk,
+    )
+    .unwrap();
+    assert_eq!(actual, shifted);
+    assert!(
+        empirical_c8_glyph_transform(page(), [0, 0], [0, 0], 0xe58c, C8GlyphClass::Latin,).is_err()
+    );
+    for style in [0x118c, 0xe58b, 0xe56c] {
+        assert!(
+            empirical_c8_glyph_transform(page(), [0, 0], [0, 0], style, C8GlyphClass::Cjk,)
+                .is_err()
+        );
+    }
+}

@@ -2457,3 +2457,8 @@ captures and diagnostic PDFs remain outside Git.
 The additional `04e7`/`14e7` glyph-transform admission and regression are
 original MIT changes based on the generated field-7 equivalence controls.
 They reuse existing measured geometry without external implementation code.
+
+The exact `e58c` CJK glyph transform is original MIT code based on original
+small-page controls with held-out explicit sizes 108/109/110 and an independent
+PDF emitted through this repository's writer. No vendor/reference code was
+read or copied; external captures/fonts remain outside Git.

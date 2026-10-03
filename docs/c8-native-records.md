@@ -2064,3 +2064,14 @@ A count-only character-class inventory additionally confirms that all twelve
 `e58c` glyphs in issue-100 are Han. Its 38 explicit-36 glyphs consist of thirty
 ASCII alphanumerics and eight unresolved raw codes. This identifies which
 baseline/resource rules are required without extracting or committing text.
+
+The independent PDF control with size `109 * 75 / 301` points retains
+source top/right boundaries at 729%; its thresholded left/bottom edges differ
+by one pixel (source `(37,6,298,265)`, PDF `(36,6,298,266)` relative to the
+same frame). Both repeats are stable. Glyph color is intentionally different
+in this geometric experiment; no pixel-equality claim is made. Receipt:
+`large-anchor109-pdf-comparison.json`. The shared transform now admits exact
+style `e58c` for CJK placement using size 109 and the existing origin model.
+Latin placement, other field-12 styles and decoration states remain errors.
+This supplies the measured large-Han geometry needed by issue-100, not full
+HN-B rendering.

@@ -232,7 +232,9 @@ pub enum C8GlyphClass {
 ///
 /// Size fields 2 through 8 with observed high bits `0x0800`, `0x0c00` or
 /// `0x1000` share the measured glyph geometry. Independently controlled
-/// `0x04e7` and `0x14e7` also share field-7 geometry. The point-size
+/// `0x04e7` and `0x14e7` also share field-7 geometry. The observed `0xe58c`
+/// CJK form uses independently measured size 109; its Latin baseline is unknown.
+/// The point-size
 /// model is calibrated from original font controls, including held-out field 7;
 /// it is not an authoritative physical-unit definition. See the recorded
 /// geometry and rasterization limits in `docs/c8-native-records.md`.
@@ -249,12 +251,20 @@ pub fn empirical_c8_glyph_transform(
     class: C8GlyphClass,
 ) -> Result<[f64; 6]> {
     let [left, _, _, top] = page.media_box()?;
-    if !matches!(style & 0xfc00, 0x0800 | 0x0c00 | 0x1000) && !matches!(style, 0x04e7 | 0x14e7) {
-        return Err(Error::InvalidInput {
-            reason: "unverified C8 glyph style flags",
-        });
-    }
-    let (width, height, latin_offset) = c8_style_metrics((style & 0x03ff) | 0x1000)?;
+    let (width, height, latin_offset) = if style == 0xe58c && class == C8GlyphClass::Cjk {
+        // Original high-magnification controls distinguish explicit 109 from
+        // 108/110. Latin baseline and other field-12 flags remain unverified.
+        let em = 109.0 * 75.0 / 301.0;
+        (em, em, 0.0)
+    } else {
+        if !matches!(style & 0xfc00, 0x0800 | 0x0c00 | 0x1000) && !matches!(style, 0x04e7 | 0x14e7)
+        {
+            return Err(Error::InvalidInput {
+                reason: "unverified C8 glyph style flags",
+            });
+        }
+        c8_style_metrics((style & 0x03ff) | 0x1000)?
+    };
     let unit = EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
     let mut x = left + (f64::from(position[0]) - f64::from(source_origin[0]) + 20.0) * unit;
     let mut y = top - (f64::from(position[1]) - f64::from(source_origin[1]) - 15.0) * unit - height;
