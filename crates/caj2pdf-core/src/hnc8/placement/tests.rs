@@ -663,14 +663,18 @@ fn a385_line_marker_preserves_independently_checked_endpoints() {
         let expected = empirical_c8_segment(page(), [4652, 4274], points, 0xa381).unwrap();
         let mut marked = points;
         marked[0][0] |= 0xc000;
-        assert_eq!(
-            empirical_c8_segment(page(), [4652, 4274], points, 0xa385).unwrap(),
-            expected
-        );
-        assert_eq!(
-            empirical_c8_segment(page(), [4652, 4274], marked, 0xa385).unwrap(),
-            expected
-        );
+        // x87 targets may retain different intermediate precision. Use the
+        // existing point tolerance, as for the other geometry controls.
+        for input in [points, marked] {
+            let actual = empirical_c8_segment(page(), [4652, 4274], input, 0xa385).unwrap();
+            for (actual, expected) in actual
+                .into_iter()
+                .flatten()
+                .zip(expected.into_iter().flatten())
+            {
+                close(actual, expected);
+            }
+        }
         assert_ne!(
             empirical_c8_segment(page(), [4652, 4274], marked, 0xa381).unwrap(),
             expected
