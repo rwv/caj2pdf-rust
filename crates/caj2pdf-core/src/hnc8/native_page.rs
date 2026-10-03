@@ -579,9 +579,10 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
             }
             NativeRecord::Drawing {
                 tag: 0x8090,
-                style: 0xa3b2 | 0xa3e6,
+                style: _,
                 points: [[raw_x, y], [raw_width, height]],
             } => {
+                // The radical value word is opaque and does not change painting state.
                 let flags = raw_x & 0xc000;
                 let width = raw_width & 0x3fff;
                 if !matches!(flags, 0 | 0xc000)

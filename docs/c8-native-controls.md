@@ -960,3 +960,30 @@ marker fonts. External receipts under the existing 20261003 root are
 39708 (`8090/a3b1`); the five-page input remains at page 2 byte 22528 (`a1de`).
 Neither publishes a final PDF. These controls do not establish complete-document
 fidelity or support for all low-byte characters.
+
+
+### Radical value word is opaque
+
+Broader original controls supersede the earlier per-value radical admission.
+`radical_value_documents()` varies the word after `8090` across zero, one,
+three observed values, an ordinary letter value, an end-marker-like value and
+`ffff`. All eight drawing-only controls and all eight alternate-font controls
+with following CJK/Latin/digit glyphs repeat identically. Every page crop in
+each group equals its `a3e6` reference. This supports interpreting the word as
+opaque rather than a glyph, drawing subtype or state update.
+
+The parser still preserves the raw word in `Drawing.style`, consumes exactly
+12 bytes within the indexed span and preserves following glyph context. The
+renderer ignores this word for tag `8090` and reuses the existing path. Flag,
+coordinate, minimum dimension, axis and skew guards remain. Other drawing tags
+retain their own value validation; unknown neighboring tags are rejected.
+HN-B admission is unchanged. This replaces the earlier restriction to `a3e6`
+and `a3b2`, without adding another abstraction or allocation.
+
+All 16 controls reproduce, pass CLI/qpdf, and produce byte-identical PDFs within
+each group. External receipts under the existing root:
+`c8-radical-values-observations.json`, `c8-radical-context-observations.json`,
+`input/c8-radical-{values,context}/manifest.json`, and
+`c8-radical-word-output/checks.json`. The four-page source now reaches page 2
+byte 43008; the five-page source remains at page 2 byte 22528. Neither publishes
+a final PDF. Full-document acceptance remains outstanding.

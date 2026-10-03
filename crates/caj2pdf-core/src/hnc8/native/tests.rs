@@ -2089,10 +2089,9 @@ fn c8_control_9002_requires_its_complete_value_word() {
 
 #[test]
 fn c8_radical_is_atomic_and_preserves_following_glyph_context() {
-    for (short, style) in [1, 3, 7, 28]
-        .into_iter()
-        .flat_map(|short| [0xa3b2, 0xa3e6].map(|style| (short, style)))
-    {
+    for (short, style) in [1, 3, 7, 28].into_iter().flat_map(|short| {
+        [0, 1, 0xa3b1, 0xa3b2, 0xa3e6, 0xa0c1, 0x8004, 0xffff].map(|style| (short, style))
+    }) {
         for points in [
             [[0xd2c6, 4364], [0xc08f, 125]],
             [[4806, 4364], [143, 125]],
@@ -2146,8 +2145,8 @@ fn c8_radical_is_atomic_and_preserves_following_glyph_context() {
             assert!(source.max_request <= 28);
         }
     }
-    for value in [0xa3b1, 0xa3b3, 0xa3e5, 0xa3e7] {
-        let mut source = fixture(&[[0x8090, value], [1, 2], [3, 4]], 0);
+    for (tag, value) in [(0x808f, 0xa3e6), (0x8091, 0xa3e6), (0x8006, 0), (0x8010, 2)] {
+        let mut source = fixture(&[[tag, value], [1, 2], [3, 4]], 0);
         let mut visitor = Visitor::default();
         assert!(parse(&mut source, TextBudget::default(), &mut visitor).is_err());
         assert!(visitor.events.is_empty());
