@@ -175,6 +175,7 @@ pub(super) async fn read<S: RangedSource, C: Cancellation>(
     let digest = hash.finalize().into();
     Ok(TextCoordinates {
         text: page.text,
+        page_size: None,
         zlib_frame: None,
         decoded_length: bytes as u32,
         record_count,

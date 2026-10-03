@@ -12,16 +12,17 @@ import struct
 from PIL import Image
 
 
-def jpeg():
-    image = Image.new("RGB", (32, 24), "white")
-    for y in range(24):
-        for x in range(32):
+def jpeg(scale=1):
+    image = Image.new("RGB", (32 * scale, 24 * scale), "white")
+    for y in range(24 * scale):
+        for x in range(32 * scale):
+            u, v = x // scale, y // scale
             color = (255, 255, 255)
-            if x < 3 or y < 3:
+            if u < 3 or v < 3:
                 color = (0, 0, 0)
-            elif x > 24 and y > 15:
+            elif u > 24 and v > 15:
                 color = (255, 0, 0)
-            elif x < 12 and y > 10:
+            elif u < 12 and v > 10:
                 color = (0, 0, 255)
             image.putpixel((x, y), color)
     output = io.BytesIO()

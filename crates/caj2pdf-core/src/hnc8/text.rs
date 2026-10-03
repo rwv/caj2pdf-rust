@@ -67,6 +67,9 @@ pub struct RawTextCoordinate {
 #[derive(Debug, Eq, PartialEq)]
 pub struct TextCoordinates {
     pub text: Span,
+    /// Per-page HN-A dimensions from the validated paired `8003` prefix.
+    /// None for other framing; zero values remain inspectable but cannot render.
+    pub page_size: Option<[u16; 2]>,
     /// None for uncompressed records.
     pub zlib_frame: Option<Span>,
     /// Expanded length, or the full indexed raw span including its opaque tail.
@@ -158,6 +161,7 @@ pub(super) async fn read_coordinates<S: RangedSource, C: Cancellation>(
     // The same paired page-prefix records also precede uncompressed HN-A
     // records. Decide only at the indexed start, never by marker searching.
     let mut prefixed_raw = false;
+    let mut page_size = None;
     if header.variant == Variant::HnA && tag == 0x8003 {
         let mut following = [0; 16];
         read_chunks(
@@ -170,13 +174,21 @@ pub(super) async fn read_coordinates<S: RangedSource, C: Cancellation>(
             &mut 0,
         )
         .await?;
+        if following[..2] == [0x03, 0x80] {
+            page_size = Some([
+                u16::from_le_bytes([prefix[2], prefix[3]]),
+                u16::from_le_bytes([following[2], following[3]]),
+            ]);
+        }
         prefixed_raw = following[..2] == [0x03, 0x80]
             && matches!(
                 u16::from_le_bytes([following[4], following[5]]),
                 0x800a | 0x801c
             );
     }
-    if header.variant == Variant::HnA && (prefixed_raw || matches!(tag, 0x8001 | 0x800a | 0x8004)) {
+    let mut result = if header.variant == Variant::HnA
+        && (prefixed_raw || matches!(tag, 0x8001 | 0x800a | 0x8004))
+    {
         raw::read(
             source,
             page,
@@ -198,17 +210,10 @@ pub(super) async fn read_coordinates<S: RangedSource, C: Cancellation>(
         )
         .await
     } else {
-        read_compressed_text(
-            source,
-            header,
-            page,
-            limits,
-            cancellation,
-            budget,
-            exact_images,
-        )
-        .await
-    }
+        read_compressed_text(source, header, page, limits, cancellation, budget, purpose).await
+    }?;
+    result.page_size = page_size;
+    Ok(result)
 }
 
 fn location(header: Header, page: PageRecord) -> Location {
@@ -379,6 +384,8 @@ struct Accumulator {
     coordinates: Vec<RawTextCoordinate>,
     loc: Location,
     records: Option<records::Records>,
+    image_marker: [u8; 4],
+    decode_hna_markers: bool,
 }
 
 impl Accumulator {
@@ -401,18 +408,25 @@ impl Accumulator {
                         .loc
                         .malformed("decoded text marker", "differs from observed record marker"));
                 }
-            } else if at >= u64::from(self.tail_start) {
-                let relative = at - u64::from(self.tail_start);
+            } else if at >= u64::from(self.tail_start - 4) {
+                // Each fixed-layout image coordinate follows its four-byte
+                // record marker. Retain only that marker across chunk boundaries.
+                let relative = at - u64::from(self.tail_start - 4);
                 let within = relative % 28;
-                if within < 8 {
+                if within < 4 {
+                    self.image_marker[within as usize] = byte;
+                } else if within < 12 {
                     let coordinate = &mut self.coordinates[(relative / 28) as usize];
-                    let word = match within / 2 {
+                    let word = match (within - 4) / 2 {
                         0 => &mut coordinate.x,
                         1 => &mut coordinate.y,
                         2 => &mut coordinate.width,
                         _ => &mut coordinate.height,
                     };
                     *word |= u16::from(byte) << ((within % 2) * 8);
+                    if within == 11 && self.decode_hna_markers {
+                        records::decode_image_markers(self.image_marker, coordinate);
+                    }
                 }
             }
         }
@@ -427,8 +441,9 @@ async fn read_compressed_text<S: RangedSource, C: Cancellation>(
     limits: &Limits,
     cancellation: &C,
     budget: TextBudget,
-    exact_images: bool,
+    purpose: ReadPurpose,
 ) -> Result<TextCoordinates> {
+    let exact_images = purpose == ReadPurpose::Inspect;
     let loc = location(header, page);
 
     let mut max_source_request_bytes = 0;
@@ -532,6 +547,8 @@ async fn read_compressed_text<S: RangedSource, C: Cancellation>(
         tail_start: decoded_bytes.saturating_sub(tail_bytes) as u32,
         coordinates,
         loc: loc.at(zlib_frame.offset),
+        image_marker: [0; 4],
+        decode_hna_markers: header.variant == Variant::HnA && purpose == ReadPurpose::Compose,
         records: (header_bytes == 16)
             .then(|| records::Records::new(budget.max_records, exact_images)),
     };
@@ -623,6 +640,7 @@ async fn read_compressed_text<S: RangedSource, C: Cancellation>(
     };
     Ok(TextCoordinates {
         text: page.text,
+        page_size: None,
         zlib_frame: Some(zlib_frame),
         decoded_length,
         record_count,
