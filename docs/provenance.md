@@ -2823,3 +2823,11 @@ width/height, style and position. A five-vertex candidate is derived from these
 observations and independently rendered, retaining measured edge residuals and
 excluding the clipped wide endpoint. This step adds no runtime admission;
 external images/PDFs remain outside Git.
+
+### Radical bounded framing
+
+Original synthetic parser cases establish the admitted 12-byte radical framing,
+short reads, every truncated length, raw payload preservation and the following
+glyph context. The parser reuses the existing Drawing event and bounded reader;
+no source document data or external implementation is copied. Rendering remains
+explicitly unsupported pending the separate measured path implementation.

@@ -296,6 +296,7 @@ fn never_reads_past_indexed_span_for_any_truncated_record() {
         vec![[0x8006, 0xa383], [1, 2], [3, 4]],
         vec![[0x8006, 0xa385], [1, 2], [3, 4]],
         vec![[0x8010, 1], [1, 2], [3, 4]],
+        vec![[0x8090, 0xa3e6], [0xd2c6, 4364], [0xc08f, 125]],
         vec![[0xc053, 0xffff]],
         vec![[0x8073, 0x8004]],
         vec![
@@ -2078,6 +2079,70 @@ fn c8_control_9002_requires_its_complete_value_word() {
         source.bytes[96..100].copy_from_slice(&(100 + length).to_le_bytes());
         source.bytes.truncate(100 + length as usize);
         source.short = 1;
+        let mut visitor = Visitor::default();
+        assert!(parse(&mut source, TextBudget::default(), &mut visitor).is_err());
+        assert!(visitor.events.is_empty());
+    }
+}
+
+#[test]
+fn c8_radical_is_atomic_and_preserves_following_glyph_context() {
+    for short in [1, 3, 7, 28] {
+        for points in [
+            [[0xd2c6, 4364], [0xc08f, 125]],
+            [[4806, 4364], [143, 125]],
+            [[0x8004, 17], [23, 0x8001]],
+        ] {
+            let mut source = fixture(
+                &[
+                    [0x8001, 47],
+                    [0x8002, 0x1021],
+                    [0x8090, 0xa3e6],
+                    points[0],
+                    points[1],
+                    [31, 0xd6d0],
+                    [0x8004, 1],
+                ],
+                0,
+            );
+            source.short = short;
+            let mut visitor = Visitor::default();
+            assert_eq!(
+                parse(&mut source, TextBudget::default(), &mut visitor).unwrap(),
+                5
+            );
+            assert_eq!(
+                visitor.events[2],
+                (
+                    108,
+                    NativeRecord::Drawing {
+                        tag: 0x8090,
+                        style: 0xa3e6,
+                        points,
+                    }
+                )
+            );
+            assert_eq!(
+                visitor.events[3],
+                (
+                    120,
+                    NativeRecord::Glyph {
+                        x: 31,
+                        y: 47,
+                        style: 0x1021,
+                        code: 0xd6d0,
+                    }
+                )
+            );
+            assert_eq!(
+                visitor.events[4],
+                (124, NativeRecord::End { value: Some(1) })
+            );
+            assert!(source.max_request <= 28);
+        }
+    }
+    for value in [0xa3e5, 0xa3e7] {
+        let mut source = fixture(&[[0x8090, value], [1, 2], [3, 4]], 0);
         let mut visitor = Visitor::default();
         assert!(parse(&mut source, TextBudget::default(), &mut visitor).is_err());
         assert!(visitor.events.is_empty());

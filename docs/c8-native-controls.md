@@ -803,3 +803,18 @@ should reuse bounded `Drawing` framing, add explicit truncation/flag/dimension
 checks and a small continuous-path writer, then compare its actual PDF output
 against these controls and retry the complete document. Separate segments may
 change joins; do not substitute them without checking the resulting geometry.
+
+### Radical record framing admitted; rendering pending
+
+The C8 native parser now exposes exact `8090/a3e6` records through the existing
+`NativeRecord::Drawing` as an atomic 12-byte record. It preserves raw coordinates,
+flags and extents; interpretation and dimension validation belong to the pending
+composer implementation. It does not mask flags or silently render malformed
+geometry. The existing HN-B profile allowlist continues to reject this tag.
+
+Original parser regressions exercise 1/3/7/28-byte source completions, tagged and
+untagged payloads, payload words resembling end/y controls, event offsets and
+following glyph context. Every truncation length from 1 through 11 is rejected
+within the indexed page span; adjacent record values remain unsupported. No
+new event type, allocation strategy or output behavior is introduced. The page
+composer still rejects the drawing, so full-document acceptance remains open.
