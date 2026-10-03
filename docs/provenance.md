@@ -2847,3 +2847,13 @@ and distinguish it from an inserted page end. Indexed span arithmetic resolves
 the real-document end boundary; no external metadata strings are copied or
 opened. Existing bounded control parsing and strict page-end validation are
 reused with original short-read/truncation/boundary regressions.
+
+### C8 image-reference composition
+
+The composer reuses prior original asymmetric-JPEG, coordinate and swapped-name
+controls from `c8_image_reference_fixture.py`. Historical generated inputs are
+reproduced byte for byte before conversion; independent viewer evidence already
+establishes descriptor ordering and geometry. Both native image forms share one
+placement helper. Opaque reference bytes never trigger external file access.
+Original interleaved-text, orientation and invalid-geometry tests supplement the
+existing bounded parser tests; no foreign decoder or document data is copied.

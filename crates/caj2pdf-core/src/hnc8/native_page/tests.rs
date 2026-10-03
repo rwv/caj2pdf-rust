@@ -1974,3 +1974,42 @@ fn c8_radical_outputs_one_joined_path_and_rejects_unverified_geometry() {
         assert!(!finished);
     }
 }
+
+#[test]
+fn c8_image_references_reuse_descriptor_order_and_legacy_geometry() {
+    let reference = |name| vec![[0x810a, 0xd300], [4682, 4314], [80, 50], [0, 1], [name, 0]];
+    for orientation in [[false, true], [true, false]] {
+        let mut old = ordinary();
+        old.extend(image());
+        old.extend(ordinary());
+        old.extend(image());
+        old.push([0x8004, 1]);
+        let (result, expected, finished) = convert(&old, 2, &orientation, roles(), 0);
+        result.unwrap();
+        assert!(finished);
+        for names in [*b"ab", *b"ba"] {
+            let mut words = ordinary();
+            words.extend(reference(u16::from(names[0])));
+            words.extend(ordinary());
+            words.extend(reference(u16::from(names[1])));
+            words.push([0x8004, 1]);
+            let (result, pdf, finished) = convert(&words, 2, &orientation, roles(), 0);
+            result.unwrap();
+            assert!(finished);
+            assert_eq!(pdf, expected);
+            assert!(convert(&words, 2, &orientation, roles(), 12).0.is_err());
+        }
+    }
+    for case in 0..3 {
+        let mut words = reference(u16::from(b'a'));
+        match case {
+            0 => words[2][0] = 0,
+            1 => words[2][1] = 0,
+            _ => words.insert(0, [0x8024, 0x281c]),
+        }
+        words.push([0x8004, 1]);
+        let (result, _, finished) = convert(&words, 1, &[false], roles(), 0);
+        assert!(result.is_err());
+        assert!(!finished);
+    }
+}

@@ -563,7 +563,11 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
                     .glyph_with_gray(font, character, transform, self.gray)
                     .await?;
             }
-            NativeRecord::Drawing { .. } | NativeRecord::Image { .. } if self.skew != 0.0 => {
+            NativeRecord::Drawing { .. }
+            | NativeRecord::Image { .. }
+            | NativeRecord::ImageReference { .. }
+                if self.skew != 0.0 =>
+            {
                 return Err(invalid("unverified drawing or image in skewed text state"));
             }
             NativeRecord::Drawing {
@@ -648,19 +652,12 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
                 if words[5..].iter().any(|word| word & 0xff00 != 0xc000) {
                     return Err(invalid("unverified C8 native image payload"));
                 }
-                let unit = super::EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
-                let x = (f64::from(coordinate.x) - f64::from(self.origin[0])) * unit;
-                let y = self.geometry.size.height_points
-                    - (f64::from(coordinate.y) - f64::from(self.origin[1])) * unit;
-                let width = f64::from(coordinate.width) * unit;
-                let height = f64::from(coordinate.height) * unit;
-                let mut transform = [width, 0.0, 0.0, -height, x, y];
-                if self.top_first[self.image] {
-                    transform[3] = height;
-                    transform[5] -= height;
-                }
-                self.page.image(self.image, transform).await?;
-                self.image += 1;
+                self.draw_image(coordinate).await?;
+            }
+            NativeRecord::ImageReference { coordinate, .. } if self.variant == Variant::C8 => {
+                // Independent swapped-name controls establish descriptor order.
+                // The bounded reference span remains opaque; never open it.
+                self.draw_image(coordinate).await?;
             }
             NativeRecord::Control {
                 tag: 0xffff,
@@ -674,6 +671,26 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
 }
 
 impl<W: SequentialSink, C: Cancellation> PageWriter<'_, '_, '_, '_, W, C> {
+    async fn draw_image(&mut self, coordinate: super::RawTextCoordinate) -> crate::Result<()> {
+        if coordinate.width == 0 || coordinate.height == 0 {
+            return Err(invalid("native image extents must be nonzero"));
+        }
+        let unit = super::EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
+        let x = (f64::from(coordinate.x) - f64::from(self.origin[0])) * unit;
+        let y = self.geometry.size.height_points
+            - (f64::from(coordinate.y) - f64::from(self.origin[1])) * unit;
+        let width = f64::from(coordinate.width) * unit;
+        let height = f64::from(coordinate.height) * unit;
+        let mut transform = [width, 0.0, 0.0, -height, x, y];
+        if self.top_first[self.image] {
+            transform[3] = height;
+            transform[5] -= height;
+        }
+        self.page.image(self.image, transform).await?;
+        self.image += 1;
+        Ok(())
+    }
+
     async fn visit_mode_zero(&mut self, record: NativeRecord) -> crate::Result<()> {
         match record {
             NativeRecord::Control { tag: 0x8001, .. }
