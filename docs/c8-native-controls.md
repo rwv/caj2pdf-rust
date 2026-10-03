@@ -740,7 +740,7 @@ Both remain located failures without a published final PDF.
 ## Investigating `8090/a3e6` radical drawing (not admitted)
 
 Six original `radical_record_documents()` controls establish that the observed
-candidate 12-byte record paints a radical shape, not a ignorable state change.
+candidate 12-byte record paints a radical shape, not an ignorable state change.
 At fixed coordinates, changing the last word 125 to 60 reduces its vertical
 extent while preserving horizontal extent; changing the preceding low value
 143 to 64 reduces horizontal extent while preserving vertical extent. Moving
@@ -765,3 +765,41 @@ root. Crop (648,505)-(1024,819), viewer fit 486%. The first `record8090-initial`
 capture shows the startup document and is excluded; `record8090-confirmed`
 shows the correct input. The viewer was restarted after confirmed exit 124.
 No production behavior or complete-document support changes in this step.
+
+### Radical detail controls and candidate path
+
+Six original `radical_detail_documents()` controls isolate style, horizontal
+extent, vertical extent and an independent translated holdout (width 190,
+height 90, style `1084`, state 4). Every capture repeats identically. Styles
+`1021` and `10a5` render identical full crops. The horizontal bar has four dark
+rows at 729% in these controls, independent of the tested dimensions. The wide
+250-unit control is clipped at the page edge; exclude its endpoint from fitting.
+
+The candidate source-space path uses anchor `(x,y)` relative to the source
+origin and dimensions `(w,h)`:
+
+```text
+(x-45, y+h-25)
+(x-25, y+h-45)
+(x+10, y+h)
+(x+30, y)
+(x+w+20, y)
+```
+
+Use the existing coordinate factor and a candidate stroke width of four source
+units, with a continuous joined path. An independently generated PDF using
+this model has edge residuals (-1,2,1,1) for base/style/tall, (-1,2,2,2) for
+small, and (-1,1,2,1) for the held-out case, in left/top/right/bottom order.
+Maximum dark-source-pixel distance to the model centerline is 3.24–3.75 pixels
+(including stroke thickness). This is a candidate with retained residuals,
+not a pixel-equality result or proof of universal radical semantics.
+
+External receipts: `input/c8-radical-detail/manifest.json`,
+`c8-radical-detail-observations.json`, `c8-radical-candidate-checks.json`,
+`radical-candidate-*.pdf`, and `identified-family-viewer/radical-detail-*-{a,b}.png`.
+Crop (648,474)-(1024,850), fit 729%. The generator reproduces all six source
+inputs byte for byte. Production still rejects the record. Next implementation
+should reuse bounded `Drawing` framing, add explicit truncation/flag/dimension
+checks and a small continuous-path writer, then compare its actual PDF output
+against these controls and retry the complete document. Separate segments may
+change joins; do not substitute them without checking the resulting geometry.

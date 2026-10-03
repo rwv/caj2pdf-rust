@@ -2815,3 +2815,11 @@ horizontal/vertical extents and high coordinate bits, using authored coordinates
 and existing original marker fonts. They establish visible radical output but
 not yet its exact vector path or complete framing. External captures remain
 outside Git; the parser still rejects the record explicitly.
+
+### Radical detail and held-out geometry
+
+Six further original controls isolate fixed hook geometry from variable radical
+width/height, style and position. A five-vertex candidate is derived from these
+observations and independently rendered, retaining measured edge residuals and
+excluding the clipped wide endpoint. This step adds no runtime admission;
+external images/PDFs remain outside Git.

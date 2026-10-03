@@ -396,6 +396,24 @@ def radical_record_documents():
                        4672, 0xD6D0, 4922, 0xA0C1))
 
 
+def radical_detail_documents():
+    """Separate radical hook geometry from dimensions, style and translation."""
+    from c8_style_fixture import document as style_document
+
+    for label, style, width, height, x, y, state in (
+        ("base", 0x1021, 143, 125, 4802, 4354, 3),
+        ("style5", 0x10A5, 143, 125, 4802, 4354, 3),
+        ("wide", 0x1021, 250, 125, 4802, 4354, 3),
+        ("tall", 0x1021, 143, 200, 4802, 4354, 3),
+        ("small", 0x1021, 64, 60, 4802, 4354, 3),
+        ("holdout", 0x1084, 190, 90, 4782, 4374, 4),
+    ):
+        yield f"radical-detail-{label}.caj", style_document(
+            [(style, state, 6)], codes=(), width=400, height=400,
+            first_y=4334,
+            run_words=(0x8090, 0xA3E6, 0xC000 | x, y, 0xC000 | width, height))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("output", type=Path, help="new directory outside the repository")
@@ -416,7 +434,7 @@ def main():
                        *skew_281c_documents(), *low_letter_documents(),
                        *field1_documents(), *small_bracket_documents(),
                        *state3_documents(), *required_greek_documents(),
-                       *radical_record_documents()):
+                       *radical_record_documents(), *radical_detail_documents()):
         (args.output / name).write_bytes(data)
         manifest.append({"file": name, "sha256": hashlib.sha256(data).hexdigest()})
     (args.output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
