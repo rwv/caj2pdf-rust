@@ -297,6 +297,7 @@ fn never_reads_past_indexed_span_for_any_truncated_record() {
         vec![[0x8006, 0xa385], [1, 2], [3, 4]],
         vec![[0x8010, 1], [1, 2], [3, 4]],
         vec![[0x8090, 0xa3e6], [0xd2c6, 4364], [0xc08f, 125]],
+        vec![[0x8090, 0xa3b2], [0xd2c6, 4364], [0xc08f, 125]],
         vec![[0xc053, 0xffff]],
         vec![[0x8073, 0x8004]],
         vec![
@@ -2088,7 +2089,10 @@ fn c8_control_9002_requires_its_complete_value_word() {
 
 #[test]
 fn c8_radical_is_atomic_and_preserves_following_glyph_context() {
-    for short in [1, 3, 7, 28] {
+    for (short, style) in [1, 3, 7, 28]
+        .into_iter()
+        .flat_map(|short| [0xa3b2, 0xa3e6].map(|style| (short, style)))
+    {
         for points in [
             [[0xd2c6, 4364], [0xc08f, 125]],
             [[4806, 4364], [143, 125]],
@@ -2098,7 +2102,7 @@ fn c8_radical_is_atomic_and_preserves_following_glyph_context() {
                 &[
                     [0x8001, 47],
                     [0x8002, 0x1021],
-                    [0x8090, 0xa3e6],
+                    [0x8090, style],
                     points[0],
                     points[1],
                     [31, 0xd6d0],
@@ -2118,7 +2122,7 @@ fn c8_radical_is_atomic_and_preserves_following_glyph_context() {
                     108,
                     NativeRecord::Drawing {
                         tag: 0x8090,
-                        style: 0xa3e6,
+                        style,
                         points,
                     }
                 )
@@ -2142,7 +2146,7 @@ fn c8_radical_is_atomic_and_preserves_following_glyph_context() {
             assert!(source.max_request <= 28);
         }
     }
-    for value in [0xa3e5, 0xa3e7] {
+    for value in [0xa3b1, 0xa3b3, 0xa3e5, 0xa3e7] {
         let mut source = fixture(&[[0x8090, value], [1, 2], [3, 4]], 0);
         let mut visitor = Visitor::default();
         assert!(parse(&mut source, TextBudget::default(), &mut visitor).is_err());

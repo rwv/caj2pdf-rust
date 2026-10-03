@@ -578,7 +578,7 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
             }
             NativeRecord::Drawing {
                 tag: 0x8090,
-                style: 0xa3e6,
+                style: 0xa3b2 | 0xa3e6,
                 points: [[raw_x, y], [raw_width, height]],
             } => {
                 let flags = raw_x & 0xc000;

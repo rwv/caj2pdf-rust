@@ -434,6 +434,24 @@ def page_end_control_documents():
             yield f"end-control-{state}-{label}.caj", data
 
 
+def radical_alias_documents():
+    """Compare the observed A3B2 drawing with the verified A3E6 radical."""
+    from c8_style_fixture import document as style_document
+
+    for label, x, y, width, height in (
+        ("base", 4802, 4354, 143, 125),
+        ("wide", 4802, 4354, 190, 125),
+        ("tall", 4802, 4354, 143, 200),
+        ("moved", 4842, 4394, 143, 125),
+    ):
+        for value in (0xA3B2, 0xA3E6):
+            yield f"radical-alias-{label}-{value:04x}.caj", style_document(
+                [(0x1021, 0, 6)], codes=(), width=400, height=400,
+                first_y=4334,
+                run_words=(0x8090, value, 0xC000 | x, y,
+                           0xC000 | width, height))
+
+
 def field0_documents():
     """Discriminate zero-field dimensions from zero size and field-1 metrics."""
     from c8_style_fixture import document as style_document
@@ -470,7 +488,8 @@ def main():
                        *field1_documents(), *small_bracket_documents(),
                        *state3_documents(), *required_greek_documents(),
                        *radical_record_documents(), *radical_detail_documents(),
-                       *page_end_control_documents(), *field0_documents()):
+                       *page_end_control_documents(), *field0_documents(),
+                       *radical_alias_documents()):
         (args.output / name).write_bytes(data)
         manifest.append({"file": name, "sha256": hashlib.sha256(data).hexdigest()})
     (args.output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")

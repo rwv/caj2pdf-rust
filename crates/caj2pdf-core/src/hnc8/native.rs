@@ -399,7 +399,7 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
                             (tag, value),
                             (0x8006, 0xa381 | 0xa383 | 0xa385 | 0xa38b)
                                 | (0x8010, 1)
-                                | (0x8090, 0xa3e6)
+                                | (0x8090, 0xa3b2 | 0xa3e6)
                         ) =>
                     {
                         length = 12;

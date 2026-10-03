@@ -1954,6 +1954,13 @@ fn c8_radical_outputs_one_joined_path_and_rejects_unverified_geometry() {
         assert_eq!(text.matches("S Q\n").count(), 1);
         assert!(text.find("S Q").unwrap() < text.find("<0041> Tj").unwrap());
         assert!(convert(&words, 0, &[], roles(), 12).0.is_err());
+        let mut alias = words;
+        alias[2][1] = 0xa3b2;
+        let (result, alias_pdf, finished) = convert(&alias, 0, &[], roles(), 0);
+        result.unwrap();
+        assert!(finished);
+        assert_eq!(pdf, alias_pdf);
+        assert!(convert(&alias, 0, &[], roles(), 12).0.is_err());
     }
     for (x, y, width, height, axis) in [
         (0x4000, 4354, 143, 125, false),

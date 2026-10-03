@@ -910,3 +910,28 @@ These checks do not establish whole-document visual fidelity.
 The four-page source now reaches page 2 byte 36100, an unsupported record;
 the five-page source still stops at page 2 byte 22528, glyph `a1de`.
 Neither publishes a final PDF. Full-document acceptance remains open.
+
+
+### Additional radical drawing value
+
+The four-page source's `8090/a3b2` has the same bounded 12-byte framing as
+`8090/a3e6`. Original `radical_alias_documents()` supplies four pairs:
+baseline, independent width and height changes, and translation. Eight source
+captures repeat exactly and every paired page crop is pixel-identical. The
+width control stays inside the page boundary. An earlier wider exploratory
+control was clipped and is not used to validate its endpoint.
+
+Both verified values now share the existing atomic parser and five-vertex
+radical renderer. No new drawing abstraction or buffering is needed. Unknown
+adjacent values remain rejected. Short-read, truncation and following-glyph
+regressions cover both values; production tests confirm byte-identical PDF
+output and unchanged HN-B rejection.
+
+All eight original controls pass CLI/qpdf and the four paired PDFs are byte
+identical. External evidence under the existing 20261003 root:
+`input/c8-radical-alias/manifest.json`,
+`c8-radical-alias-observations.json`, and
+`c8-radical-alias-output/checks.json`. The four-page document now stops at
+page 2 byte 39496 on an unsupported native character. The five-page document
+remains at page 2 byte 22528. Neither publishes a final PDF; full-document
+acceptance remains outstanding.
