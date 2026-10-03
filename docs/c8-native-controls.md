@@ -87,8 +87,8 @@ independently verified HN-B behavior; the other additions are C8-only.
 
 The controls also disprove a blanket no-op interpretation: `80ce/0` changes
 the Latin marker resource and position, and `81ff/1` and `81ff/2` change glyph
-gray to black in these contexts. These remain explicit errors pending their
-complete state semantics. The initial `81ff/3` mixed probe was followed by
+gray to black in these contexts. At that checkpoint these remained explicit errors pending their
+state semantics; the exact black payload is now established below. The initial `81ff/3` mixed probe was followed by
 viewer process exit; its black capture and all subsequent black frames are
 excluded. The remaining controls were repeated in a verified fresh process.
 `80cc/0204` with the original `(33,5)` payload preserves this baseline, but
@@ -114,3 +114,38 @@ page-1 byte 236 in `4-[21].caj`, byte 248 in `4-[24].caj`. They still fail
 explicitly without final output. The following source prologue includes
 `81ff/2` and `81ff/3`; investigate their combined state rather than treating
 the single-control probe's viewer exit as evidence that the source is corrupt.
+
+## Verified black glyph state (#242)
+
+Nine additional original controls distinguish the required `81ff/1..3`
+payload `(0,200)` from other values. Combined and individual controls paint
+subsequent glyphs black. Inserting each control once before style/resource
+selection gives the same nonblank source crop as repeating the combined
+controls. Style and resource changes therefore preserve this state within
+the tested page. New pages initialize their own ordinary gray state.
+
+The renderer stores one gray byte and admits only this exact C8 payload.
+It does not infer general RGB encoding: the historical `first-red` and
+`second-red` probes actually paint black, and `all-gray` paints a different
+color. Those other payloads remain unsupported. A valid repeated isolated
+`81ff/3` capture supersedes the earlier process-exit observation; excluded
+black frames remain excluded.
+
+All nine source crops are nonblank and repeat exactly. The six admitted
+controls convert and pass qpdf. Independent MuPDF inspection reports glyph
+color `0x444444` for the baseline and `0x000000` for all five black controls;
+the three unadmitted payloads fail without a final PDF. Original Rust tests
+cover all three selectors, persistence across style/resource changes,
+variant isolation and nearby invalid payloads. No parser allocation or
+whole-page buffering was added.
+
+External evidence remains under `caj2pdf-hnb-rendering-20261003`:
+`c8-color-comparison.json`, `c8-color-output/checks.json`, and
+`c8-color-output/render-checks.json`. The fixture generator reproduces the
+original inputs; probe names do not assert color semantics.
+
+Full-document retries now stop on `80ce/0` at page-1 byte 284 in `4-[21].caj`
+and byte 296 in `4-[24].caj`. Earlier mixed controls show a resource/placement
+change, so it must not be ignored. Both documents still fail explicitly
+without publishing output. Complete conversion and public runtime acceptance
+remain open in #242.

@@ -2636,3 +2636,13 @@ verified unchanged painting from actual resource/color changes; only the
 former specific values are admitted in this increment. Failed viewer/black
 captures are excluded. No vendor implementation, font outlines, external
 strings or corpus content is copied. See `c8-native-controls.md`.
+
+### Additional C8 glyph-color state
+
+Original MIT controls in `tools/cajviewer/c8_native_control_fixture.py`
+establish the scoped `81ff/1..3` `(0,200)` black-glyph transition and its
+persistence across tested style/resource changes. The implementation uses
+one per-page gray byte in the existing composer; no source was copied or
+transliterated. Other color payloads remain explicit errors. See
+`docs/c8-native-controls.md` for independent viewer and MuPDF observations,
+external evidence locations, excluded captures and remaining limitations.

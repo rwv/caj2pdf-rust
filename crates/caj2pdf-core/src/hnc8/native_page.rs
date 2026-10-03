@@ -130,6 +130,7 @@ where
         axes: [None; 2],
         latin: roles.latin,
         skew: 0.0,
+        gray: 68,
         variant: header.variant,
         legacy,
     };
@@ -153,6 +154,7 @@ struct PageWriter<'p, 'd, 'a, 'r, W: SequentialSink, C: Cancellation> {
     axes: [Option<u16>; 2],
     latin: usize,
     skew: f64,
+    gray: u8,
     variant: Variant,
     legacy: bool,
 }
@@ -174,6 +176,13 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
             // controls preserve font state, glyphs, drawings and images; the
             // encoded value is not a resource path to open.
             NativeRecord::EncodedString { .. } if self.variant == Variant::C8 => (),
+            // Original mixed controls establish black glyphs for this exact
+            // payload, retained across later style/resource selections.
+            NativeRecord::ExtendedControl {
+                tag: 0x81ff,
+                value: 1..=3,
+                words: [0, 200],
+            } if self.variant == Variant::C8 => self.gray = 0,
             NativeRecord::Control {
                 tag: 0x8021,
                 value: 0x2000,
@@ -473,10 +482,9 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
                     // Measured width-relative shear; style changes retain it.
                     transform[2] = transform[0] * self.skew;
                 }
-                // Original source controls establish this gray for the admitted
-                // ordinary text profile; keep it local to each glyph draw.
+                // Keep the verified current gray local to each glyph draw.
                 self.page
-                    .glyph_with_gray(font, character, transform, 68)
+                    .glyph_with_gray(font, character, transform, self.gray)
                     .await?;
             }
             NativeRecord::Drawing { .. } | NativeRecord::Image { .. } if self.skew != 0.0 => {

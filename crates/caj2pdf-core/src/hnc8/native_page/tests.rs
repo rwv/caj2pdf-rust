@@ -1600,3 +1600,33 @@ fn large_title_punctuation_is_rejected_before_regular_offset_lookup() {
         }
     }
 }
+
+#[test]
+fn c8_verified_color_control_preserves_black_across_style_and_resource_changes() {
+    for value in 1..=3 {
+        let mut words = ordinary();
+        words.extend([[0x81ff, value], [0, 200]]);
+        words.extend(ordinary());
+        words.extend([
+            [0x801d, 4],
+            [4772, 0xa0c1],
+            [0x8002, 0x10a5],
+            [4682, 0xd6d0],
+            [0x8004, 1],
+        ]);
+        let (result, pdf, finished) = convert(&words, 0, &[], roles(), 0);
+        result.unwrap();
+        assert!(finished);
+        let text = String::from_utf8_lossy(&pdf);
+        assert_eq!(text.matches("0.266667 g\n").count(), 2);
+        assert_eq!(text.matches("0.000000 g\n").count(), 4);
+        assert!(text.contains("/F2 1 Tf"));
+        assert!(convert(&words, 0, &[], roles(), 12).0.is_err());
+        for payload in [[1, 200], [0, 199]] {
+            words[5] = payload;
+            let (result, _, finished) = convert(&words, 0, &[], roles(), 0);
+            assert!(result.is_err());
+            assert!(!finished);
+        }
+    }
+}
