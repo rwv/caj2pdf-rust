@@ -13,7 +13,7 @@ const sink = (parts = []) => ({ async writeChunk(bytes) { parts.push(bytes.slice
 const roles = (font) => ({ cjk: font, latin: font, alternateLatin: font });
 
 test("native C8/HN-B public Node path reuses ranged fonts and preserves pages", async (t) => {
-  for (const [inputBytes, pages, glyphs] of [[syntheticNativeC8(), 1, 1], [syntheticNativeC8(true), 1, 2], [syntheticNativeHnb(), 2, 2]]) {
+  for (const [inputBytes, pages, glyphs] of [[syntheticNativeC8(), 1, 1], [syntheticNativeC8(true), 1, 2], [syntheticNativeHnb(), 2, 2], [syntheticNativeHnb(0), 2, 2]]) {
     let maxRead = 0;
     const input = source(fontBytes);
     const font = { size: input.size, async readAt(offset, length, signal) { maxRead = Math.max(maxRead, length); return input.readAt(offset, Math.min(length, 3), signal); } };

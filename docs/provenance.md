@@ -2554,3 +2554,13 @@ decoding is reused with checked row/cell bounds and private-use rejection.
 Control `8073/002b` and mode-0 termination have original mixed-glyph controls.
 External font inspection reads only cmap/name metadata; no vendor outlines,
 implementation or mapping table are copied into the project.
+
+The initial mode-0 CJK/alphabet renderer and its geometry are original MIT
+implementations based on the existing original marker controls and 24 new
+metric/run/line controls in `hnb_geometry_fixture.py`. Adjacent explicit sizes
+independently distinguish the admitted size-zero and title metrics. No vendor
+implementation, document text, font outlines or mapping tables are copied.
+Rust and JavaScript tests use original authored records and geometric fonts.
+External viewer comparisons retain 1–2-pixel glyph-edge residuals and exclude
+black frames after a viewer crash; they do not establish full-document support.
+Digits, spaces, symbols and mode-0 drawings remain explicit unsupported content.

@@ -681,3 +681,42 @@ fn a385_line_marker_preserves_independently_checked_endpoints() {
         );
     }
 }
+
+#[test]
+fn mode_zero_geometry_uses_its_measured_origins_and_size_zero() {
+    let page = source_page_geometry([700, 500]).unwrap();
+    let unit = EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
+    for (style, class, size, baseline) in [
+        (0x1084, C8GlyphClass::Cjk, 35.0, 0.0),
+        (0x1084, C8GlyphClass::Latin, 35.0, 8.0),
+        (0, C8GlyphClass::Cjk, 21.0, 0.0),
+        (0x1000, C8GlyphClass::Latin, 21.0, 8.0),
+        (0x154a, C8GlyphClass::Cjk, 84.0, 0.0),
+    ] {
+        let m =
+            mode_zero_glyph_transform(page, [30, 41], [100, 140], style, class, [None; 2]).unwrap();
+        close(m[0], size * 75.0 / 301.0);
+        close(m[3], size * 75.0 / 301.0);
+        close(m[4], 90.0 * unit);
+        close(m[5], (401.0 - baseline) * unit - size * 75.0 / 301.0);
+    }
+    let bad_page = EmpiricalPageGeometry {
+        origin_points: [f64::NAN, 0.0],
+        ..page
+    };
+    assert!(
+        mode_zero_glyph_transform(bad_page, [0; 2], [100; 2], 0, C8GlyphClass::Cjk, [None; 2])
+            .is_err()
+    );
+    assert!(
+        mode_zero_glyph_transform(
+            page,
+            [0; 2],
+            [100; 2],
+            0x154a,
+            C8GlyphClass::Latin,
+            [None; 2]
+        )
+        .is_err()
+    );
+}

@@ -247,6 +247,51 @@ def legacy_geometry_controls():
     yield "legacy-alternate4", bytes(data)
 
 
+def legacy_metric_controls():
+    """Compare one original CJK marker with independently specified axes."""
+    for name, style, axes in (
+        ("zero", 0, ()), ("field-zero", 0x1000, ()),
+        ("field-four", 0x1084, ()), ("title", 0x154A, ()),
+        ("wide", 0x10A4, ()), ("field-seven", 0x04E7, ()),
+        ("explicit20", 0, (20, 20)), ("explicit21", 0, (21, 21)),
+        ("explicit22", 0, (22, 22)), ("explicit35", 0, (35, 35)),
+        ("explicit36", 0, (36, 36)), ("explicit83", 0, (83, 83)),
+        ("explicit84", 0, (84, 84)), ("explicit85", 0, (85, 85)),
+        ("explicit-wide", 0, (42, 35)), ("explicit-seven", 0, (56, 56)),
+    ):
+        data = bytearray(legacy_geometry_control(style=style))
+        del data[248:256]  # Keep only the first independently authored glyph.
+        if axes:
+            data[244:244] = struct.pack("<HHHH", 0x8070, axes[0], 0x8071, axes[1])
+        struct.pack_into("<I", data, 220, len(data) - 228)
+        yield f"legacy-metric-{name}", bytes(data)
+
+
+def legacy_run_controls():
+    """Separate required Latin resources and baselines with nonoverlapping markers."""
+    for name, style, axes in (
+        ("zero", 0x1000, ()), ("four", 0x1084, ()),
+        ("wide", 0x10A4, ()), ("five", 0x10A5, ()),
+        ("explicit36", 0, (36, 36)),
+    ):
+        data = bytearray(legacy_geometry_control(width=950, style=style))
+        words = (100, 0xD6D0, 300, 0xA3B0, 500, 0xA3C1, 700, 0xA980)
+        if axes:
+            words = (0x8070, axes[0], 0x8071, axes[1]) + words
+        data[244:256] = struct.pack("<" + "H" * len(words), *words)
+        struct.pack_into("<I", data, 220, len(data) - 228)
+        yield f"legacy-run-{name}", bytes(data)
+    for name, points in (
+        ("plain", (100, 250, 500, 250)),
+        ("marked", (0xC064, 250, 0xC1F4, 250)),
+        ("diagonal", (0xC064, 200, 0xC1F4, 300)),
+    ):
+        data = bytearray(legacy_geometry_control())
+        data[228:228] = struct.pack("<HHHHHHHH", 0x8006, 0xA385, *points, 0xFFFF, 5)
+        struct.pack_into("<I", data, 220, len(data) - 228)
+        yield f"legacy-line-{name}", bytes(data)
+
+
 def legacy_symbol_controls():
     """Original Unicode-copy controls for the required mode-0 classes."""
     codes = (
@@ -386,7 +431,7 @@ def main():
         manifest.append({"file": filename, "code": code, "alternate": alt, "dx": dx,
                          "x": x, "y": y, "sha256": hashlib.sha256(data).hexdigest()})
     for name, data in (*end_controls(), *issue63_style_controls(), *native_mode_controls(),
-                       *legacy_geometry_controls(), *legacy_symbol_controls()):
+                       *legacy_geometry_controls(), *legacy_metric_controls(), *legacy_run_controls(), *legacy_symbol_controls()):
         filename = name + ".caj"
         (args.output / filename).write_bytes(data)
         manifest.append({"file": filename, "sha256": hashlib.sha256(data).hexdigest()})

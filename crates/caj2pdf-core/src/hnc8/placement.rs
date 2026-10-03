@@ -297,6 +297,52 @@ pub(super) fn native_glyph_transform(
     Ok([width, 0.0, 0.0, height, x, y])
 }
 
+/// Independently controlled HN-B mode-0 CJK and Latin placement.
+/// Resource selection and the mode-0 page extent addition are handled by the
+/// page writer. Unobserved styles/classes are not inferred from mode 2.
+pub(super) fn mode_zero_glyph_transform(
+    page: EmpiricalPageGeometry,
+    source_origin: [u16; 2],
+    position: [u16; 2],
+    style: u16,
+    class: C8GlyphClass,
+    axes: [Option<u16>; 2],
+) -> Result<[f64; 6]> {
+    if axes == [None; 2] && matches!(style, 0 | 0x1000) {
+        let [left, _, _, top] = page.media_box()?;
+        let unit = EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
+        let em = 21.0 * 75.0 / 301.0;
+        let baseline = if class == C8GlyphClass::Latin {
+            8.0
+        } else {
+            0.0
+        };
+        return Ok([
+            em,
+            0.0,
+            0.0,
+            em,
+            left + (f64::from(position[0]) - f64::from(source_origin[0]) + 20.0) * unit,
+            top - (f64::from(position[1]) - f64::from(source_origin[1]) + baseline) * unit - em,
+        ]);
+    }
+    if !matches!(
+        style,
+        0 | 0x0484 | 0x0884 | 0x1084 | 0x9c84 | 0x0ca4 | 0x10a4 | 0x10a5
+    ) && !(class == C8GlyphClass::Cjk && matches!(style, 0x04e7 | 0x0ce7 | 0x154a))
+    {
+        return Err(Error::InvalidInput {
+            reason: "unverified HN-B mode-0 glyph style",
+        });
+    }
+    let mut transform = native_glyph_transform(page, source_origin, position, style, class, axes)?;
+    transform[5] -= 15.0 * EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
+    if class == C8GlyphClass::Latin {
+        transform[4] -= transform[0] / 8.0;
+    }
+    Ok(transform)
+}
+
 /// Constant-size description of a forward horizontal C8 decoration.
 /// Emit `glyph_count` marks with the first matrix's x incremented by
 /// `index * first_glyph[0]`, using the same clip for each decorative glyph.

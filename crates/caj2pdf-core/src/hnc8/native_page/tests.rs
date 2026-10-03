@@ -123,7 +123,7 @@ fn convert(
     mode: u8,
 ) -> (Result<u32>, Vec<u8>, bool) {
     let mut input = fixture(words, declared);
-    if matches!(mode, 12 | 13) {
+    if matches!(mode, 12 | 13 | 18) {
         // Original compact HN-B wrapper around the same authored record stream.
         let c8 = &input.bytes;
         let mut bytes = vec![0; 228];
@@ -131,7 +131,7 @@ fn convert(
         bytes[4..8].copy_from_slice(&200_u32.to_le_bytes());
         bytes[8..12].copy_from_slice(&136_u32.to_le_bytes());
         bytes[144..148].copy_from_slice(&1_u32.to_le_bytes());
-        bytes[148] = 2;
+        bytes[148] = if mode == 18 { 0 } else { 2 };
         bytes[164..172].copy_from_slice(&c8[28..36]);
         bytes[216..220].copy_from_slice(&228_u32.to_le_bytes());
         bytes[220..224].copy_from_slice(&(c8.len() as u32 - 100).to_le_bytes());
@@ -163,7 +163,7 @@ fn convert(
             16 => reader.header.native_mode = Some(99),
             17 => {
                 reader.header.variant = Variant::HnB;
-                reader.header.native_mode = Some(0);
+                reader.header.native_mode = Some(99);
             }
             _ => (),
         }
@@ -936,5 +936,94 @@ fn unverified_native_modes_cannot_use_mode_two_rendering() {
             "{error:?}"
         );
         assert!(!String::from_utf8_lossy(&pdf).contains("/Type /Page "));
+    }
+}
+
+#[test]
+fn mode_zero_renders_cjk_and_distinct_latin_alphabets_in_source_order() {
+    let words = [
+        [0x8001, 4350],
+        [0x8002, 0x1084],
+        [4682, 0xd6d0],
+        [0x801d, 4],
+        [0x8067, 6],
+        [4772, 0xa3c1],
+        [4862, 0xa980],
+        [0x801d, 0],
+        [4952, 0xa3c1],
+        [0x8004, 1],
+    ];
+    let (result, pdf, finished) = convert(&words, 0, &[], roles(), 18);
+    assert_eq!(result.unwrap(), 0);
+    assert!(finished);
+    let pdf = String::from_utf8_lossy(&pdf);
+    let mut after = 0;
+    for token in [
+        "/F0 1 Tf",
+        "<4E2D> Tj",
+        "/F1 1 Tf",
+        "<0041> Tj",
+        "/F2 1 Tf",
+        "<0041> Tj",
+        "/F1 1 Tf",
+    ] {
+        after += pdf[after..].find(token).unwrap() + token.len();
+    }
+    let extent = 700.0 * super::super::EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
+    let dimensions = pdf
+        .split("/MediaBox [0 0 ")
+        .nth(1)
+        .unwrap()
+        .split(']')
+        .next()
+        .unwrap();
+    for dimension in dimensions.split_whitespace() {
+        assert!((dimension.parse::<f64>().unwrap() - extent).abs() <= 0.000_000_5);
+    }
+}
+
+#[test]
+fn mode_zero_styles_axes_and_late_failures_remain_explicit() {
+    for (style, code, axes) in [
+        (0, 0xd6d0, false),
+        (0x1000, 0xa3c1, false),
+        (0x0484, 0xa3c1, false),
+        (0x0884, 0xa980, false),
+        (0x9c84, 0xd6d0, false),
+        (0x0ca4, 0xd6d0, false),
+        (0x10a4, 0xa3c1, false),
+        (0x10a5, 0xa980, false),
+        (0x04e7, 0xd6d0, false),
+        (0x0ce7, 0xd6d0, false),
+        (0x154a, 0xd6d0, false),
+        (0, 0xa3c1, true),
+    ] {
+        let mut words = vec![[0x8001, 4350], [0x8002, style]];
+        if axes {
+            words.extend([[0x8070, 36], [0x8071, 36]]);
+        }
+        words.extend([[4682, code], [0x8004, 1]]);
+        let (result, _, finished) = convert(&words, 0, &[], roles(), 18);
+        assert!(result.is_ok(), "{style:x}: {result:?}");
+        assert!(finished);
+    }
+    for tail in [
+        vec![[4772, 0xa0c1]], // Mode-2 alias is not a mode-0 alphabet.
+        vec![[4772, 0x9ff5]], // Decoded symbol still lacks verified placement.
+        vec![[4772, 0xa3b0]], // Digits have a distinct measured baseline.
+        vec![[4772, 0xa3c2]], // Caller font lacks B.
+        vec![[0x8072, 0]],
+        vec![[0x8006, 0xa385], [4682, 4350], [4912, 4350], [0xffff, 5]],
+        vec![[0x8002, 0x1042], [4772, 0xa3c1]],
+        vec![[0x8070, 36], [4772, 0xa3c1]],
+    ] {
+        let mut words = vec![[0x8001, 4350], [0x8002, 0x1084], [4682, 0xd6d0]];
+        words.extend(tail);
+        words.push([0x8004, 1]);
+        let (result, _, finished) = convert(&words, 0, &[], roles(), 18);
+        let error = result.unwrap_err();
+        assert_eq!(error.page, Some(1));
+        assert!(error.offset >= 240);
+        assert!(!finished);
     }
 }

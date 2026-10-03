@@ -52,7 +52,7 @@ try {
     return rangedFont.readAt(offset, Math.min(length, 3), signal);
   } };
   const nativePdfs = [];
-  for (const [input, pages] of [[syntheticNativeC8(), 1], [syntheticNativeC8(true), 1], [syntheticNativeHnb(), 2]]) {
+  for (const [input, pages] of [[syntheticNativeC8(), 1], [syntheticNativeC8(true), 1], [syntheticNativeHnb(), 2], [syntheticNativeHnb(0), 2]]) {
     const pdf = [];
     const native = await convert(module, blobSource(new Blob([input])), {
       async writeChunk(bytes) { pdf.push(...bytes); return bytes.length; }, async flush() {},

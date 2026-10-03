@@ -5,7 +5,8 @@
 use super::{
     C8GlyphClass, EmpiricalPageGeometry, ErrorKind, Hnc8Reader, Location, NativeRecord,
     NativeRecordVisitor, Result, TextBudget, Variant, decode_native_character,
-    decode_native_image_coordinate, empirical_c8_horizontal_decoration, empirical_c8_segment,
+    decode_native_character_for_mode, decode_native_image_coordinate,
+    empirical_c8_horizontal_decoration, empirical_c8_segment,
 };
 use crate::pdf::{ContentPageWriter, FontObject, ImageObject, PdfDocument};
 use crate::{Cancellation, Error, RangedSource, SequentialSink};
@@ -71,8 +72,10 @@ where
         }));
     }
     // Character mapping, font selection and placement are mode-specific.
-    // Mode 0 decoding exists, but its complete rendering path is not yet verified.
-    if header.native_mode != Some(2) {
+    // Only HN-B has independently controlled mode-0 rendering records.
+    if header.native_mode != Some(2)
+        && !(header.variant == Variant::HnB && header.native_mode == Some(0))
+    {
         return Err(loc.error(ErrorKind::Unsupported {
             field: "native page rendering mode",
             value: u64::from(header.native_mode.unwrap_or(u32::MAX)),
@@ -92,12 +95,17 @@ where
             "native page image resources differ from declared count",
         )));
     }
-    let geometry = super::placement::source_page_geometry(
-        header
-            .page_size
-            .ok_or_else(|| source_error(invalid("native page size is missing")))?,
-    )
-    .map_err(source_error)?;
+    let size = header
+        .page_size
+        .ok_or_else(|| source_error(invalid("native page size is missing")))?;
+    let mut geometry = super::placement::source_page_geometry(size).map_err(source_error)?;
+    let legacy = header.native_mode == Some(0);
+    if legacy {
+        // Add in source units before conversion, without overflowing u16 extents.
+        let unit = super::EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
+        geometry.size.width_points = (f64::from(size[0]) + 100.0) * unit;
+        geometry.size.height_points = (f64::from(size[1]) + 100.0) * unit;
+    }
     let origin = header
         .native_origin
         .ok_or_else(|| source_error(invalid("native page origin is missing")))?;
@@ -117,6 +125,7 @@ where
         alternate: false,
         skew: false,
         variant: header.variant,
+        legacy,
     };
     reader.visit_native_records(budget, &mut writer).await?;
     page.finish().await.map_err(source_error)
@@ -138,10 +147,14 @@ struct PageWriter<'p, 'd, 'a, 'r, W: SequentialSink, C: Cancellation> {
     alternate: bool,
     skew: bool,
     variant: Variant,
+    legacy: bool,
 }
 
 impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, '_, '_, '_, W, C> {
     async fn visit(&mut self, _: u64, record: NativeRecord) -> crate::Result<()> {
+        if self.legacy {
+            return self.visit_mode_zero(record).await;
+        }
         match record {
             NativeRecord::Control { tag: 0x8001, .. } => (), // y is carried by each glyph.
             NativeRecord::Control {
@@ -425,6 +438,63 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
             }
             | NativeRecord::End { .. } => (),
             _ => return Err(invalid("unverified C8 native rendering record")),
+        }
+        Ok(())
+    }
+}
+
+impl<W: SequentialSink, C: Cancellation> PageWriter<'_, '_, '_, '_, W, C> {
+    async fn visit_mode_zero(&mut self, record: NativeRecord) -> crate::Result<()> {
+        match record {
+            NativeRecord::Control { tag: 0x8001, .. }
+            | NativeRecord::Control {
+                tag: 0x801d,
+                value: 0 | 4,
+            }
+            | NativeRecord::Control {
+                tag: 0x8067,
+                value: 6,
+            }
+            | NativeRecord::End { .. } => (),
+            NativeRecord::Control { tag: 0x8002, .. } => self.axes = [None; 2],
+            NativeRecord::Control {
+                tag: 0x8070,
+                value: 36,
+            } => self.axes[0] = Some(36),
+            NativeRecord::Control {
+                tag: 0x8071,
+                value: 36,
+            } => self.axes[1] = Some(36),
+            NativeRecord::Glyph { x, y, style, code } => {
+                let character = decode_native_character_for_mode(0, code)
+                    .ok_or_else(|| invalid("unsupported HN-B mode-0 character"))?;
+                // The raw alphabet selects its resource independently of 801d.
+                // Digits and symbols have separate, not yet admitted placement.
+                let (class, font) = match code {
+                    0xa980..=0xa9b3 => (C8GlyphClass::Latin, self.roles.alternate_latin),
+                    0xa3c1..=0xa3da | 0xa3e1..=0xa3fa => (C8GlyphClass::Latin, self.roles.latin),
+                    _ if ('\u{4e00}'..='\u{9fff}').contains(&character) => {
+                        (C8GlyphClass::Cjk, self.roles.cjk)
+                    }
+                    _ => {
+                        return Err(invalid(
+                            "unverified HN-B mode-0 glyph resource or placement",
+                        ));
+                    }
+                };
+                let transform = super::placement::mode_zero_glyph_transform(
+                    self.geometry,
+                    self.origin,
+                    [x, y],
+                    style,
+                    class,
+                    self.axes,
+                )?;
+                self.page
+                    .glyph_with_gray(font, character, transform, 68)
+                    .await?;
+            }
+            _ => return Err(invalid("unverified HN-B mode-0 rendering record")),
         }
         Ok(())
     }

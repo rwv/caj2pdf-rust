@@ -731,3 +731,52 @@ to the bounded record visitor; complete mode-0 rendering remains unfinished
 under #241. Original native rendering fixtures now explicitly declare mode 2
 in Rust and JavaScript. This guard will be expanded when mode-0 placement and
 resource selection are integrated and independently verified.
+
+### Mode-0 CJK and alphabet rendering checkpoint
+
+The writer now admits the independently controlled HN-B mode-0 CJK and A3/A9
+alphabet subset. It keeps mode-0 resource/geometry translation separate from
+the unchanged mode-2 path, reusing bounded fonts and sequential PDF output.
+Missing/unknown modes and C8 mode 0 still fail explicitly. This supersedes the
+initial mode-0 guard above; it does not complete issue-63 or #241.
+
+Original single-marker comparisons establish size 21 for styles `0`/`1000`
+and size 84 for `154a`: the corresponding explicit-axis controls match exactly,
+while adjacent sizes 20/22 and 83/85 differ. Field 4, wide field 5/4 and field 7
+match explicit 35/35, 42/35 and 56/56 controls. Page extents add 100 source units
+before point conversion. CJK and alphabet origins follow the controlled mode-0
+model, without the mode-2 Latin horizontal addition. Raw A3/A9 selects ordinary
+and alternate Latin respectively, independently of `801d/4`.
+
+Twelve original controls convert through the CLI and pass qpdf. Seven source/
+PDF pairs check the base, changed width/height, changed x/y origin, size zero
+and title. At the recorded fit-width zoom, page-height edges differ by at most
+one pixel, and thresholded glyph rectangle edges differ by one pixel except
+size zero (two pixels). These are scoped geometry observations, not exact
+pixel equality or whole-document fidelity. The first batch's black captures
+after a viewer crash are excluded; the affected comparisons were repeated
+with fewer open tabs and visible source/output pages.
+
+The new nonoverlapping run controls identify ordinary-Latin digits with a
+different origin/baseline from letters. They are not admitted by this change.
+Original plain/marked `a385` line captures also match each other, including
+both marked x coordinates, but mode-0 segment translation remains unfinished.
+Spaces, symbols, digits and other required controls still return located errors.
+The actual issue-63 document currently fails at byte 404 (`a1a1`, a space),
+without publishing a partial final PDF. Its full four-page acceptance remains
+open. The issue-100 CLI regression retains SHA256
+`0410f9f114be13eaf688290cb21c06c05fbd84844e0b380276842a5a1a8f7445`.
+
+Original two-page mode-0 alphabet fixtures pass the public Node and real
+Chromium Worker paths, including bounded font reads and scratch cleanup.
+All 161 JS tests pass with rebuilt WASM and no skips. Strict workspace Clippy
+and 34,501/34,501 Rust line coverage pass, including the per-file gate. External
+corpus checks omitted by that test run are not counted as compatibility passes.
+
+The existing generator now reproduces 16 metric and eight run/line controls.
+Their hashes and comparison receipts are external under
+`caj2pdf-hnb-rendering-20261003`: `legacy-metric-inputs.json`,
+`legacy-metric-comparison.json`, `legacy-run-inputs.json`,
+`legacy-line-comparison.json`, `legacy-mode0-cli-checkpoint.json` and
+`legacy-mode0-render-comparison.json`. Source documents, fonts, captures and
+PDFs remain outside Git. Peak memory and full release acceptance remain #222.
