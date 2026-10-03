@@ -2468,3 +2468,8 @@ constants and tests, based on original forward/reversed controls, ordinary
 viewer copy with distinct sentinels, and visible glyph-class observations.
 No vendor font outlines or differently licensed converter implementation were
 copied. Resource/placement admission remains separately validated.
+
+The new symbol renderer cases reuse the existing MIT geometry branch after
+original resource-marker and unequal-axis substitution controls establish
+equivalence with admitted `a0a6`. The corresponding PDF regressions extend
+the existing generated-font tests without importing external data.

@@ -146,7 +146,7 @@ fn convert(
         let mut document = PdfDocument::new(&mut sink, &limits, &cancel).await.unwrap();
         let mut font_bytes = crate::pdf::drawing_font();
         if mode == 11 {
-            // Relabel the original triangle as the test's source symbol.
+            // Relabel an original glyph as the test's source symbol.
             // No source font outline or character shape is imported.
             let table = font_bytes[12..]
                 .as_chunks::<16>()
@@ -160,8 +160,10 @@ fn convert(
                 .find(|pair| pair[0] < 0x8000 && pair[1] >= 0xa000)
                 .unwrap()[1];
             let character = decode_native_character(code).unwrap() as u32;
-            assert!(character > 65);
-            for at in [offset + 40, offset + 44] {
+            assert_ne!(character, 65);
+            // Keep the two format-12 groups sorted for ASCII punctuation too.
+            let group = offset + if character < 65 { 28 } else { 40 };
+            for at in [group, group + 4] {
                 font_bytes[at..at + 4].copy_from_slice(&character.to_be_bytes());
             }
         }
@@ -426,10 +428,11 @@ fn fullwidth_colon_uses_active_latin_resource_and_independent_size_axes() {
 #[test]
 fn controlled_symbols_preserve_unicode_resource_state_and_common_baseline() {
     let codes = [
-        0xa0a6, 0xa1aa, 0xa1ad, 0xa1ae, 0xa1c6, 0xa1c8, 0xa2d9, 0xa2da, 0xa2db, 0xa2dc, 0xa2dd,
-        0xa2de, 0xa2df, 0xa3a3, 0xa3a5, 0xa3ab, 0xa3ac, 0xa3ad, 0xa3ae, 0xa3af, 0xa3b0, 0xa3b1,
-        0xa3b2, 0xa3b3, 0xa3b4, 0xa3b5, 0xa3b6, 0xa3b7, 0xa3b8, 0xa3b9, 0xa3bb, 0xa3bc, 0xa3bd,
-        0xa3be, 0xa3bf, 0xa3dc, 0xa3fb, 0xa3fd, 0xa9aa, 0xaab3, 0xaca3,
+        0xa0a6, 0xa0ae, 0xa0af, 0xa0ba, 0xaab1, 0xaab2, 0xa1aa, 0xa1ad, 0xa1ae, 0xa1c6, 0xa1c8,
+        0xa2d9, 0xa2da, 0xa2db, 0xa2dc, 0xa2dd, 0xa2de, 0xa2df, 0xa3a3, 0xa3a5, 0xa3ab, 0xa3ac,
+        0xa3ad, 0xa3ae, 0xa3af, 0xa3b0, 0xa3b1, 0xa3b2, 0xa3b3, 0xa3b4, 0xa3b5, 0xa3b6, 0xa3b7,
+        0xa3b8, 0xa3b9, 0xa3bb, 0xa3bc, 0xa3bd, 0xa3be, 0xa3bf, 0xa3dc, 0xa3fb, 0xa3fd, 0xa9aa,
+        0xaab3, 0xaca3,
     ];
     for code in codes {
         for style in [0x10e3, 0x1067] {

@@ -171,6 +171,11 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
                 // resource or placement of the source's symbol variants.
                 let (class, font, baseline_fraction) = match code {
                     0xa0a6
+                    | 0xa0ae
+                    | 0xa0af
+                    | 0xa0ba
+                    | 0xaab1
+                    | 0xaab2
                     | 0xa1aa
                     | 0xa1ad
                     | 0xa1ae

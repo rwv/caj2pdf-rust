@@ -2105,3 +2105,16 @@ forms, instead of inferring an ASCII punctuation range. This is character
 identity evidence, not verified resource/placement or complete rendering.
 External captures: `caj2pdf-hnb-rendering-20261003/symbol-visible-viewer`; the
 original `unknown-symbols-visible.caj` stays in the external input directory.
+
+Original full-em resource-marker controls establish that all five added
+symbols select the active Latin resource, including after `801d/4`; their
+baseline differs from ordinary A/M exactly as the existing `a0a6` symbol
+class does. Two independent unequal-axis pages (`1067`, `10e3`) replace only
+these five raw codes with `a0a6`, preserving coordinates and fonts. Both
+source/reference page interiors are pixel-identical, and all repeats match.
+External hashes and comparisons are `symbol-axis-comparison.json`; regular
+and alternate resource captures are in the same `symbol-viewer` directory.
+The native page writer therefore reuses its active-Latin, CJK-origin, zero
+baseline-fraction branch for these five codes. Existing Unicode/resource/
+unequal-axis PDF tests include them. No offsets, allocations or new rendering
+abstraction are introduced. HN-B page admission remains separately incomplete.
