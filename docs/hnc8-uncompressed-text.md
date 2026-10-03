@@ -289,3 +289,21 @@ pixels above the PDF's. This remaining extent/clipping behavior is not classifie
 as renderer-only. #258/#261 retain that investigation and final required CI.
 No pixel tolerance or compensating offset is applied. Full external measurements
 are in `caj2pdf-hna-prefix-viewer-20261002/compressed-fixed-comparison.json`.
+
+
+A follow-up discriminator retains x=20, y=30, width=280, height=180 and changes
+only page height (240 versus 200), then compares a height=170 fit control. The
+short/180 source differs from fit/170, ruling out direct extent clamping to the
+remaining page height. Raw and compressed short/180 interiors agree exactly.
+With the image wholly inside the taller page, source/PDF color boundaries differ
+by one pixel. With clipping, both Viewer paths change internal raster boundaries.
+
+Finally, the same original shape encoded at 128×96 rather than 32×24, with
+unchanged document coordinates and short page, has matching lower-bar bounds
+and only a one-pixel top-edge difference. Repeated captures match. Thus this
+control's lower-edge discrepancy depends on clipped-raster sampling, not a
+constant source-space placement correction. Keep the JPEG and CTM unchanged;
+this does not prove fidelity for every real page. The generator retains the
+higher-resolution control. External receipts are
+`caj2pdf-hna-prefix-viewer-20261002/clipping-discriminator-results.json` and
+`caj2pdf-hna-clip-viewer-20261003/comparison.json`.

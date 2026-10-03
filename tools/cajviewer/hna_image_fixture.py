@@ -49,12 +49,14 @@ def main():
                 "compressed-plain": {"prefix_size": (320, 200), "compressed": True, "markers": False},
                 "compressed-offset": {"prefix_size": (320, 200), "compressed": True,
                                       "x": 20, "y": 30, "width": 280, "height": 180}}
+    controls["compressed-offset-hires"] = dict(controls["compressed-offset"])
     manifest = []
     for name, parameters in controls.items():
-        data = document(payload, **parameters)
+        scale = 4 if name == "compressed-offset-hires" else 1
+        data = document(jpeg(scale) if scale != 1 else payload, **parameters)
         (args.output / (name + ".caj")).write_bytes(data)
         manifest.append({"name": name, "parameters": parameters,
-                         "bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()})
+                         "raster_scale": scale, "bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()})
     (args.output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
 
 
