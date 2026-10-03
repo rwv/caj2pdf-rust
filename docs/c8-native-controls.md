@@ -74,3 +74,43 @@ required terminator. These are current-profile limitations, not proof that
 the source is corrupt. All nine pages remain incomplete conversion cases.
 The direct probe receipts are `4-[21]-direct-controls.txt` and
 `4-[24]-direct-controls.txt` in the external native-profile inventory.
+
+## Mixed-context resource and painting checks (#242)
+
+The original generator now also reuses the existing mixed image/glyph/segment/
+decoration fixture under ordinary and alternate Latin resources. Distinct
+original marker fonts make resource changes visible. For `80ce/1`,
+`8021/2000`, `80d0/0`, `80d1/1` and `80d2/0`, accepted page crops and their
+repeats equal each same-state baseline exactly. The renderer admits these
+specific values without changing state. `80ce/1` also retains its earlier
+independently verified HN-B behavior; the other additions are C8-only.
+
+The controls also disprove a blanket no-op interpretation: `80ce/0` changes
+the Latin marker resource and position, and `81ff/1` and `81ff/2` change glyph
+gray to black in these contexts. These remain explicit errors pending their
+complete state semantics. The initial `81ff/3` mixed probe was followed by
+viewer process exit; its black capture and all subsequent black frames are
+excluded. The remaining controls were repeated in a verified fresh process.
+`80cc/0204` with the original `(33,5)` payload preserves this baseline, but
+that single payload does not establish the real documents' varying values;
+its rendering remains unsupported here.
+
+All 22 generated mixed inputs reproduce the captured originals. Twelve
+admitted controls convert, pass qpdf and produce PDFs identical to their
+same-state baseline; ten unadmitted controls fail without final output.
+The existing mixed-page Rust test covers the added no-paint values, and
+`80ce/0` remains an explicit negative regression. Fixed parser bounds and
+raw visitor values are unchanged.
+
+External receipts are `c8-state-comparison.json`,
+`c8-extra-control-accepted.json` and `c8-extra-output/checks.json` under
+`caj2pdf-hnb-rendering-20261003`. Accepted screenshots use the original page
+crop `(648,380,1024,944)` at 486%; no registration/scaling or pixel tolerance
+is used. The earlier raw comparison ledger includes excluded black frames;
+only the accepted ledger supplies comparison evidence.
+
+Both complete-document retries now reach `81ff/1` with payload `(0,200)`:
+page-1 byte 236 in `4-[21].caj`, byte 248 in `4-[24].caj`. They still fail
+explicitly without final output. The following source prologue includes
+`81ff/2` and `81ff/3`; investigate their combined state rather than treating
+the single-control probe's viewer exit as evidence that the source is corrupt.

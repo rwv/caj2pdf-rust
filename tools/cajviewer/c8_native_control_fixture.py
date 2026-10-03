@@ -40,6 +40,23 @@ def control_document(words):
     return bytes(header + records)
 
 
+def mixed_documents():
+    """Original controls with independently distinguishable font resources."""
+    from c8_image_fixture import jpeg, mixed_control
+
+    labels = {"baseline", "80ce-0", "80ce-1", "8021-2000", "80d0-0",
+              "80d1-1", "80d2-0", "81ff-1", "81ff-2", "81ff-3", "80cc-0204"}
+    for state in (0, 4):
+        for label, control in CONTROLS:
+            if label not in labels:
+                continue
+            data = mixed_control(jpeg(), control)
+            if state == 0:
+                data = data.replace(struct.pack("<HH", 0x801D, 4),
+                                    struct.pack("<HH", 0x801D, 0))
+            yield f"mixed-{state}-{label}.caj", data
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("output", type=Path, help="new directory outside the repository")
@@ -52,6 +69,9 @@ def main():
         (args.output / name).write_bytes(data)
         manifest.append({"file": name, "words": words,
                          "sha256": hashlib.sha256(data).hexdigest()})
+    for name, data in mixed_documents():
+        (args.output / name).write_bytes(data)
+        manifest.append({"file": name, "sha256": hashlib.sha256(data).hexdigest()})
     (args.output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
 
 

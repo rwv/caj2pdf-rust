@@ -2629,3 +2629,10 @@ Pinned offline viewer observations establish unchanged mixed-page painting
 and resource state for the admitted string profile. Only original MIT
 implementation and generator code are committed; screenshots, generated
 inputs and corpus content stay outside Git. See `c8-encoded-prefix.md`.
+
+The additional C8 mixed-control observations use original geometric fonts,
+JPEGs, glyphs and vectors from existing project generators. They distinguish
+verified unchanged painting from actual resource/color changes; only the
+former specific values are admitted in this increment. Failed viewer/black
+captures are excluded. No vendor implementation, font outlines, external
+strings or corpus content is copied. See `c8-native-controls.md`.

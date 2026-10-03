@@ -333,6 +333,7 @@ fn unsupported_content_and_missing_glyphs_poison_the_open_page() {
         vec![[4800, 0xa080]],
         vec![[0x801d, 3]],
         vec![[0x8072, 1]],
+        vec![[0x80ce, 0]],
         vec![[0x8073, 43]],
         vec![[0x8074, 0xffff]],
         vec![[0x8006, 0xa384], [4682, 4350], [4912, 4350]],
@@ -711,6 +712,11 @@ fn controlled_nonpainting_records_preserve_mixed_page_output() {
     assert_eq!(result.unwrap(), 0);
     assert!(finished);
     for (tag, values) in [
+        (0x80ce, &[1][..]),
+        (0x8021, &[0x2000][..]),
+        (0x80d0, &[0][..]),
+        (0x80d1, &[1][..]),
+        (0x80d2, &[0][..]),
         (0x8072, &[0, 0x1042, 0xa3a8, 0xa0f2][..]),
         (0x8073, &[38, 39, 40, 41, 42][..]),
         (0x8074, &[0, 0xb4a2, 0xd4b4, 0x24a7, 0xa1a1, 0xa3a9][..]),

@@ -175,6 +175,18 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
             // encoded value is not a resource path to open.
             NativeRecord::EncodedString { .. } if self.variant == Variant::C8 => (),
             NativeRecord::Control {
+                tag: 0x8021,
+                value: 0x2000,
+            }
+            | NativeRecord::Control {
+                tag: 0x80d0 | 0x80d2,
+                value: 0,
+            }
+            | NativeRecord::Control {
+                tag: 0x80d1,
+                value: 1,
+            } if self.variant == Variant::C8 => (),
+            NativeRecord::Control {
                 tag: 0x8024,
                 value: 0x2800,
             } => self.skew = 0.0,
@@ -236,6 +248,10 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
             // styles, decoration and images. This concerns rendering only;
             // the underlying visitor still exposes every raw control payload.
             NativeRecord::Control {
+                tag: 0x80ce,
+                value: 1,
+            }
+            | NativeRecord::Control {
                 tag: 0x8072,
                 value: 0 | 0x1042 | 0xa3a8 | 0xa0f2,
             }
@@ -258,10 +274,6 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
             | NativeRecord::Control {
                 tag: 0x8069,
                 value: 0x1084,
-            }
-            | NativeRecord::Control {
-                tag: 0x80ce,
-                value: 1,
             }
             | NativeRecord::Control {
                 tag: 0x8072,
