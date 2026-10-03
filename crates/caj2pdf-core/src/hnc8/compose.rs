@@ -696,6 +696,7 @@ where
         check_metadata(plan_bytes + placement_bytes, options.budget)
             .map_err(at.io(ComposeStage::Preflight))?;
         let mut coordinates = Vec::new();
+        let mut page_size = header.page_size;
         if header.variant != Variant::HnB {
             let text = super::text::read_coordinates(
                 reader.source_mut(),
@@ -711,6 +712,7 @@ where
             report.peak_text_working_bytes = report
                 .peak_text_working_bytes
                 .max(text.working_memory_bytes);
+            page_size = text.page_size.or(page_size);
             coordinates = text.coordinates;
         }
         if header.variant != Variant::HnB
@@ -730,8 +732,7 @@ where
             plan_capacity + capacity_bytes::<RawTextCoordinate>(coordinates.capacity());
         check_metadata(planning_peak, options.budget).map_err(at.io(ComposeStage::Preflight))?;
         report.peak_page_metadata_bytes = report.peak_page_metadata_bytes.max(planning_peak);
-        let mut geometry = header
-            .page_size
+        let mut geometry = page_size
             .map(source_page_geometry)
             .transpose()
             .map_err(at.io(ComposeStage::Geometry))?;

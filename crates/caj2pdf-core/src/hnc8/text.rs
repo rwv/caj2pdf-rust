@@ -67,6 +67,9 @@ pub struct RawTextCoordinate {
 #[derive(Debug, Eq, PartialEq)]
 pub struct TextCoordinates {
     pub text: Span,
+    /// Per-page HN-A dimensions from the validated paired `8003` prefix.
+    /// None for other framing; zero values remain inspectable but cannot render.
+    pub page_size: Option<[u16; 2]>,
     /// None for uncompressed records.
     pub zlib_frame: Option<Span>,
     /// Expanded length, or the full indexed raw span including its opaque tail.
@@ -158,6 +161,7 @@ pub(super) async fn read_coordinates<S: RangedSource, C: Cancellation>(
     // The same paired page-prefix records also precede uncompressed HN-A
     // records. Decide only at the indexed start, never by marker searching.
     let mut prefixed_raw = false;
+    let mut page_size = None;
     if header.variant == Variant::HnA && tag == 0x8003 {
         let mut following = [0; 16];
         read_chunks(
@@ -170,13 +174,21 @@ pub(super) async fn read_coordinates<S: RangedSource, C: Cancellation>(
             &mut 0,
         )
         .await?;
+        if following[..2] == [0x03, 0x80] {
+            page_size = Some([
+                u16::from_le_bytes([prefix[2], prefix[3]]),
+                u16::from_le_bytes([following[2], following[3]]),
+            ]);
+        }
         prefixed_raw = following[..2] == [0x03, 0x80]
             && matches!(
                 u16::from_le_bytes([following[4], following[5]]),
                 0x800a | 0x801c
             );
     }
-    if header.variant == Variant::HnA && (prefixed_raw || matches!(tag, 0x8001 | 0x800a | 0x8004)) {
+    let mut result = if header.variant == Variant::HnA
+        && (prefixed_raw || matches!(tag, 0x8001 | 0x800a | 0x8004))
+    {
         raw::read(
             source,
             page,
@@ -208,7 +220,9 @@ pub(super) async fn read_coordinates<S: RangedSource, C: Cancellation>(
             exact_images,
         )
         .await
-    }
+    }?;
+    result.page_size = page_size;
+    Ok(result)
 }
 
 fn location(header: Header, page: PageRecord) -> Location {
@@ -623,6 +637,7 @@ async fn read_compressed_text<S: RangedSource, C: Cancellation>(
     };
     Ok(TextCoordinates {
         text: page.text,
+        page_size: None,
         zlib_frame: Some(zlib_frame),
         decoded_length,
         record_count,

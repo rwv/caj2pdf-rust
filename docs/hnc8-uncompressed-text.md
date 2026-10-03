@@ -229,3 +229,35 @@ stores, compares against the independently validated unmarked PDF, and
 checks cleanup. Workspace Clippy and the existing full coverage gate pass
 (30921/30921 lines). These original controls are separate from external
 whole-document acceptance.
+
+
+## Per-page dimensions in the paired prefix (#258)
+
+The two initial `8003` payloads specify this HN-A page's width and height,
+independently of the document header and image raster. Original controls change
+only prefix width from 320 to 400 or height from 240 to 200, leaving the header,
+image coordinates and JPEG bytes unchanged. Pinned offline CAJViewer changes
+the page frame to the corresponding aspect ratio; the height control clips
+content beyond its shorter page. Repeated interiors match. These controls
+contradict treating the prefix as opaque or always using header dimensions.
+
+`TextCoordinates::page_size` preserves the two words after complete framing
+validation. The shared image-page composer uses them for the page box and image
+y origin; unprefixed HN-A and other variants retain their existing geometry.
+Zero words remain available for inspection but fail composition's existing
+positive-dimension check. No additional source pass, page buffer or decoder is
+introduced. This is a v0.x breaking metadata/output change.
+
+The selected Zhouli page 160 has header height 8678 but prefix/image height 8676.
+Earlier accepted-build output used 8678 for its page. Its old hashes and visual
+receipts remain historical; revised whole-document/public-runtime acceptance is
+required before closing #249. Exact pixel equality is a separate question:
+original offset controls at confirmed 911% and 1862% retain a one-screen-pixel
+top-edge difference, arguing against a fixed physical displacement correction.
+No per-document adjustment or pixel tolerance is added.
+
+The original generator `tools/cajviewer/hna_image_fixture.py` includes independent
+width/height variants and a compressed paired control. External observations,
+input identities and the excluded first height capture are recorded in
+`caj2pdf-hna-zoom-residual-20261002`; source documents and captures remain outside
+Git. Final corrected-frame and cross-runtime validation is still pending.

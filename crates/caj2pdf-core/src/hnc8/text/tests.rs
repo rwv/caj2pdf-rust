@@ -1343,6 +1343,7 @@ fn paired_prefix_raw_records_preserve_extents_hashes_and_chunk_bounds() {
                 &NeverCancel,
             )
             .unwrap();
+        assert_eq!(result.page_size, Some([701, 907]));
         assert_eq!(
             result.coordinates,
             [RawTextCoordinate {

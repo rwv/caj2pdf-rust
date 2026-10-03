@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **Breaking:** use verified HN-A paired `8003` per-page dimensions for page
+  frames and image placement instead of always using document-header dimensions.
+  `hnc8::TextCoordinates` gains `page_size`; update explicit struct literals.
+  Raw and compressed paired pages share the rule. Other framing retains header
+  fallback; zero per-page extents fail explicitly during composition.
+
 - Recover an interrupted indirect Flate prefix anchored by an exact repeat of
   its preceding Length object, only when the final scan proves a complete
   counterpart. Reuse exact-prefix validation for earlier unique counterparts.
