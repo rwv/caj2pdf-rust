@@ -2745,3 +2745,13 @@ decoration and JPEG content. The original implementation reuses the existing
 bounded Control event and rejects other values/profiles. No source-specific
 scanning or foreign code is used; external captures/fonts/corpus remain outside
 Git. Evidence and scope are recorded in `docs/c8-native-controls.md`.
+
+### Additional C8 field-5/6 style aliases
+
+Original MIT `additional_style_documents()` verifies exact `14c6`, `04c6` and
+`14a5` glyph-size aliases across resource and mode controls, with unequal-axis
+sizes as discriminators. The implementation reuses the established field-size
+metrics and retains errors for unobserved combinations. Only original controls
+and code are committed; external corpus, fonts and captures are not. Accepted
+captures and the excluded startup trial are documented in
+`docs/c8-native-controls.md`.

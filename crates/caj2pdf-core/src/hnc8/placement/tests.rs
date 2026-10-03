@@ -455,7 +455,7 @@ fn c8_glyph_origins_are_signed_and_unknown_styles_are_errors() {
     close(b[4] - a[4], -20.0 * EMPIRICAL_COORDINATE_POINTS_PER_UNIT);
     close(b[5] - a[5], 20.0 * EMPIRICAL_COORDINATE_POINTS_PER_UNIT);
     for style in [
-        0x0485, 0x9c85, 0x1485, 0x9084, 0x1004, 0x1080, 0x1024, 0x1089,
+        0x0485, 0x9c85, 0x1485, 0x04c5, 0x14c5, 0x14a4, 0x9084, 0x1004, 0x1080, 0x1024, 0x1089,
     ] {
         assert!(
             empirical_c8_glyph_transform(page(), origin, origin, style, C8GlyphClass::Cjk).is_err()
@@ -600,6 +600,8 @@ fn independently_controlled_variants_preserve_both_glyph_classes() {
     for (reference, styles) in [
         (0x10e7, &[0x04e7, 0x14e7][..]),
         (0x1084, &[0x0484, 0x1484, 0x9c84][..]),
+        (0x10c6, &[0x04c6, 0x14c6][..]),
+        (0x10a5, &[0x14a5][..]),
     ] {
         for class in [C8GlyphClass::Cjk, C8GlyphClass::Latin] {
             let expected =

@@ -236,6 +236,24 @@ def record_9002_documents():
                 yield f"record-{mode}-{state}-{kind}.caj", data
 
 
+def additional_style_documents():
+    """Compare required field-5/6 flags and unequal-axis controls in both modes."""
+    from c8_style_fixture import document as style_document
+
+    for mode, styles in ((None, (0x10C6, 0x14C6, 0x10C5)),
+                         (1, (0x04C6,)), (0, (0x10C6, 0x04C6, 0x10C5)),
+                         (0, (0x10A5, 0x14A5, 0x10A4)),
+                         (1, (0x10A5, 0x14A5, 0x10A4))):
+        for style in styles:
+            suffix = "" if mode is None else f"-mode-{mode}"
+            codes = (0xD6D0, 0xA0C1, 0xD6D0 if mode == 0 else 0xAAB3)
+            yield f"style-{style:04x}{suffix}.caj", style_document(
+                [(style, 0, 6), (style, 4, 6), (style, 28, 6)],
+                codes=codes, width=1000, height=700,
+                first_x=4672, first_y=4334, row_step=180,
+                run_words=() if mode is None else (0x80CE, mode))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("output", type=Path, help="new directory outside the repository")
@@ -252,7 +270,7 @@ def main():
                        *extended_string_documents(), *font_state_documents(),
                        *alphabet_documents(), *field4_style_documents(),
                        *state_axis_documents(), *at_sign_documents(),
-                       *record_9002_documents()):
+                       *record_9002_documents(), *additional_style_documents()):
         (args.output / name).write_bytes(data)
         manifest.append({"file": name, "sha256": hashlib.sha256(data).hexdigest()})
     (args.output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")

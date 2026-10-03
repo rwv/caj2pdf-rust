@@ -498,3 +498,37 @@ four-page input and 4528 in the five-page input. The following glyph is raw
 `aab3` under ordinary Latin resource and ordinary glyph-selection mode. Both
 publish no final PDF. Verify the style against existing field-size controls
 before admitting it; whole-document acceptance remains open in #242.
+
+## Additional field-5/6 style flags (#242)
+
+Thirteen original `additional_style_documents()` controls compare required
+styles `14c6`, `04c6` and `14a5` with supported `10c6`/`10a5` and unequal-axis
+`10c5`/`10a4` discriminators. Three resource rows (0/4/28) contain CJK, Latin
+and the required `aab3` symbol; CJK-mode controls use a CJK anchor in the last
+column instead of admitting an unverified symbol/mode combination.
+
+All inputs reproduce their bytes. Repeated nonblank page interiors
+`(648,531,1023,793)` at 291% agree for each required style and its same-context
+baseline, while the unequal-axis controls differ. `14c6` is observed in ordinary
+mode; `04c6` and `14a5` are additionally controlled in CJK mode. This justifies
+specific field-size aliases, not every possible high-bit combination. The
+shared transform reuses existing metrics; adjacent unverified flags and
+unverified decoration styles remain errors. Both glyph classes retain core
+placement regressions. No new state, allocation or renderer is added.
+
+External receipts under `caj2pdf-hnb-rendering-20261003`:
+`input/c8-style14c6/{manifest,additional-manifest,field5-manifest}.json`,
+`c8-style{14c6,04c6,14a5}-comparison.json`, and the repeated
+identified-family-viewer `field{5,6}-*-{a,b}.png` captures. The initial
+`style-10c6-ready.png` still displayed the viewer's startup document and is
+excluded; `field6-confirmed.png` confirms the correct input before accepted
+captures. These original-marker comparisons do not establish original-font
+raster fidelity.
+
+All thirteen converted controls pass qpdf; five required-style/baseline PDF
+pairs are byte-identical. Receipts: `c8-field56-output/checks.json`. Full-document
+retries now diverge: the four-page source stops at `8024/281c`, page-1 byte
+6272; the five-page source reaches `801d/3`, page-1 byte 19552. Neither publishes
+a final PDF. Verify the required skew state in the four-page source first,
+then the five-page font resource; existing HN-B/other-value observations are
+hypotheses to test, not automatic admission. Full acceptance remains open.
