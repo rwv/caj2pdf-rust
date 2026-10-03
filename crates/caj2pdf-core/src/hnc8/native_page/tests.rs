@@ -734,6 +734,25 @@ fn controlled_nonpainting_records_preserve_mixed_page_output() {
             assert_eq!(pdf, baseline, "control {tag:04x}/{value:04x}");
         }
     }
+    for mode in [0, 1] {
+        let (result, expected, finished) = convert(
+            &make_words(Some(&[[0x80ce, mode]])),
+            1,
+            &[false],
+            roles(),
+            0,
+        );
+        result.unwrap();
+        assert!(finished);
+        for payload in [[342, 5], [420, 7], [0, 0], [0xffff, 0xffff], [0x8004, 1]] {
+            let words = make_words(Some(&[[0x80ce, mode], [0x80cc, 0x0204], payload]));
+            let (result, pdf, finished) = convert(&words, 1, &[false], roles(), 0);
+            result.unwrap();
+            assert!(finished);
+            assert_eq!(pdf, expected);
+            assert!(convert(&words, 1, &[false], roles(), 12).0.is_err());
+        }
+    }
     for payload in [
         "".to_owned(),
         "fixture!".to_owned(),

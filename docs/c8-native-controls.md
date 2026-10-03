@@ -188,3 +188,29 @@ with first payload `(420,5)` / `(342,5)` respectively. No final PDF is
 published. Resolve that required behavior next; the earlier `(33,5)` probe
 alone does not establish arbitrary values. Complete #242 acceptance remains
 open.
+
+## Extended metadata painting checks (#242)
+
+Twelve original `extended_string_documents()` controls exercise `80cc/0204`
+in both ordinary and CJK resource modes. Payloads include the observed
+`(342,5)` and `(420,7)`, zero, both maximum words, and marker-like `(8004,1)`.
+Each record is inserted before glyphs, all three admitted segment forms,
+decoration and an image. Every nonblank source crop repeats exactly and equals
+its same-mode baseline at the existing 486% crop, without registration or
+pixel tolerances. This establishes the scoped painting behavior; it does not
+assign meaning to the raw metadata or establish text-selection semantics.
+
+The composer consumes the existing bounded `ExtendedControl` event without
+changing painting state. The parser still exposes both raw words and treats
+the eight-byte record atomically. Existing short-read, truncation and marker
+payload tests are reused. The original mixed-page rendering test now covers
+these payloads in both modes and rejects inferred HN-B behavior.
+
+All twelve generated inputs reproduce the captured bytes. CLI outputs pass
+qpdf and equal their respective baseline PDF bytes. Receipts remain outside
+Git under `caj2pdf-hnb-rendering-20261003`:
+`c8-extended-string-comparison.json` and `c8-extended-string-output/checks.json`.
+The complete four-/five-page inputs now stop on `801d/28` at page-1 byte
+644/656, followed by a required `a3ca` glyph. Neither publishes final output.
+Investigate that resource state and its required mapping next; full #242
+acceptance remains open.

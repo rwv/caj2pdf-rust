@@ -107,6 +107,22 @@ def mode_documents():
             yield f"mode-{state}-{label}.caj", data
 
 
+def extended_string_documents():
+    """Check atomic metadata payloads in both ordinary and CJK modes."""
+    from c8_image_fixture import jpeg, mixed_control
+
+    for mode in (0, 1):
+        for label, payload in (
+            ("baseline", None), ("source342", (342, 5)),
+            ("source420", (420, 7)), ("zero", (0, 0)),
+            ("max", (65535, 65535)), ("tag", (0x8004, 1)),
+        ):
+            control = [0x80CE, mode]
+            if payload is not None:
+                control.extend((0x80CC, 0x0204, *payload))
+            yield f"extended-{mode}-{label}.caj", mixed_control(jpeg(), control)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("output", type=Path, help="new directory outside the repository")
@@ -119,7 +135,8 @@ def main():
         (args.output / name).write_bytes(data)
         manifest.append({"file": name, "words": words,
                          "sha256": hashlib.sha256(data).hexdigest()})
-    for name, data in (*mixed_documents(), *color_documents(), *mode_documents()):
+    for name, data in (*mixed_documents(), *color_documents(), *mode_documents(),
+                       *extended_string_documents()):
         (args.output / name).write_bytes(data)
         manifest.append({"file": name, "sha256": hashlib.sha256(data).hexdigest()})
     (args.output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")

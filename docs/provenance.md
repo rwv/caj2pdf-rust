@@ -2656,3 +2656,13 @@ boolean to the shared composer; it copies no third-party implementation.
 `docs/c8-native-controls.md` records the eight repeated viewer controls,
 MuPDF geometry/color residuals, original regressions and unsupported glyph
 scope. External screenshots/documents remain outside Git.
+
+### C8 extended metadata painting behavior
+
+Original MIT `extended_string_documents()` controls in the existing native
+control generator compare `80cc/0204` source/extreme/marker-like payloads in
+ordinary and CJK modes. Twelve repeated offline viewer controls preserve
+their painting baselines. The composer reuses the atomic bounded parser event;
+no foreign implementation or new buffering is introduced. Raw metadata stays
+available to visitors. See `docs/c8-native-controls.md` for evidence and scope;
+this does not infer metadata semantics or text-selection behavior.

@@ -178,6 +178,13 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
             // controls preserve font state, glyphs, drawings and images; the
             // encoded value is not a resource path to open.
             NativeRecord::EncodedString { .. } if self.variant == Variant::C8 => (),
+            // Independent mixed controls preserve both ordinary and CJK mode
+            // across source, extreme and marker-like atomic payload values.
+            NativeRecord::ExtendedControl {
+                tag: 0x80cc,
+                value: 0x0204,
+                ..
+            } if self.variant == Variant::C8 => (),
             // Original mixed controls establish black glyphs for this exact
             // payload, retained across later style/resource selections.
             NativeRecord::ExtendedControl {
