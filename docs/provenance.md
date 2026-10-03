@@ -2676,3 +2676,15 @@ without inventing a font mapping. Multiple marker-substituted files prevent
 an original-font identity or state-equivalence claim. See
 `docs/c8-native-controls.md` for repeated evidence and explicit remaining
 rendering/Unicode work; external fonts and captures are not committed.
+
+### Identified original resource markers and C8 fullwidth J
+
+`identified_resource_font` in the existing geometric-font generator modifies
+only original generated outlines, retaining their lookup names and metrics.
+Eighty-four reproducible marker substitutes identify distinct state-28
+`HGB1_CNKI` and state-31 `HGB1X_CNKI` resources in the pinned viewer. Repeated
+controls and fresh ordinary-copy evidence establish C8 `a3ca` as U+FF2A with
+CJK resource/geometry. The shared renderer adds that observed glyph rule;
+no foreign font data or code is committed. `docs/c8-native-controls.md` records
+accepted evidence, excluded startup/name-changing trials and pending font
+transport. Source font files, captures and clipboard payloads stay external.

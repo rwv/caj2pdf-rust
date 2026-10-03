@@ -1671,3 +1671,43 @@ fn c8_cjk_mode_survives_resource_changes_and_one_restores_latin() {
         assert!(convert(&words, 0, &[], roles(), 12).0.is_err());
     }
 }
+
+#[test]
+fn c8_fullwidth_j_uses_cjk_resource_independent_of_latin_selection() {
+    let words = [
+        [0x8001, 4350],
+        [0x8002, 0x1084],
+        [4772, 0xd6d0],
+        [0x8004, 1],
+    ];
+    let (result, baseline, _) = convert(&words, 0, &[], roles(), 0);
+    result.unwrap();
+    let baseline_text = String::from_utf8_lossy(&baseline);
+    let matrix = baseline_text
+        .lines()
+        .find(|line| line.contains(" Tm "))
+        .unwrap();
+    for state in [0, 4] {
+        let words = [
+            [0x8001, 4350],
+            [0x8002, 0x1084],
+            [0x801d, state],
+            [4772, 0xa3ca],
+            [0x8004, 1],
+        ];
+        let (result, pdf, finished) = convert(&words, 0, &[], roles(), 11);
+        result.unwrap();
+        assert!(finished);
+        let text = String::from_utf8_lossy(&pdf);
+        assert!(text.contains("/F0 1 Tf"));
+        assert_eq!(
+            text.lines()
+                .find(|line| line.contains(" Tm "))
+                .unwrap()
+                .split(" Tm ")
+                .next(),
+            matrix.split(" Tm ").next()
+        );
+        assert_eq!(decode_native_character(0xa3ca), Some('Ｊ'));
+    }
+}

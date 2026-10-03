@@ -246,3 +246,53 @@ record boundary. No final PDF is published. Next distinguish the required
 font resources using independently identifiable substitutions, verify the
 required character mapping, and use the existing bounded font transport.
 Full #242 acceptance remains open; this is not conversion support.
+
+## Independently identified resources and fullwidth J (#242)
+
+The original geometric-font helper now provides seven-bit interior markers
+while retaining each generated font's lookup names, metrics and character
+aliases. A separate pinned offline viewer received 84 independently marked
+original fonts. All 84 files reproduce byte-for-byte with
+`identified_resource_font`; no vendor outlines are inputs.
+
+Eight repeated ready-state controls identify the following resources on all
+three glyph rows (the CJK reference glyph always selects `HGHT_CNKI`):
+
+| `801d` state | `a0c1` resource | `a3ca` resource |
+| --- | --- | --- |
+| 0 | `HGBZ_CNKI` | `HGHT_CNKI` |
+| 4 | `HGHZ_CNKI` | `HGHT_CNKI` |
+| 28 | `HGB1_CNKI` | `HGHT_CNKI` |
+| 31 | `HGB1X_CNKI` | `HGHT_CNKI` |
+
+The resource names describe this pinned viewer, not fonts bundled by this
+project. The identified states are distinct; do not alias 28/31 merely because
+the older four-group marker test looked identical. Their existing glyph
+positions remain ordinary Latin versus CJK as previously observed.
+
+Ordinary Copy of the original required first row yields `中Ｊ\r\n`, with a
+fresh sentinel-to-viewer clipboard transition and complete UTF-8 transfer.
+The raw `a3ca` is therefore fullwidth `Ｊ` (U+FF2A), agreeing with the existing
+GB18030 decoder. It uses CJK font/geometry independently of Latin selection.
+The renderer now admits this verified C8 glyph; states 28/31 themselves still
+require explicit font-role transport and remain renderer errors. Tests compare
+the glyph matrix to a CJK reference and verify states 0/4 do not change its
+resource. Both corresponding original mixed CLI controls pass qpdf; independent
+MuPDF extraction finds three U+FF2A characters in each output.
+
+External evidence under `caj2pdf-hnb-rendering-20261003`:
+`identified-family-viewer/manifest.json`, `resource-identities.json`, the
+`*-ready-{a,b}.png` captures, and `required-copy-result.json`; converted controls
+are in `c8-required-j-output/checks.json`. Marker decoding uses the centers of
+seven authored holes; thin vector pixels are excluded from glyph bounds. This
+is resource identification, not pixel-perfect font fidelity. Ordinary Copy is
+selected from its visible menu, not the enhanced-copy shortcut. The Qt
+selection-owner name is checked in the isolated viewer, and freshness/complete
+transfer are verified separately.
+
+Excluded trials: the earlier `identified-font-viewer` renamed lookup families
+and consequently omitted glyphs; these are not valid fidelity evidence. The
+first `identified-family-viewer` ordinary-state-0 capture preceded document
+opening and is superseded by its `ready` capture. Neither trial supports a
+format or Unicode claim. Full-document acceptance remains pending the two
+font roles and subsequent required content in #242.

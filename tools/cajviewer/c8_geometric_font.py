@@ -93,6 +93,36 @@ def font(path, family, units=1000, *, extended_metrics=False, outline_shift=0, d
         generated.save(path)
 
 
+def identified_resource_font(source, destination, marker):
+    """Mark an original generated font without changing lookup names/metrics.
+
+    Only original geometric-control fonts are valid inputs. Seven binary holes
+    distinguish up to 127 resources; this is not a production text font.
+    """
+    if not 1 <= marker <= 127:
+        raise ValueError("resource marker must be between 1 and 127")
+    generated = TTFont(source, recalcTimestamp=False)
+    units = generated["head"].unitsPerEm
+    pen = TTGlyphPen(None)
+
+    def point(x, y):
+        return round(x * units / 1000), round(y * units / 1000)
+
+    pen.moveTo(point(0, 0))
+    for x, y in ((1000, 0), (1000, 1000), (0, 1000)):
+        pen.lineTo(point(x, y))
+    pen.closePath()
+    for bit in range(7):
+        if marker & (1 << bit):
+            x, y = 100 + bit % 4 * 220, 150 + bit // 4 * 500
+            pen.moveTo(point(x, y))
+            for px, py in ((x, y + 180), (x + 120, y + 180), (x + 120, y)):
+                pen.lineTo(point(px, py))
+            pen.closePath()
+    generated["glyf"]["square"] = pen.glyph()
+    generated.save(destination)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("output", type=Path, help="new directory outside the repository")
