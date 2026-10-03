@@ -340,7 +340,7 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
                         NativeRecord::Control { tag, value }
                     }
                     0x8021 if value == 0x2000 => NativeRecord::Control { tag, value },
-                    0x80d0 | 0x80d2 if value == 0 => NativeRecord::Control { tag, value },
+                    0x80d0 | 0x80d2 | 0x9002 if value == 0 => NativeRecord::Control { tag, value },
                     0x80d1 if value == 1 => NativeRecord::Control { tag, value },
                     0x81ff | 0x80cc | 0xc052
                         if matches!((tag, value), (0x81ff, 1..=3) | (0x80cc, 0x0204))

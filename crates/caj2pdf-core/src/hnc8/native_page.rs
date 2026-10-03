@@ -200,7 +200,7 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
                 value: 0x2000,
             }
             | NativeRecord::Control {
-                tag: 0x80d0 | 0x80d2,
+                tag: 0x80d0 | 0x80d2 | 0x9002,
                 value: 0,
             }
             | NativeRecord::Control {

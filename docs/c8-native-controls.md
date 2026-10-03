@@ -467,3 +467,34 @@ page-1 byte 4564 in the four-page input and 4248 in the five-page input. Both
 publish no final PDF. Verify this record's framing and painting-state effects
 with original controls before admitting it; complete-document acceptance stays
 open in #242.
+
+## Four-byte `9002/0` record (#242)
+
+Eight original `record_9002_documents()` controls insert the exact record before
+CJK/Latin glyphs, segments, decoration and a JPEG image. Ordinary/alternate
+resources and ordinary/CJK glyph-selection modes are independently paired;
+black color is set before each insertion. All inputs reproduce their bytes.
+Repeated nonblank viewer page interiors `(648,380,1024,944)` at 486% are equal
+to their respective baselines, including the content following the record.
+This establishes four-byte framing and preservation of the tested painting
+state, without assigning speculative non-painting semantics.
+
+The parser exposes only `9002/0` as an existing Control event; the writer
+consumes it without changing state. HN-B's profile guard continues to reject
+it, and other values remain unsupported. Original tests cover one-byte reads,
+exact subsequent-glyph offsets, invalid values and all incomplete value-word
+lengths. Existing mixed-page tests verify unchanged output in both modes and
+HN-B rejection. No scanning, new event type, state or allocation is introduced.
+
+All eight CLI PDFs pass qpdf, and four same-context PDF pairs are byte-identical.
+External evidence under `caj2pdf-hnb-rendering-20261003`:
+`input/c8-9002/manifest.json`, `c8-9002-comparison.json`, repeated
+identified-family-viewer `record-*-{a,b}.png` captures and
+`c8-9002-output/checks.json`. Original marker-font comparisons do not establish
+original-font raster fidelity.
+
+Complete-document retries now stop on style `14c6` at page-1 byte 4772 in the
+four-page input and 4528 in the five-page input. The following glyph is raw
+`aab3` under ordinary Latin resource and ordinary glyph-selection mode. Both
+publish no final PDF. Verify the style against existing field-size controls
+before admitting it; whole-document acceptance remains open in #242.

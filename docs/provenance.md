@@ -2736,3 +2736,12 @@ ordinary-copy evidence establishes U+FF20, while original marker comparisons
 establish the shared resource/placement rule. The existing decoder and symbol
 range implement that rule without vendor code or font data. Source documents,
 clipboard text and captures remain external; see `docs/c8-native-controls.md`.
+
+### C8 `9002/0` framing and painting preservation
+
+Original MIT mixed controls establish four-byte framing and unchanged painting
+for the exact `9002/0` record in ordinary/CJK modes, with glyphs, line segments,
+decoration and JPEG content. The original implementation reuses the existing
+bounded Control event and rejects other values/profiles. No source-specific
+scanning or foreign code is used; external captures/fonts/corpus remain outside
+Git. Evidence and scope are recorded in `docs/c8-native-controls.md`.

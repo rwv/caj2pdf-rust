@@ -990,6 +990,7 @@ fn additional_controls_preserve_raw_values_without_inventing_glyphs() {
         [0x80d0, 0],
         [0x80d1, 1],
         [0x80d2, 0],
+        [0x9002, 0],
     ];
     for control in controls {
         let mut source = fixture(
@@ -2066,4 +2067,18 @@ fn mode0_required_symbols_and_han_match_original_copy_controls() {
     assert_eq!(decode_native_character_for_mode(2, 0xaab1), Some('∙'));
     assert_eq!(decode_native_character_for_mode(2, 0xa3a7), Some('＇'));
     assert_eq!(decode_native_character_for_mode(2, 0xa3b0), Some('０'));
+}
+
+#[test]
+fn c8_control_9002_requires_its_complete_value_word() {
+    for length in 1..4u32 {
+        let mut source = fixture(&[[0x9002, 0], [0x8004, 1]], 0);
+        source.bytes[84..88].copy_from_slice(&length.to_le_bytes());
+        source.bytes[96..100].copy_from_slice(&(100 + length).to_le_bytes());
+        source.bytes.truncate(100 + length as usize);
+        source.short = 1;
+        let mut visitor = Visitor::default();
+        assert!(parse(&mut source, TextBudget::default(), &mut visitor).is_err());
+        assert!(visitor.events.is_empty());
+    }
 }

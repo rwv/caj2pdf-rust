@@ -721,6 +721,7 @@ fn controlled_nonpainting_records_preserve_mixed_page_output() {
         (0x80d0, &[0][..]),
         (0x80d1, &[1][..]),
         (0x80d2, &[0][..]),
+        (0x9002, &[0][..]),
         (0x8072, &[0, 0x1042, 0xa3a8, 0xa0f2][..]),
         (0x8073, &[38, 39, 40, 41, 42][..]),
         (0x8074, &[0, 0xb4a2, 0xd4b4, 0x24a7, 0xa1a1, 0xa3a9][..]),
@@ -748,6 +749,11 @@ fn controlled_nonpainting_records_preserve_mixed_page_output() {
         );
         result.unwrap();
         assert!(finished);
+        let words = make_words(Some(&[[0x80ce, mode], [0x9002, 0]]));
+        let (result, pdf, finished) = convert(&words, 1, &[false], roles(), 0);
+        assert!(result.is_ok() && finished);
+        assert_eq!(pdf, expected);
+        assert!(convert(&words, 1, &[false], roles(), 12).0.is_err());
         for payload in [[342, 5], [420, 7], [0, 0], [0xffff, 0xffff], [0x8004, 1]] {
             let words = make_words(Some(&[[0x80ce, mode], [0x80cc, 0x0204], payload]));
             let (result, pdf, finished) = convert(&words, 1, &[false], roles(), 0);

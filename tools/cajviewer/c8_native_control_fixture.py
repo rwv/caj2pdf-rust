@@ -221,6 +221,21 @@ def at_sign_documents():
             yield f"at-{state}-{label}.caj", data
 
 
+def record_9002_documents():
+    """Check the observed four-byte control in black ordinary/CJK mixed pages."""
+    from c8_image_fixture import jpeg, mixed_control
+
+    for mode in (0, 1):
+        for state in (0, 4):
+            for kind in ("base", "record"):
+                words = [0x80CE, mode, 0x81FF, 1, 0, 200]
+                if kind == "record":
+                    words.extend((0x9002, 0))
+                data = mixed_control(jpeg(), words).replace(
+                    struct.pack("<HH", 0x801D, 4), struct.pack("<HH", 0x801D, state))
+                yield f"record-{mode}-{state}-{kind}.caj", data
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("output", type=Path, help="new directory outside the repository")
@@ -236,7 +251,8 @@ def main():
     for name, data in (*mixed_documents(), *color_documents(), *mode_documents(),
                        *extended_string_documents(), *font_state_documents(),
                        *alphabet_documents(), *field4_style_documents(),
-                       *state_axis_documents(), *at_sign_documents()):
+                       *state_axis_documents(), *at_sign_documents(),
+                       *record_9002_documents()):
         (args.output / name).write_bytes(data)
         manifest.append({"file": name, "sha256": hashlib.sha256(data).hexdigest()})
     (args.output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
