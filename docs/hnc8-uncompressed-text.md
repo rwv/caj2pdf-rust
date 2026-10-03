@@ -261,3 +261,31 @@ width/height variants and a compressed paired control. External observations,
 input identities and the excluded first height capture are recorded in
 `caj2pdf-hna-zoom-residual-20261002`; source documents and captures remain outside
 Git. Final corrected-frame and cross-runtime validation is still pending.
+
+
+### Compressed image-marker correction
+
+The original paired compressed control exposed an additional placement defect:
+its page frame was correct, but the fixed-layout coordinate reader retained the
+`c000` marker bits, placing the image outside the page. At confirmed 911%, pinned
+CAJViewer renders the marked and unmarked compressed controls identically and
+renders an independently offset image at the expected position. Repeated page
+interiors are stable. These observations extend the existing raw HN-A rule to
+the paired compressed image record `800a d300`; they do not establish a rule for
+all compressed layouts or C8.
+
+Composition now retains just the four preceding marker bytes across decoder
+chunks and applies the shared marker rule to that verified record. Inspection
+continues to report the original words. Nonmatching tags, partial marker bits,
+C8 and the direct compressed-record path retain their prior behavior. No extra
+source pass or page buffer is needed. Original two-image regression tests cover
+one-byte chunks, short reads, marker variants and stable source/decoded hashes.
+The generator includes compressed marked/unmarked and offset controls. Corrected
+PDFs pass qpdf and show the image in the source page frame. At 911%, the full-page
+control has matching black bounds and 269 differing interior pixels; repeated
+captures match. The offset control still differs near the shortened page's lower
+edge (5,659 pixels): its source black horizontal bar begins about nine screen
+pixels above the PDF's. This remaining extent/clipping behavior is not classified
+as renderer-only. #258/#261 retain that investigation and final required CI.
+No pixel tolerance or compensating offset is applied. Full external measurements
+are in `caj2pdf-hna-prefix-viewer-20261002/compressed-fixed-comparison.json`.

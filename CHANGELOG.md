@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Fix marked image coordinates in paired compressed HN-A composition; retain
+  raw coordinate words for inspection. Shortened-page clipping fidelity remains
+  under investigation.
+
+
 - **Breaking:** use verified HN-A paired `8003` per-page dimensions for page
   frames and image placement instead of always using document-header dimensions.
   `hnc8::TextCoordinates` gains `page_size`; update explicit struct literals.

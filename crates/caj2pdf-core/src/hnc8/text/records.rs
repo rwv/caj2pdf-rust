@@ -73,13 +73,11 @@ impl Records {
                     height: u16::from_le_bytes([self.bytes[10], self.bytes[11]]),
                 };
                 let coordinate = &mut coordinates[self.images];
-                if self.decode_raw_hna_markers
-                    && self.bytes[2..4] == [0, 0xd3]
-                    && coordinate.x & 0xc000 == 0xc000
-                    && coordinate.width & 0xc000 == 0xc000
-                {
-                    coordinate.x &= 0x3fff;
-                    coordinate.width &= 0x3fff;
+                if self.decode_raw_hna_markers {
+                    decode_image_markers(
+                        self.bytes[..4].try_into().expect("fixed marker width"),
+                        coordinate,
+                    );
                 }
                 self.images += 1;
             } else {
@@ -134,5 +132,17 @@ impl Records {
         }
         coordinates.truncate(self.images);
         Ok(self.count)
+    }
+}
+
+/// Decode the independently verified HN-A image marker, only for composition.
+/// Other record prefixes and partial marker patterns retain their raw values.
+pub(super) fn decode_image_markers(marker: [u8; 4], coordinate: &mut RawTextCoordinate) {
+    if marker == [0x0a, 0x80, 0, 0xd3]
+        && coordinate.x & 0xc000 == 0xc000
+        && coordinate.width & 0xc000 == 0xc000
+    {
+        coordinate.x &= 0x3fff;
+        coordinate.width &= 0x3fff;
     }
 }

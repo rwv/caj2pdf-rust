@@ -210,16 +210,7 @@ pub(super) async fn read_coordinates<S: RangedSource, C: Cancellation>(
         )
         .await
     } else {
-        read_compressed_text(
-            source,
-            header,
-            page,
-            limits,
-            cancellation,
-            budget,
-            exact_images,
-        )
-        .await
+        read_compressed_text(source, header, page, limits, cancellation, budget, purpose).await
     }?;
     result.page_size = page_size;
     Ok(result)
@@ -393,6 +384,8 @@ struct Accumulator {
     coordinates: Vec<RawTextCoordinate>,
     loc: Location,
     records: Option<records::Records>,
+    image_marker: [u8; 4],
+    decode_hna_markers: bool,
 }
 
 impl Accumulator {
@@ -415,18 +408,25 @@ impl Accumulator {
                         .loc
                         .malformed("decoded text marker", "differs from observed record marker"));
                 }
-            } else if at >= u64::from(self.tail_start) {
-                let relative = at - u64::from(self.tail_start);
+            } else if at >= u64::from(self.tail_start - 4) {
+                // Each fixed-layout image coordinate follows its four-byte
+                // record marker. Retain only that marker across chunk boundaries.
+                let relative = at - u64::from(self.tail_start - 4);
                 let within = relative % 28;
-                if within < 8 {
+                if within < 4 {
+                    self.image_marker[within as usize] = byte;
+                } else if within < 12 {
                     let coordinate = &mut self.coordinates[(relative / 28) as usize];
-                    let word = match within / 2 {
+                    let word = match (within - 4) / 2 {
                         0 => &mut coordinate.x,
                         1 => &mut coordinate.y,
                         2 => &mut coordinate.width,
                         _ => &mut coordinate.height,
                     };
                     *word |= u16::from(byte) << ((within % 2) * 8);
+                    if within == 11 && self.decode_hna_markers {
+                        records::decode_image_markers(self.image_marker, coordinate);
+                    }
                 }
             }
         }
@@ -441,8 +441,9 @@ async fn read_compressed_text<S: RangedSource, C: Cancellation>(
     limits: &Limits,
     cancellation: &C,
     budget: TextBudget,
-    exact_images: bool,
+    purpose: ReadPurpose,
 ) -> Result<TextCoordinates> {
+    let exact_images = purpose == ReadPurpose::Inspect;
     let loc = location(header, page);
 
     let mut max_source_request_bytes = 0;
@@ -546,6 +547,8 @@ async fn read_compressed_text<S: RangedSource, C: Cancellation>(
         tail_start: decoded_bytes.saturating_sub(tail_bytes) as u32,
         coordinates,
         loc: loc.at(zlib_frame.offset),
+        image_marker: [0; 4],
+        decode_hna_markers: header.variant == Variant::HnA && purpose == ReadPurpose::Compose,
         records: (header_bytes == 16)
             .then(|| records::Records::new(budget.max_records, exact_images)),
     };

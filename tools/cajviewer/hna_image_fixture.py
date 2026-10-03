@@ -45,7 +45,10 @@ def main():
                 "unprefixed": {"prefix": False},
                 "prefix-width": {"prefix_size": (400, 240)},
                 "prefix-height": {"prefix_size": (320, 200)},
-                "compressed-prefix-height": {"prefix_size": (320, 200), "compressed": True}}
+                "compressed-prefix-height": {"prefix_size": (320, 200), "compressed": True},
+                "compressed-plain": {"prefix_size": (320, 200), "compressed": True, "markers": False},
+                "compressed-offset": {"prefix_size": (320, 200), "compressed": True,
+                                      "x": 20, "y": 30, "width": 280, "height": 180}}
     manifest = []
     for name, parameters in controls.items():
         data = document(payload, **parameters)
