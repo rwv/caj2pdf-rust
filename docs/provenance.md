@@ -2516,3 +2516,9 @@ control. Held-out coordinates and both resource states validate +4/-6 relative
 x offsets. The shared page writer, native document route and CLI/WASM dispatch
 reuse existing bounded I/O and fonts. Original compact multi-page tests cover
 late failure; real-document marker-font output is not claimed as visual fidelity.
+
+The JavaScript HN-B adapter regression uses an original two-page compact wrapper
+around this repository's authored geometric-font A record. It is exercised by
+the existing Node and actual Worker font tests; no external corpus or font
+outline enters the fixture. Runtime equality and cleanup evidence are recorded
+separately from source fidelity in `hnb-compact-index.md`.

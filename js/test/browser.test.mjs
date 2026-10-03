@@ -176,13 +176,13 @@ test("Chromium: multi-image HN converts with bookmarks through Worker OPFS", opt
   assert.ok(Buffer.from(result.type1Pdf).includes(syntheticType1Hn().jpeg));
   assert.deepEqual(result.remainingEntries, []);
   assert.deepEqual(result.fontFailures, ["missing-glyph", "read-error", "cancel"]);
-  assert.equal(result.nativePdfs.length, 2);
+  assert.equal(result.nativePdfs.length, 3);
   assert.ok(result.fontMaxRead > 0 && result.fontMaxRead <= 32);
   for (const [index, bytes] of result.nativePdfs.entries()) {
     const pdf = Buffer.from(bytes);
     assert.equal(pdf.toString("latin1").match(/\/FontFile2 /g).length, 1);
-    assert.equal(pdf.toString("latin1").match(/<0041> Tj/g).length, index + 1);
-    await validatePdf(t, pdf, 1);
+    assert.equal(pdf.toString("latin1").match(/<0041> Tj/g).length, [1, 2, 2][index]);
+    await validatePdf(t, pdf, [1, 1, 2][index]);
   }
   assert.equal(result.standardPages, 1);
   await validatePdf(t, new Uint8Array(result.standardPdf), 1);

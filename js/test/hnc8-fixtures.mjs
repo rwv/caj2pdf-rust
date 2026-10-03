@@ -174,3 +174,19 @@ export function syntheticNativeC8(mixed = false) {
   u32(96, bytes.length);
   return bytes;
 }
+
+/** Original two-page compact HN-B text fixture using bare page ends. */
+export function syntheticNativeHnb() {
+  const text = syntheticNativeC8().slice(100, -2);
+  const bytes = new Uint8Array(240 + text.length * 2);
+  const view = new DataView(bytes.buffer);
+  const u32 = (at, value) => view.setUint32(at, value, true);
+  bytes.set([0x48, 0x4e]); u32(4, 200); u32(8, 136); u32(144, 2);
+  view.setUint16(168, 100, true); view.setUint16(170, 200, true);
+  for (let page = 0; page < 2; page++) {
+    const offset = 240 + page * text.length;
+    u32(216 + page * 12, offset); u32(220 + page * 12, text.length);
+    bytes.set(text, offset);
+  }
+  return bytes;
+}

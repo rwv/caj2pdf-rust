@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 import { blobSource, convert, loadModule, spoolToOpfs, syncAccessHandleScratch } from "../browser.mjs";
-import { qmStates, syntheticNativeC8, syntheticHn, syntheticType1Hn, syntheticPrefixedHn } from "./hnc8-fixtures.mjs";
+import { qmStates, syntheticNativeC8, syntheticNativeHnb, syntheticHn, syntheticType1Hn, syntheticPrefixedHn } from "./hnc8-fixtures.mjs";
 
 const root = await navigator.storage.getDirectory();
 const names = [];
@@ -52,14 +52,14 @@ try {
     return rangedFont.readAt(offset, Math.min(length, 3), signal);
   } };
   const nativePdfs = [];
-  for (const mixed of [false, true]) {
+  for (const [input, pages] of [[syntheticNativeC8(), 1], [syntheticNativeC8(true), 1], [syntheticNativeHnb(), 2]]) {
     const pdf = [];
-    const native = await convert(module, blobSource(new Blob([syntheticNativeC8(mixed)])), {
+    const native = await convert(module, blobSource(new Blob([input])), {
       async writeChunk(bytes) { pdf.push(...bytes); return bytes.length; }, async flush() {},
     }, { includeBookmarks: false, chunkSize: 32, hnc8: {
       fonts: { cjk: font, latin: font, alternateLatin: font }, qmStates, scratch,
     } });
-    if (native.pagesConverted !== 1) throw new Error("native C8 page count mismatch");
+    if (native.pagesConverted !== pages) throw new Error("native C8/HN-B page count mismatch");
     nativePdfs.push(pdf);
   }
   const fontFailures = [];
