@@ -1822,3 +1822,31 @@ expected image dimensions (848x251, 866x388, 666x172). This uses explicitly
 supplied external diagnostic fonts and decoded image sidecars. It does not
 prove source-font fidelity, complete visual parity, production codec
 orchestration, or public CLI/Node/browser acceptance. Those remain #233/#252.
+
+
+### Shared-codec document checkpoint (2026-10-02)
+
+`convert_c8_native_pdf` now orchestrates fonts, the existing image preflight
+and emitters, and the streaming native-page writer. `C8FontSources` supplies
+one to four ranged sources plus role indices; several roles may reuse one
+source. Each distinct supplied resource is embedded once per document.
+No image sidecars, new codecs, font discovery or document-content buffers
+are required. Per-page storage consists of image handles and orientations;
+existing decoder scratch and PDF indexes retain their existing budgets.
+
+An external run of the pinned six-page source completes with two type-0
+images, one type-3 image and four text-only pages. It explicitly opts into
+the existing HN/C8 unused-refinement-template policy. qpdf accepts the PDF;
+all six page rasters at 72 DPI match the previous sidecar-based diagnostic
+exactly, without registration or tolerance. This validates orchestration
+against that diagnostic, not independent CAJViewer fidelity. Explicit
+external fonts remain diagnostic resources, with ordinary roles sharing
+one font and decoration using another. Output is 13,782,485 bytes, compared
+with 37,700,531 bytes when the diagnostic embedded the same ordinary font
+three times. These figures are not peak-memory measurements.
+
+The report's page-metadata and row-store counters concern those specific
+allocations; they are not whole-process/WASM peaks. Native record traversal
+uses fixed buffers rather than a decompressed text allocation. The existing
+CLI/Node/browser entry points still need #252 resource transport before
+this core entry point establishes public-adapter support.

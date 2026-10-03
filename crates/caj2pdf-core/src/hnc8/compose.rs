@@ -6,7 +6,9 @@
 
 use super::convert::{Type0DecodeSettings, Type0PdfError, Type0PdfErrorKind, Type0PdfOptions};
 use super::placement::{source_image_transform, source_page_geometry};
+mod native;
 mod type3;
+pub use native::{C8FontSources, convert_c8_native_pdf};
 
 use super::convert_jbig2::{Type3PdfError, Type3PdfOptions, preflight_type3};
 use super::convert_jpeg::{CheckedType2, Type2PdfError, emit_type2_xobject, preflight_type2};
@@ -800,22 +802,7 @@ where
     let mut document = PdfDocument::new(sink, limits, cancellation)
         .await
         .map_err(document_at.io(ComposeStage::Pdf))?;
-    let mut report = ComposeReport {
-        conversion: ConversionReport::default(),
-        source_variant: header.variant,
-        source_pages: header.page_count,
-        output_pages: 0,
-        no_image_pages: 0,
-        type0_images: 0,
-        jpeg_images: 0,
-        type3_images: 0,
-        duplicate_image_records: 0,
-        peak_page_metadata_bytes: 0,
-        peak_text_working_bytes: 0,
-        peak_row_store_bytes: 0,
-        row_store_read_bytes: 0,
-        row_store_written_bytes: 0,
-    };
+    let mut report = ComposeReport::new(header);
     let mut contexts = None;
     while let Some(page) = reader
         .next_page()
@@ -1068,3 +1055,24 @@ where
 
 #[cfg(test)]
 mod tests;
+
+impl ComposeReport {
+    fn new(header: Header) -> Self {
+        Self {
+            conversion: ConversionReport::default(),
+            source_variant: header.variant,
+            source_pages: header.page_count,
+            output_pages: 0,
+            no_image_pages: 0,
+            type0_images: 0,
+            jpeg_images: 0,
+            type3_images: 0,
+            duplicate_image_records: 0,
+            peak_page_metadata_bytes: 0,
+            peak_text_working_bytes: 0,
+            peak_row_store_bytes: 0,
+            row_store_read_bytes: 0,
+            row_store_written_bytes: 0,
+        }
+    }
+}

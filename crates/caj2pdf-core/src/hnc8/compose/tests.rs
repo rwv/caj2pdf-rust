@@ -2887,3 +2887,5 @@ fn raw_hna_marked_images_keep_full_page_and_offset_geometry() {
         assert_eq!(sink.bytes, reference.sink.bytes);
     }
 }
+
+mod native_document;
