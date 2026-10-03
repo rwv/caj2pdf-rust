@@ -13,7 +13,7 @@ use caj2pdf_core::{
 
 #[derive(Default)]
 pub(super) struct Fonts {
-    sizes: [u64; 6],
+    sizes: [u64; 8],
     count: usize,
     roles: Option<caj2pdf_core::hnc8::C8PageFonts>,
 }
@@ -29,14 +29,20 @@ impl Fonts {
         self.count += 1;
         self.count as u32
     }
-    pub(super) fn set_latin_state3(&mut self, index: u32) -> bool {
+    pub(super) fn set_latin_state(&mut self, state: u32, index: u32) -> bool {
         let Some(roles) = &mut self.roles else {
             return false;
         };
-        if index as usize >= self.count || roles.latin_state3.is_some() {
+        let role = match state {
+            3 => &mut roles.latin_state3,
+            28 => &mut roles.latin_state28,
+            31 => &mut roles.latin_state31,
+            _ => return false,
+        };
+        if index as usize >= self.count || role.is_some() {
             return false;
         }
-        roles.latin_state3 = Some(index as usize);
+        *role = Some(index as usize);
         true
     }
 
@@ -81,6 +87,8 @@ impl Fonts {
             decoration,
             symbols,
             latin_state3: None,
+            latin_state28: None,
+            latin_state31: None,
         });
         true
     }
@@ -218,7 +226,7 @@ pub(super) async fn convert(
         let roles = fonts.roles.ok_or(Error::InvalidInput {
             reason: "C8 font resources require explicit roles",
         })?;
-        let mut sources = std::array::from_fn::<_, 6, _>(|index| BridgeSource {
+        let mut sources = std::array::from_fn::<_, 8, _>(|index| BridgeSource {
             resource: index as u32 + 1,
             shared: Rc::clone(&source.shared),
             size: fonts.sizes[index],

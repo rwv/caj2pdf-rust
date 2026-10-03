@@ -25,8 +25,11 @@ pub struct C8PageFonts {
     /// Semantic symbols and spaces in the controlled HN-B mode-0 profile.
     /// Required only when a page uses that resource; never an implicit fallback.
     pub symbols: Option<usize>,
-    /// Explicit HN-B Latin resource selected by `801d/3`.
+    /// Explicit HN-B/C8 Latin resource selected by `801d/3`.
     pub latin_state3: Option<usize>,
+    /// Explicit C8 Latin resources selected by `801d/28` and `801d/31`.
+    pub latin_state28: Option<usize>,
+    pub latin_state31: Option<usize>,
 }
 
 /// Write and finish the current C8 or text/vector HN-B native page using already embedded resources.
@@ -130,6 +133,8 @@ where
         axes: [None; 2],
         latin: roles.latin,
         skew: 0.0,
+        gray: 68,
+        cjk_mode: false,
         variant: header.variant,
         legacy,
     };
@@ -153,6 +158,8 @@ struct PageWriter<'p, 'd, 'a, 'r, W: SequentialSink, C: Cancellation> {
     axes: [Option<u16>; 2],
     latin: usize,
     skew: f64,
+    gray: u8,
+    cjk_mode: bool,
     variant: Variant,
     legacy: bool,
 }
@@ -170,6 +177,40 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
         }
         match record {
             NativeRecord::Control { tag: 0x8001, .. } => (), // y is carried by each glyph.
+            // The parser validates the bounded ASCII payload. Original mixed
+            // controls preserve font state, glyphs, drawings and images; the
+            // encoded value is not a resource path to open.
+            NativeRecord::EncodedString { .. } if self.variant == Variant::C8 => (),
+            // Independent mixed controls preserve both ordinary and CJK mode
+            // across source, extreme and marker-like atomic payload values.
+            NativeRecord::ExtendedControl {
+                tag: 0x80cc,
+                value: 0x0204,
+                ..
+            } if self.variant == Variant::C8 => (),
+            // Original mixed controls establish black glyphs for this exact
+            // payload, retained across later style/resource selections.
+            NativeRecord::ExtendedControl {
+                tag: 0x81ff,
+                value: 1..=3,
+                words: [0, 200],
+            } if self.variant == Variant::C8 => self.gray = 0,
+            NativeRecord::Control {
+                tag: 0x8021,
+                value: 0x2000,
+            }
+            | NativeRecord::Control {
+                tag: 0x80d0 | 0x80d2 | 0x80d5 | 0x9002,
+                value: 0,
+            }
+            | NativeRecord::Control {
+                tag: 0x80d3,
+                value: 0..=2,
+            }
+            | NativeRecord::Control {
+                tag: 0x80d1,
+                value: 1,
+            } if self.variant == Variant::C8 => (),
             NativeRecord::Control {
                 tag: 0x8024,
                 value: 0x2800,
@@ -178,6 +219,10 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
                 tag: 0x8024,
                 value: 0x281d,
             } => self.skew = 0.24,
+            NativeRecord::Control {
+                tag: 0x8024,
+                value: 0x281c,
+            } if self.variant == Variant::C8 => self.skew = 0.225,
             NativeRecord::Control {
                 tag: 0x8024,
                 value: 0x2815,
@@ -189,7 +234,15 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
             NativeRecord::Control {
                 tag: 0x801c,
                 value: 4,
-            } if self.variant == Variant::HnB => (),
+            } => (),
+            NativeRecord::Control {
+                tag: 0x8070,
+                value: 4,
+            } if self.variant == Variant::C8 => self.axes[0] = Some(4),
+            NativeRecord::Control {
+                tag: 0x8071,
+                value: 4,
+            } if self.variant == Variant::C8 => self.axes[1] = Some(4),
             NativeRecord::Control {
                 tag: 0x8070,
                 value: value @ (28 | 43),
@@ -217,20 +270,43 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
             NativeRecord::Control {
                 tag: 0x801d,
                 value: 3,
-            } if self.variant == Variant::HnB => {
+            } => {
                 self.latin = self
                     .roles
                     .latin_state3
-                    .ok_or_else(|| invalid("missing HN-B state-3 Latin font resource"))?;
+                    .ok_or_else(|| invalid("missing state-3 Latin font resource"))?;
+            }
+            NativeRecord::Control {
+                tag: 0x801d,
+                value: state @ (28 | 31),
+            } if self.variant == Variant::C8 => {
+                self.latin = if state == 28 {
+                    self.roles.latin_state28
+                } else {
+                    self.roles.latin_state31
+                }
+                .ok_or_else(|| invalid("missing C8 extended-state Latin font resource"))?;
             }
             // Independently controlled ordinary resource combinations.
             NativeRecord::Control {
                 tag: 0x8067,
                 value: 5 | 6 | 8 | 9,
             } => (),
-            // Original mixed controls preserve glyphs, all admitted segment
-            // styles, decoration and images. This concerns rendering only;
-            // the underlying visitor still exposes every raw control payload.
+            // C8 zero mode persists across style/resource selections; one
+            // restores the ordinary per-code resource and placement rules.
+            NativeRecord::Control {
+                tag: 0x80ce,
+                value: 0,
+            } if self.variant == Variant::C8 => self.cjk_mode = true,
+            NativeRecord::Control {
+                tag: 0x80ce,
+                value: 1,
+            } => self.cjk_mode = false,
+            // Independent mixed-page controls preserve painting for opaque values.
+            NativeRecord::Control {
+                tag: 0x8073 | 0x8074,
+                ..
+            } if self.variant == Variant::C8 => (),
             NativeRecord::Control {
                 tag: 0x8072,
                 value: 0 | 0x1042 | 0xa3a8 | 0xa0f2,
@@ -254,10 +330,6 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
             | NativeRecord::Control {
                 tag: 0x8069,
                 value: 0x1084,
-            }
-            | NativeRecord::Control {
-                tag: 0x80ce,
-                value: 1,
             }
             | NativeRecord::Control {
                 tag: 0x8072,
@@ -288,8 +360,18 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
                 } else {
                     style
                 };
-                let character = decode_native_character(code)
-                    .ok_or_else(|| invalid("unsupported C8 native character"))?;
+                if self.variant == Variant::HnB
+                    && self.axes == [None; 2]
+                    && matches!(style, 0x1000 | 0x1001 | 0x1020)
+                {
+                    return Err(invalid("unverified HN-B mode-2 zero-field glyph style"));
+                }
+                let character = match (self.variant, code) {
+                    (Variant::C8, 0x006c) => 'l',
+                    (Variant::C8, 0x0070) => 'p',
+                    _ => decode_native_character(code)
+                        .ok_or_else(|| invalid("unsupported C8 native character"))?,
+                };
                 if style == 0x114a && self.variant != Variant::HnB {
                     return Err(invalid("unverified C8 title style"));
                 }
@@ -299,7 +381,17 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
                 {
                     return Err(invalid("unverified large native glyph class"));
                 }
-                let axis_offset = if self.variant == Variant::HnB {
+                let axis_offset = if self.variant == Variant::C8
+                    && self.axes == [None; 2]
+                    && matches!(code, 0xa3db | 0xa3dd)
+                {
+                    match style {
+                        0x1021 => Some((21.0, 3.0)),
+                        0x1022 => Some((21.0, 1.0)),
+                        0x1041 => Some((24.0, 3.0)),
+                        _ => None,
+                    }
+                } else if self.variant == Variant::HnB {
                     match (self.axes, code) {
                         ([Some(43), Some(43)], 0xa3a8) => Some((27.0, -4.0)),
                         ([Some(43), Some(43)], 0xa1b0 | 0xa1b1 | 0xa3a9) => Some((25.0, -4.0)),
@@ -331,10 +423,31 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
                 {
                     return Err(invalid("unverified explicit-axis punctuation offsets"));
                 }
+                if matches!(
+                    code,
+                    0xa1a4 | 0xa1af | 0xa1b0 | 0xa1b1 | 0xa3a8 | 0xa3a9 | 0xa3db | 0xa3dd
+                ) && self.axes == [None; 2]
+                    && axis_offset.is_none()
+                    && (!matches!((style >> 5) & 31, 2..=8) || !matches!(style & 31, 2..=8))
+                {
+                    return Err(invalid("unverified native punctuation size fields"));
+                }
                 let latin = self.latin;
                 // Select by raw code: Unicode alone does not establish the
                 // resource or placement of the source's symbol variants.
                 let (class, font, baseline_fraction) = match code {
+                    // These observed low-byte C8 letters retain the CJK resource
+                    // and symbol baseline in both glyph-selection modes.
+                    0x006c | 0x0070 => (C8GlyphClass::Cjk, self.roles.cjk, Some(0.0)),
+                    _ if self.cjk_mode => {
+                        if !character.is_ascii_alphanumeric()
+                            && !('\u{3400}'..='\u{9fff}').contains(&character)
+                            && !matches!(code, 0xa3c1..=0xa3da | 0xa3e1..=0xa3fa)
+                        {
+                            return Err(invalid("unverified C8 CJK-mode glyph placement"));
+                        }
+                        (C8GlyphClass::Cjk, self.roles.cjk, None)
+                    }
                     0xa0a6
                     | 0xa0ae
                     | 0xa0af
@@ -349,7 +462,7 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
                     | 0xa3a3
                     | 0xa3a5
                     | 0xa3ab..=0xa3b9
-                    | 0xa3bb..=0xa3bf
+                    | 0xa3bb..=0xa3c0
                     | 0xa3dc
                     | 0xa3fb
                     | 0xa3fd => (C8GlyphClass::Cjk, latin, Some(0.0)),
@@ -358,15 +471,26 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
                     0xa1c6 | 0xa1c8 | 0xa9aa | 0xaab3 | 0xaca3 => {
                         (C8GlyphClass::Cjk, self.roles.latin, Some(0.0))
                     }
-                    0xa0ad | 0xa3c0 if self.variant == Variant::HnB => {
+                    0xa1ce if self.variant == Variant::C8 => {
+                        // Original following-glyph controls confirm this persistent reset.
+                        self.latin = self.roles.latin;
+                        (C8GlyphClass::Cjk, self.latin, Some(0.0))
+                    }
+                    0xa1c1 | 0xa1de | 0xa1e4 | 0xa6b8 | 0xa6c4 | 0xa6c5 | 0xa6c8
+                        if self.variant == Variant::C8 =>
+                    {
                         (C8GlyphClass::Cjk, latin, Some(0.0))
                     }
+                    0xa0ad if self.variant == Variant::HnB => (C8GlyphClass::Cjk, latin, Some(0.0)),
                     0xa1a4 | 0xa3ba => (C8GlyphClass::Cjk, latin, Some(1.0 / 8.0)),
                     0xa1b0 | 0xa1b1 | 0xa1b2 | 0xa1b3 | 0xa1b6 | 0xa1b7 | 0xa3a8 | 0xa3a9 => {
                         (C8GlyphClass::Cjk, latin, None)
                     }
                     0xa3db | 0xa3dd => (C8GlyphClass::Cjk, self.roles.latin, None),
                     0xa1a1 => (C8GlyphClass::Cjk, self.roles.cjk, None),
+                    0xa3c1..=0xa3da | 0xa3e1..=0xa3fa if self.variant == Variant::C8 => {
+                        (C8GlyphClass::Cjk, self.roles.cjk, None)
+                    }
                     0xa1a2 => (C8GlyphClass::Latin, latin, None),
                     0xa1a3 if self.variant == Variant::HnB => (C8GlyphClass::Latin, latin, None),
                     _ if character.is_ascii_alphanumeric() => (C8GlyphClass::Latin, latin, None),
@@ -457,14 +581,53 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
                     // Measured width-relative shear; style changes retain it.
                     transform[2] = transform[0] * self.skew;
                 }
-                // Original source controls establish this gray for the admitted
-                // ordinary text profile; keep it local to each glyph draw.
+                // Keep the verified current gray local to each glyph draw.
                 self.page
-                    .glyph_with_gray(font, character, transform, 68)
+                    .glyph_with_gray(font, character, transform, self.gray)
                     .await?;
             }
-            NativeRecord::Drawing { .. } | NativeRecord::Image { .. } if self.skew != 0.0 => {
+            NativeRecord::Drawing { .. }
+            | NativeRecord::Image { .. }
+            | NativeRecord::ImageReference { .. }
+                if self.skew != 0.0 =>
+            {
                 return Err(invalid("unverified drawing or image in skewed text state"));
+            }
+            NativeRecord::Drawing {
+                tag: 0x8090,
+                style: _,
+                points: [[raw_x, y], [raw_width, height]],
+            } => {
+                // The radical value word is opaque and does not change painting state.
+                let flags = raw_x & 0xc000;
+                let width = raw_width & 0x3fff;
+                if !matches!(flags, 0 | 0xc000)
+                    || raw_width & 0xc000 != flags
+                    || y & 0xc000 != 0
+                    || height & 0xc000 != 0
+                    || width < 30
+                    || height < 45
+                    || self.axes != [None; 2]
+                {
+                    return Err(invalid("unverified C8 radical flags, dimensions or axes"));
+                }
+                let unit = super::EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
+                let [left, _, _, top] = self.geometry.media_box()?;
+                let x = f64::from(raw_x & 0x3fff) - f64::from(self.origin[0]);
+                let y = f64::from(y) - f64::from(self.origin[1]);
+                let width = f64::from(width);
+                let height = f64::from(height);
+                let path = [
+                    [x - 45.0, y + height - 25.0],
+                    [x - 25.0, y + height - 45.0],
+                    [x + 10.0, y + height],
+                    [x + 30.0, y],
+                    [x + width + 20.0, y],
+                ]
+                .map(|[x, y]| [left + x * unit, top - y * unit]);
+                self.page
+                    .stroke_polyline(&path, 4.0 * unit, self.gray)
+                    .await?;
             }
             NativeRecord::Drawing {
                 tag: 0x8006,
@@ -513,19 +676,12 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
                 if words[5..].iter().any(|word| word & 0xff00 != 0xc000) {
                     return Err(invalid("unverified C8 native image payload"));
                 }
-                let unit = super::EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
-                let x = (f64::from(coordinate.x) - f64::from(self.origin[0])) * unit;
-                let y = self.geometry.size.height_points
-                    - (f64::from(coordinate.y) - f64::from(self.origin[1])) * unit;
-                let width = f64::from(coordinate.width) * unit;
-                let height = f64::from(coordinate.height) * unit;
-                let mut transform = [width, 0.0, 0.0, -height, x, y];
-                if self.top_first[self.image] {
-                    transform[3] = height;
-                    transform[5] -= height;
-                }
-                self.page.image(self.image, transform).await?;
-                self.image += 1;
+                self.draw_image(coordinate).await?;
+            }
+            NativeRecord::ImageReference { coordinate, .. } if self.variant == Variant::C8 => {
+                // Independent swapped-name controls establish descriptor order.
+                // The bounded reference span remains opaque; never open it.
+                self.draw_image(coordinate).await?;
             }
             NativeRecord::Control {
                 tag: 0xffff,
@@ -539,6 +695,26 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
 }
 
 impl<W: SequentialSink, C: Cancellation> PageWriter<'_, '_, '_, '_, W, C> {
+    async fn draw_image(&mut self, coordinate: super::RawTextCoordinate) -> crate::Result<()> {
+        if coordinate.width == 0 || coordinate.height == 0 {
+            return Err(invalid("native image extents must be nonzero"));
+        }
+        let unit = super::EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
+        let x = (f64::from(coordinate.x) - f64::from(self.origin[0])) * unit;
+        let y = self.geometry.size.height_points
+            - (f64::from(coordinate.y) - f64::from(self.origin[1])) * unit;
+        let width = f64::from(coordinate.width) * unit;
+        let height = f64::from(coordinate.height) * unit;
+        let mut transform = [width, 0.0, 0.0, -height, x, y];
+        if self.top_first[self.image] {
+            transform[3] = height;
+            transform[5] -= height;
+        }
+        self.page.image(self.image, transform).await?;
+        self.image += 1;
+        Ok(())
+    }
+
     async fn visit_mode_zero(&mut self, record: NativeRecord) -> crate::Result<()> {
         match record {
             NativeRecord::Control { tag: 0x8001, .. }

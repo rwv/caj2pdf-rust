@@ -521,6 +521,8 @@ fn cancellation_and_abandoned_draws_cannot_publish_a_partial_page() {
         (true, 3),
         (false, 4),
         (true, 4),
+        (false, 5),
+        (true, 5),
     ] {
         let mut source = FontSource::new();
         let limits = Limits::default();
@@ -534,7 +536,10 @@ fn cancellation_and_abandoned_draws_cannot_publish_a_partial_page() {
         let fonts = [&font];
         let mut page = run(document.begin_content_page(page(), &fonts, &[])).unwrap();
         let draw = async {
-            if kind == 1 {
+            if kind == 5 {
+                page.stroke_polyline(&[[10.0, 10.0], [30.0, 20.0]], 2.0, 68)
+                    .await
+            } else if kind == 1 {
                 page.fill_polygon(&[[10.0, 10.0], [30.0, 10.0], [20.0, 30.0]])
                     .await
             } else if kind == 4 {
@@ -603,4 +608,49 @@ fn notdef_is_missing_and_postscript_hash_is_escaped() {
         document.finish().await.unwrap();
     });
     assert!(String::from_utf8_lossy(&sink.bytes).contains("/FontName /#23ajFixture"));
+}
+
+#[test]
+fn joined_stroke_preserves_vertices_gray_and_failure_state() {
+    let limits = Limits::default();
+    let mut sink = Sink::default();
+    run(async {
+        let mut document = PdfDocument::new(&mut sink, &limits, &NEVER).await.unwrap();
+        let mut content = document.begin_content_page(page(), &[], &[]).await.unwrap();
+        content
+            .stroke_polyline(&[[10.0, 10.0], [20.0, 30.0], [40.0, 30.0]], 2.0, 68)
+            .await
+            .unwrap();
+        content.finish().await.unwrap();
+        document.finish().await.unwrap();
+    });
+    let text = String::from_utf8_lossy(&sink.bytes)
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    assert!(text.contains("q 0 J 0 j 10 M 2 w 0.266667 G 10 10 m 20 30 l 40 30 l S Q"));
+    for case in 0..9 {
+        let mut sink = Sink::default();
+        let fail = sink.fail_now.clone();
+        run(async {
+            let mut document = PdfDocument::new(&mut sink, &limits, &NEVER).await.unwrap();
+            let mut content = document.begin_content_page(page(), &[], &[]).await.unwrap();
+            let mut points = vec![[0.0, 0.0], [20.0, 30.0]];
+            let mut width = 2.0;
+            match case {
+                0 => points.clear(),
+                1 => points.resize(9, [0.0, 0.0]),
+                2 => width = -1.0,
+                3 => width = f64::NAN,
+                4 => points[1][0] = f64::INFINITY,
+                5 => points[1][1] = f64::NAN,
+                6 => fail.set(true),
+                7 => content.failed = true,
+                _ => width = MAX_PDF_INTEGER as f64 + 1.0,
+            }
+            assert!(content.stroke_polyline(&points, width, 0).await.is_err());
+            assert!(content.finish().await.is_err());
+            assert!(document.finish().await.is_err());
+        });
+    }
 }

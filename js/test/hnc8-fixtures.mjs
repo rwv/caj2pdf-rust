@@ -158,8 +158,9 @@ export function syntheticPrefixedHn(markers = false) {
 }
 
 /** Original native C8 page: geometric-font A, optionally a type-0 image, then A. */
-export function syntheticNativeC8(mixed = false) {
+export function syntheticNativeC8(mixed = false, latinState) {
   const words = [[0x8001, 60], [0x8002, 0x1084], [30, 0xa0c1]];
+  if (latinState !== undefined) words.splice(2, 0, [0x801d, latinState]);
   if (mixed) words.push([0x800a, 0xd300], [0xc014, 40], [0xc050, 40], [0xc050, 0xc033], [0xc037, 0xc000], [0xc06c, 0xc032], [0xc0f2, 0xc07a], [45, 0xa0c1]);
   words.push([0x8004, 39]);
   const end = 100 + words.length * 4;

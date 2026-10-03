@@ -974,19 +974,25 @@ fn font_configuration_rejects_invalid_or_late_resources() {
     assert_eq!(engine.add_font_source(0), 0);
     assert_eq!(engine.add_font_source(u64::MAX), 0);
     assert!(!engine.set_c8_fonts(0, 0, 0, u32::MAX, 0, u32::MAX));
-    for id in 1..=6 {
+    for id in 1..=8 {
         assert_eq!(engine.add_font_source(100), id);
     }
     assert_eq!(engine.add_font_source(100), 0);
-    for (decoration, alias) in [(6, 65), (0, 0xd800), (0, 0x10000)] {
+    for (decoration, alias) in [(8, 65), (0, 0xd800), (0, 0x10000)] {
         assert!(!engine.set_c8_fonts(0, 0, 0, decoration, alias, u32::MAX));
     }
-    assert!(!engine.set_c8_fonts(0, 1, 2, u32::MAX, 0, 6));
+    assert!(!engine.set_c8_fonts(0, 1, 2, u32::MAX, 0, 8));
     assert!(!engine.set_c8_latin_state3(5));
     assert!(engine.set_c8_fonts(0, 1, 2, 3, 65, 4));
-    assert!(!engine.set_c8_latin_state3(6));
+    assert!(!engine.set_c8_latin_state3(8));
     assert!(engine.set_c8_latin_state3(5));
     assert!(!engine.set_c8_latin_state3(5));
+    assert!(!engine.set_c8_latin_state(99, 6));
+    for (state, index) in [(28, 6), (31, 7)] {
+        assert!(!engine.set_c8_latin_state(state, 8));
+        assert!(engine.set_c8_latin_state(state, index));
+        assert!(!engine.set_c8_latin_state(state, index));
+    }
     assert!(!engine.set_c8_fonts(0, 1, 2, u32::MAX, 0, u32::MAX));
     assert_eq!(engine.add_font_source(100), 0);
     assert_eq!(engine.poll(), Status::Read);

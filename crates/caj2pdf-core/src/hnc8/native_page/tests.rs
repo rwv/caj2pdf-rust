@@ -93,6 +93,8 @@ fn roles() -> C8PageFonts {
         decoration: Some((1, 'A')),
         symbols: None,
         latin_state3: None,
+        latin_state28: None,
+        latin_state31: None,
     }
 }
 fn image() -> Vec<[u16; 2]> {
@@ -194,9 +196,16 @@ fn convert(
             let offset = u32::from_be_bytes(table[8..12].try_into().unwrap()) as usize;
             let code = words
                 .iter()
-                .find(|pair| pair[0] < 0x8000 && (pair[1] >= 0xa000 || pair[1] == 0x9ff5))
+                .find(|pair| {
+                    pair[0] < 0x8000
+                        && (pair[1] >= 0xa000 || matches!(pair[1], 0x9ff5 | 0x006c | 0x0070))
+                })
                 .unwrap()[1];
-            let character = if mode == 19 {
+            let character = if code == 0x006c {
+                Some('l')
+            } else if code == 0x0070 {
+                Some('p')
+            } else if mode == 19 {
                 decode_native_character_for_mode(0, code)
             } else {
                 decode_native_character(code)
@@ -332,9 +341,10 @@ fn unsupported_content_and_missing_glyphs_poison_the_open_page() {
         vec![[4800, 0xa0c2]],
         vec![[4800, 0xa080]],
         vec![[0x801d, 3]],
+        vec![[0x801d, 28]],
+        vec![[0x801d, 31]],
         vec![[0x8072, 1]],
-        vec![[0x8073, 43]],
-        vec![[0x8074, 0xffff]],
+        vec![[0x80ce, 0], [4800, 0xa1a1]],
         vec![[0x8006, 0xa384], [4682, 4350], [4912, 4350]],
         vec![[0x8004, 0]],
     ] {
@@ -603,6 +613,9 @@ fn ideographic_space_and_punctuation_keep_distinct_resources_and_baselines() {
 #[test]
 fn square_brackets_keep_ordinary_resource_under_alternate_state() {
     for (style, x_offset, down) in [
+        (0x1021, 21.0, 3.0),
+        (0x1022, 21.0, 1.0),
+        (0x1041, 24.0, 3.0),
         (0x1067, 27.0, -15.0),
         (0x10e3, 48.0, -1.0),
         (0x1048, 24.0, -18.0),
@@ -686,7 +699,7 @@ fn quotation_marks_and_middle_dot_reuse_controlled_offsets() {
 
 #[test]
 fn controlled_nonpainting_records_preserve_mixed_page_output() {
-    let make_words = |control: Option<[u16; 2]>| {
+    let make_words = |control: Option<&[[u16; 2]]>| {
         let mut words = vec![[0x8001, 4350], [0x8002, 0x1084], [0x801d, 4], [0x8067, 6]];
         let mut operations = vec![vec![[4682, 0xd6d0], [4772, 0xa0c1]]];
         for style in [0xa381, 0xa383, 0xa38b] {
@@ -700,7 +713,7 @@ fn controlled_nonpainting_records_preserve_mixed_page_output() {
         operations.push(image());
         for operation in operations {
             if let Some(control) = control {
-                words.push(control);
+                words.extend_from_slice(control);
             }
             words.extend(operation);
         }
@@ -711,9 +724,22 @@ fn controlled_nonpainting_records_preserve_mixed_page_output() {
     assert_eq!(result.unwrap(), 0);
     assert!(finished);
     for (tag, values) in [
+        (0x80ce, &[1][..]),
+        (0x8021, &[0x2000][..]),
+        (0x80d0, &[0][..]),
+        (0x80d1, &[1][..]),
+        (0x80d2, &[0][..]),
+        (0x80d3, &[0, 1, 2][..]),
+        (0x80d5, &[0][..]),
+        (0x9002, &[0][..]),
         (0x8072, &[0, 0x1042, 0xa3a8, 0xa0f2][..]),
-        (0x8073, &[38, 39, 40, 41, 42][..]),
-        (0x8074, &[0, 0xb4a2, 0xd4b4, 0x24a7, 0xa1a1, 0xa3a9][..]),
+        (0x8073, &[0, 8, 38, 39, 40, 41, 42, 43, 0x8004, 0xffff][..]),
+        (
+            0x8074,
+            &[
+                0, 0x0204, 0xb4a2, 0xd4b4, 0x24a7, 0xa1a1, 0xa3a9, 0x8004, 0xffff,
+            ][..],
+        ),
         (0xc053, &[0, 0x1377, 0x137b, 5200, 5700, 0xffff][..]),
         (
             0xc054,
@@ -722,11 +748,51 @@ fn controlled_nonpainting_records_preserve_mixed_page_output() {
     ] {
         for &value in values {
             let (result, pdf, finished) =
-                convert(&make_words(Some([tag, value])), 1, &[false], roles(), 0);
+                convert(&make_words(Some(&[[tag, value]])), 1, &[false], roles(), 0);
             assert_eq!(result.unwrap(), 0);
             assert!(finished);
             assert_eq!(pdf, baseline, "control {tag:04x}/{value:04x}");
         }
+    }
+    for mode in [0, 1] {
+        let (result, expected, finished) = convert(
+            &make_words(Some(&[[0x80ce, mode]])),
+            1,
+            &[false],
+            roles(),
+            0,
+        );
+        result.unwrap();
+        assert!(finished);
+        let words = make_words(Some(&[[0x80ce, mode], [0x9002, 0]]));
+        let (result, pdf, finished) = convert(&words, 1, &[false], roles(), 0);
+        assert!(result.is_ok() && finished);
+        assert_eq!(pdf, expected);
+        assert!(convert(&words, 1, &[false], roles(), 12).0.is_err());
+        for payload in [[342, 5], [420, 7], [0, 0], [0xffff, 0xffff], [0x8004, 1]] {
+            let words = make_words(Some(&[[0x80ce, mode], [0x80cc, 0x0204], payload]));
+            let (result, pdf, finished) = convert(&words, 1, &[false], roles(), 0);
+            result.unwrap();
+            assert!(finished);
+            assert_eq!(pdf, expected);
+            assert!(convert(&words, 1, &[false], roles(), 12).0.is_err());
+        }
+    }
+    for payload in [
+        "".to_owned(),
+        "fixture!".to_owned(),
+        "E:\\fixture\\missing".to_owned(),
+        "font.ttf".to_owned(),
+        "x".repeat(252),
+    ] {
+        let mut raw = vec![0x80cc, 0x102 + payload.len() as u16];
+        raw.extend(payload.bytes().map(|byte| 0xe000 | u16::from(byte)));
+        assert_eq!(raw.len() % 2, 0);
+        let control = raw.as_chunks::<2>().0;
+        let (result, pdf, finished) = convert(&make_words(Some(control)), 1, &[false], roles(), 0);
+        assert_eq!(result.unwrap(), 0);
+        assert!(finished);
+        assert_eq!(pdf, baseline);
     }
 }
 
@@ -815,6 +881,7 @@ fn unverified_axis_combinations_and_style_specific_offsets_fail_explicitly() {
 fn skew_uses_width_survives_style_changes_and_resets_explicitly() {
     for (control, factor, mode, styles) in [
         (0x281d, 0.24, 0, &[0x1067, 0x10e3, 0xe58c][..]),
+        (0x281c, 0.225, 0, &[0x1067, 0x10e3, 0xe58c][..]),
         (0x2815, 0.105, 12, &[0x1084, 0x10a5, 0x10a4, 0x08a5][..]),
     ] {
         for style in styles {
@@ -1326,7 +1393,7 @@ fn hnb_regular_style_flags_preserve_controlled_resources_and_geometry() {
 }
 
 #[test]
-fn hnb_state_three_requires_explicit_resource_and_switches_back() {
+fn native_state_three_requires_explicit_resource_and_switches_back() {
     let words = [
         [0x8001, 4350],
         [0x8002, 0x10a5],
@@ -1340,24 +1407,26 @@ fn hnb_state_three_requires_explicit_resource_and_switches_back() {
         [4952, 0xa0c1],
         [0x8004, 1],
     ];
-    let mut fonts = roles();
-    for index in [None, Some(3)] {
-        fonts.latin_state3 = index;
-        let (result, _, finished) = convert(&words, 0, &[], fonts, 12);
-        assert!(result.is_err());
-        assert!(!finished);
+    for mode in [0, 12] {
+        let mut fonts = roles();
+        for index in [None, Some(3)] {
+            fonts.latin_state3 = index;
+            let (result, _, finished) = convert(&words, 0, &[], fonts, mode);
+            assert!(result.is_err());
+            assert!(!finished);
+        }
+        fonts.latin_state3 = Some(0);
+        let (result, pdf, finished) = convert(&words, 0, &[], fonts, mode);
+        assert!(result.is_ok(), "{result:?}");
+        assert!(finished);
+        let text = String::from_utf8_lossy(&pdf);
+        let mut at = 0;
+        for role in [0, 2, 0, 1] {
+            let token = format!("/F{role} 1 Tf");
+            at += text[at..].find(&token).unwrap() + token.len();
+        }
+        assert_eq!(text.matches("<0041> Tj").count(), 4);
     }
-    fonts.latin_state3 = Some(0);
-    let (result, pdf, finished) = convert(&words, 0, &[], fonts, 12);
-    assert!(result.is_ok(), "{result:?}");
-    assert!(finished);
-    let text = String::from_utf8_lossy(&pdf);
-    let mut at = 0;
-    for role in [0, 2, 0, 1] {
-        let token = format!("/F{role} 1 Tf");
-        at += text[at..].find(&token).unwrap() + token.len();
-    }
-    assert_eq!(text.matches("<0041> Tj").count(), 4);
 }
 
 #[test]
@@ -1497,8 +1566,16 @@ fn hnb_axis_punctuation_preserves_verified_offsets() {
 }
 
 #[test]
-fn hnb_fullwidth_at_sign_matches_controlled_comma_placement_and_resource() {
-    for (state, font) in [(0, 1), (3, 0), (4, 2)] {
+fn native_fullwidth_at_sign_matches_controlled_comma_placement_and_resource() {
+    for (mode, state, font) in [
+        (13, 0, 1),
+        (13, 3, 0),
+        (13, 4, 2),
+        (11, 0, 1),
+        (11, 4, 2),
+        (11, 28, 1),
+        (11, 31, 2),
+    ] {
         let mut glyphs = Vec::new();
         for code in [0xa3ac, 0xa3c0] {
             let words = [
@@ -1510,7 +1587,9 @@ fn hnb_fullwidth_at_sign_matches_controlled_comma_placement_and_resource() {
             ];
             let mut fonts = roles();
             fonts.latin_state3 = Some(0);
-            let (result, pdf, finished) = convert(&words, 0, &[], fonts, 13);
+            fonts.latin_state28 = Some(1);
+            fonts.latin_state31 = Some(2);
+            let (result, pdf, finished) = convert(&words, 0, &[], fonts, mode);
             result.unwrap();
             assert!(finished);
             let text = String::from_utf8_lossy(&pdf);
@@ -1523,7 +1602,6 @@ fn hnb_fullwidth_at_sign_matches_controlled_comma_placement_and_resource() {
             );
             if code == 0xa3c0 {
                 assert!(text.contains("<FF20> Tj"));
-                assert!(convert(&words, 0, &[], fonts, 11).0.is_err());
             }
         }
         assert_eq!(glyphs[0], glyphs[1]);
@@ -1575,6 +1653,452 @@ fn large_title_punctuation_is_rejected_before_regular_offset_lookup() {
             let error = result.unwrap_err();
             assert_eq!(error.page, Some(1));
             assert!(!finished);
+        }
+    }
+}
+
+#[test]
+fn c8_verified_color_control_preserves_black_across_style_and_resource_changes() {
+    for value in 1..=3 {
+        let mut words = ordinary();
+        words.extend([[0x81ff, value], [0, 200]]);
+        words.extend(ordinary());
+        words.extend([
+            [0x801d, 4],
+            [4772, 0xa0c1],
+            [0x8002, 0x10a5],
+            [4682, 0xd6d0],
+            [0x8004, 1],
+        ]);
+        let (result, pdf, finished) = convert(&words, 0, &[], roles(), 0);
+        result.unwrap();
+        assert!(finished);
+        let text = String::from_utf8_lossy(&pdf);
+        assert_eq!(text.matches("0.266667 g\n").count(), 2);
+        assert_eq!(text.matches("0.000000 g\n").count(), 4);
+        assert!(text.contains("/F2 1 Tf"));
+        assert!(convert(&words, 0, &[], roles(), 12).0.is_err());
+        for payload in [[1, 200], [0, 199]] {
+            words[5] = payload;
+            let (result, _, finished) = convert(&words, 0, &[], roles(), 0);
+            assert!(result.is_err());
+            assert!(!finished);
+        }
+    }
+}
+
+#[test]
+fn c8_cjk_mode_survives_resource_changes_and_one_restores_latin() {
+    for state in [0, 4] {
+        let mut words = vec![[0x80ce, 0], [0x801d, state]];
+        words.extend(ordinary());
+        words.extend([[0x80ce, 1], [4772, 0xa0c1], [0x8004, 1]]);
+        let (result, pdf, finished) = convert(&words, 0, &[], roles(), 0);
+        result.unwrap();
+        assert!(finished);
+        let text = String::from_utf8_lossy(&pdf);
+        assert_eq!(text.matches("/F0 1 Tf").count(), 2);
+        assert_eq!(
+            text.matches(&format!("/F{} 1 Tf", if state == 0 { 1 } else { 2 }))
+                .count(),
+            1
+        );
+        assert!(convert(&words, 0, &[], roles(), 12).0.is_err());
+    }
+}
+
+#[test]
+fn c8_fullwidth_alphabet_uses_cjk_resource_independent_of_latin_selection() {
+    let words = [
+        [0x8001, 4350],
+        [0x8002, 0x1084],
+        [4772, 0xd6d0],
+        [0x8004, 1],
+    ];
+    let (result, baseline, _) = convert(&words, 0, &[], roles(), 0);
+    result.unwrap();
+    let baseline_text = String::from_utf8_lossy(&baseline);
+    let matrix = baseline_text
+        .lines()
+        .find(|line| line.contains(" Tm "))
+        .unwrap();
+    for (index, code) in (0xa3c1..=0xa3da).chain(0xa3e1..=0xa3fa).enumerate() {
+        let (state, mode) = [(0, 1), (4, 1), (28, 1), (31, 1), (31, 0)][index % 5];
+        let words = [
+            [0x8001, 4350],
+            [0x8002, 0x1084],
+            [0x801d, state],
+            [0x80ce, mode],
+            [4772, code],
+            [0x8004, 1],
+        ];
+        let mut fonts = roles();
+        fonts.latin_state28 = Some(1);
+        fonts.latin_state31 = Some(2);
+        let (result, pdf, finished) = convert(&words, 0, &[], fonts, 11);
+        result.unwrap();
+        assert!(finished);
+        let text = String::from_utf8_lossy(&pdf);
+        assert!(text.contains("/F0 1 Tf"));
+        assert_eq!(
+            text.lines()
+                .find(|line| line.contains(" Tm "))
+                .unwrap()
+                .split(" Tm ")
+                .next(),
+            matrix.split(" Tm ").next()
+        );
+        assert_eq!(
+            decode_native_character(code),
+            char::from_u32(u32::from(code) - 0xa3a1 + 0xff01)
+        );
+    }
+}
+
+#[test]
+fn c8_extended_latin_states_require_distinct_resources_and_restore_selection() {
+    for state in [28, 31] {
+        let words = [
+            [0x8001, 4350],
+            [0x8002, 0x1084],
+            [0x801d, state],
+            [4682, 0xa0c1],
+            [0x801d, 4],
+            [4772, 0xa0c1],
+            [0x801d, state],
+            [4862, 0xa0c1],
+            [0x801d, 0],
+            [4952, 0xa0c1],
+            [0x8004, 1],
+        ];
+        for index in [None, Some(3), Some(0)] {
+            let mut fonts = roles();
+            if state == 28 {
+                fonts.latin_state28 = index;
+            } else {
+                fonts.latin_state31 = index;
+            }
+            let (result, pdf, finished) = convert(&words, 0, &[], fonts, 0);
+            if index == Some(0) {
+                result.unwrap();
+                assert!(finished);
+                let text = String::from_utf8_lossy(&pdf);
+                let mut at = 0;
+                for role in [0, 2, 0, 1] {
+                    let token = format!("/F{role} 1 Tf");
+                    at += text[at..].find(&token).unwrap() + token.len();
+                }
+            } else {
+                assert!(result.is_err());
+                assert!(!finished);
+            }
+        }
+    }
+}
+
+#[test]
+fn c8_state_preserves_axes_and_style_reset() {
+    for style in [0x1084, 0x10a5] {
+        for axes in [None, Some(4), Some(36)] {
+            let mut words = vec![[0x8001, 4350], [0x8002, style]];
+            if let Some(size) = axes {
+                words.extend([[0x8070, size], [0x8071, size]]);
+            }
+            words.extend([[4682, 0xd6d0], [4772, 0xa0c1], [0x8004, 1]]);
+            let (result, expected, finished) = convert(&words, 0, &[], roles(), 0);
+            assert!(result.is_ok() && finished);
+            words.insert(2, [0x801c, 4]);
+            let (result, actual, finished) = convert(&words, 0, &[], roles(), 0);
+            assert!(result.is_ok() && finished);
+            assert_eq!(actual, expected);
+            if axes.is_some() {
+                words.insert(words.len() - 3, [0x8002, style]);
+                let (result, actual, finished) = convert(&words, 0, &[], roles(), 0);
+                assert!(result.is_ok() && finished);
+                words.drain(2..words.len() - 3);
+                assert_eq!(actual, convert(&words, 0, &[], roles(), 0).1);
+            }
+        }
+    }
+    for controls in [
+        vec![[0x8070, 4]],
+        vec![[0x8071, 4]],
+        vec![[0x801c, 5]],
+        vec![[0x8070, 4], [0x8071, 36]],
+    ] {
+        let mut words = ordinary();
+        words.splice(2..2, controls);
+        words.push([0x8004, 1]);
+        let (result, _, finished) = convert(&words, 0, &[], roles(), 0);
+        assert!(result.is_err() && !finished);
+    }
+}
+
+#[test]
+fn c8_low_letter_preserves_cjk_resource_and_symbol_baseline_in_both_modes() {
+    for (state, code) in [(0, 0x006c), (4, 0x006c), (0, 0x0070), (4, 0x0070)] {
+        for mode in [0, 1] {
+            for skew in [0x2800, 0x281c] {
+                let mut words = [
+                    [0x8001, 4334],
+                    [0x8002, 0x10a5],
+                    [0x801d, state],
+                    [0x80ce, mode],
+                    [0x8024, skew],
+                    [4672, code],
+                    [0x8004, 1],
+                ];
+                let (result, pdf, finished) = convert(&words, 0, &[], roles(), 11);
+                assert!(result.is_ok() && finished);
+                let text = String::from_utf8_lossy(&pdf);
+                assert!(text.contains("/F0 1 Tf"));
+                assert!(text.contains(&format!("<{code:04X}> Tj")));
+                let matrix = text
+                    .lines()
+                    .find_map(|line| line.split_once(" Tm "))
+                    .unwrap()
+                    .0;
+                assert!(convert(&words, 0, &[], roles(), 13).0.is_err());
+                words[0][1] += 15;
+                words[5][1] = 0xd6d0;
+                let (result, reference, _) = convert(&words, 0, &[], roles(), 0);
+                result.unwrap();
+                let reference = String::from_utf8_lossy(&reference);
+                let reference_matrix = reference
+                    .lines()
+                    .find_map(|line| line.split_once(" Tm "))
+                    .unwrap()
+                    .0;
+                for (actual, expected) in matrix
+                    .split_whitespace()
+                    .zip(reference_matrix.split_whitespace())
+                {
+                    let actual: f64 = actual.parse().unwrap();
+                    let expected: f64 = expected.parse().unwrap();
+                    assert!((actual - expected).abs() < 1e-10);
+                }
+            }
+        }
+    }
+    for code in [0x006b, 0x006d, 0x006f, 0x0071] {
+        let words = [[0x8001, 4334], [0x8002, 0x10a5], [4672, code], [0x8004, 1]];
+        assert!(convert(&words, 0, &[], roles(), 0).0.is_err());
+    }
+}
+
+#[test]
+fn small_glyph_punctuation_is_rejected_before_regular_offset_lookup() {
+    for style in [0x1021, 0x1022, 0x1041] {
+        for code in [0xa1a4, 0xa1af, 0xa1b0, 0xa1b1, 0xa3a8, 0xa3a9] {
+            let words = [[0x8001, 4350], [0x8002, style], [4682, code], [0x8004, 1]];
+            let (result, _, finished) = convert(&words, 0, &[], roles(), 13);
+            let error = result.unwrap_err();
+            assert_eq!(error.page, Some(1));
+            assert!(!finished);
+        }
+    }
+}
+
+#[test]
+fn c8_required_symbols_follow_latin_state_and_symbol_baseline() {
+    for (state, font) in [(0, 1), (3, 0), (4, 2)] {
+        for (code, unicode) in [
+            (0xa1c1, "00D7"),
+            (0xa1de, "221E"),
+            (0xa1e4, "2032"),
+            (0xa6b8, "03A9"),
+            (0xa6c4, "03B4"),
+            (0xa6c5, "03B5"),
+            (0xa6c8, "03B8"),
+        ] {
+            let mut fonts = roles();
+            fonts.latin_state3 = Some(0);
+            let mut matrices = Vec::new();
+            for raw in [code, 0xa3ac] {
+                let words = [
+                    [0x8001, 4350],
+                    [0x8002, 0x10a5],
+                    [0x801d, state],
+                    [4682, raw],
+                    [0x8004, 1],
+                ];
+                let (result, pdf, finished) = convert(&words, 0, &[], fonts, 11);
+                result.unwrap();
+                assert!(finished);
+                let text = String::from_utf8_lossy(&pdf);
+                assert!(text.contains(&format!("/F{font} 1 Tf")));
+                if raw == code {
+                    assert!(text.contains(&format!("<{unicode}> Tj")));
+                    assert!(convert(&words, 0, &[], fonts, 13).0.is_err());
+                }
+                matrices.push(
+                    text.lines()
+                        .find_map(|line| line.split_once(" Tm "))
+                        .unwrap()
+                        .0
+                        .to_owned(),
+                );
+            }
+            assert_eq!(matrices[0], matrices[1]);
+        }
+    }
+    for code in [0xa6c3, 0xa6c6, 0xa6c7, 0xa6c9] {
+        let words = [[0x8001, 4350], [0x8002, 0x10a5], [4682, code], [0x8004, 1]];
+        assert!(convert(&words, 0, &[], roles(), 11).0.is_err());
+    }
+}
+
+#[test]
+fn c8_radical_outputs_one_joined_path_and_rejects_unverified_geometry() {
+    for flag in [0, 0xc000] {
+        let words = [
+            [0x8001, 4350],
+            [0x8002, 0x1021],
+            [0x8090, 0xa3e6],
+            [4802 | flag, 4354],
+            [143 | flag, 125],
+            [4682, 0xa0c1],
+            [0x8004, 1],
+        ];
+        let (result, pdf, finished) = convert(&words, 0, &[], roles(), 0);
+        result.unwrap();
+        assert!(finished);
+        let text = String::from_utf8_lossy(&pdf);
+        assert_eq!(text.matches(" m\n").count(), 1);
+        assert_eq!(text.matches(" l\n").count(), 4);
+        assert_eq!(text.matches("S Q\n").count(), 1);
+        assert!(text.find("S Q").unwrap() < text.find("<0041> Tj").unwrap());
+        assert!(convert(&words, 0, &[], roles(), 12).0.is_err());
+        for value in [0, 1, 0xa3b1, 0xa3b2, 0xa0c1, 0x8004, 0xffff] {
+            let mut alias = words;
+            alias[2][1] = value;
+            let (result, alias_pdf, finished) = convert(&alias, 0, &[], roles(), 0);
+            result.unwrap();
+            assert!(finished);
+            assert_eq!(pdf, alias_pdf);
+            assert!(convert(&alias, 0, &[], roles(), 12).0.is_err());
+        }
+    }
+    for (x, y, width, height, axis) in [
+        (0x4000, 4354, 143, 125, false),
+        (4802, 4354, 0xc08f, 125, false),
+        (4802, 0x4000, 143, 125, false),
+        (4802, 4354, 143, 0x4000, false),
+        (4802, 4354, 29, 125, false),
+        (4802, 4354, 143, 44, false),
+        (4802, 4354, 143, 125, true),
+    ] {
+        let mut words = vec![[0x8001, 4350], [0x8002, 0x1021]];
+        if axis {
+            words.push([0x8070, 36]);
+        }
+        words.extend([[0x8090, 0xa3e6], [x, y], [width, height], [0x8004, 1]]);
+        let (result, _, finished) = convert(&words, 0, &[], roles(), 0);
+        assert!(result.is_err());
+        assert!(!finished);
+    }
+}
+
+#[test]
+fn c8_image_references_reuse_descriptor_order_and_legacy_geometry() {
+    let reference = |name| vec![[0x810a, 0xd300], [4682, 4314], [80, 50], [0, 1], [name, 0]];
+    for orientation in [[false, true], [true, false]] {
+        let mut old = ordinary();
+        old.extend(image());
+        old.extend(ordinary());
+        old.extend(image());
+        old.push([0x8004, 1]);
+        let (result, expected, finished) = convert(&old, 2, &orientation, roles(), 0);
+        result.unwrap();
+        assert!(finished);
+        for names in [*b"ab", *b"ba"] {
+            let mut words = ordinary();
+            words.extend(reference(u16::from(names[0])));
+            words.extend(ordinary());
+            words.extend(reference(u16::from(names[1])));
+            words.push([0x8004, 1]);
+            let (result, pdf, finished) = convert(&words, 2, &orientation, roles(), 0);
+            result.unwrap();
+            assert!(finished);
+            assert_eq!(pdf, expected);
+            assert!(convert(&words, 2, &orientation, roles(), 12).0.is_err());
+        }
+    }
+    for case in 0..3 {
+        let mut words = reference(u16::from(b'a'));
+        match case {
+            0 => words[2][0] = 0,
+            1 => words[2][1] = 0,
+            _ => words.insert(0, [0x8024, 0x281c]),
+        }
+        words.push([0x8004, 1]);
+        let (result, _, finished) = convert(&words, 1, &[false], roles(), 0);
+        assert!(result.is_err());
+        assert!(!finished);
+    }
+}
+
+#[test]
+fn c8_zero_field_styles_render_required_digit_without_broadening_hnb() {
+    for style in [0x1000, 0x1001, 0x1020] {
+        for (code, unicode, mode) in [(0xa0c1, "0041", 0), (0xa3b1, "FF11", 11)] {
+            let words = [[0x8001, 4350], [0x8002, style], [4682, code], [0x8004, 1]];
+            let (result, pdf, finished) = convert(&words, 0, &[], roles(), mode);
+            result.unwrap();
+            assert!(finished);
+            assert!(String::from_utf8_lossy(&pdf).contains(&format!("<{unicode}> Tj")));
+            assert!(
+                convert(&words, 0, &[], roles(), if mode == 0 { 12 } else { 13 })
+                    .0
+                    .is_err()
+            );
+        }
+    }
+}
+
+#[test]
+fn opaque_c8_controls_do_not_broaden_hnb_admission() {
+    for control in [[0x8073, 8], [0x8074, 0xffff]] {
+        let mut words = ordinary();
+        words.extend([control, [0x8004, 1]]);
+        assert!(convert(&words, 0, &[], roles(), 0).0.is_ok());
+        let (result, _, finished) = convert(&words, 0, &[], roles(), 12);
+        assert!(result.is_err());
+        assert!(!finished);
+    }
+}
+
+#[test]
+fn c8_parallel_resets_latin_until_an_explicit_resource_selection() {
+    for (state, selected) in [(3, 0), (4, 2)] {
+        let mut fonts = roles();
+        fonts.latin_state3 = Some(0);
+        for (code, first, unicode) in [(0xa1ce, 1, "2225"), (0xa1e4, selected, "2032")] {
+            let words = [
+                [0x8001, 4350],
+                [0x8002, 0x10a5],
+                [0x801d, state],
+                [4682, code],
+                [4782, 0xa0c1],
+                [0x801d, state],
+                [4882, 0xa0c1],
+                [0x8004, 1],
+            ];
+            let (result, pdf, finished) = convert(&words, 0, &[], fonts, 11);
+            result.unwrap();
+            assert!(finished);
+            let text = String::from_utf8_lossy(&pdf);
+            assert!(text.contains(&format!("<{unicode}> Tj")));
+            let resources: Vec<_> = text.lines().filter(|line| line.contains(" 1 Tf")).collect();
+            assert_eq!(
+                resources,
+                [
+                    format!("BT /F{first} 1 Tf"),
+                    format!("BT /F{first} 1 Tf"),
+                    format!("BT /F{selected} 1 Tf")
+                ]
+            );
+            assert!(convert(&words, 0, &[], fonts, 13).0.is_err());
         }
     }
 }

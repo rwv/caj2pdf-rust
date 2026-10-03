@@ -1,7 +1,8 @@
 # Native C8 image-reference records
 
-This is bounded parser work for #242, following #243/#244. It does not enable
-complete native-page conversion. The shared renderer remains #233.
+This records bounded parsing and independently controlled rendering for #242,
+following #243/#244 and the delivered shared renderer #233. Complete-document
+acceptance for the two additional profiles remains separate and unfinished.
 
 ## Observed framing
 
@@ -85,3 +86,34 @@ and 4. Later unadmitted controls still prevent complete page traversal, and
 no full-document conversion pass is claimed. Receipts are
 `4-[21]-direct-image-references.txt` and `4-[24]-direct-image-references.txt`
 in the external native-profile inventory.
+
+## Rendering integration
+
+The C8 composer now routes `ImageReference` and the older image record through
+one placement helper. It consumes already prepared document image resources in
+descriptor order, subtracts the native origin, preserves source-unit extents and
+uses the decoded representation's row orientation. The reference span is never
+opened or used for resource lookup. Zero extents and skewed image state are
+explicit errors; HN-B admission and image-after-text restrictions are unchanged.
+
+Original Rust composer tests interleave text with two images, compare both row
+orientations against the older representation, swap names without changing PDF
+bytes, and reject zero dimensions/skewed placement. Existing parser malformed,
+count, short-read and cancellation tests remain applicable. No new decoder,
+name allocation, filesystem operation or image cache is introduced.
+
+All 14 historical original controls reproduce byte for byte and pass actual
+CLI/qpdf. Six name-length variants produce byte-identical PDFs to the old form;
+the two-image name swap also preserves PDF bytes, while payload swapping changes
+the result. Existing independent viewer receipts are reused rather than repeating
+completed observations. Current external receipts live under
+`caj2pdf-hnb-rendering-20261003/c8-image-reference-output/`.
+
+Independent PDF inspection also verifies all four coordinate/extent changes
+against the established 20-source-unit delta, and confirms that both original
+JPEG payloads remain byte-exact and appear in descriptor order after a payload
+swap (`geometry-checks.json`). This checks actual emitted resources and geometry,
+not only agreement between two converter interfaces. Full corpus retry now
+reaches page-2 byte 30176 in the four-page input (unverified glyph size); the
+five-page input remains at page-2 byte 22528 (`a1de`). Neither publishes a final
+PDF; these controls do not establish complete-document fidelity.

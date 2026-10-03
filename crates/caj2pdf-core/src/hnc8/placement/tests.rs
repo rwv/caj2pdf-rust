@@ -455,7 +455,7 @@ fn c8_glyph_origins_are_signed_and_unknown_styles_are_errors() {
     close(b[4] - a[4], -20.0 * EMPIRICAL_COORDINATE_POINTS_PER_UNIT);
     close(b[5] - a[5], 20.0 * EMPIRICAL_COORDINATE_POINTS_PER_UNIT);
     for style in [
-        0x0485, 0x9c85, 0x1484, 0x9084, 0x1004, 0x1080, 0x1024, 0x1089,
+        0x0485, 0x9c85, 0x1485, 0x04c5, 0x14c5, 0x14a4, 0x9084, 0x1004, 0x1080, 0x1024, 0x1089,
     ] {
         assert!(
             empirical_c8_glyph_transform(page(), origin, origin, style, C8GlyphClass::Cjk).is_err()
@@ -597,12 +597,17 @@ fn observed_glyph_style_prefixes_share_geometry_without_admitting_other_records(
 
 #[test]
 fn independently_controlled_variants_preserve_both_glyph_classes() {
-    for (reference, styles) in [(0x10e7, [0x04e7, 0x14e7]), (0x1084, [0x0484, 0x9c84])] {
+    for (reference, styles) in [
+        (0x10e7, &[0x04e7, 0x14e7][..]),
+        (0x1084, &[0x0484, 0x1484, 0x9c84][..]),
+        (0x10c6, &[0x04c6, 0x14c6][..]),
+        (0x10a5, &[0x14a5][..]),
+    ] {
         for class in [C8GlyphClass::Cjk, C8GlyphClass::Latin] {
             let expected =
                 empirical_c8_glyph_transform(page(), [4652, 4274], [5200, 4700], reference, class)
                     .unwrap();
-            for style in styles {
+            for &style in styles {
                 let actual =
                     empirical_c8_glyph_transform(page(), [4652, 4274], [5200, 4700], style, class)
                         .unwrap();
@@ -743,5 +748,82 @@ fn mode_zero_digits_have_measured_height_specific_offsets() {
         (0xe58c, [Some(36); 2]),
     ] {
         assert!(mode_zero_digit_transform(page, [0; 2], [20, 50], style, axes).is_err());
+    }
+}
+
+#[test]
+fn four_unit_axes_preserve_measured_em_and_latin_baseline() {
+    let cjk = native_glyph_transform(
+        page(),
+        [4652, 4274],
+        [4672, 4334],
+        0x1084,
+        C8GlyphClass::Cjk,
+        [Some(4); 2],
+    )
+    .unwrap();
+    let latin = native_glyph_transform(
+        page(),
+        [4652, 4274],
+        [4672, 4334],
+        0x10a5,
+        C8GlyphClass::Latin,
+        [Some(4); 2],
+    )
+    .unwrap();
+    close(cjk[0], 4.0 * 75.0 / 301.0);
+    close(cjk[3], cjk[0]);
+    close(latin[0], cjk[0]);
+    close(latin[3], cjk[3]);
+    close(latin[4] - cjk[4], cjk[0] / 8.0);
+    close(
+        cjk[5] - latin[5],
+        15.0 * EMPIRICAL_COORDINATE_POINTS_PER_UNIT,
+    );
+}
+
+#[test]
+fn small_field_glyph_controls_preserve_independent_axes_and_latin_baseline() {
+    let page = empirical_page_from_pixels(200, 200, [0.0; 2]).unwrap();
+    for (style, width, height, offset) in [
+        (0x1000, 21.0, 21.0, 11.0),
+        (0x1001, 21.0, 24.0, 10.0),
+        (0x1020, 24.0, 21.0, 11.0),
+        (0x1021, 24.0, 24.0, 10.0),
+        (0x1022, 24.0, 28.0, 9.0),
+        (0x1041, 28.0, 24.0, 10.0),
+    ] {
+        let cjk = empirical_c8_glyph_transform(
+            page,
+            [4652, 4274],
+            [4672, 4334],
+            style,
+            C8GlyphClass::Cjk,
+        )
+        .unwrap();
+        let latin = empirical_c8_glyph_transform(
+            page,
+            [4652, 4274],
+            [4672, 4334],
+            style,
+            C8GlyphClass::Latin,
+        )
+        .unwrap();
+        close(cjk[0], width * 75.0 / 301.0);
+        close(cjk[3], height * 75.0 / 301.0);
+        close(latin[4] - cjk[4], cjk[0] / 8.0);
+        close(
+            cjk[5] - latin[5],
+            offset * EMPIRICAL_COORDINATE_POINTS_PER_UNIT,
+        );
+        assert!(
+            empirical_c8_horizontal_decoration(
+                page,
+                [4652, 4274],
+                [[4672, 4334], [4752, 4334]],
+                style,
+            )
+            .is_err()
+        );
     }
 }

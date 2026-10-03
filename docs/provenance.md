@@ -2619,3 +2619,241 @@ no vendor outlines, converter implementation or corpus text is copied.
 The six-page issue-65 checkpoint uses external documents and original marker
 fonts only for external validation. Exact retained JPEG payloads are checked
 outside Git; no source images, derived PDFs or captures are redistributed.
+
+
+### C8 encoded-string rendering controls (#242)
+
+The extended original `c8_encoded_prefix_fixture.py` reuses the project's
+asymmetric JPEG, glyph/line/decoration controls and invented ASCII strings.
+Pinned offline viewer observations establish unchanged mixed-page painting
+and resource state for the admitted string profile. Only original MIT
+implementation and generator code are committed; screenshots, generated
+inputs and corpus content stay outside Git. See `c8-encoded-prefix.md`.
+
+The additional C8 mixed-control observations use original geometric fonts,
+JPEGs, glyphs and vectors from existing project generators. They distinguish
+verified unchanged painting from actual resource/color changes; only the
+former specific values are admitted in this increment. Failed viewer/black
+captures are excluded. No vendor implementation, font outlines, external
+strings or corpus content is copied. See `c8-native-controls.md`.
+
+### Additional C8 glyph-color state
+
+Original MIT controls in `tools/cajviewer/c8_native_control_fixture.py`
+establish the scoped `81ff/1..3` `(0,200)` black-glyph transition and its
+persistence across tested style/resource changes. The implementation uses
+one per-page gray byte in the existing composer; no source was copied or
+transliterated. Other color payloads remain explicit errors. See
+`docs/c8-native-controls.md` for independent viewer and MuPDF observations,
+external evidence locations, excluded captures and remaining limitations.
+
+### Additional C8 resource-mode transitions
+
+Original MIT `mode_documents()` controls in the existing native-control
+generator independently distinguish C8 `80ce/0` persistence from style/font
+selection and `80ce/1` restoration. The implementation adds one per-page
+boolean to the shared composer; it copies no third-party implementation.
+`docs/c8-native-controls.md` records the eight repeated viewer controls,
+MuPDF geometry/color residuals, original regressions and unsupported glyph
+scope. External screenshots/documents remain outside Git.
+
+### C8 extended metadata painting behavior
+
+Original MIT `extended_string_documents()` controls in the existing native
+control generator compare `80cc/0204` source/extreme/marker-like payloads in
+ordinary and CJK modes. Twelve repeated offline viewer controls preserve
+their painting baselines. The composer reuses the atomic bounded parser event;
+no foreign implementation or new buffering is introduced. Raw metadata stays
+available to visitors. See `docs/c8-native-controls.md` for evidence and scope;
+this does not infer metadata semantics or text-selection behavior.
+
+### C8 extended font-state framing
+
+Original MIT `font_state_documents()` controls independently establish
+four-byte `801d/28` and `/31` framing and distinguish ordinary Latin resource
+changes from the `a3ca` CJK marker behavior. The parser preserves raw values
+without inventing a font mapping. Multiple marker-substituted files prevent
+an original-font identity or state-equivalence claim. See
+`docs/c8-native-controls.md` for repeated evidence and explicit remaining
+rendering/Unicode work; external fonts and captures are not committed.
+
+### Identified original resource markers and C8 fullwidth J
+
+`identified_resource_font` in the existing geometric-font generator modifies
+only original generated outlines, retaining their lookup names and metrics.
+Eighty-four reproducible marker substitutes identify distinct state-28
+`HGB1_CNKI` and state-31 `HGB1X_CNKI` resources in the pinned viewer. Repeated
+controls and fresh ordinary-copy evidence establish C8 `a3ca` as U+FF2A with
+CJK resource/geometry. The shared renderer adds that observed glyph rule;
+no foreign font data or code is committed. `docs/c8-native-controls.md` records
+accepted evidence, excluded startup/name-changing trials and pending font
+transport. Source font files, captures and clipboard payloads stay external.
+
+### Transport for independently identified C8 Latin resources
+
+State-28 and state-31 roles are based on the identified original-marker controls
+above. Their original implementation extends the existing bounded font path
+with two optional indices and a fixed eight-resource capacity. Existing WASM
+registration exports are preserved; no vendor fonts or foreign code are
+included. See `docs/io-architecture.md` for Rust migration and
+`docs/c8-native-controls.md` for remaining complete-document limits.
+
+### C8 fullwidth alphabet
+
+Original MIT `alphabet_documents()` extends the existing control generator
+with uppercase/lowercase grids and same-position CJK baselines. Independent
+marker-resource, geometry and fresh ordinary-copy observations establish the
+52 fullwidth letters; the existing GB18030 decoder supplies their Unicode.
+Only the observed C8 resource/placement ranges are added to the shared renderer.
+No vendor implementation, fonts, document content or clipboard payload is
+committed. Accepted and excluded observations are listed in
+`docs/c8-native-controls.md`.
+
+### C8 field-4 style variant
+
+Original MIT `field4_style_documents()` compares `1484` to independently
+supported `1084` and the distinct `1085` size in two glyph-selection modes and
+three resource states. Repeated original-marker observations and baseline-
+identical PDFs justify only the specific additional style. The implementation
+reuses existing glyph metrics without foreign code or font data. External
+receipts and remaining document limits are recorded in `docs/c8-native-controls.md`.
+
+### C8 state and small explicit-axis controls
+
+Original MIT `state_axis_documents()` separates `801c/4` state preservation,
+axis changes and style reset using authored CJK/Latin marker controls. Enlarged
+adjacent-size observations establish the specific four-unit geometry and Latin
+baseline; the measured one-pixel render residual is retained in the evidence
+record. The implementation reuses the existing axis fields and transform.
+No foreign code, fonts, source text or captures are committed. See
+`docs/c8-native-controls.md` for evidence and remaining full-document failures.
+
+### C8 fullwidth at sign
+
+Original MIT `at_sign_documents()` reuses the authored alphabet grid to compare
+`a3c0` with an independently supported comma under four resource states. Fresh
+ordinary-copy evidence establishes U+FF20, while original marker comparisons
+establish the shared resource/placement rule. The existing decoder and symbol
+range implement that rule without vendor code or font data. Source documents,
+clipboard text and captures remain external; see `docs/c8-native-controls.md`.
+
+### C8 `9002/0` framing and painting preservation
+
+Original MIT mixed controls establish four-byte framing and unchanged painting
+for the exact `9002/0` record in ordinary/CJK modes, with glyphs, line segments,
+decoration and JPEG content. The original implementation reuses the existing
+bounded Control event and rejects other values/profiles. No source-specific
+scanning or foreign code is used; external captures/fonts/corpus remain outside
+Git. Evidence and scope are recorded in `docs/c8-native-controls.md`.
+
+### Additional C8 field-5/6 style aliases
+
+Original MIT `additional_style_documents()` verifies exact `14c6`, `04c6` and
+`14a5` glyph-size aliases across resource and mode controls, with unequal-axis
+sizes as discriminators. The implementation reuses the established field-size
+metrics and retains errors for unobserved combinations. Only original controls
+and code are committed; external corpus, fonts and captures are not. Accepted
+captures and the excluded startup trial are documented in
+`docs/c8-native-controls.md`.
+
+### C8 `281c` skew controls
+
+Original MIT CJK/Latin marker controls establish the exact C8 `8024/281c`
+width-relative shear, persistence and explicit reset. Unequal axes and a large
+glyph discriminate width from height; independent raster measurements retain
+edge residuals instead of fitting compensating offsets. The implementation
+reuses the existing scalar state and PDF matrix. No vendor implementation,
+font data or source-document content is committed; external evidence is listed
+in `docs/c8-native-controls.md`.
+
+### C8 low-byte letter mapping
+
+Original MIT `low_letter_documents()` distinguishes raw `006c` from ordinary
+Latin encoding, checks CJK resource/shifted-reference geometry in both modes,
+and verifies its composition with the measured skew. Fresh ordinary-copy
+evidence establishes U+006C. The exact C8-only mapping uses existing placement
+and font roles; no generic low-byte range or HN-B behavior is inferred. External
+clipboard bytes, fonts and captures stay outside Git. Accepted/excluded captures
+and the one-level grayscale residual are documented in `docs/c8-native-controls.md`.
+
+### C8 field-1 glyph controls
+
+Original MIT `field1_documents()` isolates required small glyph dimensions,
+independent axes and Latin baseline using original geometric fonts. The narrow
+placement extension uses these observations, not a vendor size table. External
+captures and font data remain outside Git; evidence limits are recorded in
+`docs/c8-native-controls.md`.
+
+### C8 small square-bracket placement
+
+Original MIT isolated bracket and shifted-reference controls verify resource
+selection and independently varied width/height offsets at three small styles.
+The implementation reuses existing placement state and PDF emission. Marker
+fonts, source captures and generated PDFs remain external; raster residuals and
+excluded overlapping controls are documented in `docs/c8-native-controls.md`.
+
+### C8 state-3 resource
+
+Original MIT state/resource controls independently establish C8 state-3 font
+selection, mode/style persistence and explicit switching. The implementation
+reuses the existing caller-supplied state-3 role after comparing original marker
+resources; HN-B behavior alone is not used as evidence. No source font outlines,
+external documents or screenshots are committed.
+
+### Required C8 Greek letters
+
+Original MIT resource/baseline controls and a fresh ordinary-copy transaction
+establish epsilon/theta for the two raw codes required by the selected documents.
+The writer reuses existing Unicode decoding and symbol placement. Adjacent codes
+are not extrapolated; clipboard anomalies for unrelated controls are retained
+in external evidence. No external font outlines or document content are committed.
+
+### C8 radical drawing investigation
+
+Six original MIT controls isolate the candidate `8090/a3e6` drawing's position,
+horizontal/vertical extents and high coordinate bits, using authored coordinates
+and existing original marker fonts. They establish visible radical output but
+not yet its exact vector path or complete framing. External captures remain
+outside Git; the parser still rejects the record explicitly.
+
+### Radical detail and held-out geometry
+
+Six further original controls isolate fixed hook geometry from variable radical
+width/height, style and position. A five-vertex candidate is derived from these
+observations and independently rendered, retaining measured edge residuals and
+excluding the clipped wide endpoint. This step adds no runtime admission;
+external images/PDFs remain outside Git.
+
+### Radical bounded framing
+
+Original synthetic parser cases establish the admitted 12-byte radical framing,
+short reads, every truncated length, raw payload preservation and the following
+glyph context. The parser reuses the existing Drawing event and bounded reader;
+no source document data or external implementation is copied. Rendering remains
+explicitly unsupported pending the separate measured path implementation.
+
+### Radical continuous-path output
+
+The original measured five-point path is implemented through a small bounded
+internal PDF stroke method. A new authored black-state control confirms gray
+inheritance independently. Original parser/composer and sink-failure tests
+cover the change; no viewer binary, font outlines, foreign implementation or
+external source-document content is committed.
+
+### C8 terminal painting control
+
+Original mixed-page controls establish painting preservation for exact `80d5/0`
+and distinguish it from an inserted page end. Indexed span arithmetic resolves
+the real-document end boundary; no external metadata strings are copied or
+opened. Existing bounded control parsing and strict page-end validation are
+reused with original short-read/truncation/boundary regressions.
+
+### C8 image-reference composition
+
+The composer reuses prior original asymmetric-JPEG, coordinate and swapped-name
+controls from `c8_image_reference_fixture.py`. Historical generated inputs are
+reproduced byte for byte before conversion; independent viewer evidence already
+establishes descriptor ordering and geometry. Both native image forms share one
+placement helper. Opaque reference bytes never trigger external file access.
+Original interleaved-text, orientation and invalid-geometry tests supplement the
+existing bounded parser tests; no foreign decoder or document data is copied.

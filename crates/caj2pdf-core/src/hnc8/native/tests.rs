@@ -296,6 +296,8 @@ fn never_reads_past_indexed_span_for_any_truncated_record() {
         vec![[0x8006, 0xa383], [1, 2], [3, 4]],
         vec![[0x8006, 0xa385], [1, 2], [3, 4]],
         vec![[0x8010, 1], [1, 2], [3, 4]],
+        vec![[0x8090, 0xa3e6], [0xd2c6, 4364], [0xc08f, 125]],
+        vec![[0x8090, 0xa3b2], [0xd2c6, 4364], [0xc08f, 125]],
         vec![[0xc053, 0xffff]],
         vec![[0x8073, 0x8004]],
         vec![
@@ -978,16 +980,24 @@ fn additional_controls_preserve_raw_values_without_inventing_glyphs() {
     let controls = [
         [0x801c, 4],
         [0x801d, 3],
+        [0x801d, 28],
+        [0x801d, 31],
         [0x8070, 4],
         [0x8071, 4],
         [0x80ce, 0],
         [0x80ce, 1],
         [0x8024, 0x2800],
         [0x8024, 0x281d],
+        [0x8024, 0x281c],
         [0x8021, 0x2000],
         [0x80d0, 0],
         [0x80d1, 1],
         [0x80d2, 0],
+        [0x80d3, 0],
+        [0x80d3, 1],
+        [0x80d3, 2],
+        [0x80d5, 0],
+        [0x9002, 0],
     ];
     for control in controls {
         let mut source = fixture(
@@ -1702,6 +1712,8 @@ fn hnb_run_controls_and_drawing_preserve_following_glyph_context() {
     for control in [
         [0x801c, 5],
         [0x801d, 1],
+        [0x801d, 28],
+        [0x801d, 31],
         [0x8067, 8],
         [0x8069, 0x1085],
         [0x8070, 0x0023],
@@ -2062,4 +2074,133 @@ fn mode0_required_symbols_and_han_match_original_copy_controls() {
     assert_eq!(decode_native_character_for_mode(2, 0xaab1), Some('∙'));
     assert_eq!(decode_native_character_for_mode(2, 0xa3a7), Some('＇'));
     assert_eq!(decode_native_character_for_mode(2, 0xa3b0), Some('０'));
+}
+
+#[test]
+fn c8_control_9002_requires_its_complete_value_word() {
+    for length in 1..4u32 {
+        let mut source = fixture(&[[0x9002, 0], [0x8004, 1]], 0);
+        source.bytes[84..88].copy_from_slice(&length.to_le_bytes());
+        source.bytes[96..100].copy_from_slice(&(100 + length).to_le_bytes());
+        source.bytes.truncate(100 + length as usize);
+        source.short = 1;
+        let mut visitor = Visitor::default();
+        assert!(parse(&mut source, TextBudget::default(), &mut visitor).is_err());
+        assert!(visitor.events.is_empty());
+    }
+}
+
+#[test]
+fn c8_radical_is_atomic_and_preserves_following_glyph_context() {
+    for (short, style) in [1, 3, 7, 28].into_iter().flat_map(|short| {
+        [0, 1, 0xa3b1, 0xa3b2, 0xa3e6, 0xa0c1, 0x8004, 0xffff].map(|style| (short, style))
+    }) {
+        for points in [
+            [[0xd2c6, 4364], [0xc08f, 125]],
+            [[4806, 4364], [143, 125]],
+            [[0x8004, 17], [23, 0x8001]],
+        ] {
+            let mut source = fixture(
+                &[
+                    [0x8001, 47],
+                    [0x8002, 0x1021],
+                    [0x8090, style],
+                    points[0],
+                    points[1],
+                    [31, 0xd6d0],
+                    [0x8004, 1],
+                ],
+                0,
+            );
+            source.short = short;
+            let mut visitor = Visitor::default();
+            assert_eq!(
+                parse(&mut source, TextBudget::default(), &mut visitor).unwrap(),
+                5
+            );
+            assert_eq!(
+                visitor.events[2],
+                (
+                    108,
+                    NativeRecord::Drawing {
+                        tag: 0x8090,
+                        style,
+                        points,
+                    }
+                )
+            );
+            assert_eq!(
+                visitor.events[3],
+                (
+                    120,
+                    NativeRecord::Glyph {
+                        x: 31,
+                        y: 47,
+                        style: 0x1021,
+                        code: 0xd6d0,
+                    }
+                )
+            );
+            assert_eq!(
+                visitor.events[4],
+                (124, NativeRecord::End { value: Some(1) })
+            );
+            assert!(source.max_request <= 28);
+        }
+    }
+    for (tag, value) in [(0x808f, 0xa3e6), (0x8091, 0xa3e6), (0x8006, 0), (0x8010, 2)] {
+        let mut source = fixture(&[[tag, value], [1, 2], [3, 4]], 0);
+        let mut visitor = Visitor::default();
+        assert!(parse(&mut source, TextBudget::default(), &mut visitor).is_err());
+        assert!(visitor.events.is_empty());
+    }
+}
+
+#[test]
+fn c8_80d5_preserves_strict_indexed_end_boundaries() {
+    for value in [10, 11] {
+        let mut source = fixture(&[[0x80d5, 0], [0x8004, value], [0x8099, 0]], 0);
+        source.bytes[84..88].copy_from_slice(&8_u32.to_le_bytes());
+        source.short = 1;
+        let mut visitor = Visitor::default();
+        assert_eq!(
+            parse(&mut source, TextBudget::default(), &mut visitor).unwrap(),
+            2
+        );
+        assert_eq!(
+            visitor.events[1],
+            (104, NativeRecord::End { value: Some(value) })
+        );
+        let mut source = fixture(&[[0x80d5, 0], [0x8004, value], [0x8099, 0]], 0);
+        assert!(parse(&mut source, TextBudget::default(), &mut Visitor::default()).is_err());
+    }
+    for length in 1..4_u32 {
+        let mut source = fixture(&[[0x80d5, 0], [0x8004, 1]], 0);
+        source.bytes[84..88].copy_from_slice(&length.to_le_bytes());
+        source.short = 1;
+        let mut visitor = Visitor::default();
+        assert!(parse(&mut source, TextBudget::default(), &mut visitor).is_err());
+        assert!(visitor.events.is_empty());
+    }
+    for value in [1, 0xffff] {
+        let mut source = fixture(&[[0x80d5, value], [0x8004, 1]], 0);
+        assert!(parse(&mut source, TextBudget::default(), &mut Visitor::default()).is_err());
+    }
+}
+
+#[test]
+fn c8_80d3_requires_a_complete_verified_value() {
+    for length in 1..4 {
+        let mut source = fixture(&[[0x80d3, 1]], 0);
+        source.bytes[84..88].copy_from_slice(&(length as u32).to_le_bytes());
+        let mut visitor = Visitor::default();
+        assert!(parse(&mut source, TextBudget::default(), &mut visitor).is_err());
+        assert!(visitor.events.is_empty());
+    }
+    for value in [3, 0xffff] {
+        let mut source = fixture(&[[0x80d3, value], [0x8004, 1]], 0);
+        let mut visitor = Visitor::default();
+        assert!(parse(&mut source, TextBudget::default(), &mut visitor).is_err());
+        assert!(visitor.events.is_empty());
+    }
 }

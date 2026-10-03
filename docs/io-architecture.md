@@ -201,9 +201,9 @@ JavaScript selects the new export only when `hnc8.fonts.symbols` is supplied.
 **Unstable Rust API change:** `C8PageFonts` gains `symbols: Option<usize>`;
 existing struct literals should set `None` unless supplying the resource.
 `Engine::set_c8_fonts` gains a final symbol index (`u32::MAX` for absent).
-Font resource capacity is six; the four image scratch stores are unchanged.
+Font resource capacity is eight; the four image scratch stores are unchanged.
 
-HN-B state `801d/3` selects an explicitly supplied `latinState3` resource.
+HN-B/C8 state `801d/3` selects an explicitly supplied `latinState3` resource.
 Register it with `caj2pdf_c8_set_latin_state3(index)` after the base roles and
 before polling. The index is zero-based; omit the call when absent. Invalid,
 duplicate or late registration fails. Existing font exports remain unchanged.
@@ -215,3 +215,19 @@ they do not identify a vendor font or establish every punctuation mapping.
 `latin_state3: Option<usize>`; existing literals should use `None` unless
 supplying that role. `Engine::set_c8_fonts` retains its current signature;
 `Engine::set_c8_latin_state3` supplies the optional additional role.
+
+### C8 extended Latin resources
+
+The optional `latin_state28` and `latin_state31` Rust roles, JS `latinState28`
+and `latinState31`, and CLI `--font-latin-state28` / `--font-latin-state31`
+carry distinct caller-supplied ranged fonts for verified C8 states 28 and 31.
+Register these after base WASM roles with
+`caj2pdf_c8_set_latin_state(state, index)`; only states 3, 28 and 31 are
+accepted, once each, before polling. The existing state-3 and base registration
+exports retain their signatures. Missing required roles fail explicitly.
+
+This unstable Rust API adds two `Option<usize>` fields to `C8PageFonts`.
+Existing literal initializers should add `latin_state28: None` and
+`latin_state31: None` unless those resources are supplied. The resource limit
+is eight; shared source identities reuse existing embedding/spooling. Font
+selection never opens an embedded filename or performs system discovery.
