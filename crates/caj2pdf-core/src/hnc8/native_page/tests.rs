@@ -122,6 +122,21 @@ fn convert(
     mode: u8,
 ) -> (Result<u32>, Vec<u8>, bool) {
     let mut input = fixture(words, declared);
+    if mode == 12 {
+        // Original compact HN-B wrapper around the same authored record stream.
+        let c8 = &input.bytes;
+        let mut bytes = vec![0; 228];
+        bytes[..4].copy_from_slice(b"HN\0\0");
+        bytes[4..8].copy_from_slice(&200_u32.to_le_bytes());
+        bytes[8..12].copy_from_slice(&136_u32.to_le_bytes());
+        bytes[144..148].copy_from_slice(&1_u32.to_le_bytes());
+        bytes[164..172].copy_from_slice(&c8[28..36]);
+        bytes[216..220].copy_from_slice(&228_u32.to_le_bytes());
+        bytes[220..224].copy_from_slice(&(c8.len() as u32 - 100).to_le_bytes());
+        // Compact text-only indexes carry a zero third word.
+        bytes.extend_from_slice(&c8[100..]);
+        input = source(bytes);
+    }
     let mut sink = Sink::default();
     let input_fault = input.fail.clone();
     let output_fault = sink.fail.clone();
@@ -813,4 +828,46 @@ fn unresolved_skewed_nontext_content_remains_an_error() {
         assert!(result.is_err());
         assert!(!finished);
     }
+}
+
+#[test]
+fn hnb_native_text_and_controlled_state_reuse_sequential_page_output() {
+    let make = |control: &[[u16; 2]]| {
+        let mut words = ordinary();
+        words.extend_from_slice(control);
+        words.extend([
+            [4682, 0xd6d0],
+            [4772, 0xa0c1],
+            [0x8006, 0xa381],
+            [4682, 4350],
+            [4912, 4380],
+            [0x8004, 1],
+        ]);
+        words
+    };
+    let (result, baseline, finished) = convert(&make(&[]), 0, &[], roles(), 12);
+    result.unwrap();
+    assert!(finished);
+    assert_eq!(baseline, convert(&make(&[]), 0, &[], roles(), 0).1);
+    for control in [
+        vec![[0x8067, 7]],
+        vec![[0x8069, 0x1084]],
+        vec![[0x80ce, 1]],
+        vec![[0x8072, 0x1084]],
+        vec![[0x8073, 30]],
+        vec![[0x8073, 31]],
+        vec![[0x8073, 32]],
+        vec![[0x8074, 0xb7bd]],
+        vec![[0x8074, 0xcfc8]],
+        vec![[0x8074, 0xc8cb]],
+        vec![[0xc052, 0xa385], [0xd290, 0xb675]],
+    ] {
+        let (result, pdf, finished) = convert(&make(&control), 0, &[], roles(), 12);
+        result.unwrap();
+        assert!(finished);
+        assert_eq!(pdf, baseline);
+    }
+    let (result, _, finished) = convert(&make(&[]), 1, &[false], roles(), 12);
+    assert!(result.is_err());
+    assert!(!finished);
 }

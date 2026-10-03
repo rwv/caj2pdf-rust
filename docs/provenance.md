@@ -2496,3 +2496,10 @@ paired HN-B/C8 controls varying each field separately. The original MIT reader
 reuses bounded reads; existing container tests cover unsigned words and short
 reads. External evidence is indexed in `hnb-compact-index.md`; no third-party
 implementation or source-document content was copied.
+
+HN-B text/vector resource-state admission reuses the existing original MIT
+sequential page writer. Original two-row controls combine unequal glyph axes,
+distinct generated font markers and a segment. The committed generator and
+short-I/O tests contain only authored records; external captures and source
+integration probes remain outside Git. Scope and remaining punctuation/image
+limitations are recorded in `hnb-compact-index.md`.

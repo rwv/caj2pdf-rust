@@ -23,7 +23,7 @@ pub struct C8PageFonts {
     pub decoration: Option<(usize, char)>,
 }
 
-/// Write and finish the current C8 native page using already embedded resources.
+/// Write and finish the current C8 or text/vector HN-B native page using already embedded resources.
 ///
 /// Call `next_page` first. Images must be supplied in descriptor order, decoded
 /// through the existing codecs. `top_first` identifies each emitted image's row
@@ -64,11 +64,16 @@ where
             source,
         })
     };
-    if header.variant != Variant::C8 {
+    if !matches!(header.variant, Variant::C8 | Variant::HnB) {
         return Err(loc.error(ErrorKind::Unsupported {
             field: "native page composition variant",
             value: 0,
         }));
+    }
+    if header.variant == Variant::HnB && !images.is_empty() {
+        return Err(source_error(invalid(
+            "unverified HN-B native image composition",
+        )));
     }
     let current = reader
         .current
@@ -103,6 +108,7 @@ where
         axes: [None; 2],
         alternate: false,
         skew: false,
+        variant: header.variant,
     };
     reader.visit_native_records(budget, &mut writer).await?;
     page.finish().await.map_err(source_error)
@@ -123,6 +129,7 @@ struct PageWriter<'p, 'd, 'a, 'r, W: SequentialSink, C: Cancellation> {
     axes: [Option<u16>; 2],
     alternate: bool,
     skew: bool,
+    variant: Variant,
 }
 
 impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, '_, '_, '_, W, C> {
@@ -181,6 +188,35 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
                 tag: 0xc053 | 0xc054,
                 ..
             } => (),
+            NativeRecord::Control {
+                tag: 0x8067,
+                value: 7,
+            }
+            | NativeRecord::Control {
+                tag: 0x8069,
+                value: 0x1084,
+            }
+            | NativeRecord::Control {
+                tag: 0x80ce,
+                value: 1,
+            }
+            | NativeRecord::Control {
+                tag: 0x8072,
+                value: 0x1084,
+            }
+            | NativeRecord::Control {
+                tag: 0x8073,
+                value: 30..=32,
+            }
+            | NativeRecord::Control {
+                tag: 0x8074,
+                value: 0xb7bd | 0xcfc8 | 0xc8cb,
+            }
+            | NativeRecord::ExtendedControl {
+                tag: 0xc052,
+                value: 0xa385,
+                ..
+            } if self.variant == Variant::HnB => (),
             NativeRecord::Glyph { x, y, style, code } => {
                 let character = decode_native_character(code)
                     .ok_or_else(|| invalid("unsupported C8 native character"))?;

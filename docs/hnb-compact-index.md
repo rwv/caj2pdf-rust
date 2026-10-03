@@ -389,3 +389,33 @@ The container exposes these raw unsigned words with fixed four-byte reads.
 Zero extents remain inspectable and fail when native composition requires a
 valid canvas. Legacy HN-B image-only composition continues to derive its canvas
 from the image. This metadata admission does not complete HN-B native rendering.
+
+## Native text/vector resource-state admission
+
+Twelve original controls (baseline plus eleven variations) combine ordinary
+and alternate Latin resource markers, unequal width/height styles, a CJK glyph,
+Latin A, a fullwidth punctuation alias, and an asymmetric segment. At 265%,
+all compared viewports and repeats are pixel-identical to baseline. The existing
+original font resources have distinct internal marker positions, so resource
+substitution is observable. Inputs are reproducible with
+`hnb_geometry_fixture.py`; external `resource-mixed-inputs.json` and
+`resource-mixed-comparison.json` record hashes and comparisons, with captures in
+`caj2pdf-hnb-rendering-20261003/native-geometry-viewer`. Comparison bounds are
+`(640,350,1040,970)`; no registration or rescaling is applied.
+
+These observations admit `8067/7`, `8069/1084`, `80ce/1`, `8072/1084`,
+`8073/30..32` (decimal), and `8074/b7bd,cfc8,c8cb` as nonpainting controls in
+the measured text/vector profile. The observed `c052/a385` extended control
+preserves the same operations; earlier independently varied opaque payload
+controls establish its boundary. Raw inspection retains all values. This does
+not establish the semantics of other flags, arbitrary resource states or
+image mixing. In particular, `80ce/0` is not admitted.
+
+The existing sequential page writer now accepts HN-B text/vector pages with
+verified header geometry. It refuses HN-B image composition pending #250.
+Original short-I/O PDF regressions compare the HN-B and C8 baseline and each
+admitted HN-B control. The complete-document orchestrator and adapters remain
+separate pending work. An external direct-page integration probe on issue-100
+reaches page 1 offset 1464, raw code `a1a3`, then fails explicitly on unverified
+glyph resource/placement. Unicode decoding alone did not prove this mapping.
+The unfinished external probe PDF is not a compatibility pass.

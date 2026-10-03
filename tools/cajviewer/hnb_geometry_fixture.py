@@ -83,6 +83,25 @@ def skew_control(words, style=0x1084, *, c8_container=False):
     return data if c8_container else hn_container(data)
 
 
+RESOURCE_CONTROLS = (
+    ("base", ()), ("resource7", (0x8067, 7)), ("state69", (0x8069, 0x1084)),
+    ("statece", (0x80CE, 1)), ("state72", (0x8072, 0x1084)),
+    ("state73-30", (0x8073, 30)), ("state73-31", (0x8073, 31)),
+    ("state73-32", (0x8073, 32)), ("state74-a", (0x8074, 0xB7BD)),
+    ("state74-b", (0x8074, 0xCFC8)), ("state74-c", (0x8074, 0xC8CB)),
+    ("extended", (0xC052, 0xA385, 0xD290, 0xB675)),
+)
+
+
+def resource_control(words):
+    return hn_container(document(
+        [(0x1067, 0, 6), (0x10E3, 4, 6)], codes=(), width=1100, height=650,
+        first_x=4672, first_y=4394, row_step=250,
+        run_words=words + (4672, 0xD6D0, 4902, 0xA0C1, 5152, 0xA0AE,
+                           0x8006, 0xA381, 4672, 4600, 5482, 4620),
+    ))
+
+
 def geometry_control(width, height, dx=0, dy=0, *, c8_container=False):
     data = bytearray(document(
         [(0x1084, 0, 6)], codes=(0xD6D0,), width=width, height=height,
@@ -155,6 +174,12 @@ def main():
             manifest.append({"file": filename, "width": width, "height": height,
                              "origin": [4652 + dx, 4274 + dy],
                              "sha256": hashlib.sha256(data).hexdigest()})
+    for name, words in RESOURCE_CONTROLS:
+        data = resource_control(words)
+        filename = f"resource-mixed-{name}.caj"
+        (args.output / filename).write_bytes(data)
+        manifest.append({"file": filename, "words": words,
+                         "sha256": hashlib.sha256(data).hexdigest()})
     (args.output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
 
 
