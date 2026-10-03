@@ -617,3 +617,30 @@ The full four-page source now reaches style `1021` (size field 1), page-1 byte
 byte 19552. Neither publishes a final PDF. Verify the smaller size and required
 punctuation geometry with existing size controls before admitting it. Complete
 four-/five-page acceptance remains open in #242.
+
+## Observed field-1 glyph styles
+
+Original `field1_documents()` controls isolate `1021`, `1022`, and `1041`
+against field-2 and explicit 24/24 axes. On the pinned viewer, all five page
+crops repeat exactly; `1021` equals the explicit-axis reference. The measured
+field-1 em is 24 units and its Latin baseline offset is 10 coordinate units.
+Unequal-axis controls isolate width and height. Admission is confined to these
+three glyph styles; decorations and other field-1 combinations remain errors.
+
+External evidence is under `caj2pdf-hnb-rendering-20261003`:
+`input/c8-field1/manifest.json`, `c8-field1-observations.json`, and
+`identified-family-viewer/field1-*-{a,b}.png`. At 1457% the field-1 CJK bounds
+are (74,85)-(190,200), and Latin bounds are (240,104)-(355,219), relative to
+the page crop. The field-2 Latin control is clipped by the right page boundary;
+do not use its width to infer full glyph dimensions. Required bracket mapping
+and complete-document conversion are separate, unfinished acceptance.
+
+The four admitted controls pass qpdf and independent extraction (`中A`). At
+1457%, independent PDF raster bounds retain 0–2 pixel edge residuals relative
+to the viewer; `c8-field1-output/render-checks.json` records each edge, including
+the clipped field-2/height-1 Latin comparison. No raster compensation is added.
+A full-document retry exposed the old punctuation table's assumption that all
+admitted fields are at least 2. The writer now rejects unverified punctuation
+fields before lookup, with all eight affected raw punctuation codes covered
+at the three new styles. The four-page input stops explicitly at byte 10048
+rather than panicking or publishing a partial final PDF.

@@ -2775,3 +2775,11 @@ evidence establishes U+006C. The exact C8-only mapping uses existing placement
 and font roles; no generic low-byte range or HN-B behavior is inferred. External
 clipboard bytes, fonts and captures stay outside Git. Accepted/excluded captures
 and the one-level grayscale residual are documented in `docs/c8-native-controls.md`.
+
+### C8 field-1 glyph controls
+
+Original MIT `field1_documents()` isolates required small glyph dimensions,
+independent axes and Latin baseline using original geometric fonts. The narrow
+placement extension uses these observations, not a vendor size table. External
+captures and font data remain outside Git; evidence limits are recorded in
+`docs/c8-native-controls.md`.

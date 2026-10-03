@@ -317,6 +317,20 @@ def low_letter_documents():
                     yield f"low-{state}-{variant}-skew.caj", skew
 
 
+def field1_documents():
+    """Isolate small glyph axes and Latin baseline with original marker fonts."""
+    from c8_style_fixture import document as style_document
+
+    for label, style, words in (
+        ("field1", 0x1021, ()), ("field2", 0x1042, ()),
+        ("axis24", 0x1042, (0x8070, 24, 0x8071, 24)),
+        ("width1", 0x1022, ()), ("height1", 0x1041, ()),
+    ):
+        yield label + ".caj", style_document(
+            [(style, 0, 6)], codes=(), width=200, height=200,
+            first_y=4334, run_words=(*words, 4672, 0xD6D0, 4752, 0xA0C1))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("output", type=Path, help="new directory outside the repository")
@@ -334,7 +348,8 @@ def main():
                        *alphabet_documents(), *field4_style_documents(),
                        *state_axis_documents(), *at_sign_documents(),
                        *record_9002_documents(), *additional_style_documents(),
-                       *skew_281c_documents(), *low_letter_documents()):
+                       *skew_281c_documents(), *low_letter_documents(),
+                       *field1_documents()):
         (args.output / name).write_bytes(data)
         manifest.append({"file": name, "sha256": hashlib.sha256(data).hexdigest()})
     (args.output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")

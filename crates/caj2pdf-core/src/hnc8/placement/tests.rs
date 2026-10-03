@@ -781,3 +781,46 @@ fn four_unit_axes_preserve_measured_em_and_latin_baseline() {
         15.0 * EMPIRICAL_COORDINATE_POINTS_PER_UNIT,
     );
 }
+
+#[test]
+fn field_one_glyph_controls_preserve_independent_axes_and_latin_baseline() {
+    let page = empirical_page_from_pixels(200, 200, [0.0; 2]).unwrap();
+    for (style, width, height, offset) in [
+        (0x1021, 24.0, 24.0, 10.0),
+        (0x1022, 24.0, 28.0, 9.0),
+        (0x1041, 28.0, 24.0, 10.0),
+    ] {
+        let cjk = empirical_c8_glyph_transform(
+            page,
+            [4652, 4274],
+            [4672, 4334],
+            style,
+            C8GlyphClass::Cjk,
+        )
+        .unwrap();
+        let latin = empirical_c8_glyph_transform(
+            page,
+            [4652, 4274],
+            [4672, 4334],
+            style,
+            C8GlyphClass::Latin,
+        )
+        .unwrap();
+        close(cjk[0], width * 75.0 / 301.0);
+        close(cjk[3], height * 75.0 / 301.0);
+        close(latin[4] - cjk[4], cjk[0] / 8.0);
+        close(
+            cjk[5] - latin[5],
+            offset * EMPIRICAL_COORDINATE_POINTS_PER_UNIT,
+        );
+        assert!(
+            empirical_c8_horizontal_decoration(
+                page,
+                [4652, 4274],
+                [[4672, 4334], [4752, 4334]],
+                style,
+            )
+            .is_err()
+        );
+    }
+}

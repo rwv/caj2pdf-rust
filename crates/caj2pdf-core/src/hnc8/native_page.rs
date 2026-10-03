@@ -397,6 +397,14 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
                 {
                     return Err(invalid("unverified explicit-axis punctuation offsets"));
                 }
+                if matches!(
+                    code,
+                    0xa1a4 | 0xa1af | 0xa1b0 | 0xa1b1 | 0xa3a8 | 0xa3a9 | 0xa3db | 0xa3dd
+                ) && self.axes == [None; 2]
+                    && (!matches!((style >> 5) & 31, 2..=8) || !matches!(style & 31, 2..=8))
+                {
+                    return Err(invalid("unverified native punctuation size fields"));
+                }
                 let latin = self.latin;
                 // Select by raw code: Unicode alone does not establish the
                 // resource or placement of the source's symbol variants.
