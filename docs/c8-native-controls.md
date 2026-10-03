@@ -1117,3 +1117,53 @@ and pass qpdf, using explicit original marker fonts and `--no-bookmarks`.
 This is native conversion/syntax success, not final compatibility acceptance.
 Independent whole-page content/geometry comparison, Node/real Worker checks,
 the original six-page C8 regression and final hosted CI remain outstanding.
+
+
+### Complete-document runtime and visual checkpoint (`c2df122`)
+
+The two additional inputs and the original six-page regression complete through
+CLI, Node and a real browser Worker with the same explicit original marker font
+resources and bookmark omission. The output hashes agree across all three paths:
+
+| Input | Pages | PDF SHA-256 | Maximum source read | Maximum font read |
+| --- | ---: | --- | ---: | ---: |
+| `issue-90/4-[21].caj` | 4 | `c698accf44da483afe2c68d5b5189928e355805c6745bb2d29989fb066ac3295` | 78,936 | 1,160 |
+| `issue-90/4-[24].caj` | 5 | `a32e8b0dc72becfce85d624fe5d45bb8edaa14e4f379613b41ab9e760175a362` | 139,607 | 1,160 |
+| Original issue-66 C8 | 6 | `7b48415106dcca79f53ca708498556c4845ce9a67c2f54bb28021c60b7b29170` | 2,453 | 1,160 |
+
+Native PDFs pass qpdf. Node and Worker receipts report successful scratch cleanup
+with no remaining files. Browser input/font spooling uses OPFS; output is written
+sequentially. The harness's asset loading and final hashing are not measurements
+of converter memory. Recorded post-conversion WASM sizes are not peak memory;
+actual high-water measurements remain in #222.
+
+All nine full-page viewer capture pairs have zero changed pixels, including the
+surrounding UI. Page identity is visible in the document tab and page selector.
+The four-page source uses interior x=515..1135, the five-page source x=701..1321;
+ordinary pages use y=207..1113 and last pages y=212..1118 because they are bottom
+aligned. These exclude neighboring-page slivers. Captures are at 93% viewer zoom;
+PDF renders use 1.24 pixels per point. Their slightly different raster dimensions
+are not grounds for an unexplained pixel-equality tolerance.
+
+Page-level visual review covers all nine pages. The four-page document preserves
+the title/abstract and two-column equations on page 1, the diagrams and response
+plot on page 2, plots/photo on page 3, and references/English abstract on page 4.
+The five-page document preserves title/abstract/equations on page 1, diagrams on
+page 2, response plots/photo/composite circuit on page 3, plots/photo on page 4,
+and references/English abstract on page 5. No missing or reordered major content
+was observed in this review. This checks layout with diagnostic marker fonts;
+it is not an independent transcription of every glyph or source-font fidelity.
+Original mapping controls remain separate evidence for Unicode rules.
+
+A residual remains: header/footer horizontal hairlines are lighter in the MuPDF
+raster than in the viewer. PDF inspection confirms a black, opaque zero-width
+stroke at the expected header position; that establishes presence, not identical
+raster semantics. Do not silently thicken it or claim pixel parity. Further
+classification, glyph-transport checks, existing failure/cancellation coverage
+review, final support claims and final-head PR gates remain open in #242.
+
+External receipts under `caj2pdf-hnb-rendering-20261003`:
+`c8-{21,24,six}-c2df122-{node,browser}.json`,
+`c8-six-c2df122-cli.json`, and
+`c8-acceptance-c2df122/{capture-stability,pdf-pages}.json`.
+Source documents, text, PDFs, fonts and captures remain outside Git.

@@ -6,11 +6,11 @@ Implementation tracking: #232 (parser), #233 (rendering), parent #229.
 
 ## Current implementation and acceptance status
 
-Draft #235 at `8a3bd4c` implements bounded native-page translation, real image
-codec composition and explicit ranged font resources through CLI, Node and a
-browser Worker. The pinned six-page source completes through all three public
-paths with identical PDF hashes. This establishes a conversion checkpoint;
-independent source-fidelity acceptance and final PR review remain open.
+PR #235 delivered bounded native-page translation, real image codec composition
+and explicit ranged font resources through CLI, Node and a browser Worker for
+the initial six-page profile. Its scoped independent comparison is recorded
+below. Additional four/five-page profiles are being accepted in PR #264;
+see `c8-native-controls.md` for their current evidence and remaining checks.
 Required unknown records and unavailable glyph resources still fail explicitly.
 
 The sections below are a chronological evidence log. Statements that a rule or
