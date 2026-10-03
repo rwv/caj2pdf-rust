@@ -492,6 +492,25 @@ def axis_punctuation_controls():
             ))
 
 
+def page_tail_controls():
+    for state in (0, 3, 4):
+        for code in (0xA3C0, 0xA3AC):
+            yield f"hn-at-symbol-{state}-{code:04x}", hn_container(document(
+                [(0x1084, state, 6)], codes=(code,), width=300, height=250,
+                first_x=4672, first_y=4294,
+            ))
+    yield "page-tail-base", control(0x1084, (), anchor=True)
+    for tag, values in (
+        (0x8072, (0xA0F3, 0xA0E7, 0xC2DB, 0xD2F2, 0xCDC1)),
+        (0x8073, range(79, 84)),
+        (0x8074, (0x2815, 0xA0EC, 0xD3C9, 0xB0D7, 0xD1E9)),
+    ):
+        for value in values:
+            yield f"page-tail-{tag:04x}-{value:04x}", control(
+                0x1084, (tag, value), anchor=True,
+            )
+
+
 def title_style_controls():
     """Compare the required mode-2 title with the independently calibrated form."""
     for style in (0x114A, 0x154A):
@@ -675,7 +694,7 @@ def main():
         manifest.append({"file": filename, "code": code, "alternate": alt, "dx": dx,
                          "x": x, "y": y, "sha256": hashlib.sha256(data).hexdigest()})
     for name, data in (*end_controls(), *issue63_style_controls(), *native_mode_controls(),
-                       *legacy_geometry_controls(), *legacy_metric_controls(), *legacy_run_controls(), *legacy_digit_controls(), *legacy_line_width_controls(), *legacy_symbol_grids(), *legacy_hyphen_controls(), *title_style_controls(), *resource_three_controls(), *state_three_punctuation_controls(), *small_skew_controls(), *paired_axis_controls(), *axis_punctuation_controls(), *normal_style_flag_controls(), *state_axis_reset_controls(), *legacy_state_controls(), *legacy_state_controls(0x80CE, 1, "statece1"), *legacy_metadata_controls(), *legacy_symbol_controls()):
+                       *legacy_geometry_controls(), *legacy_metric_controls(), *legacy_run_controls(), *legacy_digit_controls(), *legacy_line_width_controls(), *legacy_symbol_grids(), *legacy_hyphen_controls(), *title_style_controls(), *resource_three_controls(), *state_three_punctuation_controls(), *small_skew_controls(), *paired_axis_controls(), *axis_punctuation_controls(), *page_tail_controls(), *normal_style_flag_controls(), *state_axis_reset_controls(), *legacy_state_controls(), *legacy_state_controls(0x80CE, 1, "statece1"), *legacy_metadata_controls(), *legacy_symbol_controls()):
         filename = name + ".caj"
         (args.output / filename).write_bytes(data)
         manifest.append({"file": filename, "sha256": hashlib.sha256(data).hexdigest()})

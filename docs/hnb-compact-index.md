@@ -1138,3 +1138,30 @@ The issue-65 retry now reaches page 1 byte 5832, after the body and earlier
 bracketed metadata. An unverified glyph resource/placement class still fails
 there. Later page-tail metadata also remains under investigation; no final
 PDF is published and #241/#250 acceptance remains open.
+
+### Fullwidth at sign and page-tail controls
+
+Original `page_tail_controls()` establish HN-B `A3C0` (U+FF20) against the
+already mapped fullwidth comma: the marker crops match exactly in ordinary,
+state-3 and alternate Latin resources. C8 admission is unchanged.
+
+The same generator tests the actual required page-tail controls: `8072` with
+`a0f3`, `a0e7`, `c2db`, `d2f2`, `cdc1`; `8073` with decimal 79–83; and `8074`
+with `2815`, `a0ec`, `d3c9`, `b0d7`, `d1e9`. Paired CJK/Latin marker crops
+remain identical to the baseline. Only these observed values are added to
+the existing no-paint control handling; other unknown required values remain
+located failures. The 22 original inputs convert and pass qpdf, repeated
+captures agree, and every metadata-control PDF is byte-identical to baseline.
+External receipts are `hn-at-symbol-comparison.json`, `page-tail-inputs.json`
+and `page-tail-output/checks.json` under the existing evidence root.
+
+Current CLI regressions of issue-100 and issue-63 retain their original full
+four-page output hashes (`0410f9f…7445` and `3f904cb5…5d07` respectively) and
+pass qpdf. Full hashes are in `page-tail-regressions.json` and earlier sections.
+This is a native regression check, not a new full-runtime fidelity claim.
+
+The six-page issue-65 input now reaches page 1 byte 6336, where `A0AD` remains
+an unsupported native character. Its character/resource/placement mapping
+still needs independent verification; do not infer it solely from adjacent
+byte values. Conversion publishes no final PDF, and full-document acceptance
+remains open.

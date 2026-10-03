@@ -261,15 +261,15 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
             }
             | NativeRecord::Control {
                 tag: 0x8072,
-                value: 0x1084,
+                value: 0x1084 | 0xa0f3 | 0xa0e7 | 0xc2db | 0xd2f2 | 0xcdc1,
             }
             | NativeRecord::Control {
                 tag: 0x8073,
-                value: 30..=32,
+                value: 30..=32 | 79..=83,
             }
             | NativeRecord::Control {
                 tag: 0x8074,
-                value: 0xb7bd | 0xcfc8 | 0xc8cb,
+                value: 0xb7bd | 0xcfc8 | 0xc8cb | 0x2815 | 0xa0ec | 0xd3c9 | 0xb0d7 | 0xd1e9,
             }
             | NativeRecord::ExtendedControl {
                 tag: 0xc052,
@@ -358,6 +358,7 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
                     0xa1c6 | 0xa1c8 | 0xa9aa | 0xaab3 | 0xaca3 => {
                         (C8GlyphClass::Cjk, self.roles.latin, Some(0.0))
                     }
+                    0xa3c0 if self.variant == Variant::HnB => (C8GlyphClass::Cjk, latin, Some(0.0)),
                     0xa1a4 | 0xa3ba => (C8GlyphClass::Cjk, latin, Some(1.0 / 8.0)),
                     0xa1b0 | 0xa1b1 | 0xa1b2 | 0xa1b3 | 0xa1b6 | 0xa1b7 | 0xa3a8 | 0xa3a9 => {
                         (C8GlyphClass::Cjk, latin, None)

@@ -892,6 +892,21 @@ fn hnb_native_text_and_controlled_state_reuse_sequential_page_output() {
         vec![[0x8069, 0x1084]],
         vec![[0x80ce, 1]],
         vec![[0x8072, 0x1084]],
+        vec![[0x8072, 0xa0f3]],
+        vec![[0x8072, 0xa0e7]],
+        vec![[0x8072, 0xc2db]],
+        vec![[0x8072, 0xd2f2]],
+        vec![[0x8072, 0xcdc1]],
+        vec![[0x8073, 79]],
+        vec![[0x8073, 80]],
+        vec![[0x8073, 81]],
+        vec![[0x8073, 82]],
+        vec![[0x8073, 83]],
+        vec![[0x8074, 0x2815]],
+        vec![[0x8074, 0xa0ec]],
+        vec![[0x8074, 0xd3c9]],
+        vec![[0x8074, 0xb0d7]],
+        vec![[0x8074, 0xd1e9]],
         vec![[0x8073, 30]],
         vec![[0x8073, 31]],
         vec![[0x8073, 32]],
@@ -1478,5 +1493,39 @@ fn hnb_axis_punctuation_preserves_verified_offsets() {
         let mut mixed = words;
         mixed[2][1] = if size == 43 { 28 } else { 43 };
         assert!(convert(&mixed, 0, &[], roles(), 13).0.is_err());
+    }
+}
+
+#[test]
+fn hnb_fullwidth_at_sign_matches_controlled_comma_placement_and_resource() {
+    for (state, font) in [(0, 1), (3, 0), (4, 2)] {
+        let mut glyphs = Vec::new();
+        for code in [0xa3ac, 0xa3c0] {
+            let words = [
+                [0x8001, 4394],
+                [0x8002, 0x1084],
+                [0x801d, state],
+                [4902, code],
+                [0x8004, 1],
+            ];
+            let mut fonts = roles();
+            fonts.latin_state3 = Some(0);
+            let (result, pdf, finished) = convert(&words, 0, &[], fonts, 13);
+            result.unwrap();
+            assert!(finished);
+            let text = String::from_utf8_lossy(&pdf);
+            assert!(text.contains(&format!("/F{font} 1 Tf")));
+            glyphs.push(
+                text.lines()
+                    .find(|line| line.contains(" Tm "))
+                    .unwrap()
+                    .replace("<FF20>", "<FF0C>"),
+            );
+            if code == 0xa3c0 {
+                assert!(text.contains("<FF20> Tj"));
+                assert!(convert(&words, 0, &[], fonts, 11).0.is_err());
+            }
+        }
+        assert_eq!(glyphs[0], glyphs[1]);
     }
 }
