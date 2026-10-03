@@ -1246,6 +1246,52 @@ fn cancellation_inside_a_fixed_read_and_before_a_page_row_is_located() {
 }
 
 #[test]
+fn native_origin_preserves_unsigned_c8_words_without_guessing_hn_fields() {
+    let limits = Limits::default();
+    for variant in [Variant::C8, Variant::HnA, Variant::HnB] {
+        for origin in [[4652_u16, 4274_u16], [0, u16::MAX]] {
+            let mut bytes = if variant == Variant::C8 {
+                c8(1)
+            } else {
+                hn(variant, 1, 0).0
+            };
+            bytes[28..30].copy_from_slice(&origin[0].to_le_bytes());
+            bytes[30..32].copy_from_slice(&origin[1].to_le_bytes());
+            let mut source = Source::new(bytes);
+            source.max_read = 1;
+            let reader = ready(Hnc8Reader::open(
+                &mut source,
+                &limits,
+                &NEVER,
+                Budget::default(),
+            ))
+            .unwrap();
+            assert_eq!(
+                reader.header().native_origin,
+                (variant == Variant::C8).then_some(origin)
+            );
+            assert!(source.largest_request <= 4);
+        }
+    }
+    for length in 28..32 {
+        let mut bytes = c8(1);
+        bytes.truncate(length);
+        let mut source = Source::new(bytes);
+        let error = ready(Hnc8Reader::open(
+            &mut source,
+            &limits,
+            &NEVER,
+            Budget::default(),
+        ))
+        .err()
+        .unwrap();
+        assert_eq!(error.variant, Some(Variant::C8));
+        assert_eq!(error.offset, 28);
+        assert_eq!(error.kind.field(), "native coordinate origin");
+    }
+}
+
+#[test]
 fn declared_page_extents_use_variant_offsets_and_bounded_reads() {
     let limits = Limits::default();
     for variant in [Variant::C8, Variant::HnA, Variant::HnB] {

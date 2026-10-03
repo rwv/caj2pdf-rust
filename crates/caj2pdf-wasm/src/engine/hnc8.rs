@@ -12,6 +12,60 @@ use caj2pdf_core::{
 };
 
 #[derive(Default)]
+pub(super) struct Fonts {
+    sizes: [u64; 4],
+    count: usize,
+    roles: Option<caj2pdf_core::hnc8::C8PageFonts>,
+}
+impl Fonts {
+    pub(super) fn count(&self) -> usize {
+        self.count
+    }
+    pub(super) fn add(&mut self, size: u64) -> u32 {
+        if self.count == self.sizes.len() || self.roles.is_some() {
+            return 0;
+        }
+        self.sizes[self.count] = size;
+        self.count += 1;
+        self.count as u32
+    }
+    pub(super) fn set(
+        &mut self,
+        cjk: u32,
+        latin: u32,
+        alternate: u32,
+        decoration: u32,
+        alias: u32,
+    ) -> bool {
+        if self.roles.is_some()
+            || [cjk, latin, alternate]
+                .into_iter()
+                .any(|index| index as usize >= self.count)
+        {
+            return false;
+        }
+        let decoration = if decoration == u32::MAX {
+            None
+        } else {
+            let Some(character) = char::from_u32(alias) else {
+                return false;
+            };
+            if decoration as usize >= self.count || alias > 0xffff {
+                return false;
+            }
+            Some((decoration as usize, character))
+        };
+        self.roles = Some(caj2pdf_core::hnc8::C8PageFonts {
+            cjk: cjk as usize,
+            latin: latin as usize,
+            alternate_latin: alternate as usize,
+            decoration,
+        });
+        true
+    }
+}
+
+#[derive(Default)]
 pub(super) struct Tables {
     qm: Vec<QmState>,
     mq: Vec<MqState>,
@@ -138,6 +192,33 @@ pub(super) async fn convert(
             refined,
         }),
     };
+    let fonts = std::mem::take(&mut source.shared.borrow_mut().fonts);
+    if fonts.count != 0 {
+        let roles = fonts.roles.ok_or(Error::InvalidInput {
+            reason: "C8 font resources require explicit roles",
+        })?;
+        let mut sources = std::array::from_fn::<_, 4, _>(|index| BridgeSource {
+            resource: index as u32 + 1,
+            shared: Rc::clone(&source.shared),
+            size: fonts.sizes[index],
+        });
+        return caj2pdf_core::hnc8::convert_c8_native_pdf(
+            source,
+            sink,
+            caj2pdf_core::hnc8::C8FontSources {
+                sources: &mut sources[..fonts.count],
+                roles,
+            },
+            Some(&qm),
+            workspaces,
+            options,
+            limits,
+            cancellation,
+        )
+        .await
+        .map(|report| report.conversion)
+        .map_err(|error| Error::Hnc8(Box::new(error)));
+    }
     convert_source_pages_pdf(
         source,
         sink,

@@ -108,6 +108,16 @@ fn drive_until(
     short: Option<usize>,
     stop: Option<Status>,
 ) -> Run {
+    drive_resources(engine, input, &[], short, stop)
+}
+
+fn drive_resources(
+    engine: &mut Engine,
+    input: &[u8],
+    fonts: &[&[u8]],
+    short: Option<usize>,
+    stop: Option<Status>,
+) -> Run {
     let mut run = Run::default();
     loop {
         let status = engine.poll();
@@ -116,8 +126,18 @@ fn drive_until(
         }
         match status {
             Status::Read => {
-                let Some(Request::Read { offset, length }) = engine.request() else {
+                let Some(Request::Read {
+                    resource,
+                    offset,
+                    length,
+                }) = engine.request()
+                else {
                     panic!("read status without a read request");
+                };
+                let input = if resource == 0 {
+                    input
+                } else {
+                    fonts[resource as usize - 1]
                 };
                 run.max_read = run.max_read.max(length);
                 let start = offset as usize;
@@ -457,6 +477,7 @@ fn rejects_invalid_completions_without_corrupting_the_request() {
     assert_eq!(
         engine.request(),
         Some(Request::Read {
+            resource: 0,
             offset: 0,
             length: 2
         })
@@ -529,8 +550,10 @@ fn source_reads_past_the_end_are_clamped_before_reaching_the_host() {
         cancelled: false,
         format: None,
         tables: hnc8::Tables::default(),
+        fonts: hnc8::Fonts::default(),
     }));
     let mut source = BridgeSource {
+        resource: 0,
         shared: Rc::clone(&shared),
         size: 10,
     };
@@ -542,6 +565,7 @@ fn source_reads_past_the_end_are_clamped_before_reaching_the_host() {
     assert_eq!(
         shared.borrow().request,
         Some(Request::Read {
+            resource: 0,
             offset: 7,
             length: 3
         })
@@ -891,5 +915,95 @@ fn hna_inspection_rejects_invalid_records_and_resource_limits() {
         assert_eq!(error_code(failure(&engine)), 16);
         assert!(engine.message().contains("byte"));
         assert!(std::error::Error::source(failure(&engine)).is_some());
+    }
+}
+
+fn native_c8() -> Vec<u8> {
+    let mut bytes = vec![0u8; 100];
+    bytes[0] = 0xc8;
+    put_u32(&mut bytes, 8, 1);
+    bytes[32..34].copy_from_slice(&100u16.to_le_bytes());
+    bytes[34..36].copy_from_slice(&200u16.to_le_bytes());
+    put_u32(&mut bytes, 80, 100);
+    let words = [
+        [0x8001u16, 60],
+        [0x8002, 0x1084],
+        [30, 0xa0c1],
+        [0x8004, 39],
+    ];
+    put_u32(&mut bytes, 84, 16);
+    put_u32(&mut bytes, 96, 116);
+    bytes.extend(words.into_iter().flatten().flat_map(u16::to_le_bytes));
+    bytes
+}
+
+fn native_operation() -> Operation {
+    Operation::Convert {
+        format: None,
+        options: ConversionOptions {
+            include_bookmarks: false,
+        },
+    }
+}
+
+#[test]
+fn native_c8_font_resources_share_the_bounded_request_channel() {
+    let bytes = native_c8();
+    let font = include_bytes!("../../../../tests/fonts/geometric.ttf");
+    let mut engine = Engine::start(bytes.len() as u64, limits(32), native_operation()).unwrap();
+    assert_eq!(engine.add_font_source(font.len() as u64), 1);
+    assert!(engine.set_c8_fonts(0, 0, 0, 0, 'A' as u32));
+    let run = drive_resources(&mut engine, &bytes, &[font], Some(3), None);
+    assert!(engine.result().unwrap().is_ok(), "{}", engine.message());
+    assert!(run.max_read <= 32 && run.max_write <= 32);
+    assert!(run.output.ends_with(b"%%EOF\n"));
+    assert_eq!(
+        String::from_utf8_lossy(&run.output)
+            .matches("/FontFile2 ")
+            .count(),
+        1
+    );
+    assert!(!engine.set_c8_fonts(0, 0, 0, u32::MAX, 0));
+    assert_eq!(engine.add_font_source(10), 0);
+}
+
+#[test]
+fn font_configuration_rejects_invalid_or_late_resources() {
+    let mut engine = Engine::start(116, limits(32), native_operation()).unwrap();
+    assert_eq!(engine.add_font_source(0), 0);
+    assert_eq!(engine.add_font_source(u64::MAX), 0);
+    assert!(!engine.set_c8_fonts(0, 0, 0, u32::MAX, 0));
+    for id in 1..=4 {
+        assert_eq!(engine.add_font_source(100), id);
+    }
+    assert_eq!(engine.add_font_source(100), 0);
+    for (decoration, alias) in [(4, 65), (0, 0xd800), (0, 0x10000)] {
+        assert!(!engine.set_c8_fonts(0, 0, 0, decoration, alias));
+    }
+    assert!(engine.set_c8_fonts(0, 1, 2, u32::MAX, 0));
+    assert!(!engine.set_c8_fonts(0, 1, 2, u32::MAX, 0));
+    assert_eq!(engine.add_font_source(100), 0);
+    let mut copy = Engine::start(
+        1,
+        limits(32),
+        Operation::Copy {
+            offset: 0,
+            length: 1,
+        },
+    )
+    .unwrap();
+    assert_eq!(copy.add_font_source(100), 0);
+}
+
+#[test]
+fn incomplete_font_config_and_wrong_document_are_explicit_errors() {
+    for bytes in [native_c8(), fixture("valid_out_of_order_objects.pdf")] {
+        let mut engine = Engine::start(bytes.len() as u64, limits(32), native_operation()).unwrap();
+        assert_eq!(engine.add_font_source(100), 1);
+        drive(&mut engine, &bytes, Some(3));
+        assert!(matches!(
+            engine.result(),
+            Some(Err(Error::InvalidInput { .. }))
+        ));
     }
 }

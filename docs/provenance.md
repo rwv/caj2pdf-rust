@@ -1923,6 +1923,131 @@ crosses 12/20-byte rows with two observed layout markers. It reads no external
 document or converter source and includes no fonts, outlines or source text.
 The independent viewer observations and admitted limits are recorded in
 `docs/hnb-compact-index.md`. All external captures/documents remain outside Git.
+## Caller-supplied TrueType metadata (#233)
+
+The original MIT ranged adapter in `pdf/font.rs` follows Microsoft's
+[OpenType SFNT structure](https://learn.microsoft.com/en-us/typography/opentype/spec/otff).
+It retains only eight metric/character/name tables, at most 1 MiB combined, and
+leaves the font program in the caller's ranged source. A maximum of 128 table
+entries bounds directory work; table order, duplicates, ranges, alignment
+and overlap are checked before payload allocation. Original synthetic
+metadata tests contain no copied font outlines or external font data.
+This is a resource primitive, not completed native C8 rendering or validation
+of every glyph outline. The shared writer now embeds fonts and emits positioned glyphs, segments and
+images. C8 style interpretation and complete six-page acceptance remain open
+under #233; see [the output contract](pdf-native-text.md).
+
+`xberg-ttf-parser` **1.1.0**, normal native and WASM dependency, supplies
+borrowed `Face::from_raw_tables` and character/metric APIs. Default features
+are disabled; only `std` is enabled. `cargo tree --edges normal,build` shows
+no enabled dependencies. The published manifest, README, source API and
+complete `LICENSE` were reviewed. The license is **MIT**, copyright
+2025–2026 Kreuzberg, Inc. and 2018 Yevhenii Reizner and the ttf-parser
+contributors. Preserve both notices through the existing packaging script.
+The source is downloaded by Cargo, not vendored into this repository.
+Optional layout/variation features and development dependencies are disabled.
+No proprietary viewer font is bundled or used as source code.
+
+This maintained distribution carries nine upstream fixes, including bounded
+composite-glyph traversal and maximum-glyph-count `loca` handling. Its
+[published README](https://docs.rs/crate/xberg-ttf-parser/1.1.0/source/README.md)
+identifies each change; the upstream project continues to consume the
+published crate. Our adapter reads metadata only; these upstream outline
+fixes do not imply that we validate or render arbitrary font outlines.
+The minimum Rust version becomes **1.88.0**, matching the dependency and the
+updated workspace MSRV check. Native platform compiler pins are unchanged.
+
+The former `ttf-parser 0.25.1` was rejected by the advisory gate under
+RUSTSEC-2026-0192 (unmaintained). A local `read-fonts 0.44.0` migration passed
+244 PDF tests but was rejected: its required `font-types` → `bytemuck_derive`
+→ `proc-macro2` → `unicode-ident` build chain requires Unicode-3.0 in addition
+to MIT. That experiment is not part of the shipped source or lockfile.
+No license exception, advisory suppression or local parser fork is used.
+
+
+### Original embedded-font and mixed-page fixtures
+
+`pdf/document/text.rs` is original MIT output glue over the existing sequential
+writer. CIDFontType2/Identity-H, FontFile2, CIDToGIDMap, widths, ToUnicode,
+text matrices and path operators follow Adobe's PDF 1.7 / ISO 32000-1
+font and content-stream definitions, available through the
+[PDF Association specification archive](https://pdfa.org/resource/pdf-specification-archive/).
+Widths use 256-code blocks so neither the outer nor inner array exceeds the
+recommended PDF array size. ToUnicode ranges increment only the last byte,
+exclude surrogate code units and contain at most 32 entries per block.
+
+The in-repository `drawing_font` test builder creates .notdef plus original
+rectangle/triangle outlines, original names, a two-character cmap, metric
+and location tables, and SFNT checksums. No external glyph designs or font
+bytes are used. Its labels `A` and `中` test Unicode mapping, not authentic
+letterform design. The two-page mixed fixture tests baseline placement,
+image-over-glyph ordering, a segment and font reuse; negative tests cover
+missing/foreign resources, malformed names/maps, limits, I/O failure,
+cancellation and dropped pending operations. Independent local qpdf,
+Poppler and fontTools checks concern these original fixtures only, not
+successful native C8 document conversion. Test exports and external fonts
+remain outside Git.
+
+### Original C8 style controls
+
+`tools/cajviewer/c8_style_fixture.py` is original MIT fixture-generation code.
+It writes an invented five-character, eight-row document from observed format
+constants, without loading or transforming an external document. It contains
+no copied converter implementation, font bytes or glyph outlines. The raw
+header identifier is an observed format fact. Viewer observations and their
+limits are recorded in `docs/c8-native-records.md`; screenshots remain external.
+
+The same builder's additional control/coordinate variants insert independently
+chosen records into the original rows. They establish raw framing observations
+for `8072..8074`, `c053/c054` and `8010/1`; they do not copy source-page content
+or infer permission to discard required rendering semantics. The Rust visitor
+retains every newly admitted tag/value and uses its existing fixed buffer.
+
+The original symbol/permutation controls establish the explicit `a0a6`,
+`aab3`, and `aca3` character exceptions through visible glyphs and ordinary
+viewer copy. The source-independent generator retains both column orders;
+Unicode mappings are recorded as format observations, with no font data or
+proprietary character-map implementation copied into the repository.
+
+
+### External FreeType call observation
+
+The C8 font-call follow-up uses an original MIT forwarding shim against public
+FreeType declarations. Only public face names, units/em and numeric size and
+transform arguments are recorded externally. No vendor implementation,
+proprietary font program or glyph outline was copied into the project. Original
+control-page captures agree exactly with the earlier uninstrumented captures.
+These limited observations do not establish font redistribution rights or
+complete C8 rendering support; see `docs/c8-native-records.md`.
+
+
+### Original geometric-font size controls (#240)
+
+`tools/cajviewer/c8_geometric_font.py` is independently authored MIT code.
+Its square and half-square contours are constructed from coordinates, with
+no external font input. Family/resource names and cmap aliases are factual
+viewer observations; no vendor outline data or implementation is copied.
+External MIT fontTools 4.62.1 generates the diagnostic fonts, not production
+conversion output. The short `size-profile` extension to the original C8
+fixture generator is also original MIT code. Generated fonts, documents and
+viewer captures stay outside Git. The recorded zoom observations disprove
+one preview hypothesis; they do not certify a production rendering rule.
+
+
+The #240 compact/alternate segment controls extend the original C8 generator
+using the already observed native record framing. Coordinate and raster-width
+observations use original geometric inputs and the pinned offline viewer;
+no vendor implementation is read. The public notes distinguish established
+translations from the still-unapproved PDF rendering rules.
+
+The `hnc8::Header::native_origin` field and its bounded C8 read are original
+MIT implementation based on the coordinate/origin controls documented in
+`c8-native-records.md`. Tests use asymmetric invented unsigned words, one-byte
+reads, truncated origins and HN variants with uninterpreted bytes. No font
+size, viewer margin or image mapping is inferred by this metadata addition.
+An external original Rust segment diagnostic uses the shared visitor/writer;
+its checked PDF and comparisons remain outside Git and are not full-profile
+compatibility acceptance.
 
 ### Interrupted CAJ dictionary prefixes
 
@@ -2095,6 +2220,26 @@ Poppler and fontTools checks concern these original fixtures only, not
 successful native C8 document conversion. Test exports and external fonts
 remain outside Git.
 
+### Required C8 size anchor controls
+
+The six `anchor-field*-large-page` variants in the original MIT style fixture
+generator fix a 500×500 page and two pairs of geometric glyphs. They were
+authored from observed raw record framing, without external text or vendor
+outlines. The existing original geometric fonts and pinned offline viewer
+provide the observations recorded in `c8-native-records.md`; generated inputs,
+font binaries and captures stay outside Git. These controls refine the #240
+baseline investigation and do not establish complete C8 rendering.
+
+### Scoped grayscale text
+
+The grayscale glyph writer reuses the original font/content implementation
+and PDF graphics-state/DeviceGray operators. Original rectangle/triangle fonts
+verify color isolation, short writes and failed-output poisoning. The C8
+reference observations use only generated geometric fonts and authored controls;
+the public FreeType shim records bitmap statistics, not bitmap or outline data.
+The separately retained original print raster supplies appearance evidence.
+No external source code, fonts, spools or screenshots are included in Git.
+
 ### CAJ deferred prefix validation
 
 The additional interrupted-header, dictionary/array/scalar-prefix and known
@@ -2161,6 +2306,61 @@ counted line endings, checksum failures and unsafe Length repairs; qpdf/MuPDF
 check authored rectangle outputs. ASCII85 prefix buffers remain capped at 4 KiB.
 No external document bytes, profiles, metadata or decoder code were copied.
 
+### Empirical native glyph geometry
+
+The C8 glyph transform and its CJK/Latin geometry classes are original MIT
+code based on the authored geometric-font controls documented in
+`c8-native-records.md`. The empirical rational scale is a calibrated model,
+not copied format metadata or an external implementation. Tests retain the
+independently measured size predictions, including a held-out style, and
+check signed origins and rejection of unverified styles. An external original
+PDF generated through the core helper matches the earlier authored control's
+rasters; external font binaries and captures remain outside Git. No production
+format-support claim is inferred from this low-level geometry delivery.
+
+
+### Scoped glyph clipping
+
+`ContentPageWriter::glyph_with_clip` is original MIT output glue extending the
+existing shared glyph writer with a local PDF rectangle clip. It does not copy
+viewer or converter implementation. The original geometric font fixture checks
+partial clipping and an unaffected later glyph; malformed extents, short writes,
+restore failure, cancellation and abandoned draws retain failed-page behavior.
+External qpdf/MuPDF receipts are in `caj2pdf-c8-clipped-glyph-20261002`. The API
+retains the ordinary font Unicode map; nonsemantic decoration integration remains
+separate and is not claimed by the clipping primitive.
+
+
+### Nonsemantic decorative glyph output
+
+`ContentPageWriter::decoration_glyph` is original MIT glue around the existing
+shared glyph writer. A decorative font alias is enclosed in an Artifact and
+an inner Span with empty ActualText; graphics and marked-content scopes are
+closed before the page can finish. The syntax choice follows the PDF Association's
+[ActualText guidance](https://pdfa.org/glossary-of-accessibility-terminology-in-pdf/),
+which recommends Span placement when replacement must not overwrite tag semantics.
+No third-party implementation was copied or translated.
+
+An original-fixture experiment found that Artifact alone still extracts the
+alias in both Poppler and MuPDF; ActualText directly on Artifact differs between
+them. The nested representation removes only the decorative alias in both,
+with identical pixels in the controlled comparison. The actual Rust writer's
+fixture independently confirms visible clipped decoration and preserved ordinary
+text. Receipts are `caj2pdf-c8-decoration-text-20261002` and
+`caj2pdf-c8-decoration-writer-20261002`. These are tested extractor results, not
+universal extractor behavior or a PDF/UA conformance claim.
+
+
+### Empirical horizontal decoration placement
+
+The horizontal decoration evaluator is original MIT arithmetic derived from the
+original size-inheritance, unequal-axis and short-span controls documented in
+`c8-native-records.md`. It reuses the independently measured text size metrics,
+not another converter's layout implementation. The constant-size result feeds
+the existing clipped nonsemantic glyph writer. Its generated original PDF is
+byte-identical to the separately assembled endpoint diagnostic; known source
+raster residuals remain explicit. No external document content or font data is
+committed and no production native-format admission is inferred.
 
 The issue-30 deferred Flate recovery uses original exact-anchor and deferred
 prefix checks, based on the source offsets recorded in
@@ -2171,3 +2371,60 @@ ambiguous prior copies rejected. Tests contain authored scalar/array objects,
 stored-deflate rectangle content, checksum damage and opaque-stream decoys.
 No external source bytes or converter implementations were copied. All new
 code and generated controls are original MIT work.
+
+
+### Empirical segment endpoints
+
+The C8 segment endpoint helper is original MIT arithmetic based on the original
+three-style diagonal and independent axis controls in `c8-native-records.md`.
+It does not copy other converters, retain source content or extract vendor code.
+The existing PDF writer handles device-dependent hairlines. The independently
+constructed control and core-generated control have identical MuPDF rasters;
+source/viewer differences remain documented rather than hidden by corrections.
+
+
+### Observed glyph style prefixes
+
+The added glyph-prefix admission uses original equal-input controls differing
+only in high style bits, at two independently measured sizes and with original
+Chinese/Latin geometric glyphs. It extends only the pure geometry evaluator;
+raw source words remain preserved. No converter or viewer implementation was
+copied. External captures/traces stay outside Git; the original generator and
+precise observation limits are recorded in `c8-native-records.md`.
+
+
+### C8 initial state and combined font controls
+
+The original style generator can omit initial ordinary controls and generate
+observed combined weight/font states. These fixtures contain only authored
+positions and test characters. The experiment reuses original geometric fonts
+and observes public FreeType resource/glyph identifiers without copying viewer
+implementation, outlines or bitmap data. Fresh-process checks resolve cached
+font-call ambiguity for two combinations. Scope and remaining interpretation
+limits are recorded in `c8-native-records.md`; all committed changes are MIT.
+
+
+### C8 symbol resource and nonzero control observations
+
+Additional original single-symbol and raw-control fixtures vary only authored
+source codes or required raw payloads. Public font metadata from the pinned
+viewer distinguishes ordinary, alternate and invariant symbol resources; no
+vendor implementation or glyph data is copied. The same Unicode ampersand can
+require different source roles, so Unicode mapping is kept independent of
+resource selection. Trace-limit/caching exclusions and original-input
+reproduction are recorded in `c8-native-records.md`. All new generator code and
+fixtures are original MIT work; external fonts and captures remain uncommitted.
+
+
+### Incremental C8 native-page composition
+
+The native-page translator is original MIT code connecting existing bounded
+record traversal and measured geometry to the shared PDF writer. Original
+in-memory fixtures use authored native records, the existing original geometric
+font and tiny bilevel images; no converter implementation is copied. Independent
+raster/text checks establish only the controlled fixture's content/order.
+Original image-tail variants change all eight low bytes while keeping the JPEG
+and geometry fixed; repeated viewer output supports the admitted `c0xx` class
+without literal sample matching. Unknown prefixes and unresolved glyph/control
+semantics remain explicit errors. The required six-page source still stops at
+its first unresolved glyph; this is not recorded as a compatibility pass.

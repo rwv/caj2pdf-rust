@@ -11,20 +11,15 @@ import struct
 
 from PIL import Image
 
+from c8_image_fixture import jpeg as asymmetric_jpeg
+
 
 def jpeg(green=False):
-    image = Image.new("RGB", (32, 24), (0, 180, 0) if green else "white")
     if not green:
-        for y in range(24):
-            for x in range(32):
-                if x < 3 or y < 3:
-                    image.putpixel((x, y), (0, 0, 0))
-                elif x > 24 and y > 15:
-                    image.putpixel((x, y), (255, 0, 0))
-                elif x < 12 and y > 10:
-                    image.putpixel((x, y), (0, 0, 255))
+        return asymmetric_jpeg()
+    image = Image.new("RGB", (32, 24), (0, 180, 0))
     output = io.BytesIO()
-    image.save(output, format="JPEG", quality=100, subsampling=-1 if green else 0)
+    image.save(output, format="JPEG", quality=100, subsampling=-1)
     return output.getvalue()
 
 

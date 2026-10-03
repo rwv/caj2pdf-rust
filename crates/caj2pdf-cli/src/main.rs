@@ -103,15 +103,15 @@ mod cli {
                 };
                 refuse_terminal(&output, io::stdout().is_terminal())?;
                 let mut input = open_input(&input, limits.max_input_bytes)?;
-                let tables = crate::hnc8::Tables::load(&options, &limits)?;
+                let mut resources = crate::hnc8::Resources::load(&options, &limits)?;
                 let mut protected = vec![&input];
-                protected.extend(tables.inputs.iter());
+                protected.extend(resources.inputs.iter());
                 let mut output = open_output(&output, force, &protected)?;
                 document::convert(
                     &mut input,
                     output.writer(),
                     &limits,
-                    &tables,
+                    &mut resources,
                     !options.no_bookmarks,
                 )?;
                 output.commit()

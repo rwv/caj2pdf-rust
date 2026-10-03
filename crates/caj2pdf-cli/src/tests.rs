@@ -813,3 +813,67 @@ fn experimental_conversion_options_are_scoped_and_unambiguous() {
     };
     assert_eq!(options.qm_states, Some(unusual.into()));
 }
+
+#[test]
+fn native_font_options_preserve_paths_and_validate_roles() {
+    let Command::Convert { options, .. } = parse_str(&[
+        "input.c8",
+        "--font-cjk=a",
+        "--font-latin",
+        "a",
+        "--font-alternate-latin=b",
+        "--font-decoration=c",
+        "--decoration-char",
+        "A",
+    ])
+    .unwrap() else {
+        panic!()
+    };
+    assert_eq!(
+        options.fonts,
+        [
+            Some("a".into()),
+            Some("a".into()),
+            Some("b".into()),
+            Some("c".into())
+        ]
+    );
+    assert_eq!(options.decoration_char, Some('A'));
+    for args in [
+        vec!["input.c8", "--font-cjk"],
+        vec!["input.c8", "--font-cjk="],
+        vec!["input.c8", "--font-cjk", "-"],
+        vec!["input.c8", "--font-cjk=a"],
+        vec!["input.c8", "--font-cjk=a", "--font-cjk=b"],
+        vec!["input.c8", "--decoration-char"],
+        vec!["input.c8", "--decoration-char", ""],
+        vec!["input.c8", "--decoration-char", "😀"],
+        vec!["input.c8", "--decoration-char", "AB"],
+        vec!["input.c8", "--decoration-char", "A"],
+        vec![
+            "input.c8",
+            "--decoration-char",
+            "A",
+            "--decoration-char",
+            "A",
+        ],
+        vec!["inspect", "input.c8", "--font-cjk=a"],
+    ] {
+        assert!(parse_str(&args).is_err(), "{args:?}");
+    }
+    let unusual = OsString::from_vec(b"font-\xff".to_vec());
+    let Command::Convert { options, .. } = parse(vec![
+        "input.c8".into(),
+        "--font-cjk".into(),
+        unusual.clone(),
+        "--font-latin".into(),
+        unusual.clone(),
+        "--font-alternate-latin".into(),
+        unusual.clone(),
+    ])
+    .unwrap() else {
+        panic!()
+    };
+    assert_eq!(options.fonts[0], Some(unusual.clone().into()));
+    assert!(parse(vec!["input.c8".into(), "--decoration-char".into(), unusual]).is_err());
+}

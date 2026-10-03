@@ -397,3 +397,198 @@ fn point(x: u16, y: u16) -> RawTextCoordinate {
         ..Default::default()
     }
 }
+
+#[test]
+fn c8_glyph_sizes_predict_independent_original_controls() {
+    let origin = [4652, 4274];
+    for (field, expected_pixels) in [
+        (2, 318),
+        (3, 352),
+        (4, 397),
+        (5, 477),
+        (6, 545),
+        (7, 636),
+        (8, 715),
+    ] {
+        let style = 0x1000 | field << 5 | field;
+        let cjk =
+            empirical_c8_glyph_transform(page(), origin, [4672, 4294], style, C8GlyphClass::Cjk)
+                .unwrap();
+        let latin =
+            empirical_c8_glyph_transform(page(), origin, [4672, 4294], style, C8GlyphClass::Latin)
+                .unwrap();
+        // Original square fonts, 96 DPI, displayed 3420%. Field 7 was held out
+        // from model calibration. These are measurements, not size-table copies.
+        assert_eq!(
+            (cjk[3] * 96.0 / 72.0 * 34.2).floor(),
+            f64::from(expected_pixels)
+        );
+        assert_eq!(cjk[..4], latin[..4]);
+        assert!(latin[4] > cjk[4]);
+        assert!(latin[5] < cjk[5]);
+        let shifted = empirical_c8_glyph_transform(
+            page(),
+            [4672, 4294],
+            [4692, 4314],
+            style,
+            C8GlyphClass::Cjk,
+        )
+        .unwrap();
+        assert_eq!(shifted, cjk);
+    }
+    // Independent horizontal/vertical fields preserve each axis's size.
+    let matrix =
+        empirical_c8_glyph_transform(page(), origin, [4672, 4294], 0x1065, C8GlyphClass::Cjk)
+            .unwrap();
+    assert!(matrix[0] < matrix[3]);
+    close(matrix[0], 7.724252491694352);
+    close(matrix[3], 10.465116279069768);
+}
+
+#[test]
+fn c8_glyph_origins_are_signed_and_unknown_styles_are_errors() {
+    let origin = [4652, 4274];
+    let a = empirical_c8_glyph_transform(page(), origin, [4652, 4274], 0x1084, C8GlyphClass::Cjk)
+        .unwrap();
+    let b = empirical_c8_glyph_transform(page(), origin, [4632, 4254], 0x1084, C8GlyphClass::Cjk)
+        .unwrap();
+    close(b[4] - a[4], -20.0 * EMPIRICAL_COORDINATE_POINTS_PER_UNIT);
+    close(b[5] - a[5], 20.0 * EMPIRICAL_COORDINATE_POINTS_PER_UNIT);
+    for style in [0x0484, 0x1484, 0x9084, 0x1004, 0x1080, 0x1024, 0x1089] {
+        assert!(
+            empirical_c8_glyph_transform(page(), origin, origin, style, C8GlyphClass::Cjk).is_err()
+        );
+    }
+    let mut invalid = page();
+    invalid.size.height_points = f64::NAN;
+    assert!(
+        empirical_c8_glyph_transform(invalid, origin, origin, 0x1084, C8GlyphClass::Cjk).is_err()
+    );
+}
+
+#[test]
+fn c8_horizontal_decoration_preserves_partial_marks_and_independent_axes() {
+    let page = source_page_geometry([600, 600]).unwrap();
+    let origin = [4652, 4274];
+    for (length, count) in [(10, 1), (50, 1), (89, 1), (91, 2), (180, 3), (430, 5)] {
+        let d = empirical_c8_horizontal_decoration(
+            page,
+            origin,
+            [[4712, 4334], [4712 + length, 4334]],
+            0x1084,
+        )
+        .unwrap();
+        // Counts independently observed at 486% and 993%, including partial tails.
+        assert_eq!(d.glyph_count, count);
+        close(d.first_glyph[4], 5.822887181560857);
+        close(d.first_glyph[5], 48.045519517768646);
+        close(
+            d.clip[2],
+            f64::from(length) * EMPIRICAL_COORDINATE_POINTS_PER_UNIT,
+        );
+        assert_eq!(d.clip[1], 0.0);
+        assert_eq!(d.clip[3], page.size.height_points);
+    }
+    let a = empirical_c8_horizontal_decoration(page, origin, [[4712, 4334], [5142, 4334]], 0x1048)
+        .unwrap();
+    let b = empirical_c8_horizontal_decoration(page, origin, [[4712, 4334], [5142, 4334]], 0x1102)
+        .unwrap();
+    assert!(a.first_glyph[0] < b.first_glyph[0]);
+    assert!(a.first_glyph[3] > b.first_glyph[3]);
+    assert!(a.glyph_count > b.glyph_count);
+    assert_eq!(a.clip, b.clip);
+    let shifted = empirical_c8_horizontal_decoration(
+        page,
+        [4672, 4294],
+        [[4732, 4354], [5162, 4354]],
+        0x1048,
+    )
+    .unwrap();
+    assert_eq!(a, shifted);
+    let maximum =
+        empirical_c8_horizontal_decoration(page, origin, [[0, 0], [u16::MAX, 0]], 0x1042).unwrap();
+    assert!(maximum.first_glyph[4] < 0.0);
+    assert!(maximum.glyph_count < 1000);
+}
+
+#[test]
+fn c8_horizontal_decoration_rejects_unverified_geometry_and_styles() {
+    for points in [
+        [[1, 1], [1, 1]],
+        [[2, 1], [1, 1]],
+        [[1, 1], [1, 2]],
+        [[1, 1], [2, 2]],
+    ] {
+        assert!(empirical_c8_horizontal_decoration(page(), [0, 0], points, 0x1084).is_err());
+    }
+    assert!(empirical_c8_horizontal_decoration(page(), [0, 0], [[0, 0], [1, 0]], 0x1080).is_err());
+    let mut invalid = page();
+    invalid.size.width_points = f64::NAN;
+    assert!(empirical_c8_horizontal_decoration(invalid, [0, 0], [[0, 0], [1, 0]], 0x1084).is_err());
+}
+
+#[test]
+fn c8_segments_reproduce_independent_axes_and_preserve_endpoint_order() {
+    let page = source_page_geometry([600, 600]).unwrap();
+    for style in [0xa381, 0xa383, 0xa38b] {
+        let horizontal =
+            empirical_c8_segment(page, [4652, 4274], [[4682, 4304], [4832, 4304]], style).unwrap();
+        // Original segment-axes control: relative endpoints (30,30)/(180,30).
+        close(horizontal[0][0], 12000.0 / 2473.0);
+        close(horizontal[1][0], 48000.0 / 2473.0);
+        close(horizontal[0][1], 132000.0 / 2473.0);
+        assert_eq!(horizontal[0][1], horizontal[1][1]);
+        let reverse =
+            empirical_c8_segment(page, [4652, 4274], [[4832, 4304], [4682, 4304]], style).unwrap();
+        assert_eq!(reverse, [horizontal[1], horizontal[0]]);
+        let vertical =
+            empirical_c8_segment(page, [4652, 4274], [[4902, 4524], [4902, 4704]], style).unwrap();
+        assert_eq!(vertical[0][0], vertical[1][0]);
+        assert!(vertical[0][1] > vertical[1][1]);
+        let shifted =
+            empirical_c8_segment(page, [4672, 4294], [[4702, 4324], [4852, 4324]], style).unwrap();
+        assert_eq!(shifted, horizontal);
+    }
+    let off_page =
+        empirical_c8_segment(page, [100, 100], [[0, 0], [u16::MAX, u16::MAX]], 0xa381).unwrap();
+    assert!(off_page[0][0] < 0.0);
+    assert!(off_page[1][1] < 0.0);
+    for style in [0xa385, 0xa382, 1] {
+        assert!(empirical_c8_segment(page, [0, 0], [[0, 0], [1, 1]], style).is_err());
+    }
+    let mut invalid = page;
+    invalid.origin_points[0] = f64::INFINITY;
+    assert!(empirical_c8_segment(invalid, [0, 0], [[0, 0], [1, 1]], 0xa381).is_err());
+}
+
+#[test]
+fn observed_glyph_style_prefixes_share_geometry_without_admitting_other_records() {
+    for field in [2, 8] {
+        for class in [C8GlyphClass::Cjk, C8GlyphClass::Latin] {
+            let style = 0x1000 | field << 5 | field;
+            let expected =
+                empirical_c8_glyph_transform(page(), [4652, 4274], [4672, 4294], style, class)
+                    .unwrap();
+            for flags in [0x0800, 0x0c00] {
+                let actual = empirical_c8_glyph_transform(
+                    page(),
+                    [4652, 4274],
+                    [4672, 4294],
+                    flags | field << 5 | field,
+                    class,
+                )
+                .unwrap();
+                // i586 may retain x87 intermediate precision across the two
+                // evaluations. Compare arithmetic with the existing point-scale
+                // tolerance; this is not a source-raster fidelity tolerance.
+                for (actual, expected) in actual.into_iter().zip(expected) {
+                    close(actual, expected);
+                }
+            }
+        }
+    }
+    // The independent glyph controls do not admit these decoration states.
+    assert!(
+        empirical_c8_horizontal_decoration(page(), [0, 0], [[0, 0], [100, 0]], 0x0884).is_err()
+    );
+}

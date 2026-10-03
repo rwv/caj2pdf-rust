@@ -57,6 +57,8 @@ pub enum Status {
 pub enum Request {
     /// Copy up to `length` source bytes at `offset` into the staging buffer.
     Read {
+        /// 0 is the document; 1..=4 are explicitly registered font resources.
+        resource: u32,
         offset: u64,
         length: usize,
     },
@@ -189,9 +191,11 @@ struct Shared {
     cancelled: bool,
     format: Option<InputFormat>,
     tables: hnc8::Tables,
+    fonts: hnc8::Fonts,
 }
 
 struct BridgeSource {
+    resource: u32,
     shared: Rc<RefCell<Shared>>,
     size: u64,
 }
@@ -228,7 +232,11 @@ impl RangedSource for BridgeSource {
                 return Poll::Ready(Ok(length));
             }
             let length = wanted.min(shared.staging.len());
-            shared.request = Some(Request::Read { offset, length });
+            shared.request = Some(Request::Read {
+                resource: self.resource,
+                offset,
+                length,
+            });
             Poll::Pending
         })
         .await
@@ -295,6 +303,7 @@ pub struct Engine {
     result: Option<Result<Outcome>>,
     message: String,
     started: bool,
+    accepts_fonts: bool,
     limits: Limits,
 }
 
@@ -311,8 +320,10 @@ impl Engine {
             cancelled: false,
             format: None,
             tables: hnc8::Tables::default(),
+            fonts: hnc8::Fonts::default(),
         }));
         let source = BridgeSource {
+            resource: 0,
             shared: Rc::clone(&shared),
             size: source_size,
         };
@@ -327,6 +338,13 @@ impl Engine {
             result: None,
             message: String::new(),
             started: false,
+            accepts_fonts: matches!(
+                operation,
+                Operation::Convert {
+                    format: None | Some(InputFormat::C8),
+                    ..
+                }
+            ),
             limits,
         })
     }
@@ -435,6 +453,37 @@ impl Engine {
             )
     }
 
+    /// Register one ranged font resource before polling. Returns its 1-based
+    /// host resource ID, or 0 when registration is rejected.
+    pub fn add_font_source(&mut self, size: u64) -> u32 {
+        if self.started
+            || !self.accepts_fonts
+            || size == 0
+            || self.limits.check_input_size(size).is_err()
+        {
+            return 0;
+        }
+        self.shared.borrow_mut().fonts.add(size)
+    }
+
+    /// Select zero-based font source indices before polling. A missing
+    /// decoration uses `u32::MAX`; otherwise its alias is a Unicode scalar.
+    pub fn set_c8_fonts(
+        &mut self,
+        cjk: u32,
+        latin: u32,
+        alternate: u32,
+        decoration: u32,
+        alias: u32,
+    ) -> bool {
+        !self.started
+            && self
+                .shared
+                .borrow_mut()
+                .fonts
+                .set(cjk, latin, alternate, decoration, alias)
+    }
+
     fn complete(&self, accept: impl FnOnce(Request) -> Option<Response>) -> bool {
         let mut shared = self.shared.borrow_mut();
         let Some(response) = shared.request.and_then(accept) else {
@@ -503,6 +552,11 @@ async fn run(
             resolve_format(&mut source, format, &limits, &cancellation).await?
         }
     };
+    if source.shared.borrow().fonts.count() != 0 && format != InputFormat::C8 {
+        return Err(Error::InvalidInput {
+            reason: "explicit C8 font resources require a C8 document",
+        });
+    }
     source.shared.borrow_mut().format = Some(format);
     let mut outcome = match operation {
         Operation::Convert { options, .. } => Outcome {

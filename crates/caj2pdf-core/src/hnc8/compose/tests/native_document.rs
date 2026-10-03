@@ -1,0 +1,258 @@
+// SPDX-License-Identifier: MIT
+
+use super::*;
+use crate::hnc8::C8PageFonts;
+
+fn native_text(records: &[Record]) -> Vec<u8> {
+    let mut words = vec![[0x8001, 60], [0x8002, 0x1084], [30, 0xa0c1]];
+    for record in records {
+        let c = record.coordinate;
+        words.extend([
+            [0x800a, 0xd300],
+            [0xc000 | c.x, c.y],
+            [0xc000 | c.width, c.height],
+            [0xc050, 0xc033],
+            [0xc037, 0xc000],
+            [0xc06c, 0xc032],
+            [0xc0f2, 0xc07a],
+            [45, 0xa0c1],
+        ]);
+    }
+    words.push([0x8004, 39]);
+    words
+        .into_iter()
+        .flatten()
+        .flat_map(u16::to_le_bytes)
+        .collect()
+}
+
+fn roles() -> C8PageFonts {
+    C8PageFonts {
+        cjk: 0,
+        latin: 0,
+        alternate_latin: 0,
+        decoration: None,
+    }
+}
+
+#[test]
+fn native_document_streams_text_and_all_shared_image_codecs() {
+    let rows = vec![vec![false, true, false], vec![true, false, true]];
+    let fixture = fixture_with_text(
+        Variant::C8,
+        &[
+            vec![],
+            vec![
+                Record::type0(&rows, 20, 40),
+                Record::jpeg(3, 2, 120, 30, 50),
+                type3_record(3, 2, 40, 60),
+            ],
+            vec![],
+        ],
+        native_text,
+    );
+    let mut source = Source::new(fixture.bytes);
+    source.short = 3;
+    let mut fonts = [Source::new(crate::pdf::drawing_font())];
+    fonts[0].short = 3;
+    let mut sink = Sink {
+        short: Some(7),
+        ..Default::default()
+    };
+    let limits = Limits {
+        io_chunk_bytes: 64,
+        ..Default::default()
+    };
+    let mut rows = Scratch::default();
+    let mut first = Scratch::default();
+    let mut second = Scratch::default();
+    let mut refined = Scratch::default();
+    let report = ready(convert_c8_native_pdf(
+        &mut source,
+        &mut sink,
+        C8FontSources {
+            sources: &mut fonts,
+            roles: roles(),
+        },
+        Some(&table()),
+        ComposeWorkspaces {
+            rows: &mut rows,
+            type3: Some(ComposeType3Workspaces {
+                table: &mq_table(&limits),
+                first: &mut first,
+                second: &mut second,
+                refined: &mut refined,
+            }),
+        },
+        ComposeOptions::default(),
+        &limits,
+        &NeverCancel,
+    ))
+    .unwrap();
+    assert_eq!(report.output_pages, 3);
+    assert_eq!(report.conversion.pages_converted, 3);
+    assert_eq!(report.no_image_pages, 2);
+    assert_eq!(
+        (report.type0_images, report.jpeg_images, report.type3_images),
+        (1, 1, 1)
+    );
+    assert!(source.max_request <= 64 && fonts[0].max_request <= 64 && sink.max_request <= 64);
+    for store in [&rows, &first, &second, &refined] {
+        assert!(store.bytes.is_empty());
+    }
+    let pdf = String::from_utf8_lossy(&sink.bytes);
+    assert_eq!(
+        pdf.matches("/FontFile2 ").count(),
+        1,
+        "shared roles embed one font"
+    );
+    assert!(pdf.contains("/Count 3"));
+    assert_eq!(pdf.matches("<0041> Tj").count(), 6);
+    assert!(pdf.ends_with("%%EOF\n"));
+}
+
+#[test]
+fn native_document_checks_resource_contract_before_output() {
+    for count in [0, 1, 5] {
+        let mut fonts: Vec<_> = (0..count)
+            .map(|_| Source::new(crate::pdf::drawing_font()))
+            .collect();
+        let mut role = roles();
+        if count == 1 {
+            role.latin = 1;
+        }
+        let mut sink = Sink::default();
+        let error = ready(convert_c8_native_pdf(
+            &mut Source::new(vec![]),
+            &mut sink,
+            C8FontSources {
+                sources: &mut fonts,
+                roles: role,
+            },
+            None,
+            &mut Scratch::default(),
+            ComposeOptions::default(),
+            &Limits::default(),
+            &NeverCancel,
+        ))
+        .unwrap_err();
+        assert!(matches!(error.kind, ComposeErrorKind::InvalidOptions(_)));
+        assert!(sink.bytes.is_empty());
+    }
+}
+
+#[test]
+fn native_document_late_unknown_record_cannot_finish_pdf() {
+    let mut fixture = fixture_with_text(Variant::C8, &[vec![], vec![]], native_text);
+    let second = fixture.text_offsets[1];
+    fixture.bytes[second..second + 2].copy_from_slice(&0x8072u16.to_le_bytes());
+    let mut sink = Sink::default();
+    let mut fonts = [Source::new(crate::pdf::drawing_font())];
+    let error = ready(convert_c8_native_pdf(
+        &mut Source::new(fixture.bytes),
+        &mut sink,
+        C8FontSources {
+            sources: &mut fonts,
+            roles: roles(),
+        },
+        None,
+        &mut Scratch::default(),
+        ComposeOptions::default(),
+        &Limits::default(),
+        &NeverCancel,
+    ))
+    .unwrap_err();
+    assert_eq!(error.page, Some(2));
+    assert!(!sink.bytes.ends_with(b"%%EOF\n"));
+}
+
+#[test]
+fn native_document_errors_preserve_preflight_and_source_locations() {
+    for mode in 0..8 {
+        let mut fixture = fixture_with_text(
+            Variant::C8,
+            &[vec![Record::jpeg(3, 2, 120, 20, 40)]],
+            native_text,
+        );
+        let mut options = ComposeOptions::default();
+        let mut fonts = [Source::new(crate::pdf::drawing_font())];
+        let mut role = roles();
+        role.decoration = Some((0, 'A'));
+        match mode {
+            0 => fixture.bytes[0] = 0,
+            1 => options.include_bookmarks = true,
+            2 => fixture.bytes[80..84].copy_from_slice(&u32::MAX.to_le_bytes()),
+            3 => {
+                let at = fixture.descriptors[0][0] as usize;
+                fixture.bytes[at..at + 4].copy_from_slice(&99i32.to_le_bytes());
+            }
+            4 => fonts[0].bytes.clear(),
+            5 => options.budget.max_page_metadata_bytes = 1,
+            6 => {
+                fixture.bytes[88..90].copy_from_slice(&32767u16.to_le_bytes());
+                options.container.max_images_per_page = 32767;
+            }
+            7 => {
+                let at = fixture.descriptors[0][0] as usize + 4;
+                fixture.bytes[at..at + 4].copy_from_slice(&u32::MAX.to_le_bytes());
+            }
+            _ => unreachable!(),
+        }
+        let mut sink = Sink::default();
+        let result = ready(convert_c8_native_pdf(
+            &mut Source::new(fixture.bytes),
+            &mut sink,
+            C8FontSources {
+                sources: &mut fonts,
+                roles: role,
+            },
+            None,
+            &mut Scratch::default(),
+            options,
+            &Limits::default(),
+            &NeverCancel,
+        ));
+        let error = result.unwrap_err();
+        assert!(!sink.bytes.ends_with(b"%%EOF\n"), "mode {mode}");
+        if matches!(mode, 2 | 3 | 5 | 6 | 7) {
+            assert_eq!(error.page, Some(1), "mode {mode}: {error}");
+        }
+        if mode == 1 {
+            assert!(sink.bytes.is_empty());
+        }
+    }
+}
+
+#[test]
+fn native_document_font_io_output_and_cancellation_fail_explicitly() {
+    for mode in 0..4 {
+        let fixture = fixture_with_text(Variant::C8, &[vec![]], native_text);
+        let mut fonts = [Source::new(crate::pdf::drawing_font())];
+        let flag = Rc::new(Cell::new(false));
+        let mut sink = Sink::default();
+        match mode {
+            0 => fonts[0].fault_at = Some((0, Fault::Io)),
+            1 => sink.fail_after = Some(64),
+            2 => sink.cancel = Some(flag.clone()),
+            3 => sink.fail_flush = true,
+            _ => unreachable!(),
+        }
+        let result = ready(convert_c8_native_pdf(
+            &mut Source::new(fixture.bytes),
+            &mut sink,
+            C8FontSources {
+                sources: &mut fonts,
+                roles: roles(),
+            },
+            None,
+            &mut Scratch::default(),
+            ComposeOptions::default(),
+            &Limits::default(),
+            &Flag(flag),
+        ));
+        assert!(result.is_err(), "mode {mode}");
+        if mode != 3 {
+            assert!(!sink.bytes.ends_with(b"%%EOF\n"));
+        }
+    }
+}

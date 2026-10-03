@@ -6,7 +6,9 @@
 
 use super::convert::{Type0DecodeSettings, Type0PdfError, Type0PdfErrorKind, Type0PdfOptions};
 use super::placement::{source_image_transform, source_page_geometry};
+mod native;
 mod type3;
+pub use native::{C8FontSources, convert_c8_native_pdf};
 
 use super::convert_jbig2::{Type3PdfError, Type3PdfOptions, preflight_type3};
 use super::convert_jpeg::{CheckedType2, Type2PdfError, emit_type2_xobject, preflight_type2};
@@ -564,6 +566,184 @@ impl<S: RangedSource> RangedSource for CountingSource<'_, S> {
     }
 }
 
+/// Check one descriptor without decoding it. Native mixed pages and the
+/// image-only path must use the same codec admission, budgets and diagnostics.
+#[allow(clippy::too_many_arguments)]
+async fn preflight_image<S: RangedSource, C: Cancellation>(
+    source: &mut S,
+    record: ImageRecord,
+    variant: Variant,
+    image_at: At,
+    table: Option<&QmTable>,
+    has_type3_workspaces: bool,
+    options: ComposeOptions,
+    limits: &Limits,
+    cancellation: &C,
+) -> Result<(CheckedImage, u32, u32, u32), ComposeError> {
+    Ok(match record.record_type {
+        0 if variant != Variant::HnB => {
+            if table.is_none() {
+                return Err(image_at.error(ComposeStage::Headers, ComposeErrorKind::MissingTable));
+            }
+            let info = read_type0_info(
+                source,
+                record.type0_span().expect("matched type zero"),
+                limits,
+                cancellation,
+                options.arithmetic,
+                options.image,
+            )
+            .await
+            .map_err(image_at.type0(ComposeStage::Headers))?;
+            let display_width = info.width;
+            (
+                CheckedImage::Type0(info),
+                info.width,
+                display_width,
+                info.height,
+            )
+        }
+        3 if variant != Variant::HnB => {
+            if !has_type3_workspaces {
+                return Err(image_at.error(
+                    ComposeStage::Headers,
+                    ComposeErrorKind::MissingType3Workspaces,
+                ));
+            }
+            let checked = preflight_type3(source, record, options.type3, limits, cancellation)
+                .await
+                .map_err(|error| type3::error(image_at, ComposeStage::Headers, error))?;
+            let page = checked.page();
+            let display_width = page.width;
+            (
+                CheckedImage::Type3 {
+                    digest: checked.digest(),
+                },
+                page.width,
+                display_width,
+                page.height,
+            )
+        }
+        // Type 1 reuses the validated JPEG path in the measured
+        // HN-A/C8 composition profile; HN-B remains type-2 only.
+        1 | 2 if record.record_type == 2 || variant != Variant::HnB => {
+            let checked = preflight_type2(source, record, limits, cancellation, options.jpeg)
+                .await
+                .map_err(image_at.jpeg(ComposeStage::Headers))?;
+            let info = checked.info();
+            let width = u32::from(info.width);
+            let height = u32::from(info.height);
+            (CheckedImage::Jpeg(checked), width, width, height)
+        }
+        _ => {
+            return Err(image_at.error(
+                ComposeStage::Headers,
+                ComposeErrorKind::UnsupportedImageType(record.record_type),
+            ));
+        }
+    })
+}
+
+/// Decode one preflighted descriptor into the current PDF document. Kept
+/// independent of page placement so native text pages can reuse the same
+/// codec, scratch accounting and cleanup path as image-only composition.
+#[allow(clippy::too_many_arguments)]
+async fn emit_image<S, W, T, C>(
+    source: &mut S,
+    document: &mut PdfDocument<'_, W, C>,
+    image: &mut ComposedImage,
+    image_at: At,
+    contexts: &mut Option<ContextBank>,
+    workspaces: &mut ComposeWorkspaces<'_, T>,
+    table: Option<&QmTable>,
+    options: ComposeOptions,
+    limits: &Limits,
+    cancellation: &C,
+    report: &mut ComposeReport,
+) -> Result<crate::pdf::ImageObject, ComposeError>
+where
+    S: RangedSource,
+    W: SequentialSink,
+    T: RandomAccessScratch,
+    C: Cancellation,
+{
+    let object = match image.checked {
+        CheckedImage::Type0(info) => {
+            if contexts.is_none() {
+                *contexts = Some(ContextBank::new(1024, limits).map_err(image_at.contexts())?);
+            }
+            let settings = Type0DecodeSettings {
+                table: table.expect("type-zero table checked"),
+                arithmetic: options.arithmetic,
+                image: options.image,
+                limits,
+                cancellation,
+            };
+            let (object, scratch_report) = emit_type0_xobject(
+                source,
+                document,
+                image.record,
+                info,
+                contexts.as_mut().expect("contexts constructed"),
+                workspaces.rows,
+                Type0ScratchBudget {
+                    max_bytes: options.budget.max_row_store_bytes,
+                    max_work_bytes: options.budget.max_row_store_io_bytes,
+                },
+                &settings,
+            )
+            .await
+            .map_err(|error| scratch_error(image_at, *error))?;
+            report.peak_row_store_bytes = report
+                .peak_row_store_bytes
+                .max(scratch_report.peak_scratch_bytes);
+            report.row_store_read_bytes = add_store_bytes(
+                report.row_store_read_bytes,
+                scratch_report.scratch_read_bytes,
+            )
+            .map_err(image_at.io(ComposeStage::Scratch))?;
+            report.row_store_written_bytes = add_store_bytes(
+                report.row_store_written_bytes,
+                scratch_report.scratch_write_bytes,
+            )
+            .map_err(image_at.io(ComposeStage::Scratch))?;
+            report.type0_images += 1;
+            object
+        }
+        CheckedImage::Type3 { digest } => {
+            let (object, stats) = type3::emit(
+                source,
+                document,
+                image_at,
+                image.record,
+                digest,
+                workspaces,
+                options,
+                limits,
+                cancellation,
+            )
+            .await?;
+            report.peak_row_store_bytes = report.peak_row_store_bytes.max(stats.peak);
+            report.row_store_read_bytes = add_store_bytes(report.row_store_read_bytes, stats.read)
+                .map_err(image_at.io(ComposeStage::Scratch))?;
+            report.row_store_written_bytes =
+                add_store_bytes(report.row_store_written_bytes, stats.written)
+                    .map_err(image_at.io(ComposeStage::Scratch))?;
+            image.type3_text_header_anomaly = stats.anomaly;
+            report.type3_images += 1;
+            object
+        }
+        CheckedImage::Jpeg(checked) => {
+            let object = emit_type2_xobject(source, document, checked)
+                .await
+                .map_err(image_at.jpeg(ComposeStage::Pdf))?;
+            report.jpeg_images += 1;
+            object
+        }
+    };
+    Ok(object)
+}
+
 /// Compose every source row of the measured image-only profiles in order.
 ///
 /// HN-A/C8 require validated text framing and types 0, 1, 2 or 3. HN-B accepts only
@@ -622,22 +802,7 @@ where
     let mut document = PdfDocument::new(sink, limits, cancellation)
         .await
         .map_err(document_at.io(ComposeStage::Pdf))?;
-    let mut report = ComposeReport {
-        conversion: ConversionReport::default(),
-        source_variant: header.variant,
-        source_pages: header.page_count,
-        output_pages: 0,
-        no_image_pages: 0,
-        type0_images: 0,
-        jpeg_images: 0,
-        type3_images: 0,
-        duplicate_image_records: 0,
-        peak_page_metadata_bytes: 0,
-        peak_text_working_bytes: 0,
-        peak_row_store_bytes: 0,
-        row_store_read_bytes: 0,
-        row_store_written_bytes: 0,
-    };
+    let mut report = ComposeReport::new(header);
     let mut contexts = None;
     while let Some(page) = reader
         .next_page()
@@ -759,88 +924,26 @@ where
                 });
                 continue;
             }
-            let (checked, visible_width, display_width, height) = match record.record_type {
-                0 if header.variant != Variant::HnB => {
-                    if table.is_none() {
-                        return Err(
-                            image_at.error(ComposeStage::Headers, ComposeErrorKind::MissingTable)
-                        );
-                    }
-                    let info = read_type0_info(
-                        reader.source_mut(),
-                        record.type0_span().expect("matched type zero"),
-                        limits,
-                        cancellation,
-                        options.arithmetic,
-                        options.image,
-                    )
-                    .await
-                    .map_err(image_at.type0(ComposeStage::Headers))?;
-                    let display_width = info.width;
-                    (
-                        CheckedImage::Type0(info),
-                        info.width,
-                        display_width,
-                        info.height,
-                    )
-                }
-                3 if header.variant != Variant::HnB => {
-                    if workspaces.type3.is_none() {
-                        return Err(image_at.error(
-                            ComposeStage::Headers,
-                            ComposeErrorKind::MissingType3Workspaces,
-                        ));
-                    }
-                    let checked = preflight_type3(
-                        reader.source_mut(),
-                        record,
-                        options.type3,
-                        limits,
-                        cancellation,
-                    )
-                    .await
-                    .map_err(|error| type3::error(image_at, ComposeStage::Headers, error))?;
-                    let page = checked.page();
-                    let display_width = page.width;
-                    (
-                        CheckedImage::Type3 {
-                            digest: checked.digest(),
-                        },
-                        page.width,
-                        display_width,
-                        page.height,
-                    )
-                }
-                // Type 1 reuses the validated JPEG path in the measured
-                // HN-A/C8 composition profile; HN-B remains type-2 only.
-                1 | 2 if record.record_type == 2 || header.variant != Variant::HnB => {
-                    let checked = preflight_type2(
-                        reader.source_mut(),
-                        record,
-                        limits,
-                        cancellation,
-                        options.jpeg,
-                    )
-                    .await
-                    .map_err(image_at.jpeg(ComposeStage::Headers))?;
-                    let info = checked.info();
-                    let width = u32::from(info.width);
-                    let height = u32::from(info.height);
-                    if geometry.is_none() {
-                        geometry = Some(
-                            empirical_page_from_pixels(width, height, [0.0, 0.0])
-                                .map_err(image_at.io(ComposeStage::Geometry))?,
-                        );
-                    }
-                    (CheckedImage::Jpeg(checked), width, width, height)
-                }
-                _ => {
-                    return Err(image_at.error(
-                        ComposeStage::Headers,
-                        ComposeErrorKind::UnsupportedImageType(record.record_type),
-                    ));
-                }
-            };
+            let (checked, visible_width, display_width, height) = preflight_image(
+                reader.source_mut(),
+                record,
+                header.variant,
+                image_at,
+                table,
+                workspaces.type3.is_some(),
+                options,
+                limits,
+                cancellation,
+            )
+            .await?;
+            if geometry.is_none() {
+                // Only HN-B lacks source page dimensions. Its admitted single
+                // JPEG supplies page size; the codec preflight is independent.
+                geometry = Some(
+                    empirical_page_from_pixels(visible_width, height, [0.0, 0.0])
+                        .map_err(image_at.io(ComposeStage::Geometry))?,
+                );
+            }
             let coordinate = if header.variant == Variant::HnB {
                 RawTextCoordinate::default()
             } else {
@@ -886,82 +989,20 @@ where
             }
             let image = &mut images[index];
             let image_at = at.image(image.record);
-            let object = match image.checked {
-                CheckedImage::Type0(info) => {
-                    if contexts.is_none() {
-                        contexts =
-                            Some(ContextBank::new(1024, limits).map_err(image_at.contexts())?);
-                    }
-                    let settings = Type0DecodeSettings {
-                        table: table.expect("type-zero table checked"),
-                        arithmetic: options.arithmetic,
-                        image: options.image,
-                        limits,
-                        cancellation,
-                    };
-                    let (object, scratch_report) = emit_type0_xobject(
-                        reader.source_mut(),
-                        &mut document,
-                        image.record,
-                        info,
-                        contexts.as_mut().expect("contexts constructed"),
-                        workspaces.rows,
-                        Type0ScratchBudget {
-                            max_bytes: options.budget.max_row_store_bytes,
-                            max_work_bytes: options.budget.max_row_store_io_bytes,
-                        },
-                        &settings,
-                    )
-                    .await
-                    .map_err(|error| scratch_error(image_at, *error))?;
-                    report.peak_row_store_bytes = report
-                        .peak_row_store_bytes
-                        .max(scratch_report.peak_scratch_bytes);
-                    report.row_store_read_bytes = add_store_bytes(
-                        report.row_store_read_bytes,
-                        scratch_report.scratch_read_bytes,
-                    )
-                    .map_err(image_at.io(ComposeStage::Scratch))?;
-                    report.row_store_written_bytes = add_store_bytes(
-                        report.row_store_written_bytes,
-                        scratch_report.scratch_write_bytes,
-                    )
-                    .map_err(image_at.io(ComposeStage::Scratch))?;
-                    report.type0_images += 1;
-                    object
-                }
-                CheckedImage::Type3 { digest } => {
-                    let (object, stats) = type3::emit(
-                        reader.source_mut(),
-                        &mut document,
-                        image_at,
-                        image.record,
-                        digest,
-                        &mut workspaces,
-                        options,
-                        limits,
-                        cancellation,
-                    )
-                    .await?;
-                    report.peak_row_store_bytes = report.peak_row_store_bytes.max(stats.peak);
-                    report.row_store_read_bytes =
-                        add_store_bytes(report.row_store_read_bytes, stats.read)
-                            .map_err(image_at.io(ComposeStage::Scratch))?;
-                    report.row_store_written_bytes =
-                        add_store_bytes(report.row_store_written_bytes, stats.written)
-                            .map_err(image_at.io(ComposeStage::Scratch))?;
-                    image.type3_text_header_anomaly = stats.anomaly;
-                    report.type3_images += 1;
-                    object
-                }
-                CheckedImage::Jpeg(checked) => {
-                    let object = emit_type2_xobject(reader.source_mut(), &mut document, checked)
-                        .await
-                        .map_err(image_at.jpeg(ComposeStage::Pdf))?;
-                    report.jpeg_images += 1;
-                    object
-                }
-            };
+            let object = emit_image(
+                reader.source_mut(),
+                &mut document,
+                image,
+                image_at,
+                &mut contexts,
+                &mut workspaces,
+                table,
+                options,
+                limits,
+                cancellation,
+                &mut report,
+            )
+            .await?;
             placements.push(ImagePlacement {
                 image: object,
                 transform: image.transform,
@@ -1014,3 +1055,24 @@ where
 
 #[cfg(test)]
 mod tests;
+
+impl ComposeReport {
+    fn new(header: Header) -> Self {
+        Self {
+            conversion: ConversionReport::default(),
+            source_variant: header.variant,
+            source_pages: header.page_count,
+            output_pages: 0,
+            no_image_pages: 0,
+            type0_images: 0,
+            jpeg_images: 0,
+            type3_images: 0,
+            duplicate_image_records: 0,
+            peak_page_metadata_bytes: 0,
+            peak_text_working_bytes: 0,
+            peak_row_store_bytes: 0,
+            row_store_read_bytes: 0,
+            row_store_written_bytes: 0,
+        }
+    }
+}

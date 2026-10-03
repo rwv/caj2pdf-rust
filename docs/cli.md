@@ -36,7 +36,7 @@ that starts with `CAJ` but lacks the CAJ header is reported as malformed.
 | `CAJ` | CAJ | Reconstructed PDF with the CAJ outline | Pages and full outline |
 | `KDH` | KDH | Decoded embedded PDF | Pages and outline presence |
 | `HN` | HN | Experimental image-page conversion with built-in standard codec states | Variant/pages; HN-A full outline, HN-B outline unknown |
-| `c8 00 00 00` | C8 | Experimental image-page conversion with built-in standard codec states | Container variant and pages |
+| `c8 00 00 00` | C8 | Experimental image pages; admitted native text/mixed pages with explicit fonts | Container variant and pages |
 | `TEB` | TEB | Unsupported; exits with status 1 | Format only |
 
 HN/C8 routes use the same independently implemented core page composer as
@@ -89,8 +89,8 @@ valid shape alone does not prove that a custom table is correct.
 
 Omit both state flags for normal conversion. HN-A outlines are supported;
 C8/HN-B use `--no-bookmarks`. Image-less HN-B rows, pure-text/searchable HN and
-unverified profiles are rejected. Strict JBIG2 headers apply; the core's
-anomalous-header opt-in is not exposed by this command.
+unverified profiles are rejected. The HN/C8 route admits the measured unused-refinement-template anomaly; other
+malformed JBIG2 flags remain errors.
 
 The command creates four private anonymous files in `TMPDIR` (or the system
 temporary directory), each capped at 64 MiB by the composition budget. The
@@ -99,6 +99,39 @@ close, including on process exit. This reuses input spooling's file helper.
 Forward-only document input is separately spooled within its input limit.
 Output remains sequential; a failed conversion never commits a staged path
 output. Stdout can contain a partial PDF on failure, as for other formats.
+
+### Native C8 font resources
+
+Supply all three ordinary roles to enable the admitted native C8 profile:
+
+```sh
+caj2pdf input.caj --no-bookmarks -o output.pdf \
+  --font-cjk text.ttf \
+  --font-latin text.ttf \
+  --font-alternate-latin alternate.ttf \
+  --font-decoration symbols.ttf
+```
+
+`--font-decoration` is optional; a document requiring decoration fails if it
+is absent. Its default nonsemantic alias is `►`; use `--decoration-char CHAR`
+for a different single BMP Unicode scalar supplied by that font. The alias
+is not emitted as document text. Fonts must cover the Unicode characters
+required by their assigned roles. No system lookup or missing-glyph fallback
+is performed; substitution/font-identity limitations remain explicit.
+
+Font path flags accept separate values or `--font-cjk=FILE` spelling.
+Separate values preserve non-UTF-8 paths. Repeating a role, omitting one of
+the three ordinary roles, or using `-` as a font path is a usage error.
+Reuse the same path for multiple roles to embed it once. Native C8 font
+options are rejected for other document formats.
+
+Files are read through ranged/seekable handles. Forward-only named inputs
+reuse the existing bounded temporary spooling path. Font files, including
+hard-link/symlink aliases, are protected against output replacement even
+with `--force`. A missing font fails before output staging; invalid fonts,
+missing glyphs and later-page errors discard staged output and preserve an
+existing destination. Standard output can still contain partial bytes on
+failure. Fonts are caller-provided and are not bundled with the executable.
 
 ### v0.x migration
 

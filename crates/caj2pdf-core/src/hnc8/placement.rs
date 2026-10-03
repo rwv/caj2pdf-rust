@@ -220,6 +220,158 @@ fn image_transform(
     Ok([size.width_points, 0.0, 0.0, -size.height_points, x, y])
 }
 
+/// Glyph classes independently measured with original C8 font controls.
+/// This class does not select a font or decode a source character.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum C8GlyphClass {
+    Cjk,
+    Latin,
+}
+
+/// Evaluate the empirical C8 text matrix for the measured native style subset.
+///
+/// Size fields 2 through 8 with observed high bits `0x0800`, `0x0c00` or
+/// `0x1000` share the measured glyph geometry. The point-size
+/// model is calibrated from original font controls, including held-out field 7;
+/// it is not an authoritative physical-unit definition. See the recorded
+/// geometry and rasterization limits in `docs/c8-native-records.md`.
+///
+/// `position` and `source_origin` are raw x/y words. Subtraction is signed;
+/// off-page glyphs remain off-page. Font selection, character decoding, color
+/// and page-content admission are the caller's separate responsibilities.
+/// This helper does not enable production native-text conversion.
+pub fn empirical_c8_glyph_transform(
+    page: EmpiricalPageGeometry,
+    source_origin: [u16; 2],
+    position: [u16; 2],
+    style: u16,
+    class: C8GlyphClass,
+) -> Result<[f64; 6]> {
+    let [left, _, _, top] = page.media_box()?;
+    if !matches!(style & 0xfc00, 0x0800 | 0x0c00 | 0x1000) {
+        return Err(Error::InvalidInput {
+            reason: "unverified C8 glyph style flags",
+        });
+    }
+    let (width, height, latin_offset) = c8_style_metrics((style & 0x03ff) | 0x1000)?;
+    let unit = EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
+    let mut x = left + (f64::from(position[0]) - f64::from(source_origin[0]) + 20.0) * unit;
+    let mut y = top - (f64::from(position[1]) - f64::from(source_origin[1]) - 15.0) * unit - height;
+    if class == C8GlyphClass::Latin {
+        x += width / 8.0;
+        y -= latin_offset * unit;
+    }
+    Ok([width, 0.0, 0.0, height, x, y])
+}
+
+/// Constant-size description of a forward horizontal C8 decoration.
+/// Emit `glyph_count` marks with the first matrix's x incremented by
+/// `index * first_glyph[0]`, using the same clip for each decorative glyph.
+/// No glyph list, font data or page content is retained.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct EmpiricalC8HorizontalDecoration {
+    pub first_glyph: [f64; 6],
+    /// `[left, bottom, width, height]` in PDF points.
+    pub clip: [f64; 4],
+    pub glyph_count: u16,
+}
+
+/// Nominal placement for the observed forward horizontal `8010/1` form.
+/// The caller must establish record identity and provide the active text style.
+/// Reversed, zero-length, vertical and diagonal spans are not admitted here.
+///
+/// Repetition uses one nominal em, not font advance or integer screen pixels.
+/// Final marks are clipped at the source endpoint. Source/PDF raster residuals
+/// and the empirical physical-unit model are documented in c8-native-records.
+/// Font choice and alias mapping remain caller responsibilities; use decorative
+/// glyph output rather than treating the alias as semantic Unicode text.
+/// This evaluator does not enable complete native-page conversion.
+pub fn empirical_c8_horizontal_decoration(
+    page: EmpiricalPageGeometry,
+    source_origin: [u16; 2],
+    points: [[u16; 2]; 2],
+    style: u16,
+) -> Result<EmpiricalC8HorizontalDecoration> {
+    let [left, bottom, _, top] = page.media_box()?;
+    let (width, height, _) = c8_style_metrics(style)?;
+    let [[x1, y1], [x2, y2]] = points;
+    if x2 <= x1 || y1 != y2 {
+        return Err(Error::InvalidInput {
+            reason: "unverified C8 decoration direction or empty span",
+        });
+    }
+    let unit = EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
+    let x = left + (f64::from(x1) - f64::from(source_origin[0])) * unit;
+    let y = top - (f64::from(y1) - f64::from(source_origin[1])) * unit - height / 2.0;
+    let span = f64::from(x2 - x1) * unit;
+    // u16 coordinates and the minimum admitted em bound this count below 1000.
+    let glyph_count = (span / width).ceil() as u16;
+    Ok(EmpiricalC8HorizontalDecoration {
+        first_glyph: [width, 0.0, 0.0, height, x, y],
+        clip: [x, bottom, span, page.size.height_points],
+        glyph_count,
+    })
+}
+
+/// Evaluate endpoints for observed C8 `8006/a381`, `a383` and `a38b` segments.
+/// Callers must establish the record tag separately. Emit these endpoints with
+/// the existing PDF segment writer's zero width (device-dependent hairline).
+/// The empirical source margin is independent of text/decoration baselines.
+/// Raster width and antialiasing differ across PDF renderers; this is not a
+/// pixel-parity guarantee. Unknown styles are rejected, including `a385` whose
+/// framing alone does not establish the same rendering semantics.
+///
+/// Endpoints retain order and signed off-page positions. This allocation-free
+/// evaluator performs no font selection or complete-page admission.
+pub fn empirical_c8_segment(
+    page: EmpiricalPageGeometry,
+    source_origin: [u16; 2],
+    points: [[u16; 2]; 2],
+    style: u16,
+) -> Result<[[f64; 2]; 2]> {
+    let [left, _, _, top] = page.media_box()?;
+    if !matches!(style, 0xa381 | 0xa383 | 0xa38b) {
+        return Err(Error::InvalidInput {
+            reason: "unverified C8 segment style",
+        });
+    }
+    let unit = EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
+    Ok(points.map(|[x, y]| {
+        [
+            left + (f64::from(x) - f64::from(source_origin[0]) + 20.0) * unit,
+            top - (f64::from(y) - f64::from(source_origin[1]) + 20.0) * unit,
+        ]
+    }))
+}
+
+fn c8_style_metrics(style: u16) -> Result<(f64, f64, f64)> {
+    if style & 0xfc00 != 0x1000 {
+        return Err(Error::InvalidInput {
+            reason: "unverified C8 glyph style flags",
+        });
+    }
+    let metrics = |field| -> Result<(f64, f64)> {
+        let (step, latin_offset) = match field {
+            2 => (28, 9),
+            3 => (31, 9),
+            4 => (35, 8),
+            5 => (42, 6),
+            6 => (48, 5),
+            7 => (56, 3),
+            8 => (63, 1),
+            _ => {
+                return Err(Error::InvalidInput {
+                    reason: "unverified C8 glyph size field",
+                });
+            }
+        };
+        Ok((f64::from(step) * 75.0 / 301.0, f64::from(latin_offset)))
+    };
+    let (width, _) = metrics((style >> 5) & 31)?;
+    let (height, latin_offset) = metrics(style & 31)?;
+    Ok((width, height, latin_offset))
+}
+
 fn pixel_size(pixel_width: u32, pixel_height: u32) -> Result<PageSpec> {
     if pixel_width == 0 || pixel_height == 0 {
         return Err(Error::InvalidInput {

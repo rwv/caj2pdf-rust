@@ -16,14 +16,15 @@ mod convert_jpeg;
 mod image_emit;
 mod jpeg;
 mod native;
+mod native_page;
 mod outline;
 mod placement;
 mod text;
 
 pub use compose::{
-    ComposeBudget, ComposeError, ComposeErrorKind, ComposeOptions, ComposePage, ComposeReport,
-    ComposeStage, ComposeType3Workspaces, ComposeVisitor, ComposeWorkspaces, ComposedImage,
-    convert_source_pages_pdf,
+    C8FontSources, ComposeBudget, ComposeError, ComposeErrorKind, ComposeOptions, ComposePage,
+    ComposeReport, ComposeStage, ComposeType3Workspaces, ComposeVisitor, ComposeWorkspaces,
+    ComposedImage, convert_c8_native_pdf, convert_source_pages_pdf,
 };
 pub use convert::{
     MultipleImages, Type0ImageSelection, Type0PdfError, Type0PdfErrorKind, Type0PdfOptions,
@@ -38,11 +39,15 @@ pub use convert_jpeg::{
     convert_type2_image_pdf,
 };
 pub use jpeg::{JpegBudget, JpegColor, JpegInfo, read_type2_jpeg_info};
-pub use native::{NativeRecord, NativeRecordVisitor, decode_native_character};
+pub use native::{
+    NativeRecord, NativeRecordVisitor, decode_native_character, decode_native_image_coordinate,
+};
+pub use native_page::{C8PageFonts, write_c8_native_page};
 pub use placement::{
-    EMPIRICAL_COORDINATE_POINTS_PER_UNIT, EMPIRICAL_PIXEL_POINTS,
-    EMPIRICAL_PLACEMENT_TOLERANCE_POINTS, EmpiricalPageGeometry, empirical_image_transform,
-    empirical_page_from_pixels, empirical_page_from_type0,
+    C8GlyphClass, EMPIRICAL_COORDINATE_POINTS_PER_UNIT, EMPIRICAL_PIXEL_POINTS,
+    EMPIRICAL_PLACEMENT_TOLERANCE_POINTS, EmpiricalC8HorizontalDecoration, EmpiricalPageGeometry,
+    empirical_c8_glyph_transform, empirical_c8_horizontal_decoration, empirical_c8_segment,
+    empirical_image_transform, empirical_page_from_pixels, empirical_page_from_type0,
 };
 pub use text::{
     RawTextCoordinate, TEXT_DECODER_RESERVATION_BYTES, TextBudget, TextCoordinates,
@@ -91,6 +96,10 @@ impl Span {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Header {
     pub variant: Variant,
+    /// Raw C8 origin words at offsets 28/30; unknown for HN variants.
+    /// The verified native-record profile subtracts these from record coordinates.
+    /// This does not establish image placement or font baseline semantics.
+    pub native_origin: Option<[u16; 2]>,
     /// Declared HN-A/C8 page extents in source units. HN-B is unverified.
     pub page_size: Option<[u16; 2]>,
     pub page_count: u32,
@@ -539,6 +548,25 @@ impl<'a, S: RangedSource, C: Cancellation> Hnc8Reader<'a, S, C> {
                 u64::from(page_count),
             ));
         }
+        let native_origin = if variant == Variant::C8 {
+            let mut origin = [0; 4];
+            read_fixed(
+                source,
+                limits,
+                cancellation,
+                28,
+                &mut origin,
+                loc.at(28),
+                "native coordinate origin",
+            )
+            .await?;
+            Some([
+                u16::from_le_bytes([origin[0], origin[1]]),
+                u16::from_le_bytes([origin[2], origin[3]]),
+            ])
+        } else {
+            None
+        };
         let page_size = if variant == Variant::HnB {
             None
         } else {
@@ -630,6 +658,7 @@ impl<'a, S: RangedSource, C: Cancellation> Hnc8Reader<'a, S, C> {
             budget,
             header: Header {
                 variant,
+                native_origin,
                 page_size,
                 page_count,
                 page_index,
