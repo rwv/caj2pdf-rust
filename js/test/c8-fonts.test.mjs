@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
 
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readFile, readdir, rm } from "node:fs/promises";
 import { test } from "node:test";
-import { blobSource, convert, withHnc8Scratch } from "../node.mjs";
-import { newInstance, validatePdf } from "./helpers.mjs";
+import { blobSource, convert, spoolToTempFile, withHnc8Scratch } from "../node.mjs";
+import { newInstance, tempDirectory, validatePdf } from "./helpers.mjs";
 import { syntheticNativeC8, qmStates } from "./hnc8-fixtures.mjs";
 
 const fontBytes = await readFile(new URL("../../tests/fonts/geometric.ttf", import.meta.url));
@@ -70,4 +70,31 @@ test("cancellation during a font read resets the instance and preserves resource
     includeBookmarks: false, hnc8: { fonts: roles(input) },
   });
   assert.equal(result.pagesConverted, 1);
+});
+
+
+test("forward-only fonts enforce spool limits and dispose after conversion outcomes", async () => {
+  const directory = await tempDirectory("c8-font-spool");
+  const options = { directory, maxBytes: BigInt(fontBytes.length) };
+  try {
+    await assert.rejects(spoolToTempFile(new Blob([fontBytes]).stream(), { ...options, maxBytes: options.maxBytes - 1n }), { code: "LIMIT_EXCEEDED" });
+    assert.deepEqual(await readdir(directory), []);
+    for (const mode of ["success", "missing-glyph", "cancel"]) {
+      const spool = await spoolToTempFile(new Blob([fontBytes]).stream(), options);
+      try {
+        const input = syntheticNativeC8();
+        if (mode === "missing-glyph") new DataView(input.buffer).setUint16(110, 0xa0c2, true);
+        const controller = new AbortController();
+        const font = mode === "cancel" ? { size: spool.source.size, async readAt(offset, length) {
+          controller.abort(); return spool.source.readAt(offset, length);
+        } } : spool.source;
+        const operation = convert(await newInstance(), source(input), sink(), {
+          includeBookmarks: false, signal: controller.signal, hnc8: { fonts: roles(font) },
+        });
+        if (mode === "success") assert.equal((await operation).pagesConverted, 1);
+        else await assert.rejects(operation, mode === "cancel" ? { name: "AbortError" } : { code: "HNC8" });
+      } finally { await spool.dispose(); }
+      assert.deepEqual(await readdir(directory), []);
+    }
+  } finally { await rm(directory, { recursive: true, force: true }); }
 });

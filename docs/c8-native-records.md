@@ -1850,3 +1850,28 @@ allocations; they are not whole-process/WASM peaks. Native record traversal
 uses fixed buffers rather than a decompressed text allocation. The existing
 CLI/Node/browser entry points still need #252 resource transport before
 this core entry point establishes public-adapter support.
+
+### Public-runtime checkpoint (2026-10-02)
+
+The same pinned six-page source now completes through the native CLI, public
+Node `convert()` and a real Chromium Dedicated Worker. All three produce
+SHA-256 `907209917a1813afaf3786fad9278bf23f152b1580ca14fdbe448e8417660eea`
+with the same explicit external diagnostic font resources. qpdf accepts the
+CLI/Node PDF. No image sidecars are used. Runtime agreement is separate from
+independent source fidelity and does not prove source-font identity.
+
+Node uses FileHandle sources and temporary scratch. The browser diagnostic
+spools forward-only document/font response streams into OPFS with the existing
+64 MiB per-source limit, uses ranged sources for conversion and streams output
+to an OPFS handle. Its completed output is hashed only after conversion.
+All spool, decoder scratch and output files are removed; the final OPFS entry
+list is empty. An earlier diagnostic using `Response.blob()` for the larger
+font failed while consuming its response body; that run is excluded.
+
+Both JS runs use 65,536-byte maximum observed read/write requests. The WASM
+linear-memory high-water observed at I/O boundaries is 2,162,688 bytes; this
+is not a total browser/process peak measurement. Receipts remain external:
+`native-node-six-page-checkpoint.json` and
+`native-browser-six-page-checkpoint.json` in
+`caj2pdf-c8-render-preview-20261001`. CLI font-path syntax, output protection
+and substitution limits are documented in `docs/cli.md`.

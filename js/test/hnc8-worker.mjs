@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: MIT
 
-import { blobSource, convert, loadModule, syncAccessHandleScratch } from "../browser.mjs";
+import { blobSource, convert, loadModule, spoolToOpfs, syncAccessHandleScratch } from "../browser.mjs";
 import { qmStates, syntheticNativeC8, syntheticHn, syntheticType1Hn, syntheticPrefixedHn } from "./hnc8-fixtures.mjs";
 
 const root = await navigator.storage.getDirectory();
 const names = [];
 const handles = [];
+const fontSpools = [];
 let result;
 try {
   const scratch = [];
@@ -38,7 +39,13 @@ try {
     }
   }
   const fontBlob = await (await fetch("/fixtures/geometric.ttf")).blob();
-  const rangedFont = blobSource(fontBlob);
+  try {
+    await spoolToOpfs(fontBlob.stream(), { maxBytes: BigInt(fontBlob.size) - 1n });
+    throw new Error("font spool limit was not enforced");
+  } catch (error) { if (error.code !== "LIMIT_EXCEEDED") throw error; }
+  const fontSpool = await spoolToOpfs(fontBlob.stream(), { maxBytes: BigInt(fontBlob.size) });
+  fontSpools.push(fontSpool);
+  const rangedFont = fontSpool.source;
   let fontMaxRead = 0;
   const font = { size: rangedFont.size, async readAt(offset, length, signal) {
     fontMaxRead = Math.max(fontMaxRead, length);
@@ -59,7 +66,10 @@ try {
 } catch (error) {
   result = { error: `${error.name}: ${error.message}` };
 } finally {
+  for (const spool of fontSpools) await spool.dispose();
   for (const handle of handles) handle.close();
   for (const name of names) await root.removeEntry(name);
 }
+result.remainingEntries = [];
+for await (const [name] of root.entries()) result.remainingEntries.push(name);
 postMessage(result);

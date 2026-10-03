@@ -174,6 +174,7 @@ test("Chromium: multi-image HN converts with bookmarks through Worker OPFS", opt
   await validateType1Hn(t, new Uint8Array(result.type1Pdf));
   const { syntheticType1Hn } = await import("./hnc8-fixtures.mjs");
   assert.ok(Buffer.from(result.type1Pdf).includes(syntheticType1Hn().jpeg));
+  assert.deepEqual(result.remainingEntries, []);
   assert.equal(result.nativePdfs.length, 2);
   assert.ok(result.fontMaxRead > 0 && result.fontMaxRead <= 32);
   for (const [index, bytes] of result.nativePdfs.entries()) {
