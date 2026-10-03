@@ -26,6 +26,8 @@ pub struct ConvertOptions {
     pub qm_states: Option<PathBuf>,
     pub mq_states: Option<PathBuf>,
     pub no_bookmarks: bool,
+    pub fonts: [Option<PathBuf>; 4],
+    pub decoration_char: Option<char>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -61,7 +63,8 @@ Usage:
 
 Conversion writes INPUT's sibling .pdf file unless -o is given. Use - for
 standard input or output; standard input without -o writes to standard output.
-Supported inputs: CAJ, KDH, PDF, and experimental HN/C8 image pages.
+Supported inputs: CAJ, KDH, PDF, experimental HN/C8 image pages,
+and the admitted native C8 profile with explicit fonts.
 HN/C8 uses built-in standard codec states; TEB remains unsupported.
 C8/HN-B currently require --no-bookmarks.
 
@@ -71,6 +74,11 @@ Options:
   --no-bookmarks      Skip CAJ/HN outline import (required for C8/HN-B)
   --qm-states FILE    Experimental QM states for HN/C8 type-0 images
   --mq-states FILE    Experimental MQ states for arithmetic JBIG2 images
+  --font-cjk FILE     Explicit native C8 CJK font (requires both Latin roles)
+  --font-latin FILE   Explicit native C8 ordinary Latin font
+  --font-alternate-latin FILE  Explicit native C8 alternate Latin font
+  --font-decoration FILE      Optional native C8 decoration font
+  --decoration-char CHAR      Decoration alias (default: ►; not document text)
   -h, --help           Print help (also: caj2pdf COMMAND --help)
   -V, --version        Print version
 
@@ -147,6 +155,16 @@ fn set_states(path: &mut Option<PathBuf>, value: OsString) -> Result<(), String>
     Ok(())
 }
 
+fn font_option(name: &str) -> Option<usize> {
+    match name {
+        "--font-cjk" => Some(0),
+        "--font-latin" => Some(1),
+        "--font-alternate-latin" => Some(2),
+        "--font-decoration" => Some(3),
+        _ => None,
+    }
+}
+
 /// Parse the arguments after the program name. An error is a usage message.
 pub fn parse<I: IntoIterator<Item = OsString>>(args: I) -> Result<Command, String> {
     let mut args = args.into_iter().peekable();
@@ -194,6 +212,44 @@ pub fn parse<I: IntoIterator<Item = OsString>>(args: I) -> Result<Command, Strin
                 };
                 set_states(path, value)?;
             }
+            _ if topic == Topic::Convert
+                && font_option(text.split('=').next().unwrap()).is_some() =>
+            {
+                let (name, inline) = text
+                    .split_once('=')
+                    .map_or((text, None), |(name, value)| (name, Some(value)));
+                let value = inline
+                    .map(OsString::from)
+                    .or_else(|| args.next())
+                    .ok_or_else(|| format!("option '{name}' requires a path"))?;
+                if value.is_empty() || value == "-" {
+                    return Err("font resources require a nonempty path, not standard input".into());
+                }
+                if options.fonts[font_option(name).unwrap()]
+                    .replace(value.into())
+                    .is_some()
+                {
+                    return Err(format!("option '{name}' was given more than once"));
+                }
+            }
+            "--decoration-char" if topic == Topic::Convert => {
+                let value = args
+                    .next()
+                    .ok_or("--decoration-char requires a character")?;
+                let value = value
+                    .to_str()
+                    .ok_or("decoration character must be Unicode")?;
+                let mut chars = value.chars();
+                let character = chars
+                    .next()
+                    .filter(|c| u32::from(*c) <= 0xffff)
+                    .ok_or("decoration character must be one BMP Unicode scalar")?;
+                if chars.next().is_some() || options.decoration_char.replace(character).is_some() {
+                    return Err(
+                        "--decoration-char requires one character and may appear only once".into(),
+                    );
+                }
+            }
             "--json" if !writes => json = true,
             "--bookmarks" if !writes => bookmarks = true,
             _ if topic == Topic::Convert && text.starts_with("--qm-states=") => {
@@ -209,6 +265,14 @@ pub fn parse<I: IntoIterator<Item = OsString>>(args: I) -> Result<Command, Strin
         }
     }
 
+    if options.fonts.iter().any(Option::is_some) && options.fonts[..3].iter().any(Option::is_none) {
+        return Err(
+            "native C8 fonts require --font-cjk, --font-latin and --font-alternate-latin".into(),
+        );
+    }
+    if options.decoration_char.is_some() && options.fonts[3].is_none() {
+        return Err("--decoration-char requires --font-decoration".into());
+    }
     let expected = if topic == Topic::AddBookmarks { 2 } else { 1 };
     if let Some(extra) = positionals.get(expected) {
         return Err(format!("unexpected argument '{}'", extra.to_string_lossy()));

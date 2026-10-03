@@ -954,11 +954,7 @@ fn native_c8_font_resources_share_the_bounded_request_channel() {
     assert_eq!(engine.add_font_source(font.len() as u64), 1);
     assert!(engine.set_c8_fonts(0, 0, 0, 0, 'A' as u32));
     let run = drive_resources(&mut engine, &bytes, &[font], Some(3), None);
-    assert!(
-        engine.result().unwrap().is_ok(),
-        "{}",
-        engine.message()
-    );
+    assert!(engine.result().unwrap().is_ok(), "{}", engine.message());
     assert!(run.max_read <= 32 && run.max_write <= 32);
     assert!(run.output.ends_with(b"%%EOF\n"));
     assert_eq!(
