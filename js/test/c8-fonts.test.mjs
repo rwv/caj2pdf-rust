@@ -14,7 +14,7 @@ const sink = (parts = []) => ({ async writeChunk(bytes) { parts.push(bytes.slice
 const roles = (font) => ({ cjk: font, latin: font, alternateLatin: font });
 
 test("native C8/HN-B public Node path reuses ranged fonts and preserves pages", async (t) => {
-  for (const [inputBytes, pages, glyphs, hasSymbols, hasJpeg, hasState3, latinState] of [[syntheticNativeC8(), 1, 1], [syntheticNativeC8(true), 1, 2], [syntheticNativeHnb(), 2, 2], [syntheticNativeHnb(0), 2, 2, true], [syntheticNativeHnbMixed(), 1, 2, false, true], [syntheticNativeHnb(2, true), 2, 2, false, false, true], [syntheticNativeHnbAxes(), 2, 2], ...[28, 31].map(state => [syntheticNativeC8(false, state), 1, 1, false, false, false, state])]) {
+  for (const [inputBytes, pages, glyphs, hasSymbols, hasJpeg, hasState3, latinState] of [[syntheticNativeC8(), 1, 1], [syntheticNativeC8(true), 1, 2], [syntheticNativeHnb(), 2, 2], [syntheticNativeHnb(0), 2, 2, true], [syntheticNativeHnbMixed(), 1, 2, false, true], [syntheticNativeHnb(2, true), 2, 2, false, false, true], [syntheticNativeHnbAxes(), 2, 2], ...[3, 28, 31].map(state => [syntheticNativeC8(false, state), 1, 1, false, false, false, state])]) {
     let maxRead = 0;
     const input = source(fontBytes);
     const font = { size: input.size, async readAt(offset, length, signal) { maxRead = Math.max(maxRead, length); return input.readAt(offset, Math.min(length, 3), signal); } };
@@ -47,10 +47,10 @@ test("native C8 font validation and failed reads preserve caller errors", async 
   for (const fonts of [{}, { ...roles(font), decoration: { source: font, character: "ab" } }, { ...roles(font), decoration: { source: font, character: "\ud800" } }]) {
     await assert.rejects(convert(await newInstance(), source(syntheticNativeC8()), sink(), { hnc8: { fonts } }), TypeError);
   }
-  for (const state of [28, 31]) {
+  for (const state of [3, 28, 31]) {
     await assert.rejects(convert(await newInstance(), source(syntheticNativeC8(false, state)), sink(), {
       includeBookmarks: false, hnc8: { fonts: roles(font) },
-    }), /missing C8 extended-state Latin font resource/);
+    }), /missing .*Latin font resource/);
   }
   const failure = new Error("caller font read failed");
   const broken = { size: font.size, async readAt() { throw failure; } };

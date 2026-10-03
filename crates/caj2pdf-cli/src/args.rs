@@ -77,7 +77,7 @@ Options:
   --font-cjk FILE     Explicit native C8/HN-B CJK font (requires both Latin roles)
   --font-latin FILE   Explicit native C8/HN-B ordinary Latin font
   --font-alternate-latin FILE  Explicit native C8/HN-B alternate Latin font
-  --font-latin-state3 FILE    Optional HN-B state-3 Latin font
+  --font-latin-state3 FILE    Optional HN-B/C8 state-3 Latin font
   --font-latin-state28 FILE   Optional C8 state-28 Latin font
   --font-latin-state31 FILE   Optional C8 state-31 Latin font
   --font-symbols FILE         Optional HN-B mode-0 semantic symbol font

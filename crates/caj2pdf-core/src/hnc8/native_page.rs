@@ -25,7 +25,7 @@ pub struct C8PageFonts {
     /// Semantic symbols and spaces in the controlled HN-B mode-0 profile.
     /// Required only when a page uses that resource; never an implicit fallback.
     pub symbols: Option<usize>,
-    /// Explicit HN-B Latin resource selected by `801d/3`.
+    /// Explicit HN-B/C8 Latin resource selected by `801d/3`.
     pub latin_state3: Option<usize>,
     /// Explicit C8 Latin resources selected by `801d/28` and `801d/31`.
     pub latin_state28: Option<usize>,
@@ -266,11 +266,11 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
             NativeRecord::Control {
                 tag: 0x801d,
                 value: 3,
-            } if self.variant == Variant::HnB => {
+            } => {
                 self.latin = self
                     .roles
                     .latin_state3
-                    .ok_or_else(|| invalid("missing HN-B state-3 Latin font resource"))?;
+                    .ok_or_else(|| invalid("missing state-3 Latin font resource"))?;
             }
             NativeRecord::Control {
                 tag: 0x801d,

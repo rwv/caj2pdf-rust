@@ -2791,3 +2791,11 @@ selection and independently varied width/height offsets at three small styles.
 The implementation reuses existing placement state and PDF emission. Marker
 fonts, source captures and generated PDFs remain external; raster residuals and
 excluded overlapping controls are documented in `docs/c8-native-controls.md`.
+
+### C8 state-3 resource
+
+Original MIT state/resource controls independently establish C8 state-3 font
+selection, mode/style persistence and explicit switching. The implementation
+reuses the existing caller-supplied state-3 role after comparing original marker
+resources; HN-B behavior alone is not used as evidence. No source font outlines,
+external documents or screenshots are committed.

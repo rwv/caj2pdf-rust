@@ -59,7 +59,7 @@ try {
     return symbolSpool.source.readAt(offset, Math.min(length, 3), signal);
   } };
   const nativePdfs = [];
-  for (const [input, pages, hasSymbols, hasState3, latinState] of [[syntheticNativeC8(), 1], [syntheticNativeC8(true), 1], [syntheticNativeHnb(), 2], [syntheticNativeHnb(0), 2, true], [syntheticNativeHnbMixed(), 1], [syntheticNativeHnb(2, true), 2, false, true], [syntheticNativeHnbAxes(), 2], ...[28, 31].map(state => [syntheticNativeC8(false, state), 1, false, false, state])]) {
+  for (const [input, pages, hasSymbols, hasState3, latinState] of [[syntheticNativeC8(), 1], [syntheticNativeC8(true), 1], [syntheticNativeHnb(), 2], [syntheticNativeHnb(0), 2, true], [syntheticNativeHnbMixed(), 1], [syntheticNativeHnb(2, true), 2, false, true], [syntheticNativeHnbAxes(), 2], ...[3, 28, 31].map(state => [syntheticNativeC8(false, state), 1, false, false, state])]) {
     const pdf = [];
     const native = await convert(module, blobSource(new Blob([input])), {
       async writeChunk(bytes) { pdf.push(...bytes); return bytes.length; }, async flush() {},

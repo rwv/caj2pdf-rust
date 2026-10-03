@@ -408,7 +408,7 @@ async function drive(exports, start, source, sink, chunkSize, signal, finish = r
       const accepted = hnc8.fonts.symbols === undefined ? setFonts(...hnc8.fonts.roles) : setFonts(...hnc8.fonts.roles, hnc8.fonts.symbols);
       if (accepted !== 1) throw new RangeError("WASM rejected C8 font roles");
       if (hnc8.fonts.latinState3 !== undefined) {
-        if (typeof exports.caj2pdf_c8_set_latin_state3 !== "function") throw new Error("this WASM build does not support HN-B state-3 Latin fonts");
+        if (typeof exports.caj2pdf_c8_set_latin_state3 !== "function") throw new Error("this WASM build does not support state-3 Latin fonts");
         if (exports.caj2pdf_c8_set_latin_state3(hnc8.fonts.latinState3) !== 1) throw new RangeError("WASM rejected the state-3 Latin font role");
       }
     }

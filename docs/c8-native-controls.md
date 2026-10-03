@@ -674,3 +674,37 @@ independent Unicode extraction. `c8-small-brackets-output/checks.json` records
 mismatch. The full four-page input now reaches byte 19296 (`801d/3`); the
 five-page input reaches the same state at byte 19552. Neither is a complete
 conversion yet.
+
+## C8 state-3 Latin resource
+
+Eight original `state3_documents()` controls independently identify `801d/3`
+as HGBX_CNKI (marker 22). In ordinary mode, Latin A and fullwidth opening
+parenthesis select this resource; CJK and fullwidth s retain HGHT_CNKI (marker
+61). Their outer bounds match state-0/state-4 controls, whose Latin resources
+are markers 23/63. All eight captures repeat identically and are nonblank.
+
+The transition sequence 3/4/3/0 gives markers 22/63/22/23. Mode 1/0/1 followed
+by the same style gives 22/61/22/22: CJK mode temporarily changes glyph selection
+without losing the Latin state, and a style record retains state 3. Existing
+`latinState3` / `--font-latin-state3` transport is reused; no new API or automatic
+font discovery is needed. Missing state-3 resources remain explicit errors.
+
+Five admitted controls pass CLI/qpdf and independent Unicode extraction. Three
+mode-0 punctuation controls remain explicitly unsupported (the existing CJK-mode
+punctuation boundary); these are not counted as successful conversions. The
+full-document retries now reach `a6c5` at byte 22428 (four-page) and `a6c8` at
+byte 19840 (five-page), both on page 1. Neither publishes a complete PDF.
+
+External receipts under the existing root: `input/c8-state3/manifest.json`,
+`c8-state3-observations.json`, `c8-state3-transitions.json`,
+`c8-state3-output/checks.json`, and `identified-family-viewer/c8-state*-{a,b}.png`.
+The page crop is (648,604)-(1023,721), viewer fit 182%. Marker lookup preserves
+font names and uses the existing 84 original fonts. This identifies the role
+for these controls, not universal source-font fidelity.
+
+Independent PDF rendering (`c8-state3-output/render-checks.json`) recovers the
+same marker sequences, including all four transition/persistence glyphs. The
+three ordinary-state PDFs have identical outer bounds; compared with the viewer
+crop their edges differ by 1–2 pixels at 182%. These residuals remain explicit.
+Node and real Worker tests include a distinct state-3 font source, bounded short
+reads and cleanup, reusing the existing font transport tests.

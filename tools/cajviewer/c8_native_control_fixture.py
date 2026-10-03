@@ -346,6 +346,27 @@ def small_bracket_documents():
             first_y=4334 + dy - 15, run_words=(4672 + dx, 0xA3AC))
 
 
+def state3_documents():
+    """Identify state-3 resources, switching and persistence independently."""
+    from c8_style_fixture import document as style_document
+
+    for state in (0, 3, 4):
+        for mode in (0, 1):
+            yield f"state-{state}-mode-{mode}.caj", style_document(
+                [(0x10A5, state, 6)], codes=(0xD6D0, 0xA0C1, 0xA3F3, 0xA3A8),
+                width=1600, height=500, first_x=4672, first_y=4334,
+                run_words=(0x80CE, mode))
+    for label, words in (
+        ("transitions", (0x80CE, 1, 4672, 0xA0C1, 0x801D, 4, 5022, 0xA0C1,
+                         0x801D, 3, 5372, 0xA0C1, 0x801D, 0, 5722, 0xA0C1)),
+        ("persistence", (0x80CE, 1, 4672, 0xA0C1, 0x80CE, 0, 5022, 0xA0C1,
+                         0x80CE, 1, 5372, 0xA0C1, 0x8002, 0x10A5, 5722, 0xA0C1)),
+    ):
+        yield label + ".caj", style_document(
+            [(0x10A5, 3, 6)], codes=(), width=1600, height=500,
+            first_y=4334, run_words=words)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("output", type=Path, help="new directory outside the repository")
@@ -364,7 +385,8 @@ def main():
                        *state_axis_documents(), *at_sign_documents(),
                        *record_9002_documents(), *additional_style_documents(),
                        *skew_281c_documents(), *low_letter_documents(),
-                       *field1_documents(), *small_bracket_documents()):
+                       *field1_documents(), *small_bracket_documents(),
+                       *state3_documents()):
         (args.output / name).write_bytes(data)
         manifest.append({"file": name, "sha256": hashlib.sha256(data).hexdigest()})
     (args.output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")

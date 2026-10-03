@@ -512,7 +512,7 @@ await convert(wasm, documentSource, outputSink, {
       alternateLatin: alternateFontSource,
       decoration: { source: decorationFontSource, character: "►" },
       symbols: symbolFontSource, // Optional semantic HN-B mode-0 symbols/space.
-      latinState3: state3FontSource, // Optional distinct HN-B 801d/3 Latin resource.
+      latinState3: state3FontSource, // Optional distinct HN-B/C8 801d/3 Latin resource.
       latinState28: state28FontSource, // Optional C8 801d/28 resource.
       latinState31: state31FontSource, // Optional distinct C8 801d/31 resource.
     },
