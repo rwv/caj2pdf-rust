@@ -536,3 +536,36 @@ content on pages 2/3, and `8073/002b` on page 4. Required styles include `0484`,
 concrete next-document gaps, not corruption findings or permission to skip
 trailing records. External `issue63-inventory.txt` records the bounded inventory;
 no issue-63 conversion success is claimed.
+
+## Full HN-B end records and opaque indexed tails
+
+Original `end-continuation-*` controls place two different visible glyphs on
+one page. In pinned offline CAJViewer, inserting a full `8004` record between
+them suppresses the second glyph for values 0, 1, 44, 45 and 65535. The baseline
+shows both. `end-tail-*` controls repeat this with 12- and 20-byte indexes,
+including five unaligned opaque bytes after the end. Single-page captures
+match the one-glyph reference exactly and repeat identically. A two-page
+20-byte-index control retains the first page's one glyph and the next page's
+two glyphs; continuous-view positioning differs, so this is not claimed as a
+pixel-identical comparison against the single-page captures.
+
+`tools/cajviewer/hnb_geometry_fixture.py` reproduces all 13 controls with the
+same SHA256 hashes as the captured inputs. External receipts are
+`end-continuation-inputs.json`, `end-continuation-comparison.json`,
+`end-tail-inputs.json`, `end-tail-comparison.json` and `end-tail-navigation.json`
+in `caj2pdf-hnb-rendering-20261003`. The fixed single-page crop in the two-page
+entry of `end-tail-comparison.json` does not align with that page; use the
+navigation receipt and visible page content for that control.
+
+The HN-B visitor now stops at the full end record without interpreting later
+bytes in that indexed span. It retains index bounds, image-count checks and
+next-page indexing. The two-byte bare-end rule is unchanged. C8 retains its
+strict terminal-position requirement. Original parser regressions cover both
+index widths, one-byte reads, a finite event budget, unknown/unaligned tails,
+and correct next-page glyphs. This admits end semantics, not all of issue-63's
+remaining styles, characters or complete conversion.
+
+The refreshed external `issue63-end-inventory.txt` now traverses pages 1–3
+successfully: 2,706 / 3,974 / 2,273 native events and 2,060 / 2,569 / 1,902
+glyphs. Page 4 still refuses `8073/002b` at byte 69,876. These visitor counts
+are not rendered-document acceptance; style `154a` still blocks conversion.

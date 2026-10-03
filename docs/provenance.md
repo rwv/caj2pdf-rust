@@ -2522,3 +2522,9 @@ around this repository's authored geometric-font A record. It is exercised by
 the existing Node and actual Worker font tests; no external corpus or font
 outline enters the fixture. Runtime equality and cleanup evidence are recorded
 separately from source fidelity in `hnb-compact-index.md`.
+
+HN-B full-end handling and its regression are original MIT code. Thirteen
+original two-glyph/opaque-tail controls in `hnb_geometry_fixture.py` establish
+termination and next-page indexing using the pinned viewer as a black box.
+The generator reproduces captured input hashes; it contains no vendor code,
+external document bytes, fonts or copied text. C8 end handling is unchanged.

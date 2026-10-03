@@ -122,6 +122,41 @@ def geometry_control(width, height, dx=0, dy=0, *, c8_container=False):
     return bytes(data) if c8_container else hn_container(data)
 
 
+def end_controls():
+    """Original terminal controls with visible continuation and unaligned tails."""
+    def page(words):
+        return document([(0x1084, 0, 6)], codes=(), width=600, height=400,
+                        first_x=4672, first_y=4374, run_words=words)
+
+    first = (4672, 0xD6D0)
+    second = (4872, 0xCEC4)
+    for name, words in (("base", ()), ("middle44", (0x8004, 44)),
+                        ("middle45", (0x8004, 45)), ("middle1", (0x8004, 1)),
+                        ("middle0", (0x8004, 0)), ("middleffff", (0x8004, 0xFFFF))):
+        yield f"end-continuation-{name}", hn_container(page(first + words + second))
+
+    one = page(first)
+    both = page(first + second)[100:]
+    middle = page(first + (0x8004, 44) + second)[100:]
+    opaque = one[100:-4] + struct.pack("<HH", 0x8004, 44) + bytes.fromhex("ff0180fe03")
+    for name, width, payloads in (
+        ("one12", 12, [one[100:]]), ("opaque12", 12, [opaque]),
+        ("both20", 20, [both]), ("middle20", 20, [middle]),
+        ("one20", 20, [one[100:]]), ("opaque20", 20, [opaque]),
+        ("two-pages20", 20, [opaque, both]),
+    ):
+        header = bytearray(hn_container(one)[:216])
+        struct.pack_into("<I", header, 136, 0 if width == 12 else 200)
+        struct.pack_into("<I", header, 144, len(payloads))
+        offset = 216 + width * len(payloads)
+        index = bytearray()
+        for payload in payloads:
+            index.extend(struct.pack("<III", offset, len(payload), 0))
+            index.extend(bytes(width - 12))
+            offset += len(payload)
+        yield f"end-tail-{name}", bytes(header + index) + b"".join(payloads)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("output", type=Path, help="new directory outside the repository")
@@ -224,6 +259,10 @@ def main():
         (args.output / filename).write_bytes(data)
         manifest.append({"file": filename, "code": code, "alternate": alt, "dx": dx,
                          "x": x, "y": y, "sha256": hashlib.sha256(data).hexdigest()})
+    for name, data in end_controls():
+        filename = name + ".caj"
+        (args.output / filename).write_bytes(data)
+        manifest.append({"file": filename, "sha256": hashlib.sha256(data).hexdigest()})
     (args.output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
 
 

@@ -55,6 +55,8 @@ pub enum NativeRecord {
     EncodedString { value: u16, payload: super::Span },
     /// The final record and its uninterpreted payload, if present.
     /// Verified HN-B pages may end with only the two-byte `8004` tag.
+    /// HN-B indexed spans may also contain opaque bytes after a full end record;
+    /// those bytes are not native rendering events.
     End { value: Option<u16> },
 }
 
@@ -420,7 +422,7 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
                         }
                     }
                     0x8004 => {
-                        if position + length as u64 != end {
+                        if self.header.variant != Variant::HnB && position + length as u64 != end {
                             return Err(at.malformed(
                                 "native page end",
                                 "trailing bytes in indexed text span",

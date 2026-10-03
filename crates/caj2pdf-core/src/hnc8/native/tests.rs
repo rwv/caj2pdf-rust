@@ -1916,3 +1916,66 @@ fn hnb_bare_end_tags_stay_inside_each_indexed_page() {
     c8.bytes[84..88].copy_from_slice(&2u32.to_le_bytes());
     assert!(parse(&mut c8, TextBudget::default(), &mut Visitor::default()).is_err());
 }
+
+#[test]
+fn hnb_end_stops_before_opaque_tail_and_next_page_uses_its_index() {
+    for width in [12, 20] {
+        let first = [
+            [0x8001, 4700],
+            [0x8002, 0x1084],
+            [5200, 0xd6d0],
+            [0x8004, 44],
+            [5300, 0xcec4],
+            [0x8099, 0xffff],
+        ];
+        let second = [
+            [0x8001, 4800],
+            [0x8002, 0x1084],
+            [5300, 0xcec4],
+            [0x8004, 45],
+        ];
+        let mut source = hnb_source(width, &[&first, &second]);
+        let second_at = 216 + width * 2 + first.len() * 4;
+        source
+            .bytes
+            .splice(second_at..second_at, [0xff, 0x01, 0x80]);
+        source.bytes[220..224].copy_from_slice(&(first.len() as u32 * 4 + 3).to_le_bytes());
+        source.bytes[216 + width..220 + width]
+            .copy_from_slice(&((second_at + 3) as u32).to_le_bytes());
+        source.short = 1;
+        run(async {
+            let limits = Limits::default();
+            let cancel = Cancel::default();
+            let mut reader = Hnc8Reader::open(&mut source, &limits, &cancel, Default::default())
+                .await
+                .unwrap();
+            for (code, value) in [(0xd6d0, 44), (0xcec4, 45)] {
+                reader.next_page().await.unwrap().unwrap();
+                let mut visitor = Visitor::default();
+                let budget = TextBudget {
+                    max_records: 4,
+                    ..Default::default()
+                };
+                assert_eq!(
+                    reader
+                        .visit_native_records(budget, &mut visitor)
+                        .await
+                        .unwrap(),
+                    4
+                );
+                assert!(
+                    matches!(visitor.events[2].1, NativeRecord::Glyph { code: actual, .. } if actual == code)
+                );
+                assert_eq!(
+                    visitor.events[3].1,
+                    NativeRecord::End { value: Some(value) }
+                );
+            }
+            assert!(reader.next_page().await.unwrap().is_none());
+        });
+    }
+    // C8 retains its independently established strict terminal position.
+    let mut c8 = fixture(&[[0x8004, 1], [0x8099, 0xffff]], 0);
+    let error = parse(&mut c8, TextBudget::default(), &mut Visitor::default()).unwrap_err();
+    assert_eq!(error.kind.field(), "native page end");
+}
