@@ -2025,3 +2025,24 @@ The same experiment finds `e58c` equivalent to explicit axes 110, while
 style zero differs from explicit axes 16 in Latin placement. Those findings
 do not yet extend the transform's admitted size fields. Complete HN-B
 rendering remains open in #241.
+
+### Effective style inventory for the first HN-B document
+
+A bounded native-record traversal of the pinned issue-100 input tracks axis
+controls and resets them at each `8002` style record. All 38 style-zero glyphs
+on page 1 occur with explicit width and height `0x24` (36); there are no
+default-zero glyphs in this document. The same page has twelve `e58c` glyphs
+without explicit axes. Remaining pages use ordinary size fields. This narrows
+the first-document implementation to explicit 36 and the observed large size,
+in addition to remaining character/drawing rules; do not delay that delivery
+for default-zero baseline calibration. The external count-only result is
+`caj2pdf-hnb-rendering-20261003/effective-style-inventory.txt` and contains no
+extracted source text.
+
+Separately, original 300×250-unit controls at 971% distinguish default zero
+from explicit 16 and establish pixel-identical interiors for default zero and
+explicit 21, including Latin placement. Repeats are identical. This corrects
+the low-zoom ambiguity; it does not yet admit default-zero PDF geometry.
+The existing generator now reproduces all six high-zoom anchor inputs exactly.
+Receipts are `axis-zero-anchor-comparison.json` and
+`axis-zero-heldout-comparison.json` in the same external directory.

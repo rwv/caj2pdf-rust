@@ -29,9 +29,26 @@ CONTROLS = (
 )
 
 
-def control(style, words):
+ANCHORS = (
+    ("reference0", 0, ()),
+    ("explicit16", 0, (0x8070, 16, 0x8071, 16)),
+    ("explicit21", 0, (0x8070, 21, 0x8071, 21)),
+    ("reference35", 0x1084, ()),
+    ("explicit35", 0, (0x8070, 35, 0x8071, 35)),
+    ("explicit36", 0, (0x8070, 36, 0x8071, 36)),
+)
+
+
+def control(style, words, *, anchor=False):
     """Reuse original glyph records in a separately authored compact container."""
-    c8 = document([(style, 0, 6)] * 3, run_words=words)
+    if anchor:
+        c8 = document(
+            [(style, 0, 6)], codes=(), width=300, height=250,
+            first_x=4672, first_y=4294,
+            run_words=words + (4672, 0xD6D0, 4792, 0xA0C1),
+        )
+    else:
+        c8 = document([(style, 0, 6)] * 3, run_words=words)
     header = bytearray(216)
     struct.pack_into("<III", header, 0, 0x4E48, 200, 136)
     struct.pack_into("<IIII", header, 136, 0, 0, 1, 2)
@@ -46,12 +63,13 @@ def main():
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=False)
     manifest = []
-    for name, style, words in CONTROLS:
-        data = control(style, words)
-        filename = f"axis-{name}.caj"
-        (args.output / filename).write_bytes(data)
-        manifest.append({"file": filename, "style": style, "words": words,
-                         "sha256": hashlib.sha256(data).hexdigest()})
+    for prefix, controls, anchor in (("axis", CONTROLS, False), ("anchor", ANCHORS, True)):
+        for name, style, words in controls:
+            data = control(style, words, anchor=anchor)
+            filename = f"{prefix}-{name}.caj"
+            (args.output / filename).write_bytes(data)
+            manifest.append({"file": filename, "style": style, "words": words,
+                             "sha256": hashlib.sha256(data).hexdigest()})
     (args.output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
 
 
