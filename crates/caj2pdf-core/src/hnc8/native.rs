@@ -58,11 +58,11 @@ pub enum NativeRecord {
     End { value: Option<u16> },
 }
 
-/// Decode the admitted C8 native character subset without allocating.
+/// Decode the admitted C8/HN-B native character subset without allocating.
 ///
 /// Ordinary codes use their big-endian two-byte GB18030 value. The independently
 /// verified A0-prefixed letters/digits use ASCII plus 0x80 in the low byte.
-/// Three independently observed symbol codes have explicit Unicode mappings.
+/// Independently observed symbol codes have explicit Unicode mappings.
 /// Other A0 codes, private-use mappings and malformed sequences return `None`;
 /// they must remain explicit unsupported glyphs rather than blank substitutions.
 /// This maps characters only: fonts, metrics, drawing/text order and complete
@@ -70,6 +70,11 @@ pub enum NativeRecord {
 pub fn decode_native_character(code: u16) -> Option<char> {
     match code {
         0xa0a6 => return Some('＆'),
+        0xa0ae => return Some('．'),
+        0xa0af => return Some('／'),
+        0xa0ba => return Some(':'),
+        0xaab1 => return Some('∙'),
+        0xaab2 => return Some('-'),
         0xaab3 => return Some('∗'),
         0xaca3 => return Some('►'),
         _ => {}

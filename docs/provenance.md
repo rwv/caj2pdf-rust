@@ -2462,3 +2462,9 @@ The exact `e58c` CJK glyph transform is original MIT code based on original
 small-page controls with held-out explicit sizes 108/109/110 and an independent
 PDF emitted through this repository's writer. No vendor/reference code was
 read or copied; external captures/fonts remain outside Git.
+
+The five additional HN-B symbol mappings are independently authored MIT
+constants and tests, based on original forward/reversed controls, ordinary
+viewer copy with distinct sentinels, and visible glyph-class observations.
+No vendor font outlines or differently licensed converter implementation were
+copied. Resource/placement admission remains separately validated.

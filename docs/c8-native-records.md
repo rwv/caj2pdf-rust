@@ -2092,3 +2092,16 @@ These are semantic candidates, not production mappings: prior C8 controls
 show viewer-copy punctuation normalization. Corroborate visible glyph identity
 and resource/placement before admitting the symbols to rendering. No arbitrary
 A0 punctuation range or private-use Unicode fallback is added.
+
+The follow-up visible control uses the same seven authored raw codes with a
+smaller canvas and fixed positions. A separate offline viewer session retains
+its normal font resources (no extracted outlines or font files enter Git). At
+291%, repeated captures show period, slash, colon, dot and short horizontal
+stroke in the expected order, bracketed by A/M. Together with the fresh-sentinel
+forward/reversed copy controls, these establish explicit mappings `a0ae` →
+U+FF0E, `a0af` → U+FF0F, `a0ba` → U+003A, `aab1` → U+2219 and `aab2` →
+U+002D. The decoder now preserves these exact scalars, including the fullwidth
+forms, instead of inferring an ASCII punctuation range. This is character
+identity evidence, not verified resource/placement or complete rendering.
+External captures: `caj2pdf-hnb-rendering-20261003/symbol-visible-viewer`; the
+original `unknown-symbols-visible.caj` stays in the external input directory.
