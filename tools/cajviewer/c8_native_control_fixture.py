@@ -478,6 +478,18 @@ def radical_value_documents():
                 run_words=(0x8090, value, 0xC000 | 4802, 4354, 0xC08F, 125, *tail))
 
 
+def control_80d3_documents():
+    """Check verified 80d3 values in mixed painting and font-state contexts."""
+    from c8_image_fixture import jpeg, mixed_control
+
+    for state in (0, 4):
+        for label, words in (("baseline", ()), ("one", (0x80D3, 1)),
+                             ("zero", (0x80D3, 0)), ("two", (0x80D3, 2))):
+            data = mixed_control(jpeg(), words).replace(
+                struct.pack("<HH", 0x801D, 4), struct.pack("<HH", 0x801D, state))
+            yield f"control80d3-state{state}-{label}.caj", data
+
+
 def field0_documents():
     """Discriminate zero-field dimensions from zero size and field-1 metrics."""
     from c8_style_fixture import document as style_document
@@ -516,7 +528,7 @@ def main():
                        *radical_record_documents(), *radical_detail_documents(),
                        *page_end_control_documents(), *field0_documents(),
                        *radical_alias_documents(), *low_p_documents(),
-                       *radical_value_documents()):
+                       *radical_value_documents(), *control_80d3_documents()):
         (args.output / name).write_bytes(data)
         manifest.append({"file": name, "sha256": hashlib.sha256(data).hexdigest()})
     (args.output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")

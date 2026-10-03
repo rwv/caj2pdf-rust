@@ -204,6 +204,10 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
                 value: 0,
             }
             | NativeRecord::Control {
+                tag: 0x80d3,
+                value: 0..=2,
+            }
+            | NativeRecord::Control {
                 tag: 0x80d1,
                 value: 1,
             } if self.variant == Variant::C8 => (),

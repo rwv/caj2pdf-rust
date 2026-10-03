@@ -993,6 +993,9 @@ fn additional_controls_preserve_raw_values_without_inventing_glyphs() {
         [0x80d0, 0],
         [0x80d1, 1],
         [0x80d2, 0],
+        [0x80d3, 0],
+        [0x80d3, 1],
+        [0x80d3, 2],
         [0x80d5, 0],
         [0x9002, 0],
     ];
@@ -2182,5 +2185,22 @@ fn c8_80d5_preserves_strict_indexed_end_boundaries() {
     for value in [1, 0xffff] {
         let mut source = fixture(&[[0x80d5, value], [0x8004, 1]], 0);
         assert!(parse(&mut source, TextBudget::default(), &mut Visitor::default()).is_err());
+    }
+}
+
+#[test]
+fn c8_80d3_requires_a_complete_verified_value() {
+    for length in 1..4 {
+        let mut source = fixture(&[[0x80d3, 1]], 0);
+        source.bytes[84..88].copy_from_slice(&(length as u32).to_le_bytes());
+        let mut visitor = Visitor::default();
+        assert!(parse(&mut source, TextBudget::default(), &mut visitor).is_err());
+        assert!(visitor.events.is_empty());
+    }
+    for value in [3, 0xffff] {
+        let mut source = fixture(&[[0x80d3, value], [0x8004, 1]], 0);
+        let mut visitor = Visitor::default();
+        assert!(parse(&mut source, TextBudget::default(), &mut visitor).is_err());
+        assert!(visitor.events.is_empty());
     }
 }

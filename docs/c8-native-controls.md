@@ -987,3 +987,26 @@ each group. External receipts under the existing root:
 `c8-radical-word-output/checks.json`. The four-page source now reaches page 2
 byte 43008; the five-page source remains at page 2 byte 22528. Neither publishes
 a final PDF. Full-document acceptance remains outstanding.
+
+
+### Mixed-page control `80d3`
+
+Eight original `control_80d3_documents()` controls compare no control with
+values 0, 1 and 2 under states 0 and 4, inserted before and between glyphs,
+segments, decoration and an image. Repeated source captures are stable and
+all full-page crops equal their corresponding state baseline. Page identity,
+visible mixed content and page boundaries were inspected.
+
+The existing four-byte Control path now admits these three verified values
+for C8 without updating painting state. Other values remain explicit errors;
+HN-B admission and indexed termination rules are unchanged. One-byte reads,
+raw-value preservation and following glyph context reuse the existing control
+tests. Each truncated length and values 3/ffff have negative tests. Mixed PDF
+tests compare output bytes against the baseline.
+
+All eight generated inputs reproduce and pass CLI/qpdf; PDFs within each state
+are byte-identical. Receipts under the existing external root:
+`input/c8-80d3/manifest.json`, `c8-80d3-observations.json` and
+`c8-80d3-output/checks.json`. The four-page source now stops at page 2 byte
+43040, `8073/8`. The five-page source remains at page 2 byte 22528. Neither
+publishes a final PDF. Full-document acceptance remains outstanding.

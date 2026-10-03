@@ -731,6 +731,7 @@ fn controlled_nonpainting_records_preserve_mixed_page_output() {
         (0x80d0, &[0][..]),
         (0x80d1, &[1][..]),
         (0x80d2, &[0][..]),
+        (0x80d3, &[0, 1, 2][..]),
         (0x80d5, &[0][..]),
         (0x9002, &[0][..]),
         (0x8072, &[0, 0x1042, 0xa3a8, 0xa0f2][..]),
