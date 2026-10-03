@@ -1344,6 +1344,7 @@ fn paired_prefix_raw_records_preserve_extents_hashes_and_chunk_bounds() {
                 &NeverCancel,
             )
             .unwrap();
+        assert_eq!(result.page_size, Some([701, 907]));
         assert_eq!(
             result.coordinates,
             [RawTextCoordinate {
@@ -1482,6 +1483,69 @@ fn raw_hna_composition_decodes_only_verified_image_markers_and_keeps_inspection_
             assert_eq!(composed.encoded_sha256, inspected.encoded_sha256);
             assert_eq!(composed.decoded_sha256, inspected.decoded_sha256);
             assert!(composed.max_source_request_bytes <= chunk);
+        }
+    }
+}
+
+#[test]
+fn compressed_hna_markers_preserve_inspection_and_other_profiles() {
+    for (tag, marker, x, width, expected_x, expected_width) in [
+        (0x800a_u16, 0xd300_u16, 0xc014_u16, 0xc118_u16, 20, 280),
+        (0x800a, 0xd300, 20, 280, 20, 280),
+        (0x800b, 0xd300, 0xc014, 0xc118, 0xc014, 0xc118),
+        (0x800a, 0xd301, 0xc014, 0xc118, 0xc014, 0xc118),
+        (0x800a, 0xd300, 0x8014, 0xc118, 0x8014, 0xc118),
+        (0x800a, 0xd300, 0xc014, 0x8118, 0xc014, 0x8118),
+    ] {
+        for variant in [Variant::HnA, Variant::C8] {
+            for chunk in [1, 3, 31] {
+                let raw = RawTextCoordinate {
+                    x,
+                    y: 31,
+                    width,
+                    height: 907,
+                };
+                let mut f = Fixture::new(1, &[raw, raw]);
+                f.header.variant = variant;
+                if variant == Variant::HnA {
+                    f.header.page_index.offset = 0x15c;
+                    f.page.row_offset = 0x15c;
+                }
+                for start in [24, 52] {
+                    f.plain[start..start + 2].copy_from_slice(&tag.to_le_bytes());
+                    f.plain[start + 2..start + 4].copy_from_slice(&marker.to_le_bytes());
+                }
+                f.recompress();
+                f.source.short = 2;
+                let inspected = f.normal().unwrap();
+                assert_eq!(inspected.coordinates, [raw, raw]);
+                let composed = block_on(read_coordinates(
+                    &mut f.source,
+                    f.header,
+                    f.page,
+                    &Limits {
+                        io_chunk_bytes: chunk,
+                        ..Limits::default()
+                    },
+                    &NeverCancel,
+                    TextBudget::default(),
+                    ReadPurpose::Compose,
+                ))
+                .unwrap();
+                let expected = if variant == Variant::HnA {
+                    RawTextCoordinate {
+                        x: expected_x,
+                        width: expected_width,
+                        ..raw
+                    }
+                } else {
+                    raw
+                };
+                assert_eq!(composed.coordinates, [expected, expected]);
+                assert_eq!(composed.encoded_sha256, inspected.encoded_sha256);
+                assert_eq!(composed.decoded_sha256, inspected.decoded_sha256);
+                assert!(composed.max_source_request_bytes <= chunk);
+            }
         }
     }
 }

@@ -15,7 +15,7 @@ use std::{
     task::{Context, Poll, Waker},
 };
 
-const PREFIX: [u8; 20] = *b"\x03\x80\x01\x00\x03\x80\x02\x00COMPRESSTEXT";
+const PREFIX: [u8; 20] = *b"\x03\x80\x64\x00\x03\x80\xc8\x00COMPRESSTEXT";
 
 fn ready<F: Future>(future: F) -> F::Output {
     let mut future = pin!(future);
@@ -2558,6 +2558,14 @@ fn source_page_and_image_extents_are_independent_of_decoded_pixels() {
                 let offset = if variant == Variant::C8 { 32 } else { 168 };
                 built.bytes[offset..offset + 2].copy_from_slice(&2473_u16.to_le_bytes());
                 built.bytes[offset + 2..offset + 4].copy_from_slice(&4946_u16.to_le_bytes());
+                let text_offset = built.text_offsets[0];
+                if variant == Variant::HnA && built.bytes[text_offset..text_offset + 2] == [3, 0x80]
+                {
+                    built.bytes[text_offset + 2..text_offset + 4]
+                        .copy_from_slice(&2473_u16.to_le_bytes());
+                    built.bytes[text_offset + 6..text_offset + 8]
+                        .copy_from_slice(&4946_u16.to_le_bytes());
+                }
                 let mut visitor = Visitor::default();
                 convert(
                     &mut Source::new(built.bytes),
@@ -2836,7 +2844,7 @@ fn raw_hna_marked_images_keep_full_page_and_offset_geometry() {
     fn marked(records: &[Record], prefix: bool) -> Vec<u8> {
         let mut bytes = Vec::new();
         if prefix {
-            for word in [0x8003_u16, 320, 0x8003, 240] {
+            for word in [0x8003_u16, 100, 0x8003, 200] {
                 bytes.extend(word.to_le_bytes());
             }
         }
@@ -2888,4 +2896,78 @@ fn raw_hna_marked_images_keep_full_page_and_offset_geometry() {
     }
 }
 
+#[test]
+fn hna_paired_page_sizes_override_header_per_page_in_raw_and_compressed_text() {
+    fn raw(records: &[Record]) -> Vec<u8> {
+        let mut bytes = vec![3, 0x80, 100, 0, 3, 0x80, 200, 0];
+        bytes.extend(image_records(records));
+        bytes
+    }
+    for make_text in [raw as fn(&[Record]) -> Vec<u8>, text] {
+        let pages = vec![vec![Record::jpeg(8, 4, 70, 10, 30)]; 2];
+        let mut fixture = fixture_with_text(Variant::HnA, &pages, make_text);
+        for (offset, [width, height]) in fixture
+            .text_offsets
+            .iter()
+            .zip([[400u16, 240u16], [320, 200]])
+        {
+            fixture.bytes[offset + 2..offset + 4].copy_from_slice(&width.to_le_bytes());
+            fixture.bytes[offset + 6..offset + 8].copy_from_slice(&height.to_le_bytes());
+        }
+        let mut source = Source::new(fixture.bytes);
+        source.short = 3;
+        let mut sink = Sink::default();
+        let mut visitor = Visitor::default();
+        convert(
+            &mut source,
+            &mut sink,
+            None,
+            &mut Scratch::default(),
+            &mut visitor,
+            ComposeOptions::default(),
+            &Limits::default(),
+        )
+        .unwrap();
+        let unit = 240.0 / 2473.0;
+        for (index, [width, height]) in [[400.0, 240.0], [320.0, 200.0]].into_iter().enumerate() {
+            let size = visitor.sizes[index].unwrap();
+            assert_eq!(size.width_points, width * unit);
+            assert_eq!(size.height_points, height * unit);
+            assert_eq!(
+                visitor.images[index].4,
+                [
+                    80.0 * unit,
+                    0.0,
+                    0.0,
+                    -40.0 * unit,
+                    10.0 * unit,
+                    (height - 30.0) * unit
+                ]
+            );
+        }
+    }
+}
+
+#[test]
+fn hna_zero_page_prefix_dimensions_fail_before_emitting_images() {
+    for field in [2, 6] {
+        let mut fixture = fixture(Variant::HnA, &[vec![Record::jpeg(8, 4, 70, 10, 30)]]);
+        let offset = fixture.text_offsets[0] + field;
+        fixture.bytes[offset..offset + 2].fill(0);
+        let mut sink = Sink::default();
+        let error = convert(
+            &mut Source::new(fixture.bytes),
+            &mut sink,
+            None,
+            &mut Scratch::default(),
+            &mut Visitor::default(),
+            ComposeOptions::default(),
+            &Limits::default(),
+        )
+        .unwrap_err();
+        assert_eq!(error.page, Some(1));
+        assert_eq!(error.stage, ComposeStage::Geometry);
+        assert!(!contains(&sink.bytes, b"/Subtype /Image"));
+    }
+}
 mod native_document;

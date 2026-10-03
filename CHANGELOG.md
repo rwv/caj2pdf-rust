@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Fix marked image coordinates in paired compressed HN-A composition; retain
+  raw coordinate words for inspection. Original controls distinguish clipped
+  raster sampling from physical geometry; no pixel-parity guarantee is made.
+
+
+- **Breaking:** use verified HN-A paired `8003` per-page dimensions for page
+  frames and image placement instead of always using document-header dimensions.
+  `hnc8::TextCoordinates` gains `page_size`; update explicit struct literals.
+  Raw and compressed paired pages share the rule. Other framing retains header
+  fallback; zero per-page extents fail explicitly during composition.
 - Add experimental complete-document conversion for the observed raw C8 native
   profile through Rust, CLI, Node and browser Workers. Stream text, drawings and
   images in source order using shared codecs and reusable bounded scratch.

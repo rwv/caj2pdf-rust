@@ -338,5 +338,403 @@
       ],
       "limits": "Only the named pages were visually inspected; no whole-document visual or text-parity claim. Crops use fixed physical page bounds, without resizing, registration or tolerance. External screenshots remain outside Git."
     }
+  },
+  "paired_page_dimension_checkpoint": {
+    "implementation_commit": "d3dfdfb0adfdde92a70b7dffcc800617390b8642",
+    "candidate": {
+      "commit": "d3dfdfb0adfdde92a70b7dffcc800617390b8642",
+      "cli_sha256": "fc43a770d5c69bdc98e9635b5cf9d0d22a39a8f3cb4cc3ff8c1336bdb717932e",
+      "wasm_sha256": "d03ddd1ef23d54239d4bd577d4cfad5922c087cb9488e20778eb1c64fcdbde19",
+      "marked_native_pdf_sha256": "9e76e3b4bb4026179e44a3a26d291dbeb9178cd6da53fc6596f3ba273f6d8e06",
+      "hires_native_pdf_sha256": "76df4aa747c5bb7b3c824f44c7b117b45732cae068590d254fb58eeab255521c"
+    },
+    "native": [
+      {
+        "name": "a",
+        "sha256": "b1b186deda676811507762ec0966f4583a97ceaae0e4b66899d8ead461f3247b",
+        "qpdf_exit": 0,
+        "seconds": 170.46466358006,
+        "commit": "d3dfdfb0adfdde92a70b7dffcc800617390b8642"
+      },
+      {
+        "name": "zhouli",
+        "sha256": "1d6398bd296b40d884698e5cb23c22e1bb66c72a796196b18d0c33185ed9bc30",
+        "qpdf_exit": 0,
+        "seconds": 109.08906303718686,
+        "commit": "d3dfdfb0adfdde92a70b7dffcc800617390b8642"
+      }
+    ],
+    "node": [
+      {
+        "name": "a",
+        "report": {
+          "format": "hn",
+          "inputBytesRead": "12236658",
+          "outputBytesWritten": "13694591",
+          "pagesConverted": 125,
+          "bookmarksWritten": 78
+        },
+        "maxRead": 262144,
+        "maxWrite": 262144,
+        "cleared": true,
+        "sha256": "b1b186deda676811507762ec0966f4583a97ceaae0e4b66899d8ead461f3247b",
+        "postConversionWasmBytes": 2555904
+      },
+      {
+        "name": "zhouli",
+        "report": {
+          "format": "hn",
+          "inputBytesRead": "145620435",
+          "outputBytesWritten": "73533288",
+          "pagesConverted": 160,
+          "bookmarksWritten": 28
+        },
+        "maxRead": 262144,
+        "maxWrite": 262144,
+        "cleared": true,
+        "sha256": "1d6398bd296b40d884698e5cb23c22e1bb66c72a796196b18d0c33185ed9bc30",
+        "postConversionWasmBytes": 2424832
+      }
+    ],
+    "browser": [
+      {
+        "name": "a",
+        "report": {
+          "format": "hn",
+          "inputBytesRead": "12236658",
+          "outputBytesWritten": "13694591",
+          "pagesConverted": 125,
+          "bookmarksWritten": 78
+        },
+        "sha256": "b1b186deda676811507762ec0966f4583a97ceaae0e4b66899d8ead461f3247b",
+        "maxRead": 262144,
+        "maxWrite": 262144,
+        "postConversionWasmBytes": 2555904,
+        "cleared": true,
+        "remainingFiles": []
+      },
+      {
+        "name": "zhouli",
+        "report": {
+          "format": "hn",
+          "inputBytesRead": "145620435",
+          "outputBytesWritten": "73533288",
+          "pagesConverted": 160,
+          "bookmarksWritten": 28
+        },
+        "sha256": "1d6398bd296b40d884698e5cb23c22e1bb66c72a796196b18d0c33185ed9bc30",
+        "maxRead": 262144,
+        "maxWrite": 262144,
+        "postConversionWasmBytes": 2424832,
+        "cleared": true,
+        "remainingFiles": []
+      }
+    ],
+    "original_compressed_controls": {
+      "node": [
+        {
+          "name": "marked",
+          "report": {
+            "format": "hn",
+            "inputBytesRead": "2952",
+            "outputBytesWritten": "2468",
+            "pagesConverted": 1,
+            "bookmarksWritten": 0
+          },
+          "maxRead": 1401,
+          "maxWrite": 1401,
+          "cleared": true,
+          "sha256": "9e76e3b4bb4026179e44a3a26d291dbeb9178cd6da53fc6596f3ba273f6d8e06",
+          "postConversionWasmBytes": 1572864
+        },
+        {
+          "name": "hires",
+          "report": {
+            "format": "hn",
+            "inputBytesRead": "4502",
+            "outputBytesWritten": "3244",
+            "pagesConverted": 1,
+            "bookmarksWritten": 0
+          },
+          "maxRead": 2176,
+          "maxWrite": 2176,
+          "cleared": true,
+          "sha256": "76df4aa747c5bb7b3c824f44c7b117b45732cae068590d254fb58eeab255521c",
+          "postConversionWasmBytes": 1572864
+        }
+      ],
+      "browser": [
+        {
+          "name": "marked",
+          "report": {
+            "format": "hn",
+            "inputBytesRead": "2952",
+            "outputBytesWritten": "2468",
+            "pagesConverted": 1,
+            "bookmarksWritten": 0
+          },
+          "sha256": "9e76e3b4bb4026179e44a3a26d291dbeb9178cd6da53fc6596f3ba273f6d8e06",
+          "maxRead": 1401,
+          "maxWrite": 1401,
+          "postConversionWasmBytes": 1572864,
+          "cleared": true,
+          "remainingFiles": []
+        },
+        {
+          "name": "hires",
+          "report": {
+            "format": "hn",
+            "inputBytesRead": "4502",
+            "outputBytesWritten": "3244",
+            "pagesConverted": 1,
+            "bookmarksWritten": 0
+          },
+          "sha256": "76df4aa747c5bb7b3c824f44c7b117b45732cae068590d254fb58eeab255521c",
+          "maxRead": 2176,
+          "maxWrite": 2176,
+          "postConversionWasmBytes": 1572864,
+          "cleared": true,
+          "remainingFiles": []
+        }
+      ]
+    },
+    "page_frame_audit": [
+      {
+        "name": "a",
+        "pages": 125,
+        "source_prefix_vs_pdf_frame_mismatches": [],
+        "unique_source_sizes": [
+          [
+            5809,
+            8401
+          ]
+        ]
+      },
+      {
+        "name": "zhouli",
+        "pages": 160,
+        "source_prefix_vs_pdf_frame_mismatches": [],
+        "unique_source_sizes": [
+          [
+            6136,
+            8676
+          ],
+          [
+            6136,
+            8678
+          ]
+        ]
+      }
+    ],
+    "image_identity_audit": [
+      {
+        "name": "a",
+        "pages": 125,
+        "images": 169,
+        "image_pixel_mismatches": [],
+        "changed_geometry_pages": [],
+        "scope": "Prefix-fix PDFs versus prior accepted-build PDFs with existing source image identity evidence; marker-fix head runtime hashes must still be compared."
+      },
+      {
+        "name": "zhouli",
+        "pages": 160,
+        "images": 160,
+        "image_pixel_mismatches": [],
+        "changed_geometry_pages": [
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+          20,
+          21,
+          22,
+          23,
+          24,
+          25,
+          26,
+          27,
+          28,
+          29,
+          30,
+          31,
+          32,
+          33,
+          34,
+          35,
+          36,
+          37,
+          38,
+          39,
+          40,
+          41,
+          42,
+          43,
+          44,
+          45,
+          46,
+          47,
+          48,
+          49,
+          50,
+          51,
+          52,
+          53,
+          54,
+          55,
+          56,
+          57,
+          58,
+          59,
+          60,
+          61,
+          62,
+          63,
+          64,
+          65,
+          66,
+          67,
+          68,
+          69,
+          70,
+          71,
+          72,
+          73,
+          74,
+          75,
+          76,
+          77,
+          78,
+          79,
+          80,
+          81,
+          82,
+          83,
+          84,
+          85,
+          86,
+          87,
+          88,
+          89,
+          90,
+          91,
+          92,
+          93,
+          94,
+          95,
+          96,
+          97,
+          98,
+          99,
+          100,
+          101,
+          102,
+          103,
+          104,
+          105,
+          106,
+          107,
+          108,
+          109,
+          110,
+          111,
+          112,
+          113,
+          114,
+          115,
+          116,
+          117,
+          118,
+          119,
+          120,
+          121,
+          122,
+          123,
+          124,
+          125,
+          126,
+          127,
+          128,
+          129,
+          130,
+          131,
+          132,
+          133,
+          134,
+          135,
+          136,
+          137,
+          138,
+          139,
+          140,
+          141,
+          142,
+          143,
+          144,
+          145,
+          146,
+          147,
+          148,
+          149,
+          150,
+          151,
+          152,
+          153,
+          154,
+          155,
+          156,
+          157,
+          158,
+          159,
+          160
+        ],
+        "scope": "Prefix-fix PDFs versus prior accepted-build PDFs with existing source image identity evidence; marker-fix head runtime hashes must still be compared."
+      }
+    ],
+    "selected_page_findings": [
+      {
+        "document": "a",
+        "pages": [
+          1,
+          125
+        ],
+        "classification": "Preserved source images and page geometry; remaining raster sampling/antialiasing differences. Reused stable source/PDF captures because all image pixels and content streams/page dimensions are unchanged."
+      },
+      {
+        "document": "a",
+        "pages": [
+          75
+        ],
+        "classification": "Blank source and output page, exact captured interior match."
+      },
+      {
+        "document": "zhouli",
+        "pages": [
+          1
+        ],
+        "classification": "Preserved full-page JPEG and matching source/prefix/output extents; cover content retained. Residual rendered-pixel differences remain explicit."
+      },
+      {
+        "document": "zhouli",
+        "pages": [
+          160
+        ],
+        "classification": "Confirmed header/prefix mismatch fixed: 8676 rather than 8678 source units supplies page height and y origin. Fresh stable source/PDF captures preserve content/frame. Raster differences remain, with no registration or tolerance."
+      }
+    ],
+    "independent_controls": "Original width/height prefix controls establish per-page canvas semantics. Raw/compressed marked/unmarked controls establish image-coordinate flags. Zoom and raster-resolution controls distinguish one-screen-pixel rounding/clipped sampling from source-space shifts; no compensating coordinate rule was added.",
+    "limits": "285 complete pages and all 329 emitted images checked for retained decoded pixels; five selected pages visually inspected, not whole-corpus pixel parity. Cross-runtime hashes prove delivery consistency, not source fidelity. Default request caps observed at 262144 bytes; WASM values are post-conversion sizes, not peak memory. Test server/hash buffers are outside converter memory accounting. External files remain outside Git.",
+    "status": "Local acceptance evidence recorded; merged-base checks, final review and exact-head hosted CI remain gates."
   }
 }

@@ -229,3 +229,105 @@ stores, compares against the independently validated unmarked PDF, and
 checks cleanup. Workspace Clippy and the existing full coverage gate pass
 (30921/30921 lines). These original controls are separate from external
 whole-document acceptance.
+
+
+## Per-page dimensions in the paired prefix (#258)
+
+The two initial `8003` payloads specify this HN-A page's width and height,
+independently of the document header and image raster. Original controls change
+only prefix width from 320 to 400 or height from 240 to 200, leaving the header,
+image coordinates and JPEG bytes unchanged. Pinned offline CAJViewer changes
+the page frame to the corresponding aspect ratio; the height control clips
+content beyond its shorter page. Repeated interiors match. These controls
+contradict treating the prefix as opaque or always using header dimensions.
+
+`TextCoordinates::page_size` preserves the two words after complete framing
+validation. The shared image-page composer uses them for the page box and image
+y origin; unprefixed HN-A and other variants retain their existing geometry.
+Zero words remain available for inspection but fail composition's existing
+positive-dimension check. No additional source pass, page buffer or decoder is
+introduced. This is a v0.x breaking metadata/output change.
+
+The selected Zhouli page 160 has header height 8678 but prefix/image height 8676.
+Earlier accepted-build output used 8678 for its page. Its old hashes and visual
+receipts remain historical; revised whole-document/public-runtime acceptance is
+required before closing #249. Exact pixel equality is a separate question:
+original offset controls at confirmed 911% and 1862% retain a one-screen-pixel
+top-edge difference, arguing against a fixed physical displacement correction.
+No per-document adjustment or pixel tolerance is added.
+
+The original generator `tools/cajviewer/hna_image_fixture.py` includes independent
+width/height variants and a compressed paired control. External observations,
+input identities and the excluded first height capture are recorded in
+`caj2pdf-hna-zoom-residual-20261002`; source documents and captures remain outside
+Git. Final corrected-frame and cross-runtime validation is still pending.
+
+
+### Compressed image-marker correction
+
+The original paired compressed control exposed an additional placement defect:
+its page frame was correct, but the fixed-layout coordinate reader retained the
+`c000` marker bits, placing the image outside the page. At confirmed 911%, pinned
+CAJViewer renders the marked and unmarked compressed controls identically and
+renders an independently offset image at the expected position. Repeated page
+interiors are stable. These observations extend the existing raw HN-A rule to
+the paired compressed image record `800a d300`; they do not establish a rule for
+all compressed layouts or C8.
+
+Composition now retains just the four preceding marker bytes across decoder
+chunks and applies the shared marker rule to that verified record. Inspection
+continues to report the original words. Nonmatching tags, partial marker bits,
+C8 and the direct compressed-record path retain their prior behavior. No extra
+source pass or page buffer is needed. Original two-image regression tests cover
+one-byte chunks, short reads, marker variants and stable source/decoded hashes.
+The generator includes compressed marked/unmarked and offset controls. Corrected
+PDFs pass qpdf and show the image in the source page frame. At 911%, the full-page
+control has matching black bounds and 269 differing interior pixels; repeated
+captures match. The offset control still differs near the shortened page's lower
+edge (5,659 pixels): its source black horizontal bar begins about nine screen
+pixels above the PDF's. This remaining extent/clipping behavior is not classified
+as renderer-only. #258/#261 retain that investigation and final required CI.
+No pixel tolerance or compensating offset is applied. Full external measurements
+are in `caj2pdf-hna-prefix-viewer-20261002/compressed-fixed-comparison.json`.
+
+
+A follow-up discriminator retains x=20, y=30, width=280, height=180 and changes
+only page height (240 versus 200), then compares a height=170 fit control. The
+short/180 source differs from fit/170, ruling out direct extent clamping to the
+remaining page height. Raw and compressed short/180 interiors agree exactly.
+With the image wholly inside the taller page, source/PDF color boundaries differ
+by one pixel. With clipping, both Viewer paths change internal raster boundaries.
+
+Finally, the same original shape encoded at 128×96 rather than 32×24, with
+unchanged document coordinates and short page, has matching lower-bar bounds
+and only a one-pixel top-edge difference. Repeated captures match. Thus this
+control's lower-edge discrepancy depends on clipped-raster sampling, not a
+constant source-space placement correction. Keep the JPEG and CTM unchanged;
+this does not prove fidelity for every real page. The generator retains the
+higher-resolution control. External receipts are
+`caj2pdf-hna-prefix-viewer-20261002/clipping-discriminator-results.json` and
+`caj2pdf-hna-clip-viewer-20261003/comparison.json`.
+
+
+## Corrected-build acceptance checkpoint
+
+At `d3dfdfb`, both complete HN-A documents (125 and 160 pages) convert through
+CLI, public Node and a real Chromium Worker with matching per-document hashes.
+Native PDFs pass qpdf; scratch is empty and the Worker leaves no OPFS entries.
+All 285 PDF page frames match independently read paired-prefix dimensions.
+All 329 emitted image pixel buffers match the previously source-checked outputs,
+including multiple-image pages. The marker correction is additionally exercised
+by original compressed controls through all three public paths.
+
+The five selected real pages retain their visible content. A page 75 remains an
+exact blank-page comparison. A pages 1/125 and Zhouli page 1 retain their image
+pixels and geometry; stable historical captures remain applicable. Zhouli page
+160 was recaptured after the dimension correction, with both page frame and
+content preserved. Remaining screen-pixel differences are documented separately
+from the corrected source-space defects, supported by original zoom/raster
+controls. This is scoped acceptance, not a universal pixel-parity claim.
+
+The machine-readable checkpoint in `tests/conformance/paired_raw_current.json`
+preserves historical records and adds candidate hashes, runtime reports, frame
+and image audits, selected-page findings and measurement limits. Final review
+and required CI on the branch synchronized with C8 remain merge gates.
