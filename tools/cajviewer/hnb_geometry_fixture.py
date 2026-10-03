@@ -83,6 +83,15 @@ def skew_control(words, style=0x1084, *, c8_container=False):
     return data if c8_container else hn_container(data)
 
 
+def geometry_control(width, height, dx=0, dy=0, *, c8_container=False):
+    data = bytearray(document(
+        [(0x1084, 0, 6)], codes=(0xD6D0,), width=width, height=height,
+        first_x=4672, first_y=4374,
+    ))
+    struct.pack_into("<HH", data, 28, 4652 + dx, 4274 + dy)
+    return bytes(data) if c8_container else hn_container(data)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("output", type=Path, help="new directory outside the repository")
@@ -133,6 +142,18 @@ def main():
             filename = f"skew-axis-{style:04x}-{name}.caj"
             (args.output / filename).write_bytes(data)
             manifest.append({"file": filename, "style": style, "words": words,
+                             "sha256": hashlib.sha256(data).hexdigest()})
+    for name, width, height, dx, dy in (
+        ("base", 400, 400, 0, 0), ("origin-x", 400, 400, 30, 0),
+        ("origin-y", 400, 400, 0, 40), ("wide", 500, 400, 0, 0),
+        ("tall", 400, 500, 0, 0),
+    ):
+        for variant in ("c8", "hnb"):
+            data = geometry_control(width, height, dx, dy, c8_container=variant == "c8")
+            filename = f"geometry-{name}-{variant}.caj"
+            (args.output / filename).write_bytes(data)
+            manifest.append({"file": filename, "width": width, "height": height,
+                             "origin": [4652 + dx, 4274 + dy],
                              "sha256": hashlib.sha256(data).hexdigest()})
     (args.output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
 

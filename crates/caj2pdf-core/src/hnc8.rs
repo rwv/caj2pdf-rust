@@ -96,11 +96,11 @@ impl Span {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Header {
     pub variant: Variant,
-    /// Raw C8 origin words at offsets 28/30; unknown for HN variants.
+    /// Raw C8 origin at 28/30 or HN-B origin at 164/166; unknown for HN-A.
     /// The verified native-record profile subtracts these from record coordinates.
     /// This does not establish image placement or font baseline semantics.
     pub native_origin: Option<[u16; 2]>,
-    /// Declared HN-A/C8 page extents in source units. HN-B is unverified.
+    /// Declared page extents in source units; native HN-B uses these too.
     pub page_size: Option<[u16; 2]>,
     pub page_count: u32,
     pub page_index: Span,
@@ -548,15 +548,16 @@ impl<'a, S: RangedSource, C: Cancellation> Hnc8Reader<'a, S, C> {
                 u64::from(page_count),
             ));
         }
-        let native_origin = if variant == Variant::C8 {
+        let native_origin = if variant != Variant::HnA {
+            let offset = count_offset + 20;
             let mut origin = [0; 4];
             read_fixed(
                 source,
                 limits,
                 cancellation,
-                28,
+                offset,
                 &mut origin,
-                loc.at(28),
+                loc.at(offset),
                 "native coordinate origin",
             )
             .await?;
@@ -567,9 +568,7 @@ impl<'a, S: RangedSource, C: Cancellation> Hnc8Reader<'a, S, C> {
         } else {
             None
         };
-        let page_size = if variant == Variant::HnB {
-            None
-        } else {
+        let page_size = {
             let offset = count_offset + 24;
             let mut size = [0; 4];
             read_fixed(

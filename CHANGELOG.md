@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **Breaking:** HN-B `hnc8::Header.native_origin` and `page_size` now expose
+  verified raw header words as `Some`, including zero extents. Do not use their
+  presence as proof of complete native rendering support. Legacy image-only
+  HN-B conversion retains its image-derived page dimensions.
+
 - **Breaking:** `hnc8::NativeRecord::End.value` is now `Option<u16>` to preserve
   HN-B two-byte page ends. Wrap existing explicit values in `Some`; handle
   `None` as an absent payload, not a default ordinal. C8 retains four-byte ends.

@@ -2490,3 +2490,9 @@ matrix control. Only exact `8024/2800` and `8024/281d` values are admitted;
 no angle formula or external converter implementation is copied. Original
 fixture/PDF tests and residual raster differences are recorded in
 `c8-native-records.md`; external captures remain outside Git.
+
+HN-B native header origin/extents are admitted from independently generated
+paired HN-B/C8 controls varying each field separately. The original MIT reader
+reuses bounded reads; existing container tests cover unsigned words and short
+reads. External evidence is indexed in `hnb-compact-index.md`; no third-party
+implementation or source-document content was copied.

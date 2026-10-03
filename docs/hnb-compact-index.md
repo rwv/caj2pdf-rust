@@ -369,3 +369,23 @@ With these rules, the unchanged issue-100 source traverses all four pages:
 1,471/1,678/1,593/1,795 records and 1,302/1,555/1,470/1,642 raw glyphs.
 This completes its bounded framing checkpoint only. Unicode/resource/state
 interpretation and complete native-page rendering remain acceptance gates.
+
+## Native header geometry
+
+Original paired HN-B/C8 controls independently vary x origin, y origin, width
+and height with a fixed single glyph. HN-B words at 164/166 match C8 28/30;
+HN-B width/height at 168/170 match C8 32/34. All five paired viewport comparisons
+and repeats are pixel-identical. The 400-by-400 baseline displays at 729%;
+changing width to 500 gives the expected wider frame at 583%. This corroborates
+reuse of the already measured native coordinate model, not image-only placement.
+
+`hnb_geometry_fixture.py` generates all ten original controls. External hashes,
+comparisons and captures are in `caj2pdf-hnb-rendering-20261003`, files
+`native-geometry-inputs.json`, `native-geometry-comparison.json`, and directory
+`native-geometry-viewer`. Comparison bounds `(640,350,1040,970)` include the
+page frame and content; no alignment or rescaling is applied.
+
+The container exposes these raw unsigned words with fixed four-byte reads.
+Zero extents remain inspectable and fail when native composition requires a
+valid canvas. Legacy HN-B image-only composition continues to derive its canvas
+from the image. This metadata admission does not complete HN-B native rendering.
