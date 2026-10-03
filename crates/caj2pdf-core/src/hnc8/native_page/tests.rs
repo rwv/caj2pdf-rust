@@ -1542,8 +1542,16 @@ fn hnb_axis_punctuation_preserves_verified_offsets() {
 }
 
 #[test]
-fn hnb_fullwidth_at_sign_matches_controlled_comma_placement_and_resource() {
-    for (state, font) in [(0, 1), (3, 0), (4, 2)] {
+fn native_fullwidth_at_sign_matches_controlled_comma_placement_and_resource() {
+    for (mode, state, font) in [
+        (13, 0, 1),
+        (13, 3, 0),
+        (13, 4, 2),
+        (11, 0, 1),
+        (11, 4, 2),
+        (11, 28, 1),
+        (11, 31, 2),
+    ] {
         let mut glyphs = Vec::new();
         for code in [0xa3ac, 0xa3c0] {
             let words = [
@@ -1555,7 +1563,9 @@ fn hnb_fullwidth_at_sign_matches_controlled_comma_placement_and_resource() {
             ];
             let mut fonts = roles();
             fonts.latin_state3 = Some(0);
-            let (result, pdf, finished) = convert(&words, 0, &[], fonts, 13);
+            fonts.latin_state28 = Some(1);
+            fonts.latin_state31 = Some(2);
+            let (result, pdf, finished) = convert(&words, 0, &[], fonts, mode);
             result.unwrap();
             assert!(finished);
             let text = String::from_utf8_lossy(&pdf);
@@ -1568,7 +1578,6 @@ fn hnb_fullwidth_at_sign_matches_controlled_comma_placement_and_resource() {
             );
             if code == 0xa3c0 {
                 assert!(text.contains("<FF20> Tj"));
-                assert!(convert(&words, 0, &[], fonts, 11).0.is_err());
             }
         }
         assert_eq!(glyphs[0], glyphs[1]);

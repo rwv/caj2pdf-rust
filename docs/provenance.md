@@ -2727,3 +2727,12 @@ baseline; the measured one-pixel render residual is retained in the evidence
 record. The implementation reuses the existing axis fields and transform.
 No foreign code, fonts, source text or captures are committed. See
 `docs/c8-native-controls.md` for evidence and remaining full-document failures.
+
+### C8 fullwidth at sign
+
+Original MIT `at_sign_documents()` reuses the authored alphabet grid to compare
+`a3c0` with an independently supported comma under four resource states. Fresh
+ordinary-copy evidence establishes U+FF20, while original marker comparisons
+establish the shared resource/placement rule. The existing decoder and symbol
+range implement that rule without vendor code or font data. Source documents,
+clipboard text and captures remain external; see `docs/c8-native-controls.md`.

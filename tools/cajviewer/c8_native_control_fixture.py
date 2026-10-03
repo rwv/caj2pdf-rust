@@ -206,6 +206,21 @@ def state_axis_documents():
                        4672, 0xD6D0, 4752, 0xA0C1))
 
 
+def at_sign_documents():
+    """Compare the required fullwidth at sign to verified comma placement."""
+    for name, source in alphabet_documents():
+        if "-1-upper" not in name:
+            continue
+        state = name.split("-")[1]
+        for label, code in (("at", 0xA3C0), ("comma", 0xA3AC)):
+            data = bytearray(source)
+            for offset in range(100, len(data), 4):
+                x, value = struct.unpack_from("<HH", data, offset)
+                if x < 0x8000 and 0xA3C1 <= value <= 0xA3DA:
+                    struct.pack_into("<H", data, offset + 2, code)
+            yield f"at-{state}-{label}.caj", data
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("output", type=Path, help="new directory outside the repository")
@@ -221,7 +236,7 @@ def main():
     for name, data in (*mixed_documents(), *color_documents(), *mode_documents(),
                        *extended_string_documents(), *font_state_documents(),
                        *alphabet_documents(), *field4_style_documents(),
-                       *state_axis_documents()):
+                       *state_axis_documents(), *at_sign_documents()):
         (args.output / name).write_bytes(data)
         manifest.append({"file": name, "sha256": hashlib.sha256(data).hexdigest()})
     (args.output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")

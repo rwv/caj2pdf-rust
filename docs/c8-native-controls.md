@@ -435,3 +435,35 @@ four-page input and 4036 in the five-page input. Both fail with unverified glyph
 resource/placement and publish no final PDF. Reuse HN-B's existing evidence as a
 hypothesis, but verify the C8 resource/mapping before extending its admission.
 Full-document acceptance remains open in #242.
+
+## Fullwidth at sign in C8 (#242)
+
+Eight original `at_sign_documents()` controls compare raw `a3c0` against the
+already admitted `a3ac` comma at 26 fixed positions and two CJK anchors, under
+Latin resource states 0/4/28/31. All reproduce their input bytes. Repeated
+nonblank viewer page crops equal their same-state comma baseline. The existing
+identified marker resources distinguish ordinary, alternate and both extended
+Latin fonts; the at sign retains the current Latin resource and the comma's
+CJK-class matrix with zero baseline fraction.
+
+Explicit drag selection and the visible ordinary Copy menu return 26 U+FF20
+characters plus the two CJK anchors (with viewer-inserted whitespace). The
+independent clipboard validator confirms fresh ownership and complete transfer.
+The existing GB18030 decoding already preserves U+FF20. The implementation
+extends the existing contiguous symbol range to `a3c0`, removing its former
+HN-B-only alternative without adding state or allocation. Core tests retain
+HN-B coverage and add C8 ordinary/alternate/extended resource cases.
+
+All eight CLI PDFs pass qpdf and independent Unicode checks; each same-state
+at-sign/comma pair renders identically with the original marker fonts. This
+establishes the tested resource/geometry behavior, not original-font pixel
+parity. External receipts under `caj2pdf-hnb-rendering-20261003`:
+`input/c8-at-sign/manifest.json`, `c8-at-sign-comparison.json`, repeated
+identified-family-viewer `at-*-{a,b}.png` captures, the `at-copy-menu-ready.png`,
+`at-copy{,-validation}.json` receipts, and `c8-at-sign-output/checks.json`.
+
+Complete-document retries now stop at unsupported native tag/value `9002/0`,
+page-1 byte 4564 in the four-page input and 4248 in the five-page input. Both
+publish no final PDF. Verify this record's framing and painting-state effects
+with original controls before admitting it; complete-document acceptance stays
+open in #242.
