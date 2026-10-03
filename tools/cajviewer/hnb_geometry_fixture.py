@@ -39,7 +39,7 @@ ANCHORS = (
 )
 
 
-def control(style, words, *, anchor=False):
+def control(style, words, *, anchor=False, codes=None):
     """Reuse original glyph records in a separately authored compact container."""
     if anchor:
         c8 = document(
@@ -48,7 +48,8 @@ def control(style, words, *, anchor=False):
             run_words=words + (4672, 0xD6D0, 4792, 0xA0C1),
         )
     else:
-        c8 = document([(style, 0, 6)] * 3, run_words=words)
+        c8 = document([(style, 0, 6)] * (1 if codes is not None else 3),
+                      run_words=words, codes=codes)
     header = bytearray(216)
     struct.pack_into("<III", header, 0, 0x4E48, 200, 136)
     struct.pack_into("<IIII", header, 136, 0, 0, 1, 2)
@@ -70,6 +71,13 @@ def main():
             (args.output / filename).write_bytes(data)
             manifest.append({"file": filename, "style": style, "words": words,
                              "sha256": hashlib.sha256(data).hexdigest()})
+    codes = (0xA0C1, 0xA0AE, 0xA0AF, 0xA0BA, 0xAAB1, 0xAAB2, 0xA0CD)
+    for filename, order in (("unknown-symbols.caj", codes),
+                            ("unknown-symbols-reversed.caj", codes[::-1])):
+        data = control(0x1084, (), codes=order)
+        (args.output / filename).write_bytes(data)
+        manifest.append({"file": filename, "codes": order,
+                         "sha256": hashlib.sha256(data).hexdigest()})
     (args.output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
 
 

@@ -2075,3 +2075,20 @@ style `e58c` for CJK placement using size 109 and the existing origin model.
 Latin placement, other field-12 styles and decoration states remain errors.
 This supplies the measured large-Han geometry needed by issue-100, not full
 HN-B rendering.
+
+### HN-B symbol-copy candidates
+
+An original seven-glyph control brackets unresolved `a0ae`, `a0af`, `a0ba`,
+`aab1`, `aab2` with known A/M glyphs. Ordinary selection and Ctrl+C after a
+fresh clipboard sentinel returns, respectively, U+FF0E, U+FF0F, U+003A,
+U+2219 and U+002D, with inserted spaces. A separately generated reversed
+control after a different sentinel reverses the complete sequence. The
+existing generator reproduces both source byte sequences. External source
+hashes and exact copied code points are in `unknown-symbols-input.json`,
+`unknown-symbols-reversed-input.json` and `symbol-copy-comparison.json` under
+`caj2pdf-hnb-rendering-20261003`. These are original test characters.
+
+These are semantic candidates, not production mappings: prior C8 controls
+show viewer-copy punctuation normalization. Corroborate visible glyph identity
+and resource/placement before admitting the symbols to rendering. No arbitrary
+A0 punctuation range or private-use Unicode fallback is added.
