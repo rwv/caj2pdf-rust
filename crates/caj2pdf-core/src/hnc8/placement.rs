@@ -231,7 +231,8 @@ pub enum C8GlyphClass {
 /// Evaluate the empirical C8 text matrix for the measured native style subset.
 ///
 /// Size fields 2 through 8 with observed high bits `0x0800`, `0x0c00` or
-/// `0x1000` share the measured glyph geometry. The point-size
+/// `0x1000` share the measured glyph geometry. Independently controlled
+/// `0x04e7` and `0x14e7` also share field-7 geometry. The point-size
 /// model is calibrated from original font controls, including held-out field 7;
 /// it is not an authoritative physical-unit definition. See the recorded
 /// geometry and rasterization limits in `docs/c8-native-records.md`.
@@ -248,7 +249,7 @@ pub fn empirical_c8_glyph_transform(
     class: C8GlyphClass,
 ) -> Result<[f64; 6]> {
     let [left, _, _, top] = page.media_box()?;
-    if !matches!(style & 0xfc00, 0x0800 | 0x0c00 | 0x1000) {
+    if !matches!(style & 0xfc00, 0x0800 | 0x0c00 | 0x1000) && !matches!(style, 0x04e7 | 0x14e7) {
         return Err(Error::InvalidInput {
             reason: "unverified C8 glyph style flags",
         });

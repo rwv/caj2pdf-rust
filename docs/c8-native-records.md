@@ -2009,3 +2009,19 @@ the extra vertical residual for 36 is renderer-only. Keep this qualification
 when evaluating the explicit-axis model. Receipts are
 `caj2pdf-hnb-rendering-20261003/axis-validation-comparison.json` and the
 `axis-validation-viewer` repeated captures. No source-specific offset is added.
+
+### Additional field-7 styles
+
+Original HN-B controls `04e7`, `14e7`, and `10e7` produce pixel-identical
+page interiors at 57%, including CJK and Latin resource-marker glyphs; each
+repeats identically. Earlier paired C8/HN-B controls also agree for these
+styles. The shared glyph transform therefore admits exactly `04e7` and
+`14e7` using its existing field-7 metrics. Other sizes with these high bits
+and decoration states remain rejected. The original generator preserves these
+three controls; external hashes and repeated comparisons are in
+`caj2pdf-hnb-rendering-20261003/style-equivalence-{inputs,comparison}.json`.
+
+The same experiment finds `e58c` equivalent to explicit axes 110, while
+style zero differs from explicit axes 16 in Latin placement. Those findings
+do not yet extend the transform's admitted size fields. Complete HN-B
+rendering remains open in #241.

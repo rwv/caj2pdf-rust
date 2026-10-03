@@ -592,3 +592,24 @@ fn observed_glyph_style_prefixes_share_geometry_without_admitting_other_records(
         empirical_c8_horizontal_decoration(page(), [0, 0], [[0, 0], [100, 0]], 0x0884).is_err()
     );
 }
+
+#[test]
+fn independently_controlled_field7_variants_preserve_both_glyph_classes() {
+    for class in [C8GlyphClass::Cjk, C8GlyphClass::Latin] {
+        let expected =
+            empirical_c8_glyph_transform(page(), [4652, 4274], [5200, 4700], 0x10e7, class)
+                .unwrap();
+        for style in [0x04e7, 0x14e7] {
+            let actual =
+                empirical_c8_glyph_transform(page(), [4652, 4274], [5200, 4700], style, class)
+                    .unwrap();
+            for (actual, expected) in actual.into_iter().zip(expected) {
+                close(actual, expected);
+            }
+            assert!(
+                empirical_c8_horizontal_decoration(page(), [0, 0], [[0, 0], [100, 0]], style,)
+                    .is_err()
+            );
+        }
+    }
+}

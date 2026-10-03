@@ -12,6 +12,9 @@ from c8_style_fixture import document
 
 
 CONTROLS = (
+    ("equivalence-high04", 0x04E7, ()),
+    ("equivalence-high14", 0x14E7, ()),
+    ("equivalence-normal7", 0x10E7, ()),
     ("zero-none", 0, ()),
     ("zero-width36", 0, (0x8070, 36)),
     ("zero-height36", 0, (0x8071, 36)),
