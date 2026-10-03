@@ -501,3 +501,38 @@ independent source-page visual comparison is pending. The font is an explicit
 substitution. A prior font lacking U+2219 failed at its located glyph without
 publishing a final PDF. External `readable-checkpoint.json` records hashes and
 limits. No font, source text or derived source PDF is distributed.
+
+## Four-page content and source-layout audit
+
+An independent PDF parser checks the actual page content streams against the
+source visitor's Unicode sequence: 1,302 / 1,555 / 1,470 / 1,642 glyphs on
+pages 1–4, in identical order, for CLI marker-font, Node marker-font and CLI
+readable-font output. All frames are 459.619895 × 711.168621 points. This checks
+that composition preserves decoded content; it does not independently prove
+every character mapping. The source hash still matches the pinned matrix.
+
+Pinned offline CAJViewer with its ordinary resources displays four source
+pages at 62%. All four source captures repeat identically. Manual comparison
+with the readable PDF confirms page identity, major paragraph/section layout,
+headers, first-page title/author/abstract, and last-page references/English
+abstract. Long header rules have corresponding PDF segment positions; source
+raster edges span adjacent rows, so no pixel-equality claim is made. The font
+substitution changes outlines/weight and spacing appearance. Page 4's continuous
+viewer viewport includes the preceding page's tail and omits part of the bottom
+blank margin; it is not treated as an identically cropped full-page image.
+
+External `issue100-content-preservation.json`, `issue100-visual-geometry.json`,
+`source-viewer/source-page{1..4}*.png` and readable-page renders preserve the
+receipts. Source-copy attempts left fresh clipboard sentinels unchanged: no
+independent text diff is claimed. Those attempts are NOT_RUN, not successful
+text comparisons. Source documents, derived text/fonts/PDFs/captures stay
+outside Git. The first document now has full conversion and scoped source
+layout evidence; issue #241 still requires the other two documents.
+
+On current code, issue-63 first stops at page 1 byte 304, style `154a`. The
+native visitor also locates an `8004` record followed by additional indexed
+content on pages 2/3, and `8073/002b` on page 4. Required styles include `0484`,
+`1000`, `154a` and `9c84`; five raw codes `a99a..a99e` are not mapped. These are
+concrete next-document gaps, not corruption findings or permission to skip
+trailing records. External `issue63-inventory.txt` records the bounded inventory;
+no issue-63 conversion success is claimed.
