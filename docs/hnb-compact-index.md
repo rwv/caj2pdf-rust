@@ -1024,3 +1024,26 @@ The real issue-65 retry using original marker substitutes now fails at page 1
 byte 1504 on the `A1B2` glyph resource/placement class, after the state record
 at byte 1500. No complete output is published. Its punctuation mapping, later
 style/axis controls and full six-page fidelity remain open under #241/#250.
+
+### Controlled HN-B tortoise-shell brackets
+
+Original `state_three_punctuation_controls()` establish `A1B2` / `A1B3`
+(Unicode U+3014 / U+3015) in styles `10a5` and `08a5`, without explicit axes.
+Both follow the selected Latin resource in states 0, 3 and 4. Six paired
+marker crops equal the already verified opening book mark shifted left 5
+and down 9 source units. Two held-out pairs change the page size and glyph
+origin and retain exact crop equality; a left-4/down-10 alternative does not.
+This gives offsets right 25 and down 5 from the CJK transform. The implementation
+admits only these controlled styles; other styles/axes remain explicit errors.
+
+All six `08a5` controls reproduce their `10a5` crops, convert with caller-supplied
+original marker fonts and pass qpdf. Repeated screenshots agree. Initial
+`08a5` black captures followed confirmed viewer process exit and are excluded;
+replacement captures use the `-retry-` suffix. External inputs/captures and
+`state3-punctuation-comparison.json` stay under
+`caj2pdf-hnb-rendering-20261003`. These are marker-resource and geometry checks,
+not readable-font identity or universal rendering parity.
+
+The issue-65 retry now reaches page 1 byte 1532 (`8024/2815`) after the complete
+bracketed run. That required control remains unsupported, no final PDF is
+published, and full six-page acceptance under #241/#250 remains open.

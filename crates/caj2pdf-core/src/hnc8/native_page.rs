@@ -295,10 +295,13 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
                 {
                     return Err(invalid("unverified large native glyph class"));
                 }
-                if matches!(code, 0xa1b6 | 0xa1b7)
-                    && (self.variant != Variant::HnB || style != 0x10a5 || self.axes != [None; 2])
+                if matches!(code, 0xa1b2 | 0xa1b3 | 0xa1b6 | 0xa1b7)
+                    && (self.variant != Variant::HnB
+                        || !(style == 0x10a5
+                            || (style == 0x08a5 && matches!(code, 0xa1b2 | 0xa1b3)))
+                        || self.axes != [None; 2])
                 {
-                    return Err(invalid("unverified native book-title mark geometry"));
+                    return Err(invalid("unverified native bracket geometry"));
                 }
                 if self.axes != [None; 2]
                     && matches!(
@@ -336,7 +339,7 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
                         (C8GlyphClass::Cjk, self.roles.latin, Some(0.0))
                     }
                     0xa1a4 | 0xa3ba => (C8GlyphClass::Cjk, latin, Some(1.0 / 8.0)),
-                    0xa1b0 | 0xa1b1 | 0xa1b6 | 0xa1b7 | 0xa3a8 | 0xa3a9 => {
+                    0xa1b0 | 0xa1b1 | 0xa1b2 | 0xa1b3 | 0xa1b6 | 0xa1b7 | 0xa3a8 | 0xa3a9 => {
                         (C8GlyphClass::Cjk, latin, None)
                     }
                     0xa3db | 0xa3dd => (C8GlyphClass::Cjk, self.roles.latin, None),
@@ -367,6 +370,13 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
                     // Verified ideographic punctuation shares the Latin baseline,
                     // but retains the CJK horizontal origin.
                     transform[4] -= transform[0] / 8.0;
+                }
+                if matches!(code, 0xa1b2 | 0xa1b3) {
+                    // Original style-5 pairs equal the opening book mark
+                    // shifted left 5 and down 9 source units in states 0/3/4.
+                    let unit = super::EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
+                    transform[4] += 25.0 * unit;
+                    transform[5] -= 5.0 * unit;
                 }
                 let offset_columns = match code {
                     0xa1b6 | 0xa1b7 | 0xa3a8 => Some((0, 2)),

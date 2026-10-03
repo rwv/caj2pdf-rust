@@ -402,6 +402,34 @@ def resource_three_controls():
         yield f"resource-three-{name}", control(0x10A5, words, anchor=True)
 
 
+def state_three_punctuation_controls():
+    for state in (0, 3, 4):
+        for name, code, dx, dy in (
+            ("a1b2", 0xA1B2, 0, 0), ("a1b3", 0xA1B3, 0, 0),
+            ("book", 0xA1B6, 0, 0), ("book-shift59", 0xA1B6, -5, 9),
+            ("book-rejected49", 0xA1B6, -4, 10),
+            ("latin", 0xA0C1, 0, 0), ("cjk", 0xD6D0, 0, 0),
+        ):
+            yield f"state3-punctuation-{state}-{name}", hn_container(document(
+                [(0x10A5, state, 6)], codes=(code,), width=400, height=400,
+                first_x=4772 + dx, first_y=4374 + dy,
+            ))
+    for state in (0, 3, 4):
+        for code in (0xA1B2, 0xA1B3):
+            yield f"state3-punctuation-08a5-{state}-{code:04x}", hn_container(document(
+                [(0x08A5, state, 6)], codes=(code,), width=400, height=400,
+                first_x=4772, first_y=4374,
+            ))
+
+    for state in (0, 3):
+        for name, code, dx, dy in (("bracket", 0xA1B3, 0, 0),
+                                    ("book", 0xA1B6, -5, 9)):
+            yield f"state3-punctuation-heldout-{state}-{name}", hn_container(document(
+                [(0x10A5, state, 6)], codes=(code,), width=300, height=300,
+                first_x=4785 + dx, first_y=4381 + dy,
+            ))
+
+
 def title_style_controls():
     """Compare the required mode-2 title with the independently calibrated form."""
     for style in (0x114A, 0x154A):
@@ -585,7 +613,7 @@ def main():
         manifest.append({"file": filename, "code": code, "alternate": alt, "dx": dx,
                          "x": x, "y": y, "sha256": hashlib.sha256(data).hexdigest()})
     for name, data in (*end_controls(), *issue63_style_controls(), *native_mode_controls(),
-                       *legacy_geometry_controls(), *legacy_metric_controls(), *legacy_run_controls(), *legacy_digit_controls(), *legacy_line_width_controls(), *legacy_symbol_grids(), *legacy_hyphen_controls(), *title_style_controls(), *resource_three_controls(), *normal_style_flag_controls(), *state_axis_reset_controls(), *legacy_state_controls(), *legacy_state_controls(0x80CE, 1, "statece1"), *legacy_metadata_controls(), *legacy_symbol_controls()):
+                       *legacy_geometry_controls(), *legacy_metric_controls(), *legacy_run_controls(), *legacy_digit_controls(), *legacy_line_width_controls(), *legacy_symbol_grids(), *legacy_hyphen_controls(), *title_style_controls(), *resource_three_controls(), *state_three_punctuation_controls(), *normal_style_flag_controls(), *state_axis_reset_controls(), *legacy_state_controls(), *legacy_state_controls(0x80CE, 1, "statece1"), *legacy_metadata_controls(), *legacy_symbol_controls()):
         filename = name + ".caj"
         (args.output / filename).write_bytes(data)
         manifest.append({"file": filename, "sha256": hashlib.sha256(data).hexdigest()})

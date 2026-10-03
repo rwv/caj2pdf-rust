@@ -1339,3 +1339,43 @@ fn hnb_state_three_requires_explicit_resource_and_switches_back() {
     }
     assert_eq!(text.matches("<0041> Tj").count(), 4);
 }
+
+#[test]
+fn hnb_tortoise_shell_brackets_preserve_controlled_offsets_and_resources() {
+    for style in [0x10a5, 0x08a5] {
+        for (code, unicode) in [(0xa1b2, 0x3014), (0xa1b3, 0x3015)] {
+            for (state, font) in [(0, 1), (3, 0), (4, 2)] {
+                let words = [
+                    [0x8001, 4394],
+                    [0x8002, style],
+                    [0x801d, state],
+                    [4902, code],
+                    [0x8004, 1],
+                ];
+                let mut fonts = roles();
+                fonts.latin_state3 = Some(0);
+                let (result, pdf, finished) = convert(&words, 0, &[], fonts, 13);
+                result.unwrap();
+                assert!(finished);
+                let text = String::from_utf8_lossy(&pdf);
+                assert!(text.contains(&format!("<{unicode:04X}> Tj")));
+                assert!(text.contains(&format!("/F{font} 1 Tf")));
+                let (matrix, _) = text
+                    .lines()
+                    .find_map(|line| line.split_once(" Tm "))
+                    .unwrap();
+                let m: Vec<f64> = matrix
+                    .split_whitespace()
+                    .map(|v| v.parse().unwrap())
+                    .collect();
+                let unit = super::super::EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
+                assert!((m[4] - 295.0 * unit).abs() < 0.000001);
+                assert!((m[5] - (490.0 * unit - m[3])).abs() < 0.000002);
+                let mut other = words;
+                other[1][1] = 0x1084;
+                assert!(convert(&other, 0, &[], fonts, 13).0.is_err());
+                assert!(convert(&words, 0, &[], fonts, 11).0.is_err());
+            }
+        }
+    }
+}
