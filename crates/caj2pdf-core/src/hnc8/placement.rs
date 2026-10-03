@@ -271,7 +271,7 @@ pub(super) fn native_glyph_transform(
         }
         let em = 36.0 * 75.0 / 301.0;
         (em, em, 8.0)
-    } else if matches!(style, 0xe58c | 0x154a) && class == C8GlyphClass::Cjk {
+    } else if matches!(style, 0xe58c | 0x114a | 0x154a) && class == C8GlyphClass::Cjk {
         // Original controls distinguish explicit 109 and 84 from adjacent
         // sizes. Latin baselines and other size-field flags remain unverified.
         let size = if style == 0xe58c { 109.0 } else { 84.0 };

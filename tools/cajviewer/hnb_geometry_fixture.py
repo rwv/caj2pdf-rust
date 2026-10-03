@@ -376,6 +376,14 @@ def legacy_hyphen_controls():
             yield f"legacy-symbol-{label}-{kind}", bytes(data)
 
 
+def title_style_controls():
+    """Compare the required mode-2 title with the independently calibrated form."""
+    for style in (0x114A, 0x154A):
+        yield f"title-style-{style:04x}", hn_container(document(
+            [(style, 0, 6)], codes=(0xD6D0, 0xD6D0), width=650, height=400,
+            first_x=4672, first_y=4374))
+
+
 def legacy_state_controls(tag=0x8072, value=0, label="state72zero"):
     """Paired mode-0 rows distinguish state changes from resource/axis resets."""
     for name, style, axes in (("normal", 0x1084, ()), ("seven", 0x04E7, ()),
@@ -551,7 +559,7 @@ def main():
         manifest.append({"file": filename, "code": code, "alternate": alt, "dx": dx,
                          "x": x, "y": y, "sha256": hashlib.sha256(data).hexdigest()})
     for name, data in (*end_controls(), *issue63_style_controls(), *native_mode_controls(),
-                       *legacy_geometry_controls(), *legacy_metric_controls(), *legacy_run_controls(), *legacy_digit_controls(), *legacy_line_width_controls(), *legacy_symbol_grids(), *legacy_hyphen_controls(), *legacy_state_controls(), *legacy_state_controls(0x80CE, 1, "statece1"), *legacy_metadata_controls(), *legacy_symbol_controls()):
+                       *legacy_geometry_controls(), *legacy_metric_controls(), *legacy_run_controls(), *legacy_digit_controls(), *legacy_line_width_controls(), *legacy_symbol_grids(), *legacy_hyphen_controls(), *title_style_controls(), *legacy_state_controls(), *legacy_state_controls(0x80CE, 1, "statece1"), *legacy_metadata_controls(), *legacy_symbol_controls()):
         filename = name + ".caj"
         (args.output / filename).write_bytes(data)
         manifest.append({"file": filename, "sha256": hashlib.sha256(data).hexdigest()})

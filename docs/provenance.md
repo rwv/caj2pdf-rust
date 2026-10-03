@@ -2593,3 +2593,12 @@ preserve distinct original CJK, Latin and symbol markers. Viewer-exit black
 frames were excluded and recaptured in a fresh process. The complete
 issue-63 CLI/Node/Worker checkpoint and its scoped four-page marker-layout
 comparison contain no imported implementation or committed external content.
+
+The leading mode-2 HN-B image path reuses project-owned codecs and sequential
+PDF resources, with an explicit rejection after any non-image painting.
+Its original asymmetric JPEG controls distinguish image-first rendering from
+the unresolved context-dependent image-after-text raster operation. The
+original fixture's index marker is corrected to declare its authored 20-byte
+rows; external regenerated fixtures are not imported. Original paired `114a`
+and `154a` title controls establish equal CJK geometry without vendor outlines
+or implementation code. Full issue-65 acceptance remains open.

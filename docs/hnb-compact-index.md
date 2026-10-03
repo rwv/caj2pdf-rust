@@ -921,3 +921,45 @@ tests with rebuilt WASM (zero skips), and 34,581/34,581 Rust source lines
 with 100% coverage in each file. Optional external Rust corpus tests remain
 NOT_RUN in the coverage job. Full HN-B acceptance still requires issue-65,
 review, exact-head CI and the remaining fidelity/late-failure checks.
+
+## Leading HN-B images: implementation checkpoint
+
+The mode-2 writer now accepts leading image records through the shared codecs
+and sequential PDF content writer. Sequential leading images retain descriptor
+order; subsequent text paints over them. Once a glyph or drawing has occurred,
+a later HN-B image remains an explicit located error. Existing controls show
+context-dependent bitwise image/text raster operations, so neither opaque
+replacement nor Multiply is used as an unverified fallback. Mode-0 image
+composition remains unsupported.
+
+The original HN-B image fixture generator now explicitly declares its 20-byte
+index with marker `0xc8` at byte 136. Its prior generated header omitted that
+marker, despite authoring 20-byte rows; production compact-index validation
+is unchanged. Fresh generated inputs are outside Git under
+`caj2pdf-hnb-rendering-20261003/input/leading-images`. Nine leading-image
+controls convert and pass qpdf; four text-before-image/interleaved cases fail
+explicitly. `hnb-leading-images-cli.json` records every outcome. An independent
+MuPDF raster of the image-then-text control agrees with the pinned viewer's
+orientation, placement and foreground-glyph order, with ordinary raster-edge
+residuals. This is not whole-document acceptance.
+
+Original paired CJK title controls establish identical visible geometry for
+mode-2 styles `114a` and the already calibrated `154a`; repeats match.
+`title-style-comparison.json` records hashes and captures. The newly admitted
+`114a` path is restricted to HN-B CJK; unverified Latin/C8 uses still fail.
+The real six-page issue-65 document now traverses its first image and title,
+then stops at byte 432 on required `801c/4`. Explicit-axis and remaining native
+style/control work is still required. No final PDF is published on this error.
+
+The original ordinary-index mixed fixture also runs through Node and a real
+Chromium Worker, reusing the existing original JPEG fixture. Tests assert
+that JPEG bytes are retained and the image operator precedes both glyphs;
+font reads and scratch cleanup use the existing bounded helpers. A separate
+Node case places text first and requires the specific image-after-text error,
+then verifies scratch cleanup. Its initial type-0 descriptor was corrected to
+HN-B's admitted type-2 JPEG form; a header-stage failure is not counted as
+rendering or cleanup evidence for the unsupported-order branch.
+
+Local validation: strict Clippy, 34,595/34,595 Rust source lines (100% in every
+file), and 163 JavaScript tests with rebuilt WASM pass. The real issue-65
+conversion remains incomplete at byte 432 and publishes no final PDF.

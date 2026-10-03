@@ -200,3 +200,27 @@ export function syntheticNativeHnb(mode = 2) {
   }
   return bytes;
 }
+
+/** Original ordinary-index HN-B page with one image followed by two glyphs. */
+export function syntheticNativeHnbMixed() {
+  const c8 = syntheticNativeC8(true);
+  const old = new DataView(c8.buffer);
+  const length = old.getUint32(84, true);
+  const jpeg = syntheticType1Hn().jpeg;
+  const bytes = new Uint8Array(236 + length + 12 + jpeg.length);
+  const view = new DataView(bytes.buffer);
+  const u32 = (at, value) => view.setUint32(at, value, true);
+  bytes.set([0x48, 0x4e]); u32(4, 200); u32(8, 136);
+  u32(136, 0xc8); u32(144, 1); u32(148, 2);
+  bytes.set(c8.subarray(28, 36), 164);
+  u32(216, 236); u32(220, length); u32(224, 1); u32(232, bytes.length);
+  // Move the original image ahead of both original glyphs.
+  bytes.set(c8.subarray(112, 140), 236);
+  bytes.set(c8.subarray(100, 112), 264);
+  bytes.set(c8.subarray(140, 100 + length), 276);
+  u32(236 + length, 2);
+  u32(236 + length + 4, 236 + length + 12);
+  u32(236 + length + 8, jpeg.length);
+  bytes.set(jpeg, 236 + length + 12);
+  return bytes;
+}

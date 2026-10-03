@@ -5,7 +5,7 @@ import { readFile, readdir, rm } from "node:fs/promises";
 import { test } from "node:test";
 import { blobSource, convert, spoolToTempFile, withHnc8Scratch } from "../node.mjs";
 import { newInstance, tempDirectory, validatePdf } from "./helpers.mjs";
-import { syntheticNativeC8, syntheticNativeHnb, qmStates } from "./hnc8-fixtures.mjs";
+import { syntheticNativeC8, syntheticNativeHnb, syntheticNativeHnbMixed, syntheticType1Hn, qmStates } from "./hnc8-fixtures.mjs";
 
 const fontBytes = await readFile(new URL("../../tests/fonts/geometric.ttf", import.meta.url));
 const symbolBytes = await readFile(new URL("../../tests/fonts/symbols.ttf", import.meta.url));
@@ -14,7 +14,7 @@ const sink = (parts = []) => ({ async writeChunk(bytes) { parts.push(bytes.slice
 const roles = (font) => ({ cjk: font, latin: font, alternateLatin: font });
 
 test("native C8/HN-B public Node path reuses ranged fonts and preserves pages", async (t) => {
-  for (const [inputBytes, pages, glyphs, hasSymbols] of [[syntheticNativeC8(), 1, 1], [syntheticNativeC8(true), 1, 2], [syntheticNativeHnb(), 2, 2], [syntheticNativeHnb(0), 2, 2, true]]) {
+  for (const [inputBytes, pages, glyphs, hasSymbols, hasJpeg] of [[syntheticNativeC8(), 1, 1], [syntheticNativeC8(true), 1, 2], [syntheticNativeHnb(), 2, 2], [syntheticNativeHnb(0), 2, 2, true], [syntheticNativeHnbMixed(), 1, 2, false, true]]) {
     let maxRead = 0;
     const input = source(fontBytes);
     const font = { size: input.size, async readAt(offset, length, signal) { maxRead = Math.max(maxRead, length); return input.readAt(offset, Math.min(length, 3), signal); } };
@@ -33,6 +33,10 @@ test("native C8/HN-B public Node path reuses ranged fonts and preserves pages", 
     if (hasSymbols) {
       assert.equal(pdf.toString("latin1").match(/<0020> Tj/g).length, pages);
       assert.equal(pdf.toString("latin1").match(/<FF1A> Tj/g).length, pages);
+    }
+    if (hasJpeg) {
+      assert.ok(pdf.includes(syntheticType1Hn().jpeg));
+      assert.ok(pdf.indexOf("/Im0 Do") >= 0 && pdf.indexOf("/Im0 Do") < pdf.indexOf("<0041> Tj"));
     }
     await validatePdf(t, pdf, pages);
   }
@@ -115,4 +119,17 @@ test("HN-B symbols require an explicit usable font and clean scratch on failure"
       assert.ok(scratch.every((store) => store.size === 0n));
     });
   }
+});
+
+test("HN-B image after text fails explicitly and releases scratch", async () => {
+  const bytes = syntheticNativeHnbMixed();
+  const image = bytes.slice(236, 264);
+  bytes.copyWithin(236, 264, 276);
+  bytes.set(image, 248);
+  await withHnc8Scratch(async (scratch) => {
+    await assert.rejects(convert(await newInstance(), source(bytes), sink(), {
+      includeBookmarks: false, hnc8: { fonts: roles(source(fontBytes)), scratch, qmStates },
+    }), (error) => error.code === "HNC8" && /image after text or drawing/.test(error.message));
+    assert.ok(scratch.every((store) => store.size === 0n));
+  });
 });

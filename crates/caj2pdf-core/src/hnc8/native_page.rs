@@ -84,9 +84,9 @@ where
             value: u64::from(header.native_mode.unwrap_or(u32::MAX)),
         }));
     }
-    if header.variant == Variant::HnB && !images.is_empty() {
+    if header.variant == Variant::HnB && header.native_mode == Some(0) && !images.is_empty() {
         return Err(source_error(invalid(
-            "unverified HN-B native image composition",
+            "unverified HN-B mode-0 image composition",
         )));
     }
     let current = reader
@@ -123,6 +123,7 @@ where
         origin,
         top_first,
         image: 0,
+        non_image_painted: false,
         style: None,
         axes: [None; 2],
         alternate: false,
@@ -145,6 +146,7 @@ struct PageWriter<'p, 'd, 'a, 'r, W: SequentialSink, C: Cancellation> {
     origin: [u16; 2],
     top_first: &'r [bool],
     image: usize,
+    non_image_painted: bool,
     style: Option<u16>,
     axes: [Option<u16>; 2],
     alternate: bool,
@@ -157,6 +159,12 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
     async fn visit(&mut self, _: u64, record: NativeRecord) -> crate::Result<()> {
         if self.legacy {
             return self.visit_mode_zero(record).await;
+        }
+        if matches!(
+            record,
+            NativeRecord::Glyph { .. } | NativeRecord::Drawing { .. }
+        ) {
+            self.non_image_painted = true;
         }
         match record {
             NativeRecord::Control { tag: 0x8001, .. } => (), // y is carried by each glyph.
@@ -244,7 +252,12 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
             NativeRecord::Glyph { x, y, style, code } => {
                 let character = decode_native_character(code)
                     .ok_or_else(|| invalid("unsupported C8 native character"))?;
-                if style == 0xe58c && self.axes == [None; 2] && !('㐀'..='鿿').contains(&character)
+                if style == 0x114a && self.variant != Variant::HnB {
+                    return Err(invalid("unverified C8 title style"));
+                }
+                if matches!(style, 0xe58c | 0x114a)
+                    && self.axes == [None; 2]
+                    && !('㐀'..='鿿').contains(&character)
                 {
                     return Err(invalid("unverified large native glyph class"));
                 }
@@ -413,6 +426,11 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
                 }
             }
             NativeRecord::Image { words } => {
+                // HN-B controls establish opaque leading images. Images after
+                // text can use a different raster operation and remain explicit.
+                if self.variant == Variant::HnB && self.non_image_painted {
+                    return Err(invalid("unverified HN-B image after text or drawing"));
+                }
                 let coordinate = decode_native_image_coordinate(&words)
                     .ok_or_else(|| invalid("unsupported C8 native image coordinates"))?;
                 // Independent tail controls vary all eight low bytes without

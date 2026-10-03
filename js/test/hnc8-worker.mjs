@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 import { blobSource, convert, loadModule, spoolToOpfs, syncAccessHandleScratch } from "../browser.mjs";
-import { qmStates, syntheticNativeC8, syntheticNativeHnb, syntheticHn, syntheticType1Hn, syntheticPrefixedHn } from "./hnc8-fixtures.mjs";
+import { qmStates, syntheticNativeC8, syntheticNativeHnb, syntheticNativeHnbMixed, syntheticHn, syntheticType1Hn, syntheticPrefixedHn } from "./hnc8-fixtures.mjs";
 
 const root = await navigator.storage.getDirectory();
 const names = [];
@@ -59,7 +59,7 @@ try {
     return symbolSpool.source.readAt(offset, Math.min(length, 3), signal);
   } };
   const nativePdfs = [];
-  for (const [input, pages, hasSymbols] of [[syntheticNativeC8(), 1], [syntheticNativeC8(true), 1], [syntheticNativeHnb(), 2], [syntheticNativeHnb(0), 2, true]]) {
+  for (const [input, pages, hasSymbols] of [[syntheticNativeC8(), 1], [syntheticNativeC8(true), 1], [syntheticNativeHnb(), 2], [syntheticNativeHnb(0), 2, true], [syntheticNativeHnbMixed(), 1]]) {
     const pdf = [];
     const native = await convert(module, blobSource(new Blob([input])), {
       async writeChunk(bytes) { pdf.push(...bytes); return bytes.length; }, async flush() {},

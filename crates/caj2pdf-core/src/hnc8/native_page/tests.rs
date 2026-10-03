@@ -124,18 +124,25 @@ fn convert(
     mode: u8,
 ) -> (Result<u32>, Vec<u8>, bool) {
     let mut input = fixture(words, declared);
-    if matches!(mode, 12 | 13 | 18 | 19 | 20) {
+    if matches!(mode, 12 | 13 | 18 | 19 | 20 | 21) {
         // Original compact HN-B wrapper around the same authored record stream.
         let c8 = &input.bytes;
-        let mut bytes = vec![0; 228];
+        let text_offset = if mode == 21 { 236 } else { 228 };
+        let mut bytes = vec![0; text_offset];
         bytes[..4].copy_from_slice(b"HN\0\0");
         bytes[4..8].copy_from_slice(&200_u32.to_le_bytes());
         bytes[8..12].copy_from_slice(&136_u32.to_le_bytes());
         bytes[144..148].copy_from_slice(&1_u32.to_le_bytes());
         bytes[148] = if matches!(mode, 18..=20) { 0 } else { 2 };
         bytes[164..172].copy_from_slice(&c8[28..36]);
-        bytes[216..220].copy_from_slice(&228_u32.to_le_bytes());
+        bytes[216..220].copy_from_slice(&(text_offset as u32).to_le_bytes());
         bytes[220..224].copy_from_slice(&(c8.len() as u32 - 100).to_le_bytes());
+        if mode == 21 {
+            bytes[136..140].copy_from_slice(&0xc8_u32.to_le_bytes());
+            bytes[224..228].copy_from_slice(&declared.to_le_bytes());
+            let end = (text_offset + c8.len() - 100) as u32;
+            bytes[232..236].copy_from_slice(&end.to_le_bytes());
+        }
         // Compact text-only indexes carry a zero third word.
         bytes.extend_from_slice(&c8[100..]);
         input = source(bytes);
@@ -1195,4 +1202,56 @@ fn mode_zero_controlled_states_preserve_fonts_and_explicit_axes() {
             assert_eq!(actual, baseline);
         }
     }
+}
+
+#[test]
+fn hnb_leading_images_preserve_order_and_reject_later_raster_operations() {
+    let (result, _, finished) = convert(&image(), 1, &[false], roles(), 18);
+    assert!(result.is_err());
+    assert!(!finished);
+    for top_first in [false, true] {
+        let mut words = image();
+        words.extend(image());
+        words.extend(ordinary());
+        words.push([0x8004, 1]);
+        let (result, pdf, finished) = convert(&words, 2, &[top_first; 2], roles(), 21);
+        assert!(result.is_ok(), "{result:?}");
+        assert!(finished);
+        let text = String::from_utf8_lossy(&pdf);
+        let first = text.find("/Im0 Do").unwrap();
+        let second = text.find("/Im1 Do").unwrap();
+        let glyph = text.find("<4E2D> Tj").unwrap();
+        assert!(first < second && second < glyph);
+    }
+    for leading_image in [false, true] {
+        let mut words = if leading_image { image() } else { vec![] };
+        words.extend(ordinary());
+        words.extend(image());
+        words.push([0x8004, 1]);
+        let count = if leading_image { 2 } else { 1 };
+        let (result, _, finished) =
+            convert(&words, count, &vec![false; count as usize], roles(), 21);
+        assert!(result.is_err());
+        assert!(!finished);
+    }
+}
+
+#[test]
+fn hnb_title_style_114a_matches_controlled_cjk_154a_geometry() {
+    let mut words = [
+        [0x8001, 4350],
+        [0x8002, 0x114a],
+        [4682, 0xd6d0],
+        [0x8004, 1],
+    ];
+    let (result, title, finished) = convert(&words, 0, &[], roles(), 12);
+    assert!(result.is_ok() && finished);
+    assert!(convert(&words, 0, &[], roles(), 0).0.is_err());
+    words[1][1] = 0x154a;
+    let (result, calibrated, finished) = convert(&words, 0, &[], roles(), 12);
+    assert!(result.is_ok() && finished);
+    assert_eq!(title, calibrated);
+    words[1][1] = 0x114a;
+    words[2][1] = 0xa0c1;
+    assert!(convert(&words, 0, &[], roles(), 12).0.is_err());
 }
