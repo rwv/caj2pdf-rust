@@ -2,11 +2,18 @@
 
 ## Unreleased
 
-- Enable the observed HN-B text/vector profile through the shared native
-  document path and explicit CLI/WASM font resources. Original controls verify
-  style-5 book-title mark placement; other sizes remain explicit errors.
-  The first four-page marker-font conversion succeeds; real-font fidelity,
-  Node/browser acceptance and mixed-image HN-B support remain under review.
+- Enable the independently controlled HN-B mode-0/mode-2 native profiles
+  through the shared bounded renderer and explicit CLI/Node/Worker fonts.
+  The selected 4/4/6-page inputs have complete runtime checkpoints and scoped
+  marker-layout checks. Mode 2 preserves leading images; image-after-text and
+  mode-0 images remain explicit errors. Bookmarks remain unsupported, and
+  caller font substitution does not establish original-font pixel parity.
+- Add optional `--font-symbols` / JS `symbols` and `--font-latin-state3` /
+  JS `latinState3` resources. Missing required roles fail explicitly.
+- **Breaking:** `C8PageFonts` gains `symbols` and `latin_state3` fields;
+  existing literals should specify `None` unless those roles are provided.
+  The raw WASM five-argument font setter remains available; additional roles
+  use the exports documented in [I/O architecture](docs/io-architecture.md).
 
 - **Breaking:** HN-B `hnc8::Header.native_origin` and `page_size` now expose
   verified raw header words as `Some`, including zero extents. Do not use their
@@ -31,7 +38,7 @@
   images in source order using shared codecs and reusable bounded scratch.
   Supply explicit ranged TrueType fonts; missing resources/glyphs and unknown
   required records fail rather than dropping content. C8 bookmarks, other C8
-  native profiles and HN-B mixed-image native rendering remain unsupported.
+  native profiles remain unsupported; HN-B scope is described above.
 - Add CLI `--font-cjk`, `--font-latin`, `--font-alternate-latin`, optional
   `--font-decoration` and `--decoration-char`; JavaScript exposes the same roles
   through `hnc8.fonts`. Shared sources embed once. Forward-only fonts use existing
@@ -52,8 +59,8 @@
   change; following position/style/end records are no longer consumed as footers.
 
 - Preserve the independently controlled `8006/a385` C8 drawing record in
-  bounded native traversal; HN-B rendering and stroke interpretation remain
-  unsupported.
+  bounded native traversal; controlled HN-B translation now reuses the
+  shared renderer as described above.
 
 - Add allocation-free decoding of the independently controlled C8 native image
   coordinate profile. Unknown prefixes and zero extents remain unsupported;
@@ -86,8 +93,8 @@
   carrying coordinate marker bits. Raw inspection values remain unchanged;
   this does not claim complete HN-A pixel fidelity.
 - Add bounded caller-supplied TrueType resources and sequential PDF glyph,
-  image and vector content pages. C8 conversion uses this shared API; HN-B
-  native-page translation remains a follow-up.
+  image and vector content pages. C8 and admitted HN-B native conversion
+  share this API.
 - **Breaking:** raise the minimum Rust version to 1.88.0 for the maintained
   MIT `xberg-ttf-parser` font metadata dependency.
 
@@ -97,14 +104,15 @@
   complete native-page conversion remains unsupported.
 - Admit verified 28-byte HN-B native image records with bounded reads and
   exact descriptor-count checks, plus independently verified following drawing
-  and style controls. Mixed-page rendering remains unsupported;
-  raw traversal does not establish full document conversion.
+  and style controls. Native mode-2 leading-image rendering is now admitted;
+  raw traversal alone does not establish full document conversion.
 
 - Extend bounded HN-B native-record traversal across both verified index
   layouts, preserving observed run controls, raw numeric values, the atomic
   `c052/a385` prefix and 12-byte drawing records. Implicit glyph styles are
-  explicitly unsupported rather than reported as malformed. This does not
-  enable complete HN-B rendering or expand CLI/JavaScript conversion support.
+  unsupported except for the independently controlled complete axis state.
+  See the complete native-rendering scope above; record admission alone
+  does not establish document support.
 
 - **Breaking:** add `NativeRecord::ExtendedControl` and preserve additional
   verified C8 control records. Exhaustive native matches must handle their
