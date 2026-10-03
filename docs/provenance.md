@@ -2547,3 +2547,10 @@ code, not a vendor mapping table. Twenty-four additional original geometry and
 resource controls use the existing authored marker fonts. Vendor resources,
 source documents and derived captures remain external. Geometry observations
 do not promote the unfinished mode-0 renderer.
+
+Mode-0 required symbol decoding is original MIT code from original 39-glyph
+and slash controls, using independently copied Unicode. Existing GB2312 Han
+decoding is reused with checked row/cell bounds and private-use rejection.
+Control `8073/002b` and mode-0 termination have original mixed-glyph controls.
+External font inspection reads only cmap/name metadata; no vendor outlines,
+implementation or mapping table are copied into the project.

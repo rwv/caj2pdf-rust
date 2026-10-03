@@ -247,6 +247,42 @@ def legacy_geometry_controls():
     yield "legacy-alternate4", bytes(data)
 
 
+def legacy_symbol_controls():
+    """Original Unicode-copy controls for the required mode-0 classes."""
+    codes = (
+        0xB0A1, 0xB5D8, 0xCCEC, 0xD6D0, 0xCEC4, 0xF7FE,
+        0xA1A1, 0xA1A2, 0xA1A3, 0xA1AA, 0xA1AE, 0xA1AF, 0xA1B0,
+        0xA1B1, 0xA3A7, 0xA3A8, 0xA3A9, 0xA3AB, 0xA3AC, 0xA3AD,
+        0xA3AE, 0xA3AF, 0xA3B0, 0xA3B1, 0xA3B2, 0xA3B3,
+        0xA3B4, 0xA3B5, 0xA3B6, 0xA3B7, 0xA3B8, 0xA3B9,
+        0xA3BA, 0xA3BB, 0xA3BF, 0xA3DB, 0xA3DD, 0xAAB1, 0xAAB2,
+    )
+    for n, start in enumerate(range(0, len(codes), 13)):
+        words = tuple(v for i, code in enumerate(codes[start:start + 13])
+                      for v in (100 + i * 65, code))
+        data = bytearray(hn_container(document(
+            [(0x1084, 0, 6)], codes=(), width=950, height=400,
+            first_x=100, first_y=100, run_words=words)))
+        struct.pack_into("<I", data, 148, 0)
+        struct.pack_into("<HHHHHHHHHH", data, 152,
+                         0x8003, 950, 0x8003, 400, 0x8003, 0, 0, 1, 950, 400)
+        yield f"legacy-required-symbols-{n}", bytes(data)
+    base = legacy_geometry_control()
+    data = bytearray(base)
+    struct.pack_into("<H", data, 254, 0x9FF5)
+    yield "legacy-9ff5", bytes(data)
+    for name, words in (
+        ("state73-43", (0x8073, 43)), ("state74-c8ce", (0x8074, 0xC8CE)),
+        ("state74-b5c8", (0x8074, 0xB5C8)), ("state72-c2c7", (0x8072, 0xC2C7)),
+        ("statece1", (0x80CE, 1)), ("statec053", (0xC053, 0xE9, 0xC053, 0xB43)),
+        ("end44", (0x8004, 44)),
+    ):
+        data = bytearray(base)
+        data[248:248] = struct.pack("<" + "H" * len(words), *words)
+        struct.pack_into("<I", data, 220, len(data) - 228)
+        yield f"legacy-control-{name}", bytes(data)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("output", type=Path, help="new directory outside the repository")
@@ -350,7 +386,7 @@ def main():
         manifest.append({"file": filename, "code": code, "alternate": alt, "dx": dx,
                          "x": x, "y": y, "sha256": hashlib.sha256(data).hexdigest()})
     for name, data in (*end_controls(), *issue63_style_controls(), *native_mode_controls(),
-                       *legacy_geometry_controls()):
+                       *legacy_geometry_controls(), *legacy_symbol_controls()):
         filename = name + ".caj"
         (args.output / filename).write_bytes(data)
         manifest.append({"file": filename, "sha256": hashlib.sha256(data).hexdigest()})

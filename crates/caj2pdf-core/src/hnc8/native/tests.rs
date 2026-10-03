@@ -1561,6 +1561,7 @@ fn hnb_run_controls_and_drawing_preserve_following_glyph_context() {
         [0x8073, 0x0020],
         [0x8073, 0x0029],
         [0x8073, 0x002a],
+        [0x8073, 0x002b],
         [0x8072, 0x1084],
         [0x8072, 0xc2c7],
         [0x8072, 0xcdc1],
@@ -2000,7 +2001,7 @@ fn native_mode_keeps_independently_copied_alphabets_separate() {
     }
     // Do not import mode-2 aliases, adjacent symbols or unverified classes.
     for code in [
-        0xa0c1, 0xa97f, 0xa9b4, 0xa3c0, 0xa3db, 0xa3e0, 0xa3fb, 0xd6d0, 0xffff,
+        0xa0c1, 0xa97f, 0xa9b4, 0xa3c0, 0xa3dc, 0xa3e0, 0xa3fb, 0x8140, 0xffff,
     ] {
         assert_eq!(decode_native_character_for_mode(0, code), None);
     }
@@ -2008,4 +2009,49 @@ fn native_mode_keeps_independently_copied_alphabets_separate() {
         assert_eq!(decode_native_character_for_mode(mode, 0xa980), None);
     }
     assert_eq!(decode_native_character_for_mode(2, 0xffff), None);
+}
+
+#[test]
+fn mode0_required_symbols_and_han_match_original_copy_controls() {
+    let groups: &[(&[u16], &str)] = &[
+        (
+            &[
+                0xb0a1, 0xb5d8, 0xccec, 0xd6d0, 0xcec4, 0xf7fe, 0xa1a1, 0xa1a2, 0xa1a3, 0xa1aa,
+                0xa1ae, 0xa1af, 0xa1b0,
+            ],
+            "啊地天中文齄 、。—‘’“",
+        ),
+        (
+            &[
+                0xa1b1, 0xa3a7, 0xa3a8, 0xa3a9, 0xa3ab, 0xa3ac, 0xa3ad, 0xa3ae, 0xa3af, 0xa3b0,
+                0xa3b1, 0xa3b2, 0xa3b3,
+            ],
+            "”’（）＋，－．／0123",
+        ),
+        (
+            &[
+                0xa3b4, 0xa3b5, 0xa3b6, 0xa3b7, 0xa3b8, 0xa3b9, 0xa3ba, 0xa3bb, 0xa3bf, 0xa3db,
+                0xa3dd, 0xaab1, 0xaab2,
+            ],
+            "456789：；？［］.-",
+        ),
+    ];
+    for &(codes, expected) in groups {
+        let actual: Option<String> = codes
+            .iter()
+            .map(|&code| decode_native_character_for_mode(0, code))
+            .collect();
+        assert_eq!(actual.as_deref(), Some(expected));
+    }
+    // Classic Han rows exclude their holes, extensions and unassigned cells.
+    for code in [
+        0xb0a0, 0xb0ff, 0xb100, 0xd7fa, 0xf7ff, 0xf8a1, 0xa0c1, 0xaab3,
+    ] {
+        assert_eq!(decode_native_character_for_mode(0, code), None);
+    }
+    assert_eq!(decode_native_character_for_mode(0, 0x9ff5), Some('／'));
+    assert_eq!(decode_native_character_for_mode(2, 0x9ff5), Some('燉'));
+    assert_eq!(decode_native_character_for_mode(2, 0xaab1), Some('∙'));
+    assert_eq!(decode_native_character_for_mode(2, 0xa3a7), Some('＇'));
+    assert_eq!(decode_native_character_for_mode(2, 0xa3b0), Some('０'));
 }

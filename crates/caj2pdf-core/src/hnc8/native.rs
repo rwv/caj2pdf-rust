@@ -96,8 +96,8 @@ pub fn decode_native_character(code: u16) -> Option<char> {
 /// Decode characters whose interpretation is verified for the supplied native mode.
 ///
 /// Obtain the raw mode from [`super::Header::native_mode`]. Mode 2 uses the
-/// established mapping above. Mode 0 currently admits only the independently
-/// controlled Latin alphabets; its remaining glyph classes are unverified here.
+/// established mapping above. Mode 0 admits independently controlled Latin
+/// alphabets, digits, punctuation and the ordinary GB2312 Han range.
 /// Unknown modes/codes return `None`. A decoded letter does not select its font
 /// resource or establish placement: mode-0 A9 and A3 letters use distinct fonts.
 pub fn decode_native_character_for_mode(mode: u32, code: u16) -> Option<char> {
@@ -107,6 +107,34 @@ pub fn decode_native_character_for_mode(mode: u32, code: u16) -> Option<char> {
         (0, 0xa99a..=0xa9b3) => Some(char::from(b'a' + (code - 0xa99a) as u8)),
         (0, 0xa3c1..=0xa3da) => Some(char::from(b'A' + (code - 0xa3c1) as u8)),
         (0, 0xa3e1..=0xa3fa) => Some(char::from(b'a' + (code - 0xa3e1) as u8)),
+        (0, 0xa3b0..=0xa3b9) => Some(char::from(b'0' + (code - 0xa3b0) as u8)),
+        (0, 0xa1a1) => Some(' '),
+        (0, 0x9ff5) => Some('／'),
+        (0, 0xa3a7) => Some('’'),
+        (0, 0xaab1) => Some('.'),
+        (0, 0xaab2) => Some('-'),
+        (
+            0,
+            0xa1a2
+            | 0xa1a3
+            | 0xa1aa
+            | 0xa1ae
+            | 0xa1af
+            | 0xa1b0
+            | 0xa1b1
+            | 0xa3a8
+            | 0xa3a9
+            | 0xa3ab..=0xa3af
+            | 0xa3ba
+            | 0xa3bb
+            | 0xa3bf
+            | 0xa3db
+            | 0xa3dd,
+        ) => crate::gb18030::decode_two_byte((code >> 8) as u8, code as u8),
+        (0, 0xb0a1..=0xf7fe) if (0xa1..=0xfe).contains(&(code & 0xff)) => {
+            crate::gb18030::decode_two_byte((code >> 8) as u8, code as u8)
+                .filter(|character| ('\u{4e00}'..='\u{9fff}').contains(character))
+        }
         _ => None,
     }
 }
@@ -256,7 +284,7 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
                             | (0x8070, 0x001c)
                             | (0x8072, 0 | 0x1084 | 0xc2c7 | 0xcdc1)
                             | (0x8074, _)
-                            | (0x8073, 0x001e | 0x001f | 0x0020 | 0x0029 | 0x002a)
+                            | (0x8073, 0x001e | 0x001f | 0x0020 | 0x0029 | 0x002a | 0x002b)
                             | (0x8024, 0x2800 | 0x281d)
                             | (0xc053, _)
                             | (0xffff, 5)

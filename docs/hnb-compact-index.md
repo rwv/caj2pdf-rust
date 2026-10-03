@@ -679,3 +679,45 @@ hashes. External `legacy-{geometry,header,style,resource}-inputs.json`,
 The production decoder's alphabet/unknown-mode regressions pass with strict
 workspace Clippy and 34,404/34,404 Rust line coverage. No corpus, fonts, extracted
 text or captures enter the repository.
+
+## Complete mode-0 character inventory for issue-63
+
+Three original 13-glyph controls independently check GB2312 Han characters,
+digits and the required punctuation by visible output and copied Unicode.
+Mode 0 maps its digits to ASCII, `a3a7` to U+2019 and `aab1` to a period;
+these differ from mode 2. Its copied space is represented as ASCII space.
+A separate original control establishes `9ff5` as U+FF0F, not the GB18030 Han
+character returned for that word in mode 2. The decoder retains the existing
+GB2312 Han mapping only within its valid rows/cells, filtering unassigned
+private-use entries; it does not fall back to arbitrary GBK extensions or A0
+aliases. Unknown modes and unverified symbols remain explicit `None` results.
+
+Six original mixed-glyph controls show no rendering change for the required
+metadata states, including `8073/002b`; repeats are identical. The visitor now
+admits that atomic control and preserves its raw value. A mode-0 `8004/44`
+control suppresses the two subsequent glyphs while retaining the preceding
+CJK glyph, independently confirming terminal behavior for this mode too.
+
+The public reader/visitor plus mode-aware decoder now traverses all four
+issue-63 pages: 2,706 / 3,974 / 2,273 / 2,218 events, with
+2,060 / 2,569 / 1,902 / 1,398 glyphs (7,929 total). No unknown character code
+remains in that inventory. This is not PDF conversion or fidelity acceptance:
+the shared page writer still needs mode-aware geometry/resource integration.
+
+Original marker-font captures show that several symbols, including `9ff5`,
+are not drawn through the three currently mounted CJK/Latin resources. Their
+Unicode is verified but resource/placement is not yet admitted. Font cmap/name
+metadata was inspected externally without reading or copying outlines into the
+project. An additional original HGSS marker did not replace the slash; that
+negative result does not identify its source font and must not be reported as
+a successful resource match. Caller substitution must remain explicit rather
+than being silently assigned to a guessed font role.
+
+Eleven original controls in `hnb_geometry_fixture.py` reproduce the external
+`legacy-required-symbols-inputs.json`, `legacy-9ff5-input.json` and
+`legacy-control-inputs.json` hashes. Copy/capture receipts,
+`legacy-control-comparison.json`, `issue63-mode-aware-inventory.txt` and
+`symbol-font-cmap-metadata.json` remain in the external
+`caj2pdf-hnb-rendering-20261003` directory. All 36 native visitor/decoder tests,
+strict workspace Clippy and 34,415/34,415 Rust line coverage pass. Full runtime,
+visual, cleanup and reviewed-head CI acceptance for #241 remains open.
