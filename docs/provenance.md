@@ -2708,3 +2708,12 @@ Only the observed C8 resource/placement ranges are added to the shared renderer.
 No vendor implementation, fonts, document content or clipboard payload is
 committed. Accepted and excluded observations are listed in
 `docs/c8-native-controls.md`.
+
+### C8 field-4 style variant
+
+Original MIT `field4_style_documents()` compares `1484` to independently
+supported `1084` and the distinct `1085` size in two glyph-selection modes and
+three resource states. Repeated original-marker observations and baseline-
+identical PDFs justify only the specific additional style. The implementation
+reuses existing glyph metrics without foreign code or font data. External
+receipts and remaining document limits are recorded in `docs/c8-native-controls.md`.

@@ -165,6 +165,20 @@ def alphabet_documents():
             yield f"alphabet-{state}-{mode}-{kind}.caj", data
 
 
+def field4_style_documents():
+    """Hold resource/mode/position constant and vary only observed style bits."""
+    from c8_style_fixture import document as style_document
+
+    for mode in (0, 1):
+        for style in (0x1084, 0x1484, 0x1085):
+            data = style_document(
+                [(style, 0, 6), (style, 4, 6), (style, 28, 6)],
+                codes=(0xD6D0, 0xA0C1), width=800, height=600,
+                first_x=4672, first_y=4334, row_step=130,
+                run_words=(0x80CE, mode))
+            yield f"style-{style:04x}-mode-{mode}.caj", data
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("output", type=Path, help="new directory outside the repository")
@@ -179,7 +193,7 @@ def main():
                          "sha256": hashlib.sha256(data).hexdigest()})
     for name, data in (*mixed_documents(), *color_documents(), *mode_documents(),
                        *extended_string_documents(), *font_state_documents(),
-                       *alphabet_documents()):
+                       *alphabet_documents(), *field4_style_documents()):
         (args.output / name).write_bytes(data)
         manifest.append({"file": name, "sha256": hashlib.sha256(data).hexdigest()})
     (args.output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")

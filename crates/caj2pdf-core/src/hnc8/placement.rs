@@ -232,7 +232,7 @@ pub enum C8GlyphClass {
 ///
 /// Size fields 2 through 8 with observed high bits `0x0800`, `0x0c00` or
 /// `0x1000` share the measured glyph geometry. Independently controlled
-/// `0x04e7` and `0x14e7` also share field-7 geometry; `0x0484` and `0x9c84`
+/// `0x04e7` and `0x14e7` also share field-7 geometry; `0x0484`, `0x1484` and `0x9c84`
 /// share field-4 geometry. The observed `0xe58c` and `0x154a` CJK forms use
 /// measured sizes 109 and 84 respectively; their Latin baselines are unknown.
 /// The point-size
@@ -286,7 +286,7 @@ pub(super) fn native_glyph_transform(
         (em, em, 0.0)
     } else {
         if !matches!(style & 0xfc00, 0x0800 | 0x0c00 | 0x1000)
-            && !matches!(style, 0x04e7 | 0x14e7 | 0x0484 | 0x9c84)
+            && !matches!(style, 0x04e7 | 0x14e7 | 0x0484 | 0x1484 | 0x9c84)
         {
             return Err(Error::InvalidInput {
                 reason: "unverified C8 glyph style flags",

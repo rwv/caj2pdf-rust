@@ -367,3 +367,31 @@ Complete-document retries now reach style `1484`, CJK mode 0, at page-1 byte
 explicitly with unverified style flags and publish no final PDF. Next verify
 that style's geometry/painting against the existing original style controls;
 do not infer it from its low bits alone. Full-document acceptance remains open.
+
+## Additional field-4 style `1484` (#242)
+
+Six original `field4_style_documents()` controls hold glyph positions constant
+and compare `1084`, `1484` and the different vertical size `1085`. Each contains
+CJK and ordinary Latin glyphs under resource states 0, 4 and 28; mode 0 and mode
+1 are separate files. All six reproduce the captured input bytes. At 364%,
+repeated nonblank page interiors `(648,521,1023,802)` match exactly for `1484`
+and `1084` in both modes, while `1085` differs. This distinguishes measured
+field-4 equivalence from an indiscriminate style-bit mask.
+
+The existing glyph transform admits exactly `1484` with the established field-4
+metrics. Unknown adjacent `1485` and decoration states remain errors. Both CJK
+and Latin transforms have regression tests. All six CLI PDFs pass qpdf; the two
+`1484` outputs are byte-identical to their respective `1084` outputs, and the
+`1085` outputs differ. No new rendering state or allocation is introduced.
+
+Receipts under `caj2pdf-hnb-rendering-20261003`:
+`input/c8-style1484/manifest.json`, `c8-style1484-comparison.json`, repeated
+`identified-family-viewer/style-*-mode-*-{a,b}.png` captures, and
+`c8-style1484-output/checks.json`. The source resources are original marker
+fonts, so equality does not establish original-font raster fidelity.
+
+Complete four-/five-page retries now stop at `801c/4`, page-1 byte 2512/2560,
+followed by `8070/4` and `8071/4`. Both publish no final PDF. Determine that
+control's interaction with explicit axes using the existing original controls;
+do not assume the payload is a literal four-unit size. Full-document acceptance
+remains open in #242.
