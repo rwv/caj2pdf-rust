@@ -2874,3 +2874,13 @@ use already pinned external inputs and black-box PDF/zlib tools. Only counts,
 locations and diagnoses are documented; original files, derived PDFs and
 uncompressed stream content remain outside Git. A checksum error establishes
 a rejection boundary, not a newly inferred repair rule.
+
+### Representative packaged/native memory preflight
+
+The #222 measurements reuse the original page-composition diagnostic and public
+built-in standard QM/MQ states. External instrumentation records existing core
+accounted capacities, per-child Linux RSS, package WASM capacity and scratch
+lengths. No external implementation or fabricated probability-table evidence is
+used. Inputs remain SHA-pinned external corpus entries; generated outputs and
+measurement scripts/receipts stay outside Git. Results and measurement limits
+are summarized in `docs/conformance.md`.
