@@ -217,6 +217,10 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
             } => self.skew = 0.24,
             NativeRecord::Control {
                 tag: 0x8024,
+                value: 0x281c,
+            } if self.variant == Variant::C8 => self.skew = 0.225,
+            NativeRecord::Control {
+                tag: 0x8024,
                 value: 0x2815,
             } if self.variant == Variant::HnB => self.skew = 0.105,
             NativeRecord::Control { tag: 0x8002, value } => {

@@ -254,6 +254,26 @@ def additional_style_documents():
                 run_words=() if mode is None else (0x80CE, mode))
 
 
+def skew_281c_documents():
+    """Measure C8 shear using unequal axes, a large glyph, and state controls."""
+    from hnb_geometry_fixture import skew_control
+    from c8_style_fixture import document as style_document
+
+    for style in (0x1067, 0x10E3, 0xE58C):
+        for value in (0x2800, 0x281C, 0x281D):
+            yield f"skew-{style:04x}-{value:04x}.caj", skew_control(
+                (0x8024, value), style, c8_container=True)
+    for label, words in (
+        ("base", ()), ("active", (0x8024, 0x281C)),
+        ("reset", (0x8024, 0x281C, 0x8024, 0x2800)),
+        ("style", (0x8024, 0x281C, 0x8002, 0x1084)),
+    ):
+        yield f"skew-state-{label}.caj", skew_control(words, c8_container=True)
+        yield f"skew-latin-{label}.caj", style_document(
+            [(0x1084, 0, 6)], codes=(), width=400, height=400, first_y=4374,
+            run_words=words + (4672, 0xD6D0, 4852, 0xA0C1))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("output", type=Path, help="new directory outside the repository")
@@ -270,7 +290,8 @@ def main():
                        *extended_string_documents(), *font_state_documents(),
                        *alphabet_documents(), *field4_style_documents(),
                        *state_axis_documents(), *at_sign_documents(),
-                       *record_9002_documents(), *additional_style_documents()):
+                       *record_9002_documents(), *additional_style_documents(),
+                       *skew_281c_documents()):
         (args.output / name).write_bytes(data)
         manifest.append({"file": name, "sha256": hashlib.sha256(data).hexdigest()})
     (args.output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")

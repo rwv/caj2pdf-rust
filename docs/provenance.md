@@ -2755,3 +2755,13 @@ metrics and retains errors for unobserved combinations. Only original controls
 and code are committed; external corpus, fonts and captures are not. Accepted
 captures and the excluded startup trial are documented in
 `docs/c8-native-controls.md`.
+
+### C8 `281c` skew controls
+
+Original MIT CJK/Latin marker controls establish the exact C8 `8024/281c`
+width-relative shear, persistence and explicit reset. Unequal axes and a large
+glyph discriminate width from height; independent raster measurements retain
+edge residuals instead of fitting compensating offsets. The implementation
+reuses the existing scalar state and PDF matrix. No vendor implementation,
+font data or source-document content is committed; external evidence is listed
+in `docs/c8-native-controls.md`.

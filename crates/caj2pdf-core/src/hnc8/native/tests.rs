@@ -986,6 +986,7 @@ fn additional_controls_preserve_raw_values_without_inventing_glyphs() {
         [0x80ce, 1],
         [0x8024, 0x2800],
         [0x8024, 0x281d],
+        [0x8024, 0x281c],
         [0x8021, 0x2000],
         [0x80d0, 0],
         [0x80d1, 1],

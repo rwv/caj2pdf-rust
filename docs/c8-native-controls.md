@@ -532,3 +532,45 @@ retries now diverge: the four-page source stops at `8024/281c`, page-1 byte
 a final PDF. Verify the required skew state in the four-page source first,
 then the five-page font resource; existing HN-B/other-value observations are
 hypotheses to test, not automatic admission. Full acceptance remains open.
+
+## C8 `8024/281c` skew state (#242)
+
+Seventeen original `skew_281c_documents()` controls reuse the established
+400-by-400 canvas. Three unequal/large glyph sizes compare `2800`, `281c` and
+`281d`; separate CJK and CJK/Latin pairs check activation, explicit reset and
+style persistence. All inputs reproduce, and repeated nonblank page interiors
+`(648,474,1024,850)` at 729% are identical. Reset matches the baseline; a style
+change retains the active tilt. Latin resource identity and baseline remain
+visible through the original resource markers.
+
+The large marker's observed left-edge slope is approximately -0.22503 screen
+pixels per row, versus -0.24196 for `281d`. Unequal axes show that displacement
+scales with width, as in the existing model. The specific C8 control therefore
+sets the existing shear field to 0.225; the glyph matrix uses
+`[width, 0, width * 0.225, height, x, y]`. No inferred physical angle, extra
+translation, horizontal scale correction or new state field is introduced.
+`2800` clears the shear and `8002` retains it. HN-B still rejects `281c`.
+Unverified values and drawing/image events in active skew remain errors.
+
+Independent MuPDF renders retain measured edge residuals. For `1067`, the
+PDF-minus-source top/bottom/left/right deltas are `(0,1,1,1)` pixels; for `10e3`,
+`(0,1,1,4)`; for `e58c`, `(-2,1,1,2)`. The large-glyph PDF slope is -0.22501.
+The ordinary CJK/Latin pair has deltas `(0,1,1,3)` / `(0,1,0,2)` respectively.
+These are scoped original-marker comparisons, not original-font pixel parity;
+no blanket tolerance or compensating offset hides the residuals.
+
+All 17 CLI PDFs pass qpdf. Both CJK and Latin reset/style-preservation pairs
+are byte-identical to their respective baselines. Existing matrix regressions
+now cover this value, unequal axes, persistence and reset; bounded parser tests
+verify following-record offsets and reject other values. External receipts in
+`caj2pdf-hnb-rendering-20261003`:
+`input/c8-skew281c/{manifest,latin-manifest}.json`,
+`c8-skew281c-{repeats,state,latin-repeats}.json`, repeated `s28-*` captures, and
+`c8-skew281c-output/{checks,render-comparison,latin-checks}.json`.
+
+The full four-page input now stops at raw character `006c`, page-1 byte 6280,
+immediately after the admitted skew control. The five-page input still stops
+at C8 `801d/3`, page-1 byte 19552. Neither publishes a final PDF. Verify the
+character's Unicode/resource/geometry independently before assuming it is an
+ASCII scalar or admitting an entire low-byte range. Whole-document acceptance
+remains open in #242.

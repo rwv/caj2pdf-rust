@@ -866,6 +866,7 @@ fn unverified_axis_combinations_and_style_specific_offsets_fail_explicitly() {
 fn skew_uses_width_survives_style_changes_and_resets_explicitly() {
     for (control, factor, mode, styles) in [
         (0x281d, 0.24, 0, &[0x1067, 0x10e3, 0xe58c][..]),
+        (0x281c, 0.225, 0, &[0x1067, 0x10e3, 0xe58c][..]),
         (0x2815, 0.105, 12, &[0x1084, 0x10a5, 0x10a4, 0x08a5][..]),
     ] {
         for style in styles {
