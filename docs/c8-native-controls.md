@@ -1010,3 +1010,28 @@ are byte-identical. Receipts under the existing external root:
 `c8-80d3-output/checks.json`. The four-page source now stops at page 2 byte
 43040, `8073/8`. The five-page source remains at page 2 byte 22528. Neither
 publishes a final PDF. Full-document acceptance remains outstanding.
+
+
+### Opaque C8 `8073` and `8074` values
+
+Independent `opaque_73_74_documents()` controls vary `8073` across 0, 8,
+38, 43, 0x8004 and 0xffff, and `8074` across 0, 0x0204, 0xa3a9, 0x8004 and
+0xffff. Each tag has a separate mixed-page baseline. Repeated full-page crops
+are stable and equal their baseline, including following glyphs, segments,
+decoration and an image. Visible page identity and boundaries were inspected.
+Earlier regular-value controls remain applicable.
+
+C8 now treats these value words as opaque for painting through the existing
+Control visitor. The bounded parser still preserves raw values; no path lookup,
+allocation or additional state is introduced. HN-B retains its independently
+verified value sets. Existing mixed-PDF tests cover the new controls, and an
+explicit variant regression preserves HN-B rejection of unverified values.
+Two obsolete C8 rejection cases are replaced by positive coverage.
+
+All 13 original controls reproduce and pass CLI/qpdf; each tag's PDFs equal
+its baseline byte for byte. External receipts under the existing root:
+`input/c8-{8073,8074}/manifest.json`, `c8-{8073,8074}-observations.json`, and
+`c8-opaque-controls-output/checks.json`. The four-page source now passes
+page-2 composition and stops at page 3 byte 65359 on a glyph placement/resource
+error. The five-page source remains at page 2 byte 22528. Neither publishes
+a final PDF. Passing composition is not independent whole-page fidelity.

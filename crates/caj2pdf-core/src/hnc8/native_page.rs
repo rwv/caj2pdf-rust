@@ -302,6 +302,11 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
                 tag: 0x80ce,
                 value: 1,
             } => self.cjk_mode = false,
+            // Independent mixed-page controls preserve painting for opaque values.
+            NativeRecord::Control {
+                tag: 0x8073 | 0x8074,
+                ..
+            } if self.variant == Variant::C8 => (),
             NativeRecord::Control {
                 tag: 0x8072,
                 value: 0 | 0x1042 | 0xa3a8 | 0xa0f2,

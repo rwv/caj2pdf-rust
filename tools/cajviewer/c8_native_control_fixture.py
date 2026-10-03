@@ -490,6 +490,18 @@ def control_80d3_documents():
             yield f"control80d3-state{state}-{label}.caj", data
 
 
+def opaque_73_74_documents():
+    """Discriminate painting effects from opaque control payload values."""
+    from c8_image_fixture import jpeg, mixed_control
+
+    for tag, values in ((0x8073, (0, 8, 38, 43, 0x8004, 0xFFFF)),
+                        (0x8074, (0, 0x0204, 0xA3A9, 0x8004, 0xFFFF))):
+        for value in (None, *values):
+            label = "baseline" if value is None else f"value-{value:04x}"
+            yield f"control{tag:04x}-{label}.caj", mixed_control(
+                jpeg(), () if value is None else (tag, value))
+
+
 def field0_documents():
     """Discriminate zero-field dimensions from zero size and field-1 metrics."""
     from c8_style_fixture import document as style_document
@@ -528,7 +540,8 @@ def main():
                        *radical_record_documents(), *radical_detail_documents(),
                        *page_end_control_documents(), *field0_documents(),
                        *radical_alias_documents(), *low_p_documents(),
-                       *radical_value_documents(), *control_80d3_documents()):
+                       *radical_value_documents(), *control_80d3_documents(),
+                       *opaque_73_74_documents()):
         (args.output / name).write_bytes(data)
         manifest.append({"file": name, "sha256": hashlib.sha256(data).hexdigest()})
     (args.output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")

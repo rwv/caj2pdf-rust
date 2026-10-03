@@ -345,8 +345,6 @@ fn unsupported_content_and_missing_glyphs_poison_the_open_page() {
         vec![[0x801d, 31]],
         vec![[0x8072, 1]],
         vec![[0x80ce, 0], [4800, 0xa1a1]],
-        vec![[0x8073, 43]],
-        vec![[0x8074, 0xffff]],
         vec![[0x8006, 0xa384], [4682, 4350], [4912, 4350]],
         vec![[0x8004, 0]],
     ] {
@@ -735,8 +733,13 @@ fn controlled_nonpainting_records_preserve_mixed_page_output() {
         (0x80d5, &[0][..]),
         (0x9002, &[0][..]),
         (0x8072, &[0, 0x1042, 0xa3a8, 0xa0f2][..]),
-        (0x8073, &[38, 39, 40, 41, 42][..]),
-        (0x8074, &[0, 0xb4a2, 0xd4b4, 0x24a7, 0xa1a1, 0xa3a9][..]),
+        (0x8073, &[0, 8, 38, 39, 40, 41, 42, 43, 0x8004, 0xffff][..]),
+        (
+            0x8074,
+            &[
+                0, 0x0204, 0xb4a2, 0xd4b4, 0x24a7, 0xa1a1, 0xa3a9, 0x8004, 0xffff,
+            ][..],
+        ),
         (0xc053, &[0, 0x1377, 0x137b, 5200, 5700, 0xffff][..]),
         (
             0xc054,
@@ -2042,5 +2045,17 @@ fn c8_zero_field_styles_render_required_digit_without_broadening_hnb() {
                     .is_err()
             );
         }
+    }
+}
+
+#[test]
+fn opaque_c8_controls_do_not_broaden_hnb_admission() {
+    for control in [[0x8073, 8], [0x8074, 0xffff]] {
+        let mut words = ordinary();
+        words.extend([control, [0x8004, 1]]);
+        assert!(convert(&words, 0, &[], roles(), 0).0.is_ok());
+        let (result, _, finished) = convert(&words, 0, &[], roles(), 12);
+        assert!(result.is_err());
+        assert!(!finished);
     }
 }
