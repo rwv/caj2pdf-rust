@@ -1984,3 +1984,14 @@ not PDF-unit constants. Derive physical sizing and baseline behavior before
 extending the production transform. External predictions, original source
 hashes and measurements are `axis-controls.json` and `axis-comparison.json`
 in the same receipt directory.
+
+The follow-up explicit-size controls establish a state transition: explicit
+width/height 35 at style zero matches style `1084` pixel-for-pixel, including
+Latin positions. Applying `8002/1084` after explicit axes 72 restores that same
+page, so a subsequent style record resets the explicit axes. Repeated captures
+are stable. The proposed field-12/explicit-112 equivalence fails and must not
+be admitted from this experiment. Receipts are `axis-model-controls.json` and
+`axis-model-comparison.json`; `tools/cajviewer/hnb_geometry_fixture.py`
+reproduces all eleven original input byte sequences from these two experiments.
+These controls support reusing verified metrics with explicit mutable axis
+state, but do not establish arbitrary-size baseline rounding.
