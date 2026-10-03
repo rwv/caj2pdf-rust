@@ -1995,3 +1995,17 @@ be admitted from this experiment. Receipts are `axis-model-controls.json` and
 reproduces all eleven original input byte sequences from these two experiments.
 These controls support reusing verified metrics with explicit mutable axis
 state, but do not establish arbitrary-size baseline rounding.
+
+At confirmed 971% zoom, original 300×250-unit HN-B anchor pages compare
+explicit 35/36 with the admitted field-4 geometry. Explicit 35 and field 4
+retain identical source interiors. A separate PDF written through the existing
+Rust font/PDF API uses `axis * 75 / 301` points and the existing empirical
+Latin baseline model. A fresh viewer session checks both values with repeats.
+Relative CJK top/left differences (PDF minus source) are `(-1,-1)` for 35
+and `(-2,-1)` for 36; Latin top differences are 0 and -2 pixels. These are
+thresholded diagnostics at independently identified page frames, not alignment
+corrections. The known size also has edge residuals, but that does not prove
+the extra vertical residual for 36 is renderer-only. Keep this qualification
+when evaluating the explicit-axis model. Receipts are
+`caj2pdf-hnb-rendering-20261003/axis-validation-comparison.json` and the
+`axis-validation-viewer` repeated captures. No source-specific offset is added.
