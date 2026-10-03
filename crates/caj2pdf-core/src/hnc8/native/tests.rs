@@ -978,6 +978,8 @@ fn additional_controls_preserve_raw_values_without_inventing_glyphs() {
     let controls = [
         [0x801c, 4],
         [0x801d, 3],
+        [0x801d, 28],
+        [0x801d, 31],
         [0x8070, 4],
         [0x8071, 4],
         [0x80ce, 0],
@@ -1702,6 +1704,8 @@ fn hnb_run_controls_and_drawing_preserve_following_glyph_context() {
     for control in [
         [0x801c, 5],
         [0x801d, 1],
+        [0x801d, 28],
+        [0x801d, 31],
         [0x8067, 8],
         [0x8069, 0x1085],
         [0x8070, 0x0023],

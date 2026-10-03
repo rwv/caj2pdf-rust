@@ -214,3 +214,35 @@ The complete four-/five-page inputs now stop on `801d/28` at page-1 byte
 644/656, followed by a required `a3ca` glyph. Neither publishes final output.
 Investigate that resource state and its required mapping next; full #242
 acceptance remains open.
+
+## Extended font-state framing and resource distinction (#242)
+
+Eight original `font_state_documents()` controls vary only `801d` among
+0, 4, 28 and 31 and the Latin-slot raw code between `a0c1` and required
+`a3ca`. CJK glyphs, three segment forms, decoration and the asymmetric image
+retain their framing and placement. All nonblank page crops repeat exactly.
+The generator reproduces the captured original bytes.
+
+For `a0c1`, states 28/31 show the fourth marker resource instead of the
+ordinary or alternate Latin marker. For `a3ca`, all four states show the
+same CJK marker and CJK placement. These observations disprove treating the
+new font states as no-ops and distinguish raw-code resource choice from
+active Latin state. Because multiple external font filenames intentionally
+share the fourth original marker, equality between 28 and 31 does NOT prove
+that they select the same original font. Marker shape alone does not prove
+Unicode mapping either.
+
+The bounded C8 visitor now admits the four-byte `801d/28` and `/31` controls
+and preserves their raw values. Original short-read tests verify following
+glyph alignment; HN-B rejects the new C8 values. The renderer still rejects
+both states explicitly rather than silently reusing a wrong font. No new
+public font role or memory allocation is added in this framing increment.
+
+External evidence is `c8-font-state-comparison.json` and
+`c8-font-framing-output/checks.json` under
+`caj2pdf-hnb-rendering-20261003`. Complete four-/five-page retries still stop
+at page-1 byte 644/656, now with a rendering-state error instead of an unknown
+record boundary. No final PDF is published. Next distinguish the required
+font resources using independently identifiable substitutions, verify the
+required character mapping, and use the existing bounded font transport.
+Full #242 acceptance remains open; this is not conversion support.

@@ -332,6 +332,8 @@ fn unsupported_content_and_missing_glyphs_poison_the_open_page() {
         vec![[4800, 0xa0c2]],
         vec![[4800, 0xa080]],
         vec![[0x801d, 3]],
+        vec![[0x801d, 28]],
+        vec![[0x801d, 31]],
         vec![[0x8072, 1]],
         vec![[0x80ce, 0], [4800, 0xa1a1]],
         vec![[0x8073, 43]],

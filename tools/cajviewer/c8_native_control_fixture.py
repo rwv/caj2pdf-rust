@@ -123,6 +123,19 @@ def extended_string_documents():
             yield f"extended-{mode}-{label}.caj", mixed_control(jpeg(), control)
 
 
+def font_state_documents():
+    """Separate extended Latin-resource states from fullwidth glyph mapping."""
+    from c8_image_fixture import jpeg, mixed_control
+
+    for state in (0, 4, 28, 31):
+        for label, code in (("ordinary", 0xA0C1), ("required", 0xA3CA)):
+            data = mixed_control(jpeg()).replace(
+                struct.pack("<HH", 0x801D, 4), struct.pack("<HH", 0x801D, state))
+            data = data.replace(struct.pack("<HH", 4972, 0xA0C1),
+                                struct.pack("<HH", 4972, code))
+            yield f"font-{state}-{label}.caj", data
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("output", type=Path, help="new directory outside the repository")
@@ -136,7 +149,7 @@ def main():
         manifest.append({"file": name, "words": words,
                          "sha256": hashlib.sha256(data).hexdigest()})
     for name, data in (*mixed_documents(), *color_documents(), *mode_documents(),
-                       *extended_string_documents()):
+                       *extended_string_documents(), *font_state_documents()):
         (args.output / name).write_bytes(data)
         manifest.append({"file": name, "sha256": hashlib.sha256(data).hexdigest()})
     (args.output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")

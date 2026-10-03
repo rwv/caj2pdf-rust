@@ -2666,3 +2666,13 @@ their painting baselines. The composer reuses the atomic bounded parser event;
 no foreign implementation or new buffering is introduced. Raw metadata stays
 available to visitors. See `docs/c8-native-controls.md` for evidence and scope;
 this does not infer metadata semantics or text-selection behavior.
+
+### C8 extended font-state framing
+
+Original MIT `font_state_documents()` controls independently establish
+four-byte `801d/28` and `/31` framing and distinguish ordinary Latin resource
+changes from the `a3ca` CJK marker behavior. The parser preserves raw values
+without inventing a font mapping. Multiple marker-substituted files prevent
+an original-font identity or state-equivalence claim. See
+`docs/c8-native-controls.md` for repeated evidence and explicit remaining
+rendering/Unicode work; external fonts and captures are not committed.
