@@ -226,7 +226,15 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
             NativeRecord::Control {
                 tag: 0x801c,
                 value: 4,
-            } if self.variant == Variant::HnB => (),
+            } => (),
+            NativeRecord::Control {
+                tag: 0x8070,
+                value: 4,
+            } if self.variant == Variant::C8 => self.axes[0] = Some(4),
+            NativeRecord::Control {
+                tag: 0x8071,
+                value: 4,
+            } if self.variant == Variant::C8 => self.axes[1] = Some(4),
             NativeRecord::Control {
                 tag: 0x8070,
                 value: value @ (28 | 43),

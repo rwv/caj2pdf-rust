@@ -395,3 +395,43 @@ followed by `8070/4` and `8071/4`. Both publish no final PDF. Determine that
 control's interaction with explicit axes using the existing original controls;
 do not assume the payload is a literal four-unit size. Full-document acceptance
 remains open in #242.
+
+## C8 state control and four-unit explicit axes (#242)
+
+`state_axis_documents()` generates 20 original state/axis/reset controls and
+four enlarged size discriminators. All 24 reproduce the observed input bytes;
+all repeated page interiors are nonblank and identical. Ordinary/alternate
+Latin resources and styles `1084`/`10a5` distinguish resource and style state.
+Eight same-context comparisons establish that `801c/4` preserves baseline,
+explicit 4/36 axes, and later style-reset behavior. Its other semantics are not
+inferred. `8002` continues to clear the existing two axis fields.
+
+At displayed 1457%, four-unit CJK and Latin marker glyphs have 19x19-pixel ink
+bounds; the size-3 and size-5 controls give 14x14 and 24x24. The CJK and Latin
+source bounds relative to the independently located 375x375 page interior are
+`(74,84,93,103)` and `(227,112,246,131)`. The existing em model with axes `(4,4)`
+and a 15-coordinate-unit Latin baseline yields PDF bounds `(75,85,94,104)` and
+`(228,113,247,132)`. Each edge is one pixel farther right/down. This recorded
+raster/page-frame residual is not corrected by a source-specific offset and
+is not a claim of pixel-perfect original-font fidelity. The detail frame is
+`(648,474,1023,849)`; ordinary controls use `(648,521,1023,802)`.
+
+The C8 visitor now accepts the observed state control and registers axis value
+4 in its existing fields. The shared transform handles only the verified paired
+`(4,4)` case with the measured baseline. Single-axis 4, mixed `(4,36)`, adjacent
+sizes 3/5 and other state-control values remain explicit errors. HN-B admission
+of explicit axis values is unchanged. No buffer or state structure is added.
+Original core tests cover reset, state persistence, placement and failures.
+
+Eighteen admitted CLI controls pass qpdf; all eight unchanged-state PDF pairs
+are byte-identical. Six unadmitted controls fail without a final PDF. External
+receipts under `caj2pdf-hnb-rendering-20261003` are
+`input/c8-state-axis/{manifest,detail-manifest}.json`,
+`c8-state-axis-{repeats,comparison}.json`, the repeated identified-family-viewer
+captures and `c8-state-axis-output/{checks,detail-comparison}.json`.
+
+Complete-document retries now stop at raw glyph `a3c0`: page-1 byte 4412 in the
+four-page input and 4036 in the five-page input. Both fail with unverified glyph
+resource/placement and publish no final PDF. Reuse HN-B's existing evidence as a
+hypothesis, but verify the C8 resource/mapping before extending its admission.
+Full-document acceptance remains open in #242.

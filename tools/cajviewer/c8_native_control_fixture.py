@@ -179,6 +179,33 @@ def field4_style_documents():
             yield f"style-{style:04x}-mode-{mode}.caj", data
 
 
+def state_axis_documents():
+    """Isolate state persistence, axis overrides, and style reset in C8."""
+    from c8_style_fixture import document as style_document
+
+    controls = (
+        ("base", ()), ("state", (0x801C, 4)),
+        ("axes4", (0x8070, 4, 0x8071, 4)),
+        ("state-axes4", (0x801C, 4, 0x8070, 4, 0x8071, 4)),
+        ("width4", (0x8070, 4)), ("height4", (0x8071, 4)),
+        ("axes36", (0x8070, 36, 0x8071, 36)),
+        ("axes36-state", (0x8070, 36, 0x8071, 36, 0x801C, 4)),
+        ("axes4-reset", (0x8070, 4, 0x8071, 4, 0x8002, 0x10A5)),
+        ("state-axes4-reset", (0x801C, 4, 0x8070, 4, 0x8071, 4, 0x8002, 0x10A5)),
+    )
+    for style in (0x1084, 0x10A5):
+        for label, words in controls:
+            yield f"axis-{style:04x}-{label}.caj", style_document(
+                [(style, 0, 6), (style, 4, 6)], codes=(0xD6D0, 0xA0C1),
+                width=800, height=600, first_x=4672, first_y=4334,
+                row_step=130, run_words=words)
+    for size in (3, 4, 5, 36):
+        yield f"axis-detail-{size}.caj", style_document(
+            [(0x1084, 0, 6)], codes=(), width=200, height=200, first_y=4334,
+            run_words=(0x801C, 4, 0x8070, size, 0x8071, size,
+                       4672, 0xD6D0, 4752, 0xA0C1))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("output", type=Path, help="new directory outside the repository")
@@ -193,7 +220,8 @@ def main():
                          "sha256": hashlib.sha256(data).hexdigest()})
     for name, data in (*mixed_documents(), *color_documents(), *mode_documents(),
                        *extended_string_documents(), *font_state_documents(),
-                       *alphabet_documents(), *field4_style_documents()):
+                       *alphabet_documents(), *field4_style_documents(),
+                       *state_axis_documents()):
         (args.output / name).write_bytes(data)
         manifest.append({"file": name, "sha256": hashlib.sha256(data).hexdigest()})
     (args.output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")

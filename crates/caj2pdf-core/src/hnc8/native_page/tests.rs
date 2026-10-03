@@ -1762,3 +1762,41 @@ fn c8_extended_latin_states_require_distinct_resources_and_restore_selection() {
         }
     }
 }
+
+#[test]
+fn c8_state_preserves_axes_and_style_reset() {
+    for style in [0x1084, 0x10a5] {
+        for axes in [None, Some(4), Some(36)] {
+            let mut words = vec![[0x8001, 4350], [0x8002, style]];
+            if let Some(size) = axes {
+                words.extend([[0x8070, size], [0x8071, size]]);
+            }
+            words.extend([[4682, 0xd6d0], [4772, 0xa0c1], [0x8004, 1]]);
+            let (result, expected, finished) = convert(&words, 0, &[], roles(), 0);
+            assert!(result.is_ok() && finished);
+            words.insert(2, [0x801c, 4]);
+            let (result, actual, finished) = convert(&words, 0, &[], roles(), 0);
+            assert!(result.is_ok() && finished);
+            assert_eq!(actual, expected);
+            if axes.is_some() {
+                words.insert(words.len() - 3, [0x8002, style]);
+                let (result, actual, finished) = convert(&words, 0, &[], roles(), 0);
+                assert!(result.is_ok() && finished);
+                words.drain(2..words.len() - 3);
+                assert_eq!(actual, convert(&words, 0, &[], roles(), 0).1);
+            }
+        }
+    }
+    for controls in [
+        vec![[0x8070, 4]],
+        vec![[0x8071, 4]],
+        vec![[0x801c, 5]],
+        vec![[0x8070, 4], [0x8071, 36]],
+    ] {
+        let mut words = ordinary();
+        words.splice(2..2, controls);
+        words.push([0x8004, 1]);
+        let (result, _, finished) = convert(&words, 0, &[], roles(), 0);
+        assert!(result.is_err() && !finished);
+    }
+}

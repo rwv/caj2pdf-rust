@@ -2717,3 +2717,13 @@ three resource states. Repeated original-marker observations and baseline-
 identical PDFs justify only the specific additional style. The implementation
 reuses existing glyph metrics without foreign code or font data. External
 receipts and remaining document limits are recorded in `docs/c8-native-controls.md`.
+
+### C8 state and small explicit-axis controls
+
+Original MIT `state_axis_documents()` separates `801c/4` state preservation,
+axis changes and style reset using authored CJK/Latin marker controls. Enlarged
+adjacent-size observations establish the specific four-unit geometry and Latin
+baseline; the measured one-pixel render residual is retained in the evidence
+record. The implementation reuses the existing axis fields and transform.
+No foreign code, fonts, source text or captures are committed. See
+`docs/c8-native-controls.md` for evidence and remaining full-document failures.

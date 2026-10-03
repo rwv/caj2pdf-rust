@@ -265,6 +265,7 @@ pub(super) fn native_glyph_transform(
     let [left, _, _, top] = page.media_box()?;
     let (width, height, latin_offset) = if axes != [None; 2] {
         let (width, height, baseline) = match axes {
+            [Some(4), Some(4)] => (4.0, 4.0, 15.0),
             [Some(36), Some(36)] => (36.0, 36.0, 8.0),
             [Some(width @ (28 | 43)), Some(height @ (28 | 43))] => (
                 f64::from(width),

@@ -748,3 +748,34 @@ fn mode_zero_digits_have_measured_height_specific_offsets() {
         assert!(mode_zero_digit_transform(page, [0; 2], [20, 50], style, axes).is_err());
     }
 }
+
+#[test]
+fn four_unit_axes_preserve_measured_em_and_latin_baseline() {
+    let cjk = native_glyph_transform(
+        page(),
+        [4652, 4274],
+        [4672, 4334],
+        0x1084,
+        C8GlyphClass::Cjk,
+        [Some(4); 2],
+    )
+    .unwrap();
+    let latin = native_glyph_transform(
+        page(),
+        [4652, 4274],
+        [4672, 4334],
+        0x10a5,
+        C8GlyphClass::Latin,
+        [Some(4); 2],
+    )
+    .unwrap();
+    close(cjk[0], 4.0 * 75.0 / 301.0);
+    close(cjk[3], cjk[0]);
+    close(latin[0], cjk[0]);
+    close(latin[3], cjk[3]);
+    close(latin[4] - cjk[4], cjk[0] / 8.0);
+    close(
+        cjk[5] - latin[5],
+        15.0 * EMPIRICAL_COORDINATE_POINTS_PER_UNIT,
+    );
+}
