@@ -144,6 +144,27 @@ def font_state_documents():
         yield "transition-" + "-".join(map(str, states)) + ".caj", data
 
 
+def alphabet_documents():
+    """Compare all fullwidth Latin letters to the same-position CJK resource."""
+    for state, mode in ((0, 1), (4, 1), (28, 1), (31, 1), (31, 0)):
+        for kind, first in (("upper", 0xA3C1), ("lower", 0xA3E1), ("cjk", None)):
+            header = bytearray(80)
+            struct.pack_into("<IIII", header, 0, 200, 0, 1, 2)
+            header[16:28] = "北大二扫1.00".encode("gbk")
+            struct.pack_into("<HHHH", header, 28, 4652, 4274, 800, 1000)
+            words = [(0x8002, 0x10A5), (0x801D, state), (0x80CE, mode), (0x8067, 6)]
+            for index in range(28):
+                row, column = divmod(index, 4)
+                if column == 0:
+                    words.append((0x8001, 4334 + row * 130))
+                code = first + index if first is not None and index < 26 else 0xD6D0
+                words.append((4672 + column * 170, code))
+            words.append((0x8004, 1))
+            records = b"".join(struct.pack("<HH", *pair) for pair in words)
+            data = header + struct.pack("<IIIII", 100, len(records), 0, 0, 100 + len(records)) + records
+            yield f"alphabet-{state}-{mode}-{kind}.caj", data
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("output", type=Path, help="new directory outside the repository")
@@ -157,7 +178,8 @@ def main():
         manifest.append({"file": name, "words": words,
                          "sha256": hashlib.sha256(data).hexdigest()})
     for name, data in (*mixed_documents(), *color_documents(), *mode_documents(),
-                       *extended_string_documents(), *font_state_documents()):
+                       *extended_string_documents(), *font_state_documents(),
+                       *alphabet_documents()):
         (args.output / name).write_bytes(data)
         manifest.append({"file": name, "sha256": hashlib.sha256(data).hexdigest()})
     (args.output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")

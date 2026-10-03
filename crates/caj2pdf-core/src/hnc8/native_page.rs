@@ -389,6 +389,7 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
                     _ if self.cjk_mode => {
                         if !character.is_ascii_alphanumeric()
                             && !('\u{3400}'..='\u{9fff}').contains(&character)
+                            && !matches!(code, 0xa3c1..=0xa3da | 0xa3e1..=0xa3fa)
                         {
                             return Err(invalid("unverified C8 CJK-mode glyph placement"));
                         }
@@ -426,7 +427,7 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
                     }
                     0xa3db | 0xa3dd => (C8GlyphClass::Cjk, self.roles.latin, None),
                     0xa1a1 => (C8GlyphClass::Cjk, self.roles.cjk, None),
-                    0xa3ca if self.variant == Variant::C8 => {
+                    0xa3c1..=0xa3da | 0xa3e1..=0xa3fa if self.variant == Variant::C8 => {
                         (C8GlyphClass::Cjk, self.roles.cjk, None)
                     }
                     0xa1a2 => (C8GlyphClass::Latin, latin, None),

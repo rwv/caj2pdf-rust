@@ -331,3 +331,39 @@ MuPDF identifies `HGB1_CNKI`, `HGB1X_CNKI`, then `HGBZ_CNKI` for the first
 sequence and the reversed extended pair followed by `HGHZ_CNKI` for the second.
 All ten font-state inputs reproduce their original bytes. Receipts:
 `c8-font-roles-output/transition-checks.json` and `render-checks.json`.
+
+## Fullwidth alphabet in C8 (#242)
+
+Original `alphabet_documents()` controls cover all 26 uppercase and lowercase
+letters plus two CJK anchors in a seven-row grid. States 0/4/28/31 in ordinary
+mode and state 31 in CJK mode each have uppercase, lowercase and all-CJK
+versions (15 files). All inputs reproduce the captured bytes. Repeated viewer
+page crops are nonblank and equal the corresponding CJK baseline. The identified
+marker resource is HGHT_CNKI, independently of Latin selection.
+
+Explicit drag selection followed by the visible ordinary Copy menu returns
+U+FF21..FF3A and U+FF41..FF5A, respectively. Both clipboard transfers pass the
+independent freshness/complete-transfer validator. An earlier uppercase attempt
+used whole-page selection without a confirmed menu-ready observation and
+returned normalized ASCII; it is excluded from character-mapping evidence.
+The successful drag/menu-ready transaction resolves that ambiguity.
+
+The renderer admits C8 raw `a3c1..a3da` and `a3e1..a3fa` as CJK-resource glyphs,
+including in CJK mode. Existing GB18030 decoding already supplies their Unicode;
+HN-B's separate mode-dependent mapping is unchanged. Original core regressions
+cover all 52 letters across the observed states/modes and compare placement to
+a CJK reference. All 15 CLI controls pass qpdf and independent Unicode/resource
+checks. All ten alphabet PDF renders equal their same-state CJK baseline with
+the original geometric font; this is not original-font pixel fidelity.
+
+External receipts under `caj2pdf-hnb-rendering-20261003`:
+`c8-fullwidth-alphabet-comparison.json`,
+`identified-family-viewer/alphabet-{upper-drag,lower}-copy{,-validation}.json`,
+the corresponding menu-ready captures, and
+`c8-fullwidth-alphabet-output/{checks,render-checks}.json`.
+
+Complete-document retries now reach style `1484`, CJK mode 0, at page-1 byte
+2024 in the four-page input and 2072 in the five-page input. Both still fail
+explicitly with unverified style flags and publish no final PDF. Next verify
+that style's geometry/painting against the existing original style controls;
+do not infer it from its low bits alone. Full-document acceptance remains open.

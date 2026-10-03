@@ -2697,3 +2697,14 @@ with two optional indices and a fixed eight-resource capacity. Existing WASM
 registration exports are preserved; no vendor fonts or foreign code are
 included. See `docs/io-architecture.md` for Rust migration and
 `docs/c8-native-controls.md` for remaining complete-document limits.
+
+### C8 fullwidth alphabet
+
+Original MIT `alphabet_documents()` extends the existing control generator
+with uppercase/lowercase grids and same-position CJK baselines. Independent
+marker-resource, geometry and fresh ordinary-copy observations establish the
+52 fullwidth letters; the existing GB18030 decoder supplies their Unicode.
+Only the observed C8 resource/placement ranges are added to the shared renderer.
+No vendor implementation, fonts, document content or clipboard payload is
+committed. Accepted and excluded observations are listed in
+`docs/c8-native-controls.md`.

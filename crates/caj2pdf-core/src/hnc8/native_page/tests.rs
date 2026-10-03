@@ -1675,7 +1675,7 @@ fn c8_cjk_mode_survives_resource_changes_and_one_restores_latin() {
 }
 
 #[test]
-fn c8_fullwidth_j_uses_cjk_resource_independent_of_latin_selection() {
+fn c8_fullwidth_alphabet_uses_cjk_resource_independent_of_latin_selection() {
     let words = [
         [0x8001, 4350],
         [0x8002, 0x1084],
@@ -1689,15 +1689,20 @@ fn c8_fullwidth_j_uses_cjk_resource_independent_of_latin_selection() {
         .lines()
         .find(|line| line.contains(" Tm "))
         .unwrap();
-    for state in [0, 4] {
+    for (index, code) in (0xa3c1..=0xa3da).chain(0xa3e1..=0xa3fa).enumerate() {
+        let (state, mode) = [(0, 1), (4, 1), (28, 1), (31, 1), (31, 0)][index % 5];
         let words = [
             [0x8001, 4350],
             [0x8002, 0x1084],
             [0x801d, state],
-            [4772, 0xa3ca],
+            [0x80ce, mode],
+            [4772, code],
             [0x8004, 1],
         ];
-        let (result, pdf, finished) = convert(&words, 0, &[], roles(), 11);
+        let mut fonts = roles();
+        fonts.latin_state28 = Some(1);
+        fonts.latin_state31 = Some(2);
+        let (result, pdf, finished) = convert(&words, 0, &[], fonts, 11);
         result.unwrap();
         assert!(finished);
         let text = String::from_utf8_lossy(&pdf);
@@ -1710,7 +1715,10 @@ fn c8_fullwidth_j_uses_cjk_resource_independent_of_latin_selection() {
                 .next(),
             matrix.split(" Tm ").next()
         );
-        assert_eq!(decode_native_character(0xa3ca), Some('Ｊ'));
+        assert_eq!(
+            decode_native_character(code),
+            char::from_u32(u32::from(code) - 0xa3a1 + 0xff01)
+        );
     }
 }
 
