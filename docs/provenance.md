@@ -2899,3 +2899,13 @@ lengths. No external implementation or fabricated probability-table evidence is
 used. Inputs remain SHA-pinned external corpus entries; generated outputs and
 measurement scripts/receipts stay outside Git. Results and measurement limits
 are summarized in `docs/conformance.md`.
+
+## Bounded malformed-profile regression (#262)
+
+`hnc8/compose/tests/malformed.rs` is original MIT test code. Its HN-A paired
+raw/compressed prefixes, HN-B compact/ordinary indexes and C8 mixed pages reuse
+this project's authored fixture bytes, synthetic JPEG generator and original
+geometric font. The HN-B builder is shared with the existing native-document
+tests. Single-field mutations and a finite read-call assertion add no new
+format interpretation or copied document content. This work uses no external
+converter implementation, corpus bytes, fonts or raster captures.
