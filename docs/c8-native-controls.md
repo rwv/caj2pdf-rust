@@ -149,3 +149,42 @@ and byte 296 in `4-[24].caj`. Earlier mixed controls show a resource/placement
 change, so it must not be ignored. Both documents still fail explicitly
 without publishing output. Complete conversion and public runtime acceptance
 remain open in #242.
+
+## Persistent CJK resource/placement mode (#242)
+
+Eight original `mode_documents()` controls establish `80ce/0` as a persistent
+CJK resource/placement selection in the tested C8 mixed context. An initial
+single zero survives subsequent style and ordinary/alternate Latin resource
+controls. Repeating `1,0` produces the same source crop. Repeating `0,1`
+restores the corresponding baseline exactly, including its Latin resource.
+All crops are nonblank and their repeats agree; the earlier zero-mode mixed
+captures agree with the new zero-mode controls.
+
+The existing renderer now retains one boolean per page. Zero selects CJK
+font/geometry for admitted CJK characters and ASCII alphanumerics; one
+restores ordinary raw-code resource selection. Other zero-mode characters
+remain explicit errors until independently established. This is C8-only;
+HN-B zero mode is not inferred. Existing style checks and bounded I/O remain.
+
+All eight original inputs reproduce their captured bytes and convert through
+the CLI with qpdf validation. For each resource state, restored output equals
+baseline PDF bytes, and initial-zero output equals repeated-zero output.
+Independent MuPDF rendering preserves the observed marker-resource change.
+At the viewer's 486% scale, measured filled marker edges differ by 0–3 pixels
+from source; these residuals are reported, not hidden with image registration
+or blanket pixel acceptance. Source interior RGB is `(68,68,68)` and this
+MuPDF RGB rendering produces `(67,68,67)`. The measurement excludes thin
+segments by requiring 15 interior pixels per row/column; it does not establish
+full-page pixel equality or improve the existing segment rasterization.
+
+External receipts: `c8-mode-comparison.json`, `c8-mode-output/checks.json`
+and `c8-mode-output/marker-bounds.json` under the existing
+`caj2pdf-hnb-rendering-20261003` evidence root. Original Rust regressions cover
+persistence, restoration to both Latin resources, variant isolation and
+unknown zero-mode glyphs.
+
+Full four-/five-page conversion now stops at `80cc/0204`, page-1 byte 292/304,
+with first payload `(420,5)` / `(342,5)` respectively. No final PDF is
+published. Resolve that required behavior next; the earlier `(33,5)` probe
+alone does not establish arbitrary values. Complete #242 acceptance remains
+open.

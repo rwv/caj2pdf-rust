@@ -131,6 +131,7 @@ where
         latin: roles.latin,
         skew: 0.0,
         gray: 68,
+        cjk_mode: false,
         variant: header.variant,
         legacy,
     };
@@ -155,6 +156,7 @@ struct PageWriter<'p, 'd, 'a, 'r, W: SequentialSink, C: Cancellation> {
     latin: usize,
     skew: f64,
     gray: u8,
+    cjk_mode: bool,
     variant: Variant,
     legacy: bool,
 }
@@ -253,14 +255,17 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
                 tag: 0x8067,
                 value: 5 | 6 | 8 | 9,
             } => (),
-            // Original mixed controls preserve glyphs, all admitted segment
-            // styles, decoration and images. This concerns rendering only;
-            // the underlying visitor still exposes every raw control payload.
+            // C8 zero mode persists across style/resource selections; one
+            // restores the ordinary per-code resource and placement rules.
+            NativeRecord::Control {
+                tag: 0x80ce,
+                value: 0,
+            } if self.variant == Variant::C8 => self.cjk_mode = true,
             NativeRecord::Control {
                 tag: 0x80ce,
                 value: 1,
-            }
-            | NativeRecord::Control {
+            } => self.cjk_mode = false,
+            NativeRecord::Control {
                 tag: 0x8072,
                 value: 0 | 0x1042 | 0xa3a8 | 0xa0f2,
             }
@@ -360,6 +365,14 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
                 // Select by raw code: Unicode alone does not establish the
                 // resource or placement of the source's symbol variants.
                 let (class, font, baseline_fraction) = match code {
+                    _ if self.cjk_mode => {
+                        if !character.is_ascii_alphanumeric()
+                            && !('\u{3400}'..='\u{9fff}').contains(&character)
+                        {
+                            return Err(invalid("unverified C8 CJK-mode glyph placement"));
+                        }
+                        (C8GlyphClass::Cjk, self.roles.cjk, None)
+                    }
                     0xa0a6
                     | 0xa0ae
                     | 0xa0af

@@ -84,6 +84,29 @@ def color_documents():
         yield f"color-once-{value}.caj", data
 
 
+def mode_documents():
+    """Distinguish persistent CJK mode from resource selection and reset."""
+    from c8_image_fixture import jpeg, mixed_control
+
+    for state in (0, 4):
+        for label, control in (
+            ("baseline", None), ("once-zero", None),
+            ("zero-one", (0x80CE, 0, 0x80CE, 1)),
+            ("one-zero", (0x80CE, 1, 0x80CE, 0)),
+        ):
+            data = bytearray(mixed_control(jpeg(), control))
+            data = data.replace(struct.pack("<HH", 0x801D, 4),
+                                struct.pack("<HH", 0x801D, state))
+            if label == "once-zero":
+                length = struct.unpack_from("<I", data, 84)[0]
+                data[100:100] = struct.pack("<HH", 0x80CE, 0)
+                struct.pack_into("<I", data, 84, length + 4)
+                struct.pack_into("<I", data, 96, len(data))
+                descriptor = 100 + length + 4
+                struct.pack_into("<I", data, descriptor + 4, descriptor + 12)
+            yield f"mode-{state}-{label}.caj", data
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("output", type=Path, help="new directory outside the repository")
@@ -96,7 +119,7 @@ def main():
         (args.output / name).write_bytes(data)
         manifest.append({"file": name, "words": words,
                          "sha256": hashlib.sha256(data).hexdigest()})
-    for name, data in (*mixed_documents(), *color_documents()):
+    for name, data in (*mixed_documents(), *color_documents(), *mode_documents()):
         (args.output / name).write_bytes(data)
         manifest.append({"file": name, "sha256": hashlib.sha256(data).hexdigest()})
     (args.output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")

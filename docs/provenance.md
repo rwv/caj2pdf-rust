@@ -2646,3 +2646,13 @@ one per-page gray byte in the existing composer; no source was copied or
 transliterated. Other color payloads remain explicit errors. See
 `docs/c8-native-controls.md` for independent viewer and MuPDF observations,
 external evidence locations, excluded captures and remaining limitations.
+
+### Additional C8 resource-mode transitions
+
+Original MIT `mode_documents()` controls in the existing native-control
+generator independently distinguish C8 `80ce/0` persistence from style/font
+selection and `80ce/1` restoration. The implementation adds one per-page
+boolean to the shared composer; it copies no third-party implementation.
+`docs/c8-native-controls.md` records the eight repeated viewer controls,
+MuPDF geometry/color residuals, original regressions and unsupported glyph
+scope. External screenshots/documents remain outside Git.

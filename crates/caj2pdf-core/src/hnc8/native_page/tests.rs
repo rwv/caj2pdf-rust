@@ -333,7 +333,7 @@ fn unsupported_content_and_missing_glyphs_poison_the_open_page() {
         vec![[4800, 0xa080]],
         vec![[0x801d, 3]],
         vec![[0x8072, 1]],
-        vec![[0x80ce, 0]],
+        vec![[0x80ce, 0], [4800, 0xa1a1]],
         vec![[0x8073, 43]],
         vec![[0x8074, 0xffff]],
         vec![[0x8006, 0xa384], [4682, 4350], [4912, 4350]],
@@ -1628,5 +1628,25 @@ fn c8_verified_color_control_preserves_black_across_style_and_resource_changes()
             assert!(result.is_err());
             assert!(!finished);
         }
+    }
+}
+
+#[test]
+fn c8_cjk_mode_survives_resource_changes_and_one_restores_latin() {
+    for state in [0, 4] {
+        let mut words = vec![[0x80ce, 0], [0x801d, state]];
+        words.extend(ordinary());
+        words.extend([[0x80ce, 1], [4772, 0xa0c1], [0x8004, 1]]);
+        let (result, pdf, finished) = convert(&words, 0, &[], roles(), 0);
+        result.unwrap();
+        assert!(finished);
+        let text = String::from_utf8_lossy(&pdf);
+        assert_eq!(text.matches("/F0 1 Tf").count(), 2);
+        assert_eq!(
+            text.matches(&format!("/F{} 1 Tf", if state == 0 { 1 } else { 2 }))
+                .count(),
+            1
+        );
+        assert!(convert(&words, 0, &[], roles(), 12).0.is_err());
     }
 }
