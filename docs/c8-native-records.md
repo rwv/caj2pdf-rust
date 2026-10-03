@@ -1970,3 +1970,17 @@ checkpoint must independently verify the missing style/axis metrics, character
 mappings and required drawings before admitting the complete issue-100
 document to the shared renderer. Preserve existing image-only HN-B geometry
 until a change to that path has its own evidence.
+
+A subsequent single-variable HN-B axis experiment retains positions and original
+fonts: style zero alone, width-only `8070/36`, height-only `8071/36`, both axes
+72, and style `1084` with both axes 72. All five captures repeat exactly.
+At 57%, thresholded first-row bounds relative to the same page interior are
+respectively `(40,29,147,32)`, `(40,29,150,32)`, `(40,29,147,35)`, and
+`(40,29,157,42)` for both final cases. The two final page interiors are also
+pixel-identical. This independently demonstrates axis-specific sizing and
+that explicit axes can override a nonzero style; treating these controls as
+ignorable would lose visible geometry. These screen bounds are diagnostics,
+not PDF-unit constants. Derive physical sizing and baseline behavior before
+extending the production transform. External predictions, original source
+hashes and measurements are `axis-controls.json` and `axis-comparison.json`
+in the same receipt directory.
