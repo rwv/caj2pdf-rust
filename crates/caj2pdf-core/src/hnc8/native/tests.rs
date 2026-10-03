@@ -992,6 +992,7 @@ fn additional_controls_preserve_raw_values_without_inventing_glyphs() {
         [0x80d0, 0],
         [0x80d1, 1],
         [0x80d2, 0],
+        [0x80d5, 0],
         [0x9002, 0],
     ];
     for control in controls {
@@ -2146,5 +2147,37 @@ fn c8_radical_is_atomic_and_preserves_following_glyph_context() {
         let mut visitor = Visitor::default();
         assert!(parse(&mut source, TextBudget::default(), &mut visitor).is_err());
         assert!(visitor.events.is_empty());
+    }
+}
+
+#[test]
+fn c8_80d5_preserves_strict_indexed_end_boundaries() {
+    for value in [10, 11] {
+        let mut source = fixture(&[[0x80d5, 0], [0x8004, value], [0x8099, 0]], 0);
+        source.bytes[84..88].copy_from_slice(&8_u32.to_le_bytes());
+        source.short = 1;
+        let mut visitor = Visitor::default();
+        assert_eq!(
+            parse(&mut source, TextBudget::default(), &mut visitor).unwrap(),
+            2
+        );
+        assert_eq!(
+            visitor.events[1],
+            (104, NativeRecord::End { value: Some(value) })
+        );
+        let mut source = fixture(&[[0x80d5, 0], [0x8004, value], [0x8099, 0]], 0);
+        assert!(parse(&mut source, TextBudget::default(), &mut Visitor::default()).is_err());
+    }
+    for length in 1..4_u32 {
+        let mut source = fixture(&[[0x80d5, 0], [0x8004, 1]], 0);
+        source.bytes[84..88].copy_from_slice(&length.to_le_bytes());
+        source.short = 1;
+        let mut visitor = Visitor::default();
+        assert!(parse(&mut source, TextBudget::default(), &mut visitor).is_err());
+        assert!(visitor.events.is_empty());
+    }
+    for value in [1, 0xffff] {
+        let mut source = fixture(&[[0x80d5, value], [0x8004, 1]], 0);
+        assert!(parse(&mut source, TextBudget::default(), &mut Visitor::default()).is_err());
     }
 }

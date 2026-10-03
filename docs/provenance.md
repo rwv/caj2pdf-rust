@@ -2839,3 +2839,11 @@ internal PDF stroke method. A new authored black-state control confirms gray
 inheritance independently. Original parser/composer and sink-failure tests
 cover the change; no viewer binary, font outlines, foreign implementation or
 external source-document content is committed.
+
+### C8 terminal painting control
+
+Original mixed-page controls establish painting preservation for exact `80d5/0`
+and distinguish it from an inserted page end. Indexed span arithmetic resolves
+the real-document end boundary; no external metadata strings are copied or
+opened. Existing bounded control parsing and strict page-end validation are
+reused with original short-read/truncation/boundary regressions.

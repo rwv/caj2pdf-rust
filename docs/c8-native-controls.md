@@ -851,3 +851,35 @@ and `c8-radical-black-observations.json`. Four-page conversion now reaches
 still reaches `80d5/0` at byte 20808 (followed by `8004/10`). Both remain explicit
 failures without a published final PDF. Existing notes marked "pending" above
 record earlier investigation stages; this section is the runtime checkpoint.
+
+## Observed `80d5/0` and indexed page boundaries
+
+The two real first-page spans end at 23192 (start 160, length 23032) and 20816
+(start 180, length 20636). Their final records are `80d5/0` then `8004/11` or
+`8004/10`; the encoded metadata noticed afterward is outside each indexed span.
+This resolves the earlier boundary uncertainty without scanning past the index
+or opening metadata paths.
+
+Eight original `page_end_control_documents()` controls separate this control
+from an actual end marker inside mixed text/vector/decoration/JPEG content.
+All source crops repeat exactly. In states 0 and 4, inserting only `80d5/0`
+preserves the baseline crop exactly. Inserting the following end marker in the
+middle of the page changes the viewer result. The parser therefore admits only
+the exact zero-valued four-byte control and retains its strict rule that C8 end
+must coincide with the indexed text-span end. No trailing-span relaxation is
+introduced. HN-B and nonzero values remain unsupported.
+
+Original tests preserve glyph context with one-byte reads, reject all incomplete
+control lengths, accept end values 10/11 only at the indexed boundary, and prove
+that unknown bytes outside that boundary are not consumed while identical bytes
+inside it cause rejection. Mixed-page output remains identical to its baseline.
+External receipts: `input/c8-80d5/manifest.json`, `c8-80d5-observations.json`, and
+identified-family-viewer `control80d5-*-{a,b}.png` in the existing evidence root.
+
+Actual CLI checks in `c8-80d5-output/checks.json` reproduce all eight controls:
+four positive PDFs pass qpdf and the two control/baseline pairs are byte-identical;
+four mid-span end cases explicitly fail without final output. Both full corpus
+inputs now advance to page 2. The four-page document stops at byte 24624 on
+`810a/d300` (image reference); the five-page document stops at byte 22528 on raw
+`a1de`. Neither publishes a final PDF. Passing page-1 composition is not yet
+independent full-page fidelity or whole-document acceptance.

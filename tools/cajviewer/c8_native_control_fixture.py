@@ -419,6 +419,21 @@ def radical_detail_documents():
                    0xC000 | 4802, 4354, 0xC08F, 125))
 
 
+def page_end_control_documents():
+    """Separate 80d5 painting preservation from an actual in-span end marker."""
+    from c8_image_fixture import jpeg, mixed_control
+
+    for state in (0, 4):
+        for label, words in (
+            ("baseline", ()), ("control", (0x80D5, 0)),
+            ("end10", (0x80D5, 0, 0x8004, 10)),
+            ("end11", (0x80D5, 0, 0x8004, 11)),
+        ):
+            data = mixed_control(jpeg(), words).replace(
+                struct.pack("<HH", 0x801D, 4), struct.pack("<HH", 0x801D, state))
+            yield f"end-control-{state}-{label}.caj", data
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("output", type=Path, help="new directory outside the repository")
@@ -439,7 +454,8 @@ def main():
                        *skew_281c_documents(), *low_letter_documents(),
                        *field1_documents(), *small_bracket_documents(),
                        *state3_documents(), *required_greek_documents(),
-                       *radical_record_documents(), *radical_detail_documents()):
+                       *radical_record_documents(), *radical_detail_documents(),
+                       *page_end_control_documents()):
         (args.output / name).write_bytes(data)
         manifest.append({"file": name, "sha256": hashlib.sha256(data).hexdigest()})
     (args.output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
