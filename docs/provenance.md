@@ -2473,3 +2473,8 @@ The new symbol renderer cases reuse the existing MIT geometry branch after
 original resource-marker and unequal-axis substitution controls establish
 equivalence with admitted `a0a6`. The corresponding PDF regressions extend
 the existing generated-font tests without importing external data.
+
+The explicit-36 axis state and shared geometry path are original MIT changes
+based on the recorded original paired-container, axis-order/reset and
+independent PDF controls. Tests use original generated fonts/records and
+exercise the existing sequential writer; no external implementation is used.

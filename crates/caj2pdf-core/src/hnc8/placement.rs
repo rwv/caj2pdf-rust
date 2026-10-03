@@ -250,8 +250,27 @@ pub fn empirical_c8_glyph_transform(
     style: u16,
     class: C8GlyphClass,
 ) -> Result<[f64; 6]> {
+    native_glyph_transform(page, source_origin, position, style, class, [None; 2])
+}
+
+pub(super) fn native_glyph_transform(
+    page: EmpiricalPageGeometry,
+    source_origin: [u16; 2],
+    position: [u16; 2],
+    style: u16,
+    class: C8GlyphClass,
+    axes: [Option<u16>; 2],
+) -> Result<[f64; 6]> {
     let [left, _, _, top] = page.media_box()?;
-    let (width, height, latin_offset) = if style == 0xe58c && class == C8GlyphClass::Cjk {
+    let (width, height, latin_offset) = if axes != [None; 2] {
+        if axes != [Some(36); 2] {
+            return Err(Error::InvalidInput {
+                reason: "unverified native explicit glyph axes",
+            });
+        }
+        let em = 36.0 * 75.0 / 301.0;
+        (em, em, 8.0)
+    } else if style == 0xe58c && class == C8GlyphClass::Cjk {
         // Original high-magnification controls distinguish explicit 109 from
         // 108/110. Latin baseline and other field-12 flags remain unverified.
         let em = 109.0 * 75.0 / 301.0;

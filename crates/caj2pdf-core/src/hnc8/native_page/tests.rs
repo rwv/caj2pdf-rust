@@ -698,3 +698,67 @@ fn end_payload_does_not_change_rendered_content() {
         assert_eq!(pdf, baseline, "end payload {value:04x}");
     }
 }
+
+#[test]
+fn explicit_axes_override_style_and_reset_at_the_next_style() {
+    let words = [
+        [0x8001, 4394],
+        [0x8002, 0],
+        [0x8070, 36],
+        [0x8071, 36],
+        [5072, 0xa0c1],
+        [0x8002, 0x1084],
+        [5072, 0xa0c1],
+        [0x8004, 1],
+    ];
+    let (result, pdf, finished) = convert(&words, 0, &[], roles(), 0);
+    result.unwrap();
+    assert!(finished);
+    let text = String::from_utf8_lossy(&pdf);
+    let matrices: Vec<Vec<f64>> = text
+        .lines()
+        .filter_map(|line| line.split_once(" Tm "))
+        .map(|(matrix, _)| {
+            matrix
+                .split_whitespace()
+                .map(|x| x.parse().unwrap())
+                .collect()
+        })
+        .collect();
+    assert_eq!(matrices.len(), 2);
+    for (matrix, step) in matrices.iter().zip([36.0, 35.0]) {
+        let em = step * 75.0 / 301.0;
+        assert!((matrix[0] - em).abs() < 0.000001);
+        assert!((matrix[3] - em).abs() < 0.000001);
+        let unit = super::super::EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
+        assert!((matrix[4] - (440.0 * unit + em / 8.0)).abs() < 0.000001);
+        assert!((matrix[5] - (487.0 * unit - em)).abs() < 0.000001);
+    }
+    let mut reversed = words;
+    reversed.swap(2, 3);
+    assert_eq!(convert(&reversed, 0, &[], roles(), 0).1, pdf);
+}
+
+#[test]
+fn unverified_axis_combinations_and_style_specific_offsets_fail_explicitly() {
+    for tail in [
+        vec![[0x8070, 36], [5072, 0xa0c1]],
+        vec![[0x8071, 36], [5072, 0xa0c1]],
+        vec![[0x8070, 36], [0x8071, 36], [5072, 0xa3a8]],
+        vec![
+            [0x8070, 36],
+            [0x8071, 36],
+            [0x8010, 1],
+            [4800, 4400],
+            [5000, 4400],
+        ],
+        vec![[0x8002, 0xe58c], [5072, 0xa3a8]],
+    ] {
+        let mut words = vec![[0x8001, 4394], [0x8002, 0x1084]];
+        words.extend(tail);
+        words.push([0x8004, 1]);
+        let (result, _, finished) = convert(&words, 0, &[], roles(), 0);
+        assert!(result.is_err());
+        assert!(!finished);
+    }
+}

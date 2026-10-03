@@ -5,8 +5,7 @@
 use super::{
     C8GlyphClass, EmpiricalPageGeometry, ErrorKind, Hnc8Reader, Location, NativeRecord,
     NativeRecordVisitor, Result, TextBudget, Variant, decode_native_character,
-    decode_native_image_coordinate, empirical_c8_glyph_transform,
-    empirical_c8_horizontal_decoration, empirical_c8_segment,
+    decode_native_image_coordinate, empirical_c8_horizontal_decoration, empirical_c8_segment,
 };
 use crate::pdf::{ContentPageWriter, FontObject, ImageObject, PdfDocument};
 use crate::{Cancellation, Error, RangedSource, SequentialSink};
@@ -101,6 +100,7 @@ where
         top_first,
         image: 0,
         style: None,
+        axes: [None; 2],
         alternate: false,
     };
     reader.visit_native_records(budget, &mut writer).await?;
@@ -119,6 +119,7 @@ struct PageWriter<'p, 'd, 'a, 'r, W: SequentialSink, C: Cancellation> {
     top_first: &'r [bool],
     image: usize,
     style: Option<u16>,
+    axes: [Option<u16>; 2],
     alternate: bool,
 }
 
@@ -126,7 +127,18 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
     async fn visit(&mut self, _: u64, record: NativeRecord) -> crate::Result<()> {
         match record {
             NativeRecord::Control { tag: 0x8001, .. } => (), // y is carried by each glyph.
-            NativeRecord::Control { tag: 0x8002, value } => self.style = Some(value),
+            NativeRecord::Control { tag: 0x8002, value } => {
+                self.style = Some(value);
+                self.axes = [None; 2];
+            }
+            NativeRecord::Control {
+                tag: 0x8070,
+                value: 36,
+            } => self.axes[0] = Some(36),
+            NativeRecord::Control {
+                tag: 0x8071,
+                value: 36,
+            } => self.axes[1] = Some(36),
             NativeRecord::Control {
                 tag: 0x801d,
                 value: 0,
@@ -162,6 +174,18 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
             NativeRecord::Glyph { x, y, style, code } => {
                 let character = decode_native_character(code)
                     .ok_or_else(|| invalid("unsupported C8 native character"))?;
+                if style == 0xe58c && self.axes == [None; 2] && !('㐀'..='鿿').contains(&character)
+                {
+                    return Err(invalid("unverified large native glyph class"));
+                }
+                if self.axes != [None; 2]
+                    && matches!(
+                        code,
+                        0xa1a4 | 0xa1af | 0xa1b0 | 0xa1b1 | 0xa3a8 | 0xa3a9 | 0xa3db | 0xa3dd
+                    )
+                {
+                    return Err(invalid("unverified explicit-axis punctuation offsets"));
+                }
                 let latin = if self.alternate {
                     self.roles.alternate_latin
                 } else {
@@ -204,8 +228,14 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
                     }
                     _ => return Err(invalid("unverified C8 glyph resource or placement class")),
                 };
-                let mut transform =
-                    empirical_c8_glyph_transform(self.geometry, self.origin, [x, y], style, class)?;
+                let mut transform = super::placement::native_glyph_transform(
+                    self.geometry,
+                    self.origin,
+                    [x, y],
+                    style,
+                    class,
+                    self.axes,
+                )?;
                 if let Some(fraction) = baseline_fraction {
                     // Controlled symbol baselines use independent em height;
                     // resource choice does not imply ordinary Latin geometry.
@@ -270,6 +300,9 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
                 style: 1,
                 points,
             } => {
+                if self.axes != [None; 2] {
+                    return Err(invalid("unverified explicit-axis decoration"));
+                }
                 let (font, alias) = self
                     .roles
                     .decoration

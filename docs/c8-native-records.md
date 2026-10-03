@@ -2118,3 +2118,22 @@ The native page writer therefore reuses its active-Latin, CJK-origin, zero
 baseline-fraction branch for these five codes. Existing Unicode/resource/
 unequal-axis PDF tests include them. No offsets, allocations or new rendering
 abstraction are introduced. HN-B page admission remains separately incomplete.
+
+### Explicit 36-axis composition checkpoint
+
+The shared page writer retains two optional axis words. The independently
+controlled `8070/36` and `8071/36` pair overrides the active style; `8002`
+resets both. Glyph composition uses the existing empirical origin model,
+`36 * 75 / 301` points per em and the observed adjacent-size Latin baseline
+offset of eight source units. Original source/PDF anchor measurements and
+their 1–2-pixel residuals remain recorded above; no pixel compensation or
+parity claim is added. Paired C8/HN-B original controls establish this same
+record behavior; the C8 visitor now also admits these exact control values.
+
+An incomplete pair, other explicit values, unverified size-dependent
+punctuation offsets and explicit-axis decorations remain located errors.
+Large-style non-Han glyphs are likewise refused before indexing ordinary-size
+offset tables. Tests cover actual sequential PDF matrices, axis order, reset
+to ordinary style, partial pairs and failure cases with short reads/writes.
+The state is constant-size and the public ordinary-style helper is unchanged.
+HN-B full-page admission still depends on remaining drawing/control integration.
