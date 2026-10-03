@@ -196,9 +196,13 @@ fn convert(
             let offset = u32::from_be_bytes(table[8..12].try_into().unwrap()) as usize;
             let code = words
                 .iter()
-                .find(|pair| pair[0] < 0x8000 && (pair[1] >= 0xa000 || pair[1] == 0x9ff5))
+                .find(|pair| {
+                    pair[0] < 0x8000 && (pair[1] >= 0xa000 || matches!(pair[1], 0x9ff5 | 0x006c))
+                })
                 .unwrap()[1];
-            let character = if mode == 19 {
+            let character = if code == 0x006c {
+                Some('l')
+            } else if mode == 19 {
                 decode_native_character_for_mode(0, code)
             } else {
                 decode_native_character(code)
@@ -1814,5 +1818,57 @@ fn c8_state_preserves_axes_and_style_reset() {
         words.push([0x8004, 1]);
         let (result, _, finished) = convert(&words, 0, &[], roles(), 0);
         assert!(result.is_err() && !finished);
+    }
+}
+
+#[test]
+fn c8_low_letter_preserves_cjk_resource_and_symbol_baseline_in_both_modes() {
+    for state in [0, 4] {
+        for mode in [0, 1] {
+            for skew in [0x2800, 0x281c] {
+                let mut words = [
+                    [0x8001, 4334],
+                    [0x8002, 0x10a5],
+                    [0x801d, state],
+                    [0x80ce, mode],
+                    [0x8024, skew],
+                    [4672, 0x006c],
+                    [0x8004, 1],
+                ];
+                let (result, pdf, finished) = convert(&words, 0, &[], roles(), 11);
+                assert!(result.is_ok() && finished);
+                let text = String::from_utf8_lossy(&pdf);
+                assert!(text.contains("/F0 1 Tf"));
+                assert!(text.contains("<006C> Tj"));
+                let matrix = text
+                    .lines()
+                    .find_map(|line| line.split_once(" Tm "))
+                    .unwrap()
+                    .0;
+                assert!(convert(&words, 0, &[], roles(), 13).0.is_err());
+                words[0][1] += 15;
+                words[5][1] = 0xd6d0;
+                let (result, reference, _) = convert(&words, 0, &[], roles(), 0);
+                result.unwrap();
+                let reference = String::from_utf8_lossy(&reference);
+                let reference_matrix = reference
+                    .lines()
+                    .find_map(|line| line.split_once(" Tm "))
+                    .unwrap()
+                    .0;
+                for (actual, expected) in matrix
+                    .split_whitespace()
+                    .zip(reference_matrix.split_whitespace())
+                {
+                    let actual: f64 = actual.parse().unwrap();
+                    let expected: f64 = expected.parse().unwrap();
+                    assert!((actual - expected).abs() < 1e-10);
+                }
+            }
+        }
+    }
+    for code in [0x006b, 0x006d] {
+        let words = [[0x8001, 4334], [0x8002, 0x10a5], [4672, code], [0x8004, 1]];
+        assert!(convert(&words, 0, &[], roles(), 0).0.is_err());
     }
 }

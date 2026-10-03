@@ -2765,3 +2765,13 @@ edge residuals instead of fitting compensating offsets. The implementation
 reuses the existing scalar state and PDF matrix. No vendor implementation,
 font data or source-document content is committed; external evidence is listed
 in `docs/c8-native-controls.md`.
+
+### C8 low-byte letter mapping
+
+Original MIT `low_letter_documents()` distinguishes raw `006c` from ordinary
+Latin encoding, checks CJK resource/shifted-reference geometry in both modes,
+and verifies its composition with the measured skew. Fresh ordinary-copy
+evidence establishes U+006C. The exact C8-only mapping uses existing placement
+and font roles; no generic low-byte range or HN-B behavior is inferred. External
+clipboard bytes, fonts and captures stay outside Git. Accepted/excluded captures
+and the one-level grayscale residual are documented in `docs/c8-native-controls.md`.

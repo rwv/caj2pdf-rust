@@ -574,3 +574,46 @@ at C8 `801d/3`, page-1 byte 19552. Neither publishes a final PDF. Verify the
 character's Unicode/resource/geometry independently before assuming it is an
 ASCII scalar or admitting an entire low-byte range. Whole-document acceptance
 remains open in #242.
+
+## Observed C8 low-byte letter `006c` (#242)
+
+Fresh ordinary Copy of the original grid returns 26 U+006C letters plus two CJK
+anchors; the independent validator confirms ownership change and complete UTF-8
+transfer. Resource markers show HGHT_CNKI, not the current Latin font. A CJK
+reference moved down 15 source-coordinate units matches the observed geometry.
+The behavior persists in ordinary/CJK selection modes and resource states 0/4.
+The `a0ec` ordinary-Latin control differs, so equal Unicode does not imply equal
+resource or placement.
+
+Ten original `low_letter_documents()` inputs reproduce their captured bytes.
+The explicit `281c` skew pair also matches its shifted-CJK reference exactly.
+State-4 mode/reference comparisons are pixel-identical. State-0 comparisons
+after reopening have identical glyph bounds but differ by at most one grayscale
+level at 4,196 pixels; this residual is retained. The first state-0 repeat pair
+still had the previous copy selection highlighted and is excluded; the clean
+`low-0-low-clear-{a,b}` pair replaces it. No selected-page image is used as a
+rendering baseline.
+
+Only the C8 page writer maps this exact raw code to U+006C and selects the CJK
+resource with the existing symbol baseline, before mode-dependent ordinary
+classification. The public generic decoder and HN-B admission are unchanged;
+adjacent unverified low-byte codes remain errors. No new font role or buffer is
+needed. Core tests check Unicode, resource, both selection modes, explicit skew,
+15-unit baseline equivalence and HN-B/adjacent-code rejection. Algebraically
+equivalent matrix values use a 1e-10-point comparison because different floating
+operation order can change the last decimal digit.
+
+All ten CLI controls pass qpdf and independent Unicode extraction. Four ordinary
+mode/reference PDF raster pairs and the skewed pair are identical using original
+marker fonts. This does not establish original-font raster parity. External
+receipts under `caj2pdf-hnb-rendering-20261003`:
+`input/c8-low-code/{manifest,additional-manifest,skew-manifest}.json`,
+`c8-low-code-accepted-comparison.json`, `c8-low-code-skew-comparison.json`,
+identified-family-viewer `low-copy{,-validation}.json`, the visible menu-ready
+capture and accepted repeated page captures, and `c8-low-code-output/checks.json`.
+
+The full four-page source now reaches style `1021` (size field 1), page-1 byte
+10048 at raw glyph `a3db`. The five-page source remains at C8 `801d/3`, page-1
+byte 19552. Neither publishes a final PDF. Verify the smaller size and required
+punctuation geometry with existing size controls before admitting it. Complete
+four-/five-page acceptance remains open in #242.

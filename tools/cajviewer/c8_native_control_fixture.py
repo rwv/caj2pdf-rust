@@ -274,6 +274,49 @@ def skew_281c_documents():
             run_words=words + (4672, 0xD6D0, 4852, 0xA0C1))
 
 
+def low_letter_documents():
+    """Distinguish the observed low-byte letter from ordinary Latin rendering."""
+    for name, source in alphabet_documents():
+        if "-1-upper" not in name or name.split("-")[1] not in ("0", "4"):
+            continue
+        state = name.split("-")[1]
+        for label, code in (("low", 0x006C), ("latin", 0xA0EC)):
+            data = bytearray(source)
+            for offset in range(100, len(data), 4):
+                x, value = struct.unpack_from("<HH", data, offset)
+                if x < 0x8000 and 0xA3C1 <= value <= 0xA3DA:
+                    struct.pack_into("<H", data, offset + 2, code)
+            yield f"low-{state}-{label}.caj", data
+            if label != "low":
+                continue
+            mode0 = bytearray(data)
+            struct.pack_into("<H", mode0, 110, 0)
+            yield f"low-{state}-mode0.caj", mode0
+            words, y, reset = [], None, False
+            for offset in range(100, len(data), 4):
+                x, value = struct.unpack_from("<HH", data, offset)
+                if x == 0x8001:
+                    y, reset = value, False
+                    value += 15
+                elif x < 0x8000 and value == 0x006C:
+                    value = 0xD6D0
+                elif x < 0x8000 and value == 0xD6D0 and not reset:
+                    words.append((0x8001, y))
+                    reset = True
+                words.append((x, value))
+            reference = data[:100] + b"".join(struct.pack("<HH", *pair) for pair in words)
+            struct.pack_into("<I", reference, 84, len(reference) - 100)
+            struct.pack_into("<I", reference, 96, len(reference))
+            yield f"low-{state}-shifted-cjk.caj", reference
+            if state == "0":
+                for variant, original in (("low", data), ("shifted-cjk", reference)):
+                    skew = bytearray(original)
+                    skew[116:116] = struct.pack("<HH", 0x8024, 0x281C)
+                    struct.pack_into("<I", skew, 84, len(skew) - 100)
+                    struct.pack_into("<I", skew, 96, len(skew))
+                    yield f"low-{state}-{variant}-skew.caj", skew
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("output", type=Path, help="new directory outside the repository")
@@ -291,7 +334,7 @@ def main():
                        *alphabet_documents(), *field4_style_documents(),
                        *state_axis_documents(), *at_sign_documents(),
                        *record_9002_documents(), *additional_style_documents(),
-                       *skew_281c_documents()):
+                       *skew_281c_documents(), *low_letter_documents()):
         (args.output / name).write_bytes(data)
         manifest.append({"file": name, "sha256": hashlib.sha256(data).hexdigest()})
     (args.output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")

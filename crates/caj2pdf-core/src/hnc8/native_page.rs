@@ -351,8 +351,11 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
                 } else {
                     style
                 };
-                let character = decode_native_character(code)
-                    .ok_or_else(|| invalid("unsupported C8 native character"))?;
+                let character = match (self.variant, code) {
+                    (Variant::C8, 0x006c) => 'l',
+                    _ => decode_native_character(code)
+                        .ok_or_else(|| invalid("unsupported C8 native character"))?,
+                };
                 if style == 0x114a && self.variant != Variant::HnB {
                     return Err(invalid("unverified C8 title style"));
                 }
@@ -398,6 +401,9 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
                 // Select by raw code: Unicode alone does not establish the
                 // resource or placement of the source's symbol variants.
                 let (class, font, baseline_fraction) = match code {
+                    // This observed low-byte C8 letter retains the CJK resource
+                    // and symbol baseline in both glyph-selection modes.
+                    0x006c => (C8GlyphClass::Cjk, self.roles.cjk, Some(0.0)),
                     _ if self.cjk_mode => {
                         if !character.is_ascii_alphanumeric()
                             && !('\u{3400}'..='\u{9fff}').contains(&character)
