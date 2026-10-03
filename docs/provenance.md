@@ -2483,3 +2483,10 @@ The `a385` first-x marker decoder and line regressions are original MIT work
 based on authored horizontal/diagonal HN-B controls and independent C8 wrappers.
 The fixture helper reuses this repository's original C8 record generator;
 external source documents, fonts and captures remain outside Git.
+
+The shared skew state is original MIT code based on original HN-B/C8 paired
+controls, unequal-axis and large-glyph measurements, and an independent PDF
+matrix control. Only exact `8024/2800` and `8024/281d` values are admitted;
+no angle formula or external converter implementation is copied. Original
+fixture/PDF tests and residual raster differences are recorded in
+`c8-native-records.md`; external captures remain outside Git.

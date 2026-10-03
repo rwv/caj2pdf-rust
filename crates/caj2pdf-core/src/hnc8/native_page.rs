@@ -102,6 +102,7 @@ where
         style: None,
         axes: [None; 2],
         alternate: false,
+        skew: false,
     };
     reader.visit_native_records(budget, &mut writer).await?;
     page.finish().await.map_err(source_error)
@@ -121,12 +122,21 @@ struct PageWriter<'p, 'd, 'a, 'r, W: SequentialSink, C: Cancellation> {
     style: Option<u16>,
     axes: [Option<u16>; 2],
     alternate: bool,
+    skew: bool,
 }
 
 impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, '_, '_, '_, W, C> {
     async fn visit(&mut self, _: u64, record: NativeRecord) -> crate::Result<()> {
         match record {
             NativeRecord::Control { tag: 0x8001, .. } => (), // y is carried by each glyph.
+            NativeRecord::Control {
+                tag: 0x8024,
+                value: 0x2800,
+            } => self.skew = false,
+            NativeRecord::Control {
+                tag: 0x8024,
+                value: 0x281d,
+            } => self.skew = true,
             NativeRecord::Control { tag: 0x8002, value } => {
                 self.style = Some(value);
                 self.axes = [None; 2];
@@ -281,11 +291,18 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
                     transform[4] +=
                         f64::from(X_OFFSETS[width]) * super::EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
                 }
+                if self.skew {
+                    // Measured width-relative shear; style changes retain it.
+                    transform[2] = transform[0] * 0.24;
+                }
                 // Original source controls establish this gray for the admitted
                 // ordinary text profile; keep it local to each glyph draw.
                 self.page
                     .glyph_with_gray(font, character, transform, 68)
                     .await?;
+            }
+            NativeRecord::Drawing { .. } | NativeRecord::Image { .. } if self.skew => {
+                return Err(invalid("unverified drawing or image in skewed text state"));
             }
             NativeRecord::Drawing {
                 tag: 0x8006,

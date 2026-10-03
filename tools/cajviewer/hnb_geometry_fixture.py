@@ -75,11 +75,12 @@ def line_control(style, marked, *, diagonal=False, c8_container=False):
     return bytes(c8) if c8_container else hn_container(c8)
 
 
-def skew_control(words, style=0x1084):
-    return hn_container(document(
+def skew_control(words, style=0x1084, *, c8_container=False):
+    data = document(
         [(style, 0, 6)], codes=(0xD6D0,), width=400, height=400,
         first_x=4672, first_y=4374, run_words=words,
-    ))
+    )
+    return data if c8_container else hn_container(data)
 
 
 def main():
@@ -118,6 +119,11 @@ def main():
     ):
         data = skew_control(words)
         filename = f"skew-{name}.caj"
+        (args.output / filename).write_bytes(data)
+        manifest.append({"file": filename, "words": words,
+                         "sha256": hashlib.sha256(data).hexdigest()})
+        data = skew_control(words, c8_container=True)
+        filename = f"skew-c8-{name}.caj"
         (args.output / filename).write_bytes(data)
         manifest.append({"file": filename, "words": words,
                          "sha256": hashlib.sha256(data).hexdigest()})

@@ -2203,3 +2203,21 @@ The original source controls have SHA256 values
 `0234a4a08bf8ce3e1a0188a58a3be642d146620da7e76ea86f23287927a0e520`
 (tilted). These controls use synthetic glyph outlines and contain no copied
 source-document content.
+
+### Shared skew composition
+
+Separately generated C8 wrappers for baseline, active skew, explicit reset and
+style-change persistence match all four HN-B page interiors exactly at 729%;
+all repeated captures match. The page is the same 400-by-400 source canvas,
+with comparison bounds `(648,474,1024,850)`. External receipts are
+`skew-c8-inputs.json` and `skew-c8-comparison.json` in the same evidence root.
+The original fixture generator reproduces these wrappers.
+
+The incremental page writer retains one boolean: `8024/281d` enables the
+measured width-relative shear, `8024/2800` disables it, and `8002` retains it.
+Only the glyph matrix's off-diagonal x component changes. No additional
+buffers, renderer or font lookup is introduced. PDF-matrix regressions cover
+unequal axes, the large controlled glyph, style persistence and explicit reset.
+Drawing/image events while this state is active remain explicit errors pending
+independent mixed-content controls. HN-B page admission and complete-document
+acceptance remain open in #241.
