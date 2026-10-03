@@ -18,23 +18,57 @@ adapter is unimplemented describe the checkpoint in that section, not the curren
 code. Later controls supersede earlier hypotheses only within their tested scope.
 The final runtime checkpoints describe the current resource contract and tests.
 
-### Outstanding six-page comparison
+### Six-page comparison and decoration classification
 
-Fresh pinned offline viewer captures on 2026-10-02 identify an unresolved page-6
-decoration difference. At 100% viewer zoom and a 96-DPI PDF raster, a threshold
-of all RGB channels below 128 produces 96 separate horizontal dark runs in the
-source decoration and 45 in the PDF. These are pixel runs, not proven glyph
-counts. The PDF uses an explicitly substituted decoration font. Outline
-multiplicity/extent and repetition placement must be distinguished before
-attributing the difference to fonts or to the converter. Do not claim source
-fidelity from the matching runtime hashes or dismiss this difference as sampling.
+Fresh pinned offline viewer captures on 2026-10-02 were inspected against the
+96-DPI CLI PDF renders. Pages 2, 4 and 5 preserve the visible code/prose blocks,
+subscript examples and page-4 footnote; pages 1 and 3 preserve their figures and
+surrounding content; page 6 preserves both abstract/reference blocks and their
+divider. This is page-level visual inspection, not an independent transcription
+of every character. Explicit diagnostic font substitution changes face, weight,
+bearings and spacing, including visibly crowded punctuation. It is not a claim
+of source-font fidelity or universal pixel parity.
 
 The page-6 viewer is bottom-aligned: its inspected interior is
 `(495,203,1154,1168)`, not the common page-1–5 crop. The corrected interior repeats
 identically. The previous fixed crop included a tail of the preceding page and
-must not be cited as full page-6 coverage. External captures and the quantified
-receipt `page6-decoration-review.json` remain in
-`caj2pdf-c8-six-page-review-20261002`; no source text, font or capture is committed.
+must not be cited as full page-6 coverage.
+
+The apparent 96-versus-45 decoration discrepancy has two distinct causes:
+
+- Replacing only the viewer's decoration resource with the existing original
+  quarter-em rectangle produces 48 separate marks at 100% and 51 at 57% on the
+  same source page. Repeated captures match. The source's active style is `10a5`
+  and the horizontal span is 4,800 source units. Observed start steps are about
+  13 and 7 pixels, consistent with the previously controlled integer screen-em
+  requests. The fixed PDF nominal em is `42 * 75 / 301` points; its span admits
+  45 marks. A screen-zoom-dependent count is not a fixed document glyph count.
+- Original `decoration-size5-single-double` contains only two spans, 105 and
+  210 source units, at style `10a5`. At confirmed 1448% zoom, the rectangle
+  resource produces one/two marks while the unmodified viewer resource produces
+  two/four arrow shapes. Both captures repeat. This independently distinguishes
+  glyph outline multiplicity from repeat count without reading vendor outlines.
+  The public CLI converts this same original fixture with the original rectangle
+  font; qpdf accepts its PDF. The screenshot names include an attempted `900`
+  entry, but only the visibly confirmed 1448% zoom is used as evidence.
+
+Keep the nominal physical-unit decoration rule and explicit caller alias; do
+not double the repeat count or add a source-specific offset to imitate one
+screen zoom. A caller-supplied single triangle remains a visible substitution
+for the viewer's two-arrow glyph. These controls classify this discrepancy;
+they do not establish arbitrary font equivalence or exact raster parity.
+
+Independent MuPDF text tracing of the six-page CLI PDF yields exactly the
+source visitor's Unicode sequence on each page: 1,015 / 1,338 / 840 / 986 / 801 /
+1,658 glyphs (6,638 total). The 45 nonsemantic decoration marks are separate.
+This verifies that PDF transport did not lose/reorder decoded glyphs; it does
+not independently validate the decoder's character mapping. Original mapping
+controls remain the evidence for those rules.
+
+External evidence stays in `caj2pdf-c8-six-page-review-20261002`,
+`caj2pdf-c8-decoration-source-control-20261002` (`measurement.json` and
+`discriminating-controls.json`), and `caj2pdf-c8-render-preview-20261001`
+(`unicode-transport-checkpoint.json`). No source text, font or capture is committed.
 
 ## Historical observations
 

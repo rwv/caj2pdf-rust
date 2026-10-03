@@ -360,6 +360,18 @@ def main():
     (args.output / f"{name}.caj").write_bytes(data)
     manifest.append({"name": name, "lengths": lengths, "run_words": words,
                      "bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()})
+    # Distinguish multiple contours in one decoration glyph from repetition.
+    # At the confirmed 1448% viewer scale these spans emit one and two
+    # original rectangular glyphs, versus two and four vendor arrow shapes.
+    name = "decoration-size5-single-double"
+    words = (0x8010, 1, 4712, 4400, 4817, 4400,
+             0x8010, 1, 4712, 4600, 4922, 4600)
+    data = document([(0x10A5, 0, 6)], codes=(), run_words=words,
+                    width=600, height=600)
+    (args.output / f"{name}.caj").write_bytes(data)
+    manifest.append({"name": name, "lengths": (105, 210),
+                     "style": 0x10A5, "run_words": words, "bytes": len(data),
+                     "sha256": hashlib.sha256(data).hexdigest()})
     for suffix, control, font in (("state4", 4, 6), ("font9", 0, 9)):
         name = f"decoration-resource-{suffix}"
         words = (0x8010, 1, 4900, 4800, 9200, 4800)
