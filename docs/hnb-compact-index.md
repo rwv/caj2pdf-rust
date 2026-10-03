@@ -1213,3 +1213,28 @@ This checkpoint does not close #241/#250: final-head three-document
 regressions, the acceptance/test audit, review and CI remain required.
 Bookmarks remain #221 and measured peak memory remains #222. Unknown
 image-after-text operations still return explicit errors.
+
+
+### Final runtime regression and late-failure audit
+
+The `400a099` conversion implementation was rebuilt and all three selected
+inputs rerun through CLI, Node and real Chromium Worker. Each runtime retains
+the complete output hash recorded above for issue-100, issue-63 and issue-65;
+all native PDFs pass qpdf. Node and Worker scratch receipts are empty after
+each conversion. External files use the `final400a099` suffix. These runs do
+not add a new fidelity or peak-memory claim.
+
+The acceptance audit reuses existing short-read/write and parser span tests.
+`hnb_truncated_record_keeps_the_next_page_unread_and_poisons_cursor` and
+`hnb_truncated_image_does_not_consume_the_following_page` cover HN-B page
+boundaries; `hnb_native_document_streams_every_compact_page_and_keeps_late_errors_located`
+covers a complete first/second page followed by a located third-page failure.
+Shared codec, source/output fault and cancellation tests remain applicable.
+
+An uncovered public-adapter case is now explicit: an original two-page HN-B
+input with an unknown second-page record. Node and real Worker require a
+page-2 HNC8 error, evidence that the first-page glyph was written, no PDF EOF,
+and empty scratch. The portable CLI test first converts the valid control,
+then corrupts its second page and verifies that the existing destination is
+unchanged and staging files are removed. These tests add no external fixture
+or alternative conversion path.

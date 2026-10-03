@@ -69,6 +69,21 @@ try {
     if (native.pagesConverted !== pages) throw new Error("native C8/HN-B page count mismatch");
     nativePdfs.push(pdf);
   }
+  const lateInput = syntheticNativeHnb();
+  const lateView = new DataView(lateInput.buffer);
+  lateView.setUint16(lateView.getUint32(228, true), 0x8099, true);
+  const lateParts = [];
+  try {
+    await convert(module, blobSource(new Blob([lateInput])), {
+      async writeChunk(bytes) { lateParts.push(...bytes); return bytes.length; }, async flush() {},
+    }, { includeBookmarks: false, chunkSize: 32, hnc8: { fonts: { cjk: font, latin: font, alternateLatin: font }, scratch } });
+    throw new Error("late HN-B record unexpectedly succeeded");
+  } catch (error) {
+    if (error.code !== "HNC8" || !/page 2/.test(error.message)) throw error;
+  }
+  const latePdf = new TextDecoder().decode(new Uint8Array(lateParts));
+  if (!latePdf.includes("<0041> Tj") || latePdf.includes("%%EOF")) throw new Error("late HN-B failure did not preserve unfinished first-page output");
+  if (!scratch.every((store) => store.size === 0n)) throw new Error("late HN-B failure left scratch data");
   const fontFailures = [];
   for (const mode of ["missing-glyph", "read-error", "cancel"]) {
     const input = syntheticNativeC8();

@@ -143,3 +143,20 @@ test("HN-B state-3 Latin resource is required and failure clears scratch", async
     assert.ok(scratch.every((store) => store.size === 0n));
   });
 });
+
+
+test("HN-B late unknown record leaves unfinished output and clears scratch", async () => {
+  const bytes = syntheticNativeHnb();
+  const view = new DataView(bytes.buffer);
+  view.setUint16(view.getUint32(228, true), 0x8099, true);
+  const parts = [];
+  await withHnc8Scratch(async (scratch) => {
+    await assert.rejects(convert(await newInstance(), source(bytes), sink(parts), {
+      includeBookmarks: false, hnc8: { fonts: roles(source(fontBytes)), scratch },
+    }), (error) => error.code === "HNC8" && /page 2/.test(error.message));
+    assert.ok(scratch.every((store) => store.size === 0n));
+  });
+  const pdf = Buffer.concat(parts).toString("latin1");
+  assert.ok(pdf.includes("<0041> Tj"), "first page must have been written");
+  assert.ok(!pdf.includes("%%EOF"), "failure must not finalize the PDF");
+});
