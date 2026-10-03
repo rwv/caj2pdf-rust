@@ -813,40 +813,45 @@ fn unverified_axis_combinations_and_style_specific_offsets_fail_explicitly() {
 
 #[test]
 fn skew_uses_width_survives_style_changes_and_resets_explicitly() {
-    for style in [0x1067, 0x10e3, 0xe58c] {
-        let words = [
-            [0x8001, 4394],
-            [0x8002, style],
-            [4682, 0xd6d0],
-            [0x8024, 0x281d],
-            [4682, 0xd6d0],
-            [0x8002, style],
-            [4682, 0xd6d0],
-            [0x8024, 0x2800],
-            [4682, 0xd6d0],
-            [0x8004, 1],
-        ];
-        let (result, pdf, finished) = convert(&words, 0, &[], roles(), 0);
-        result.unwrap();
-        assert!(finished);
-        let text = String::from_utf8_lossy(&pdf);
-        let matrices: Vec<Vec<f64>> = text
-            .lines()
-            .filter_map(|line| line.split_once(" Tm "))
-            .map(|(matrix, _)| {
-                matrix
-                    .split_whitespace()
-                    .map(|x| x.parse().unwrap())
-                    .collect()
-            })
-            .collect();
-        assert_eq!(matrices.len(), 4);
-        assert_eq!(matrices[0], matrices[3]);
-        assert_eq!(matrices[1], matrices[2]);
-        assert_eq!(matrices[0][2], 0.0);
-        assert!((matrices[1][2] - matrices[0][0] * 0.24).abs() < 0.000001);
-        for index in [0, 1, 3, 4, 5] {
-            assert_eq!(matrices[0][index], matrices[1][index]);
+    for (control, factor, mode, styles) in [
+        (0x281d, 0.24, 0, &[0x1067, 0x10e3, 0xe58c][..]),
+        (0x2815, 0.105, 12, &[0x1084, 0x10a5, 0x10a4, 0x08a5][..]),
+    ] {
+        for style in styles {
+            let words = [
+                [0x8001, 4394],
+                [0x8002, *style],
+                [4682, 0xd6d0],
+                [0x8024, control],
+                [4682, 0xd6d0],
+                [0x8002, *style],
+                [4682, 0xd6d0],
+                [0x8024, 0x2800],
+                [4682, 0xd6d0],
+                [0x8004, 1],
+            ];
+            let (result, pdf, finished) = convert(&words, 0, &[], roles(), mode);
+            result.unwrap();
+            assert!(finished);
+            let text = String::from_utf8_lossy(&pdf);
+            let matrices: Vec<Vec<f64>> = text
+                .lines()
+                .filter_map(|line| line.split_once(" Tm "))
+                .map(|(matrix, _)| {
+                    matrix
+                        .split_whitespace()
+                        .map(|x| x.parse().unwrap())
+                        .collect()
+                })
+                .collect();
+            assert_eq!(matrices.len(), 4);
+            assert_eq!(matrices[0], matrices[3]);
+            assert_eq!(matrices[1], matrices[2]);
+            assert_eq!(matrices[0][2], 0.0);
+            assert!((matrices[1][2] - matrices[0][0] * factor).abs() < 0.000001);
+            for index in [0, 1, 3, 4, 5] {
+                assert_eq!(matrices[0][index], matrices[1][index]);
+            }
         }
     }
 }

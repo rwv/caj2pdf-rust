@@ -430,6 +430,22 @@ def state_three_punctuation_controls():
             ))
 
 
+def small_skew_controls():
+    for style in (0x1084, 0x10A5, 0x10A4):
+        for value in (0x2800, 0x2815, 0x281D):
+            yield f"skew21-{style:04x}-{value:04x}", skew_control((0x8024, value), style)
+    for name, words in (
+        ("base", ()), ("active", (0x8024, 0x2815)),
+        ("reset", (0x8024, 0x2815, 0x8024, 0x2800)),
+        ("style", (0x8024, 0x2815, 0x8002, 0x08A5)),
+    ):
+        yield f"skew21-latin-{name}", hn_container(document(
+            [(0x08A5, 3, 6)], codes=(), width=300, height=250,
+            first_x=4672, first_y=4294,
+            run_words=words + (4672, 0xD6D0, 4792, 0xA0C1),
+        ))
+
+
 def title_style_controls():
     """Compare the required mode-2 title with the independently calibrated form."""
     for style in (0x114A, 0x154A):
@@ -613,7 +629,7 @@ def main():
         manifest.append({"file": filename, "code": code, "alternate": alt, "dx": dx,
                          "x": x, "y": y, "sha256": hashlib.sha256(data).hexdigest()})
     for name, data in (*end_controls(), *issue63_style_controls(), *native_mode_controls(),
-                       *legacy_geometry_controls(), *legacy_metric_controls(), *legacy_run_controls(), *legacy_digit_controls(), *legacy_line_width_controls(), *legacy_symbol_grids(), *legacy_hyphen_controls(), *title_style_controls(), *resource_three_controls(), *state_three_punctuation_controls(), *normal_style_flag_controls(), *state_axis_reset_controls(), *legacy_state_controls(), *legacy_state_controls(0x80CE, 1, "statece1"), *legacy_metadata_controls(), *legacy_symbol_controls()):
+                       *legacy_geometry_controls(), *legacy_metric_controls(), *legacy_run_controls(), *legacy_digit_controls(), *legacy_line_width_controls(), *legacy_symbol_grids(), *legacy_hyphen_controls(), *title_style_controls(), *resource_three_controls(), *state_three_punctuation_controls(), *small_skew_controls(), *normal_style_flag_controls(), *state_axis_reset_controls(), *legacy_state_controls(), *legacy_state_controls(0x80CE, 1, "statece1"), *legacy_metadata_controls(), *legacy_symbol_controls()):
         filename = name + ".caj"
         (args.output / filename).write_bytes(data)
         manifest.append({"file": filename, "sha256": hashlib.sha256(data).hexdigest()})

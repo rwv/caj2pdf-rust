@@ -129,7 +129,7 @@ where
         style: None,
         axes: [None; 2],
         latin: roles.latin,
-        skew: false,
+        skew: 0.0,
         variant: header.variant,
         legacy,
     };
@@ -152,7 +152,7 @@ struct PageWriter<'p, 'd, 'a, 'r, W: SequentialSink, C: Cancellation> {
     style: Option<u16>,
     axes: [Option<u16>; 2],
     latin: usize,
-    skew: bool,
+    skew: f64,
     variant: Variant,
     legacy: bool,
 }
@@ -173,11 +173,15 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
             NativeRecord::Control {
                 tag: 0x8024,
                 value: 0x2800,
-            } => self.skew = false,
+            } => self.skew = 0.0,
             NativeRecord::Control {
                 tag: 0x8024,
                 value: 0x281d,
-            } => self.skew = true,
+            } => self.skew = 0.24,
+            NativeRecord::Control {
+                tag: 0x8024,
+                value: 0x2815,
+            } if self.variant == Variant::HnB => self.skew = 0.105,
             NativeRecord::Control { tag: 0x8002, value } => {
                 self.style = Some(value);
                 self.axes = [None; 2];
@@ -419,9 +423,9 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
                     transform[4] +=
                         f64::from(X_OFFSETS[width]) * super::EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
                 }
-                if self.skew {
+                if self.skew != 0.0 {
                     // Measured width-relative shear; style changes retain it.
-                    transform[2] = transform[0] * 0.24;
+                    transform[2] = transform[0] * self.skew;
                 }
                 // Original source controls establish this gray for the admitted
                 // ordinary text profile; keep it local to each glyph draw.
@@ -429,7 +433,7 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
                     .glyph_with_gray(font, character, transform, 68)
                     .await?;
             }
-            NativeRecord::Drawing { .. } | NativeRecord::Image { .. } if self.skew => {
+            NativeRecord::Drawing { .. } | NativeRecord::Image { .. } if self.skew != 0.0 => {
                 return Err(invalid("unverified drawing or image in skewed text state"));
             }
             NativeRecord::Drawing {

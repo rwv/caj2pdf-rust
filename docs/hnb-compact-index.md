@@ -1047,3 +1047,29 @@ not readable-font identity or universal rendering parity.
 The issue-65 retry now reaches page 1 byte 1532 (`8024/2815`) after the complete
 bracketed run. That required control remains unsupported, no final PDF is
 published, and full six-page acceptance under #241/#250 remains open.
+
+### Smaller native shear (`8024/2815`)
+
+Original `small_skew_controls()` compare reset, `2815` and existing `281d`
+across styles `1084`, `10a5` and rectangular `10a4`. Measured left-edge slopes
+for `2815` are approximately -0.1048, -0.1046 and -0.1267 respectively; the
+rectangular case establishes width-relative rather than height-relative shear.
+The admitted coefficient is 0.105 times glyph width. The existing `281d`
+coefficient remains 0.24; no rule for other raw values is inferred.
+
+Separate `08a5` controls retain CJK and state-3 Latin anchors. Reset `2800`
+returns exactly to the baseline crop, and a style record preserves active
+shear; each capture repeats identically. Thirteen original controls convert
+and pass qpdf. MuPDF's rectangular output edge slope is approximately -0.1252
+versus the viewer's -0.1267, with pixel rounding/rasterizer residuals still
+explicit. This is controlled transform evidence, not universal pixel parity.
+
+External receipts are `skew21-inputs.json`, `skew21-comparison.json`,
+`skew21-edge-fit.json`, and `skew21-latin-comparison.json` under the existing
+`caj2pdf-hnb-rendering-20261003` evidence root. The new value is HN-B-specific;
+C8 admission and unresolved drawing/image behavior remain unchanged.
+
+The real issue-65 input now reaches page 1 byte 1944, where paired explicit
+43 axes precede a required glyph. Those axes remain unverified by this change,
+so the conversion fails explicitly and publishes no final PDF. The earlier
+brackets and intervening repeated shear/reset records no longer block it.
