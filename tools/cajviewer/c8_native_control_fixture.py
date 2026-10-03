@@ -390,6 +390,17 @@ def required_greek_documents():
             run_words=(0x80CE, 1))
 
 
+def delta_infinity_documents():
+    """Compare required delta/infinity with the existing symbol baseline."""
+    from c8_style_fixture import document as style_document
+
+    for state in (0, 3, 4):
+        yield f"delta-infinity-{state}.caj", style_document(
+            [(0x10A5, state, 6)], codes=(0xA6C4, 0xA1DE, 0xA3AC, 0xA0C1),
+            width=1600, height=500, first_x=4672, first_y=4334,
+            run_words=(0x80CE, 1))
+
+
 def radical_record_documents():
     """Investigate observed radical drawing framing without admitting it."""
     from c8_style_fixture import document as style_document
@@ -541,7 +552,7 @@ def main():
                        *page_end_control_documents(), *field0_documents(),
                        *radical_alias_documents(), *low_p_documents(),
                        *radical_value_documents(), *control_80d3_documents(),
-                       *opaque_73_74_documents()):
+                       *opaque_73_74_documents(), *delta_infinity_documents()):
         (args.output / name).write_bytes(data)
         manifest.append({"file": name, "sha256": hashlib.sha256(data).hexdigest()})
     (args.output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")

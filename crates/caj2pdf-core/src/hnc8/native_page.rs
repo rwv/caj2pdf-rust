@@ -471,7 +471,7 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
                     0xa1c6 | 0xa1c8 | 0xa9aa | 0xaab3 | 0xaca3 => {
                         (C8GlyphClass::Cjk, self.roles.latin, Some(0.0))
                     }
-                    0xa6c5 | 0xa6c8 if self.variant == Variant::C8 => {
+                    0xa1de | 0xa6c4 | 0xa6c5 | 0xa6c8 if self.variant == Variant::C8 => {
                         (C8GlyphClass::Cjk, latin, Some(0.0))
                     }
                     0xa0ad if self.variant == Variant::HnB => (C8GlyphClass::Cjk, latin, Some(0.0)),

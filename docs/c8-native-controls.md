@@ -1035,3 +1035,29 @@ its baseline byte for byte. External receipts under the existing root:
 page-2 composition and stops at page 3 byte 65359 on a glyph placement/resource
 error. The five-page source remains at page 2 byte 22528. Neither publishes
 a final PDF. Passing composition is not independent whole-page fidelity.
+
+
+### Delta and infinity symbol placement
+
+Original `delta_infinity_documents()` controls use states 0/3/4 with raw
+`a6c4`, `a1de`, the existing comma geometry reference and ordinary Latin A.
+Fresh ordinary Copy confirms U+03B4 and U+221E through independently validated
+clipboard ownership/revision and a complete UTF-8 transfer. The comma control
+again returns U+0082 from the viewer; this anomaly is retained and is not used
+to infer its Unicode mapping.
+
+All three clean source capture pairs repeat exactly. Font markers are
+23/22/63 for states 0/3/4. Delta, infinity and the symbol reference have equal
+vertical bounds; ordinary Latin A has its distinct baseline. The existing
+symbol transform and current Latin resource therefore cover both new glyphs.
+The implementation adds only these verified C8 cases. Existing symbol tests
+check Unicode, all three resources, baseline equality and HN-B rejection;
+unverified neighboring Greek codes remain errors.
+
+Three generated controls reproduce byte for byte, pass CLI/qpdf and extract
+`δ∞，A` (ignoring layout whitespace). External receipts under the existing root:
+`input/c8-next-symbols/manifest.json`, `c8-next-symbols-copy.json`,
+`c8-next-symbols-observations.json`, and `c8-delta-infinity-output/checks.json`.
+The four-page source now stops at page 3 byte 68355 (`a1c1`); the five-page
+source advances to page 2 byte 36168 (`a6b8`). Neither publishes a final PDF.
+Full-document and original-font visual acceptance remain outstanding.
