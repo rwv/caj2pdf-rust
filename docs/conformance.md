@@ -146,6 +146,43 @@ PDF page permutation, malformed bitmap extents, oracle identity mismatches,
 invalid inspection metadata, missing output and timeout/error classification.
 They are not substitutes for an external corpus run or CAJViewer comparison.
 
+### Optimized CLI preflight after the HN/C8 increments
+
+The 2026-10-03 release-mode preflight of reviewed implementation `4910da9`
+completed all 56 pinned inputs; input inventory and binary hashes were unchanged.
+This deliberately repeats the original font-free invocation policy. It does not
+replace the separate explicit-font HN-B/C8 checkpoints below.
+
+| Family | Inputs | At least one successful conversion |
+| --- | ---: | ---: |
+| HN-A | 19 | 19 |
+| HN-B | 3 | 0 |
+| C8 | 5 | 2 (bookmark omission) |
+| CAJ | 17 | 12 |
+| KDH | 3 | 3 |
+| PDF | 2 | 2 |
+| TEB | 7 | 0 (recognized, unsupported) |
+
+All successful conversions pass PDF syntax, page-count, source-order and
+applicable source-outline checks. Rendered-page pixels are NOT_RUN in this
+runner. The 38 successful inputs compare with 34 in the old baseline: issue-30,
+issue-43, issue-7, issue-85 Zhouli and issue-92 now succeed; issue-20 now fails.
+The issue-20 change must remain explicit: its old output had qpdf warning status
+3, and the previously recorded 40,022-byte object-4 payload independently fails
+zlib 1.3.1 checksum validation. Reading only its declared 40,020 bytes leaves
+zlib incomplete. Current validated Length repair refuses this corrupt stream;
+there is no new claim of an independently justified content repair. Historical
+source-order/outline success was not full rendering acceptance.
+
+The remaining font-free HN-B/C8 failures do not negate their separate
+caller-font conversions, and are not new evidence for speculative format rules.
+The earlier debug run was intentionally interrupted and is not a completed
+compatibility result. External receipts and candidate binary hash are in
+`caj2pdf-hnb-rendering-20261003/corpus-4910da9-release-preflight.json`, its
+summary, and `issue20-zlib-check.json`. This is preflight evidence; #222 still
+requires the actual packaged release candidate, peak-memory scope, bookmarks
+and hardening delivery before release acceptance.
+
 ### Unreleased native C8 checkpoint
 
 The raw six-page `issue-66` profile now has an explicit-font conversion path

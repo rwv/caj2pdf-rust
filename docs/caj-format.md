@@ -117,6 +117,14 @@ the parser must not apply a sample-specific permutation as a format rule.
 
 ## One observed PDF-fragment anomaly
 
+Current behavior after validated Flate Length repair is stricter than the
+historical output described here: the 2026-10-03 optimized corpus preflight
+rejects object 4. Independent zlib 1.3.1 decoding of its observed 40,022-byte
+payload reports an incorrect data check; the declared 40,020-byte prefix does
+not reach stream end. The old output's qpdf warning was not a clean corruption
+repair. Preserve this located rejection unless a unique content-preserving rule
+is independently established; do not fix the checksum by guesswork.
+
 The `issue-20` PDF body contains six stream dictionaries whose literal
 `/Length` values stop before the actual payload ends. The measured byte count
 from immediately after `stream\r\n` to immediately before the following

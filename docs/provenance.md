@@ -2857,3 +2857,20 @@ establishes descriptor ordering and geometry. Both native image forms share one
 placement helper. Opaque reference bytes never trigger external file access.
 Original interleaved-text, orientation and invalid-geometry tests supplement the
 existing bounded parser tests; no foreign decoder or document data is copied.
+
+
+## Packaged native-font acceptance (#222)
+
+The npm artifact test extends its existing fresh-consumer Node and Chromium
+Worker checks with the original `syntheticNativeC8` fixture at font states
+3/28/31 and the repository's original geometric font. Fonts and input files
+are test assets outside the npm tarball; the artifact file inventory remains
+unchanged. Each distinct state resource is registered through the actual
+packaged JavaScript/WASM, PDF syntax is checked independently, and Node/Worker
+bytes and cleanup are compared. No external content or converter code is used.
+
+The optimized corpus preflight and the separate issue-20 checksum observation
+use already pinned external inputs and black-box PDF/zlib tools. Only counts,
+locations and diagnoses are documented; original files, derived PDFs and
+uncompressed stream content remain outside Git. A checksum error establishes
+a rejection boundary, not a newly inferred repair rule.
