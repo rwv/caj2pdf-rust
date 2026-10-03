@@ -343,13 +343,14 @@ pub fn empirical_c8_horizontal_decoration(
     })
 }
 
-/// Evaluate endpoints for observed C8 `8006/a381`, `a383` and `a38b` segments.
+/// Evaluate endpoints for observed native `8006/a381`, `a383`, `a385` and `a38b` segments.
 /// Callers must establish the record tag separately. Emit these endpoints with
 /// the existing PDF segment writer's zero width (device-dependent hairline).
 /// The empirical source margin is independent of text/decoration baselines.
 /// Raster width and antialiasing differ across PDF renderers; this is not a
-/// pixel-parity guarantee. Unknown styles are rejected, including `a385` whose
-/// framing alone does not establish the same rendering semantics.
+/// pixel-parity guarantee. For independently controlled `a385`, paired `c000`
+/// bits in the first x word mark its low 14-bit coordinate. Other words retain
+/// their raw values. Unknown styles are rejected.
 ///
 /// Endpoints retain order and signed off-page positions. This allocation-free
 /// evaluator performs no font selection or complete-page admission.
@@ -360,12 +361,16 @@ pub fn empirical_c8_segment(
     style: u16,
 ) -> Result<[[f64; 2]; 2]> {
     let [left, _, _, top] = page.media_box()?;
-    if !matches!(style, 0xa381 | 0xa383 | 0xa38b) {
+    if !matches!(style, 0xa381 | 0xa383 | 0xa385 | 0xa38b) {
         return Err(Error::InvalidInput {
             reason: "unverified C8 segment style",
         });
     }
     let unit = EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
+    let mut points = points;
+    if style == 0xa385 && points[0][0] & 0xc000 == 0xc000 {
+        points[0][0] &= 0x3fff;
+    }
     Ok(points.map(|[x, y]| {
         [
             left + (f64::from(x) - f64::from(source_origin[0]) + 20.0) * unit,

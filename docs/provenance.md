@@ -2478,3 +2478,8 @@ The explicit-36 axis state and shared geometry path are original MIT changes
 based on the recorded original paired-container, axis-order/reset and
 independent PDF controls. Tests use original generated fonts/records and
 exercise the existing sequential writer; no external implementation is used.
+
+The `a385` first-x marker decoder and line regressions are original MIT work
+based on authored horizontal/diagonal HN-B controls and independent C8 wrappers.
+The fixture helper reuses this repository's original C8 record generator;
+external source documents, fonts and captures remain outside Git.

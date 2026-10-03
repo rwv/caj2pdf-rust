@@ -293,7 +293,7 @@ fn unsupported_content_and_missing_glyphs_poison_the_open_page() {
         vec![[0x8072, 1]],
         vec![[0x8073, 43]],
         vec![[0x8074, 0xffff]],
-        vec![[0x8006, 0xa385], [4682, 4350], [4912, 4350]],
+        vec![[0x8006, 0xa384], [4682, 4350], [4912, 4350]],
         vec![[0x8004, 0]],
     ] {
         let mut words = ordinary();

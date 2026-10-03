@@ -50,12 +50,29 @@ def control(style, words, *, anchor=False, codes=None):
     else:
         c8 = document([(style, 0, 6)] * (1 if codes is not None else 3),
                       run_words=words, codes=codes)
+    return hn_container(c8)
+
+
+def hn_container(c8):
     header = bytearray(216)
     struct.pack_into("<III", header, 0, 0x4E48, 200, 136)
     struct.pack_into("<IIII", header, 136, 0, 0, 1, 2)
     header[152:164] = c8[16:28]
     header[164:172] = c8[28:36]
     return bytes(header) + struct.pack("<III", 228, len(c8) - 100, 0) + c8[100:]
+
+
+def line_control(style, marked, *, diagonal=False, c8_container=False):
+    x = 4757 | (0xc000 if marked else 0)
+    c8 = bytearray(document(
+        [(0x1084, 0, 6)], codes=(0xD6D0, 0xA0C1), width=2000, height=1000,
+        drawing=(0x8006, style, x - 5200), drawing_dy=0,
+    ))
+    if diagonal:
+        struct.pack_into("<HH", c8, 32, 400, 400)
+        struct.pack_into("<HHHH", c8, 104, 4690 | (0xc000 if marked else 0),
+                         4350, 4900, 4500)
+    return bytes(c8) if c8_container else hn_container(c8)
 
 
 def main():
@@ -78,6 +95,15 @@ def main():
         (args.output / filename).write_bytes(data)
         manifest.append({"file": filename, "codes": order,
                          "sha256": hashlib.sha256(data).hexdigest()})
+    for diagonal in (False, True):
+        for name, style, marked in (("ordinary", 0xA381, False),
+                                    ("a385-low", 0xA385, False),
+                                    ("a385-marked", 0xA385, True)):
+            filename = "line-" + ("diagonal-" if diagonal else "") + name + ".caj"
+            data = line_control(style, marked, diagonal=diagonal)
+            (args.output / filename).write_bytes(data)
+            manifest.append({"file": filename, "style": style, "marked": marked,
+                             "sha256": hashlib.sha256(data).hexdigest()})
     (args.output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
 
 

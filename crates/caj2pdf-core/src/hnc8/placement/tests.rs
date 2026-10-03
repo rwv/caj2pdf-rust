@@ -553,7 +553,7 @@ fn c8_segments_reproduce_independent_axes_and_preserve_endpoint_order() {
         empirical_c8_segment(page, [100, 100], [[0, 0], [u16::MAX, u16::MAX]], 0xa381).unwrap();
     assert!(off_page[0][0] < 0.0);
     assert!(off_page[1][1] < 0.0);
-    for style in [0xa385, 0xa382, 1] {
+    for style in [0xa384, 0xa382, 1] {
         assert!(empirical_c8_segment(page, [0, 0], [[0, 0], [1, 1]], style).is_err());
     }
     let mut invalid = page;
@@ -646,6 +646,27 @@ fn large_cjk_control_uses_verified_em_and_existing_signed_origin() {
         assert!(
             empirical_c8_glyph_transform(page(), [0, 0], [0, 0], style, C8GlyphClass::Cjk,)
                 .is_err()
+        );
+    }
+}
+
+#[test]
+fn a385_line_marker_preserves_independently_checked_endpoints() {
+    for points in [[[4757, 4800], [6300, 4800]], [[4690, 4350], [4900, 4500]]] {
+        let expected = empirical_c8_segment(page(), [4652, 4274], points, 0xa381).unwrap();
+        let mut marked = points;
+        marked[0][0] |= 0xc000;
+        assert_eq!(
+            empirical_c8_segment(page(), [4652, 4274], points, 0xa385).unwrap(),
+            expected
+        );
+        assert_eq!(
+            empirical_c8_segment(page(), [4652, 4274], marked, 0xa385).unwrap(),
+            expected
+        );
+        assert_ne!(
+            empirical_c8_segment(page(), [4652, 4274], marked, 0xa381).unwrap(),
+            expected
         );
     }
 }

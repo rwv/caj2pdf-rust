@@ -2137,3 +2137,23 @@ offset tables. Tests cover actual sequential PDF matrices, axis order, reset
 to ordinary style, partial pairs and failure cases with short reads/writes.
 The state is constant-size and the public ordinary-style helper is unchanged.
 HN-B full-page admission still depends on remaining drawing/control integration.
+
+### Verified `a385` line start marker
+
+The first issue-100 page contains `a385` endpoints `(53909,5026)` and
+`(9235,5026)`. Treating 53909 literally would draw from outside its canvas.
+Original HN-B controls compare `a381`, plain `a385`, and `a385` with only
+`c000` set on the first x word. Their horizontal interiors are identical at
+146%. A held-out small-page diagonal with different endpoints agrees at 729%;
+all repeats match. Separately authored C8 wrappers for the ordinary and marked
+diagonal also match the HN-B reference. Hashes and captures are recorded in
+`line-controls.json`, `line-diagonal-inputs.json`, `line-comparison.json`,
+`line-diagonal-comparison.json` and `line-diagonal-c8-comparison.json` under
+`caj2pdf-hnb-rendering-20261003`. The generator reproduces all six HN-B inputs.
+
+The existing segment evaluator now admits `a385`, clearing the paired `c000`
+bits only in its first x coordinate. Other words and other styles retain raw
+values. It shares the independently established endpoint/origin and hairline
+output with ordinary segments. Original regressions cover both geometries and
+retain distinct behavior for another style's high coordinate. Raw inspection
+records are unchanged; no blanket coordinate mask or new renderer is added.
