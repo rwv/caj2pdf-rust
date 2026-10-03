@@ -331,6 +331,21 @@ def field1_documents():
             first_y=4334, run_words=(*words, 4672, 0xD6D0, 4752, 0xA0C1))
 
 
+def small_bracket_documents():
+    """Separate bracket resource/axes from overlapping neighboring glyphs."""
+    from c8_style_fixture import document as style_document
+
+    for style, dx, dy in ((0x1021, 21, 3), (0x1022, 21, 1), (0x1041, 24, 3)):
+        for state in (0, 4):
+            for label, code in (("open", 0xA3DB), ("close", 0xA3DD)):
+                yield f"{style:04x}-{state}-{label}.caj", style_document(
+                    [(style, state, 6)], codes=(), width=200, height=200,
+                    first_y=4334, run_words=(4672, code))
+        yield f"{style:04x}-reference.caj", style_document(
+            [(style, 0, 6)], codes=(), width=200, height=200,
+            first_y=4334 + dy - 15, run_words=(4672 + dx, 0xA3AC))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("output", type=Path, help="new directory outside the repository")
@@ -349,7 +364,7 @@ def main():
                        *state_axis_documents(), *at_sign_documents(),
                        *record_9002_documents(), *additional_style_documents(),
                        *skew_281c_documents(), *low_letter_documents(),
-                       *field1_documents()):
+                       *field1_documents(), *small_bracket_documents()):
         (args.output / name).write_bytes(data)
         manifest.append({"file": name, "sha256": hashlib.sha256(data).hexdigest()})
     (args.output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")

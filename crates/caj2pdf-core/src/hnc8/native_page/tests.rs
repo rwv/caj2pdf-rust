@@ -612,6 +612,9 @@ fn ideographic_space_and_punctuation_keep_distinct_resources_and_baselines() {
 #[test]
 fn square_brackets_keep_ordinary_resource_under_alternate_state() {
     for (style, x_offset, down) in [
+        (0x1021, 21.0, 3.0),
+        (0x1022, 21.0, 1.0),
+        (0x1041, 24.0, 3.0),
         (0x1067, 27.0, -15.0),
         (0x10e3, 48.0, -1.0),
         (0x1048, 24.0, -18.0),
@@ -1876,9 +1879,7 @@ fn c8_low_letter_preserves_cjk_resource_and_symbol_baseline_in_both_modes() {
 #[test]
 fn small_glyph_punctuation_is_rejected_before_regular_offset_lookup() {
     for style in [0x1021, 0x1022, 0x1041] {
-        for code in [
-            0xa1a4, 0xa1af, 0xa1b0, 0xa1b1, 0xa3a8, 0xa3a9, 0xa3db, 0xa3dd,
-        ] {
+        for code in [0xa1a4, 0xa1af, 0xa1b0, 0xa1b1, 0xa3a8, 0xa3a9] {
             let words = [[0x8001, 4350], [0x8002, style], [4682, code], [0x8004, 1]];
             let (result, _, finished) = convert(&words, 0, &[], roles(), 13);
             let error = result.unwrap_err();

@@ -365,7 +365,17 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
                 {
                     return Err(invalid("unverified large native glyph class"));
                 }
-                let axis_offset = if self.variant == Variant::HnB {
+                let axis_offset = if self.variant == Variant::C8
+                    && self.axes == [None; 2]
+                    && matches!(code, 0xa3db | 0xa3dd)
+                {
+                    match style {
+                        0x1021 => Some((21.0, 3.0)),
+                        0x1022 => Some((21.0, 1.0)),
+                        0x1041 => Some((24.0, 3.0)),
+                        _ => None,
+                    }
+                } else if self.variant == Variant::HnB {
                     match (self.axes, code) {
                         ([Some(43), Some(43)], 0xa3a8) => Some((27.0, -4.0)),
                         ([Some(43), Some(43)], 0xa1b0 | 0xa1b1 | 0xa3a9) => Some((25.0, -4.0)),
@@ -401,6 +411,7 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
                     code,
                     0xa1a4 | 0xa1af | 0xa1b0 | 0xa1b1 | 0xa3a8 | 0xa3a9 | 0xa3db | 0xa3dd
                 ) && self.axes == [None; 2]
+                    && axis_offset.is_none()
                     && (!matches!((style >> 5) & 31, 2..=8) || !matches!(style & 31, 2..=8))
                 {
                     return Err(invalid("unverified native punctuation size fields"));

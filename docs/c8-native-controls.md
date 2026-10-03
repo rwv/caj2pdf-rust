@@ -644,3 +644,33 @@ admitted fields are at least 2. The writer now rejects unverified punctuation
 fields before lookup, with all eight affected raw punctuation codes covered
 at the three new styles. The four-page input stops explicitly at byte 10048
 rather than panicking or publishing a partial final PDF.
+
+## Field-1 square brackets
+
+Original `small_bracket_documents()` isolates both square brackets under states
+0/4 for `1021`, `1022`, and `1041`, plus three shifted fullwidth-comma references.
+All 15 source crops are nonblank and repeat identically. Bracket markers identify
+the ordinary HGBZ_CNKI resource even under alternate state. The observed offsets
+are (21,3), (21,1), and (24,3) source units respectively, applied to the existing
+CJK-class transform; width and height controls distinguish the two axes.
+
+At 1457%, bracket bounds relative to the page crop are (113,91)-(229,206),
+(113,87)-(229,221), and (119,91)-(254,206). Shifted-comma references have matching
+horizontal bounds but their vertical bounds are one pixel higher. Translating
+those reference crops by one pixel does not make all raster pixels identical;
+retain this residual rather than applying a renderer-specific correction.
+The earlier two-glyph exploratory control has overlapping glyphs and is not
+used for isolated bounds. No new font or generic punctuation rule is inferred.
+
+External receipts: `input/c8-small-brackets-isolated/manifest.json`,
+`c8-small-brackets-observations.json`, `c8-small-brackets-comparison.json`, and
+`identified-family-viewer/small-bracket-*-{a,b}.png`, under the existing evidence
+root. Unknown small-field punctuation and explicit-axis brackets still fail
+before the ordinary size-offset table lookup.
+
+All 15 generated inputs reproduce exactly and pass CLI conversion, qpdf and
+independent Unicode extraction. `c8-small-brackets-output/checks.json` records
+0–2 pixel PDF/viewer edge residuals without hiding the shifted-reference
+mismatch. The full four-page input now reaches byte 19296 (`801d/3`); the
+five-page input reaches the same state at byte 19552. Neither is a complete
+conversion yet.
