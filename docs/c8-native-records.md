@@ -1941,3 +1941,32 @@ is not a total browser/process peak measurement. Receipts remain external:
 `native-browser-six-page-checkpoint.json` in
 `caj2pdf-c8-render-preview-20261001`. CLI font-path syntax, output protection
 and substitution limits are documented in `docs/cli.md`.
+
+### Paired HN-B/C8 geometry controls (issue #241)
+
+At HN-B framing checkpoint `210c846`, three original single-page control
+streams were wrapped separately in C8 and compact HN-B containers. They use
+original geometric fonts, not vendor glyph outlines. The controls cover:
+
+- A fourteen-row style grid: `0000`, `04e7`, `0842`, `0884`, `0c84`, `0cc6`,
+  `1042`, `1064`, `1084`, `10a5`, `14e7`, `e58c`, `08a5`, and `10c6`.
+- Style zero with independent `8070/0024` and `8071/0024` axis controls.
+- A nonzero header-origin change, with unchanged glyph coordinates.
+
+In the pinned offline viewer at 57%, each C8/HN-B pair has identical pixels
+inside the independently identified page interior `(648, 387, 1023, 936)`;
+each capture also matches its repeat. The earlier comparison crop started
+above this single-page frame and omitted part of the blank footer; the
+corrected full-interior comparison retains all three matches. External input
+hashes, screenshot hashes and comparisons are in
+`caj2pdf-hnb-rendering-20261003/geometry-controls.json` and
+`geometry-comparison.json`. External captures and fonts remain outside Git.
+
+These controls establish agreement between the two container interpretations
+for these streams. They do not establish PDF fidelity, a formula for new size
+fields, or complete HN-B support. In particular, style zero visibly renders
+glyphs and cannot be discarded as empty content. The next implementation
+checkpoint must independently verify the missing style/axis metrics, character
+mappings and required drawings before admitting the complete issue-100
+document to the shared renderer. Preserve existing image-only HN-B geometry
+until a change to that path has its own evidence.
