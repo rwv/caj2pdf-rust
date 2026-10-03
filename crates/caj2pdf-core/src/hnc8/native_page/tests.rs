@@ -1903,7 +1903,9 @@ fn small_glyph_punctuation_is_rejected_before_regular_offset_lookup() {
 fn c8_required_symbols_follow_latin_state_and_symbol_baseline() {
     for (state, font) in [(0, 1), (3, 0), (4, 2)] {
         for (code, unicode) in [
+            (0xa1c1, "00D7"),
             (0xa1de, "221E"),
+            (0xa6b8, "03A9"),
             (0xa6c4, "03B4"),
             (0xa6c5, "03B5"),
             (0xa6c8, "03B8"),

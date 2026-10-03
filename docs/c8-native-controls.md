@@ -1061,3 +1061,25 @@ Three generated controls reproduce byte for byte, pass CLI/qpdf and extract
 The four-page source now stops at page 3 byte 68355 (`a1c1`); the five-page
 source advances to page 2 byte 36168 (`a6b8`). Neither publishes a final PDF.
 Full-document and original-font visual acceptance remain outstanding.
+
+
+### Multiplication and capital omega
+
+Original `times_omega_documents()` controls independently confirm U+00D7 and
+U+03A9 by fresh ordinary Copy with validated clipboard transfer. Three clean
+repeated source crops show font markers 23/22/63 for states 0/3/4 and the same
+vertical bounds as the existing symbol reference. The viewer's comma-copy
+U+0082 anomaly remains separately recorded. The two verified C8 cases reuse
+the current-Latin symbol path; HN-B remains unchanged.
+
+All three generated controls reproduce, pass CLI/qpdf and extract `×Ω，A`
+(ignoring layout whitespace). Existing symbol tests cover Unicode, resource
+selection and exact transform equivalence across the three states. Receipts
+under the existing external root: `input/c8-times-omega/manifest.json`,
+`c8-times-omega-copy.json`, `c8-times-omega-observations.json`, and
+`c8-times-omega-output/checks.json`.
+
+Both real inputs now pass page-1 through page-3 composition. The four-page
+source stops at page 4 byte 180746 and the five-page source at page 4 byte
+249257, both on glyph resource/placement errors. Neither publishes a final
+PDF. Composition progress does not establish independent full-page fidelity.
