@@ -2,9 +2,13 @@
 
 ## Unreleased
 
-- Speed up native HN/C8 scratch I/O: `FileScratch` caches its length and
-  uses positioned reads/writes, removing a `statx` and `lseek` per request
-  (36.6M to 13.5M system calls on a 163-page HN-A input; output unchanged).
+- Recognize a PDF whose `%PDF-` header follows other bytes (a newline, UTF-8
+  byte-order mark, or junk line) within the first 1,024 bytes when no other
+  signature matches at byte 0, in the CLI and auto-detecting JS API. Its
+  offsets are read relative to the header and the leading bytes are dropped
+  from the output (#300). Core adds `detect_source`, `Detection`, and
+  `PDF_HEADER_SEARCH_BYTES`; `detect_format` now also matches the displaced
+  header within its prefix.
 - TEB diagnostics now say the input is a DRM-encrypted CNKI container whose
   document content cannot be converted; `inspect --json` adds
   `"unsupported_reason":"drm-encrypted"` for TEB. Exit status is unchanged.
