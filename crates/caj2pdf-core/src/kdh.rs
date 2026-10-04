@@ -14,7 +14,8 @@ use crate::{
 use std::cmp::min;
 
 const PDF_START: u64 = 254;
-const HEADER_SIGNATURE: &[u8; 32] = b"KDH 2.00 Copyright(C) 2000 CAJCD";
+/// The only measured KDH wrapper signature, at offset zero.
+pub const HEADER_SIGNATURE: &[u8; 32] = b"KDH 2.00 Copyright(C) 2000 CAJCD";
 const XOR_KEY: &[u8; 6] = b"FZHMEI";
 const SCAN_CHUNK: usize = 64 * 1024;
 const HISTORY_BYTES: usize = 160;

@@ -134,17 +134,23 @@ mod cli {
                 input,
                 json,
                 bookmarks,
+                pages,
             } => {
                 let mut input = open_input(&input, limits.max_input_bytes)?;
-                let info = document::inspect(&mut input, &limits)?;
+                let info = document::inspect(&mut input, &limits, pages)?;
                 warn(&info.outline);
-                print(|out| {
-                    if json {
-                        report::write_json(out, &info, bookmarks)
-                    } else {
-                        report::write_text(out, &info, bookmarks)
-                    }
-                })
+                let mut stdout = io::stdout().lock();
+                if json {
+                    report::write_json(&mut stdout, &info, bookmarks, pages)
+                } else {
+                    report::write_text(&mut stdout, &info, bookmarks, pages)
+                }
+                .map_err(stdout_error)?;
+                if pages {
+                    let mut writer = report::Pages::new(&mut stdout, json);
+                    document::write_pages(&mut input, &limits, &info, &mut writer)?;
+                }
+                stdout.flush().map_err(stdout_error)
             }
             Command::AddBookmarks {
                 outline,

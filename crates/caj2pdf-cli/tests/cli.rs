@@ -1430,3 +1430,268 @@ fn native_c8_font_failures_preserve_inputs_and_atomic_output() {
         ["alias.ttf", "font.ttf", "input.c8", "out.pdf"]
     );
 }
+
+/// Four HN-A pages: valid raw records, paired raw records with an unknown
+/// end tag, a descriptor whose payload passes the end of the input, and a
+/// page row whose text span does.
+fn diagnostic_hn() -> Vec<u8> {
+    let original = image_hn();
+    let index = 0x15c;
+    let mut bytes = original[..index].to_vec();
+    bytes.resize(index + 4 * 20, 0);
+    put_u32(&mut bytes, 0x90, 4);
+    for page in 0..3 {
+        let text = bytes.len();
+        if page == 1 {
+            for word in [0x8003_u16, 100, 0x8003, 200] {
+                bytes.extend(word.to_le_bytes());
+            }
+        }
+        bytes.extend_from_slice(&original[index + 20..]);
+        let length = if page == 1 { 40 } else { 32 };
+        let descriptor = text + length;
+        put_u32(&mut bytes, index + page * 20, text as u32);
+        put_u32(&mut bytes, index + page * 20 + 4, length as u32);
+        bytes[index + page * 20 + 8] = 1;
+        put_u32(&mut bytes, descriptor + 4, (descriptor + 12) as u32);
+        match page {
+            1 => bytes[descriptor - 4..descriptor - 2].copy_from_slice(&0x8005_u16.to_le_bytes()),
+            2 => put_u32(&mut bytes, descriptor + 8, 1 << 30),
+            _ => {}
+        }
+    }
+    let beyond = bytes.len() as u32 + 100;
+    put_u32(&mut bytes, index + 60, beyond);
+    put_u32(&mut bytes, index + 64, 4);
+    bytes
+}
+
+const HN_STRUCTURE_TEXT: &str = "Format: HN\nVariant: HN-A\n\
+    Conversion: experimental (caller codec states may be required)\n";
+
+#[test]
+fn inspect_pages_reports_structure_without_content() {
+    let scratch = Scratch::new("inspect-pages");
+    scratch.write("image.hn", &image_hn());
+    let output = scratch.run(["inspect", "image.hn", "--pages"]);
+    assert_success(&output);
+    assert_eq!(
+        stdout(&output),
+        format!(
+            "{HN_STRUCTURE_TEXT}Pages: 1\nOutline: no\nBookmarks: 0\n\
+             Page index: 348+20 (20-byte rows)\nNative mode: unknown\nNative origin: unknown\n\
+             Page size: 100 200\nApplication info: none\n\
+             Page 1: text 368+32, images [type 0 at 412+49], framing raw (2 records)\n"
+        )
+    );
+    let output = scratch.run(["inspect", "--json", "--pages", "image.hn"]);
+    assert_success(&output);
+    assert_eq!(
+        stdout(&output),
+        concat!(
+            r#"{"schema_version":1,"format":"HN","variant":"HN-A","conversion_supported":true,"#,
+            r#""page_count":1,"has_outline":false,"bookmark_count":0,"outline_warnings":0,"#,
+            r#""structure":{"page_index_offset":348,"page_index_length":20,"page_row_bytes":20,"#,
+            r#""native_mode":null,"native_origin":null,"page_size":[100,200],"application_info":null},"#,
+            r#""pages":[{"page":1,"text_offset":368,"text_length":32,"image_count":1,"#,
+            r#""images":[{"type":0,"offset":412,"length":49}],"text_framing":"raw","text_records":2,"#,
+            r#""text_decoded_length":null,"text_error":null,"error":null}]}"#,
+            "\n"
+        )
+    );
+    scratch.write("native.c8", &native_c8_pages(false));
+    let output = scratch.run(["inspect", "--json", "--pages", "native.c8"]);
+    assert_success(&output);
+    assert_eq!(
+        stdout(&output),
+        concat!(
+            r#"{"schema_version":1,"format":"C8","variant":"C8","conversion_supported":true,"#,
+            r#""page_count":2,"has_outline":null,"bookmark_count":null,"outline_warnings":null,"#,
+            r#""structure":{"page_index_offset":80,"page_index_length":40,"page_row_bytes":20,"#,
+            r#""native_mode":2,"native_origin":[0,0],"page_size":[100,200],"application_info":null},"#,
+            r#""pages":[{"page":1,"text_offset":120,"text_length":48,"image_count":1,"#,
+            r#""images":[{"type":0,"offset":180,"length":49}],"text_framing":"native","#,
+            r#""text_records":6,"text_decoded_length":null,"text_error":null,"error":null},"#,
+            r#"{"page":2,"text_offset":229,"text_length":16,"image_count":0,"images":[],"#,
+            r#""text_framing":"native","text_records":4,"text_decoded_length":null,"#,
+            r#""text_error":null,"error":null}]}"#,
+            "\n"
+        )
+    );
+    // An application-info trailer is located, never decoded.
+    let mut tailed = native_c8_pages(false);
+    let start = tailed.len();
+    tailed.extend(format!("opaque APPINFOSIGN {start}").as_bytes());
+    scratch.write("tailed.c8", &tailed);
+    let output = scratch.run(["inspect", "--pages", "tailed.c8"]);
+    assert_success(&output);
+    let expected = format!(
+        "Application info: {} bytes at {start}\n",
+        tailed.len() - start
+    );
+    assert!(stdout(&output).contains(&expected), "{}", stdout(&output));
+    scratch.write("empty.c8", &c8());
+    scratch.write("empty.hn", &hn());
+    let empty = "Native mode: 0\nNative origin: 0 0\nPage size: 0 0\nApplication info: none\n";
+    let page = "text 0+0, images [], framing none (0 records)\n";
+    for (input, expected) in [
+        (
+            "empty.c8",
+            format!(
+                "Format: C8\nVariant: C8\n\
+                 Conversion: experimental (caller codec states may be required)\n\
+                 Pages: 1\nOutline: unknown\nPage index: 80+20 (20-byte rows)\n\
+                 {empty}Page 1: {page}"
+            ),
+        ),
+        (
+            "empty.hn",
+            format!(
+                "Format: HN\nVariant: HN-B\n\
+                 Conversion: experimental (caller codec states may be required)\n\
+                 Pages: 2\nOutline: unknown\nPage index: 216+40 (20-byte rows)\n\
+                 {empty}Page 1: {page}Page 2: {page}"
+            ),
+        ),
+    ] {
+        let output = scratch.run(["inspect", "--pages", input]);
+        assert_success(&output);
+        assert_eq!(stdout(&output), expected);
+    }
+}
+
+#[test]
+fn inspect_pages_reports_each_malformed_page_and_continues() {
+    let scratch = Scratch::new("inspect-pages-errors");
+    scratch.write("bad.hn", &diagnostic_hn());
+    let output = scratch.run(["inspect", "bad.hn", "--pages"]);
+    assert_success(&output);
+    assert_eq!(
+        stdout(&output),
+        format!(
+            "{HN_STRUCTURE_TEXT}Pages: 4\nOutline: no\nBookmarks: 0\n\
+             Page index: 348+80 (20-byte rows)\nNative mode: unknown\nNative origin: unknown\n\
+             Page size: 100 200\nApplication info: none\n\
+             Page 1: text 428+32, images [type 0 at 472+49], framing raw (2 records)\n\
+             Page 2: text 521+40, images [type 0 at 573+49], text error: HN/C8 HN-A at byte \
+             521, page 2: malformed decoded text record: unknown control tag\n\
+             Page 3: text 622+32, images [], error: HN/C8 HN-A at byte 658, page 3, image 1: \
+             truncated image payload: expected 1073741824 bytes, available 49\n\
+             Page 4: error: HN/C8 HN-A at byte 408, page 4: truncated text span: \
+             expected 4 bytes, available 0\n"
+        )
+    );
+    let output = scratch.run(["inspect", "bad.hn", "--pages", "--json"]);
+    assert_success(&output);
+    let pages = concat!(
+        r#""pages":[{"page":1,"text_offset":428,"text_length":32,"image_count":1,"#,
+        r#""images":[{"type":0,"offset":472,"length":49}],"text_framing":"raw","text_records":2,"#,
+        r#""text_decoded_length":null,"text_error":null,"error":null},"#,
+        r#"{"page":2,"text_offset":521,"text_length":40,"image_count":1,"#,
+        r#""images":[{"type":0,"offset":573,"length":49}],"text_framing":null,"text_records":null,"#,
+        r#""text_decoded_length":null,"text_error":"HN/C8 HN-A at byte 521, page 2: "#,
+        r#"malformed decoded text record: unknown control tag","error":null},"#,
+        r#"{"page":3,"text_offset":622,"text_length":32,"image_count":1,"images":[],"#,
+        r#""text_framing":null,"text_records":null,"text_decoded_length":null,"text_error":null,"#,
+        r#""error":"HN/C8 HN-A at byte 658, page 3, image 1: truncated image payload: "#,
+        r#"expected 1073741824 bytes, available 49"},"#,
+        r#"{"page":4,"text_offset":null,"text_length":null,"image_count":null,"images":[],"#,
+        r#""text_framing":null,"text_records":null,"text_decoded_length":null,"text_error":null,"#,
+        r#""error":"HN/C8 HN-A at byte 408, page 4: truncated text span: "#,
+        r#"expected 4 bytes, available 0"}]}"#,
+        "\n"
+    );
+    assert!(stdout(&output).ends_with(pages), "{}", stdout(&output));
+    // Conversion of the same input still fails.
+    assert_failure(&scratch.run(["bad.hn", "-o", "out.pdf"]), 1, "page 2");
+}
+
+#[test]
+fn inspect_pages_reports_other_formats_and_kdh_signatures() {
+    let scratch = Scratch::new("inspect-pages-formats");
+    let pdf = fixture("valid_nested_outline.pdf");
+    scratch.write("paper.caj", &caj(OUTLINE));
+    scratch.write("doc.kdh", &kdh(&pdf));
+    let mut other = kdh(&pdf);
+    other[4..8].copy_from_slice(b"3.00");
+    scratch.write("other.kdh", &other);
+    let unavailable = "Page structure: not available for";
+    let known = r#""page_count":2,"has_outline":true,"#;
+    let unknown = r#""page_count":null,"has_outline":null,"#;
+    let kdh_json = |pages: &str, signature: &str, supported: bool| {
+        format!(
+            r#"{{"schema_version":1,"format":"KDH","variant":null,"conversion_supported":true,{pages}"bookmark_count":null,"outline_warnings":null,"structure":{{"kdh_signature":"KDH {signature} Copyright(C) 2000 CAJCD","kdh_signature_supported":{supported}}},"pages":null}}"#
+        ) + "\n"
+    };
+    for (input, text, json) in [
+        (
+            "paper.caj",
+            format!(
+                "Format: CAJ\nConversion: supported\nPages: 3\nOutline: yes\nBookmarks: 3\n\
+                 {unavailable} CAJ input\n"
+            ),
+            concat!(
+                r#"{"schema_version":1,"format":"CAJ","variant":null,"conversion_supported":true,"#,
+                r#""page_count":3,"has_outline":true,"bookmark_count":3,"outline_warnings":0,"#,
+                r#""structure":null,"pages":null}"#,
+                "\n"
+            )
+            .to_owned(),
+        ),
+        (
+            "doc.kdh",
+            format!(
+                "Format: KDH\nConversion: supported\nPages: 2\nOutline: yes\n\
+                 KDH signature: \"KDH 2.00 Copyright(C) 2000 CAJCD\" (supported)\n\
+                 {unavailable} KDH input\n"
+            ),
+            kdh_json(known, "2.00", true),
+        ),
+        (
+            "other.kdh",
+            format!(
+                "Format: KDH\nConversion: supported\nPages: unknown\nOutline: unknown\n\
+                 KDH signature: \"KDH 3.00 Copyright(C) 2000 CAJCD\" (unsupported)\n\
+                 {unavailable} KDH input\n"
+            ),
+            kdh_json(unknown, "3.00", false),
+        ),
+    ] {
+        let output = scratch.run(["inspect", input, "--pages"]);
+        assert_success(&output);
+        assert_eq!(stdout(&output), text);
+        let output = scratch.run(["inspect", input, "--pages", "--json"]);
+        assert_success(&output);
+        assert_eq!(stdout(&output), json);
+    }
+    // Without --pages a different KDH signature remains an error.
+    assert_failure(
+        &scratch.run(["inspect", "other.kdh"]),
+        1,
+        "KDH signature is invalid",
+    );
+}
+
+#[test]
+fn a_failing_stdout_sink_stops_the_page_report() {
+    let scratch = Scratch::new("inspect-pages-full");
+    scratch.write("image.hn", &image_hn());
+    scratch.write("paper.caj", &caj(OUTLINE));
+    for (input, json) in [("image.hn", false), ("image.hn", true), ("paper.caj", true)] {
+        let mut args = vec!["inspect", input, "--pages"];
+        if json {
+            args.push("--json");
+        }
+        let output = scratch
+            .command(args)
+            .stdout(File::create("/dev/full").unwrap())
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(1));
+        assert!(
+            stderr(&output).contains("cannot write standard output"),
+            "{}",
+            stderr(&output)
+        );
+    }
+}

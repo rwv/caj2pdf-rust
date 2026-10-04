@@ -6,14 +6,20 @@
 use crate::CliError;
 use crate::args::{Command, Endpoint, Topic, parse};
 use crate::cli::default_output;
-use crate::document::{Inspection, block_on, format_name, unsupported};
+use crate::document::{Inspection, Structure, block_on, format_name, unsupported};
 use crate::files::{
     Input, NEXT_TEMP, Output, SpoolError, TEMP_ATTEMPTS, open_input, open_input_spooling_in,
     open_output, refuse_terminal, spool,
 };
 use crate::json::write_string;
-use crate::report::{write_json, write_text, write_warnings};
-use caj2pdf_core::{Bookmark, InputFormat, hnc8::OutlineReport};
+use crate::report::{Pages, write_json, write_text, write_warnings};
+use caj2pdf_core::{
+    Bookmark, InputFormat,
+    hnc8::{
+        ApplicationInfoTail, Header, ImageRecord, OutlineReport, PageRecord, Span, TextFraming,
+        TextStructure, Variant,
+    },
+};
 use std::ffi::OsString;
 use std::fs::{self, File};
 use std::io::{self, Read, Write};
@@ -131,7 +137,8 @@ fn subcommands_parse_their_own_options() {
         Ok(Command::Inspect {
             input: path("a.caj"),
             json: true,
-            bookmarks: true
+            bookmarks: true,
+            pages: false
         })
     );
     assert_eq!(
@@ -139,7 +146,17 @@ fn subcommands_parse_their_own_options() {
         Ok(Command::Inspect {
             input: Endpoint::Std,
             json: false,
-            bookmarks: false
+            bookmarks: false,
+            pages: false
+        })
+    );
+    assert_eq!(
+        parse_str(&["inspect", "--pages", "a.hn"]),
+        Ok(Command::Inspect {
+            input: path("a.hn"),
+            json: false,
+            bookmarks: false,
+            pages: true
         })
     );
     assert_eq!(
@@ -280,6 +297,7 @@ fn caj_inspection() -> Inspection {
             bookmark(1, "Two.B", 2),
         ]),
         outline: OutlineReport::default(),
+        structure: None,
     }
 }
 
@@ -317,9 +335,9 @@ impl Write for FailAfter {
 
 fn write_report(out: &mut FailAfter, json: bool, info: &Inspection, list: bool) -> io::Result<()> {
     if json {
-        write_json(out, info, list)
+        write_json(out, info, list, false)
     } else {
-        write_text(out, info, list)
+        write_text(out, info, list, false)
     }
 }
 
@@ -375,6 +393,7 @@ fn json_report_uses_null_for_unknown_fields() {
         has_outline: None,
         bookmarks: None,
         outline: OutlineReport::default(),
+        structure: None,
     };
     assert_eq!(
         render(true, &info, true),
@@ -407,6 +426,7 @@ fn text_report_describes_unknown_fields() {
         has_outline: None,
         bookmarks: None,
         outline: OutlineReport::default(),
+        structure: None,
     };
     let unknown = "Format: TEB\nConversion: not supported (DRM-encrypted container)\nPages: unknown\nOutline: unknown\n";
     assert_eq!(render(false, &info, false), unknown);
@@ -447,9 +467,9 @@ fn outline_warnings_list_bounded_locations_then_a_summary() {
         bytes[at + 304] = 1;
     }
     let mut source = SeekableSource::new(io::Cursor::new(&bytes)).unwrap();
-    let (_, bookmarks, outline) =
-        block_on(crate::hnc8::inspect(&mut source, &Limits::default())).unwrap();
-    assert_eq!(bookmarks.unwrap().len(), 1);
+    let inspected = block_on(crate::hnc8::inspect(&mut source, &Limits::default(), false)).unwrap();
+    let outline = inspected.outline;
+    assert_eq!(inspected.bookmarks.unwrap().len(), 1);
     let mut out = FailAfter::new(usize::MAX);
     write_warnings(&mut out, &outline).unwrap();
     let text = String::from_utf8(out.bytes).unwrap();
@@ -741,6 +761,7 @@ fn report_writers_propagate_every_sink_failure() {
         has_outline: None,
         bookmarks: None,
         outline: OutlineReport::default(),
+        structure: None,
     };
     for info in [caj_inspection(), hn] {
         for json in [false, true] {
@@ -751,6 +772,219 @@ fn report_writers_propagate_every_sink_failure() {
             }
         }
     }
+}
+
+fn hnc8_structure(application_info: Option<ApplicationInfoTail>) -> Inspection {
+    Inspection {
+        format: InputFormat::C8,
+        variant: Some("C8"),
+        page_count: Some(2),
+        has_outline: None,
+        bookmarks: None,
+        outline: OutlineReport::default(),
+        structure: Some(Structure::Hnc8 {
+            header: Header {
+                variant: Variant::C8,
+                native_mode: Some(23112),
+                native_origin: None,
+                page_size: Some([5901, 8354]),
+                page_count: 2,
+                page_index: Span {
+                    offset: 80,
+                    length: 40,
+                },
+            },
+            page_row_bytes: 20,
+            application_info,
+        }),
+    }
+}
+
+/// Write the document report, then two pages: one compressed page with two
+/// images and one whose second descriptor failed.
+fn render_pages(out: &mut FailAfter, json: bool, info: &Inspection) -> io::Result<()> {
+    if json {
+        write_json(out, info, false, true)?;
+    } else {
+        write_text(out, info, false, true)?;
+    }
+    let row = |page_number, offset| PageRecord {
+        page_number,
+        row_offset: 60 + 20 * u64::from(page_number),
+        text: Span { offset, length: 9 },
+        image_count: 2,
+        unknown: [0; 10],
+    };
+    let image = |record_type, offset| ImageRecord {
+        page_number: 1,
+        image_number: 1,
+        descriptor_offset: offset - 12,
+        record_type,
+        payload: Span { offset, length: 7 },
+    };
+    let mut pages = Pages::new(out, json);
+    pages.begin()?;
+    pages.page(1, Some(&row(1, 120)))?;
+    pages.image(&image(3, 141))?;
+    pages.image(&image(2, 160))?;
+    let text = TextStructure {
+        framing: TextFraming::CompressText,
+        records: 5,
+        decoded_length: Some(64),
+    };
+    pages.end_page(Some(&text), None, None)?;
+    pages.page(2, Some(&row(2, 167)))?;
+    pages.image(&image(0, 188))?;
+    pages.end_page(None, None, Some("bad descriptor"))?;
+    pages.finish()
+}
+
+fn rendered_pages(json: bool, info: &Inspection) -> String {
+    let mut out = FailAfter::new(usize::MAX);
+    render_pages(&mut out, json, info).unwrap();
+    String::from_utf8(out.bytes).unwrap()
+}
+
+#[test]
+fn page_reports_stream_spans_counts_and_errors() {
+    let tail = ApplicationInfoTail {
+        offset: 99,
+        length: None,
+    };
+    let info = hnc8_structure(Some(tail));
+    assert_eq!(
+        rendered_pages(false, &info),
+        "Format: C8\nVariant: C8\nConversion: experimental (caller codec states may be required)\n\
+         Pages: 2\nOutline: unknown\nPage index: 80+40 (20-byte rows)\nNative mode: 23112\n\
+         Native origin: unknown\nPage size: 5901 8354\n\
+         Application info: declared at 99, outside the input\n\
+         Page 1: text 120+9, images [type 3 at 141+7, type 2 at 160+7], \
+         framing compresstext (5 records, 64 decoded bytes)\n\
+         Page 2: text 167+9, images [type 0 at 188+7], error: bad descriptor\n"
+    );
+    assert_eq!(
+        rendered_pages(true, &info),
+        concat!(
+            r#"{"schema_version":1,"format":"C8","variant":"C8","conversion_supported":true,"#,
+            r#""page_count":2,"has_outline":null,"bookmark_count":null,"outline_warnings":null,"#,
+            r#""structure":{"page_index_offset":80,"page_index_length":40,"page_row_bytes":20,"#,
+            r#""native_mode":23112,"native_origin":null,"page_size":[5901,8354],"#,
+            r#""application_info":{"offset":99,"length":null}},"pages":["#,
+            r#"{"page":1,"text_offset":120,"text_length":9,"image_count":2,"images":["#,
+            r#"{"type":3,"offset":141,"length":7},{"type":2,"offset":160,"length":7}],"#,
+            r#""text_framing":"compresstext","text_records":5,"text_decoded_length":64,"#,
+            r#""text_error":null,"error":null},"#,
+            r#"{"page":2,"text_offset":167,"text_length":9,"image_count":2,"#,
+            r#""images":[{"type":0,"offset":188,"length":7}],"text_framing":null,"#,
+            r#""text_records":null,"text_decoded_length":null,"text_error":null,"#,
+            r#""error":"bad descriptor"}]}"#,
+            "\n"
+        )
+    );
+    // Without --pages the structure is neither printed nor listed.
+    assert!(!render(false, &info, false).contains("Page index"));
+    assert!(!render(true, &info, false).contains("structure"));
+    for json in [false, true] {
+        let full = rendered_pages(json, &info).len();
+        for remaining in 0..full {
+            let result = render_pages(&mut FailAfter::new(remaining), json, &info);
+            assert!(result.is_err(), "{remaining} of {full}");
+        }
+    }
+}
+
+#[test]
+fn kdh_signatures_escape_bytes_outside_printable_ascii() {
+    let info = Inspection {
+        format: InputFormat::Kdh,
+        variant: None,
+        page_count: None,
+        has_outline: None,
+        bookmarks: None,
+        outline: OutlineReport::default(),
+        structure: Some(Structure::Kdh {
+            signature: b"KDH \"9\\\x00\xff~".to_vec(),
+            supported: false,
+        }),
+    };
+    let mut out = FailAfter::new(usize::MAX);
+    write_text(&mut out, &info, false, true).unwrap();
+    let text = String::from_utf8(out.bytes).unwrap();
+    assert!(
+        text.ends_with("KDH signature: \"KDH \\x229\\x5c\\x00\\xff~\" (unsupported)\n"),
+        "{text}"
+    );
+    let mut out = FailAfter::new(usize::MAX);
+    write_json(&mut out, &info, false, true).unwrap();
+    let json = String::from_utf8(out.bytes).unwrap();
+    assert!(
+        json.ends_with(
+            r#""structure":{"kdh_signature":"KDH \\x229\\x5c\\x00\\xff~","kdh_signature_supported":false}"#
+        ),
+        "{json}"
+    );
+    let info = hnc8_structure(Some(ApplicationInfoTail {
+        offset: 40,
+        length: Some(1449),
+    }));
+    let text = render_text_structure(&info);
+    assert!(
+        text.contains("Application info: 1449 bytes at 40\n"),
+        "{text}"
+    );
+    let text = render_text_structure(&hnc8_structure(None));
+    assert!(text.contains("Application info: none\n"), "{text}");
+}
+
+fn render_text_structure(info: &Inspection) -> String {
+    let mut out = FailAfter::new(usize::MAX);
+    write_text(&mut out, info, false, true).unwrap();
+    String::from_utf8(out.bytes).unwrap()
+}
+
+#[test]
+fn page_reports_without_records_say_so() {
+    for (json, expected) in [
+        (false, "Page structure: not available for PDF input\n"),
+        (true, ",\"pages\":null}\n"),
+    ] {
+        let mut out = FailAfter::new(usize::MAX);
+        Pages::new(&mut out, json)
+            .unavailable(InputFormat::Pdf)
+            .unwrap();
+        assert_eq!(String::from_utf8(out.bytes).unwrap(), expected);
+    }
+}
+
+#[test]
+fn an_input_that_shrinks_during_the_page_report_is_an_inspection_error() {
+    let dir = TempDir::new("pages-shrink");
+    let path = dir.0.join("two.hn");
+    let mut bytes = vec![0; 0xd8 + 2 * 20];
+    bytes[..8].copy_from_slice(b"HN\0\0\xc8\0\0\0");
+    bytes[0x88] = 0xc8;
+    bytes[0x90] = 2;
+    fs::write(&path, &bytes).unwrap();
+    let mut input = input(&path);
+    let limits = caj2pdf_core::Limits::default();
+    let info = crate::document::inspect(&mut input, &limits, true).unwrap();
+    // The page index no longer fits when the per-page cursor reopens it.
+    File::options()
+        .write(true)
+        .open(&path)
+        .unwrap()
+        .set_len(0xd8 + 20)
+        .unwrap();
+    let mut out = FailAfter::new(usize::MAX);
+    let error =
+        crate::document::write_pages(&mut input, &limits, &info, &mut Pages::new(&mut out, true))
+            .unwrap_err();
+    assert_eq!(error.code, 1);
+    assert!(
+        error.message.starts_with("cannot inspect ") && error.message.contains("page index"),
+        "{}",
+        error.message
+    );
 }
 
 #[test]

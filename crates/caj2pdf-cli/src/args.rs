@@ -59,6 +59,7 @@ pub enum Command {
         input: Endpoint,
         json: bool,
         bookmarks: bool,
+        pages: bool,
     },
     AddBookmarks {
         outline: Endpoint,
@@ -73,7 +74,7 @@ Convert CAJ-family documents to PDF.
 
 Usage:
   caj2pdf INPUT [-o OUTPUT] [--force]
-  caj2pdf inspect INPUT [--json] [--bookmarks]
+  caj2pdf inspect INPUT [--json] [--bookmarks] [--pages]
   caj2pdf add-bookmarks SOURCE_CAJ INPUT_PDF -o OUTPUT_PDF [--force]
 
 Conversion writes INPUT's sibling .pdf file unless -o is given. Use - for
@@ -113,11 +114,14 @@ pub const INSPECT_HELP: &str = "\
 Print document metadata.
 
 Usage:
-  caj2pdf inspect INPUT [--json] [--bookmarks]
+  caj2pdf inspect INPUT [--json] [--bookmarks] [--pages]
 
 Options:
   --json       Print one JSON object (schema_version 1) instead of text
   --bookmarks  Include the bookmark hierarchy and page destinations
+  --pages      Add a structure-only report (HN/C8 layout and per-page text
+               framing and image spans, or the KDH signature); it never
+               contains document text, titles or pixels
   -h, --help   Print help
 ";
 
@@ -216,6 +220,7 @@ pub fn parse<I: IntoIterator<Item = OsString>>(args: I) -> Result<Command, Strin
     }
     let writes = topic != Topic::Inspect;
     let (mut output, mut force, mut json, mut bookmarks) = (None, false, false, false);
+    let mut pages = false;
     let mut options = ConvertOptions::default();
     let mut positionals = Vec::new();
     let mut only_positionals = false;
@@ -291,6 +296,7 @@ pub fn parse<I: IntoIterator<Item = OsString>>(args: I) -> Result<Command, Strin
             }
             "--json" if !writes => json = true,
             "--bookmarks" if !writes => bookmarks = true,
+            "--pages" if !writes => pages = true,
             "--fonts" if topic == Topic::Convert => {
                 let value = args.next().ok_or("option '--fonts' requires a directory")?;
                 set_font_dir(&mut options.font_dir, value)?;
@@ -348,6 +354,7 @@ pub fn parse<I: IntoIterator<Item = OsString>>(args: I) -> Result<Command, Strin
             input,
             json,
             bookmarks,
+            pages,
         },
         Topic::AddBookmarks => {
             let pdf = positionals.next().expect("two positional arguments")?;
