@@ -48,5 +48,7 @@
   "i686-linux-android": "android-emulator",
   "aarch64-unknown-netbsd": "netbsd-vm",
   "aarch64-unknown-openbsd": "openbsd-vm",
-  "riscv64gc-unknown-openbsd": "openbsd-vm"
+  "riscv64gc-unknown-openbsd": "openbsd-vm",
+  "riscv64gc-unknown-freebsd": "freebsd-vm",
+  "powerpc64-unknown-freebsd": "freebsd-vm"
 }

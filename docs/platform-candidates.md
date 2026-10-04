@@ -2,7 +2,7 @@
 
 `platform-targets.json` is the required release set. A target is promoted only
 after runtime tests and ABI review. The experimental `Platform candidates`
-workflow is manual and offers `all`, `linux`, `bsd` and `android` groups. Its
+workflow is manual and offers `all`, `linux` and `android` groups. Its
 failures and skipped groups are not compatibility passes. It is not a release
 gate. All jobs use standard public-repository runners, with no paid larger
 runners. Remaining work is tracked in [#214](https://github.com/rwv/caj2pdf-rust/issues/214).
@@ -15,7 +15,6 @@ runners. Remaining work is tracked in [#214](https://github.com/rwv/caj2pdf-rust
 | MIPS32 musl, big/little endian | Tests passed but linker warnings revealed Rust soft-float / SDK hard-float ABI mismatch. Withdrawn from release inventory. Supply a matching soft-float SDK; do not hide warnings or silently change ABI. MIPS GNU variants are independently verified. |
 | RISC-V32 musl | Static std build lacks an unwinder; the dynamic SDK build links but SIGSEGVs before the harness with both distro QEMU and pinned QEMU 10.0.13. Diagnose runtime/ABI startup or provide a working static runtime. RISC-V32 GNU passes. |
 | m68k GNU | LLVM instruction selection fails while compiling std, before project code runs. Static relocation / non-PIE retry hits the same failure; ineffective flags were removed. A working compiler/std build is required. |
-| FreeBSD RISC-V64 / PowerPC64 | Local FreeBSD 15.1 VM tests pass with host cross-builds against pinned official sysroots. The candidate workflow verifies this route without guest Rust packages; hosted verification and release promotion remain separate. |
 | Android ARM64 / ARMv7 | CLI builds succeed. Linux x86_64 emulator refuses ARM64 images; standard macOS ARM64 fails with HVF_UNSUPPORTED even when requesting software acceleration. ARMv7 was also attempted via the ARM64 API 30 image. Supply a suitable ARM device or virtualization host. |
 
 SPARC32 GNU is not configured: the current Bootlin SPARCv8 SDK uses uClibc,
@@ -23,16 +22,16 @@ which is not a verified substitute for the Rust GNU target's libc. Bare-metal,
 GPU and microcontroller triples require a different execution/storage model;
 they are not native CLI release assets.
 
-## FreeBSD cross-build candidates
+## Delivered FreeBSD cross-build route
 
 The previous 14.3 guest-package bootstrap failed before project tests. The
-candidate workflow now builds on Linux using `nightly-2026-09-29` with
+required platform workflow now builds on Linux using `nightly-2026-09-29` with
 `rust-src`, Clang and LLD. `scripts/build-freebsd-cross.py` downloads the
 official FreeBSD 15.1 base archive for the selected architecture, verifies its
 pinned SHA256 before extracting headers/libraries, and stages the core tests,
 portable CLI tests and executable in `target/freebsd-cross`. Build intermediates
 stay in a temporary directory outside the VM source transfer. No sysroot or
-compiler is included in the candidate archive.
+compiler is included in the CLI archive.
 
 The matching FreeBSD 15.1 VM executes the tests and produces an original-fixture
 PDF. Three independent-render tests require guest qpdf/MuPDF and are explicitly
@@ -44,16 +43,17 @@ Local preflight at `60c0671` passed 674 core tests and six portable CLI tests
 on each architecture, with three filtered tests each. Original atomic/thread/
 file-I/O probes also passed. RISC-V64 used FreeBSD 15.1-RELEASE-p3; PowerPC64
 used 15.1-RELEASE. Both used QEMU 10.0.13, builder 2.2.8, Clang/LLD 19.1.7 and
-the pinned nightly. Target PDFs passed host qpdf and MuPDF. These local results
-do not replace hosted candidate verification or promote release support; this
-route's minimum FreeBSD version is 15.1.
+the pinned nightly. Target PDFs passed host qpdf and MuPDF. Hosted candidate run 37161590649 subsequently passed both targets. The route
+is now part of the required matrix; every release must rerun its tests. Its
+minimum FreeBSD version is 15.1.
 
 The sysroot hashes come from the official
 [RISC-V64 MANIFEST](https://download.freebsd.org/releases/riscv/riscv64/15.1-RELEASE/MANIFEST)
 and [PowerPC64 MANIFEST](https://download.freebsd.org/releases/powerpc/powerpc64/15.1-RELEASE/MANIFEST).
 External receipts and original probes remain under
 `caj2pdf-freebsd-cross-20261003`; no platform/vendor source is copied into the
-project. Follow #214 for hosted results and any subsequent promotion.
+project. See [the required platform matrix](platforms.md) for delivery scope; #214
+retains the remaining candidates.
 
 ## Test boundaries
 

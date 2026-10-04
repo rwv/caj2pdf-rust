@@ -1808,6 +1808,11 @@ from the MIT converter. Windows render tests remain enabled.
 
 ## FreeBSD cross-build candidate tooling (#214)
 
+The verified route is promoted without changing its build/test commands into
+the required platform workflow. Both triples are included in the existing
+MIT dependency graph and release inventory. Archive collection and provenance
+reuse the existing pipeline; no sysroot or compiler is distributed.
+
 `scripts/build-freebsd-cross.py` is original MIT orchestration code. It uses
 pinned official FreeBSD 15.1 archive checksums as build metadata, extracts
 headers/libraries only into a temporary external sysroot, and builds the

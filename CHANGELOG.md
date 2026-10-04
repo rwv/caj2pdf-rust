@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Add FreeBSD RISC-V64 GC and PowerPC64 big-endian native CLI archives,
+  tested in FreeBSD 15.1 VMs. Both targets join the required release matrix,
+  dependency-license audit, archive inventory and existing provenance flow.
+
 - **Breaking:** `C8PageFonts` adds optional `latin_state28` and `latin_state31`;
   existing Rust initializers should set them to `None` unless supplying the
   distinct C8 resources. CLI and JS expose matching optional font roles;
