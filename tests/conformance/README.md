@@ -487,7 +487,7 @@ or document corpus is stored in this repository.
 
 Discovery and document identity now live in
 [caj2pdf-samples](https://github.com/rwv/caj2pdf-samples). The adapter pins commit
-`58b2d2acaa5d766d865d61c062c2d0b1826cdb8f` and the catalog's SHA-256; it never
+`a33905e19e8505ff922502b30a8e5c09477ff1b5` and the catalog's SHA-256; it never
 fetches documents or executes code from that checkout. Keep the sample checkout,
 source corpus, generated matrix and outputs outside this repository.
 
@@ -508,7 +508,11 @@ the original upstream checkout alone contains only the first 56 inputs.
 Missing or changed selected documents fail identity verification and report
 conversion `NOT_RUN`. Duplicate hashes do not inflate coverage. A completed
 runner means completed attempts, not universal conversion success. In particular,
-TEB remains explicitly unsupported and timeouts remain incomplete.
+TEB remains explicitly unsupported and timeouts remain incomplete. HN/C8 page-image
+order is checked only against the pinned pixel oracles; a document without an
+oracle entry reports that check `NOT_RUN`, while its outline identity is still
+checked against the source. The 738-page `issue-111/56.caj` takes about 105 s
+natively, so pass `--timeout 600` when selecting it.
 
 For the existing JavaScript workflows, export the same verified selection:
 

@@ -109,6 +109,33 @@ class CurrentFormatTests(unittest.TestCase):
         self.assertEqual(omitted["pixel_check"], "NOT_RUN")
         self.assertEqual(report["status"], "COMPLETE")
 
+    def test_outline_identity_survives_page_order_failure(self):
+        self.row.update(detected_type="HN", variant="HN")
+        self.matrix.write_text(json.dumps({"schema_version": 1, "samples": [self.row]}))
+
+        def command(arguments, label):
+            if label.startswith("version-"):
+                return self.reply(stdout="test tool")
+            if label.endswith("inspect"):
+                return self.reply(stdout=json.dumps({"schema_version": 1, "variant": "HN-A", "page_count": 1}))
+            if label.endswith("default"):
+                Path(arguments[3]).write_bytes(b"synthetic PDF placeholder")
+                return self.reply()
+            if label.endswith("pages"):
+                return self.reply(stdout="1\n")
+            if label.endswith("outlines"):
+                (self.output / f"{label}.stdout").write_bytes(b"")
+                return self.reply()
+            return self.reply()
+        empty = hashlib.sha256().hexdigest()
+        with patch.object(current.Commands, "run", side_effect=command), patch.object(
+            current.current_format_order, "check", side_effect=ValueError("order failed"),
+        ), patch.object(current.current_format_order, "source_outline_hash", return_value=(0, empty)):
+            attempt = current.run(self.matrix, self.corpus, self.candidate, self.output)["results"][0]["attempts"][0]
+        self.assertEqual(attempt["page_order_check"], "FAIL")
+        self.assertEqual(attempt["source_check_error"], "order failed")
+        self.assertEqual(attempt["source_outline_check"], "PASS")
+
     def test_success_without_output_is_failure(self):
         with patch.object(current.Commands, "run", side_effect=[self.reply()] * 6):
             report = current.run(self.matrix, self.corpus, self.candidate, self.output)

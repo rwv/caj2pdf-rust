@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: MIT
 """Original controls for source-page identity checks, not corpus substitutes."""
 
+from contextlib import nullcontext
 import hashlib
 from pathlib import Path
 import shutil
@@ -84,6 +85,29 @@ class PageIdentityTests(unittest.TestCase):
             entry["decoder_result"] = "NOT_RUN"
             with self.assertRaises(ValueError):
                 order.expected_image({"page_number": 1}, image, "source", "sample")
+
+    def test_source_without_pinned_oracle_is_not_run_not_failed(self):
+        image = {"record_type": 0, "image_number": 1, "payload_sha256": "encoded",
+                 "payload_offset": 200, "payload_length": 20}
+        page = {"page_number": 1, "images": [image]}
+
+        class Extractor:
+            def __init__(self, stream, source_id):
+                pass
+
+            def iter_pages(self):
+                yield page
+
+        with patch.object(order, "oracle", return_value={}):
+            with self.assertRaises(order.MissingOracle):
+                order.expected_image(page, image, "source", "new-sample")
+            with patch.object(order, "pdf_pages", return_value=[{}]), patch.object(
+                order, "FileInput", return_value=nullcontext(None),
+            ), patch.object(order, "SourceExtractor", Extractor):
+                result = order.check(None, self.root, self.root, {"detected_type": "HN", "id": "new-sample",
+                                                                  "sha256": "source"}, {"page_count": 1}, "new")
+        self.assertEqual(result["status"], "NOT_RUN")
+        self.assertIn("new-sample", result["reason"])
 
     @unittest.skipUnless(shutil.which("qpdf"), "qpdf is required for the original PDF control")
     def test_real_pdf_page_reordering_is_rejected(self):

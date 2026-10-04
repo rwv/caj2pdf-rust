@@ -2956,3 +2956,9 @@ remains in the existing matrix; new inputs have unknown reference expectations.
 The initial 57-document identity check passed; a selected TEB run in native and
 Node reported unsupported, not successful conversion. Required CI does not
 fetch the sample repository or corpus.
+
+For #284 the pin moved to `a33905e19e8505ff922502b30a8e5c09477ff1b5`, which
+records the 738-page HN-A results and the TEB container characterization. The
+runner change that reports a missing pixel-oracle entry as `NOT_RUN` and checks
+outline identity separately is original MIT code with original synthetic tests.
+TEB analysis there is structural only; no payload is decrypted or copied.
