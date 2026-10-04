@@ -63,7 +63,9 @@ export class UnsupportedFormatError extends Caj2PdfError {
     super(
       format == null
         ? "input signature is not a recognized PDF, CAJ, KDH, HN, C8, or TEB format"
-        : `${format.toUpperCase()} input is recognized, but converting it is not supported yet`,
+        : format === "teb"
+          ? "TEB input is a DRM-encrypted CNKI container; its document content is encrypted and cannot be converted"
+          : `${format.toUpperCase()} input is recognized, but converting it is not supported yet`,
       "UNSUPPORTED_FORMAT",
     );
     this.name = "UnsupportedFormatError";

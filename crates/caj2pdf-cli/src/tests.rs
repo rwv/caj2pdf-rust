@@ -6,7 +6,7 @@
 use crate::CliError;
 use crate::args::{Command, Endpoint, Topic, parse};
 use crate::cli::default_output;
-use crate::document::{Inspection, block_on, format_name};
+use crate::document::{Inspection, block_on, format_name, unsupported};
 use crate::files::{
     Input, NEXT_TEMP, Output, SpoolError, TEMP_ATTEMPTS, open_input, open_input_spooling_in,
     open_output, refuse_terminal, spool,
@@ -408,12 +408,20 @@ fn text_report_describes_unknown_fields() {
         bookmarks: None,
         outline: OutlineReport::default(),
     };
-    let unknown = "Format: TEB\nConversion: not supported\nPages: unknown\nOutline: unknown\n";
+    let unknown = "Format: TEB\nConversion: not supported (DRM-encrypted container)\nPages: unknown\nOutline: unknown\n";
     assert_eq!(render(false, &info, false), unknown);
     assert_eq!(
         render(false, &info, true),
         format!("{unknown}Bookmarks: listing is not available for TEB input\n")
     );
+    info.format = InputFormat::Nh;
+    assert!(render(false, &info, false).contains("Conversion: not supported\n"));
+    assert!(!render(true, &info, false).contains("unsupported_reason"));
+    assert_eq!(
+        unsupported(InputFormat::Nh),
+        "NH input is recognized, but NH conversion is not supported"
+    );
+    assert!(unsupported(InputFormat::Teb).contains("DRM-encrypted"));
     info.format = InputFormat::Hn;
     info.variant = Some("HN-A");
     info.has_outline = Some(false);

@@ -434,7 +434,7 @@ fn malformed_and_unsupported_inputs_leave_no_output() {
         ("short.hn", "HN/C8 at byte 0: truncated"),
         (
             "teb.teb",
-            "TEB input is recognized, but TEB conversion is not supported",
+            "TEB input is a DRM-encrypted CNKI container; its document content is encrypted",
         ),
         ("broken.pdf", "PDF at byte"),
         ("folder.caj", "'folder.caj' is a directory"),
@@ -621,7 +621,7 @@ fn inspect_reports_every_recognized_format() {
         (
             "doc.teb",
             format!(
-                r#"{{"schema_version":1,"format":"TEB","variant":null,{common}false,"page_count":null,"has_outline":null,"bookmark_count":null,"bookmarks":null,"outline_warnings":null}}"#
+                r#"{{"schema_version":1,"format":"TEB","variant":null,{common}false,"page_count":null,"has_outline":null,"bookmark_count":null,"bookmarks":null,"outline_warnings":null,"unsupported_reason":"drm-encrypted"}}"#
             ),
         ),
     ] {

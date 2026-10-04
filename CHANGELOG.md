@@ -13,7 +13,9 @@
   fail. **Breaking (Rust):** `Hnc8Reader::visit_bookmarks` returns an
   `OutlineReport` instead of the declared count, and `ComposeReport` gains
   `outline`.
-
+- TEB diagnostics now say the input is a DRM-encrypted CNKI container whose
+  document content cannot be converted; `inspect --json` adds
+  `"unsupported_reason":"drm-encrypted"` for TEB. Exit status is unchanged.
 - Add FreeBSD RISC-V64 GC and PowerPC64 big-endian native CLI archives,
   tested in FreeBSD 15.1 VMs. Both targets join the required release matrix,
   dependency-license audit, archive inventory and existing provenance flow.

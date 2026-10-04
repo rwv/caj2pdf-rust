@@ -279,6 +279,7 @@ adding a field is not considered incompatible, so the trailing
 | `bookmark_count` | integer or null | Number of outline entries that conversion writes; null when this format's outline cannot be listed. |
 | `bookmarks` | array or null | Present only with `--bookmarks`. The root entries, or null when the outline cannot be listed. |
 | `outline_warnings` | integer or null | Number of [HN-A bookmark defects](#hn-a-bookmark-defects) skipped or re-parented; `0` for other listed outlines; null when `bookmark_count` is null. |
+| `unsupported_reason` | string | Present only when a recognized format is never converted: `"drm-encrypted"` for TEB, whose document content is encrypted. |
 
 Each bookmark object has these fields:
 

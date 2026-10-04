@@ -1,5 +1,9 @@
 name: Native platforms
 on:
+  # Branch protection requires only this workflow's Linux x86_64/ARM64 glibc
+  # and musl `native` jobs (docs/release-policy.md). On pull requests the other
+  # release-platform jobs run only when packaging or toolchain inputs change;
+  # every job runs on main, release tags and manual dispatch.
   pull_request:
   push:
     branches: [main]
@@ -11,6 +15,27 @@ concurrency:
   group: platforms-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 jobs:
+  changes:
+    name: Release-platform inputs
+    runs-on: ubuntu-24.04
+    outputs:
+      full: ${{ steps.diff.outputs.full }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - id: diff
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if [ "$EVENT" != pull_request ]; then
+            echo full=true >> "$GITHUB_OUTPUT"
+          elif git diff --name-only "$BASE" HEAD | grep -Eq '^(\.github/workflows/platforms\.yml|scripts/(package-native\.py|build-freebsd-cross\.py|install-[^/]*|android-[^/]*\.py)|docker/.*|docs/(platform-targets|container-platforms)\.json|rust-toolchain\.toml|Cargo\.lock|(.*/)?Cargo\.toml)$'; then
+            echo full=true >> "$GITHUB_OUTPUT"
+          else
+            echo full=false >> "$GITHUB_OUTPUT"
+          fi
   native:
     strategy:
       fail-fast: false
@@ -68,6 +93,8 @@ jobs:
           if-no-files-found: error
 
   i586-gnu:
+    needs: changes
+    if: needs.changes.outputs.full == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
@@ -96,6 +123,8 @@ jobs:
           if-no-files-found: error
 
   linux-cross:
+    needs: changes
+    if: needs.changes.outputs.full == 'true'
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
@@ -169,6 +198,8 @@ jobs:
           if-no-files-found: error
 
   linux-musl:
+    needs: changes
+    if: needs.changes.outputs.full == 'true'
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
@@ -222,6 +253,8 @@ jobs:
           if-no-files-found: error
 
   mips:
+    needs: changes
+    if: needs.changes.outputs.full == 'true'
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
@@ -258,6 +291,8 @@ jobs:
           if-no-files-found: error
 
   freebsd-cross:
+    needs: changes
+    if: needs.changes.outputs.full == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     strategy:
@@ -304,6 +339,8 @@ jobs:
           if-no-files-found: error
 
   freebsd:
+    needs: changes
+    if: needs.changes.outputs.full == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     strategy:
@@ -338,7 +375,8 @@ jobs:
           if-no-files-found: error
 
   docker:
-    needs: [native, linux-musl]
+    needs: [changes, native, linux-musl]
+    if: needs.changes.outputs.full == 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -376,6 +414,8 @@ jobs:
           if-no-files-found: error
 
   netbsd:
+    needs: changes
+    if: needs.changes.outputs.full == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     strategy:
@@ -421,6 +461,8 @@ jobs:
           if-no-files-found: error
 
   openbsd:
+    needs: changes
+    if: needs.changes.outputs.full == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     strategy:
@@ -462,6 +504,8 @@ jobs:
           if-no-files-found: error
 
   omnios:
+    needs: changes
+    if: needs.changes.outputs.full == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     strategy:
@@ -507,6 +551,8 @@ jobs:
           if-no-files-found: error
 
   bootlin:
+    needs: changes
+    if: needs.changes.outputs.full == 'true'
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
@@ -538,6 +584,8 @@ jobs:
           if-no-files-found: error
 
   android:
+    needs: changes
+    if: needs.changes.outputs.full == 'true'
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
     strategy:
@@ -606,8 +654,8 @@ jobs:
 
   complete:
     name: Native platform matrix
-    if: always()
-    needs: [native, i586-gnu, linux-cross, linux-musl, mips, freebsd, freebsd-cross, docker, netbsd, openbsd, omnios, bootlin, android]
+    if: always() && needs.changes.outputs.full == 'true'
+    needs: [changes, native, i586-gnu, linux-cross, linux-musl, mips, freebsd, freebsd-cross, docker, netbsd, openbsd, omnios, bootlin, android]
     runs-on: ubuntu-24.04
     steps:
       - name: Require every release platform job to succeed
