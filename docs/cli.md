@@ -35,7 +35,7 @@ that starts with `CAJ` but lacks the CAJ header is reported as malformed.
 | `%PDF-` | PDF | Validated copy through the core PDF reader and repair layer | Pages and outline presence |
 | `CAJ` | CAJ | Reconstructed PDF with the CAJ outline | Pages and full outline |
 | `KDH` | KDH | Decoded embedded PDF | Pages and outline presence |
-| `HN` | HN | Experimental image-page conversion with built-in standard codec states | Variant/pages; HN-A full outline, HN-B outline unknown |
+| `HN` | HN | Experimental image-page conversion with built-in standard codec states; HN-A pages are images, not searchable text ([why](hnc8-text-fidelity.md#hn-a-pages-carry-no-native-text)) | Variant/pages; HN-A full outline, HN-B outline unknown |
 | `c8 00 00 00` | C8 | Experimental image pages; admitted native text/mixed pages with explicit fonts | Container variant and pages |
 | `TEB` | TEB | Unsupported; exits with status 1 | Format only |
 
