@@ -54,7 +54,10 @@ for current main's verified profiles and remaining HN/C8 rendering differences;
 unreleased additions are not included in the v0.3.1 downloads. See
 [Unicode fidelity](docs/hnc8-text-fidelity.md) for the distinction between native
 text rendering, correct character transport and copy/search limitations.
-TEB is recognized and unsupported. Build with `cargo build --release -p caj2pdf-cli`.
+TEB is recognized and unsupported: it is a DRM-encrypted container. HN-A output is
+scanned page images with no source text layer; use an external OCR tool such as
+`ocrmypdf` on the PDF if you need search ([details](docs/hnc8-text-fidelity.md#hn-a-pages-carry-no-native-text)).
+Build with `cargo build --release -p caj2pdf-cli`.
 
 C8/HN-B outline layouts are not verified yet, so those PDFs have no outline and
 the CLI prints a warning (`--no-bookmarks` silences it). Native text pages require explicit fonts; unsupported records
