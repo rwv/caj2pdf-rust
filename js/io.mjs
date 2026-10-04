@@ -63,7 +63,9 @@ export class UnsupportedFormatError extends Caj2PdfError {
     super(
       format == null
         ? "input signature is not a recognized PDF, CAJ, KDH, HN, C8, or TEB format"
-        : `${format.toUpperCase()} input is recognized, but converting it is not supported yet`,
+        : format === "teb"
+          ? "TEB input is a DRM-encrypted CNKI container; its document content is encrypted and cannot be converted"
+          : `${format.toUpperCase()} input is recognized, but converting it is not supported yet`,
       "UNSUPPORTED_FORMAT",
     );
     this.name = "UnsupportedFormatError";
@@ -367,6 +369,7 @@ function report(exports) {
     outputBytesWritten: exports.caj2pdf_io_output_bytes_written(),
     pagesConverted: exports.caj2pdf_io_pages_converted(),
     bookmarksWritten: exports.caj2pdf_io_bookmarks_written(),
+    outlineWarnings: exports.caj2pdf_io_outline_warnings(),
   };
 }
 
@@ -376,6 +379,7 @@ function inspection(exports) {
     format: formatName(exports),
     pageCount: exports.caj2pdf_info_page_count(),
     bookmarkCount: bookmarks < 0n ? null : Number(bookmarks),
+    outlineWarnings: exports.caj2pdf_io_outline_warnings(),
     inputBytesRead: exports.caj2pdf_io_input_bytes_read(),
   };
 }

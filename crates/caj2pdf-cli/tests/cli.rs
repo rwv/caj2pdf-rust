@@ -333,6 +333,42 @@ fn pdf_and_kdh_inputs_convert_to_pipes() {
     assert_eq!(scratch.entries(), ["doc.kdh", "doc.pdf"]);
 }
 
+/// Leading bytes observed before `%PDF-` in files that `qpdf` accepts.
+fn header_prefixes() -> [(&'static str, Vec<u8>); 3] {
+    let mut junk = vec![b'x'; 100];
+    junk.push(b'\n');
+    [
+        ("newline.pdf", b"\n".to_vec()),
+        ("bom.pdf", b"\xef\xbb\xbf".to_vec()),
+        ("junk.pdf", junk),
+    ]
+}
+
+#[test]
+fn a_pdf_header_within_the_first_kib_is_found_and_dropped() {
+    let scratch = Scratch::new("pdf-header");
+    let pdf = fixture("valid_nested_outline.pdf");
+    let expected = r#"{"schema_version":1,"format":"PDF","variant":null,"conversion_supported":true,"page_count":2,"has_outline":true,"bookmark_count":null,"bookmarks":null,"outline_warnings":null}"#;
+    for (name, prefix) in header_prefixes() {
+        scratch.write(name, &[prefix.as_slice(), &pdf].concat());
+        let output = scratch.run([name, "-o", "-"]);
+        assert_success(&output);
+        assert_eq!(output.stdout, pdf, "{name}");
+        let output = scratch.run(["inspect", "--json", "--bookmarks", name]);
+        assert_success(&output);
+        assert_eq!(stdout(&output), format!("{expected}\n"), "{name}");
+    }
+    assert_success(&scratch.run(["junk.pdf", "-o", "junk.out.pdf"]));
+    assert_eq!(validate_pdf(&scratch.path("junk.out.pdf")).0, 2);
+
+    let late = [vec![b' '; 1020].as_slice(), &pdf].concat();
+    scratch.write("late.pdf", &late);
+    let output = scratch.run(["late.pdf", "-o", "-"]);
+    assert_failure(&output, 1, "unrecognized input format");
+    let output = scratch.run(["inspect", "late.pdf"]);
+    assert_failure(&output, 1, "unrecognized input format");
+}
+
 #[test]
 fn stdin_is_spooled_and_removed() {
     let scratch = Scratch::new("stdin");
@@ -434,7 +470,7 @@ fn malformed_and_unsupported_inputs_leave_no_output() {
         ("short.hn", "HN/C8 at byte 0: truncated"),
         (
             "teb.teb",
-            "TEB input is recognized, but TEB conversion is not supported",
+            "TEB input is a DRM-encrypted CNKI container; its document content is encrypted",
         ),
         ("broken.pdf", "PDF at byte"),
         ("folder.caj", "'folder.caj' is a directory"),
@@ -577,7 +613,7 @@ fn inspect_prints_text_and_stable_json() {
             r#"{"schema_version":1,"format":"CAJ","variant":null,"conversion_supported":true,"#,
             r#""page_count":3,"has_outline":true,"bookmark_count":3,"bookmarks":["#,
             r#"{"title":"中文","page":1,"children":[{"title":"Nested \"q\"","page":2,"children":[]}]},"#,
-            r#"{"title":"Third","page":3,"children":[]}]}"#,
+            r#"{"title":"Third","page":3,"children":[]}],"outline_warnings":0}"#,
             "\n"
         )
     );
@@ -597,31 +633,31 @@ fn inspect_reports_every_recognized_format() {
         (
             "doc.pdf",
             format!(
-                r#"{{"schema_version":1,"format":"PDF","variant":null,{common}true,"page_count":2,"has_outline":true,"bookmark_count":null,"bookmarks":null}}"#
+                r#"{{"schema_version":1,"format":"PDF","variant":null,{common}true,"page_count":2,"has_outline":true,"bookmark_count":null,"bookmarks":null,"outline_warnings":null}}"#
             ),
         ),
         (
             "doc.kdh",
             format!(
-                r#"{{"schema_version":1,"format":"KDH","variant":null,{common}true,"page_count":2,"has_outline":true,"bookmark_count":null,"bookmarks":null}}"#
+                r#"{{"schema_version":1,"format":"KDH","variant":null,{common}true,"page_count":2,"has_outline":true,"bookmark_count":null,"bookmarks":null,"outline_warnings":null}}"#
             ),
         ),
         (
             "doc.c8",
             format!(
-                r#"{{"schema_version":1,"format":"C8","variant":"C8",{common}true,"page_count":1,"has_outline":null,"bookmark_count":null,"bookmarks":null}}"#
+                r#"{{"schema_version":1,"format":"C8","variant":"C8",{common}true,"page_count":1,"has_outline":null,"bookmark_count":null,"bookmarks":null,"outline_warnings":null}}"#
             ),
         ),
         (
             "doc.hn",
             format!(
-                r#"{{"schema_version":1,"format":"HN","variant":"HN-B",{common}true,"page_count":2,"has_outline":null,"bookmark_count":null,"bookmarks":null}}"#
+                r#"{{"schema_version":1,"format":"HN","variant":"HN-B",{common}true,"page_count":2,"has_outline":null,"bookmark_count":null,"bookmarks":null,"outline_warnings":null}}"#
             ),
         ),
         (
             "doc.teb",
             format!(
-                r#"{{"schema_version":1,"format":"TEB","variant":null,{common}false,"page_count":null,"has_outline":null,"bookmark_count":null,"bookmarks":null}}"#
+                r#"{{"schema_version":1,"format":"TEB","variant":null,{common}false,"page_count":null,"has_outline":null,"bookmark_count":null,"bookmarks":null,"outline_warnings":null,"unsupported_reason":"drm-encrypted"}}"#
             ),
         ),
     ] {
@@ -676,6 +712,15 @@ fn add_bookmarks_writes_a_new_pdf_and_keeps_the_input() {
         outline.contains("中文") && outline.contains("Third"),
         "{outline}"
     );
+
+    // A PDF whose header follows leading bytes gets the same result.
+    for (name, prefix) in header_prefixes() {
+        scratch.write(name, &[prefix.as_slice(), &plain].concat());
+        let output = scratch.run(["add-bookmarks", "paper.caj", name, "-o", "-"]);
+        assert_success(&output);
+        assert_eq!(output.stdout, fs::read(scratch.path("marked.pdf")).unwrap());
+        fs::remove_file(scratch.path(name)).unwrap();
+    }
 
     assert_failure(&add("marked.pdf", &[]), 1, "already exists");
     assert_failure(
@@ -1035,15 +1080,51 @@ fn hna_inspection_and_converted_outline_agree() {
     let empty = scratch.run(["inspect", "empty.hn", "--json", "--bookmarks"]);
     assert_success(&empty);
     assert!(stdout(&empty).contains(r#""has_outline":false,"bookmark_count":0,"bookmarks":[]"#));
-    let mut invalid = image_hn_with_bookmarks(2);
-    put_u32(&mut invalid, 0x15c + 308 + 304, 4);
-    scratch.write("bad.hn", &invalid);
-    assert_failure(
-        &scratch.run(["inspect", "bad.hn", "--json"]),
-        1,
-        "outline level",
-    );
     assert_eq!(fs::read_dir(scratch.path("tmp")).unwrap().count(), 0);
+}
+
+#[test]
+fn hna_bookmark_defects_are_warnings_and_the_valid_outline_is_written() {
+    let scratch = Scratch::new("hn-outline-defects");
+    // Root, Leaf (level 4: skips a parent), Leaf (page 9 of 1: skipped).
+    let mut defective = image_hn_with_bookmarks(3);
+    put_u32(&mut defective, 0x15c + 308 + 304, 4);
+    defective[0x15c + 616 + 280] = b'9';
+    scratch.write("bad.hn", &defective);
+    scratch.write("clean.hn", &image_hn_with_bookmarks(2));
+    let warnings = "caj2pdf: warning: re-parented HN-A bookmark at byte 960: level skips a parent\n\
+                    caj2pdf: warning: skipped HN-A bookmark at byte 1244: destination is outside source pages\n";
+    let json = scratch.run(["inspect", "bad.hn", "--json", "--bookmarks"]);
+    assert_eq!(json.status.code(), Some(0));
+    assert_eq!(stderr(&json), warnings);
+    assert!(stdout(&json).ends_with(r#""has_outline":true,"bookmark_count":2,"bookmarks":[{"title":"Root","page":1,"children":[{"title":"Leaf","page":1,"children":[]}]}],"outline_warnings":2}
+"#));
+    let text = scratch.run(["inspect", "bad.hn"]);
+    assert_eq!(stderr(&text), warnings);
+    assert!(stdout(&text).ends_with("Bookmarks: 2\nOutline warnings: 2\n"));
+    let clean = scratch.run(["inspect", "clean.hn", "--json"]);
+    assert_success(&clean);
+    assert!(stdout(&clean).ends_with(
+        r#""bookmark_count":2,"outline_warnings":0}
+"#
+    ));
+    let converted = scratch.run(["bad.hn"]);
+    assert_eq!(converted.status.code(), Some(0));
+    assert_eq!(stderr(&converted), warnings);
+    let (pages, outline) = validate_pdf(&scratch.path("bad.pdf"));
+    assert_eq!(pages, 1);
+    assert!(
+        outline.contains("Root") && outline.contains("Leaf"),
+        "{outline}"
+    );
+    // The written outline equals that of a source holding only the valid entries.
+    assert_success(&scratch.run(["clean.hn"]));
+    assert_eq!(
+        fs::read(scratch.path("bad.pdf")).unwrap(),
+        fs::read(scratch.path("clean.pdf")).unwrap()
+    );
+    // Without bookmarks the outline is not read, so nothing is reported.
+    assert_success(&scratch.run(["bad.hn", "-o", "plain.pdf", "--no-bookmarks"]));
 }
 
 #[test]

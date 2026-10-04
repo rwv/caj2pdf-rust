@@ -5,14 +5,15 @@
 
 use crate::CliError;
 use crate::files::Input;
+use crate::progress::Progress;
 use crate::signals::ProcessCancellation;
 use caj2pdf_core::{
-    Bookmark, ConversionOptions, Error, InputFormat, Limits, RangedSource, SIGNATURE_BYTES, caj,
-    detect_format,
+    Bookmark, ConversionOptions, Detection, Error, InputFormat, Limits, RangedSource, caj,
+    detect_source,
+    hnc8::OutlineReport,
     kdh::{KdhPdfSource, convert_kdh},
     native::{SeekableSource, WriteSink},
-    pdf::{PdfIndex, PdfOutlineAppender, PdfRange, copy_pdf},
-    read_exact_at,
+    pdf::{PdfIndex, PdfOutlineAppender, PdfRange, copy_pdf_range},
 };
 use std::fs::File;
 use std::future::Future;
@@ -57,76 +58,108 @@ fn text(error: Error) -> String {
     error.to_string()
 }
 
-async fn detect<S: RangedSource>(source: &mut S, limits: &Limits) -> Result<InputFormat, String> {
-    let mut header = [0; SIGNATURE_BYTES];
-    let length = source.size().min(header.len() as u64) as usize;
-    read_exact_at(
-        source,
-        0,
-        &mut header[..length],
-        limits,
-        &ProcessCancellation,
-    )
-    .await
-    .map_err(text)?;
-    if length == 0 {
+async fn detect<S: RangedSource>(source: &mut S, limits: &Limits) -> Result<Detection, String> {
+    let detection = detect_source(source, limits, &ProcessCancellation)
+        .await
+        .map_err(text)?;
+    if source.size() == 0 {
         return Err("input is empty".to_owned());
     }
-    detect_format(&header[..length]).ok_or_else(|| "unrecognized input format".to_owned())
+    detection.ok_or_else(|| "unrecognized input format".to_owned())
 }
 
-fn unsupported(format: InputFormat) -> String {
-    format!(
-        "{name} input is recognized, but {name} conversion is not supported",
-        name = format_name(format)
-    )
+/// The PDF viewed from its `%PDF-` header, which may follow leading bytes.
+fn pdf_range(size: u64, header_offset: u64) -> PdfRange {
+    PdfRange {
+        offset: header_offset,
+        length: size - header_offset,
+    }
+}
+
+/// Why a recognized format is never converted, when that is known.
+///
+/// TEB is a CNKI DRM container whose document entries are encrypted
+/// (rwv/caj2pdf-samples research notes); this project does not decrypt it.
+pub fn unsupported_reason(format: InputFormat) -> Option<&'static str> {
+    matches!(format, InputFormat::Teb).then_some("drm-encrypted")
+}
+
+pub(crate) fn unsupported(format: InputFormat) -> String {
+    match unsupported_reason(format) {
+        Some(_) => "TEB input is a DRM-encrypted CNKI container; \
+                    its document content is encrypted and cannot be converted"
+            .to_owned(),
+        None => format!(
+            "{name} input is recognized, but {name} conversion is not supported",
+            name = format_name(format)
+        ),
+    }
 }
 
 fn ranged(file: &mut File) -> Result<SeekableSource<&mut File>, String> {
     SeekableSource::new(file).map_err(text)
 }
 
-/// Convert one input to PDF bytes written to `writer`.
+/// Convert one input to PDF bytes written to `writer`. The returned HN-A
+/// outline report lists skipped or clamped bookmarks; it is empty otherwise.
 pub fn convert<W: Write>(
     input: &mut Input,
     writer: W,
     limits: &Limits,
     resources: &mut crate::hnc8::Resources,
     include_bookmarks: bool,
-) -> Result<(), CliError> {
+    progress: Option<&mut dyn Write>,
+) -> Result<OutlineReport, CliError> {
     let result = block_on(async {
-        let mut source = ranged(&mut input.file)?;
-        let mut sink = WriteSink::new(writer);
-        let format = detect(&mut source, limits).await?;
-        if resources.has_fonts() && !matches!(format, InputFormat::C8 | InputFormat::Hn) {
-            return Err("explicit native fonts require a C8 or HN-B document".into());
-        }
-        match format {
-            InputFormat::Pdf => copy_pdf(&mut source, &mut sink, limits, &ProcessCancellation)
-                .await
-                .map_err(text),
-            InputFormat::Caj => caj::convert_caj(
-                &mut source,
-                &mut sink,
-                ConversionOptions { include_bookmarks },
-                limits,
-                &ProcessCancellation,
-            )
+        let mut source = Progress::new(ranged(&mut input.file)?, progress);
+        let result =
+            convert_source(&mut source, writer, limits, resources, include_bookmarks).await;
+        source.finish();
+        result
+    });
+    result.map_err(|message| CliError::runtime(format!("cannot convert {}: {message}", input.name)))
+}
+
+async fn convert_source<S: RangedSource, W: Write>(
+    source: &mut S,
+    writer: W,
+    limits: &Limits,
+    resources: &mut crate::hnc8::Resources,
+    include_bookmarks: bool,
+) -> Result<OutlineReport, String> {
+    let mut sink = WriteSink::new(writer);
+    let Detection {
+        format,
+        header_offset,
+        ..
+    } = detect(source, limits).await?;
+    let pdf = pdf_range(source.size(), header_offset);
+    if resources.has_fonts() && !matches!(format, InputFormat::C8 | InputFormat::Hn) {
+        return Err("explicit native fonts require a C8 or HN-B document".into());
+    }
+    match format {
+        InputFormat::Pdf => copy_pdf_range(source, &mut sink, pdf, limits, &ProcessCancellation)
             .await
             .map_err(text),
-            InputFormat::Kdh => convert_kdh(&mut source, &mut sink, limits, &ProcessCancellation)
-                .await
-                .map_err(text),
-            InputFormat::Hn | InputFormat::C8 => {
-                crate::hnc8::convert(&mut source, &mut sink, resources, include_bookmarks, limits)
-                    .await
-            }
-            other => Err(unsupported(other)),
+        InputFormat::Caj => caj::convert_caj(
+            source,
+            &mut sink,
+            ConversionOptions { include_bookmarks },
+            limits,
+            &ProcessCancellation,
+        )
+        .await
+        .map_err(text),
+        InputFormat::Kdh => convert_kdh(source, &mut sink, limits, &ProcessCancellation)
+            .await
+            .map_err(text),
+        InputFormat::Hn | InputFormat::C8 => {
+            return crate::hnc8::convert(source, &mut sink, resources, include_bookmarks, limits)
+                .await;
         }
-    });
-    result
-        .map(drop)
-        .map_err(|message| CliError::runtime(format!("cannot convert {}: {message}", input.name)))
+        other => Err(unsupported(other)),
+    }
+    .map(|_| OutlineReport::default())
 }
 
 /// Bounded document metadata for `inspect`.
@@ -140,13 +173,16 @@ pub struct Inspection {
     pub has_outline: Option<bool>,
     /// The listed outline, when this format's outline can be read.
     pub bookmarks: Option<Vec<Bookmark>>,
+    /// HN-A entries skipped or clamped while listing `bookmarks`; empty otherwise.
+    pub outline: OutlineReport,
 }
 
-async fn index_pdf<S: RangedSource>(source: &mut S, limits: &Limits) -> Result<PdfIndex, String> {
-    let range = PdfRange {
-        offset: 0,
-        length: source.size(),
-    };
+async fn index_pdf<S: RangedSource>(
+    source: &mut S,
+    header_offset: u64,
+    limits: &Limits,
+) -> Result<PdfIndex, String> {
+    let range = pdf_range(source.size(), header_offset);
     PdfIndex::open(source, range, limits, &ProcessCancellation)
         .await
         .map_err(text)
@@ -159,6 +195,7 @@ fn pdf_inspection(format: InputFormat, index: &PdfIndex) -> Inspection {
         page_count: Some(index.pages().len() as u32),
         has_outline: Some(index.has_outlines()),
         bookmarks: None,
+        outline: OutlineReport::default(),
     }
 }
 
@@ -166,14 +203,20 @@ async fn inspect_source<S: RangedSource>(
     source: &mut S,
     limits: &Limits,
 ) -> Result<Inspection, String> {
-    let format = detect(source, limits).await?;
+    let Detection {
+        format,
+        header_offset,
+        ..
+    } = detect(source, limits).await?;
     Ok(match format {
-        InputFormat::Pdf => pdf_inspection(format, &index_pdf(source, limits).await?),
+        InputFormat::Pdf => {
+            pdf_inspection(format, &index_pdf(source, header_offset, limits).await?)
+        }
         InputFormat::Kdh => {
             let mut decoded = KdhPdfSource::open(source, limits, &ProcessCancellation)
                 .await
                 .map_err(text)?;
-            pdf_inspection(format, &index_pdf(&mut decoded, limits).await?)
+            pdf_inspection(format, &index_pdf(&mut decoded, 0, limits).await?)
         }
         InputFormat::Caj => {
             let metadata = caj::parse_metadata(source, limits, &ProcessCancellation)
@@ -185,16 +228,18 @@ async fn inspect_source<S: RangedSource>(
                 page_count: Some(metadata.page_count),
                 has_outline: Some(!metadata.bookmarks.is_empty()),
                 bookmarks: Some(metadata.bookmarks),
+                outline: OutlineReport::default(),
             }
         }
         InputFormat::Hn | InputFormat::C8 => {
-            let (header, bookmarks) = crate::hnc8::inspect(source, limits).await?;
+            let (header, bookmarks, outline) = crate::hnc8::inspect(source, limits).await?;
             Inspection {
                 format,
                 variant: Some(header.variant.as_str()),
                 page_count: Some(header.page_count),
                 has_outline: bookmarks.as_ref().map(|items| !items.is_empty()),
                 bookmarks,
+                outline,
             }
         }
         InputFormat::Nh | InputFormat::Teb => Inspection {
@@ -203,6 +248,7 @@ async fn inspect_source<S: RangedSource>(
             page_count: None,
             has_outline: None,
             bookmarks: None,
+            outline: OutlineReport::default(),
         },
     })
 }
@@ -227,7 +273,7 @@ pub fn add_bookmarks<W: Write>(
     let outline_file = &mut outline.file;
     let bookmarks = block_on(async {
         let mut source = ranged(outline_file)?;
-        match detect(&mut source, limits).await? {
+        match detect(&mut source, limits).await?.format {
             InputFormat::Caj => caj::parse_metadata(&mut source, limits, &ProcessCancellation)
                 .await
                 .map(|metadata| metadata.bookmarks)
@@ -247,8 +293,9 @@ pub fn add_bookmarks<W: Write>(
     }
     let mut source = ranged(&mut pdf.file).map_err(read_error(&pdf.name))?;
     let index = block_on(async {
-        match detect(&mut source, limits).await? {
-            InputFormat::Pdf => index_pdf(&mut source, limits).await,
+        let detection = detect(&mut source, limits).await?;
+        match detection.format {
+            InputFormat::Pdf => index_pdf(&mut source, detection.header_offset, limits).await,
             other => Err(format!("expected a PDF, found {}", format_name(other))),
         }
     })

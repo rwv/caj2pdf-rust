@@ -6,14 +6,14 @@
 use crate::CliError;
 use crate::args::{Command, Endpoint, Topic, parse};
 use crate::cli::default_output;
-use crate::document::{Inspection, block_on, format_name};
+use crate::document::{Inspection, block_on, format_name, unsupported};
 use crate::files::{
     Input, NEXT_TEMP, Output, SpoolError, TEMP_ATTEMPTS, open_input, open_input_spooling_in,
     open_output, refuse_terminal, spool,
 };
 use crate::json::write_string;
-use crate::report::{write_json, write_text};
-use caj2pdf_core::{Bookmark, InputFormat};
+use crate::report::{write_json, write_text, write_warnings};
+use caj2pdf_core::{Bookmark, InputFormat, hnc8::OutlineReport};
 use std::ffi::OsString;
 use std::fs::{self, File};
 use std::io::{self, Read, Write};
@@ -279,6 +279,7 @@ fn caj_inspection() -> Inspection {
             bookmark(1, "Two.A", 2),
             bookmark(1, "Two.B", 2),
         ]),
+        outline: OutlineReport::default(),
     }
 }
 
@@ -332,7 +333,10 @@ fn render(json: bool, info: &Inspection, list: bool) -> String {
 fn json_report_nests_bookmarks_by_depth() {
     let info = caj_inspection();
     let head = r#"{"schema_version":1,"format":"CAJ","variant":null,"conversion_supported":true,"page_count":3,"has_outline":true,"bookmark_count":6"#;
-    assert_eq!(render(true, &info, false), format!("{head}}}\n"));
+    assert_eq!(
+        render(true, &info, false),
+        format!("{head},\"outline_warnings\":0}}\n")
+    );
     let tree = concat!(
         r#"[{"title":"One","page":1,"children":[{"title":"One.A","page":2,"children":["#,
         r#"{"title":"One.A.i","page":2,"children":[]}]}]},"#,
@@ -341,7 +345,7 @@ fn json_report_nests_bookmarks_by_depth() {
     );
     assert_eq!(
         render(true, &info, true),
-        format!("{head},\"bookmarks\":{tree}}}\n")
+        format!("{head},\"bookmarks\":{tree},\"outline_warnings\":0}}\n")
     );
 }
 
@@ -350,14 +354,15 @@ fn json_tree_clamps_a_skipped_parent_and_handles_empty_outlines() {
     let mut info = caj_inspection();
     info.bookmarks = Some(vec![bookmark(2, "Deep", 0)]);
     assert!(
-        render(true, &info, true)
-            .ends_with("\"bookmarks\":[{\"title\":\"Deep\",\"page\":1,\"children\":[]}]}\n")
+        render(true, &info, true).ends_with(
+            "[{\"title\":\"Deep\",\"page\":1,\"children\":[]}],\"outline_warnings\":0}\n"
+        )
     );
     info.bookmarks = Some(Vec::new());
     info.has_outline = Some(false);
     assert!(
         render(true, &info, true)
-            .ends_with("\"has_outline\":false,\"bookmark_count\":0,\"bookmarks\":[]}\n")
+            .ends_with("\"bookmark_count\":0,\"bookmarks\":[],\"outline_warnings\":0}\n")
     );
 }
 
@@ -369,11 +374,13 @@ fn json_report_uses_null_for_unknown_fields() {
         page_count: Some(1),
         has_outline: None,
         bookmarks: None,
+        outline: OutlineReport::default(),
     };
     assert_eq!(
         render(true, &info, true),
         "{\"schema_version\":1,\"format\":\"C8\",\"variant\":\"C8\",\"conversion_supported\":true,\
-         \"page_count\":1,\"has_outline\":null,\"bookmark_count\":null,\"bookmarks\":null}\n"
+         \"page_count\":1,\"has_outline\":null,\"bookmark_count\":null,\"bookmarks\":null,\
+         \"outline_warnings\":null}\n"
     );
 }
 
@@ -399,19 +406,77 @@ fn text_report_describes_unknown_fields() {
         page_count: None,
         has_outline: None,
         bookmarks: None,
+        outline: OutlineReport::default(),
     };
-    let unknown = "Format: TEB\nConversion: not supported\nPages: unknown\nOutline: unknown\n";
+    let unknown = "Format: TEB\nConversion: not supported (DRM-encrypted container)\nPages: unknown\nOutline: unknown\n";
     assert_eq!(render(false, &info, false), unknown);
     assert_eq!(
         render(false, &info, true),
         format!("{unknown}Bookmarks: listing is not available for TEB input\n")
     );
+    info.format = InputFormat::Nh;
+    assert!(render(false, &info, false).contains("Conversion: not supported\n"));
+    assert!(!render(true, &info, false).contains("unsupported_reason"));
+    assert_eq!(
+        unsupported(InputFormat::Nh),
+        "NH input is recognized, but NH conversion is not supported"
+    );
+    assert!(unsupported(InputFormat::Teb).contains("DRM-encrypted"));
     info.format = InputFormat::Hn;
     info.variant = Some("HN-A");
     info.has_outline = Some(false);
     let text = render(false, &info, false);
     assert!(text.starts_with("Format: HN\nVariant: HN-A\n"), "{text}");
     assert!(text.contains("Outline: no\n"), "{text}");
+}
+
+#[test]
+fn outline_warnings_list_bounded_locations_then_a_summary() {
+    use caj2pdf_core::{Limits, native::SeekableSource};
+    // One valid HN-A root followed by 18 entries whose page 0 is outside
+    // the single source page.
+    let count = 19;
+    let mut bytes = vec![0; 0x15c + count * 308 + 20];
+    bytes[..8].copy_from_slice(&[72, 78, 0, 0, 0x90, 1, 0, 0]);
+    bytes[0x90] = 1;
+    bytes[0x158] = count as u8;
+    for number in 0..count {
+        let at = 0x15c + number * 308;
+        bytes[at] = b'T';
+        bytes[at + 280] = if number == 0 { b'1' } else { b'0' };
+        bytes[at + 304] = 1;
+    }
+    let mut source = SeekableSource::new(io::Cursor::new(&bytes)).unwrap();
+    let (_, bookmarks, outline) =
+        block_on(crate::hnc8::inspect(&mut source, &Limits::default())).unwrap();
+    assert_eq!(bookmarks.unwrap().len(), 1);
+    let mut out = FailAfter::new(usize::MAX);
+    write_warnings(&mut out, &outline).unwrap();
+    let text = String::from_utf8(out.bytes).unwrap();
+    let lines = text.lines().collect::<Vec<_>>();
+    assert_eq!(lines.len(), 17);
+    for (number, line) in (1..).zip(&lines[..16]) {
+        assert_eq!(
+            *line,
+            format!(
+                "caj2pdf: warning: skipped HN-A bookmark at byte {}: destination is outside source pages",
+                0x15c + number * 308 + 280
+            )
+        );
+    }
+    assert_eq!(
+        lines[16],
+        "caj2pdf: warning: 2 more HN-A bookmark defects were not listed"
+    );
+    let mut info = caj_inspection();
+    info.outline = outline;
+    assert!(render(true, &info, false).ends_with(",\"outline_warnings\":18}\n"));
+    assert!(render(false, &info, false).ends_with("Bookmarks: 6\nOutline warnings: 18\n"));
+    for remaining in 0..text.len() {
+        assert!(write_warnings(&mut FailAfter::new(remaining), &outline).is_err());
+    }
+    let mut empty = FailAfter::new(0);
+    write_warnings(&mut empty, &OutlineReport::default()).unwrap();
 }
 
 struct Chunks(Vec<io::Result<Vec<u8>>>);
@@ -665,6 +730,7 @@ fn report_writers_propagate_every_sink_failure() {
         page_count: None,
         has_outline: None,
         bookmarks: None,
+        outline: OutlineReport::default(),
     };
     for info in [caj_inspection(), hn] {
         for json in [false, true] {
@@ -791,8 +857,16 @@ fn experimental_conversion_options_are_scoped_and_unambiguous() {
         assert_eq!(options.qm_states, Some("qm.txt".into()));
         assert_eq!(options.mq_states, Some("mq.txt".into()));
         assert!(options.no_bookmarks);
+        assert!(!options.quiet);
+    }
+    for flag in ["-q", "--quiet"] {
+        let Command::Convert { options, .. } = parse_str(&["paper.caj", flag]).unwrap() else {
+            panic!()
+        };
+        assert!(options.quiet);
     }
     for args in [
+        vec!["inspect", "paper.caj", "--quiet"],
         vec!["paper.hn", "--qm-states"],
         vec!["paper.hn", "--mq-states", "-"],
         vec!["paper.hn", "--qm-states="],
@@ -884,4 +958,69 @@ fn native_font_options_preserve_paths_and_validate_roles() {
     };
     assert_eq!(options.fonts[0], Some(unusual.clone().into()));
     assert!(parse(vec!["input.c8".into(), "--decoration-char".into(), unusual]).is_err());
+}
+
+struct Bytes(Vec<u8>);
+
+impl caj2pdf_core::RangedSource for Bytes {
+    fn size(&self) -> u64 {
+        self.0.len() as u64
+    }
+
+    async fn read_at(
+        &mut self,
+        offset: u64,
+        destination: &mut [u8],
+    ) -> caj2pdf_core::Result<usize> {
+        if offset > self.size() {
+            return Err(caj2pdf_core::Error::InvalidInput {
+                reason: "test read past end",
+            });
+        }
+        let bytes = &self.0[offset as usize..];
+        let count = bytes.len().min(destination.len());
+        destination[..count].copy_from_slice(&bytes[..count]);
+        Ok(count)
+    }
+}
+
+#[test]
+fn progress_reports_the_furthest_input_byte_once_per_percent() {
+    use crate::progress::Progress;
+    use caj2pdf_core::RangedSource;
+    let mut out = Vec::new();
+    let mut source = Progress::new(Bytes(vec![7; 200]), Some(&mut out));
+    let mut buffer = [0; 100];
+    assert_eq!(block_on(source.read_at(0, &mut buffer)).unwrap(), 100);
+    assert_eq!(buffer, [7; 100]);
+    block_on(source.read_at(0, &mut buffer[..10])).unwrap();
+    block_on(source.read_at(100, &mut buffer[..1])).unwrap();
+    block_on(source.read_at(150, &mut buffer)).unwrap();
+    assert!(block_on(source.read_at(201, &mut buffer)).is_err());
+    assert_eq!(source.size(), 200);
+    source.finish();
+    assert_eq!(
+        String::from_utf8(out).unwrap(),
+        format!(
+            "\rcaj2pdf: reading input  50%\rcaj2pdf: reading input 100%\r{:30}\r",
+            ""
+        )
+    );
+}
+
+#[test]
+fn progress_without_a_terminal_or_reads_writes_nothing() {
+    use crate::progress::Progress;
+    let mut out = Vec::new();
+    Progress::new(Bytes(Vec::new()), Some(&mut out)).finish();
+    assert!(out.is_empty());
+    let mut source = Progress::new(Bytes(vec![1; 4]), None);
+    let mut buffer = [0; 4];
+    block_on(caj2pdf_core::RangedSource::read_at(
+        &mut source,
+        0,
+        &mut buffer,
+    ))
+    .unwrap();
+    source.finish();
 }

@@ -17,8 +17,8 @@ use super::image_emit::{
     emit_type0_xobject,
 };
 use super::{
-    Budget, Header, Hnc8Error, Hnc8Reader, ImageRecord, JpegBudget, PageRecord, RawTextCoordinate,
-    TextBudget, Variant, empirical_image_transform, empirical_page_from_pixels,
+    Budget, Header, Hnc8Error, Hnc8Reader, ImageRecord, JpegBudget, OutlineReport, PageRecord,
+    RawTextCoordinate, TextBudget, Variant, empirical_image_transform, empirical_page_from_pixels,
 };
 use crate::fallible::{len_u64, reserve_exact, usize_from_u32};
 use crate::jbig1::{Type0Budget, Type0Error, Type0ErrorKind, Type0Info, read_type0_info};
@@ -183,6 +183,9 @@ pub struct ComposeReport {
     pub peak_row_store_bytes: u64,
     pub row_store_read_bytes: u64,
     pub row_store_written_bytes: u64,
+    /// HN-A outline totals and skipped or clamped entries; empty unless
+    /// `ComposeOptions::include_bookmarks` is set.
+    pub outline: OutlineReport,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1042,7 +1045,7 @@ where
         // This HN-A composer emits every source row in order and rejects
         // no-image rows, so its actual source/output map is the identity map.
         debug_assert_eq!(report.output_pages, header.page_count);
-        reader
+        report.outline = reader
             .visit_bookmarks(
                 64,
                 report.output_pages,
@@ -1080,6 +1083,7 @@ impl ComposeReport {
             peak_row_store_bytes: 0,
             row_store_read_bytes: 0,
             row_store_written_bytes: 0,
+            outline: OutlineReport::default(),
         }
     }
 }

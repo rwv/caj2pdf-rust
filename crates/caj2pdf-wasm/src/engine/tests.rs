@@ -347,6 +347,41 @@ fn auto_detected_pdf_is_copied_through_bounded_chunks_and_flushed() {
 }
 
 #[test]
+fn an_auto_detected_pdf_header_after_leading_bytes_converts_and_inspects() {
+    let pdf = fixture("valid_nested_outline.pdf");
+    let mut junk = vec![b'x'; 100];
+    junk.push(b'\n');
+    for prefix in [b"\n".to_vec(), b"\xef\xbb\xbf".to_vec(), junk] {
+        let input = [prefix.as_slice(), &pdf].concat();
+        let mut engine = Engine::start(input.len() as u64, limits(256), convert_op(None)).unwrap();
+        let run = drive(&mut engine, &input, Some(100));
+        assert_eq!(run.output, pdf);
+        assert!(run.max_read <= 256);
+        assert_eq!(engine.format(), Some(InputFormat::Pdf));
+        assert_eq!(outcome(&engine).report.pages_converted, 2);
+
+        let operation = Operation::Inspect { format: None };
+        let mut engine = Engine::start(input.len() as u64, limits(256), operation).unwrap();
+        drive(&mut engine, &input, None);
+        let outcome = outcome(&engine);
+        assert_eq!(outcome.info.as_ref().map(|info| info.page_count), Some(2));
+        // The detection prefix is counted once, beside the PDF reads.
+        assert!(outcome.report.input_bytes_read > 1024);
+
+        // An explicit format skips detection, so the header must be at byte 0.
+        let operation = convert_op(Some(InputFormat::Pdf));
+        let mut engine = Engine::start(input.len() as u64, limits(256), operation).unwrap();
+        let run = drive(&mut engine, &input, None);
+        assert!(run.output.is_empty());
+        assert!(matches!(failure(&engine), Error::Pdf { offset: 0, .. }));
+    }
+    let late = [vec![b' '; 1020].as_slice(), &pdf].concat();
+    let mut engine = Engine::start(late.len() as u64, limits(256), convert_op(None)).unwrap();
+    drive(&mut engine, &late, None);
+    assert!(matches!(failure(&engine), Error::UnsupportedFormat));
+}
+
+#[test]
 fn kdh_and_caj_conversions_use_the_core_engines_with_short_io() {
     let pdf = fixture("valid_out_of_order_objects.pdf");
     let kdh = kdh_bytes(&pdf);
@@ -599,6 +634,7 @@ fn a_task_pending_without_a_request_reports_idle_until_it_completes() {
             Poll::Ready(Ok(Outcome {
                 report: ConversionReport::default(),
                 info: None,
+                outline_warnings: 0,
             }))
         } else {
             Poll::Pending
@@ -869,11 +905,19 @@ fn hnc8_inspection_streams_outline_validation_without_codec_or_scratch() {
     let mut hnb = vec![0; 0xd8 + 20];
     hnb[..8].copy_from_slice(&[72, 78, 0, 0, 0xc8, 0, 0, 0]);
     put_u32(&mut hnb, 0x90, 1);
-    for (input, pages, bookmarks) in [
-        (hn_metadata(), 2, Some(2)),
-        (synthetic_hn(), 1, Some(0)),
-        (c8, 1, None),
-        (hnb, 1, None),
+    // A level skip is clamped and an out-of-range destination is skipped;
+    // each is one warning, and the count is what would be written.
+    let mut clamped = hn_metadata();
+    put_u32(&mut clamped, 0x15c + 308 + 304, 4);
+    let mut skipped = hn_metadata();
+    skipped[0x15c + 308 + 280] = b'9';
+    for (input, pages, bookmarks, warnings) in [
+        (hn_metadata(), 2, Some(2), 0),
+        (clamped, 2, Some(2), 1),
+        (skipped, 2, Some(1), 1),
+        (synthetic_hn(), 1, Some(0), 0),
+        (c8, 1, None, 0),
+        (hnb, 1, None, 0),
     ] {
         let mut engine = Engine::start(
             input.len() as u64,
@@ -884,6 +928,7 @@ fn hnc8_inspection_streams_outline_validation_without_codec_or_scratch() {
         let run = drive(&mut engine, &input, Some(1));
         let info = outcome(&engine).info.as_ref().unwrap();
         assert_eq!((info.page_count, info.bookmark_count), (pages, bookmarks));
+        assert_eq!(outcome(&engine).outline_warnings, warnings);
         assert!(run.output.is_empty());
         assert_eq!(run.flushes, 0);
         assert_eq!(run.max_read, 1);
@@ -892,15 +937,14 @@ fn hnc8_inspection_streams_outline_validation_without_codec_or_scratch() {
 }
 
 #[test]
-fn hna_inspection_rejects_invalid_records_and_resource_limits() {
-    for case in 0..5 {
+fn hna_inspection_rejects_unreadable_outlines_and_resource_limits() {
+    for case in 0..4 {
         let mut input = hn_metadata();
         let mut bounded = limits(1);
         match case {
-            0 => put_u32(&mut input, 0x15c + 308 + 304, 4),
-            1 => bounded.max_bookmarks = 1,
-            2 => bounded.max_pages = 1,
-            3 => bounded.max_allocation_bytes = 8,
+            0 => bounded.max_bookmarks = 1,
+            1 => bounded.max_pages = 1,
+            2 => bounded.max_allocation_bytes = 8,
             _ => {
                 input.pop();
             }

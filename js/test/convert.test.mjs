@@ -143,6 +143,20 @@ test("KDH output is the decoded PDF byte for byte", async () => {
   assert.deepEqual(bytes(), pdf);
 });
 
+test("a PDF header after a byte-order mark is detected and the mark dropped", async (t) => {
+  const pdf = await fixture("valid_nested_outline.pdf");
+  const input = new Blob([new Uint8Array([0xef, 0xbb, 0xbf]), pdf]);
+  const { writer, bytes } = collectingWriter();
+  const report = await convert(await wasmModule(), blobSource(input), webWritableSink(writer));
+  await writer.close();
+  assert.equal(report.format, "pdf");
+  assert.deepEqual(bytes(), pdf);
+  await validatePdf(t, bytes(), 2);
+  const info = await inspect(await wasmModule(), blobSource(input));
+  assert.equal(info.format, "pdf");
+  assert.equal(info.pageCount, 2);
+});
+
 test("inspect reports format, pages, and CAJ bookmarks without output", async () => {
   const expected = { caj: 1, kdh: null, pdf: null };
   for (const input of await inputs()) {
@@ -169,7 +183,7 @@ test("malformed HN/C8 and unsupported TEB failures are distinguished", async () 
         assert.ok(error instanceof UnsupportedFormatError);
         assert.equal(error.code, "UNSUPPORTED_FORMAT");
         assert.equal(error.format, format);
-        assert.match(error.message, /not supported yet/);
+        assert.match(error.message, /DRM-encrypted CNKI container/);
       } else {
         assert.equal(error.code, "HNC8");
         assert.match(error.message, /HN\/C8/);

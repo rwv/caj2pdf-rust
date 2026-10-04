@@ -15,13 +15,12 @@ mod hnc8;
 mod scratch;
 
 use caj2pdf_core::{
-    Cancellation, ConversionOptions, ConversionReport, DocumentInfo, Error, InputFormat, Limits,
-    PdfErrorKind, RangedSource, Result, SIGNATURE_BYTES, SequentialSink,
+    Cancellation, ConversionOptions, ConversionReport, Detection, DocumentInfo, Error, InputFormat,
+    Limits, PdfErrorKind, RangedSource, Result, SequentialSink,
     caj::{convert_caj, parse_metadata},
-    copy_range, detect_format,
+    copy_range, detect_source,
     kdh::{KdhPdfSource, convert_kdh},
-    pdf::{PdfIndex, PdfRange, copy_pdf},
-    read_exact_at,
+    pdf::{PdfIndex, PdfRange, copy_pdf_range},
 };
 use std::{
     cell::RefCell,
@@ -182,6 +181,8 @@ pub struct Outcome {
     pub report: ConversionReport,
     /// Present for [`Operation::Inspect`].
     pub info: Option<DocumentInfo>,
+    /// HN-A outline entries skipped or clamped by a conversion or inspection.
+    pub outline_warnings: u32,
 }
 
 struct Shared {
@@ -544,7 +545,11 @@ async fn run(
     limits: Limits,
     operation: Operation,
 ) -> Result<Outcome> {
-    let (format, detected_bytes) = match operation {
+    let Detection {
+        format,
+        header_offset,
+        bytes_read: detected_bytes,
+    } = match operation {
         Operation::Copy { offset, length } => {
             let report = copy_range(
                 &mut source,
@@ -555,7 +560,10 @@ async fn run(
                 &cancellation,
             )
             .await?;
-            return Ok(Outcome { report, info: None });
+            return Ok(Outcome {
+                report,
+                ..Outcome::default()
+            });
         }
         Operation::Convert { format, .. } | Operation::Inspect { format } => {
             limits.check_input_size(source.size)?;
@@ -571,23 +579,36 @@ async fn run(
     }
     source.shared.borrow_mut().format = Some(format);
     let mut outcome = match operation {
-        Operation::Convert { options, .. } => Outcome {
-            report: match format {
-                InputFormat::Pdf => copy_pdf(&mut source, &mut sink, &limits, &cancellation).await,
-                InputFormat::Caj => {
-                    convert_caj(&mut source, &mut sink, options, &limits, &cancellation).await
+        Operation::Convert { options, .. } => {
+            let (report, outline_warnings) = match format {
+                InputFormat::Pdf => {
+                    let range = pdf_range(source.size, header_offset);
+                    (
+                        copy_pdf_range(&mut source, &mut sink, range, &limits, &cancellation)
+                            .await?,
+                        0,
+                    )
                 }
-                InputFormat::Kdh => {
-                    convert_kdh(&mut source, &mut sink, &limits, &cancellation).await
-                }
+                InputFormat::Caj => (
+                    convert_caj(&mut source, &mut sink, options, &limits, &cancellation).await?,
+                    0,
+                ),
+                InputFormat::Kdh => (
+                    convert_kdh(&mut source, &mut sink, &limits, &cancellation).await?,
+                    0,
+                ),
                 InputFormat::Hn | InputFormat::C8 => {
-                    hnc8::convert(&mut source, &mut sink, options, &limits, &cancellation).await
+                    hnc8::convert(&mut source, &mut sink, options, &limits, &cancellation).await?
                 }
-                _ => Err(Error::UnsupportedFormat),
-            }?,
-            info: None,
-        },
-        _ => inspect(&mut source, format, &limits, &cancellation).await?,
+                _ => return Err(Error::UnsupportedFormat),
+            };
+            Outcome {
+                report,
+                info: None,
+                outline_warnings,
+            }
+        }
+        _ => inspect(&mut source, format, header_offset, &limits, &cancellation).await?,
     };
     outcome.report.input_bytes_read = outcome
         .report
@@ -596,37 +617,38 @@ async fn run(
     Ok(outcome)
 }
 
+/// An explicit format skips detection, so an explicit PDF must start with
+/// its `%PDF-` header.
 async fn resolve_format(
     source: &mut BridgeSource,
     format: Option<InputFormat>,
     limits: &Limits,
     cancellation: &BridgeCancellation,
-) -> Result<(InputFormat, u64)> {
+) -> Result<Detection> {
     if let Some(format) = format {
-        return Ok((format, 0));
+        return Ok(Detection {
+            format,
+            header_offset: 0,
+            bytes_read: 0,
+        });
     }
-    let length = source.size.min(SIGNATURE_BYTES as u64) as usize;
-    let mut prefix = [0; SIGNATURE_BYTES];
-    for (index, chunk) in prefix[..length]
-        .chunks_mut(limits.io_chunk_bytes)
-        .enumerate()
-    {
-        read_exact_at(
-            source,
-            (index * limits.io_chunk_bytes) as u64,
-            chunk,
-            limits,
-            cancellation,
-        )
-        .await?;
+    detect_source(source, limits, cancellation)
+        .await?
+        .ok_or(Error::UnsupportedFormat)
+}
+
+/// The PDF viewed from its `%PDF-` header, which may follow leading bytes.
+fn pdf_range(size: u64, header_offset: u64) -> PdfRange {
+    PdfRange {
+        offset: header_offset,
+        length: size - header_offset,
     }
-    let format = detect_format(&prefix[..length]).ok_or(Error::UnsupportedFormat)?;
-    Ok((format, length as u64))
 }
 
 async fn inspect(
     source: &mut BridgeSource,
     format: InputFormat,
+    header_offset: u64,
     limits: &Limits,
     cancellation: &BridgeCancellation,
 ) -> Result<Outcome> {
@@ -634,15 +656,31 @@ async fn inspect(
         inner: source,
         bytes_read: 0,
     };
-    let (page_count, bookmark_count) = match format {
-        InputFormat::Pdf => (pdf_pages(&mut counted, limits, cancellation).await?, None),
+    let (page_count, bookmark_count, outline_warnings) = match format {
+        InputFormat::Pdf => {
+            let range = pdf_range(counted.size(), header_offset);
+            (
+                pdf_pages(&mut counted, range, limits, cancellation).await?,
+                None,
+                0,
+            )
+        }
         InputFormat::Caj => {
             let metadata = parse_metadata(&mut counted, limits, cancellation).await?;
-            (metadata.page_count, Some(metadata.bookmarks.len() as u32))
+            (
+                metadata.page_count,
+                Some(metadata.bookmarks.len() as u32),
+                0,
+            )
         }
         InputFormat::Kdh => {
             let mut decoded = KdhPdfSource::open(&mut counted, limits, cancellation).await?;
-            (pdf_pages(&mut decoded, limits, cancellation).await?, None)
+            let range = pdf_range(decoded.size(), 0);
+            (
+                pdf_pages(&mut decoded, range, limits, cancellation).await?,
+                None,
+                0,
+            )
         }
         InputFormat::Hn | InputFormat::C8 => {
             hnc8::inspect(&mut counted, limits, cancellation).await?
@@ -659,18 +697,16 @@ async fn inspect(
             page_count,
             bookmark_count,
         }),
+        outline_warnings,
     })
 }
 
 async fn pdf_pages<S: RangedSource>(
     source: &mut S,
+    range: PdfRange,
     limits: &Limits,
     cancellation: &BridgeCancellation,
 ) -> Result<u32> {
-    let range = PdfRange {
-        offset: 0,
-        length: source.size(),
-    };
     let index = PdfIndex::open(source, range, limits, cancellation).await?;
     // The PDF index enforces `Limits::max_pages`, a u32.
     Ok(index.pages().len() as u32)

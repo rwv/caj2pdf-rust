@@ -1,0 +1,44 @@
+name: Fuzz
+
+# Scheduled and on-demand only; never a pull-request gate.
+on:
+  schedule:
+    - cron: '17 3 * * 1'
+  workflow_dispatch:
+    inputs:
+      seconds:
+        description: Seconds per target
+        default: '600'
+
+permissions:
+  contents: read
+
+jobs:
+  fuzz:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [convert, inspect]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Install nightly Rust and cargo-fuzz
+        run: |
+          rustup toolchain install nightly --profile minimal
+          cargo install cargo-fuzz --locked
+      - name: Seed from the synthetic fixtures
+        run: |
+          mkdir -p fuzz/corpus/${{ matrix.target }}
+          cp tests/fixtures/*.pdf tests/fixtures/*.caj tests/fixtures/*.hn tests/fixtures/*.c8 tests/fixtures/*.kdh fuzz/corpus/${{ matrix.target }}/
+      - name: Fuzz ${{ matrix.target }}
+        working-directory: fuzz
+        run: >
+          cargo +nightly fuzz run ${{ matrix.target }} corpus/${{ matrix.target }} --
+          -max_total_time=${{ inputs.seconds || '600' }} -max_len=65536 -timeout=60 -rss_limit_mb=2048
+      - name: Upload crashing inputs
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: fuzz-${{ matrix.target }}-artifacts
+          path: fuzz/artifacts/
+          if-no-files-found: ignore

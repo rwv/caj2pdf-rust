@@ -9,7 +9,7 @@ the input's leading signature. Format parsing and PDF writing stay in
 listed in the release notes.
 
 ```text
-caj2pdf INPUT [-o OUTPUT] [--force] [--no-bookmarks] [--qm-states FILE] [--mq-states FILE]
+caj2pdf INPUT [-o OUTPUT] [--force] [--quiet] [--no-bookmarks] [--qm-states FILE] [--mq-states FILE]
 caj2pdf inspect INPUT [--json] [--bookmarks]
 caj2pdf add-bookmarks SOURCE_CAJ INPUT_PDF -o OUTPUT_PDF [--force]
 caj2pdf --help | --version
@@ -32,7 +32,7 @@ that starts with `CAJ` but lacks the CAJ header is reported as malformed.
 
 | Signature | Format | Conversion | `inspect` |
 | --- | --- | --- | --- |
-| `%PDF-` | PDF | Validated copy through the core PDF reader and repair layer | Pages and outline presence |
+| `%PDF-` (byte 0, else within the first 1,024 bytes) | PDF | Validated copy through the core PDF reader and repair layer | Pages and outline presence |
 | `CAJ` | CAJ | Reconstructed PDF with the CAJ outline | Pages and full outline |
 | `KDH` | KDH | Decoded embedded PDF | Pages and outline presence |
 | `HN` | HN | Experimental image-page conversion with built-in standard codec states; HN-A pages are images, not searchable text ([why](hnc8-text-fidelity.md#hn-a-pages-carry-no-native-text)) | Variant/pages; HN-A full outline, HN-B outline unknown |
@@ -41,7 +41,9 @@ that starts with `CAJ` but lacks the CAJ header is reported as malformed.
 
 HN/C8 routes use the same independently implemented core page composer as
 WASM. Malformed data and unsupported layouts produce located errors. No NH
-signature has been measured, so NH input remains unrecognized. PDF/KDH
+signature has been measured, so NH input remains unrecognized. A PDF header
+after leading bytes is read from the header; see the
+[header offset rule](pdf-input.md#header-offset). PDF/KDH
 inspection reports outline presence rather than full outline entries;
 HN-A inspection also validates and lists its outline. C8/HN-B outline metadata
 remains unknown. Inspection needs neither state files nor scratch storage.
@@ -155,9 +157,36 @@ specific diagnostics. `inspect` reports `conversion_supported: true` for HN/C8
 because this build has a conversion route; that is not proof that a particular
 profile converts or its configured resource limits suffice. Human-readable
 inspection marks this support as experimental. The JSON schema remains version 1. HN-A `has_outline`, `bookmark_count` and
-`bookmarks` now contain validated metadata rather than unknown values; a malformed
-outline fails inspection with its source location. Known empty outlines produce
-`false`, zero and an empty list. C8/HN-B remain unknown.
+`bookmarks` now contain validated metadata rather than unknown values. Known
+empty outlines produce `false`, zero and an empty list. C8/HN-B remain unknown.
+
+### HN-A bookmark defects
+
+A malformed HN-A outline entry is a bookmark defect, not a document defect.
+`convert` and `inspect` skip an entry whose title is not NUL-terminated
+GB18030, whose page is not a NUL-terminated decimal within the source pages,
+or whose level is zero. Later entries that were its children are re-parented
+to the nearest written ancestor rather than dropped. An entry that skips a
+parent level, or is deeper than the 64-level limit, is kept one level below
+its written parent. The rest of the outline and every page are written, and
+the command exits 0.
+
+Each defect is reported on standard error with its absolute source byte offset:
+
+```text
+caj2pdf: warning: skipped HN-A bookmark at byte 1244: destination is outside source pages
+caj2pdf: warning: re-parented HN-A bookmark at byte 960: level skips a parent
+```
+
+At most 16 locations are listed, followed by
+`caj2pdf: warning: N more HN-A bookmark defects were not listed`. A table that
+cannot be read at all still fails as before: an outline count outside the
+container, a short or failed read, a bookmark limit, or cancellation.
+`--no-bookmarks` does not read the outline and reports nothing.
+
+**v0.x behavior change:** these entries previously failed `convert` and
+`inspect` with `malformed outline ...` and exit status 1. Scripts that relied on
+that failure should check `outline_warnings` in `inspect --json`.
 
 ## Conversion
 
@@ -231,13 +260,15 @@ Bookmarks: 3
 The bookmark lines appear only with `--bookmarks`. Each level is indented by
 two further spaces. Control characters in titles are shown as `\u{..}`
 escapes. HN and C8 add a `Variant:` line. Unknown values are shown as
-`unknown`.
+`unknown`. An HN-A outline with [bookmark defects](#hn-a-bookmark-defects)
+adds an `Outline warnings: N` line after `Bookmarks:`.
 
 ### JSON schema, version 1
 
 `--json` writes one compact JSON object followed by a newline. Fields appear
 in the order below. A later incompatible change increments `schema_version`;
-adding a field is not considered incompatible.
+adding a field is not considered incompatible, so the trailing
+`outline_warnings` field was added without changing version 1.
 
 | Field | Type | Meaning |
 | --- | --- | --- |
@@ -247,8 +278,10 @@ adding a field is not considered incompatible.
 | `conversion_supported` | boolean | Whether this build has a conversion route; HN/C8 still require a supported profile. |
 | `page_count` | integer or null | Declared page count; null when unknown (TEB). |
 | `has_outline` | boolean or null | Whether the document has an outline; null when unknown (HN-B, C8, TEB). |
-| `bookmark_count` | integer or null | Number of outline entries; null when this format's outline cannot be listed. |
+| `bookmark_count` | integer or null | Number of outline entries that conversion writes; null when this format's outline cannot be listed. |
 | `bookmarks` | array or null | Present only with `--bookmarks`. The root entries, or null when the outline cannot be listed. |
+| `outline_warnings` | integer or null | Number of [HN-A bookmark defects](#hn-a-bookmark-defects) skipped or re-parented; `0` for other listed outlines; null when `bookmark_count` is null. |
+| `unsupported_reason` | string | Present only when a recognized format is never converted: `"drm-encrypted"` for TEB, whose document content is encrypted. |
 
 Each bookmark object has these fields:
 
@@ -261,7 +294,7 @@ Each bookmark object has these fields:
 Example:
 
 ```json
-{"schema_version":1,"format":"CAJ","variant":null,"conversion_supported":true,"page_count":3,"has_outline":true,"bookmark_count":3,"bookmarks":[{"title":"Introduction","page":1,"children":[{"title":"Background","page":2,"children":[]}]},{"title":"Methods","page":3,"children":[]}]}
+{"schema_version":1,"format":"CAJ","variant":null,"conversion_supported":true,"page_count":3,"has_outline":true,"bookmark_count":3,"bookmarks":[{"title":"Introduction","page":1,"children":[{"title":"Background","page":2,"children":[]}]},{"title":"Methods","page":3,"children":[]}],"outline_warnings":0}
 ```
 
 Strings escape `"`, `\`, and control characters as required by RFC 8259;
@@ -292,7 +325,12 @@ removes the staged output file; bytes already sent to standard output remain.
 
 Errors are written to standard error as `caj2pdf: error: MESSAGE`. Argument
 errors add a line pointing to `--help`. Help and version text go to standard
-output. The command prints no progress output and nothing on success.
+output. On success it prints nothing except `caj2pdf: warning: ...` lines for
+[HN-A bookmark defects](#hn-a-bookmark-defects), which keep exit status 0, and,
+when standard error is a terminal, a single updating `caj2pdf: reading input
+NN%` line during conversion. The percentage is the furthest input byte read;
+the line is erased before exit. `-q`/`--quiet` disables it, and it is never
+written when standard error is redirected.
 
 ## Verification
 
