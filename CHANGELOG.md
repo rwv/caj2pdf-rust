@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Docs: the README is now a one-page quick start. Investigation notes moved
+  to `docs/research/` with an index (#296), and CI checks relative Markdown
+  links.
 - **Breaking:** native C8/HN-B pages now need only a CJK and a Latin font.
   `C8PageFonts::alternate_latin` becomes `Option<usize>`; wrap existing
   values in `Some`. If a role is absent, or its font does not map a
