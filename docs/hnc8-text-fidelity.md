@@ -17,6 +17,10 @@ The baseline is main `60c0671`. The external HN-B visitor uses core at
 its WASM is `d6a1f066d8ef7dd6efac1a9b3f759d4701d9aabbee0c543cca398f935324bd99`.
 These are preflight artifacts, not a new published release.
 
+A later [real-font HN-B checkpoint](hnb-real-font-fidelity.md) repeats all
+three admitted documents with explicit substitute fonts and readable viewer
+captures. Its visual limits remain separate from these Unicode checks.
+
 ## Selected documents and interfaces
 
 | Input | Source SHA256 | Pages checked |

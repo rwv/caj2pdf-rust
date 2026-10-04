@@ -37,6 +37,11 @@ HN-B/C8 runs. Required caller fonts must be provided; a missing resource is not
 proof of an unsupported parser profile. Unknown HN-B/C8 outlines remain unknown,
 not confirmed empty, and require explicit omission.
 
+The [real-font HN-B checkpoint](hnb-real-font-fidelity.md) records three
+complete CLI/Node/Worker conversions, fresh selected viewer captures and
+remaining substitute-font appearance differences. It does not establish
+source-font pixel parity.
+
 For usage, see the [CLI font flags](cli.md#native-c8-font-resources) and
 [Node/Worker font sources](../js/README.md#explicit-fonts-for-native-c8-and-hn-b-pages).
 [Unicode fidelity](hnc8-text-fidelity.md) distinguishes character transport,
