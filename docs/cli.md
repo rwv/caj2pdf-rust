@@ -120,6 +120,10 @@ for a different single BMP Unicode scalar supplied by that font. The alias
 is not emitted as document text. Fonts must cover the Unicode characters
 required by their assigned roles. No system lookup or missing-glyph fallback
 is performed; substitution/font-identity limitations remain explicit.
+The CJK role can also carry fullwidth Latin letters. Coverage alone does not
+guarantee compatible glyph widths or bearings: a substitute can overlap at
+the fixed source positions, including in the viewer. See the
+[C8 same-resource controls](c8-real-font-fidelity.md#same-resource-control-follow-up).
 
 The additional C8 profiles may require `--font-latin-state3 FILE`,
 `--font-latin-state28 FILE` and `--font-latin-state31 FILE`. These are explicit

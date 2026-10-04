@@ -99,3 +99,48 @@ External evidence is in `caj2pdf-c8-real-font-278/`: `selection.json`,
 `decoration-comparison.json`, `checkpoint-manifest.json`, runtime receipts,
 scripts, captures and renders. This report records a bounded verification
 with unresolved appearance limits, not unrestricted native C8 fidelity.
+
+
+## Same-resource control follow-up
+
+To distinguish a converter scaling error from incompatible font outlines,
+reuse original `alphabet-0-1-upper.caj` from `alphabet_documents()` in
+`tools/cajviewer/c8_native_control_fixture.py`. It contains 26 fullwidth
+uppercase letters and two Chinese anchors at style `10a5`. Supply exactly
+one renamed copy of the external YaHei font to both the converter and the
+viewer's HGHT resource path. Only name identifiers are intentionally edited; cmap, glyph outlines and
+metric tables are byte-identical. Diagnostic font SHA256:
+`36141ff37507092ec1b5befa56064e6ae32528fcecd96b7169bf41414610f637`.
+The font remains external and is not a distributable project asset.
+
+The ordinary control retains a 170-source-unit column step. A second original
+control changes only that step to 60 units. Both PDFs pass qpdf. With the
+same font, both the viewer and PDF show the dense letters and final Chinese
+anchors overlapping. The well-spaced control has 28 isolated glyphs in each
+render; fixed-page-normalized component bounds differ by at most 3.244 viewer
+pixels at displayed 364% zoom versus a 192-DPI PDF render. This is a measured
+bound, not an exact pixel pass or a threshold adjusted to accept the result.
+Different raster scales, integer viewer sizing and hinting remain unisolated.
+An initial equal-cell calculation split glyphs and is excluded; the recorded
+component calculation checks all 28 complete glyphs without registration.
+
+The four-page final abstract's low-page trace includes 648 CJK-resource glyphs
+at the body matrix `10.4651169 0 0 10.4651169`, plus its smaller text and other
+roles. Its English appearance therefore depends heavily on the CJK font's
+fullwidth Latin outlines. Fresh default-resource and renamed-YaHei viewer
+captures retain the source layout but show different letter appearance;
+substitution also produces crowding in the viewer. The first default capture
+was taken before the requested document opened and is excluded; the confirmed
+capture visibly identifies the correct source and page 4/4.
+
+These controls demonstrate that tight source positions can overlap with this
+font in both implementations. They do not justify a universal scale correction,
+ASCII normalization, moving source positions or an implicit font fallback.
+They also do not prove every remaining symbol/style difference is font-only.
+The current bounded verification is complete with its recorded limits; native
+C8 remains experimental and exact source-font typography remains unverified.
+
+Receipts, original controls, scripts, name-only font copy, captures and hashes
+are external under `caj2pdf-c8-real-font-278/same-font/`. In particular use
+`alphabet-component-bounds.json` and `checkpoint-manifest.json`; do not cite
+the excluded equal-cell measurement as a layout result.

@@ -527,6 +527,9 @@ Each font uses the same `size: bigint` / `readAt(offset, length, signal)`
 contract as the document. Browser `blobSource` and Node `fileHandleSource`
 work for fonts too. Reuse the same source object across roles to embed it
 once. No system-font lookup or implicit missing-glyph fallback is performed.
+The CJK role can include fullwidth Latin letters; character coverage alone
+does not guarantee compatible widths/bearings or prevent overlap at fixed
+source positions. See the [same-resource controls](../docs/c8-real-font-fidelity.md#same-resource-control-follow-up).
 The optional decoration character is a nonsemantic BMP alias, not document
 text. Ordinary roles are explicit because source role selection differs
 from Unicode/script selection.
