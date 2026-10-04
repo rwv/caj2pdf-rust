@@ -4,8 +4,8 @@
 //!
 //! The coded images are produced at test runtime by an original, test-only
 //! arithmetic encoder written from the T.82 interval description in
-//! `docs/t82-arithmetic-core.md` and the observed row rule in
-//! `docs/jbig1-type0-rows.md`. The probability table is invented; it is not
+//! `docs/research/t82-arithmetic-core.md` and the observed row rule in
+//! `docs/research/jbig1-type0-rows.md`. The probability table is invented; it is not
 //! the T.82 Table 24. Nothing here is corpus data or a decoder oracle.
 
 mod common;
@@ -255,7 +255,7 @@ fn type0_payload(rows: &Pixels) -> Vec<u8> {
 }
 
 // ---------------------------------------------------------------------------
-// Synthetic containers built from docs/hnc8-container.md.
+// Synthetic containers built from docs/research/hnc8-container.md.
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Layout {

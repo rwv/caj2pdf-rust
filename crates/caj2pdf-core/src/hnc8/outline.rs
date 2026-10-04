@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-//! Independently observed HN-A outline records; see docs/hnc8-outline-fields.md.
+//! Independently observed HN-A outline records; see docs/research/hnc8-outline-fields.md.
 
 use super::{ErrorKind, Hnc8Reader, Location, Result, Variant, read_fixed};
 use crate::{Bookmark, BookmarkVisitor, Cancellation, Error, RangedSource, gb18030};

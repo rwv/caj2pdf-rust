@@ -61,7 +61,7 @@ def caj_page_ids(source: Path) -> list[str]:
 
 
 def decoded_kdh(source: Path, output: Path) -> None:
-    # Independently measured transformation documented in docs/kdh-format.md.
+    # Independently measured transformation documented in docs/research/kdh-format.md.
     # Let qpdf parse the decoded source, including its opaque trailing data.
     with source.open("rb") as src, output.open("xb") as dest:
         if not read_exact(src, 32).startswith(b"KDH 2.00"):

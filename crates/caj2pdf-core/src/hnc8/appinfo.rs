@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 //! The independently observed C8 application-info package at the end of the
-//! source; see docs/c8-native-records.md. Only the DOI, DURL and the number of
+//! source; see docs/research/c8-native-records.md. Only the DOI, DURL and the number of
 //! `NoteItems` entries are extracted, by a small scanner rather than a general
 //! XML parser. A defect here is located but must not fail page conversion.
 

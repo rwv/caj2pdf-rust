@@ -1,171 +1,51 @@
 # caj2pdf-rust project plan
 
-## Current status
-
-The v0.1.0 milestones below are the historical project plan. Current HN-A,
-HN-B and C8 work follows [#217](https://github.com/rwv/caj2pdf-rust/issues/217);
-see the [support summary](docs/conformance.md#current-support-and-release-status)
-and [native-text limits](docs/hnc8-text-fidelity.md). Admitted native-text
-profiles on main extend the original image-conversion scope. This does not
-change historical release claims or imply OCR/general reading-order support.
-
 ## Goal
 
-Build a Rust CAJ-to-PDF converter with a memory-conscious core, a Linux CLI,
-and a JavaScript package for browsers and Node.js. English is the language of
-the repository, API, CLI, documentation, and diagnostics.
+Convert CAJ-family documents (CAJ, KDH, HN, C8, and PDF) to PDF with a
+memory-conscious Rust core, a native CLI, and a JavaScript package for
+browsers and Node.js. Detect TEB and report it as unsupported. English is the
+language of the repository, API, CLI, documentation, and diagnostics.
 
-## Repository, license, and release model
+## Rules that do not change
 
-- Use the public repository `rwv/caj2pdf-rust`. Keep the existing private
-  `caj2pdf-rs` prototype as a reference.
-- Keep `main` as the integration branch. Develop each issue on a short-lived
-  branch such as `codex/4-streaming-core` and merge through a reviewed pull
-  request; no shared long-lived release branch is required.
-- All source code committed to this repository must be MIT-licensed. Do not
-  copy code from the Python or Go projects or their FreeType/LGPL-derived
-  decoders. Existing private Rust modules may be reused only after a per-file
-  provenance review confirms that they are original and MIT-eligible.
-  Reimplement HN parsing and the CAJ-specific JBIG decoder from format
-  descriptions and independently constructed tests.
-  Prefer external dependencies that permit MIT use; audit native and WASM
-  dependency trees. Do not vendor code without an explicit MIT license and
-  preserved attribution.
-- Do not copy CAJ sample documents into the repository. Use an optional external
-  corpus path for compatibility testing.
-- Use Conventional Commits. A breaking change uses `!` or a `BREAKING CHANGE:`
-  footer. Releases remain `v0.x.y` until the API and output contract stabilize;
-  breaking changes are allowed during this period and must be documented.
-
-## v0.1.0 compatibility target
-
-- Match the Python project's working conversions for CAJ, HN, C8, KDH, and PDF,
-  including PDF bookmarks where the source provides them.
-- Preserve user capabilities for conversion, metadata inspection, and adding
-  CAJ bookmarks to an existing PDF. Design the CLI independently of the Python
-  command names and flags.
-- Detect TEB and report that conversion is unsupported, matching the current
-  reference behavior. Pure-text HN and searchable HN text are outside the
-  reference converter's successful behavior and must not be advertised as
-  supported in version 1.
-- Use Python and Go as behavioral references. Treat the private Rust
-  prototype as a migration candidate only after per-file provenance review;
-  exclude its FreeType-derived JBIG/HN implementations. Record format
-  observations and build or migrate only MIT-eligible code.
-
-## Vendor validation baseline
-
-Use the existing pinned CAJViewer container and capture recipe for a few
-representative complete pages per working format. Reproducible manual capture
-is sufficient. Compare ordinary copied text only when available and promised;
-OCR is outside v0.1.0. Keep source/page/settings hashes in existing manifests
-and vendor binaries, documents and captures outside Git. Preserve raw
-mismatches and distinguish viewer observations from Python regression results.
-See [the fixture plan](docs/cajviewer-fixtures.md) and
-[existing CAJ comparisons](docs/cajviewer-page-boxes.md).
-
-## Architecture and I/O
-
-- Use a Cargo workspace with a platform-neutral conversion core, a CLI crate,
-  and a WASM/JavaScript crate plus thin browser and Node.js adapters.
-- Expose a native conversion API accepting seekable input and a sequential
-  output sink, conceptually `Read + Seek` and `Write`. CAJ records contain
-  offsets, so a forward-only input may need bounded temporary storage.
-- Expose an asynchronous JavaScript API accepting a sized source with
-  `readAt(offset, length)` and a backpressure-aware output sink. Implement
-  browser `Blob`/`File` and Node.js file adapters. Support a plain
-  `ReadableStream` by spooling when random access is required.
-- Avoid whole-file input and output buffers. Process payloads in chunks;
-  retain only required object/page indexes, bookmarks, and the current image
-  or decoding strip. Measure peak memory with representative files.
-- Replace the full-document PDF construction path with a sequential writer
-  where feasible. Keep the output sink forward-only, including stdout and
-  JavaScript `WritableStream` targets.
+- All source code is MIT-licensed and original. Do not copy code from the
+  Python or Go converters or their FreeType/LGPL-derived decoders; migrate a
+  private Rust module only after per-file provenance review
+  ([provenance](docs/provenance.md)).
+- Input is ranged or seekable, output is sequential, and buffers are bounded;
+  forward-only input is spooled ([I/O architecture](docs/io-architecture.md)).
 - Keep format parsing, PDF writing, and platform adapters separate. Return
-  structured conversion errors rather than panicking on malformed input.
+  structured errors instead of panicking on malformed input.
+- Sample documents stay outside Git. A missing optional corpus is
+  `NOT_RUN`, never a pass.
+- Conventional Commits; `v0.x.y` releases may carry documented breaking
+  changes ([release policy](docs/release-policy.md)).
 
-## CLI behavior
+## Current status
 
-Proposed v0.1.0 interface:
+The [support matrix](docs/conformance.md#current-support-and-release-status)
+is authoritative. CAJ, KDH and PDF are supported. HN-A converts as image
+pages with bookmarks. C8 and HN-B convert image pages and admitted native-text
+profiles with caller fonts, and omit their unverified outlines with a warning.
+The CLI interface is documented in the [CLI reference](docs/cli.md).
 
-```text
-caj2pdf INPUT [-o OUTPUT] [--force]
-caj2pdf inspect INPUT [--json] [--bookmarks]
-caj2pdf add-bookmarks SOURCE_CAJ INPUT_PDF -o OUTPUT_PDF [--force]
-```
+## Remaining sequence
 
-- Conversion is the default operation. A named `paper.caj` produces a sibling
-  `paper.pdf` unless `-o` is provided. A PDF input requires an explicit output
-  path to avoid deriving its own input path.
-- `-` represents stdin or stdout. With stdin and no `-o`, output goes to stdout;
-  refuse binary output when stdout is a terminal. Spool non-seekable stdin to
-  a temporary file when random access is needed.
-- `inspect` prints human-readable metadata or a documented JSON schema;
-  `--bookmarks` includes the outline tree. `add-bookmarks` imports the CAJ
-  outline into an existing PDF and requires a distinct explicit output path.
-- Write only PDF bytes to stdout. Send diagnostics and interactive progress
-  to stderr. Disable progress when stderr is not a terminal or when requested
-  by a quiet flag.
-- Refuse existing output paths by default; `--force` permits overwriting the
-  output but never reading and writing the same path. Write path outputs to a
-  temporary sibling and commit them only after successful conversion.
-- Return exit status 0 on success, 2 for invalid arguments, and 1 for I/O,
-  unsupported format, or conversion failures. Provide `--help` and `--version`.
+1. **C8/HN-B bookmarks (#303).** Blocked on a sample whose viewer shows a
+   non-empty outline.
+2. **Release v0.4.0 (#287).** Run the full release matrix from current main.
+3. **Registry publication (#293).** Needs crates.io and npm accounts.
+4. **Partial CAJ output decision (#297).** Waiting on a maintainer decision.
 
-## Delivery status and remaining sequence
+Use short PRs with focused tests and the existing native, WASM, license,
+link and coverage gates. Add an abstraction only for a concrete need.
 
-The [parent issue #1](https://github.com/rwv/caj2pdf-rust/issues/1) and its
-native sub-issue/blocking relationships are authoritative.
+## History
 
-1. **Integration acceptance completed (#10 / #182).** HN/C8 composition, native
-   and JS scratch adapters, CLI/browser/Node conversion, and HN-A metadata
-   inspection are implemented. The complete multi-image document produces
-   identical PDFs on all three interfaces; page order, placement, bookmarks and
-   cleanup are checked. Original two-image controls run in normal CI. See
-   [the results and limitations](docs/js-validation.md#complete-multi-image-hn-a-public-interface-check).
-2. **Representative viewer checks completed (#123 / #184).** Source page/image
-   extents and storage-padding handling are corrected. HN-A/C8 selected frame
-   sizes match, while exact pixels still differ; these remain explicit
-   experimental-profile limitations. Complete corrected CLI/Node/browser outputs
-   match. See [results and scope](docs/cajviewer-hnc8-kdh.md#results-after-the-source-geometry-correction).
-3. **Finish codec integration (#8/#9).** #189 completed the owner-directed
-   standard-state adoption (#30/#44). CLI and WASM use the built-in states by
-   default; retain explicit overrides and verify affected adapter paths.
-4. **Audit and release (#14).** Maintain one support matrix, reuse valid memory
-   measurements, check packages/examples and run existing CI. Geometry must be
-   fixed or explicitly limited; distribution decisions must be resolved before
-   shipping the affected data. OCR remains deferred. Legacy Python ordering is not planned (#21);
-   preserve source page order and valid source bookmarks.
-
-Keep remaining work in these issues, with no new issue hierarchy or framework.
-Missing optional corpus is NOT_RUN; unavailable checks do not count as passes.
-
-Use short implementation PRs, focused unit tests, final-head review and
-simplification, and the existing native/WASM/license/coverage gates. Add an
-abstraction only for a concrete need. Detailed historical results remain in
-linked issues and format notes; no extra approval or inventory project is needed.
-
-## Reference material
-
-- Vendor fixture plan: [CAJViewer fixtures](docs/cajviewer-fixtures.md) and
-  [epic #123](https://github.com/rwv/caj2pdf-rust/issues/123)
-- Python converter: https://github.com/rwv/caj2pdf
-- Go prototype: https://github.com/rwv/caj2pdf-go
-- Public sample corpus (optional, not vendored):
-  https://github.com/caj2pdf/CAJSamples
-- Rust standard I/O: https://doc.rust-lang.org/std/io/
-- Rust CLI guidelines: https://rust-cli.github.io/book/
-- Conventional Commits: https://www.conventionalcommits.org/en/v1.0.0/
-- Semantic Versioning: https://semver.org/spec/v2.0.0.html
-- Browser Blob ranges: https://developer.mozilla.org/en-US/docs/Web/API/Blob/slice
-- Node.js positioned reads: https://nodejs.org/api/fs.html#filehandlereadbuffer-offset-length-position
-
-## Wider distribution (v0.3.0)
-
-Track platform expansion in #209, with LoongArch in #210, additional targets
-in #211 and concrete remaining toolchain/runtime blockers in #214. The release
-inventory is `docs/platform-targets.json`; CI matrices must execute each target
-before packaging. Docker has a separate `docs/container-platforms.json` and
-executes every manifest from the exported archive. Preserve the existing
-converter and JavaScript architecture; platform setup belongs in CI/adapters.
-Do not promote an ABI-mismatched or build-only target even if some tests pass.
+The original v0.1.0 plan (milestones, proposed CLI, vendor validation
+baseline and the v0.3.0 platform expansion) is preserved at
+[this revision](https://github.com/rwv/caj2pdf-rust/blob/f21fa98c600d8aa3113f9daa0e7c08dc6a6ce4a3/PROJECT_PLAN.md).
+Delivered changes are in the [changelog](CHANGELOG.md) and the
+[release notes](docs/releases/). The format investigations are indexed in
+[docs/research](docs/research/README.md).

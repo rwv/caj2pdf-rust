@@ -239,7 +239,7 @@ pub enum C8GlyphClass {
 /// The point-size
 /// model is calibrated from original font controls, including held-out field 7;
 /// it is not an authoritative physical-unit definition. See the recorded
-/// geometry and rasterization limits in `docs/c8-native-records.md`.
+/// geometry and rasterization limits in `docs/research/c8-native-records.md`.
 ///
 /// `position` and `source_origin` are raw x/y words. Subtraction is signed;
 /// off-page glyphs remain off-page. Font selection, character decoding, color
