@@ -777,7 +777,28 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
     ///
     /// Fails without writing if an earlier `add_bookmark` failed after it
     /// began closing outline items.
-    pub async fn finish(mut self) -> Result<ConversionReport> {
+    pub async fn finish(self) -> Result<ConversionReport> {
+        self.finish_with_info(&[]).await
+    }
+
+    /// Like [`Self::finish`], also writing a document information dictionary
+    /// with each present `(key, value)` as a UTF-16BE text string. Keys are
+    /// plain names of ASCII letters, digits and `_`. Without a present value,
+    /// no dictionary or trailer `/Info` entry is written.
+    pub async fn finish_with_info(
+        mut self,
+        info: &[(&'static str, Option<&str>)],
+    ) -> Result<ConversionReport> {
+        if info.iter().any(|(key, _)| {
+            key.is_empty()
+                || !key
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+        }) {
+            return Err(Error::InvalidInput {
+                reason: "PDF Info key must be a plain ASCII name",
+            });
+        }
         self.ensure_image_page_intact()?;
         super::ensure_outline_intact(self.outline_failed)?;
         if self.pages_written == 0 {
@@ -812,7 +833,29 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
         self.writer.write_bytes(b" >>").await?;
         self.writer.end_object().await?;
 
-        let output_bytes_written = self.writer.finish(self.catalog_id).await?;
+        let info_id = if info.iter().any(|(_, value)| value.is_some()) {
+            let id = self.writer.reserve_object()?;
+            self.writer.begin_object(id).await?;
+            self.writer.write_bytes(b"<<").await?;
+            for (key, value) in info {
+                if let Some(value) = value {
+                    self.writer
+                        .write_bytes(format!(" /{key} <FEFF").as_bytes())
+                        .await?;
+                    self.write_utf16_hex(value).await?;
+                    self.writer.write_bytes(b">").await?;
+                }
+            }
+            self.writer.write_bytes(b" >>").await?;
+            self.writer.end_object().await?;
+            Some(id)
+        } else {
+            None
+        };
+        let output_bytes_written = self
+            .writer
+            .finish_with_info(self.catalog_id, info_id)
+            .await?;
         Ok(ConversionReport {
             input_bytes_read: self.input_bytes_read,
             output_bytes_written,
@@ -1181,16 +1224,11 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
         Ok(())
     }
 
-    async fn emit_outline_item(
-        &mut self,
-        item: ClosedOutline,
-        next: Option<ObjectId>,
-    ) -> Result<()> {
-        self.writer.begin_object(item.id).await?;
-        self.writer.write_bytes(b"<< /Title <FEFF").await?;
+    /// Write `text` as UTF-16BE hexadecimal digits in bounded chunks.
+    async fn write_utf16_hex(&mut self, text: &str) -> Result<()> {
         let mut hex = [0_u8; 4096];
         let mut used = 0;
-        for unit in item.title.encode_utf16() {
+        for unit in text.encode_utf16() {
             if used == hex.len() {
                 self.writer.write_bytes(&hex).await?;
                 used = 0;
@@ -1205,6 +1243,17 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
         if used > 0 {
             self.writer.write_bytes(&hex[..used]).await?;
         }
+        Ok(())
+    }
+
+    async fn emit_outline_item(
+        &mut self,
+        item: ClosedOutline,
+        next: Option<ObjectId>,
+    ) -> Result<()> {
+        self.writer.begin_object(item.id).await?;
+        self.writer.write_bytes(b"<< /Title <FEFF").await?;
+        self.write_utf16_hex(&item.title).await?;
         self.writer
             .write_bytes(
                 format!(

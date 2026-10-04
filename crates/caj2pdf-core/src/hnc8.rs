@@ -8,7 +8,10 @@
 //! caller-supplied MQ table and bounded stores.
 //! [`read_text_coordinates`] validates the observed text frame while retaining
 //! only raw image-coordinate words. Empirical geometry remains diagnostic.
+//! [`Hnc8Reader::application_info`] reads the trailing C8 application-info
+//! package's DOI, URL and note count.
 
+mod appinfo;
 mod compose;
 mod convert;
 mod convert_jbig2;
@@ -22,6 +25,10 @@ mod placement;
 mod structure;
 mod text;
 
+pub use appinfo::{
+    ApplicationInfo, ApplicationInfoDefect, ApplicationInfoReport, ApplicationInfoStatus,
+    MAX_APPLICATION_INFO_BYTES, MAX_APPLICATION_INFO_FIELD_BYTES,
+};
 pub use compose::{
     C8FontSources, ComposeBudget, ComposeError, ComposeErrorKind, ComposeOptions, ComposePage,
     ComposeReport, ComposeStage, ComposeType3Workspaces, ComposeVisitor, ComposeWorkspaces,

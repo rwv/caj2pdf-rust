@@ -91,6 +91,49 @@ fn index_pdf(bytes: Vec<u8>) -> Result<PdfIndex> {
 }
 
 #[test]
+fn info_dictionary_holds_only_present_values_as_utf16_text() {
+    let write = |info: &[(&'static str, Option<&str>)]| {
+        let limits = Limits::default();
+        let mut sink = VecSink::default();
+        let mut source = FilledSource::new(1);
+        let result = run(async {
+            let mut document = PdfDocument::new(&mut sink, &limits, &NEVER).await?;
+            document
+                .add_image_page(&mut source, 0, 1, page(), gray_pixels(1))
+                .await?;
+            document.finish_with_info(info).await
+        });
+        (result, sink.bytes)
+    };
+    let (_, plain) = write(&[]);
+    let (_, absent) = write(&[("Subject", None)]);
+    assert_eq!(absent, plain);
+    let (report, pdf) = write(&[
+        ("Subject", Some("A\u{4e2d}")),
+        ("Empty", None),
+        ("X_1", Some("")),
+    ]);
+    let text = String::from_utf8_lossy(&pdf).into_owned();
+    assert!(
+        text.contains("<< /Subject <FEFF00414E2D> /X_1 <FEFF> >>"),
+        "{text}"
+    );
+    assert!(text.contains(" /Info "), "{text}");
+    assert_eq!(report.unwrap().output_bytes_written, pdf.len() as u64);
+    assert_eq!(index_pdf(pdf).unwrap().pages().len(), 1);
+    for key in ["", "Sub ject", "/Subject"] {
+        let (error, pdf) = write(&[(key, Some("x"))]);
+        assert!(matches!(
+            error,
+            Err(Error::InvalidInput {
+                reason: "PDF Info key must be a plain ASCII name"
+            })
+        ));
+        assert!(!String::from_utf8_lossy(&pdf).contains("trailer"));
+    }
+}
+
+#[test]
 fn decimal_matrices_preserve_small_values_and_signed_bounds_without_exponents() {
     let values = [
         f64::from_bits(1),

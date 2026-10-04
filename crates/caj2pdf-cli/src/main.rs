@@ -59,7 +59,10 @@ mod cli {
     use crate::args::{self, Command, Endpoint};
     use crate::files::{open_input, open_output, refuse_terminal, stdout_error};
     use crate::{document, report};
-    use caj2pdf_core::{Limits, hnc8::OutlineReport};
+    use caj2pdf_core::{
+        Limits,
+        hnc8::{ApplicationInfoStatus, OutlineReport},
+    };
     use std::io::{self, IsTerminal, Write};
 
     /// The output used when `-o` is absent: stdout for stdin, otherwise the
@@ -90,10 +93,13 @@ mod cli {
             .map_err(stdout_error)
     }
 
-    /// Report skipped HN-A bookmarks; a failed diagnostic write is ignored
-    /// like the error diagnostic, so it cannot change the exit status.
-    fn warn(outline: &OutlineReport) {
-        let _ = report::write_warnings(&mut io::stderr().lock(), outline);
+    /// Report skipped HN-A bookmarks and an ignored C8 application-info
+    /// package; a failed diagnostic write is ignored like the error
+    /// diagnostic, so it cannot change the exit status.
+    fn warn(outline: &OutlineReport, application_info: ApplicationInfoStatus) {
+        let mut stderr = io::stderr().lock();
+        let _ = report::write_warnings(&mut stderr, outline)
+            .and_then(|()| report::write_application_info_warning(&mut stderr, application_info));
     }
 
     pub fn run(command: Command) -> Result<(), CliError> {
@@ -118,7 +124,7 @@ mod cli {
                 protected.extend(resources.inputs.iter());
                 let mut output = open_output(&output, force, &protected)?;
                 let mut terminal = (!options.quiet && io::stderr().is_terminal()).then(io::stderr);
-                let outline = document::convert(
+                let warnings = document::convert(
                     &mut input,
                     output.writer(),
                     &limits,
@@ -127,7 +133,7 @@ mod cli {
                     terminal.as_mut().map(|err| err as &mut dyn io::Write),
                 )?;
                 output.commit()?;
-                warn(&outline);
+                warn(&warnings.outline, warnings.application_info);
                 Ok(())
             }
             Command::Inspect {
@@ -138,7 +144,7 @@ mod cli {
             } => {
                 let mut input = open_input(&input, limits.max_input_bytes)?;
                 let info = document::inspect(&mut input, &limits, pages)?;
-                warn(&info.outline);
+                warn(&info.outline, info.application_info.status);
                 let mut stdout = io::stdout().lock();
                 if json {
                     report::write_json(&mut stdout, &info, bookmarks, pages)

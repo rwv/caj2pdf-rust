@@ -9,7 +9,7 @@ use crate::document::{
 use crate::json::{write_literal, write_string};
 use caj2pdf_core::{
     Bookmark, InputFormat,
-    hnc8::{ImageRecord, OutlineReport, PageRecord, TextStructure},
+    hnc8::{ApplicationInfoStatus, ImageRecord, OutlineReport, PageRecord, TextStructure},
 };
 use std::io::{self, Write};
 
@@ -159,6 +159,15 @@ pub fn write_text<W: Write>(
         )?,
         None => {}
     }
+    if let Some(package) = &info.application_info.info {
+        if let Some(doi) = &package.doi {
+            writeln!(out, "DOI: {}", printable(doi))?;
+        }
+        if let Some(url) = &package.url {
+            writeln!(out, "URL: {}", printable(url))?;
+        }
+        writeln!(out, "Notes: {}", package.note_count)?;
+    }
     match &info.structure {
         Some(structure) if pages => write_structure_text(out, structure),
         _ => Ok(()),
@@ -281,6 +290,13 @@ pub fn write_json<W: Write>(
     if let Some(reason) = unsupported_reason(info.format) {
         out.write_all(b",\"unsupported_reason\":")?;
         write_string(out, reason)?;
+    }
+    if let Some(package) = &info.application_info.info {
+        out.write_all(b",\"application_info\":{\"doi\":")?;
+        write_optional(out, package.doi.as_deref())?;
+        out.write_all(b",\"url\":")?;
+        write_optional(out, package.url.as_deref())?;
+        write!(out, ",\"note_count\":{}}}", package.note_count)?;
     }
     if pages {
         out.write_all(b",\"structure\":")?;
@@ -440,6 +456,17 @@ impl<'w, W: Write> Pages<'w, W> {
         }
         Ok(())
     }
+}
+
+/// Write one diagnostic line when a C8 application-info package was ignored.
+pub fn write_application_info_warning<W: Write>(
+    out: &mut W,
+    status: ApplicationInfoStatus,
+) -> io::Result<()> {
+    if let ApplicationInfoStatus::Ignored(defect) = status {
+        writeln!(out, "caj2pdf: warning: {defect}")?;
+    }
+    Ok(())
 }
 
 /// Write one diagnostic line per recorded HN-A outline defect, then a count

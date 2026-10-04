@@ -17,8 +17,9 @@ use super::image_emit::{
     emit_type0_xobject,
 };
 use super::{
-    Budget, Header, Hnc8Error, Hnc8Reader, ImageRecord, JpegBudget, OutlineReport, PageRecord,
-    RawTextCoordinate, TextBudget, Variant, empirical_image_transform, empirical_page_from_pixels,
+    ApplicationInfoStatus, Budget, Header, Hnc8Error, Hnc8Reader, ImageRecord, JpegBudget,
+    OutlineReport, PageRecord, RawTextCoordinate, TextBudget, Variant, empirical_image_transform,
+    empirical_page_from_pixels,
 };
 use crate::fallible::{len_u64, reserve_exact, usize_from_u32};
 use crate::jbig1::{Type0Budget, Type0Error, Type0ErrorKind, Type0Info, read_type0_info};
@@ -186,6 +187,9 @@ pub struct ComposeReport {
     /// HN-A outline totals and skipped or clamped entries; empty unless
     /// `ComposeOptions::include_bookmarks` is set.
     pub outline: OutlineReport,
+    /// Whether a C8 application-info package was read into the PDF `/Info`
+    /// or ignored as defective; a defect never fails conversion.
+    pub application_info: ApplicationInfoStatus,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -362,6 +366,31 @@ impl At {
             )
         }
     }
+}
+
+/// Finish the PDF with any C8 application-info DOI as `/Subject` (prefixed
+/// `doi:`) and URL as `/CNKI_URL`. A defective package is recorded in the
+/// report and ignored; only cancellation fails.
+async fn finish_document<S: RangedSource, W: SequentialSink, C: Cancellation>(
+    reader: &mut Hnc8Reader<'_, S, C>,
+    document: PdfDocument<'_, W, C>,
+    report: &mut ComposeReport,
+    at: At,
+) -> Result<ConversionReport, ComposeError> {
+    let read = reader
+        .application_info_report()
+        .await
+        .map_err(|error| container(error, ComposeStage::Container))?;
+    report.application_info = read.status;
+    let info = read.info.unwrap_or_default();
+    let subject = info.doi.map(|doi| format!("doi:{doi}"));
+    document
+        .finish_with_info(&[
+            ("Subject", subject.as_deref()),
+            ("CNKI_URL", info.url.as_deref()),
+        ])
+        .await
+        .map_err(at.io(ComposeStage::Pdf))
 }
 
 fn container(error: Hnc8Error, stage: ComposeStage) -> ComposeError {
@@ -1053,10 +1082,7 @@ where
             .await
             .map_err(|error| container(error, ComposeStage::Container))?;
     }
-    report.conversion = document
-        .finish()
-        .await
-        .map_err(document_at.io(ComposeStage::Pdf))?;
+    report.conversion = finish_document(&mut reader, document, &mut report, document_at).await?;
     report.conversion.input_bytes_read = counted.bytes;
     Ok(report)
 }
@@ -1082,6 +1108,7 @@ impl ComposeReport {
             row_store_read_bytes: 0,
             row_store_written_bytes: 0,
             outline: OutlineReport::default(),
+            application_info: ApplicationInfoStatus::Absent,
         }
     }
 }
