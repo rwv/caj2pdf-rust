@@ -229,6 +229,52 @@ jobs:
           path: dist/
           if-no-files-found: error
 
+  freebsd-cross:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {arch: riscv64, target: riscv64gc-unknown-freebsd}
+          - {arch: powerpc64, target: powerpc64-unknown-freebsd}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Cross-build against the pinned FreeBSD 15.1 sysroot
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y clang lld qpdf mupdf-tools
+          rustup toolchain install nightly-2026-09-29 --profile minimal --component rust-src
+          python3 scripts/build-freebsd-cross.py '${{ matrix.arch }}'
+      - name: Execute cross-built tests in FreeBSD
+        uses: vmactions/freebsd-vm@a2f9a41fa97f6848b8c3b791087dfcdaa5b473ff
+        with:
+          release: '15.1'
+          arch: ${{ matrix.arch }}
+          sync: scp
+          usesh: true
+          mem: 4096
+          cpu: 2
+          run: |
+            set -eu
+            uname -a
+            cd target/freebsd-cross
+            timeout 1800 ./core-tests --test-threads=2 --skip hnc8::compose::tests::independent_render_proves_padded_orientation_and_later_overlap_pixels --skip hnc8::compose::tests::type3_complete_mixed_pages_reuse_stores_and_keep_top_first_pixels --skip hnc8::compose::tests::independent_render_checks_decoded_images_in_native_content_order
+            CAJ2PDF_TEST_BINARY="$(pwd)/caj2pdf" timeout 300 ./portable-tests --test-threads=2
+            ./caj2pdf input.pdf -o output.pdf
+            ./caj2pdf inspect output.pdf --json
+      - name: Validate target output and package the tested binary
+        run: |
+          qpdf --check target/freebsd-cross/output.pdf
+          test "$(qpdf --show-npages target/freebsd-cross/output.pdf)" = 2
+          mutool draw -q -o "$RUNNER_TEMP/freebsd-smoke-%d.png" target/freebsd-cross/output.pdf
+          python3 scripts/package-native.py --target '${{ matrix.target }}' --binary target/freebsd-cross/caj2pdf
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: native-${{ matrix.target }}
+          path: dist/
+          if-no-files-found: error
+
   freebsd:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
@@ -533,7 +579,7 @@ jobs:
   complete:
     name: Native platform matrix
     if: always()
-    needs: [native, linux-cross, linux-musl, mips, freebsd, docker, netbsd, openbsd, omnios, bootlin, android]
+    needs: [native, linux-cross, linux-musl, mips, freebsd, freebsd-cross, docker, netbsd, openbsd, omnios, bootlin, android]
     runs-on: ubuntu-24.04
     steps:
       - name: Require every release platform job to succeed
