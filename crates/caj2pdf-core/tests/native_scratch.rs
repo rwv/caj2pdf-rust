@@ -162,3 +162,61 @@ fn non_regular_storage_is_refused() {
         Err(Error::InvalidInput { .. })
     ));
 }
+
+#[test]
+fn cached_size_follows_successful_resizes_only() {
+    let (_temporary, file) = Temporary::new();
+    file.set_len(3).unwrap();
+    let mut scratch = FileScratch::new(file, 64).unwrap();
+    ready(async {
+        assert_eq!(scratch.size().unwrap(), 3);
+        scratch.set_len(48).await.unwrap();
+        assert_eq!(scratch.size().unwrap(), 48);
+        for row in 0..16_u8 {
+            let offset = 45 - u64::from(row) * 3;
+            assert_eq!(scratch.write_at(offset, &[row; 3]).await.unwrap(), 3);
+            assert_eq!(scratch.size().unwrap(), 48, "writes never extend");
+        }
+        assert!(matches!(
+            scratch.write_at(46, &[0; 3]).await,
+            Err(Error::InvalidInput { .. })
+        ));
+        assert!(matches!(
+            scratch.set_len(65).await,
+            Err(Error::LimitExceeded { .. })
+        ));
+        assert_eq!(scratch.size().unwrap(), 48);
+        let mut row = [0; 3];
+        assert_eq!(scratch.read_at(0, &mut row).await.unwrap(), 3);
+        assert_eq!(row, [15; 3]);
+        assert_eq!(scratch.read_at(45, &mut row).await.unwrap(), 3);
+        assert_eq!(row, [0; 3]);
+        scratch.set_len(6).await.unwrap();
+        assert_eq!(scratch.size().unwrap(), 6);
+        assert!(matches!(
+            scratch.read_at(3, &mut [0; 4]).await,
+            Err(Error::InvalidInput { .. })
+        ));
+    });
+    assert_eq!(scratch.into_inner().metadata().unwrap().len(), 6);
+}
+
+#[cfg(unix)]
+#[test]
+fn positioned_requests_leave_the_handle_cursor_alone() {
+    use std::io::{Read, Seek};
+    let (_temporary, file) = Temporary::new();
+    let mut scratch = FileScratch::new(file, 8).unwrap();
+    ready(async {
+        scratch.set_len(8).await.unwrap();
+        assert_eq!(scratch.write_at(4, &[5, 6, 7, 8]).await.unwrap(), 4);
+        let mut tail = [0; 2];
+        assert_eq!(scratch.read_at(6, &mut tail).await.unwrap(), 2);
+        assert_eq!(tail, [7, 8]);
+    });
+    let mut file = scratch.into_inner();
+    assert_eq!(file.stream_position().unwrap(), 0);
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes).unwrap();
+    assert_eq!(bytes, [0, 0, 0, 0, 5, 6, 7, 8]);
+}

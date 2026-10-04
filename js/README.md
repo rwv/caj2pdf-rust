@@ -87,7 +87,9 @@ to the file you choose.
 ### API
 
 - `convert(wasm, source, sink, options)` detects the format from at most five
-  leading bytes (or uses `options.format`) and resolves with
+  leading bytes, or 1,024 when looking for a displaced `%PDF-` header
+  ([header offset rule](../docs/pdf-input.md#header-offset)), or uses
+  `options.format`, and resolves with
   `{ format, inputBytesRead, outputBytesWritten, pagesConverted, bookmarksWritten }`.
 - `inspect(wasm, source, options)` resolves with
   `{ format, pageCount, bookmarkCount, inputBytesRead }` without output.

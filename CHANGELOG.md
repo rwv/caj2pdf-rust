@@ -2,19 +2,13 @@
 
 ## Unreleased
 
-- **Breaking:** native C8/HN-B pages now need only a CJK and a Latin font.
-  `C8PageFonts::alternate_latin` becomes `Option<usize>`; wrap existing
-  values in `Some`. If a role is absent, or its font does not map a
-  character, the glyph uses the CJK font for CJK-coded characters and the
-  Latin font otherwise (`is_cjk_coded`, `C8_DEFAULT_DECORATION_ALIAS`). A
-  glyph missing from that font still fails with its location. Before, an
-  absent optional role or unmapped glyph failed. The CLI adds `--fonts DIR`,
-  which reads `cjk.ttf`, `latin.ttf`, `alternate-latin.ttf`,
-  `decoration.ttf`, `symbols.ttf` and `latin-state{3,28,31}.ttf`; per-role
-  flags override it. JS `hnc8.fonts.alternateLatin` is optional. Matching
-  WASM accepts `0xffffffff` as an absent alternate role. `docs/cli.md`
-  documents a tested free recipe (Droid Sans Fallback and DejaVu Sans). It
-  converts all six pinned C8/HN-B corpus inputs.
+- Recognize a PDF whose `%PDF-` header follows other bytes (a newline, UTF-8
+  byte-order mark, or junk line) within the first 1,024 bytes when no other
+  signature matches at byte 0, in the CLI and auto-detecting JS API. Its
+  offsets are read relative to the header and the leading bytes are dropped
+  from the output (#300). Core adds `detect_source`, `Detection`, and
+  `PDF_HEADER_SEARCH_BYTES`; `detect_format` now also matches the displaced
+  header within its prefix.
 - TEB diagnostics now say the input is a DRM-encrypted CNKI container whose
   document content cannot be converted; `inspect --json` adds
   `"unsupported_reason":"drm-encrypted"` for TEB. Exit status is unchanged.

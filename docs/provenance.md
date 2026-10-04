@@ -2963,6 +2963,24 @@ runner change that reports a missing pixel-oracle entry as `NOT_RUN` and checks
 outline identity separately is original MIT code with original synthetic tests.
 TEB analysis there is structural only; no payload is decrypted or copied.
 
+## Displaced PDF header detection (#300)
+
+The bounded `%PDF-` search in `operations.rs`, its CLI and WASM wiring, and
+the tests are original MIT code. The 1,024-byte window and the accepted
+leading bytes (newline, UTF-8 byte-order mark, `%PDF-` within the first 256
+bytes) follow the public CAJSamples magic index and black-box `qpdf --check`
+11.9.0 results on the repository fixture with those bytes prepended. Tests
+build the prefixed inputs at runtime from `valid_nested_outline.pdf`; no new
+fixture, document bytes, or third-party parser code is included.
+
+## Fuzz targets (#294)
+
+`fuzz/` is original MIT harness code. It depends on `libfuzzer-sys`
+(MIT/Apache-2.0), which builds LLVM libFuzzer (Apache-2.0 with LLVM exception)
+at fuzz-build time. Neither is vendored in this repository, linked into the CLI,
+WASM or JS packages, or part of the release inventory. Seeds come from the
+original synthetic fixtures in `tests/fixtures`.
+
 ## Native font role fallback and font directory (#290)
 
 The CJK/Latin role fallback in `hnc8/native_page.rs`, the CLI `--fonts DIR`
