@@ -70,12 +70,10 @@ where
         offset: Some(0),
         ..At::NONE
     };
-    if !matches!(header.variant, Variant::C8 | Variant::HnB) || options.include_bookmarks {
+    if !matches!(header.variant, Variant::C8 | Variant::HnB) {
         return Err(at.error(
             ComposeStage::Preflight,
-            ComposeErrorKind::Unsupported(
-                "native composition requires C8 or HN-B with bookmarks omitted",
-            ),
+            ComposeErrorKind::Unsupported("native composition requires C8 or HN-B"),
         ));
     }
     let mut document = PdfDocument::new(sink, limits, cancellation)
@@ -119,6 +117,8 @@ where
         latin_state31: roles.latin_state31.map(|_| 7),
     };
     let mut report = ComposeReport::new(header);
+    // C8/HN-B outlines are unverified; a request writes none and is reported.
+    report.outline.unverified = options.include_bookmarks;
     let mut workspaces = workspaces.into();
     let mut contexts = None;
     while let Some(page) = reader

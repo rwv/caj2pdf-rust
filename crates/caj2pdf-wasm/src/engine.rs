@@ -19,6 +19,7 @@ use caj2pdf_core::{
     Limits, PdfErrorKind, RangedSource, Result, SequentialSink,
     caj::{convert_caj, parse_metadata},
     copy_range, detect_source,
+    hnc8::OutlineReport,
     kdh::{KdhPdfSource, convert_kdh},
     pdf::{PdfIndex, PdfRange, copy_pdf_range},
 };
@@ -183,6 +184,9 @@ pub struct Outcome {
     pub info: Option<DocumentInfo>,
     /// HN-A outline entries skipped or clamped by a conversion or inspection.
     pub outline_warnings: u32,
+    /// Requested C8/HN-B bookmarks were not written because their layout is
+    /// unverified.
+    pub outline_omitted: bool,
 }
 
 struct Shared {
@@ -580,22 +584,22 @@ async fn run(
     source.shared.borrow_mut().format = Some(format);
     let mut outcome = match operation {
         Operation::Convert { options, .. } => {
-            let (report, outline_warnings) = match format {
+            let (report, outline) = match format {
                 InputFormat::Pdf => {
                     let range = pdf_range(source.size, header_offset);
                     (
                         copy_pdf_range(&mut source, &mut sink, range, &limits, &cancellation)
                             .await?,
-                        0,
+                        OutlineReport::default(),
                     )
                 }
                 InputFormat::Caj => (
                     convert_caj(&mut source, &mut sink, options, &limits, &cancellation).await?,
-                    0,
+                    OutlineReport::default(),
                 ),
                 InputFormat::Kdh => (
                     convert_kdh(&mut source, &mut sink, &limits, &cancellation).await?,
-                    0,
+                    OutlineReport::default(),
                 ),
                 InputFormat::Hn | InputFormat::C8 => {
                     hnc8::convert(&mut source, &mut sink, options, &limits, &cancellation).await?
@@ -605,7 +609,8 @@ async fn run(
             Outcome {
                 report,
                 info: None,
-                outline_warnings,
+                outline_warnings: outline.defects,
+                outline_omitted: outline.unverified,
             }
         }
         _ => inspect(&mut source, format, header_offset, &limits, &cancellation).await?,
@@ -698,6 +703,7 @@ async fn inspect(
             bookmark_count,
         }),
         outline_warnings,
+        outline_omitted: false,
     })
 }
 

@@ -67,13 +67,13 @@ standard input or output; standard input without -o writes to standard output.
 Supported inputs: CAJ, KDH, PDF, experimental HN/C8 image pages,
 and admitted native C8/HN-B text profiles with explicit fonts.
 HN/C8 uses built-in standard codec states; TEB remains unsupported.
-C8/HN-B currently require --no-bookmarks.
+C8/HN-B outlines are unverified: none is written and a warning is shown.
 
 Options:
   -o, --output OUTPUT  Write the PDF to OUTPUT (- for standard output)
   -f, --force          Replace an existing output file (never an input)
   -q, --quiet          Do not show progress on a terminal
-  --no-bookmarks      Skip CAJ/HN outline import (required for C8/HN-B)
+  --no-bookmarks      Skip outline import (silences the C8/HN-B warning)
   --qm-states FILE    Experimental QM states for HN/C8 type-0 images
   --mq-states FILE    Experimental MQ states for arithmetic JBIG2 images
   --font-cjk FILE     Explicit native C8/HN-B CJK font (requires both Latin roles)

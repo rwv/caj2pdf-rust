@@ -12,7 +12,9 @@ export async function useNode(inputPath: string, outputPath: string) {
   const report = await convert(module, await fileHandleSource(input), sink);
   const count: bigint = report.outputBytesWritten;
   const skippedBookmarks: number = report.outlineWarnings;
+  const omittedOutline: boolean = report.outlineOmitted;
   void skippedBookmarks;
+  void omittedOutline;
   await convertReadable(module, Readable.from([]), sink, { maxSpoolBytes: 1024n });
   const spool = await spoolToTempFile(Readable.from([]), { maxBytes: 1024n });
   await spool.dispose();

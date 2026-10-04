@@ -370,6 +370,7 @@ function report(exports) {
     pagesConverted: exports.caj2pdf_io_pages_converted(),
     bookmarksWritten: exports.caj2pdf_io_bookmarks_written(),
     outlineWarnings: exports.caj2pdf_io_outline_warnings(),
+    outlineOmitted: exports.caj2pdf_io_outline_omitted() !== 0,
   };
 }
 

@@ -42,6 +42,20 @@ test("native C8/HN-B public Node path reuses ranged fonts and preserves pages", 
   }
 });
 
+test("requested C8 bookmarks are omitted and reported, not a failure", async () => {
+  const outputs = [];
+  for (const includeBookmarks of [false, true]) {
+    const parts = [];
+    const result = await convert(await newInstance(), source(syntheticNativeC8()), sink(parts), {
+      includeBookmarks, hnc8: { fonts: roles(source(fontBytes)) },
+    });
+    assert.equal(result.outlineOmitted, includeBookmarks);
+    assert.equal(result.bookmarksWritten, 0);
+    outputs.push(Buffer.concat(parts));
+  }
+  assert.deepEqual(outputs[0], outputs[1]);
+});
+
 test("native C8 font validation and failed reads preserve caller errors", async () => {
   const font = source(fontBytes);
   for (const fonts of [{}, { ...roles(font), decoration: { source: font, character: "ab" } }, { ...roles(font), decoration: { source: font, character: "\ud800" } }]) {

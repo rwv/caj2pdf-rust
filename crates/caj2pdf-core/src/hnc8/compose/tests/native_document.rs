@@ -186,6 +186,43 @@ fn native_document_late_unknown_record_cannot_finish_pdf() {
 }
 
 #[test]
+fn native_c8_bookmark_request_is_reported_not_written_or_failed() {
+    let mut outputs = Vec::new();
+    for include_bookmarks in [false, true] {
+        let fixture = fixture_with_text(
+            Variant::C8,
+            &[vec![Record::jpeg(3, 2, 120, 20, 40)]],
+            native_text,
+        );
+        let mut fonts = [Source::new(crate::pdf::drawing_font())];
+        let mut role = roles();
+        role.decoration = Some((0, 'A'));
+        let mut sink = Sink::default();
+        let report = ready(convert_c8_native_pdf(
+            &mut Source::new(fixture.bytes),
+            &mut sink,
+            C8FontSources {
+                sources: &mut fonts,
+                roles: role,
+            },
+            None,
+            &mut Scratch::default(),
+            ComposeOptions {
+                include_bookmarks,
+                ..ComposeOptions::default()
+            },
+            &Limits::default(),
+            &NeverCancel,
+        ))
+        .unwrap();
+        assert_eq!(report.outline.unverified, include_bookmarks);
+        assert_eq!(report.conversion.bookmarks_written, 0);
+        outputs.push(sink.bytes);
+    }
+    assert_eq!(outputs[0], outputs[1]);
+}
+
+#[test]
 fn native_document_errors_preserve_preflight_and_source_locations() {
     for mode in 0..8 {
         let mut fixture = fixture_with_text(
@@ -199,7 +236,13 @@ fn native_document_errors_preserve_preflight_and_source_locations() {
         role.decoration = Some((0, 'A'));
         match mode {
             0 => fixture.bytes[0] = 0,
-            1 => options.include_bookmarks = true,
+            1 => {
+                fixture = fixture_with_text(
+                    Variant::HnA,
+                    &[vec![Record::jpeg(3, 2, 120, 20, 40)]],
+                    native_text,
+                )
+            }
             2 => fixture.bytes[80..84].copy_from_slice(&u32::MAX.to_le_bytes()),
             3 => {
                 let at = fixture.descriptors[0][0] as usize;
