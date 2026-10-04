@@ -19,7 +19,7 @@ jobs:
     name: Native quality gates
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install pinned Rust toolchain
         run: rustup show active-toolchain
       - name: Install independent PDF test validators
@@ -237,11 +237,11 @@ jobs:
       # it is missing.
       CAJ2PDF_CHROME: /usr/bin/google-chrome
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install pinned Rust toolchain
         run: rustup show active-toolchain
       - name: Set up Node.js 22
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: '22'
       - name: Install independent PDF validator for JavaScript output tests
@@ -275,7 +275,7 @@ jobs:
           printf '%s\n' "$report"
           node -e 'const r = JSON.parse(process.argv[1]); if (r.status !== "NOT_RUN" || r.checked || r.passed || r.failed || r.unsupported || r.excluded || r.not_run || r.results.length) throw new Error("expected NOT_RUN with zero counts")' "$report"
       - name: Set up Node.js 24
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: '24'
       - name: Test the JavaScript API, packaging, and headless Chromium on Node 24
@@ -285,9 +285,9 @@ jobs:
     name: MIT dependency and source audit
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install cargo-deny
-        uses: taiki-e/install-action@9983c65e42da123ff25d1f78505eb6de315aa172 # v2.87.20
+        uses: taiki-e/install-action@83ac0ad63c0167e6f06796fab0fce28db1bf3db0 # v2.87.22
         with:
           tool: cargo-deny@0.20.2
           fallback: none
@@ -309,7 +309,7 @@ jobs:
     name: Line coverage (100% required)
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install pinned Rust toolchain
         run: rustup show active-toolchain
       - name: Install independent PDF test validators
@@ -322,7 +322,7 @@ jobs:
           pdfimages -v
           cjpeg -version
       - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@9983c65e42da123ff25d1f78505eb6de315aa172 # v2.87.20
+        uses: taiki-e/install-action@83ac0ad63c0167e6f06796fab0fce28db1bf3db0 # v2.87.22
         with:
           tool: cargo-llvm-cov@0.9.1
           fallback: none
@@ -330,7 +330,7 @@ jobs:
         run: bash scripts/check-coverage.sh
       - name: Upload coverage report
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: rust-line-coverage
           path: target/coverage/
