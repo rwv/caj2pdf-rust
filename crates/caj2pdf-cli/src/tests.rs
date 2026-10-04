@@ -857,8 +857,16 @@ fn experimental_conversion_options_are_scoped_and_unambiguous() {
         assert_eq!(options.qm_states, Some("qm.txt".into()));
         assert_eq!(options.mq_states, Some("mq.txt".into()));
         assert!(options.no_bookmarks);
+        assert!(!options.quiet);
+    }
+    for flag in ["-q", "--quiet"] {
+        let Command::Convert { options, .. } = parse_str(&["paper.caj", flag]).unwrap() else {
+            panic!()
+        };
+        assert!(options.quiet);
     }
     for args in [
+        vec!["inspect", "paper.caj", "--quiet"],
         vec!["paper.hn", "--qm-states"],
         vec!["paper.hn", "--mq-states", "-"],
         vec!["paper.hn", "--qm-states="],
@@ -950,4 +958,69 @@ fn native_font_options_preserve_paths_and_validate_roles() {
     };
     assert_eq!(options.fonts[0], Some(unusual.clone().into()));
     assert!(parse(vec!["input.c8".into(), "--decoration-char".into(), unusual]).is_err());
+}
+
+struct Bytes(Vec<u8>);
+
+impl caj2pdf_core::RangedSource for Bytes {
+    fn size(&self) -> u64 {
+        self.0.len() as u64
+    }
+
+    async fn read_at(
+        &mut self,
+        offset: u64,
+        destination: &mut [u8],
+    ) -> caj2pdf_core::Result<usize> {
+        if offset > self.size() {
+            return Err(caj2pdf_core::Error::InvalidInput {
+                reason: "test read past end",
+            });
+        }
+        let bytes = &self.0[offset as usize..];
+        let count = bytes.len().min(destination.len());
+        destination[..count].copy_from_slice(&bytes[..count]);
+        Ok(count)
+    }
+}
+
+#[test]
+fn progress_reports_the_furthest_input_byte_once_per_percent() {
+    use crate::progress::Progress;
+    use caj2pdf_core::RangedSource;
+    let mut out = Vec::new();
+    let mut source = Progress::new(Bytes(vec![7; 200]), Some(&mut out));
+    let mut buffer = [0; 100];
+    assert_eq!(block_on(source.read_at(0, &mut buffer)).unwrap(), 100);
+    assert_eq!(buffer, [7; 100]);
+    block_on(source.read_at(0, &mut buffer[..10])).unwrap();
+    block_on(source.read_at(100, &mut buffer[..1])).unwrap();
+    block_on(source.read_at(150, &mut buffer)).unwrap();
+    assert!(block_on(source.read_at(201, &mut buffer)).is_err());
+    assert_eq!(source.size(), 200);
+    source.finish();
+    assert_eq!(
+        String::from_utf8(out).unwrap(),
+        format!(
+            "\rcaj2pdf: reading input  50%\rcaj2pdf: reading input 100%\r{:30}\r",
+            ""
+        )
+    );
+}
+
+#[test]
+fn progress_without_a_terminal_or_reads_writes_nothing() {
+    use crate::progress::Progress;
+    let mut out = Vec::new();
+    Progress::new(Bytes(Vec::new()), Some(&mut out)).finish();
+    assert!(out.is_empty());
+    let mut source = Progress::new(Bytes(vec![1; 4]), None);
+    let mut buffer = [0; 4];
+    block_on(caj2pdf_core::RangedSource::read_at(
+        &mut source,
+        0,
+        &mut buffer,
+    ))
+    .unwrap();
+    source.finish();
 }
