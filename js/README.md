@@ -500,9 +500,10 @@ only a transient `NoModificationAllowedError` (at most three attempts, with
 is an `AggregateError`: `cause` and `errors[0]` hold the original failure,
 `errors[1]` holds the removal failure. The temporary file may then remain.
 
-### Explicit fonts for native C8 and HN-B pages
+### Fonts for native C8 and HN-B pages
 
-The admitted native C8 and HN-B text/vector profiles accept caller-owned ranged font sources:
+The admitted native C8 and HN-B text/vector profiles accept caller-owned
+ranged font sources. Only `cjk` and `latin` are required:
 
 ```js
 await convert(wasm, documentSource, outputSink, {
@@ -510,29 +511,60 @@ await convert(wasm, documentSource, outputSink, {
   hnc8: {
     scratch, // Existing four reusable stores for image decoding, when needed.
     fonts: {
-      cjk: textFontSource,
-      latin: textFontSource,
-      alternateLatin: alternateFontSource,
+      cjk: cjkFontSource,
+      latin: latinFontSource,
+      // Optional roles; absent ones use the fallback rule below.
+      alternateLatin: alternateFontSource, // 801d/4 Latin resource.
       decoration: { source: decorationFontSource, character: "►" },
-      symbols: symbolFontSource, // Optional semantic HN-B mode-0 symbols/space.
-      latinState3: state3FontSource, // Optional distinct HN-B/C8 801d/3 Latin resource.
-      latinState28: state28FontSource, // Optional C8 801d/28 resource.
-      latinState31: state31FontSource, // Optional distinct C8 801d/31 resource.
+      symbols: symbolFontSource, // Semantic HN-B mode-0 symbols/space.
+      latinState3: state3FontSource, // HN-B/C8 801d/3 Latin resource.
+      latinState28: state28FontSource, // C8 801d/28 resource.
+      latinState31: state31FontSource, // C8 801d/31 resource.
     },
   },
 });
 ```
 
+**Fallback rule** (implemented in the core, so CLI, Node and browser
+behave the same): each glyph uses the font of the role the source selects.
+If that role is absent, or its font does not map the character, CJK-coded
+characters (CJK blocks and halfwidth/fullwidth forms) use `cjk` and every
+other character, including the decoration alias `►`, uses `latin`. A glyph
+missing from that font still fails with its page and source byte. There
+is no system-font lookup. The CLI's `--fonts DIR` lookup is not part of
+the JavaScript API: open the font files and pass them as sources.
+
+Tested free-font recipe for Node. The fonts are installed separately and
+never bundled. See [docs/cli.md](../docs/cli.md#tested-free-font-recipe)
+for the installation command and the TrueType-only limit:
+
+```js
+import { open } from "node:fs/promises";
+import { convert, fileHandleSource, withHnc8Scratch } from "caj2pdf-rust";
+
+const cjk = await open("/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf", "r");
+const latin = await open("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", "r");
+try {
+  const fonts = { cjk: await fileHandleSource(cjk), latin: await fileHandleSource(latin) };
+  await withHnc8Scratch((scratch) => convert(module, documentSource, outputSink, {
+    includeBookmarks: false,
+    hnc8: { scratch, fonts },
+  }));
+} finally {
+  await cjk.close();
+  await latin.close();
+}
+```
+
 Each font uses the same `size: bigint` / `readAt(offset, length, signal)`
 contract as the document. Browser `blobSource` and Node `fileHandleSource`
 work for fonts too. Reuse the same source object across roles to embed it
-once. No system-font lookup or implicit missing-glyph fallback is performed.
-The CJK role can include fullwidth Latin letters; character coverage alone
-does not guarantee compatible widths/bearings or prevent overlap at fixed
-source positions. See the [same-resource controls](../docs/c8-real-font-fidelity.md#same-resource-control-follow-up).
+once. Character coverage alone does not guarantee compatible widths or
+bearings, or prevent overlap at fixed source positions. See the
+[same-resource controls](../docs/c8-real-font-fidelity.md#same-resource-control-follow-up).
 The optional decoration character is a nonsemantic BMP alias, not document
-text. Ordinary roles are explicit because source role selection differs
-from Unicode/script selection.
+text. Roles exist because source role selection differs from Unicode/script
+selection.
 
 Keep sources stable and open until conversion settles; the converter does
 not close caller-owned resources. Forward-only fonts can use the existing

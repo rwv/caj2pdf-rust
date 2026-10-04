@@ -192,11 +192,14 @@ export interface ProbabilityState {
   switchMps: boolean;
 }
 /** Explicit C8 resources. Reuse the same source object across roles to embed once.
- * Sources remain caller-owned and must stay stable until conversion settles. */
+ * Sources remain caller-owned and must stay stable until conversion settles.
+ * Only `cjk` and `latin` are required. An absent optional role, or a role font
+ * that does not map a character, falls back to `cjk` for CJK-coded characters
+ * and to `latin` otherwise; a glyph missing from that font still fails. */
 export interface C8Fonts {
   cjk: RangedSource;
   latin: RangedSource;
-  alternateLatin: RangedSource;
+  alternateLatin?: RangedSource;
   /** Semantic symbols/spaces required by the admitted HN-B mode-0 records. */
   symbols?: RangedSource;
   /** Optional explicit font selected by HN-B/C8 state 801d/3. */

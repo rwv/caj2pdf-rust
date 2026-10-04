@@ -57,7 +57,9 @@ text rendering, correct character transport and copy/search limitations.
 TEB is recognized and unsupported. Build with `cargo build --release -p caj2pdf-cli`.
 
 For C8/HN-B, explicitly disable bookmark import until those outline semantics
-are verified. Native text pages require explicit fonts; unsupported records
+are verified. Native text pages need a caller-supplied CJK and Latin font,
+for example through `--fonts DIR` and the tested free-font recipe in the
+[CLI reference](docs/cli.md#native-c8-font-resources); unsupported records
 fail rather than silently losing pages. HN-B mode-2 leading images and the
 controlled mode-0 text profile are described in the
 [HN-B findings](docs/hnb-compact-index.md). See the [CLI reference](docs/cli.md)

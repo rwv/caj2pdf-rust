@@ -190,9 +190,11 @@ getter; older hosts that register no fonts continue receiving document reads.
 Use matching JS/WASM artifacts for the new font API. This does not change
 the core `RangedSource` trait or existing image-only conversion options.
 
-HN-B mode 0 can additionally require a semantic `symbols` font for spaces
-and punctuation. It is optional at registration, but required when a page
-uses those characters; there is no implicit decoration/CJK fallback.
+HN-B mode 0 can additionally use a semantic `symbols` font for spaces
+and punctuation. It is optional. Absent optional roles, including the
+alternate Latin role (`0xffffffff` in `caj2pdf_c8_set_fonts*`), use the
+documented CJK/Latin fallback of `C8PageFonts`; a glyph missing from the
+fallback font still fails with its location.
 Raw WASM hosts supplying it call
 `caj2pdf_c8_set_fonts_with_symbols(cjk, latin, alternate, decoration, alias, symbols)`.
 The final argument is a zero-based resource index, or `0xffffffff` for absent.

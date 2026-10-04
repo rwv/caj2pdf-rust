@@ -5,21 +5,24 @@
 use crate::signals::ProcessCancellation;
 use crate::{
     CliError,
-    args::{ConvertOptions, Endpoint},
+    args::{ConvertOptions, Endpoint, FONT_FILES},
     files::{Input, anonymous_file, open_input},
 };
 use caj2pdf_core::{
     ConversionReport, Error, Limits, RangedSource, SequentialSink,
     hnc8::{
-        ComposeOptions, ComposePage, ComposeType3Workspaces, ComposeVisitor, ComposeWorkspaces,
-        Type3PdfOptions, convert_source_pages_pdf,
+        C8_DEFAULT_DECORATION_ALIAS, ComposeOptions, ComposePage, ComposeType3Workspaces,
+        ComposeVisitor, ComposeWorkspaces, Type3PdfOptions, convert_source_pages_pdf,
     },
     jbig2::mq::{MqState, MqTable},
     jbig2::text::TextHeaderPolicy,
     native::FileScratch,
     qm::{QmState, QmTable},
 };
-use std::{io::Read, path::Path};
+use std::{
+    io::{ErrorKind, Read},
+    path::{Path, PathBuf},
+};
 
 const MAX_STATE_BYTES: u64 = 16 * 1024;
 
@@ -30,7 +33,7 @@ pub struct Resources {
     // Retain opened input identities so --force cannot overwrite a state file.
     pub inputs: Vec<Input>,
     font_start: usize,
-    font_roles: Option<caj2pdf_core::hnc8::C8PageFonts>,
+    pub font_roles: Option<caj2pdf_core::hnc8::C8PageFonts>,
 }
 
 impl Resources {
@@ -81,10 +84,11 @@ impl Resources {
             resources.mq = Some(MqTable::standard());
         }
         resources.font_start = resources.inputs.len();
-        if options.fonts.iter().any(Option::is_some) {
+        let fonts = font_paths(options)?;
+        if fonts.iter().any(Option::is_some) {
             let mut paths = Vec::new();
             let mut indices = [0; 8];
-            for (role, path) in options.fonts.iter().enumerate() {
+            for (role, path) in fonts.iter().enumerate() {
                 if let Some(path) = path {
                     indices[role] = if let Some(index) = paths.iter().position(|p| *p == path) {
                         index
@@ -99,17 +103,19 @@ impl Resources {
                     };
                 }
             }
+            let role = |index: usize| fonts[index].as_ref().map(|_| indices[index]);
             resources.font_roles = Some(caj2pdf_core::hnc8::C8PageFonts {
                 cjk: indices[0],
                 latin: indices[1],
-                alternate_latin: indices[2],
-                symbols: options.fonts[4].as_ref().map(|_| indices[4]),
-                latin_state3: options.fonts[5].as_ref().map(|_| indices[5]),
-                latin_state28: options.fonts[6].as_ref().map(|_| indices[6]),
-                latin_state31: options.fonts[7].as_ref().map(|_| indices[7]),
-                decoration: options.fonts[3]
-                    .as_ref()
-                    .map(|_| (indices[3], options.decoration_char.unwrap_or('►'))),
+                alternate_latin: role(2),
+                symbols: role(4),
+                latin_state3: role(5),
+                latin_state28: role(6),
+                latin_state31: role(7),
+                decoration: role(3).map(|index| {
+                    let alias = options.decoration_char;
+                    (index, alias.unwrap_or(C8_DEFAULT_DECORATION_ALIAS))
+                }),
             });
         }
         Ok(resources)
@@ -133,6 +139,47 @@ impl Resources {
         self.inputs.push(input);
         Ok(rows)
     }
+}
+
+/// Resolve explicit role paths, then fill absent roles from `--fonts DIR`.
+/// A missing optional file leaves its role to the core fallback; any other
+/// metadata failure keeps the path so opening it reports the actual error.
+fn font_paths(options: &ConvertOptions) -> Result<[Option<PathBuf>; 8], CliError> {
+    let mut paths = options.fonts.clone();
+    let Some(directory) = &options.font_dir else {
+        return Ok(paths);
+    };
+    if !directory.is_dir() {
+        return Err(CliError::runtime(format!(
+            "font directory '{}' is not a readable directory",
+            directory.display()
+        )));
+    }
+    for (path, name) in paths.iter_mut().zip(FONT_FILES) {
+        let candidate = directory.join(name);
+        if path.is_none()
+            && !matches!(std::fs::metadata(&candidate), Err(e) if e.kind() == ErrorKind::NotFound)
+        {
+            *path = Some(candidate);
+        }
+    }
+    for (role, flag) in [(0, "--font-cjk"), (1, "--font-latin")] {
+        if paths[role].is_none() {
+            return Err(CliError::runtime(format!(
+                "font directory '{}' has no {}; add it or pass {flag}",
+                directory.display(),
+                FONT_FILES[role]
+            )));
+        }
+    }
+    if options.decoration_char.is_some() && paths[3].is_none() {
+        return Err(CliError::runtime(format!(
+            "--decoration-char requires a decoration font; font directory '{}' has no {}",
+            directory.display(),
+            FONT_FILES[3]
+        )));
+    }
+    Ok(paths)
 }
 
 fn parse_states(text: &str, count: usize) -> Result<Vec<[u16; 4]>, &'static str> {

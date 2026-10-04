@@ -9,6 +9,8 @@ use crate::pdf::{FontObject, ImageObject, TrueTypeFont};
 /// Explicit ranged font sources, embedded once per document.
 /// Multiple roles may reference one source index. At most eight distinct
 /// resources are needed by the admitted profile; no system fonts are searched.
+/// Absent optional roles and unmapped characters follow the
+/// [`C8PageFonts`] fallback rule.
 pub struct C8FontSources<'a, F> {
     pub sources: &'a mut [F],
     pub roles: C8PageFonts,
@@ -44,8 +46,9 @@ where
     let roles = fonts.roles;
     let count = fonts.sources.len();
     if !(1..=8).contains(&count)
-        || [roles.cjk, roles.latin, roles.alternate_latin]
+        || [roles.cjk, roles.latin]
             .into_iter()
+            .chain(roles.alternate_latin)
             .chain(roles.decoration.map(|(index, _)| index))
             .chain(roles.symbols)
             .chain(roles.latin_state3)
@@ -101,7 +104,7 @@ where
     let references = [
         &handles[roles.cjk],
         &handles[roles.latin],
-        &handles[roles.alternate_latin],
+        &handles[roles.alternate_latin.unwrap_or(roles.cjk)],
         &handles[roles.decoration.map_or(roles.cjk, |(index, _)| index)],
         &handles[roles.symbols.unwrap_or(roles.cjk)],
         &handles[roles.latin_state3.unwrap_or(roles.cjk)],
@@ -111,7 +114,7 @@ where
     let page_roles = C8PageFonts {
         cjk: 0,
         latin: 1,
-        alternate_latin: 2,
+        alternate_latin: roles.alternate_latin.map(|_| 2),
         decoration: roles.decoration.map(|(_, alias)| (3, alias)),
         symbols: roles.symbols.map(|_| 4),
         latin_state3: roles.latin_state3.map(|_| 5),

@@ -2962,3 +2962,14 @@ records the 738-page HN-A results and the TEB container characterization. The
 runner change that reports a missing pixel-oracle entry as `NOT_RUN` and checks
 outline identity separately is original MIT code with original synthetic tests.
 TEB analysis there is structural only; no payload is decrypted or copied.
+
+## Native font role fallback and font directory (#290)
+
+The CJK/Latin role fallback in `hnc8/native_page.rs`, the CLI `--fonts DIR`
+mapping and their tests are original MIT code. The CJK-coded ranges are
+standard Unicode block boundaries. Tests relabel the cmap of this project's
+original geometric font; no external glyph data is added. The documented
+free recipe (Droid Sans Fallback, Apache-2.0; DejaVu Sans, Bitstream Vera
+license) was chosen by checking cmap coverage of the six pinned corpus inputs.
+Those fonts stay external: they are not vendored, bundled or copied into
+fixtures. Corpus documents and derived PDFs remain outside Git.

@@ -89,7 +89,7 @@ fn roles() -> C8PageFonts {
     C8PageFonts {
         cjk: 0,
         latin: 1,
-        alternate_latin: 2,
+        alternate_latin: Some(2),
         decoration: Some((1, 'A')),
         symbols: None,
         latin_state3: None,
@@ -125,6 +125,38 @@ fn convert(
     top_first: &[bool],
     roles: C8PageFonts,
     mode: u8,
+) -> (Result<u32>, Vec<u8>, bool) {
+    convert_with_fonts(words, declared, top_first, roles, mode, Vec::new())
+}
+
+/// Original drawing font with its rectangle and triangle relabelled, in
+/// ascending code order. No external glyph data is introduced.
+fn labelled_font(codes: [u32; 2]) -> Vec<u8> {
+    let mut bytes = crate::pdf::drawing_font();
+    let table = bytes[12..]
+        .as_chunks::<16>()
+        .0
+        .iter()
+        .find(|entry| &entry[..4] == b"cmap")
+        .unwrap();
+    let offset = u32::from_be_bytes(table[8..12].try_into().unwrap()) as usize;
+    for (index, code) in codes.into_iter().enumerate() {
+        for at in [offset + 28 + index * 12, offset + 32 + index * 12] {
+            bytes[at..at + 4].copy_from_slice(&code.to_be_bytes());
+        }
+    }
+    bytes
+}
+
+/// Like [`convert`], but `custom` (when nonempty) replaces the shared page
+/// font with one distinct embedded resource per role index.
+fn convert_with_fonts(
+    words: &[[u16; 2]],
+    declared: u32,
+    top_first: &[bool],
+    roles: C8PageFonts,
+    mode: u8,
+    custom: Vec<Vec<u8>>,
 ) -> (Result<u32>, Vec<u8>, bool) {
     let mut input = fixture(words, declared);
     if matches!(mode, 12 | 13 | 18 | 19 | 20 | 21) {
@@ -223,7 +255,19 @@ fn convert(
             .await
             .unwrap();
         let font = document.add_font(&mut font).await.unwrap();
-        let fonts = [&font, &font, &font];
+        let mut distinct = Vec::new();
+        for bytes in custom {
+            let mut font_source = source(bytes);
+            let mut font = TrueTypeFont::read(&mut font_source, &limits, &cancel)
+                .await
+                .unwrap();
+            distinct.push(document.add_font(&mut font).await.unwrap());
+        }
+        let fonts = if distinct.is_empty() {
+            vec![&font, &font, &font]
+        } else {
+            distinct.iter().collect()
+        };
         let mut images = Vec::new();
         for _ in 0..declared {
             let mut image = document
@@ -340,9 +384,6 @@ fn unsupported_content_and_missing_glyphs_poison_the_open_page() {
         vec![[4800, 0xa3a6]],
         vec![[4800, 0xa0c2]],
         vec![[4800, 0xa080]],
-        vec![[0x801d, 3]],
-        vec![[0x801d, 28]],
-        vec![[0x801d, 31]],
         vec![[0x8072, 1]],
         vec![[0x80ce, 0], [4800, 0xa1a1]],
         vec![[0x8006, 0xa384], [4682, 4350], [4912, 4350]],
@@ -399,6 +440,7 @@ fn decoration_requires_resource_style_and_verified_direction() {
     assert!(!finished);
     let mut words = ordinary();
     words.extend(drawing);
+    // The fallback Latin font lacks the default alias, so this still fails.
     let mut missing = roles();
     missing.decoration = None;
     let (result, _, finished) = convert(&words, 0, &[], missing, 0);
@@ -1208,7 +1250,7 @@ fn mode_zero_parentheses_and_slash_use_their_controlled_font_roles() {
 }
 
 #[test]
-fn mode_zero_space_and_colon_use_explicit_symbol_resource() {
+fn mode_zero_space_and_colon_use_symbol_resource_or_fallback() {
     let words = [
         [0x8001, 4350],
         [0x8002, 0x04e7],
@@ -1225,12 +1267,21 @@ fn mode_zero_space_and_colon_use_explicit_symbol_resource() {
     assert!(text.contains("/F2 1 Tf"));
     assert!(text.contains("<0020> Tj"));
     assert!(text.contains("<FF1A> Tj"));
-    for symbols in [None, Some(3)] {
-        fonts.symbols = symbols;
-        let (result, _, finished) = convert(&words, 0, &[], fonts, 20);
-        assert!(result.is_err());
-        assert!(!finished);
-    }
+    fonts.symbols = Some(3);
+    let (result, _, finished) = convert(&words, 0, &[], fonts, 20);
+    assert!(result.is_err());
+    assert!(!finished);
+    // Absent symbols: ASCII space uses Latin, the fullwidth colon uses CJK.
+    fonts.symbols = None;
+    let (result, pdf, finished) = convert(&words, 0, &[], fonts, 20);
+    assert!(result.is_ok(), "{result:?}");
+    assert!(finished);
+    let text = String::from_utf8_lossy(&pdf);
+    let space = text.find("/F1 1 Tf").unwrap();
+    let colon = text[space..].find("/F0 1 Tf").unwrap() + space;
+    assert!(text[space..colon].contains("<0020> Tj"));
+    assert!(text[colon..].contains("<FF1A> Tj"));
+    assert!(!text.contains("/F2 1 Tf"));
 }
 
 #[test]
@@ -1393,7 +1444,7 @@ fn hnb_regular_style_flags_preserve_controlled_resources_and_geometry() {
 }
 
 #[test]
-fn native_state_three_requires_explicit_resource_and_switches_back() {
+fn native_state_three_uses_its_resource_or_latin_fallback_and_switches_back() {
     let words = [
         [0x8001, 4350],
         [0x8002, 0x10a5],
@@ -1409,23 +1460,24 @@ fn native_state_three_requires_explicit_resource_and_switches_back() {
     ];
     for mode in [0, 12] {
         let mut fonts = roles();
-        for index in [None, Some(3)] {
+        // An index outside the page resources is reported, not replaced.
+        fonts.latin_state3 = Some(3);
+        let (result, _, finished) = convert(&words, 0, &[], fonts, mode);
+        assert!(result.is_err());
+        assert!(!finished);
+        for (index, expected) in [(Some(0), [0, 2, 0, 1]), (None, [1, 2, 1, 1])] {
             fonts.latin_state3 = index;
-            let (result, _, finished) = convert(&words, 0, &[], fonts, mode);
-            assert!(result.is_err());
-            assert!(!finished);
+            let (result, pdf, finished) = convert(&words, 0, &[], fonts, mode);
+            assert!(result.is_ok(), "{result:?}");
+            assert!(finished);
+            let text = String::from_utf8_lossy(&pdf);
+            let mut at = 0;
+            for role in expected {
+                let token = format!("/F{role} 1 Tf");
+                at += text[at..].find(&token).unwrap() + token.len();
+            }
+            assert_eq!(text.matches("<0041> Tj").count(), 4);
         }
-        fonts.latin_state3 = Some(0);
-        let (result, pdf, finished) = convert(&words, 0, &[], fonts, mode);
-        assert!(result.is_ok(), "{result:?}");
-        assert!(finished);
-        let text = String::from_utf8_lossy(&pdf);
-        let mut at = 0;
-        for role in [0, 2, 0, 1] {
-            let token = format!("/F{role} 1 Tf");
-            at += text[at..].find(&token).unwrap() + token.len();
-        }
-        assert_eq!(text.matches("<0041> Tj").count(), 4);
     }
 }
 
@@ -1756,7 +1808,7 @@ fn c8_fullwidth_alphabet_uses_cjk_resource_independent_of_latin_selection() {
 }
 
 #[test]
-fn c8_extended_latin_states_require_distinct_resources_and_restore_selection() {
+fn c8_extended_latin_states_use_their_resources_or_fallback_and_restore_selection() {
     for state in [28, 31] {
         let words = [
             [0x8001, 4350],
@@ -1779,12 +1831,12 @@ fn c8_extended_latin_states_require_distinct_resources_and_restore_selection() {
                 fonts.latin_state31 = index;
             }
             let (result, pdf, finished) = convert(&words, 0, &[], fonts, 0);
-            if index == Some(0) {
+            if let Some(selected) = index.map_or(Some(1), |index| (index == 0).then_some(0)) {
                 result.unwrap();
                 assert!(finished);
                 let text = String::from_utf8_lossy(&pdf);
                 let mut at = 0;
-                for role in [0, 2, 0, 1] {
+                for role in [selected, 2, selected, 1] {
                     let token = format!("/F{role} 1 Tf");
                     at += text[at..].find(&token).unwrap() + token.len();
                 }
@@ -2101,4 +2153,160 @@ fn c8_parallel_resets_latin_until_an_explicit_resource_selection() {
             assert!(convert(&words, 0, &[], fonts, 13).0.is_err());
         }
     }
+}
+
+/// F0 maps Han and a fullwidth colon, F1 ASCII `A` and the default decoration
+/// alias, F2 only ASCII `A`/`B`: each fallback is visible as a distinct resource.
+fn fallback_fonts() -> Vec<Vec<u8>> {
+    vec![
+        labelled_font([0x4e2d, 0xff1a]),
+        labelled_font([0x41, 0x25ba]),
+        labelled_font([0x41, 0x42]),
+    ]
+}
+
+fn required_roles() -> C8PageFonts {
+    C8PageFonts {
+        cjk: 0,
+        latin: 1,
+        alternate_latin: None,
+        decoration: None,
+        symbols: None,
+        latin_state3: None,
+        latin_state28: None,
+        latin_state31: None,
+    }
+}
+
+fn assert_in_order(pdf: &[u8], tokens: &[&str]) {
+    let text = String::from_utf8_lossy(pdf);
+    let mut after = 0;
+    for token in tokens {
+        after += text[after..].find(token).unwrap() + token.len();
+    }
+}
+
+#[test]
+fn absent_roles_and_unmapped_characters_fall_back_by_character_class() {
+    let words = [
+        [0x8001, 4350],
+        [0x8002, 0x1084],
+        [4682, 0xd6d0],
+        [0x801d, 4],
+        [4772, 0xa0c1],
+        [0x801d, 0],
+        [4862, 0xa3ba],
+        [0x8010, 1],
+        [4682, 4524],
+        [4832, 4524],
+        [0x8004, 1],
+    ];
+    // Absent alternate and decoration roles use Latin; the Latin role's
+    // unmapped fullwidth colon uses CJK.
+    let (result, pdf, finished) =
+        convert_with_fonts(&words, 0, &[], required_roles(), 0, fallback_fonts());
+    assert_eq!(result.unwrap(), 0);
+    assert!(finished);
+    let text = String::from_utf8_lossy(&pdf);
+    assert!(!text.contains("/F2 1 Tf"));
+    assert_in_order(
+        &pdf,
+        &[
+            "/F0 1 Tf",
+            "<4E2D> Tj",
+            "/F1 1 Tf",
+            "<0041> Tj",
+            "/F0 1 Tf",
+            "<FF1A> Tj",
+            "/Artifact BMC",
+            "/F1 1 Tf",
+            "<25BA> Tj",
+        ],
+    );
+    // Explicit roles take precedence over the fallback whenever they map
+    // the character. The explicit decoration font lacks its alias, so the
+    // alias also falls back to Latin.
+    let roles = C8PageFonts {
+        alternate_latin: Some(2),
+        decoration: Some((2, C8_DEFAULT_DECORATION_ALIAS)),
+        ..required_roles()
+    };
+    let (result, pdf, finished) = convert_with_fonts(&words, 0, &[], roles, 0, fallback_fonts());
+    assert_eq!(result.unwrap(), 0);
+    assert!(finished);
+    assert_in_order(
+        &pdf,
+        &[
+            "<4E2D> Tj",
+            "/F2 1 Tf",
+            "<0041> Tj",
+            "/F0 1 Tf",
+            "<FF1A> Tj",
+            "/F1 1 Tf",
+            "<25BA> Tj",
+        ],
+    );
+}
+
+#[test]
+fn glyphs_missing_from_the_fallback_font_still_fail_with_a_location() {
+    // `B` is not CJK-coded and Latin lacks it; U+3000 is CJK-coded and CJK
+    // lacks it. An explicit role that maps `B` still succeeds.
+    for (code, alternate, accepted) in [
+        (0xa0c2, None, false),
+        (0xa1a1, None, false),
+        (0xa0c2, Some(2), true),
+    ] {
+        let words = [
+            [0x8001, 4350],
+            [0x8002, 0x1084],
+            [0x801d, 4],
+            [4800, code],
+            [0x8004, 1],
+        ];
+        let roles = C8PageFonts {
+            alternate_latin: alternate,
+            ..required_roles()
+        };
+        let (result, _, finished) = convert_with_fonts(&words, 0, &[], roles, 0, fallback_fonts());
+        assert_eq!(finished, accepted);
+        if !accepted {
+            let error = result.unwrap_err();
+            assert_eq!(error.page, Some(1));
+            assert!(error.offset >= 112);
+            assert!(
+                error.to_string().contains("no supported BMP glyph"),
+                "{error}"
+            );
+        }
+    }
+}
+
+#[test]
+fn mode_zero_absent_alternate_and_symbol_roles_fall_back_by_character_class() {
+    let words = [
+        [0x8001, 4350],
+        [0x8002, 0x1084],
+        [4682, 0xd6d0],
+        [4772, 0xa980],
+        [4862, 0xa3ba],
+        [0x8004, 1],
+    ];
+    let (result, pdf, finished) =
+        convert_with_fonts(&words, 0, &[], required_roles(), 18, fallback_fonts());
+    assert_eq!(result.unwrap(), 0);
+    assert!(finished);
+    assert_in_order(
+        &pdf,
+        &[
+            "/F0 1 Tf",
+            "<4E2D> Tj",
+            "/F1 1 Tf",
+            "<0041> Tj",
+            "/F0 1 Tf",
+            "<FF1A> Tj",
+        ],
+    );
+    assert!(is_cjk_coded('\u{3000}') && is_cjk_coded('\u{ff1a}') && is_cjk_coded('\u{fe10}'));
+    assert!(!is_cjk_coded('A') && !is_cjk_coded('\u{2217}') && !is_cjk_coded('\u{25ba}'));
 }

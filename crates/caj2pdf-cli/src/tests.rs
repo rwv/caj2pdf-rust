@@ -893,3 +893,123 @@ fn native_font_options_preserve_paths_and_validate_roles() {
     assert_eq!(options.fonts[0], Some(unusual.clone().into()));
     assert!(parse(vec!["input.c8".into(), "--decoration-char".into(), unusual]).is_err());
 }
+
+#[test]
+fn font_directory_and_two_required_roles_parse_without_optional_roles() {
+    let Command::Convert { options, .. } =
+        parse_str(&["input.c8", "--font-cjk=a", "--font-latin", "b"]).unwrap()
+    else {
+        panic!()
+    };
+    assert_eq!(options.fonts[..2], [Some("a".into()), Some("b".into())]);
+    assert!(options.fonts[2..].iter().all(Option::is_none));
+    for (args, directory) in [
+        (vec!["input.c8", "--fonts", "dir"], "dir"),
+        (vec!["input.c8", "--fonts=dir", "--font-latin=b"], "dir"),
+        (vec!["input.c8", "--fonts=d", "--decoration-char", "A"], "d"),
+    ] {
+        let Command::Convert { options, .. } = parse_str(&args).unwrap() else {
+            panic!()
+        };
+        assert_eq!(options.font_dir, Some(directory.into()), "{args:?}");
+    }
+    for args in [
+        vec!["input.c8", "--fonts"],
+        vec!["input.c8", "--fonts="],
+        vec!["input.c8", "--fonts", "-"],
+        vec!["input.c8", "--fonts=a", "--fonts", "b"],
+        vec!["input.c8", "--font-latin=b"],
+        vec!["inspect", "input.c8", "--fonts=dir"],
+    ] {
+        assert!(parse_str(&args).is_err(), "{args:?}");
+    }
+}
+
+fn font_options(directory: &Path) -> crate::args::ConvertOptions {
+    crate::args::ConvertOptions {
+        font_dir: Some(directory.to_owned()),
+        ..Default::default()
+    }
+}
+
+fn load_fonts(options: &crate::args::ConvertOptions) -> Result<crate::hnc8::Resources, CliError> {
+    crate::hnc8::Resources::load(options, &caj2pdf_core::Limits::default())
+}
+
+#[test]
+fn font_directory_maps_fixed_names_and_leaves_missing_optional_roles_to_fallback() {
+    let dir = TempDir::new("fonts");
+    let missing = load_fonts(&font_options(&dir.0.join("absent")))
+        .err()
+        .unwrap();
+    assert_eq!(missing.code, 1);
+    assert!(missing.message.contains("not a readable directory"));
+    let file = dir.0.join("file");
+    fs::write(&file, b"").unwrap();
+    assert!(load_fonts(&font_options(&file)).is_err());
+    for (present, absent) in [("latin.ttf", "cjk.ttf"), ("cjk.ttf", "latin.ttf")] {
+        let roles = TempDir::new("font-roles");
+        fs::write(roles.0.join(present), b"font").unwrap();
+        let error = load_fonts(&font_options(&roles.0)).err().unwrap();
+        assert!(error.message.contains(absent), "{}", error.message);
+    }
+    fs::write(dir.0.join("cjk.ttf"), b"cjk").unwrap();
+    fs::write(dir.0.join("latin.ttf"), b"latin").unwrap();
+    let resources = load_fonts(&font_options(&dir.0)).unwrap();
+    let roles = resources.font_roles.unwrap();
+    assert_eq!((roles.cjk, roles.latin), (0, 1));
+    assert!(roles.alternate_latin.is_none() && roles.decoration.is_none());
+    assert!(roles.symbols.is_none() && roles.latin_state3.is_none());
+    assert!(roles.latin_state28.is_none() && roles.latin_state31.is_none());
+    assert_eq!(resources.inputs.len(), 2);
+    // A decoration alias needs a decoration font from the directory or a flag.
+    let mut options = font_options(&dir.0);
+    options.decoration_char = Some('A');
+    assert!(
+        load_fonts(&options)
+            .err()
+            .unwrap()
+            .message
+            .contains("decoration.ttf")
+    );
+    for name in crate::args::FONT_FILES {
+        fs::write(dir.0.join(name), name).unwrap();
+    }
+    let resources = load_fonts(&options).unwrap();
+    let roles = resources.font_roles.unwrap();
+    assert_eq!(roles.alternate_latin, Some(2));
+    assert_eq!(roles.decoration, Some((3, 'A')));
+    assert_eq!(roles.symbols, Some(4));
+    assert_eq!(roles.latin_state3, Some(5));
+    assert_eq!(roles.latin_state28, Some(6));
+    assert_eq!(roles.latin_state31, Some(7));
+    assert_eq!(resources.inputs.len(), 8);
+}
+
+#[test]
+fn explicit_font_flags_override_the_directory_and_entries_are_opened() {
+    let dir = TempDir::new("font-override");
+    fs::write(dir.0.join("cjk.ttf"), b"cjk").unwrap();
+    fs::write(dir.0.join("latin.ttf"), b"latin").unwrap();
+    // A non-file entry is not treated as absent: opening it reports the error.
+    fs::create_dir(dir.0.join("symbols.ttf")).unwrap();
+    assert!(load_fonts(&font_options(&dir.0)).is_err());
+    fs::remove_dir(dir.0.join("symbols.ttf")).unwrap();
+    // Explicit Latin reuses the directory's CJK path, so it is embedded once;
+    // an explicit decoration replaces the absent directory entry.
+    let mut options = font_options(&dir.0);
+    options.fonts[1] = Some(dir.0.join("cjk.ttf"));
+    options.fonts[3] = Some(dir.0.join("latin.ttf"));
+    let resources = load_fonts(&options).unwrap();
+    let roles = resources.font_roles.unwrap();
+    assert_eq!((roles.cjk, roles.latin), (0, 0));
+    assert_eq!(
+        roles.decoration,
+        Some((1, caj2pdf_core::hnc8::C8_DEFAULT_DECORATION_ALIAS))
+    );
+    assert_eq!(resources.inputs.len(), 2);
+    // Without a directory, explicit flags behave as before.
+    options.font_dir = None;
+    let resources = load_fonts(&options).unwrap();
+    assert_eq!(resources.font_roles.unwrap().latin, 0);
+}

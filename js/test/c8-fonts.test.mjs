@@ -12,6 +12,7 @@ const symbolBytes = await readFile(new URL("../../tests/fonts/symbols.ttf", impo
 const source = (bytes) => blobSource(new Blob([bytes]));
 const sink = (parts = []) => ({ async writeChunk(bytes) { parts.push(bytes.slice()); return bytes.length; }, async flush() {} });
 const roles = (font) => ({ cjk: font, latin: font, alternateLatin: font });
+const required = (font) => ({ cjk: font, latin: font });
 
 test("native C8/HN-B public Node path reuses ranged fonts and preserves pages", async (t) => {
   for (const [inputBytes, pages, glyphs, hasSymbols, hasJpeg, hasState3, latinState] of [[syntheticNativeC8(), 1, 1], [syntheticNativeC8(true), 1, 2], [syntheticNativeHnb(), 2, 2], [syntheticNativeHnb(0), 2, 2, true], [syntheticNativeHnbMixed(), 1, 2, false, true], [syntheticNativeHnb(2, true), 2, 2, false, false, true], [syntheticNativeHnbAxes(), 2, 2], ...[3, 28, 31].map(state => [syntheticNativeC8(false, state), 1, 1, false, false, false, state])]) {
@@ -46,11 +47,6 @@ test("native C8 font validation and failed reads preserve caller errors", async 
   const font = source(fontBytes);
   for (const fonts of [{}, { ...roles(font), decoration: { source: font, character: "ab" } }, { ...roles(font), decoration: { source: font, character: "\ud800" } }]) {
     await assert.rejects(convert(await newInstance(), source(syntheticNativeC8()), sink(), { hnc8: { fonts } }), TypeError);
-  }
-  for (const state of [3, 28, 31]) {
-    await assert.rejects(convert(await newInstance(), source(syntheticNativeC8(false, state)), sink(), {
-      includeBookmarks: false, hnc8: { fonts: roles(font) },
-    }), /missing .*Latin font resource/);
   }
   const failure = new Error("caller font read failed");
   const broken = { size: font.size, async readAt() { throw failure; } };
@@ -113,7 +109,9 @@ test("forward-only fonts enforce spool limits and dispose after conversion outco
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
-test("HN-B symbols require an explicit usable font and clean scratch on failure", async () => {
+// Without a symbol role, the visible space falls back to the Latin font,
+// which lacks it; the located missing-glyph error is preserved.
+test("HN-B symbols missing from the fallback font fail and clean scratch", async () => {
   const wasm = await newInstance();
   const font = source(fontBytes);
   for (const symbols of [undefined, font]) {
@@ -139,14 +137,22 @@ test("HN-B image after text fails explicitly and releases scratch", async () => 
   });
 });
 
-// A missing role must not silently select the ordinary Latin resource.
-test("HN-B state-3 Latin resource is required and failure clears scratch", async () => {
-  await withHnc8Scratch(async (scratch) => {
-    await assert.rejects(convert(await newInstance(), source(syntheticNativeHnb(2, true)), sink(), {
-      includeBookmarks: false, hnc8: { fonts: roles(source(fontBytes)), scratch },
-    }), (error) => error.code === "HNC8" && /state-3 Latin font/.test(error.message));
-    assert.ok(scratch.every((store) => store.size === 0n));
-  });
+// Absent optional roles use the core CJK/Latin fallback; only the two
+// required roles are needed. One font then serves every role.
+test("absent optional Latin roles fall back to the required fonts", async (t) => {
+  for (const [input, pages] of [[syntheticNativeHnb(2, true), 2], ...[3, 28, 31].map((state) => [syntheticNativeC8(false, state), 1])]) {
+    const parts = [];
+    await withHnc8Scratch(async (scratch) => {
+      const result = await convert(await newInstance(), source(input), sink(parts), {
+        includeBookmarks: false, hnc8: { fonts: required(source(fontBytes)), scratch },
+      });
+      assert.equal(result.pagesConverted, pages);
+      assert.ok(scratch.every((store) => store.size === 0n));
+    });
+    const pdf = Buffer.concat(parts);
+    assert.equal(pdf.toString("latin1").match(/\/FontFile2 /g).length, 1);
+    await validatePdf(t, pdf, pages);
+  }
 });
 
 

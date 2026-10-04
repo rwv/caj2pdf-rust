@@ -27,8 +27,22 @@ pub struct ConvertOptions {
     pub mq_states: Option<PathBuf>,
     pub no_bookmarks: bool,
     pub fonts: [Option<PathBuf>; 8],
+    /// Directory supplying roles by the fixed names in `FONT_FILES`.
+    pub font_dir: Option<PathBuf>,
     pub decoration_char: Option<char>,
 }
+
+/// Fixed `--fonts DIR` file names, in `ConvertOptions::fonts` role order.
+pub const FONT_FILES: [&str; 8] = [
+    "cjk.ttf",
+    "latin.ttf",
+    "alternate-latin.ttf",
+    "decoration.ttf",
+    "symbols.ttf",
+    "latin-state3.ttf",
+    "latin-state28.ttf",
+    "latin-state31.ttf",
+];
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Command {
@@ -64,7 +78,7 @@ Usage:
 Conversion writes INPUT's sibling .pdf file unless -o is given. Use - for
 standard input or output; standard input without -o writes to standard output.
 Supported inputs: CAJ, KDH, PDF, experimental HN/C8 image pages,
-and admitted native C8/HN-B text profiles with explicit fonts.
+and admitted native C8/HN-B text profiles with caller-supplied fonts.
 HN/C8 uses built-in standard codec states; TEB remains unsupported.
 C8/HN-B currently require --no-bookmarks.
 
@@ -74,9 +88,10 @@ Options:
   --no-bookmarks      Skip CAJ/HN outline import (required for C8/HN-B)
   --qm-states FILE    Experimental QM states for HN/C8 type-0 images
   --mq-states FILE    Experimental MQ states for arithmetic JBIG2 images
-  --font-cjk FILE     Explicit native C8/HN-B CJK font (requires both Latin roles)
-  --font-latin FILE   Explicit native C8/HN-B ordinary Latin font
-  --font-alternate-latin FILE  Explicit native C8/HN-B alternate Latin font
+  --fonts DIR         Native C8/HN-B fonts named cjk.ttf, latin.ttf, ... in DIR
+  --font-cjk FILE     Native C8/HN-B CJK font (required with --font-latin)
+  --font-latin FILE   Native C8/HN-B ordinary Latin font
+  --font-alternate-latin FILE  Optional native C8/HN-B alternate Latin font
   --font-latin-state3 FILE    Optional HN-B/C8 state-3 Latin font
   --font-latin-state28 FILE   Optional C8 state-28 Latin font
   --font-latin-state31 FILE   Optional C8 state-31 Latin font
@@ -85,6 +100,9 @@ Options:
   --decoration-char CHAR      Decoration alias (default: ►; not document text)
   -h, --help           Print help (also: caj2pdf COMMAND --help)
   -V, --version        Print version
+
+Absent optional font roles and characters a role's font lacks fall back to
+the CJK font for CJK-coded characters and to the Latin font otherwise.
 
 Exit status: 0 on success, 2 for invalid arguments, 1 for other failures.
 ";
@@ -155,6 +173,16 @@ fn set_states(path: &mut Option<PathBuf>, value: OsString) -> Result<(), String>
     }
     if path.replace(value.into()).is_some() {
         return Err("a codec state option was given more than once".into());
+    }
+    Ok(())
+}
+
+fn set_font_dir(path: &mut Option<PathBuf>, value: OsString) -> Result<(), String> {
+    if value.is_empty() || value == "-" {
+        return Err("--fonts requires a nonempty directory path, not standard input".into());
+    }
+    if path.replace(value.into()).is_some() {
+        return Err("option '--fonts' was given more than once".into());
     }
     Ok(())
 }
@@ -260,6 +288,13 @@ pub fn parse<I: IntoIterator<Item = OsString>>(args: I) -> Result<Command, Strin
             }
             "--json" if !writes => json = true,
             "--bookmarks" if !writes => bookmarks = true,
+            "--fonts" if topic == Topic::Convert => {
+                let value = args.next().ok_or("option '--fonts' requires a directory")?;
+                set_font_dir(&mut options.font_dir, value)?;
+            }
+            _ if topic == Topic::Convert && text.starts_with("--fonts=") => {
+                set_font_dir(&mut options.font_dir, text[8..].into())?;
+            }
             _ if topic == Topic::Convert && text.starts_with("--qm-states=") => {
                 set_states(&mut options.qm_states, text[12..].into())?;
             }
@@ -273,14 +308,17 @@ pub fn parse<I: IntoIterator<Item = OsString>>(args: I) -> Result<Command, Strin
         }
     }
 
-    if options.fonts.iter().any(Option::is_some) && options.fonts[..3].iter().any(Option::is_none) {
+    if options.font_dir.is_none()
+        && options.fonts.iter().any(Option::is_some)
+        && options.fonts[..2].iter().any(Option::is_none)
+    {
         return Err(
-            "native C8/HN-B fonts require --font-cjk, --font-latin and --font-alternate-latin"
-                .into(),
+            "native C8/HN-B fonts require --font-cjk and --font-latin, or --fonts DIR".into(),
         );
     }
-    if options.decoration_char.is_some() && options.fonts[3].is_none() {
-        return Err("--decoration-char requires --font-decoration".into());
+    if options.decoration_char.is_some() && options.fonts[3].is_none() && options.font_dir.is_none()
+    {
+        return Err("--decoration-char requires --font-decoration or --fonts DIR".into());
     }
     let expected = if topic == Topic::AddBookmarks { 2 } else { 1 };
     if let Some(extra) = positionals.get(expected) {
