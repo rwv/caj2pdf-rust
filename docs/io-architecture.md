@@ -166,7 +166,7 @@ and decoder state in addition to the I/O chunk.
 
 ## Native C8 font resources
 
-`C8FontSources` gives the core one to five explicit ranged resources and
+`C8FontSources` gives the core up to eight explicit ranged resources and
 role indices. Repeated roles can share an embedded font. JavaScript exposes
 named roles under `hnc8.fonts` and deduplicates identical source objects.
 It does not discover fonts, collect a whole font in a JavaScript buffer,
@@ -174,12 +174,13 @@ or create another scheduler. Existing spool helpers can turn a forward-only
 font into a caller-owned ranged source with bounded temporary storage.
 
 The WASM host registers resource sizes before the first poll using
-`caj2pdf_c8_add_font(size)` (returns IDs 1–5), then assigns zero-based role
+`caj2pdf_c8_add_font(size)` (returns IDs 1–8; 0 means rejection), then assigns zero-based role
 indices using `caj2pdf_c8_set_fonts(cjk, latin, alternate, decoration, alias)`.
 A decoration index of `0xffffffff` means absent. `caj2pdf_io_request_resource()`
-identifies each ordinary read: 0 is the document, 1–6 are registered fonts.
+identifies each ordinary read: 0 is the document, 1–8 are registered fonts.
 The staging buffer, pending-request slot, completion and cancellation rules
-are shared with existing I/O. Registration is rejected after polling,
+are shared with existing I/O. Register all sources before assigning roles. Registration is rejected after
+roles are assigned or polling starts,
 excess resources are rejected, and sizes/roles are validated.
 
 **Unstable Rust API change:** `engine::Request::Read` now includes a
