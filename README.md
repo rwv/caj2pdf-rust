@@ -60,7 +60,9 @@ scanned page images with no source text layer; use an external OCR tool such as
 Build with `cargo build --release -p caj2pdf-cli`.
 
 C8/HN-B outline layouts are not verified yet, so those PDFs have no outline and
-the CLI prints a warning (`--no-bookmarks` silences it). Native text pages require explicit fonts; unsupported records
+the CLI prints a warning (`--no-bookmarks` silences it). Native text pages need
+a caller-supplied CJK and Latin font, for example through `--fonts DIR` and the
+tested free-font recipe in the [CLI reference](docs/cli.md#native-c8-font-resources); unsupported records
 fail rather than silently losing pages. HN-B mode-2 leading images and the
 controlled mode-0 text profile are described in the
 [HN-B findings](docs/hnb-compact-index.md). See the [CLI reference](docs/cli.md)

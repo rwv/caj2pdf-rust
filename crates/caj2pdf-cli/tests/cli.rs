@@ -1340,6 +1340,36 @@ fn native_c8_cli_reuses_fonts_and_streams_mixed_and_text_only_pages() {
 }
 
 #[test]
+fn native_c8_font_directory_matches_explicit_required_roles() {
+    let scratch = Scratch::new("c8-font-dir");
+    scratch.write("input.c8", &native_c8_pages(false));
+    let font = include_bytes!("../../../tests/fonts/geometric.ttf");
+    fs::create_dir(scratch.path("fonts")).unwrap();
+    scratch.write("fonts/cjk.ttf", font);
+    scratch.write("fonts/latin.ttf", font);
+    let base = ["input.c8", "--no-bookmarks", "--force", "-o"];
+    let mut args = base.to_vec();
+    args.extend(["dir.pdf", "--fonts", "fonts"]);
+    assert_success(&scratch.run(args));
+    let mut args = base.to_vec();
+    args.extend([
+        "explicit.pdf",
+        "--font-cjk=fonts/cjk.ttf",
+        "--font-latin=fonts/latin.ttf",
+    ]);
+    assert_success(&scratch.run(args));
+    let pdf = fs::read(scratch.path("dir.pdf")).unwrap();
+    assert_eq!(pdf, fs::read(scratch.path("explicit.pdf")).unwrap());
+    assert_eq!(validate_pdf(&scratch.path("dir.pdf")).0, 2);
+    // A missing required file fails before any output is staged.
+    fs::remove_file(scratch.path("fonts/latin.ttf")).unwrap();
+    let mut args = base.to_vec();
+    args.extend(["missing.pdf", "--fonts=fonts"]);
+    assert_failure(&scratch.run(args), 1, "latin.ttf");
+    assert!(!scratch.path("missing.pdf").exists());
+}
+
+#[test]
 fn native_c8_font_failures_preserve_inputs_and_atomic_output() {
     let scratch = Scratch::new("c8-font-errors");
     let font = include_bytes!("../../../tests/fonts/geometric.ttf");

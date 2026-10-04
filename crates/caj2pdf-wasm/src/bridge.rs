@@ -174,6 +174,8 @@ pub extern "C" fn caj2pdf_c8_add_font(size: u64) -> u32 {
 }
 
 /// Assign zero-based font indices and the optional decoration alias.
+/// `u32::MAX` marks an absent alternate Latin or decoration role; core then
+/// applies the documented CJK/Latin fallback.
 #[unsafe(no_mangle)]
 pub extern "C" fn caj2pdf_c8_set_fonts(
     cjk: u32,
