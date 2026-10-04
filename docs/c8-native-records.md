@@ -9,8 +9,10 @@ Implementation tracking: #232 (parser), #233 (rendering), parent #229.
 PR #235 delivered bounded native-page translation, real image codec composition
 and explicit ranged font resources through CLI, Node and a browser Worker for
 the initial six-page profile. Its scoped independent comparison is recorded
-below. Additional four/five-page profiles are being accepted in PR #264;
-see `c8-native-controls.md` for their current evidence and remaining checks.
+below. Additional four/five-page profiles were delivered in PR #264;
+see `c8-native-controls.md` for the implementation evidence and the
+[real-font checkpoint](c8-real-font-fidelity.md) for current runtime checks
+and unresolved appearance limits.
 Required unknown records and unavailable glyph resources still fail explicitly.
 
 The sections below are a chronological evidence log. Statements that a rule or
