@@ -182,6 +182,8 @@ pub struct Outcome {
     pub report: ConversionReport,
     /// Present for [`Operation::Inspect`].
     pub info: Option<DocumentInfo>,
+    /// HN-A outline entries skipped or clamped by a conversion or inspection.
+    pub outline_warnings: u32,
 }
 
 struct Shared {
@@ -555,7 +557,10 @@ async fn run(
                 &cancellation,
             )
             .await?;
-            return Ok(Outcome { report, info: None });
+            return Ok(Outcome {
+                report,
+                ..Outcome::default()
+            });
         }
         Operation::Convert { format, .. } | Operation::Inspect { format } => {
             limits.check_input_size(source.size)?;
@@ -571,22 +576,31 @@ async fn run(
     }
     source.shared.borrow_mut().format = Some(format);
     let mut outcome = match operation {
-        Operation::Convert { options, .. } => Outcome {
-            report: match format {
-                InputFormat::Pdf => copy_pdf(&mut source, &mut sink, &limits, &cancellation).await,
-                InputFormat::Caj => {
-                    convert_caj(&mut source, &mut sink, options, &limits, &cancellation).await
-                }
-                InputFormat::Kdh => {
-                    convert_kdh(&mut source, &mut sink, &limits, &cancellation).await
-                }
+        Operation::Convert { options, .. } => {
+            let (report, outline_warnings) = match format {
+                InputFormat::Pdf => (
+                    copy_pdf(&mut source, &mut sink, &limits, &cancellation).await?,
+                    0,
+                ),
+                InputFormat::Caj => (
+                    convert_caj(&mut source, &mut sink, options, &limits, &cancellation).await?,
+                    0,
+                ),
+                InputFormat::Kdh => (
+                    convert_kdh(&mut source, &mut sink, &limits, &cancellation).await?,
+                    0,
+                ),
                 InputFormat::Hn | InputFormat::C8 => {
-                    hnc8::convert(&mut source, &mut sink, options, &limits, &cancellation).await
+                    hnc8::convert(&mut source, &mut sink, options, &limits, &cancellation).await?
                 }
-                _ => Err(Error::UnsupportedFormat),
-            }?,
-            info: None,
-        },
+                _ => return Err(Error::UnsupportedFormat),
+            };
+            Outcome {
+                report,
+                info: None,
+                outline_warnings,
+            }
+        }
         _ => inspect(&mut source, format, &limits, &cancellation).await?,
     };
     outcome.report.input_bytes_read = outcome
@@ -634,15 +648,27 @@ async fn inspect(
         inner: source,
         bytes_read: 0,
     };
-    let (page_count, bookmark_count) = match format {
-        InputFormat::Pdf => (pdf_pages(&mut counted, limits, cancellation).await?, None),
+    let (page_count, bookmark_count, outline_warnings) = match format {
+        InputFormat::Pdf => (
+            pdf_pages(&mut counted, limits, cancellation).await?,
+            None,
+            0,
+        ),
         InputFormat::Caj => {
             let metadata = parse_metadata(&mut counted, limits, cancellation).await?;
-            (metadata.page_count, Some(metadata.bookmarks.len() as u32))
+            (
+                metadata.page_count,
+                Some(metadata.bookmarks.len() as u32),
+                0,
+            )
         }
         InputFormat::Kdh => {
             let mut decoded = KdhPdfSource::open(&mut counted, limits, cancellation).await?;
-            (pdf_pages(&mut decoded, limits, cancellation).await?, None)
+            (
+                pdf_pages(&mut decoded, limits, cancellation).await?,
+                None,
+                0,
+            )
         }
         InputFormat::Hn | InputFormat::C8 => {
             hnc8::inspect(&mut counted, limits, cancellation).await?
@@ -659,6 +685,7 @@ async fn inspect(
             page_count,
             bookmark_count,
         }),
+        outline_warnings,
     })
 }
 

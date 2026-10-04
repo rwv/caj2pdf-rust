@@ -199,9 +199,10 @@ test("Chromium: multi-image HN converts with bookmarks through Worker OPFS", opt
 
 test("Chromium: HN/C8 inspection distinguishes validated and unknown outlines", options, async () => {
   assert.deepEqual(await run("inspectHnc8"), [
-    { format: "hn", pages: 1, bookmarks: 2 },
-    { format: "c8", pages: 1, bookmarks: null },
-    { format: "hn", pages: 1, bookmarks: null },
+    { format: "hn", pages: 1, bookmarks: 2, warnings: 0 },
+    { format: "hn", pages: 1, bookmarks: 1, warnings: 1 },
+    { format: "c8", pages: 1, bookmarks: null, warnings: 0 },
+    { format: "hn", pages: 1, bookmarks: null, warnings: 0 },
   ]);
 });
 

@@ -12,8 +12,8 @@ use crate::files::{
     open_output, refuse_terminal, spool,
 };
 use crate::json::write_string;
-use crate::report::{write_json, write_text};
-use caj2pdf_core::{Bookmark, InputFormat};
+use crate::report::{write_json, write_text, write_warnings};
+use caj2pdf_core::{Bookmark, InputFormat, hnc8::OutlineReport};
 use std::ffi::OsString;
 use std::fs::{self, File};
 use std::io::{self, Read, Write};
@@ -279,6 +279,7 @@ fn caj_inspection() -> Inspection {
             bookmark(1, "Two.A", 2),
             bookmark(1, "Two.B", 2),
         ]),
+        outline: OutlineReport::default(),
     }
 }
 
@@ -332,7 +333,10 @@ fn render(json: bool, info: &Inspection, list: bool) -> String {
 fn json_report_nests_bookmarks_by_depth() {
     let info = caj_inspection();
     let head = r#"{"schema_version":1,"format":"CAJ","variant":null,"conversion_supported":true,"page_count":3,"has_outline":true,"bookmark_count":6"#;
-    assert_eq!(render(true, &info, false), format!("{head}}}\n"));
+    assert_eq!(
+        render(true, &info, false),
+        format!("{head},\"outline_warnings\":0}}\n")
+    );
     let tree = concat!(
         r#"[{"title":"One","page":1,"children":[{"title":"One.A","page":2,"children":["#,
         r#"{"title":"One.A.i","page":2,"children":[]}]}]},"#,
@@ -341,7 +345,7 @@ fn json_report_nests_bookmarks_by_depth() {
     );
     assert_eq!(
         render(true, &info, true),
-        format!("{head},\"bookmarks\":{tree}}}\n")
+        format!("{head},\"bookmarks\":{tree},\"outline_warnings\":0}}\n")
     );
 }
 
@@ -350,14 +354,15 @@ fn json_tree_clamps_a_skipped_parent_and_handles_empty_outlines() {
     let mut info = caj_inspection();
     info.bookmarks = Some(vec![bookmark(2, "Deep", 0)]);
     assert!(
-        render(true, &info, true)
-            .ends_with("\"bookmarks\":[{\"title\":\"Deep\",\"page\":1,\"children\":[]}]}\n")
+        render(true, &info, true).ends_with(
+            "[{\"title\":\"Deep\",\"page\":1,\"children\":[]}],\"outline_warnings\":0}\n"
+        )
     );
     info.bookmarks = Some(Vec::new());
     info.has_outline = Some(false);
     assert!(
         render(true, &info, true)
-            .ends_with("\"has_outline\":false,\"bookmark_count\":0,\"bookmarks\":[]}\n")
+            .ends_with("\"bookmark_count\":0,\"bookmarks\":[],\"outline_warnings\":0}\n")
     );
 }
 
@@ -369,11 +374,13 @@ fn json_report_uses_null_for_unknown_fields() {
         page_count: Some(1),
         has_outline: None,
         bookmarks: None,
+        outline: OutlineReport::default(),
     };
     assert_eq!(
         render(true, &info, true),
         "{\"schema_version\":1,\"format\":\"C8\",\"variant\":\"C8\",\"conversion_supported\":true,\
-         \"page_count\":1,\"has_outline\":null,\"bookmark_count\":null,\"bookmarks\":null}\n"
+         \"page_count\":1,\"has_outline\":null,\"bookmark_count\":null,\"bookmarks\":null,\
+         \"outline_warnings\":null}\n"
     );
 }
 
@@ -399,6 +406,7 @@ fn text_report_describes_unknown_fields() {
         page_count: None,
         has_outline: None,
         bookmarks: None,
+        outline: OutlineReport::default(),
     };
     let unknown = "Format: TEB\nConversion: not supported\nPages: unknown\nOutline: unknown\n";
     assert_eq!(render(false, &info, false), unknown);
@@ -412,6 +420,55 @@ fn text_report_describes_unknown_fields() {
     let text = render(false, &info, false);
     assert!(text.starts_with("Format: HN\nVariant: HN-A\n"), "{text}");
     assert!(text.contains("Outline: no\n"), "{text}");
+}
+
+#[test]
+fn outline_warnings_list_bounded_locations_then_a_summary() {
+    use caj2pdf_core::{Limits, native::SeekableSource};
+    // One valid HN-A root followed by 18 entries whose page 0 is outside
+    // the single source page.
+    let count = 19;
+    let mut bytes = vec![0; 0x15c + count * 308 + 20];
+    bytes[..8].copy_from_slice(&[72, 78, 0, 0, 0x90, 1, 0, 0]);
+    bytes[0x90] = 1;
+    bytes[0x158] = count as u8;
+    for number in 0..count {
+        let at = 0x15c + number * 308;
+        bytes[at] = b'T';
+        bytes[at + 280] = if number == 0 { b'1' } else { b'0' };
+        bytes[at + 304] = 1;
+    }
+    let mut source = SeekableSource::new(io::Cursor::new(&bytes)).unwrap();
+    let (_, bookmarks, outline) =
+        block_on(crate::hnc8::inspect(&mut source, &Limits::default())).unwrap();
+    assert_eq!(bookmarks.unwrap().len(), 1);
+    let mut out = FailAfter::new(usize::MAX);
+    write_warnings(&mut out, &outline).unwrap();
+    let text = String::from_utf8(out.bytes).unwrap();
+    let lines = text.lines().collect::<Vec<_>>();
+    assert_eq!(lines.len(), 17);
+    for (number, line) in (1..).zip(&lines[..16]) {
+        assert_eq!(
+            *line,
+            format!(
+                "caj2pdf: warning: skipped HN-A bookmark at byte {}: destination is outside source pages",
+                0x15c + number * 308 + 280
+            )
+        );
+    }
+    assert_eq!(
+        lines[16],
+        "caj2pdf: warning: 2 more HN-A bookmark defects were not listed"
+    );
+    let mut info = caj_inspection();
+    info.outline = outline;
+    assert!(render(true, &info, false).ends_with(",\"outline_warnings\":18}\n"));
+    assert!(render(false, &info, false).ends_with("Bookmarks: 6\nOutline warnings: 18\n"));
+    for remaining in 0..text.len() {
+        assert!(write_warnings(&mut FailAfter::new(remaining), &outline).is_err());
+    }
+    let mut empty = FailAfter::new(0);
+    write_warnings(&mut empty, &OutlineReport::default()).unwrap();
 }
 
 struct Chunks(Vec<io::Result<Vec<u8>>>);
@@ -665,6 +722,7 @@ fn report_writers_propagate_every_sink_failure() {
         page_count: None,
         has_outline: None,
         bookmarks: None,
+        outline: OutlineReport::default(),
     };
     for info in [caj_inspection(), hn] {
         for json in [false, true] {

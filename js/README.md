@@ -88,13 +88,20 @@ to the file you choose.
 
 - `convert(wasm, source, sink, options)` detects the format from at most five
   leading bytes (or uses `options.format`) and resolves with
-  `{ format, inputBytesRead, outputBytesWritten, pagesConverted, bookmarksWritten }`.
+  `{ format, inputBytesRead, outputBytesWritten, pagesConverted, bookmarksWritten, outlineWarnings }`.
 - `inspect(wasm, source, options)` resolves with
-  `{ format, pageCount, bookmarkCount, inputBytesRead }` without output.
+  `{ format, pageCount, bookmarkCount, outlineWarnings, inputBytesRead }` without output.
   `bookmarkCount` is validated/countable for CAJ and HN-A; it is `null`
   for PDF, KDH, C8 and HN-B (unknown, not zero). HN-A validation streams
   one outline record at a time and reads no image payloads. No codec tables
   or scratch stores are required for HN/C8 inspection.
+- `outlineWarnings` counts HN-A bookmark defects. An entry with an invalid
+  title, page or zero level is skipped and its children are re-parented; a
+  level that skips a parent is clamped. The rest of the outline and every page
+  are still written, and `bookmarkCount` is what conversion writes. The count
+  is `0` for other formats. Located per-entry reasons are listed by the CLI
+  (see [docs/cli.md](../docs/cli.md#hn-a-bookmark-defects)); earlier
+  releases rejected these documents.
 - `wasm` is a `WebAssembly.Module` (each call instantiates its own instance,
   so calls may run concurrently), an `Instance`, or its exports. An instance
   runs one operation at a time and rejects a second concurrent one.

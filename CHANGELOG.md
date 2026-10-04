@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- Fix: one malformed HN-A outline entry no longer fails `convert` and
+  `inspect` for the whole document (#299). Entries with an invalid title,
+  page or zero level are skipped and their children re-parented; level skips
+  and levels beyond the depth limit are clamped. The CLI prints one located
+  `caj2pdf: warning:` line per defect (at most 16, then a count) and exits 0;
+  `inspect --json` adds `outline_warnings` (schema version 1, additive) and
+  `bookmark_count` reports the entries written; JS reports add
+  `outlineWarnings`. Unreadable outline tables, limits and cancellation still
+  fail. **Breaking (Rust):** `Hnc8Reader::visit_bookmarks` returns an
+  `OutlineReport` instead of the declared count, and `ComposeReport` gains
+  `outline`.
+
 - Add FreeBSD RISC-V64 GC and PowerPC64 big-endian native CLI archives,
   tested in FreeBSD 15.1 VMs. Both targets join the required release matrix,
   dependency-license audit, archive inventory and existing provenance flow.

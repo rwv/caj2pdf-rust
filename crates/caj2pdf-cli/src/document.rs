@@ -9,6 +9,7 @@ use crate::signals::ProcessCancellation;
 use caj2pdf_core::{
     Bookmark, ConversionOptions, Error, InputFormat, Limits, RangedSource, SIGNATURE_BYTES, caj,
     detect_format,
+    hnc8::OutlineReport,
     kdh::{KdhPdfSource, convert_kdh},
     native::{SeekableSource, WriteSink},
     pdf::{PdfIndex, PdfOutlineAppender, PdfRange, copy_pdf},
@@ -86,14 +87,15 @@ fn ranged(file: &mut File) -> Result<SeekableSource<&mut File>, String> {
     SeekableSource::new(file).map_err(text)
 }
 
-/// Convert one input to PDF bytes written to `writer`.
+/// Convert one input to PDF bytes written to `writer`. The returned HN-A
+/// outline report lists skipped or clamped bookmarks; it is empty otherwise.
 pub fn convert<W: Write>(
     input: &mut Input,
     writer: W,
     limits: &Limits,
     resources: &mut crate::hnc8::Resources,
     include_bookmarks: bool,
-) -> Result<(), CliError> {
+) -> Result<OutlineReport, CliError> {
     let result = block_on(async {
         let mut source = ranged(&mut input.file)?;
         let mut sink = WriteSink::new(writer);
@@ -118,15 +120,20 @@ pub fn convert<W: Write>(
                 .await
                 .map_err(text),
             InputFormat::Hn | InputFormat::C8 => {
-                crate::hnc8::convert(&mut source, &mut sink, resources, include_bookmarks, limits)
-                    .await
+                return crate::hnc8::convert(
+                    &mut source,
+                    &mut sink,
+                    resources,
+                    include_bookmarks,
+                    limits,
+                )
+                .await;
             }
             other => Err(unsupported(other)),
         }
+        .map(|_| OutlineReport::default())
     });
-    result
-        .map(drop)
-        .map_err(|message| CliError::runtime(format!("cannot convert {}: {message}", input.name)))
+    result.map_err(|message| CliError::runtime(format!("cannot convert {}: {message}", input.name)))
 }
 
 /// Bounded document metadata for `inspect`.
@@ -140,6 +147,8 @@ pub struct Inspection {
     pub has_outline: Option<bool>,
     /// The listed outline, when this format's outline can be read.
     pub bookmarks: Option<Vec<Bookmark>>,
+    /// HN-A entries skipped or clamped while listing `bookmarks`; empty otherwise.
+    pub outline: OutlineReport,
 }
 
 async fn index_pdf<S: RangedSource>(source: &mut S, limits: &Limits) -> Result<PdfIndex, String> {
@@ -159,6 +168,7 @@ fn pdf_inspection(format: InputFormat, index: &PdfIndex) -> Inspection {
         page_count: Some(index.pages().len() as u32),
         has_outline: Some(index.has_outlines()),
         bookmarks: None,
+        outline: OutlineReport::default(),
     }
 }
 
@@ -185,16 +195,18 @@ async fn inspect_source<S: RangedSource>(
                 page_count: Some(metadata.page_count),
                 has_outline: Some(!metadata.bookmarks.is_empty()),
                 bookmarks: Some(metadata.bookmarks),
+                outline: OutlineReport::default(),
             }
         }
         InputFormat::Hn | InputFormat::C8 => {
-            let (header, bookmarks) = crate::hnc8::inspect(source, limits).await?;
+            let (header, bookmarks, outline) = crate::hnc8::inspect(source, limits).await?;
             Inspection {
                 format,
                 variant: Some(header.variant.as_str()),
                 page_count: Some(header.page_count),
                 has_outline: bookmarks.as_ref().map(|items| !items.is_empty()),
                 bookmarks,
+                outline,
             }
         }
         InputFormat::Nh | InputFormat::Teb => Inspection {
@@ -203,6 +215,7 @@ async fn inspect_source<S: RangedSource>(
             page_count: None,
             has_outline: None,
             bookmarks: None,
+            outline: OutlineReport::default(),
         },
     })
 }

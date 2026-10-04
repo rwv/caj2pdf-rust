@@ -5,7 +5,7 @@
 
 use crate::document::{Inspection, conversion_supported, format_name};
 use crate::json::{write_literal, write_string};
-use caj2pdf_core::Bookmark;
+use caj2pdf_core::{Bookmark, hnc8::OutlineReport};
 use std::io::{self, Write};
 
 pub const SCHEMA_VERSION: u32 = 1;
@@ -59,6 +59,9 @@ pub fn write_text<W: Write>(out: &mut W, info: &Inspection, list: bool) -> io::R
     match &info.bookmarks {
         Some(bookmarks) => {
             writeln!(out, "Bookmarks: {}", bookmarks.len())?;
+            if info.outline.defects != 0 {
+                writeln!(out, "Outline warnings: {}", info.outline.defects)?;
+            }
             if list {
                 for bookmark in bookmarks {
                     writeln!(
@@ -139,5 +142,24 @@ pub fn write_json<W: Write>(out: &mut W, info: &Inspection, list: bool) -> io::R
             None => out.write_all(b"null")?,
         }
     }
+    out.write_all(b",\"outline_warnings\":")?;
+    write_literal(out, bookmarks.map(|_| info.outline.defects))?;
     out.write_all(b"}\n")
+}
+
+/// Write one diagnostic line per recorded HN-A outline defect, then a count
+/// of defects whose locations were not retained.
+pub fn write_warnings<W: Write>(out: &mut W, outline: &OutlineReport) -> io::Result<()> {
+    let recorded = outline.recorded_defects();
+    for defect in recorded {
+        writeln!(out, "caj2pdf: warning: {defect}")?;
+    }
+    let omitted = outline.defects as usize - recorded.len();
+    if omitted != 0 {
+        writeln!(
+            out,
+            "caj2pdf: warning: {omitted} more HN-A bookmark defects were not listed"
+        )?;
+    }
+    Ok(())
 }
