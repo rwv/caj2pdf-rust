@@ -221,6 +221,25 @@ container, a short or failed read, a bookmark limit, or cancellation.
 `inspect` with `malformed outline ...` and exit status 1. Scripts that relied on
 that failure should check `outline_warnings` in `inspect --json`.
 
+### C8 application info
+
+Some C8 files end with an application-info package (see
+[the C8 record notes](c8-native-records.md#package-framing-and-reader-302)).
+`inspect` reports its DOI, URL and annotation count. Conversion writes a PDF
+document information dictionary only when a DOI or URL is present:
+the custom keys `/CNKI_DOI` and `/CNKI_URL` hold the verbatim identifier and
+URL as UTF-16BE text strings. No title is invented
+and annotations are not converted. Other inputs and C8 files without a package
+produce unchanged output.
+
+A defective package never fails `convert` or `inspect`. The PDF is written
+exactly as without a package, and one located line is printed on standard
+error, for example:
+
+```text
+caj2pdf: warning: ignored C8 application-info package at byte 39433: application-info XML: malformed start tag
+```
+
 ## Conversion
 
 A named input without `-o` writes a sibling file with the extension replaced
@@ -294,14 +313,19 @@ The bookmark lines appear only with `--bookmarks`. Each level is indented by
 two further spaces. Control characters in titles are shown as `\u{..}`
 escapes. HN and C8 add a `Variant:` line. Unknown values are shown as
 `unknown`. An HN-A outline with [bookmark defects](#hn-a-bookmark-defects)
-adds an `Outline warnings: N` line after `Bookmarks:`.
+adds an `Outline warnings: N` line after `Bookmarks:`. A C8 source with a
+readable [application-info package](#c8-application-info) adds
+`DOI:` and `URL:` lines (each only when present; control characters escaped as
+in titles) and a `Notes: N` line after the outline lines, before any
+[`--pages`](#structure-report---pages) structure lines.
 
 ### JSON schema, version 1
 
 `--json` writes one compact JSON object followed by a newline. Fields appear
 in the order below. A later incompatible change increments `schema_version`;
-adding a field is not considered incompatible, so the trailing
-`outline_warnings` field was added without changing version 1.
+adding a field is not considered incompatible, so the `outline_warnings`,
+`unsupported_reason`, `application_info`, `structure` and `pages` fields were
+added without changing version 1.
 
 | Field | Type | Meaning |
 | --- | --- | --- |
@@ -315,6 +339,15 @@ adding a field is not considered incompatible, so the trailing
 | `bookmarks` | array or null | Present only with `--bookmarks`. The root entries, or null when the outline cannot be listed. |
 | `outline_warnings` | integer or null | Number of [HN-A bookmark defects](#hn-a-bookmark-defects) skipped or re-parented; `0` for other listed outlines; null when `bookmark_count` is null. |
 | `unsupported_reason` | string | Present only when a recognized format is never converted: `"drm-encrypted"` for TEB, whose document content is encrypted. |
+| `application_info` | object | Present only for a C8 source with a readable [application-info package](#c8-application-info); omitted otherwise, including when a defective package is ignored. |
+
+The `application_info` object has these fields:
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `doi` | string or null | The package's `DOI` text, verbatim; observed values are CNKI identifiers, not checked as registered DOIs. |
+| `url` | string or null | The package's `DURL` text. It is never fetched. |
+| `note_count` | integer | Number of annotation entries (`NoteItems/Item`); they are not converted. |
 
 Each bookmark object has these fields:
 
@@ -348,7 +381,10 @@ already uses.
   (C8 `0x0c`, HN-B `0x94`) and origin, the declared page size, and whether
   the input ends with an `APPINFOSIGN <decimal offset>` trailer. Only the
   trailer's declared start and the byte length to the end of the input are
-  reported; the application-info section itself is not decoded (#302). Then
+  reported here, for any variant and even when the package is defective; the
+  values decoded from a C8 package are the separate top-level
+  `application_info` field and `DOI:`/`URL:`/`Notes:` lines, which do not
+  need `--pages` ([C8 application info](#c8-application-info)). Then
   one record per page: its text span, image descriptors as type and payload
   span, and the text framing accepted by the existing readers. HN-A/C8 text
   is checked by the compressed or raw page-text reader, with the composer's
@@ -395,8 +431,9 @@ Page 3: text 622+32, images [], error: HN/C8 HN-A at byte 658, page 3, image 1: 
 Page 4: error: HN/C8 HN-A at byte 408, page 4: truncated text span: expected 4 bytes, available 0
 ```
 
-The JSON object gains two fields after `outline_warnings`, only with
-`--pages`; as additive fields they keep `schema_version` 1:
+The JSON object gains two fields at the end, after `outline_warnings`,
+`unsupported_reason` and `application_info`, only with `--pages`; as additive
+fields they keep `schema_version` 1:
 
 | Field | Type | Meaning |
 | --- | --- | --- |
@@ -407,7 +444,10 @@ HN/C8 `structure` fields: `page_index_offset`, `page_index_length` and
 `page_row_bytes` (integers); `native_mode` (integer or null for HN-A);
 `native_origin` and `page_size` (`[x, y]` integer pairs or null); and
 `application_info`, null or `{"offset": integer, "length": integer or null}`
-where `length` is null when the declared offset is outside the input.
+where `length` is null when the declared offset is outside the input. This
+`structure.application_info` only locates the trailer; it is not the
+top-level `application_info` object, which holds the parsed DOI, URL and note
+count of a readable C8 package.
 KDH `structure` fields: `kdh_signature` (string) and
 `kdh_signature_supported` (boolean).
 

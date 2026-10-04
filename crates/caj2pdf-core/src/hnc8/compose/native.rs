@@ -214,7 +214,7 @@ where
             + 1;
         report.no_image_pages += u32::from(count == 0);
     }
-    report.conversion = document.finish().await.map_err(at.io(ComposeStage::Pdf))?;
+    report.conversion = finish_document(&mut reader, document, &mut report, at).await?;
     report.conversion.input_bytes_read = counted.bytes.saturating_add(font_bytes);
     Ok(report)
 }

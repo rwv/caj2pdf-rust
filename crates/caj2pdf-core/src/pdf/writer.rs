@@ -280,9 +280,26 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfWriter<'a, W, C> {
     /// Emit the classic cross-reference table and trailer, flush the sink,
     /// and return the final byte count. Every reserved object must have been
     /// written exactly once, including any stream length object.
-    pub async fn finish(mut self, root_id: ObjectId) -> Result<u64> {
+    pub async fn finish(self, root_id: ObjectId) -> Result<u64> {
+        self.finish_with_info(root_id, None).await
+    }
+
+    /// Like [`Self::finish`], also naming a written document information
+    /// dictionary in the trailer when `info_id` is present.
+    pub async fn finish_with_info(
+        mut self,
+        root_id: ObjectId,
+        info_id: Option<ObjectId>,
+    ) -> Result<u64> {
         self.ensure_idle()?;
         let root_index = self.index(root_id)?;
+        let info = match info_id {
+            Some(id) => {
+                self.index(id)?;
+                format!(" /Info {} 0 R", id.number())
+            }
+            None => String::new(),
+        };
         if self.offsets[root_index] == 0 {
             return Err(Error::InvalidInput {
                 reason: "PDF catalog object has not been written",
@@ -303,7 +320,7 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfWriter<'a, W, C> {
         let xref_offset = self.position;
         let xref_header = format!("xref\n0 {size}\n");
         let trailer = format!(
-            "trailer\n<< /Size {size} /Root {} 0 R >>\nstartxref\n{xref_offset}\n%%EOF\n",
+            "trailer\n<< /Size {size} /Root {} 0 R{info} >>\nstartxref\n{xref_offset}\n%%EOF\n",
             root_id.number()
         );
         let xref_bytes = u64::try_from(size)
@@ -694,6 +711,26 @@ mod tests {
         })
         .unwrap();
         assert_eq!(sink.into_inner().len() as u64, written);
+    }
+
+    #[test]
+    fn info_reference_must_be_reserved() {
+        run(async {
+            let mut sink = vec_sink();
+            let limits = Limits::default();
+            let mut pdf = PdfWriter::new(&mut sink, &limits, &NeverCancel).await?;
+            let catalog = pdf.reserve_object()?;
+            pdf.write_object(catalog, b"<< /Type /Catalog >>").await?;
+            assert!(matches!(
+                pdf.finish_with_info(catalog, Some(ObjectId(catalog.number() + 1)))
+                    .await,
+                Err(Error::InvalidInput {
+                    reason: "PDF object number was not reserved"
+                })
+            ));
+            Ok::<(), Error>(())
+        })
+        .unwrap();
     }
 
     #[test]

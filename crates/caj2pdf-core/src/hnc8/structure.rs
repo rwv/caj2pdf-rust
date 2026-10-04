@@ -8,17 +8,11 @@
 
 use super::{
     ErrorKind, Hnc8Reader, Location, NativeRecord, NativeRecordVisitor, Result, TextBudget,
-    Variant, read_fixed,
+    Variant,
+    appinfo::Trailer,
     text::{ReadPurpose, read_coordinates},
 };
 use crate::{Cancellation, RangedSource};
-
-/// The ASCII marker that ends the C8 application-info tail, followed by the
-/// decimal source offset where that tail starts. Observed in one pinned C8
-/// file; see `docs/c8-native-records.md`.
-const APPLICATION_INFO_MARKER: &[u8] = b"APPINFOSIGN ";
-/// The marker plus at most 20 decimal digits, enough for any `u64` offset.
-const APPLICATION_INFO_TRAILER_BYTES: u64 = 32;
 
 /// The page-text framing accepted by the existing readers.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -162,41 +156,20 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
     }
 
     /// Find a trailing `APPINFOSIGN <decimal offset>` marker that ends the
-    /// source. Only its presence and extent are reported; the section itself
-    /// is neither validated nor decoded. This does not affect the cursor.
+    /// source, located like the C8 package reader does. Only its presence and
+    /// extent are reported; the section itself is neither validated nor
+    /// decoded, and a marker without a usable offset is reported as absent.
+    /// This does not affect the cursor.
     pub async fn application_info_tail(&mut self) -> Result<Option<ApplicationInfoTail>> {
         let size = self.source.size();
-        let length = size.min(APPLICATION_INFO_TRAILER_BYTES);
-        let loc = Location {
-            variant: Some(self.header.variant),
-            offset: size - length,
-            page: None,
-            image: None,
-        };
-        let mut bytes = [0; APPLICATION_INFO_TRAILER_BYTES as usize];
-        let bytes = &mut bytes[..length as usize];
-        read_fixed(
-            self.source,
-            self.limits,
-            self.cancellation,
-            size - length,
-            bytes,
-            loc,
-            "application-info trailer",
-        )
-        .await?;
-        let tail = bytes
-            .windows(APPLICATION_INFO_MARKER.len())
-            .rposition(|window| window == APPLICATION_INFO_MARKER)
-            .map(|at| &bytes[at + APPLICATION_INFO_MARKER.len()..])
-            .filter(|digits| !digits.is_empty() && digits.iter().all(u8::is_ascii_digit))
-            // ASCII digits are UTF-8; only a value above `u64::MAX` fails.
-            .and_then(|digits| std::str::from_utf8(digits).ok()?.parse::<u64>().ok())
-            .map(|offset| ApplicationInfoTail {
-                offset,
-                length: (offset < size).then(|| size - offset),
-            });
-        Ok(tail)
+        match self.application_info_trailer().await {
+            Ok(trailer) => Ok(trailer.map(|Trailer { start, .. }| ApplicationInfoTail {
+                offset: start,
+                length: (start < size).then(|| size - start),
+            })),
+            Err(error) if matches!(error.kind, ErrorKind::Malformed { .. }) => Ok(None),
+            Err(error) => Err(error),
+        }
     }
 }
 

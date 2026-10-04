@@ -284,6 +284,73 @@ The ordinary-copy/runtime smoke evidence supplements the frozen #223 report;
 it does not retroactively make that report's intentionally limited prototype a
 complete extractor.
 
+### Package framing and reader (#302)
+
+A read-only, bounded re-examination of the pinned C8 sources establishes the
+framing that `Hnc8Reader::application_info` accepts. Offsets are absolute;
+`S` is the package start and `N` the file size.
+
+| Offset | Bytes | Field |
+| --- | ---: | --- |
+| `S` | 4 | Decoded XML length, little-endian u32. |
+| `S + 4` | 4 | Compressed length `L`, little-endian u32. |
+| `S + 8` | `L` | One complete zlib stream (`78 da` header in both observed sources). |
+| `S + 8 + L` | 12 + digits | ASCII `APPINFOSIGN `, then `S` in decimal, ending at `N`. |
+
+The decimal number is the package start, not a length: in `issue-66`,
+`S = 39,425`, the marker is at 40,857 = `S + 8 + 1,424`, and the file ends
+17 bytes later. The C8 `issue-33/test1.caj` has the same framing (marker
+19 bytes before the end, 777 decoded / 484 compressed bytes). The three other
+C8 sources (`issue-58`, `issue-90/4-[21]`, `issue-90/4-[24]`) have no marker in
+their final 64 bytes. Two PDF-wrapped `issue-33` files and one HN-A file
+(`issue-76`) also end with this marker; the HN-A one has a two-byte gap before
+the marker and a trailing NUL byte, so this layout is admitted for C8 only.
+
+Both decoded C8 packages are UTF-8 XML with the same element skeleton:
+
+```text
+Package
+  Note-Package
+    NoteItems (attributes Author, ReadOnly, Version, Unit, Embedded)
+      Item (attributes acp, Type, Page, Color, LineStyle, ShowType)
+        RC (attributes l, t, r, b)
+        Item (attributes Type, Aim, FileName, LinkType, Index, LKText, ID)
+  FileProperty-Package
+    DOI    (text: a CNKI identifier, not checked as a registered DOI)
+    SCODE  (text)
+    PCODE  (text)
+    DURL   (CDATA: a URL)
+```
+
+`issue-66` has 23 and `test1.caj` one outer `NoteItems/Item`.
+
+The reader acts only when the file ends with `APPINFOSIGN ` and 1–20 decimal
+digits; otherwise the source has no package. It then requires the start to lie
+after the page index, the 8-byte header to fit before the marker, both lengths
+to be at most 1 MiB, a nonzero decoded length, and the stream to end exactly at
+the marker. Inflation uses a chunked bounded read, accounts the output buffer,
+input chunk and decoder reservation against `Limits::max_allocation_bytes`, and
+requires the stream to end at exactly both declared lengths. A small scanner,
+not a general XML parser, then checks element nesting (at most 16 levels),
+one `Package` root, quoted attributes and a UTF-8 encoding declaration. It
+rejects declarations such as `DOCTYPE`, unknown entity references and any
+element inside `DOI` or `DURL`. It extracts only:
+
+- `Package/FileProperty-Package/DOI` and `.../DURL` text: CDATA plus text with
+  the five predefined entities and numeric references decoded, trimmed of XML
+  white space, at most 4,096 bytes each; an empty value is absent;
+- the number of `Item` children of every `Package/Note-Package/NoteItems`.
+
+Link rectangles, targets and texts are not read or emitted. Every defect is a
+located `Hnc8Error`; conversion and `inspect` report it as a warning and
+continue, and only cancellation fails. When a DOI or URL is present, the PDF
+gets an `/Info` dictionary with custom `/CNKI_DOI` and `/CNKI_URL` keys holding
+the verbatim `DOI` and `DURL` values as UTF-16BE text strings. The observed
+`DOI` values are CNKI identifiers (`CNKI:SUN:...`), not registered DOIs, so no
+`doi:` prefix or `/Subject` is written.
+No `/Title` or other entry is invented. Without a package, or with a defective
+one, the output is byte-identical to earlier releases.
+
 ## Original fixed-position style controls
 
 The style subset of `tools/cajviewer/c8_style_fixture.py` builds nine original 392-byte documents

@@ -3010,3 +3010,5 @@ fn hna_zero_page_prefix_dimensions_fail_before_emitting_images() {
 mod native_document;
 
 mod malformed;
+
+mod application_info;

@@ -899,6 +899,118 @@ fn image_hn_with_bookmarks(count: usize) -> Vec<u8> {
     bytes
 }
 
+/// One stored (uncompressed) zlib block holding `data`.
+fn stored_zlib(data: &[u8]) -> Vec<u8> {
+    let (mut a, mut b) = (1_u32, 0_u32);
+    for &byte in data {
+        a = (a + u32::from(byte)) % 65521;
+        b = (b + a) % 65521;
+    }
+    let length = data.len() as u16;
+    let mut stream = vec![0x78, 0x01, 0x01];
+    stream.extend(length.to_le_bytes());
+    stream.extend((!length).to_le_bytes());
+    stream.extend(data);
+    stream.extend(((b << 16) | a).to_be_bytes());
+    stream
+}
+
+/// The `image_hn` page behind a C8 header with compact compressed text,
+/// followed by `tail`.
+fn image_c8(tail: &[u8]) -> Vec<u8> {
+    let hn = image_hn();
+    let (hn_text, hn_descriptor) = (0x15c + 20, 0x15c + 20 + 32);
+    let mut text = b"COMPRESSTEXT".to_vec();
+    text.extend(32_u32.to_le_bytes());
+    text.extend(stored_zlib(&hn[hn_text..hn_text + 32]));
+    let mut bytes = vec![0; 0x50 + 20];
+    bytes[..4].copy_from_slice(b"\xc8\0\0\0");
+    put_u32(&mut bytes, 0x08, 1);
+    bytes[0x20..0x24].copy_from_slice(&hn[0xa8..0xac]);
+    put_u32(&mut bytes, 0x50, 0x50 + 20);
+    put_u32(&mut bytes, 0x54, text.len() as u32);
+    bytes[0x58] = 1;
+    bytes.extend(text);
+    let descriptor = bytes.len();
+    bytes.extend(&hn[hn_descriptor..]);
+    put_u32(&mut bytes, descriptor + 4, descriptor as u32 + 12);
+    bytes.extend(tail);
+    bytes
+}
+
+/// Frame `xml` as an observed C8 application-info package starting at
+/// `start`: declared lengths, one zlib stream, then the trailer.
+fn application_info(start: usize, xml: &[u8], decoded: u32) -> Vec<u8> {
+    let stream = stored_zlib(xml);
+    let mut tail = decoded.to_le_bytes().to_vec();
+    tail.extend((stream.len() as u32).to_le_bytes());
+    tail.extend(stream);
+    tail.extend(format!("APPINFOSIGN {start}").as_bytes());
+    tail
+}
+
+#[test]
+fn c8_application_info_reaches_inspect_and_pdf_info() {
+    let scratch = Scratch::new("c8-appinfo");
+    let start = image_c8(&[]).len();
+    let xml = b"<Package><Note-Package><NoteItems><Item/></NoteItems></Note-Package>\
+<FileProperty-Package><DOI>INVENTED:1</DOI><DURL>http://example.invalid/x</DURL>\
+</FileProperty-Package></Package>";
+    scratch.write("plain.c8", &image_c8(&[]));
+    scratch.write(
+        "info.c8",
+        &image_c8(&application_info(start, xml, xml.len() as u32)),
+    );
+    scratch.write(
+        "broken.c8",
+        &image_c8(&application_info(start, xml, xml.len() as u32 + 1)),
+    );
+    let inspect = scratch.run(["inspect", "--json", "info.c8"]);
+    assert_success(&inspect);
+    assert!(stdout(&inspect).ends_with(
+        ",\"application_info\":{\"doi\":\"INVENTED:1\",\"url\":\"http://example.invalid/x\",\"note_count\":1}}\n"
+    ));
+    let inspect = scratch.run(["inspect", "info.c8"]);
+    assert!(
+        stdout(&inspect).ends_with("DOI: INVENTED:1\nURL: http://example.invalid/x\nNotes: 1\n")
+    );
+    let warning = format!(
+        "caj2pdf: warning: ignored C8 application-info package at byte {}: \
+         application-info zlib stream: stream ends before the declared lengths\n",
+        start + 8 + xml.len() + 11
+    );
+    let broken = scratch.run(["inspect", "--json", "broken.c8"]);
+    assert_eq!(broken.status.code(), Some(0));
+    assert_eq!(stderr(&broken), warning);
+    assert!(!stdout(&broken).contains("application_info"));
+    for input in ["plain.c8", "info.c8", "broken.c8"] {
+        let output = scratch.run([input, "--no-bookmarks", "-o", &format!("{input}.pdf")]);
+        assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+        assert_eq!(
+            stderr(&output),
+            if input == "broken.c8" {
+                warning.as_str()
+            } else {
+                ""
+            }
+        );
+        assert_eq!(validate_pdf(&scratch.path(&format!("{input}.pdf"))).0, 1);
+    }
+    let read = |name: &str| fs::read(scratch.path(name)).unwrap();
+    assert_eq!(read("broken.c8.pdf"), read("plain.c8.pdf"));
+    let info = tool(
+        "qpdf",
+        &[
+            OsStr::new("--show-object=trailer"),
+            scratch.path("info.c8.pdf").as_os_str(),
+        ],
+    );
+    assert!(info.contains("/Info"), "{info}");
+    let pdf = String::from_utf8_lossy(&read("info.c8.pdf")).into_owned();
+    assert!(pdf.contains("/CNKI_DOI <FEFF0049004E00560045004E005400450044003A0031>"));
+    assert!(pdf.contains("/CNKI_URL <FEFF"));
+}
+
 #[test]
 fn hn_converts_from_files_and_pipes_with_exact_pixels_and_no_named_scratch() {
     let scratch = Scratch::new("hn-image");
@@ -1518,13 +1630,22 @@ fn inspect_pages_reports_structure_without_content() {
             "\n"
         )
     );
-    // An application-info trailer is located, never decoded.
+    // The structure locates an application-info trailer even when the package
+    // it frames is defective; the decoding reader only warns.
     let mut tailed = native_c8_pages(false);
     let start = tailed.len();
     tailed.extend(format!("opaque APPINFOSIGN {start}").as_bytes());
     scratch.write("tailed.c8", &tailed);
     let output = scratch.run(["inspect", "--pages", "tailed.c8"]);
-    assert_success(&output);
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    assert_eq!(
+        stderr(&output),
+        format!(
+            "caj2pdf: warning: ignored C8 application-info package at byte {}: \
+             application-info lengths: truncated\n",
+            start + 7
+        )
+    );
     let expected = format!(
         "Application info: {} bytes at {start}\n",
         tailed.len() - start

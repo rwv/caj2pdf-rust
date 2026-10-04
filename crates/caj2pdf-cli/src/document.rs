@@ -10,7 +10,9 @@ use crate::signals::ProcessCancellation;
 use caj2pdf_core::{
     Bookmark, ConversionOptions, Detection, Error, InputFormat, Limits, RangedSource, caj,
     detect_source,
-    hnc8::{ApplicationInfoTail, Header, OutlineReport},
+    hnc8::{
+        ApplicationInfoReport, ApplicationInfoStatus, ApplicationInfoTail, Header, OutlineReport,
+    },
     kdh::{HEADER_SIGNATURE, KdhPdfSource, convert_kdh},
     native::{SeekableSource, WriteSink},
     pdf::{PdfIndex, PdfOutlineAppender, PdfRange, copy_pdf_range},
@@ -101,8 +103,17 @@ fn ranged(file: &mut File) -> Result<SeekableSource<&mut File>, String> {
     SeekableSource::new(file).map_err(text)
 }
 
-/// Convert one input to PDF bytes written to `writer`. The returned HN-A
-/// outline report lists skipped or clamped bookmarks; it is empty otherwise.
+/// Diagnostics of a successful conversion, printed after the output commits.
+#[derive(Debug, Default)]
+pub struct Warnings {
+    /// Skipped or clamped HN-A bookmarks, or omitted C8/HN-B outlines.
+    pub outline: OutlineReport,
+    /// A C8 application-info package, when ignored as defective.
+    pub application_info: ApplicationInfoStatus,
+}
+
+/// Convert one input to PDF bytes written to `writer`. The returned warnings
+/// are empty unless an HN/C8 outline or application-info package was skipped.
 pub fn convert<W: Write>(
     input: &mut Input,
     writer: W,
@@ -110,7 +121,7 @@ pub fn convert<W: Write>(
     resources: &mut crate::hnc8::Resources,
     include_bookmarks: bool,
     progress: Option<&mut dyn Write>,
-) -> Result<OutlineReport, CliError> {
+) -> Result<Warnings, CliError> {
     let result = block_on(async {
         let mut source = Progress::new(ranged(&mut input.file)?, progress);
         let result =
@@ -127,7 +138,7 @@ async fn convert_source<S: RangedSource, W: Write>(
     limits: &Limits,
     resources: &mut crate::hnc8::Resources,
     include_bookmarks: bool,
-) -> Result<OutlineReport, String> {
+) -> Result<Warnings, String> {
     let mut sink = WriteSink::new(writer);
     let Detection {
         format,
@@ -156,11 +167,15 @@ async fn convert_source<S: RangedSource, W: Write>(
             .map_err(text),
         InputFormat::Hn | InputFormat::C8 => {
             return crate::hnc8::convert(source, &mut sink, resources, include_bookmarks, limits)
-                .await;
+                .await
+                .map(|(outline, application_info)| Warnings {
+                    outline,
+                    application_info,
+                });
         }
         other => Err(unsupported(other)),
     }
-    .map(|_| OutlineReport::default())
+    .map(|_| Warnings::default())
 }
 
 /// Bounded document metadata for `inspect`.
@@ -176,6 +191,8 @@ pub struct Inspection {
     pub bookmarks: Option<Vec<Bookmark>>,
     /// HN-A entries skipped or clamped while listing `bookmarks`; empty otherwise.
     pub outline: OutlineReport,
+    /// The C8 application-info package; absent for other formats.
+    pub application_info: ApplicationInfoReport,
     /// Document-level structure, read only for `--pages`.
     pub structure: Option<Structure>,
 }
@@ -213,6 +230,7 @@ fn pdf_inspection(format: InputFormat, index: Option<&PdfIndex>) -> Inspection {
         has_outline: index.map(PdfIndex::has_outlines),
         bookmarks: None,
         outline: OutlineReport::default(),
+        application_info: ApplicationInfoReport::default(),
         structure: None,
     }
 }
@@ -280,6 +298,7 @@ async fn inspect_source<S: RangedSource>(
                 has_outline: Some(!metadata.bookmarks.is_empty()),
                 bookmarks: Some(metadata.bookmarks),
                 outline: OutlineReport::default(),
+                application_info: ApplicationInfoReport::default(),
                 structure: None,
             }
         }
@@ -292,6 +311,7 @@ async fn inspect_source<S: RangedSource>(
                 has_outline: inspected.bookmarks.as_ref().map(|items| !items.is_empty()),
                 bookmarks: inspected.bookmarks,
                 outline: inspected.outline,
+                application_info: inspected.application_info,
                 structure: inspected.structure,
             }
         }

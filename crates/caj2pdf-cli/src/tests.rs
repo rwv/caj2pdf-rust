@@ -12,10 +12,13 @@ use crate::files::{
     open_output, refuse_terminal, spool,
 };
 use crate::json::write_string;
-use crate::report::{Pages, write_json, write_text, write_warnings};
+use crate::report::{
+    Pages, write_application_info_warning, write_json, write_text, write_warnings,
+};
 use caj2pdf_core::{
     Bookmark, InputFormat,
     hnc8::{
+        ApplicationInfo, ApplicationInfoDefect, ApplicationInfoReport, ApplicationInfoStatus,
         ApplicationInfoTail, Header, ImageRecord, OutlineReport, PageRecord, Span, TextFraming,
         TextStructure, Variant,
     },
@@ -297,6 +300,7 @@ fn caj_inspection() -> Inspection {
             bookmark(1, "Two.B", 2),
         ]),
         outline: OutlineReport::default(),
+        application_info: ApplicationInfoReport::default(),
         structure: None,
     }
 }
@@ -393,6 +397,7 @@ fn json_report_uses_null_for_unknown_fields() {
         has_outline: None,
         bookmarks: None,
         outline: OutlineReport::default(),
+        application_info: ApplicationInfoReport::default(),
         structure: None,
     };
     assert_eq!(
@@ -426,6 +431,7 @@ fn text_report_describes_unknown_fields() {
         has_outline: None,
         bookmarks: None,
         outline: OutlineReport::default(),
+        application_info: ApplicationInfoReport::default(),
         structure: None,
     };
     let unknown = "Format: TEB\nConversion: not supported (DRM-encrypted container)\nPages: unknown\nOutline: unknown\n";
@@ -468,8 +474,9 @@ fn outline_warnings_list_bounded_locations_then_a_summary() {
     }
     let mut source = SeekableSource::new(io::Cursor::new(&bytes)).unwrap();
     let inspected = block_on(crate::hnc8::inspect(&mut source, &Limits::default(), false)).unwrap();
-    let outline = inspected.outline;
     assert_eq!(inspected.bookmarks.unwrap().len(), 1);
+    assert_eq!(inspected.application_info, ApplicationInfoReport::default());
+    let outline = inspected.outline;
     let mut out = FailAfter::new(usize::MAX);
     write_warnings(&mut out, &outline).unwrap();
     let text = String::from_utf8(out.bytes).unwrap();
@@ -752,6 +759,83 @@ fn long_output_names_get_a_bounded_temporary_name() {
     assert_eq!(dir.entries(), vec![OsString::from(name)]);
 }
 
+fn c8_package(doi: Option<&str>, url: Option<&str>) -> Inspection {
+    Inspection {
+        format: InputFormat::C8,
+        variant: Some("C8"),
+        page_count: Some(1),
+        has_outline: None,
+        bookmarks: None,
+        outline: OutlineReport::default(),
+        application_info: ApplicationInfoReport {
+            info: Some(ApplicationInfo {
+                doi: doi.map(str::to_owned),
+                url: url.map(str::to_owned),
+                note_count: 2,
+            }),
+            status: ApplicationInfoStatus::Read,
+        },
+        structure: None,
+    }
+}
+
+#[test]
+fn application_info_is_reported_only_when_read() {
+    let info = c8_package(Some("ID\u{1b}"), Some("http://example.invalid/\"q\""));
+    assert!(render(true, &info, false).ends_with(
+        ",\"outline_warnings\":null,\"application_info\":{\"doi\":\"ID\\u001b\",\
+         \"url\":\"http://example.invalid/\\\"q\\\"\",\"note_count\":2}}\n"
+    ));
+    assert!(render(false, &info, false).ends_with(
+        "Outline: unknown\nDOI: ID\\u{1b}\nURL: http://example.invalid/\"q\"\nNotes: 2\n"
+    ));
+    let empty = c8_package(None, None);
+    assert!(
+        render(true, &empty, false)
+            .ends_with("\"application_info\":{\"doi\":null,\"url\":null,\"note_count\":2}}\n")
+    );
+    assert!(render(false, &empty, false).ends_with("Outline: unknown\nNotes: 2\n"));
+    // The parsed values precede the --pages structure, which only locates the tail.
+    let both = Inspection {
+        structure: hnc8_structure(None).structure,
+        ..c8_package(Some("I"), None)
+    };
+    let mut out = FailAfter::new(usize::MAX);
+    write_json(&mut out, &both, false, true).unwrap();
+    write_text(&mut out, &both, false, true).unwrap();
+    let text = String::from_utf8(out.bytes).unwrap();
+    assert!(text.contains(
+        "\"outline_warnings\":null,\"application_info\":{\"doi\":\"I\",\"url\":null,\
+         \"note_count\":2},\"structure\":{\"page_index_offset\":80,"
+    ));
+    assert!(text.contains("\"application_info\":null}"));
+    assert!(text.ends_with(
+        "DOI: I\nNotes: 2\nPage index: 80+40 (20-byte rows)\nNative mode: 23112\n\
+         Native origin: unknown\nPage size: 5901 8354\nApplication info: none\n"
+    ));
+    let defect = ApplicationInfoDefect {
+        offset: 7,
+        field: "application-info XML",
+        reason: "malformed start tag",
+    };
+    let mut out = FailAfter::new(usize::MAX);
+    write_application_info_warning(&mut out, ApplicationInfoStatus::Ignored(defect)).unwrap();
+    write_application_info_warning(&mut out, ApplicationInfoStatus::Read).unwrap();
+    write_application_info_warning(&mut out, ApplicationInfoStatus::Absent).unwrap();
+    assert_eq!(
+        String::from_utf8(out.bytes).unwrap(),
+        "caj2pdf: warning: ignored C8 application-info package at byte 7: \
+         application-info XML: malformed start tag\n"
+    );
+    assert!(
+        write_application_info_warning(
+            &mut FailAfter::new(0),
+            ApplicationInfoStatus::Ignored(defect)
+        )
+        .is_err()
+    );
+}
+
 #[test]
 fn report_writers_propagate_every_sink_failure() {
     let hn = Inspection {
@@ -761,9 +845,15 @@ fn report_writers_propagate_every_sink_failure() {
         has_outline: None,
         bookmarks: None,
         outline: OutlineReport::default(),
+        application_info: ApplicationInfoReport::default(),
         structure: None,
     };
-    for info in [caj_inspection(), hn] {
+    for info in [
+        caj_inspection(),
+        hn,
+        c8_package(Some("I"), Some("U")),
+        c8_package(None, None),
+    ] {
         for json in [false, true] {
             let full = render(json, &info, true).len();
             for remaining in 0..full {
@@ -782,6 +872,7 @@ fn hnc8_structure(application_info: Option<ApplicationInfoTail>) -> Inspection {
         has_outline: None,
         bookmarks: None,
         outline: OutlineReport::default(),
+        application_info: ApplicationInfoReport::default(),
         structure: Some(Structure::Hnc8 {
             header: Header {
                 variant: Variant::C8,
@@ -902,6 +993,7 @@ fn kdh_signatures_escape_bytes_outside_printable_ascii() {
         has_outline: None,
         bookmarks: None,
         outline: OutlineReport::default(),
+        application_info: ApplicationInfoReport::default(),
         structure: Some(Structure::Kdh {
             signature: b"KDH \"9\\\x00\xff~".to_vec(),
             supported: false,

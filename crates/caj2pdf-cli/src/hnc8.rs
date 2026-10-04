@@ -11,9 +11,9 @@ use crate::{
 use caj2pdf_core::{
     Error, Limits, RangedSource, SequentialSink,
     hnc8::{
-        C8_DEFAULT_DECORATION_ALIAS, ComposeOptions, ComposePage, ComposeType3Workspaces,
-        ComposeVisitor, ComposeWorkspaces, OutlineReport, Type3PdfOptions,
-        convert_source_pages_pdf,
+        ApplicationInfoReport, ApplicationInfoStatus, C8_DEFAULT_DECORATION_ALIAS, ComposeOptions,
+        ComposePage, ComposeType3Workspaces, ComposeVisitor, ComposeWorkspaces, OutlineReport,
+        Type3PdfOptions, convert_source_pages_pdf,
     },
     jbig2::mq::{MqState, MqTable},
     jbig2::text::TextHeaderPolicy,
@@ -231,7 +231,7 @@ pub async fn convert<S: RangedSource, W: SequentialSink>(
     resources: &mut Resources,
     include_bookmarks: bool,
     limits: &Limits,
-) -> Result<OutlineReport, String> {
+) -> Result<(OutlineReport, ApplicationInfoStatus), String> {
     let options = ComposeOptions {
         // The HN/C8 profile explicitly admits the measured unused-template
         // anomaly; general JBIG2 APIs and all other malformed flags stay strict.
@@ -285,7 +285,7 @@ pub async fn convert<S: RangedSource, W: SequentialSink>(
             &ProcessCancellation,
         )
         .await
-        .map(|report| report.outline)
+        .map(|report| (report.outline, report.application_info))
         .map_err(|e| e.to_string());
     }
     convert_source_pages_pdf(
@@ -302,21 +302,24 @@ pub async fn convert<S: RangedSource, W: SequentialSink>(
         &ProcessCancellation,
     )
     .await
-    .map(|report| report.outline)
+    .map(|report| (report.outline, report.application_info))
     .map_err(|e| e.to_string())
 }
 
-/// The bounded HN/C8 document-level inspection.
+/// The bounded HN/C8 document-level inspection; image payloads are never read.
 #[derive(Debug)]
 pub struct Inspected {
     pub header: caj2pdf_core::hnc8::Header,
     pub bookmarks: Option<Vec<caj2pdf_core::Bookmark>>,
     pub outline: OutlineReport,
     pub structure: Option<crate::document::Structure>,
+    /// The C8 application-info package; a defect is a warning.
+    pub application_info: ApplicationInfoReport,
 }
 
-/// Keep only bounded outline metadata; image payloads are never read here.
-/// `structure` also reports the page-index layout and application-info tail.
+/// Keep only bounded outline and application-info metadata; image payloads
+/// are never read here. `structure` also reports the page-index layout and
+/// application-info tail.
 pub async fn inspect<S: RangedSource>(
     source: &mut S,
     limits: &Limits,
@@ -339,11 +342,16 @@ pub async fn inspect<S: RangedSource>(
     } else {
         None
     };
+    let application_info = reader
+        .application_info_report()
+        .await
+        .map_err(|e| e.to_string())?;
     let mut inspected = Inspected {
         header,
         bookmarks: None,
         outline: OutlineReport::default(),
         structure,
+        application_info,
     };
     let Some(count) = reader.declared_bookmark_count() else {
         return Ok(inspected);
