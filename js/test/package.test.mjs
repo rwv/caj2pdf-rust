@@ -13,7 +13,7 @@ import { promisify } from "node:util";
 import { syntheticCaj, tempDirectory, validatePdf, wasmUrl } from "./helpers.mjs";
 import { findChrome, launchChrome, openPage, startServer } from "./browser-harness.mjs";
 
-import { syntheticC8 } from "./hnc8-fixtures.mjs";
+import { syntheticC8, syntheticNativeC8 } from "./hnc8-fixtures.mjs";
 
 const run = promisify(execFile);
 const packageDirectory = fileURLToPath(new URL("..", import.meta.url));
@@ -63,6 +63,11 @@ test("npm pack includes the WASM build, entry points, declarations, LICENSE, and
     await run("tar", ["-xzf", join(directory, packed.filename), "--strip-components=1", "-C", installed]);
     await writeFile(join(consumer, "input.caj"), syntheticCaj());
     await writeFile(join(consumer, "input.c8"), syntheticC8());
+    const fontBytes = await readFile(new URL("../../tests/fonts/geometric.ttf", import.meta.url));
+    await writeFile(join(consumer, "font.ttf"), fontBytes);
+    for (const state of [3, 28, 31]) {
+      await writeFile(join(consumer, "native-" + state + ".c8"), syntheticNativeC8(false, state));
+    }
     const { stdout } = await run(process.execPath, ["--input-type=module", "--eval", `
       import assert from "node:assert/strict";
       import { open } from "node:fs/promises";
@@ -75,13 +80,16 @@ test("npm pack includes the WASM build, entry points, declarations, LICENSE, and
       assert.equal(browser.convert, node.convert);
       const module = await root.loadModule();
       assert.ok(WebAssembly.Module.exports(module).some(({name}) => name === "caj2pdf_io_poll"));
-      for (const [name, target, pages] of [["input.caj", "output.pdf", 2], ["input.c8", "c8.pdf", 1]]) {
+      for (const [name, target, pages, state] of [["input.caj", "output.pdf", 2], ["input.c8", "c8.pdf", 1], ...[3, 28, 31].map(state => ["native-" + state + ".c8", "native-" + state + ".pdf", 1, state])]) {
         const input = await open(name, "r");
         const output = (await open(target, "wx")).createWriteStream();
+        const fontHandle = state === undefined ? undefined : await open("font.ttf", "r");
         try {
+          const font = fontHandle ? await root.fileHandleSource(fontHandle) : undefined;
+          const fonts = font ? { cjk: font, latin: font, alternateLatin: font, ["latinState" + state]: { ...font } } : undefined;
           const report = await root.withHnc8Scratch(async (scratch) => root.convert(
             module, await root.fileHandleSource(input), root.nodeWritableSink(output),
-            { includeBookmarks: name === "input.caj", hnc8: { scratch } },
+            { includeBookmarks: name === "input.caj", hnc8: { scratch, fonts } },
           ));
           output.end();
           await finished(output);
@@ -90,6 +98,7 @@ test("npm pack includes the WASM build, entry points, declarations, LICENSE, and
           output.destroy();
           await finished(output).catch(() => {});
           await input.close();
+          await fontHandle?.close();
         }
       }
       console.log("packed exports and Node conversion passed");
@@ -97,6 +106,12 @@ test("npm pack includes the WASM build, entry points, declarations, LICENSE, and
     assert.match(stdout, /packed exports and Node conversion passed/);
     await validatePdf(t, await readFile(join(consumer, "output.pdf")), 2);
     await validatePdf(t, await readFile(join(consumer, "c8.pdf")), 1);
+    for (const state of [3, 28, 31]) {
+      const pdf = await readFile(join(consumer, "native-" + state + ".pdf"));
+      await validatePdf(t, pdf, 1);
+      assert.equal(pdf.toString("latin1").match(/<0041> Tj/g)?.length, 1);
+      assert.equal(pdf.toString("latin1").match(/\/FontFile2 /g)?.length, 2);
+    }
 
     // The public Node example must work beside the unpacked package, without
     // a workspace target/ directory or a fallback to a stale build.
@@ -116,20 +131,30 @@ test("npm pack includes the WASM build, entry points, declarations, LICENSE, and
         "/index.html": "<!doctype html><title>packed package</title>",
         "/input.caj": syntheticCaj(),
         "/input.c8": syntheticC8(),
+        "/font.ttf": fontBytes,
+        ...Object.fromEntries([3, 28, 31].map(state => ["/native-" + state + ".c8", syntheticNativeC8(false, state)])),
         "/artifact-worker.mjs": `
           import * as api from "/browser.mjs";
           try {
-            const output = await api.withHnc8Scratch(async (scratch) => {
-              const input = await (await fetch("/input.c8")).blob();
-              const chunks = [];
-              const report = await api.convert(await api.loadModule(), api.blobSource(input), {
-                async writeChunk(bytes) { chunks.push(bytes.slice()); return bytes.length; },
-                async flush() {},
-              }, { includeBookmarks: false, hnc8: { scratch } });
-              return { pages: report.pagesConverted, bytes: Array.from(new Uint8Array(await new Blob(chunks).arrayBuffer())) };
-            });
+            const outputs = [];
+            const module = await api.loadModule();
+            const font = api.blobSource(await (await fetch("/font.ttf")).blob());
+            for (const state of [undefined, 3, 28, 31]) {
+              outputs.push(await api.withHnc8Scratch(async (scratch) => {
+                const name = state === undefined ? "/input.c8" : "/native-" + state + ".c8";
+                const input = await (await fetch(name)).blob();
+                const fonts = state === undefined ? undefined : { cjk: font, latin: font, alternateLatin: font, ["latinState" + state]: { ...font } };
+                const chunks = [];
+                const report = await api.convert(module, api.blobSource(input), {
+                  async writeChunk(bytes) { chunks.push(bytes.slice()); return bytes.length; },
+                  async flush() {},
+                }, { includeBookmarks: false, hnc8: { scratch, fonts } });
+                if (!scratch.every(store => store.size === 0n)) throw new Error("packed conversion left scratch data");
+                return { pages: report.pagesConverted, bytes: Array.from(new Uint8Array(await new Blob(chunks).arrayBuffer())) };
+              }));
+            }
             const root = await navigator.storage.getDirectory();
-            postMessage({ ...output, remaining: await Array.fromAsync(root.keys()) });
+            postMessage({ outputs, remaining: await Array.fromAsync(root.keys()) });
           } catch (error) { postMessage({ error: String(error) }); }
           self.close();
         `,
@@ -156,11 +181,15 @@ test("npm pack includes the WASM build, entry points, declarations, LICENSE, and
           worker.onerror = (error) => reject(new Error(error.message));
         })`);
         assert.equal(c8.error, undefined);
-        assert.equal(c8.pages, 1);
-        assert.deepEqual(Buffer.from(c8.bytes), await readFile(join(consumer, "c8.pdf")));
+        assert.equal(c8.outputs.length, 4);
+        for (const [index, name] of ["c8.pdf", "native-3.pdf", "native-28.pdf", "native-31.pdf"].entries()) {
+          const output = c8.outputs[index];
+          assert.equal(output.pages, 1);
+          assert.deepEqual(Buffer.from(output.bytes), await readFile(join(consumer, name)));
+          await validatePdf(t, new Uint8Array(output.bytes), 1);
+        }
         assert.deepEqual(c8.remaining, []);
-        assert.match(Buffer.from(c8.bytes).toString("latin1"), /\/Filter \/FlateDecode/);
-        await validatePdf(t, new Uint8Array(c8.bytes), 1);
+        assert.match(Buffer.from(c8.outputs[0].bytes).toString("latin1"), /\/Filter \/FlateDecode/);
         assert.deepEqual(page.errors, []);
       } finally {
         await browser?.close();

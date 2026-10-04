@@ -26,7 +26,7 @@ The same conversion core serves all three interfaces.
 | CAJ | Supported within the [CLI profile](cli.md) | Representative 75-page output with 58 bookmarks is identical across interfaces; selected viewer pages 1 and 75 match. Optional legacy Python ordering is deferred (#21). |
 | KDH | Supported for validated embedded PDFs | Representative one-page output is identical across interfaces and matches the selected viewer page. |
 | HN-A | Experimental image-page conversion | The complete 163-page, 96-bookmark pre-compression output was identical across interfaces; the current compression checks below preserve decoded pixels and mapping. Declared page/display extents are used; selected frame sizes match, but exact pixels differ. Physical units remain empirical. |
-| C8 | Experimental image pages and admitted raw native profile | Compressed four-page image output and the [initial six-page native profile](c8-native-records.md) have runtime checkpoints. Native pages require explicit fonts. Bookmark omission remains required; additional native profiles are tracked in #242. Font/raster differences remain explicit. |
+| C8 | Experimental image pages and admitted native profiles | Compressed four-page image output and the six/four/five-page native profiles have [runtime and layout checkpoints](#unreleased-native-c8-checkpoint). Native pages require explicit fonts. Bookmark omission remains required; #242 tracks delivery. Font/raster differences remain explicit. |
 | HN-B | Experimental image pages and admitted native mode-0/mode-2 profiles | With explicit fonts and bookmark omission, the selected 4/4/6-page documents convert through CLI/Node/Worker with identical per-document outputs. Native mode 2 supports leading images; image-after-text and mode-0 images remain errors. [Independent controls and scoped layout checks](hnb-compact-index.md) do not establish original-font pixel parity. |
 | TEB, unrecognized layouts, unsupported image/native modes | Rejected | No OCR or silent omission fallback. Located errors identify unsupported HN/C8 content. |
 
@@ -146,6 +146,43 @@ PDF page permutation, malformed bitmap extents, oracle identity mismatches,
 invalid inspection metadata, missing output and timeout/error classification.
 They are not substitutes for an external corpus run or CAJViewer comparison.
 
+### Optimized CLI preflight after the HN/C8 increments
+
+The 2026-10-03 release-mode preflight of reviewed implementation `4910da9`
+completed all 56 pinned inputs; input inventory and binary hashes were unchanged.
+This deliberately repeats the original font-free invocation policy. It does not
+replace the separate explicit-font HN-B/C8 checkpoints below.
+
+| Family | Inputs | At least one successful conversion |
+| --- | ---: | ---: |
+| HN-A | 19 | 19 |
+| HN-B | 3 | 0 |
+| C8 | 5 | 2 (bookmark omission) |
+| CAJ | 17 | 12 |
+| KDH | 3 | 3 |
+| PDF | 2 | 2 |
+| TEB | 7 | 0 (recognized, unsupported) |
+
+All successful conversions pass PDF syntax, page-count, source-order and
+applicable source-outline checks. Rendered-page pixels are NOT_RUN in this
+runner. The 38 successful inputs compare with 34 in the old baseline: issue-30,
+issue-43, issue-7, issue-85 Zhouli and issue-92 now succeed; issue-20 now fails.
+The issue-20 change must remain explicit: its old output had qpdf warning status
+3, and the previously recorded 40,022-byte object-4 payload independently fails
+zlib 1.3.1 checksum validation. Reading only its declared 40,020 bytes leaves
+zlib incomplete. Current validated Length repair refuses this corrupt stream;
+there is no new claim of an independently justified content repair. Historical
+source-order/outline success was not full rendering acceptance.
+
+The remaining font-free HN-B/C8 failures do not negate their separate
+caller-font conversions, and are not new evidence for speculative format rules.
+The earlier debug run was intentionally interrupted and is not a completed
+compatibility result. External receipts and candidate binary hash are in
+`caj2pdf-hnb-rendering-20261003/corpus-4910da9-release-preflight.json`, its
+summary, and `issue20-zlib-check.json`. This is preflight evidence; #222 still
+requires the actual packaged release candidate, peak-memory scope, bookmarks
+and hardening delivery before release acceptance.
+
 ### Unreleased native C8 checkpoint
 
 The raw six-page `issue-66` profile now has an explicit-font conversion path
@@ -173,6 +210,72 @@ in [CLI usage](cli.md#native-c8-font-resources) and [JavaScript usage](../js/REA
 External documents, fonts and rendered evidence are not distributed. #242 owns
 additional-profile final acceptance; #222 owns packaged release/corpus and
 peak-memory acceptance.
+
+### Packaged HN-B regression repeat
+
+At core `4910da9`, the actual npm package repeats the explicit-font
+`issue-100`, `issue-63` and `issue-65` documents through Node and real browser
+Workers. All 4/4/6 pages complete, each output matches the current native CLI,
+and scratch/OPFS cleanup passes. Compared with reviewed HN-B `385f3d2`, qpdf
+QDF shows only additional F4–F7 font-resource references before the xref table;
+content and embedded-resource streams are unchanged. All 14 page renders at
+72 dpi are byte-identical. Changed PDF hashes reflect this serialization
+change, not original-font parity or a new source-fidelity claim.
+
+External receipts are `packaged4910da9-hnb-regression.json`,
+`packaged4910da9-hnb-qdf-comparison.json` and `hnb-4910da9-cli-regression.json`
+in the existing acceptance directory. #265 completes the next-gap triage:
+no additional independent parser gap is demonstrated by the current corpus
+with required caller resources. Unseen native modes and nonempty HN-B/C8
+outlines remain unverified; #221 retains bookmark ownership.
+
+### Representative memory preflight (2026-10-03)
+
+Core `4910da9` and the actual extracted npm preflight tarball were measured on
+both pinned `issue-76` HN-A inputs: Cao (65 pages, 54 bookmarks, 13,109,383 input
+bytes) and Ren (163 pages, 96 bookmarks, 24,519,256 bytes). Source identities
+remain in the corpus matrix. Native and Node outputs match the complete CLI
+hashes, and temporary stores are empty and removed after conversion.
+
+| Measurement | 65 pages | 163 pages |
+| --- | ---: | ---: |
+| Native kernel maximum process RSS (KiB) | 13,876 | 14,136 |
+| Native accounted page metadata peak (bytes) | 840 | 10,080 |
+| Native accounted text working peak (bytes) | 8,208 | 8,264 |
+| Node WASM capacity high water (bytes) | 2,555,904 | 2,359,296 |
+| Node I/O-boundary sampled process RSS (bytes) | 81,936,384 | 114,909,184 |
+| Aggregate decoder scratch peak, native and Node (bytes) | 1,004,328 | 1,089,966 |
+
+Native uses the original page-composition example with built-in standard QM/MQ
+tables, release optimization, ranged input, sequential file output and 4 KiB
+I/O. Each process is measured separately using Linux `wait4`; RSS includes the
+whole diagnostic process. Accounted metadata/text capacities come from
+`ComposeReport` and are not a full heap census. The large document exercises
+161 type-3 and 49 JPEG draws.
+
+Node uses the actual package, fresh instances, ranged file input, temporary
+file scratch and a sequential hashing sink. Maximum input/output requests are
+256 KiB. WASM initially reserves 1,245,184 bytes. Its capacity is not live heap,
+and I/O-boundary RSS samples are not a kernel peak. Sampling adds runtime
+overhead. Scratch is disk storage, reported separately from RAM.
+
+The real browser Worker completed both inputs with identical output hashes,
+page/bookmark counts, WASM/scratch peaks and request bounds; OPFS cleanup
+passed. Input is spooled to OPFS and output is written sequentially there.
+Output hashing happens after conversion and outside the measured path. The
+first 163-page browser attempt exceeded its 300-second harness deadline and
+remains INCOMPLETE; a separate retry with an 1,800-second deadline completed.
+The successful retry does not turn the earlier timeout into a passing run.
+
+These inputs differ in page complexity. A separate original 4/2,048-page
+constant-complexity C8 preflight increases WASM capacity from 1,966,080 to
+2,097,152 bytes while retaining an 8-byte scratch peak in Node and Worker.
+Neither experiment establishes a universal constant-memory or browser RSS
+bound. Full versioned release acceptance remains #222.
+
+External scripts, receipts and the native measurement hash manifest are under
+`caj2pdf-hnb-rendering-20261003/{native-memory-preflight,packaged-hna-memory}`;
+no source documents or generated PDFs are committed.
 
 ### Known Python-reference differences
 
