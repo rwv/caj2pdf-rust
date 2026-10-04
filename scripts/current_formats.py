@@ -186,14 +186,21 @@ def run(matrix: Path, corpus: Path | None, candidate: Path | None,
                         order = current_format_order.check(commands, source, pdf, row, info or {}, label)
                         attempt["page_order"] = order
                         attempt["page_order_check"] = order["status"]
-                        expected_outline = current_format_order.source_outline_hash(source, row["detected_type"], info or {})
-                        if expected_outline is not None and not omit:
-                            attempt["source_outline_check"] = "PASS" if expected_outline == (
-                                attempt.get("outline_count"), attempt.get("outline_sha256"),
-                            ) else "FAIL"
                     except (OSError, ValueError, KeyError, conformance.ConformanceError) as error:
                         attempt["page_order_check"] = "FAIL"
                         attempt["source_check_error"] = str(error)
+                    # Outline identity is independent of the page-image oracle.
+                    if not omit:
+                        try:
+                            expected_outline = current_format_order.source_outline_hash(
+                                source, row["detected_type"], info or {})
+                            if expected_outline is not None:
+                                attempt["source_outline_check"] = "PASS" if expected_outline == (
+                                    attempt.get("outline_count"), attempt.get("outline_sha256"),
+                                ) else "FAIL"
+                        except (OSError, ValueError, KeyError) as error:
+                            attempt["source_outline_check"] = "FAIL"
+                            attempt["source_outline_error"] = str(error)
             elif pdf.exists():
                 attempt["failed_output_cleanup"] = True
             entry["attempts"].append(attempt)

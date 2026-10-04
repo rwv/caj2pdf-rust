@@ -324,6 +324,37 @@ External scripts, receipts and the native measurement hash manifest are under
 `caj2pdf-hnb-rendering-20261003/{native-memory-preflight,packaged-hna-memory}`;
 no source documents or generated PDFs are committed.
 
+### 738-page HN-A real-document regression (#284)
+
+The shared catalog's `issue-111/56.caj` (238,910,818 bytes, SHA-256
+`39fc809373630c0eeb30ac2471174fcdf976916893389c0b8679d50ca730dc4b`, from
+upstream caj2pdf issue 111) is the largest real input checked so far. At main `509bb6e`, with the release CLI and default options:
+
+| Path | Result | Time | Peak memory |
+| --- | --- | ---: | ---: |
+| Native CLI, ranged file | PASS, 738 pages, 1,450 bookmarks | 105 s | 10.1 MiB RSS |
+| Node 22 WASM, ranged file | byte-identical | 368 s | 102 MiB RSS |
+| Node 22 WASM, spooled standard input | byte-identical | 286 s | 103 MiB RSS |
+| Chromium Worker, ranged Blob, OPFS scratch/output | byte-identical | 499 s | not measured |
+
+The output is 268,737,204 bytes, SHA-256
+`db8f4a970e0d51a985b4e807a19dac853f15fd75efb2d5ac26ed768dc3be0888`.
+`qpdf --check` is clean, MuPDF renders all 738 pages, and all 1,450 outline
+entries match the source titles, depths and pages. Through
+`scripts/sample_catalog.py` the runner reports conversion, PDF, page-count and
+source-outline PASS. Page-image order is NOT_RUN because the pinned pixel
+oracles do not cover this document. The Worker read 430,981,910 input bytes,
+wrote at most 256 KiB per output chunk, and left empty scratch and no OPFS
+entries. Durations are single observations on one 4-vCPU Linux host; the
+spooled Node and browser runs overlapped. Native CPU time goes to JBIG1 layer
+decoding and Flate output, not unbounded buffering.
+
+The earlier 90-second attempt was a budget timeout and stays INCOMPLETE; it was
+not a converter defect. CAJViewer page comparison is NOT_RUN, so these checks
+establish structure, bookmarks and cross-runtime identity, not pixel parity.
+Per-run details are in the
+[sample research notes](https://github.com/rwv/caj2pdf-samples/blob/main/RESEARCH.md).
+
 ### Known Python-reference differences
 
 These are accepted v0.1 differences, with full source hashes and measurements in

@@ -21,6 +21,10 @@ import conformance
 ROOT = Path(__file__).resolve().parent.parent
 
 
+class MissingOracle(Exception):
+    """No pinned independent pixel oracle covers this source; not a mismatch."""
+
+
 def bounded_json(path: Path, limit: int = 32 * 1024 * 1024):
     if path.stat().st_size > limit:
         raise ValueError("PDF metadata exceeds 32 MiB")
@@ -81,7 +85,10 @@ def expected_image(sample: dict, image: dict, source_sha: str, source_id: str) -
         return ("jpeg", image["payload_sha256"])
     if kind not in (0, 3):
         raise ValueError("no independent pixel oracle for image type")
-    data = oracle("jbig1_oracle" if kind == 0 else "jbig2_oracle")[source_id]
+    name = "jbig1_oracle" if kind == 0 else "jbig2_oracle"
+    data = oracle(name).get(source_id)
+    if data is None:
+        raise MissingOracle(f"no pinned {name} entry for {source_id}")
     if data["source_sha256"] != source_sha:
         raise ValueError("pixel oracle source identity differs")
     candidates = [entry for entry in data["images"]
@@ -161,7 +168,10 @@ def check(commands, source: Path, pdf: Path, row: dict, info: dict, label: str) 
         extractor = SourceExtractor(stream, row["id"])
         for page in extractor.iter_pages():
             number = page["page_number"]
-            expected = [expected_image(page, image, row["sha256"], row["id"]) for image in page["images"]]
+            try:
+                expected = [expected_image(page, image, row["sha256"], row["id"]) for image in page["images"]]
+            except MissingOracle as error:
+                return {"status": "NOT_RUN", "reason": str(error), "pages": checked}
             image_dir = commands.directory / f"{label}-page-{number}"
             image_dir.mkdir(mode=0o700)
             prefix = image_dir / "image"
