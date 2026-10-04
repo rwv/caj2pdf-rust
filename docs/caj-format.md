@@ -99,6 +99,12 @@ TOC conversion. Compatibility reports must state both facts.
 
 ## Reference page-order differences
 
+The maintainer decision in [#21](https://github.com/rwv/caj2pdf-rust/issues/21)
+is to preserve source page-table order and valid source bookmarks. No legacy
+Python compatibility mode is planned. The observations below document reference
+differences; they do not require reproducing reference quirks or adding
+sample-specific permutations.
+
 The reference PDF permutes pages in `issue-40` and `issue-44`, though every
 rendered source page occurs exactly once. Across all ten successful CAJ
 samples, concatenating surviving source `/Pages` groups' `/Kids` arrays in

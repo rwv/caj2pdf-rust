@@ -23,7 +23,7 @@ The same conversion core serves all three interfaces.
 | Profile | Status on all three interfaces | Verified scope and limits |
 | --- | --- | --- |
 | PDF | Supported within the [PDF input profile](pdf-input.md) | Representative 11-page output is identical across interfaces; selected viewer pages 1 and 11 match. |
-| CAJ | Supported within the [CLI profile](cli.md) | Representative 75-page output with 58 bookmarks is identical across interfaces; selected viewer pages 1 and 75 match. Optional legacy Python ordering is deferred (#21). |
+| CAJ | Supported within the [CLI profile](cli.md) | Representative 75-page output with 58 bookmarks is identical across interfaces; selected viewer pages 1 and 75 match. Source page order and valid bookmarks are preserved; legacy Python ordering is not planned (#21). |
 | KDH | Supported for validated embedded PDFs | Representative one-page output is identical across interfaces and matches the selected viewer page. |
 | HN-A | Experimental image-page conversion | The recorded current native corpus accepts 19/19 HN-A inputs, including paired raw/compressed framing; this is not whole-family support. HN-A source bookmarks are supported and image pages do not require fonts. The complete 163-page, 96-bookmark pre-compression output was identical across interfaces; the current compression checks below preserve decoded pixels and mapping. Declared page/display extents are used; selected frame sizes match, but exact pixels differ. Physical units remain empirical. |
 | C8 | Experimental image pages and admitted native profiles | Compressed four-page image output and the six/four/five-page native profiles have [runtime and layout checkpoints](#unreleased-native-c8-checkpoint). Native pages require explicit fonts. Bookmark omission remains required; #242 is delivered on main and #221 owns unresolved outlines. Font/raster differences remain explicit. |
@@ -328,7 +328,10 @@ no source documents or generated PDFs are committed.
 
 These are accepted v0.1 differences, with full source hashes and measurements in
 [the CAJ format record](caj-format.md). Rust preserves source page-table order
-and valid source TOC records. The optional legacy mode remains deferred in #21.
+and valid source TOC records. Per the maintainer decision in
+[#21](https://github.com/rwv/caj2pdf-rust/issues/21), no legacy Python
+compatibility mode is planned. Reference output is comparison evidence, not
+an authority for reproducing page permutations or dropped bookmarks.
 
 | External case | Difference / limitation |
 | --- | --- |

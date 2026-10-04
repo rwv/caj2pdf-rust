@@ -134,7 +134,8 @@ native sub-issue/blocking relationships are authoritative.
 4. **Audit and release (#14).** Maintain one support matrix, reuse valid memory
    measurements, check packages/examples and run existing CI. Geometry must be
    fixed or explicitly limited; distribution decisions must be resolved before
-   shipping the affected data. OCR and legacy Python ordering remain deferred.
+   shipping the affected data. OCR remains deferred. Legacy Python ordering is not planned (#21);
+   preserve source page order and valid source bookmarks.
 
 Keep remaining work in these issues, with no new issue hierarchy or framework.
 Missing optional corpus is NOT_RUN; unavailable checks do not count as passes.
