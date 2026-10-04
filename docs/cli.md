@@ -196,8 +196,8 @@ Some C8 files end with an application-info package (see
 [the C8 record notes](c8-native-records.md#package-framing-and-reader-302)).
 `inspect` reports its DOI, URL and annotation count. Conversion writes a PDF
 document information dictionary only when a DOI or URL is present:
-`/Subject` holds `doi:` followed by the DOI text and the custom key
-`/CNKI_URL` holds the URL, both as UTF-16BE text strings. No title is invented
+the custom keys `/CNKI_DOI` and `/CNKI_URL` hold the verbatim identifier and
+URL as UTF-16BE text strings. No title is invented
 and annotations are not converted. Other inputs and C8 files without a package
 produce unchanged output.
 

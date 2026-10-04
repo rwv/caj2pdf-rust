@@ -344,8 +344,10 @@ element inside `DOI` or `DURL`. It extracts only:
 Link rectangles, targets and texts are not read or emitted. Every defect is a
 located `Hnc8Error`; conversion and `inspect` report it as a warning and
 continue, and only cancellation fails. When a DOI or URL is present, the PDF
-gets an `/Info` dictionary with `/Subject` set to `doi:` followed by the DOI
-text and a custom `/CNKI_URL` key holding the URL, both UTF-16BE text strings.
+gets an `/Info` dictionary with custom `/CNKI_DOI` and `/CNKI_URL` keys holding
+the verbatim `DOI` and `DURL` values as UTF-16BE text strings. The observed
+`DOI` values are CNKI identifiers (`CNKI:SUN:...`), not registered DOIs, so no
+`doi:` prefix or `/Subject` is written.
 No `/Title` or other entry is invented. Without a package, or with a defective
 one, the output is byte-identical to earlier releases.
 

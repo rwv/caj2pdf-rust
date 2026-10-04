@@ -57,8 +57,8 @@ fn image_only_c8_package_is_written_to_the_info_dictionary() {
     let report = report.unwrap();
     assert_eq!(report.application_info, ApplicationInfoStatus::Read);
     let info = format!(
-        "<< /Subject <FEFF{}> /CNKI_URL <FEFF{}> >>",
-        utf16_hex("doi:INVENTED:ID.1"),
+        "<< /CNKI_DOI <FEFF{}> /CNKI_URL <FEFF{}> >>",
+        utf16_hex("INVENTED:ID.1"),
         utf16_hex("http://example.invalid/\u{4e2d}")
     );
     assert!(contains(&pdf, info.as_bytes()));
@@ -168,6 +168,6 @@ fn native_c8_package_is_written_to_the_info_dictionary() {
         pdfs.push(sink.bytes);
     }
     assert!(!contains(&pdfs[0], b"/Info"));
-    assert!(contains(&pdfs[1], b"/Subject <FEFF"));
+    assert!(contains(&pdfs[1], b"/CNKI_DOI <FEFF"));
     assert!(contains(&pdfs[1], b"/CNKI_URL <FEFF"));
 }

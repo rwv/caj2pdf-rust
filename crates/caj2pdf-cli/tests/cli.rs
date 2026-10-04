@@ -1007,9 +1007,7 @@ fn c8_application_info_reaches_inspect_and_pdf_info() {
     );
     assert!(info.contains("/Info"), "{info}");
     let pdf = String::from_utf8_lossy(&read("info.c8.pdf")).into_owned();
-    assert!(
-        pdf.contains("/Subject <FEFF0064006F0069003A0049004E00560045004E005400450044003A0031>")
-    );
+    assert!(pdf.contains("/CNKI_DOI <FEFF0049004E00560045004E005400450044003A0031>"));
     assert!(pdf.contains("/CNKI_URL <FEFF"));
 }
 

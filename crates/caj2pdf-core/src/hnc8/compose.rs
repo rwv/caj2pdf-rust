@@ -368,8 +368,9 @@ impl At {
     }
 }
 
-/// Finish the PDF with any C8 application-info DOI as `/Subject` (prefixed
-/// `doi:`) and URL as `/CNKI_URL`. A defective package is recorded in the
+/// Finish the PDF with any C8 application-info `DOI` element value as the
+/// custom `/CNKI_DOI` key and its URL as `/CNKI_URL`. The observed values are
+/// CNKI identifiers rather than registered DOIs, so they are stored verbatim. A defective package is recorded in the
 /// report and ignored; only cancellation fails.
 async fn finish_document<S: RangedSource, W: SequentialSink, C: Cancellation>(
     reader: &mut Hnc8Reader<'_, S, C>,
@@ -383,10 +384,9 @@ async fn finish_document<S: RangedSource, W: SequentialSink, C: Cancellation>(
         .map_err(|error| container(error, ComposeStage::Container))?;
     report.application_info = read.status;
     let info = read.info.unwrap_or_default();
-    let subject = info.doi.map(|doi| format!("doi:{doi}"));
     document
         .finish_with_info(&[
-            ("Subject", subject.as_deref()),
+            ("CNKI_DOI", info.doi.as_deref()),
             ("CNKI_URL", info.url.as_deref()),
         ])
         .await
