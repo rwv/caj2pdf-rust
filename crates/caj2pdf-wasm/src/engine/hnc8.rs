@@ -178,7 +178,7 @@ pub(super) async fn convert(
     options: ConversionOptions,
     limits: &Limits,
     cancellation: &BridgeCancellation,
-) -> Result<ConversionReport> {
+) -> Result<(ConversionReport, u32)> {
     let tables = std::mem::take(&mut source.shared.borrow_mut().tables);
     let qm = if tables.qm.is_empty() {
         QmTable::standard()
@@ -248,7 +248,7 @@ pub(super) async fn convert(
             cancellation,
         )
         .await
-        .map(|report| report.conversion)
+        .map(|report| (report.conversion, report.outline.defects))
         .map_err(|error| Error::Hnc8(Box::new(error)));
     }
     convert_source_pages_pdf(
@@ -262,7 +262,7 @@ pub(super) async fn convert(
         cancellation,
     )
     .await
-    .map(|report| report.conversion)
+    .map(|report| (report.conversion, report.outline.defects))
     .map_err(|error| Error::Hnc8(Box::new(error)))
 }
 
@@ -273,25 +273,24 @@ impl caj2pdf_core::BookmarkVisitor for IgnoreBookmarks {
     }
 }
 
+/// Page count, written bookmark count (`None` when unknown) and the number of
+/// skipped or clamped HN-A outline entries.
 pub(super) async fn inspect<S: RangedSource, C: Cancellation>(
     source: &mut S,
     limits: &Limits,
     cancellation: &C,
-) -> Result<(u32, Option<u32>)> {
+) -> Result<(u32, Option<u32>, u32)> {
     use caj2pdf_core::hnc8::{Budget, Hnc8Reader};
     let result: caj2pdf_core::hnc8::Result<_> = async {
         let mut reader = Hnc8Reader::open(source, limits, cancellation, Budget::default()).await?;
         let pages = reader.header().page_count;
-        let count = if reader.declared_bookmark_count().is_some() {
-            Some(
-                reader
-                    .visit_bookmarks(64, pages, |page| Some(page - 1), &mut IgnoreBookmarks)
-                    .await?,
-            )
-        } else {
-            None
-        };
-        Ok((pages, count))
+        if reader.declared_bookmark_count().is_none() {
+            return Ok((pages, None, 0));
+        }
+        let outline = reader
+            .visit_bookmarks(64, pages, |page| Some(page - 1), &mut IgnoreBookmarks)
+            .await?;
+        Ok((pages, Some(outline.written), outline.defects))
     }
     .await;
     result.map_err(|error| Error::Hnc8Metadata(Box::new(error)))

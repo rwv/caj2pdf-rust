@@ -2,7 +2,7 @@
 
 use caj2pdf_core::{
     Bookmark, BookmarkVisitor, Error, Limits, NeverCancel, RangedSource,
-    hnc8::{Budget, ErrorKind, Hnc8Reader},
+    hnc8::{Budget, ErrorKind, Hnc8Reader, OutlineRepair, OutlineReport},
     native::SeekableSource,
 };
 use std::{
@@ -51,14 +51,14 @@ fn read(
     limits: Limits,
     depth: u32,
     map: impl FnMut(u32) -> Option<u32>,
-) -> Result<Vec<Bookmark>, caj2pdf_core::hnc8::Hnc8Error> {
+) -> Result<(Vec<Bookmark>, OutlineReport), caj2pdf_core::hnc8::Hnc8Error> {
     run_native(async {
         let mut input = SeekableSource::new(Cursor::new(bytes)).unwrap();
         let mut reader =
             Hnc8Reader::open(&mut input, &limits, &NeverCancel, Budget::default()).await?;
         let mut entries = Entries::default();
-        reader.visit_bookmarks(depth, 3, map, &mut entries).await?;
-        Ok(entries.0)
+        let report = reader.visit_bookmarks(depth, 3, map, &mut entries).await?;
+        Ok((entries.0, report))
     })
 }
 
@@ -69,7 +69,7 @@ fn ranged_outlines_preserve_empty_unicode_hierarchy_and_mapped_pages() {
         (&[0xd6, 0xd0, 0x94, 0x39, 0xfc, 0x36], b"2", 2),
         (b"", b"2", 1),
     ]);
-    let entries = read(
+    let (entries, report) = read(
         bytes,
         Limits {
             io_chunk_bytes: 1,
@@ -90,38 +90,81 @@ fn ranged_outlines_preserve_empty_unicode_hierarchy_and_mapped_pages() {
             .collect::<Vec<_>>(),
         [(0, 0), (1, 1), (0, 1)]
     );
+    assert_eq!((report.declared, report.written, report.defects), (3, 3, 0));
 }
 
 #[test]
-fn malformed_fields_and_omitted_destinations_have_absolute_locations() {
+fn malformed_entries_and_omitted_destinations_are_located_defects_not_errors() {
     let title = [b'x'; 256];
-    for (record, field, relative) in [
-        ((title.as_slice(), b"1".as_slice(), 1), "outline title", 0),
-        ((b"\x81".as_slice(), b"1".as_slice(), 1), "outline title", 0),
-        ((b"x".as_slice(), b"".as_slice(), 1), "outline page", 280),
-        ((b"x".as_slice(), b"-1".as_slice(), 1), "outline page", 280),
+    for (record, relative, repair) in [
+        (
+            (title.as_slice(), b"1".as_slice(), 1),
+            0,
+            OutlineRepair::Skipped,
+        ),
+        (
+            (b"\x81".as_slice(), b"1".as_slice(), 1),
+            0,
+            OutlineRepair::Skipped,
+        ),
+        (
+            (b"x".as_slice(), b"".as_slice(), 1),
+            280,
+            OutlineRepair::Skipped,
+        ),
+        (
+            (b"x".as_slice(), b"-1".as_slice(), 1),
+            280,
+            OutlineRepair::Skipped,
+        ),
         (
             (b"x".as_slice(), b"000000000001".as_slice(), 1),
-            "outline page",
             280,
+            OutlineRepair::Skipped,
         ),
-        ((b"x".as_slice(), b"0".as_slice(), 1), "outline page", 280),
-        ((b"x".as_slice(), b"4".as_slice(), 1), "outline page", 280),
-        ((b"x".as_slice(), b"1".as_slice(), 0), "outline level", 304),
-        ((b"x".as_slice(), b"1".as_slice(), 65), "outline level", 304),
-        ((b"x".as_slice(), b"1".as_slice(), 2), "outline level", 304),
+        (
+            (b"x".as_slice(), b"0".as_slice(), 1),
+            280,
+            OutlineRepair::Skipped,
+        ),
+        (
+            (b"x".as_slice(), b"4".as_slice(), 1),
+            280,
+            OutlineRepair::Skipped,
+        ),
+        (
+            (b"x".as_slice(), b"1".as_slice(), 0),
+            304,
+            OutlineRepair::Skipped,
+        ),
+        (
+            (b"x".as_slice(), b"1".as_slice(), 65),
+            304,
+            OutlineRepair::Clamped,
+        ),
+        (
+            (b"x".as_slice(), b"1".as_slice(), 2),
+            304,
+            OutlineRepair::Clamped,
+        ),
     ] {
-        let error = read(source(&[record]), Limits::default(), 64, |p| Some(p - 1)).unwrap_err();
-        assert_eq!(error.offset, 348 + relative);
-        assert_eq!(error.kind.field(), field);
+        let (entries, report) =
+            read(source(&[record]), Limits::default(), 64, |p| Some(p - 1)).unwrap();
+        let written = usize::from(repair == OutlineRepair::Clamped);
+        assert_eq!(entries.len(), written);
+        assert!(entries.iter().all(|entry| entry.depth == 0));
+        let [defect] = report.recorded_defects() else {
+            panic!("expected one defect: {report:?}");
+        };
+        assert_eq!((defect.offset, defect.repair), (348 + relative, repair));
     }
     for missing in [None, Some(3)] {
-        let error = read(source(&[(b"x", b"1", 1)]), Limits::default(), 64, |_| {
+        let (entries, report) = read(source(&[(b"x", b"1", 1)]), Limits::default(), 64, |_| {
             missing
         })
-        .unwrap_err();
-        assert_eq!(error.offset, 628);
-        assert_eq!(error.kind.field(), "outline page map");
+        .unwrap();
+        assert!(entries.is_empty());
+        assert_eq!(report.recorded_defects()[0].offset, 628);
     }
 }
 
@@ -146,6 +189,7 @@ fn count_depth_and_title_budgets_are_checked_before_visiting() {
     assert!(
         read(source(&[]), Limits::default(), 64, |_| None)
             .unwrap()
+            .0
             .is_empty()
     );
 }

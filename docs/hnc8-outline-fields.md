@@ -47,7 +47,9 @@ HN-A framing was already established: count at `0x158`, records at `0x15c`,
 For the native profile, require a NUL in each title/page field. Reject malformed
 encoding, missing terminators, invalid decimal bytes and out-of-range pages.
 Require the first level to be 1, positive levels within the configured depth cap,
-and no increase greater than one. Interpreting the four level bytes as `u32`
+and no increase greater than one. Since #299 a rejected entry is skipped or
+clamped with a located warning instead of failing the document; see
+[per-entry defects](#per-entry-defects-299). Interpreting the four level bytes as `u32`
 is sufficient within this positive bounded profile; arbitrary signed values
 outside it are not established as valid format values.
 
@@ -86,7 +88,8 @@ the successful controls. This does not prove that every HN variant lacks checksu
 
 The last three malformed-input behaviors are recorded compatibility differences.
 The native reader should reject them explicitly under the profile above. Do not
-silently reproduce truncation, zero-to-last-page mapping or hierarchy collapse.
+silently reproduce truncation, zero-to-last-page mapping or hierarchy collapse;
+since #299 these entries are skipped or clamped with a warning.
 
 Totals: two successful baseline conversions; fifteen control conversions,
 ten producing PDFs and five failing. Both parsers agreed on all twelve produced
@@ -125,8 +128,33 @@ tests passed (42 tests); no runtime format implementation is introduced here.
 `Hnc8Reader::visit_bookmarks(max_depth, output_pages, map_page, visitor)`
 reads one 308-byte record at a time. The mapping takes a one-based physical
 source page and returns a zero-based emitted page, or `None` for an omitted
-page. Invalid/omitted destinations fail explicitly. Failure or cancellation
-poisons the reader so partial visitor output cannot accidentally be replayed.
+page. Failure or cancellation poisons the reader so partial visitor output
+cannot accidentally be replayed.
+
+### Per-entry defects (#299)
+
+The field profile above defines a valid entry; it does not make one bad entry
+fatal to the document. Since #299 the reader returns an `OutlineReport`:
+
+- An entry with a missing title/page NUL, invalid GB18030, a non-decimal page,
+  a page outside `1..=source_page_count`, an omitted destination or level 0 is
+  skipped (`OutlineRepair::Skipped`).
+- Each written entry's level is clamped to at most the previous written level
+  plus one and to `max_depth`. A clamp caused by the entry itself (a source
+  level skip or a level beyond `max_depth`) is `OutlineRepair::Clamped`. A
+  clamp that only re-parents the children of a skipped or clamped entry is
+  not a further defect, so one bad entry yields one defect. After a level-0
+  entry the source parent is unknown and its children are not reported.
+- The report counts every defect and retains the absolute offset and reason of
+  the first `MAX_RECORDED_OUTLINE_DEFECTS` (16), so its size is fixed.
+
+This deliberately differs from the reference's silent truncation and
+zero-to-last-page mapping recorded above: malformed titles and pages are never
+reinterpreted, only skipped with a located warning. The reference's collapse
+of a level skip is now matched for written depth, but is reported. Structural
+failures are unchanged: the outline count and table bounds, record reads,
+`Limits` (bookmark count, output pages, title allocation), cancellation and
+visitor errors still fail the traversal.
 
 `ComposeOptions::include_bookmarks` opts into HN-A outlines after page output;
 it defaults to `false`. The current HN-A composer emits every source page in
@@ -141,7 +169,9 @@ The diagnostic example accepts an optional final `--bookmarks` argument.
 CLI and JavaScript family routing are separate work.
 
 Original synthetic tests cover record fields, Unicode/empty titles, nesting,
-page remapping, bounds, short reads, cancellation and visitor failures. qpdf
+page remapping, bounds, short reads, cancellation and visitor failures. The
+sibling `hnc8/outline/tests.rs` covers each #299 defect class with the written
+hierarchy and the bounded defect record. qpdf
 checks an emitted synthetic PDF's titles, hierarchy, destinations and views.
 A composition test confirms enabling outlines preserves its JPEG stream.
 

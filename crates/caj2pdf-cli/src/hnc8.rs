@@ -9,10 +9,11 @@ use crate::{
     files::{Input, anonymous_file, open_input},
 };
 use caj2pdf_core::{
-    ConversionReport, Error, Limits, RangedSource, SequentialSink,
+    Error, Limits, RangedSource, SequentialSink,
     hnc8::{
         C8_DEFAULT_DECORATION_ALIAS, ComposeOptions, ComposePage, ComposeType3Workspaces,
-        ComposeVisitor, ComposeWorkspaces, Type3PdfOptions, convert_source_pages_pdf,
+        ComposeVisitor, ComposeWorkspaces, OutlineReport, Type3PdfOptions,
+        convert_source_pages_pdf,
     },
     jbig2::mq::{MqState, MqTable},
     jbig2::text::TextHeaderPolicy,
@@ -230,7 +231,7 @@ pub async fn convert<S: RangedSource, W: SequentialSink>(
     resources: &mut Resources,
     include_bookmarks: bool,
     limits: &Limits,
-) -> Result<ConversionReport, String> {
+) -> Result<OutlineReport, String> {
     let options = ComposeOptions {
         // The HN/C8 profile explicitly admits the measured unused-template
         // anomaly; general JBIG2 APIs and all other malformed flags stay strict.
@@ -284,7 +285,7 @@ pub async fn convert<S: RangedSource, W: SequentialSink>(
             &ProcessCancellation,
         )
         .await
-        .map(|report| report.conversion)
+        .map(|report| report.outline)
         .map_err(|e| e.to_string());
     }
     convert_source_pages_pdf(
@@ -301,7 +302,7 @@ pub async fn convert<S: RangedSource, W: SequentialSink>(
         &ProcessCancellation,
     )
     .await
-    .map(|report| report.conversion)
+    .map(|report| report.outline)
     .map_err(|e| e.to_string())
 }
 
@@ -313,6 +314,7 @@ pub async fn inspect<S: RangedSource>(
     (
         caj2pdf_core::hnc8::Header,
         Option<Vec<caj2pdf_core::Bookmark>>,
+        OutlineReport,
     ),
     String,
 > {
@@ -322,7 +324,7 @@ pub async fn inspect<S: RangedSource>(
         .map_err(|e| e.to_string())?;
     let header = reader.header();
     let Some(count) = reader.declared_bookmark_count() else {
-        return Ok((header, None));
+        return Ok((header, None, OutlineReport::default()));
     };
     if count > limits.max_bookmarks {
         return Err("HN-A bookmark count exceeds the configured limit".into());
@@ -338,11 +340,11 @@ pub async fn inspect<S: RangedSource>(
         .items
         .try_reserve_exact(count as usize)
         .map_err(|_| "cannot allocate HN-A outline metadata")?;
-    reader
+    let outline = reader
         .visit_bookmarks(64, header.page_count, |page| Some(page - 1), &mut collected)
         .await
         .map_err(|e| e.to_string())?;
-    Ok((header, Some(collected.items)))
+    Ok((header, Some(collected.items), outline))
 }
 
 struct CollectedBookmarks {

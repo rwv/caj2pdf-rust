@@ -98,6 +98,8 @@ export interface ConversionReport {
   outputBytesWritten: bigint;
   pagesConverted: number;
   bookmarksWritten: number;
+  /** HN-A outline entries skipped or clamped instead of failing; zero otherwise. */
+  outlineWarnings: number;
 }
 
 export interface DocumentInfo {
@@ -105,6 +107,8 @@ export interface DocumentInfo {
   pageCount: number;
   /** Validated for CAJ/HN-A; `null` when unknown or not counted (C8, HN-B, PDF, KDH). */
   bookmarkCount: number | null;
+  /** HN-A outline entries skipped or clamped instead of failing; zero otherwise. */
+  outlineWarnings: number;
   inputBytesRead: bigint;
 }
 
