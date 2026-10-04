@@ -2458,6 +2458,18 @@ captures establish boundaries only. The original MIT reader reuses its fixed
 buffer and raw events; no external converter code or document text was copied.
 External captures remain in `caj2pdf-hnb-rendering-20261003`.
 
+## Native Unicode fidelity checkpoint (#269)
+
+`hnc8-text-fidelity.md` records original analysis of existing external source
+captures, project-owned mapping controls, source-record visitor output and
+independent MuPDF text tracing. Eight small source regions were manually read;
+exact text, fonts, captures, input documents and derived PDFs remain outside Git.
+The visitor reuses the original MIT public parser as transport evidence, not
+as an independent mapping oracle. Fresh Node/Worker checks use the extracted
+existing npm tarball and original diagnostic fonts. No external code, font data,
+source text or new dependency is imported. Reading order, whitespace and vector
+strokes remain explicitly separate from Unicode glyph transport.
+
 ## HN-B independent-axis controls (#241 / #263)
 
 `tools/cajviewer/hnb_geometry_fixture.py` is original MIT code. It wraps
