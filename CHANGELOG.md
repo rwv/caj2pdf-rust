@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Recognize a PDF whose `%PDF-` header follows other bytes (a newline, UTF-8
+  byte-order mark, or junk line) within the first 1,024 bytes when no other
+  signature matches at byte 0, in the CLI and auto-detecting JS API. Its
+  offsets are read relative to the header and the leading bytes are dropped
+  from the output (#300). Core adds `detect_source`, `Detection`, and
+  `PDF_HEADER_SEARCH_BYTES`; `detect_format` now also matches the displaced
+  header within its prefix.
+
 - Add FreeBSD RISC-V64 GC and PowerPC64 big-endian native CLI archives,
   tested in FreeBSD 15.1 VMs. Both targets join the required release matrix,
   dependency-license audit, archive inventory and existing provenance flow.

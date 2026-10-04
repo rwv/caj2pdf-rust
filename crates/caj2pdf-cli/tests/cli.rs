@@ -333,6 +333,42 @@ fn pdf_and_kdh_inputs_convert_to_pipes() {
     assert_eq!(scratch.entries(), ["doc.kdh", "doc.pdf"]);
 }
 
+/// Leading bytes observed before `%PDF-` in files that `qpdf` accepts.
+fn header_prefixes() -> [(&'static str, Vec<u8>); 3] {
+    let mut junk = vec![b'x'; 100];
+    junk.push(b'\n');
+    [
+        ("newline.pdf", b"\n".to_vec()),
+        ("bom.pdf", b"\xef\xbb\xbf".to_vec()),
+        ("junk.pdf", junk),
+    ]
+}
+
+#[test]
+fn a_pdf_header_within_the_first_kib_is_found_and_dropped() {
+    let scratch = Scratch::new("pdf-header");
+    let pdf = fixture("valid_nested_outline.pdf");
+    let expected = r#"{"schema_version":1,"format":"PDF","variant":null,"conversion_supported":true,"page_count":2,"has_outline":true,"bookmark_count":null,"bookmarks":null}"#;
+    for (name, prefix) in header_prefixes() {
+        scratch.write(name, &[prefix.as_slice(), &pdf].concat());
+        let output = scratch.run([name, "-o", "-"]);
+        assert_success(&output);
+        assert_eq!(output.stdout, pdf, "{name}");
+        let output = scratch.run(["inspect", "--json", "--bookmarks", name]);
+        assert_success(&output);
+        assert_eq!(stdout(&output), format!("{expected}\n"), "{name}");
+    }
+    assert_success(&scratch.run(["junk.pdf", "-o", "junk.out.pdf"]));
+    assert_eq!(validate_pdf(&scratch.path("junk.out.pdf")).0, 2);
+
+    let late = [vec![b' '; 1020].as_slice(), &pdf].concat();
+    scratch.write("late.pdf", &late);
+    let output = scratch.run(["late.pdf", "-o", "-"]);
+    assert_failure(&output, 1, "unrecognized input format");
+    let output = scratch.run(["inspect", "late.pdf"]);
+    assert_failure(&output, 1, "unrecognized input format");
+}
+
 #[test]
 fn stdin_is_spooled_and_removed() {
     let scratch = Scratch::new("stdin");
@@ -676,6 +712,15 @@ fn add_bookmarks_writes_a_new_pdf_and_keeps_the_input() {
         outline.contains("中文") && outline.contains("Third"),
         "{outline}"
     );
+
+    // A PDF whose header follows leading bytes gets the same result.
+    for (name, prefix) in header_prefixes() {
+        scratch.write(name, &[prefix.as_slice(), &plain].concat());
+        let output = scratch.run(["add-bookmarks", "paper.caj", name, "-o", "-"]);
+        assert_success(&output);
+        assert_eq!(output.stdout, fs::read(scratch.path("marked.pdf")).unwrap());
+        fs::remove_file(scratch.path(name)).unwrap();
+    }
 
     assert_failure(&add("marked.pdf", &[]), 1, "already exists");
     assert_failure(
