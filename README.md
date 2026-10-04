@@ -54,12 +54,15 @@ for current main's verified profiles and remaining HN/C8 rendering differences;
 unreleased additions are not included in the v0.3.1 downloads. See
 [Unicode fidelity](docs/hnc8-text-fidelity.md) for the distinction between native
 text rendering, correct character transport and copy/search limitations.
-TEB is recognized and unsupported. Build with `cargo build --release -p caj2pdf-cli`.
+TEB is recognized and unsupported: it is a DRM-encrypted container. HN-A output is
+scanned page images with no source text layer; use an external OCR tool such as
+`ocrmypdf` on the PDF if you need search ([details](docs/hnc8-text-fidelity.md#hn-a-pages-carry-no-native-text)).
+Build with `cargo build --release -p caj2pdf-cli`.
 
-For C8/HN-B, explicitly disable bookmark import until those outline semantics
-are verified. Native text pages need a caller-supplied CJK and Latin font,
-for example through `--fonts DIR` and the tested free-font recipe in the
-[CLI reference](docs/cli.md#native-c8-font-resources); unsupported records
+C8/HN-B outline layouts are not verified yet, so those PDFs have no outline and
+the CLI prints a warning (`--no-bookmarks` silences it). Native text pages need
+a caller-supplied CJK and Latin font, for example through `--fonts DIR` and the
+tested free-font recipe in the [CLI reference](docs/cli.md#native-c8-font-resources); unsupported records
 fail rather than silently losing pages. HN-B mode-2 leading images and the
 controlled mode-0 text profile are described in the
 [HN-B findings](docs/hnb-compact-index.md). See the [CLI reference](docs/cli.md)
@@ -72,7 +75,7 @@ for runtime state-file syntax and limitations. The existing
 caj2pdf paper.caj                  # writes paper.pdf next to the input
 caj2pdf paper.caj -o out.pdf       # explicit output; --force replaces a file
 caj2pdf - < paper.caj > paper.pdf  # standard input and output
-caj2pdf paper.c8 --no-bookmarks -o out.pdf
+caj2pdf paper.c8 -o out.pdf          # C8/HN-B: no outline yet, with a warning
 caj2pdf inspect paper.caj --json --bookmarks
 caj2pdf add-bookmarks paper.caj scan.pdf -o scan-with-outline.pdf
 ```

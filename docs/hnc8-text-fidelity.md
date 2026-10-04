@@ -21,6 +21,21 @@ A later [real-font HN-B checkpoint](hnb-real-font-fidelity.md) repeats all
 three admitted documents with explicit substitute fonts and readable viewer
 captures. Its visual limits remain separate from these Unicode checks.
 
+## HN-A pages carry no native text
+
+HN-A output is image-only and cannot be made searchable from the source. In
+the pinned 125-page `issue-7/a.caj`, every page's text span inflates to
+placement and control records only (`0x8001`, `0x8004`, `0x800a`, `0x801c`,
+`0x8070`, `0x8071`); none of the 125 pages contains a glyph-code record. The
+738-page catalog document `issue-111/56.caj` converts through the same record
+kinds, and the [#223 study](native-text-feasibility.md) found the same on its
+selected HN-A page. The text is part of the scanned images. C8 and admitted
+HN-B native pages are the only sources with real glyphs.
+
+A searchable HN-A PDF therefore needs OCR. That is out of scope here because
+it would mean bundling recognition models. Run an external OCR tool on the
+converted PDF instead, for example `ocrmypdf --language chi_sim+eng in.pdf out.pdf`.
+
 ## Selected documents and interfaces
 
 | Input | Source SHA256 | Pages checked |

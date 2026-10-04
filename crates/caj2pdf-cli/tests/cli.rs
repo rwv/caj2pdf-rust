@@ -464,8 +464,8 @@ fn malformed_and_unsupported_inputs_leave_no_output() {
         ("truncated.caj", "cannot convert 'truncated.caj': "),
         ("empty.caj", "input is empty"),
         ("unknown.caj", "unrecognized input format"),
-        ("c8.c8", "outlines are only validated for HN-A"),
-        ("hn.hn", "outlines are only validated for HN-A"),
+        ("c8.c8", "image-only output has no image to draw"),
+        ("hn.hn", "cannot omit source pages without image content"),
         // A malformed container is reported as such, not as unsupported.
         ("short.hn", "HN/C8 at byte 0: truncated"),
         (

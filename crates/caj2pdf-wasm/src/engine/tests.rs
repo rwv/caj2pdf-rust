@@ -635,6 +635,7 @@ fn a_task_pending_without_a_request_reports_idle_until_it_completes() {
                 report: ConversionReport::default(),
                 info: None,
                 outline_warnings: 0,
+                outline_omitted: false,
             }))
         } else {
             Poll::Pending

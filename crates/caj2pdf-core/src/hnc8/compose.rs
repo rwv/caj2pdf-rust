@@ -796,16 +796,14 @@ where
         offset: Some(0),
         ..At::NONE
     };
-    if options.include_bookmarks && header.variant != Variant::HnA {
-        return Err(document_at.error(
-            ComposeStage::Preflight,
-            ComposeErrorKind::Unsupported("outlines are only validated for HN-A"),
-        ));
-    }
     let mut document = PdfDocument::new(sink, limits, cancellation)
         .await
         .map_err(document_at.io(ComposeStage::Pdf))?;
     let mut report = ComposeReport::new(header);
+    // Only HN-A outlines are verified; for C8/HN-B a request writes nothing
+    // and is reported rather than failing the whole conversion.
+    let include_bookmarks = options.include_bookmarks && header.variant == Variant::HnA;
+    report.outline.unverified = options.include_bookmarks && !include_bookmarks;
     let mut contexts = None;
     while let Some(page) = reader
         .next_page()
@@ -1041,7 +1039,7 @@ where
     if report.output_pages == 0 {
         return Err(document_at.error(ComposeStage::Preflight, ComposeErrorKind::NoImages));
     }
-    if options.include_bookmarks {
+    if include_bookmarks {
         // This HN-A composer emits every source row in order and rejects
         // no-image rows, so its actual source/output map is the identity map.
         debug_assert_eq!(report.output_pages, header.page_count);

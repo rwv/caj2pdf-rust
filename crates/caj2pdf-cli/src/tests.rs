@@ -475,6 +475,16 @@ fn outline_warnings_list_bounded_locations_then_a_summary() {
     for remaining in 0..text.len() {
         assert!(write_warnings(&mut FailAfter::new(remaining), &outline).is_err());
     }
+    let mut unverified = OutlineReport::default();
+    unverified.unverified = true;
+    let mut out = FailAfter::new(usize::MAX);
+    write_warnings(&mut out, &unverified).unwrap();
+    assert_eq!(
+        String::from_utf8(out.bytes).unwrap(),
+        "caj2pdf: warning: C8/HN-B bookmarks are not verified; wrote no outline \
+         (--no-bookmarks silences this)\n"
+    );
+    assert!(write_warnings(&mut FailAfter::new(0), &unverified).is_err());
     let mut empty = FailAfter::new(0);
     write_warnings(&mut empty, &OutlineReport::default()).unwrap();
 }

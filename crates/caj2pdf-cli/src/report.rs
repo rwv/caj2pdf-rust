@@ -156,6 +156,13 @@ pub fn write_json<W: Write>(out: &mut W, info: &Inspection, list: bool) -> io::R
 /// Write one diagnostic line per recorded HN-A outline defect, then a count
 /// of defects whose locations were not retained.
 pub fn write_warnings<W: Write>(out: &mut W, outline: &OutlineReport) -> io::Result<()> {
+    if outline.unverified {
+        writeln!(
+            out,
+            "caj2pdf: warning: C8/HN-B bookmarks are not verified; wrote no outline \
+             (--no-bookmarks silences this)"
+        )?;
+    }
     let recorded = outline.recorded_defects();
     for defect in recorded {
         writeln!(out, "caj2pdf: warning: {defect}")?;

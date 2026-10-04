@@ -178,7 +178,7 @@ pub(super) async fn convert(
     options: ConversionOptions,
     limits: &Limits,
     cancellation: &BridgeCancellation,
-) -> Result<(ConversionReport, u32)> {
+) -> Result<(ConversionReport, OutlineReport)> {
     let tables = std::mem::take(&mut source.shared.borrow_mut().tables);
     let qm = if tables.qm.is_empty() {
         QmTable::standard()
@@ -248,7 +248,7 @@ pub(super) async fn convert(
             cancellation,
         )
         .await
-        .map(|report| (report.conversion, report.outline.defects))
+        .map(|report| (report.conversion, report.outline))
         .map_err(|error| Error::Hnc8(Box::new(error)));
     }
     convert_source_pages_pdf(
@@ -262,7 +262,7 @@ pub(super) async fn convert(
         cancellation,
     )
     .await
-    .map(|report| (report.conversion, report.outline.defects))
+    .map(|report| (report.conversion, report.outline))
     .map_err(|error| Error::Hnc8(Box::new(error)))
 }
 

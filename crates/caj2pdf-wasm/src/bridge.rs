@@ -326,6 +326,13 @@ pub extern "C" fn caj2pdf_io_outline_warnings() -> u32 {
     with_outcome(0, |outcome| outcome.outline_warnings)
 }
 
+/// 1 when requested C8/HN-B bookmarks were not written because their layout
+/// is unverified; 0 otherwise.
+#[unsafe(no_mangle)]
+pub extern "C" fn caj2pdf_io_outline_omitted() -> u32 {
+    with_outcome(0, |outcome| u32::from(outcome.outline_omitted))
+}
+
 /// Page count from a successful inspection; zero when unavailable.
 #[unsafe(no_mangle)]
 pub extern "C" fn caj2pdf_info_page_count() -> u32 {

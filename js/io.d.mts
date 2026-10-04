@@ -100,6 +100,8 @@ export interface ConversionReport {
   bookmarksWritten: number;
   /** HN-A outline entries skipped or clamped instead of failing; zero otherwise. */
   outlineWarnings: number;
+  /** Requested C8/HN-B bookmarks were not written because their layout is unverified. */
+  outlineOmitted: boolean;
 }
 
 export interface DocumentInfo {

@@ -35,7 +35,7 @@ that starts with `CAJ` but lacks the CAJ header is reported as malformed.
 | `%PDF-` (byte 0, else within the first 1,024 bytes) | PDF | Validated copy through the core PDF reader and repair layer | Pages and outline presence |
 | `CAJ` | CAJ | Reconstructed PDF with the CAJ outline | Pages and full outline |
 | `KDH` | KDH | Decoded embedded PDF | Pages and outline presence |
-| `HN` | HN | Experimental image-page conversion with built-in standard codec states | Variant/pages; HN-A full outline, HN-B outline unknown |
+| `HN` | HN | Experimental image-page conversion with built-in standard codec states; HN-A pages are images, not searchable text ([why](hnc8-text-fidelity.md#hn-a-pages-carry-no-native-text)) | Variant/pages; HN-A full outline, HN-B outline unknown |
 | `c8 00 00 00` | C8 | Experimental image pages; admitted native text/mixed pages with explicit fonts | Container variant and pages |
 | `TEB` | TEB | Unsupported; exits with status 1 | Format only |
 
@@ -69,9 +69,11 @@ unit. See the [controlled field checks](cajviewer-hnc8-kdh.md#controlled-geometr
 
 - `--qm-states FILE`: override the standard states for type-0 images.
 - `--mq-states FILE`: override the standard states for arithmetic JBIG2 images.
-- `--no-bookmarks`: skip CAJ/HN outline import. Required for C8/HN-B because
-  their outlines are not yet validated. Existing embedded PDF/KDH outlines
-  are not removed by this flag.
+- `--no-bookmarks`: skip CAJ/HN outline import. C8/HN-B outline layouts are
+  not verified, so without this flag they convert with no outline and one
+  warning on standard error (`C8/HN-B bookmarks are not verified; wrote no
+  outline`); the flag gives the same PDF silently. Existing embedded PDF/KDH
+  outlines are not removed by this flag.
 
 The state flags accept both `--qm-states FILE` and `--qm-states=FILE`
 (and likewise MQ). Separate values preserve non-UTF-8 filenames. Values must
@@ -90,7 +92,7 @@ Standard T.82/T.88 states are built in. These files are optional overrides;
 valid shape alone does not prove that a custom table is correct.
 
 Omit both state flags for normal conversion. HN-A outlines are supported;
-C8/HN-B use `--no-bookmarks`. Admitted native-text pages require the explicit
+C8/HN-B outlines are omitted with a warning (see `--no-bookmarks`). Admitted native-text pages require the explicit
 font roles below; unverified profiles are rejected. Image-only pages receive
 no OCR text layer. General text extraction and semantic reading order remain
 outside the [verified text scope](hnc8-text-fidelity.md). The HN/C8 route admits the measured unused-refinement-template anomaly; other
