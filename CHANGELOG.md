@@ -2,17 +2,13 @@
 
 ## Unreleased
 
-- Fix: one malformed HN-A outline entry no longer fails `convert` and
-  `inspect` for the whole document (#299). Entries with an invalid title,
-  page or zero level are skipped and their children re-parented; level skips
-  and levels beyond the depth limit are clamped. The CLI prints one located
-  `caj2pdf: warning:` line per defect (at most 16, then a count) and exits 0;
-  `inspect --json` adds `outline_warnings` (schema version 1, additive) and
-  `bookmark_count` reports the entries written; JS reports add
-  `outlineWarnings`. Unreadable outline tables, limits and cancellation still
-  fail. **Breaking (Rust):** `Hnc8Reader::visit_bookmarks` returns an
-  `OutlineReport` instead of the declared count, and `ComposeReport` gains
-  `outline`.
+- Recognize a PDF whose `%PDF-` header follows other bytes (a newline, UTF-8
+  byte-order mark, or junk line) within the first 1,024 bytes when no other
+  signature matches at byte 0, in the CLI and auto-detecting JS API. Its
+  offsets are read relative to the header and the leading bytes are dropped
+  from the output (#300). Core adds `detect_source`, `Detection`, and
+  `PDF_HEADER_SEARCH_BYTES`; `detect_format` now also matches the displaced
+  header within its prefix.
 - TEB diagnostics now say the input is a DRM-encrypted CNKI container whose
   document content cannot be converted; `inspect --json` adds
   `"unsupported_reason":"drm-encrypted"` for TEB. Exit status is unchanged.
