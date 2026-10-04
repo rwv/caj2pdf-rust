@@ -56,6 +56,14 @@ The required native line-coverage gate is 100% for every source file in its
 LCOV report. Exercise real behavior and error propagation; do not add
 assertions that only mirror the implementation or hide uncovered lines.
 
+## Dependency updates
+
+Dependabot proposes weekly grouped Cargo and GitHub Actions updates. Review them
+like any other change: the MIT/provenance audit in `deny.toml` and
+[docs/provenance.md](docs/provenance.md) applies, and the JavaScript package
+keeps zero runtime dependencies. Validation tools pinned in workflows (qpdf,
+TypeScript, Node types) are updated by hand.
+
 ## Quality gates
 
 CI requires `cargo fmt --check`, Clippy with `-D warnings`, rustdoc with
