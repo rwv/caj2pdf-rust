@@ -9,7 +9,7 @@ the input's leading signature. Format parsing and PDF writing stay in
 listed in the release notes.
 
 ```text
-caj2pdf INPUT [-o OUTPUT] [--force] [--no-bookmarks] [--qm-states FILE] [--mq-states FILE]
+caj2pdf INPUT [-o OUTPUT] [--force] [--quiet] [--no-bookmarks] [--qm-states FILE] [--mq-states FILE]
 caj2pdf inspect INPUT [--json] [--bookmarks]
 caj2pdf add-bookmarks SOURCE_CAJ INPUT_PDF -o OUTPUT_PDF [--force]
 caj2pdf --help | --version
@@ -293,7 +293,11 @@ removes the staged output file; bytes already sent to standard output remain.
 
 Errors are written to standard error as `caj2pdf: error: MESSAGE`. Argument
 errors add a line pointing to `--help`. Help and version text go to standard
-output. The command prints no progress output and nothing on success.
+output. On success nothing is printed, except that conversion shows a single
+updating `caj2pdf: reading input NN%` line on standard error when standard
+error is a terminal. The percentage is the furthest input byte read; the line
+is erased before exit. `-q`/`--quiet` disables it, and it is never written
+when standard error is redirected.
 
 ## Verification
 

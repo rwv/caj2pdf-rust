@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Conversion shows input progress on standard error when it is a terminal;
+  `-q`/`--quiet` disables it. Redirected standard error is unchanged.
 - TEB diagnostics now say the input is a DRM-encrypted CNKI container whose
   document content cannot be converted; `inspect --json` adds
   `"unsupported_reason":"drm-encrypted"` for TEB. Exit status is unchanged.

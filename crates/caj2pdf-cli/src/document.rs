@@ -5,6 +5,7 @@
 
 use crate::CliError;
 use crate::files::Input;
+use crate::progress::Progress;
 use crate::signals::ProcessCancellation;
 use caj2pdf_core::{
     Bookmark, ConversionOptions, Error, InputFormat, Limits, RangedSource, SIGNATURE_BYTES, caj,
@@ -106,40 +107,53 @@ pub fn convert<W: Write>(
     limits: &Limits,
     resources: &mut crate::hnc8::Resources,
     include_bookmarks: bool,
+    progress: Option<&mut dyn Write>,
 ) -> Result<(), CliError> {
     let result = block_on(async {
-        let mut source = ranged(&mut input.file)?;
-        let mut sink = WriteSink::new(writer);
-        let format = detect(&mut source, limits).await?;
-        if resources.has_fonts() && !matches!(format, InputFormat::C8 | InputFormat::Hn) {
-            return Err("explicit native fonts require a C8 or HN-B document".into());
-        }
-        match format {
-            InputFormat::Pdf => copy_pdf(&mut source, &mut sink, limits, &ProcessCancellation)
-                .await
-                .map_err(text),
-            InputFormat::Caj => caj::convert_caj(
-                &mut source,
-                &mut sink,
-                ConversionOptions { include_bookmarks },
-                limits,
-                &ProcessCancellation,
-            )
-            .await
-            .map_err(text),
-            InputFormat::Kdh => convert_kdh(&mut source, &mut sink, limits, &ProcessCancellation)
-                .await
-                .map_err(text),
-            InputFormat::Hn | InputFormat::C8 => {
-                crate::hnc8::convert(&mut source, &mut sink, resources, include_bookmarks, limits)
-                    .await
-            }
-            other => Err(unsupported(other)),
-        }
+        let mut source = Progress::new(ranged(&mut input.file)?, progress);
+        let result =
+            convert_source(&mut source, writer, limits, resources, include_bookmarks).await;
+        source.finish();
+        result
     });
     result
         .map(drop)
         .map_err(|message| CliError::runtime(format!("cannot convert {}: {message}", input.name)))
+}
+
+async fn convert_source<S: RangedSource, W: Write>(
+    source: &mut S,
+    writer: W,
+    limits: &Limits,
+    resources: &mut crate::hnc8::Resources,
+    include_bookmarks: bool,
+) -> Result<caj2pdf_core::ConversionReport, String> {
+    let mut sink = WriteSink::new(writer);
+    let format = detect(source, limits).await?;
+    if resources.has_fonts() && !matches!(format, InputFormat::C8 | InputFormat::Hn) {
+        return Err("explicit native fonts require a C8 or HN-B document".into());
+    }
+    match format {
+        InputFormat::Pdf => copy_pdf(source, &mut sink, limits, &ProcessCancellation)
+            .await
+            .map_err(text),
+        InputFormat::Caj => caj::convert_caj(
+            source,
+            &mut sink,
+            ConversionOptions { include_bookmarks },
+            limits,
+            &ProcessCancellation,
+        )
+        .await
+        .map_err(text),
+        InputFormat::Kdh => convert_kdh(source, &mut sink, limits, &ProcessCancellation)
+            .await
+            .map_err(text),
+        InputFormat::Hn | InputFormat::C8 => {
+            crate::hnc8::convert(source, &mut sink, resources, include_bookmarks, limits).await
+        }
+        other => Err(unsupported(other)),
+    }
 }
 
 /// Bounded document metadata for `inspect`.
