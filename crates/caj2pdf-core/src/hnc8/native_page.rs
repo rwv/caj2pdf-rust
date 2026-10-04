@@ -12,24 +12,49 @@ use crate::pdf::{ContentPageWriter, FontObject, ImageObject, PdfDocument};
 use crate::{Cancellation, Error, RangedSource, SequentialSink};
 
 /// Indices into the font handles supplied to [`write_c8_native_page`].
-/// Resources are explicit: no system lookup or implicit glyph substitution.
+///
+/// Only `cjk` and `latin` are required. Every glyph first uses the font of the
+/// role the source selects. When that role is absent, or its font does not
+/// map the character, the glyph falls back by character: CJK-coded
+/// characters (see [`is_cjk_coded`]) use `cjk` and all others use `latin`.
+/// A glyph missing from that fallback font still fails with a located error.
+/// No system lookup or other substitution is performed.
 #[derive(Clone, Copy, Debug)]
 pub struct C8PageFonts {
     pub cjk: usize,
     pub latin: usize,
     /// Resource selected by the observed ordinary Latin `801d/4` state.
     /// This is not a universal bold flag.
-    pub alternate_latin: usize,
+    pub alternate_latin: Option<usize>,
     /// Font index and nonsemantic character-map alias for horizontal decoration.
+    /// When absent, [`C8_DEFAULT_DECORATION_ALIAS`] is drawn by fallback.
     pub decoration: Option<(usize, char)>,
     /// Semantic symbols and spaces in the controlled HN-B mode-0 profile.
-    /// Required only when a page uses that resource; never an implicit fallback.
     pub symbols: Option<usize>,
-    /// Explicit HN-B/C8 Latin resource selected by `801d/3`.
+    /// HN-B/C8 Latin resource selected by `801d/3`.
     pub latin_state3: Option<usize>,
-    /// Explicit C8 Latin resources selected by `801d/28` and `801d/31`.
+    /// C8 Latin resources selected by `801d/28` and `801d/31`.
     pub latin_state28: Option<usize>,
     pub latin_state31: Option<usize>,
+}
+
+/// Nonsemantic decoration alias drawn when no decoration role is supplied.
+pub const C8_DEFAULT_DECORATION_ALIAS: char = '\u{25ba}';
+
+/// Whether native glyph font fallback treats `character` as CJK-coded.
+///
+/// This covers CJK radicals, ideographic punctuation, kana, Han, compatibility
+/// ideographs, vertical and small forms, and halfwidth/fullwidth forms. It
+/// selects only a fallback resource; it does not change glyph placement.
+pub fn is_cjk_coded(character: char) -> bool {
+    matches!(
+        character,
+        '\u{2e80}'..='\u{9fff}'
+            | '\u{f900}'..='\u{faff}'
+            | '\u{fe10}'..='\u{fe1f}'
+            | '\u{fe30}'..='\u{fe6f}'
+            | '\u{ff00}'..='\u{ffef}'
+    )
 }
 
 /// Write and finish the current C8 or text/vector HN-B native page using already embedded resources.
@@ -123,6 +148,7 @@ where
         .map_err(source_error)?;
     let mut writer = PageWriter {
         page: &mut page,
+        fonts,
         roles,
         geometry,
         origin,
@@ -131,7 +157,7 @@ where
         non_image_painted: false,
         style: None,
         axes: [None; 2],
-        latin: roles.latin,
+        latin: Some(roles.latin),
         skew: 0.0,
         gray: 68,
         cjk_mode: false,
@@ -148,6 +174,7 @@ fn invalid(reason: &'static str) -> Error {
 
 struct PageWriter<'p, 'd, 'a, 'r, W: SequentialSink, C: Cancellation> {
     page: &'p mut ContentPageWriter<'d, 'a, 'r, W, C>,
+    fonts: &'r [&'r FontObject],
     roles: C8PageFonts,
     geometry: EmpiricalPageGeometry,
     origin: [u16; 2],
@@ -156,7 +183,8 @@ struct PageWriter<'p, 'd, 'a, 'r, W: SequentialSink, C: Cancellation> {
     non_image_painted: bool,
     style: Option<u16>,
     axes: [Option<u16>; 2],
-    latin: usize,
+    /// Current Latin resource state; `None` selects the role fallback.
+    latin: Option<usize>,
     skew: f64,
     gray: u8,
     cjk_mode: bool,
@@ -262,7 +290,7 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
             NativeRecord::Control {
                 tag: 0x801d,
                 value: 0,
-            } => self.latin = self.roles.latin,
+            } => self.latin = Some(self.roles.latin),
             NativeRecord::Control {
                 tag: 0x801d,
                 value: 4,
@@ -270,23 +298,15 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
             NativeRecord::Control {
                 tag: 0x801d,
                 value: 3,
-            } => {
-                self.latin = self
-                    .roles
-                    .latin_state3
-                    .ok_or_else(|| invalid("missing state-3 Latin font resource"))?;
-            }
+            } => self.latin = self.roles.latin_state3,
             NativeRecord::Control {
                 tag: 0x801d,
-                value: state @ (28 | 31),
-            } if self.variant == Variant::C8 => {
-                self.latin = if state == 28 {
-                    self.roles.latin_state28
-                } else {
-                    self.roles.latin_state31
-                }
-                .ok_or_else(|| invalid("missing C8 extended-state Latin font resource"))?;
-            }
+                value: 28,
+            } if self.variant == Variant::C8 => self.latin = self.roles.latin_state28,
+            NativeRecord::Control {
+                tag: 0x801d,
+                value: 31,
+            } if self.variant == Variant::C8 => self.latin = self.roles.latin_state31,
             // Independently controlled ordinary resource combinations.
             NativeRecord::Control {
                 tag: 0x8067,
@@ -438,7 +458,7 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
                 let (class, font, baseline_fraction) = match code {
                     // These observed low-byte C8 letters retain the CJK resource
                     // and symbol baseline in both glyph-selection modes.
-                    0x006c | 0x0070 => (C8GlyphClass::Cjk, self.roles.cjk, Some(0.0)),
+                    0x006c | 0x0070 => (C8GlyphClass::Cjk, Some(self.roles.cjk), Some(0.0)),
                     _ if self.cjk_mode => {
                         if !character.is_ascii_alphanumeric()
                             && !('\u{3400}'..='\u{9fff}').contains(&character)
@@ -446,7 +466,7 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
                         {
                             return Err(invalid("unverified C8 CJK-mode glyph placement"));
                         }
-                        (C8GlyphClass::Cjk, self.roles.cjk, None)
+                        (C8GlyphClass::Cjk, Some(self.roles.cjk), None)
                     }
                     0xa0a6
                     | 0xa0ae
@@ -469,11 +489,11 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
                     // These symbols retain the ordinary Latin resource even
                     // under the alternate-resource state.
                     0xa1c6 | 0xa1c8 | 0xa9aa | 0xaab3 | 0xaca3 => {
-                        (C8GlyphClass::Cjk, self.roles.latin, Some(0.0))
+                        (C8GlyphClass::Cjk, Some(self.roles.latin), Some(0.0))
                     }
                     0xa1ce if self.variant == Variant::C8 => {
                         // Original following-glyph controls confirm this persistent reset.
-                        self.latin = self.roles.latin;
+                        self.latin = Some(self.roles.latin);
                         (C8GlyphClass::Cjk, self.latin, Some(0.0))
                     }
                     0xa1c1 | 0xa1de | 0xa1e4 | 0xa6b8 | 0xa6c4 | 0xa6c5 | 0xa6c8
@@ -486,16 +506,16 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
                     0xa1b0 | 0xa1b1 | 0xa1b2 | 0xa1b3 | 0xa1b6 | 0xa1b7 | 0xa3a8 | 0xa3a9 => {
                         (C8GlyphClass::Cjk, latin, None)
                     }
-                    0xa3db | 0xa3dd => (C8GlyphClass::Cjk, self.roles.latin, None),
-                    0xa1a1 => (C8GlyphClass::Cjk, self.roles.cjk, None),
+                    0xa3db | 0xa3dd => (C8GlyphClass::Cjk, Some(self.roles.latin), None),
+                    0xa1a1 => (C8GlyphClass::Cjk, Some(self.roles.cjk), None),
                     0xa3c1..=0xa3da | 0xa3e1..=0xa3fa if self.variant == Variant::C8 => {
-                        (C8GlyphClass::Cjk, self.roles.cjk, None)
+                        (C8GlyphClass::Cjk, Some(self.roles.cjk), None)
                     }
                     0xa1a2 => (C8GlyphClass::Latin, latin, None),
                     0xa1a3 if self.variant == Variant::HnB => (C8GlyphClass::Latin, latin, None),
                     _ if character.is_ascii_alphanumeric() => (C8GlyphClass::Latin, latin, None),
                     _ if ('\u{3400}'..='\u{9fff}').contains(&character) => {
-                        (C8GlyphClass::Cjk, self.roles.cjk, None)
+                        (C8GlyphClass::Cjk, Some(self.roles.cjk), None)
                     }
                     _ => return Err(invalid("unverified C8 glyph resource or placement class")),
                 };
@@ -582,6 +602,7 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
                     transform[2] = transform[0] * self.skew;
                 }
                 // Keep the verified current gray local to each glyph draw.
+                let font = self.font(font, character);
                 self.page
                     .glyph_with_gray(font, character, transform, self.gray)
                     .await?;
@@ -648,7 +669,10 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
                 let (font, alias) = self
                     .roles
                     .decoration
-                    .ok_or_else(|| invalid("missing C8 decoration font resource"))?;
+                    .map_or((None, C8_DEFAULT_DECORATION_ALIAS), |(font, alias)| {
+                        (Some(font), alias)
+                    });
+                let font = self.font(font, alias);
                 let style = self
                     .style
                     .ok_or_else(|| invalid("missing C8 decoration style"))?;
@@ -695,6 +719,17 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
 }
 
 impl<W: SequentialSink, C: Cancellation> PageWriter<'_, '_, '_, '_, W, C> {
+    /// Apply the [`C8PageFonts`] fallback rule to a selected role. An index
+    /// outside the page resources is kept so the draw reports it.
+    fn font(&self, role: Option<usize>, character: char) -> usize {
+        match role.map(|index| (index, self.fonts.get(index))) {
+            Some((index, None)) => index,
+            Some((index, Some(font))) if font.supports(character) => index,
+            _ if is_cjk_coded(character) => self.roles.cjk,
+            _ => self.roles.latin,
+        }
+    }
+
     async fn draw_image(&mut self, coordinate: super::RawTextCoordinate) -> crate::Result<()> {
         if coordinate.width == 0 || coordinate.height == 0 {
             return Err(invalid("native image extents must be nonzero"));
@@ -785,23 +820,19 @@ impl<W: SequentialSink, C: Cancellation> PageWriter<'_, '_, '_, '_, W, C> {
                         } else {
                             C8GlyphClass::Latin
                         };
-                        (
-                            class,
-                            self.roles.symbols.ok_or_else(|| {
-                                invalid("missing HN-B mode-0 symbol font resource")
-                            })?,
-                        )
+                        (class, self.roles.symbols)
                     }
-                    0xa3a8 | 0xa3a9 => (C8GlyphClass::Cjk, self.roles.latin),
-                    0xa3af => (C8GlyphClass::Cjk, self.roles.cjk),
+                    0xa3a8 | 0xa3a9 => (C8GlyphClass::Cjk, Some(self.roles.latin)),
+                    0xa3af => (C8GlyphClass::Cjk, Some(self.roles.cjk)),
                     0xa980..=0xa9b3 => (C8GlyphClass::Latin, self.roles.alternate_latin),
                     0xa3b0..=0xa3b9 | 0xa3c1..=0xa3da | 0xa3e1..=0xa3fa => {
-                        (C8GlyphClass::Latin, self.roles.latin)
+                        (C8GlyphClass::Latin, Some(self.roles.latin))
                     }
                     // The mode-0 decoder accepts only Han after the explicit
                     // alphabet and symbol classes handled above.
-                    _ => (C8GlyphClass::Cjk, self.roles.cjk),
+                    _ => (C8GlyphClass::Cjk, Some(self.roles.cjk)),
                 };
+                let font = self.font(font, character);
                 let mut transform = if (0xa3b0..=0xa3b9).contains(&code) {
                     super::placement::mode_zero_digit_transform(
                         self.geometry,

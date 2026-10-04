@@ -30,7 +30,7 @@ pub(super) fn roles() -> C8PageFonts {
     C8PageFonts {
         cjk: 0,
         latin: 0,
-        alternate_latin: 0,
+        alternate_latin: Some(0),
         decoration: None,
         symbols: None,
         latin_state3: None,

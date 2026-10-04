@@ -55,13 +55,16 @@ impl Fonts {
         alias: u32,
         symbols: u32,
     ) -> bool {
+        // `u32::MAX` marks an absent optional role; core applies its fallback.
         if self.roles.is_some()
-            || [cjk, latin, alternate]
+            || [cjk, latin]
                 .into_iter()
                 .any(|index| index as usize >= self.count)
+            || (alternate != u32::MAX && alternate as usize >= self.count)
         {
             return false;
         }
+        let alternate_latin = (alternate != u32::MAX).then_some(alternate as usize);
         let decoration = if decoration == u32::MAX {
             None
         } else {
@@ -83,7 +86,7 @@ impl Fonts {
         self.roles = Some(caj2pdf_core::hnc8::C8PageFonts {
             cjk: cjk as usize,
             latin: latin as usize,
-            alternate_latin: alternate as usize,
+            alternate_latin,
             decoration,
             symbols,
             latin_state3: None,
