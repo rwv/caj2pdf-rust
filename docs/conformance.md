@@ -42,6 +42,11 @@ complete CLI/Node/Worker conversions, fresh selected viewer captures and
 remaining substitute-font appearance differences. It does not establish
 source-font pixel parity.
 
+The [real-font C8 checkpoint](c8-real-font-fidelity.md) covers the admitted
+6/4/5-page profiles across all interfaces. Some substitute-font English and
+formula text visibly overlaps; font character coverage is not a guarantee
+of source typography or readable spacing.
+
 For usage, see the [CLI font flags](cli.md#native-c8-font-resources) and
 [Node/Worker font sources](../js/README.md#explicit-fonts-for-native-c8-and-hn-b-pages).
 [Unicode fidelity](hnc8-text-fidelity.md) distinguishes character transport,
