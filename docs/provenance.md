@@ -1806,6 +1806,21 @@ programs (MuPDF runs under x64 emulation on Windows ARM64), never Cargo
 dependencies or release contents. Their own upstream licenses remain distinct
 from the MIT converter. Windows render tests remain enabled.
 
+## FreeBSD cross-build candidate tooling (#214)
+
+`scripts/build-freebsd-cross.py` is original MIT orchestration code. It uses
+pinned official FreeBSD 15.1 archive checksums as build metadata, extracts
+headers/libraries only into a temporary external sysroot, and builds the
+project's existing original tests with the pinned Rust std builder. No
+FreeBSD/compiler implementation is copied into project source or candidate
+archives. Runtime system libraries remain supplied by FreeBSD. The workflow
+reuses the existing VM action, portable tests and MIT notices packager.
+
+Local RISC-V64/PowerPC64 std probes are original MIT code kept outside Git.
+Their VM executions and host validation of original-fixture PDFs are scoped
+in `docs/platform-candidates.md`; three filtered validator-dependent tests
+are not recorded as passes. No external document corpus is used.
+
 ## Extended platform matrix (#209–#211)
 
 The additional workflows and target inventory are original MIT project glue.
