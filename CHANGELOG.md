@@ -2,6 +2,78 @@
 
 ## Unreleased
 
+- **Breaking:** native C8/HN-B pages now need only a CJK and a Latin font.
+  `C8PageFonts::alternate_latin` becomes `Option<usize>`; wrap existing
+  values in `Some`. If a role is absent, or its font does not map a
+  character, the glyph uses the CJK font for CJK-coded characters and the
+  Latin font otherwise (`is_cjk_coded`, `C8_DEFAULT_DECORATION_ALIAS`). A
+  glyph missing from that font still fails with its location. Before, an
+  absent optional role or unmapped glyph failed. The CLI adds `--fonts DIR`,
+  which reads `cjk.ttf`, `latin.ttf`, `alternate-latin.ttf`,
+  `decoration.ttf`, `symbols.ttf` and `latin-state{3,28,31}.ttf`; per-role
+  flags override it. JS `hnc8.fonts.alternateLatin` is optional. Matching
+  WASM accepts `0xffffffff` as an absent alternate role. `docs/cli.md`
+  documents a tested free recipe (Droid Sans Fallback and DejaVu Sans). It
+  converts all six pinned C8/HN-B corpus inputs.
+
+- **Behavior change:** C8 and HN-B inputs no longer fail when bookmarks are
+  requested (the CLI default). Their outline layout is unverified, so the PDF
+  has no outline, the CLI prints one warning, and JS reports
+  `outlineOmitted: true`; `--no-bookmarks` / `includeBookmarks: false` give
+  the same PDF silently. `OutlineReport` gains `unverified`.
+
+- Fix: one malformed HN-A outline entry no longer fails `convert` and
+  `inspect` for the whole document (#299). Entries with an invalid title,
+  page or zero level are skipped and their children re-parented; level skips
+  and levels beyond the depth limit are clamped. The CLI prints one located
+  `caj2pdf: warning:` line per defect (at most 16, then a count) and exits 0;
+  `inspect --json` adds `outline_warnings` (schema version 1, additive) and
+  `bookmark_count` reports the entries written; JS reports add
+  `outlineWarnings`. Unreadable outline tables, limits and cancellation still
+  fail. **Breaking (Rust):** `Hnc8Reader::visit_bookmarks` returns an
+  `OutlineReport` instead of the declared count, and `ComposeReport` gains
+  `outline`.
+
+- Add `caj2pdf inspect INPUT --pages` (#301), a structure-only report for
+  diagnosing unseen profiles without the file: the HN/C8 page-index layout,
+  native mode/origin, page size and the presence/extent of a trailing
+  `APPINFOSIGN` application-info section, then one line or JSON object per
+  page with its text span, the text framing accepted by the existing readers
+  (`none`, `raw`, `raw-paired`, `compresstext`, `legacy-24`, `native`) and
+  record counts, image descriptor types and payload spans, and located
+  per-page errors. KDH reports the observed 32-byte wrapper signature; a
+  different signature is reported (exit 0) instead of failing. Nothing from
+  the document's text, titles or pixels is printed. JSON stays
+  `schema_version` 1 (additive `structure` and `pages` fields, only with
+  `--pages`). Core adds `Hnc8Reader::inspect_text`, `page_row_bytes` and
+  `application_info_tail`, and `kdh::HEADER_SIGNATURE`. JS is unchanged.
+- Add a conversion-failure issue template that asks for the
+  `inspect --json --pages` output instead of the document.
+
+- C8: read the trailing application-info package (#302). `inspect` reports
+  its DOI, URL and annotation count (`application_info` in `--json`, schema
+  version 1, additive; `DOI:`/`URL:`/`Notes:` lines in text). Conversion of a
+  C8 source whose package has a DOI or URL now writes a PDF `/Info` dictionary
+  with custom `/CNKI_DOI` and `/CNKI_URL` keys; other output is
+  byte-identical. A defective package is ignored with one located
+  `caj2pdf: warning:` line and never fails conversion. **Breaking (Rust):**
+  `ComposeReport` gains `application_info`; the new
+  `PdfDocument::finish_with_info` and `PdfWriter::finish_with_info` keep
+  `finish` unchanged. JavaScript conversions get the same PDF; JS inspection
+  does not expose the fields yet.
+
+- Conversion shows input progress on standard error when it is a terminal;
+  `-q`/`--quiet` disables it. Redirected standard error is unchanged.
+
+- Speed up native HN/C8 scratch I/O: `FileScratch` caches its length and
+  uses positioned reads/writes, removing a `statx` and `lseek` per request
+  (36.6M to 13.5M system calls on a 163-page HN-A input; output unchanged).
+
+- Add cargo-fuzz targets for conversion and inspection of arbitrary input
+  (`fuzz/`, its own workspace), run weekly in CI from the synthetic fixtures.
+- Pull requests run the full release-platform matrix only when platform
+  inputs change; the Linux, macOS and Windows native jobs always run.
+  Dependabot proposes grouped weekly Cargo and GitHub Actions updates.
 - Recognize a PDF whose `%PDF-` header follows other bytes (a newline, UTF-8
   byte-order mark, or junk line) within the first 1,024 bytes when no other
   signature matches at byte 0, in the CLI and auto-detecting JS API. Its
