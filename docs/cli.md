@@ -32,7 +32,7 @@ that starts with `CAJ` but lacks the CAJ header is reported as malformed.
 
 | Signature | Format | Conversion | `inspect` |
 | --- | --- | --- | --- |
-| `%PDF-` | PDF | Validated copy through the core PDF reader and repair layer | Pages and outline presence |
+| `%PDF-` (byte 0, else within the first 1,024 bytes) | PDF | Validated copy through the core PDF reader and repair layer | Pages and outline presence |
 | `CAJ` | CAJ | Reconstructed PDF with the CAJ outline | Pages and full outline |
 | `KDH` | KDH | Decoded embedded PDF | Pages and outline presence |
 | `HN` | HN | Experimental image-page conversion with built-in standard codec states | Variant/pages; HN-A full outline, HN-B outline unknown |
@@ -41,7 +41,9 @@ that starts with `CAJ` but lacks the CAJ header is reported as malformed.
 
 HN/C8 routes use the same independently implemented core page composer as
 WASM. Malformed data and unsupported layouts produce located errors. No NH
-signature has been measured, so NH input remains unrecognized. PDF/KDH
+signature has been measured, so NH input remains unrecognized. A PDF header
+after leading bytes is read from the header; see the
+[header offset rule](pdf-input.md#header-offset). PDF/KDH
 inspection reports outline presence rather than full outline entries;
 HN-A inspection also validates and lists its outline. C8/HN-B outline metadata
 remains unknown. Inspection needs neither state files nor scratch storage.

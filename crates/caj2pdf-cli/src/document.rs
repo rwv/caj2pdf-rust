@@ -8,12 +8,11 @@ use crate::files::Input;
 use crate::progress::Progress;
 use crate::signals::ProcessCancellation;
 use caj2pdf_core::{
-    Bookmark, ConversionOptions, Error, InputFormat, Limits, RangedSource, SIGNATURE_BYTES, caj,
-    detect_format,
+    Bookmark, ConversionOptions, Detection, Error, InputFormat, Limits, RangedSource, caj,
+    detect_source,
     kdh::{KdhPdfSource, convert_kdh},
     native::{SeekableSource, WriteSink},
-    pdf::{PdfIndex, PdfOutlineAppender, PdfRange, copy_pdf},
-    read_exact_at,
+    pdf::{PdfIndex, PdfOutlineAppender, PdfRange, copy_pdf_range},
 };
 use std::fs::File;
 use std::future::Future;
@@ -58,22 +57,22 @@ fn text(error: Error) -> String {
     error.to_string()
 }
 
-async fn detect<S: RangedSource>(source: &mut S, limits: &Limits) -> Result<InputFormat, String> {
-    let mut header = [0; SIGNATURE_BYTES];
-    let length = source.size().min(header.len() as u64) as usize;
-    read_exact_at(
-        source,
-        0,
-        &mut header[..length],
-        limits,
-        &ProcessCancellation,
-    )
-    .await
-    .map_err(text)?;
-    if length == 0 {
+async fn detect<S: RangedSource>(source: &mut S, limits: &Limits) -> Result<Detection, String> {
+    let detection = detect_source(source, limits, &ProcessCancellation)
+        .await
+        .map_err(text)?;
+    if source.size() == 0 {
         return Err("input is empty".to_owned());
     }
-    detect_format(&header[..length]).ok_or_else(|| "unrecognized input format".to_owned())
+    detection.ok_or_else(|| "unrecognized input format".to_owned())
+}
+
+/// The PDF viewed from its `%PDF-` header, which may follow leading bytes.
+fn pdf_range(size: u64, header_offset: u64) -> PdfRange {
+    PdfRange {
+        offset: header_offset,
+        length: size - header_offset,
+    }
 }
 
 /// Why a recognized format is never converted, when that is known.
@@ -129,12 +128,17 @@ async fn convert_source<S: RangedSource, W: Write>(
     include_bookmarks: bool,
 ) -> Result<caj2pdf_core::ConversionReport, String> {
     let mut sink = WriteSink::new(writer);
-    let format = detect(source, limits).await?;
+    let Detection {
+        format,
+        header_offset,
+        ..
+    } = detect(source, limits).await?;
+    let pdf = pdf_range(source.size(), header_offset);
     if resources.has_fonts() && !matches!(format, InputFormat::C8 | InputFormat::Hn) {
         return Err("explicit native fonts require a C8 or HN-B document".into());
     }
     match format {
-        InputFormat::Pdf => copy_pdf(source, &mut sink, limits, &ProcessCancellation)
+        InputFormat::Pdf => copy_pdf_range(source, &mut sink, pdf, limits, &ProcessCancellation)
             .await
             .map_err(text),
         InputFormat::Caj => caj::convert_caj(
@@ -169,11 +173,12 @@ pub struct Inspection {
     pub bookmarks: Option<Vec<Bookmark>>,
 }
 
-async fn index_pdf<S: RangedSource>(source: &mut S, limits: &Limits) -> Result<PdfIndex, String> {
-    let range = PdfRange {
-        offset: 0,
-        length: source.size(),
-    };
+async fn index_pdf<S: RangedSource>(
+    source: &mut S,
+    header_offset: u64,
+    limits: &Limits,
+) -> Result<PdfIndex, String> {
+    let range = pdf_range(source.size(), header_offset);
     PdfIndex::open(source, range, limits, &ProcessCancellation)
         .await
         .map_err(text)
@@ -193,14 +198,20 @@ async fn inspect_source<S: RangedSource>(
     source: &mut S,
     limits: &Limits,
 ) -> Result<Inspection, String> {
-    let format = detect(source, limits).await?;
+    let Detection {
+        format,
+        header_offset,
+        ..
+    } = detect(source, limits).await?;
     Ok(match format {
-        InputFormat::Pdf => pdf_inspection(format, &index_pdf(source, limits).await?),
+        InputFormat::Pdf => {
+            pdf_inspection(format, &index_pdf(source, header_offset, limits).await?)
+        }
         InputFormat::Kdh => {
             let mut decoded = KdhPdfSource::open(source, limits, &ProcessCancellation)
                 .await
                 .map_err(text)?;
-            pdf_inspection(format, &index_pdf(&mut decoded, limits).await?)
+            pdf_inspection(format, &index_pdf(&mut decoded, 0, limits).await?)
         }
         InputFormat::Caj => {
             let metadata = caj::parse_metadata(source, limits, &ProcessCancellation)
@@ -254,7 +265,7 @@ pub fn add_bookmarks<W: Write>(
     let outline_file = &mut outline.file;
     let bookmarks = block_on(async {
         let mut source = ranged(outline_file)?;
-        match detect(&mut source, limits).await? {
+        match detect(&mut source, limits).await?.format {
             InputFormat::Caj => caj::parse_metadata(&mut source, limits, &ProcessCancellation)
                 .await
                 .map(|metadata| metadata.bookmarks)
@@ -274,8 +285,9 @@ pub fn add_bookmarks<W: Write>(
     }
     let mut source = ranged(&mut pdf.file).map_err(read_error(&pdf.name))?;
     let index = block_on(async {
-        match detect(&mut source, limits).await? {
-            InputFormat::Pdf => index_pdf(&mut source, limits).await,
+        let detection = detect(&mut source, limits).await?;
+        match detection.format {
+            InputFormat::Pdf => index_pdf(&mut source, detection.header_offset, limits).await,
             other => Err(format!("expected a PDF, found {}", format_name(other))),
         }
     })

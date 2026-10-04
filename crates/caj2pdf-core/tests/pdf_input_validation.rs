@@ -5,7 +5,8 @@
 mod common;
 
 use caj2pdf_core::{
-    Bookmark, Cancellation, Error, Limits, PdfErrorKind, RangedSource, SequentialSink,
+    Bookmark, Cancellation, Error, InputFormat, Limits, PdfErrorKind, RangedSource, SequentialSink,
+    detect_source,
     native::{SeekableSource, WriteSink},
     pdf::{
         FragmentObject, FragmentPlan, PdfIndex, PdfOutlineAppender, PdfRange, PdfRef, PdfWriter,
@@ -1035,6 +1036,69 @@ fn clean_pdf_copy_is_exact_and_preserves_binary_stream_and_outlines() {
         assert_eq!(report.bookmarks_written, 0);
         assert_eq!(read(&input).unwrap(), read(&output.path).unwrap());
         check_pdf(&output.path, 2);
+    }
+}
+
+/// Leading bytes observed before `%PDF-` in files that `qpdf` accepts.
+fn header_prefixes() -> [Vec<u8>; 3] {
+    let mut junk = vec![b'x'; 100];
+    junk.push(b'\n');
+    [b"\n".to_vec(), b"\xef\xbb\xbf".to_vec(), junk]
+}
+
+#[test]
+fn a_displaced_header_is_viewed_from_its_offset_and_copies_the_unprefixed_pdf() {
+    let clean = read(fixture("valid_nested_outline.pdf")).unwrap();
+    for prefix in header_prefixes() {
+        let input = [prefix.as_slice(), &clean].concat();
+        let mut source = SeekableSource::new(Cursor::new(&input)).unwrap();
+        let detection = run_native(detect_source(
+            &mut source,
+            &Limits::default(),
+            &CancelAfter::Never,
+        ))
+        .unwrap()
+        .expect("displaced PDF header is recognized");
+        assert_eq!(detection.format, InputFormat::Pdf);
+        assert_eq!(detection.header_offset, prefix.len() as u64);
+        // Offsets written before the prefix was added count from `%PDF-`.
+        let range = PdfRange {
+            offset: detection.header_offset,
+            length: source.size() - detection.header_offset,
+        };
+        let mut output = TempPdf::new("displaced-header");
+        let report = run_native(copy_pdf_range(
+            &mut source,
+            &mut WriteSink::new(&mut output.file),
+            range,
+            &Limits::default(),
+            &CancelAfter::Never,
+        ))
+        .unwrap();
+        output.file.flush().unwrap();
+        assert_eq!(report.pages_converted, 2);
+        assert_eq!(read(&output.path).unwrap(), clean);
+        check_pdf(&output.path, 2);
+
+        // Read from byte 0, the same file has no header at the range start.
+        let error = run_native(copy_pdf(
+            &mut source,
+            &mut WriteSink::new(Vec::<u8>::new()),
+            &Limits::default(),
+            &CancelAfter::Never,
+        ))
+        .unwrap_err();
+        assert!(
+            matches!(
+                error,
+                Error::Pdf {
+                    kind: PdfErrorKind::Malformed,
+                    offset: 0,
+                    ..
+                }
+            ),
+            "{error:?}"
+        );
     }
 }
 
