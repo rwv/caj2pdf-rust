@@ -51,7 +51,9 @@ pub use native::{
     NativeRecord, NativeRecordVisitor, decode_native_character, decode_native_character_for_mode,
     decode_native_image_coordinate,
 };
-pub use native_page::{C8PageFonts, write_c8_native_page};
+pub use native_page::{
+    C8_DEFAULT_DECORATION_ALIAS, C8PageFonts, is_cjk_coded, write_c8_native_page,
+};
 pub use outline::{MAX_RECORDED_OUTLINE_DEFECTS, OutlineDefect, OutlineRepair, OutlineReport};
 pub use placement::{
     C8GlyphClass, EMPIRICAL_COORDINATE_POINTS_PER_UNIT, EMPIRICAL_PIXEL_POINTS,

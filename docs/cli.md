@@ -108,40 +108,71 @@ output. Stdout can contain a partial PDF on failure, as for other formats.
 
 ### Native C8 font resources
 
-Supply all three ordinary roles to enable admitted native C8/HN-B profiles:
+Native C8/HN-B text pages need a CJK and a Latin font. Put them in one
+directory under fixed names and pass `--fonts DIR`:
+
+| Role | File in `DIR` | Per-role flag |
+| --- | --- | --- |
+| CJK (required) | `cjk.ttf` | `--font-cjk FILE` |
+| Ordinary Latin (required) | `latin.ttf` | `--font-latin FILE` |
+| Alternate Latin (`801d/4`) | `alternate-latin.ttf` | `--font-alternate-latin FILE` |
+| Decoration alias | `decoration.ttf` | `--font-decoration FILE` |
+| HN-B mode-0 symbols | `symbols.ttf` | `--font-symbols FILE` |
+| Latin states `801d/3`, `/28`, `/31` | `latin-state3.ttf`, `latin-state28.ttf`, `latin-state31.ttf` | `--font-latin-state3/28/31 FILE` |
+
+A per-role flag overrides the directory's file for that role, and the
+per-role flags alone also work: `--font-cjk FILE --font-latin FILE` is the
+minimum. Only these names are looked up in `DIR`; there is no font
+discovery, system lookup or bundled font. A missing `cjk.ttf` or `latin.ttf`
+fails before output staging. Any other missing file leaves its role absent.
+
+**Fallback rule.** Each glyph uses the font of the role the source selects.
+If that role is absent, or its font has no cmap entry for the character,
+the glyph uses the CJK font for CJK-coded characters (U+2E80–U+9FFF,
+U+F900–U+FAFF, U+FE10–U+FE1F, U+FE30–U+FE6F and halfwidth/fullwidth forms
+U+FF00–U+FFEF) and the Latin font for everything else, including the
+decoration alias. If that font lacks the glyph too, conversion fails with
+the page and source byte. Fallback picks only a font. Glyph positions
+stay the same, so a substitute font can still look different or overlap.
+
+#### Tested free-font recipe
+
+These two TrueType fonts cover every glyph of the six pinned C8/HN-B corpus
+documents. The converter reads only standalone TrueType (`glyf`) fonts,
+not CFF/OpenType `.otf` or `.ttc` collections. That rules out Noto Sans CJK.
+Noto Sans also lacks math symbols those documents use, such as U+2217.
 
 ```sh
-caj2pdf input.caj --no-bookmarks -o output.pdf \
-  --font-cjk text.ttf \
-  --font-latin text.ttf \
-  --font-alternate-latin alternate.ttf \
-  --font-decoration symbols.ttf
+sudo apt-get install -y fonts-droid-fallback fonts-dejavu-core
+mkdir -p ~/caj2pdf-fonts
+ln -s /usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf ~/caj2pdf-fonts/cjk.ttf
+ln -s /usr/share/fonts/truetype/dejavu/DejaVuSans.ttf ~/caj2pdf-fonts/latin.ttf
+caj2pdf input.caj --no-bookmarks --fonts ~/caj2pdf-fonts -o output.pdf
 ```
 
-`--font-decoration` is optional; a document requiring decoration fails if it
-is absent. Its default nonsemantic alias is `►`; use `--decoration-char CHAR`
-for a different single BMP Unicode scalar supplied by that font. The alias
-is not emitted as document text. Fonts must cover the Unicode characters
-required by their assigned roles. No system lookup or missing-glyph fallback
-is performed; substitution/font-identity limitations remain explicit.
-The CJK role can also carry fullwidth Latin letters. Coverage alone does not
-guarantee compatible glyph widths or bearings: a substitute can overlap at
-the fixed source positions, including in the viewer. See the
-[C8 same-resource controls](c8-real-font-fidelity.md#same-resource-control-follow-up).
+Droid Sans Fallback is Apache-2.0. DejaVu Sans uses the free Bitstream Vera
+license. Both stay external resources: they are not vendored or bundled.
+The output is not a faithful copy of the source typography: weights,
+bearings and widths differ from the CAJViewer fonts.
 
-The additional C8 profiles may require `--font-latin-state3 FILE`,
-`--font-latin-state28 FILE` and `--font-latin-state31 FILE`. These are explicit
-resources for observed source font states, not automatic fallbacks. Supply a
-role when the document requires it; missing required roles fail with a located
-error. At most eight distinct sources are accepted, including the ordinary,
-decoration and HN-B symbol roles. Node/browser expose the matching
-`latinState3`, `latinState28` and `latinState31` options.
+#### Notes
 
-Font path flags accept separate values or `--font-cjk=FILE` spelling.
-Separate values preserve non-UTF-8 paths. Repeating a role, omitting one of
-the three ordinary roles, or using `-` as a font path is a usage error.
-Reuse the same path for multiple roles to embed it once. Native C8/HN-B font
-options are rejected for other document formats.
+The decoration alias defaults to `►`. Use `--decoration-char CHAR` to pick
+a different single BMP Unicode scalar from the decoration font. It requires
+`--font-decoration` or `--fonts DIR`, and `DIR` must then contain
+`decoration.ttf`. The alias is not emitted as document text.
+Coverage alone does not guarantee compatible glyph widths or bearings: a
+substitute can overlap at the fixed source positions, including in the viewer.
+See the [C8 same-resource controls](c8-real-font-fidelity.md#same-resource-control-follow-up).
+At most eight distinct sources are accepted. Node/browser expose the same
+roles, and the same fallback, as `hnc8.fonts` options.
+
+Font path flags accept separate values or `--font-cjk=FILE` spelling, and
+`--fonts DIR` or `--fonts=DIR`. Separate values preserve non-UTF-8 paths.
+Repeating a role or `--fonts`, giving per-role flags without both
+`--font-cjk` and `--font-latin` (and without `--fonts`), or using `-` as a
+font path is a usage error. Reuse the same path for multiple roles to embed
+it once. Native C8/HN-B font options are rejected for other document formats.
 
 Files are read through ranged/seekable handles. Forward-only named inputs
 reuse the existing bounded temporary spooling path. Font files, including

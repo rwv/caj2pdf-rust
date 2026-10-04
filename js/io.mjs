@@ -565,7 +565,8 @@ function hnc8Config(options) {
       if (id < 0) { id = sources.length; sources.push(source); }
       return id;
     };
-    const roles = [index(cjk), index(latin), index(alternateLatin)];
+    // An absent optional role (0xffffffff) uses the core CJK/Latin fallback.
+    const roles = [index(cjk), index(latin), alternateLatin === undefined ? 0xffffffff : index(alternateLatin)];
     if (decoration === undefined) {
       roles.push(0xffffffff, 0);
     } else {

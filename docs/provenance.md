@@ -2982,6 +2982,17 @@ at fuzz-build time. Neither is vendored in this repository, linked into the CLI,
 WASM or JS packages, or part of the release inventory. Seeds come from the
 original synthetic fixtures in `tests/fixtures`.
 
+## Native font role fallback and font directory (#290)
+
+The CJK/Latin role fallback in `hnc8/native_page.rs`, the CLI `--fonts DIR`
+mapping and their tests are original MIT code. The CJK-coded ranges are
+standard Unicode block boundaries. Tests relabel the cmap of this project's
+original geometric font; no external glyph data is added. The documented
+free recipe (Droid Sans Fallback, Apache-2.0; DejaVu Sans, Bitstream Vera
+license) was chosen by checking cmap coverage of the six pinned corpus inputs.
+Those fonts stay external: they are not vendored, bundled or copied into
+fixtures. Corpus documents and derived PDFs remain outside Git.
+
 ## C8 application-info package (#302)
 
 `hnc8/appinfo.rs`, its tests and the PDF `/Info` writer path are original MIT

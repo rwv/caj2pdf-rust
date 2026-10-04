@@ -998,7 +998,8 @@ fn native_c8_font_resources_share_the_bounded_request_channel() {
     let font = include_bytes!("../../../../tests/fonts/geometric.ttf");
     let mut engine = Engine::start(bytes.len() as u64, limits(32), native_operation()).unwrap();
     assert_eq!(engine.add_font_source(font.len() as u64), 1);
-    assert!(engine.set_c8_fonts(0, 0, 0, 0, 'A' as u32, u32::MAX));
+    // An absent alternate Latin role (`u32::MAX`) uses the core fallback.
+    assert!(engine.set_c8_fonts(0, 0, u32::MAX, 0, 'A' as u32, u32::MAX));
     let run = drive_resources(&mut engine, &bytes, &[font], Some(3), None);
     assert!(engine.result().unwrap().is_ok(), "{}", engine.message());
     assert!(run.max_read <= 32 && run.max_write <= 32);
@@ -1027,6 +1028,7 @@ fn font_configuration_rejects_invalid_or_late_resources() {
         assert!(!engine.set_c8_fonts(0, 0, 0, decoration, alias, u32::MAX));
     }
     assert!(!engine.set_c8_fonts(0, 1, 2, u32::MAX, 0, 8));
+    assert!(!engine.set_c8_fonts(0, 1, 8, u32::MAX, 0, u32::MAX));
     assert!(!engine.set_c8_latin_state3(5));
     assert!(engine.set_c8_fonts(0, 1, 2, 3, 65, 4));
     assert!(!engine.set_c8_latin_state3(8));
