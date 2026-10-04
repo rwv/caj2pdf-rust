@@ -2962,3 +2962,12 @@ records the 738-page HN-A results and the TEB container characterization. The
 runner change that reports a missing pixel-oracle entry as `NOT_RUN` and checks
 outline identity separately is original MIT code with original synthetic tests.
 TEB analysis there is structural only; no payload is decrypted or copied.
+
+## Fuzz targets (#294)
+
+`fuzz/` is original MIT harness code. It depends on `libfuzzer-sys`
+(MIT/Apache-2.0), which builds LLVM libFuzzer (Apache-2.0 with LLVM exception)
+at fuzz-build time. Neither is vendored in this repository, linked into the CLI,
+WASM or JS packages, or part of the release inventory. Seeds come from the
+original synthetic fixtures in `tests/fixtures`.
+

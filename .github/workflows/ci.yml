@@ -45,6 +45,8 @@ jobs:
         run: cargo doc --workspace --no-deps --all-features --locked
       - name: Unit and integration tests
         run: cargo test --workspace --all-features --locked
+      - name: Check fuzz targets compile
+        run: cargo check --locked --manifest-path fuzz/Cargo.toml
       - name: Check generated MIT fixtures
         run: python3 scripts/generate_fixtures.py --check
       - name: Synthetic fixture tests

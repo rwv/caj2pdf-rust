@@ -56,6 +56,25 @@ The required native line-coverage gate is 100% for every source file in its
 LCOV report. Exercise real behavior and error propagation; do not add
 assertions that only mirror the implementation or hide uncovered lines.
 
+## Fuzzing
+
+`fuzz/` holds two cargo-fuzz targets that drive the public core entry points
+on arbitrary bytes: `convert` (PDF, CAJ, KDH and HN/C8 image pages through the
+same routes as the CLI) and `inspect` (CAJ metadata, HN/C8 page rows and HN-A
+outlines). A target fails only by panicking, aborting, exceeding its limits or
+timing out. CI checks that they compile; the weekly `fuzz.yml` workflow runs
+them. Locally:
+
+```sh
+cd fuzz
+cargo +nightly fuzz run convert -- -max_total_time=300 -max_len=65536 -timeout=60
+```
+
+Seed from `tests/fixtures`, never the external corpus. Turn every reproduced
+crash into an ordinary regression test with synthetic bytes and a located
+error. `fuzz/` is not part of the product workspace, published crates or the
+coverage gate.
+
 ## Dependency updates
 
 Dependabot proposes weekly grouped Cargo and GitHub Actions updates. Review them
