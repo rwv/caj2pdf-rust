@@ -2012,24 +2012,29 @@ fn optional_hna_outlines_preserve_image_bytes_and_use_nullable_xyz() {
 }
 
 #[test]
-fn unproven_outline_variants_fail_before_pdf_output() {
-    let fixture = fixture(Variant::C8, &[vec![Record::jpeg(8, 8, 90, 0, 0)]]);
-    let mut sink = Sink::default();
-    let error = convert(
-        &mut Source::new(fixture.bytes),
-        &mut sink,
-        None,
-        &mut Scratch::default(),
-        &mut Visitor::default(),
-        ComposeOptions {
-            include_bookmarks: true,
-            ..ComposeOptions::default()
-        },
-        &Limits::default(),
-    )
-    .unwrap_err();
-    assert!(matches!(error.kind, ComposeErrorKind::Unsupported(_)));
-    assert!(sink.bytes.is_empty());
+fn unproven_outline_variants_are_reported_not_written_or_failed() {
+    let mut outputs = Vec::new();
+    for include_bookmarks in [false, true] {
+        let fixture = fixture(Variant::C8, &[vec![Record::jpeg(8, 8, 90, 0, 0)]]);
+        let mut sink = Sink::default();
+        let report = convert(
+            &mut Source::new(fixture.bytes),
+            &mut sink,
+            None,
+            &mut Scratch::default(),
+            &mut Visitor::default(),
+            ComposeOptions {
+                include_bookmarks,
+                ..ComposeOptions::default()
+            },
+            &Limits::default(),
+        )
+        .unwrap();
+        assert_eq!(report.outline.unverified, include_bookmarks);
+        assert_eq!(report.conversion.bookmarks_written, 0);
+        outputs.push(sink.bytes);
+    }
+    assert_eq!(outputs[0], outputs[1]);
 }
 
 #[test]

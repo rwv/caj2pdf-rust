@@ -56,6 +56,9 @@ pub struct OutlineReport {
     pub written: u32,
     /// Defective entries, including those beyond the recorded locations.
     pub defects: u32,
+    /// Bookmarks were requested for a C8 or HN-B source, whose outline layout
+    /// is unverified, so none were written. This is not a confirmed empty TOC.
+    pub unverified: bool,
     recorded: [OutlineDefect; MAX_RECORDED_OUTLINE_DEFECTS],
 }
 

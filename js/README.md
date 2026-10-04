@@ -206,8 +206,9 @@ conversion and OPFS scratch work there, and forwards cancellation as a message.
 It waits for cleanup before reporting completion; do not replace cancellation
 with `worker.terminate()`. Browser use requires OPFS and Dedicated Workers.
 HN/C8 rendering remains experimental with the documented layout limitations.
-For C8/HN-B, use `--no-bookmarks` in the Node example or uncheck
-“Include bookmarks” in the browser example; their outline layout is unsupported.
+C8/HN-B outline layouts are unverified: with bookmarks requested they convert
+with no outline and the report's `outlineOmitted` is `true`. Pass
+`includeBookmarks: false` (`--no-bookmarks` in the Node example) to skip it.
 
 ## Random-access scratch for HN/C8 integration
 
@@ -263,7 +264,7 @@ with exactly 113 QM or 47 MQ entries. Invalid or partial overrides are rejected.
 // `scratch` is a tuple of four distinct caller-owned adapters described above.
 // No external state-table files are needed.
 const result = await convert(wasm, source, sink, {
-  includeBookmarks: false, // Required for C8/HN-B until outline semantics are verified.
+  includeBookmarks: false, // C8/HN-B outlines are unverified and would be omitted anyway.
   hnc8: { scratch },
 });
 ```
