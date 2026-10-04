@@ -2944,3 +2944,15 @@ geometric font. The HN-B builder is shared with the existing native-document
 tests. Single-field mutations and a finite read-call assertion add no new
 format interpretation or copied document content. This work uses no external
 converter implementation, corpus bytes, fonts or raster captures.
+
+## Shared sample catalog adapter (#283)
+
+`scripts/sample_catalog.py` and its tests are original MIT code. The adapter
+reads the hash-pinned external metadata catalog at caj2pdf-samples commit
+`58b2d2acaa5d766d865d61c062c2d0b1826cdb8f`, verifies selected local document
+identities in 256 KiB chunks and reuses existing conformance runners. No
+third-party implementation or document bytes are copied. Historical evidence
+remains in the existing matrix; new inputs have unknown reference expectations.
+The initial 57-document identity check passed; a selected TEB run in native and
+Node reported unsupported, not successful conversion. Required CI does not
+fetch the sample repository or corpus.

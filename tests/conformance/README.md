@@ -482,3 +482,51 @@ compatibility. Render hashes are renderer-version-specific.
 The inventory and output checks are implemented in
 [`scripts/conformance.py`](../../scripts/conformance.py). No reference PDF
 or document corpus is stored in this repository.
+
+## Shared real-document catalog (#283)
+
+Discovery and document identity now live in
+[caj2pdf-samples](https://github.com/rwv/caj2pdf-samples). The adapter pins commit
+`58b2d2acaa5d766d865d61c062c2d0b1826cdb8f` and the catalog's SHA-256; it never
+fetches documents or executes code from that checkout. Keep the sample checkout,
+source corpus, generated matrix and outputs outside this repository.
+
+Verify selected identities and run the existing Linux CLI checks in one command:
+
+```sh
+python3 scripts/sample_catalog.py \
+  --catalog /external/caj2pdf-samples/catalog.json \
+  --corpus-dir /external/corpus \
+  --sample issue-61/1.teb \
+  --candidate /external/bin/caj2pdf \
+  --output-dir /external/new-run
+```
+
+Repeat `--sample` for more canonical paths, or omit it for all 57 unique inputs.
+The new `issue-111/56.caj` is obtained separately through its catalog source URL;
+the original upstream checkout alone contains only the first 56 inputs.
+Missing or changed selected documents fail identity verification and report
+conversion `NOT_RUN`. Duplicate hashes do not inflate coverage. A completed
+runner means completed attempts, not universal conversion success. In particular,
+TEB remains explicitly unsupported and timeouts remain incomplete.
+
+For the existing JavaScript workflows, export the same verified selection:
+
+```sh
+python3 scripts/sample_catalog.py \
+  --catalog /external/caj2pdf-samples/catalog.json \
+  --corpus-dir /external/corpus \
+  --sample issue-61/1.teb \
+  --export-matrix /external/selected-matrix.json
+CAJ2PDF_CORPUS_DIR=/external/corpus node js/scripts/corpus.mjs \
+  --matrix /external/selected-matrix.json --wasm /external/caj2pdf_wasm.wasm
+```
+
+This retains the existing Node runner's limits, including its HN/C8 NOT_RUN
+behavior; use the existing [Node/browser validation workflows](../../docs/js-validation.md)
+for admitted HN/C8 profiles and caller resources. Exporting a matrix does not
+prove either runtime works. Historical reference expectations are joined by
+content hash; new documents start with unknown expectations. No current pass is
+inferred from catalog inspection metadata. The generated matrix is temporary
+adapter data, not a second committed catalog. Updating the pin requires reviewing
+the catalog diff and updating both constants in `scripts/sample_catalog.py`.
