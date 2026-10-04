@@ -10,7 +10,7 @@ listed in the release notes.
 
 ```text
 caj2pdf INPUT [-o OUTPUT] [--force] [--quiet] [--no-bookmarks] [--qm-states FILE] [--mq-states FILE]
-caj2pdf inspect INPUT [--json] [--bookmarks]
+caj2pdf inspect INPUT [--json] [--bookmarks] [--pages]
 caj2pdf add-bookmarks SOURCE_CAJ INPUT_PDF -o OUTPUT_PDF [--force]
 caj2pdf --help | --version
 ```
@@ -301,6 +301,106 @@ Example:
 
 Strings escape `"`, `\`, and control characters as required by RFC 8259;
 other characters are written as UTF-8.
+
+### Structure report (`--pages`)
+
+`--pages` adds a structure-only report for diagnosing a document that fails
+to convert without sharing it ([#301](https://github.com/rwv/caj2pdf-rust/issues/301)).
+It contains offsets, lengths, counts, header words and located reader errors;
+it never contains document text, titles (unless `--bookmarks` is also given),
+or image bytes, so it is meant to be pasted into a public issue. It adds no
+format interpretation: each page is checked by the readers that conversion
+already uses.
+
+- HN/C8: the page-index offset, length and row size (20 bytes, or 12 for the
+  compact HN-B layout selected by a zero word at `0x88`), the raw native mode
+  (C8 `0x0c`, HN-B `0x94`) and origin, the declared page size, and whether
+  the input ends with an `APPINFOSIGN <decimal offset>` trailer. Only the
+  trailer's declared start and the byte length to the end of the input are
+  reported; the application-info section itself is not decoded (#302). Then
+  one record per page: its text span, image descriptors as type and payload
+  span, and the text framing accepted by the existing readers. HN-A/C8 text
+  is checked by the compressed or raw page-text reader, with the composer's
+  repeated coordinate-group rule; a C8 span without a compressed header, and
+  every HN-B span, is framed as native records.
+- KDH: the observed leading 32 bytes as ASCII (`\xNN` for any other byte,
+  quote or backslash) and whether they equal the supported
+  `KDH 2.00 Copyright(C) 2000 CAJCD`. With `--pages` a different signature is
+  reported with unknown page count and outline and exit status 0; without
+  `--pages` it remains an error.
+- CAJ, PDF and TEB: no per-page records (`Page structure: not available`).
+
+| Text framing | Meaning |
+| --- | --- |
+| `none` | The indexed text span is empty. |
+| `raw` | Uncompressed HN-A records. |
+| `raw-paired` | Uncompressed HN-A records after the paired `8003` page-size prefix. |
+| `compresstext` | A 16-byte direct `COMPRESSTEXT` header and one zlib frame. |
+| `legacy-24` | The 24-byte paired-`8003` and `COMPRESSTEXT` header and one zlib frame. |
+| `native` | C8/HN-B native records. |
+
+A page whose row or image descriptor is rejected reports that `error` and
+the remaining pages are still inspected, each with a fresh reader. A text
+reader failure is a `text_error`; it does not prove that image-only
+conversion fails, because HN-B image-only conversion does not read native
+records. Cancellation and read failures end the command with status 1; the
+report already written to standard output is then incomplete.
+
+Memory stays bounded: pages and descriptors are written as they are read,
+and each page's text is checked with the conversion text budget
+(`TextBudget::default()`). Image payloads are never read.
+
+Text form, after the usual lines (the synthetic HN-A test input):
+
+```text
+Page index: 348+80 (20-byte rows)
+Native mode: unknown
+Native origin: unknown
+Page size: 100 200
+Application info: none
+Page 1: text 428+32, images [type 0 at 472+49], framing raw (2 records)
+Page 2: text 521+40, images [type 0 at 573+49], text error: HN/C8 HN-A at byte 521, page 2: malformed decoded text record: unknown control tag
+Page 3: text 622+32, images [], error: HN/C8 HN-A at byte 658, page 3, image 1: truncated image payload: expected 1073741824 bytes, available 49
+Page 4: error: HN/C8 HN-A at byte 408, page 4: truncated text span: expected 4 bytes, available 0
+```
+
+The JSON object gains two fields after `outline_warnings`, only with
+`--pages`; as additive fields they keep `schema_version` 1:
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `structure` | object or null | HN/C8 or KDH document structure below; null for other formats. |
+| `pages` | array or null | One object per HN/C8 page in order; null for other formats. |
+
+HN/C8 `structure` fields: `page_index_offset`, `page_index_length` and
+`page_row_bytes` (integers); `native_mode` (integer or null for HN-A);
+`native_origin` and `page_size` (`[x, y]` integer pairs or null); and
+`application_info`, null or `{"offset": integer, "length": integer or null}`
+where `length` is null when the declared offset is outside the input.
+KDH `structure` fields: `kdh_signature` (string) and
+`kdh_signature_supported` (boolean).
+
+Each page object has these fields:
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `page` | integer | One-based source page. |
+| `text_offset`, `text_length` | integer or null | Indexed text span; null when the page row was rejected. |
+| `image_count` | integer or null | Declared image descriptors; null when the page row was rejected. |
+| `images` | array | Descriptors read before any error: `{"type": integer, "offset": integer, "length": integer}` with the payload span. |
+| `text_framing` | string or null | One of the framings above; null when the text was not accepted or not reached. |
+| `text_records` | integer or null | Glyph, raw or native records counted by the accepting reader. |
+| `text_decoded_length` | integer or null | Inflated length of a compressed frame; otherwise null. |
+| `text_error` | string or null | The deciding text reader's located error. |
+| `error` | string or null | The page-row or descriptor error that stopped this page. |
+
+Example (a one-page HN-A input):
+
+```json
+{"schema_version":1,"format":"HN","variant":"HN-A","conversion_supported":true,"page_count":1,"has_outline":false,"bookmark_count":0,"outline_warnings":0,"structure":{"page_index_offset":348,"page_index_length":20,"page_row_bytes":20,"native_mode":null,"native_origin":null,"page_size":[100,200],"application_info":null},"pages":[{"page":1,"text_offset":368,"text_length":32,"image_count":1,"images":[{"type":0,"offset":412,"length":49}],"text_framing":"raw","text_records":2,"text_decoded_length":null,"text_error":null,"error":null}]}
+```
+
+The JavaScript `inspect` API does not expose this report yet.
 
 ## `add-bookmarks`
 

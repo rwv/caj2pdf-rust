@@ -4,16 +4,17 @@
 //! outline-import operations.
 
 use crate::CliError;
-use crate::files::Input;
+use crate::files::{Input, stdout_error};
 use crate::progress::Progress;
 use crate::signals::ProcessCancellation;
 use caj2pdf_core::{
     Bookmark, ConversionOptions, Detection, Error, InputFormat, Limits, RangedSource, caj,
     detect_source,
-    hnc8::OutlineReport,
-    kdh::{KdhPdfSource, convert_kdh},
+    hnc8::{ApplicationInfoTail, Header, OutlineReport},
+    kdh::{HEADER_SIGNATURE, KdhPdfSource, convert_kdh},
     native::{SeekableSource, WriteSink},
     pdf::{PdfIndex, PdfOutlineAppender, PdfRange, copy_pdf_range},
+    read_exact_at,
 };
 use std::fs::File;
 use std::future::Future;
@@ -175,6 +176,21 @@ pub struct Inspection {
     pub bookmarks: Option<Vec<Bookmark>>,
     /// HN-A entries skipped or clamped while listing `bookmarks`; empty otherwise.
     pub outline: OutlineReport,
+    /// Document-level structure, read only for `--pages`.
+    pub structure: Option<Structure>,
+}
+
+/// Structure-only document facts for `inspect --pages`; never document text.
+#[derive(Debug, Eq, PartialEq)]
+pub enum Structure {
+    /// The leading wrapper bytes (at most 32) and whether they are the
+    /// supported signature.
+    Kdh { signature: Vec<u8>, supported: bool },
+    Hnc8 {
+        header: Header,
+        page_row_bytes: u64,
+        application_info: Option<ApplicationInfoTail>,
+    },
 }
 
 async fn index_pdf<S: RangedSource>(
@@ -188,20 +204,45 @@ async fn index_pdf<S: RangedSource>(
         .map_err(text)
 }
 
-fn pdf_inspection(format: InputFormat, index: &PdfIndex) -> Inspection {
+/// Page count and outline presence from an indexed PDF; unknown without one.
+fn pdf_inspection(format: InputFormat, index: Option<&PdfIndex>) -> Inspection {
     Inspection {
         format,
         variant: None,
-        page_count: Some(index.pages().len() as u32),
-        has_outline: Some(index.has_outlines()),
+        page_count: index.map(|index| index.pages().len() as u32),
+        has_outline: index.map(PdfIndex::has_outlines),
         bookmarks: None,
         outline: OutlineReport::default(),
+        structure: None,
     }
+}
+
+/// Read the KDH wrapper signature. A different signature is reported as an
+/// unknown-page document instead of an error, so it can be diagnosed.
+async fn kdh_signature<S: RangedSource>(
+    source: &mut S,
+    limits: &Limits,
+) -> Result<Option<Inspection>, String> {
+    let mut signature = vec![0; source.size().min(HEADER_SIGNATURE.len() as u64) as usize];
+    read_exact_at(source, 0, &mut signature, limits, &ProcessCancellation)
+        .await
+        .map_err(text)?;
+    if signature == HEADER_SIGNATURE {
+        return Ok(None);
+    }
+    Ok(Some(Inspection {
+        structure: Some(Structure::Kdh {
+            signature,
+            supported: false,
+        }),
+        ..pdf_inspection(InputFormat::Kdh, None)
+    }))
 }
 
 async fn inspect_source<S: RangedSource>(
     source: &mut S,
     limits: &Limits,
+    pages: bool,
 ) -> Result<Inspection, String> {
     let Detection {
         format,
@@ -209,14 +250,24 @@ async fn inspect_source<S: RangedSource>(
         ..
     } = detect(source, limits).await?;
     Ok(match format {
-        InputFormat::Pdf => {
-            pdf_inspection(format, &index_pdf(source, header_offset, limits).await?)
-        }
+        InputFormat::Pdf => pdf_inspection(
+            format,
+            Some(&index_pdf(source, header_offset, limits).await?),
+        ),
         InputFormat::Kdh => {
+            if pages && let Some(mismatch) = kdh_signature(source, limits).await? {
+                return Ok(mismatch);
+            }
             let mut decoded = KdhPdfSource::open(source, limits, &ProcessCancellation)
                 .await
                 .map_err(text)?;
-            pdf_inspection(format, &index_pdf(&mut decoded, 0, limits).await?)
+            Inspection {
+                structure: pages.then(|| Structure::Kdh {
+                    signature: HEADER_SIGNATURE.to_vec(),
+                    supported: true,
+                }),
+                ..pdf_inspection(format, Some(&index_pdf(&mut decoded, 0, limits).await?))
+            }
         }
         InputFormat::Caj => {
             let metadata = caj::parse_metadata(source, limits, &ProcessCancellation)
@@ -229,33 +280,55 @@ async fn inspect_source<S: RangedSource>(
                 has_outline: Some(!metadata.bookmarks.is_empty()),
                 bookmarks: Some(metadata.bookmarks),
                 outline: OutlineReport::default(),
+                structure: None,
             }
         }
         InputFormat::Hn | InputFormat::C8 => {
-            let (header, bookmarks, outline) = crate::hnc8::inspect(source, limits).await?;
+            let inspected = crate::hnc8::inspect(source, limits, pages).await?;
             Inspection {
                 format,
-                variant: Some(header.variant.as_str()),
-                page_count: Some(header.page_count),
-                has_outline: bookmarks.as_ref().map(|items| !items.is_empty()),
-                bookmarks,
-                outline,
+                variant: Some(inspected.header.variant.as_str()),
+                page_count: Some(inspected.header.page_count),
+                has_outline: inspected.bookmarks.as_ref().map(|items| !items.is_empty()),
+                bookmarks: inspected.bookmarks,
+                outline: inspected.outline,
+                structure: inspected.structure,
             }
         }
-        InputFormat::Nh | InputFormat::Teb => Inspection {
-            format,
-            variant: None,
-            page_count: None,
-            has_outline: None,
-            bookmarks: None,
-            outline: OutlineReport::default(),
-        },
+        InputFormat::Nh | InputFormat::Teb => pdf_inspection(format, None),
     })
 }
 
-pub fn inspect(input: &mut Input, limits: &Limits) -> Result<Inspection, CliError> {
-    block_on(async { inspect_source(&mut ranged(&mut input.file)?, limits).await })
-        .map_err(|message| CliError::runtime(format!("cannot inspect {}: {message}", input.name)))
+/// Inspect `input`; `pages` also reads the document-level structure.
+pub fn inspect(input: &mut Input, limits: &Limits, pages: bool) -> Result<Inspection, CliError> {
+    block_on(async { inspect_source(&mut ranged(&mut input.file)?, limits, pages).await })
+        .map_err(|message| inspect_error(input, message))
+}
+
+fn inspect_error(input: &Input, message: String) -> CliError {
+    CliError::runtime(format!("cannot inspect {}: {message}", input.name))
+}
+
+/// Stream the per-page report after the document report. Only HN/C8 has
+/// per-page records; other formats report that none are available.
+pub fn write_pages<W: Write>(
+    input: &mut Input,
+    limits: &Limits,
+    info: &Inspection,
+    pages: &mut crate::report::Pages<'_, W>,
+) -> Result<(), CliError> {
+    if !matches!(info.format, InputFormat::Hn | InputFormat::C8) {
+        return pages.unavailable(info.format).map_err(stdout_error);
+    }
+    let page_count = info.page_count.expect("HN/C8 inspection has a page count");
+    block_on(async {
+        let mut source = ranged(&mut input.file).map_err(crate::hnc8::PagesError::Input)?;
+        crate::hnc8::write_pages(&mut source, limits, page_count, pages).await
+    })
+    .map_err(|error| match error {
+        crate::hnc8::PagesError::Output(error) => stdout_error(error),
+        crate::hnc8::PagesError::Input(message) => inspect_error(input, message),
+    })
 }
 
 fn read_error(name: &str) -> impl Fn(String) -> CliError + '_ {

@@ -19,6 +19,7 @@ mod native;
 mod native_page;
 mod outline;
 mod placement;
+mod structure;
 mod text;
 
 pub use compose::{
@@ -51,6 +52,7 @@ pub use placement::{
     empirical_c8_glyph_transform, empirical_c8_horizontal_decoration, empirical_c8_segment,
     empirical_image_transform, empirical_page_from_pixels, empirical_page_from_type0,
 };
+pub use structure::{ApplicationInfoTail, TextFraming, TextStructure};
 pub use text::{
     RawTextCoordinate, TEXT_DECODER_RESERVATION_BYTES, TextBudget, TextCoordinates,
     read_text_coordinates,

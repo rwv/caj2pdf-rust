@@ -258,25 +258,47 @@ pub async fn convert<S: RangedSource, W: SequentialSink>(
     .map_err(|e| e.to_string())
 }
 
+/// The bounded HN/C8 document-level inspection.
+#[derive(Debug)]
+pub struct Inspected {
+    pub header: caj2pdf_core::hnc8::Header,
+    pub bookmarks: Option<Vec<caj2pdf_core::Bookmark>>,
+    pub outline: OutlineReport,
+    pub structure: Option<crate::document::Structure>,
+}
+
 /// Keep only bounded outline metadata; image payloads are never read here.
+/// `structure` also reports the page-index layout and application-info tail.
 pub async fn inspect<S: RangedSource>(
     source: &mut S,
     limits: &Limits,
-) -> Result<
-    (
-        caj2pdf_core::hnc8::Header,
-        Option<Vec<caj2pdf_core::Bookmark>>,
-        OutlineReport,
-    ),
-    String,
-> {
+    structure: bool,
+) -> Result<Inspected, String> {
     use caj2pdf_core::hnc8::{Budget, Hnc8Reader};
     let mut reader = Hnc8Reader::open(source, limits, &ProcessCancellation, Budget::default())
         .await
         .map_err(|e| e.to_string())?;
     let header = reader.header();
+    let structure = if structure {
+        Some(crate::document::Structure::Hnc8 {
+            header,
+            page_row_bytes: reader.page_row_bytes(),
+            application_info: reader
+                .application_info_tail()
+                .await
+                .map_err(|e| e.to_string())?,
+        })
+    } else {
+        None
+    };
+    let mut inspected = Inspected {
+        header,
+        bookmarks: None,
+        outline: OutlineReport::default(),
+        structure,
+    };
     let Some(count) = reader.declared_bookmark_count() else {
-        return Ok((header, None, OutlineReport::default()));
+        return Ok(inspected);
     };
     if count > limits.max_bookmarks {
         return Err("HN-A bookmark count exceeds the configured limit".into());
@@ -292,11 +314,84 @@ pub async fn inspect<S: RangedSource>(
         .items
         .try_reserve_exact(count as usize)
         .map_err(|_| "cannot allocate HN-A outline metadata")?;
-    let outline = reader
+    inspected.outline = reader
         .visit_bookmarks(64, header.page_count, |page| Some(page - 1), &mut collected)
         .await
         .map_err(|e| e.to_string())?;
-    Ok((header, Some(collected.items), outline))
+    inspected.bookmarks = Some(collected.items);
+    Ok(inspected)
+}
+
+/// Why the per-page report stopped.
+#[derive(Debug)]
+pub enum PagesError {
+    Input(String),
+    Output(std::io::Error),
+}
+
+/// A failure that would repeat on every later page ends the report.
+fn fatal(error: caj2pdf_core::hnc8::Hnc8Error) -> Result<String, PagesError> {
+    use caj2pdf_core::hnc8::ErrorKind;
+    match error.kind {
+        ErrorKind::Cancelled | ErrorKind::Source { .. } => {
+            Err(PagesError::Input(error.to_string()))
+        }
+        _ => Ok(error.to_string()),
+    }
+}
+
+/// Stream one structural record per page. Each page uses a fresh cursor, so
+/// a malformed page is reported and later pages are still inspected; only
+/// one page's row, the current descriptor and bounded text-reader state are
+/// held at a time. Image payloads and text content are never reported.
+pub async fn write_pages<S: RangedSource, W: std::io::Write>(
+    source: &mut S,
+    limits: &Limits,
+    page_count: u32,
+    out: &mut crate::report::Pages<'_, W>,
+) -> Result<(), PagesError> {
+    use caj2pdf_core::hnc8::{Budget, Hnc8Reader, TextBudget};
+    out.begin().map_err(PagesError::Output)?;
+    for number in 1..=page_count {
+        let mut reader = Hnc8Reader::probe_at_page(
+            source,
+            limits,
+            &ProcessCancellation,
+            Budget::default(),
+            number,
+        )
+        .await
+        .map_err(|e| PagesError::Input(e.to_string()))?;
+        let row = match reader.next_page().await {
+            Ok(row) => row.expect("a probe opens at a declared page"),
+            Err(error) => {
+                let message = fatal(error)?;
+                out.page(number, None).map_err(PagesError::Output)?;
+                out.end_page(None, None, Some(&message))
+                    .map_err(PagesError::Output)?;
+                continue;
+            }
+        };
+        out.page(number, Some(&row)).map_err(PagesError::Output)?;
+        let error = loop {
+            match reader.next_image().await {
+                Ok(Some(image)) => out.image(&image).map_err(PagesError::Output)?,
+                Ok(None) => break None,
+                Err(error) => break Some(fatal(error)?),
+            }
+        };
+        if error.is_some() {
+            out.end_page(None, None, error.as_deref())
+                .map_err(PagesError::Output)?;
+            continue;
+        }
+        match reader.inspect_text(TextBudget::default()).await {
+            Ok(text) => out.end_page(Some(&text), None, None),
+            Err(error) => out.end_page(None, Some(&fatal(error)?), None),
+        }
+        .map_err(PagesError::Output)?;
+    }
+    out.finish().map_err(PagesError::Output)
 }
 
 struct CollectedBookmarks {
@@ -355,6 +450,30 @@ mod tests {
     }
 
     #[test]
+    fn only_repeating_page_failures_end_the_page_report() {
+        use caj2pdf_core::hnc8::{ErrorKind, Hnc8Error};
+        let error = |kind| Hnc8Error {
+            variant: None,
+            offset: 7,
+            page: Some(2),
+            image: None,
+            kind,
+        };
+        let source = ErrorKind::Source {
+            field: "page row",
+            source: Error::Cancelled,
+        };
+        for kind in [ErrorKind::Cancelled, source] {
+            assert!(matches!(fatal(error(kind)), Err(PagesError::Input(_))));
+        }
+        let page = fatal(error(ErrorKind::IncompletePage)).unwrap();
+        assert_eq!(
+            page,
+            "HN/C8 at byte 7, page 2: page has unread image records"
+        );
+    }
+
+    #[test]
     fn outline_collection_accounts_for_records_and_retained_titles() {
         use crate::document::block_on;
         use caj2pdf_core::native::SeekableSource;
@@ -377,7 +496,7 @@ mod tests {
                 io_chunk_bytes: 1,
                 ..Limits::default()
             };
-            let error = block_on(inspect(&mut source, &limits)).unwrap_err();
+            let error = block_on(inspect(&mut source, &limits, false)).unwrap_err();
             assert!(error.contains("limit"), "{error}");
         }
     }

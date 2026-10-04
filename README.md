@@ -75,6 +75,7 @@ caj2pdf paper.caj -o out.pdf       # explicit output; --force replaces a file
 caj2pdf - < paper.caj > paper.pdf  # standard input and output
 caj2pdf paper.c8 -o out.pdf          # C8/HN-B: no outline yet, with a warning
 caj2pdf inspect paper.caj --json --bookmarks
+caj2pdf inspect paper.caj --json --pages   # structure only, safe to share
 caj2pdf add-bookmarks paper.caj scan.pdf -o scan-with-outline.pdf
 ```
 
