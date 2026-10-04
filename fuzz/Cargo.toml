@@ -1,0 +1,31 @@
+[package]
+name = "caj2pdf-fuzz"
+version = "0.0.0"
+edition = "2024"
+license = "MIT"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+caj2pdf-core = { path = "../crates/caj2pdf-core" }
+libfuzzer-sys = "0.4"
+
+# Separate from the product workspace: never published, audited or covered.
+[workspace]
+members = ["."]
+
+[[bin]]
+name = "convert"
+path = "fuzz_targets/convert.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "inspect"
+path = "fuzz_targets/inspect.rs"
+test = false
+doc = false
+bench = false
