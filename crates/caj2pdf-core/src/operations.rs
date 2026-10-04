@@ -42,8 +42,8 @@ pub struct Detection {
 /// `prefix` should hold the first `min(PDF_HEADER_SEARCH_BYTES, size)` bytes;
 /// `SIGNATURE_BYTES` suffice for every signature that starts at byte 0, and
 /// bytes beyond `PDF_HEADER_SEARCH_BYTES` are ignored. The signatures are
-/// those recorded in `tests/fixtures/README.md`, `docs/caj-format.md`,
-/// `docs/kdh-format.md`, and `docs/hnc8-container.md`; CAJ, KDH, HN, C8, and
+/// those recorded in `tests/fixtures/README.md`, `docs/research/caj-format.md`,
+/// `docs/research/kdh-format.md`, and `docs/research/hnc8-container.md`; CAJ, KDH, HN, C8, and
 /// TEB must start at byte 0. If none matches, a `%PDF-` marker elsewhere in
 /// the searched prefix still selects PDF, as observed for files with a leading
 /// newline, byte-order mark, or junk line. Recognition does not imply

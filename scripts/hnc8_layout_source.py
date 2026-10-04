@@ -3,7 +3,7 @@
 """Bounded, metadata-only HN/C8 source-page measurements for issue #107.
 
 The byte fields come from the repository's independent #22/#61 measurements
-in docs/hnc8-container.md. This is a small, original measurement tool: it
+in docs/research/hnc8-container.md. This is a small, original measurement tool: it
 does not decode images or text, infer placement, or read another converter.
 Callers must verify the requested source's pinned SHA-256 before and after
 using this module. No source bytes are included in returned records.

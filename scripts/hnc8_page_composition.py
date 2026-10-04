@@ -79,9 +79,9 @@ CORRECTED_HNB_PIN = (826724, "2d423e1262142030b9b042a54735edc1776b132ae2fc54a3cb
 RATIONAL_NATIVE_PIN = ("e76f557009fea368714fc5866b996dc13b660df52a44598c640d89e0a844cb90",
                        "aa85136b67cc450957d610476c97aab76eb86b6c9a4730f7e261cdbbc5a9cb53")
 PROTOCOL_PINS = {
-    "protocol": ("docs/hnc8-page-composition-protocol.md", "6b423115b903521ffc7d99f2ce592c45e1933649e941afd485fe6a51aa292c93"),
-    "dictionary_probe_protocol": ("docs/hnc8-page-composition-dictionary-probe.md", "abb348a40495a5ff12e1f38f8dc7f568f3596dc49f9041c70e313a40398f08fb"),
-    "identity_params_protocol": ("docs/hnc8-page-composition-identity-params-rerun.md", "7cfe8b87430f94bb3cc291e88739d1214ad6e69ec7390c623d8941251539a133"),
+    "protocol": ("docs/research/hnc8-page-composition-protocol.md", "6b423115b903521ffc7d99f2ce592c45e1933649e941afd485fe6a51aa292c93"),
+    "dictionary_probe_protocol": ("docs/research/hnc8-page-composition-dictionary-probe.md", "abb348a40495a5ff12e1f38f8dc7f568f3596dc49f9041c70e313a40398f08fb"),
+    "identity_params_protocol": ("docs/research/hnc8-page-composition-identity-params-rerun.md", "7cfe8b87430f94bb3cc291e88739d1214ad6e69ec7390c623d8941251539a133"),
 }
 PRESERVED_PINS = {
     "first_failed_report": (Path("/home/hzc/.cache/caj2pdf-issue117-validation/composition-report.json"), 733091,

@@ -72,7 +72,7 @@ struct Built {
     payloads: Vec<Vec<u64>>,
 }
 
-/// The three header/page-index layouts measured in docs/hnc8-container.md.
+/// The three header/page-index layouts measured in docs/research/hnc8-container.md.
 fn container(layout: Layout, pages: &[Vec<Record>]) -> Built {
     let (count_at, index_at) = match layout {
         Layout::C8 => (0x08, 0x50),

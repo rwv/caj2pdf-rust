@@ -9,7 +9,7 @@ No converter source was consulted or copied. The JavaScript asymmetric JPEG
 fixture reuses this project's original custom Huffman/DC fixture construction;
 it contains no external image data. The existing #88 anomaly policy is selected
 explicitly by HN/C8 platform adapters, without changing the generic decoder.
-See [scope and measured results](hnc8-type1.md). External content remains private.
+See [scope and measured results](research/hnc8-type1.md). External content remains private.
 
 ## Current-format baseline tools (#218)
 
@@ -139,7 +139,7 @@ with zero failures, errors or skips, exit 0. All 112 ordered source audit rows
 and both actual closing reviews passed. One carrier parent and one controlled
 Python child ran; additional candidate forbidden effects were zero. Application
 observations remain NOT_RUN and compatibility credit is zero. The
-[closed control evidence](cajviewer-capability-protocol.md#code-acceptance-and-original-controls)
+[closed control evidence](research/cajviewer-capability-protocol.md#code-acceptance-and-original-controls)
 records artifact pins and the precise resource/measurement scope.
 
 The wire client and selection state were written from the primary
@@ -157,7 +157,7 @@ and [gettext](https://raw.githubusercontent.com/python/cpython/v3.13.0/Lib/gette
 fact that parser construction can consult ENV. The guard and refusing-ENV
 controls are original code; no CPython implementation was copied.
 
-[The capability design](cajviewer-capability-protocol.md) gives all eight #146
+[The capability design](research/cajviewer-capability-protocol.md) gives all eight #146
 code gates, the producer-field consumer table, finite control/resource scope
 and remaining runtime discoveries. Held-source and focused-control reviews
 passed. Code acceptance requires exact committed-head reviews and the four
@@ -196,7 +196,7 @@ are provenance/usage references. All vendor runtime files, binaries, manuals,
 fonts, raw UI captures and receipts remain external; no MIT redistribution
 grant is inferred. The experimental Debian image omits installer hooks and
 all bundled document entries. Public package dependencies are not relabeled
-MIT. The [startup note](cajviewer-linux-startup.md) records exact preparation
+MIT. The [startup note](research/cajviewer-linux-startup.md) records exact preparation
 pins, first metadata failure, scope and the unattempted capability requirements.
 Child-only POSIX file limits and process-limit metadata use Python's public
 `resource`/`subprocess` APIs and Linux `/proc`; original Python writer controls
@@ -253,7 +253,7 @@ phase or complete-page/text compatibility; any such phase requires a
 separately frozen protocol.
 No Docker implementation or vendor file is copied into project source.
 
-The [seventh-profile archival note](cajviewer-startup-diagnostics-v7.md)
+The [seventh-profile archival note](research/cajviewer-startup-diagnostics-v7.md)
 records one independently reviewed public diagnostic-overlay preparation.
 Its original MIT two-file context and finite external wrapper were authored
 from repository-owned source and public Docker command references. Two
@@ -305,34 +305,34 @@ checking the provenance of each imported file.
 | --- | --- | --- |
 | PDF output and PDF input | [ISO 32000-1:2008](https://opensource.adobe.com/dc-acrobat-sdk-docs/pdfstandards/PDF32000_2008.pdf) and the [PDF specification archive](https://pdfa.org/resource/pdf-specification-archive/) | Published format specifications. Record the exact PDF version and clauses used for each implementation change. Link to the documents; do not copy their text into source. |
 | JBIG / JBIG2 bitstreams | [ITU-T T.82](https://www.itu.int/rec/T-REC-T.82) and [ITU-T T.88](https://www.itu.int/rec/T-REC-T.88/en) | Published coding recommendations. Implement the subset required by observed CAJ-family data as original MIT code. Do not reuse reference implementation source. |
-| T.82 arithmetic SCD core and numeric states | [ITU-T T.82 (03/1993)](https://www.itu.int/rec/T-REC-T.82), §6.2.5, §6.8.2.3/Table 24, §6.8.3, and §7.1/Table 26; [ITU Software Copyright Guidelines](https://www.itu.int/dms_pub/itu-t/oth/04/04/T04040000040004PDFE.pdf) | Use the public algorithm to author original MIT Rust code. Keep Table 24's 113 exact numeric rows and the §7.1 vector outside the repository until their MIT redistribution basis is documented. The [core design](t82-arithmetic-core.md) records the external-table contract and local test procedure; standard conformance does not establish CAJ compatibility. |
-| T.88 MQ arithmetic control flow and numeric states | [ITU-T T.88 (02/2000), unamended base edition](https://www.itu.int/rec/T-REC-T.88-200002-S/en), also ISO/IEC 14492:2001, Annex E.2.5/Table E.1, E.2.9–E.2.10, E.3.1–E.3.6, and H.2/Table H.1; [ITU Software Copyright Guidelines](https://www.itu.int/dms_pub/itu-t/oth/04/04/T04040000040004PDFE.pdf) | The normative decoder behavior, published 47-state numeric rows, original MIT caller-table control flow, and external-only Annex H/HN/C8 conformance inputs are separate materials. Exact Table E.1 rows and Annex H vector/checkpoints remain outside Git, artifacts, and releases. The [#44 rights record](t88-mq-rights.md), reviewed 2026-09-27 by Codex repository research and an independent Codex reviewer, remains **UNRESOLVED**: neither an exact-state MIT redistribution grant nor an independently derived 47-state model is established. This is a technical provenance review, not legal clearance. The [core note](t88-mq-core.md) records bounded API and external-only checks. Annex H.2 verifies arithmetic decisions, not CAJ/JBIG2 pixels; observed HN/C8 modes and reachable states are corpus observations, not universal guarantees. |
-| T.88 non-IAID arithmetic integers | [ITU-T T.88 (02/2000)](https://www.itu.int/rec/T-REC-T.88-200002-S/en), Annex A.1–A.2 and E.3, with symbol-dictionary usage in §§6.5 and 7.4.2 | Original MIT typed 13-bank integer decision layer over the existing caller-table MQ decoder. The [integer note](t88-arithmetic-integer.md) records its signed/OOB result, 512-context layout, 38-decision limit, and synthetic checks. No Table E.1 states, external dictionary trace, or HN/C8 compatibility claim is included. |
-| T.88 fixed-length IAID symbol IDs | [ITU-T T.88 (02/2000)](https://www.itu.int/rec/T-REC-T.88-200002-S/en), Annex A.3 and E.3, §§6.4.2, 6.4.10, 6.5.8.2.3, 7.4.2–7.4.3 | Original MIT typed context owner and IAID decision layer over the existing caller-table MQ stream. The [IAID note](t88-iaid.md) records its fixed-width context map, bounded allocation and work, reset policy, symbol-array guard, and synthetic checks. No official state rows, external trace, or HN/C8 parity claim is included. |
-| T.88 direct-coded arithmetic symbol dictionaries | [ITU-T T.88 (02/2000)](https://www.itu.int/rec/T-REC-T.88-200002-S/en), §§6.2.5, 6.5.1–6.5.10, 7.4.2.1–7.4.2.2, Tables 16 and 28, Annex A.2 and E.3.7–E.3.8; [repository-owned header inventory](../tests/conformance/jbig2_dictionary_headers.json) | Original MIT, bounded caller-table first-dictionary primitive. The [dictionary note](t88-symbol-dictionary-direct.md) records classification, MQ/context ownership, store contract, limits, and optional evidence. The observed second refinement/aggregate dictionary remains typed unsupported. Exact Table E.1 rows remain external under #44; metadata checks do not establish symbol pixel parity. |
-| T.88 template-1 generic refinement bitmaps | [ITU-T T.88 (02/2000)](https://www.itu.int/rec/T-REC-T.88-200002-S/en), §§6.3.2–6.3.5, Table 6, Figure 13, §6.5.8.2/Table 18 | Original MIT, bounded caller-table single-reference bitmap primitive. The [refinement note](t88-refinement-template1.md) records the ten-pixel context mapping, typed IAID/GR context ownership, ranged reference store, row memory, poison/error contract, and synthetic tests. The bitmap primitive alone does not decode a `0x1802` dictionary; #66 integrates its one-reference path. No external symbol-pixel oracle exists: refinement compatibility is `NOT_RUN`, zero cases. Exact Table E.1 rows remain external under #44. |
-| T.88 arithmetic single-reference symbol dictionaries | [ITU-T T.88 (02/2000)](https://www.itu.int/rec/T-REC-T.88-200002-S/en), §§6.4.10–6.4.11, 6.5.5–6.5.10, 7.4.2.1–7.4.2.2, Tables 17–18, Annex A; [repository-owned header inventory](../tests/conformance/jbig2_dictionary_headers.json) | Original MIT, bounded caller-table decoder of the observed `0x1802` second dictionary when every IAAI is one. The [integration note](t88-refinement-dictionary.md) records imported/new stores, ordered export handles, MQ state, limits, typed zero/aggregate refusals, and synthetic tests. The private 546-case trace is diagnostic; independent symbol-pixel compatibility remains `NOT_RUN`, zero proven cases. Exact Table E.1 rows remain external under #44. |
-| T.88 text-region data headers | [ITU-T T.88 (02/2000)](https://www.itu.int/rec/T-REC-T.88-200002-S/en), §§7.4.1, 7.4.3.1–7.4.3.1.4, Figures 28–29 and 35–38; committed #43 oracle text flags | Original MIT, bounded header parser with no body reads. The [text-region note](t88-text-region-header.md) records validation order and optional metadata inventory. Strict parsing remains the default; the [#88 policy note](t88-text-header-compatibility.md) documents one explicitly opted-in `0xa40c` HN/C8 exception and the preserved anomaly marker. Metadata alone establishes neither placement nor pixel compatibility. |
-| T.88 arithmetic text instances | [ITU-T T.88 (02/2000)](https://www.itu.int/rec/T-REC-T.88-200002-S/en), §§6.4.5–6.4.11, 7.4.3.1–7.4.3.2, Table 12, Annex A and E.3.7; [#85 hash-only text oracle](jbig2-text-oracle.md) | Original MIT, bounded caller-table pull decoder and optional SHA-pinned control-flow diagnostic. The [instance note](t88-text-instances.md) records context ownership, strip/RI decisions, store handles, limits, failure contract, 545 complete strict-region traces, and one strict anomaly refusal. Its event fingerprint is not independent pixel evidence; #87 supplies a separate text-only pixel comparison. #44 governs exact Table E.1 rights. |
-| T.88 text-region composition | [ITU-T T.88 (02/2000)](https://www.itu.int/rec/T-REC-T.88-200002-S/en), §§6.4.1–6.4.5 and 7.4.3.2, Tables 9–11; [#85 hash-only text oracle](jbig2-text-oracle.md) | Original MIT composition of checked #86 instances into caller-owned bounded random-access scratch, followed by sequential packed-row output. The [composer note](t88-text-composer.md) records clipping, combination, adapter ownership, limits, and optional private pixel comparison. No external decoder code, document bytes, decoded bitmap, or exact Table E.1 states are committed. |
-| Observed HN/C8 type-3 JBIG2 page composition | [ITU-T T.88 (02/2000)](https://www.itu.int/rec/T-REC-T.88-200002-S/en), §§7.4.1, 7.4.8, and 8.2; [#43 full-image oracle](jbig2-oracle.md) | Original MIT parser/preflight and bounded OR row output for only the five-segment profile observed in 546 external records. The [page note](t88-observed-page-composition.md) records segment and region constraints, caller-owned text scratch, backpressure, budgets, and failure semantics. The later [#95 private comparison](jbig2-page-parity.md) matched the observed full-page pixels; clean-clone corpus parity remains `NOT_RUN`/zero. Exact MQ state rows remain external under #44. |
-| Observed HN/C8 full-page JBIG2 pixel diagnostic | [#43 hash-only full-image oracle](jbig2-oracle.md), [#95 optional comparison](jbig2-page-parity.md), and [ITU-T T.88 (02/2000)](https://www.itu.int/rec/T-REC-T.88-200002-S/en), §§7.4.1, 7.4.8, and 8.2 | Original MIT, private-input-only comparison of packed full-page pixels for the observed five-segment subset. The private 27-file corpus and 47-state table remain outside Git and release artifacts. Reports may contain source, table, executable, and per-case pixel SHA-256 digests, failure hash comparisons, counts, and bounded resource measurements, never source bytes, table rows, or decoded pixels. The final-source #95 private run passed 545/545 strict full-page matches plus 1/1 separately labeled opt-in anomaly, with one strict anomaly-header refusal and unchanged source/table/executable hashes; a clean clone remains `NOT_RUN` with zero checked/matched pages. This establishes neither HN/C8 page placement, PDF output, universal JBIG2 support, nor independent oracle backends. #44 exact-state rights remain `UNRESOLVED`. |
-| T.88 template-2 arithmetic generic regions | [ITU-T T.88 (02/2000)](https://www.itu.int/rec/T-REC-T.88-200002-S/en), §§6.2.5.2–6.2.5.4, 6.2.5.7, 7.4.1, 7.4.6.1–7.4.6.4, Table 34, Figure 5, E.3.7 | Original MIT, bounded row decoder with caller-supplied MQ table. Two external generic-only HN/C8 pixel spots passed; all 546 remain for #50. The [region note](jbig2-generic-template2.md) records the context order, bounds, and external-only verification. |
-| CAJ-family headers, pages, and outlines | [caj2pdf format notes](https://github.com/caj2pdf/caj2pdf/wiki), including [CAJ/HN identification](https://github.com/caj2pdf/caj2pdf/wiki/CAJ-%E5%92%8C-HN), [basic information and outlines](https://github.com/caj2pdf/caj2pdf/wiki/%E6%96%87%E4%BB%B6%E5%9F%BA%E6%9C%AC%E4%BF%A1%E6%81%AF%E4%B8%8E%E5%A4%A7%E7%BA%B2), and [CAJ page content](https://github.com/caj2pdf/caj2pdf/wiki/CAJ-%E6%A0%BC%E5%BC%8F%E7%9A%84%E9%A1%B5%E9%9D%A2%E5%86%85%E5%AE%B9) | Public observations, not a complete normative specification. [Repository-owned CAJ measurements](caj-format.md) pin ten successful sample digests and document TOC, page-table, and PDF-fragment exceptions independently. Do not copy parser source or pseudocode. |
-| HN/C8 source-page layout metadata | [#61 independent byte-layout observations](hnc8-container.md), [#107 black-box reference and PDF measurements](hnc8-layout-oracle.md), and the [27-source matrix](../tests/conformance/matrix.json) | Original MIT bounded source and PDF metadata extractors record checked spans, hashes, geometry and ordered draws. The external Python converter, PyPDF2, `libjbigdec.so`, qpdf, MuPDF, Poppler, source documents and generated PDFs are test-only black boxes, never migrated code or shipped assets. The deterministic 75-page/125-draw exploratory subset and the separate two-page HN-B case are measured; 50 additional-image x/y placements have no validated source-field rule. No multi-image compositor or general full-page parity is claimed. |
-| HN/C8 container record reader | [Repository-owned #22 measurements](jbig1-oracle.md), [#61 read-only interval inventory](https://github.com/rwv/caj2pdf-rust/issues/61#issuecomment-5825547234), and the [bounded container note](hnc8-container.md) | Original MIT Rust reader of only the three measured variants. The optional hash-only comparison checks external record coordinates, not conversion or codec support. Cross-page alias policy, unknown page fields, and resource ceilings are documented in the note. No Python, Go, private Rust, wiki decompilation, or differently licensed parser source was used. |
-| HN/C8 and KDH structure report (`inspect --pages`) | The existing [container reader](hnc8-container.md), page-text and native-record readers, the [application-info trailer observation](c8-native-records.md#application-info-tail-and-source-coverage), and the [KDH signature note](kdh-format.md) | Original MIT diagnostic glue (#301) that reports which existing reader accepts each page, with spans, counts and located errors only. It adds no format interpretation: the `APPINFOSIGN <decimal offset>` trailer is located with the #302 package reader's locator, and the report does not decode its section. Tests use synthetic containers only; no corpus bytes or reports are committed. |
-| HN/C8 type-0 image wrapper and pixels | [ITU-T T.82](https://www.itu.int/rec/T-REC-T.82), [Microsoft BITMAPINFOHEADER](https://learn.microsoft.com/windows/win32/api/wingdi/ns-wingdi-bitmapinfoheader), and [repository-owned oracle measurements](jbig1-oracle.md) | The standards describe public coding and DIB fields. The local corpus measurements pin the CAJ-family wrapper and output hashes. The external differently licensed native decoder is a black-box oracle only, never implementation source or a project dependency. |
-| HN/C8 type-0 row primitive | [ITU-T T.82 (03/1993)](https://www.itu.int/rec/T-REC-T.82-199303-I/en) §§6.5, 6.7.1, 6.8.3; [independent #27 observations](jbig1-row-model.md) | [Issue #55's decoder](jbig1-type0-rows.md) is original MIT code using a caller-supplied table and bounded rows. The exact T.82 Table 24 values and official vector stay external pending #30. Its opt-in 1,400-image check uses only hashes and a private runtime fixture; it is not a released HN/C8 converter. |
-| HN/C8 type-0 PDF pages | [ITU-T T.82 (03/1993)](https://www.itu.int/rec/T-REC-T.82-199303-I/en) §6.8 (interval convention for the test-only encoder), [Adobe PDF Reference 1.7](https://opensource.adobe.com/dc-acrobat-sdk-docs/pdfstandards/pdfreference1.7old.pdf) §4.8 (1 bpp image samples, `/Decode`), and the repository's [#22](jbig1-oracle.md)/[#27](jbig1-bitstream-investigation.md) palette and orientation observations | The [#28 core converter](hnc8-type0-pdf.md) is original MIT glue between the existing reader, row decoder, and PDF writer, with a caller-supplied table. Its polarity and top-down placement follow the repository's own measurements. The invented-table test encoder is original test code. No Table 24 rows, corpus bytes, pixels, or external decoder source are included. |
-| HN/C8 selected type-0 PDF pixel diagnostic | [#22 hash-only image oracle](jbig1-oracle.md), [#100 optional PDF comparison](hnc8-type0-pdf-parity.md), and the original [#28 PDF writer path](hnc8-type0-pdf.md) | Original MIT selected-record API and synthetic tests reuse the caller-table decoder and PDF writer. The optional harness checks private source and image-span SHA-256 identities, reopens each temporary PDF with qpdf, extracts one-bit pixels with Poppler, and renders selected images with Poppler and MuPDF. The final-source private run matched 1,400/1,400 PDF-extracted visible/raw image hashes, verified all 27 source hashes before and after, and had zero failed/skipped/unsupported images; three fixed independent renders passed. The external corpus, exact T.82 Table 24 rows, official vector, output PDFs, and extracted pixels remain outside Git and releases. A clean clone reports `NOT_RUN` with zero corpus images. #30 still blocks bundling the table and standalone HN/C8 conversion. |
-| HN/C8 type-2 JPEG marker profile | [CCITT/ISO T.81 Annex B](https://www.w3.org/Graphics/JPEG/itu-t81.pdf), [ITU T.81 catalog](https://www.itu.int/rec/T-REC-T.81), [ITU/ISO T.871 JFIF](https://www.itu.int/rec/T-REC-T.871-201105-I/en), and the original [#22/#61 container observations](hnc8-container.md) | Original MIT marker/profile reader over a checked type-2 HN/C8 descriptor and bounded ranged input. It derives only functional marker syntax from the standards, with no copied tables, figures, examples, tests, or decoder software. The [profile note](hnc8-type2-jpeg.md) records the observed JFIF 1.01 compatibility subset and separates marker classification from JPEG entropy decoding and PDF color/placement. The final-source private run matched 1,085/1,085 pinned type-2 descriptors and headers, with 27/27 unchanged source identities and zero failed/unsupported/skipped records; this is no pixel or PDF parity claim. Private CAJSamples sources and JPEG payload bytes stay external; clean-clone corpus compatibility is `NOT_RUN`/zero. |
-| HN/C8 selected type-2 JPEG PDF diagnostic | [CCITT/ISO T.81 Annex B](https://www.w3.org/Graphics/JPEG/itu-t81.pdf), [ITU/ISO T.871 JFIF](https://www.itu.int/rec/T-REC-T.871-201105-I/en), [Adobe PDF Reference 1.7](https://opensource.adobe.com/dc-acrobat-sdk-docs/pdfstandards/pdfreference1.7old.pdf) §§3.3.7 and 4.8, and the original [#102 marker profile](hnc8-type2-jpeg.md) | Original MIT selected-record glue reuses the bounded HN/C8 reader and PDF writer. The three-component JFIF path explicitly selects PDF DCT `ColorTransform 1`; a bounded SHA-256 comparison binds the selected marker preflight to the streamed PDF image bytes. The [#104 final-source private run](hnc8-type2-pdf.md) matched 1,085/1,085 embedded JPEG streams, all 1,085 direct-JPEG versus `pdfimages` decoded and MuPDF page rasters pointwise, and 1,085/1,085 Poppler pages under a separately disclosed zero-slack 3×3 local-sampling rule; 27/27 source identities stayed unchanged and no image failed, skipped, or was unsupported. Poppler raw page pixels were not pointwise exact. These are one-selected-image diagnostic results, not HN/C8 page composition or standalone CLI/JS support. No external JPEG/PDF decoder source, corpus document or image bytes, or differently licensed converter implementation is included. |
-| HN/C8 type-3 JBIG2 profile and pixels | [ITU-T T.88 (02/2000)](https://www.itu.int/rec/T-REC-T.88-200002-S/en), [Microsoft BITMAPINFOHEADER](https://learn.microsoft.com/windows/win32/api/wingdi/ns-wingdi-bitmapinfoheader), and [repository-owned oracle measurements](jbig2-oracle.md) | Five SHA-pinned external documents contain 546 type-3 image records. Their original MIT metadata inventory and optional pixel-hash runner record tool agreement only. Poppler, MuPDF, qpdf, documents, PDFs, bitmaps, and decoder code are not runtime or shipped dependencies. |
-| HN/C8 selected type-3 PDF diagnostic | [Original measured five-segment profile](t88-observed-page-composition.md), [#43 full-image oracle](jbig2-oracle.md), [#95 bounded packed-page decoder](jbig2-page-parity.md), and [Adobe PDF Reference 1.7](https://opensource.adobe.com/dc-acrobat-sdk-docs/pdfstandards/pdfreference1.7old.pdf) §4.8 | Original MIT selection and output glue joins repository-owned HN/C8, JBIG2 and PDF modules. The caller supplies the T.88 MQ table and bounded intermediate storage. [#106](hnc8-type3-pdf.md) checks one selected image per PDF page; it does not establish original page placement or complete source-document conversion. Exact normative table states, private documents, emitted PDFs, and external validator source remain outside Git and release artifacts. #44 rights remain unresolved. |
-| HN/C8 type-38 generic-only JBIG2 pixels | [ITU-T T.88 (02/2000)](https://www.itu.int/rec/T-REC-T.88-200002-S/en) §§7.3, 7.4.1, 7.4.6, and 7.4.8 and [repository-owned generic-only measurements](jbig2-generic-oracle.md) | For the same 546 SHA-pinned type-3 records, original MIT tooling measures page-information segment #0 plus generic-region segment #4 alone. The hash-only manifest records black-box tool agreement, not Rust decoder parity or independent decoder implementations. No external source or generated bytes are distributed. |
-| HN/C8 type-6 text-only JBIG2 pixels | [ITU-T T.88 (02/2000)](https://www.itu.int/rec/T-REC-T.88-200002-S/en) §§6.4 and 7.4.3 and [repository-owned text-only measurements](jbig2-text-oracle.md) | Original MIT tooling measures segments #0–#3 without generic region #4 for the same 546 SHA-pinned records. The hash-only manifest separates 545 standard text headers from one `0xa40c` interoperability case. Rust matched all 545 strict-valid cases in #87 and the separately opted-in anomaly in #88; neither result verifies external decoder backend independence or full-page parity. No external source or generated bytes are distributed. |
-| KDH wrapper and XOR payload | Three SHA-pinned CAJSamples files measured independently at commit `7e1c35e7b6de34e21972fcd1752c2a7e99b4ad07` | The [KDH format note](kdh-format.md) records exact identities, offset 254, the `FZHMEI` cycle, EOF/trailer measurements, and negative controls. The clean-room author derived this code without consulting converter source. |
+| T.82 arithmetic SCD core and numeric states | [ITU-T T.82 (03/1993)](https://www.itu.int/rec/T-REC-T.82), §6.2.5, §6.8.2.3/Table 24, §6.8.3, and §7.1/Table 26; [ITU Software Copyright Guidelines](https://www.itu.int/dms_pub/itu-t/oth/04/04/T04040000040004PDFE.pdf) | Use the public algorithm to author original MIT Rust code. Keep Table 24's 113 exact numeric rows and the §7.1 vector outside the repository until their MIT redistribution basis is documented. The [core design](research/t82-arithmetic-core.md) records the external-table contract and local test procedure; standard conformance does not establish CAJ compatibility. |
+| T.88 MQ arithmetic control flow and numeric states | [ITU-T T.88 (02/2000), unamended base edition](https://www.itu.int/rec/T-REC-T.88-200002-S/en), also ISO/IEC 14492:2001, Annex E.2.5/Table E.1, E.2.9–E.2.10, E.3.1–E.3.6, and H.2/Table H.1; [ITU Software Copyright Guidelines](https://www.itu.int/dms_pub/itu-t/oth/04/04/T04040000040004PDFE.pdf) | The normative decoder behavior, published 47-state numeric rows, original MIT caller-table control flow, and external-only Annex H/HN/C8 conformance inputs are separate materials. Exact Table E.1 rows and Annex H vector/checkpoints remain outside Git, artifacts, and releases. The [#44 rights record](research/t88-mq-rights.md), reviewed 2026-09-27 by Codex repository research and an independent Codex reviewer, remains **UNRESOLVED**: neither an exact-state MIT redistribution grant nor an independently derived 47-state model is established. This is a technical provenance review, not legal clearance. The [core note](research/t88-mq-core.md) records bounded API and external-only checks. Annex H.2 verifies arithmetic decisions, not CAJ/JBIG2 pixels; observed HN/C8 modes and reachable states are corpus observations, not universal guarantees. |
+| T.88 non-IAID arithmetic integers | [ITU-T T.88 (02/2000)](https://www.itu.int/rec/T-REC-T.88-200002-S/en), Annex A.1–A.2 and E.3, with symbol-dictionary usage in §§6.5 and 7.4.2 | Original MIT typed 13-bank integer decision layer over the existing caller-table MQ decoder. The [integer note](research/t88-arithmetic-integer.md) records its signed/OOB result, 512-context layout, 38-decision limit, and synthetic checks. No Table E.1 states, external dictionary trace, or HN/C8 compatibility claim is included. |
+| T.88 fixed-length IAID symbol IDs | [ITU-T T.88 (02/2000)](https://www.itu.int/rec/T-REC-T.88-200002-S/en), Annex A.3 and E.3, §§6.4.2, 6.4.10, 6.5.8.2.3, 7.4.2–7.4.3 | Original MIT typed context owner and IAID decision layer over the existing caller-table MQ stream. The [IAID note](research/t88-iaid.md) records its fixed-width context map, bounded allocation and work, reset policy, symbol-array guard, and synthetic checks. No official state rows, external trace, or HN/C8 parity claim is included. |
+| T.88 direct-coded arithmetic symbol dictionaries | [ITU-T T.88 (02/2000)](https://www.itu.int/rec/T-REC-T.88-200002-S/en), §§6.2.5, 6.5.1–6.5.10, 7.4.2.1–7.4.2.2, Tables 16 and 28, Annex A.2 and E.3.7–E.3.8; [repository-owned header inventory](../tests/conformance/jbig2_dictionary_headers.json) | Original MIT, bounded caller-table first-dictionary primitive. The [dictionary note](research/t88-symbol-dictionary-direct.md) records classification, MQ/context ownership, store contract, limits, and optional evidence. The observed second refinement/aggregate dictionary remains typed unsupported. Exact Table E.1 rows remain external under #44; metadata checks do not establish symbol pixel parity. |
+| T.88 template-1 generic refinement bitmaps | [ITU-T T.88 (02/2000)](https://www.itu.int/rec/T-REC-T.88-200002-S/en), §§6.3.2–6.3.5, Table 6, Figure 13, §6.5.8.2/Table 18 | Original MIT, bounded caller-table single-reference bitmap primitive. The [refinement note](research/t88-refinement-template1.md) records the ten-pixel context mapping, typed IAID/GR context ownership, ranged reference store, row memory, poison/error contract, and synthetic tests. The bitmap primitive alone does not decode a `0x1802` dictionary; #66 integrates its one-reference path. No external symbol-pixel oracle exists: refinement compatibility is `NOT_RUN`, zero cases. Exact Table E.1 rows remain external under #44. |
+| T.88 arithmetic single-reference symbol dictionaries | [ITU-T T.88 (02/2000)](https://www.itu.int/rec/T-REC-T.88-200002-S/en), §§6.4.10–6.4.11, 6.5.5–6.5.10, 7.4.2.1–7.4.2.2, Tables 17–18, Annex A; [repository-owned header inventory](../tests/conformance/jbig2_dictionary_headers.json) | Original MIT, bounded caller-table decoder of the observed `0x1802` second dictionary when every IAAI is one. The [integration note](research/t88-refinement-dictionary.md) records imported/new stores, ordered export handles, MQ state, limits, typed zero/aggregate refusals, and synthetic tests. The private 546-case trace is diagnostic; independent symbol-pixel compatibility remains `NOT_RUN`, zero proven cases. Exact Table E.1 rows remain external under #44. |
+| T.88 text-region data headers | [ITU-T T.88 (02/2000)](https://www.itu.int/rec/T-REC-T.88-200002-S/en), §§7.4.1, 7.4.3.1–7.4.3.1.4, Figures 28–29 and 35–38; committed #43 oracle text flags | Original MIT, bounded header parser with no body reads. The [text-region note](research/t88-text-region-header.md) records validation order and optional metadata inventory. Strict parsing remains the default; the [#88 policy note](research/t88-text-header-compatibility.md) documents one explicitly opted-in `0xa40c` HN/C8 exception and the preserved anomaly marker. Metadata alone establishes neither placement nor pixel compatibility. |
+| T.88 arithmetic text instances | [ITU-T T.88 (02/2000)](https://www.itu.int/rec/T-REC-T.88-200002-S/en), §§6.4.5–6.4.11, 7.4.3.1–7.4.3.2, Table 12, Annex A and E.3.7; [#85 hash-only text oracle](research/jbig2-text-oracle.md) | Original MIT, bounded caller-table pull decoder and optional SHA-pinned control-flow diagnostic. The [instance note](research/t88-text-instances.md) records context ownership, strip/RI decisions, store handles, limits, failure contract, 545 complete strict-region traces, and one strict anomaly refusal. Its event fingerprint is not independent pixel evidence; #87 supplies a separate text-only pixel comparison. #44 governs exact Table E.1 rights. |
+| T.88 text-region composition | [ITU-T T.88 (02/2000)](https://www.itu.int/rec/T-REC-T.88-200002-S/en), §§6.4.1–6.4.5 and 7.4.3.2, Tables 9–11; [#85 hash-only text oracle](research/jbig2-text-oracle.md) | Original MIT composition of checked #86 instances into caller-owned bounded random-access scratch, followed by sequential packed-row output. The [composer note](research/t88-text-composer.md) records clipping, combination, adapter ownership, limits, and optional private pixel comparison. No external decoder code, document bytes, decoded bitmap, or exact Table E.1 states are committed. |
+| Observed HN/C8 type-3 JBIG2 page composition | [ITU-T T.88 (02/2000)](https://www.itu.int/rec/T-REC-T.88-200002-S/en), §§7.4.1, 7.4.8, and 8.2; [#43 full-image oracle](research/jbig2-oracle.md) | Original MIT parser/preflight and bounded OR row output for only the five-segment profile observed in 546 external records. The [page note](research/t88-observed-page-composition.md) records segment and region constraints, caller-owned text scratch, backpressure, budgets, and failure semantics. The later [#95 private comparison](research/jbig2-page-parity.md) matched the observed full-page pixels; clean-clone corpus parity remains `NOT_RUN`/zero. Exact MQ state rows remain external under #44. |
+| Observed HN/C8 full-page JBIG2 pixel diagnostic | [#43 hash-only full-image oracle](research/jbig2-oracle.md), [#95 optional comparison](research/jbig2-page-parity.md), and [ITU-T T.88 (02/2000)](https://www.itu.int/rec/T-REC-T.88-200002-S/en), §§7.4.1, 7.4.8, and 8.2 | Original MIT, private-input-only comparison of packed full-page pixels for the observed five-segment subset. The private 27-file corpus and 47-state table remain outside Git and release artifacts. Reports may contain source, table, executable, and per-case pixel SHA-256 digests, failure hash comparisons, counts, and bounded resource measurements, never source bytes, table rows, or decoded pixels. The final-source #95 private run passed 545/545 strict full-page matches plus 1/1 separately labeled opt-in anomaly, with one strict anomaly-header refusal and unchanged source/table/executable hashes; a clean clone remains `NOT_RUN` with zero checked/matched pages. This establishes neither HN/C8 page placement, PDF output, universal JBIG2 support, nor independent oracle backends. #44 exact-state rights remain `UNRESOLVED`. |
+| T.88 template-2 arithmetic generic regions | [ITU-T T.88 (02/2000)](https://www.itu.int/rec/T-REC-T.88-200002-S/en), §§6.2.5.2–6.2.5.4, 6.2.5.7, 7.4.1, 7.4.6.1–7.4.6.4, Table 34, Figure 5, E.3.7 | Original MIT, bounded row decoder with caller-supplied MQ table. Two external generic-only HN/C8 pixel spots passed; all 546 remain for #50. The [region note](research/jbig2-generic-template2.md) records the context order, bounds, and external-only verification. |
+| CAJ-family headers, pages, and outlines | [caj2pdf format notes](https://github.com/caj2pdf/caj2pdf/wiki), including [CAJ/HN identification](https://github.com/caj2pdf/caj2pdf/wiki/CAJ-%E5%92%8C-HN), [basic information and outlines](https://github.com/caj2pdf/caj2pdf/wiki/%E6%96%87%E4%BB%B6%E5%9F%BA%E6%9C%AC%E4%BF%A1%E6%81%AF%E4%B8%8E%E5%A4%A7%E7%BA%B2), and [CAJ page content](https://github.com/caj2pdf/caj2pdf/wiki/CAJ-%E6%A0%BC%E5%BC%8F%E7%9A%84%E9%A1%B5%E9%9D%A2%E5%86%85%E5%AE%B9) | Public observations, not a complete normative specification. [Repository-owned CAJ measurements](research/caj-format.md) pin ten successful sample digests and document TOC, page-table, and PDF-fragment exceptions independently. Do not copy parser source or pseudocode. |
+| HN/C8 source-page layout metadata | [#61 independent byte-layout observations](research/hnc8-container.md), [#107 black-box reference and PDF measurements](research/hnc8-layout-oracle.md), and the [27-source matrix](../tests/conformance/matrix.json) | Original MIT bounded source and PDF metadata extractors record checked spans, hashes, geometry and ordered draws. The external Python converter, PyPDF2, `libjbigdec.so`, qpdf, MuPDF, Poppler, source documents and generated PDFs are test-only black boxes, never migrated code or shipped assets. The deterministic 75-page/125-draw exploratory subset and the separate two-page HN-B case are measured; 50 additional-image x/y placements have no validated source-field rule. No multi-image compositor or general full-page parity is claimed. |
+| HN/C8 container record reader | [Repository-owned #22 measurements](research/jbig1-oracle.md), [#61 read-only interval inventory](https://github.com/rwv/caj2pdf-rust/issues/61#issuecomment-5825547234), and the [bounded container note](research/hnc8-container.md) | Original MIT Rust reader of only the three measured variants. The optional hash-only comparison checks external record coordinates, not conversion or codec support. Cross-page alias policy, unknown page fields, and resource ceilings are documented in the note. No Python, Go, private Rust, wiki decompilation, or differently licensed parser source was used. |
+| HN/C8 and KDH structure report (`inspect --pages`) | The existing [container reader](research/hnc8-container.md), page-text and native-record readers, the [application-info trailer observation](research/c8-native-records.md#application-info-tail-and-source-coverage), and the [KDH signature note](research/kdh-format.md) | Original MIT diagnostic glue (#301) that reports which existing reader accepts each page, with spans, counts and located errors only. It adds no format interpretation: the `APPINFOSIGN <decimal offset>` trailer is located with the #302 package reader's locator, and the report does not decode its section. Tests use synthetic containers only; no corpus bytes or reports are committed. |
+| HN/C8 type-0 image wrapper and pixels | [ITU-T T.82](https://www.itu.int/rec/T-REC-T.82), [Microsoft BITMAPINFOHEADER](https://learn.microsoft.com/windows/win32/api/wingdi/ns-wingdi-bitmapinfoheader), and [repository-owned oracle measurements](research/jbig1-oracle.md) | The standards describe public coding and DIB fields. The local corpus measurements pin the CAJ-family wrapper and output hashes. The external differently licensed native decoder is a black-box oracle only, never implementation source or a project dependency. |
+| HN/C8 type-0 row primitive | [ITU-T T.82 (03/1993)](https://www.itu.int/rec/T-REC-T.82-199303-I/en) §§6.5, 6.7.1, 6.8.3; [independent #27 observations](research/jbig1-row-model.md) | [Issue #55's decoder](research/jbig1-type0-rows.md) is original MIT code using a caller-supplied table and bounded rows. The exact T.82 Table 24 values and official vector stay external pending #30. Its opt-in 1,400-image check uses only hashes and a private runtime fixture; it is not a released HN/C8 converter. |
+| HN/C8 type-0 PDF pages | [ITU-T T.82 (03/1993)](https://www.itu.int/rec/T-REC-T.82-199303-I/en) §6.8 (interval convention for the test-only encoder), [Adobe PDF Reference 1.7](https://opensource.adobe.com/dc-acrobat-sdk-docs/pdfstandards/pdfreference1.7old.pdf) §4.8 (1 bpp image samples, `/Decode`), and the repository's [#22](research/jbig1-oracle.md)/[#27](research/jbig1-bitstream-investigation.md) palette and orientation observations | The [#28 core converter](research/hnc8-type0-pdf.md) is original MIT glue between the existing reader, row decoder, and PDF writer, with a caller-supplied table. Its polarity and top-down placement follow the repository's own measurements. The invented-table test encoder is original test code. No Table 24 rows, corpus bytes, pixels, or external decoder source are included. |
+| HN/C8 selected type-0 PDF pixel diagnostic | [#22 hash-only image oracle](research/jbig1-oracle.md), [#100 optional PDF comparison](research/hnc8-type0-pdf-parity.md), and the original [#28 PDF writer path](research/hnc8-type0-pdf.md) | Original MIT selected-record API and synthetic tests reuse the caller-table decoder and PDF writer. The optional harness checks private source and image-span SHA-256 identities, reopens each temporary PDF with qpdf, extracts one-bit pixels with Poppler, and renders selected images with Poppler and MuPDF. The final-source private run matched 1,400/1,400 PDF-extracted visible/raw image hashes, verified all 27 source hashes before and after, and had zero failed/skipped/unsupported images; three fixed independent renders passed. The external corpus, exact T.82 Table 24 rows, official vector, output PDFs, and extracted pixels remain outside Git and releases. A clean clone reports `NOT_RUN` with zero corpus images. #30 still blocks bundling the table and standalone HN/C8 conversion. |
+| HN/C8 type-2 JPEG marker profile | [CCITT/ISO T.81 Annex B](https://www.w3.org/Graphics/JPEG/itu-t81.pdf), [ITU T.81 catalog](https://www.itu.int/rec/T-REC-T.81), [ITU/ISO T.871 JFIF](https://www.itu.int/rec/T-REC-T.871-201105-I/en), and the original [#22/#61 container observations](research/hnc8-container.md) | Original MIT marker/profile reader over a checked type-2 HN/C8 descriptor and bounded ranged input. It derives only functional marker syntax from the standards, with no copied tables, figures, examples, tests, or decoder software. The [profile note](research/hnc8-type2-jpeg.md) records the observed JFIF 1.01 compatibility subset and separates marker classification from JPEG entropy decoding and PDF color/placement. The final-source private run matched 1,085/1,085 pinned type-2 descriptors and headers, with 27/27 unchanged source identities and zero failed/unsupported/skipped records; this is no pixel or PDF parity claim. Private CAJSamples sources and JPEG payload bytes stay external; clean-clone corpus compatibility is `NOT_RUN`/zero. |
+| HN/C8 selected type-2 JPEG PDF diagnostic | [CCITT/ISO T.81 Annex B](https://www.w3.org/Graphics/JPEG/itu-t81.pdf), [ITU/ISO T.871 JFIF](https://www.itu.int/rec/T-REC-T.871-201105-I/en), [Adobe PDF Reference 1.7](https://opensource.adobe.com/dc-acrobat-sdk-docs/pdfstandards/pdfreference1.7old.pdf) §§3.3.7 and 4.8, and the original [#102 marker profile](research/hnc8-type2-jpeg.md) | Original MIT selected-record glue reuses the bounded HN/C8 reader and PDF writer. The three-component JFIF path explicitly selects PDF DCT `ColorTransform 1`; a bounded SHA-256 comparison binds the selected marker preflight to the streamed PDF image bytes. The [#104 final-source private run](research/hnc8-type2-pdf.md) matched 1,085/1,085 embedded JPEG streams, all 1,085 direct-JPEG versus `pdfimages` decoded and MuPDF page rasters pointwise, and 1,085/1,085 Poppler pages under a separately disclosed zero-slack 3×3 local-sampling rule; 27/27 source identities stayed unchanged and no image failed, skipped, or was unsupported. Poppler raw page pixels were not pointwise exact. These are one-selected-image diagnostic results, not HN/C8 page composition or standalone CLI/JS support. No external JPEG/PDF decoder source, corpus document or image bytes, or differently licensed converter implementation is included. |
+| HN/C8 type-3 JBIG2 profile and pixels | [ITU-T T.88 (02/2000)](https://www.itu.int/rec/T-REC-T.88-200002-S/en), [Microsoft BITMAPINFOHEADER](https://learn.microsoft.com/windows/win32/api/wingdi/ns-wingdi-bitmapinfoheader), and [repository-owned oracle measurements](research/jbig2-oracle.md) | Five SHA-pinned external documents contain 546 type-3 image records. Their original MIT metadata inventory and optional pixel-hash runner record tool agreement only. Poppler, MuPDF, qpdf, documents, PDFs, bitmaps, and decoder code are not runtime or shipped dependencies. |
+| HN/C8 selected type-3 PDF diagnostic | [Original measured five-segment profile](research/t88-observed-page-composition.md), [#43 full-image oracle](research/jbig2-oracle.md), [#95 bounded packed-page decoder](research/jbig2-page-parity.md), and [Adobe PDF Reference 1.7](https://opensource.adobe.com/dc-acrobat-sdk-docs/pdfstandards/pdfreference1.7old.pdf) §4.8 | Original MIT selection and output glue joins repository-owned HN/C8, JBIG2 and PDF modules. The caller supplies the T.88 MQ table and bounded intermediate storage. [#106](research/hnc8-type3-pdf.md) checks one selected image per PDF page; it does not establish original page placement or complete source-document conversion. Exact normative table states, private documents, emitted PDFs, and external validator source remain outside Git and release artifacts. #44 rights remain unresolved. |
+| HN/C8 type-38 generic-only JBIG2 pixels | [ITU-T T.88 (02/2000)](https://www.itu.int/rec/T-REC-T.88-200002-S/en) §§7.3, 7.4.1, 7.4.6, and 7.4.8 and [repository-owned generic-only measurements](research/jbig2-generic-oracle.md) | For the same 546 SHA-pinned type-3 records, original MIT tooling measures page-information segment #0 plus generic-region segment #4 alone. The hash-only manifest records black-box tool agreement, not Rust decoder parity or independent decoder implementations. No external source or generated bytes are distributed. |
+| HN/C8 type-6 text-only JBIG2 pixels | [ITU-T T.88 (02/2000)](https://www.itu.int/rec/T-REC-T.88-200002-S/en) §§6.4 and 7.4.3 and [repository-owned text-only measurements](research/jbig2-text-oracle.md) | Original MIT tooling measures segments #0–#3 without generic region #4 for the same 546 SHA-pinned records. The hash-only manifest separates 545 standard text headers from one `0xa40c` interoperability case. Rust matched all 545 strict-valid cases in #87 and the separately opted-in anomaly in #88; neither result verifies external decoder backend independence or full-page parity. No external source or generated bytes are distributed. |
+| KDH wrapper and XOR payload | Three SHA-pinned CAJSamples files measured independently at commit `7e1c35e7b6de34e21972fcd1752c2a7e99b4ad07` | The [KDH format note](research/kdh-format.md) records exact identities, offset 254, the `FZHMEI` cycle, EOF/trailer measurements, and negative controls. The clean-room author derived this code without consulting converter source. |
 | C8 and TEB variants | [caj2pdf format notes](https://github.com/caj2pdf/caj2pdf/wiki) and independently observed files | No complete normative specification is registered here. A pull request must explain each new rule and its test evidence; TEB is currently detection only. |
 
 Issue #5 uses these PDF 1.7 facts from the published
@@ -382,7 +382,7 @@ active xref and unique page-tree links are checked. The synthetic PDF tests
 are repository-owned MIT work; the external documents and normalized outputs
 remain outside Git.
 
-Issue #7's [CAJ format note](caj-format.md) records direct byte measurements
+Issue #7's [CAJ format note](research/caj-format.md) records direct byte measurements
 for ten Python-success CAJ files from the same external matrix, including
 their SHA-256 digests, header and page-table fields, all 603 outline records,
 six short PDF stream lengths in one sample, and the fact that a final page-
@@ -394,7 +394,7 @@ Issue #11 adds the original MIT `crates/caj2pdf-core/src/kdh.rs` ranged XOR
 adapter, `tests/kdh_conversion.rs`, the native KDH examples, and the raw WASM
 bridge and JavaScript proof changes. The KDH
 offset, key, and EOF facts come only from the three external corpus files
-whose SHA-256 values are registered in [the KDH note](kdh-format.md) and the
+whose SHA-256 values are registered in [the KDH note](research/kdh-format.md) and the
 conformance matrix. The files were authored for this repository; no Python,
 Go, or private Rust module was migrated. The temporary decoded PDFs, MuPDF
 renders, and local sparse-tail copy are not committed. The new code adds no
@@ -516,7 +516,7 @@ decoder source was migrated from Python, Go, a private Rust module, or
 another library.
 The original MIT [`caj_conversion.rs`](../crates/caj2pdf-core/tests/caj_conversion.rs)
 tests construct synthetic CAJ bytes at runtime from the independently recorded
-fields in the [CAJ format note](caj-format.md), including a four-byte GB18030
+fields in the [CAJ format note](research/caj-format.md), including a four-byte GB18030
 title. They do not contain CAJSamples document bytes or a reference PDF.
 
 Issue #13 adds the original MIT WASM engine and exports in
@@ -568,7 +568,7 @@ corpus and matrix from the runtime-built CAJ and KDH inputs and the MIT
 to exercise warnings, timeouts, and interruption; no CAJSamples
 document, derived PDF, or code from another converter is used or committed.
 
-Issue #22's [HN/C8 image-oracle note](jbig1-oracle.md) records independent
+Issue #22's [HN/C8 image-oracle note](research/jbig1-oracle.md) records independent
 container and DIB byte measurements for 27 SHA-256-pinned external files, a
 metadata-and-hash-only manifest of 1,400 type-0 images, and two secondary
 PDF-image comparisons. The external GLWT-licensed library from the pinned
@@ -585,7 +585,7 @@ Issue #61 adds original MIT
 example, [synthetic tests](../crates/caj2pdf-core/tests/hnc8_container.rs),
 and the opt-in
 [hash-only comparison](../tests/conformance/hnc8_container_compare.py).
-The [container note](hnc8-container.md) records each adopted layout fact,
+The [container note](research/hnc8-container.md) records each adopted layout fact,
 unknown field, alias policy, and resource bound. The 27 external document
 sizes/hashes and 1,400 type-0 coordinates are inherited from the independent
 #22 manifest; #61's separate 27-file interval inventory informed the
@@ -593,7 +593,7 @@ conservative protected-region rule. No CAJSamples document, encoded payload,
 PDF, private decoder table, or external parser source is committed. No
 private-source module is proposed for migration.
 
-Issue #27's [bitstream investigation](jbig1-bitstream-investigation.md) uses
+Issue #27's [bitstream investigation](research/jbig1-bitstream-investigation.md) uses
 the #22 source/hash inventory, separately supplied standard T.82 command
 line tools, native decoder calls only as a black-box oracle, and observations
 from reference PDFs and MuPDF renders. The optional
@@ -626,7 +626,7 @@ unique temporary spool, and an external hash-checked probability fixture.
 It embeds no corpus bytes, oracle pixels, Table 24 rows, or official vector.
 Issue #55 replaced the harness's experimental row assembly with the new
 independently authored public [`jbig1::Type0Decoder`](../crates/caj2pdf-core/src/jbig1.rs).
-The [row API note](jbig1-type0-rows.md) records the exact wrapper checks,
+The [row API note](research/jbig1-type0-rows.md) records the exact wrapper checks,
 context order, streaming memory bound, and opt-in local 1,400-image result.
 The new decoder's source, comments, and invented-table tests were authored
 from T.82 and the already published #27 behavior specification; no private
@@ -640,7 +640,7 @@ Issue #28's first core slice adds original MIT
 multi-placement page methods in
 [`pdf/document.rs`](../crates/caj2pdf-core/src/pdf/document.rs), and the
 [synthetic integration tests](../crates/caj2pdf-core/tests/hnc8_type0_pdf.rs).
-The [type-0 PDF note](hnc8-type0-pdf.md) records the adopted palette,
+The [type-0 PDF note](research/hnc8-type0-pdf.md) records the adopted palette,
 padding, orientation, geometry, and multi-image rules; each comes from the
 PDF 1.7 reference or the repository's own #22/#27 observations. The tests'
 arithmetic encoder was written for this repository from the T.82 interval
@@ -651,7 +651,7 @@ images, and PDFs are generated at run time. qpdf, Poppler, and MuPDF run
 only as independent test-time validators. No private-source module is
 proposed for migration, and Table 24 remains external under #30.
 
-Issue #26's [arithmetic-core design](t82-arithmetic-core.md) is derived from
+Issue #26's [arithmetic-core design](research/t82-arithmetic-core.md) is derived from
 the English ITU-T T.82 (03/1993) publication, official PDF SHA-256
 `6d4280f4402ce285199b3835dda54e35372e8378e7352d2e88ab3ac420f46942`.
 It covers §6.2.5, §6.8.2.3/Table 24, §6.8.3.1–§6.8.3.9, and §7.1/Table 26.
@@ -692,7 +692,7 @@ exports that module from the existing
 synthetic header bytes and assertions in
 [`jbig2_segment_header.rs`](../crates/caj2pdf-core/tests/jbig2_segment_header.rs),
 and records the implementation boundary in the original English
-[header note](jbig2-segment-header.md). Its format facts come only from the
+[header note](research/jbig2-segment-header.md). Its format facts come only from the
 English [ITU-T T.88 (02/2000)](https://www.itu.int/rec/T-REC-T.88-200002-S/en),
 §§5.4.2 and 7.1–7.3, with Annex D used to distinguish contiguous segments
 from standalone file organizations. No source was migrated from Python, Go,
@@ -701,7 +701,7 @@ Annex H vector bytes were copied into code, tests, or documentation. The
 reader consumes only a caller-delimited segment and does not establish
 JBIG2 pixel or HN/C8 compatibility; those external checks are `NOT_RUN`.
 The T.88 Annex E numeric-state redistribution basis remains unresolved under
-the [#44 rights record](t88-mq-rights.md); exact states or an integrated
+the [#44 rights record](research/t88-mq-rights.md); exact states or an integrated
 decoder containing them cannot be bundled under MIT on this evidence.
 
 Issue #45 adds the original MIT, table-supplied MQ control-flow module in
@@ -709,7 +709,7 @@ Issue #45 adds the original MIT, table-supplied MQ control-flow module in
 original invented-state tests in
 [`mq_core.rs`](../crates/caj2pdf-core/tests/mq_core.rs), and an ignored
 [external-only Annex H.2 test](../crates/caj2pdf-core/tests/mq_t88_external.rs).
-The [T.88 MQ note](t88-mq-core.md) lists the exact official clauses, API
+The [T.88 MQ note](research/t88-mq-core.md) lists the exact official clauses, API
 limits, fixture format and digest, and local conformance result. The official
 PDF and its Table E.1/Annex H.2 extraction remain only under `/tmp`; source
 contains a SHA-256 digest but no normative row, vector, or pixel bytes. No
@@ -733,7 +733,7 @@ come from the English T.88 (02/2000) §§7.1–7.4 and Annex D.3. The
 independently chosen synthetic headers and assertions in
 [`jbig2_directory.rs`](../crates/caj2pdf-core/tests/jbig2_directory.rs),
 the Rust [inventory executable](../crates/caj2pdf-core/examples/jbig2_directory_inventory.rs),
-the English [directory note](jbig2-directory.md), and the read-only
+the English [directory note](research/jbig2-directory.md), and the read-only
 [`jbig2_directory_inventory.py`](../scripts/jbig2_directory_inventory.py)
 driver are project-owned MIT work. The Python driver reuses only the existing
 MIT `conformance.py` and `jbig1_oracle.py` helpers for pinned SHA checks and
@@ -762,7 +762,7 @@ Issue #49 adds the original MIT template-2 generic-region decoder in
 invented-state synthetic tests in
 [`jbig2_generic.rs`](../crates/caj2pdf-core/tests/jbig2_generic.rs), and an
 ignored [external-only two-spot test](../crates/caj2pdf-core/tests/generic_t88_external.rs).
-The [generic-region note](jbig2-generic-template2.md) records the official
+The [generic-region note](research/jbig2-generic-template2.md) records the official
 T.88 clauses, context-bit assignment, bounds, failure semantics, and local
 black-box pixel comparison. Only the official T.88 (02/2000) text and this
 repository's MIT MQ and I/O APIs informed the implementation. The exact
@@ -777,7 +777,7 @@ Issue #50 adds the original MIT
 [`jbig2_generic_parity.py`](../scripts/jbig2_generic_parity.py) driver,
 [`jbig2_generic_parity.rs`](../crates/caj2pdf-core/examples/jbig2_generic_parity.rs)
 native probe, and [synthetic tests](../tests/conformance/test_jbig2_generic_parity.py).
-The [parity note](jbig2-generic-parity.md) records its exact optional inputs,
+The [parity note](research/jbig2-generic-parity.md) records its exact optional inputs,
 failure semantics, 546/546 generic-only Rust-to-baseline result, native
 memory and I/O measurements, and unmeasured WASM runtime memory. The work
 reuses only this repository's MIT inventory, black-box oracle, and row
@@ -788,7 +788,7 @@ not full-image or complete conversion parity; #44 still governs table rights.
 
 Issue #54 adds the original MIT Annex A.2 procedure in
 [`jbig2/integer.rs`](../crates/caj2pdf-core/src/jbig2/integer.rs) and the
-[integer note](t88-arithmetic-integer.md). Only the official T.88 (02/2000)
+[integer note](research/t88-arithmetic-integer.md). Only the official T.88 (02/2000)
 text and this repository's MIT MQ API informed the implementation. The
 test bit streams and invented MQ state table are project-owned; no exact
 Table E.1 states, Annex H bytes, external CAJ documents, converter source,
@@ -809,7 +809,7 @@ Issue #60 adds the original MIT Annex A.3 IAID procedure in
 [`jbig2/iaid.rs`](../crates/caj2pdf-core/src/jbig2/iaid.rs), its original
 [unit tests](../crates/caj2pdf-core/src/jbig2/iaid/tests.rs), and its
 [public API tests](../crates/caj2pdf-core/tests/jbig2_iaid.rs). The
-[IAID note](t88-iaid.md) records the exact official clauses, the fixed-width
+[IAID note](research/t88-iaid.md) records the exact official clauses, the fixed-width
 context map, scoped reset behavior, symbol-array guard, and memory formula.
 The official English T.88 PDF with SHA-256
 `a94850aa659f4c5267051d1e17081dc4ffd04531c3d659c6bc2835802035ec69`
@@ -827,7 +827,7 @@ Issue #62 adds the original MIT direct symbol-dictionary decoder in
 [`jbig2/dictionary.rs`](../crates/caj2pdf-core/src/jbig2/dictionary.rs),
 reuses this repository's MIT MQ, integer, segment-header, and template-2
 pixel-context code, and records the design in the
-[dictionary note](t88-symbol-dictionary-direct.md). Original tiny synthetic
+[dictionary note](research/t88-symbol-dictionary-direct.md). Original tiny synthetic
 tests use an invented 47-state machine and independently chosen decisions.
 The original MIT
 [native metrics probe](../crates/caj2pdf-core/examples/jbig2_dictionary_metrics.rs)
@@ -897,7 +897,7 @@ zero cases.
 
 Issue #85 adds the original MIT optional
 [`jbig2_text_oracle.py`](../scripts/jbig2_text_oracle.py), synthetic tests,
-[scope note](jbig2-text-oracle.md), and a
+[scope note](research/jbig2-text-oracle.md), and a
 [hash-only manifest](../tests/conformance/jbig2_text_oracle.json). It reuses
 repository-owned #42, #43, and #69 readers and the existing PDF/PBM helpers;
 no decoder implementation or new dependency was copied or added. The only
@@ -945,7 +945,7 @@ and decoded bitmaps remain outside Git. Generic-region combination,
 full-page rendering, and PDF integration remain open under #9.
 
 Issue #88 adds the original MIT, explicitly selected HN/C8 text-header
-policy described in [its scope note](t88-text-header-compatibility.md). The
+policy described in [its scope note](research/t88-text-header-compatibility.md). The
 only exception is the unused `SBRTEMPLATE` bit in the pinned raw `0xa40c`
 header when `SBREFINE=0`; the ordinary parser and decoder remain strict.
 The source coordinate, SHA-256, two flag bytes, located #69 refusal, and
@@ -977,8 +977,8 @@ this repository against the core's public API; no Python, Go, private Rust,
 or third-party CLI source was copied, transliterated, or migrated. The only
 format facts they add are the leading-signature table, taken from the
 signatures already recorded in the [fixture note](../tests/fixtures/README.md),
-the [HN/C8 container note](hnc8-container.md), and the
-[KDH note](kdh-format.md). The JSON encoder follows the published
+the [HN/C8 container note](research/hnc8-container.md), and the
+[KDH note](research/kdh-format.md). The JSON encoder follows the published
 [RFC 8259](https://www.rfc-editor.org/rfc/rfc8259) string grammar. The
 process tests build tiny CAJ, KDH, C8, and HN containers at run time from
 those notes and use the existing MIT PDF fixtures; no binary fixture is
@@ -1012,11 +1012,11 @@ Poppler image-list outputs, and hashes raw image streams without retaining
 them. Reference generation invokes a pinned external Python checkout and
 native decoder solely as black-box tools. Their code, package files, source
 documents, PDFs, rendered pixels and raw text stay outside Git and release
-artifacts. The [layout note](hnc8-layout-oracle.md) records exact hashes,
+artifacts. The [layout note](research/hnc8-layout-oracle.md) records exact hashes,
 versions, scope, resource measurements, controlled perturbations and the
 unresolved image-placement rule. #30 and #44 rights questions remain open.
 
-Issue #110's [placement plan](hnc8-placement-experiments.md) records
+Issue #110's [placement plan](research/hnc8-placement-experiments.md) records
 read-only structural checks on the same two SHA-pinned HN-A/C8 sources and
 the public #107 CTMs. The observed JPEG APP0 fields are identical across
 50 additional images. Four predeclared one-byte JFIF metadata probes, each
@@ -1037,7 +1037,7 @@ external. No external converter implementation supplied code or pseudocode.
 Issue #111 independently recognizes a complete zlib frame at text-relative
 `+24`, a little-endian decoded-length field at `+20`, and an observed
 decompressed record layout in the two #107 HN-A/C8 documents. The
-[text-framing note](hnc8-text-source.md) records the corpus scope and exact
+[text-framing note](research/hnc8-text-source.md) records the corpus scope and exact
 predeclared fixed-row controls. RFC 1950/1951 are functional framing
 references; no RFC sample code, external converter parser, raw document text,
 or private prefix bytes are copied. The original MIT diagnostic scripts use
@@ -1070,7 +1070,7 @@ The existing locked flate2 Rust backend and sha2 dependencies are reused
 under their accepted MIT grants. No codec code or arithmetic-state tables
 are copied or migrated.
 
-The [placement-profile plan](hnc8-placement-rule.md) freezes the calibrated
+The [placement-profile plan](research/hnc8-placement-rule.md) freezes the calibrated
 `240/2473` factor, `0.24` point pixel scale and first-type-0 DIB stride width
 before new field interventions or native comparisons. These observations
 are scoped to the two HN-A/C8 reference documents, not an authoritative
@@ -1107,7 +1107,7 @@ raw/JPEG image handles and ordered affine placements in `pdf/document.rs`,
 formatter and object-index preflight are independently authored standard
 library glue; no PDF library, converter implementation or new dependency is
 copied or introduced. The functional PDF matrix/image/stream rules come from
-the PDF 1.7 sections already referenced in the [writer note](pdf-writer.md).
+the PDF 1.7 sections already referenced in the [writer note](research/pdf-writer.md).
 Original source-only unit fixtures and `pdf_placement_bounds.rs` /
 `pdf_placement_render.rs` generate tiny asymmetric images at runtime. Installed
 qpdf, MuPDF, Poppler and libjpeg-turbo are independent test-only black boxes,
@@ -1134,7 +1134,7 @@ Original synthetic fixtures use invented QM states and a text-prefix digest,
 not external table states or opaque document bytes. Independent PDF tools
 remain runtime test-only executables, never linked or distributed code.
 
-The [predeclared protocol](hnc8-page-composition-protocol.md) was committed
+The [predeclared protocol](research/hnc8-page-composition-protocol.md) was committed
 before private source/table/sample extraction, conversion or rendering. It
 requires complete ordered metadata, all padded type-0 samples and every
 pixel of all 75 HN-A/C8 and two HN-B output pages, with exact source/tool/
@@ -1145,9 +1145,9 @@ only reviewed metadata and outcome hashes belong in the evidence record.
 
 The first comparison remains a recorded failure at the reference sample-
 dictionary guard. A separately predeclared
-[dictionary-only probe](hnc8-page-composition-dictionary-probe.md) observed
+[dictionary-only probe](research/hnc8-page-composition-dictionary-probe.md) observed
 explicit Flate identity parameters, without converting, extracting samples
-or rendering pages. The [controlled comparison amendment](hnc8-page-composition-identity-params-rerun.md)
+or rendering pages. The [controlled comparison amendment](research/hnc8-page-composition-identity-params-rerun.md)
 accepts only that direct four-field, one-bit, one-color, Predictor=1 profile.
 Its interpretation follows the linked Adobe PDF reference and qpdf inspection
 documentation, not converter source. Original asymmetric runtime PDFs test
@@ -1290,7 +1290,7 @@ checker; it cannot be replaced by a passing exit code.
 [tests/conformance/test_vendor_fixtures.py](../tests/conformance/test_vendor_fixtures.py)
 are original MIT schema, integrity, regeneration and runtime-control code.
 The versioned contract is documented in
-[vendor-fixture-manifest.md](vendor-fixture-manifest.md). No converter or
+[vendor-fixture-manifest.md](research/vendor-fixture-manifest.md). No converter or
 proprietary implementation was read, copied, translated or linked to build
 this tooling. It adds no Cargo or Python package dependency; it uses only
 the Python standard library and POSIX file descriptors for confined I/O.
@@ -1321,7 +1321,7 @@ Current official-vendor acquisition and compatibility remain `NOT_RUN`.
 [scripts/hnc8_outline_observation.py](../scripts/hnc8_outline_observation.py)
 and its [runtime controls](../tests/conformance/test_hnc8_outline_observation.py)
 are original MIT diagnostic code. The preserved finite protocol and later
-implementation gates are in [hnc8-outline-observation.md](hnc8-outline-observation.md).
+implementation gates are in [hnc8-outline-observation.md](research/hnc8-outline-observation.md).
 This preparation adds no core decoder, native/JavaScript API or dependency.
 It reuses only repository-owned MIT process/metadata primitives and the
 original runtime PDF wrapper generator. No Python/Go/private Rust converter,
@@ -1373,7 +1373,7 @@ first frozen files and every historical external artifact remain unchanged.
 
 The separately frozen selected-source Stage A is now closed with discovery
 PASS, `POSITIVE_OUTLINE_OBSERVED` and compatibility UNVERIFIED. The
-[closed report](hnc8-outline-stage-a-results.md) binds the exact frozen protocol
+[closed report](research/hnc8-outline-stage-a-results.md) binds the exact frozen protocol
 and external receipts, three header/index observations, six unchanged existing
 PDFs, 12 independent qpdf/MuPDF outline queries, 24 validator children and one
 runner. All 93 before/after identity records and closing runtime audits pass.
@@ -1391,7 +1391,7 @@ supported rule before original bounded native implementation. Native child
 and blocker [#137](https://github.com/rwv/caj2pdf-rust/issues/137) defines those
 separate evidence gates; #119 remains open with all six acceptance criteria unmet.
 
-The [Stage B proposal](hnc8-outline-stage-b-proposal.md) is original MIT,
+The [Stage B proposal](research/hnc8-outline-stage-b-proposal.md) is original MIT,
 public-only protocol/design preparation for #137. It uses the reviewed closed
 Stage A report and repository-owned source, supplies no candidate field grammar,
 and adopts no executable contract or resource ceiling. The held-out identities
@@ -1409,7 +1409,7 @@ The COMMON/LOADER/VALIDATOR fragments in
 [tools/cajviewer/run.py](../tools/cajviewer/run.py) and
 [test_cajviewer_source_loading.py](../tests/conformance/test_cajviewer_source_loading.py)
 are independently authored original MIT code and controls. The
-[source-load contract](cajviewer-source-loading.md) preserves the first sealed
+[source-load contract](research/cajviewer-source-loading.md) preserves the first sealed
 P2 FAIL and its unknown missing-file cause. It permits only the two original
 public MIT module paths, complete bounded byte identities, four ordered load
 stages and fixed safe failure metadata. No proprietary, legacy-converter,
@@ -1437,7 +1437,7 @@ gates are separate required final-head evidence. Old frozen code, plans, reports
 and the first P2 FAIL/cause UNKNOWN remain unchanged. The separately frozen
 v11 phase is now closed FAIL, with exact ordered source-load observations
 and successful Root/independent closing reviews, documented in
-[the runtime-view report](cajviewer-runtime-view-v11.md). #124 is not completed
+[the runtime-view report](research/cajviewer-runtime-view-v11.md). #124 is not completed
 by this public diagnostic prerequisite.
 
 The v11 report and project-plan update are original MIT English metadata
@@ -1468,9 +1468,9 @@ implementation was read, copied or translated for this work.
 | --- | --- |
 | `tools/cajviewer/run.py` | Original MIT helper producer, independent host validator, duplicate-safe bounded parser, canonical entry and fixed assembly compaction; inherited owned public source-loader bytes and both module pins are preserved |
 | `tests/conformance/test_cajviewer_inventory_diagnostics.py` | Original MIT control code with invented results and mutations; exercises the actual owned fragments, complete entry/finally and host observation path |
-| `docs/cajviewer-inventory-diagnostics.md` | Original MIT English contract from the public issue and reviewed owned source interfaces; contains no actual stderr or runtime/private byte data |
+| `docs/research/cajviewer-inventory-diagnostics.md` | Original MIT English contract from the public issue and reviewed owned source interfaces; contains no actual stderr or runtime/private byte data |
 | `PROJECT_PLAN.md` | Original MIT English checkpoint update; separates source readiness from runtime/capability proof |
-| `docs/cajviewer-fixtures.md` | Original MIT English fixture-plan update; preserves native blockers and unverified actual acquisition |
+| `docs/research/cajviewer-fixtures.md` | Original MIT English fixture-plan update; preserves native blockers and unverified actual acquisition |
 | `docs/provenance.md` | Original MIT per-file provenance statement and scope record |
 
 All control stderr/stdout, exceptions, malformed frames and result mutations
@@ -1506,7 +1506,7 @@ receipts remain outside Git.
 This is independently authored original MIT source, controls and English
 documentation. Its basis is the reviewed owned #148 diagnostic API, public
 #151 contract and primary Fontconfig/XDG documentation linked in the
-[integration contract](cajviewer-inventory-diagnostics.md#fixed-host-cache-profile-151).
+[integration contract](research/cajviewer-inventory-diagnostics.md#fixed-host-cache-profile-151).
 No proprietary implementation, legacy converter, private HN/JBIG source,
 vendor binary or private document was inspected or copied.
 
@@ -1515,8 +1515,8 @@ vendor binary or private document was inspected or copied.
 | `tools/cajviewer/run.py` | Original pure host-only profile; copied declared ENV and exact Docker tokens are returned together outside all canonical fragments |
 | `tests/conformance/test_cajviewer_inventory_cache.py` | Original controls using invented ENV/helper results and the actual profile/full entry APIs; no runtime/private bytes |
 | `tests/conformance/test_cajviewer_inventory_diagnostics.py` | Original owned test helper gains injected expected, initial and closing ENV values; production entry/finally statements remain unchanged |
-| `docs/cajviewer-inventory-diagnostics.md` | Original English profile/integration contract and paraphrased V13 finding; raw stderr stays external |
-| `PROJECT_PLAN.md`, `docs/cajviewer-fixtures.md` | Original English checkpoint/native-prerequisite updates; source readiness remains separate from runtime/capability proof |
+| `docs/research/cajviewer-inventory-diagnostics.md` | Original English profile/integration contract and paraphrased V13 finding; raw stderr stays external |
+| `PROJECT_PLAN.md`, `docs/research/cajviewer-fixtures.md` | Original English checkpoint/native-prerequisite updates; source readiness remains separate from runtime/capability proof |
 | `docs/provenance.md` | Original per-file provenance and unchanged-source scope record |
 
 The API performs no filesystem, ambient environment, tool or process action.
@@ -1535,7 +1535,7 @@ The fragment-scanner changes and synthetic tests are original MIT work.
 They reuse the already approved MIT flate2 dependency and existing PDF parser;
 no converter source or new decoder dependency was imported. Format evidence
 is independent inspection of the issue-77 bytes and zlib consumption recorded
-in [the CAJ observations](caj-format.md#indirect-stream-lengths-159).
+in [the CAJ observations](research/caj-format.md#indirect-stream-lengths-159).
 The synthetic compressed streams, integer references, malformed targets and
 marker-containing payloads were authored for this repository. External CAJ,
 viewer screenshots and derived text remain outside Git. The observed CCITT
@@ -1543,7 +1543,7 @@ stream is still unsupported; Flate progress is not document compatibility.
 
 ### HN-A outline field observations (#137)
 
-[HN-A outline fields](hnc8-outline-fields.md) records two additional positive
+[HN-A outline fields](research/hnc8-outline-fields.md) records two additional positive
 black-box references and fifteen original copied-input controls. No Python,
 Go or private Rust HN/parser implementation was read or copied. Only original
 control strings, located numeric observations, counts and identities are public;
@@ -1557,7 +1557,7 @@ PDF destination changes belong to #119 and require their own tests/review.
 
 The ranged HN-A outline visitor and nullable XYZ PDF destination support are
 original MIT implementations based on the independent observations documented
-in [HN-A outline fields](hnc8-outline-fields.md). The existing original GB18030
+in [HN-A outline fields](research/hnc8-outline-fields.md). The existing original GB18030
 decoder was moved to a shared core module without changing its mapping.
 No Python, Go or private HN/JBIG implementation was copied or transliterated.
 Tests contain invented records and titles; external documents, title lists,
@@ -1567,7 +1567,7 @@ reference PDFs and caller-owned QM table data are not redistributed.
 
 The compressed-header tags and variable-word handling were independently
 observed from inputs and two black-box controls, documented in
-[compressed text framing](hnc8-compressed-text-header.md). This original MIT
+[compressed text framing](research/hnc8-compressed-text-header.md). This original MIT
 change removes document-specific prefix hashes and the test-only override;
 synthetic tests use format tags with invented payload values. No converter
 implementation or external document payload is copied into source fixtures.
@@ -1577,7 +1577,7 @@ implementation or external document payload is copied into source fixtures.
 
 The original MIT raw-record state machine and shared type-0 display-width
 rule use independent input observations and black-box controls described in
-[the format note](hnc8-uncompressed-text.md). No Python/Go/private converter
+[the format note](research/hnc8-uncompressed-text.md). No Python/Go/private converter
 implementation or document text was copied. Fixtures are invented records
 with format tags; reference data and runtime tables remain external.
 
@@ -1650,7 +1650,7 @@ is claimed. The external corpus and generated artifacts remain outside Git.
 Original vector controls and a pinned CAJViewer black-box experiment establish
 its Letter fallback when MediaBox is absent. The converter writes that box
 only on a synthesized CAJ page-tree root, preserving descendant overrides.
-See [the experiment and selected real-page comparisons](cajviewer-page-boxes.md).
+See [the experiment and selected real-page comparisons](research/cajviewer-page-boxes.md).
 No vendor or legacy converter implementation was read or copied. The source
 rule is a documented viewer-compatibility fallback, not inferred lost metadata.
 
@@ -1660,7 +1660,7 @@ The #118 integration and its serial scratch views are original MIT code,
 reusing the repository's independently authored decoder and fixture builder.
 No dependency was added. The four-image black-box observation, reference
 revision and source digest are recorded in
-[the source-page note](hnc8-page-composition.md#actual-external-observation-and-remaining-work).
+[the source-page note](research/hnc8-page-composition.md#actual-external-observation-and-remaining-work).
 External reference libraries, probability tables, documents and output
 pixels remain outside the repository. That observation establishes selected
 image padding/orientation only; the full-source attempt found an unsupported
@@ -1672,7 +1672,7 @@ fixtures and independently rendered synthetic pixels are separate evidence.
 The additional `hnc8/text/records.rs` parser and its tests are original MIT
 code based on bounded byte observations, using the existing flate2 backend.
 It does not decode or copy document text, legacy HN parsing code or probability
-tables. [The direct-frame note](hnc8-direct-text.md) records the source identity,
+tables. [The direct-frame note](research/hnc8-direct-text.md) records the source identity,
 black-box reference revision, four-page comparison and separate Poppler
 orientation control. External documents, derived pixels, reference libraries
 and diagnostic control PDFs remain outside Git. The failed earlier run and
@@ -1682,7 +1682,7 @@ the separately failed pull-72 reference attempt remain failures.
 
 The shared raw/direct consumer and bounded group comparison are original MIT
 code derived from external source-byte observations and black-box output.
-[The rule, sample identity and comparisons](hnc8-repeated-groups.md) distinguish
+[The rule, sample identity and comparisons](research/hnc8-repeated-groups.md) distinguish
 source mapping from Python page-count and color-declaration defects. No legacy
 implementation was inspected or imported. Unit images and records use existing
 original fixture builders; documents, tables, JPEG payloads and renders remain
@@ -1742,7 +1742,7 @@ outline absence is deliberately not inferred.
 
 ## HN-A/C8 declared geometry (2026-09-29, #123)
 
-[Controlled vendor observations](cajviewer-hnc8-kdh.md#controlled-geometry-checks)
+[Controlled vendor observations](research/cajviewer-hnc8-kdh.md#controlled-geometry-checks)
 independently varied HN-A header words at 0xa8/0xaa, C8 words at 0x20/0x22,
 and raw image-record words at +8/+10. They establish separate page/display
 extents for those observed profiles, not a normative physical unit or HN-B
@@ -1781,7 +1781,7 @@ level; the reservation rejects configured-budget violations, not OS OOM.
 Project-owned output buffering is fallibly allocated and capped at 16 KiB.
 The original synthetic fixtures and independent qpdf/render checks are extended
 to decode Flate streams; external C8 evidence is hash-only in the
-[compression report](bilevel-compression.md).
+[compression report](research/bilevel-compression.md).
 
 
 ## Windows adapter dependencies (#204)
@@ -1916,7 +1916,7 @@ controls. External text, images, fonts and source mutations are not committed.
 
 ### C8 native-record inventory and field controls (#232)
 
-`docs/c8-native-records.md` records an original bounded-span survey of the
+`docs/research/c8-native-records.md` records an original bounded-span survey of the
 SHA-pinned issue-66 source and four original single-word controls observed
 through the pinned offline viewer. Whole-file comparisons verify mutation
 boundaries; repeated captures are checked separately from navigation-dependent
@@ -1961,7 +1961,7 @@ MIT code. The generator creates two invented pages with unequal lengths and
 crosses 12/20-byte rows with two observed layout markers. It reads no external
 document or converter source and includes no fonts, outlines or source text.
 The independent viewer observations and admitted limits are recorded in
-`docs/hnb-compact-index.md`. All external captures/documents remain outside Git.
+`docs/research/hnb-compact-index.md`. All external captures/documents remain outside Git.
 ## Caller-supplied TrueType metadata (#233)
 
 The original MIT ranged adapter in `pdf/font.rs` follows Microsoft's
@@ -1974,7 +1974,7 @@ metadata tests contain no copied font outlines or external font data.
 This is a resource primitive, not completed native C8 rendering or validation
 of every glyph outline. The shared writer now embeds fonts and emits positioned glyphs, segments and
 images. C8 style interpretation and complete six-page acceptance remain open
-under #233; see [the output contract](pdf-native-text.md).
+under #233; see [the output contract](research/pdf-native-text.md).
 
 `xberg-ttf-parser` **1.1.0**, normal native and WASM dependency, supplies
 borrowed `Face::from_raw_tables` and character/metric APIs. Default features
@@ -2034,7 +2034,7 @@ It writes an invented five-character, eight-row document from observed format
 constants, without loading or transforming an external document. It contains
 no copied converter implementation, font bytes or glyph outlines. The raw
 header identifier is an observed format fact. Viewer observations and their
-limits are recorded in `docs/c8-native-records.md`; screenshots remain external.
+limits are recorded in `docs/research/c8-native-records.md`; screenshots remain external.
 
 The same builder's additional control/coordinate variants insert independently
 chosen records into the original rows. They establish raw framing observations
@@ -2057,7 +2057,7 @@ transform arguments are recorded externally. No vendor implementation,
 proprietary font program or glyph outline was copied into the project. Original
 control-page captures agree exactly with the earlier uninstrumented captures.
 These limited observations do not establish font redistribution rights or
-complete C8 rendering support; see `docs/c8-native-records.md`.
+complete C8 rendering support; see `docs/research/c8-native-records.md`.
 
 
 ### Original geometric-font size controls (#240)
@@ -2094,7 +2094,7 @@ The bounded dictionary-prefix handling in `pdf/input/fragment_scan.rs` is
 original MIT code derived from independently observed source structure and
 byte comparisons against already validated objects. Its synthetic tests use
 invented dictionaries and values. No converter implementation or external
-source document content is copied. See `docs/caj-interrupted-objects.md` for
+source document content is copied. See `docs/research/caj-interrupted-objects.md` for
 the exact evidence, acceptance rule and remaining failures.
 
 The later-copy extension uses independently parsed CAJ page-table spans and
@@ -2108,7 +2108,7 @@ source results remain outside Git; complete-document acceptance is still open.
 `hnc8/native.rs`'s `80cc/01xx` extension, original Rust tests and
 `tools/cajviewer/c8_encoded_prefix_fixture.py` were written independently
 from indexed record observations and original controlled viewer inputs.
-`docs/c8-encoded-prefix.md` records the accepted boundary and rejected
+`docs/research/c8-encoded-prefix.md` records the accepted boundary and rejected
 254-character probe. No other converter source, vendor outlines or external
 text was copied. The visitor exposes a validated source span with unknown
 semantics; it does not silently discard a resource or enable conversion.
@@ -2119,7 +2119,7 @@ The short and eight-byte record extensions in `hnc8/native.rs`, their Rust
 regressions and `tools/cajviewer/c8_native_control_fixture.py` are original
 MIT work. Bounded source observations identified candidate tag/value pairs;
 17 original two-glyph controls independently checked their boundaries in the
-pinned offline viewer. `docs/c8-native-controls.md` records three visible
+pinned offline viewer. `docs/research/c8-native-controls.md` records three visible
 state changes and leaves transform semantics unresolved. No other converter
 source, vendor outlines or external document text were copied. All captured
 and derived external content remains outside Git.
@@ -2131,7 +2131,7 @@ Original one-/two-image controls establish byte-length/alignment, coordinates
 and embedded descriptor order without reading another converter implementation.
 `tools/cajviewer/c8_image_fixture.py` is the identical original helper from #235;
 `c8_image_reference_fixture.py` adds independently drawn color geometry and
-invented reference names. `docs/c8-image-references.md` records successful
+invented reference names. `docs/research/c8-image-references.md` records successful
 controls and excluded failed probes. External documents, captured pages and
 reference bytes stay outside Git. No pathname resolution or viewer code is used.
 ### HN-B raw glyph-run traversal
@@ -2139,7 +2139,7 @@ reference bytes stay outside Git. No pathname resolution or viewer code is used.
 The HN-B visitor extension and unit controls are original MIT implementation.
 It reuses the independently generated two-page controls in
 `tools/cajviewer/hnb_index_fixture.py` and their recorded ordinary CAJViewer
-navigation observations in `docs/hnb-compact-index.md`. No converter code,
+navigation observations in `docs/research/hnb-compact-index.md`. No converter code,
 external text, document, font or capture is copied. Only the verified glyph-run
 record subset and the independently controlled eight-byte prefix are admitted;
 C8-only records retain a separate HN-B rejection. The prefix controls use
@@ -2155,7 +2155,7 @@ MIT work. Evidence comes from independently constructed two-page documents and
 ordinary pinned CAJViewer rendering with original geometric fonts. No converter
 implementation, vendor font outlines or external document content was copied.
 The implementation preserves raw record boundaries; it does not infer rendering
-semantics from unchanged screenshots. See `docs/hnb-compact-index.md`.
+semantics from unchanged screenshots. See `docs/research/hnb-compact-index.md`.
 
 The `hnb-8070-*` controls independently establish the two observed four-byte
 `8070` forms. Their original generated bytes reproduce the viewer inputs;
@@ -2206,7 +2206,7 @@ metadata tests contain no copied font outlines or external font data.
 This is a resource primitive, not completed native C8 rendering or validation
 of every glyph outline. The shared writer now embeds fonts and emits positioned glyphs, segments and
 images. C8 style interpretation and complete six-page acceptance remain open
-under #233; see [the output contract](pdf-native-text.md).
+under #233; see [the output contract](research/pdf-native-text.md).
 
 `xberg-ttf-parser` **1.1.0**, normal native and WASM dependency, supplies
 borrowed `Face::from_raw_tables` and character/metric APIs. Default features
@@ -2287,7 +2287,7 @@ based on independent byte comparisons in the hash-pinned CAJ inputs. No Python,
 Go or vendor implementation was copied or translated. Synthetic positive and
 negative controls use invented PDF objects and payloads; external documents and
 the issue-92 PDF/render receipts remain outside Git. See
-[caj-interrupted-objects.md](caj-interrupted-objects.md) for bounded proof rules
+[caj-interrupted-objects.md](research/caj-interrupted-objects.md) for bounded proof rules
 and the distinction between complete conversion and pending viewer fidelity.
 
 ### CAJ cross-row candidate regression
@@ -2295,7 +2295,7 @@ and the distinction between complete conversion and pending viewer fidelity.
 The original three-span candidate fixture in `pdf/input/fragment_scan.rs`
 uses invented dictionaries and a repeated synthetic stream payload. It models
 the independently observed issue-30 row dependency recorded in
-`docs/caj-interrupted-objects.md`; no source content is copied. Candidate
+`docs/research/caj-interrupted-objects.md`; no source content is copied. Candidate
 collection reuses the original scanner, with deferred references always
 validated by the final complete-fragment path.
 
@@ -2403,7 +2403,7 @@ committed and no production native-format admission is inferred.
 
 The issue-30 deferred Flate recovery uses original exact-anchor and deferred
 prefix checks, based on the source offsets recorded in
-`docs/caj-interrupted-objects.md`. The known Length scalar supplies only a local
+`docs/research/caj-interrupted-objects.md`. The known Length scalar supplies only a local
 candidate boundary; a fully parsed counterpart must prove every retained byte.
 Earlier complete arrays and bare-header counterparts use the same proof, with
 ambiguous prior copies rejected. Tests contain authored scalar/array objects,
@@ -2635,7 +2635,7 @@ No vendor outlines or document text are imported. `legacy_state_controls`
 adds six original paired-row controls for `8072/0`, distinguishing resource
 selection and explicit-axis persistence with original markers in the pinned
 offline viewer. Source hashes, repeated captures and comparisons remain
-external; scoped findings are recorded in `docs/hnb-compact-index.md`.
+external; scoped findings are recorded in `docs/research/hnb-compact-index.md`.
 
 Remaining mode-0 metadata admission uses the same original paired-row
 fixture generator: `80ce/1`, `8073/41..43`, the observed `8074` values,
@@ -2695,7 +2695,7 @@ establish the scoped `81ff/1..3` `(0,200)` black-glyph transition and its
 persistence across tested style/resource changes. The implementation uses
 one per-page gray byte in the existing composer; no source was copied or
 transliterated. Other color payloads remain explicit errors. See
-`docs/c8-native-controls.md` for independent viewer and MuPDF observations,
+`docs/research/c8-native-controls.md` for independent viewer and MuPDF observations,
 external evidence locations, excluded captures and remaining limitations.
 
 ### Additional C8 resource-mode transitions
@@ -2704,7 +2704,7 @@ Original MIT `mode_documents()` controls in the existing native-control
 generator independently distinguish C8 `80ce/0` persistence from style/font
 selection and `80ce/1` restoration. The implementation adds one per-page
 boolean to the shared composer; it copies no third-party implementation.
-`docs/c8-native-controls.md` records the eight repeated viewer controls,
+`docs/research/c8-native-controls.md` records the eight repeated viewer controls,
 MuPDF geometry/color residuals, original regressions and unsupported glyph
 scope. External screenshots/documents remain outside Git.
 
@@ -2715,7 +2715,7 @@ control generator compare `80cc/0204` source/extreme/marker-like payloads in
 ordinary and CJK modes. Twelve repeated offline viewer controls preserve
 their painting baselines. The composer reuses the atomic bounded parser event;
 no foreign implementation or new buffering is introduced. Raw metadata stays
-available to visitors. See `docs/c8-native-controls.md` for evidence and scope;
+available to visitors. See `docs/research/c8-native-controls.md` for evidence and scope;
 this does not infer metadata semantics or text-selection behavior.
 
 ### C8 extended font-state framing
@@ -2725,7 +2725,7 @@ four-byte `801d/28` and `/31` framing and distinguish ordinary Latin resource
 changes from the `a3ca` CJK marker behavior. The parser preserves raw values
 without inventing a font mapping. Multiple marker-substituted files prevent
 an original-font identity or state-equivalence claim. See
-`docs/c8-native-controls.md` for repeated evidence and explicit remaining
+`docs/research/c8-native-controls.md` for repeated evidence and explicit remaining
 rendering/Unicode work; external fonts and captures are not committed.
 
 ### Identified original resource markers and C8 fullwidth J
@@ -2736,7 +2736,7 @@ Eighty-four reproducible marker substitutes identify distinct state-28
 `HGB1_CNKI` and state-31 `HGB1X_CNKI` resources in the pinned viewer. Repeated
 controls and fresh ordinary-copy evidence establish C8 `a3ca` as U+FF2A with
 CJK resource/geometry. The shared renderer adds that observed glyph rule;
-no foreign font data or code is committed. `docs/c8-native-controls.md` records
+no foreign font data or code is committed. `docs/research/c8-native-controls.md` records
 accepted evidence, excluded startup/name-changing trials and pending font
 transport. Source font files, captures and clipboard payloads stay external.
 
@@ -2747,7 +2747,7 @@ above. Their original implementation extends the existing bounded font path
 with two optional indices and a fixed eight-resource capacity. Existing WASM
 registration exports are preserved; no vendor fonts or foreign code are
 included. See `docs/io-architecture.md` for Rust migration and
-`docs/c8-native-controls.md` for remaining complete-document limits.
+`docs/research/c8-native-controls.md` for remaining complete-document limits.
 
 ### C8 fullwidth alphabet
 
@@ -2758,7 +2758,7 @@ marker-resource, geometry and fresh ordinary-copy observations establish the
 Only the observed C8 resource/placement ranges are added to the shared renderer.
 No vendor implementation, fonts, document content or clipboard payload is
 committed. Accepted and excluded observations are listed in
-`docs/c8-native-controls.md`.
+`docs/research/c8-native-controls.md`.
 
 ### C8 field-4 style variant
 
@@ -2767,7 +2767,7 @@ supported `1084` and the distinct `1085` size in two glyph-selection modes and
 three resource states. Repeated original-marker observations and baseline-
 identical PDFs justify only the specific additional style. The implementation
 reuses existing glyph metrics without foreign code or font data. External
-receipts and remaining document limits are recorded in `docs/c8-native-controls.md`.
+receipts and remaining document limits are recorded in `docs/research/c8-native-controls.md`.
 
 ### C8 state and small explicit-axis controls
 
@@ -2777,7 +2777,7 @@ adjacent-size observations establish the specific four-unit geometry and Latin
 baseline; the measured one-pixel render residual is retained in the evidence
 record. The implementation reuses the existing axis fields and transform.
 No foreign code, fonts, source text or captures are committed. See
-`docs/c8-native-controls.md` for evidence and remaining full-document failures.
+`docs/research/c8-native-controls.md` for evidence and remaining full-document failures.
 
 ### C8 fullwidth at sign
 
@@ -2786,7 +2786,7 @@ Original MIT `at_sign_documents()` reuses the authored alphabet grid to compare
 ordinary-copy evidence establishes U+FF20, while original marker comparisons
 establish the shared resource/placement rule. The existing decoder and symbol
 range implement that rule without vendor code or font data. Source documents,
-clipboard text and captures remain external; see `docs/c8-native-controls.md`.
+clipboard text and captures remain external; see `docs/research/c8-native-controls.md`.
 
 ### C8 `9002/0` framing and painting preservation
 
@@ -2795,7 +2795,7 @@ for the exact `9002/0` record in ordinary/CJK modes, with glyphs, line segments,
 decoration and JPEG content. The original implementation reuses the existing
 bounded Control event and rejects other values/profiles. No source-specific
 scanning or foreign code is used; external captures/fonts/corpus remain outside
-Git. Evidence and scope are recorded in `docs/c8-native-controls.md`.
+Git. Evidence and scope are recorded in `docs/research/c8-native-controls.md`.
 
 ### Additional C8 field-5/6 style aliases
 
@@ -2805,7 +2805,7 @@ sizes as discriminators. The implementation reuses the established field-size
 metrics and retains errors for unobserved combinations. Only original controls
 and code are committed; external corpus, fonts and captures are not. Accepted
 captures and the excluded startup trial are documented in
-`docs/c8-native-controls.md`.
+`docs/research/c8-native-controls.md`.
 
 ### C8 `281c` skew controls
 
@@ -2815,7 +2815,7 @@ glyph discriminate width from height; independent raster measurements retain
 edge residuals instead of fitting compensating offsets. The implementation
 reuses the existing scalar state and PDF matrix. No vendor implementation,
 font data or source-document content is committed; external evidence is listed
-in `docs/c8-native-controls.md`.
+in `docs/research/c8-native-controls.md`.
 
 ### C8 low-byte letter mapping
 
@@ -2825,7 +2825,7 @@ and verifies its composition with the measured skew. Fresh ordinary-copy
 evidence establishes U+006C. The exact C8-only mapping uses existing placement
 and font roles; no generic low-byte range or HN-B behavior is inferred. External
 clipboard bytes, fonts and captures stay outside Git. Accepted/excluded captures
-and the one-level grayscale residual are documented in `docs/c8-native-controls.md`.
+and the one-level grayscale residual are documented in `docs/research/c8-native-controls.md`.
 
 ### C8 field-1 glyph controls
 
@@ -2833,7 +2833,7 @@ Original MIT `field1_documents()` isolates required small glyph dimensions,
 independent axes and Latin baseline using original geometric fonts. The narrow
 placement extension uses these observations, not a vendor size table. External
 captures and font data remain outside Git; evidence limits are recorded in
-`docs/c8-native-controls.md`.
+`docs/research/c8-native-controls.md`.
 
 ### C8 small square-bracket placement
 
@@ -2841,7 +2841,7 @@ Original MIT isolated bracket and shifted-reference controls verify resource
 selection and independently varied width/height offsets at three small styles.
 The implementation reuses existing placement state and PDF emission. Marker
 fonts, source captures and generated PDFs remain external; raster residuals and
-excluded overlapping controls are documented in `docs/c8-native-controls.md`.
+excluded overlapping controls are documented in `docs/research/c8-native-controls.md`.
 
 ### C8 state-3 resource
 
@@ -2998,7 +2998,7 @@ fixtures. Corpus documents and derived PDFs remain outside Git.
 `hnc8/appinfo.rs`, its tests and the PDF `/Info` writer path are original MIT
 code. The trailer framing, length fields and element names come from this
 project's own read-only, bounded inspection of the pinned C8 sources recorded
-in `docs/c8-native-records.md`; no converter implementation, XML library or
+in `docs/research/c8-native-records.md`; no converter implementation, XML library or
 CAJViewer code was consulted or copied. The scanner is a deliberately small
 original element walker, not a port of an XML parser. Tests generate invented
 packages with flate2 or a hand-built stored zlib block. No document bytes,

@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT
 """Opt-in, pinned JFIF placement probes for issue #110.
 
-Only the four edits predeclared in docs/hnc8-placement-experiments.md are
+Only the four edits predeclared in docs/research/hnc8-placement-experiments.md are
 allowed. The external converter is executed as a black box. Source documents,
 mutated copies and PDFs stay outside the repository; reports contain metadata
 and SHA-256 values only. A clean clone performs no private comparison.

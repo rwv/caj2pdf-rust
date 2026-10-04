@@ -175,7 +175,7 @@ unchanged. PDF byte snapshots/hashes change even when pixels and layout do not.
 For bilevel conversion, `limits.maxAllocationBytes` must be at least `512n *
 1024n` for the fixed compressor reservation (the default 64 MiB already covers
 this). This is a per-allocation requirement, not a whole-process memory budget.
-See the [compression measurements](../docs/bilevel-compression.md).
+See the [compression measurements](../docs/research/bilevel-compression.md).
 
 ## Scoped HN/C8 scratch
 
@@ -282,7 +282,7 @@ files in its own `finally`; cleanup cannot guarantee removal after host failure.
 HN-A/C8 type-1 and type-2 JPEG images share the bounded validation/emission
 path. The HN/C8 adapter also selects the documented unused-refinement-template
 interoperability policy; generic JBIG2 parsing remains strict. See the
-[type-1 profile and checks](../docs/hnc8-type1.md).
+[type-1 profile and checks](../docs/research/hnc8-type1.md).
 
 HN-A outlines are supported. C8/HN-B currently require explicit
 `includeBookmarks: false`. Admitted native C8/HN-B text pages use the
@@ -290,7 +290,7 @@ HN-A outlines are supported. C8/HN-B currently require explicit
 unverified content is rejected rather than silently omitted. The shared HN/C8
 route admits only the documented unused-refinement-template anomaly. Other
 malformed JBIG2 headers remain errors. Image-only pages receive no OCR text
-layer; [Unicode, whitespace and reading-order limits](../docs/hnc8-text-fidelity.md)
+layer; [Unicode, whitespace and reading-order limits](../docs/research/hnc8-text-fidelity.md)
 remain separate from native glyph rendering. HN/C8 inspection validates metadata without implying
 that the document can be converted. Located conversion and metadata failures use error code
 `HNC8`. Standard numeric state adoption is recorded in #189.
@@ -458,7 +458,7 @@ Each `results` row has `id`, `format`, `reference` (`expected_outcome`),
 do not block `PASS`. Page counts and `qpdf --check` do not compare page
 order, rendering, or outlines with the reference PDFs, so the known
 reference differences (`issue-40`/`issue-44` page order and
-`issue-49`/`issue-73` outlines; see [CAJ format notes](../docs/caj-format.md))
+`issue-49`/`issue-73` outlines; see [CAJ format notes](../docs/research/caj-format.md))
 are outside this check. A timeout aborts at the next I/O call; a WASM loop
 that never returns to I/O is not interrupted. The CI WASM job runs the
 script with an empty `CAJ2PDF_CORPUS_DIR` and asserts `NOT_RUN` with zero
@@ -571,7 +571,7 @@ contract as the document. Browser `blobSource` and Node `fileHandleSource`
 work for fonts too. Reuse the same source object across roles to embed it
 once. Character coverage alone does not guarantee compatible widths or
 bearings, or prevent overlap at fixed source positions. See the
-[same-resource controls](../docs/c8-real-font-fidelity.md#same-resource-control-follow-up).
+[same-resource controls](../docs/research/c8-real-font-fidelity.md#same-resource-control-follow-up).
 The optional decoration character is a nonsemantic BMP alias, not document
 text. Roles exist because source role selection differs from Unicode/script
 selection.

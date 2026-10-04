@@ -52,7 +52,7 @@ unavailable corpus/render comparisons remain NOT_RUN.
 ## Optional HN/C8 placement diagnostics
 
 The [#107 layout oracle](hnc8_layout_oracle.json) contains ordered source and
-PDF image metadata. The original MIT [#110 experiment note](../../docs/hnc8-placement-experiments.md)
+PDF image metadata. The original MIT [#110 experiment note](../../docs/research/hnc8-placement-experiments.md)
 records a frozen 36-draw discovery and 14-draw validation split, negative
 geometry controls, and two black-box experiment batches. Inspect the
 committed-oracle geometry controls without private inputs:
@@ -72,14 +72,14 @@ pinned external corpus, reference, tool, artifact and #107 report paths are
 explicitly supplied. With no paths it reports `NOT_RUN` and zero private
 comparisons. `hnc8_text_transplant.py` has the same opt-in boundary for the
 separately predeclared C8/HN-A full-text component probes. The
-[experiment note](../../docs/hnc8-placement-experiments.md) gives exact
+[experiment note](../../docs/research/hnc8-placement-experiments.md) gives exact
 spans, hashes, outcomes and evidence limits. Both text-component probes
 changed target supplemental translations to the donor values without
 changing image bytes; the exact source fields and placement rule remain
 unknown within that compound-control investigation. No private source, PDF
 or image bytes are included in this repository.
 
-The [#111 text-source note](../../docs/hnc8-text-source.md) identifies complete
+The [#111 text-source note](../../docs/research/hnc8-text-source.md) identifies complete
 zlib framing on the two #107 HN-A/C8 reference documents and records valid
 fixed-row controls that isolate text-content placement effects.
 `hnc8_text_frame.py` validates a declared frame with bounded chunks and an
@@ -91,7 +91,7 @@ selects two donor-content controls; explicit `--batch fields` selects four
 individual decoded-field probes and two informational-wrapper controls.
 Explicit `--batch highbit` selects four #112 unsigned-versus-signed controls,
 with the exact recipes/hashes and eight-run ceiling frozen in the
-[placement-profile note](../../docs/hnc8-placement-rule.md). It audits the
+[placement-profile note](../../docs/research/hnc8-placement-rule.md). It audits the
 actual mapped libz and Python binaries before and after execution. Each
 batch has its own committed plan, frozen source hashes and run ceiling.
 All three clean-clone modes remain `NOT_RUN`, including every converter
@@ -197,7 +197,7 @@ are metadata observations, not decoded-symbol or page-conversion results.
 is a metadata-only check of the type-6 text region #3 in all 546 HN/C8
 type-3 images. It follows
 [ITU-T T.88 (02/2000), §§7.4.1 and 7.4.3.1](https://www.itu.int/rec/T-REC-T.88-200002-S/en)
-and the [text-region header note](../../docs/t88-text-region-header.md).
+and the [text-region header note](../../docs/research/t88-text-region-header.md).
 No per-image manifest is committed: the script compares each header's flags
 with the committed #43 oracle and checks pinned aggregates.
 
@@ -247,16 +247,16 @@ headers from the `0xa40c` `INTEROPERABILITY_NONCONFORMING` case. A clean clone
 without the optional corpus reports `NOT_RUN` with zero checked cases. An
 explicitly supplied missing, changed, or malformed corpus or manifest, a
 renderer disagreement, or semantic manifest drift is `FAIL`. This is
-black-box tool agreement; the separate [#87 comparison](../../docs/t88-text-composer.md)
+black-box tool agreement; the separate [#87 comparison](../../docs/research/t88-text-composer.md)
 checks Rust text-only output against it. Backend implementation independence
 is `UNVERIFIED`.
-The [scope and limits](../../docs/jbig2-text-oracle.md) include reproduction
+The [scope and limits](../../docs/research/jbig2-text-oracle.md) include reproduction
 details, resource caps, and the measured 546/546 run.
 
 ## Optional JBIG2 text-instance control trace
 
 [`jbig2_text_instance_diagnostic.py`](../../scripts/jbig2_text_instance_diagnostic.py)
-drives the [#86 pull decoder](../../docs/t88-text-instances.md) with a
+drives the [#86 pull decoder](../../docs/research/t88-text-instances.md) with a
 separately held T.88 table and CAJSamples corpus. It requires the #42/#43,
 #66, #69, and #85 pinned metadata and SHA values before invoking Rust.
 
@@ -273,14 +273,14 @@ RI=0, RI=1, and strip counts plus an ordered event fingerprint. A local
 run completed all 545 strict-valid regions: 353,829 instances, including
 243,728 RI=0 and 110,101 RI=1; the remaining raw `0xa40c` header received
 the expected strict refusal. This is decoder control flow only; the separate
-[#87 comparison](../../docs/t88-text-composer.md) checks composed pixels.
+[#87 comparison](../../docs/research/t88-text-composer.md) checks composed pixels.
 A clean clone reports
 `NOT_RUN`/0, whereas explicitly absent or changed inputs fail.
 
 ## Optional JBIG2 text-region pixel comparison
 
 [`jbig2_text_region_parity.py`](../../scripts/jbig2_text_region_parity.py)
-drives the [#87 bounded composer](../../docs/t88-text-composer.md) over the
+drives the [#87 bounded composer](../../docs/research/t88-text-composer.md) over the
 same pinned 546 type-3 records. It takes the separately held T.88 state table
 and uses the [#85 text-only manifest](jbig2_text_oracle.json) as an expected
 hash and black-pixel baseline. Expected pixels are compared in Python and
@@ -319,7 +319,7 @@ The `opt_in_anomaly` result counts one text-only pixel match separately from
 the 545 strict-valid cases. Its typed marker and raw flags remain visible;
 strict mode still reports one located header refusal. A missing or changed
 explicit input fails, while a clean clone remains `NOT_RUN`/0. The
-[policy note](../../docs/t88-text-header-compatibility.md) records the
+[policy note](../../docs/research/t88-text-header-compatibility.md) records the
 normative violation, source coordinate and hashes, and HN/C8 integration
 boundary.
 

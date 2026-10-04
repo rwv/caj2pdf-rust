@@ -35,7 +35,7 @@ fn put_u32(bytes: &mut [u8], offset: usize, value: u32) {
 }
 
 /// A two-page, one-bookmark CAJ whose page-tree root is written by the core.
-/// Layout facts are those registered in `docs/caj-format.md`.
+/// Layout facts are those registered in `docs/research/caj-format.md`.
 fn caj_bytes() -> Vec<u8> {
     let objects = [
         (

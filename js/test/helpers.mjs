@@ -26,7 +26,7 @@ export async function fixture(name) {
   return new Uint8Array(await readFile(new URL(`../../tests/fixtures/${name}`, import.meta.url)));
 }
 
-/** A KDH wrapper (docs/kdh-format.md) around a repository-owned PDF fixture. */
+/** A KDH wrapper (docs/research/kdh-format.md) around a repository-owned PDF fixture. */
 export async function syntheticKdh() {
   const pdf = await fixture("valid_out_of_order_objects.pdf");
   const wrapped = new Uint8Array(254 + pdf.length);
@@ -40,7 +40,7 @@ export async function syntheticKdh() {
 }
 
 /**
- * A two-page, one-bookmark CAJ (docs/caj-format.md). The page-tree root is
+ * A two-page, one-bookmark CAJ (docs/research/caj-format.md). The page-tree root is
  * absent from the body, so the core must reconstruct it.
  */
 export function syntheticCaj() {

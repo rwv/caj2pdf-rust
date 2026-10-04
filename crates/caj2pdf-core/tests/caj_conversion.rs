@@ -2,7 +2,7 @@
 
 //! End-to-end CAJ conversion using independently authored container bytes.
 //! The header, twelve-byte page rows, and 308-byte TOC records follow the
-//! public observations registered in `docs/caj-format.md`.
+//! public observations registered in `docs/research/caj-format.md`.
 
 use caj2pdf_core::{
     ConversionOptions, Error, Limits, NeverCancel, RangedSource, SequentialSink,

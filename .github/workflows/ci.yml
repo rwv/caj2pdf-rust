@@ -303,6 +303,8 @@ jobs:
         run: cargo deny --locked --all-features check advisories bans
       - name: Flag vendored and generated source for review
         run: bash scripts/check-source-inventory.sh
+      - name: Check relative Markdown links
+        run: python3 scripts/check-doc-links.py
 
   coverage:
     # Keep this name aligned with the required branch-protection check.

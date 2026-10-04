@@ -1,6 +1,6 @@
 # Conformance baseline
 
-Current selected-page vendor results are in [CAJViewer fixtures](cajviewer-fixtures.md).
+Current selected-page vendor results are in [CAJViewer fixtures](research/cajviewer-fixtures.md).
 CAJ/PDF/KDH selected pages match. After #184, HN-A/C8 page-frame sizes match,
 but exact pixels still differ; these profiles remain experimental. Capture
 repeatability is scoped to each report. Historical launch/fixture issues
@@ -27,7 +27,7 @@ The same conversion core serves all three interfaces.
 | KDH | Supported for validated embedded PDFs | Representative one-page output is identical across interfaces and matches the selected viewer page. |
 | HN-A | Experimental image-page conversion | The recorded current native corpus accepts 19/19 HN-A inputs, including paired raw/compressed framing; this is not whole-family support. HN-A source bookmarks are supported and image pages do not require fonts. The complete 163-page, 96-bookmark pre-compression output was identical across interfaces; the current compression checks below preserve decoded pixels and mapping. Declared page/display extents are used; selected frame sizes match, but exact pixels differ. Physical units remain empirical. |
 | C8 | Experimental image pages and admitted native profiles | Compressed four-page image output and the six/four/five-page native profiles have [runtime and layout checkpoints](#unreleased-native-c8-checkpoint). Native pages require explicit fonts. Requested bookmarks are omitted with a warning (no outline is written from unverified metadata); #303 tracks the missing outline evidence. Font/raster differences remain explicit. |
-| HN-B | Experimental image pages and admitted native mode-0/mode-2 profiles | With explicit fonts (bookmarks are omitted with a warning), the selected 4/4/6-page documents convert through CLI/Node/Worker with identical per-document outputs. Native mode 2 supports leading images; image-after-text and mode-0 images remain errors. [Independent controls and scoped layout checks](hnb-compact-index.md) do not establish original-font pixel parity. |
+| HN-B | Experimental image pages and admitted native mode-0/mode-2 profiles | With explicit fonts (bookmarks are omitted with a warning), the selected 4/4/6-page documents convert through CLI/Node/Worker with identical per-document outputs. Native mode 2 supports leading images; image-after-text and mode-0 images remain errors. [Independent controls and scoped layout checks](research/hnb-compact-index.md) do not establish original-font pixel parity. |
 | TEB, unrecognized layouts, unsupported image/native modes | Rejected | No OCR or silent omission fallback. Located errors identify unsupported HN/C8 content. |
 
 This table describes current main, including unreleased native-page additions;
@@ -37,19 +37,19 @@ HN-B/C8 runs. Required caller fonts must be provided; a missing resource is not
 proof of an unsupported parser profile. Unknown HN-B/C8 outlines remain unknown,
 not confirmed empty, and require explicit omission.
 
-The [real-font HN-B checkpoint](hnb-real-font-fidelity.md) records three
+The [real-font HN-B checkpoint](research/hnb-real-font-fidelity.md) records three
 complete CLI/Node/Worker conversions, fresh selected viewer captures and
 remaining substitute-font appearance differences. It does not establish
 source-font pixel parity.
 
-The [real-font C8 checkpoint](c8-real-font-fidelity.md) covers the admitted
+The [real-font C8 checkpoint](research/c8-real-font-fidelity.md) covers the admitted
 6/4/5-page profiles across all interfaces. Some substitute-font English and
 formula text visibly overlaps; font character coverage is not a guarantee
 of source typography or readable spacing.
 
 For usage, see the [CLI font flags](cli.md#native-c8-font-resources) and
 [Node/Worker font sources](../js/README.md#explicit-fonts-for-native-c8-and-hn-b-pages).
-[Unicode fidelity](hnc8-text-fidelity.md) distinguishes character transport,
+[Unicode fidelity](research/hnc8-text-fidelity.md) distinguishes character transport,
 selected source checks and reading-order/whitespace limits. PDF syntax checks,
 matching adapter hashes and substituted-font layout checks do not establish
 original-font pixel parity or unrestricted copy/search fidelity.
@@ -60,10 +60,10 @@ practice are recorded in [provenance](provenance.md); #189 completed #30/#44.
 JS arithmetic image decoding needs bounded scratch stores; `withHnc8Scratch`
 can manage their lifetime for Node or browser Workers.
 
-[Viewer results](cajviewer-fixtures.md) record the pinned application and
+[Viewer results](research/cajviewer-fixtures.md) record the pinned application and
 selected-page scope. [Complete HN/C8 checks](js-validation.md#source-geometry-correction-repeat)
 record historical output hashes, page counts, outline retention and image-stream checks.
-The [streaming compression report](bilevel-compression.md) records current C8
+The [streaming compression report](research/bilevel-compression.md) records current C8
 hashes, fixed working memory, independent decoded-pixel equality and the explicit
 scope of reused versus rerun evidence. Compression changes encoded bytes, not
 page/outline mapping or decoded image bits.
@@ -71,7 +71,7 @@ Python-reference corpus expectations below are a separate compatibility
 baseline, not a CAJViewer verdict. Missing optional inputs are `NOT_RUN`;
 known pixel failures are not passing baselines.
 
-The unreleased [type-1 JPEG extension](hnc8-type1.md) adds the measured HN-A/C8
+The unreleased [type-1 JPEG extension](research/hnc8-type1.md) adds the measured HN-A/C8
 profile and selects the existing HN/C8 text-header interoperability policy in
 CLI/WASM. The frozen v0.3.1 results below are not overwritten by this change.
 
@@ -249,10 +249,10 @@ with matching output hashes and successful scratch cleanup. All nine pages
 received source-layout inspection; PDF tracing preserves all 14,300 decoded
 glyphs in order. This is conditional rendering/transport evidence, not an
 independent transcription or a reclassification of the font-free baseline.
-See [additional C8 controls](c8-native-controls.md#complete-document-runtime-and-visual-checkpoint-c2df122).
+See [additional C8 controls](research/c8-native-controls.md#complete-document-runtime-and-visual-checkpoint-c2df122).
 Bookmarks and unverified native profiles remain unsupported; unknown required
 content fails explicitly. See the current status and original-control
-evidence in [C8 native records](c8-native-records.md), and the resource contracts
+evidence in [C8 native records](research/c8-native-records.md), and the resource contracts
 in [CLI usage](cli.md#native-c8-font-resources) and [JavaScript usage](../js/README.md).
 External documents, fonts and rendered evidence are not distributed. #242 owns
 additional-profile final acceptance; #222 owns packaged release/corpus and
@@ -371,7 +371,7 @@ read-modify-write pairs; no write buffer was added.
 ### Known Python-reference differences
 
 These are accepted v0.1 differences, with full source hashes and measurements in
-[the CAJ format record](caj-format.md). Rust preserves source page-table order
+[the CAJ format record](research/caj-format.md). Rust preserves source page-table order
 and valid source TOC records. Per the maintainer decision in
 [#21](https://github.com/rwv/caj2pdf-rust/issues/21), no legacy Python
 compatibility mode is planned. Reference output is comparison evidence, not
@@ -396,7 +396,7 @@ an authority for reproducing page permutations or dropped bookmarks.
   convert both CAJ and C8 using the packaged WASM and scratch helper.
 - [Memory measurements](js-validation.md#memory-and-temporary-storage) cover
   small/large original PDF inputs and historical full HN-A/C8 runs; the
-  [compression report](bilevel-compression.md) measures the changed writer.
+  [compression report](research/bilevel-compression.md) measures the changed writer.
   Native RSS, sampled Node RSS, WASM linear memory and scratch caps have distinct
   scopes; no browser-process RSS bound or universal constant-memory claim is made.
 - #196/#197 passed Native, WASM, MIT audit and exact 100% Rust line coverage.
@@ -438,7 +438,7 @@ the pinned CAJSamples revision:
 CAJ2PDF_CORPUS_DIR=/path/to/CAJSamples python3 scripts/conformance.py --json
 ```
 
-The [JBIG2 directory inventory](jbig2-directory.md#optional-external-metadata-inventory)
+The [JBIG2 directory inventory](research/jbig2-directory.md#optional-external-metadata-inventory)
 uses the same pinned corpus to check the HN/C8 type-3 segment headers through
 the Rust core API. It reports `NOT_RUN` when the corpus is absent and does
 not claim decoded-pixel compatibility.
@@ -492,7 +492,7 @@ structure cases that can test these checks without an external document.
 
 The separate [type-0 image manifest](../tests/conformance/jbig1_oracle.json)
 contains only pinned source/image metadata and decoded pixel hashes. Its
-[observation note](jbig1-oracle.md) records the independent HN/C8 byte layout,
+[observation note](research/jbig1-oracle.md) records the independent HN/C8 byte layout,
 external decoder provenance, hash definitions, and secondary PDF extraction
 checks. The opt-in runner uses the same external corpus plus a separately
 built, **non-distributed** black-box native oracle:
@@ -554,13 +554,13 @@ that byte belongs to the raster, so whitespace-then-comment after height is
 rejected. The header is limited to 1,024 bytes, and exactly one image of the
 expected raster length is required. If every setting fails to decode, the
 report is `INCONCLUSIVE_NO_DECODABLE_SETTINGS` and exits nonzero. The
-[experiment note](jbig1-bitstream-investigation.md) records the tested grid,
+[experiment note](research/jbig1-bitstream-investigation.md) records the tested grid,
 positive controls, refuted hypotheses, row-order evidence, and unresolved
 CAJ-specific rules. Neither result claims full JBIG1 compatibility.
 
 ## Selected HN/C8 type-3 PDF pixels
 
-The [#106 selected type-3 PDF diagnostic](hnc8-type3-pdf.md) converts one
+The [#106 selected type-3 PDF diagnostic](research/hnc8-type3-pdf.md) converts one
 checked HN/C8 JBIG2 image record into one bilevel PDF page with a
 caller-supplied T.88 MQ table in the historical experiment. Current public
 conversion uses built-in standard states; the table-injection diagnostic is
@@ -568,7 +568,7 @@ retained for comparison. The optional
 [`jbig2_page_pdf_parity.py`](../scripts/jbig2_page_pdf_parity.py) runner
 requires the pinned external CAJSamples corpus and private table, then checks
 each selected PDF using `qpdf`, Poppler, and fixed MuPDF/Poppler render
-canaries against the [#43 hash-only pixel oracle](jbig2-oracle.md). It keeps
+canaries against the [#43 hash-only pixel oracle](research/jbig2-oracle.md). It keeps
 strict-valid image matches separate from the single named opt-in `0xa40c`
 case, and reports the expected strict refusal separately. A clean clone
 reports `NOT_RUN` and zero PDF pixel compatibility matches. Source documents,
@@ -581,7 +581,7 @@ tracks source-page layout measurement.
 
 ## HN/C8 source-page layout metadata
 
-The [#107 layout oracle](hnc8-layout-oracle.md) is an opt-in, metadata-only
+The [#107 layout oracle](research/hnc8-layout-oracle.md) is an opt-in, metadata-only
 black-box comparison against a fixed Python reference revision. It checks
 27 SHA-pinned HN/C8 sources, three deterministic reference PDFs, the original
 75 pages/125 ordered image draws and a separate two-page HN-B omission case.
@@ -590,14 +590,14 @@ types and encoded-stream hashes. The committed oracle contains coordinates,
 dimensions and hashes only; no private documents, PDFs, text or pixels. A
 clean clone reports `NOT_RUN` and zero layout matches. That metadata-only
 phase measured 50 extra-image placements without identifying their source
-fields. Later [#112 empirical placement rules](hnc8-placement-rule.md) and
-[#117 page composition](hnc8-page-composition.md) establish a bounded
+fields. Later [#112 empirical placement rules](research/hnc8-placement-rule.md) and
+[#117 page composition](research/hnc8-page-composition.md) establish a bounded
 caller-table diagnostic for the selected profiles. Their Python-reference
 basis does not establish vendor page fidelity or full-family conversion.
 
 ## CAJViewer vendor fixtures
 
-Follow the [simplified fixture plan](cajviewer-fixtures.md) and
+Follow the [simplified fixture plan](research/cajviewer-fixtures.md) and
 [epic #123](https://github.com/rwv/caj2pdf-rust/issues/123). Prove one practical
 capture recipe, save a small external image baseline, and collect ordinary-copy
 text where available. Manual initial capture is acceptable. #128 comparison
@@ -606,11 +606,11 @@ Text unavailability is recorded and does not block the image route.
 
 Selected complete-page checks have been run: CAJ/PDF/KDH selected pages
 match; corrected HN-A/C8 frames match but exact pixels still differ. See
-[the current fixture results](cajviewer-fixtures.md) for the measured pages
+[the current fixture results](research/cajviewer-fixtures.md) for the measured pages
 and repeatability limits. Unchecked pages and ordinary-copy text in the HN/C8
 run remain NOT_RUN; this is not whole-document or whole-family parity.
-The [V14 inventory](cajviewer-runtime-view-v14.md) and
-[twelve earlier launch observations](cajviewer-linux-startup.md) are historical
+The [V14 inventory](research/cajviewer-runtime-view-v14.md) and
+[twelve earlier launch observations](research/cajviewer-linux-startup.md) are historical
 startup evidence. #153 is cancelled as a standalone source-loading prerequisite.
 [#219](https://github.com/rwv/caj2pdf-rust/issues/219) tracks improvement beyond
 the completed selected-page scope of #123.

@@ -2,7 +2,7 @@
 
 //! Process-level tests of the `caj2pdf` executable. Inputs are synthetic:
 //! small CAJ, KDH, C8, and HN containers are built here from the layouts in
-//! `docs/caj-format.md`, `docs/kdh-format.md`, and `docs/hnc8-container.md`,
+//! `docs/research/caj-format.md`, `docs/research/kdh-format.md`, and `docs/research/hnc8-container.md`,
 //! and PDFs come from the MIT fixtures in `tests/fixtures`.
 
 #![cfg(unix)]

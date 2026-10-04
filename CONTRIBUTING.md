@@ -25,6 +25,14 @@ attribution have been verified. Audit native and WASM dependency trees before
 release; a package manifest alone is not proof of source provenance. Record
 the review in the [provenance inventory](docs/provenance.md).
 
+## Documentation layout
+
+User documentation lives in `docs/` (CLI, support matrix, platforms, Docker,
+I/O architecture, PDF input, provenance and release policy). Format
+investigations, oracles and validation runs live in `docs/research/`; add a
+new note there and list it in [its index](docs/research/README.md). Notes whose
+bytes are hash-pinned by a script must not be edited.
+
 ## Commit and release policy
 
 Use [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/):
@@ -87,13 +95,14 @@ TypeScript, Node types) are updated by hand.
 
 CI requires `cargo fmt --check`, Clippy with `-D warnings`, rustdoc with
 `-D warnings`, locked native tests, the WASM build and JavaScript adapter
-tests, the MIT license/source/advisory audit, and the line-coverage gate in
+tests, the MIT license/source/advisory audit with a relative Markdown link
+check (`python3 scripts/check-doc-links.py`), and the line-coverage gate in
 `scripts/check-coverage.sh`. The gate requires every unique instrumented Rust
 source line in the native LCOV report to be covered, both in total and in each
 reported file; it fails on any uncovered line even when a rounded percentage
 displays 100%. Run `bash scripts/check-coverage.sh` locally (it needs
 `cargo-llvm-cov` and the PDF validators listed in
-[the PDF writer notes](docs/pdf-writer.md)).
+[the PDF writer notes](docs/research/pdf-writer.md)).
 
 The merge gate is these `ci.yml` jobs plus the Linux x86_64/ARM64 glibc and
 musl `native` jobs of `platforms.yml` (see the
