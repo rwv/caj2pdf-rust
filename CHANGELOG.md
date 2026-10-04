@@ -5,6 +5,9 @@
 - Speed up native HN/C8 scratch I/O: `FileScratch` caches its length and
   uses positioned reads/writes, removing a `statx` and `lseek` per request
   (36.6M to 13.5M system calls on a 163-page HN-A input; output unchanged).
+- TEB diagnostics now say the input is a DRM-encrypted CNKI container whose
+  document content cannot be converted; `inspect --json` adds
+  `"unsupported_reason":"drm-encrypted"` for TEB. Exit status is unchanged.
 - Add FreeBSD RISC-V64 GC and PowerPC64 big-endian native CLI archives,
   tested in FreeBSD 15.1 VMs. Both targets join the required release matrix,
   dependency-license audit, archive inventory and existing provenance flow.
