@@ -68,6 +68,12 @@ displays 100%. Run `bash scripts/check-coverage.sh` locally (it needs
 `cargo-llvm-cov` and the PDF validators listed in
 [the PDF writer notes](docs/pdf-writer.md)).
 
+These `ci.yml` jobs run on Linux and are the merge gate for pull requests.
+The 53-target native platform matrix (`platforms.yml`) validates release
+artifacts: it runs on every push to `main`, before each release and on demand,
+and on a pull request only when packaging, toolchain or lockfile inputs change.
+A red matrix on `main` must be fixed before the next release is tagged.
+
 Coverage is measured per source file, so inline `#[cfg(test)]` modules count
 toward their file's figure. Prefer a sibling `tests.rs` module (as
 `pdf/input` and `jbig1` do) for new unit tests so the per-file figure reflects

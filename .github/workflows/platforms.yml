@@ -1,6 +1,21 @@
 name: Native platforms
 on:
+  # Pull requests are gated by ci.yml on Linux. This matrix validates release
+  # artifacts, so it runs on main, tags (via release.yml) and on demand, and on
+  # pull requests only when packaging or toolchain inputs change.
   pull_request:
+    paths:
+      - '.github/workflows/platforms.yml'
+      - 'scripts/package-native.py'
+      - 'scripts/build-freebsd-cross.py'
+      - 'scripts/install-*'
+      - 'scripts/android-*.py'
+      - 'docker/**'
+      - 'docs/platform-targets.json'
+      - 'docs/container-platforms.json'
+      - 'rust-toolchain.toml'
+      - 'Cargo.lock'
+      - '**/Cargo.toml'
   push:
     branches: [main]
   workflow_call:
