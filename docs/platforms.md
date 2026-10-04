@@ -7,6 +7,8 @@ v0.2.0 has 16 native targets. v0.3.0 expands the required inventory to 50 OS/CPU
 Current main adds i586 GNU and FreeBSD RISC-V64/PowerPC64 for 53 required targets; these
 additions are not in historical v0.3.x assets. Unverified targets remain in [platform-candidates.md](platform-candidates.md).
 Target counts include OS/libc/ABI combinations, not just CPU architectures.
+The matrix runs on `main`, release tags and on demand; pull requests run it only
+when packaging or toolchain inputs change (see [CONTRIBUTING](../CONTRIBUTING.md#quality-gates)).
 
 | Platform | Architectures | Runtime evidence / baseline |
 | --- | --- | --- |
