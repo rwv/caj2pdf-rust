@@ -4,7 +4,7 @@ The matrix in `platform-targets.json` is the required release set. Each target
 must build and pass conversion tests before a release can be published; merely
 cross-compiling a binary is not sufficient. v0.1.0 remains Linux x86_64-only.
 v0.2.0 has 16 native targets. v0.3.0 expands the required inventory to 50 OS/CPU/ABI targets.
-Current main adds FreeBSD RISC-V64/PowerPC64 for 52 required targets; these
+Current main adds i586 GNU and FreeBSD RISC-V64/PowerPC64 for 53 required targets; these
 additions are not in historical v0.3.x assets. Unverified targets remain in [platform-candidates.md](platform-candidates.md).
 Target counts include OS/libc/ABI combinations, not just CPU architectures.
 
@@ -14,6 +14,7 @@ Target counts include OS/libc/ABI combinations, not just CPU architectures.
 | Linux musl | x86_64, ARM64 | Native Ubuntu 24.04 execution of static binaries; no glibc dependency |
 | macOS | Intel x86_64, Apple ARM64 | Native macOS 15 runners |
 | Windows MSVC | x86_64, ARM64, x86 | Windows Server 2025 x64 / Windows 11 ARM64; x86 uses Windows compatibility execution |
+| Linux GNU Pentium | i586 | Isolated pinned Debian Jessie glibc 2.19 sysroot; Clang/LLD and QEMU 10.0.13 `-cpu pentium`; all core and portable CLI tests execute |
 | Linux GNU extended | i686, ARMv7 hard-float, RISC-V64 GC, ppc64le, s390x | QEMU user-mode on Ubuntu 24.04 with its cross sysroots (glibc 2.39 baseline) |
 | Linux GNU additions | ARMv5TE, ARMv6 soft/hard-float, ARMv7 soft-float, PowerPC32, PowerPC64 big endian, SPARC64 | QEMU and Ubuntu 24.04 sysroots; ARMv6 hard-float uses the hashed Bootlin stable-2025.08-1 ARMv6 sysroot |
 | Linux LoongArch64 | GNU and musl, LP64D + LSX | Pinned QEMU 10.0.2; GNU uses Loongson GCC 15.1.0 / binutils 2.45 / glibc 2.42; musl is static |
@@ -65,8 +66,10 @@ external document corpora are never included in the archives.
 ## CPU and runtime limits
 
 ARMv5TE tests use QEMU arm926, ARMv6 uses arm1176, and ARMv7 uses cortex-a9.
-The i586 musl binary passes on the original Pentium CPU model. Ubuntu's i386
-GNU libc fails on that model, so no i586 GNU artifact is advertised. PowerPC
+Both i586 GNU and musl binaries pass on the original Pentium CPU model.
+The GNU build uses a pinned glibc 2.19 sysroot and explicit guest library search
+paths to avoid the incompatible Ubuntu i386 runtime. This upcoming GNU artifact
+is not part of historical v0.3.x downloads; no old-kernel guarantee is inferred. PowerPC
 endian variants retain their target ELF ABIs. LoongArch is distinct from MIPS;
 these artifacts do not imply compatibility with all old Loongson vendor ABIs.
 LoongArch musl disables linker relaxation (`--no-relax`) for both tested and

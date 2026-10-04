@@ -5,6 +5,9 @@
 - Add FreeBSD RISC-V64 GC and PowerPC64 big-endian native CLI archives,
   tested in FreeBSD 15.1 VMs. Both targets join the required release matrix,
   dependency-license audit, archive inventory and existing provenance flow.
+- Add the i586 GNU CLI target using a pinned glibc 2.19 sysroot and actual
+  Pentium-model execution. It joins the required test matrix, MIT dependency
+  audit and release archive/provenance inventory; no old-kernel guarantee.
 
 - **Breaking:** `C8PageFonts` adds optional `latin_state28` and `latin_state31`;
   existing Rust initializers should set them to `None` unless supplying the

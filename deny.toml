@@ -14,6 +14,7 @@ targets = [
     "aarch64-pc-windows-msvc",
     "i686-pc-windows-msvc",
     "i686-unknown-linux-gnu",
+    "i586-unknown-linux-gnu",
     "armv7-unknown-linux-gnueabihf",
     "riscv64gc-unknown-linux-gnu",
     "powerpc64le-unknown-linux-gnu",
