@@ -1869,6 +1869,20 @@ The package is a CI tool and is not included in released archives or containers.
 experimental matrices; it verifies SDK/emulator checksums and records the
 actual host kernel/compiler. It does not contain toolchain implementation code.
 
+## Isolated Pentium GNU candidate toolchain (#214)
+
+`scripts/install-i586-gnu.py` and its candidate workflow are original MIT code.
+The five package hashes come from the official archived Debian Jessie i386
+package inventory; the script checks every package before extraction. The
+QEMU package and hash reuse the project's existing pinned external test tool.
+Debian sysroot libraries, headers and QEMU retain their upstream licenses and
+remain external build/test tools. No upstream implementation is copied into
+project source, no package is installed on the host, and none is included in
+native release archives. The original source fixture and existing validators
+exercise the resulting executable. CPU-baseline evidence and limitations are
+recorded in `platform-candidates.md`; hosted candidate success is not itself
+formal release support.
+
 ## Release build attestations (issue #215)
 
 The release workflow uses the MIT-licensed official `actions/attest` action at
