@@ -50,7 +50,10 @@ with explicit caller fonts. HN/C8 arithmetic images use
 built-in standard QM/MQ states; optional state files override those defaults. The same core converter is available through
 [Node and browser WASM](js/README.md), using caller-owned bounded scratch stores.
 See the [support matrix and release status](docs/conformance.md#current-support-and-release-status)
-for verified profiles and remaining HN/C8 rendering differences.
+for current main's verified profiles and remaining HN/C8 rendering differences;
+unreleased additions are not included in the v0.3.1 downloads. See
+[Unicode fidelity](docs/hnc8-text-fidelity.md) for the distinction between native
+text rendering, correct character transport and copy/search limitations.
 TEB is recognized and unsupported. Build with `cargo build --release -p caj2pdf-cli`.
 
 For C8/HN-B, explicitly disable bookmark import until those outline semantics

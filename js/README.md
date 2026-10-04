@@ -1,6 +1,6 @@
 # caj2pdf JavaScript package
 
-Streaming PDF, CAJ, and KDH to PDF conversion for browsers and Node.js 22+.
+Streaming CAJ-family to PDF conversion for browsers and Node.js 22+.
 The package drives the same Rust core as the native crate through a raw,
 dependency-free WebAssembly ABI. It has no npm dependencies, and all
 project-owned JavaScript and TypeScript declarations are MIT-licensed.
@@ -275,10 +275,13 @@ interoperability policy; generic JBIG2 parsing remains strict. See the
 [type-1 profile and checks](../docs/hnc8-type1.md).
 
 HN-A outlines are supported. C8/HN-B currently require explicit
-`includeBookmarks: false`. HN-B source rows without supported image content are
-rejected rather than silently omitted. Strict JBIG2 headers are enforced; the
-core's anomalous-header opt-in is not exposed here. Pure-text/searchable HN
-remains unsupported. HN/C8 inspection validates metadata without implying
+`includeBookmarks: false`. Admitted native C8/HN-B text pages use the
+[explicit font sources](#explicit-fonts-for-native-c8-and-hn-b-pages) below;
+unverified content is rejected rather than silently omitted. The shared HN/C8
+route admits only the documented unused-refinement-template anomaly. Other
+malformed JBIG2 headers remain errors. Image-only pages receive no OCR text
+layer; [Unicode, whitespace and reading-order limits](../docs/hnc8-text-fidelity.md)
+remain separate from native glyph rendering. HN/C8 inspection validates metadata without implying
 that the document can be converted. Located conversion and metadata failures use error code
 `HNC8`. Standard numeric state adoption is recorded in #189.
 

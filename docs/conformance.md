@@ -25,10 +25,24 @@ The same conversion core serves all three interfaces.
 | PDF | Supported within the [PDF input profile](pdf-input.md) | Representative 11-page output is identical across interfaces; selected viewer pages 1 and 11 match. |
 | CAJ | Supported within the [CLI profile](cli.md) | Representative 75-page output with 58 bookmarks is identical across interfaces; selected viewer pages 1 and 75 match. Optional legacy Python ordering is deferred (#21). |
 | KDH | Supported for validated embedded PDFs | Representative one-page output is identical across interfaces and matches the selected viewer page. |
-| HN-A | Experimental image-page conversion | The complete 163-page, 96-bookmark pre-compression output was identical across interfaces; the current compression checks below preserve decoded pixels and mapping. Declared page/display extents are used; selected frame sizes match, but exact pixels differ. Physical units remain empirical. |
-| C8 | Experimental image pages and admitted native profiles | Compressed four-page image output and the six/four/five-page native profiles have [runtime and layout checkpoints](#unreleased-native-c8-checkpoint). Native pages require explicit fonts. Bookmark omission remains required; #242 tracks delivery. Font/raster differences remain explicit. |
+| HN-A | Experimental image-page conversion | The recorded current native corpus accepts 19/19 HN-A inputs, including paired raw/compressed framing; this is not whole-family support. HN-A source bookmarks are supported and image pages do not require fonts. The complete 163-page, 96-bookmark pre-compression output was identical across interfaces; the current compression checks below preserve decoded pixels and mapping. Declared page/display extents are used; selected frame sizes match, but exact pixels differ. Physical units remain empirical. |
+| C8 | Experimental image pages and admitted native profiles | Compressed four-page image output and the six/four/five-page native profiles have [runtime and layout checkpoints](#unreleased-native-c8-checkpoint). Native pages require explicit fonts. Bookmark omission remains required; #242 is delivered on main and #221 owns unresolved outlines. Font/raster differences remain explicit. |
 | HN-B | Experimental image pages and admitted native mode-0/mode-2 profiles | With explicit fonts and bookmark omission, the selected 4/4/6-page documents convert through CLI/Node/Worker with identical per-document outputs. Native mode 2 supports leading images; image-after-text and mode-0 images remain errors. [Independent controls and scoped layout checks](hnb-compact-index.md) do not establish original-font pixel parity. |
 | TEB, unrecognized layouts, unsupported image/native modes | Rejected | No OCR or silent omission fallback. Located errors identify unsupported HN/C8 content. |
+
+This table describes current main, including unreleased native-page additions;
+it does not retrofit those capabilities into the published v0.3.1 artifacts.
+The font-free corpus checkpoint below is separate from successful explicit-font
+HN-B/C8 runs. Required caller fonts must be provided; a missing resource is not
+proof of an unsupported parser profile. Unknown HN-B/C8 outlines remain unknown,
+not confirmed empty, and require explicit omission.
+
+For usage, see the [CLI font flags](cli.md#native-c8-font-resources) and
+[Node/Worker font sources](../js/README.md#explicit-fonts-for-native-c8-and-hn-b-pages).
+[Unicode fidelity](hnc8-text-fidelity.md) distinguishes character transport,
+selected source checks and reading-order/whitespace limits. PDF syntax checks,
+matching adapter hashes and substituted-font layout checks do not establish
+original-font pixel parity or unrestricted copy/search fidelity.
 
 Arithmetic HN/C8 images use built-in standard QM/MQ states. Optional custom
 state overrides remain supported. The owner-directed adoption and upstream
@@ -106,19 +120,25 @@ validation, count/order, outlines and pixels have separate result fields.
 Each child process has the stated limits; these are not a parent-harness RSS
 bound. Image extracts are discarded after each page.
 
-Reproduced HN/C8 gaps are linked to [#220](https://github.com/rwv/caj2pdf-rust/issues/220)
+The following gaps describe the frozen v0.3.1 run, not current main. Their
+implementation issues are now closed; current outcomes are recorded in the
+optimized preflight below and the support summary above.
+
+Reproduced HN/C8 gaps were linked to [#220](https://github.com/rwv/caj2pdf-rust/issues/220)
 (image-less HN-B/C8 rows), [#224](https://github.com/rwv/caj2pdf-rust/issues/224)
 (type-1 image records), and [#225](https://github.com/rwv/caj2pdf-rust/issues/225)
 (additional page-text framing). Six CAJ inputs fail PDF parsing/repair and
-remain explicit failures tracked by [#226](https://github.com/rwv/caj2pdf-rust/issues/226);
+were tracked by [#226](https://github.com/rwv/caj2pdf-rust/issues/226);
 this does not establish whether their source content is recoverable. Existing
 selected-page viewer results have not been rerun by this inventory.
 
-### Fixed regression set for the next format work
+### Fixed regression set selected after v0.3.1
 
 Use the exact hashes/paths in the matrix, not similarly named replacement files.
 The full runner remains 56 inputs; these are the small development controls,
-not a requirement to capture every page in CAJViewer.
+not a requirement to capture every page in CAJViewer. The purpose column
+records the original selection rationale; it does not override subsequent
+explicit-font HN-B success or the diagnosed issue-20 corruption rejection.
 
 | Matrix case | Purpose |
 | --- | --- |

@@ -2,7 +2,17 @@
 
 # Native text feasibility (#223)
 
-## Decision
+## Current status
+
+The bounded study below is historical. Its visible native-text work subsequently
+landed on main for the admitted HN-B/C8 profiles; see the
+[current support summary](conformance.md#current-support-and-release-status).
+The [Unicode checkpoint](hnc8-text-fidelity.md) separates verified character
+transport and selected source checks from unverified general reading order,
+whitespace and searchable image content. No OCR or general extraction API was
+added. Historical observations and receipts below remain unchanged.
+
+## Historical decision
 
 **Go for the measured C8 native-glyph work in #229; no-go for a general
 searchable HN/C8 PDF feature at this point.** The source demonstrably contains
