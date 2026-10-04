@@ -235,9 +235,12 @@ export const hnc8InWorker = () => runWorker("/test/hnc8-worker.mjs");
 export async function inspectHnc8() {
   const { syntheticHn, unknownOutline } = await import("./hnc8-fixtures.mjs");
   const result = [];
-  for (const bytes of [syntheticHn(true), unknownOutline("c8"), unknownOutline("hn")]) {
+  // Page 9 of a one-page document: that bookmark is skipped with a warning.
+  const skipped = syntheticHn(true);
+  skipped[0x15c + 308 + 280] = 57;
+  for (const bytes of [syntheticHn(true), skipped, unknownOutline("c8"), unknownOutline("hn")]) {
     const info = await inspect(await modulePromise, blobSource(new Blob([bytes])), { chunkSize: 3 });
-    result.push({ format: info.format, pages: info.pageCount, bookmarks: info.bookmarkCount });
+    result.push({ format: info.format, pages: info.pageCount, bookmarks: info.bookmarkCount, warnings: info.outlineWarnings });
   }
   return result;
 }

@@ -50,6 +50,7 @@ test("Blob copy awaits three bounded slices through the real WASM core future", 
     outputBytesWritten: BigInt(payload.length),
     pagesConverted: 0,
     bookmarksWritten: 0,
+    outlineWarnings: 0,
   });
 });
 

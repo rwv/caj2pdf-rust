@@ -5,6 +5,7 @@
 
 use super::*;
 use crate::NeverCancel;
+use crate::hnc8::{OutlineDefect, OutlineRepair};
 use flate2::{Compression, write::ZlibEncoder};
 use std::{
     cell::Cell,
@@ -1963,21 +1964,51 @@ fn optional_hna_outlines_preserve_image_bytes_and_use_nullable_xyz() {
     assert_eq!(report.output_pages, 1);
     assert!(contains(&sink.bytes, b"/XYZ null null null"));
     assert!(contains(&sink.bytes, &image.bytes));
-    fixture.bytes[at + 280] = b'2';
-    let error = convert(
-        &mut Source::new(fixture.bytes),
-        &mut Sink::default(),
-        None,
-        &mut Scratch::default(),
-        &mut Visitor::default(),
-        ComposeOptions {
-            include_bookmarks: true,
-            ..ComposeOptions::default()
+    assert_eq!((report.outline.declared, report.outline.written), (1, 1));
+    assert_eq!(report.outline.defects, 0);
+    let pdf = |bytes: &[u8], include_bookmarks: bool, limits: &Limits| {
+        let mut sink = Sink::default();
+        convert(
+            &mut Source::new(bytes.to_vec()),
+            &mut sink,
+            None,
+            &mut Scratch::default(),
+            &mut Visitor::default(),
+            ComposeOptions {
+                include_bookmarks,
+                ..ComposeOptions::default()
+            },
+            limits,
+        )
+        .map(|report| (report, sink.bytes))
+    };
+    // An unreadable outline table still fails the document.
+    let error = pdf(
+        &fixture.bytes,
+        true,
+        &Limits {
+            max_bookmarks: 0,
+            ..Limits::default()
         },
-        &limits,
     )
     .unwrap_err();
     assert!(matches!(error.kind, ComposeErrorKind::Container(_)));
+    // A destination outside the one-page source skips only that bookmark:
+    // the PDF is byte-identical to one written without bookmarks.
+    fixture.bytes[at + 280] = b'2';
+    let (report, skipped) = pdf(&fixture.bytes, true, &limits).unwrap();
+    assert_eq!(report.conversion.bookmarks_written, 0);
+    assert_eq!(report.output_pages, 1);
+    assert_eq!(
+        report.outline.recorded_defects(),
+        [OutlineDefect {
+            offset: at as u64 + 280,
+            reason: "destination is outside source pages",
+            repair: OutlineRepair::Skipped,
+        }]
+    );
+    let (_, without) = pdf(&fixture.bytes, false, &limits).unwrap();
+    assert_eq!(skipped, without);
 }
 
 #[test]
