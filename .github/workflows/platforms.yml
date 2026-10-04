@@ -21,7 +21,7 @@ jobs:
     outputs:
       full: ${{ steps.diff.outputs.full }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
       - id: diff
@@ -55,7 +55,7 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install pinned toolchain and target
         run: |
           rustup show active-toolchain
@@ -86,7 +86,7 @@ jobs:
           binary='target/${{ matrix.target }}/release/caj2pdf'
           if [[ '${{ runner.os }}' == Windows ]]; then binary="$binary.exe"; fi
           python scripts/package-native.py --target '${{ matrix.target }}' --binary "$binary"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: native-${{ matrix.target }}
           path: dist/
@@ -98,7 +98,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install isolated Pentium GNU toolchain
         run: |
           sudo apt-get update
@@ -116,7 +116,7 @@ jobs:
           test "$(qpdf --show-npages "$RUNNER_TEMP/i586-output.pdf")" = 2
           mutool draw -q -o "$RUNNER_TEMP/i586-page-%d.png" "$RUNNER_TEMP/i586-output.pdf"
           python3 scripts/package-native.py --target i586-unknown-linux-gnu --binary target/i586-unknown-linux-gnu/release/caj2pdf
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: native-i586-unknown-linux-gnu
           path: dist/
@@ -144,7 +144,7 @@ jobs:
           - {target: sparc64-unknown-linux-gnu, libc: sparc64, compiler: sparc64-linux-gnu, qemu: sparc64, cpu: ""}
           - {target: loongarch64-unknown-linux-gnu, libc: loong64, compiler: loongarch64-unknown-linux-gnu, qemu: loongarch64, cpu: ""}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install cross compiler and emulator
         env:
           TARGET: ${{ matrix.target }}
@@ -191,7 +191,7 @@ jobs:
           cargo test --locked --release -p caj2pdf-cli --test portable --target '${{ matrix.target }}'
       - name: Package tested cross binary
         run: python scripts/package-native.py --target '${{ matrix.target }}' --binary 'target/${{ matrix.target }}/release/caj2pdf'
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: native-${{ matrix.target }}
           path: dist/
@@ -219,7 +219,7 @@ jobs:
     env:
       RUSTFLAGS: '-C linker=rust-lld -C target-feature=+crt-static -C link-self-contained=yes'
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install target and emulator
         env:
           TARGET: ${{ matrix.target }}
@@ -246,7 +246,7 @@ jobs:
           cargo test --locked --release -p caj2pdf-cli --test portable --target '${{ matrix.target }}'
       - name: Package tested static binary
         run: python scripts/package-native.py --target '${{ matrix.target }}' --binary 'target/${{ matrix.target }}/release/caj2pdf'
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: native-${{ matrix.target }}
           path: dist/
@@ -265,7 +265,7 @@ jobs:
           - {target: mips64-unknown-linux-gnuabi64, compiler: mips64-linux-gnuabi64, libc: mips64, qemu: mips64}
           - {target: mips64el-unknown-linux-gnuabi64, compiler: mips64el-linux-gnuabi64, libc: mips64el, qemu: mips64el}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install pinned std builder and cross sysroot
         env:
           TARGET: ${{ matrix.target }}
@@ -284,7 +284,7 @@ jobs:
           cargo +nightly-2026-09-29 test -Z build-std --locked --release -p caj2pdf-core --lib --target '${{ matrix.target }}'
           cargo +nightly-2026-09-29 test -Z build-std --locked --release -p caj2pdf-cli --test portable --target '${{ matrix.target }}'
           python scripts/package-native.py --target '${{ matrix.target }}' --binary 'target/${{ matrix.target }}/release/caj2pdf'
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: native-${{ matrix.target }}
           path: dist/
@@ -302,7 +302,7 @@ jobs:
           - {arch: riscv64, target: riscv64gc-unknown-freebsd}
           - {arch: powerpc64, target: powerpc64-unknown-freebsd}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Cross-build against the pinned FreeBSD 15.1 sysroot
         run: |
           sudo apt-get update
@@ -332,7 +332,7 @@ jobs:
           test "$(qpdf --show-npages target/freebsd-cross/output.pdf)" = 2
           mutool draw -q -o "$RUNNER_TEMP/freebsd-smoke-%d.png" target/freebsd-cross/output.pdf
           python3 scripts/package-native.py --target '${{ matrix.target }}' --binary target/freebsd-cross/caj2pdf
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: native-${{ matrix.target }}
           path: dist/
@@ -350,7 +350,7 @@ jobs:
           - {arch: x86_64, target: x86_64-unknown-freebsd}
           - {arch: aarch64, target: aarch64-unknown-freebsd}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Build and test in FreeBSD 14.3
         uses: vmactions/freebsd-vm@a2f9a41fa97f6848b8c3b791087dfcdaa5b473ff # v1 at adoption
         with:
@@ -368,7 +368,7 @@ jobs:
             cargo test --locked -p caj2pdf-core --lib
             cargo test --locked --release -p caj2pdf-cli --test portable
             python3.11 scripts/package-native.py --target '${{ matrix.target }}' --binary target/release/caj2pdf
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: native-${{ matrix.target }}
           path: dist/
@@ -379,8 +379,8 @@ jobs:
     if: needs.changes.outputs.full == 'true'
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           pattern: native-*
           merge-multiple: true
@@ -391,11 +391,11 @@ jobs:
           sudo apt-get install --no-install-recommends -y qemu-user-static binfmt-support
           sudo update-binfmts --enable qemu-ppc64
           cat /proc/sys/fs/binfmt_misc/qemu-ppc64
-      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
         with:
           image: tonistiigi/binfmt@sha256:400a4873b838d1b89194d982c45e5fb3cda4593fbfd7e08a02e76b03b21166f0 # qemu-v10.2.3-68
           platforms: all
-      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       - name: Build exact OCI archive from tested static binaries
         run: |
           python3 scripts/prepare-docker.py native-assets
@@ -407,7 +407,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install --no-install-recommends -y skopeo qpdf
           bash scripts/test-docker.sh dist/caj2pdf-container.oci.tar
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: container-assets
           path: dist/
@@ -425,9 +425,9 @@ jobs:
           - {arch: x86_64, target: x86_64-unknown-netbsd}
           - {arch: aarch64, target: aarch64-unknown-netbsd}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Test release target in netbsd
-        uses: vmactions/netbsd-vm@11a9faa5b7086f5f5fdcd65ccc344efb87777c50
+        uses: vmactions/netbsd-vm@1a9d3dcf49eedcece26f72fbacd0b54634d1811a
         with:
           release: '11.0'
           arch: ${{ matrix.arch }}
@@ -454,7 +454,7 @@ jobs:
             cargo test --locked -p caj2pdf-core --lib
             cargo test --locked --release -p caj2pdf-cli --test portable
             python3.11 scripts/package-native.py --target '${{ matrix.target }}' --binary target/release/caj2pdf
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: native-${{ matrix.target }}
           path: dist/
@@ -473,9 +473,9 @@ jobs:
           - {arch: aarch64, target: aarch64-unknown-openbsd}
           - {arch: riscv64, target: riscv64gc-unknown-openbsd}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Test release target in openbsd
-        uses: vmactions/openbsd-vm@10e08aa98d44e590ad13d0f922b0f032b4f7f268
+        uses: vmactions/openbsd-vm@7a79478e7fec52039d0cfbdafd367d4ac946d093
         with:
           release: '7.9'
           arch: ${{ matrix.arch }}
@@ -497,7 +497,7 @@ jobs:
             cargo test --locked -p caj2pdf-core --lib
             cargo test --locked --release -p caj2pdf-cli --test portable
             python3.13 scripts/package-native.py --target '${{ matrix.target }}' --binary target/release/caj2pdf
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: native-${{ matrix.target }}
           path: dist/
@@ -514,9 +514,9 @@ jobs:
         include:
           - {arch: x86_64, target: x86_64-unknown-illumos}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Test release target in omnios
-        uses: vmactions/omnios-vm@9fef3e21494ae59304197253c91eae28582615d6
+        uses: vmactions/omnios-vm@298ae4d84d7a84bf5aeebd667bb3784895cfd9a9
         with:
           release: 'r151054-build'
           arch: ${{ matrix.arch }}
@@ -544,7 +544,7 @@ jobs:
           qpdf --check dist/illumos-smoke.pdf
           mutool draw -q -o "$RUNNER_TEMP/illumos-%d.png" dist/illumos-smoke.pdf
           rm dist/illumos-smoke.pdf
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: native-${{ matrix.target }}
           path: dist/
@@ -562,7 +562,7 @@ jobs:
           - {arch: powerpc-e300c3, qemu: ppc, target: powerpc-unknown-linux-musl, libc: musl, sha: 5f628b374b6857f4b4ceabe5e41b2565b07985a7e444978c87b0f864bb5a47fc, prefix: powerpc-buildroot-linux-musl}
           - {arch: s390x-z13, qemu: s390x, target: s390x-unknown-linux-musl, libc: musl, sha: 23f536ff2bf1a9d3b93210465471996bc7c918fbb5702a277d8e1e42ffab8559, prefix: s390x-buildroot-linux-musl}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install pinned std builder and Bootlin sysroot
         env:
           ARCH: ${{ matrix.arch }}
@@ -577,7 +577,7 @@ jobs:
           cargo +nightly-2026-09-29 test -Z build-std --locked --release -p caj2pdf-core --lib --target '${{ matrix.target }}'
           cargo +nightly-2026-09-29 test -Z build-std --locked --release -p caj2pdf-cli --test portable --target '${{ matrix.target }}'
           python scripts/package-native.py --target '${{ matrix.target }}' --binary 'target/${{ matrix.target }}/release/caj2pdf'
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: native-${{ matrix.target }}
           path: dist/
@@ -595,8 +595,8 @@ jobs:
           - {runner: ubuntu-24.04, target: x86_64-linux-android, compiler: x86_64-linux-android, arch: x86_64, api: 30}
           - {runner: ubuntu-24.04, target: i686-linux-android, compiler: i686-linux-android, arch: x86, api: 30, image: google_apis}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
         with:
           packages: platform-tools
           log-accepted-android-sdk-licenses: false
@@ -646,7 +646,7 @@ jobs:
             mutool draw -q -o android-page-%d.png android-output.pdf
       - name: Package tested Android binary
         run: python3 scripts/package-native.py --target '${{ matrix.target }}' --binary 'target/${{ matrix.target }}/release/caj2pdf'
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: native-${{ matrix.target }}
           path: dist/
