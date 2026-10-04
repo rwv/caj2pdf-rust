@@ -183,6 +183,23 @@ summary, and `issue20-zlib-check.json`. This is preflight evidence; #222 still
 requires the actual packaged release candidate, peak-memory scope, bookmarks
 and hardening delivery before release acceptance.
 
+### Bounded malformed-input regression
+
+The original public-conversion tests in `hnc8/compose/tests/malformed.rs`
+exercise paired raw/compressed HN-A prefixes, compact/ordinary HN-B indexes and
+C8 mixed pages. Each valid two-page control is paired with four later-page
+faults: invalid span length, incomplete record, missing tail byte and zero-byte
+source reads. Source and font adapters permit at most 4,096 calls per conversion,
+with three-byte reads, seven-byte writes and 64-byte I/O chunks. Exceeding the
+read budget fails the test itself, so it cannot masquerade as input rejection.
+
+The cases verify page-2 errors after an emitted first page, unfinished PDF output
+and empty scratch. Existing record/count/resource/decompression tests retain
+their finer boundary checks; existing adapter tests cover cancellation and
+cleanup. This is deterministic regression coverage for the admitted profiles,
+not a proof of all parser paths, a corpus compatibility result or a security
+certification. No external corpus, font or viewer is needed.
+
 ### Unreleased native C8 checkpoint
 
 The raw six-page `issue-66` profile now has an explicit-font conversion path

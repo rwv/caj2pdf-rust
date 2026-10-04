@@ -3,7 +3,7 @@
 use super::*;
 use crate::hnc8::C8PageFonts;
 
-fn native_text(records: &[Record]) -> Vec<u8> {
+pub(super) fn native_text(records: &[Record]) -> Vec<u8> {
     let mut words = vec![[0x8001, 60], [0x8002, 0x1084], [30, 0xa0c1]];
     for record in records {
         let c = record.coordinate;
@@ -26,7 +26,7 @@ fn native_text(records: &[Record]) -> Vec<u8> {
         .collect()
 }
 
-fn roles() -> C8PageFonts {
+pub(super) fn roles() -> C8PageFonts {
     C8PageFonts {
         cjk: 0,
         latin: 0,
@@ -276,30 +276,52 @@ fn native_document_font_io_output_and_cancellation_fail_explicitly() {
     }
 }
 
+pub(super) fn hnb_fixture(width: usize, pages: u32) -> Fixture {
+    let index = 216;
+    let mut bytes = vec![0; index + pages as usize * width];
+    bytes[..4].copy_from_slice(b"HN\0\0");
+    bytes[4..8].copy_from_slice(&200_u32.to_le_bytes());
+    bytes[8..12].copy_from_slice(&136_u32.to_le_bytes());
+    if width == 20 {
+        bytes[136..140].copy_from_slice(&200_u32.to_le_bytes());
+    }
+    bytes[144..148].copy_from_slice(&pages.to_le_bytes());
+    bytes[148] = 2;
+    bytes[168..170].copy_from_slice(&100_u16.to_le_bytes());
+    bytes[170..172].copy_from_slice(&200_u16.to_le_bytes());
+    let mut offsets = Vec::new();
+    for page in 0..pages as usize {
+        let mut text = native_text(&[]);
+        text.truncate(text.len() - 2); // Independently admitted HN-B bare end.
+        let offset = bytes.len();
+        let row = index + page * width;
+        bytes[row..row + 4].copy_from_slice(&(offset as u32).to_le_bytes());
+        bytes[row + 4..row + 8].copy_from_slice(&(text.len() as u32).to_le_bytes());
+        bytes.extend(text);
+        if width == 20 {
+            let end = bytes.len() as u32;
+            bytes[row + 16..row + 20].copy_from_slice(&end.to_le_bytes());
+        }
+        offsets.push(offset);
+    }
+    Fixture {
+        bytes,
+        index,
+        text_offsets: offsets,
+        descriptors: vec![vec![]; pages as usize],
+        payloads: vec![vec![]; pages as usize],
+    }
+}
+
 #[test]
 fn hnb_native_document_streams_every_compact_page_and_keeps_late_errors_located() {
     for corrupt in [false, true] {
-        let mut bytes = vec![0; 216 + 3 * 12];
-        bytes[..4].copy_from_slice(b"HN\0\0");
-        bytes[4..8].copy_from_slice(&200_u32.to_le_bytes());
-        bytes[8..12].copy_from_slice(&136_u32.to_le_bytes());
-        bytes[144..148].copy_from_slice(&3_u32.to_le_bytes());
-        bytes[148] = 2;
-        bytes[168..170].copy_from_slice(&100_u16.to_le_bytes());
-        bytes[170..172].copy_from_slice(&200_u16.to_le_bytes());
-        for page in 0..3 {
-            let mut records = native_text(&[]);
-            records.truncate(records.len() - 2); // Verified bare HN-B page end.
-            if corrupt && page == 2 {
-                records[..2].copy_from_slice(&0x8099_u16.to_le_bytes());
-            }
-            let row = 216 + page * 12;
-            let offset = bytes.len() as u32;
-            bytes[row..row + 4].copy_from_slice(&offset.to_le_bytes());
-            bytes[row + 4..row + 8].copy_from_slice(&(records.len() as u32).to_le_bytes());
-            bytes.extend(records);
+        let mut fixture = hnb_fixture(12, 3);
+        if corrupt {
+            let at = fixture.text_offsets[2];
+            fixture.bytes[at..at + 2].copy_from_slice(&0x8099_u16.to_le_bytes());
         }
-        let mut source = Source::new(bytes);
+        let mut source = Source::new(fixture.bytes);
         source.short = 3;
         let mut fonts = [Source::new(crate::pdf::drawing_font())];
         fonts[0].short = 3;
