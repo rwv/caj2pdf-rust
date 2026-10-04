@@ -87,7 +87,14 @@ GitHub Releases. Never replace assets of an already published version.
 
 From v0.3.0, the stable `Native platform matrix` status aggregates every required
 native/container job and fails on failure, cancellation or skipped jobs. It is
-required alongside the four existing quality statuses before merging to main.
+a release gate. PR merging prioritizes Linux: require the four quality statuses,
+the Linux x86_64/ARM64 glibc and musl native jobs. The full Docker matrix
+depends on rare musl/QEMU targets and remains a release gate. Slow rare-platform
+and full-container jobs may finish after merge; inspect their results and fix failures in focused
+follow-ups. Pending or skipped jobs are not passing platform evidence. Branches
+need not rerun solely because an unrelated PR advanced main; resolve conflicts
+and test affected integration changes before merging. This merge policy does
+not waive the complete target inventory or attestations required for publication.
 Optional candidate probes are separate and never substitute for release gates.
 
 From v0.3.1, the tag-only publisher signs the same run's complete release file

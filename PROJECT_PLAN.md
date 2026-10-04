@@ -1,5 +1,14 @@
 # caj2pdf-rust project plan
 
+## Current status
+
+The v0.1.0 milestones below are the historical project plan. Current HN-A,
+HN-B and C8 work follows [#217](https://github.com/rwv/caj2pdf-rust/issues/217);
+see the [support summary](docs/conformance.md#current-support-and-release-status)
+and [native-text limits](docs/hnc8-text-fidelity.md). Admitted native-text
+profiles on main extend the original image-conversion scope. This does not
+change historical release claims or imply OCR/general reading-order support.
+
 ## Goal
 
 Build a Rust CAJ-to-PDF converter with a memory-conscious core, a Linux CLI,

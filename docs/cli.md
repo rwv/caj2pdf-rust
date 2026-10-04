@@ -88,8 +88,10 @@ Standard T.82/T.88 states are built in. These files are optional overrides;
 valid shape alone does not prove that a custom table is correct.
 
 Omit both state flags for normal conversion. HN-A outlines are supported;
-C8/HN-B use `--no-bookmarks`. Image-less HN-B rows, pure-text/searchable HN and
-unverified profiles are rejected. The HN/C8 route admits the measured unused-refinement-template anomaly; other
+C8/HN-B use `--no-bookmarks`. Admitted native-text pages require the explicit
+font roles below; unverified profiles are rejected. Image-only pages receive
+no OCR text layer. General text extraction and semantic reading order remain
+outside the [verified text scope](hnc8-text-fidelity.md). The HN/C8 route admits the measured unused-refinement-template anomaly; other
 malformed JBIG2 flags remain errors.
 
 The command creates four private anonymous files in `TMPDIR` (or the system
@@ -102,7 +104,7 @@ output. Stdout can contain a partial PDF on failure, as for other formats.
 
 ### Native C8 font resources
 
-Supply all three ordinary roles to enable the admitted native C8 profile:
+Supply all three ordinary roles to enable admitted native C8/HN-B profiles:
 
 ```sh
 caj2pdf input.caj --no-bookmarks -o output.pdf \

@@ -1,8 +1,12 @@
 # Incremental native-text PDF output
 
-Status: shared-core groundwork for #233. This does **not** enable a new C8
-conversion profile. Required source controls, font/style meanings and six-page
-real-document fidelity remain unresolved.
+Current status: these shared primitives power the admitted HN-B/C8 native
+profiles. See the [current support summary](conformance.md#current-support-and-release-status)
+and [Unicode fidelity limits](hnc8-text-fidelity.md). Source-specific rendering
+remains experimental, with explicit caller fonts and scoped layout checks.
+
+The runtime checkpoints below are historical foundation evidence for #233/#239;
+their statements about missing adapters or profiles describe that earlier stage.
 
 ## Resource and page contract
 
