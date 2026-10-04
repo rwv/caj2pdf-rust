@@ -69,6 +69,27 @@ validate their geometry. CAJ header, page-table, and TOC extraction belong
 to [issue #7](https://github.com/rwv/caj2pdf-rust/issues/7); no end-to-end CAJ
 compatibility is inferred from this PDF-layer test alone.
 
+## Header offset
+
+Issue [#300](https://github.com/rwv/caj2pdf-rust/issues/300): when no CAJ,
+KDH, HN, C8, or TEB signature starts at byte 0, `detect_source` also selects
+PDF if the whole five-byte `%PDF-` marker lies within the first 1,024 bytes
+(`PDF_HEADER_SEARCH_BYTES`). Observed leading bytes are a newline, a UTF-8
+byte-order mark, and a junk line. Only this search reads past the first
+five bytes, in reads of at most `io_chunk_bytes`. The other families still
+match only at byte 0.
+
+For a header at offset H, the CLI and WASM engine read the PDF through
+`PdfRange { offset: H, length: size - H }`. Cross-reference, `startxref`, and
+`/Prev` offsets are therefore relative to the header, which is correct for a
+complete PDF with bytes prepended; `qpdf --check` 11.9.0 accepts such files
+without reconstruction warnings. Offsets counted from byte 0 are not tried
+as a fallback, so a file written that way fails as malformed PDF. The leading
+bytes are not copied: the output starts at `%PDF-` and equals converting the
+input without them. `Limits.max_input_bytes` applies from H. A JavaScript
+caller that sets `format: "pdf"` skips detection, so it still requires the
+header at byte 0.
+
 ## Bookmarks and output
 
 `copy_pdf` checks the PDF and copies its active bytes in bounded chunks. A

@@ -2962,3 +2962,13 @@ records the 738-page HN-A results and the TEB container characterization. The
 runner change that reports a missing pixel-oracle entry as `NOT_RUN` and checks
 outline identity separately is original MIT code with original synthetic tests.
 TEB analysis there is structural only; no payload is decrypted or copied.
+
+## Displaced PDF header detection (#300)
+
+The bounded `%PDF-` search in `operations.rs`, its CLI and WASM wiring, and
+the tests are original MIT code. The 1,024-byte window and the accepted
+leading bytes (newline, UTF-8 byte-order mark, `%PDF-` within the first 256
+bytes) follow the public CAJSamples magic index and black-box `qpdf --check`
+11.9.0 results on the repository fixture with those bytes prepended. Tests
+build the prefixed inputs at runtime from `valid_nested_outline.pdf`; no new
+fixture, document bytes, or third-party parser code is included.
