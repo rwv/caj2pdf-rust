@@ -26,6 +26,7 @@ pub struct ConvertOptions {
     pub qm_states: Option<PathBuf>,
     pub mq_states: Option<PathBuf>,
     pub no_bookmarks: bool,
+    pub quiet: bool,
     pub fonts: [Option<PathBuf>; 8],
     pub decoration_char: Option<char>,
 }
@@ -71,6 +72,7 @@ C8/HN-B outlines are unverified: none is written and a warning is shown.
 Options:
   -o, --output OUTPUT  Write the PDF to OUTPUT (- for standard output)
   -f, --force          Replace an existing output file (never an input)
+  -q, --quiet          Do not show progress on a terminal
   --no-bookmarks      Skip outline import (silences the C8/HN-B warning)
   --qm-states FILE    Experimental QM states for HN/C8 type-0 images
   --mq-states FILE    Experimental MQ states for arithmetic JBIG2 images
@@ -209,6 +211,7 @@ pub fn parse<I: IntoIterator<Item = OsString>>(args: I) -> Result<Command, Strin
             }
             "-f" | "--force" if writes => force = true,
             "--no-bookmarks" if topic == Topic::Convert => options.no_bookmarks = true,
+            "-q" | "--quiet" if topic == Topic::Convert => options.quiet = true,
             "--qm-states" | "--mq-states" if topic == Topic::Convert => {
                 let value = args
                     .next()

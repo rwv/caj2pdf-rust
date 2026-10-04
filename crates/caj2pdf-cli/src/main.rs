@@ -4,7 +4,8 @@
 //!
 //! Standard output carries only PDF bytes or the requested inspection report;
 //! diagnostics, including skipped-bookmark warnings, go to standard error.
-//! The command does not print progress.
+//! Conversion shows input progress there only when standard error is a
+//! terminal and `--quiet` is not given.
 
 #![forbid(unsafe_code)]
 
@@ -20,6 +21,8 @@ mod files;
 mod hnc8;
 #[cfg(any(unix, windows))]
 mod json;
+#[cfg(any(unix, windows))]
+mod progress;
 #[cfg(any(unix, windows))]
 mod report;
 #[cfg(any(unix, windows))]
@@ -114,12 +117,14 @@ mod cli {
                 let mut protected = vec![&input];
                 protected.extend(resources.inputs.iter());
                 let mut output = open_output(&output, force, &protected)?;
+                let mut terminal = (!options.quiet && io::stderr().is_terminal()).then(io::stderr);
                 let outline = document::convert(
                     &mut input,
                     output.writer(),
                     &limits,
                     &mut resources,
                     !options.no_bookmarks,
+                    terminal.as_mut().map(|err| err as &mut dyn io::Write),
                 )?;
                 output.commit()?;
                 warn(&outline);
