@@ -318,6 +318,12 @@ pub extern "C" fn caj2pdf_io_bookmarks_written() -> u32 {
     with_outcome(0, |outcome| outcome.report.bookmarks_written)
 }
 
+/// HN-A outline entries skipped or clamped by a successful operation.
+#[unsafe(no_mangle)]
+pub extern "C" fn caj2pdf_io_outline_warnings() -> u32 {
+    with_outcome(0, |outcome| outcome.outline_warnings)
+}
+
 /// Page count from a successful inspection; zero when unavailable.
 #[unsafe(no_mangle)]
 pub extern "C" fn caj2pdf_info_page_count() -> u32 {

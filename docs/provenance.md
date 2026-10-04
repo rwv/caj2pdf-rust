@@ -2972,3 +2972,12 @@ bytes) follow the public CAJSamples magic index and black-box `qpdf --check`
 11.9.0 results on the repository fixture with those bytes prepended. Tests
 build the prefixed inputs at runtime from `valid_nested_outline.pdf`; no new
 fixture, document bytes, or third-party parser code is included.
+
+## Fuzz targets (#294)
+
+`fuzz/` is original MIT harness code. It depends on `libfuzzer-sys`
+(MIT/Apache-2.0), which builds LLVM libFuzzer (Apache-2.0 with LLVM exception)
+at fuzz-build time. Neither is vendored in this repository, linked into the CLI,
+WASM or JS packages, or part of the release inventory. Seeds come from the
+original synthetic fixtures in `tests/fixtures`.
+

@@ -3,8 +3,9 @@
 //! The `caj2pdf` command. See `docs/cli.md` for its interface.
 //!
 //! Standard output carries only PDF bytes or the requested inspection report;
-//! diagnostics go to standard error. Conversion shows input progress there
-//! only when standard error is a terminal and `--quiet` is not given.
+//! diagnostics, including skipped-bookmark warnings, go to standard error.
+//! Conversion shows input progress there only when standard error is a
+//! terminal and `--quiet` is not given.
 
 #![forbid(unsafe_code)]
 
@@ -58,7 +59,7 @@ mod cli {
     use crate::args::{self, Command, Endpoint};
     use crate::files::{open_input, open_output, refuse_terminal, stdout_error};
     use crate::{document, report};
-    use caj2pdf_core::Limits;
+    use caj2pdf_core::{Limits, hnc8::OutlineReport};
     use std::io::{self, IsTerminal, Write};
 
     /// The output used when `-o` is absent: stdout for stdin, otherwise the
@@ -89,6 +90,12 @@ mod cli {
             .map_err(stdout_error)
     }
 
+    /// Report skipped HN-A bookmarks; a failed diagnostic write is ignored
+    /// like the error diagnostic, so it cannot change the exit status.
+    fn warn(outline: &OutlineReport) {
+        let _ = report::write_warnings(&mut io::stderr().lock(), outline);
+    }
+
     pub fn run(command: Command) -> Result<(), CliError> {
         let limits = Limits::default();
         match command {
@@ -111,7 +118,7 @@ mod cli {
                 protected.extend(resources.inputs.iter());
                 let mut output = open_output(&output, force, &protected)?;
                 let mut terminal = (!options.quiet && io::stderr().is_terminal()).then(io::stderr);
-                document::convert(
+                let outline = document::convert(
                     &mut input,
                     output.writer(),
                     &limits,
@@ -119,7 +126,9 @@ mod cli {
                     !options.no_bookmarks,
                     terminal.as_mut().map(|err| err as &mut dyn io::Write),
                 )?;
-                output.commit()
+                output.commit()?;
+                warn(&outline);
+                Ok(())
             }
             Command::Inspect {
                 input,
@@ -128,6 +137,7 @@ mod cli {
             } => {
                 let mut input = open_input(&input, limits.max_input_bytes)?;
                 let info = document::inspect(&mut input, &limits)?;
+                warn(&info.outline);
                 print(|out| {
                     if json {
                         report::write_json(out, &info, bookmarks)

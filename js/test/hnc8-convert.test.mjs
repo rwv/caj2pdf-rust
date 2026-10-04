@@ -137,11 +137,32 @@ test("HN/C8 inspection validates metadata without image reads or runtime tables"
   }
 });
 
-test("HN inspection rejects malformed outlines, limits and cancelled reads", async () => {
+test("HN-A outline defects are counted warnings in inspection and conversion", async () => {
   const { inspect } = await import("../node.mjs");
-  const malformed = syntheticHn(true);
-  new DataView(malformed.buffer).setUint32(0x15c + 308 + 304, 4, true);
-  await assert.rejects(inspect(await newInstance(), blobSource(new Blob([malformed]))), (error) => error.code === "HNC8" && /outline level/.test(error.message));
+  const clean = syntheticHn(true);
+  const cleanInfo = await inspect(await newInstance(), blobSource(new Blob([clean])));
+  assert.equal(cleanInfo.outlineWarnings, 0);
+  const cleanParts = [];
+  const cleanReport = await convert(await newInstance(), blobSource(new Blob([clean])), sink(cleanParts), { hnc8: { scratch: stores() } });
+  assert.deepEqual([cleanReport.bookmarksWritten, cleanReport.outlineWarnings], [2, 0]);
+  // Level 4 under a level-1 root is clamped to level 2: one warning, same outline.
+  const clamped = syntheticHn(true);
+  new DataView(clamped.buffer).setUint32(0x15c + 308 + 304, 4, true);
+  // Page 9 of a one-page document skips only that entry.
+  const skipped = syntheticHn(true);
+  skipped[0x15c + 308 + 280] = 57;
+  for (const [bytes, written] of [[clamped, 2], [skipped, 1]]) {
+    const info = await inspect(await newInstance(), blobSource(new Blob([bytes])));
+    assert.deepEqual([info.bookmarkCount, info.outlineWarnings], [written, 1]);
+    const parts = [];
+    const report = await convert(await newInstance(), blobSource(new Blob([bytes])), sink(parts), { hnc8: { scratch: stores() } });
+    assert.deepEqual([report.pagesConverted, report.bookmarksWritten, report.outlineWarnings], [1, written, 1]);
+    if (bytes === clamped) assert.deepEqual(Buffer.concat(parts), Buffer.concat(cleanParts));
+  }
+});
+
+test("HN inspection rejects unreadable outlines, limits and cancelled reads", async () => {
+  const { inspect } = await import("../node.mjs");
   await assert.rejects(inspect(await newInstance(), blobSource(new Blob([syntheticHn(true)])), { limits: { maxBookmarks: 1 } }), { code: "HNC8" });
   const controller = new AbortController(); const reason = new Error("stop inspection");
   const inner = source();
