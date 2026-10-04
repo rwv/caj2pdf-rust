@@ -16,7 +16,7 @@ path = "src/main.rs"
 caj2pdf-core = { path = "../caj2pdf-core" }
 
 [target.'cfg(unix)'.dependencies]
-signal-hook = { version = "0.3", default-features = false }
+signal-hook = { version = "0.4", default-features = false }
 
 [target."cfg(windows)".dependencies]
 ctrlc = "3.5.2"
