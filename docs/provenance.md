@@ -1876,6 +1876,10 @@ actual host kernel/compiler. It does not contain toolchain implementation code.
 
 ## Isolated Pentium GNU candidate toolchain (#214)
 
+The verified job is promoted unchanged into the required platform workflow.
+Its target joins the existing MIT dependency graph and release inventory;
+checksums and attestations reuse the current aggregation pipeline.
+
 `scripts/install-i586-gnu.py` and its candidate workflow are original MIT code.
 The five package hashes come from the official archived Debian Jessie i386
 package inventory; the script checks every package before extraction. The
