@@ -355,6 +355,19 @@ establish structure, bookmarks and cross-runtime identity, not pixel parity.
 Per-run details are in the
 [sample research notes](https://github.com/rwv/caj2pdf-samples/blob/main/RESEARCH.md).
 
+### Native file-scratch system calls (#291)
+
+`FileScratch` now caches its logical length and uses positioned reads/writes
+instead of `metadata()` plus a seek per request. On the 163-page Ren
+`issue-76` HN-A input, release CLIs at main `8cc6291` and with this change
+both write SHA-256
+`35ef00ccef40e815790ed72d259bcc9b220c726e9c060d85dffa958f86585526`.
+`strace -c -f` counted 36,563,024 system calls before (11,522,787 `statx`,
+11,583,746 `lseek`) and 13,517,464 after (7 `statx`, 60,966 `lseek`, all
+from input reads). Wall time fell from 69–74 s to 57–58 s over two runs each
+on a shared, loaded 4-vCPU host. Scratch traffic remains row-sized
+read-modify-write pairs; no write buffer was added.
+
 ### Known Python-reference differences
 
 These are accepted v0.1 differences, with full source hashes and measurements in
