@@ -74,11 +74,24 @@ fn pdf_range(size: u64, header_offset: u64) -> PdfRange {
     }
 }
 
-fn unsupported(format: InputFormat) -> String {
-    format!(
-        "{name} input is recognized, but {name} conversion is not supported",
-        name = format_name(format)
-    )
+/// Why a recognized format is never converted, when that is known.
+///
+/// TEB is a CNKI DRM container whose document entries are encrypted
+/// (rwv/caj2pdf-samples research notes); this project does not decrypt it.
+pub fn unsupported_reason(format: InputFormat) -> Option<&'static str> {
+    matches!(format, InputFormat::Teb).then_some("drm-encrypted")
+}
+
+pub(crate) fn unsupported(format: InputFormat) -> String {
+    match unsupported_reason(format) {
+        Some(_) => "TEB input is a DRM-encrypted CNKI container; \
+                    its document content is encrypted and cannot be converted"
+            .to_owned(),
+        None => format!(
+            "{name} input is recognized, but {name} conversion is not supported",
+            name = format_name(format)
+        ),
+    }
 }
 
 fn ranged(file: &mut File) -> Result<SeekableSource<&mut File>, String> {

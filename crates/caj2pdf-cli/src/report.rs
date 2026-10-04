@@ -3,7 +3,7 @@
 //! Human-readable and JSON forms of an inspection. `docs/cli.md` documents
 //! both; the JSON form is versioned by `schema_version`.
 
-use crate::document::{Inspection, conversion_supported, format_name};
+use crate::document::{Inspection, conversion_supported, format_name, unsupported_reason};
 use crate::json::{write_literal, write_string};
 use caj2pdf_core::Bookmark;
 use std::io::{self, Write};
@@ -47,6 +47,8 @@ pub fn write_text<W: Write>(out: &mut W, info: &Inspection, list: bool) -> io::R
             "experimental (caller codec states may be required)"
         } else if supported {
             "supported"
+        } else if unsupported_reason(info.format).is_some() {
+            "not supported (DRM-encrypted container)"
         } else {
             "not supported"
         }
@@ -138,6 +140,10 @@ pub fn write_json<W: Write>(out: &mut W, info: &Inspection, list: bool) -> io::R
             Some(bookmarks) => write_tree(out, bookmarks)?,
             None => out.write_all(b"null")?,
         }
+    }
+    if let Some(reason) = unsupported_reason(info.format) {
+        out.write_all(b",\"unsupported_reason\":")?;
+        write_string(out, reason)?;
     }
     out.write_all(b"}\n")
 }

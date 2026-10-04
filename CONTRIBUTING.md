@@ -56,6 +56,14 @@ The required native line-coverage gate is 100% for every source file in its
 LCOV report. Exercise real behavior and error propagation; do not add
 assertions that only mirror the implementation or hide uncovered lines.
 
+## Dependency updates
+
+Dependabot proposes weekly grouped Cargo and GitHub Actions updates. Review them
+like any other change: the MIT/provenance audit in `deny.toml` and
+[docs/provenance.md](docs/provenance.md) applies, and the JavaScript package
+keeps zero runtime dependencies. Validation tools pinned in workflows (qpdf,
+TypeScript, Node types) are updated by hand.
+
 ## Quality gates
 
 CI requires `cargo fmt --check`, Clippy with `-D warnings`, rustdoc with
@@ -67,6 +75,12 @@ reported file; it fails on any uncovered line even when a rounded percentage
 displays 100%. Run `bash scripts/check-coverage.sh` locally (it needs
 `cargo-llvm-cov` and the PDF validators listed in
 [the PDF writer notes](docs/pdf-writer.md)).
+
+These `ci.yml` jobs run on Linux and are the merge gate for pull requests.
+The 53-target native platform matrix (`platforms.yml`) validates release
+artifacts: it runs on every push to `main`, before each release and on demand,
+and on a pull request only when packaging, toolchain or lockfile inputs change.
+A red matrix on `main` must be fixed before the next release is tagged.
 
 Coverage is measured per source file, so inline `#[cfg(test)]` modules count
 toward their file's figure. Prefer a sibling `tests.rs` module (as

@@ -251,6 +251,7 @@ adding a field is not considered incompatible.
 | `has_outline` | boolean or null | Whether the document has an outline; null when unknown (HN-B, C8, TEB). |
 | `bookmark_count` | integer or null | Number of outline entries; null when this format's outline cannot be listed. |
 | `bookmarks` | array or null | Present only with `--bookmarks`. The root entries, or null when the outline cannot be listed. |
+| `unsupported_reason` | string | Present only when a recognized format is never converted: `"drm-encrypted"` for TEB, whose document content is encrypted. |
 
 Each bookmark object has these fields:
 

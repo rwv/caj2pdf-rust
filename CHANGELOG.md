@@ -9,7 +9,9 @@
   from the output (#300). Core adds `detect_source`, `Detection`, and
   `PDF_HEADER_SEARCH_BYTES`; `detect_format` now also matches the displaced
   header within its prefix.
-
+- TEB diagnostics now say the input is a DRM-encrypted CNKI container whose
+  document content cannot be converted; `inspect --json` adds
+  `"unsupported_reason":"drm-encrypted"` for TEB. Exit status is unchanged.
 - Add FreeBSD RISC-V64 GC and PowerPC64 big-endian native CLI archives,
   tested in FreeBSD 15.1 VMs. Both targets join the required release matrix,
   dependency-license audit, archive inventory and existing provenance flow.

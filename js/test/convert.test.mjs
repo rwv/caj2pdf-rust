@@ -183,7 +183,7 @@ test("malformed HN/C8 and unsupported TEB failures are distinguished", async () 
         assert.ok(error instanceof UnsupportedFormatError);
         assert.equal(error.code, "UNSUPPORTED_FORMAT");
         assert.equal(error.format, format);
-        assert.match(error.message, /not supported yet/);
+        assert.match(error.message, /DRM-encrypted CNKI container/);
       } else {
         assert.equal(error.code, "HNC8");
         assert.match(error.message, /HN\/C8/);
