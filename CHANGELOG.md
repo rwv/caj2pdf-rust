@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- JS `inspect` reports `applicationInfo: { doi, url, noteCount }` for a C8
+  application-info package, matching the CLI; `null` when absent or defective.
+  The WASM ABI adds `caj2pdf_info_note_count`, `caj2pdf_info_text_ptr` and
+  `caj2pdf_info_text_len`. **Breaking (Rust WASM engine):** `Outcome` gains
+  `application_info`.
 - CI: the FreeBSD ARM64 archive is cross-built on the host against the official
   14.3 sysroot and only tested in the emulated VM, instead of compiling Rust
   under emulation. Its 14.3 runtime baseline is unchanged, and the VM now runs

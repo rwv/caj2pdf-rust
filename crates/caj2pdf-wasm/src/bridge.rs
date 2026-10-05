@@ -353,6 +353,43 @@ pub extern "C" fn caj2pdf_info_bookmark_count() -> i64 {
     })
 }
 
+/// Annotation count of the C8 application-info package read by a successful
+/// inspection, or -1 when there is none (absent, defective or not C8).
+#[unsafe(no_mangle)]
+pub extern "C" fn caj2pdf_info_note_count() -> i64 {
+    with_outcome(-1, |outcome| {
+        outcome
+            .application_info
+            .as_ref()
+            .map_or(-1, |info| i64::from(info.note_count))
+    })
+}
+
+/// The package's DOI (`field` 0) or URL (`field` 1); empty when absent.
+fn application_text(outcome: &Outcome, field: u32) -> &str {
+    let info = outcome.application_info.as_ref();
+    let text = match field {
+        0 => info.and_then(|info| info.doi.as_deref()),
+        1 => info.and_then(|info| info.url.as_deref()),
+        _ => None,
+    };
+    text.unwrap_or("")
+}
+
+/// Pointer to the UTF-8 application-info text selected by `field`.
+#[unsafe(no_mangle)]
+pub extern "C" fn caj2pdf_info_text_ptr(field: u32) -> u32 {
+    with_outcome(0, |outcome| {
+        application_text(outcome, field).as_ptr() as u32
+    })
+}
+
+/// Byte length of the application-info text selected by `field`; 0 when absent.
+#[unsafe(no_mangle)]
+pub extern "C" fn caj2pdf_info_text_len(field: u32) -> u32 {
+    with_outcome(0, |outcome| application_text(outcome, field).len() as u32)
+}
+
 /// Release the operation and its bounded staging allocation.
 #[unsafe(no_mangle)]
 pub extern "C" fn caj2pdf_io_reset() {
