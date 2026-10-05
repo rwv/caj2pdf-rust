@@ -75,12 +75,29 @@ The unreleased [type-1 JPEG extension](research/hnc8-type1.md) adds the measured
 profile and selects the existing HN/C8 text-header interoperability policy in
 CLI/WASM. The frozen v0.3.1 results below are not overwritten by this change.
 
-### Reproducible v0.3.1 CLI baseline (#218)
+### v0.4.0 pre-tag Linux CI baseline (#328)
 
 The [current CLI observations](../tests/conformance/current_cli_baseline.json)
+use the Linux x86_64 GNU artifact from main `0153d22`, CI run `37251767647`.
+All 56 source identities matched before and after the run. Default font-free
+conversion succeeds for 38 documents: 19 HN, two C8, 12 CAJ, three KDH and two
+PDF. Seven TEB and six HN-B/C8 inputs are unsupported with these options;
+five damaged CAJ inputs fail. Explicit bookmark-omission repeats add two
+successful attempts, not two additional documents.
+
+All 40 successful attempts pass qpdf, page-count and source-order checks.
+Source-outline checks pass for 31 attempts and are NOT_RUN for nine. These
+are structural checks, not new viewer pixel comparisons. Each child has a
+600-second timeout, 1 GiB address-space limit and 512 MiB output-file limit.
+The report records the exact binary SHA-256. This is pre-tag CI evidence;
+final tagged asset identity and provenance verification remain release gates.
+
+### Reproducible v0.3.1 CLI baseline (#218)
+
+The [historical CLI observations](https://github.com/rwv/caj2pdf-rust/blob/0153d22a806b443a9cae01f9277dabbee483f01b/tests/conformance/current_cli_baseline.json)
 record a completed repeat on all 56 pinned inputs using the published Linux
 x86_64 v0.3.1 executable. Source hashes matched the inventory before and after
-all attempts. These are current observations, separate from the historical
+all attempts. These are historical v0.3.1 observations, separate from the
 Python expectations. The optional runner independently checks page/image
 identity and order; it does not perform new rendered-page pixel comparisons.
 

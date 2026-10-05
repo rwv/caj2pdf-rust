@@ -3007,6 +3007,16 @@ decoded XML, identifiers or URLs from the corpus are committed. Output keys
 follow the document information dictionary of PDF 1.7 (ISO 32000-1 §14.3.3),
 which permits additional keys such as `/CNKI_URL`.
 
+## v0.4.0 CI-artifact baseline refresh (#328)
+
+The original MIT runner now recognizes the exact TEB diagnostic introduced by
+#295. A 56-document external run used the Linux CI artifact from main `0153d22`
+and run `37251767647`; the report records its binary hash and resource limits.
+All source identities were verified before and after conversion. Only TEB
+status labels were recomputed from retained exit codes and diagnostics; no
+conversion results or PDF checks were synthesized. Historical v0.3.1 receipts
+remain linked by commit. No corpus bytes, PDFs, fonts or viewer content are added.
+
 ## Registry package preparation (#293)
 
 Core and CLI package manifests now declare registry metadata, explicitly bound

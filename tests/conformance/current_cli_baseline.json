@@ -22,7 +22,8 @@
         "conversion_supported": true,
         "page_count": 82,
         "has_outline": true,
-        "bookmark_count": 44
+        "bookmark_count": 44,
+        "outline_warnings": 0
       },
       "inspection_exit_code": 0,
       "attempts": [
@@ -30,7 +31,7 @@
           "no_bookmarks": false,
           "exit_code": 0,
           "conversion_status": "PASS",
-          "seconds": 9.484,
+          "seconds": 7.931,
           "diagnostic": "",
           "output_exists": true,
           "output_sha256": "427e9fbe533681fbbcf63a3cf738672f271d491841bc9894f490db4be97da598",
@@ -67,7 +68,8 @@
         "conversion_supported": true,
         "page_count": 4,
         "has_outline": null,
-        "bookmark_count": null
+        "bookmark_count": null,
+        "outline_warnings": null
       },
       "inspection_exit_code": 0,
       "attempts": [
@@ -75,15 +77,15 @@
           "no_bookmarks": false,
           "exit_code": 1,
           "conversion_status": "UNSUPPORTED",
-          "seconds": 0.003,
-          "diagnostic": "caj2pdf: error: cannot convert 'issue-100/中国金融体制改革阶段研究_李卉.caj': HN/C8 page composition, Preflight, HN-B, source byte 0: unsupported profile: outlines are only validated for HN-A",
+          "seconds": 0.005,
+          "diagnostic": "caj2pdf: error: cannot convert 'issue-100/中国金融体制改革阶段研究_李卉.caj': HN/C8 page composition, Visitor, HN-B, page 1, source byte 216: invalid input: HN/C8 conversion cannot omit source pages without image content",
           "output_exists": false
         },
         {
           "no_bookmarks": true,
           "exit_code": 1,
           "conversion_status": "UNSUPPORTED",
-          "seconds": 0.003,
+          "seconds": 0.004,
           "diagnostic": "caj2pdf: error: cannot convert 'issue-100/中国金融体制改革阶段研究_李卉.caj': HN/C8 page composition, Visitor, HN-B, page 1, source byte 216: invalid input: HN/C8 conversion cannot omit source pages without image content",
           "output_exists": false
         }
@@ -100,7 +102,8 @@
         "conversion_supported": true,
         "page_count": 62,
         "has_outline": true,
-        "bookmark_count": 52
+        "bookmark_count": 52,
+        "outline_warnings": 0
       },
       "inspection_exit_code": 0,
       "attempts": [
@@ -108,7 +111,7 @@
           "no_bookmarks": false,
           "exit_code": 0,
           "conversion_status": "PASS",
-          "seconds": 0.033,
+          "seconds": 0.034,
           "diagnostic": "",
           "output_exists": true,
           "output_sha256": "5e18cabbbf14ea51b1c9d5ba80197b77b9343badd9b987c51c8fa0cba5e185bd",
@@ -141,7 +144,8 @@
         "conversion_supported": true,
         "page_count": 78,
         "has_outline": true,
-        "bookmark_count": 58
+        "bookmark_count": 58,
+        "outline_warnings": 0
       },
       "inspection_exit_code": 0,
       "attempts": [
@@ -182,33 +186,18 @@
         "conversion_supported": true,
         "page_count": 63,
         "has_outline": true,
-        "bookmark_count": 93
+        "bookmark_count": 93,
+        "outline_warnings": 0
       },
       "inspection_exit_code": 0,
       "attempts": [
         {
           "no_bookmarks": false,
-          "exit_code": 0,
-          "conversion_status": "PASS",
-          "seconds": 0.017,
-          "diagnostic": "",
-          "output_exists": true,
-          "output_sha256": "58fc31644f1363fa695112bf2deb71e4069e990f53199e610938b31dc8052e6d",
-          "output_bytes": 969020,
-          "pages": 63,
-          "pdf_check_exit_code": 3,
-          "pdf_check": "WARNING",
-          "page_count_check": "PASS",
-          "page_order_check": "PASS",
-          "source_outline_check": "PASS",
-          "pixel_check": "NOT_RUN",
-          "outline_count": 93,
-          "outline_sha256": "de65572bf6f95ce55973b8d6e01ab6c590fb2e7803a35aeb3279f5333ba78836",
-          "page_order": {
-            "status": "PASS",
-            "method": "source page-table object IDs versus qpdf output page order",
-            "pages": 63
-          }
+          "exit_code": 1,
+          "conversion_status": "FAIL",
+          "seconds": 0.009,
+          "diagnostic": "caj2pdf: error: cannot convert 'issue-20/文件名未知.caj': malformed PDF at byte 335225, object 4 0: invalid Flate stream while resolving Length",
+          "output_exists": false
         }
       ]
     },
@@ -223,7 +212,8 @@
         "conversion_supported": true,
         "page_count": 68,
         "has_outline": true,
-        "bookmark_count": 52
+        "bookmark_count": 52,
+        "outline_warnings": 0
       },
       "inspection_exit_code": 0,
       "attempts": [
@@ -231,7 +221,7 @@
           "no_bookmarks": false,
           "exit_code": 0,
           "conversion_status": "PASS",
-          "seconds": 8.482,
+          "seconds": 7.481,
           "diagnostic": "",
           "output_exists": true,
           "output_sha256": "0ee889305e8106dcab37fd9c62cfbaafc200ace81f7a91cf1b823b97235bb244",
@@ -268,7 +258,8 @@
         "conversion_supported": true,
         "page_count": 6,
         "has_outline": false,
-        "bookmark_count": null
+        "bookmark_count": null,
+        "outline_warnings": null
       },
       "inspection_exit_code": 0,
       "attempts": [
@@ -309,7 +300,8 @@
         "conversion_supported": true,
         "page_count": 78,
         "has_outline": true,
-        "bookmark_count": 40
+        "bookmark_count": 40,
+        "outline_warnings": 0
       },
       "inspection_exit_code": 0,
       "attempts": [
@@ -317,8 +309,8 @@
           "no_bookmarks": false,
           "exit_code": 1,
           "conversion_status": "FAIL",
-          "seconds": 0.003,
-          "diagnostic": "caj2pdf: error: cannot convert 'issue-25/2.caj': malformed PDF at byte 116724: expected PDF name",
+          "seconds": 0.065,
+          "diagnostic": "caj2pdf: error: cannot convert 'issue-25/2.caj': malformed PDF at byte 455462, object 450 0: interrupted prefix has no exact complete counterpart",
           "output_exists": false
         }
       ]
@@ -334,7 +326,8 @@
         "conversion_supported": true,
         "page_count": 48,
         "has_outline": true,
-        "bookmark_count": 48
+        "bookmark_count": 48,
+        "outline_warnings": 0
       },
       "inspection_exit_code": 0,
       "attempts": [
@@ -342,7 +335,7 @@
           "no_bookmarks": false,
           "exit_code": 0,
           "conversion_status": "PASS",
-          "seconds": 5.476,
+          "seconds": 4.674,
           "diagnostic": "",
           "output_exists": true,
           "output_sha256": "5c0a17541b2470f5436a7c7a478b6761d93fd8ae0665db0cdecd014a25b76264",
@@ -379,17 +372,34 @@
         "conversion_supported": true,
         "page_count": 141,
         "has_outline": true,
-        "bookmark_count": 31
+        "bookmark_count": 31,
+        "outline_warnings": 0
       },
       "inspection_exit_code": 0,
       "attempts": [
         {
           "no_bookmarks": false,
-          "exit_code": 1,
-          "conversion_status": "FAIL",
-          "seconds": 0.005,
-          "diagnostic": "caj2pdf: error: cannot convert 'issue-30/Lambertian.caj': malformed PDF at byte 189227, object 2 0: invalid Flate stream while resolving Length",
-          "output_exists": false
+          "exit_code": 0,
+          "conversion_status": "PASS",
+          "seconds": 0.616,
+          "diagnostic": "",
+          "output_exists": true,
+          "output_sha256": "01e138e904710100e75f39de16d2101a1b80fed345eaf5bceba1565a12e14efb",
+          "output_bytes": 4100130,
+          "pages": 141,
+          "pdf_check_exit_code": 0,
+          "pdf_check": "PASS",
+          "page_count_check": "PASS",
+          "page_order_check": "PASS",
+          "source_outline_check": "PASS",
+          "pixel_check": "NOT_RUN",
+          "outline_count": 31,
+          "outline_sha256": "c22529f1fc384fdc49f8b58349cb7a8b64d3fae2b154ac5536e3fdca0ae4bd90",
+          "page_order": {
+            "status": "PASS",
+            "method": "source page-table object IDs versus qpdf output page order",
+            "pages": 141
+          }
         }
       ]
     },
@@ -404,7 +414,8 @@
         "conversion_supported": true,
         "page_count": 72,
         "has_outline": true,
-        "bookmark_count": 78
+        "bookmark_count": 78,
+        "outline_warnings": 0
       },
       "inspection_exit_code": 0,
       "attempts": [
@@ -412,7 +423,7 @@
           "no_bookmarks": false,
           "exit_code": 0,
           "conversion_status": "PASS",
-          "seconds": 8.833,
+          "seconds": 7.529,
           "diagnostic": "",
           "output_exists": true,
           "output_sha256": "d9a9f6160d7557f75654629b71934ab13b69cfaa306bb7ed1811c72fb0aafa96",
@@ -449,27 +460,53 @@
         "conversion_supported": true,
         "page_count": 7,
         "has_outline": null,
-        "bookmark_count": null
+        "bookmark_count": null,
+        "outline_warnings": null,
+        "application_info": {
+          "doi": "CNKI:SUN:SOUC.0.2019-04-029",
+          "url": "http://gongjushu.cnki.net",
+          "note_count": 1
+        }
       },
       "inspection_exit_code": 0,
       "attempts": [
         {
           "no_bookmarks": false,
-          "exit_code": 1,
-          "conversion_status": "UNSUPPORTED",
-          "seconds": 0.003,
-          "diagnostic": "caj2pdf: error: cannot convert 'issue-33/test1.caj': HN/C8 page composition, Preflight, C8, source byte 0: unsupported profile: outlines are only validated for HN-A",
-          "output_exists": false
+          "exit_code": 0,
+          "conversion_status": "PASS",
+          "seconds": 0.616,
+          "diagnostic": "caj2pdf: warning: C8/HN-B bookmarks are not verified; wrote no outline (--no-bookmarks silences this)",
+          "output_exists": true,
+          "output_sha256": "1383f2e41cd37ffbe4b7b151bc9f1f79fa7a949eed05358fcba1c833e9de6518",
+          "output_bytes": 2762811,
+          "pages": 7,
+          "pdf_check_exit_code": 0,
+          "pdf_check": "PASS",
+          "page_count_check": "PASS",
+          "page_order_check": "PASS",
+          "source_outline_check": "NOT_RUN",
+          "pixel_check": "NOT_RUN",
+          "outline_count": 0,
+          "outline_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "page_order": {
+            "status": "PASS",
+            "pages": 7,
+            "images": 34,
+            "repeated_source_descriptors": 0,
+            "mismatched_pages": [],
+            "method": "ordered source images versus Poppler extraction and pinned pixel oracles",
+            "scope": "page/image identity and order; not placement, alias coordinates or rendered-page parity"
+          }
         },
         {
           "no_bookmarks": true,
           "exit_code": 0,
           "conversion_status": "PASS",
-          "seconds": 0.766,
+          "seconds": 0.617,
           "diagnostic": "",
           "output_exists": true,
-          "output_sha256": "17a2a256f9e1739fa31a5c39d1572c7efa4215ec9828c71e6f0324a64ca4e4b9",
-          "output_bytes": 2762514,
+          "output_sha256": "1383f2e41cd37ffbe4b7b151bc9f1f79fa7a949eed05358fcba1c833e9de6518",
+          "output_bytes": 2762811,
           "pages": 7,
           "pdf_check_exit_code": 0,
           "pdf_check": "PASS",
@@ -502,7 +539,8 @@
         "conversion_supported": true,
         "page_count": 26,
         "has_outline": false,
-        "bookmark_count": null
+        "bookmark_count": null,
+        "outline_warnings": null
       },
       "inspection_exit_code": 0,
       "attempts": [
@@ -510,7 +548,7 @@
           "no_bookmarks": false,
           "exit_code": 0,
           "conversion_status": "PASS",
-          "seconds": 0.033,
+          "seconds": 0.018,
           "diagnostic": "",
           "output_exists": true,
           "output_sha256": "ac440185148c381bc88d56f3a6626a20d2f4610da5b81207023c8c6e97a79831",
@@ -543,7 +581,8 @@
         "conversion_supported": true,
         "page_count": 11,
         "has_outline": false,
-        "bookmark_count": null
+        "bookmark_count": null,
+        "outline_warnings": null
       },
       "inspection_exit_code": 0,
       "attempts": [
@@ -584,7 +623,8 @@
         "conversion_supported": true,
         "page_count": 67,
         "has_outline": false,
-        "bookmark_count": null
+        "bookmark_count": null,
+        "outline_warnings": null
       },
       "inspection_exit_code": 0,
       "attempts": [
@@ -625,7 +665,8 @@
         "conversion_supported": true,
         "page_count": 150,
         "has_outline": true,
-        "bookmark_count": 77
+        "bookmark_count": 77,
+        "outline_warnings": 0
       },
       "inspection_exit_code": 0,
       "attempts": [
@@ -633,7 +674,7 @@
           "no_bookmarks": false,
           "exit_code": 0,
           "conversion_status": "PASS",
-          "seconds": 18.852,
+          "seconds": 16.297,
           "diagnostic": "",
           "output_exists": true,
           "output_sha256": "8feab0b8b4f43f89b4b05ff97588604d035f9fe0a17556ee660eb62a3252c846",
@@ -670,7 +711,8 @@
         "conversion_supported": true,
         "page_count": 80,
         "has_outline": true,
-        "bookmark_count": 72
+        "bookmark_count": 72,
+        "outline_warnings": 0
       },
       "inspection_exit_code": 0,
       "attempts": [
@@ -678,7 +720,7 @@
           "no_bookmarks": false,
           "exit_code": 1,
           "conversion_status": "FAIL",
-          "seconds": 0.005,
+          "seconds": 0.017,
           "diagnostic": "caj2pdf: error: cannot convert 'issue-39/文件同步服务中数据同步传输消重策略研究_张航.caj': malformed PDF at byte 898312: invalid PDF value token",
           "output_exists": false
         }
@@ -695,7 +737,8 @@
         "conversion_supported": true,
         "page_count": 78,
         "has_outline": true,
-        "bookmark_count": 40
+        "bookmark_count": 40,
+        "outline_warnings": 0
       },
       "inspection_exit_code": 0,
       "attempts": [
@@ -736,17 +779,38 @@
         "conversion_supported": true,
         "page_count": 109,
         "has_outline": true,
-        "bookmark_count": 42
+        "bookmark_count": 42,
+        "outline_warnings": 0
       },
       "inspection_exit_code": 0,
       "attempts": [
         {
           "no_bookmarks": false,
-          "exit_code": 1,
-          "conversion_status": "UNSUPPORTED",
-          "seconds": 0.003,
-          "diagnostic": "caj2pdf: error: cannot convert 'issue-43/Windows9x_NT操作系统的磁盘备份与恢复的研究与实现_张宗伟.caj': HN/C8 page composition, Headers, HN-A, page 1, image 1, source byte 15496: unsupported image record type 1",
-          "output_exists": false
+          "exit_code": 0,
+          "conversion_status": "PASS",
+          "seconds": 53.62,
+          "diagnostic": "",
+          "output_exists": true,
+          "output_sha256": "e334c2be876c21237a9e6aa4095ad228d8093948a320e9e8b50b210adef087a4",
+          "output_bytes": 10690852,
+          "pages": 109,
+          "pdf_check_exit_code": 0,
+          "pdf_check": "PASS",
+          "page_count_check": "PASS",
+          "page_order_check": "PASS",
+          "source_outline_check": "PASS",
+          "pixel_check": "NOT_RUN",
+          "outline_count": 42,
+          "outline_sha256": "20b1f0b15357eea7f4f55a04fdc9c285c9a809eb8c55fad5ac55b37cf4c07bda",
+          "page_order": {
+            "status": "PASS",
+            "pages": 109,
+            "images": 114,
+            "repeated_source_descriptors": 0,
+            "mismatched_pages": [],
+            "method": "ordered source images versus Poppler extraction and pinned pixel oracles",
+            "scope": "page/image identity and order; not placement, alias coordinates or rendered-page parity"
+          }
         }
       ]
     },
@@ -761,7 +825,8 @@
         "conversion_supported": true,
         "page_count": 108,
         "has_outline": true,
-        "bookmark_count": 57
+        "bookmark_count": 57,
+        "outline_warnings": 0
       },
       "inspection_exit_code": 0,
       "attempts": [
@@ -802,7 +867,8 @@
         "conversion_supported": true,
         "page_count": 109,
         "has_outline": true,
-        "bookmark_count": 38
+        "bookmark_count": 38,
+        "outline_warnings": 0
       },
       "inspection_exit_code": 0,
       "attempts": [
@@ -810,7 +876,7 @@
           "no_bookmarks": false,
           "exit_code": 0,
           "conversion_status": "PASS",
-          "seconds": 0.065,
+          "seconds": 0.066,
           "diagnostic": "",
           "output_exists": true,
           "output_sha256": "1d6c5563d2c12198f50b3f03c673bd6a7707b99d81ce578d65cfe29e766792d7",
@@ -843,7 +909,8 @@
         "conversion_supported": true,
         "page_count": 37,
         "has_outline": true,
-        "bookmark_count": 20
+        "bookmark_count": 20,
+        "outline_warnings": 0
       },
       "inspection_exit_code": 0,
       "attempts": [
@@ -851,7 +918,7 @@
           "no_bookmarks": false,
           "exit_code": 0,
           "conversion_status": "PASS",
-          "seconds": 6.277,
+          "seconds": 5.626,
           "diagnostic": "",
           "output_exists": true,
           "output_sha256": "9ecd99ab33f49373d65dfd637efd4d8db37c4c6820b68e881447c84122ab3227",
@@ -888,7 +955,8 @@
         "conversion_supported": true,
         "page_count": 1,
         "has_outline": false,
-        "bookmark_count": null
+        "bookmark_count": null,
+        "outline_warnings": null
       },
       "inspection_exit_code": 0,
       "attempts": [
@@ -896,7 +964,7 @@
           "no_bookmarks": false,
           "exit_code": 0,
           "conversion_status": "PASS",
-          "seconds": 0.009,
+          "seconds": 0.017,
           "diagnostic": "",
           "output_exists": true,
           "output_sha256": "82fc33ce060e14acaf68fa52b592f15d0e481db57a95103c068925518287e6ca",
@@ -929,7 +997,8 @@
         "conversion_supported": true,
         "page_count": 65,
         "has_outline": true,
-        "bookmark_count": 49
+        "bookmark_count": 49,
+        "outline_warnings": 0
       },
       "inspection_exit_code": 0,
       "attempts": [
@@ -937,7 +1006,7 @@
           "no_bookmarks": false,
           "exit_code": 0,
           "conversion_status": "PASS",
-          "seconds": 0.033,
+          "seconds": 0.065,
           "diagnostic": "",
           "output_exists": true,
           "output_sha256": "0d388e767e25be0436d9b2b70b92058574e630ebf15ebe5a96089ddc9915ba30",
@@ -970,7 +1039,8 @@
         "conversion_supported": true,
         "page_count": 116,
         "has_outline": true,
-        "bookmark_count": 94
+        "bookmark_count": 94,
+        "outline_warnings": 0
       },
       "inspection_exit_code": 0,
       "attempts": [
@@ -978,7 +1048,7 @@
           "no_bookmarks": false,
           "exit_code": 0,
           "conversion_status": "PASS",
-          "seconds": 18.152,
+          "seconds": 15.946,
           "diagnostic": "",
           "output_exists": true,
           "output_sha256": "a3c029d8a943c847d6d0f75e25ab7c317873f4299ef21da69b2b09ecf51056c3",
@@ -1015,23 +1085,44 @@
         "conversion_supported": true,
         "page_count": 4,
         "has_outline": null,
-        "bookmark_count": null
+        "bookmark_count": null,
+        "outline_warnings": null
       },
       "inspection_exit_code": 0,
       "attempts": [
         {
           "no_bookmarks": false,
-          "exit_code": 1,
-          "conversion_status": "UNSUPPORTED",
-          "seconds": 0.003,
-          "diagnostic": "caj2pdf: error: cannot convert 'issue-58/混凝土道面评价指标分析_谢永亮.caj': HN/C8 page composition, Preflight, C8, source byte 0: unsupported profile: outlines are only validated for HN-A",
-          "output_exists": false
+          "exit_code": 0,
+          "conversion_status": "PASS",
+          "seconds": 2.07,
+          "diagnostic": "caj2pdf: warning: C8/HN-B bookmarks are not verified; wrote no outline (--no-bookmarks silences this)",
+          "output_exists": true,
+          "output_sha256": "47afde9be4bba2061195327fa36829378b2028deb1171e1dad52437fb9c965cc",
+          "output_bytes": 367067,
+          "pages": 4,
+          "pdf_check_exit_code": 0,
+          "pdf_check": "PASS",
+          "page_count_check": "PASS",
+          "page_order_check": "PASS",
+          "source_outline_check": "NOT_RUN",
+          "pixel_check": "NOT_RUN",
+          "outline_count": 0,
+          "outline_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "page_order": {
+            "status": "PASS",
+            "pages": 4,
+            "images": 4,
+            "repeated_source_descriptors": 0,
+            "mismatched_pages": [],
+            "method": "ordered source images versus Poppler extraction and pinned pixel oracles",
+            "scope": "page/image identity and order; not placement, alias coordinates or rendered-page parity"
+          }
         },
         {
           "no_bookmarks": true,
           "exit_code": 0,
           "conversion_status": "PASS",
-          "seconds": 2.971,
+          "seconds": 2.172,
           "diagnostic": "",
           "output_exists": true,
           "output_sha256": "47afde9be4bba2061195327fa36829378b2028deb1171e1dad52437fb9c965cc",
@@ -1068,7 +1159,9 @@
         "conversion_supported": false,
         "page_count": null,
         "has_outline": null,
-        "bookmark_count": null
+        "bookmark_count": null,
+        "outline_warnings": null,
+        "unsupported_reason": "drm-encrypted"
       },
       "inspection_exit_code": 0,
       "attempts": [
@@ -1076,8 +1169,8 @@
           "no_bookmarks": false,
           "exit_code": 1,
           "conversion_status": "UNSUPPORTED",
-          "seconds": 0.003,
-          "diagnostic": "caj2pdf: error: cannot convert 'issue-61/1.teb': TEB input is recognized, but TEB conversion is not supported",
+          "seconds": 0.004,
+          "diagnostic": "caj2pdf: error: cannot convert 'issue-61/1.teb': TEB input is a DRM-encrypted CNKI container; its document content is encrypted and cannot be converted",
           "output_exists": false
         }
       ]
@@ -1093,7 +1186,9 @@
         "conversion_supported": false,
         "page_count": null,
         "has_outline": null,
-        "bookmark_count": null
+        "bookmark_count": null,
+        "outline_warnings": null,
+        "unsupported_reason": "drm-encrypted"
       },
       "inspection_exit_code": 0,
       "attempts": [
@@ -1101,8 +1196,8 @@
           "no_bookmarks": false,
           "exit_code": 1,
           "conversion_status": "UNSUPPORTED",
-          "seconds": 0.003,
-          "diagnostic": "caj2pdf: error: cannot convert 'issue-61/2.teb': TEB input is recognized, but TEB conversion is not supported",
+          "seconds": 0.004,
+          "diagnostic": "caj2pdf: error: cannot convert 'issue-61/2.teb': TEB input is a DRM-encrypted CNKI container; its document content is encrypted and cannot be converted",
           "output_exists": false
         }
       ]
@@ -1118,7 +1213,9 @@
         "conversion_supported": false,
         "page_count": null,
         "has_outline": null,
-        "bookmark_count": null
+        "bookmark_count": null,
+        "outline_warnings": null,
+        "unsupported_reason": "drm-encrypted"
       },
       "inspection_exit_code": 0,
       "attempts": [
@@ -1127,7 +1224,7 @@
           "exit_code": 1,
           "conversion_status": "UNSUPPORTED",
           "seconds": 0.003,
-          "diagnostic": "caj2pdf: error: cannot convert 'issue-61/3.teb': TEB input is recognized, but TEB conversion is not supported",
+          "diagnostic": "caj2pdf: error: cannot convert 'issue-61/3.teb': TEB input is a DRM-encrypted CNKI container; its document content is encrypted and cannot be converted",
           "output_exists": false
         }
       ]
@@ -1143,7 +1240,9 @@
         "conversion_supported": false,
         "page_count": null,
         "has_outline": null,
-        "bookmark_count": null
+        "bookmark_count": null,
+        "outline_warnings": null,
+        "unsupported_reason": "drm-encrypted"
       },
       "inspection_exit_code": 0,
       "attempts": [
@@ -1151,8 +1250,8 @@
           "no_bookmarks": false,
           "exit_code": 1,
           "conversion_status": "UNSUPPORTED",
-          "seconds": 0.003,
-          "diagnostic": "caj2pdf: error: cannot convert 'issue-61/4.teb': TEB input is recognized, but TEB conversion is not supported",
+          "seconds": 0.004,
+          "diagnostic": "caj2pdf: error: cannot convert 'issue-61/4.teb': TEB input is a DRM-encrypted CNKI container; its document content is encrypted and cannot be converted",
           "output_exists": false
         }
       ]
@@ -1168,7 +1267,9 @@
         "conversion_supported": false,
         "page_count": null,
         "has_outline": null,
-        "bookmark_count": null
+        "bookmark_count": null,
+        "outline_warnings": null,
+        "unsupported_reason": "drm-encrypted"
       },
       "inspection_exit_code": 0,
       "attempts": [
@@ -1177,7 +1278,7 @@
           "exit_code": 1,
           "conversion_status": "UNSUPPORTED",
           "seconds": 0.003,
-          "diagnostic": "caj2pdf: error: cannot convert 'issue-61/5.teb': TEB input is recognized, but TEB conversion is not supported",
+          "diagnostic": "caj2pdf: error: cannot convert 'issue-61/5.teb': TEB input is a DRM-encrypted CNKI container; its document content is encrypted and cannot be converted",
           "output_exists": false
         }
       ]
@@ -1193,7 +1294,9 @@
         "conversion_supported": false,
         "page_count": null,
         "has_outline": null,
-        "bookmark_count": null
+        "bookmark_count": null,
+        "outline_warnings": null,
+        "unsupported_reason": "drm-encrypted"
       },
       "inspection_exit_code": 0,
       "attempts": [
@@ -1201,8 +1304,8 @@
           "no_bookmarks": false,
           "exit_code": 1,
           "conversion_status": "UNSUPPORTED",
-          "seconds": 0.003,
-          "diagnostic": "caj2pdf: error: cannot convert 'issue-61/6.teb': TEB input is recognized, but TEB conversion is not supported",
+          "seconds": 0.004,
+          "diagnostic": "caj2pdf: error: cannot convert 'issue-61/6.teb': TEB input is a DRM-encrypted CNKI container; its document content is encrypted and cannot be converted",
           "output_exists": false
         }
       ]
@@ -1218,7 +1321,9 @@
         "conversion_supported": false,
         "page_count": null,
         "has_outline": null,
-        "bookmark_count": null
+        "bookmark_count": null,
+        "outline_warnings": null,
+        "unsupported_reason": "drm-encrypted"
       },
       "inspection_exit_code": 0,
       "attempts": [
@@ -1226,8 +1331,8 @@
           "no_bookmarks": false,
           "exit_code": 1,
           "conversion_status": "UNSUPPORTED",
-          "seconds": 0.003,
-          "diagnostic": "caj2pdf: error: cannot convert 'issue-61/7.teb': TEB input is recognized, but TEB conversion is not supported",
+          "seconds": 0.004,
+          "diagnostic": "caj2pdf: error: cannot convert 'issue-61/7.teb': TEB input is a DRM-encrypted CNKI container; its document content is encrypted and cannot be converted",
           "output_exists": false
         }
       ]
@@ -1243,7 +1348,8 @@
         "conversion_supported": true,
         "page_count": 4,
         "has_outline": null,
-        "bookmark_count": null
+        "bookmark_count": null,
+        "outline_warnings": null
       },
       "inspection_exit_code": 0,
       "attempts": [
@@ -1252,7 +1358,7 @@
           "exit_code": 1,
           "conversion_status": "UNSUPPORTED",
           "seconds": 0.003,
-          "diagnostic": "caj2pdf: error: cannot convert 'issue-63/对任务型教学法的理论基础与课堂实践的思考.caj': HN/C8 page composition, Preflight, HN-B, source byte 0: unsupported profile: outlines are only validated for HN-A",
+          "diagnostic": "caj2pdf: error: cannot convert 'issue-63/对任务型教学法的理论基础与课堂实践的思考.caj': HN/C8 page composition, Visitor, HN-B, page 1, source byte 216: invalid input: HN/C8 conversion cannot omit source pages without image content",
           "output_exists": false
         },
         {
@@ -1276,7 +1382,8 @@
         "conversion_supported": true,
         "page_count": 6,
         "has_outline": null,
-        "bookmark_count": null
+        "bookmark_count": null,
+        "outline_warnings": null
       },
       "inspection_exit_code": 0,
       "attempts": [
@@ -1284,8 +1391,8 @@
           "no_bookmarks": false,
           "exit_code": 1,
           "conversion_status": "UNSUPPORTED",
-          "seconds": 0.003,
-          "diagnostic": "caj2pdf: error: cannot convert 'issue-65/伽利略的原子论思想_近代科学革命的形而上学基础.caj': HN/C8 page composition, Preflight, HN-B, source byte 0: unsupported profile: outlines are only validated for HN-A",
+          "seconds": 0.005,
+          "diagnostic": "caj2pdf: error: cannot convert 'issue-65/伽利略的原子论思想_近代科学革命的形而上学基础.caj': HN/C8 page composition, Visitor, HN-B, page 2, source byte 236: invalid input: HN/C8 conversion cannot omit source pages without image content",
           "output_exists": false
         },
         {
@@ -1309,7 +1416,13 @@
         "conversion_supported": true,
         "page_count": 6,
         "has_outline": null,
-        "bookmark_count": null
+        "bookmark_count": null,
+        "outline_warnings": null,
+        "application_info": {
+          "doi": "CNKI:SUN:FZDZ.0.2001-04-007",
+          "url": "http://gongjushu.cnki.net",
+          "note_count": 23
+        }
       },
       "inspection_exit_code": 0,
       "attempts": [
@@ -1317,15 +1430,15 @@
           "no_bookmarks": false,
           "exit_code": 1,
           "conversion_status": "UNSUPPORTED",
-          "seconds": 0.003,
-          "diagnostic": "caj2pdf: error: cannot convert 'issue-66/IDL编译器的实现_词法分析部分_于埴尧.caj': HN/C8 page composition, Preflight, C8, source byte 0: unsupported profile: outlines are only validated for HN-A",
+          "seconds": 0.004,
+          "diagnostic": "caj2pdf: error: cannot convert 'issue-66/IDL编译器的实现_词法分析部分_于埴尧.caj': HN/C8 page composition, Text, C8, page 1, source byte 200: HN/C8 C8 at byte 200, page 1: malformed page text prefix: unsupported compressed text header",
           "output_exists": false
         },
         {
           "no_bookmarks": true,
           "exit_code": 1,
           "conversion_status": "UNSUPPORTED",
-          "seconds": 0.003,
+          "seconds": 0.004,
           "diagnostic": "caj2pdf: error: cannot convert 'issue-66/IDL编译器的实现_词法分析部分_于埴尧.caj': HN/C8 page composition, Text, C8, page 1, source byte 200: HN/C8 C8 at byte 200, page 1: malformed page text prefix: unsupported compressed text header",
           "output_exists": false
         }
@@ -1342,7 +1455,8 @@
         "conversion_supported": true,
         "page_count": 145,
         "has_outline": true,
-        "bookmark_count": 96
+        "bookmark_count": 96,
+        "outline_warnings": 0
       },
       "inspection_exit_code": 0,
       "attempts": [
@@ -1350,7 +1464,7 @@
           "no_bookmarks": false,
           "exit_code": 0,
           "conversion_status": "PASS",
-          "seconds": 19.655,
+          "seconds": 18.703,
           "diagnostic": "",
           "output_exists": true,
           "output_sha256": "022278be558dab4740d2159b4200a793ea2d6c17475f81c5bfdf324615bf41f7",
@@ -1387,7 +1501,8 @@
         "conversion_supported": true,
         "page_count": 81,
         "has_outline": true,
-        "bookmark_count": 111
+        "bookmark_count": 111,
+        "outline_warnings": 0
       },
       "inspection_exit_code": 0,
       "attempts": [
@@ -1395,7 +1510,7 @@
           "no_bookmarks": false,
           "exit_code": 0,
           "conversion_status": "PASS",
-          "seconds": 10.536,
+          "seconds": 8.784,
           "diagnostic": "",
           "output_exists": true,
           "output_sha256": "ac0f5c7fda7b45b0c680c81509fe80fd2ea2049b8c1ec9b747d8dd830a606e01",
@@ -1432,7 +1547,8 @@
         "conversion_supported": true,
         "page_count": 121,
         "has_outline": true,
-        "bookmark_count": 41
+        "bookmark_count": 41,
+        "outline_warnings": 0
       },
       "inspection_exit_code": 0,
       "attempts": [
@@ -1440,7 +1556,7 @@
           "no_bookmarks": false,
           "exit_code": 0,
           "conversion_status": "PASS",
-          "seconds": 17.651,
+          "seconds": 15.395,
           "diagnostic": "",
           "output_exists": true,
           "output_sha256": "2092d0c4203fae93e2c841ad73b046129ad3c4f5a77aa1cb12f4b9a4c96fa464",
@@ -1477,17 +1593,38 @@
         "conversion_supported": true,
         "page_count": 125,
         "has_outline": true,
-        "bookmark_count": 78
+        "bookmark_count": 78,
+        "outline_warnings": 0
       },
       "inspection_exit_code": 0,
       "attempts": [
         {
           "no_bookmarks": false,
-          "exit_code": 1,
-          "conversion_status": "UNSUPPORTED",
-          "seconds": 10.135,
-          "diagnostic": "caj2pdf: error: cannot convert 'issue-7/a.caj': HN/C8 page composition, Text, HN-A, page 75, source byte 5534084: HN/C8 HN-A at byte 5534084, page 75: malformed page text prefix: unsupported compressed text header",
-          "output_exists": false
+          "exit_code": 0,
+          "conversion_status": "PASS",
+          "seconds": 14.195,
+          "diagnostic": "",
+          "output_exists": true,
+          "output_sha256": "b1b186deda676811507762ec0966f4583a97ceaae0e4b66899d8ead461f3247b",
+          "output_bytes": 13694591,
+          "pages": 125,
+          "pdf_check_exit_code": 0,
+          "pdf_check": "PASS",
+          "page_count_check": "PASS",
+          "page_order_check": "PASS",
+          "source_outline_check": "PASS",
+          "pixel_check": "NOT_RUN",
+          "outline_count": 78,
+          "outline_sha256": "990b90ff2b8000af12a39268d9a1debeef12d5dcba9401c396e33a7a5ef2093f",
+          "page_order": {
+            "status": "PASS",
+            "pages": 125,
+            "images": 169,
+            "repeated_source_descriptors": 0,
+            "mismatched_pages": [],
+            "method": "ordered source images versus Poppler extraction and pinned pixel oracles",
+            "scope": "page/image identity and order; not placement, alias coordinates or rendered-page parity"
+          }
         }
       ]
     },
@@ -1502,7 +1639,8 @@
         "conversion_supported": true,
         "page_count": 84,
         "has_outline": true,
-        "bookmark_count": 100
+        "bookmark_count": 100,
+        "outline_warnings": 0
       },
       "inspection_exit_code": 0,
       "attempts": [
@@ -1510,7 +1648,7 @@
           "no_bookmarks": false,
           "exit_code": 0,
           "conversion_status": "PASS",
-          "seconds": 0.034,
+          "seconds": 0.033,
           "diagnostic": "",
           "output_exists": true,
           "output_sha256": "6993ed3787d09499494c1270893f48cec8d86c09bb7c7626b3d12a73f65e016b",
@@ -1543,7 +1681,8 @@
         "conversion_supported": true,
         "page_count": 65,
         "has_outline": true,
-        "bookmark_count": 54
+        "bookmark_count": 54,
+        "outline_warnings": 0
       },
       "inspection_exit_code": 0,
       "attempts": [
@@ -1551,7 +1690,7 @@
           "no_bookmarks": false,
           "exit_code": 0,
           "conversion_status": "PASS",
-          "seconds": 10.586,
+          "seconds": 9.234,
           "diagnostic": "",
           "output_exists": true,
           "output_sha256": "1f9c638cba3e4291f51715e22f8e11384547c12e10981a743ee599d7c0cc2c53",
@@ -1588,7 +1727,8 @@
         "conversion_supported": true,
         "page_count": 163,
         "has_outline": true,
-        "bookmark_count": 96
+        "bookmark_count": 96,
+        "outline_warnings": 0
       },
       "inspection_exit_code": 0,
       "attempts": [
@@ -1596,7 +1736,7 @@
           "no_bookmarks": false,
           "exit_code": 0,
           "conversion_status": "PASS",
-          "seconds": 102.869,
+          "seconds": 77.816,
           "diagnostic": "",
           "output_exists": true,
           "output_sha256": "35ef00ccef40e815790ed72d259bcc9b220c726e9c060d85dffa958f86585526",
@@ -1633,7 +1773,8 @@
         "conversion_supported": true,
         "page_count": 75,
         "has_outline": true,
-        "bookmark_count": 58
+        "bookmark_count": 58,
+        "outline_warnings": 0
       },
       "inspection_exit_code": 0,
       "attempts": [
@@ -1674,17 +1815,38 @@
         "conversion_supported": true,
         "page_count": 160,
         "has_outline": true,
-        "bookmark_count": 28
+        "bookmark_count": 28,
+        "outline_warnings": 0
       },
       "inspection_exit_code": 0,
       "attempts": [
         {
           "no_bookmarks": false,
-          "exit_code": 1,
-          "conversion_status": "UNSUPPORTED",
-          "seconds": 0.004,
-          "diagnostic": "caj2pdf: error: cannot convert 'issue-85/《周礼》中所见天神祭祀考论_刘涛.caj': HN/C8 page composition, Text, HN-A, page 1, source byte 12172: HN/C8 HN-A at byte 12172, page 1: malformed page text prefix: unsupported compressed text header",
-          "output_exists": false
+          "exit_code": 0,
+          "conversion_status": "PASS",
+          "seconds": 7.08,
+          "diagnostic": "",
+          "output_exists": true,
+          "output_sha256": "1d6398bd296b40d884698e5cb23c22e1bb66c72a796196b18d0c33185ed9bc30",
+          "output_bytes": 73533288,
+          "pages": 160,
+          "pdf_check_exit_code": 0,
+          "pdf_check": "PASS",
+          "page_count_check": "PASS",
+          "page_order_check": "PASS",
+          "source_outline_check": "PASS",
+          "pixel_check": "NOT_RUN",
+          "outline_count": 28,
+          "outline_sha256": "83590b730224733f3c178d42a3f7ecf0f7a2de2e3c73675d45a20c1baa7c5da3",
+          "page_order": {
+            "status": "PASS",
+            "pages": 160,
+            "images": 160,
+            "repeated_source_descriptors": 0,
+            "mismatched_pages": [],
+            "method": "ordered source images versus Poppler extraction and pinned pixel oracles",
+            "scope": "page/image identity and order; not placement, alias coordinates or rendered-page parity"
+          }
         }
       ]
     },
@@ -1699,7 +1861,8 @@
         "conversion_supported": true,
         "page_count": 234,
         "has_outline": true,
-        "bookmark_count": 111
+        "bookmark_count": 111,
+        "outline_warnings": 0
       },
       "inspection_exit_code": 0,
       "attempts": [
@@ -1707,7 +1870,7 @@
           "no_bookmarks": false,
           "exit_code": 1,
           "conversion_status": "FAIL",
-          "seconds": 0.003,
+          "seconds": 0.017,
           "diagnostic": "caj2pdf: error: cannot convert 'issue-85/明堂制度研究——明堂制度的源流_张一兵.caj': malformed PDF at byte 529945, object 4 0: stream Length has no unique bounded repair",
           "output_exists": false
         }
@@ -1724,7 +1887,8 @@
         "conversion_supported": true,
         "page_count": 110,
         "has_outline": true,
-        "bookmark_count": 65
+        "bookmark_count": 65,
+        "outline_warnings": 0
       },
       "inspection_exit_code": 0,
       "attempts": [
@@ -1765,7 +1929,8 @@
         "conversion_supported": true,
         "page_count": 4,
         "has_outline": null,
-        "bookmark_count": null
+        "bookmark_count": null,
+        "outline_warnings": null
       },
       "inspection_exit_code": 0,
       "attempts": [
@@ -1774,7 +1939,7 @@
           "exit_code": 1,
           "conversion_status": "UNSUPPORTED",
           "seconds": 0.003,
-          "diagnostic": "caj2pdf: error: cannot convert 'issue-90/4-[21].caj': HN/C8 page composition, Preflight, C8, source byte 0: unsupported profile: outlines are only validated for HN-A",
+          "diagnostic": "caj2pdf: error: cannot convert 'issue-90/4-[21].caj': HN/C8 page composition, Preflight, C8, page 1, source byte 80: image-only output has no image to draw",
           "output_exists": false
         },
         {
@@ -1798,7 +1963,8 @@
         "conversion_supported": true,
         "page_count": 5,
         "has_outline": null,
-        "bookmark_count": null
+        "bookmark_count": null,
+        "outline_warnings": null
       },
       "inspection_exit_code": 0,
       "attempts": [
@@ -1807,7 +1973,7 @@
           "exit_code": 1,
           "conversion_status": "UNSUPPORTED",
           "seconds": 0.003,
-          "diagnostic": "caj2pdf: error: cannot convert 'issue-90/4-[24].caj': HN/C8 page composition, Preflight, C8, source byte 0: unsupported profile: outlines are only validated for HN-A",
+          "diagnostic": "caj2pdf: error: cannot convert 'issue-90/4-[24].caj': HN/C8 page composition, Preflight, C8, page 1, source byte 80: image-only output has no image to draw",
           "output_exists": false
         },
         {
@@ -1831,7 +1997,8 @@
         "conversion_supported": true,
         "page_count": 60,
         "has_outline": true,
-        "bookmark_count": 36
+        "bookmark_count": 36,
+        "outline_warnings": 0
       },
       "inspection_exit_code": 0,
       "attempts": [
@@ -1839,7 +2006,7 @@
           "no_bookmarks": false,
           "exit_code": 1,
           "conversion_status": "FAIL",
-          "seconds": 0.017,
+          "seconds": 0.065,
           "diagnostic": "caj2pdf: error: cannot convert 'issue-90/4-[6].caj': malformed PDF at byte 1318436, object 4474 0: invalid Flate stream while resolving Length",
           "output_exists": false
         }
@@ -1856,7 +2023,8 @@
         "conversion_supported": true,
         "page_count": 118,
         "has_outline": true,
-        "bookmark_count": 74
+        "bookmark_count": 74,
+        "outline_warnings": 0
       },
       "inspection_exit_code": 0,
       "attempts": [
@@ -1864,7 +2032,7 @@
           "no_bookmarks": false,
           "exit_code": 0,
           "conversion_status": "PASS",
-          "seconds": 16.548,
+          "seconds": 14.945,
           "diagnostic": "",
           "output_exists": true,
           "output_sha256": "d30eb75e666e24b6904afdde3b0fbbfb8777cf79b6e34407ce8c94f6a3dd8190",
@@ -1901,7 +2069,8 @@
         "conversion_supported": true,
         "page_count": 132,
         "has_outline": true,
-        "bookmark_count": 81
+        "bookmark_count": 81,
+        "outline_warnings": 0
       },
       "inspection_exit_code": 0,
       "attempts": [
@@ -1909,7 +2078,7 @@
           "no_bookmarks": false,
           "exit_code": 0,
           "conversion_status": "PASS",
-          "seconds": 18.046,
+          "seconds": 16.648,
           "diagnostic": "",
           "output_exists": true,
           "output_sha256": "a271a48f6a8d8891a5fa05096cfe16061bd1e76816bf85e3bc30fea177209533",
@@ -1946,17 +2115,34 @@
         "conversion_supported": true,
         "page_count": 58,
         "has_outline": true,
-        "bookmark_count": 37
+        "bookmark_count": 37,
+        "outline_warnings": 0
       },
       "inspection_exit_code": 0,
       "attempts": [
         {
           "no_bookmarks": false,
-          "exit_code": 1,
-          "conversion_status": "FAIL",
-          "seconds": 0.003,
-          "diagnostic": "caj2pdf: error: cannot convert 'issue-92/以太网交换机网络协议栈研究与应用_李晋.caj': malformed PDF at byte 19116: expected PDF name",
-          "output_exists": false
+          "exit_code": 0,
+          "conversion_status": "PASS",
+          "seconds": 0.017,
+          "diagnostic": "",
+          "output_exists": true,
+          "output_sha256": "853491f2e51ce91da80e8498b3223dbc29e2ac98a0d39229bb92ffc99eb24892",
+          "output_bytes": 633831,
+          "pages": 58,
+          "pdf_check_exit_code": 0,
+          "pdf_check": "PASS",
+          "page_count_check": "PASS",
+          "page_order_check": "PASS",
+          "source_outline_check": "PASS",
+          "pixel_check": "NOT_RUN",
+          "outline_count": 37,
+          "outline_sha256": "248d7958a70715966717bb9201991a423e1c7213ec302a86b04bded54c1ba381",
+          "page_order": {
+            "status": "PASS",
+            "method": "source page-table object IDs versus qpdf output page order",
+            "pages": 58
+          }
         }
       ]
     },
@@ -1971,7 +2157,8 @@
         "conversion_supported": true,
         "page_count": 63,
         "has_outline": true,
-        "bookmark_count": 51
+        "bookmark_count": 51,
+        "outline_warnings": 0
       },
       "inspection_exit_code": 0,
       "attempts": [
@@ -2012,7 +2199,8 @@
         "conversion_supported": true,
         "page_count": 56,
         "has_outline": true,
-        "bookmark_count": 26
+        "bookmark_count": 26,
+        "outline_warnings": 0
       },
       "inspection_exit_code": 0,
       "attempts": [
@@ -2020,7 +2208,7 @@
           "no_bookmarks": false,
           "exit_code": 0,
           "conversion_status": "PASS",
-          "seconds": 8.029,
+          "seconds": 7.18,
           "diagnostic": "",
           "output_exists": true,
           "output_sha256": "b742853c9f18a371b6811769a04bc51f3f67af12008cbd1775c0933618ccb630",
@@ -2057,7 +2245,8 @@
         "conversion_supported": true,
         "page_count": 159,
         "has_outline": true,
-        "bookmark_count": 101
+        "bookmark_count": 101,
+        "outline_warnings": 0
       },
       "inspection_exit_code": 0,
       "attempts": [
@@ -2065,7 +2254,7 @@
           "no_bookmarks": false,
           "exit_code": 0,
           "conversion_status": "PASS",
-          "seconds": 112.322,
+          "seconds": 85.485,
           "diagnostic": "",
           "output_exists": true,
           "output_sha256": "b201ac9d3dd3f8fb38e2a60627f5a258a827594ab515725737c050cd18ce5335",
@@ -2092,9 +2281,9 @@
       ]
     }
   ],
-  "binary_sha256": "f62312a68370d8c9837e2025850a9ef579a6cae47e7b9add8810b66c15140346",
+  "binary_sha256": "66c6e63e9e3af812062541fcd3885aaccf3268b8576c7e5d4e1b2309fe8ba034",
   "limits": {
-    "timeout_seconds": 180,
+    "timeout_seconds": 600.0,
     "address_space_bytes": 1073741824,
     "per_file_bytes": 536870912
   },
@@ -2103,7 +2292,7 @@
     "candidate": {
       "exit_code": 0,
       "version": [
-        "caj2pdf 0.3.1"
+        "caj2pdf 0.4.0"
       ]
     },
     "qpdf": {
@@ -2134,10 +2323,10 @@
     "failures": []
   },
   "binary_unchanged": true,
-  "source_commit": "088ecc8af2a7a84c8ca880e40b7ac8f387e6c240",
-  "release": "v0.3.1",
+  "source_commit": "0153d22a806b443a9cae01f9277dabbee483f01b",
+  "release": "v0.4.0 pre-tag CI artifact",
   "platform": "x86_64-unknown-linux-gnu",
+  "ci_run": "https://github.com/rwv/caj2pdf-rust/actions/runs/37251767647",
   "corpus_revision": "7e1c35e7b6de34e21972fcd1752c2a7e99b4ad07",
-  "scratch_per_store_bytes": 67108864,
-  "repeat_output_hashes_match_initial_run": true
+  "classification_note": "TEB refusals reclassified from retained exit codes and exact diagnostics after #295; source attempts and output checks are unchanged."
 }
