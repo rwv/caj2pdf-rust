@@ -88,6 +88,7 @@ def conversion_status(code: int | str, diagnostic: str) -> str:
         return "PASS"
     if code == 1 and any(term in diagnostic for term in (
         "not supported", "unsupported", "cannot omit source pages", "no image to draw",
+        "TEB input is a DRM-encrypted CNKI container",
     )):
         return "UNSUPPORTED"
     return "FAIL"

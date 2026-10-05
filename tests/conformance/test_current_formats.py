@@ -151,6 +151,13 @@ class CurrentFormatTests(unittest.TestCase):
         self.assertLessEqual(len(result["stdout"]), 65537)
         self.assertIsNone(current.metadata(result))
 
+    def test_current_teb_refusal_is_unsupported(self):
+        message = "TEB input is a DRM-encrypted CNKI container; its document content is encrypted and cannot be converted"
+        self.assertEqual(current.conversion_status(1, message), "UNSUPPORTED")
+        self.assertEqual(current.conversion_status("TIMEOUT", message), "FAIL")
+        self.assertEqual(current.conversion_status(-9, message), "FAIL")
+        self.assertEqual(current.conversion_status(1, "cannot be converted"), "FAIL")
+
     def test_signal_failure_is_not_misreported_as_unsupported(self):
         self.assertEqual(current.conversion_status(-9, "unsupported outlines"), "FAIL")
         self.assertEqual(current.conversion_status("TIMEOUT", "unsupported outlines"), "FAIL")

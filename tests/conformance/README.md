@@ -40,9 +40,9 @@ other formats.
 
 ## Current public CLI baseline
 
-[`current_cli_baseline.json`](current_cli_baseline.json) records the v0.3.1
+[`current_cli_baseline.json`](current_cli_baseline.json) records the v0.4.0 pre-tag Linux CI artifact
 public CLI repeat separately from the historical Python expectations in
-`matrix.json`. See [current results and commands](../../docs/conformance.md#reproducible-v031-cli-baseline-218)
+`matrix.json`. See [current results and commands](../../docs/conformance.md#v040-pre-tag-linux-ci-baseline-328)
 for conversion, independent source-order checks, PDF warnings and the fixed
 regression set. `scripts/current_formats.py` reuses the inventory and existing
 source/oracle helpers. It writes PDFs and raw logs only to a new external
