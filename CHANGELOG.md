@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.4.0
 
 - Docs: the README is now a one-page quick start. Investigation notes moved
   to `docs/research/` with an index (#296), and CI checks relative Markdown

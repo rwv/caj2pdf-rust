@@ -1759,7 +1759,7 @@ constructing `hnc8::Header` or `RawTextCoordinate` must initialize the new
 
 ## CLI cooperative signal handling (review #193)
 
-The CLI uses `signal-hook` 0.3.18 (MIT OR Apache-2.0, used under MIT), with
+The CLI uses `signal-hook` 0.4.4 (MIT OR Apache-2.0, used under MIT), with
 only its flag API and default features disabled. Its registry dependency
 `signal-hook-registry` 1.4.8 is MIT OR Apache-2.0; its `errno` dependency is
 MIT OR Apache-2.0. Existing `libc` is MIT OR Apache-2.0. Target-specific

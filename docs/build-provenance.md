@@ -14,9 +14,9 @@ Install a current [GitHub CLI](https://cli.github.com/) and authenticate with
 version, filename and **independently trusted full release commit SHA** below:
 
 ```sh
-version=v0.3.1
+version=v0.4.0
 commit=FULL_RELEASE_COMMIT_SHA
-asset=caj2pdf-v0.3.1-x86_64-unknown-linux-gnu.tar.gz
+asset=caj2pdf-v0.4.0-x86_64-unknown-linux-gnu.tar.gz
 gh attestation verify "$asset" \
   --bundle RELEASE-PROVENANCE.sigstore.json \
   --repo rwv/caj2pdf-rust \
