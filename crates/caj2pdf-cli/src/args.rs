@@ -109,7 +109,8 @@ Options:
 Absent optional font roles and characters a role's font lacks fall back to
 the CJK font for CJK-coded characters and to the Latin font otherwise.
 
-Exit status: 0 on success, 2 for invalid arguments, 1 for other failures.
+Exit status: 0 on success, 3 for a partial PDF with blank pages,
+2 for invalid arguments, 1 for other failures.
 ";
 
 pub const INSPECT_HELP: &str = "\

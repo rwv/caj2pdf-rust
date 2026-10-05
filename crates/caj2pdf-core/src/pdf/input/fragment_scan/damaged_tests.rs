@@ -199,3 +199,27 @@ fn partial_scan_resumes_at_pages_and_tracks_unresolved_prefixes_and_lengths() {
     assert_eq!(scan.damaged[0].0.unwrap().number, 2);
     assert_eq!(scan.objects.len(), 1);
 }
+
+#[test]
+fn discarded_final_object_does_not_reuse_prior_stream_tail_state() {
+    let body = b"1 0 obj<</Length 1>>stream\nXX\nendstream\nendobj\n2 0 obj<</Bad @>>endobj\n";
+    let bytes = [body.as_slice(), b"unrecognized external trailer"].concat();
+    let rows = [crate::caj::CajPageRow {
+        offset: 0,
+        length: body.len() as u64,
+        page_object_id: 1,
+    }];
+    let mut source = SeekableSource::new(Cursor::new(&bytes)).unwrap();
+    let scan = run(scan_damaged_fragment(
+        &mut source,
+        &rows,
+        body.len() as u64,
+        &Limits::default(),
+        &NEVER,
+        &mut [],
+        &mut 0,
+    ))
+    .unwrap();
+    assert_eq!(scan.objects.len(), 1);
+    assert_eq!(scan.damaged.len(), 1);
+}

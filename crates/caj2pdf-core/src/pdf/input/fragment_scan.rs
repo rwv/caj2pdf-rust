@@ -611,6 +611,7 @@ async fn scan_fragment<S: RangedSource, C: Cancellation>(
                 kind: PdfErrorKind::Malformed,
                 ..
             }) if salvage_rows.is_some() => {
+                final_object_repaired = false;
                 let refused = limits.allocation_refused(
                     "damaged PDF object index",
                     (damaged.len() as u64 + 1) * 32,
