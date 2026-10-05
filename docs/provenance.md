@@ -3024,3 +3024,16 @@ source inclusion, and a versioned local core dependency. Their LICENSE copies
 are identical to the root MIT license. The packaged source is verified by
 Cargo's dry-run publisher without uploading; no new dependency or external
 implementation is introduced. The WASM Rust crate remains unpublished.
+
+## Tagged v0.4.0 Linux identity (#287)
+
+The native GNU x86_64 archive from tag run `37330738513`, source commit
+`56bf7cc4261e6ad20b2cfc1cc4fdcf1473d5204d`, was downloaded and extracted.
+Its executable SHA-256 is identical to the pre-tag executable used for the
+56-document baseline (`66c6e63e9e3af812062541fcd3885aaccf3268b8576c7e5d4e1b2309fe8ba034`).
+The existing conversion observations therefore apply to the tagged binary;
+no additional corpus run is claimed. The tagged JS tarball reports version
+0.4.0 and contains exactly the same WASM bytes as the standalone artifact
+(SHA-256 `176a4b44a07762846bdfaf759b66bd7bb83176c996d55a229edcd36ee4fe3ece`).
+These artifact identity checks are distinct from final publication/signature
+verification. No binaries or external documents are committed.
