@@ -25,7 +25,8 @@ they are not native CLI release assets.
 
 The previous 14.3 guest-package bootstrap failed before project tests. The
 required platform workflow now builds on Linux using `nightly-2026-09-29` with
-`rust-src`, Clang and LLD. `scripts/build-freebsd-cross.py` downloads the
+`rust-src`, Clang and LLD. `scripts/build-freebsd-cross.py` (now
+`scripts/build-bsd-cross.py`, staging in `target/bsd-cross`) downloads the
 official FreeBSD 15.1 base archive for the selected architecture, verifies its
 pinned SHA256 before extracting headers/libraries, and stages the core tests,
 portable CLI tests and executable in `target/freebsd-cross`. Build intermediates

@@ -31,7 +31,7 @@ jobs:
         run: |
           if [ "$EVENT" != pull_request ]; then
             echo full=true >> "$GITHUB_OUTPUT"
-          elif git diff --name-only "$BASE" HEAD | grep -Eq '^(\.github/workflows/platforms\.yml|scripts/(package-native\.py|build-freebsd-cross\.py|install-[^/]*|android-[^/]*\.py)|docker/.*|docs/(platform-targets|container-platforms)\.json|rust-toolchain\.toml|Cargo\.lock|(.*/)?Cargo\.toml)$'; then
+          elif git diff --name-only "$BASE" HEAD | grep -Eq '^(\.github/workflows/platforms\.yml|scripts/(package-native\.py|build-bsd-cross\.py|install-[^/]*|android-[^/]*\.py)|docker/.*|docs/(platform-targets|container-platforms)\.json|rust-toolchain\.toml|Cargo\.lock|(.*/)?Cargo\.toml)$'; then
             echo full=true >> "$GITHUB_OUTPUT"
           else
             echo full=false >> "$GITHUB_OUTPUT"
@@ -290,7 +290,10 @@ jobs:
           path: dist/
           if-no-files-found: error
 
-  freebsd-cross:
+  bsd-cross:
+    # Targets whose VMs run under full-system emulation: building Rust there
+    # takes most of an hour, so the host cross-builds against the official
+    # release sets (scripts/build-bsd-cross.py) and the VM only runs tests.
     needs: changes
     if: needs.changes.outputs.full == 'true'
     runs-on: ubuntu-24.04
@@ -299,20 +302,45 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # aarch64 installs the PDF validators in the VM and runs every core
-          # test; the other two keep their validator-free run with three skips.
-          - {arch: aarch64, target: aarch64-unknown-freebsd, release: '14.3', validators: 'pkg install -y qpdf mupdf', skip: ''}
-          - {arch: riscv64, target: riscv64gc-unknown-freebsd, release: '15.1', validators: '', skip: '--skip hnc8::compose::tests::independent_render_proves_padded_orientation_and_later_overlap_pixels --skip hnc8::compose::tests::type3_complete_mixed_pages_reuse_stores_and_keep_top_first_pixels --skip hnc8::compose::tests::independent_render_checks_decoded_images_in_native_content_order'}
-          - {arch: powerpc64, target: powerpc64-unknown-freebsd, release: '15.1', validators: '', skip: '--skip hnc8::compose::tests::independent_render_proves_padded_orientation_and_later_overlap_pixels --skip hnc8::compose::tests::type3_complete_mixed_pages_reuse_stores_and_keep_top_first_pixels --skip hnc8::compose::tests::independent_render_checks_decoded_images_in_native_content_order'}
+          # Guests with PDF validator packages run every core test; FreeBSD
+          # RISC-V64/PowerPC64 have none and skip the three that need them.
+          - {os: freebsd, arch: aarch64, target: aarch64-unknown-freebsd, release: '14.3', validators: 'pkg install -y qpdf mupdf', skip: ''}
+          - {os: freebsd, arch: riscv64, target: riscv64gc-unknown-freebsd, release: '15.1', validators: '', skip: '--skip hnc8::compose::tests::independent_render_proves_padded_orientation_and_later_overlap_pixels --skip hnc8::compose::tests::type3_complete_mixed_pages_reuse_stores_and_keep_top_first_pixels --skip hnc8::compose::tests::independent_render_checks_decoded_images_in_native_content_order'}
+          - {os: freebsd, arch: powerpc64, target: powerpc64-unknown-freebsd, release: '15.1', validators: '', skip: '--skip hnc8::compose::tests::independent_render_proves_padded_orientation_and_later_overlap_pixels --skip hnc8::compose::tests::type3_complete_mixed_pages_reuse_stores_and_keep_top_first_pixels --skip hnc8::compose::tests::independent_render_checks_decoded_images_in_native_content_order'}
+          - os: netbsd
+            arch: aarch64
+            target: aarch64-unknown-netbsd
+            release: '11.0'
+            skip: ''
+            # MuPDF needs the X11 libraries of the pinned xbase set.
+            validators: |
+              set -eu
+              ftp -o /tmp/xbase.tar.xz https://cdn.netbsd.org/pub/NetBSD/NetBSD-11.0/evbarm-aarch64/binary/sets/xbase.tar.xz
+              test "$(sha512 -q /tmp/xbase.tar.xz)" = 0606338c3afc578bc5a388e772eb05d90bbd2701673111545fa8c50ca77d943ce166e7a1056353e334246705dd976a3785f4bcd74848091eeac9d88506fba906
+              tar -xJpf /tmp/xbase.tar.xz -C /
+              /usr/sbin/pkg_add -u qpdf mupdf
+          - {os: openbsd, arch: aarch64, target: aarch64-unknown-openbsd, release: '7.9', validators: 'pkg_add qpdf mupdf-1.27.2', skip: ''}
+          - {os: openbsd, arch: riscv64, target: riscv64gc-unknown-openbsd, release: '7.9', validators: 'pkg_add qpdf mupdf-1.27.2', skip: ''}
+    env:
+      TESTS: |
+        set -eu
+        export PATH=/usr/local/bin:/usr/pkg/bin:$PATH
+        uname -a
+        cd target/bsd-cross
+        ./core-tests --test-threads=2 ${{ matrix.skip }}
+        CAJ2PDF_TEST_BINARY="$(pwd)/caj2pdf" ./portable-tests --test-threads=2
+        ./caj2pdf input.pdf -o output.pdf
+        ./caj2pdf inspect output.pdf --json
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Cross-build against the pinned FreeBSD sysroot
+      - name: Cross-build against the pinned release sets
         run: |
           sudo apt-get update
           sudo apt-get install --no-install-recommends -y clang lld qpdf mupdf-tools
           rustup toolchain install nightly-2026-09-29 --profile minimal --component rust-src
-          python3 scripts/build-freebsd-cross.py '${{ matrix.arch }}'
+          python3 scripts/build-bsd-cross.py '${{ matrix.os }}' '${{ matrix.arch }}'
       - name: Execute cross-built tests in FreeBSD
+        if: matrix.os == 'freebsd'
         uses: vmactions/freebsd-vm@a2f9a41fa97f6848b8c3b791087dfcdaa5b473ff
         with:
           release: ${{ matrix.release }}
@@ -322,20 +350,37 @@ jobs:
           mem: 4096
           cpu: 2
           prepare: ${{ matrix.validators }}
-          run: |
-            set -eu
-            uname -a
-            cd target/freebsd-cross
-            timeout 1800 ./core-tests --test-threads=2 ${{ matrix.skip }}
-            CAJ2PDF_TEST_BINARY="$(pwd)/caj2pdf" timeout 300 ./portable-tests --test-threads=2
-            ./caj2pdf input.pdf -o output.pdf
-            ./caj2pdf inspect output.pdf --json
+          run: ${{ env.TESTS }}
+      - name: Execute cross-built tests in NetBSD
+        if: matrix.os == 'netbsd'
+        uses: vmactions/netbsd-vm@1a9d3dcf49eedcece26f72fbacd0b54634d1811a
+        with:
+          release: ${{ matrix.release }}
+          arch: ${{ matrix.arch }}
+          sync: scp
+          usesh: true
+          mem: 4096
+          cpu: 2
+          prepare: ${{ matrix.validators }}
+          run: ${{ env.TESTS }}
+      - name: Execute cross-built tests in OpenBSD
+        if: matrix.os == 'openbsd'
+        uses: vmactions/openbsd-vm@7a79478e7fec52039d0cfbdafd367d4ac946d093
+        with:
+          release: ${{ matrix.release }}
+          arch: ${{ matrix.arch }}
+          sync: scp
+          usesh: true
+          mem: 4096
+          cpu: 2
+          prepare: ${{ matrix.validators }}
+          run: ${{ env.TESTS }}
       - name: Validate target output and package the tested binary
         run: |
-          qpdf --check target/freebsd-cross/output.pdf
-          test "$(qpdf --show-npages target/freebsd-cross/output.pdf)" = 2
-          mutool draw -q -o "$RUNNER_TEMP/freebsd-smoke-%d.png" target/freebsd-cross/output.pdf
-          python3 scripts/package-native.py --target '${{ matrix.target }}' --binary target/freebsd-cross/caj2pdf
+          qpdf --check target/bsd-cross/output.pdf
+          test "$(qpdf --show-npages target/bsd-cross/output.pdf)" = 2
+          mutool draw -q -o "$RUNNER_TEMP/bsd-smoke-%d.png" target/bsd-cross/output.pdf
+          python3 scripts/package-native.py --target '${{ matrix.target }}' --binary target/bsd-cross/caj2pdf
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: native-${{ matrix.target }}
@@ -426,7 +471,6 @@ jobs:
       matrix:
         include:
           - {arch: x86_64, target: x86_64-unknown-netbsd}
-          - {arch: aarch64, target: aarch64-unknown-netbsd}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Test release target in netbsd
@@ -443,7 +487,6 @@ jobs:
             set -eu
             case '${{ matrix.arch }}' in
               x86_64) machine=amd64; digest=1fc6760036b07676d3da3f45eb23bf1a3891fd46255d4b9f984d045095c77bf586bda0ba1be9b79f6d9c7c2f6d73c3098c31b982c1f2706a6071f155a27a3ef6 ;;
-              aarch64) machine=evbarm-aarch64; digest=0606338c3afc578bc5a388e772eb05d90bbd2701673111545fa8c50ca77d943ce166e7a1056353e334246705dd976a3785f4bcd74848091eeac9d88506fba906 ;;
             esac
             ftp -o /tmp/xbase.tar.xz "https://cdn.netbsd.org/pub/NetBSD/NetBSD-11.0/$machine/binary/sets/xbase.tar.xz"
             test "$(sha512 -q /tmp/xbase.tar.xz)" = "$digest"
@@ -473,8 +516,6 @@ jobs:
       matrix:
         include:
           - {arch: x86_64, target: x86_64-unknown-openbsd}
-          - {arch: aarch64, target: aarch64-unknown-openbsd}
-          - {arch: riscv64, target: riscv64gc-unknown-openbsd}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Test release target in openbsd
@@ -658,7 +699,7 @@ jobs:
   complete:
     name: Native platform matrix
     if: always() && needs.changes.outputs.full == 'true'
-    needs: [changes, native, i586-gnu, linux-cross, linux-musl, mips, freebsd, freebsd-cross, docker, netbsd, openbsd, omnios, bootlin, android]
+    needs: [changes, native, i586-gnu, linux-cross, linux-musl, mips, freebsd, bsd-cross, docker, netbsd, openbsd, omnios, bootlin, android]
     runs-on: ubuntu-24.04
     steps:
       - name: Require every release platform job to succeed

@@ -24,9 +24,9 @@ jobs only when packaging or toolchain inputs change (see [CONTRIBUTING](../CONTR
 | Linux musl additions | i586, i686, ARMv5TE, ARMv6/ARMv7 soft/hard-float, PowerPC64 big/little endian, RISC-V64 GC | Static Rust-bundled musl runtime, tested with QEMU |
 | Linux GNU MIPS | MIPS32 and MIPS64 n64, each big/little endian | Ubuntu cross sysroots and QEMU; std built with pinned nightly-2026-09-29 |
 | FreeBSD | x86_64 | FreeBSD 14.3 virtual machine; Rust from the FreeBSD package repository, version printed in CI |
-| FreeBSD cross-built | ARM64, RISC-V64 GC, PowerPC64 big endian | Pinned official FreeBSD sysroots (14.3 for ARM64, 15.1 otherwise), nightly-2026-09-29 std, Clang/LLD; matching VMs execute tests, host validates target PDF |
-| NetBSD | x86_64, ARM64 | NetBSD 11.0 VMs, packaged Rust compiler |
-| OpenBSD | x86_64, ARM64, RISC-V64 GC | OpenBSD 7.9 VMs, packaged Rust compiler |
+| NetBSD | x86_64 | NetBSD 11.0 VM, packaged Rust compiler |
+| OpenBSD | x86_64 | OpenBSD 7.9 VM, packaged Rust compiler |
+| BSD cross-built | FreeBSD ARM64, RISC-V64 GC, PowerPC64 big endian; NetBSD ARM64; OpenBSD ARM64, RISC-V64 GC | Pinned official release sets, nightly-2026-09-29 std, Clang/LLD; matching VMs execute tests, host validates target PDF ([details](#bsd-cross-builds)) |
 | illumos | x86_64 | OmniOS r151054 VM; 499 core tests and 4 CLI tests, host qpdf/MuPDF validation |
 | Linux Bootlin GNU | RISC-V32 GC ILP32D | Bootlin stable-2025.08-1 glibc sysroot; pinned std build and QEMU |
 | Linux Bootlin musl (dynamic) | PowerPC32 (e300c3), s390x (z13) | Bootlin stable-2025.08-1 SDK runtime; pinned std build and QEMU; not static Docker artifacts |
@@ -34,7 +34,7 @@ jobs only when packaging or toolchain inputs change (see [CONTRIBUTING](../CONTR
 | JavaScript/WASM | Browser and Node 22+ | Portable WASM package; real Node 22/24 and Chromium tests |
 
 The pinned Rust toolchain is used wherever distributed for hosted runners.
-MIPS and cross-built FreeBSD targets build std with a separate pinned nightly.
+MIPS and cross-built BSD targets build std with a separate pinned nightly.
 Other BSD targets and illumos use their packaged compilers; the exact build log
 records the version.
 Do not infer support for older OS/libc versions from compilation alone. No
@@ -96,26 +96,38 @@ tests enable adb root so the hard-link protection fixture can be created under
 Android's filesystem policy. API 30 is the tested runtime; compiling with an
 API 24 NDK setting is not an execution claim for every older Android release.
 
-## FreeBSD cross-builds
+## BSD cross-builds
 
-The RISC-V64 and PowerPC64 FreeBSD targets reuse the candidate route verified in run
+BSD targets whose VMs run under full-system emulation are cross-built on the
+x86_64 host by `scripts/build-bsd-cross.py`, because compiling Rust inside
+those VMs took up to 79 minutes. The script downloads the official release
+sets, checks each against the digest pinned from the project's published
+checksum file, extracts only libraries and headers into a temporary sysroot,
+and builds with Clang/LLD and the pinned `nightly-2026-09-29` std. One
+`bsd-cross` job covers these targets:
+
+| OS | Targets | Sysroot and test VM | Minimum runtime |
+| --- | --- | --- | --- |
+| FreeBSD | ARM64 | 14.3 `base.txz` from the archive mirror | 14.3 |
+| FreeBSD | RISC-V64 GC, PowerPC64 | 15.1 `base.txz` | 15.1 |
+| NetBSD | ARM64 | 11.0 `base` and `comp` sets | 11.0 |
+| OpenBSD | ARM64, RISC-V64 GC | 7.9 `base79` and `comp79` sets | 7.9 |
+
+Alongside the checkout, the VM receives the staged core test executable,
+portable CLI tests, CLI and original PDF fixture; temporary sysroot/build
+files are removed before transfer. The tested executable is packaged on the
+host after qpdf/page-count/MuPDF checks. Guests with PDF validator packages
+run every core test. FreeBSD RISC-V64 and PowerPC64 have none, so three
+validator-dependent core tests are explicitly filtered there and never
+counted as passes. The RISC-V64/PowerPC64 route was first verified in run
 [37164189357](https://github.com/rwv/caj2pdf-rust/actions/runs/37164189357).
-Host cross-builds avoid unavailable guest Rust packages. Alongside the checkout,
-the VM receives the staged core test executable, portable CLI tests, CLI and
-original PDF fixture; temporary sysroot/build files are removed before transfer. The tested
-executable is packaged on the host after qpdf/page-count/MuPDF checks. Three
-validator-dependent core tests are explicitly filtered in the VM, never counted
-as passes. Both jobs are dependencies of the required aggregate gate.
 
-FreeBSD 15.1 is the minimum claimed runtime for RISC-V64 and PowerPC64.
-
-ARM64 uses the same route so that Rust is no longer compiled under full-system
-emulation, which took most of its former 44-minute job. It keeps the 14.3
-baseline: the binary links against the official 14.3 arm64 sysroot and runs in
-a 14.3 VM. That release has moved to the FreeBSD archive, which serves only
-plain HTTP, so the download is checked against the SHA-256 pinned from its
-official `MANIFEST`. The ARM64 VM installs qpdf and MuPDF and runs every core
-test, with none filtered. x86_64 keeps its in-VM build with packaged Rust. The release
-aggregator reads both new triples from `platform-targets.json`, requires their
-`native-*` archives, and includes them in the existing checksums and provenance
-flow; no parallel packaging or attestation mechanism is introduced.
+FreeBSD 14.3 has moved to the archive mirror, which serves only plain HTTP;
+its download is checked against the SHA-256 from its official `MANIFEST`.
+OpenBSD ships only versioned shared libraries such as `libc.so.103.0`, which
+its own linker resolves; the script adds unversioned links in the sysroot so
+upstream LLD links them dynamically instead of falling back to static
+archives. x86_64 FreeBSD, NetBSD and OpenBSD keep their KVM-accelerated
+in-VM builds with packaged Rust. Every cross-built triple stays in
+`platform-targets.json`; the release aggregator requires its `native-*`
+archive and includes it in the existing checksums and provenance flow.

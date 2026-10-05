@@ -1814,12 +1814,13 @@ the required platform workflow. Both triples are included in the existing
 MIT dependency graph and release inventory. Archive collection and provenance
 reuse the existing pipeline; no sysroot or compiler is distributed.
 
-`scripts/build-freebsd-cross.py` is original MIT orchestration code. It uses
-pinned official FreeBSD 15.1 archive checksums as build metadata, extracts
+`scripts/build-bsd-cross.py` (formerly `build-freebsd-cross.py`) is original
+MIT orchestration code. It uses pinned official FreeBSD 14.3/15.1, NetBSD
+11.0 and OpenBSD 7.9 release-set checksums as build metadata, extracts
 headers/libraries only into a temporary external sysroot, and builds the
 project's existing original tests with the pinned Rust std builder. No
-FreeBSD/compiler implementation is copied into project source or candidate
-archives. Runtime system libraries remain supplied by FreeBSD. The workflow
+BSD/compiler implementation is copied into project source or candidate
+archives. Runtime system libraries remain supplied by the target system. The workflow
 reuses the existing VM action, portable tests and MIT notices packager.
 
 Local RISC-V64/PowerPC64 std probes are original MIT code kept outside Git.

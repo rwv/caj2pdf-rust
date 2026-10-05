@@ -7,10 +7,12 @@
   The WASM ABI adds `caj2pdf_info_note_count`, `caj2pdf_info_text_ptr` and
   `caj2pdf_info_text_len`. **Breaking (Rust WASM engine):** `Outcome` gains
   `application_info`.
-- CI: the FreeBSD ARM64 archive is cross-built on the host against the official
-  14.3 sysroot and only tested in the emulated VM, instead of compiling Rust
-  under emulation. Its 14.3 runtime baseline is unchanged, and the VM now runs
-  every core test with the PDF validators installed.
+- CI: the BSD targets whose VMs run under full-system emulation (FreeBSD
+  ARM64/RISC-V64/PowerPC64, NetBSD ARM64, OpenBSD ARM64/RISC-V64) are
+  cross-built on the host against the official release sets and only tested in
+  the VM, instead of compiling Rust under emulation. Runtime baselines are
+  unchanged. Their release binaries now come from the pinned nightly with
+  build-std, and every guest with PDF validator packages runs all core tests.
 
 ## v0.4.0
 
