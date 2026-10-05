@@ -12,13 +12,22 @@ import subprocess
 import tempfile
 import urllib.request
 
+CURRENT = "https://download.freebsd.org/releases"
+# 14.3 left the main mirror; the archive serves only plain HTTP, so the pinned
+# MANIFEST digest below is the integrity check.
+ARCHIVE = "http://ftp-archive.freebsd.org/pub/FreeBSD-Archive/old-releases"
+# arch: (base URL, platform directory, release, Rust target, base.txz SHA-256)
 SYSROOTS = {
+    "aarch64": (
+        ARCHIVE, "arm64/aarch64", "14.3", "aarch64-unknown-freebsd",
+        "f83e824cb7a20dbadb2888a8bd253e6a1ac35024cc6dc8af9f3e229f75ec7129",
+    ),
     "riscv64": (
-        "riscv/riscv64", "riscv64gc-unknown-freebsd",
+        CURRENT, "riscv/riscv64", "15.1", "riscv64gc-unknown-freebsd",
         "2a655295d3536848fb1c07c4ab55142ea15043b928490f4be098a984d12e6828",
     ),
     "powerpc64": (
-        "powerpc/powerpc64", "powerpc64-unknown-freebsd",
+        CURRENT, "powerpc/powerpc64", "15.1", "powerpc64-unknown-freebsd",
         "ab46528c6a6b8a59233e0c37610a51de6155d76e4d561b9f5f8a84da07c218a1",
     ),
 }
@@ -27,7 +36,7 @@ TOOLCHAIN = "+nightly-2026-09-29"
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("arch", choices=SYSROOTS)
 args = parser.parse_args()
-platform, target, expected = SYSROOTS[args.arch]
+base, platform, release, target, expected = SYSROOTS[args.arch]
 clang = shutil.which(os.environ.get("FREEBSD_CLANG", "clang"))
 lld = shutil.which(os.environ.get("FREEBSD_LLD", "ld.lld"))
 if not clang or not lld:
@@ -41,7 +50,7 @@ stage.mkdir(parents=True, exist_ok=False)
 with tempfile.TemporaryDirectory(prefix="caj2pdf-freebsd-", dir=os.environ.get("RUNNER_TEMP")) as temporary:
     root = Path(temporary)
     archive = root / "base.txz"
-    url = f"https://download.freebsd.org/releases/{platform}/15.1-RELEASE/base.txz"
+    url = f"{base}/{platform}/{release}-RELEASE/base.txz"
     digest = hashlib.sha256()
     with urllib.request.urlopen(url, timeout=60) as response, archive.open("wb") as output:
         while chunk := response.read(1024 * 1024):
@@ -59,7 +68,7 @@ with tempfile.TemporaryDirectory(prefix="caj2pdf-freebsd-", dir=os.environ.get("
     ], check=True)
     linker = root / "linker.sh"
     linker.write_text("#!/bin/sh\nexec " + shlex.join([
-        clang, f"--target={args.arch}-unknown-freebsd15.1",
+        clang, f"--target={args.arch}-unknown-freebsd{release}",
         f"--sysroot={sysroot}", f"-fuse-ld={lld}",
     ]) + ' "$@"\n')
     linker.chmod(0o755)
