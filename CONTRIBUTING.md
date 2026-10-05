@@ -116,3 +116,9 @@ Coverage is measured per source file, so inline `#[cfg(test)]` modules count
 toward their file's figure. Prefer a sibling `tests.rs` module (as
 `pdf/input` and `jbig1` do) for new unit tests so the per-file figure reflects
 production code.
+
+## Optional CAJViewer setup
+
+Use the [pinned binary mirror setup](docs/cajviewer-setup.md) to acquire the
+external Linux viewer installer. Normal tests do not download vendor binaries;
+the manual installer-integrity workflow does not count as viewer compatibility.

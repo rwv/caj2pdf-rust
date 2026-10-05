@@ -3049,3 +3049,23 @@ and a shared invalid Flate stream from authored bytes; no external document
 bytes enter Git. See [unreleased notes](releases/unreleased.md) for the Rust API
 break and [partial mode](pdf-input.md#explicit-partial-conversion-of-damaged-caj-inputs)
 for the explicit loss of page contents and remaining hard errors.
+
+## CAJViewer installer mirror integration (2026-10-05)
+
+Issue #332 adds original MIT fetch/test/workflow code using Python standard
+libraries and the existing installer verifier. No vendor implementation was
+inspected, copied or translated. The fixed mirror asset in
+[rwv/cajviewer-binaries](https://github.com/rwv/cajviewer-binaries/releases/tag/linux-9.0.0-24093)
+has the same 235,087,704 bytes and SHA-256
+`3142c633d74dcf34ebaca9b7653f88ad3619f0b7a6cb689487b6cc583ec926d3`
+as the previously observed official Linux 9.0.0-24093 amd64 installer from
+`https://download.cnki.net/cajviewer_9.0_amd64.deb`.
+
+Only the acquisition transport changes. Proprietary packages, extracted code,
+profiles and corpus documents remain outside this repository and its release
+assets. The separate mirror retains vendor licensing and documents its
+owner-directed redistribution assumption; this integration makes no independent
+redistribution-grant claim and does not relabel vendor binaries MIT. Historical
+fixtures retain their original acquisition URLs. See the
+[setup guide](cajviewer-setup.md) for new receipts and test boundaries. Synthetic
+fetch tests are infrastructure tests, not document compatibility observations.

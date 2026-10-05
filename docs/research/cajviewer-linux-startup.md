@@ -21,6 +21,13 @@ startup observation. Complete-page and text compatibility remain unverified.
 The [fixture plan](cajviewer-fixtures.md) and issue acceptance criteria govern
 the later image/text capability probes and private acquisition.
 
+## Current installer acquisition
+
+Use the [pinned mirror setup](../cajviewer-setup.md) for new test environments.
+The mirror contains the same installer bytes recorded below; historical
+observations and receipts are unchanged. Vendor files remain outside this
+repository and its release artifacts.
+
 ## Verified public preparation
 
 The official installer at
