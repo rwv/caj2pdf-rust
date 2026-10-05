@@ -2806,3 +2806,41 @@ fn long_trailer_dictionary_grows_its_window_up_to_the_syntax_limit() {
         "{error:?}"
     );
 }
+
+#[test]
+fn blank_substitutes_require_valid_page_geometry() {
+    for (body, valid) in [
+        (
+            "<</Type/Page /Parent 9 0 R /MediaBox[0 0 20 30] /Rotate 90 /UserUnit 2 /BleedBox[0 0 20 30] /TrimBox[0 0 20 30] /ArtBox[0 0 20 30]>>",
+            true,
+        ),
+        ("<</Type/Page /Parent 9 0 R /CropBox[0 0 0 0]>>", false),
+        ("<</Type/Page /Parent 9 0 R /Rotate /Wrong>>", false),
+        ("<</Type/Other>>", false),
+        ("<</Type/Page>>", false),
+        ("null", false),
+    ] {
+        let bytes = format!("1 0 obj {body} endobj");
+        let mut source = SeekableSource::new(Cursor::new(&bytes)).unwrap();
+        let object = FragmentObject {
+            reference: PdfRef {
+                number: 1,
+                generation: 0,
+            },
+            range: PdfRange {
+                offset: 0,
+                length: bytes.len() as u64,
+            },
+        };
+        assert_eq!(
+            run(blank_fragment_page(
+                &mut source,
+                object,
+                &Limits::default(),
+                &NEVER
+            ))
+            .is_ok(),
+            valid
+        );
+    }
+}

@@ -26,6 +26,7 @@ pub struct ConvertOptions {
     pub qm_states: Option<PathBuf>,
     pub mq_states: Option<PathBuf>,
     pub no_bookmarks: bool,
+    pub allow_damaged: bool,
     pub quiet: bool,
     pub fonts: [Option<PathBuf>; 8],
     /// Directory supplying roles by the fixed names in `FONT_FILES`.
@@ -88,6 +89,7 @@ Options:
   -o, --output OUTPUT  Write the PDF to OUTPUT (- for standard output)
   -f, --force          Replace an existing output file (never an input)
   -q, --quiet          Do not show progress on a terminal
+  --allow-damaged     Replace damaged CAJ pages with blanks; exit 3 if any
   --no-bookmarks      Skip outline import (silences the C8/HN-B warning)
   --qm-states FILE    Experimental QM states for HN/C8 type-0 images
   --mq-states FILE    Experimental MQ states for arithmetic JBIG2 images
@@ -107,7 +109,8 @@ Options:
 Absent optional font roles and characters a role's font lacks fall back to
 the CJK font for CJK-coded characters and to the Latin font otherwise.
 
-Exit status: 0 on success, 2 for invalid arguments, 1 for other failures.
+Exit status: 0 on success, 3 for a partial PDF with blank pages,
+2 for invalid arguments, 1 for other failures.
 ";
 
 pub const INSPECT_HELP: &str = "\
@@ -243,6 +246,7 @@ pub fn parse<I: IntoIterator<Item = OsString>>(args: I) -> Result<Command, Strin
                 set_output(&mut output, value)?;
             }
             "-f" | "--force" if writes => force = true,
+            "--allow-damaged" if topic == Topic::Convert => options.allow_damaged = true,
             "--no-bookmarks" if topic == Topic::Convert => options.no_bookmarks = true,
             "-q" | "--quiet" if topic == Topic::Convert => options.quiet = true,
             "--qm-states" | "--mq-states" if topic == Topic::Convert => {

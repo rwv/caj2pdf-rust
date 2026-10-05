@@ -60,7 +60,7 @@ impl Default for Type0PdfOptions {
 }
 
 /// Counters from a completed conversion.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Type0PdfReport {
     /// `input_bytes_read` counts every byte returned by the source.
     pub conversion: ConversionReport,
@@ -69,7 +69,7 @@ pub struct Type0PdfReport {
 }
 
 /// One checked source image and the completed one-page PDF conversion.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Type0SelectedPdfReport {
     pub conversion: ConversionReport,
     pub source_variant: Variant,

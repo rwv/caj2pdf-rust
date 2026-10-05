@@ -244,3 +244,10 @@ export async function inspectHnc8() {
   }
   return result;
 }
+
+export async function convertDamaged(name) {
+  const sink = collector();
+  const report = await convert(await modulePromise, blobSource(await input(name)), webWritableSink(sink.writer), { allowDamaged: true, chunkSize: CHUNK });
+  await sink.writer.close();
+  return { omittedPages: report.omittedPages.map((page) => ({ pageIndex: page.pageIndex, offset: page.offset.toString() })), output: await encode(sink.chunks) };
+}

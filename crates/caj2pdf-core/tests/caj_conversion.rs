@@ -544,6 +544,7 @@ fn bookmark_option_excludes_outline_without_changing_pages() {
         &tiny.bytes,
         ConversionOptions {
             include_bookmarks: false,
+            allow_damaged: false,
         },
         &Limits::default(),
     )
@@ -1857,4 +1858,96 @@ fn ascii85_adjacent_replay_preserves_visible_content_and_rejects_false_length() 
     assert_eq!(actual, expected);
     assert_eq!(inspect(&actual).pages().len(), 1);
     rejected_without_output(&fixture(true, true), &limits);
+}
+
+#[test]
+fn damaged_shared_stream_blanks_only_dependent_pages_and_preserves_geometry() {
+    let mut body = Vec::new();
+    object(
+        &mut body,
+        1,
+        "<< /Type /Page /Parent 8 0 R /MediaBox [0 0 200 100] /CropBox [5 5 195 95] /Rotate 90 /Contents 9 0 R >>",
+    );
+    object(
+        &mut body,
+        2,
+        "<< /Type /Page /Parent 8 0 R /MediaBox [0 0 300 150] /Contents 9 0 R >>",
+    );
+    object(
+        &mut body,
+        3,
+        "<< /Type /Page /Parent 8 0 R /MediaBox [0 0 400 200] /Contents 10 0 R >>",
+    );
+    object(&mut body, 11, "3");
+    body.extend_from_slice(
+        b"9 0 obj\n<< /Length 11 0 R /Filter /FlateDecode >>\nstream\nbad\nendstream\nendobj\n",
+    );
+    body.extend_from_slice(
+        b"10 0 obj\n<< /Length 23 >>\nstream\n0 0 1 rg 0 0 10 10 re f\nendstream\nendobj\n",
+    );
+    let bytes = fragment_caj(&body, &[1, 2, 3]);
+    let mut rejected = Vec::new();
+    assert!(
+        run_native(convert_caj(
+            &mut SeekableSource::new(Cursor::new(&bytes)).unwrap(),
+            &mut WriteSink::new(&mut rejected),
+            ConversionOptions::default(),
+            &Limits::default(),
+            &NeverCancel
+        ))
+        .is_err()
+    );
+    assert!(rejected.is_empty());
+    let mut pdf = Vec::new();
+    let report = run_native(convert_caj(
+        &mut SeekableSource::new(Cursor::new(&bytes)).unwrap(),
+        &mut WriteSink::new(&mut pdf),
+        ConversionOptions {
+            allow_damaged: true,
+            ..ConversionOptions::default()
+        },
+        &Limits::default(),
+        &NeverCancel,
+    ))
+    .unwrap();
+    assert_eq!(report.pages_converted, 3);
+    assert_eq!(
+        report
+            .omitted_pages
+            .iter()
+            .map(|page| page.page_index)
+            .collect::<Vec<_>>(),
+        [0, 1]
+    );
+    assert_eq!(page_numbers(&pdf), [1, 2, 3]);
+    let text = String::from_utf8_lossy(&pdf);
+    assert!(text.contains("/CropBox [5 5 195 95] /Rotate 90"));
+    assert!(text.contains("0 0 1 rg 0 0 10 10 re f"));
+    assert!(!text.contains("/Contents 9 0 R"));
+    assert!(!text.contains("/FlateDecode"));
+    let file = TempPdf::write("partial-shared", &pdf);
+    checked_command(Command::new("qpdf").arg("--check").arg(&file.0), "qpdf");
+}
+
+#[test]
+fn allow_damaged_leaves_valid_caj_bytes_identical() {
+    let input = tiny_caj();
+    let mut outputs = Vec::new();
+    for allow_damaged in [false, true] {
+        let mut output = Vec::new();
+        let report = run_native(convert_caj(
+            &mut SeekableSource::new(Cursor::new(&input.bytes)).unwrap(),
+            &mut WriteSink::new(&mut output),
+            ConversionOptions {
+                allow_damaged,
+                ..ConversionOptions::default()
+            },
+            &Limits::default(),
+            &NeverCancel,
+        ))
+        .unwrap();
+        assert!(report.omitted_pages.is_empty());
+        outputs.push(output);
+    }
+    assert_eq!(outputs[0], outputs[1]);
 }

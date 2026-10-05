@@ -123,7 +123,7 @@ impl Default for Type3PdfOptions {
 
 /// Checked metadata and the completed one-page PDF. `page` is JBIG2 image
 /// geometry, not a recovered HN/C8 document-page layout.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Type3SelectedPdfReport {
     pub conversion: ConversionReport,
     pub source_variant: Variant,

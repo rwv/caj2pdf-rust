@@ -369,6 +369,10 @@ function report(exports) {
     outputBytesWritten: exports.caj2pdf_io_output_bytes_written(),
     pagesConverted: exports.caj2pdf_io_pages_converted(),
     bookmarksWritten: exports.caj2pdf_io_bookmarks_written(),
+    omittedPages: Array.from({ length: exports.caj2pdf_io_omitted_pages_count() }, (_, index) => ({
+      pageIndex: exports.caj2pdf_io_omitted_page_index(index),
+      offset: exports.caj2pdf_io_omitted_page_offset(index),
+    })),
     outlineWarnings: exports.caj2pdf_io_outline_warnings(),
     outlineOmitted: exports.caj2pdf_io_outline_omitted() !== 0,
   };
@@ -604,7 +608,11 @@ function operationConfig(options) {
     chunkSize = DEFAULT_IO_CHUNK,
     signal,
     includeBookmarks = true,
+    allowDamaged = false,
   } = options ?? {};
+  if (typeof allowDamaged !== "boolean") {
+    throw new TypeError("allowDamaged must be a boolean");
+  }
   requireChunkLength(chunkSize);
   return {
     code: formatCode(format),
@@ -612,13 +620,14 @@ function operationConfig(options) {
     chunkSize,
     signal,
     includeBookmarks,
+    allowDamaged,
   };
 }
 
 async function run(operation, wasm, source, sink, options) {
   requireSource(source);
   if (operation === OPERATION_CONVERT) requireSink(sink);
-  const { code, resolved, chunkSize, signal, includeBookmarks } = operationConfig(options);
+  const { code, resolved, chunkSize, signal, includeBookmarks, allowDamaged } = operationConfig(options);
   const hnc8 = operation === OPERATION_CONVERT ? hnc8Config(options?.hnc8) : undefined;
   checkAbort(signal);
   const exports = await resolveExports(wasm);
@@ -627,7 +636,7 @@ async function run(operation, wasm, source, sink, options) {
     source.size,
     chunkSize,
     code,
-    includeBookmarks ? 1 : 0,
+    (includeBookmarks ? 1 : 0) | (allowDamaged ? 2 : 0),
     resolved.maxInputBytes,
     resolved.maxOutputBytes,
     resolved.maxAllocationBytes,

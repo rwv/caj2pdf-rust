@@ -11,6 +11,8 @@ use flate2::{Decompress, FlushDecompress, Status};
 
 mod ascii85;
 mod ccitt;
+#[cfg(test)]
+mod damaged_tests;
 mod jpeg;
 
 /// An equal-width correction to an observed, understated direct `/Length`.
@@ -28,6 +30,7 @@ pub(crate) struct FragmentScan {
     pub objects: Vec<FragmentObject>,
     pub patches: Vec<LengthPatch>,
     lengths: Vec<(PdfRef, u64)>,
+    pub damaged: Vec<(Option<PdfRef>, u64)>,
 }
 
 impl FragmentScan {
@@ -158,6 +161,7 @@ pub(crate) async fn collect_fragment_candidates<S: RangedSource, C: Cancellation
 enum ScanMode<'a> {
     Complete(&'a mut [FragmentCandidate]),
     Candidates,
+    Damaged(&'a [crate::caj::CajPageRow], &'a mut [FragmentCandidate]),
 }
 
 /// Scan indirect objects with the existing PDF syntax parser, advancing over
@@ -189,6 +193,32 @@ pub(crate) async fn scan_fragment_with_candidates<S: RangedSource, C: Cancellati
     .await
 }
 
+/// Resume only at container page anchors after malformed object syntax.
+/// Objects reachable only through an unvalidated byte search are never admitted.
+pub(crate) async fn scan_damaged_fragment<S: RangedSource, C: Cancellation>(
+    source: &mut S,
+    rows: &[crate::caj::CajPageRow],
+    end: u64,
+    limits: &Limits,
+    cancellation: &C,
+    candidates: &mut [FragmentCandidate],
+    inflated_bytes: &mut u64,
+) -> Result<FragmentScan> {
+    for candidate in candidates.iter_mut() {
+        candidate.used = false;
+    }
+    scan_fragment(
+        source,
+        rows[0].offset,
+        end,
+        limits,
+        cancellation,
+        ScanMode::Damaged(rows, candidates),
+        inflated_bytes,
+    )
+    .await
+}
+
 async fn scan_fragment<S: RangedSource, C: Cancellation>(
     source: &mut S,
     body_start: u64,
@@ -198,10 +228,12 @@ async fn scan_fragment<S: RangedSource, C: Cancellation>(
     mode: ScanMode<'_>,
     inflated_bytes: &mut u64,
 ) -> Result<FragmentScan> {
-    let (candidates, verify_document) = match mode {
-        ScanMode::Complete(candidates) => (candidates, true),
-        ScanMode::Candidates => (&mut [][..], false),
+    let (candidates, verify_document, salvage_rows) = match mode {
+        ScanMode::Complete(candidates) => (candidates, true, None),
+        ScanMode::Candidates => (&mut [][..], false, None),
+        ScanMode::Damaged(rows, candidates) => (candidates, true, Some(rows)),
     };
+    let mut damaged = Vec::new();
     limits.validate()?;
     if body_start >= minimum_end || minimum_end > source.size() {
         return Err(Error::Caj {
@@ -241,6 +273,7 @@ async fn scan_fragment<S: RangedSource, C: Cancellation>(
             break cursor;
         }
         let start = cursor;
+        let outcome: Result<Option<u64>> = async {
         let head = match reader.load_head(start, None).await {
             Ok(head) => head,
             Err(
@@ -251,26 +284,26 @@ async fn scan_fragment<S: RangedSource, C: Cancellation>(
             ) => {
                 if let Some(end) = replay_end(&mut reader, start, &objects, &lengths).await? {
                     cursor = end;
-                    continue;
+                    return Ok(None);
                 }
                 if let Some(end) =
                     orphan_length_end(&mut reader, start, pending_lengths.last().copied()).await?
                 {
                     cursor = end;
-                    continue;
+                    return Ok(None);
                 }
                 if let Some(end) = known_prefix_end(&mut reader, start, &error, &objects).await? {
                     cursor = end;
-                    continue;
+                    return Ok(None);
                 }
                 if let Some(end) = adjacent_header_end(&mut reader, start, &error, &objects).await?
                 {
                     cursor = end;
-                    continue;
+                    return Ok(None);
                 }
                 if let Some(end) = candidate_prefix_end(&mut reader, start, candidates).await? {
                     cursor = end;
-                    continue;
+                    return Ok(None);
                 }
                 if let Some((end, prefix)) =
                     interrupted_syntax_prefix(&mut reader, start, &error).await?
@@ -296,7 +329,7 @@ async fn scan_fragment<S: RangedSource, C: Cancellation>(
                     reserve(&mut pending_prefixes, 1, refused)?;
                     pending_prefixes.push(prefix);
                     cursor = end;
-                    continue;
+                    return Ok(None);
                 }
                 return Err(error);
             }
@@ -349,7 +382,7 @@ async fn scan_fragment<S: RangedSource, C: Cancellation>(
                         ).await {
                             Ok(Some(next)) => {
                                 cursor = next;
-                                continue 'objects;
+                                return Ok(None);
                             }
                             Ok(None) | Err(Error::Pdf { kind: PdfErrorKind::Malformed, .. }) => {}
                             Err(error) => return Err(error),
@@ -395,13 +428,13 @@ async fn scan_fragment<S: RangedSource, C: Cancellation>(
                                 replay_end(&mut reader, start, &objects, &lengths).await?
                             {
                                 cursor = end;
-                                continue 'objects;
+                                return Ok(None);
                             }
                             if let Some(end) =
                                 candidate_prefix_end(&mut reader, start, candidates).await?
                             {
                                 cursor = end;
-                                continue 'objects;
+                                return Ok(None);
                             }
                             // An exact replay of the immediately preceding Length
                             // scalar supplies a local boundary. The final scan must
@@ -423,7 +456,7 @@ async fn scan_fragment<S: RangedSource, C: Cancellation>(
                                     range: PdfRange { offset: body_start + start, length: prefix_length as u64 },
                                 });
                                 cursor = next;
-                                continue 'objects;
+                                return Ok(None);
                             }
                             return Err(error);
                         }
@@ -468,7 +501,7 @@ async fn scan_fragment<S: RangedSource, C: Cancellation>(
                                     ).await {
                                         Ok(Some(next)) => {
                                             cursor = next;
-                                            continue 'objects;
+                                            return Ok(None);
                                         }
                                         Ok(None) | Err(Error::Pdf { kind: PdfErrorKind::Malformed, .. }) => {}
                                         Err(error) => return Err(error),
@@ -479,7 +512,7 @@ async fn scan_fragment<S: RangedSource, C: Cancellation>(
                                     ).await {
                                         Ok(Some(next)) => {
                                             cursor = next;
-                                            continue 'objects;
+                                            return Ok(None);
                                         }
                                         Ok(None) | Err(Error::Pdf { kind: PdfErrorKind::Malformed, .. }) => {}
                                         Err(error) => return Err(error),
@@ -489,7 +522,7 @@ async fn scan_fragment<S: RangedSource, C: Cancellation>(
                                     candidate_prefix_end(&mut reader, start, candidates).await?
                                 {
                                     cursor = end;
-                                    continue 'objects;
+                                    return Ok(None);
                                 }
                                 return Err(error);
                             }
@@ -567,6 +600,46 @@ async fn scan_fragment<S: RangedSource, C: Cancellation>(
         });
         cursor = end;
         final_object_repaired = object_repaired;
+        Ok(Some(end))
+        }.await;
+        let end = match outcome {
+            Ok(Some(end)) => end,
+            Ok(None) => continue 'objects,
+            Err(Error::Pdf {
+                offset,
+                object,
+                kind: PdfErrorKind::Malformed,
+                ..
+            }) if salvage_rows.is_some() => {
+                final_object_repaired = false;
+                let refused = limits.allocation_refused(
+                    "damaged PDF object index",
+                    (damaged.len() as u64 + 1) * 32,
+                );
+                limits.check_allocation((damaged.len() as u64 + 1) * 32)?;
+                reserve(&mut damaged, 1, refused)?;
+                damaged.push((
+                    object.map(|(number, generation)| PdfRef { number, generation }),
+                    offset,
+                ));
+                if let Some(end) = damaged_stream_end(&mut reader, start, &lengths).await? {
+                    cursor = end;
+                    continue 'objects;
+                }
+                let rows = salvage_rows.expect("guarded salvage rows");
+                let next = rows
+                    .iter()
+                    .find(|row| row.offset > body_start + start && row.length != 0);
+                match next {
+                    Some(row) => {
+                        cursor = damaged_page_anchor(&mut reader, row).await?;
+                        continue 'objects;
+                    }
+                    None => break minimum_relative,
+                }
+            }
+            Err(error) => return Err(error),
+        };
         if end >= minimum_relative {
             break end;
         }
@@ -673,6 +746,16 @@ async fn scan_fragment<S: RangedSource, C: Cancellation>(
                 "interrupted prefix has no exact complete counterpart",
             );
             let Some(original) = original else {
+                if salvage_rows.is_some() {
+                    limits.check_allocation((damaged.len() as u64 + 1) * 32)?;
+                    let refused = limits.allocation_refused(
+                        "damaged PDF object index",
+                        (damaged.len() as u64 + 1) * 32,
+                    );
+                    reserve(&mut damaged, 1, refused)?;
+                    damaged.push((Some(prefix.reference), prefix.range.offset));
+                    continue;
+                }
                 return Err(failure);
             };
             if prefix.range.length >= original.range.length {
@@ -696,14 +779,31 @@ async fn scan_fragment<S: RangedSource, C: Cancellation>(
         }
     }
     objects.sort_unstable_by_key(|object| object.range.offset);
-    let scan = FragmentScan {
+    let mut scan = FragmentScan {
         objects,
         patches,
         lengths,
+        damaged,
     };
     if verify_document {
         for (target, actual) in pending_lengths {
             if scan.resolve_length(target) != Some(actual) {
+                if salvage_rows.is_some() {
+                    limits.check_allocation((scan.damaged.len() as u64 + 1) * 32)?;
+                    let refused = limits.allocation_refused(
+                        "damaged PDF object index",
+                        (scan.damaged.len() as u64 + 1) * 32,
+                    );
+                    reserve(&mut scan.damaged, 1, refused)?;
+                    let offset = scan
+                        .objects
+                        .iter()
+                        .find(|object| object.reference == target)
+                        .map_or(body_start, |object| object.range.offset);
+                    scan.damaged.push((Some(target), offset));
+                    scan.objects.retain(|object| object.reference != target);
+                    continue;
+                }
                 return Err(reader.malformed(
                     0,
                     Some(target),
@@ -713,6 +813,117 @@ async fn scan_fragment<S: RangedSource, C: Cancellation>(
         }
     }
     Ok(scan)
+}
+
+/// A codec failure need not discard later objects: a parsed Length and exact
+/// terminator can still establish where the discarded stream ends.
+async fn damaged_stream_end<S: RangedSource, C: Cancellation>(
+    reader: &mut Reader<'_, S, C>,
+    start: u64,
+    lengths: &[(PdfRef, u64)],
+) -> Result<Option<u64>> {
+    let attempt = async {
+        let head = reader.load_head(start, None).await?;
+        let ObjectTail::Stream { data_start } = head.tail else {
+            return Ok(None);
+        };
+        let Some(dict) = head.dictionary else {
+            return Ok(None);
+        };
+        let Some(value) = dict.value(b"Length") else {
+            return Ok(None);
+        };
+        let length = exact_unsigned(value).or_else(|| {
+            exact_reference(value).and_then(|target| {
+                lengths
+                    .iter()
+                    .find_map(|&(reference, length)| (reference == target).then_some(length))
+            })
+        });
+        let Some(length) = length else {
+            return Ok(None);
+        };
+        let Some(end) = start
+            .checked_add(data_start as u64)
+            .and_then(|at| at.checked_add(length))
+        else {
+            return Ok(None);
+        };
+        match reader.check_stream_tail(end, Some(head.reference)).await {
+            Ok(end) => Ok(Some(end)),
+            Err(Error::Pdf {
+                kind: PdfErrorKind::Malformed,
+                ..
+            }) => repair_stream_length(reader, end, start + data_start as u64, head.reference)
+                .await
+                .map(|(_, end)| Some(end)),
+            Err(error) => Err(error),
+        }
+    }
+    .await;
+    match attempt {
+        Err(Error::Pdf {
+            kind: PdfErrorKind::Malformed,
+            ..
+        }) => Ok(None),
+        result => result,
+    }
+}
+
+/// Page table boundaries may precede the page dictionary by a short tail of
+/// the previous object. Admit only the table's exact page ID, with one complete
+/// Page dictionary in this bounded prefix. This is used solely after explicitly
+/// dropping damaged content, never as evidence for lossless repair.
+async fn damaged_page_anchor<S: RangedSource, C: Cancellation>(
+    reader: &mut Reader<'_, S, C>,
+    row: &crate::caj::CajPageRow,
+) -> Result<u64> {
+    let relative = row.offset - reader.range.offset;
+    let header = format!("{} 0 obj", row.page_object_id);
+    let bytes = reader
+        .bytes(relative, row.length.min(64 + header.len() as u64) as usize)
+        .await?;
+    let mut found = None;
+    for (index, window) in bytes.windows(header.len()).enumerate() {
+        if window != header.as_bytes()
+            || index > 64
+            || (index != 0 && !matches!(bytes[index - 1], 0 | b'\t' | b'\n' | 12 | b'\r' | b' '))
+        {
+            continue;
+        }
+        let expected = PdfRef {
+            number: row.page_object_id,
+            generation: 0,
+        };
+        let head = match reader
+            .load_head(relative + index as u64, Some(expected))
+            .await
+        {
+            Ok(head) => head,
+            Err(Error::Pdf {
+                kind: PdfErrorKind::Malformed,
+                ..
+            }) => continue,
+            Err(error) => return Err(error),
+        };
+        if matches!(head.tail, ObjectTail::EndObject { .. })
+            && head
+                .dictionary
+                .as_ref()
+                .and_then(|dict| dict.value(b"Type"))
+                .and_then(exact_name)
+                .as_deref()
+                == Some(b"Page")
+            && found.replace(relative + index as u64).is_some()
+        {
+            return Err(reader.malformed(
+                relative,
+                Some(expected),
+                "ambiguous damaged page boundary",
+            ));
+        }
+    }
+    found.ok_or_else(|| reader.malformed(relative, None, "damaged page boundary is unavailable"))
 }
 
 /// Defer a short syntax interruption until the complete scan can prove its
@@ -1529,9 +1740,9 @@ mod tests {
 
     /// A source whose bytes from `unreadable_from` onward fail with an I/O
     /// error, as a truncated network range or failing disk sector would.
-    struct UnreadableTail {
-        bytes: Vec<u8>,
-        unreadable_from: u64,
+    pub(super) struct UnreadableTail {
+        pub(super) bytes: Vec<u8>,
+        pub(super) unreadable_from: u64,
     }
 
     impl RangedSource for UnreadableTail {

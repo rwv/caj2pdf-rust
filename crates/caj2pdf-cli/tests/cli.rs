@@ -1816,3 +1816,36 @@ fn a_failing_stdout_sink_stops_the_page_report() {
         );
     }
 }
+
+#[test]
+fn damaged_mode_commits_partial_output_and_returns_three_even_when_quiet() {
+    let scratch = Scratch::new("damaged");
+    let mut bytes = caj(OUTLINE);
+    bytes.extend_from_slice(b"99 0 obj << /Bad @ >> endobj\n");
+    let table = u32::from_le_bytes(bytes[0x14..0x18].try_into().unwrap()) as usize;
+    let start = u32::from_le_bytes(bytes[table..table + 4].try_into().unwrap());
+    let end = bytes.len() as u32;
+    put_u32(&mut bytes, table + 4, end - start);
+    put_u32(&mut bytes, table + 12, end);
+    put_u32(&mut bytes, table + 24, end);
+    scratch.write("damaged.caj", &bytes);
+    let strict = scratch.run(["damaged.caj", "-o", "strict.pdf"]);
+    assert_eq!(strict.status.code(), Some(1));
+    assert!(!scratch.path("strict.pdf").exists());
+    let partial = scratch.run([
+        "damaged.caj",
+        "--allow-damaged",
+        "--quiet",
+        "-o",
+        "partial.pdf",
+    ]);
+    assert_eq!(partial.status.code(), Some(3));
+    assert!(partial.stdout.is_empty());
+    let diagnostic = String::from_utf8(partial.stderr).unwrap();
+    assert!(diagnostic.contains("warning: page 1 replaced with a blank page"));
+    assert!(!diagnostic.contains("error:"));
+    assert_eq!(validate_pdf(&scratch.path("partial.pdf")).0, 3);
+    let piped = scratch.run_with_stdin(&["-", "--allow-damaged", "-o", "-"], &bytes);
+    assert_eq!(piped.status.code(), Some(3));
+    assert_eq!(piped.stdout, fs::read(scratch.path("partial.pdf")).unwrap());
+}

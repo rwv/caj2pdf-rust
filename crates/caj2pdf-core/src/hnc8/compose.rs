@@ -168,7 +168,7 @@ impl ComposeVisitor for () {
 /// Successful traversal totals. Peaks are accounted handler storage, not
 /// an RSS measurement. Row-store totals include physical successful bytes;
 /// the per-image work ceiling separately charges requested bytes.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ComposeReport {
     pub conversion: ConversionReport,
     pub source_variant: Variant,

@@ -416,3 +416,24 @@ test("Flate replay preserves output and rejects a bad checksum", async () => {
   await writer.close();
   assert.equal(bytes().length, 0);
 });
+
+test("explicit damaged mode reports blank pages through the public WASM API", async (t) => {
+  const { syntheticDamagedCaj } = await import("./helpers.mjs");
+  const bytes = syntheticDamagedCaj();
+  const source = () => blobSource(new Blob([bytes]));
+  await assert.rejects(convert(await newInstance(), source(), discard));
+  const sink = collectingWriter();
+  const report = await convert(await newInstance(), source(), webWritableSink(sink.writer), { allowDamaged: true, chunkSize: 17 });
+  await sink.writer.close();
+  assert.equal(report.pagesConverted, 2);
+  assert.equal(report.bookmarksWritten, 1);
+  assert.deepEqual(report.omittedPages.map((page) => page.pageIndex), [0]);
+  assert.equal(typeof report.omittedPages[0].offset, "bigint");
+  await validatePdf(t, sink.bytes(), 2);
+});
+
+test("partial conversion requires an explicit boolean opt-in", async () => {
+  for (const allowDamaged of ["false", "true", 1, null, {}]) {
+    await assert.rejects(convert(await newInstance(), blobSource(new Blob([syntheticCaj()])), discard, { allowDamaged }), /allowDamaged must be a boolean/);
+  }
+});

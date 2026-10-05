@@ -108,6 +108,7 @@ fn ranged(file: &mut File) -> Result<SeekableSource<&mut File>, String> {
 pub struct Warnings {
     /// Skipped or clamped HN-A bookmarks, or omitted C8/HN-B outlines.
     pub outline: OutlineReport,
+    pub omitted_pages: Vec<caj2pdf_core::OmittedPage>,
     /// A C8 application-info package, when ignored as defective.
     pub application_info: ApplicationInfoStatus,
 }
@@ -119,13 +120,12 @@ pub fn convert<W: Write>(
     writer: W,
     limits: &Limits,
     resources: &mut crate::hnc8::Resources,
-    include_bookmarks: bool,
+    options: ConversionOptions,
     progress: Option<&mut dyn Write>,
 ) -> Result<Warnings, CliError> {
     let result = block_on(async {
         let mut source = Progress::new(ranged(&mut input.file)?, progress);
-        let result =
-            convert_source(&mut source, writer, limits, resources, include_bookmarks).await;
+        let result = convert_source(&mut source, writer, limits, resources, options).await;
         source.finish();
         result
     });
@@ -137,7 +137,7 @@ async fn convert_source<S: RangedSource, W: Write>(
     writer: W,
     limits: &Limits,
     resources: &mut crate::hnc8::Resources,
-    include_bookmarks: bool,
+    options: ConversionOptions,
 ) -> Result<Warnings, String> {
     let mut sink = WriteSink::new(writer);
     let Detection {
@@ -153,29 +153,35 @@ async fn convert_source<S: RangedSource, W: Write>(
         InputFormat::Pdf => copy_pdf_range(source, &mut sink, pdf, limits, &ProcessCancellation)
             .await
             .map_err(text),
-        InputFormat::Caj => caj::convert_caj(
-            source,
-            &mut sink,
-            ConversionOptions { include_bookmarks },
-            limits,
-            &ProcessCancellation,
-        )
-        .await
-        .map_err(text),
+        InputFormat::Caj => {
+            caj::convert_caj(source, &mut sink, options, limits, &ProcessCancellation)
+                .await
+                .map_err(text)
+        }
         InputFormat::Kdh => convert_kdh(source, &mut sink, limits, &ProcessCancellation)
             .await
             .map_err(text),
         InputFormat::Hn | InputFormat::C8 => {
-            return crate::hnc8::convert(source, &mut sink, resources, include_bookmarks, limits)
-                .await
-                .map(|(outline, application_info)| Warnings {
-                    outline,
-                    application_info,
-                });
+            return crate::hnc8::convert(
+                source,
+                &mut sink,
+                resources,
+                options.include_bookmarks,
+                limits,
+            )
+            .await
+            .map(|(outline, application_info)| Warnings {
+                outline,
+                application_info,
+                ..Warnings::default()
+            });
         }
         other => Err(unsupported(other)),
     }
-    .map(|_| Warnings::default())
+    .map(|report| Warnings {
+        omitted_pages: report.omitted_pages,
+        ..Warnings::default()
+    })
 }
 
 /// Bounded document metadata for `inspect`.

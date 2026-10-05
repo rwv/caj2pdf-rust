@@ -362,3 +362,16 @@ export async function validateMultiImageHn(t, bytes) {
     await rm(directory, { recursive: true, force: true });
   }
 }
+
+/** Original malformed object after valid page dictionaries; no external bytes. */
+export function syntheticDamagedCaj() {
+  const base = syntheticCaj();
+  const tail = new TextEncoder().encode("99 0 obj << /Bad @ >> endobj\n");
+  const bytes = new Uint8Array(base.length + tail.length);
+  bytes.set(base);
+  bytes.set(tail, base.length);
+  const view = new DataView(bytes.buffer);
+  view.setUint32(0x404, bytes.length - (0x400 + 24), true);
+  view.setUint32(0x40c, bytes.length, true);
+  return bytes;
+}

@@ -340,7 +340,7 @@ fn auto_detected_pdf_is_copied_through_bounded_chunks_and_flushed() {
     assert_eq!(run.flushes, 1);
     assert!(run.max_read <= 512 && run.max_write <= 512);
     assert_eq!(engine.format(), Some(InputFormat::Pdf));
-    let report = outcome(&engine).report;
+    let report = &outcome(&engine).report;
     assert_eq!(report.output_bytes_written, pdf.len() as u64);
     assert_eq!(report.pages_converted, 2);
     assert!(report.input_bytes_read >= pdf.len() as u64);
@@ -397,7 +397,7 @@ fn kdh_and_caj_conversions_use_the_core_engines_with_short_io() {
     assert!(run.output.starts_with(b"%PDF-"));
     assert!(run.output.trim_ascii_end().ends_with(b"%%EOF"));
     assert!(run.max_read <= 256 && run.max_write <= 256);
-    let report = outcome(&engine).report;
+    let report = &outcome(&engine).report;
     assert_eq!(engine.format(), Some(InputFormat::Caj));
     assert_eq!(report.pages_converted, 2);
     assert_eq!(report.bookmarks_written, 1);
@@ -411,6 +411,7 @@ fn caj_conversion_honors_disabled_bookmarks_and_explicit_format() {
         format: Some(InputFormat::Caj),
         options: ConversionOptions {
             include_bookmarks: false,
+            allow_damaged: false,
         },
     };
     let mut engine = Engine::start(caj.len() as u64, limits(4096), operation).unwrap();
@@ -871,6 +872,7 @@ fn hnb_empty_source_rows_are_not_silently_omitted() {
             format: None,
             options: ConversionOptions {
                 include_bookmarks: false,
+                allow_damaged: false,
             },
         },
     )
@@ -1045,6 +1047,7 @@ fn native_operation() -> Operation {
         format: None,
         options: ConversionOptions {
             include_bookmarks: false,
+            allow_damaged: false,
         },
     }
 }

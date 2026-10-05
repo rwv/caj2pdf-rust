@@ -148,3 +148,60 @@ copied to the matrix-mapped paths outside Git, also returned inventory
 all page counts, dimensions, outlines, and 74 rendered-page hashes matched
 the pinned matrix. The first attempt used external symlinks and was rejected
 by the harness's path-safety check; the reported pass used copied files.
+
+## Explicit partial conversion of damaged CAJ inputs
+
+`--allow-damaged` (JavaScript `allowDamaged: true`, Rust
+`ConversionOptions::allow_damaged`) permits partial output for CAJ containers
+with malformed embedded PDF objects. It is off by default. It does not add a
+partial mode for PDF, KDH, HN, C8, or encrypted inputs.
+
+After the existing bounded reconstruction fails, the partial path resumes at
+an independently framed stream end or the page table's next page dictionary.
+A table boundary can precede that dictionary by at most 64 bytes; its object
+number and complete Page dictionary must agree with the table. This boundary
+is used to discard content, never to claim lossless repair. No whole-document
+buffer, marker search across the file, or external converter is used.
+
+A dependency pass identifies pages affected by missing or malformed objects,
+including shared fonts and images. Their contents, annotations, and resources
+are replaced with an empty resource dictionary. Page object IDs, page order,
+parentage, available page boxes, rotation, and bookmark targets are retained.
+A shared damaged resource can require many blank pages; this mode does not
+promise to recover every page a viewer can display. Missing or ambiguous page
+geometry/boundaries, unsupported features, I/O errors, cancellation, and
+resource-limit failures still abort conversion.
+
+The CLI commits a valid PDF and returns **3** when it substituted any page.
+Each warning identifies the one-based page and absolute input byte offset;
+`--quiet` does not suppress these warnings. No substitutions means exit 0.
+Rust's `omitted_pages` and JavaScript's `omittedPages` contain zero-based page
+indices and absolute input offsets. JavaScript resolves with that report;
+callers must check it before treating the output as complete.
+
+Default corpus failures remain failures. An explicitly partial PDF is not a
+successful lossless compatibility result.
+
+### Pinned damaged-input observations
+
+The five damaged CAJ entries in the pinned external corpus were checked on
+2026-10-05. Each remained a strict-mode failure with no committed output.
+Explicit partial mode returned 3, passed `qpdf --check`, retained every source
+page object ID in table order, and had no Contents or Annots plus an empty
+Resources dictionary on every reported blank page.
+
+| Corpus case | Total pages | Blank substitutes |
+| --- | ---: | ---: |
+| issue-20 | 63 | 62 |
+| issue-25 | 78 | 11 |
+| issue-39 | 80 | 4 |
+| issue-85 Mingtang | 234 | 15 |
+| issue-90 `4-[6]` | 60 | 60 |
+
+In particular, the current mode retains no page content for issue-90; a valid
+PDF structure is not evidence of useful recovery. `pagesConverted` includes
+blank substitutes. All omissions are reported even when every page is blank.
+The other 12 pinned CAJ files retained their v0.4.0 output SHA-256 hashes under
+both default options and `allowDamaged`. These are structural/hash checks,
+not a new whole-document CAJViewer pixel comparison. Original corpus bytes
+and resulting PDFs remain external to Git.
