@@ -49,7 +49,6 @@ struct FontStream<'w, 'a, W: SequentialSink, C: Cancellation> {
 
 impl<'w, 'a, W: SequentialSink, C: Cancellation> FontStream<'w, 'a, W, C> {
     fn new(writer: &'w mut PdfWriter<'a, W, C>, deflate: &'w mut Deflate) -> Self {
-        deflate.reset();
         Self { writer, deflate }
     }
 
@@ -134,15 +133,11 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
         Ok(())
     }
 
-    /// The document's reusable compressor, reset for a new stream.
+    /// The document's reusable compressor; it is ready for a new stream.
     fn take_deflate(&mut self) -> Result<Deflate> {
-        match self.deflate.take() {
-            Some(mut deflate) => {
-                deflate.reset();
-                Ok(deflate)
-            }
-            None => Deflate::new(self.limits),
-        }
+        self.deflate
+            .take()
+            .map_or_else(|| Deflate::new(self.limits), Ok)
     }
 
     fn bitmap(&self, resource: &'static str) -> Result<Vec<u8>> {

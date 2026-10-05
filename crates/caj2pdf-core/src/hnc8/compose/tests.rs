@@ -793,8 +793,7 @@ fn invented_hna_c8_text_preserves_order_overlap_repeats_and_off_page_positions()
         );
         assert!(visitor.images[3].4[4] > 3.84);
         assert!(visitor.images[3].4[5] < 0.0);
-        let content = crate::test_support::inflated_pdf(&sink.bytes);
-        let content = String::from_utf8_lossy(&content);
+        let content = crate::test_support::pdf_text(&sink.bytes);
         let locations = (0..4)
             .map(|number| content.find(&format!("/Im{number} Do")).unwrap())
             .collect::<Vec<_>>();
@@ -2819,8 +2818,7 @@ fn mixed_codec_content_page() -> Vec<u8> {
         crate::test_support::bilevel_pixels(&baseline.bytes),
         crate::test_support::bilevel_pixels(&sink.bytes)
     );
-    let content = crate::test_support::inflated_pdf(&sink.bytes);
-    let content = String::from_utf8_lossy(&content);
+    let content = crate::test_support::pdf_text(&sink.bytes);
     let operators = [
         "<0041> Tj",
         "/Im0 Do",

@@ -118,8 +118,7 @@ fn native_document_streams_text_and_all_shared_image_codecs() {
         for store in [&rows, &first, &second, &refined] {
             assert!(store.bytes.is_empty());
         }
-        let pdf = crate::test_support::inflated_pdf(&sink.bytes);
-        let pdf = String::from_utf8_lossy(&pdf);
+        let pdf = crate::test_support::pdf_text(&sink.bytes);
         assert_eq!(
             pdf.matches("/FontFile2 ").count(),
             1,
@@ -394,8 +393,7 @@ fn hnb_native_document_streams_every_compact_page_and_keeps_late_errors_located(
             let report = result.unwrap();
             assert_eq!(report.output_pages, 3);
             assert_eq!(report.no_image_pages, 3);
-            let pdf = crate::test_support::inflated_pdf(&sink.bytes);
-            let pdf = String::from_utf8_lossy(&pdf);
+            let pdf = crate::test_support::pdf_text(&sink.bytes);
             assert!(pdf.contains("/Count 3"));
             assert_eq!(pdf.matches("<0041> Tj").count(), 3);
             assert!(pdf.ends_with("%%EOF\n"));

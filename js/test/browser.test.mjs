@@ -178,6 +178,9 @@ test("Chromium: multi-image HN converts with bookmarks through Worker OPFS", opt
   assert.ok(Buffer.from(result.type1Pdf).includes(syntheticType1Hn().jpeg));
   assert.deepEqual(result.remainingEntries, []);
   assert.deepEqual(result.fontFailures, ["missing-glyph", "read-error", "cancel"]);
+  const late = pageText(Buffer.from(result.latePdf));
+  assert.ok(late.includes("<0041> Tj"), "late HN-B failure keeps the finished first page");
+  assert.ok(!late.includes("%%EOF"), "late HN-B failure must not finalize the PDF");
   assert.equal(result.nativePdfs.length, 10);
   assert.ok(result.fontMaxRead > 0 && result.fontMaxRead <= 32);
   for (const [index, bytes] of result.nativePdfs.entries()) {

@@ -203,7 +203,6 @@ pub struct BilevelImageWriter<'d, 'a, W: SequentialSink, C: Cancellation> {
 }
 
 /// Fixed-size zlib state that compresses into the writer's open stream.
-/// Fixed-size zlib state that compresses into the writer's open stream.
 pub(super) struct Zlib {
     encoder: Compress,
     encoded: Vec<u8>,
@@ -318,12 +317,6 @@ impl Deflate {
         Ok(Self { zlib, pending })
     }
 
-    /// Start a new zlib stream, reusing the reserved state.
-    pub(super) fn reset(&mut self) {
-        self.zlib.encoder.reset();
-        self.pending.clear();
-    }
-
     /// Gather `bytes`, compressing whenever the buffer fills. Output errors
     /// are therefore reported by a later call, at the latest by `finish`.
     pub(super) async fn put<W: SequentialSink, C: Cancellation>(
@@ -343,12 +336,14 @@ impl Deflate {
         Ok(())
     }
 
-    /// Compress gathered bytes and end the zlib stream.
+    /// Compress gathered bytes, end the zlib stream and reset for another.
     pub(super) async fn finish<W: SequentialSink, C: Cancellation>(
         &mut self,
         writer: &mut PdfWriter<'_, W, C>,
     ) -> Result<()> {
         self.zlib.write(writer, &self.pending, true).await?;
+        // Ready for the next stream; a failed stream drops its Deflate.
+        self.zlib.encoder.reset();
         self.pending.clear();
         Ok(())
     }

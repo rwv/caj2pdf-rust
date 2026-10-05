@@ -100,7 +100,7 @@ pub(crate) fn bilevel_pixels(pdf: &[u8]) -> Vec<Vec<u8>> {
         let dictionary = String::from_utf8_lossy(&pdf[at..data]);
         if dictionary.contains("/BitsPerComponent 1\n") {
             assert!(dictionary.contains("/Filter /FlateDecode"));
-            let (pixels, consumed) = inflate_complete(&pdf[data..]);
+            let (pixels, consumed) = inflate(&pdf[data..]);
             images.push(pixels);
             from = data + consumed;
         } else {
@@ -110,32 +110,14 @@ pub(crate) fn bilevel_pixels(pdf: &[u8]) -> Vec<Vec<u8>> {
     images
 }
 
-/// Inflate one zlib stream, returning its bytes, the input consumed and
-/// whether the stream ended. A truncated stream (from a deliberately failed
-/// output) yields the prefix that inflates.
-fn inflate(stream: &[u8]) -> (Vec<u8>, usize, bool) {
-    use flate2::{Decompress, FlushDecompress, Status};
-    let mut decoder = Decompress::new(true);
-    let mut bytes = Vec::new();
-    loop {
-        bytes.reserve(4096);
-        let before = (decoder.total_in(), bytes.len());
-        let input = &stream[decoder.total_in() as usize..];
-        let status = decoder.decompress_vec(input, &mut bytes, FlushDecompress::None);
-        let progress = before != (decoder.total_in(), bytes.len());
-        if !(progress && matches!(status, Ok(Status::Ok | Status::BufError))) {
-            let ended = matches!(status, Ok(Status::StreamEnd));
-            return (bytes, decoder.total_in() as usize, ended);
-        }
-    }
-}
-
 /// Inflate one complete zlib stream, returning its bytes and the input
-/// consumed; a truncated or invalid stream fails the test.
-fn inflate_complete(stream: &[u8]) -> (Vec<u8>, usize) {
-    let (bytes, consumed, ended) = inflate(stream);
-    assert!(ended, "zlib stream is incomplete or invalid");
-    (bytes, consumed)
+/// consumed; an invalid or truncated stream fails the test.
+fn inflate(stream: &[u8]) -> (Vec<u8>, usize) {
+    use std::io::Read;
+    let mut decoder = flate2::read::ZlibDecoder::new(stream);
+    let mut bytes = Vec::new();
+    decoder.read_to_end(&mut bytes).unwrap();
+    (bytes, decoder.total_in() as usize)
 }
 
 /// Inflate the first Flate stream after the first occurrence of `marker`
@@ -151,13 +133,13 @@ pub(crate) fn inflated_stream(pdf: &[u8], marker: &[u8]) -> Vec<u8> {
             .position(|part| part == b"stream\n")
             .unwrap()
         + 7;
-    inflate_complete(&pdf[data..]).0
+    inflate(&pdf[data..]).0
 }
 
-/// A small generated test PDF with every content-like Flate stream (one
-/// whose dictionary has only `/Length` and `/Filter`) replaced by its
-/// inflated bytes, so tests can search page operators as text.
-pub(crate) fn inflated_pdf(pdf: &[u8]) -> Vec<u8> {
+/// Text of a small generated test PDF with every content-like Flate stream
+/// (one whose dictionary has only `/Length` and `/Filter`) inflated, so
+/// tests can search page operators.
+pub(crate) fn pdf_text(pdf: &[u8]) -> String {
     const DICTIONARY: &[u8] = b" 0 R\n/Filter /FlateDecode\n>>\nstream\n";
     let mut out = Vec::new();
     let mut from = 0;
@@ -167,10 +149,10 @@ pub(crate) fn inflated_pdf(pdf: &[u8]) -> Vec<u8> {
     {
         let data = from + at + DICTIONARY.len();
         out.extend_from_slice(&pdf[from..data]);
-        let (bytes, consumed, _) = inflate(&pdf[data..]);
+        let (bytes, consumed) = inflate(&pdf[data..]);
         out.extend(bytes);
         from = data + consumed;
     }
     out.extend_from_slice(&pdf[from..]);
-    out
+    String::from_utf8_lossy(&out).into_owned()
 }

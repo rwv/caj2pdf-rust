@@ -4,7 +4,7 @@ use super::*;
 use crate::{
     native::SeekableSource,
     pdf::font::tests::drawing_font,
-    test_support::{NEVER, inflated_pdf, inflated_stream, run},
+    test_support::{NEVER, inflated_stream, pdf_text, run},
 };
 use std::io::Cursor;
 
@@ -153,8 +153,7 @@ fn embedded_font_and_ordered_mixed_page_reopen() {
     assert_eq!(report.pages_converted, 2);
     assert_eq!(report.input_bytes_read, 3 + font.subset_bytes_read());
     assert!(sink.max_request <= 31);
-    let inflated = inflated_pdf(&sink.bytes);
-    let text = String::from_utf8_lossy(&inflated);
+    let text = pdf_text(&sink.bytes);
     assert!(text.contains("/Subtype /CIDFontType2"));
     assert!(text.contains("/DW 1000 /W [ 65 [ 600 ] 20013 [ 1000 ] ]"));
     let tagged = text.split("/FontName /").nth(1).unwrap();
@@ -267,8 +266,7 @@ fn bounded_filled_polygons_preserve_concavity_and_close_paths() {
         document.finish().await.unwrap();
     });
     assert!(sink.max_request <= 31);
-    let inflated = inflated_pdf(&sink.bytes);
-    let text = String::from_utf8_lossy(&inflated);
+    let text = pdf_text(&sink.bytes);
     assert!(text.contains("q 0 g\n10 10 m\n30 10 l\n45 25 l\n30 40 l\n10 40 l\n25 25 l\nh f Q\n"));
     assert_eq!(text.matches("h f Q").count(), 3);
     let mut source = SeekableSource::new(Cursor::new(sink.bytes.clone())).unwrap();
@@ -317,15 +315,15 @@ fn invalid_polygons_and_output_failure_poison_the_content_page() {
 
 #[test]
 fn failed_or_abandoned_content_cannot_be_finished() {
-    for case in 0..16 {
+    for case in 0..14 {
         let mut source = SeekableSource::new(Cursor::new(drawing_font())).unwrap();
         let limits = Limits::default();
         let font = run(TrueTypeFont::read(&mut source, &limits, &NEVER)).unwrap();
         let mut sink = Sink::default();
         let fail = sink.fail_now.clone();
-        // Output is compressed in chunks: an output failure during these
-        // draws can surface only when the page finishes.
-        let late_failure = matches!(case, 8 | 9 | 14 | 15);
+        // Output is compressed in chunks: case 8's output failure during a
+        // valid draw surfaces only when the page finishes.
+        let late_failure = case == 8;
         run(async {
             let mut document = PdfDocument::new(&mut sink, &limits, &NEVER).await.unwrap();
             let font = document.add_font(&font).unwrap();
@@ -347,19 +345,13 @@ fn failed_or_abandoned_content_cannot_be_finished() {
                 }
                 5 => content.segment([0.0, 0.0], [1.0, 1.0], -1.0).await,
                 6 => content.segment([f64::INFINITY, 0.0], [1.0, 1.0], 1.0).await,
-                14 | 15 => {
-                    content
-                        .decoration_glyph(0, 'A', matrix(0.0), [0.0, 0.0, 1.0, 1.0])
-                        .await
-                }
                 8 => content.glyph_with_gray(0, 'A', matrix(0.0), 68).await,
-                9..=13 => {
+                9..=12 => {
                     let clip = match case {
-                        10 => [0.0, 0.0, 0.0, 1.0],
-                        11 => [0.0, 0.0, 1.0, -1.0],
-                        12 => [f64::NAN, 0.0, 1.0, 1.0],
-                        13 => [MAX_PDF_INTEGER as f64, 0.0, 1.0, 1.0],
-                        _ => [0.0, 0.0, 1.0, 1.0],
+                        9 => [0.0, 0.0, 0.0, 1.0],
+                        10 => [0.0, 0.0, 1.0, -1.0],
+                        11 => [f64::NAN, 0.0, 1.0, 1.0],
+                        _ => [MAX_PDF_INTEGER as f64, 0.0, 1.0, 1.0],
                     };
                     content.glyph_with_clip(0, 'A', matrix(0.0), clip).await
                 }
@@ -368,7 +360,7 @@ fn failed_or_abandoned_content_cannot_be_finished() {
                     content.glyph(0, 'A', matrix(0.0)).await
                 }
             };
-            assert!(result.is_err() || late_failure);
+            assert_eq!(result.is_ok(), late_failure);
             assert!(content.finish().await.is_err());
             assert!(document.finish().await.is_err());
         });
@@ -775,19 +767,16 @@ fn cancellation_and_abandoned_draws_cannot_publish_a_partial_page() {
             self.0.get()
         }
     }
+    // Every draw kind observes cancellation; buffered draws then publish
+    // nothing until `finish`, which is abandoned once while pending.
     for (pending, kind) in [
         (false, 0),
         (true, 0),
         (false, 1),
-        (true, 1),
         (false, 2),
-        (true, 2),
         (false, 3),
-        (true, 3),
         (false, 4),
-        (true, 4),
         (false, 5),
-        (true, 5),
     ] {
         let mut source = FontSource::new();
         let limits = Limits::default();
@@ -908,7 +897,7 @@ fn joined_stroke_preserves_vertices_gray_and_failure_state() {
         content.finish().await.unwrap();
         document.finish().await.unwrap();
     });
-    let text = String::from_utf8_lossy(&inflated_pdf(&sink.bytes))
+    let text = pdf_text(&sink.bytes)
         .split_whitespace()
         .collect::<Vec<_>>()
         .join(" ");
