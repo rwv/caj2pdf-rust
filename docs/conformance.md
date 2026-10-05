@@ -89,8 +89,10 @@ All 40 successful attempts pass qpdf, page-count and source-order checks.
 Source-outline checks pass for 31 attempts and are NOT_RUN for nine. These
 are structural checks, not new viewer pixel comparisons. Each child has a
 600-second timeout, 1 GiB address-space limit and 512 MiB output-file limit.
-The report records the exact binary SHA-256. This is pre-tag CI evidence;
-final tagged asset identity and provenance verification remain release gates.
+The report records the exact binary SHA-256. The Linux executable downloaded
+from tag run `37330738513` at `56bf7cc` has the same full-file hash, so these
+measurements apply to the tagged executable as well. This identity check does
+not substitute for complete release inventory and attestation verification.
 
 ### Reproducible v0.3.1 CLI baseline (#218)
 

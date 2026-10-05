@@ -2324,9 +2324,17 @@
   },
   "binary_unchanged": true,
   "source_commit": "0153d22a806b443a9cae01f9277dabbee483f01b",
-  "release": "v0.4.0 pre-tag CI artifact",
+  "release": "v0.4.0",
   "platform": "x86_64-unknown-linux-gnu",
   "ci_run": "https://github.com/rwv/caj2pdf-rust/actions/runs/37251767647",
   "corpus_revision": "7e1c35e7b6de34e21972fcd1752c2a7e99b4ad07",
-  "classification_note": "TEB refusals reclassified from retained exit codes and exact diagnostics after #295; source attempts and output checks are unchanged."
+  "classification_note": "TEB refusals reclassified from retained exit codes and exact diagnostics after #295; source attempts and output checks are unchanged.",
+  "tagged_artifact": {
+    "source_commit": "56bf7cc4261e6ad20b2cfc1cc4fdcf1473d5204d",
+    "ci_run": "https://github.com/rwv/caj2pdf-rust/actions/runs/37330738513",
+    "artifact": "native-x86_64-unknown-linux-gnu",
+    "binary_sha256": "66c6e63e9e3af812062541fcd3885aaccf3268b8576c7e5d4e1b2309fe8ba034",
+    "identical_to_tested_binary": true,
+    "verification": "Downloaded and extracted the tag-run archive; full executable SHA-256 matches the executable used for all recorded corpus attempts. No conversion rerun is claimed."
+  }
 }
