@@ -610,6 +610,9 @@ function operationConfig(options) {
     includeBookmarks = true,
     allowDamaged = false,
   } = options ?? {};
+  if (typeof allowDamaged !== "boolean") {
+    throw new TypeError("allowDamaged must be a boolean");
+  }
   requireChunkLength(chunkSize);
   return {
     code: formatCode(format),

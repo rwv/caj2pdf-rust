@@ -431,3 +431,9 @@ test("explicit damaged mode reports blank pages through the public WASM API", as
   assert.equal(typeof report.omittedPages[0].offset, "bigint");
   await validatePdf(t, sink.bytes(), 2);
 });
+
+test("partial conversion requires an explicit boolean opt-in", async () => {
+  for (const allowDamaged of ["false", "true", 1, null, {}]) {
+    await assert.rejects(convert(await newInstance(), blobSource(new Blob([syntheticCaj()])), discard, { allowDamaged }), /allowDamaged must be a boolean/);
+  }
+});
