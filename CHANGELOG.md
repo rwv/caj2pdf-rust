@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- **Breaking:** native C8/HN-B PDFs embed only the drawn glyphs of each font,
+  as a Flate-compressed TrueType subset with a tagged `BaseFont`, and their
+  `CIDToGIDMap`/ToUnicode streams are compressed. The six pinned corpus
+  documents shrink from 6.0–7.1 MB to 0.85–1.95 MB with identical MuPDF and
+  Poppler renders (#335). `PdfDocument::add_font` is now synchronous and takes
+  `&TrueTypeFont`; call the new `PdfDocument::embed_font(&handle, &mut font)`
+  for every added font after its last draw, before `finish`.
+  `TrueTypeFont::source_bytes` is removed. Font sources are read again after
+  the last page.
+
 - JS `inspect` reports `applicationInfo: { doi, url, noteCount }` for a C8
   application-info package, matching the CLI; `null` when absent or defective.
   The WASM ABI adds `caj2pdf_info_note_count`, `caj2pdf_info_text_ptr` and

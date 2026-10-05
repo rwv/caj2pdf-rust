@@ -175,9 +175,13 @@ Font path flags accept separate values or `--font-cjk=FILE` spelling, and
 Repeating a role or `--fonts`, giving per-role flags without both
 `--font-cjk` and `--font-latin` (and without `--fonts`), or using `-` as a
 font path is a usage error. Reuse the same path for multiple roles to embed
-it once. Native C8/HN-B font options are rejected for other document formats.
+it once. Only the glyphs a document draws are embedded, as a compressed
+subset, so the size of the supplied font file barely affects the output.
+Native C8/HN-B font options are rejected for other document formats.
 
-Files are read through ranged/seekable handles. Forward-only named inputs
+Font files are read twice: metadata before the first page, then metadata
+and the drawn glyphs after the last page. They must not change during
+conversion. Files are read through ranged/seekable handles. Forward-only named inputs
 reuse the existing bounded temporary spooling path. Font files, including
 hard-link/symlink aliases, are protected against output replacement even
 with `--force`. A missing font fails before output staging; invalid fonts,

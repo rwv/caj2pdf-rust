@@ -91,12 +91,14 @@ fn postscript_names_are_bounded_and_validated_before_embedding() {
 fn ranged_metadata_maps_unicode_without_reading_outlines() {
     for chunk in [1, 3, 256] {
         let mut source = fixture();
+        let outline = source.outline;
         let limits = Limits {
             io_chunk_bytes: chunk,
             ..Limits::default()
         };
         let font = run(TrueTypeFont::read(&mut source, &limits, &NeverCancel)).unwrap();
-        assert!(font.source_bytes() > 2 * 1024 * 1024);
+        assert_eq!(font.outlines[0], (outline, 2 * 1024 * 1024));
+        assert_eq!(font.hinting, [false; 3]);
         assert_eq!(font.units_per_em().unwrap(), 1000);
         assert_eq!(
             font.glyph('A').unwrap(),

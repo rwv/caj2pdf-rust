@@ -17,17 +17,46 @@ their statements about missing adapters or profiles describe that earlier stage.
    1 MiB of combined metadata are accepted. At most 16 character-map subtables
    bound work per character independently of metadata size. Outline bytes
    stay in the source.
-2. Call `PdfDocument::add_font`. It copies the complete font program through
-   the existing bounded resource-copy path. It emits a Type 0/CIDFontType2
-   resource with explicit Unicode-to-glyph mapping, widths and ToUnicode.
-   No subsetting or document-wide character collection is needed. The returned
-   document-owned handle retains only object identity and an 8 KiB BMP
-   character bitmap. Font-file bytes are counted alongside copied images.
+2. Call `PdfDocument::add_font`. It reads nothing and writes nothing: it
+   reserves the font objects and returns a handle holding an 8 KiB bitmap of
+   the BMP characters the font maps. The document keeps a second 8 KiB bitmap
+   of the characters actually drawn.
 3. Begin a content page with borrowed font/image handles. There are at most
    128 fonts and 8192 images per page. Await `glyph`, `image` and `segment`
    calls in source draw order, then `finish` the page. No page display list
    or completed content stream is retained in memory. Existing page-tree,
    output, cancellation and allocation limits continue to apply.
+4. After the last draw, call `PdfDocument::embed_font` once per font with the
+   same, unchanged source. It writes a Flate-compressed TrueType subset of the
+   drawn glyphs (see below), a Type 0/CIDFontType2 resource with a tagged
+   `BaseFont`, a compressed `CIDToGIDMap` up to the highest drawn CID, widths
+   for drawn characters only and a ToUnicode map. `finish` fails while an
+   added font has not been embedded. A font with no drawn glyph embeds a
+   valid `.notdef`-only subset.
+
+### Subset font programs (#335)
+
+CIDs remain BMP Unicode code points, so content streams and ToUnicode are
+independent of the subset. The subset keeps `.notdef`, the drawn
+characters' glyphs in Unicode order, then composite components in discovery
+order; component glyph IDs are rewritten. Only the tables a `FontFile2`
+program needs are written (`cvt `, `fpgm`, `glyf`, `head`, `hhea`, `hmtx`,
+`loca`, `maxp`, `prep`; ISO 32000-1 §9.9), with long `loca` offsets, valid
+table checksums and `checkSumAdjustment`. `BaseFont` carries a six-letter tag
+derived from the PostScript name and drawn-character bitmap (§9.6.4), so the
+same input produces the same bytes.
+
+Embedding reads each selected glyph's location and contour count, buffers
+only composite glyphs (their component IDs are rewritten), and measures the
+subset before writing so its directory precedes the data. Retained state is
+two bytes per source glyph plus twelve per subset glyph. A used character
+that no longer maps to a glyph, or a component that changes between reads,
+fails with "font source changed after its metadata was read".
+
+On the six pinned C8/HN-B corpus inputs with Droid Sans Fallback and DejaVu
+Sans, MuPDF and Poppler renders and `pdftotext` output are identical to the
+previous complete-font PDFs; output size falls from 6.0–7.1 MB to
+0.85–1.95 MB. The remaining bytes are mostly page content streams.
 
 `glyph` takes a BMP character and a six-component text matrix. Its font size
 is one: `[12, 0, 0, 12, x, y]` draws at 12 points with baseline `(x, y)`.

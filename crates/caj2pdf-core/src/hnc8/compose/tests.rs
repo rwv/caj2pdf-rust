@@ -2748,7 +2748,7 @@ fn mixed_codec_content_page() -> Vec<u8> {
         let mut document = PdfDocument::new(&mut sink, &limits, &NeverCancel)
             .await
             .unwrap();
-        let font = document.add_font(&mut font).await.unwrap();
+        let handle = document.add_font(&font).unwrap();
         let mut handles = Vec::new();
         let mut contexts = None;
         for image in &mut plan.0 {
@@ -2770,7 +2770,7 @@ fn mixed_codec_content_page() -> Vec<u8> {
                 .unwrap(),
             );
         }
-        let fonts = [&font];
+        let fonts = [&handle];
         let mut page = document
             .begin_content_page(
                 PageSpec {
@@ -2802,6 +2802,7 @@ fn mixed_codec_content_page() -> Vec<u8> {
             .await
             .unwrap();
         page.finish().await.unwrap();
+        document.embed_font(&handle, &mut font).await.unwrap();
         assert_eq!(document.finish().await.unwrap().pages_converted, 1);
     });
     assert_eq!(

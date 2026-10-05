@@ -1,20 +1,27 @@
 // SPDX-License-Identifier: MIT
 
-//! Embedded TrueType resources and incremental mixed-page content.
+//! Subset TrueType resources and incremental mixed-page content.
 
 use super::*;
 use crate::pdf::TrueTypeFont;
+use crate::pdf::font::{SubsetOutput, SubsetPlan};
+use sha2::{Digest, Sha256};
 
 const BMP_BITMAP_BYTES: usize = 8192;
 const MAX_PAGE_FONTS: usize = 128;
+const CHANGED: Error = Error::InvalidInput {
+    reason: "font source changed after its metadata was read",
+};
 
-/// A completed embedded font, usable only in the document that created it.
+/// A font added to a document, usable only in the document that created it.
 ///
 /// A fixed 8 KiB bitmap records which BMP Unicode characters can be drawn.
-/// The font program and metric tables are not retained by this handle.
+/// The font program and metric tables are not retained by this handle; the
+/// subset is written by [`PdfDocument::embed_font`] after the last page.
 pub struct FontObject {
     object: ObjectId,
     document_id: usize,
+    slot: usize,
     characters: Vec<u8>,
 }
 
@@ -25,106 +32,184 @@ impl FontObject {
     }
 }
 
+/// Document-owned state of an added font until its subset is embedded.
+pub(super) struct PendingFont {
+    /// Font file, CID-to-GID map, ToUnicode, descriptor, descendant and the
+    /// Type 0 font, each stream followed by its length object.
+    ids: [ObjectId; 9],
+    name: String,
+    /// BMP characters drawn with this font; only these glyphs are embedded.
+    used: Vec<u8>,
+    embedded: bool,
+}
+
+/// Feeds subset font program bytes through a zlib stream.
+struct FontStream<'w, 'a, W: SequentialSink, C: Cancellation> {
+    writer: &'w mut PdfWriter<'a, W, C>,
+    deflate: &'w mut Deflate,
+}
+
+impl<W: SequentialSink, C: Cancellation> SubsetOutput for FontStream<'_, '_, W, C> {
+    async fn put(&mut self, bytes: &[u8]) -> Result<()> {
+        self.deflate.write(self.writer, bytes, false).await
+    }
+}
+
+pub(super) fn ensure_fonts_embedded(fonts: &[PendingFont]) -> Result<()> {
+    if fonts.iter().any(|font| !font.embedded) {
+        return Err(Error::InvalidInput {
+            reason: "PDF font was added but its subset was not embedded",
+        });
+    }
+    Ok(())
+}
+
+/// Six uppercase letters identifying a subset (ISO 32000-1 §9.6.4).
+fn subset_tag(name: &str, used: &[u8]) -> String {
+    let digest = Sha256::new()
+        .chain_update(name)
+        .chain_update(used)
+        .finalize();
+    digest[..6]
+        .iter()
+        .map(|byte| char::from(b'A' + byte % 26))
+        .collect()
+}
+
 impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
-    /// Embed a complete static TrueType font through ranged reads.
+    /// Register a static TrueType font for content pages.
     ///
-    /// The initial profile uses BMP Unicode character codes with explicit
-    /// CID-to-glyph and ToUnicode maps. No font subsetting, system lookup or
-    /// glyph substitution is performed. Input must remain stable throughout
-    /// metadata reading and embedding. The caller supplies a valid font;
-    /// metadata validation is not a sanitizer for every embedded outline.
-    /// A failure after emission starts poisons the document.
-    pub async fn add_font<S: RangedSource>(
-        &mut self,
-        font: &mut TrueTypeFont<'_, S>,
-    ) -> Result<FontObject> {
+    /// Characters use BMP Unicode CIDs with an explicit CID-to-glyph map and
+    /// ToUnicode. Nothing is written yet: draws record the characters used,
+    /// and [`Self::embed_font`] must embed the subset before [`Self::finish`].
+    /// No system lookup or glyph substitution is performed.
+    pub fn add_font<S: RangedSource>(&mut self, font: &TrueTypeFont<'_, S>) -> Result<FontObject> {
         self.ensure_image_page_intact()?;
-        self.writer.ensure_idle()?;
         let name = font.postscript_name()?.replace('#', "#23");
-        let length = font.source_bytes();
-        if length > MAX_PDF_INTEGER {
-            return Err(Error::LimitExceeded {
-                resource: "PDF font program bytes",
-                limit: MAX_PDF_INTEGER,
-                attempted: length,
-            });
+        let face = font.face()?;
+        let mut characters = self.bitmap("PDF font character bitmap")?;
+        for code in 0..65536_u32 {
+            if bmp_glyph(&face, code)?.is_some() {
+                characters[code as usize / 8] |= 1 << (code % 8);
+            }
         }
-        let total = self
-            .input_bytes_read
-            .checked_add(length)
-            .ok_or(Error::InvalidInput {
-                reason: "font input byte count overflows",
-            })?;
-        self.limits.check_input_size(total)?;
-        self.limits.check_allocation(BMP_BITMAP_BYTES as u64)?;
-        let mut characters = Vec::new();
+        let used = self.bitmap("PDF font used-character bitmap")?;
         let refused = self
             .limits
-            .allocation_refused("PDF font character bitmap", BMP_BITMAP_BYTES as u64);
-        reserve_exact(&mut characters, BMP_BITMAP_BYTES, refused)?;
-        characters.resize(BMP_BITMAP_BYTES, 0);
+            .allocation_refused("PDF fonts", size_of::<PendingFont>() as u64);
+        reserve(&mut self.fonts, 1, refused)?;
         self.writer.prepare_objects(9)?;
-        self.image_page_failed = true;
-        let file = self.writer.reserve_object()?;
-        let file_length = self.writer.reserve_object()?;
-        let mapping = self.writer.reserve_object()?;
-        let mapping_length = self.writer.reserve_object()?;
-        let unicode = self.writer.reserve_object()?;
-        let unicode_length = self.writer.reserve_object()?;
-        let descriptor = self.writer.reserve_object()?;
-        let descendant = self.writer.reserve_object()?;
-        let object = self.writer.reserve_object()?;
+        let mut next = || self.writer.reserve_object();
+        let ids = [
+            next()?,
+            next()?,
+            next()?,
+            next()?,
+            next()?,
+            next()?,
+            next()?,
+            next()?,
+            next()?,
+        ];
+        self.fonts.push(PendingFont {
+            ids,
+            name,
+            used,
+            embedded: false,
+        });
+        Ok(FontObject {
+            object: ids[8],
+            document_id: self.document_id,
+            slot: self.fonts.len() - 1,
+            characters,
+        })
+    }
 
-        self.writer
-            .begin_stream(file, file_length, format!("/Length1 {length}").as_bytes())
+    fn bitmap(&self, resource: &'static str) -> Result<Vec<u8>> {
+        self.limits.check_allocation(BMP_BITMAP_BYTES as u64)?;
+        let mut bitmap = Vec::new();
+        let refused = self
+            .limits
+            .allocation_refused(resource, BMP_BITMAP_BYTES as u64);
+        reserve_exact(&mut bitmap, BMP_BITMAP_BYTES, refused)?;
+        bitmap.resize(BMP_BITMAP_BYTES, 0);
+        Ok(bitmap)
+    }
+
+    /// Embed the subset of glyphs drawn with `handle` from the same font.
+    ///
+    /// Call once per added font after its last draw. `font` must read the
+    /// same unchanged source. Selected outlines are read again by range and
+    /// Flate-compressed; no font program is held in memory. A failure after
+    /// emission starts poisons the document.
+    pub async fn embed_font<S: RangedSource>(
+        &mut self,
+        handle: &FontObject,
+        font: &mut TrueTypeFont<'_, S>,
+    ) -> Result<()> {
+        self.ensure_image_page_intact()?;
+        self.writer.ensure_idle()?;
+        if handle.document_id != self.document_id {
+            return Err(Error::InvalidInput {
+                reason: "PDF font belongs to another document",
+            });
+        }
+        let pending = &self.fonts[handle.slot];
+        if pending.embedded {
+            return Err(Error::InvalidInput {
+                reason: "PDF font subset is already embedded",
+            });
+        }
+        if font.postscript_name()?.replace('#', "#23") != pending.name {
+            return Err(CHANGED);
+        }
+        let [
+            file,
+            file_length,
+            mapping,
+            mapping_length,
+            unicode,
+            unicode_length,
+            descriptor,
+            descendant,
+            object,
+        ] = pending.ids;
+        let name = format!(
+            "{}+{}",
+            subset_tag(&pending.name, &pending.used),
+            pending.name
+        );
+        self.image_page_failed = true;
+        let plan = font
+            .plan_subset(
+                &self.fonts[handle.slot].used,
+                self.limits,
+                self.cancellation,
+            )
             .await?;
-        self.copy_resource(font.source, 0, length).await?;
+        let length = plan.length();
+        let mut deflate = Deflate::new(self.limits)?;
+        self.writer
+            .begin_stream(
+                file,
+                file_length,
+                format!("/Length1 {length}\n/Filter /FlateDecode").as_bytes(),
+            )
+            .await?;
+        let mut stream = FontStream {
+            writer: &mut self.writer,
+            deflate: &mut deflate,
+        };
+        font.write_subset(&plan, &mut stream, self.limits, self.cancellation)
+            .await?;
+        deflate.write(&mut self.writer, &[], true).await?;
         self.writer.end_stream().await?;
 
         let face = font.face()?;
-        self.writer
-            .begin_stream(mapping, mapping_length, b"")
+        self.write_cid_map(&face, &plan, handle.slot, mapping, mapping_length)
             .await?;
-        for first in (0..65536_u32).step_by(256) {
-            let mut bytes = [0; 512];
-            for delta in 0..256_u32 {
-                let code = first + delta;
-                if let Some(glyph) = bmp_glyph(&face, code)? {
-                    bytes[delta as usize * 2..delta as usize * 2 + 2]
-                        .copy_from_slice(&glyph.id.to_be_bytes());
-                    characters[code as usize / 8] |= 1 << (code % 8);
-                }
-            }
-            self.writer.write_stream_bytes(&bytes).await?;
-        }
-        self.writer.end_stream().await?;
-        self.writer
-            .begin_stream(unicode, unicode_length, b"")
-            .await?;
-        self.writer.write_stream_bytes(b"/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def\n/CMapName /CajUnicode def\n/CMapType 2 def\n1 begincodespacerange\n<0000> <FFFF>\nendcodespacerange\n").await?;
-        // Each range increments only the final byte; UTF-16 surrogates are
-        // excluded. At most 32 entries per block (the CMap limit is 100).
-        for first in (0..256_u32).step_by(32) {
-            let blocks = (first..first + 32).filter(|high| !(0xd8..=0xdf).contains(high));
-            self.writer
-                .write_stream_bytes(format!("{} beginbfrange\n", blocks.clone().count()).as_bytes())
-                .await?;
-            for high in blocks {
-                self.writer
-                    .write_stream_bytes(
-                        format!("<{high:02X}00> <{high:02X}FF> <{high:02X}00>\n").as_bytes(),
-                    )
-                    .await?;
-            }
-            self.writer.write_stream_bytes(b"endbfrange\n").await?;
-        }
-        self.writer
-            .write_stream_bytes(
-                b"endcmap\nCMapName currentdict /CMap defineresource pop\nend\nend\n",
-            )
-            .await?;
-        self.writer.end_stream().await?;
-
+        self.write_to_unicode(unicode, unicode_length).await?;
+        let used = &self.fonts[handle.slot].used;
         let scale = 1000.0 / f64::from(face.units_per_em());
         let bbox = face.global_bounding_box();
         let flags = 4 | u32::from(face.is_monospaced()) | if face.is_italic() { 64 } else { 0 };
@@ -145,21 +230,27 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
             .await?;
         self.writer.begin_object(descendant).await?;
         self.writer.write_bytes(format!("<< /Type /Font /Subtype /CIDFontType2 /BaseFont /{name} /CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> /FontDescriptor {} 0 R /CIDToGIDMap {} 0 R /DW 1000 /W [", descriptor.number(), mapping.number()).as_bytes()).await?;
-        // Keep both the outer /W array and each inner width array below
-        // PDF's recommended array-size limit, even for dense CJK fonts.
+        // One width array per 256-character block that contains used
+        // characters, spanning its first to last used character. Both the
+        // outer and inner arrays stay below PDF's recommended size limit.
         for first in (0..65536_u32).step_by(256) {
-            if characters[first as usize / 8..first as usize / 8 + 32]
-                .iter()
-                .all(|byte| *byte == 0)
-            {
+            let used_in = |code: u32| used[code as usize / 8] & (1 << (code % 8)) != 0;
+            let Some(low) = (first..first + 256).find(|code| used_in(*code)) else {
                 continue;
-            }
+            };
+            let high = (first..first + 256)
+                .rev()
+                .find(|code| used_in(*code))
+                .unwrap();
             self.writer
-                .write_bytes(format!(" {first} [").as_bytes())
+                .write_bytes(format!(" {low} [").as_bytes())
                 .await?;
-            for code in first..first + 256 {
-                let width = bmp_glyph(&face, code)?
-                    .map_or(1000.0, |glyph| f64::from(glyph.advance) * scale);
+            for code in low..=high {
+                // Unused characters inside the span are never drawn.
+                let width = match bmp_glyph(&face, code)? {
+                    Some(glyph) if used_in(code) => f64::from(glyph.advance) * scale,
+                    _ => 1000.0,
+                };
                 self.writer
                     .write_bytes(format!(" {width}").as_bytes())
                     .await?;
@@ -169,12 +260,86 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
         self.writer.write_bytes(b" ] >>").await?;
         self.writer.end_object().await?;
         self.writer.write_object(object, format!("<< /Type /Font /Subtype /Type0 /BaseFont /{name} /Encoding /Identity-H /DescendantFonts [{} 0 R] /ToUnicode {} 0 R >>", descendant.number(), unicode.number()).as_bytes()).await?;
+        self.fonts[handle.slot].embedded = true;
         self.image_page_failed = false;
-        Ok(FontObject {
-            object,
-            document_id: self.document_id,
-            characters,
-        })
+        Ok(())
+    }
+
+    /// Write the compressed CID-to-glyph map up to the highest used CID.
+    async fn write_cid_map(
+        &mut self,
+        face: &xberg_ttf_parser::Face<'_>,
+        plan: &SubsetPlan,
+        slot: usize,
+        mapping: ObjectId,
+        mapping_length: ObjectId,
+    ) -> Result<()> {
+        let used = &self.fonts[slot].used;
+        let last = (0..65536_usize)
+            .rev()
+            .find(|code| used[code / 8] & (1 << (code % 8)) != 0)
+            .unwrap_or(0);
+        let mut deflate = Deflate::new(self.limits)?;
+        self.writer
+            .begin_stream(mapping, mapping_length, b"/Filter /FlateDecode")
+            .await?;
+        for first in (0..=last).step_by(256) {
+            let mut bytes = [0; 512];
+            for code in first..(first + 256).min(last + 1) {
+                // Used codes are drawn characters, so never surrogates.
+                if let Some(character) =
+                    char::from_u32(code as u32).filter(|_| used[code / 8] & (1 << (code % 8)) != 0)
+                {
+                    let at = (code - first) * 2;
+                    bytes[at..at + 2].copy_from_slice(&plan.glyph(face, character).to_be_bytes());
+                }
+            }
+            let count = ((last + 1 - first).min(256)) * 2;
+            deflate
+                .write(&mut self.writer, &bytes[..count], false)
+                .await?;
+        }
+        deflate.write(&mut self.writer, &[], true).await?;
+        self.writer.end_stream().await
+    }
+
+    /// Write the compressed identity ToUnicode CMap for BMP CIDs.
+    async fn write_to_unicode(
+        &mut self,
+        unicode: ObjectId,
+        unicode_length: ObjectId,
+    ) -> Result<()> {
+        let mut deflate = Deflate::new(self.limits)?;
+        self.writer
+            .begin_stream(unicode, unicode_length, b"/Filter /FlateDecode")
+            .await?;
+        deflate.write(&mut self.writer, b"/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def\n/CMapName /CajUnicode def\n/CMapType 2 def\n1 begincodespacerange\n<0000> <FFFF>\nendcodespacerange\n", false).await?;
+        // Each range increments only the final byte; UTF-16 surrogates are
+        // excluded. At most 32 entries per block (the CMap limit is 100).
+        for first in (0..256_u32).step_by(32) {
+            let blocks = (first..first + 32).filter(|high| !(0xd8..=0xdf).contains(high));
+            let count = format!("{} beginbfrange\n", blocks.clone().count());
+            deflate
+                .write(&mut self.writer, count.as_bytes(), false)
+                .await?;
+            for high in blocks {
+                let range = format!("<{high:02X}00> <{high:02X}FF> <{high:02X}00>\n");
+                deflate
+                    .write(&mut self.writer, range.as_bytes(), false)
+                    .await?;
+            }
+            deflate
+                .write(&mut self.writer, b"endbfrange\n", false)
+                .await?;
+        }
+        deflate
+            .write(
+                &mut self.writer,
+                b"endcmap\nCMapName currentdict /CMap defineresource pop\nend\nend\n",
+                true,
+            )
+            .await?;
+        self.writer.end_stream().await
     }
 
     /// Begin an incrementally drawn page with previously emitted resources.
@@ -343,6 +508,8 @@ impl<W: SequentialSink, C: Cancellation> ContentPageWriter<'_, '_, '_, W, C> {
                 reason: "PDF font has no supported BMP glyph for the character",
             });
         }
+        let code = character as usize;
+        self.document.fonts[resource.slot].used[code / 8] |= 1 << (code % 8);
         let matrix = DecimalMatrix::new(transform)?;
         if gray.is_some() || clip.is_some() {
             self.document.writer.write_stream_bytes(b"q ").await?;

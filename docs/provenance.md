@@ -2028,6 +2028,22 @@ Poppler and fontTools checks concern these original fixtures only, not
 successful native C8 document conversion. Test exports and external fonts
 remain outside Git.
 
+### Original TrueType subset writer (#335)
+
+`pdf/font/subset.rs` is original MIT code. Table layout, checksums,
+`checkSumAdjustment`, `loca` formats and composite-glyph component flags
+follow the OpenType specification's
+[`glyf`](https://learn.microsoft.com/en-us/typography/opentype/spec/glyf),
+[`loca`](https://learn.microsoft.com/en-us/typography/opentype/spec/loca),
+[`head`](https://learn.microsoft.com/en-us/typography/opentype/spec/head) and
+[font file](https://learn.microsoft.com/en-us/typography/opentype/spec/otff)
+chapters. The required `FontFile2` tables and the six-letter subset tag
+follow ISO 32000-1 §9.9 and §9.6.4. No subsetter source (fontTools,
+HarfBuzz, typst `subsetter` or others) was consulted or copied. Unit tests
+build composite fonts from the original geometric fixture outlines; the
+corpus comparison in [the native text note](research/pdf-native-text.md)
+uses caller fonts that remain outside Git.
+
 ### Original C8 style controls
 
 `tools/cajviewer/c8_style_fixture.py` is original MIT fixture-generation code.

@@ -85,17 +85,12 @@ where
     let mut handles: Vec<FontObject> =
         page_vector(count, limits, "C8 font handles").map_err(at.io(ComposeStage::Preflight))?;
     let mut font_bytes = 0u64;
-    for source in fonts.sources {
+    for source in fonts.sources.iter_mut() {
         let mut counted_font = CountingSource { source, bytes: 0 };
-        let mut font = TrueTypeFont::read(&mut counted_font, limits, cancellation)
+        let font = TrueTypeFont::read(&mut counted_font, limits, cancellation)
             .await
             .map_err(at.io(ComposeStage::Preflight))?;
-        handles.push(
-            document
-                .add_font(&mut font)
-                .await
-                .map_err(at.io(ComposeStage::Pdf))?,
-        );
+        handles.push(document.add_font(&font).map_err(at.io(ComposeStage::Pdf))?);
         font_bytes = font_bytes.saturating_add(counted_font.bytes);
     }
     // Fixed profile bound avoids a second allocation for references.
@@ -213,6 +208,19 @@ where
         .map_err(|error| container(error, ComposeStage::Text))?
             + 1;
         report.no_image_pages += u32::from(count == 0);
+    }
+    // Metadata is read again rather than retained for every font; only the
+    // drawn glyphs' outlines are then read for each subset.
+    for (handle, source) in handles.iter().zip(fonts.sources.iter_mut()) {
+        let mut counted_font = CountingSource { source, bytes: 0 };
+        let mut font = TrueTypeFont::read(&mut counted_font, limits, cancellation)
+            .await
+            .map_err(at.io(ComposeStage::Pdf))?;
+        document
+            .embed_font(handle, &mut font)
+            .await
+            .map_err(at.io(ComposeStage::Pdf))?;
+        font_bytes = font_bytes.saturating_add(counted_font.bytes);
     }
     report.conversion = finish_document(&mut reader, document, &mut report, at).await?;
     report.conversion.input_bytes_read = counted.bytes.saturating_add(font_bytes);

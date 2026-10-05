@@ -112,3 +112,24 @@ pub(crate) fn bilevel_pixels(pdf: &[u8]) -> Vec<Vec<u8>> {
     }
     images
 }
+
+/// Inflate the first Flate stream whose dictionary contains `marker` at or
+/// after its object start, in a small generated test PDF.
+pub(crate) fn inflated_stream(pdf: &[u8], marker: &[u8]) -> Vec<u8> {
+    use std::io::Read;
+    let at = pdf
+        .windows(marker.len())
+        .position(|part| part == marker)
+        .unwrap();
+    let data = at
+        + pdf[at..]
+            .windows(7)
+            .position(|part| part == b"stream\n")
+            .unwrap()
+        + 7;
+    let mut bytes = Vec::new();
+    flate2::read::ZlibDecoder::new(&pdf[data..])
+        .read_to_end(&mut bytes)
+        .unwrap();
+    bytes
+}

@@ -167,7 +167,10 @@ and decoder state in addition to the I/O chunk.
 ## Native C8 font resources
 
 `C8FontSources` gives the core up to eight explicit ranged resources and
-role indices. Repeated roles can share an embedded font. JavaScript exposes
+role indices. Repeated roles can share an embedded font. Each source is read
+for metadata before the first page and again, with only the drawn glyphs'
+outlines, after the last page, so it must stay readable and unchanged until
+conversion completes. JavaScript exposes
 named roles under `hnc8.fonts` and deduplicates identical source objects.
 It does not discover fonts, collect a whole font in a JavaScript buffer,
 or create another scheduler. Existing spool helpers can turn a forward-only
