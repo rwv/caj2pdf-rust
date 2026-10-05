@@ -35,10 +35,10 @@ pub struct FontGlyph {
 pub struct TrueTypeFont<'a, S> {
     pub(super) source: &'a mut S,
     tables: [Vec<u8>; 8],
-    /// `(offset, length)` of each [`OUTLINE_TAGS`] table; zero if absent.
-    outlines: [(u64, u64); 5],
-    /// Whether each optional hinting table is present.
-    hinting: [bool; 3],
+    /// `(offset, length)` of each present [`OUTLINE_TAGS`] table.
+    outlines: [Option<(u64, u64)>; 5],
+    /// Outline bytes read again for subsets, counted toward input limits.
+    subset_bytes_read: u64,
 }
 
 impl<'a, S: RangedSource> TrueTypeFont<'a, S> {
@@ -124,12 +124,8 @@ impl<'a, S: RangedSource> TrueTypeFont<'a, S> {
         let font = Self {
             source,
             tables,
-            outlines: outlines.map(|table| table.unwrap_or_default()),
-            hinting: [
-                outlines[2].is_some(),
-                outlines[3].is_some(),
-                outlines[4].is_some(),
-            ],
+            outlines,
+            subset_bytes_read: 0,
         };
         let face = font.face()?;
         if face.tables().cmap.is_none()

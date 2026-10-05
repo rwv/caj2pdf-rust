@@ -211,7 +211,9 @@ fn subset_with<S: RangedSource>(
 ) -> Result<Vec<u8>> {
     run(async {
         let mut font = TrueTypeFont::read(source, limits, &NEVER).await?;
-        let plan = font.plan_subset(&used(characters), limits, &NEVER).await?;
+        let plan = font
+            .plan_subset(&used(characters), u64::MAX, limits, &NEVER)
+            .await?;
         let mut output = Bytes::default();
         font.write_subset(&plan, &mut output, limits, &NEVER)
             .await?;
@@ -328,7 +330,7 @@ fn plan_maps_used_characters_to_subset_glyphs() {
             .await
             .unwrap();
         let plan = font
-            .plan_subset(&used(&['D', 'A']), &limits, &NEVER)
+            .plan_subset(&used(&['D', 'A']), u64::MAX, &limits, &NEVER)
             .await
             .unwrap();
         let face = font.face().unwrap();
@@ -415,7 +417,7 @@ fn allocation_limits_bound_glyph_tables_and_composite_buffers() {
     let mut font = run(TrueTypeFont::read(&mut source, &Limits::default(), &NEVER)).unwrap();
     // Six glyphs need 6 * (2 + 12) bytes of glyph tables.
     assert!(matches!(
-        run(font.plan_subset(&used(&['A']), &limits, &NEVER)),
+        run(font.plan_subset(&used(&['A']), u64::MAX, &limits, &NEVER)),
         Err(Error::LimitExceeded { attempted: 84, .. })
     ));
     let limits = Limits {
@@ -424,10 +426,10 @@ fn allocation_limits_bound_glyph_tables_and_composite_buffers() {
     };
     // Glyph 4 with its instructions is 10 + 14 + 2 + 100 bytes.
     assert!(matches!(
-        run(font.plan_subset(&used(&['C']), &limits, &NEVER)),
+        run(font.plan_subset(&used(&['C']), u64::MAX, &limits, &NEVER)),
         Err(Error::LimitExceeded { attempted: 126, .. })
     ));
-    run(font.plan_subset(&used(&['B']), &limits, &NEVER)).unwrap();
+    run(font.plan_subset(&used(&['B']), u64::MAX, &limits, &NEVER)).unwrap();
 }
 
 /// A large virtual source of zeros after its real bytes.
@@ -477,8 +479,10 @@ fn subset_glyph_data_is_bounded_by_long_locations() {
     assert!(
         matches!(
             result,
-            Err(Error::InvalidInput {
-                reason: "TrueType subset glyph data exceeds 4 GiB"
+            Err(Error::LimitExceeded {
+                resource: "font subset program bytes",
+                limit: 0xffff_ffff,
+                ..
             })
         ),
         "{result:?}"
@@ -544,4 +548,37 @@ fn components_changed_between_reads_are_rejected() {
             reason: "font source changed after its metadata was read"
         })
     ));
+}
+
+#[test]
+fn projected_program_length_is_bounded_before_measuring() {
+    let mut source = SeekableSource::new(Cursor::new(composite_font(false, true))).unwrap();
+    let limits = Limits::default();
+    run(async {
+        let mut font = TrueTypeFont::read(&mut source, &limits, &NEVER)
+            .await
+            .unwrap();
+        let used = used(&['C']);
+        let plan = font
+            .plan_subset(&used, u64::MAX, &limits, &NEVER)
+            .await
+            .unwrap();
+        let length = plan.length();
+        let read = font.subset_bytes_read();
+        assert!(read > 0);
+        font.plan_subset(&used, length, &limits, &NEVER)
+            .await
+            .unwrap();
+        assert_eq!(font.subset_bytes_read(), 2 * read);
+        // Glyph data alone fits; the other tables push the program over.
+        let error = font.plan_subset(&used, length - 1, &limits, &NEVER).await;
+        assert!(matches!(
+            error,
+            Err(Error::LimitExceeded { limit, attempted, .. })
+                if limit == length - 1 && attempted == length
+        ));
+        // The glyph data bound applies while components are still found.
+        let error = font.plan_subset(&used, 40, &limits, &NEVER).await;
+        assert!(matches!(error, Err(Error::LimitExceeded { limit: 40, .. })));
+    });
 }

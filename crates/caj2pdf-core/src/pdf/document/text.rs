@@ -5,7 +5,6 @@
 use super::*;
 use crate::pdf::TrueTypeFont;
 use crate::pdf::font::{SubsetOutput, SubsetPlan};
-use sha2::{Digest, Sha256};
 
 const BMP_BITMAP_BYTES: usize = 8192;
 const MAX_PAGE_FONTS: usize = 128;
@@ -43,15 +42,39 @@ pub(super) struct PendingFont {
     embedded: bool,
 }
 
-/// Feeds subset font program bytes through a zlib stream.
+/// Feeds subset font program bytes through a zlib stream, gathering the
+/// many small table entries into fixed chunks first.
 struct FontStream<'w, 'a, W: SequentialSink, C: Cancellation> {
     writer: &'w mut PdfWriter<'a, W, C>,
     deflate: &'w mut Deflate,
+    buffer: [u8; FONT_STREAM_CHUNK],
+    length: usize,
+}
+
+const FONT_STREAM_CHUNK: usize = 4096;
+
+impl<W: SequentialSink, C: Cancellation> FontStream<'_, '_, W, C> {
+    async fn finish(self) -> Result<()> {
+        let length = self.length;
+        self.deflate
+            .write(self.writer, &self.buffer[..length], true)
+            .await
+    }
 }
 
 impl<W: SequentialSink, C: Cancellation> SubsetOutput for FontStream<'_, '_, W, C> {
-    async fn put(&mut self, bytes: &[u8]) -> Result<()> {
-        self.deflate.write(self.writer, bytes, false).await
+    async fn put(&mut self, mut bytes: &[u8]) -> Result<()> {
+        while !bytes.is_empty() {
+            let count = bytes.len().min(FONT_STREAM_CHUNK - self.length);
+            self.buffer[self.length..self.length + count].copy_from_slice(&bytes[..count]);
+            self.length += count;
+            bytes = &bytes[count..];
+            if self.length == FONT_STREAM_CHUNK {
+                self.length = 0;
+                self.deflate.write(self.writer, &self.buffer, false).await?;
+            }
+        }
+        Ok(())
     }
 }
 
@@ -62,18 +85,6 @@ pub(super) fn ensure_fonts_embedded(fonts: &[PendingFont]) -> Result<()> {
         });
     }
     Ok(())
-}
-
-/// Six uppercase letters identifying a subset (ISO 32000-1 §9.6.4).
-fn subset_tag(name: &str, used: &[u8]) -> String {
-    let digest = Sha256::new()
-        .chain_update(name)
-        .chain_update(used)
-        .finalize();
-    digest[..6]
-        .iter()
-        .map(|byte| char::from(b'A' + byte % 26))
-        .collect()
 }
 
 impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
@@ -125,6 +136,14 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
         })
     }
 
+    /// Count font outline bytes read for a subset toward the input limit.
+    fn count_font_input(&mut self, bytes: u64) -> Result<()> {
+        let total = self.input_bytes_read.saturating_add(bytes);
+        self.limits.check_input_size(total)?;
+        self.input_bytes_read = total;
+        Ok(())
+    }
+
     fn bitmap(&self, resource: &'static str) -> Result<Vec<u8>> {
         self.limits.check_allocation(BMP_BITMAP_BYTES as u64)?;
         let mut bitmap = Vec::new();
@@ -174,21 +193,26 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
             descendant,
             object,
         ] = pending.ids;
-        let name = format!(
-            "{}+{}",
-            subset_tag(&pending.name, &pending.used),
-            pending.name
-        );
-        self.image_page_failed = true;
+        // Planning only reads; a failure there leaves the document usable.
+        let before = font.subset_bytes_read();
         let plan = font
             .plan_subset(
-                &self.fonts[handle.slot].used,
+                &pending.used,
+                MAX_PDF_INTEGER,
                 self.limits,
                 self.cancellation,
             )
             .await?;
+        self.count_font_input(font.subset_bytes_read() - before)?;
         let length = plan.length();
+        let name = format!(
+            "{}+{}",
+            plan.tag(&self.fonts[handle.slot].name),
+            self.fonts[handle.slot].name
+        );
         let mut deflate = Deflate::new(self.limits)?;
+        let before = font.subset_bytes_read();
+        self.image_page_failed = true;
         self.writer
             .begin_stream(
                 file,
@@ -199,11 +223,14 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
         let mut stream = FontStream {
             writer: &mut self.writer,
             deflate: &mut deflate,
+            buffer: [0; FONT_STREAM_CHUNK],
+            length: 0,
         };
         font.write_subset(&plan, &mut stream, self.limits, self.cancellation)
             .await?;
-        deflate.write(&mut self.writer, &[], true).await?;
+        stream.finish().await?;
         self.writer.end_stream().await?;
+        self.count_font_input(font.subset_bytes_read() - before)?;
 
         let face = font.face()?;
         self.write_cid_map(&face, &plan, handle.slot, mapping, mapping_length)
@@ -366,6 +393,12 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
             if font.document_id != self.document_id {
                 return Err(Error::InvalidInput {
                     reason: "PDF font belongs to another document",
+                });
+            }
+            // Its glyph set is final once the subset is written.
+            if self.fonts[font.slot].embedded {
+                return Err(Error::InvalidInput {
+                    reason: "PDF font subset is already embedded",
                 });
             }
         }

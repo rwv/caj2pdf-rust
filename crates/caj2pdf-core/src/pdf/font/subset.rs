@@ -12,7 +12,8 @@
 
 use super::{OUTLINE_TAGS, TrueTypeFont, face_of, invalid, read};
 use crate::fallible::reserve_exact;
-use crate::{Cancellation, Limits, RangedSource, Result};
+use crate::{Cancellation, Error, Limits, RangedSource, Result};
+use sha2::{Digest, Sha256};
 use xberg_ttf_parser::{Face, GlyphId, head::IndexToLocationFormat};
 
 const GLYF: usize = 0;
@@ -38,12 +39,25 @@ struct Measure {
 }
 
 impl Measure {
-    fn add(&mut self, bytes: &[u8]) {
-        for byte in bytes {
-            let shift = 24 - 8 * (self.length % 4) as u32;
-            self.sum = self.sum.wrapping_add(u32::from(*byte) << shift);
-            self.length += 1;
+    fn add(&mut self, mut bytes: &[u8]) {
+        while self.length % 4 != 0 && !bytes.is_empty() {
+            self.byte(bytes[0]);
+            bytes = &bytes[1..];
         }
+        let (words, rest) = bytes.as_chunks::<4>();
+        for word in words {
+            self.sum = self.sum.wrapping_add(u32::from_be_bytes(*word));
+        }
+        self.length += 4 * words.len() as u64;
+        for byte in rest {
+            self.byte(*byte);
+        }
+    }
+
+    fn byte(&mut self, byte: u8) {
+        let shift = 24 - 8 * (self.length % 4) as u32;
+        self.sum = self.sum.wrapping_add(u32::from(byte) << shift);
+        self.length += 1;
     }
 
     fn padding(&self) -> usize {
@@ -96,6 +110,22 @@ impl SubsetPlan {
             })
     }
 
+    /// Six uppercase letters identifying this subset program (ISO 32000-1
+    /// §9.6.4), derived from the PostScript name and every table's tag,
+    /// length and checksum. Equal programs get equal tags.
+    pub(crate) fn tag(&self, name: &str) -> String {
+        let mut hash = Sha256::new().chain_update(name);
+        for (tag, _, measure) in &self.tables {
+            hash.update(tag);
+            hash.update(measure.length.to_be_bytes());
+            hash.update(measure.sum.to_be_bytes());
+        }
+        hash.finalize()[..6]
+            .iter()
+            .map(|byte| char::from(b'A' + byte % 26))
+            .collect()
+    }
+
     /// Subset glyph ID of a planned character, or zero for any other.
     pub(crate) fn glyph(&self, face: &Face<'_>, character: char) -> u16 {
         face.glyph_index(character)
@@ -137,7 +167,30 @@ fn components(data: &mut [u8], mut visit: impl FnMut(&mut [u8]) -> Result<()>) -
 }
 
 impl<S: RangedSource> TrueTypeFont<'_, S> {
-    /// Plan a subset of the characters set in `used`, a BMP bitmap.
+    /// Range of a required outline table, checked present by `read`.
+    fn table(&self, slot: usize) -> (u64, u64) {
+        self.outlines[slot].unwrap_or_default()
+    }
+
+    /// Outline bytes read again by subset planning and writing so far.
+    pub(crate) fn subset_bytes_read(&self) -> u64 {
+        self.subset_bytes_read
+    }
+
+    async fn fetch<C: Cancellation>(
+        &mut self,
+        offset: u64,
+        bytes: &mut [u8],
+        limits: &Limits,
+        cancellation: &C,
+    ) -> Result<()> {
+        read(self.source, offset, bytes, limits, cancellation).await?;
+        self.subset_bytes_read += bytes.len() as u64;
+        Ok(())
+    }
+
+    /// Plan a subset of the characters set in `used`, a BMP bitmap, whose
+    /// program is at most `max_length` bytes (and at most 4 GiB).
     ///
     /// Every used character must still map to a glyph. Composite glyphs add
     /// their components. Retained state is two bytes per source glyph plus
@@ -145,6 +198,7 @@ impl<S: RangedSource> TrueTypeFont<'_, S> {
     pub(crate) async fn plan_subset<C: Cancellation>(
         &mut self,
         used: &[u8],
+        max_length: u64,
         limits: &Limits,
         cancellation: &C,
     ) -> Result<SubsetPlan> {
@@ -152,7 +206,7 @@ impl<S: RangedSource> TrueTypeFont<'_, S> {
         let count = face.number_of_glyphs();
         let long = face.tables().head.index_to_location_format == IndexToLocationFormat::Long;
         let entry = if long { 4 } else { 2 };
-        if self.outlines[LOCA].1 < (u64::from(count) + 1) * entry {
+        if self.table(LOCA).1 < (u64::from(count) + 1) * entry {
             return Err(invalid("TrueType glyph locations are truncated"));
         }
         let mut map = Vec::new();
@@ -197,8 +251,8 @@ impl<S: RangedSource> TrueTypeFont<'_, S> {
         while index < glyphs.len() {
             let mut location = [0; 8];
             let location = &mut location[..2 * entry as usize];
-            let at = self.outlines[LOCA].0 + u64::from(glyphs[index].source) * entry;
-            read(self.source, at, location, limits, cancellation).await?;
+            let at = self.table(LOCA).0 + u64::from(glyphs[index].source) * entry;
+            self.fetch(at, location, limits, cancellation).await?;
             let (start, end) = if long {
                 (
                     u32::from_be_bytes(location[..4].try_into().unwrap()),
@@ -210,20 +264,18 @@ impl<S: RangedSource> TrueTypeFont<'_, S> {
                     u32::from(u16::from_be_bytes([location[2], location[3]])) * 2,
                 )
             };
-            if start > end || u64::from(end) > self.outlines[GLYF].1 {
+            if start > end || u64::from(end) > self.table(GLYF).1 {
                 return Err(invalid("invalid TrueType glyph location"));
             }
             total += u64::from(end - start).next_multiple_of(4);
-            if total > u64::from(u32::MAX) {
-                return Err(invalid("TrueType subset glyph data exceeds 4 GiB"));
-            }
+            too_long(total, max_length)?;
             let glyph = &mut glyphs[index];
             glyph.offset = start;
             glyph.length = end - start;
             if glyph.length >= 2 {
                 let mut contours = [0; 2];
-                let at = self.outlines[GLYF].0 + u64::from(start);
-                read(self.source, at, &mut contours, limits, cancellation).await?;
+                let at = self.table(GLYF).0 + u64::from(start);
+                self.fetch(at, &mut contours, limits, cancellation).await?;
                 glyph.composite = contours[0] & 0x80 != 0;
             }
             if glyph.composite {
@@ -244,7 +296,7 @@ impl<S: RangedSource> TrueTypeFont<'_, S> {
         }
         let mut tables = Vec::new();
         for (slot, tag) in OUTLINE_TAGS.iter().enumerate().skip(2) {
-            if self.hinting[slot - 2] {
+            if self.outlines[slot].is_some() {
                 tables.push((*tag, Table::Copy(slot), Measure::default()));
             }
         }
@@ -257,6 +309,20 @@ impl<S: RangedSource> TrueTypeFont<'_, S> {
             (*b"maxp", Table::Maxp, Measure::default()),
         ]);
         tables.sort_by_key(|table| table.0);
+        // Every table length is known before any is measured.
+        let glyphs_bytes = 4 * glyphs.len() as u64;
+        for (_, table, _) in &tables {
+            total += match table {
+                Table::Copy(slot) => self.table(*slot).1.next_multiple_of(4),
+                Table::Glyf => 0,
+                Table::Head => 56,
+                Table::Hhea => 36,
+                Table::Hmtx => glyphs_bytes,
+                Table::Loca => glyphs_bytes + 4,
+                Table::Maxp => 32,
+            };
+        }
+        too_long(total + 12 + 16 * tables.len() as u64, max_length)?;
         let mut plan = SubsetPlan {
             glyphs,
             map,
@@ -346,7 +412,7 @@ impl<S: RangedSource> TrueTypeFont<'_, S> {
         let count = plan.glyphs.len() as u16;
         match table {
             Table::Copy(slot) => {
-                let (offset, length) = self.outlines[slot];
+                let (offset, length) = self.table(slot);
                 self.copy(offset, length, output, scratch, limits, cancellation)
                     .await?;
             }
@@ -367,7 +433,7 @@ impl<S: RangedSource> TrueTypeFont<'_, S> {
                         })?;
                         output.put(data).await?;
                     } else {
-                        let offset = self.outlines[GLYF].0 + u64::from(glyph.offset);
+                        let offset = self.table(GLYF).0 + u64::from(glyph.offset);
                         let length = u64::from(glyph.length);
                         self.copy(offset, length, output, scratch, limits, cancellation)
                             .await?;
@@ -431,14 +497,8 @@ impl<S: RangedSource> TrueTypeFont<'_, S> {
         while done < length {
             let size = (length - done).min(limits.io_chunk_bytes as u64) as usize;
             grow(scratch, size, limits)?;
-            read(
-                self.source,
-                offset + done,
-                &mut scratch[..size],
-                limits,
-                cancellation,
-            )
-            .await?;
+            self.fetch(offset + done, &mut scratch[..size], limits, cancellation)
+                .await?;
             output.put(&scratch[..size]).await?;
             done += size as u64;
         }
@@ -455,10 +515,22 @@ impl<S: RangedSource> TrueTypeFont<'_, S> {
         let length = glyph.length as usize;
         grow(scratch, length, limits)?;
         let data = &mut scratch[..length];
-        let offset = self.outlines[GLYF].0 + u64::from(glyph.offset);
-        read(self.source, offset, data, limits, cancellation).await?;
+        let offset = self.table(GLYF).0 + u64::from(glyph.offset);
+        self.fetch(offset, data, limits, cancellation).await?;
         Ok(data)
     }
+}
+
+fn too_long(length: u64, max_length: u64) -> Result<()> {
+    let limit = max_length.min(u64::from(u32::MAX));
+    if length > limit {
+        return Err(Error::LimitExceeded {
+            resource: "font subset program bytes",
+            limit,
+            attempted: length,
+        });
+    }
+    Ok(())
 }
 
 fn grow(scratch: &mut Vec<u8>, length: usize, limits: &Limits) -> Result<()> {
