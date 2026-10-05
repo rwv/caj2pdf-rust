@@ -3016,3 +3016,11 @@ All source identities were verified before and after conversion. Only TEB
 status labels were recomputed from retained exit codes and diagnostics; no
 conversion results or PDF checks were synthesized. Historical v0.3.1 receipts
 remain linked by commit. No corpus bytes, PDFs, fonts or viewer content are added.
+
+## Registry package preparation (#293)
+
+Core and CLI package manifests now declare registry metadata, explicitly bound
+source inclusion, and a versioned local core dependency. Their LICENSE copies
+are identical to the root MIT license. The packaged source is verified by
+Cargo's dry-run publisher without uploading; no new dependency or external
+implementation is introduced. The WASM Rust crate remains unpublished.

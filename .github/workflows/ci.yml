@@ -303,6 +303,8 @@ jobs:
         run: cargo deny --locked --all-features check advisories bans
       - name: Flag vendored and generated source for review
         run: bash scripts/check-source-inventory.sh
+      - name: Verify registry packages without publishing
+        run: cargo publish --dry-run --locked -p caj2pdf-core -p caj2pdf-cli
       - name: Check relative Markdown links
         run: python3 scripts/check-doc-links.py
 
