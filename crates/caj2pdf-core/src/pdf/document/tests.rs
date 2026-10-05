@@ -774,11 +774,11 @@ fn bilevel_compression_is_independent_of_row_and_output_chunk_boundaries() {
                 })
                 .await
                 .unwrap();
-            assert!(image.deflate.encoded.len() <= DEFLATE_CHUNK_BYTES);
+            assert!(image.zlib.encoded.len() <= DEFLATE_CHUNK_BYTES);
             for bytes in raw.chunks(split) {
                 image.write(bytes).await.unwrap();
             }
-            assert_eq!(image.deflate.encoder.total_in(), expected.len() as u64);
+            assert_eq!(image.zlib.encoder.total_in(), expected.len() as u64);
             let object = image.finish().await.unwrap();
             document.add_page(page(), &[object]).await.unwrap();
             document.finish().await.unwrap();
@@ -812,14 +812,14 @@ fn bilevel_compression_failure_poisons_the_image_and_leaves_the_stream_open() {
                 .unwrap();
             if mode == 0 {
                 // A broken compressor/output-buffer contract must not spin.
-                image.deflate.encoded.clear();
+                image.zlib.encoded.clear();
             } else {
                 // Simulate a backend entering finalization before row submission.
                 assert_eq!(
                     image
-                        .deflate
+                        .zlib
                         .encoder
-                        .compress(&[], &mut image.deflate.encoded[..1], FlushCompress::Finish)
+                        .compress(&[], &mut image.zlib.encoded[..1], FlushCompress::Finish)
                         .unwrap(),
                     Status::Ok
                 );

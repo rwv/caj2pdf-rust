@@ -134,6 +134,17 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
         Ok(())
     }
 
+    /// The document's reusable compressor, reset for a new stream.
+    fn take_deflate(&mut self) -> Result<Deflate> {
+        match self.deflate.take() {
+            Some(mut deflate) => {
+                deflate.reset();
+                Ok(deflate)
+            }
+            None => Deflate::new(self.limits),
+        }
+    }
+
     fn bitmap(&self, resource: &'static str) -> Result<Vec<u8>> {
         self.limits.check_allocation(BMP_BITMAP_BYTES as u64)?;
         let mut bitmap = Vec::new();
@@ -194,7 +205,7 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
         self.count_font_input(font.subset_bytes_read() - before)?;
         let pending = &self.fonts[handle.slot];
         let name = format!("{}+{}", plan.tag(&pending.name), pending.name);
-        let mut deflate = Deflate::new(self.limits)?;
+        let mut deflate = self.take_deflate()?;
         let before = font.subset_bytes_read();
         self.image_page_failed = true;
         let unicode = self.unicode_cmap(&mut deflate).await?;
@@ -274,6 +285,7 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
         self.writer.end_object().await?;
         self.writer.write_object(object, format!("<< /Type /Font /Subtype /Type0 /BaseFont /{name} /Encoding /Identity-H /DescendantFonts [{} 0 R] /ToUnicode {} 0 R >>", descendant.number(), unicode.number()).as_bytes()).await?;
         self.fonts[handle.slot].embedded = true;
+        self.deflate = Some(deflate);
         self.image_page_failed = false;
         Ok(())
     }
@@ -348,7 +360,7 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
             self.check_image_owner(*image)?;
         }
         self.check_next_page()?;
-        let deflate = Deflate::new(self.limits)?;
+        let deflate = self.take_deflate()?;
         self.reserve_page_index_slot()?;
         self.prepare_page_objects()?;
         self.image_page_failed = true;
@@ -413,14 +425,16 @@ impl<W: SequentialSink, C: Cancellation> ContentPageWriter<'_, '_, '_, W, C> {
         self.deflate.put(&mut self.document.writer, bytes).await
     }
 
-    fn start_draw(&mut self) -> Result<()> {
+    /// Refuse a failed page, then report cancellation or a failed writer
+    /// once per draw; buffered output itself is checked as it is written.
+    async fn start_draw(&mut self) -> Result<()> {
         if self.failed {
             return Err(Error::InvalidInput {
                 reason: "PDF content page cannot continue after a failed draw",
             });
         }
         self.failed = true;
-        Ok(())
+        self.document.writer.write_stream_bytes(&[]).await
     }
 
     /// Draw one BMP character using a font resource index and text matrix.
@@ -484,7 +498,7 @@ impl<W: SequentialSink, C: Cancellation> ContentPageWriter<'_, '_, '_, W, C> {
         clip: Option<[f64; 4]>,
         decorative: bool,
     ) -> Result<()> {
-        self.start_draw()?;
+        self.start_draw().await?;
         let resource = self.fonts.get(font).ok_or(Error::InvalidInput {
             reason: "PDF page font index is out of range",
         })?;
@@ -534,7 +548,7 @@ impl<W: SequentialSink, C: Cancellation> ContentPageWriter<'_, '_, '_, W, C> {
     }
 
     pub async fn image(&mut self, index: usize, transform: [f64; 6]) -> Result<()> {
-        self.start_draw()?;
+        self.start_draw().await?;
         if index >= self.images.len() {
             return Err(Error::InvalidInput {
                 reason: "PDF page image index is out of range",
@@ -552,7 +566,7 @@ impl<W: SequentialSink, C: Cancellation> ContentPageWriter<'_, '_, '_, W, C> {
     /// Stroke one black segment in page coordinates. Zero width is PDF's
     /// device-dependent hairline; negative or nonfinite widths are rejected.
     pub async fn segment(&mut self, from: [f64; 2], to: [f64; 2], width: f64) -> Result<()> {
-        self.start_draw()?;
+        self.start_draw().await?;
         DecimalMatrix::new([from[0], from[1], to[0], to[1], width, 0.0])?;
         if width < 0.0 {
             return Err(Error::InvalidInput {
@@ -585,7 +599,7 @@ impl<W: SequentialSink, C: Cancellation> ContentPageWriter<'_, '_, '_, W, C> {
         width: f64,
         gray: u8,
     ) -> Result<()> {
-        self.start_draw()?;
+        self.start_draw().await?;
         if !(2..=8).contains(&points.len()) || width < 0.0 {
             return Err(Error::InvalidInput {
                 reason: "PDF polyline requires two to eight points and nonnegative width",
@@ -621,7 +635,7 @@ impl<W: SequentialSink, C: Cancellation> ContentPageWriter<'_, '_, '_, W, C> {
     /// an unbounded path. Points are streamed through fixed decimal scratch;
     /// failure or cancellation invalidates this content page.
     pub async fn fill_polygon(&mut self, points: &[[f64; 2]]) -> Result<()> {
-        self.start_draw()?;
+        self.start_draw().await?;
         if !(3..=8).contains(&points.len()) {
             return Err(Error::InvalidInput {
                 reason: "PDF polygon must have three to eight vertices",
@@ -654,6 +668,7 @@ impl<W: SequentialSink, C: Cancellation> ContentPageWriter<'_, '_, '_, W, C> {
         let mut deflate = self.deflate;
         deflate.finish(&mut document.writer).await?;
         document.writer.end_stream().await?;
+        document.deflate = Some(deflate);
         let parent = document
             .leaf
             .as_ref()

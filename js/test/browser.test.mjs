@@ -182,15 +182,16 @@ test("Chromium: multi-image HN converts with bookmarks through Worker OPFS", opt
   assert.ok(result.fontMaxRead > 0 && result.fontMaxRead <= 32);
   for (const [index, bytes] of result.nativePdfs.entries()) {
     const pdf = Buffer.from(bytes);
-    assert.equal(pageText(pdf).match(/\/FontFile2 /g).length, index === 3 || index === 5 || index >= 7 ? 2 : 1);
-    assert.equal(pageText(pdf).match(/<0041> Tj/g).length, [1, 2, 2, 2, 2, 2, 2, 1, 1, 1][index]);
+    const text = pageText(pdf);
+    assert.equal(text.match(/\/FontFile2 /g).length, index === 3 || index === 5 || index >= 7 ? 2 : 1);
+    assert.equal(text.match(/<0041> Tj/g).length, [1, 2, 2, 2, 2, 2, 2, 1, 1, 1][index]);
     if (index === 3) {
-      assert.equal(pageText(pdf).match(/<0020> Tj/g).length, 2);
-      assert.equal(pageText(pdf).match(/<FF1A> Tj/g).length, 2);
+      assert.equal(text.match(/<0020> Tj/g).length, 2);
+      assert.equal(text.match(/<FF1A> Tj/g).length, 2);
     }
     if (index === 4) {
       assert.ok(pdf.includes(syntheticType1Hn().jpeg));
-      assert.ok(pageText(pdf).indexOf("/Im0 Do") >= 0 && pageText(pdf).indexOf("/Im0 Do") < pageText(pdf).indexOf("<0041> Tj"));
+      assert.ok(text.indexOf("/Im0 Do") >= 0 && text.indexOf("/Im0 Do") < text.indexOf("<0041> Tj"));
     }
     await validatePdf(t, pdf, [1, 1, 2, 2, 1, 2, 2, 1, 1, 1][index]);
   }

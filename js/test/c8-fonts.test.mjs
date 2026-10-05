@@ -29,15 +29,16 @@ test("native C8/HN-B public Node path reuses ranged fonts and preserves pages", 
     });
     assert.ok(maxRead > 0 && maxRead <= 32);
     const pdf = Buffer.concat(parts);
-    assert.equal(pageText(pdf).match(/\/FontFile2 /g).length, hasSymbols || hasState3 || latinState ? 2 : 1);
-    assert.equal(pageText(pdf).match(/<0041> Tj/g).length, glyphs);
+    const text = pageText(pdf);
+    assert.equal(text.match(/\/FontFile2 /g).length, hasSymbols || hasState3 || latinState ? 2 : 1);
+    assert.equal(text.match(/<0041> Tj/g).length, glyphs);
     if (hasSymbols) {
-      assert.equal(pageText(pdf).match(/<0020> Tj/g).length, pages);
-      assert.equal(pageText(pdf).match(/<FF1A> Tj/g).length, pages);
+      assert.equal(text.match(/<0020> Tj/g).length, pages);
+      assert.equal(text.match(/<FF1A> Tj/g).length, pages);
     }
     if (hasJpeg) {
       assert.ok(pdf.includes(syntheticType1Hn().jpeg));
-      assert.ok(pageText(pdf).indexOf("/Im0 Do") >= 0 && pageText(pdf).indexOf("/Im0 Do") < pageText(pdf).indexOf("<0041> Tj"));
+      assert.ok(text.indexOf("/Im0 Do") >= 0 && text.indexOf("/Im0 Do") < text.indexOf("<0041> Tj"));
     }
     await validatePdf(t, pdf, pages);
   }
@@ -164,7 +165,8 @@ test("absent optional Latin roles fall back to the required fonts", async (t) =>
       assert.ok(scratch.every((store) => store.size === 0n));
     });
     const pdf = Buffer.concat(parts);
-    assert.equal(pageText(pdf).match(/\/FontFile2 /g).length, 1);
+    const text = pageText(pdf);
+    assert.equal(text.match(/\/FontFile2 /g).length, 1);
     await validatePdf(t, pdf, pages);
   }
 });

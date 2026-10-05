@@ -235,10 +235,12 @@ fn late_hnb_error_preserves_destination_and_removes_staging() {
     dir.clean();
 }
 
-/// Inflate the first page's compressed content stream.
+/// Inflate the first page's compressed content stream: the first stream
+/// whose dictionary holds only its indirect `/Length` and the filter. Image
+/// streams come earlier but have more entries.
 fn page_content(pdf: &[u8]) -> Vec<u8> {
     use std::io::Read;
-    let marker = b"/Filter /FlateDecode\n>>\nstream\n";
+    let marker = b" 0 R\n/Filter /FlateDecode\n>>\nstream\n";
     let at = pdf
         .windows(marker.len())
         .position(|part| part == marker)

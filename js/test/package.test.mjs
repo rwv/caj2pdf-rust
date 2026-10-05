@@ -108,9 +108,10 @@ test("npm pack includes the WASM build, entry points, declarations, LICENSE, and
     await validatePdf(t, await readFile(join(consumer, "c8.pdf")), 1);
     for (const state of [3, 28, 31]) {
       const pdf = await readFile(join(consumer, "native-" + state + ".pdf"));
+      const text = pageText(pdf);
       await validatePdf(t, pdf, 1);
-      assert.equal(pageText(pdf).match(/<0041> Tj/g)?.length, 1);
-      assert.equal(pageText(pdf).match(/\/FontFile2 /g)?.length, 2);
+      assert.equal(text.match(/<0041> Tj/g)?.length, 1);
+      assert.equal(text.match(/\/FontFile2 /g)?.length, 2);
     }
 
     // The public Node example must work beside the unpacked package, without

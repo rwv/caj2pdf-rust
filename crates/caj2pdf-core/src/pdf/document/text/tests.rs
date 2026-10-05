@@ -519,6 +519,19 @@ fn font_limits_and_invalid_glyphs_are_explicit_before_output() {
             assert!(document.add_font(&font).is_err());
             assert_eq!(document.writer.position(), before);
             assert!(!document.image_page_failed);
+            if case == 1 {
+                // A refused font leaves the document able to finish. (A
+                // content page needs its compressor, which case 0's
+                // 4 KiB allocation limit refuses.)
+                document
+                    .begin_content_page(page(), &[], &[])
+                    .await
+                    .unwrap()
+                    .finish()
+                    .await
+                    .unwrap();
+                document.finish().await.unwrap();
+            }
         });
     }
 }
@@ -925,4 +938,37 @@ fn joined_stroke_preserves_vertices_gray_and_failure_state() {
             assert!(document.finish().await.is_err());
         });
     }
+}
+
+#[test]
+fn a_draw_abandoned_while_flushing_cannot_publish_its_page() {
+    use std::{
+        future::Future,
+        task::{Context, Poll, Waker},
+    };
+    let limits = Limits::default();
+    let mut source = SeekableSource::new(Cursor::new(drawing_font())).unwrap();
+    let font = run(TrueTypeFont::read(&mut source, &limits, &NEVER)).unwrap();
+    let mut sink = Sink::default();
+    let suspend = sink.pending.clone();
+    let mut document = run(PdfDocument::new(&mut sink, &limits, &NEVER)).unwrap();
+    let handle = document.add_font(&font).unwrap();
+    let fonts = [&handle];
+    let mut page = run(document.begin_content_page(page(), &fonts, &[])).unwrap();
+    suspend.set(true);
+    // Buffered draws complete until one fills the buffer and must write.
+    let mut draws = 0;
+    loop {
+        draws += 1;
+        let mut draw = std::pin::pin!(page.glyph(0, 'A', matrix(10.0)));
+        match draw.as_mut().poll(&mut Context::from_waker(Waker::noop())) {
+            Poll::Ready(result) => result.unwrap(),
+            Poll::Pending => break,
+        }
+    }
+    assert!(draws > 1);
+    suspend.set(false);
+    assert!(run(page.glyph(0, 'A', matrix(10.0))).is_err());
+    assert!(run(page.finish()).is_err());
+    assert!(run(document.finish()).is_err());
 }

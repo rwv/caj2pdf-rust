@@ -100,7 +100,7 @@ pub(crate) fn bilevel_pixels(pdf: &[u8]) -> Vec<Vec<u8>> {
         let dictionary = String::from_utf8_lossy(&pdf[at..data]);
         if dictionary.contains("/BitsPerComponent 1\n") {
             assert!(dictionary.contains("/Filter /FlateDecode"));
-            let (pixels, consumed) = inflate(&pdf[data..]);
+            let (pixels, consumed) = inflate_complete(&pdf[data..]);
             images.push(pixels);
             from = data + consumed;
         } else {
@@ -110,9 +110,10 @@ pub(crate) fn bilevel_pixels(pdf: &[u8]) -> Vec<Vec<u8>> {
     images
 }
 
-/// Inflate one zlib stream, returning its bytes and the input consumed.
-/// A truncated stream (from a deliberately failed output) yields its prefix.
-fn inflate(stream: &[u8]) -> (Vec<u8>, usize) {
+/// Inflate one zlib stream, returning its bytes, the input consumed and
+/// whether the stream ended. A truncated stream (from a deliberately failed
+/// output) yields the prefix that inflates.
+fn inflate(stream: &[u8]) -> (Vec<u8>, usize, bool) {
     use flate2::{Decompress, FlushDecompress, Status};
     let mut decoder = Decompress::new(true);
     let mut bytes = Vec::new();
@@ -123,9 +124,18 @@ fn inflate(stream: &[u8]) -> (Vec<u8>, usize) {
         let status = decoder.decompress_vec(input, &mut bytes, FlushDecompress::None);
         let progress = before != (decoder.total_in(), bytes.len());
         if !(progress && matches!(status, Ok(Status::Ok | Status::BufError))) {
-            return (bytes, decoder.total_in() as usize);
+            let ended = matches!(status, Ok(Status::StreamEnd));
+            return (bytes, decoder.total_in() as usize, ended);
         }
     }
+}
+
+/// Inflate one complete zlib stream, returning its bytes and the input
+/// consumed; a truncated or invalid stream fails the test.
+fn inflate_complete(stream: &[u8]) -> (Vec<u8>, usize) {
+    let (bytes, consumed, ended) = inflate(stream);
+    assert!(ended, "zlib stream is incomplete or invalid");
+    (bytes, consumed)
 }
 
 /// Inflate the first Flate stream after the first occurrence of `marker`
@@ -141,7 +151,7 @@ pub(crate) fn inflated_stream(pdf: &[u8], marker: &[u8]) -> Vec<u8> {
             .position(|part| part == b"stream\n")
             .unwrap()
         + 7;
-    inflate(&pdf[data..]).0
+    inflate_complete(&pdf[data..]).0
 }
 
 /// A small generated test PDF with every content-like Flate stream (one
@@ -157,7 +167,7 @@ pub(crate) fn inflated_pdf(pdf: &[u8]) -> Vec<u8> {
     {
         let data = from + at + DICTIONARY.len();
         out.extend_from_slice(&pdf[from..data]);
-        let (bytes, consumed) = inflate(&pdf[data..]);
+        let (bytes, consumed, _) = inflate(&pdf[data..]);
         out.extend(bytes);
         from = data + consumed;
     }
