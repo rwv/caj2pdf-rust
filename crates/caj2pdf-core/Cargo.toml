@@ -6,7 +6,9 @@ rust-version = "1.88.0"
 license = "MIT"
 description = "Platform-neutral CAJ-family conversion core"
 repository = "https://github.com/rwv/caj2pdf-rust"
-publish = false
+publish = ["crates-io"]
+readme = "../../README.md"
+include = ["src/**", "Cargo.toml", "README.md", "LICENSE"]
 
 [lib]
 path = "src/lib.rs"

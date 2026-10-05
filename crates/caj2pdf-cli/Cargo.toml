@@ -6,14 +6,16 @@ rust-version = "1.88.0"
 license = "MIT"
 description = "Native command-line interface for caj2pdf"
 repository = "https://github.com/rwv/caj2pdf-rust"
-publish = false
+publish = ["crates-io"]
+readme = "../../README.md"
+include = ["src/**", "Cargo.toml", "README.md", "LICENSE"]
 
 [[bin]]
 name = "caj2pdf"
 path = "src/main.rs"
 
 [dependencies]
-caj2pdf-core = { path = "../caj2pdf-core" }
+caj2pdf-core = { version = "0.4.0", path = "../caj2pdf-core" }
 
 [target.'cfg(unix)'.dependencies]
 signal-hook = { version = "0.4", default-features = false }
