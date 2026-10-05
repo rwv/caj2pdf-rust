@@ -23,8 +23,8 @@ jobs only when packaging or toolchain inputs change (see [CONTRIBUTING](../CONTR
 | Linux LoongArch64 | GNU and musl, LP64D + LSX | Pinned QEMU 10.0.2; GNU uses Loongson GCC 15.1.0 / binutils 2.45 / glibc 2.42; musl is static |
 | Linux musl additions | i586, i686, ARMv5TE, ARMv6/ARMv7 soft/hard-float, PowerPC64 big/little endian, RISC-V64 GC | Static Rust-bundled musl runtime, tested with QEMU |
 | Linux GNU MIPS | MIPS32 and MIPS64 n64, each big/little endian | Ubuntu cross sysroots and QEMU; std built with pinned nightly-2026-09-29 |
-| FreeBSD | x86_64, ARM64 | FreeBSD 14.3 virtual machines; Rust from the FreeBSD package repository, version printed in CI |
-| FreeBSD cross-built | RISC-V64 GC, PowerPC64 big endian | Pinned official FreeBSD 15.1 sysroots, nightly-2026-09-29 std, Clang/LLD; matching 15.1 VMs execute tests, host validates target PDF |
+| FreeBSD | x86_64 | FreeBSD 14.3 virtual machine; Rust from the FreeBSD package repository, version printed in CI |
+| FreeBSD cross-built | ARM64, RISC-V64 GC, PowerPC64 big endian | Pinned official FreeBSD sysroots (14.3 for ARM64, 15.1 otherwise), nightly-2026-09-29 std, Clang/LLD; matching VMs execute tests, host validates target PDF |
 | NetBSD | x86_64, ARM64 | NetBSD 11.0 VMs, packaged Rust compiler |
 | OpenBSD | x86_64, ARM64, RISC-V64 GC | OpenBSD 7.9 VMs, packaged Rust compiler |
 | illumos | x86_64 | OmniOS r151054 VM; 499 core tests and 4 CLI tests, host qpdf/MuPDF validation |
@@ -96,9 +96,9 @@ tests enable adb root so the hard-link protection fixture can be created under
 Android's filesystem policy. API 30 is the tested runtime; compiling with an
 API 24 NDK setting is not an execution claim for every older Android release.
 
-## FreeBSD 15.1 cross-builds
+## FreeBSD cross-builds
 
-The two additional FreeBSD targets reuse the candidate route verified in run
+The RISC-V64 and PowerPC64 FreeBSD targets reuse the candidate route verified in run
 [37164189357](https://github.com/rwv/caj2pdf-rust/actions/runs/37164189357).
 Host cross-builds avoid unavailable guest Rust packages. Alongside the checkout,
 the VM receives the staged core test executable, portable CLI tests, CLI and
@@ -107,8 +107,15 @@ executable is packaged on the host after qpdf/page-count/MuPDF checks. Three
 validator-dependent core tests are explicitly filtered in the VM, never counted
 as passes. Both jobs are dependencies of the required aggregate gate.
 
-FreeBSD 15.1 is the minimum claimed runtime for these builds. Existing x86_64
-and ARM64 targets keep their independently tested 14.3 baseline. The release
+FreeBSD 15.1 is the minimum claimed runtime for RISC-V64 and PowerPC64.
+
+ARM64 uses the same route so that Rust is no longer compiled under full-system
+emulation, which took most of its former 44-minute job. It keeps the 14.3
+baseline: the binary links against the official 14.3 arm64 sysroot and runs in
+a 14.3 VM. That release has moved to the FreeBSD archive, which serves only
+plain HTTP, so the download is checked against the SHA-256 pinned from its
+official `MANIFEST`. The ARM64 VM installs qpdf and MuPDF and runs every core
+test, with none filtered. x86_64 keeps its in-VM build with packaged Rust. The release
 aggregator reads both new triples from `platform-targets.json`, requires their
 `native-*` archives, and includes them in the existing checksums and provenance
 flow; no parallel packaging or attestation mechanism is introduced.
