@@ -3006,3 +3006,11 @@ packages with flate2 or a hand-built stored zlib block. No document bytes,
 decoded XML, identifiers or URLs from the corpus are committed. Output keys
 follow the document information dictionary of PDF 1.7 (ISO 32000-1 §14.3.3),
 which permits additional keys such as `/CNKI_URL`.
+
+## Registry package preparation (#293)
+
+Core and CLI package manifests now declare registry metadata, explicitly bound
+source inclusion, and a versioned local core dependency. Their LICENSE copies
+are identical to the root MIT license. The packaged source is verified by
+Cargo's dry-run publisher without uploading; no new dependency or external
+implementation is introduced. The WASM Rust crate remains unpublished.

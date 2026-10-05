@@ -105,3 +105,24 @@ checksumming/signing; they are verified cryptographically, not self-hashed.
 See [build provenance](build-provenance.md) for consumer commands and the
 aggregation-job trust boundary. Never retroactively attest old releases as
 outputs of a new build run.
+
+## First registry publication (#293)
+
+The core and CLI manifests are prepared for crates.io; CI runs
+`cargo publish --dry-run --locked -p caj2pdf-core -p caj2pdf-cli`, including
+building the packaged sources. This does not upload or reserve either name.
+The WASM crate remains `publish = false`: its distribution is the tested npm
+package and standalone WASM, not a standalone Rust registry crate.
+
+As of the 2026-10-05 audit, `caj2pdf-core`, `caj2pdf-cli` and npm
+`caj2pdf-rust` returned registry 404 responses. Names are not reserved.
+The registry owner must bootstrap publication and configure trust for this
+repository before enabling automated uploads. The
+[crates.io guidance](https://blog.rust-lang.org/2025/07/11/crates-io-development-update-2025-07/)
+requires a first manual release before trusted publishing can be configured.
+[npm trusted publishing](https://docs.npmjs.com/trusted-publishers/) is configured
+in the package settings. Do not add long-lived registry credentials to CI.
+
+GitHub artifact publication does not imply registry publication. Keep the npm
+package private and installation instructions pointing to tested release
+artifacts until registry publication and clean-machine installs are verified.
