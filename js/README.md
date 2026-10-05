@@ -551,6 +551,12 @@ missing from that font still fails with its page and source byte. There
 is no system-font lookup. The CLI's `--fonts DIR` lookup is not part of
 the JavaScript API: open the font files and pass them as sources.
 
+Fonts may be supplied for any HN/C8 input. The core inspects the page text
+framing first: only a document with a page framed as native C8/HN-B records
+uses the fonts. HN-A and other image documents are converted as images,
+byte-identical to a conversion without `hnc8.fonts`, and the font sources
+are not read. The CLI applies the same rule.
+
 Tested free-font recipe for Node. The fonts are installed separately and
 never bundled. See [docs/cli.md](../docs/cli.md#tested-free-font-recipe)
 for the installation command and the supported font formats:

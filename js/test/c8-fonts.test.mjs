@@ -5,7 +5,7 @@ import { readFile, readdir, rm } from "node:fs/promises";
 import { test } from "node:test";
 import { blobSource, convert, spoolToTempFile, withHnc8Scratch } from "../node.mjs";
 import { newInstance, pageText, tempDirectory, validatePdf } from "./helpers.mjs";
-import { syntheticNativeC8, syntheticNativeHnb, syntheticNativeHnbMixed, syntheticNativeHnbAxes, syntheticType1Hn, qmStates } from "./hnc8-fixtures.mjs";
+import { syntheticC8, syntheticHn, syntheticNativeC8, syntheticNativeHnb, syntheticNativeHnbMixed, syntheticNativeHnbAxes, syntheticType1Hn, qmStates } from "./hnc8-fixtures.mjs";
 
 const fontBytes = await readFile(new URL("../../tests/fonts/geometric.ttf", import.meta.url));
 const symbolBytes = await readFile(new URL("../../tests/fonts/symbols.ttf", import.meta.url));
@@ -43,6 +43,25 @@ test("native C8/HN-B public Node path reuses ranged fonts and preserves pages", 
       assert.ok(text.indexOf("/Im0 Do") >= 0 && text.indexOf("/Im0 Do") < text.indexOf("<0041> Tj"));
     }
     await validatePdf(t, pdf, pages);
+  }
+});
+
+test("image HN-A and compressed-text C8 inputs ignore supplied fonts", async (t) => {
+  for (const inputBytes of [syntheticHn(), syntheticC8()]) {
+    const outputs = [];
+    for (const fonts of [undefined, roles(source(fontBytes))]) {
+      const parts = [];
+      await withHnc8Scratch(async (scratch) => {
+        const result = await convert(await newInstance(), source(inputBytes), sink(parts), {
+          includeBookmarks: false, hnc8: { scratch, qmStates, ...(fonts ? { fonts } : {}) },
+        });
+        assert.equal(result.pagesConverted, 1);
+      });
+      outputs.push(Buffer.concat(parts));
+    }
+    assert.deepEqual(outputs[1], outputs[0]);
+    assert.ok(!outputs[0].toString("latin1").includes("/FontFile2 "));
+    await validatePdf(t, outputs[0], 1);
   }
 });
 

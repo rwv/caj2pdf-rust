@@ -1482,6 +1482,38 @@ fn native_c8_font_directory_matches_explicit_required_roles() {
 }
 
 #[test]
+fn image_documents_with_fonts_match_their_no_font_output() {
+    let scratch = Scratch::new("image-fonts");
+    let font = include_bytes!("../../../tests/fonts/geometric.ttf");
+    fs::create_dir(scratch.path("fonts")).unwrap();
+    scratch.write("fonts/cjk.ttf", font);
+    scratch.write("fonts/latin.ttf", font);
+    // HN-A has no native text; this C8 frames its text as COMPRESSTEXT and
+    // declares no admitted native mode.
+    for (name, input) in [("input.hn", image_hn()), ("input.c8", image_c8(&[]))] {
+        scratch.write(name, &input);
+        assert_success(&scratch.run([name, "--no-bookmarks", "-o", "plain.pdf"]));
+        let plain = fs::read(scratch.path("plain.pdf")).unwrap();
+        for fonts in [
+            &["--fonts", "fonts"][..],
+            &["--font-cjk=fonts/cjk.ttf", "--font-latin=fonts/latin.ttf"],
+        ] {
+            let mut args = vec![name, "--no-bookmarks", "--force", "-o", "fonts.pdf"];
+            args.extend(fonts);
+            assert_success(&scratch.run(args));
+            assert_eq!(fs::read(scratch.path("fonts.pdf")).unwrap(), plain);
+            let mut args = vec!["-", "--no-bookmarks"];
+            args.extend(fonts);
+            let pipe = scratch.run_with_stdin(&args, &input);
+            assert_success(&pipe);
+            assert_eq!(pipe.stdout, plain);
+        }
+        fs::remove_file(scratch.path("plain.pdf")).unwrap();
+        fs::remove_file(scratch.path("fonts.pdf")).unwrap();
+    }
+}
+
+#[test]
 fn native_c8_font_failures_preserve_inputs_and_atomic_output() {
     let scratch = Scratch::new("c8-font-errors");
     let font = include_bytes!("../../../tests/fonts/geometric.ttf");

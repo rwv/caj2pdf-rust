@@ -26,6 +26,18 @@
   chunks: an output failure is reported by a later draw or by `finish`, with
   that location; the page and document are still refused.
 
+- Fix: supplying native fonts (`--fonts DIR`, `--font-*`, JS `hnc8.fonts`)
+  no longer breaks HN/C8 documents without native text. Previously every
+  input went to native composition, so HN-A failed with `native composition
+  requires C8 or HN-B` and a C8 document with `COMPRESSTEXT` pages failed
+  with `unsupported native page rendering mode`. The core now routes each
+  document by its page text framing: a document with a page framed as
+  native C8/HN-B records uses native composition, and all others use image
+  composition, byte-identical to a conversion without fonts, with the fonts
+  unread (#342). New core API: `hnc8::convert_document_pdf` and
+  `hnc8::uses_native_text`, shared by the CLI and the WASM engine. Routing
+  reads are included in `input_bytes_read`.
+
 - **Breaking:** native C8/HN-B PDFs embed only the drawn glyphs of each font,
   as a Flate-compressed TrueType subset with a tagged `BaseFont`, and their
   `CIDToGIDMap`/ToUnicode streams are compressed. The six pinned corpus

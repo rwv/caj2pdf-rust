@@ -108,6 +108,14 @@ try {
     }
     if (!scratch.every((store) => store.size === 0n)) throw new Error("font failure left scratch data");
   }
+  // An image-only HN-A input ignores supplied fonts: same bytes as without.
+  const imageWithFonts = [];
+  await convert(module, blobSource(new Blob([syntheticHn()])), {
+    async writeChunk(bytes) { imageWithFonts.push(...bytes); return bytes.length; }, async flush() {},
+  }, { chunkSize: 3, hnc8: { fonts: { cjk: font, latin: font }, scratch } });
+  if (imageWithFonts.length !== standardPdf.length || imageWithFonts.some((byte, i) => byte !== standardPdf[i])) {
+    throw new Error("supplied fonts changed the image-only HN-A PDF");
+  }
   result = { fontFailures, latePdf: lateParts, nativePdfs, fontMaxRead, type1Pages: type1.pagesConverted, type1Pdf, standardPages: standard.pagesConverted, standardPdf, pages: report.pagesConverted, pdf: parts, cleared: scratch.every((store) => store.size === 0n) };
 } catch (error) {
   result = { error: `${error.name}: ${error.message}` };

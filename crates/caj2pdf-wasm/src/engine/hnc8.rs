@@ -4,7 +4,7 @@ use super::*;
 use caj2pdf_core::{
     hnc8::{
         ApplicationInfo, ComposeOptions, ComposePage, ComposeType3Workspaces, ComposeVisitor,
-        ComposeWorkspaces, Type3PdfOptions, convert_source_pages_pdf,
+        ComposeWorkspaces, Type3PdfOptions, convert_document_pdf,
     },
     jbig2::mq::{MQ_STATE_COUNT, MqState, MqTable},
     jbig2::text::TextHeaderPolicy,
@@ -227,39 +227,28 @@ pub(super) async fn convert(
         }),
     };
     let fonts = std::mem::take(&mut source.shared.borrow_mut().fonts);
-    if fonts.count != 0 {
-        let roles = fonts.roles.ok_or(Error::InvalidInput {
+    let roles = match fonts.count {
+        0 => None,
+        _ => Some(fonts.roles.ok_or(Error::InvalidInput {
             reason: "C8 font resources require explicit roles",
-        })?;
-        let mut sources =
-            std::array::from_fn::<_, 8, _>(|index| caj2pdf_core::hnc8::C8FontSource {
-                source: BridgeSource {
-                    resource: index as u32 + 1,
-                    shared: Rc::clone(&source.shared),
-                    size: fonts.sizes[index],
-                },
-                face: fonts.faces[index],
-            });
-        return caj2pdf_core::hnc8::convert_c8_native_pdf(
-            source,
-            sink,
-            caj2pdf_core::hnc8::C8FontSources {
-                sources: &mut sources[..fonts.count],
-                roles,
-            },
-            Some(&qm),
-            workspaces,
-            options,
-            limits,
-            cancellation,
-        )
-        .await
-        .map(|report| (report.conversion, report.outline))
-        .map_err(|error| Error::Hnc8(Box::new(error)));
-    }
-    convert_source_pages_pdf(
+        })?),
+    };
+    let mut sources = std::array::from_fn::<_, 8, _>(|index| caj2pdf_core::hnc8::C8FontSource {
+        source: BridgeSource {
+            resource: index as u32 + 1,
+            shared: Rc::clone(&source.shared),
+            size: fonts.sizes[index],
+        },
+        face: fonts.faces[index],
+    });
+    // The core routes by text framing: image documents ignore the fonts.
+    convert_document_pdf(
         source,
         sink,
+        roles.map(|roles| caj2pdf_core::hnc8::C8FontSources {
+            sources: &mut sources[..fonts.count],
+            roles,
+        }),
         Some(&qm),
         workspaces,
         &mut CompletePages,
