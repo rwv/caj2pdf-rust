@@ -81,7 +81,7 @@ try {
   } catch (error) {
     if (error.code !== "HNC8" || !/page 2/.test(error.message)) throw error;
   }
-  const latePdf = new TextDecoder().decode(new Uint8Array(lateParts));
+  const latePdf = await pageText(new Uint8Array(lateParts));
   if (!latePdf.includes("<0041> Tj") || latePdf.includes("%%EOF")) throw new Error("late HN-B failure did not preserve unfinished first-page output");
   if (!scratch.every((store) => store.size === 0n)) throw new Error("late HN-B failure left scratch data");
   const fontFailures = [];
@@ -121,3 +121,24 @@ try {
 result.remainingEntries = [];
 for await (const [name] of root.entries()) result.remainingEntries.push(name);
 postMessage(result);
+
+// Latin-1 text of a generated PDF with each complete Flate stream inflated,
+// so page operators can be searched. Byte offsets equal string offsets.
+async function pageText(bytes) {
+  const decoder = new TextDecoder("latin1");
+  const text = decoder.decode(bytes);
+  const marker = "/Filter /FlateDecode\n>>\nstream\n";
+  let out = "";
+  let from = 0;
+  for (let at = text.indexOf(marker, from); at >= 0; at = text.indexOf(marker, from)) {
+    const data = at + marker.length;
+    const end = text.indexOf("\nendstream", data);
+    out += text.slice(from, data);
+    from = data;
+    if (end < 0) break;
+    const inflated = new Blob([bytes.subarray(data, end)]).stream().pipeThrough(new DecompressionStream("deflate"));
+    out += decoder.decode(await new Response(inflated).arrayBuffer());
+    from = end;
+  }
+  return out + text.slice(from);
+}

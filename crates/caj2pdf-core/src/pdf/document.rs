@@ -206,7 +206,11 @@ pub struct BilevelImageWriter<'d, 'a, W: SequentialSink, C: Cancellation> {
 pub(super) struct Deflate {
     encoder: Compress,
     encoded: Vec<u8>,
+    /// Small writes gathered by [`Self::put`] before compression.
+    pending: Vec<u8>,
 }
+
+const DEFLATE_PENDING_BYTES: usize = 4096;
 
 impl Deflate {
     /// Reserve the compressor state and one output chunk.
@@ -217,15 +221,60 @@ impl Deflate {
         let refused = limits.allocation_refused("zlib compression output", chunk as u64);
         reserve_exact(&mut encoded, chunk, refused)?;
         encoded.resize(chunk, 0);
+        let mut pending = Vec::new();
+        let refused = limits.allocation_refused("zlib input buffer", DEFLATE_PENDING_BYTES as u64);
+        reserve_exact(&mut pending, DEFLATE_PENDING_BYTES, refused)?;
         Ok(Self {
             encoder: Compress::new(Compression::default(), true),
             encoded,
+            pending,
         })
     }
 
     /// Start a new zlib stream, reusing the reserved state.
     pub(super) fn reset(&mut self) {
         self.encoder.reset();
+        self.pending.clear();
+    }
+
+    /// Gather `bytes` and compress them in fixed chunks. Many small draws or
+    /// table entries then cost few compressor and sink calls.
+    pub(super) async fn put<W: SequentialSink, C: Cancellation>(
+        &mut self,
+        writer: &mut PdfWriter<'_, W, C>,
+        mut bytes: &[u8],
+    ) -> Result<()> {
+        // Report cancellation and a failed writer at every call.
+        writer.write_stream_bytes(&[]).await?;
+        while !bytes.is_empty() {
+            let count = bytes.len().min(DEFLATE_PENDING_BYTES - self.pending.len());
+            self.pending.extend_from_slice(&bytes[..count]);
+            bytes = &bytes[count..];
+            if self.pending.len() == DEFLATE_PENDING_BYTES {
+                self.flush(writer, false).await?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Compress gathered bytes and end the zlib stream.
+    pub(super) async fn finish<W: SequentialSink, C: Cancellation>(
+        &mut self,
+        writer: &mut PdfWriter<'_, W, C>,
+    ) -> Result<()> {
+        self.flush(writer, true).await
+    }
+
+    async fn flush<W: SequentialSink, C: Cancellation>(
+        &mut self,
+        writer: &mut PdfWriter<'_, W, C>,
+        finish: bool,
+    ) -> Result<()> {
+        let mut pending = std::mem::take(&mut self.pending);
+        let result = self.write(writer, &pending, finish).await;
+        pending.clear();
+        self.pending = pending;
+        result
     }
 
     /// Compress `input`, and with `finish` end the zlib stream. Compression

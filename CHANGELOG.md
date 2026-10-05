@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Native C8/HN-B page content streams are Flate-compressed. The six pinned
+  corpus documents shrink further to 0.20–1.06 MB (from 6.0–7.1 MB in
+  v0.4.0) with identical renders and text (#336). Draws are compressed in
+  4 KiB chunks, so an output failure during a draw can surface when the page
+  finishes; the page and document are still refused.
+
 - **Breaking:** native C8/HN-B PDFs embed only the drawn glyphs of each font,
   as a Flate-compressed TrueType subset with a tagged `BaseFont`, and their
   `CIDToGIDMap`/ToUnicode streams are compressed. The six pinned corpus

@@ -38,6 +38,7 @@ version = "0.4.0"
 dependencies = [
  "caj2pdf-core",
  "ctrlc",
+ "flate2",
  "signal-hook",
  "winapi-util",
 ]

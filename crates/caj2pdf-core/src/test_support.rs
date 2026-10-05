@@ -111,12 +111,21 @@ pub(crate) fn bilevel_pixels(pdf: &[u8]) -> Vec<Vec<u8>> {
 }
 
 /// Inflate one zlib stream, returning its bytes and the input consumed.
+/// A truncated stream (from a deliberately failed output) yields its prefix.
 fn inflate(stream: &[u8]) -> (Vec<u8>, usize) {
-    use std::io::Read;
-    let mut decoder = flate2::read::ZlibDecoder::new(stream);
+    use flate2::{Decompress, FlushDecompress, Status};
+    let mut decoder = Decompress::new(true);
     let mut bytes = Vec::new();
-    decoder.read_to_end(&mut bytes).unwrap();
-    (bytes, decoder.total_in() as usize)
+    loop {
+        bytes.reserve(4096);
+        let before = (decoder.total_in(), bytes.len());
+        let input = &stream[decoder.total_in() as usize..];
+        let status = decoder.decompress_vec(input, &mut bytes, FlushDecompress::None);
+        let progress = before != (decoder.total_in(), bytes.len());
+        if !(progress && matches!(status, Ok(Status::Ok | Status::BufError))) {
+            return (bytes, decoder.total_in() as usize);
+        }
+    }
 }
 
 /// Inflate the first Flate stream after the first occurrence of `marker`
@@ -133,4 +142,25 @@ pub(crate) fn inflated_stream(pdf: &[u8], marker: &[u8]) -> Vec<u8> {
             .unwrap()
         + 7;
     inflate(&pdf[data..]).0
+}
+
+/// A small generated test PDF with every content-like Flate stream (one
+/// whose dictionary has only `/Length` and `/Filter`) replaced by its
+/// inflated bytes, so tests can search page operators as text.
+pub(crate) fn inflated_pdf(pdf: &[u8]) -> Vec<u8> {
+    const DICTIONARY: &[u8] = b" 0 R\n/Filter /FlateDecode\n>>\nstream\n";
+    let mut out = Vec::new();
+    let mut from = 0;
+    while let Some(at) = pdf[from..]
+        .windows(DICTIONARY.len())
+        .position(|part| part == DICTIONARY)
+    {
+        let data = from + at + DICTIONARY.len();
+        out.extend_from_slice(&pdf[from..data]);
+        let (bytes, consumed) = inflate(&pdf[data..]);
+        out.extend(bytes);
+        from = data + consumed;
+    }
+    out.extend_from_slice(&pdf[from..]);
+    out
 }

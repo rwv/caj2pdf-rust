@@ -354,7 +354,7 @@ pub(crate) fn mixed_page() -> Vec<u8> {
     let (result, pdf, finished) = convert(&words, 2, &[false, true], roles(), 0);
     assert_eq!(result.unwrap(), 0);
     assert!(finished);
-    let content = String::from_utf8_lossy(&pdf);
+    let content = page_text(&pdf);
     let mut after = 0;
     for operator in [
         "/F0 1 Tf",
@@ -422,7 +422,7 @@ fn resource_and_header_errors_are_checked_before_page_output() {
     for mode in 1..=5 {
         let (result, pdf, _) = convert(&words, 0, &[], roles(), mode);
         assert!(result.is_err());
-        assert!(!String::from_utf8_lossy(&pdf).contains("/Type /Page /"));
+        assert!(!page_text(&pdf).contains("/Type /Page /"));
     }
     let (result, _, _) = convert(&words, 0, &[false], roles(), 0);
     assert!(result.is_err());
@@ -491,7 +491,7 @@ fn fullwidth_colon_uses_active_latin_resource_and_independent_size_axes() {
         let (result, pdf, finished) = convert(&words, 0, &[], roles(), 11);
         assert_eq!(result.unwrap(), 0);
         assert!(finished);
-        let text = String::from_utf8_lossy(&pdf);
+        let text = page_text(&pdf);
         assert!(text.contains("/F1 1 Tf"));
         assert!(text.contains("/F2 1 Tf"));
         assert_eq!(text.matches("<FF1A> Tj").count(), 2);
@@ -550,7 +550,7 @@ fn controlled_symbols_preserve_unicode_resource_state_and_common_baseline() {
             let (result, pdf, finished) = convert(&words, 0, &[], roles(), 11);
             assert_eq!(result.unwrap(), 0);
             assert!(finished);
-            let text = String::from_utf8_lossy(&pdf);
+            let text = page_text(&pdf);
             let unicode = decode_native_character(code).unwrap() as u32;
             assert_eq!(text.matches(&format!("<{unicode:04X}> Tj")).count(), 2);
             let fixed = matches!(code, 0xa1c6 | 0xa1c8 | 0xa9aa | 0xaab3 | 0xaca3);
@@ -590,7 +590,7 @@ fn parentheses_preserve_independent_axes_and_active_resource() {
             let (result, pdf, finished) = convert(&words, 0, &[], roles(), 11);
             assert_eq!(result.unwrap(), 0);
             assert!(finished);
-            let text = String::from_utf8_lossy(&pdf);
+            let text = page_text(&pdf);
             assert!(text.contains("/F1 1 Tf"));
             assert!(text.contains("/F2 1 Tf"));
             let unicode = if code == 0xa3a8 { 0xff08 } else { 0xff09 };
@@ -639,7 +639,7 @@ fn ideographic_space_and_punctuation_keep_distinct_resources_and_baselines() {
             );
             assert_eq!(result.unwrap(), 0);
             assert!(finished);
-            let text = String::from_utf8_lossy(&pdf);
+            let text = page_text(&pdf);
             assert_eq!(text.matches(&format!("<{unicode:04X}> Tj")).count(), 2);
             if code == 0xa1a1 {
                 assert_eq!(text.matches("/F0 1 Tf").count(), 2);
@@ -684,7 +684,7 @@ fn square_brackets_keep_ordinary_resource_under_alternate_state() {
             let (result, pdf, finished) = convert(&words, 0, &[], roles(), 11);
             assert_eq!(result.unwrap(), 0);
             assert!(finished);
-            let text = String::from_utf8_lossy(&pdf);
+            let text = page_text(&pdf);
             assert_eq!(text.matches(&format!("<{unicode:04X}> Tj")).count(), 2);
             assert_eq!(text.matches("/F1 1 Tf").count(), 2);
             assert!(!text.contains("/F2 1 Tf"));
@@ -726,7 +726,7 @@ fn quotation_marks_and_middle_dot_reuse_controlled_offsets() {
             let (result, pdf, finished) = convert(&words, 0, &[], roles(), 11);
             assert_eq!(result.unwrap(), 0);
             assert!(finished);
-            let text = String::from_utf8_lossy(&pdf);
+            let text = page_text(&pdf);
             assert_eq!(text.matches(&format!("<{unicode:04X}> Tj")).count(), 2);
             assert!(text.contains("/F1 1 Tf"));
             assert!(text.contains("/F2 1 Tf"));
@@ -879,7 +879,7 @@ fn explicit_axes_override_style_and_reset_at_the_next_style() {
     let (result, pdf, finished) = convert(&words, 0, &[], roles(), 0);
     result.unwrap();
     assert!(finished);
-    let text = String::from_utf8_lossy(&pdf);
+    let text = page_text(&pdf);
     let matrices: Vec<Vec<f64>> = text
         .lines()
         .filter_map(|line| line.split_once(" Tm "))
@@ -951,7 +951,7 @@ fn skew_uses_width_survives_style_changes_and_resets_explicitly() {
             let (result, pdf, finished) = convert(&words, 0, &[], roles(), mode);
             result.unwrap();
             assert!(finished);
-            let text = String::from_utf8_lossy(&pdf);
+            let text = page_text(&pdf);
             let matrices: Vec<Vec<f64>> = text
                 .lines()
                 .filter_map(|line| line.split_once(" Tm "))
@@ -1057,7 +1057,7 @@ fn hnb_book_title_marks_preserve_verified_style_five_offsets_and_resources() {
         let (result, pdf, finished) = convert(&words, 0, &[], roles(), 13);
         result.unwrap();
         assert!(finished);
-        let text = String::from_utf8_lossy(&pdf);
+        let text = page_text(&pdf);
         assert_eq!(text.matches(&format!("<{unicode:04X}> Tj")).count(), 2);
         assert!(text.contains("/F1 1 Tf") && text.contains("/F2 1 Tf"));
         for (matrix, _) in text.lines().filter_map(|line| line.split_once(" Tm ")) {
@@ -1091,7 +1091,7 @@ fn unverified_native_modes_cannot_use_mode_two_rendering() {
             ),
             "{error:?}"
         );
-        assert!(!String::from_utf8_lossy(&pdf).contains("/Type /Page "));
+        assert!(!page_text(&pdf).contains("/Type /Page "));
     }
 }
 
@@ -1112,7 +1112,7 @@ fn mode_zero_renders_cjk_and_distinct_latin_alphabets_in_source_order() {
     let (result, pdf, finished) = convert(&words, 0, &[], roles(), 18);
     assert_eq!(result.unwrap(), 0);
     assert!(finished);
-    let pdf = String::from_utf8_lossy(&pdf);
+    let pdf = page_text(&pdf);
     let mut after = 0;
     for token in [
         "/F0 1 Tf",
@@ -1201,7 +1201,7 @@ fn mode_zero_digits_keep_unicode_and_use_ordinary_latin_with_independent_offsets
         let (result, pdf, finished) = convert(&words, 0, &[], roles(), 19);
         assert!(result.is_ok(), "{style:x}: {result:?}");
         assert!(finished);
-        let text = String::from_utf8_lossy(&pdf);
+        let text = page_text(&pdf);
         assert!(text.contains("/F1 1 Tf"));
         assert!(text.contains("<0030> Tj"));
         assert!(!text.contains("/F2 1 Tf"));
@@ -1252,7 +1252,7 @@ fn mode_zero_parentheses_and_slash_use_their_controlled_font_roles() {
         let (result, pdf, finished) = convert(&words, 0, &[], roles(), 19);
         assert!(result.is_ok(), "{code:x}: {result:?}");
         assert!(finished);
-        let text = String::from_utf8_lossy(&pdf);
+        let text = page_text(&pdf);
         assert!(text.contains(&format!("/F{role} 1 Tf")));
         assert!(text.contains(&format!("<{character}> Tj")));
     }
@@ -1272,7 +1272,7 @@ fn mode_zero_space_and_colon_use_symbol_resource_or_fallback() {
     let (result, pdf, finished) = convert(&words, 0, &[], fonts, 20);
     assert!(result.is_ok(), "{result:?}");
     assert!(finished);
-    let text = String::from_utf8_lossy(&pdf);
+    let text = page_text(&pdf);
     assert!(text.contains("/F2 1 Tf"));
     assert!(text.contains("<0020> Tj"));
     assert!(text.contains("<FF1A> Tj"));
@@ -1285,7 +1285,7 @@ fn mode_zero_space_and_colon_use_symbol_resource_or_fallback() {
     let (result, pdf, finished) = convert(&words, 0, &[], fonts, 20);
     assert!(result.is_ok(), "{result:?}");
     assert!(finished);
-    let text = String::from_utf8_lossy(&pdf);
+    let text = page_text(&pdf);
     let space = text.find("/F1 1 Tf").unwrap();
     let colon = text[space..].find("/F0 1 Tf").unwrap() + space;
     assert!(text[space..colon].contains("<0020> Tj"));
@@ -1308,7 +1308,7 @@ fn mode_zero_hyphen_requires_verified_geometry_and_symbol_resource() {
         assert_eq!(result.is_ok(), accepted, "{style:x}: {result:?}");
         assert_eq!(finished, accepted);
         if accepted {
-            assert!(String::from_utf8_lossy(&pdf).contains("/F2 1 Tf"));
+            assert!(page_text(&pdf).contains("/F2 1 Tf"));
         }
     }
 }
@@ -1365,7 +1365,7 @@ fn hnb_leading_images_preserve_order_and_reject_later_raster_operations() {
         let (result, pdf, finished) = convert(&words, 2, &[top_first; 2], roles(), 21);
         assert!(result.is_ok(), "{result:?}");
         assert!(finished);
-        let text = String::from_utf8_lossy(&pdf);
+        let text = page_text(&pdf);
         let first = text.find("/Im0 Do").unwrap();
         let second = text.find("/Im1 Do").unwrap();
         let glyph = text.find("<4E2D> Tj").unwrap();
@@ -1479,7 +1479,7 @@ fn native_state_three_uses_its_resource_or_latin_fallback_and_switches_back() {
             let (result, pdf, finished) = convert(&words, 0, &[], fonts, mode);
             assert!(result.is_ok(), "{result:?}");
             assert!(finished);
-            let text = String::from_utf8_lossy(&pdf);
+            let text = page_text(&pdf);
             let mut at = 0;
             for role in expected {
                 let token = format!("/F{role} 1 Tf");
@@ -1513,7 +1513,7 @@ fn hnb_tortoise_shell_brackets_preserve_controlled_offsets_and_resources() {
                 let (result, pdf, finished) = convert(&words, 0, &[], fonts, 13);
                 result.unwrap();
                 assert!(finished);
-                let text = String::from_utf8_lossy(&pdf);
+                let text = page_text(&pdf);
                 assert!(text.contains(&format!("<{unicode:04X}> Tj")));
                 assert!(text.contains(&format!("/F{font} 1 Tf")));
                 let (matrix, _) = text
@@ -1555,7 +1555,7 @@ fn hnb_paired_axes_define_dimensions_and_allow_implicit_style() {
         let (result, pdf, _) = convert(&explicit, 0, &[], roles(), 12);
         result.unwrap();
         assert_eq!(implicit, pdf);
-        let text = String::from_utf8_lossy(&pdf);
+        let text = page_text(&pdf);
         let matrices: Vec<Vec<f64>> = text
             .lines()
             .filter_map(|line| line.split_once(" Tm "))
@@ -1607,7 +1607,7 @@ fn hnb_axis_punctuation_preserves_verified_offsets() {
         let (result, pdf, finished) = convert(&words, 0, &[], roles(), 13);
         result.unwrap();
         assert!(finished);
-        let text = String::from_utf8_lossy(&pdf);
+        let text = page_text(&pdf);
         assert!(text.contains(&format!("<{unicode:04X}> Tj")));
         let (matrix, _) = text
             .lines()
@@ -1653,7 +1653,7 @@ fn native_fullwidth_at_sign_matches_controlled_comma_placement_and_resource() {
             let (result, pdf, finished) = convert(&words, 0, &[], fonts, mode);
             result.unwrap();
             assert!(finished);
-            let text = String::from_utf8_lossy(&pdf);
+            let text = page_text(&pdf);
             assert!(text.contains(&format!("/F{font} 1 Tf")));
             glyphs.push(
                 text.lines()
@@ -1688,7 +1688,7 @@ fn hnb_fullwidth_hyphen_keeps_unicode_and_explicit_axis_placement() {
             let (result, pdf, finished) = convert(&words, 0, &[], fonts, 13);
             result.unwrap();
             assert!(finished);
-            let text = String::from_utf8_lossy(&pdf);
+            let text = page_text(&pdf);
             assert!(text.contains(&format!("/F{font} 1 Tf")));
             assert!(text.contains("<FF0D> Tj"));
             glyphs.push(
@@ -1734,7 +1734,7 @@ fn c8_verified_color_control_preserves_black_across_style_and_resource_changes()
         let (result, pdf, finished) = convert(&words, 0, &[], roles(), 0);
         result.unwrap();
         assert!(finished);
-        let text = String::from_utf8_lossy(&pdf);
+        let text = page_text(&pdf);
         assert_eq!(text.matches("0.266667 g\n").count(), 2);
         assert_eq!(text.matches("0.000000 g\n").count(), 4);
         assert!(text.contains("/F2 1 Tf"));
@@ -1757,7 +1757,7 @@ fn c8_cjk_mode_survives_resource_changes_and_one_restores_latin() {
         let (result, pdf, finished) = convert(&words, 0, &[], roles(), 0);
         result.unwrap();
         assert!(finished);
-        let text = String::from_utf8_lossy(&pdf);
+        let text = page_text(&pdf);
         assert_eq!(text.matches("/F0 1 Tf").count(), 2);
         assert_eq!(
             text.matches(&format!("/F{} 1 Tf", if state == 0 { 1 } else { 2 }))
@@ -1778,7 +1778,7 @@ fn c8_fullwidth_alphabet_uses_cjk_resource_independent_of_latin_selection() {
     ];
     let (result, baseline, _) = convert(&words, 0, &[], roles(), 0);
     result.unwrap();
-    let baseline_text = String::from_utf8_lossy(&baseline);
+    let baseline_text = page_text(&baseline);
     let matrix = baseline_text
         .lines()
         .find(|line| line.contains(" Tm "))
@@ -1799,7 +1799,7 @@ fn c8_fullwidth_alphabet_uses_cjk_resource_independent_of_latin_selection() {
         let (result, pdf, finished) = convert(&words, 0, &[], fonts, 11);
         result.unwrap();
         assert!(finished);
-        let text = String::from_utf8_lossy(&pdf);
+        let text = page_text(&pdf);
         assert!(text.contains("/F0 1 Tf"));
         assert_eq!(
             text.lines()
@@ -1843,7 +1843,7 @@ fn c8_extended_latin_states_use_their_resources_or_fallback_and_restore_selectio
             if let Some(selected) = index.map_or(Some(1), |index| (index == 0).then_some(0)) {
                 result.unwrap();
                 assert!(finished);
-                let text = String::from_utf8_lossy(&pdf);
+                let text = page_text(&pdf);
                 let mut at = 0;
                 for role in [selected, 2, selected, 1] {
                     let token = format!("/F{role} 1 Tf");
@@ -1911,7 +1911,7 @@ fn c8_low_letter_preserves_cjk_resource_and_symbol_baseline_in_both_modes() {
                 ];
                 let (result, pdf, finished) = convert(&words, 0, &[], roles(), 11);
                 assert!(result.is_ok() && finished);
-                let text = String::from_utf8_lossy(&pdf);
+                let text = page_text(&pdf);
                 assert!(text.contains("/F0 1 Tf"));
                 assert!(text.contains(&format!("<{code:04X}> Tj")));
                 let matrix = text
@@ -1924,7 +1924,7 @@ fn c8_low_letter_preserves_cjk_resource_and_symbol_baseline_in_both_modes() {
                 words[5][1] = 0xd6d0;
                 let (result, reference, _) = convert(&words, 0, &[], roles(), 0);
                 result.unwrap();
-                let reference = String::from_utf8_lossy(&reference);
+                let reference = page_text(&reference);
                 let reference_matrix = reference
                     .lines()
                     .find_map(|line| line.split_once(" Tm "))
@@ -1986,7 +1986,7 @@ fn c8_required_symbols_follow_latin_state_and_symbol_baseline() {
                 let (result, pdf, finished) = convert(&words, 0, &[], fonts, 11);
                 result.unwrap();
                 assert!(finished);
-                let text = String::from_utf8_lossy(&pdf);
+                let text = page_text(&pdf);
                 assert!(text.contains(&format!("/F{font} 1 Tf")));
                 if raw == code {
                     assert!(text.contains(&format!("<{unicode}> Tj")));
@@ -2024,7 +2024,7 @@ fn c8_radical_outputs_one_joined_path_and_rejects_unverified_geometry() {
         let (result, pdf, finished) = convert(&words, 0, &[], roles(), 0);
         result.unwrap();
         assert!(finished);
-        let text = String::from_utf8_lossy(&pdf);
+        let text = page_text(&pdf);
         assert_eq!(text.matches(" m\n").count(), 1);
         assert_eq!(text.matches(" l\n").count(), 4);
         assert_eq!(text.matches("S Q\n").count(), 1);
@@ -2107,7 +2107,7 @@ fn c8_zero_field_styles_render_required_digit_without_broadening_hnb() {
             let (result, pdf, finished) = convert(&words, 0, &[], roles(), mode);
             result.unwrap();
             assert!(finished);
-            assert!(String::from_utf8_lossy(&pdf).contains(&format!("<{unicode}> Tj")));
+            assert!(page_text(&pdf).contains(&format!("<{unicode}> Tj")));
             assert!(
                 convert(&words, 0, &[], roles(), if mode == 0 { 12 } else { 13 })
                     .0
@@ -2148,7 +2148,7 @@ fn c8_parallel_resets_latin_until_an_explicit_resource_selection() {
             let (result, pdf, finished) = convert(&words, 0, &[], fonts, 11);
             result.unwrap();
             assert!(finished);
-            let text = String::from_utf8_lossy(&pdf);
+            let text = page_text(&pdf);
             assert!(text.contains(&format!("<{unicode}> Tj")));
             let resources: Vec<_> = text.lines().filter(|line| line.contains(" 1 Tf")).collect();
             assert_eq!(
@@ -2188,7 +2188,7 @@ fn required_roles() -> C8PageFonts {
 }
 
 fn assert_in_order(pdf: &[u8], tokens: &[&str]) {
-    let text = String::from_utf8_lossy(pdf);
+    let text = page_text(pdf);
     let mut after = 0;
     for token in tokens {
         after += text[after..].find(token).unwrap() + token.len();
@@ -2216,7 +2216,7 @@ fn absent_roles_and_unmapped_characters_fall_back_by_character_class() {
         convert_with_fonts(&words, 0, &[], required_roles(), 0, fallback_fonts());
     assert_eq!(result.unwrap(), 0);
     assert!(finished);
-    let text = String::from_utf8_lossy(&pdf);
+    let text = page_text(&pdf);
     assert!(!text.contains("/F2 1 Tf"));
     assert_in_order(
         &pdf,
@@ -2318,4 +2318,9 @@ fn mode_zero_absent_alternate_and_symbol_roles_fall_back_by_character_class() {
     );
     assert!(is_cjk_coded('\u{3000}') && is_cjk_coded('\u{ff1a}') && is_cjk_coded('\u{fe10}'));
     assert!(!is_cjk_coded('A') && !is_cjk_coded('\u{2217}') && !is_cjk_coded('\u{25ba}'));
+}
+
+/// Page operators of a generated PDF, with content streams inflated.
+fn page_text(pdf: &[u8]) -> String {
+    String::from_utf8_lossy(&crate::test_support::inflated_pdf(pdf)).into_owned()
 }

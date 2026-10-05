@@ -7,7 +7,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { deflateSync } from "node:zlib";
+import { constants as zlibConstants, deflateSync, inflateSync } from "node:zlib";
 
 export const wasmUrl = new URL("../../target/wasm32-unknown-unknown/release/caj2pdf_wasm.wasm", import.meta.url);
 
@@ -374,4 +374,23 @@ export function syntheticDamagedCaj() {
   view.setUint32(0x404, bytes.length - (0x400 + 24), true);
   view.setUint32(0x40c, bytes.length, true);
   return bytes;
+}
+
+// Latin-1 text of a generated PDF with each Flate stream inflated, so tests
+// can search page operators. A stream cut short by a failed conversion
+// yields the prefix that inflates.
+export function pageText(pdf) {
+  const bytes = Buffer.from(pdf);
+  const marker = Buffer.from("/Filter /FlateDecode\n>>\nstream\n");
+  const parts = [];
+  let from = 0;
+  for (let at = bytes.indexOf(marker, from); at >= 0; at = bytes.indexOf(marker, from)) {
+    const data = at + marker.length;
+    const end = bytes.indexOf("\nendstream", data);
+    const stream = bytes.subarray(data, end < 0 ? bytes.length : end);
+    parts.push(bytes.subarray(from, data), inflateSync(stream, { finishFlush: zlibConstants.Z_SYNC_FLUSH }));
+    from = end < 0 ? bytes.length : end;
+  }
+  parts.push(bytes.subarray(from));
+  return Buffer.concat(parts).toString("latin1");
 }

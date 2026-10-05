@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { readFile, readdir, rm } from "node:fs/promises";
 import { test } from "node:test";
 import { blobSource, convert, spoolToTempFile, withHnc8Scratch } from "../node.mjs";
-import { newInstance, tempDirectory, validatePdf } from "./helpers.mjs";
+import { newInstance, pageText, tempDirectory, validatePdf } from "./helpers.mjs";
 import { syntheticNativeC8, syntheticNativeHnb, syntheticNativeHnbMixed, syntheticNativeHnbAxes, syntheticType1Hn, qmStates } from "./hnc8-fixtures.mjs";
 
 const fontBytes = await readFile(new URL("../../tests/fonts/geometric.ttf", import.meta.url));
@@ -29,15 +29,15 @@ test("native C8/HN-B public Node path reuses ranged fonts and preserves pages", 
     });
     assert.ok(maxRead > 0 && maxRead <= 32);
     const pdf = Buffer.concat(parts);
-    assert.equal(pdf.toString("latin1").match(/\/FontFile2 /g).length, hasSymbols || hasState3 || latinState ? 2 : 1);
-    assert.equal(pdf.toString("latin1").match(/<0041> Tj/g).length, glyphs);
+    assert.equal(pageText(pdf).match(/\/FontFile2 /g).length, hasSymbols || hasState3 || latinState ? 2 : 1);
+    assert.equal(pageText(pdf).match(/<0041> Tj/g).length, glyphs);
     if (hasSymbols) {
-      assert.equal(pdf.toString("latin1").match(/<0020> Tj/g).length, pages);
-      assert.equal(pdf.toString("latin1").match(/<FF1A> Tj/g).length, pages);
+      assert.equal(pageText(pdf).match(/<0020> Tj/g).length, pages);
+      assert.equal(pageText(pdf).match(/<FF1A> Tj/g).length, pages);
     }
     if (hasJpeg) {
       assert.ok(pdf.includes(syntheticType1Hn().jpeg));
-      assert.ok(pdf.indexOf("/Im0 Do") >= 0 && pdf.indexOf("/Im0 Do") < pdf.indexOf("<0041> Tj"));
+      assert.ok(pageText(pdf).indexOf("/Im0 Do") >= 0 && pageText(pdf).indexOf("/Im0 Do") < pageText(pdf).indexOf("<0041> Tj"));
     }
     await validatePdf(t, pdf, pages);
   }
@@ -164,7 +164,7 @@ test("absent optional Latin roles fall back to the required fonts", async (t) =>
       assert.ok(scratch.every((store) => store.size === 0n));
     });
     const pdf = Buffer.concat(parts);
-    assert.equal(pdf.toString("latin1").match(/\/FontFile2 /g).length, 1);
+    assert.equal(pageText(pdf).match(/\/FontFile2 /g).length, 1);
     await validatePdf(t, pdf, pages);
   }
 });
@@ -181,7 +181,7 @@ test("HN-B late unknown record leaves unfinished output and clears scratch", asy
     }), (error) => error.code === "HNC8" && /page 2/.test(error.message));
     assert.ok(scratch.every((store) => store.size === 0n));
   });
-  const pdf = Buffer.concat(parts).toString("latin1");
+  const pdf = pageText(Buffer.concat(parts));
   assert.ok(pdf.includes("<0041> Tj"), "first page must have been written");
   assert.ok(!pdf.includes("%%EOF"), "failure must not finalize the PDF");
 });

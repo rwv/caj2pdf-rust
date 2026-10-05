@@ -8,7 +8,6 @@ use crate::pdf::font::{CHANGED, SubsetOutput, has_code, mark_code};
 
 const BMP_BITMAP_BYTES: usize = 8192;
 const MAX_PAGE_FONTS: usize = 128;
-const FONT_STREAM_CHUNK: usize = 4096;
 
 /// A font added to a document, usable only in the document that created it.
 ///
@@ -42,48 +41,27 @@ pub(super) struct PendingFont {
     embedded: bool,
 }
 
-/// Feeds bytes through a zlib stream, gathering small writes into fixed
-/// chunks first.
+/// Feeds subset program bytes into an open zlib-compressed stream.
 struct FontStream<'w, 'a, W: SequentialSink, C: Cancellation> {
     writer: &'w mut PdfWriter<'a, W, C>,
     deflate: &'w mut Deflate,
-    buffer: [u8; FONT_STREAM_CHUNK],
-    length: usize,
 }
 
 impl<'w, 'a, W: SequentialSink, C: Cancellation> FontStream<'w, 'a, W, C> {
     fn new(writer: &'w mut PdfWriter<'a, W, C>, deflate: &'w mut Deflate) -> Self {
         deflate.reset();
-        Self {
-            writer,
-            deflate,
-            buffer: [0; FONT_STREAM_CHUNK],
-            length: 0,
-        }
+        Self { writer, deflate }
     }
 
     async fn finish(self) -> Result<()> {
-        let length = self.length;
-        self.deflate
-            .write(self.writer, &self.buffer[..length], true)
-            .await?;
+        self.deflate.finish(self.writer).await?;
         self.writer.end_stream().await
     }
 }
 
 impl<W: SequentialSink, C: Cancellation> SubsetOutput for FontStream<'_, '_, W, C> {
-    async fn put(&mut self, mut bytes: &[u8]) -> Result<()> {
-        while !bytes.is_empty() {
-            let count = bytes.len().min(FONT_STREAM_CHUNK - self.length);
-            self.buffer[self.length..self.length + count].copy_from_slice(&bytes[..count]);
-            self.length += count;
-            bytes = &bytes[count..];
-            if self.length == FONT_STREAM_CHUNK {
-                self.length = 0;
-                self.deflate.write(self.writer, &self.buffer, false).await?;
-            }
-        }
-        Ok(())
+    async fn put(&mut self, bytes: &[u8]) -> Result<()> {
+        self.deflate.put(self.writer, bytes).await
     }
 }
 
@@ -370,6 +348,7 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
             self.check_image_owner(*image)?;
         }
         self.check_next_page()?;
+        let deflate = Deflate::new(self.limits)?;
         self.reserve_page_index_slot()?;
         self.prepare_page_objects()?;
         self.image_page_failed = true;
@@ -377,8 +356,11 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
         let content = self.writer.reserve_object()?;
         let length = self.writer.reserve_object()?;
         let page = self.writer.reserve_object()?;
-        self.writer.begin_stream(content, length, b"").await?;
+        self.writer
+            .begin_stream(content, length, b"/Filter /FlateDecode")
+            .await?;
         Ok(ContentPageWriter {
+            deflate,
             document: self,
             fonts,
             images,
@@ -421,10 +403,16 @@ pub struct ContentPageWriter<'d, 'a, 'r, W: SequentialSink, C: Cancellation> {
     height: String,
     content: ObjectId,
     page: ObjectId,
+    deflate: Deflate,
     failed: bool,
 }
 
 impl<W: SequentialSink, C: Cancellation> ContentPageWriter<'_, '_, '_, W, C> {
+    /// Append content bytes to the compressed page stream.
+    async fn emit(&mut self, bytes: &[u8]) -> Result<()> {
+        self.deflate.put(&mut self.document.writer, bytes).await
+    }
+
     fn start_draw(&mut self) -> Result<()> {
         if self.failed {
             return Err(Error::InvalidInput {
@@ -511,7 +499,7 @@ impl<W: SequentialSink, C: Cancellation> ContentPageWriter<'_, '_, '_, W, C> {
         );
         let matrix = DecimalMatrix::new(transform)?;
         if gray.is_some() || clip.is_some() {
-            self.document.writer.write_stream_bytes(b"q ").await?;
+            self.emit(b"q ").await?;
         }
         if let Some([left, bottom, width, height]) = clip {
             DecimalMatrix::new([left, bottom, width, height, left + width, bottom + height])?;
@@ -520,43 +508,26 @@ impl<W: SequentialSink, C: Cancellation> ContentPageWriter<'_, '_, '_, W, C> {
                     reason: "PDF glyph clipping extents must be positive",
                 });
             }
-            self.document
-                .writer
-                .write_stream_bytes(format!("{left} {bottom} {width} {height} re W n\n").as_bytes())
+            self.emit(format!("{left} {bottom} {width} {height} re W n\n").as_bytes())
                 .await?;
         }
         if let Some(gray) = gray {
-            self.document
-                .writer
-                .write_stream_bytes(format!("{:.6} g\n", f64::from(gray) / 255.0).as_bytes())
+            self.emit(format!("{:.6} g\n", f64::from(gray) / 255.0).as_bytes())
                 .await?;
         }
         if decorative {
-            self.document
-                .writer
-                .write_stream_bytes(b"/Artifact BMC\n/Span << /ActualText () >> BDC\n")
+            self.emit(b"/Artifact BMC\n/Span << /ActualText () >> BDC\n")
                 .await?;
         }
-        self.document
-            .writer
-            .write_stream_bytes(format!("BT /F{font} 1 Tf\n").as_bytes())
-            .await?;
-        self.document
-            .writer
-            .write_stream_bytes(matrix.as_bytes())
-            .await?;
-        self.document
-            .writer
-            .write_stream_bytes(format!(" Tm <{:04X}> Tj ET\n", character as u32).as_bytes())
+        self.emit(format!("BT /F{font} 1 Tf\n").as_bytes()).await?;
+        self.emit(matrix.as_bytes()).await?;
+        self.emit(format!(" Tm <{:04X}> Tj ET\n", character as u32).as_bytes())
             .await?;
         if decorative {
-            self.document
-                .writer
-                .write_stream_bytes(b"EMC\nEMC\n")
-                .await?;
+            self.emit(b"EMC\nEMC\n").await?;
         }
         if gray.is_some() || clip.is_some() {
-            self.document.writer.write_stream_bytes(b"Q\n").await?;
+            self.emit(b"Q\n").await?;
         }
         self.failed = false;
         Ok(())
@@ -570,14 +541,9 @@ impl<W: SequentialSink, C: Cancellation> ContentPageWriter<'_, '_, '_, W, C> {
             });
         }
         let matrix = DecimalMatrix::new(transform)?;
-        self.document.writer.write_stream_bytes(b"q\n").await?;
-        self.document
-            .writer
-            .write_stream_bytes(matrix.as_bytes())
-            .await?;
-        self.document
-            .writer
-            .write_stream_bytes(format!(" cm /Im{index} Do Q\n").as_bytes())
+        self.emit(b"q\n").await?;
+        self.emit(matrix.as_bytes()).await?;
+        self.emit(format!(" cm /Im{index} Do Q\n").as_bytes())
             .await?;
         self.failed = false;
         Ok(())
@@ -606,10 +572,7 @@ impl<W: SequentialSink, C: Cancellation> ContentPageWriter<'_, '_, '_, W, C> {
             from[0], from[1], to[0], to[1]
         )
         .map_err(|_| overflow)?;
-        self.document
-            .writer
-            .write_stream_bytes(command.as_bytes())
-            .await?;
+        self.emit(command.as_bytes()).await?;
         self.failed = false;
         Ok(())
     }
@@ -633,17 +596,9 @@ impl<W: SequentialSink, C: Cancellation> ContentPageWriter<'_, '_, '_, W, C> {
             length: 0,
         };
         command.push(width)?;
-        self.document
-            .writer
-            .write_stream_bytes(b"q 0 J 0 j 10 M ")
-            .await?;
-        self.document
-            .writer
-            .write_stream_bytes(command.as_bytes())
-            .await?;
-        self.document
-            .writer
-            .write_stream_bytes(format!(" w {:.6} G\n", f64::from(gray) / 255.0).as_bytes())
+        self.emit(b"q 0 J 0 j 10 M ").await?;
+        self.emit(command.as_bytes()).await?;
+        self.emit(format!(" w {:.6} G\n", f64::from(gray) / 255.0).as_bytes())
             .await?;
         for (index, point) in points.iter().enumerate() {
             let mut command = DecimalMatrix {
@@ -652,14 +607,11 @@ impl<W: SequentialSink, C: Cancellation> ContentPageWriter<'_, '_, '_, W, C> {
             };
             command.push(point[0])?;
             command.push(point[1])?;
-            self.document
-                .writer
-                .write_stream_bytes(command.as_bytes())
-                .await?;
+            self.emit(command.as_bytes()).await?;
             let operator = if index == 0 { b" m\n" } else { b" l\n" };
-            self.document.writer.write_stream_bytes(operator).await?;
+            self.emit(operator).await?;
         }
-        self.document.writer.write_stream_bytes(b"S Q\n").await?;
+        self.emit(b"S Q\n").await?;
         self.failed = false;
         Ok(())
     }
@@ -675,7 +627,7 @@ impl<W: SequentialSink, C: Cancellation> ContentPageWriter<'_, '_, '_, W, C> {
                 reason: "PDF polygon must have three to eight vertices",
             });
         }
-        self.document.writer.write_stream_bytes(b"q 0 g\n").await?;
+        self.emit(b"q 0 g\n").await?;
         for (index, point) in points.iter().enumerate() {
             let mut command = DecimalMatrix {
                 bytes: [0; MATRIX_TEXT_BYTES],
@@ -683,14 +635,11 @@ impl<W: SequentialSink, C: Cancellation> ContentPageWriter<'_, '_, '_, W, C> {
             };
             command.push(point[0])?;
             command.push(point[1])?;
-            self.document
-                .writer
-                .write_stream_bytes(command.as_bytes())
-                .await?;
+            self.emit(command.as_bytes()).await?;
             let operator = if index == 0 { b" m\n" } else { b" l\n" };
-            self.document.writer.write_stream_bytes(operator).await?;
+            self.emit(operator).await?;
         }
-        self.document.writer.write_stream_bytes(b"h f Q\n").await?;
+        self.emit(b"h f Q\n").await?;
         self.failed = false;
         Ok(())
     }
@@ -702,6 +651,8 @@ impl<W: SequentialSink, C: Cancellation> ContentPageWriter<'_, '_, '_, W, C> {
             });
         }
         let document = self.document;
+        let mut deflate = self.deflate;
+        deflate.finish(&mut document.writer).await?;
         document.writer.end_stream().await?;
         let parent = document
             .leaf
