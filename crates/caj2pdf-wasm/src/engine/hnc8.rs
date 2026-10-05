@@ -3,8 +3,8 @@
 use super::*;
 use caj2pdf_core::{
     hnc8::{
-        ComposeOptions, ComposePage, ComposeType3Workspaces, ComposeVisitor, ComposeWorkspaces,
-        Type3PdfOptions, convert_source_pages_pdf,
+        ApplicationInfo, ComposeOptions, ComposePage, ComposeType3Workspaces, ComposeVisitor,
+        ComposeWorkspaces, Type3PdfOptions, convert_source_pages_pdf,
     },
     jbig2::mq::{MQ_STATE_COUNT, MqState, MqTable},
     jbig2::text::TextHeaderPolicy,
@@ -273,24 +273,42 @@ impl caj2pdf_core::BookmarkVisitor for IgnoreBookmarks {
     }
 }
 
-/// Page count, written bookmark count (`None` when unknown) and the number of
-/// skipped or clamped HN-A outline entries.
+/// What an HN/C8 inspection found without decoding any page.
+pub(super) struct Inspected {
+    pub pages: u32,
+    /// Written bookmark count; `None` when unknown.
+    pub bookmarks: Option<u32>,
+    /// Skipped or clamped HN-A outline entries.
+    pub outline_warnings: u32,
+    /// The C8 application-info package; `None` when absent or defective,
+    /// as in conversion.
+    pub application_info: Option<ApplicationInfo>,
+}
+
 pub(super) async fn inspect<S: RangedSource, C: Cancellation>(
     source: &mut S,
     limits: &Limits,
     cancellation: &C,
-) -> Result<(u32, Option<u32>, u32)> {
+) -> Result<Inspected> {
     use caj2pdf_core::hnc8::{Budget, Hnc8Reader};
     let result: caj2pdf_core::hnc8::Result<_> = async {
         let mut reader = Hnc8Reader::open(source, limits, cancellation, Budget::default()).await?;
         let pages = reader.header().page_count;
-        if reader.declared_bookmark_count().is_none() {
-            return Ok((pages, None, 0));
+        let application_info = reader.application_info_report().await?.info;
+        let mut inspected = Inspected {
+            pages,
+            bookmarks: None,
+            outline_warnings: 0,
+            application_info,
+        };
+        if reader.declared_bookmark_count().is_some() {
+            let outline = reader
+                .visit_bookmarks(64, pages, |page| Some(page - 1), &mut IgnoreBookmarks)
+                .await?;
+            inspected.bookmarks = Some(outline.written);
+            inspected.outline_warnings = outline.defects;
         }
-        let outline = reader
-            .visit_bookmarks(64, pages, |page| Some(page - 1), &mut IgnoreBookmarks)
-            .await?;
-        Ok((pages, Some(outline.written), outline.defects))
+        Ok(inspected)
     }
     .await;
     result.map_err(|error| Error::Hnc8Metadata(Box::new(error)))

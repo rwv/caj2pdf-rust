@@ -92,7 +92,7 @@ to the file you choose.
   `options.format`, and resolves with
   `{ format, inputBytesRead, outputBytesWritten, pagesConverted, bookmarksWritten, outlineWarnings }`.
 - `inspect(wasm, source, options)` resolves with
-  `{ format, pageCount, bookmarkCount, outlineWarnings, inputBytesRead }` without output.
+  `{ format, pageCount, bookmarkCount, outlineWarnings, applicationInfo, inputBytesRead }` without output.
   `bookmarkCount` is validated/countable for CAJ and HN-A; it is `null`
   for PDF, KDH, C8 and HN-B (unknown, not zero). HN-A validation streams
   one outline record at a time and reads no image payloads. No codec tables
@@ -104,6 +104,13 @@ to the file you choose.
   is `0` for other formats. Located per-entry reasons are listed by the CLI
   (see [docs/cli.md](../docs/cli.md#hn-a-bookmark-defects)); earlier
   releases rejected these documents.
+- `applicationInfo` is `{ doi, url, noteCount }` from a C8 application-info
+  package, the same values the CLI's `inspect` prints and conversion writes to
+  the PDF `/Info`. It is `null` when there is no package, when the package is
+  defective (conversion ignores it too), and for other formats. A missing
+  field is `null`. The DOI is a CNKI identifier, not a verified DOI, and the
+  URL is never followed. Detecting the package reads only the last 32 bytes
+  of the source.
 - `wasm` is a `WebAssembly.Module` (each call instantiates its own instance,
   so calls may run concurrently), an `Instance`, or its exports. An instance
   runs one operation at a time and rejects a second concurrent one.

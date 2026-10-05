@@ -636,6 +636,7 @@ fn a_task_pending_without_a_request_reports_idle_until_it_completes() {
                 info: None,
                 outline_warnings: 0,
                 outline_omitted: false,
+                application_info: None,
             }))
         } else {
             Poll::Pending
@@ -935,6 +936,62 @@ fn hnc8_inspection_streams_outline_validation_without_codec_or_scratch() {
         assert_eq!(run.max_read, 1);
         assert!(run.stores.iter().all(Vec::is_empty));
     }
+}
+
+/// A stored (uncompressed) zlib stream: the framing without a compressor.
+fn stored_zlib(data: &[u8]) -> Vec<u8> {
+    let (mut a, mut b) = (1_u32, 0_u32);
+    for &byte in data {
+        a = (a + u32::from(byte)) % 65521;
+        b = (b + a) % 65521;
+    }
+    let length = data.len() as u16;
+    let mut stream = vec![0x78, 0x01, 0x01];
+    stream.extend(length.to_le_bytes());
+    stream.extend((!length).to_le_bytes());
+    stream.extend(data);
+    stream.extend(((b << 16) | a).to_be_bytes());
+    stream
+}
+
+/// A one-page C8 index followed by an invented application-info package
+/// whose declared decoded length is off by `decoded_extra` bytes.
+fn c8_with_application_info(decoded_extra: u32) -> Vec<u8> {
+    let xml = b"<Package><Note-Package><NoteItems><Item/><Item/></NoteItems>\
+</Note-Package><FileProperty-Package><DOI>INVENTED:1</DOI>\
+<DURL>http://example.invalid/x</DURL></FileProperty-Package></Package>";
+    let mut bytes = vec![0; 0x50 + 20];
+    bytes[0] = 0xc8;
+    put_u32(&mut bytes, 8, 1);
+    let start = bytes.len();
+    let stream = stored_zlib(xml);
+    bytes.extend((xml.len() as u32 + decoded_extra).to_le_bytes());
+    bytes.extend((stream.len() as u32).to_le_bytes());
+    bytes.extend(stream);
+    bytes.extend(format!("APPINFOSIGN {start}").as_bytes());
+    bytes
+}
+
+#[test]
+fn c8_inspection_reports_the_application_info_package() {
+    let inspect = |input: &[u8]| {
+        let mut engine = Engine::start(
+            input.len() as u64,
+            limits(1024),
+            Operation::Inspect { format: None },
+        )
+        .unwrap();
+        drive(&mut engine, input, None);
+        let outcome = outcome(&engine);
+        assert_eq!(outcome.info.as_ref().unwrap().page_count, 1);
+        outcome.application_info.clone()
+    };
+    let info = inspect(&c8_with_application_info(0)).unwrap();
+    assert_eq!(info.doi.as_deref(), Some("INVENTED:1"));
+    assert_eq!(info.url.as_deref(), Some("http://example.invalid/x"));
+    assert_eq!(info.note_count, 2);
+    // A defective package is ignored, as in conversion.
+    assert_eq!(inspect(&c8_with_application_info(1)), None);
 }
 
 #[test]

@@ -374,6 +374,19 @@ function report(exports) {
   };
 }
 
+function applicationText(exports, field) {
+  const length = exports.caj2pdf_info_text_len(field);
+  if (length === 0) return null;
+  const bytes = new Uint8Array(exports.memory.buffer, exports.caj2pdf_info_text_ptr(field), length);
+  return new TextDecoder().decode(bytes);
+}
+
+function applicationInfo(exports) {
+  const notes = exports.caj2pdf_info_note_count();
+  if (notes < 0n) return null;
+  return { doi: applicationText(exports, 0), url: applicationText(exports, 1), noteCount: Number(notes) };
+}
+
 function inspection(exports) {
   const bookmarks = exports.caj2pdf_info_bookmark_count();
   return {
@@ -381,6 +394,7 @@ function inspection(exports) {
     pageCount: exports.caj2pdf_info_page_count(),
     bookmarkCount: bookmarks < 0n ? null : Number(bookmarks),
     outlineWarnings: exports.caj2pdf_io_outline_warnings(),
+    applicationInfo: applicationInfo(exports),
     inputBytesRead: exports.caj2pdf_io_input_bytes_read(),
   };
 }

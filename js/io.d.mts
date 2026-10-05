@@ -111,7 +111,19 @@ export interface DocumentInfo {
   bookmarkCount: number | null;
   /** HN-A outline entries skipped or clamped instead of failing; zero otherwise. */
   outlineWarnings: number;
+  /** The C8 application-info package; `null` when absent, defective or not C8. */
+  applicationInfo: ApplicationInfo | null;
   inputBytesRead: bigint;
+}
+
+/** Values from a C8 application-info package. They are not verified. */
+export interface ApplicationInfo {
+  /** A CNKI identifier; not verified as a registered DOI. */
+  doi: string | null;
+  /** Never followed. */
+  url: string | null;
+  /** Annotation entries in the package. */
+  noteCount: number;
 }
 
 export interface SpoolOptions {

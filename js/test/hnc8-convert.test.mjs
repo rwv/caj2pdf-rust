@@ -124,7 +124,9 @@ test("HN/C8 inspection validates metadata without image reads or runtime tables"
     const input = {
       size: BigInt(bytes.length),
       async readAt(offset, length) {
-        assert.ok(offset + BigInt(length) <= BigInt(boundary), "inspection must not request image/page payloads");
+        // C8 also probes its last 32 bytes for an application-info trailer.
+        const trailer = format === "c8" && offset >= BigInt(bytes.length - 32);
+        assert.ok(offset + BigInt(length) <= BigInt(boundary) || trailer, "inspection must not request image/page payloads");
         const chunk = bytes.slice(Number(offset), Number(offset) + 1);
         reads += BigInt(chunk.length); return chunk;
       },
@@ -134,6 +136,29 @@ test("HN/C8 inspection validates metadata without image reads or runtime tables"
     assert.equal(info.pageCount, 1);
     assert.equal(info.bookmarkCount, count);
     assert.equal(info.inputBytesRead, reads);
+  }
+});
+
+test("C8 inspection reports the application-info package", async () => {
+  const { inspect } = await import("../node.mjs");
+  const { deflateSync } = await import("node:zlib");
+  const { unknownOutline } = await import("./hnc8-fixtures.mjs");
+  // Invented values; the framing is [decoded][compressed][zlib]APPINFOSIGN <start>.
+  const xml = Buffer.from("<Package><Note-Package><NoteItems><Item/><Item/></NoteItems></Note-Package>"
+    + "<FileProperty-Package><DOI>INVENTED:1</DOI><DURL>http://example.invalid/x</DURL></FileProperty-Package></Package>");
+  const withPackage = (decoded) => {
+    const c8 = unknownOutline("c8");
+    const stream = deflateSync(xml);
+    const lengths = Buffer.alloc(8);
+    lengths.writeUInt32LE(decoded, 0);
+    lengths.writeUInt32LE(stream.length, 4);
+    return Buffer.concat([c8, lengths, stream, Buffer.from(`APPINFOSIGN ${c8.length}`)]);
+  };
+  const info = await inspect(await newInstance(), blobSource(new Blob([withPackage(xml.length)])));
+  assert.deepEqual(info.applicationInfo, { doi: "INVENTED:1", url: "http://example.invalid/x", noteCount: 2 });
+  // A defective package is ignored, as in conversion; a plain C8 has none.
+  for (const bytes of [withPackage(xml.length + 1), unknownOutline("c8")]) {
+    assert.equal((await inspect(await newInstance(), blobSource(new Blob([bytes])))).applicationInfo, null);
   }
 });
 

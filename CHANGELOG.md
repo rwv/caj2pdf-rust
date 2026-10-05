@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- JS `inspect` reports `applicationInfo: { doi, url, noteCount }` for a C8
+  application-info package, matching the CLI; `null` when absent or defective.
+  The WASM ABI adds `caj2pdf_info_note_count`, `caj2pdf_info_text_ptr` and
+  `caj2pdf_info_text_len`. **Breaking (Rust WASM engine):** `Outcome` gains
+  `application_info`.
+
 ## v0.4.0
 
 - Docs: the README is now a one-page quick start. Investigation notes moved

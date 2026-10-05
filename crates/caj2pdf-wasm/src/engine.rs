@@ -187,6 +187,9 @@ pub struct Outcome {
     /// Requested C8/HN-B bookmarks were not written because their layout is
     /// unverified.
     pub outline_omitted: bool,
+    /// The C8 application-info package read by an inspection; `None` when
+    /// absent, defective or not C8.
+    pub application_info: Option<caj2pdf_core::hnc8::ApplicationInfo>,
 }
 
 struct Shared {
@@ -611,6 +614,7 @@ async fn run(
                 info: None,
                 outline_warnings: outline.defects,
                 outline_omitted: outline.unverified,
+                application_info: None,
             }
         }
         _ => inspect(&mut source, format, header_offset, &limits, &cancellation).await?,
@@ -661,6 +665,7 @@ async fn inspect(
         inner: source,
         bytes_read: 0,
     };
+    let mut application_info = None;
     let (page_count, bookmark_count, outline_warnings) = match format {
         InputFormat::Pdf => {
             let range = pdf_range(counted.size(), header_offset);
@@ -688,7 +693,13 @@ async fn inspect(
             )
         }
         InputFormat::Hn | InputFormat::C8 => {
-            hnc8::inspect(&mut counted, limits, cancellation).await?
+            let inspected = hnc8::inspect(&mut counted, limits, cancellation).await?;
+            application_info = inspected.application_info;
+            (
+                inspected.pages,
+                inspected.bookmarks,
+                inspected.outline_warnings,
+            )
         }
         _ => return Err(Error::UnsupportedFormat),
     };
@@ -704,6 +715,7 @@ async fn inspect(
         }),
         outline_warnings,
         outline_omitted: false,
+        application_info,
     })
 }
 
