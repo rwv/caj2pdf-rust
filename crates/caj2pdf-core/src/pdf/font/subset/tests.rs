@@ -432,63 +432,6 @@ fn allocation_limits_bound_glyph_tables_and_composite_buffers() {
     run(font.plan_subset(&used(&['B']), u64::MAX, &limits, &NEVER)).unwrap();
 }
 
-/// A large virtual source of zeros after its real bytes.
-struct Virtual {
-    bytes: Vec<u8>,
-    size: u64,
-}
-
-impl RangedSource for Virtual {
-    fn size(&self) -> u64 {
-        self.size
-    }
-    async fn read_at(&mut self, offset: u64, out: &mut [u8]) -> Result<usize> {
-        for (index, byte) in out.iter_mut().enumerate() {
-            *byte = self
-                .bytes
-                .get(offset as usize + index)
-                .copied()
-                .unwrap_or(0);
-        }
-        Ok(out.len())
-    }
-}
-
-#[test]
-fn subset_glyph_data_is_bounded_by_long_locations() {
-    let mut tables = tables(&composite_font(true, false));
-    let huge: u32 = 3 << 30;
-    // Glyphs 1 (A) and 5 (D) both claim the same 3 GiB range.
-    for (glyph, offset) in [0, 0, huge, huge, huge, 0, huge].into_iter().enumerate() {
-        set_location(&mut tables, glyph, offset);
-    }
-    let mut bytes = build(tables);
-    let glyf = (0..9)
-        .map(|index| 12 + 16 * index)
-        .find(|entry| &bytes[*entry..entry + 4] == b"glyf")
-        .unwrap();
-    // Place the virtual glyph data after every real table.
-    let offset = bytes.len() as u32;
-    bytes[glyf + 8..glyf + 12].copy_from_slice(&offset.to_be_bytes());
-    bytes[glyf + 12..glyf + 16].copy_from_slice(&huge.to_be_bytes());
-    let mut source = Virtual {
-        size: u64::from(offset) + u64::from(huge),
-        bytes,
-    };
-    let result = subset_with(&mut source, &['A', 'D'], &Limits::default());
-    assert!(
-        matches!(
-            result,
-            Err(Error::LimitExceeded {
-                resource: "font subset program bytes",
-                limit: 0xffff_ffff,
-                ..
-            })
-        ),
-        "{result:?}"
-    );
-}
-
 /// Serves `patched` bytes for reads at `trigger` after `after` such reads.
 struct Changing {
     bytes: Vec<u8>,
@@ -537,7 +480,7 @@ fn components_changed_between_reads_are_rejected() {
         bytes: original,
         patched,
         trigger,
-        after: 2,
+        after: 1,
         seen: 0,
     };
     let limits = Limits::default();

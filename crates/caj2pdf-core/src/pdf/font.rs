@@ -3,10 +3,11 @@
 //! Ranged metadata access for explicitly supplied static TrueType fonts.
 
 mod subset;
-pub(crate) use subset::{SubsetOutput, SubsetPlan};
+pub(crate) use subset::SubsetOutput;
 
 use crate::fallible::reserve_exact;
 use crate::{Cancellation, Error, Limits, RangedSource, Result, read_exact_at};
+use sha2::Digest;
 use xberg_ttf_parser::{Face, RawFaceTables};
 
 const MAX_TABLES: usize = 128;
@@ -15,6 +16,19 @@ pub const MAX_FONT_METADATA_BYTES: u64 = 1024 * 1024;
 const METADATA_TAGS: [[u8; 4]; 8] = [
     *b"head", *b"hhea", *b"maxp", *b"cmap", *b"hmtx", *b"OS/2", *b"post", *b"name",
 ];
+/// Error reason when a font read again differs from its first read.
+pub(crate) const CHANGED: &str = "font source changed after its metadata was read";
+
+/// Whether BMP `code` is set in a 65,536-bit character bitmap.
+pub(crate) fn has_code(bitmap: &[u8], code: usize) -> bool {
+    bitmap[code / 8] & (1 << (code % 8)) != 0
+}
+
+/// Set BMP `code` in a 65,536-bit character bitmap.
+pub(crate) fn mark_code(bitmap: &mut [u8], code: usize) {
+    bitmap[code / 8] |= 1 << (code % 8);
+}
+
 /// Tables whose bytes stay in the source and are read again when subsetting.
 /// `glyf` and `loca` are required; the hinting tables are optional.
 const OUTLINE_TAGS: [[u8; 4]; 5] = [*b"glyf", *b"loca", *b"cvt ", *b"fpgm", *b"prep"];
@@ -177,7 +191,33 @@ impl<'a, S: RangedSource> TrueTypeFont<'a, S> {
     }
 
     pub(super) fn face(&self) -> Result<Face<'_>> {
-        face_of(&self.tables)
+        Face::from_raw_tables(RawFaceTables {
+            head: &self.tables[0],
+            hhea: &self.tables[1],
+            maxp: &self.tables[2],
+            cmap: Some(&self.tables[3]),
+            hmtx: Some(&self.tables[4]),
+            os2: Some(&self.tables[5]),
+            post: Some(&self.tables[6]),
+            name: Some(&self.tables[7]),
+            ..Default::default()
+        })
+        .map_err(|_| invalid("invalid required TrueType face metadata"))
+    }
+
+    /// Digest of the retained metadata and outline table ranges, identifying
+    /// the font when its source is read again.
+    pub(crate) fn fingerprint(&self) -> [u8; 32] {
+        let mut hash = sha2::Sha256::new();
+        for table in &self.tables {
+            hash.update((table.len() as u64).to_be_bytes());
+            hash.update(table);
+        }
+        for (offset, length) in self.outlines.iter().flatten() {
+            hash.update(offset.to_be_bytes());
+            hash.update(length.to_be_bytes());
+        }
+        hash.finalize().into()
     }
 
     pub(super) fn postscript_name(&self) -> Result<String> {
@@ -203,21 +243,6 @@ impl<'a, S: RangedSource> TrueTypeFont<'a, S> {
         }
         Ok(name)
     }
-}
-
-fn face_of(tables: &[Vec<u8>; 8]) -> Result<Face<'_>> {
-    Face::from_raw_tables(RawFaceTables {
-        head: &tables[0],
-        hhea: &tables[1],
-        maxp: &tables[2],
-        cmap: Some(&tables[3]),
-        hmtx: Some(&tables[4]),
-        os2: Some(&tables[5]),
-        post: Some(&tables[6]),
-        name: Some(&tables[7]),
-        ..Default::default()
-    })
-    .map_err(|_| invalid("invalid required TrueType face metadata"))
 }
 
 fn span(entry: &[u8; 16]) -> (u64, u64) {

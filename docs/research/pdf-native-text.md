@@ -30,7 +30,8 @@ their statements about missing adapters or profiles describe that earlier stage.
    same, unchanged source. It writes a Flate-compressed TrueType subset of the
    drawn glyphs (see below), a Type 0/CIDFontType2 resource with a tagged
    `BaseFont`, a compressed `CIDToGIDMap` up to the highest drawn CID, widths
-   for drawn characters only and a ToUnicode map. `finish` fails while an
+   for drawn characters only, and a reference to one identity ToUnicode map
+   shared by every font in the document. `finish` fails while an
    added font has not been embedded. A font with no drawn glyph embeds a
    valid `.notdef`-only subset.
 
@@ -46,12 +47,15 @@ table checksums and `checkSumAdjustment`. `BaseFont` carries a six-letter tag
 derived from the PostScript name and drawn-character bitmap (§9.6.4), so the
 same input produces the same bytes.
 
-Embedding reads each selected glyph's location and contour count, buffers
-only composite glyphs (their component IDs are rewritten), and measures the
-subset before writing so its directory precedes the data. Retained state is
-two bytes per source glyph plus twelve per subset glyph. A used character
-that no longer maps to a glyph, or a component that changes between reads,
-fails with "font source changed after its metadata was read".
+Planning reads each selected glyph's location and whole outline once, finds
+composite components, and measures every table, so the directory can precede
+the data; writing reads the outlines once more. Planning only reads: its
+failures leave the document usable. Retained state is two bytes per source
+glyph plus twelve per subset glyph, and one glyph buffer. Re-read bytes count
+toward the input limit. `add_font` records a digest of the font's metadata
+and table ranges; a different digest, a used character that no longer maps
+to a glyph, or a component that changes between reads fails with "font
+source changed after its metadata was read".
 
 On the six pinned C8/HN-B corpus inputs with Droid Sans Fallback and DejaVu
 Sans, MuPDF and Poppler renders and `pdftotext` output are identical to the

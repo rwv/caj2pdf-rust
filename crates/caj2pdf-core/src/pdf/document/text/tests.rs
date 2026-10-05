@@ -569,6 +569,8 @@ fn changed_font_sources_are_rejected_when_embedding() {
         let limits = Limits::default();
         let mut original = FontSource::new();
         let font = run(TrueTypeFont::read(&mut original, &limits, &NEVER)).unwrap();
+        // Any metadata change, including a remap to another existing glyph,
+        // differs from the fingerprint recorded when the font was added.
         let mut changed = FontSource::new();
         match case {
             0 => {
@@ -599,12 +601,6 @@ fn changed_font_sources_are_rejected_when_embedding() {
                 .await
                 .unwrap();
             let result = document.embed_font(&handle, &mut font).await;
-            if case == 2 {
-                // Another existing glyph is not detectable as a change.
-                result.unwrap();
-                document.finish().await.unwrap();
-                return;
-            }
             assert!(matches!(
                 result,
                 Err(Error::InvalidInput {
@@ -884,7 +880,7 @@ fn notdef_is_missing_and_postscript_hash_is_escaped() {
         .next()
         .unwrap();
     let map = inflated_stream(&sink.bytes, format!("\n{mapping} 0 obj").as_bytes());
-    assert_eq!(map, [0, 0]);
+    assert!(map.is_empty());
 }
 
 #[test]

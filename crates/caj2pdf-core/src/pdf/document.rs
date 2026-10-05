@@ -223,6 +223,11 @@ impl Deflate {
         })
     }
 
+    /// Start a new zlib stream, reusing the reserved state.
+    pub(super) fn reset(&mut self) {
+        self.encoder.reset();
+    }
+
     /// Compress `input`, and with `finish` end the zlib stream. Compression
     /// can consume input before a later output write fails, so a failed call
     /// cannot be retried; callers must poison their stream.
@@ -380,6 +385,8 @@ pub struct PdfDocument<'a, W: SequentialSink, C: Cancellation> {
     input_bytes_read: u64,
     image_buffer: Vec<u8>,
     fonts: Vec<text::PendingFont>,
+    /// Identity ToUnicode CMap shared by every embedded font.
+    to_unicode: Option<ObjectId>,
     /// Set while a bookmark insertion closes and links items, and left set
     /// when it fails there; see `super::ensure_outline_intact`.
     outline_failed: bool,
@@ -417,6 +424,7 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
             input_bytes_read: 0,
             image_buffer: Vec::new(),
             fonts: Vec::new(),
+            to_unicode: None,
             outline_failed: false,
             image_page_failed: false,
         })

@@ -7,10 +7,10 @@
 //! only the tables that a PDF `FontFile2` program needs (ISO 32000-1 §9.9):
 //! `cvt `, `fpgm`, `glyf`, `head`, `hhea`, `hmtx`, `loca`, `maxp` and `prep`.
 //! Characters map to glyphs through the PDF `CIDToGIDMap`, so no `cmap` is
-//! written. Outline bytes are streamed; only composite glyphs are buffered,
-//! because their component IDs are rewritten.
+//! written. Each selected glyph is read whole, once while planning (to find
+//! components and measure checksums) and once while writing.
 
-use super::{OUTLINE_TAGS, TrueTypeFont, face_of, invalid, read};
+use super::{CHANGED, OUTLINE_TAGS, TrueTypeFont, has_code, invalid, read};
 use crate::fallible::reserve_exact;
 use crate::{Cancellation, Error, Limits, RangedSource, Result};
 use sha2::{Digest, Sha256};
@@ -24,7 +24,6 @@ const WE_HAVE_A_SCALE: u16 = 0x0008;
 const MORE_COMPONENTS: u16 = 0x0020;
 const WE_HAVE_AN_X_AND_Y_SCALE: u16 = 0x0040;
 const WE_HAVE_A_TWO_BY_TWO: u16 = 0x0080;
-const CHANGED: &str = "font source changed after its metadata was read";
 
 /// Receives subset font program bytes in order.
 pub(crate) trait SubsetOutput {
@@ -77,7 +76,6 @@ struct Glyph {
     source: u16,
     offset: u32,
     length: u32,
-    composite: bool,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -135,6 +133,10 @@ impl SubsetPlan {
 }
 
 /// Visit each component glyph ID of composite glyph `data`, in place.
+fn is_composite(data: &[u8]) -> bool {
+    data.len() >= 2 && data[0] & 0x80 != 0
+}
+
 fn components(data: &mut [u8], mut visit: impl FnMut(&mut [u8]) -> Result<()>) -> Result<()> {
     let mut at = 10;
     loop {
@@ -194,7 +196,7 @@ impl<S: RangedSource> TrueTypeFont<'_, S> {
     ///
     /// Every used character must still map to a glyph. Composite glyphs add
     /// their components. Retained state is two bytes per source glyph plus
-    /// twelve per subset glyph; selected outlines are read again to measure.
+    /// twelve per subset glyph; each selected outline is read once here.
     pub(crate) async fn plan_subset<C: Cancellation>(
         &mut self,
         used: &[u8],
@@ -202,7 +204,7 @@ impl<S: RangedSource> TrueTypeFont<'_, S> {
         limits: &Limits,
         cancellation: &C,
     ) -> Result<SubsetPlan> {
-        let face = face_of(&self.tables)?;
+        let face = self.face()?;
         let count = face.number_of_glyphs();
         let long = face.tables().head.index_to_location_format == IndexToLocationFormat::Long;
         let entry = if long { 4 } else { 2 };
@@ -218,6 +220,7 @@ impl<S: RangedSource> TrueTypeFont<'_, S> {
         reserve_exact(&mut map, slots, refused())?;
         reserve_exact(&mut glyphs, slots, refused())?;
         map.resize(slots, 0_u16);
+        // Return the subset ID of a source glyph, adding it when first seen.
         let mut add = |glyphs: &mut Vec<Glyph>, source: u16| {
             if source != 0 && map[usize::from(source)] == 0 {
                 map[usize::from(source)] = glyphs.len() as u16;
@@ -225,20 +228,16 @@ impl<S: RangedSource> TrueTypeFont<'_, S> {
                     source,
                     offset: 0,
                     length: 0,
-                    composite: false,
                 });
             }
+            map[usize::from(source)]
         };
         glyphs.push(Glyph {
             source: 0,
             offset: 0,
             length: 0,
-            composite: false,
         });
-        for (code, _) in (0..used.len() * 8)
-            .map(|code| (code, used[code / 8] & (1 << (code % 8))))
-            .filter(|(_, bit)| *bit != 0)
-        {
+        for code in (0..used.len() * 8).filter(|code| has_code(used, *code)) {
             let id = char::from_u32(code as u32)
                 .and_then(|character| face.glyph_index(character))
                 .filter(|id| id.0 != 0 && id.0 < count)
@@ -246,6 +245,7 @@ impl<S: RangedSource> TrueTypeFont<'_, S> {
             add(&mut glyphs, id.0);
         }
         let mut scratch = Vec::new();
+        let mut glyf = Measure::default();
         let mut total = 0_u64;
         let mut index = 0;
         while index < glyphs.len() {
@@ -269,29 +269,23 @@ impl<S: RangedSource> TrueTypeFont<'_, S> {
             }
             total += u64::from(end - start).next_multiple_of(4);
             too_long(total, max_length)?;
-            let glyph = &mut glyphs[index];
-            glyph.offset = start;
-            glyph.length = end - start;
-            if glyph.length >= 2 {
-                let mut contours = [0; 2];
-                let at = self.table(GLYF).0 + u64::from(start);
-                self.fetch(at, &mut contours, limits, cancellation).await?;
-                glyph.composite = contours[0] & 0x80 != 0;
-            }
-            if glyph.composite {
-                let glyph = *glyph;
-                let data = self
-                    .composite(glyph, &mut scratch, limits, cancellation)
-                    .await?;
+            glyphs[index].offset = start;
+            glyphs[index].length = end - start;
+            let data = self
+                .glyph_data(glyphs[index], &mut scratch, limits, cancellation)
+                .await?;
+            if is_composite(data) {
                 components(data, |id| {
-                    let id = u16::from_be_bytes([id[0], id[1]]);
-                    if id >= count {
+                    let source = u16::from_be_bytes([id[0], id[1]]);
+                    if source >= count {
                         return Err(invalid("composite glyph references an invalid glyph"));
                     }
-                    add(&mut glyphs, id);
+                    id.copy_from_slice(&add(&mut glyphs, source).to_be_bytes());
                     Ok(())
                 })?;
             }
+            glyf.add(data);
+            glyf.add(&[0; 3][..glyf.padding()]);
             index += 1;
         }
         let mut tables = Vec::new();
@@ -328,9 +322,14 @@ impl<S: RangedSource> TrueTypeFont<'_, S> {
             map,
             tables,
         };
+        // Glyph data was measured above, with component IDs rewritten.
         for index in 0..plan.tables.len() {
-            let mut measure = Measure::default();
             let table = plan.tables[index].1;
+            if table == Table::Glyf {
+                plan.tables[index].2 = glyf;
+                continue;
+            }
+            let mut measure = Measure::default();
             self.emit(
                 table,
                 &plan,
@@ -418,10 +417,10 @@ impl<S: RangedSource> TrueTypeFont<'_, S> {
             }
             Table::Glyf => {
                 for glyph in &plan.glyphs {
-                    if glyph.composite {
-                        let data = self
-                            .composite(*glyph, scratch, limits, cancellation)
-                            .await?;
+                    let data = self
+                        .glyph_data(*glyph, scratch, limits, cancellation)
+                        .await?;
+                    if is_composite(data) {
                         components(data, |id| {
                             let source = u16::from_be_bytes([id[0], id[1]]);
                             let target = plan.map.get(usize::from(source)).copied().unwrap_or(0);
@@ -431,13 +430,8 @@ impl<S: RangedSource> TrueTypeFont<'_, S> {
                             id.copy_from_slice(&target.to_be_bytes());
                             Ok(())
                         })?;
-                        output.put(data).await?;
-                    } else {
-                        let offset = self.table(GLYF).0 + u64::from(glyph.offset);
-                        let length = u64::from(glyph.length);
-                        self.copy(offset, length, output, scratch, limits, cancellation)
-                            .await?;
                     }
+                    output.put(data).await?;
                     let padding = glyph.length.next_multiple_of(4) - glyph.length;
                     output.put(&[0; 3][..padding as usize]).await?;
                 }
@@ -451,7 +445,7 @@ impl<S: RangedSource> TrueTypeFont<'_, S> {
                 }
             }
             Table::Hmtx => {
-                let face = face_of(&self.tables)?;
+                let face = self.face()?;
                 for glyph in &plan.glyphs {
                     let id = GlyphId(glyph.source);
                     // Reading validated `hmtx`; every glyph ID has a metric.
@@ -505,7 +499,7 @@ impl<S: RangedSource> TrueTypeFont<'_, S> {
         Ok(())
     }
 
-    async fn composite<'b, C: Cancellation>(
+    async fn glyph_data<'b, C: Cancellation>(
         &mut self,
         glyph: Glyph,
         scratch: &'b mut Vec<u8>,
