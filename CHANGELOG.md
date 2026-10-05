@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- CI: the FreeBSD ARM64 archive is cross-built on the host against the official
+  14.3 sysroot and only tested in the emulated VM, instead of compiling Rust
+  under emulation. Its 14.3 runtime baseline is unchanged, and the VM now runs
+  every core test with the PDF validators installed.
+
 ## v0.4.0
 
 - Docs: the README is now a one-page quick start. Investigation notes moved
