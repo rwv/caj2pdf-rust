@@ -2,8 +2,12 @@
 
 //! Ranged metadata access for explicitly supplied static TrueType fonts.
 
+mod subset;
+pub(crate) use subset::SubsetOutput;
+
 use crate::fallible::reserve_exact;
 use crate::{Cancellation, Error, Limits, RangedSource, Result, read_exact_at};
+use sha2::Digest;
 use xberg_ttf_parser::{Face, RawFaceTables};
 
 const MAX_TABLES: usize = 128;
@@ -12,6 +16,22 @@ pub const MAX_FONT_METADATA_BYTES: u64 = 1024 * 1024;
 const METADATA_TAGS: [[u8; 4]; 8] = [
     *b"head", *b"hhea", *b"maxp", *b"cmap", *b"hmtx", *b"OS/2", *b"post", *b"name",
 ];
+/// Error reason when a font read again differs from its first read.
+pub(crate) const CHANGED: &str = "font source changed after its metadata was read";
+
+/// Whether BMP `code` is set in a 65,536-bit character bitmap.
+pub(crate) fn has_code(bitmap: &[u8], code: usize) -> bool {
+    bitmap[code / 8] & (1 << (code % 8)) != 0
+}
+
+/// Set BMP `code` in a 65,536-bit character bitmap.
+pub(crate) fn mark_code(bitmap: &mut [u8], code: usize) {
+    bitmap[code / 8] |= 1 << (code % 8);
+}
+
+/// Tables whose bytes stay in the source and are read again when subsetting.
+/// `glyf` and `loca` are required; the hinting tables are optional.
+const OUTLINE_TAGS: [[u8; 4]; 5] = [*b"glyf", *b"loca", *b"cvt ", *b"fpgm", *b"prep"];
 
 /// A Unicode glyph's ID and horizontal advance in font units.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -23,12 +43,16 @@ pub struct FontGlyph {
 /// Metadata and a borrowed source for one standalone static TrueType font.
 ///
 /// Only small metric/character tables are retained; outline bytes remain in
-/// the ranged source. This validates metadata, not every glyph outline. Font
+/// the ranged source and only drawn glyphs are later read again for a
+/// subset. This validates metadata, not every glyph outline. Font
 /// collections, CFF and variable fonts are outside this initial profile.
-/// Loading this resource does not enable native C8 conversion by itself.
 pub struct TrueTypeFont<'a, S> {
     pub(super) source: &'a mut S,
     tables: [Vec<u8>; 8],
+    /// `(offset, length)` of each present [`OUTLINE_TAGS`] table.
+    outlines: [Option<(u64, u64)>; 5],
+    /// Outline bytes read again for subsets, counted toward input limits.
+    subset_bytes_read: u64,
 }
 
 impl<'a, S: RangedSource> TrueTypeFont<'a, S> {
@@ -51,8 +75,7 @@ impl<'a, S: RangedSource> TrueTypeFont<'a, S> {
         let directory_end = 12 + 16 * count as u64;
         let mut directory = [[0_u8; 16]; MAX_TABLES];
         let mut metadata_bytes = 0_u64;
-        let mut has_glyf = false;
-        let mut has_loca = false;
+        let mut outlines = [None; 5];
         for i in 0..count {
             read(
                 source,
@@ -82,13 +105,14 @@ impl<'a, S: RangedSource> TrueTypeFont<'a, S> {
                     return Err(invalid("TrueType table ranges overlap"));
                 }
             }
-            has_glyf |= tag == b"glyf";
-            has_loca |= tag == b"loca";
+            if let Some(slot) = OUTLINE_TAGS.iter().position(|wanted| wanted == tag) {
+                outlines[slot] = Some((offset, length));
+            }
             if METADATA_TAGS.iter().any(|wanted| wanted == tag) {
                 metadata_bytes += length;
             }
         }
-        if !has_glyf || !has_loca {
+        if outlines[0].is_none() || outlines[1].is_none() {
             return Err(invalid("TrueType outline tables are missing"));
         }
         if metadata_bytes > MAX_FONT_METADATA_BYTES {
@@ -111,7 +135,12 @@ impl<'a, S: RangedSource> TrueTypeFont<'a, S> {
             table.resize(length as usize, 0);
             read(source, offset, table, limits, cancellation).await?;
         }
-        let font = Self { source, tables };
+        let font = Self {
+            source,
+            tables,
+            outlines,
+            subset_bytes_read: 0,
+        };
         let face = font.face()?;
         if face.tables().cmap.is_none()
             || face.tables().hmtx.is_none()
@@ -144,11 +173,6 @@ impl<'a, S: RangedSource> TrueTypeFont<'a, S> {
         Ok(font)
     }
 
-    /// Size of the original font program; its bytes have not been retained.
-    pub fn source_bytes(&self) -> u64 {
-        self.source.size()
-    }
-
     pub fn units_per_em(&self) -> Result<u16> {
         Ok(self.face()?.units_per_em())
     }
@@ -179,6 +203,21 @@ impl<'a, S: RangedSource> TrueTypeFont<'a, S> {
             ..Default::default()
         })
         .map_err(|_| invalid("invalid required TrueType face metadata"))
+    }
+
+    /// Digest of the retained metadata and outline table ranges, identifying
+    /// the font when its source is read again.
+    pub(crate) fn fingerprint(&self) -> [u8; 32] {
+        let mut hash = sha2::Sha256::new();
+        for table in &self.tables {
+            hash.update((table.len() as u64).to_be_bytes());
+            hash.update(table);
+        }
+        for (offset, length) in self.outlines.iter().flatten() {
+            hash.update(offset.to_be_bytes());
+            hash.update(length.to_be_bytes());
+        }
+        hash.finalize().into()
     }
 
     pub(super) fn postscript_name(&self) -> Result<String> {

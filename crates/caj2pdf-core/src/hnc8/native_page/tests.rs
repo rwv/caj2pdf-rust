@@ -250,18 +250,22 @@ fn convert_with_fonts(
                 font_bytes[at..at + 4].copy_from_slice(&character.to_be_bytes());
             }
         }
-        let mut font_source = source(font_bytes);
-        let mut font = TrueTypeFont::read(&mut font_source, &limits, &cancel)
-            .await
-            .unwrap();
-        let font = document.add_font(&mut font).await.unwrap();
+        let mut sources: Vec<_> = std::iter::once(font_bytes)
+            .chain(custom)
+            .map(source)
+            .collect();
+        let mut readers = Vec::new();
+        for font_source in &mut sources {
+            readers.push(
+                TrueTypeFont::read(font_source, &limits, &cancel)
+                    .await
+                    .unwrap(),
+            );
+        }
+        let font = document.add_font(&readers[0]).unwrap();
         let mut distinct = Vec::new();
-        for bytes in custom {
-            let mut font_source = source(bytes);
-            let mut font = TrueTypeFont::read(&mut font_source, &limits, &cancel)
-                .await
-                .unwrap();
-            distinct.push(document.add_font(&mut font).await.unwrap());
+        for reader in &readers[1..] {
+            distinct.push(document.add_font(reader).unwrap());
         }
         let fonts = if distinct.is_empty() {
             vec![&font, &font, &font]
@@ -307,6 +311,11 @@ fn convert_with_fonts(
         cancel.0.set(false);
         input_fault.set(false);
         output_fault.set(false);
+        let handles = std::iter::once(&font).chain(&distinct);
+        for (handle, reader) in handles.zip(&mut readers) {
+            // A poisoned document also rejects the embedding; finish reports it.
+            let _ = document.embed_font(handle, reader).await;
+        }
         let finished = document.finish().await.is_ok();
         (outcome, finished)
     });

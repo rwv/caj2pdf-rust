@@ -83,7 +83,6 @@ fn ready_rejects_a_future_that_yields() {
 /// Decode the bilevel XObjects in small, generated test PDFs. JPEG streams are
 /// deliberately left to their existing passthrough assertions.
 pub(crate) fn bilevel_pixels(pdf: &[u8]) -> Vec<Vec<u8>> {
-    use std::io::Read;
     let mut images = Vec::new();
     let marker = b"/Subtype /Image";
     let mut from = 0;
@@ -101,14 +100,37 @@ pub(crate) fn bilevel_pixels(pdf: &[u8]) -> Vec<Vec<u8>> {
         let dictionary = String::from_utf8_lossy(&pdf[at..data]);
         if dictionary.contains("/BitsPerComponent 1\n") {
             assert!(dictionary.contains("/Filter /FlateDecode"));
-            let mut decoder = flate2::read::ZlibDecoder::new(&pdf[data..]);
-            let mut pixels = Vec::new();
-            decoder.read_to_end(&mut pixels).unwrap();
+            let (pixels, consumed) = inflate(&pdf[data..]);
             images.push(pixels);
-            from = data + decoder.total_in() as usize;
+            from = data + consumed;
         } else {
             from = data;
         }
     }
     images
+}
+
+/// Inflate one zlib stream, returning its bytes and the input consumed.
+fn inflate(stream: &[u8]) -> (Vec<u8>, usize) {
+    use std::io::Read;
+    let mut decoder = flate2::read::ZlibDecoder::new(stream);
+    let mut bytes = Vec::new();
+    decoder.read_to_end(&mut bytes).unwrap();
+    (bytes, decoder.total_in() as usize)
+}
+
+/// Inflate the first Flate stream after the first occurrence of `marker`
+/// in a small generated test PDF.
+pub(crate) fn inflated_stream(pdf: &[u8], marker: &[u8]) -> Vec<u8> {
+    let at = pdf
+        .windows(marker.len())
+        .position(|part| part == marker)
+        .unwrap();
+    let data = at
+        + pdf[at..]
+            .windows(7)
+            .position(|part| part == b"stream\n")
+            .unwrap()
+        + 7;
+    inflate(&pdf[data..]).0
 }

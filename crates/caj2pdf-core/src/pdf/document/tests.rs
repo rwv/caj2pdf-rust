@@ -774,11 +774,11 @@ fn bilevel_compression_is_independent_of_row_and_output_chunk_boundaries() {
                 })
                 .await
                 .unwrap();
-            assert!(image.encoded.len() <= DEFLATE_CHUNK_BYTES);
+            assert!(image.deflate.encoded.len() <= DEFLATE_CHUNK_BYTES);
             for bytes in raw.chunks(split) {
                 image.write(bytes).await.unwrap();
             }
-            assert_eq!(image.encoder.total_in(), expected.len() as u64);
+            assert_eq!(image.deflate.encoder.total_in(), expected.len() as u64);
             let object = image.finish().await.unwrap();
             document.add_page(page(), &[object]).await.unwrap();
             document.finish().await.unwrap();
@@ -812,22 +812,23 @@ fn bilevel_compression_failure_poisons_the_image_and_leaves_the_stream_open() {
                 .unwrap();
             if mode == 0 {
                 // A broken compressor/output-buffer contract must not spin.
-                image.encoded.clear();
+                image.deflate.encoded.clear();
             } else {
                 // Simulate a backend entering finalization before row submission.
                 assert_eq!(
                     image
+                        .deflate
                         .encoder
-                        .compress(&[], &mut image.encoded[..1], FlushCompress::Finish)
+                        .compress(&[], &mut image.deflate.encoded[..1], FlushCompress::Finish)
                         .unwrap(),
                     Status::Ok
                 );
             }
             let error = image.write(&[0x80]).await.unwrap_err();
             let expected = if mode == 0 {
-                "bilevel zlib compression made no progress"
+                "zlib compression made no progress"
             } else {
-                "bilevel zlib compression failed"
+                "zlib compression failed"
             };
             assert!(matches!(error, Error::InvalidInput { reason } if reason == expected));
             assert!(image.failed);

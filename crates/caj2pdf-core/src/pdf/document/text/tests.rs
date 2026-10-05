@@ -4,7 +4,7 @@ use super::*;
 use crate::{
     native::SeekableSource,
     pdf::font::tests::drawing_font,
-    test_support::{NEVER, run},
+    test_support::{NEVER, inflated_stream, run},
 };
 use std::io::Cursor;
 
@@ -53,6 +53,31 @@ fn matrix(x: f64) -> [f64; 6] {
 }
 
 #[test]
+fn fonts_must_be_embedded_before_finishing() {
+    let mut source = SeekableSource::new(Cursor::new(drawing_font())).unwrap();
+    let limits = Limits::default();
+    let font = run(TrueTypeFont::read(&mut source, &limits, &NEVER)).unwrap();
+    let mut sink = Sink::default();
+    run(async {
+        let mut document = PdfDocument::new(&mut sink, &limits, &NEVER).await.unwrap();
+        let handle = document.add_font(&font).unwrap();
+        let fonts = [&handle];
+        let mut content = document
+            .begin_content_page(page(), &fonts, &[])
+            .await
+            .unwrap();
+        content.glyph(0, 'A', matrix(10.0)).await.unwrap();
+        content.finish().await.unwrap();
+        assert!(matches!(
+            document.finish().await,
+            Err(Error::InvalidInput {
+                reason: "PDF font was added but its subset was not embedded"
+            })
+        ));
+    });
+}
+
+#[test]
 fn embedded_font_and_ordered_mixed_page_reopen() {
     let bytes = drawing_font();
     assert!(bytes.len() < 1024);
@@ -65,11 +90,11 @@ fn embedded_font_and_ordered_mixed_page_reopen() {
     let mut sink = Sink::default();
     let report = run(async {
         let mut document = PdfDocument::new(&mut sink, &limits, &NEVER).await.unwrap();
-        let font = document.add_font(&mut font).await.unwrap();
-        assert!(font.supports('A'));
-        assert!(font.supports('中'));
-        assert!(!font.supports('B'));
-        assert!(!font.supports('😀'));
+        let handle = document.add_font(&font).unwrap();
+        assert!(handle.supports('A'));
+        assert!(handle.supports('中'));
+        assert!(!handle.supports('B'));
+        assert!(!handle.supports('😀'));
         let mut image = SeekableSource::new(Cursor::new(vec![255_u8, 0, 0])).unwrap();
         let image = document
             .add_image(
@@ -84,7 +109,7 @@ fn embedded_font_and_ordered_mixed_page_reopen() {
             )
             .await
             .unwrap();
-        let fonts = [&font];
+        let fonts = [&handle];
         let images = [image];
         let mut content = document
             .begin_content_page(page(), &fonts, &images)
@@ -120,23 +145,58 @@ fn embedded_font_and_ordered_mixed_page_reopen() {
             .unwrap();
         content.glyph(0, 'A', matrix(90.0)).await.unwrap();
         assert_eq!(content.finish().await.unwrap(), 1);
+        document.embed_font(&handle, &mut font).await.unwrap();
+        assert!(matches!(
+            document.embed_font(&handle, &mut font).await,
+            Err(Error::InvalidInput {
+                reason: "PDF font subset is already embedded"
+            })
+        ));
         document.finish().await.unwrap()
     });
     assert_eq!(report.pages_converted, 2);
-    assert_eq!(report.input_bytes_read, bytes.len() as u64 + 3);
+    assert_eq!(report.input_bytes_read, 3 + font.subset_bytes_read());
     assert!(sink.max_request <= 31);
     let text = String::from_utf8_lossy(&sink.bytes);
     assert!(text.contains("/Subtype /CIDFontType2"));
-    let widths = text
-        .split("/W [ 0 [")
+    assert!(text.contains("/DW 1000 /W [ 65 [ 600 ] 20013 [ 1000 ] ]"));
+    let tagged = text.split("/FontName /").nth(1).unwrap();
+    assert_eq!(&tagged[6..18], "+CajFixture ");
+    assert!(tagged[..6].bytes().all(|byte| byte.is_ascii_uppercase()));
+    let program = inflated_stream(&sink.bytes, b"/Length1 ");
+    let length = text.split("/Length1 ").nth(1).unwrap().split('\n').next();
+    assert_eq!(length, Some(program.len().to_string().as_str()));
+    let subset = xberg_ttf_parser::Face::parse(&program, 0).unwrap();
+    assert_eq!(subset.number_of_glyphs(), 3);
+    assert_eq!(
+        subset.glyph_hor_advance(xberg_ttf_parser::GlyphId(1)),
+        Some(600)
+    );
+    assert_eq!(
+        subset.glyph_hor_advance(xberg_ttf_parser::GlyphId(2)),
+        Some(1000)
+    );
+    let mapping = text
+        .split("/CIDToGIDMap ")
         .nth(1)
         .unwrap()
-        .split(']')
+        .split(' ')
         .next()
         .unwrap();
-    assert_eq!(widths.split_whitespace().nth(65), Some("600"));
-    assert!(text.contains(" 19968 ["));
-    assert!(text.contains("/FontName /CajFixture"));
+    let map = inflated_stream(&sink.bytes, format!("\n{mapping} 0 obj").as_bytes());
+    assert_eq!(map.len(), 2 * (0x4e2d + 1));
+    assert_eq!(&map[0x82..0x84], &[0, 1]);
+    assert_eq!(&map[0x4e2d * 2..], &[0, 2]);
+    assert_eq!(map.iter().filter(|byte| **byte != 0).count(), 2);
+    let unicode = text
+        .split("/ToUnicode ")
+        .nth(1)
+        .unwrap()
+        .split(' ')
+        .next()
+        .unwrap();
+    let unicode = inflated_stream(&sink.bytes, format!("\n{unicode} 0 obj").as_bytes());
+    assert!(String::from_utf8_lossy(&unicode).contains("<4E00> <4EFF> <4E00>"));
     let a = text.find("<0041> Tj").unwrap();
     let image = text.find("/Im0 Do").unwrap();
     let chinese = text.find("<4E2D> Tj").unwrap();
@@ -259,7 +319,7 @@ fn failed_or_abandoned_content_cannot_be_finished() {
     for case in 0..16 {
         let mut source = SeekableSource::new(Cursor::new(drawing_font())).unwrap();
         let limits = Limits::default();
-        let mut font = run(TrueTypeFont::read(&mut source, &limits, &NEVER)).unwrap();
+        let font = run(TrueTypeFont::read(&mut source, &limits, &NEVER)).unwrap();
         let mut sink = Sink {
             fail_on_restore: case == 8 || case == 9 || case == 14,
             fail_on_mark_end: case == 15,
@@ -267,7 +327,7 @@ fn failed_or_abandoned_content_cannot_be_finished() {
         };
         run(async {
             let mut document = PdfDocument::new(&mut sink, &limits, &NEVER).await.unwrap();
-            let font = document.add_font(&mut font).await.unwrap();
+            let font = document.add_font(&font).unwrap();
             let fonts = [&font];
             let mut content = document
                 .begin_content_page(page(), &fonts, &[])
@@ -314,7 +374,7 @@ fn failed_or_abandoned_content_cannot_be_finished() {
 }
 
 #[test]
-fn failed_font_copy_poisons_document() {
+fn failed_font_embedding_poisons_document() {
     let mut source = SeekableSource::new(Cursor::new(drawing_font())).unwrap();
     let limits = Limits::default();
     let mut font = run(TrueTypeFont::read(&mut source, &limits, &NEVER)).unwrap();
@@ -324,8 +384,10 @@ fn failed_font_copy_poisons_document() {
     };
     run(async {
         let mut document = PdfDocument::new(&mut sink, &limits, &NEVER).await.unwrap();
-        assert!(document.add_font(&mut font).await.is_err());
-        assert!(document.add_font(&mut font).await.is_err());
+        let handle = document.add_font(&font).unwrap();
+        assert!(document.embed_font(&handle, &mut font).await.is_err());
+        assert!(document.embed_font(&handle, &mut font).await.is_err());
+        assert!(document.add_font(&font).is_err());
         assert!(document.begin_content_page(page(), &[], &[]).await.is_err());
         assert!(document.finish().await.is_err());
     });
@@ -339,11 +401,17 @@ fn foreign_resources_and_page_preflight_do_not_poison() {
     let mut first = Sink::default();
     let foreign = run(async {
         let mut document = PdfDocument::new(&mut first, &limits, &NEVER).await.unwrap();
-        document.add_font(&mut font).await.unwrap()
+        document.add_font(&font).unwrap()
     });
     let mut sink = Sink::default();
     run(async {
         let mut document = PdfDocument::new(&mut sink, &limits, &NEVER).await.unwrap();
+        assert!(matches!(
+            document.embed_font(&foreign, &mut font).await,
+            Err(Error::InvalidInput {
+                reason: "PDF font belongs to another document"
+            })
+        ));
         assert!(
             document
                 .begin_content_page(page(), &[&foreign], &[])
@@ -411,36 +479,34 @@ impl RangedSource for FontSource {
     }
 }
 
+fn mutate_cmap_glyph(bytes: &mut [u8], glyph: u32) {
+    let table = bytes[12..]
+        .as_chunks::<16>()
+        .0
+        .iter()
+        .find(|entry| &entry[..4] == b"cmap")
+        .unwrap();
+    let offset = u32::from_be_bytes(table[8..12].try_into().unwrap()) as usize;
+    bytes[offset + 36..offset + 40].copy_from_slice(&glyph.to_be_bytes());
+}
+
 #[test]
-fn font_limits_and_invalid_glyphs_are_explicit() {
-    for case in 0..4 {
+fn font_limits_and_invalid_glyphs_are_explicit_before_output() {
+    for case in 0..2 {
         let mut source = FontSource::new();
-        if case == 0 {
-            source.size = MAX_PDF_INTEGER + 1;
-        }
-        if case == 3 {
-            let table = source.bytes[12..]
-                .as_chunks::<16>()
-                .0
-                .iter()
-                .find(|entry| &entry[..4] == b"cmap")
-                .unwrap();
-            let offset = u32::from_be_bytes(table[8..12].try_into().unwrap()) as usize;
-            source.bytes[offset + 36..offset + 40].copy_from_slice(&9_u32.to_be_bytes());
+        if case == 1 {
+            mutate_cmap_glyph(&mut source.bytes, 9);
         }
         let limits = Limits::default();
-        let mut font = run(TrueTypeFont::read(&mut source, &limits, &NEVER)).unwrap();
-        let document_limits = match case {
-            1 => Limits {
-                max_input_bytes: 1,
-                ..limits
+        let font = run(TrueTypeFont::read(&mut source, &limits, &NEVER)).unwrap();
+        let document_limits = Limits {
+            io_chunk_bytes: 31,
+            max_allocation_bytes: if case == 0 {
+                4096
+            } else {
+                limits.max_allocation_bytes
             },
-            2 => Limits {
-                io_chunk_bytes: 31,
-                max_allocation_bytes: 4096,
-                ..limits
-            },
-            _ => limits,
+            ..limits
         };
         let mut sink = Sink::default();
         run(async {
@@ -448,27 +514,107 @@ fn font_limits_and_invalid_glyphs_are_explicit() {
                 .await
                 .unwrap();
             let before = document.writer.position();
-            assert!(document.add_font(&mut font).await.is_err());
-            if case == 3 {
-                assert!(document.writer.position() > before);
-                assert!(document.finish().await.is_err());
-            } else {
-                assert_eq!(document.writer.position(), before);
-                document
-                    .begin_content_page(page(), &[], &[])
-                    .await
-                    .unwrap()
-                    .finish()
-                    .await
-                    .unwrap();
-                document.finish().await.unwrap();
-            }
+            assert!(document.add_font(&font).is_err());
+            assert_eq!(document.writer.position(), before);
+            document
+                .begin_content_page(page(), &[], &[])
+                .await
+                .unwrap()
+                .finish()
+                .await
+                .unwrap();
+            document.finish().await.unwrap();
         });
     }
 }
 
 #[test]
-fn failed_or_abandoned_font_read_poisons_document() {
+fn width_spans_cover_unused_characters_between_used_ones() {
+    let mut source = FontSource::new();
+    let table = source.bytes[12..]
+        .as_chunks::<16>()
+        .0
+        .iter()
+        .find(|entry| &entry[..4] == b"cmap")
+        .unwrap();
+    let offset = u32::from_be_bytes(table[8..12].try_into().unwrap()) as usize;
+    // Relabel the triangle from U+4E2D to C, two codes after A.
+    for at in [offset + 40, offset + 44] {
+        source.bytes[at..at + 4].copy_from_slice(&0x43_u32.to_be_bytes());
+    }
+    let limits = Limits::default();
+    let mut font = run(TrueTypeFont::read(&mut source, &limits, &NEVER)).unwrap();
+    let mut sink = Sink::default();
+    run(async {
+        let mut document = PdfDocument::new(&mut sink, &limits, &NEVER).await.unwrap();
+        let handle = document.add_font(&font).unwrap();
+        let fonts = [&handle];
+        let mut content = document
+            .begin_content_page(page(), &fonts, &[])
+            .await
+            .unwrap();
+        content.glyph(0, 'C', matrix(10.0)).await.unwrap();
+        content.glyph(0, 'A', matrix(30.0)).await.unwrap();
+        content.finish().await.unwrap();
+        document.embed_font(&handle, &mut font).await.unwrap();
+        document.finish().await.unwrap();
+    });
+    let text = String::from_utf8_lossy(&sink.bytes);
+    assert!(text.contains("/W [ 65 [ 600 1000 1000 ] ]"));
+}
+
+#[test]
+fn changed_font_sources_are_rejected_when_embedding() {
+    for case in 0..3 {
+        let limits = Limits::default();
+        let mut original = FontSource::new();
+        let font = run(TrueTypeFont::read(&mut original, &limits, &NEVER)).unwrap();
+        // Any metadata change, including a remap to another existing glyph,
+        // differs from the fingerprint recorded when the font was added.
+        let mut changed = FontSource::new();
+        match case {
+            0 => {
+                let table = changed.bytes[12..]
+                    .as_chunks::<16>()
+                    .0
+                    .iter()
+                    .find(|entry| &entry[..4] == b"name")
+                    .unwrap();
+                let offset = u32::from_be_bytes(table[8..12].try_into().unwrap()) as usize;
+                changed.bytes[offset + 19] = b'D';
+            }
+            1 => mutate_cmap_glyph(&mut changed.bytes, 0),
+            _ => mutate_cmap_glyph(&mut changed.bytes, 2),
+        }
+        let mut sink = Sink::default();
+        run(async {
+            let mut document = PdfDocument::new(&mut sink, &limits, &NEVER).await.unwrap();
+            let handle = document.add_font(&font).unwrap();
+            let fonts = [&handle];
+            let mut content = document
+                .begin_content_page(page(), &fonts, &[])
+                .await
+                .unwrap();
+            content.glyph(0, 'A', matrix(10.0)).await.unwrap();
+            content.finish().await.unwrap();
+            let mut font = TrueTypeFont::read(&mut changed, &limits, &NEVER)
+                .await
+                .unwrap();
+            let result = document.embed_font(&handle, &mut font).await;
+            assert!(matches!(
+                result,
+                Err(Error::InvalidInput {
+                    reason: "font source changed after its metadata was read"
+                })
+            ));
+            // Changes are detected before output; the document survives.
+            document.add_font(&font).unwrap();
+        });
+    }
+}
+
+#[test]
+fn failed_or_abandoned_subset_planning_can_be_retried() {
     use std::{
         future::Future,
         task::{Context, Poll, Waker},
@@ -477,12 +623,15 @@ fn failed_or_abandoned_font_read_poisons_document() {
         let mut source = FontSource::new();
         let limits = Limits::default();
         let mut font = run(TrueTypeFont::read(&mut source, &limits, &NEVER)).unwrap();
-        font.source.pending = pending;
-        font.source.fail = !pending;
         let mut sink = Sink::default();
         let mut document = run(PdfDocument::new(&mut sink, &limits, &NEVER)).unwrap();
+        let handle = document.add_font(&font).unwrap();
+        let content = run(document.begin_content_page(page(), &[], &[])).unwrap();
+        run(content.finish()).unwrap();
+        font.source.pending = pending;
+        font.source.fail = !pending;
         if pending {
-            let mut future = std::pin::pin!(document.add_font(&mut font));
+            let mut future = std::pin::pin!(document.embed_font(&handle, &mut font));
             assert!(matches!(
                 future
                     .as_mut()
@@ -490,10 +639,118 @@ fn failed_or_abandoned_font_read_poisons_document() {
                 Poll::Pending
             ));
         } else {
-            assert!(run(document.add_font(&mut font)).is_err());
+            assert!(run(document.embed_font(&handle, &mut font)).is_err());
         }
-        assert!(run(document.finish()).is_err());
+        // Planning wrote nothing, so the same embedding can be retried.
+        font.source.pending = false;
+        font.source.fail = false;
+        run(document.embed_font(&handle, &mut font)).unwrap();
+        run(document.finish()).unwrap();
     }
+}
+
+#[test]
+fn subset_reads_count_toward_the_input_limit() {
+    let limits = Limits::default();
+    let mut source = FontSource::new();
+    let mut font = run(TrueTypeFont::read(&mut source, &limits, &NEVER)).unwrap();
+    let mut sink = Sink::default();
+    let total = run(async {
+        let mut document = PdfDocument::new(&mut sink, &limits, &NEVER).await.unwrap();
+        let handle = document.add_font(&font).unwrap();
+        let fonts = [&handle];
+        let mut content = document
+            .begin_content_page(page(), &fonts, &[])
+            .await
+            .unwrap();
+        content.glyph(0, '中', matrix(10.0)).await.unwrap();
+        content.finish().await.unwrap();
+        document.embed_font(&handle, &mut font).await.unwrap();
+        assert!(matches!(
+            document.begin_content_page(page(), &fonts, &[]).await,
+            Err(Error::InvalidInput {
+                reason: "PDF font subset is already embedded"
+            })
+        ));
+        document.finish().await.unwrap().input_bytes_read
+    });
+    assert_eq!(total, font.subset_bytes_read());
+    let mut used = vec![0; 8192];
+    used[0x4e2d / 8] |= 1 << (0x4e2d % 8);
+    let mut source = FontSource::new();
+    let mut font = run(TrueTypeFont::read(&mut source, &limits, &NEVER)).unwrap();
+    run(font.plan_subset(&used, u64::MAX, &limits, &NEVER)).unwrap();
+    let planned = font.subset_bytes_read();
+    assert!(planned < total);
+    // Exceeding the limit while planning leaves the document usable;
+    // exceeding it while writing poisons it.
+    for (limit, poisoned) in [(planned - 1, false), (planned, true)] {
+        let mut source = FontSource::new();
+        let mut font = run(TrueTypeFont::read(&mut source, &limits, &NEVER)).unwrap();
+        let document_limits = Limits {
+            max_input_bytes: limit,
+            ..limits
+        };
+        let mut sink = Sink::default();
+        run(async {
+            let mut document = PdfDocument::new(&mut sink, &document_limits, &NEVER)
+                .await
+                .unwrap();
+            let handle = document.add_font(&font).unwrap();
+            let fonts = [&handle];
+            let mut content = document
+                .begin_content_page(page(), &fonts, &[])
+                .await
+                .unwrap();
+            content.glyph(0, '中', matrix(10.0)).await.unwrap();
+            content.finish().await.unwrap();
+            assert!(matches!(
+                document.embed_font(&handle, &mut font).await,
+                Err(Error::LimitExceeded {
+                    resource: "input bytes",
+                    ..
+                })
+            ));
+            assert_eq!(document.add_font(&font).is_err(), poisoned);
+        });
+    }
+}
+
+#[test]
+fn subset_tags_distinguish_programs_with_one_name() {
+    let tags: Vec<_> = [600_u16, 610]
+        .into_iter()
+        .map(|advance| {
+            let mut source = FontSource::new();
+            let table = source.bytes[12..]
+                .as_chunks::<16>()
+                .0
+                .iter()
+                .find(|entry| &entry[..4] == b"hmtx")
+                .unwrap();
+            let offset = u32::from_be_bytes(table[8..12].try_into().unwrap()) as usize;
+            source.bytes[offset + 4..offset + 6].copy_from_slice(&advance.to_be_bytes());
+            let limits = Limits::default();
+            let mut font = run(TrueTypeFont::read(&mut source, &limits, &NEVER)).unwrap();
+            let mut sink = Sink::default();
+            run(async {
+                let mut document = PdfDocument::new(&mut sink, &limits, &NEVER).await.unwrap();
+                let handle = document.add_font(&font).unwrap();
+                let fonts = [&handle];
+                let mut content = document
+                    .begin_content_page(page(), &fonts, &[])
+                    .await
+                    .unwrap();
+                content.glyph(0, 'A', matrix(10.0)).await.unwrap();
+                content.finish().await.unwrap();
+                document.embed_font(&handle, &mut font).await.unwrap();
+                document.finish().await.unwrap();
+            });
+            let text = String::from_utf8_lossy(&sink.bytes).into_owned();
+            text.split("/FontName /").nth(1).unwrap()[..6].to_owned()
+        })
+        .collect();
+    assert_ne!(tags[0], tags[1]);
 }
 
 #[test]
@@ -526,13 +783,13 @@ fn cancellation_and_abandoned_draws_cannot_publish_a_partial_page() {
     ] {
         let mut source = FontSource::new();
         let limits = Limits::default();
-        let mut font = run(TrueTypeFont::read(&mut source, &limits, &NEVER)).unwrap();
+        let font = run(TrueTypeFont::read(&mut source, &limits, &NEVER)).unwrap();
         let mut sink = Sink::default();
         let suspend = sink.pending.clone();
         let cancelled = Rc::new(Cell::new(false));
         let cancellation = Cancel(cancelled.clone());
         let mut document = run(PdfDocument::new(&mut sink, &limits, &cancellation)).unwrap();
-        let font = run(document.add_font(&mut font)).unwrap();
+        let font = document.add_font(&font).unwrap();
         let fonts = [&font];
         let mut page = run(document.begin_content_page(page(), &fonts, &[])).unwrap();
         let draw = async {
@@ -595,19 +852,35 @@ fn notdef_is_missing_and_postscript_hash_is_escaped() {
     let mut sink = Sink::default();
     run(async {
         let mut document = PdfDocument::new(&mut sink, &limits, &NEVER).await.unwrap();
-        let font = document.add_font(&mut font).await.unwrap();
-        assert!(!font.supports('A'));
-        assert!(font.supports('中'));
+        let handle = document.add_font(&font).unwrap();
+        assert!(!handle.supports('A'));
+        assert!(handle.supports('中'));
         document
-            .begin_content_page(page(), &[&font], &[])
+            .begin_content_page(page(), &[&handle], &[])
             .await
             .unwrap()
             .finish()
             .await
             .unwrap();
+        // An unused font still embeds a valid `.notdef`-only subset.
+        document.embed_font(&handle, &mut font).await.unwrap();
         document.finish().await.unwrap();
     });
-    assert!(String::from_utf8_lossy(&sink.bytes).contains("/FontName /#23ajFixture"));
+    let text = String::from_utf8_lossy(&sink.bytes);
+    assert!(text.contains("+#23ajFixture /Flags"));
+    assert!(text.contains("/DW 1000 /W [ ] >>"));
+    let program = inflated_stream(&sink.bytes, b"/Length1 ");
+    let subset = xberg_ttf_parser::Face::parse(&program, 0).unwrap();
+    assert_eq!(subset.number_of_glyphs(), 1);
+    let mapping = text
+        .split("/CIDToGIDMap ")
+        .nth(1)
+        .unwrap()
+        .split(' ')
+        .next()
+        .unwrap();
+    let map = inflated_stream(&sink.bytes, format!("\n{mapping} 0 obj").as_bytes());
+    assert!(map.is_empty());
 }
 
 #[test]

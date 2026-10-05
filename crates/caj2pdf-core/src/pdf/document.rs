@@ -6,7 +6,7 @@ mod text;
 pub use text::{ContentPageWriter, FontObject};
 
 use super::writer::{MAX_PDF_INTEGER, ObjectId, PdfWriter};
-use crate::fallible::{checked_read_count, len_u64, reserve_exact, usize_from_u32};
+use crate::fallible::{checked_read_count, len_u64, reserve, reserve_exact, usize_from_u32};
 use crate::{
     Bookmark, BookmarkVisitor, Cancellation, ConversionReport, Error, Limits, RangedSource, Result,
     SequentialSink, read_exact_at,
@@ -198,9 +198,79 @@ pub struct BilevelImageWriter<'d, 'a, W: SequentialSink, C: Cancellation> {
     stride: usize,
     column: usize,
     remaining: u64,
+    deflate: Deflate,
+    failed: bool,
+}
+
+/// Fixed-size zlib state that compresses into the writer's open stream.
+pub(super) struct Deflate {
     encoder: Compress,
     encoded: Vec<u8>,
-    failed: bool,
+}
+
+impl Deflate {
+    /// Reserve the compressor state and one output chunk.
+    pub(super) fn new(limits: &Limits) -> Result<Self> {
+        limits.check_allocation(DEFLATE_RESERVATION_BYTES)?;
+        let mut encoded = Vec::new();
+        let chunk = limits.io_chunk_bytes.min(DEFLATE_CHUNK_BYTES);
+        let refused = limits.allocation_refused("zlib compression output", chunk as u64);
+        reserve_exact(&mut encoded, chunk, refused)?;
+        encoded.resize(chunk, 0);
+        Ok(Self {
+            encoder: Compress::new(Compression::default(), true),
+            encoded,
+        })
+    }
+
+    /// Start a new zlib stream, reusing the reserved state.
+    pub(super) fn reset(&mut self) {
+        self.encoder.reset();
+    }
+
+    /// Compress `input`, and with `finish` end the zlib stream. Compression
+    /// can consume input before a later output write fails, so a failed call
+    /// cannot be retried; callers must poison their stream.
+    pub(super) async fn write<W: SequentialSink, C: Cancellation>(
+        &mut self,
+        writer: &mut PdfWriter<'_, W, C>,
+        mut input: &[u8],
+        finish: bool,
+    ) -> Result<()> {
+        let flush = if finish {
+            FlushCompress::Finish
+        } else {
+            FlushCompress::None
+        };
+        loop {
+            // Also checks cancellation for empty writes and while draining.
+            writer.write_stream_bytes(&[]).await?;
+            if input.is_empty() && !finish {
+                return Ok(());
+            }
+            let before_in = self.encoder.total_in();
+            let before_out = self.encoder.total_out();
+            let count = input.len().min(DEFLATE_CHUNK_BYTES);
+            let status = self
+                .encoder
+                .compress(&input[..count], &mut self.encoded, flush)
+                .map_err(|_| Error::InvalidInput {
+                    reason: "zlib compression failed",
+                })?;
+            let consumed = (self.encoder.total_in() - before_in) as usize;
+            let produced = (self.encoder.total_out() - before_out) as usize;
+            writer.write_stream_bytes(&self.encoded[..produced]).await?;
+            input = &input[consumed..];
+            if status == Status::StreamEnd || (!finish && input.is_empty()) {
+                return Ok(());
+            }
+            if consumed == 0 && produced == 0 {
+                return Err(Error::InvalidInput {
+                    reason: "zlib compression made no progress",
+                });
+            }
+        }
+    }
 }
 
 impl<W: SequentialSink, C: Cancellation> SequentialSink for BilevelImageWriter<'_, '_, W, C> {
@@ -234,51 +304,16 @@ impl<W: SequentialSink, C: Cancellation> SequentialSink for BilevelImageWriter<'
 }
 
 impl<W: SequentialSink, C: Cancellation> BilevelImageWriter<'_, '_, W, C> {
-    async fn encode(&mut self, mut input: &[u8], finish: bool) -> Result<()> {
+    async fn encode(&mut self, input: &[u8], finish: bool) -> Result<()> {
         if self.failed {
             return Err(Error::InvalidInput {
                 reason: "bilevel image cannot continue after compression or output failure",
             });
         }
-        // Compression can consume input before a subsequent output write fails.
-        // Such a call cannot be retried safely, even if the sink wrote no bytes.
         self.failed = true;
-        let flush = if finish {
-            FlushCompress::Finish
-        } else {
-            FlushCompress::None
-        };
-        loop {
-            // Also checks cancellation for padding-only writes and while draining.
-            self.document.writer.write_stream_bytes(&[]).await?;
-            if input.is_empty() && !finish {
-                break;
-            }
-            let before_in = self.encoder.total_in();
-            let before_out = self.encoder.total_out();
-            let count = input.len().min(DEFLATE_CHUNK_BYTES);
-            let status = self
-                .encoder
-                .compress(&input[..count], &mut self.encoded, flush)
-                .map_err(|_| Error::InvalidInput {
-                    reason: "bilevel zlib compression failed",
-                })?;
-            let consumed = (self.encoder.total_in() - before_in) as usize;
-            let produced = (self.encoder.total_out() - before_out) as usize;
-            self.document
-                .writer
-                .write_stream_bytes(&self.encoded[..produced])
-                .await?;
-            input = &input[consumed..];
-            if status == Status::StreamEnd || (!finish && input.is_empty()) {
-                break;
-            }
-            if consumed == 0 && produced == 0 {
-                return Err(Error::InvalidInput {
-                    reason: "bilevel zlib compression made no progress",
-                });
-            }
-        }
+        self.deflate
+            .write(&mut self.document.writer, input, finish)
+            .await?;
         self.failed = false;
         Ok(())
     }
@@ -349,6 +384,9 @@ pub struct PdfDocument<'a, W: SequentialSink, C: Cancellation> {
     retained_title_bytes: u64,
     input_bytes_read: u64,
     image_buffer: Vec<u8>,
+    fonts: Vec<text::PendingFont>,
+    /// Identity ToUnicode CMap shared by every embedded font.
+    to_unicode: Option<ObjectId>,
     /// Set while a bookmark insertion closes and links items, and left set
     /// when it fails there; see `super::ensure_outline_intact`.
     outline_failed: bool,
@@ -385,6 +423,8 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
             retained_title_bytes: 0,
             input_bytes_read: 0,
             image_buffer: Vec::new(),
+            fonts: Vec::new(),
+            to_unicode: None,
             outline_failed: false,
             image_page_failed: false,
         })
@@ -490,15 +530,7 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
     ) -> Result<BilevelImageWriter<'_, 'a, W, C>> {
         self.ensure_image_page_intact()?;
         let (visible, remaining) = image.validate()?;
-        self.limits.check_allocation(DEFLATE_RESERVATION_BYTES)?;
-        let mut encoded = Vec::new();
-        let chunk = self.limits.io_chunk_bytes.min(DEFLATE_CHUNK_BYTES);
-        let refused = self
-            .limits
-            .allocation_refused("bilevel compression output", chunk as u64);
-        reserve_exact(&mut encoded, chunk, refused)?;
-        encoded.resize(chunk, 0);
-        let encoder = Compress::new(Compression::default(), true);
+        let deflate = Deflate::new(self.limits)?;
         let object = self.writer.reserve_object()?;
         let length_id = self.writer.reserve_object()?;
         let dictionary = format!(
@@ -515,8 +547,7 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
             stride: image.row_stride,
             column: 0,
             remaining,
-            encoder,
-            encoded,
+            deflate,
             failed: false,
         })
     }
@@ -801,6 +832,7 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
         }
         self.ensure_image_page_intact()?;
         super::ensure_outline_intact(self.outline_failed)?;
+        text::ensure_fonts_embedded(&self.fonts)?;
         if self.pages_written == 0 {
             return Err(Error::InvalidInput {
                 reason: "PDF document requires at least one page",
