@@ -299,11 +299,14 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - {arch: riscv64, target: riscv64gc-unknown-freebsd}
-          - {arch: powerpc64, target: powerpc64-unknown-freebsd}
+          # aarch64 installs the PDF validators in the VM and runs every core
+          # test; the other two keep their validator-free run with three skips.
+          - {arch: aarch64, target: aarch64-unknown-freebsd, release: '14.3', validators: 'pkg install -y qpdf mupdf', skip: ''}
+          - {arch: riscv64, target: riscv64gc-unknown-freebsd, release: '15.1', validators: '', skip: '--skip hnc8::compose::tests::independent_render_proves_padded_orientation_and_later_overlap_pixels --skip hnc8::compose::tests::type3_complete_mixed_pages_reuse_stores_and_keep_top_first_pixels --skip hnc8::compose::tests::independent_render_checks_decoded_images_in_native_content_order'}
+          - {arch: powerpc64, target: powerpc64-unknown-freebsd, release: '15.1', validators: '', skip: '--skip hnc8::compose::tests::independent_render_proves_padded_orientation_and_later_overlap_pixels --skip hnc8::compose::tests::type3_complete_mixed_pages_reuse_stores_and_keep_top_first_pixels --skip hnc8::compose::tests::independent_render_checks_decoded_images_in_native_content_order'}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Cross-build against the pinned FreeBSD 15.1 sysroot
+      - name: Cross-build against the pinned FreeBSD sysroot
         run: |
           sudo apt-get update
           sudo apt-get install --no-install-recommends -y clang lld qpdf mupdf-tools
@@ -312,17 +315,18 @@ jobs:
       - name: Execute cross-built tests in FreeBSD
         uses: vmactions/freebsd-vm@a2f9a41fa97f6848b8c3b791087dfcdaa5b473ff
         with:
-          release: '15.1'
+          release: ${{ matrix.release }}
           arch: ${{ matrix.arch }}
           sync: scp
           usesh: true
           mem: 4096
           cpu: 2
+          prepare: ${{ matrix.validators }}
           run: |
             set -eu
             uname -a
             cd target/freebsd-cross
-            timeout 1800 ./core-tests --test-threads=2 --skip hnc8::compose::tests::independent_render_proves_padded_orientation_and_later_overlap_pixels --skip hnc8::compose::tests::type3_complete_mixed_pages_reuse_stores_and_keep_top_first_pixels --skip hnc8::compose::tests::independent_render_checks_decoded_images_in_native_content_order
+            timeout 1800 ./core-tests --test-threads=2 ${{ matrix.skip }}
             CAJ2PDF_TEST_BINARY="$(pwd)/caj2pdf" timeout 300 ./portable-tests --test-threads=2
             ./caj2pdf input.pdf -o output.pdf
             ./caj2pdf inspect output.pdf --json
@@ -348,7 +352,6 @@ jobs:
       matrix:
         include:
           - {arch: x86_64, target: x86_64-unknown-freebsd}
-          - {arch: aarch64, target: aarch64-unknown-freebsd}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Build and test in FreeBSD 14.3
