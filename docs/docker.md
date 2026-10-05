@@ -17,7 +17,7 @@ docker run --rm --read-only \
   --user "$(id -u):$(id -g)" \
   --tmpfs /tmp:rw,noexec,nosuid,mode=1777,size=1g \
   --mount "type=bind,src=$PWD,dst=/data" \
-  ghcr.io/rwv/caj2pdf-rust:v0.3.0 input.caj -o output.pdf
+  ghcr.io/rwv/caj2pdf-rust:v0.4.0 input.caj -o output.pdf
 ```
 
 The mounted directory must be writable by the selected user. Choose temporary
@@ -31,7 +31,7 @@ For stdin/stdout (binary output stays on stdout):
 
 ```sh
 docker run --rm -i --read-only --tmpfs /tmp:rw,noexec,nosuid,mode=1777,size=1g \
-  ghcr.io/rwv/caj2pdf-rust:v0.3.0 - < input.caj > output.pdf
+  ghcr.io/rwv/caj2pdf-rust:v0.4.0 - < input.caj > output.pdf
 ```
 
 C8/HN-B needs `--no-bookmarks`. All native format limits and resource limits

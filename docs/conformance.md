@@ -30,8 +30,8 @@ The same conversion core serves all three interfaces.
 | HN-B | Experimental image pages and admitted native mode-0/mode-2 profiles | With explicit fonts (bookmarks are omitted with a warning), the selected 4/4/6-page documents convert through CLI/Node/Worker with identical per-document outputs. Native mode 2 supports leading images; image-after-text and mode-0 images remain errors. [Independent controls and scoped layout checks](research/hnb-compact-index.md) do not establish original-font pixel parity. |
 | TEB, unrecognized layouts, unsupported image/native modes | Rejected | No OCR or silent omission fallback. Located errors identify unsupported HN/C8 content. |
 
-This table describes current main, including unreleased native-page additions;
-it does not retrofit those capabilities into the published v0.3.1 artifacts.
+This table describes current main, which v0.4.0 released. Earlier published
+artifacts do not gain these capabilities.
 The font-free corpus checkpoint below is separate from successful explicit-font
 HN-B/C8 runs. Required caller fonts must be provided; a missing resource is not
 proof of an unsupported parser profile. Unknown HN-B/C8 outlines remain unknown,
@@ -406,7 +406,7 @@ an authority for reproducing page permutations or dropped bookmarks.
   original synthetic fixtures; external documents and vendor/build artifacts
   are absent. The numeric-state adoption record remains explicit in provenance.
 - The candidate audit was completed and GitHub releases have since been
-  published, most recently [v0.3.1](releases/v0.3.1.md). Native archives,
+  published, most recently [v0.4.0](releases/v0.4.0.md). Native archives,
   JS/WASM and container artifacts include [build provenance](build-provenance.md).
   npm/crates.io publication remains separate; package publishing stays disabled.
   The measurements above are historical and are not a fresh whole-corpus run.
