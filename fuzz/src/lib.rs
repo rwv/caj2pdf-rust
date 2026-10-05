@@ -131,6 +131,7 @@ pub fn convert(data: &[u8]) {
     let Some(format) = format(data) else { return };
     let options = ConversionOptions {
         include_bookmarks: true,
+        allow_damaged: data.get(8).is_some_and(|byte| byte & 1 != 0),
     };
     let _ = block_on(async {
         match format {
