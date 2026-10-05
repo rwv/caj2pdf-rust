@@ -40,7 +40,7 @@ struct Measure {
 
 impl Measure {
     fn add(&mut self, mut bytes: &[u8]) {
-        while self.length % 4 != 0 && !bytes.is_empty() {
+        while !self.length.is_multiple_of(4) && !bytes.is_empty() {
             self.byte(bytes[0]);
             bytes = &bytes[1..];
         }
