@@ -1,0 +1,20 @@
+name: CAJViewer installer integrity (manual)
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  installer:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Restore pinned installer
+        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        with:
+          path: ${{ runner.temp }}/cajviewer-installer
+          key: cajviewer-linux-x86_64-3142c633d74dcf34ebaca9b7653f88ad3619f0b7a6cb689487b6cc583ec926d3
+      - name: Fetch or verify cached installer (no viewer execution)
+        run: |
+          python3 scripts/fetch_cajviewer.py "$RUNNER_TEMP/cajviewer-installer/cajviewer.deb"
+          echo 'Installer integrity verified. Viewer rendering/text compatibility: NOT_RUN; zero vendor passes.' >> "$GITHUB_STEP_SUMMARY"
