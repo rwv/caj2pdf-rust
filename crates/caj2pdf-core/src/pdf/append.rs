@@ -382,6 +382,7 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfOutlineAppender<'a, W, C> {
             // numbers are at most `MAX_PDF_OBJECTS`, so the count fits `u32`.
             pages_converted: self.index.pages().len() as u32,
             bookmarks_written: self.bookmarks_written,
+            omitted_pages: Vec::new(),
         })
     }
 

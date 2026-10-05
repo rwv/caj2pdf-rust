@@ -41,7 +41,7 @@ impl Default for Type2PdfOptions {
 }
 
 /// Checked source identity and the finished one-page PDF report.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Type2SelectedPdfReport {
     /// Includes container, JPEG preflight, and PDF-copy source bytes.
     pub conversion: ConversionReport,

@@ -861,6 +861,7 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
             output_bytes_written,
             pages_converted: self.pages_written,
             bookmarks_written: self.bookmarks_written,
+            omitted_pages: Vec::new(),
         })
     }
 

@@ -9,6 +9,7 @@
 //! Conversion must validate the PDF objects before using that boundary.
 
 mod converter;
+mod damaged;
 use crate::gb18030;
 
 pub use converter::convert_caj;

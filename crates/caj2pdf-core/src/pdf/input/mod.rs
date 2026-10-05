@@ -2908,8 +2908,77 @@ mod fragment_scan;
 pub(crate) use fragment_scan::scan_fragment_objects;
 pub(crate) use fragment_scan::{
     FragmentCandidate, FragmentScan, PatchedSource, collect_fragment_candidates,
-    scan_fragment_with_candidates,
+    scan_damaged_fragment, scan_fragment_with_candidates,
 };
 
 #[cfg(test)]
 mod tests;
+
+/// Preserve page geometry and parentage while removing all rendering dependencies.
+pub(crate) async fn blank_fragment_page<S: RangedSource, C: Cancellation>(
+    source: &mut S,
+    object: FragmentObject,
+    limits: &Limits,
+    cancellation: &C,
+) -> Result<Vec<u8>> {
+    let mut reader = Reader::new(source, object.range, limits, cancellation)?;
+    let head = reader.load_head(0, Some(object.reference)).await?;
+    let failure = || {
+        reader.malformed(
+            0,
+            Some(object.reference),
+            "damaged page geometry is unavailable",
+        )
+    };
+    let dict = head.dictionary.as_ref().ok_or_else(failure)?;
+    if dict.value(b"Type").and_then(exact_name).as_deref() != Some(b"Page") {
+        return Err(failure());
+    }
+    let parent = dict
+        .value(b"Parent")
+        .and_then(exact_reference)
+        .ok_or_else(failure)?;
+    let mut body = format!(
+        "{} 0 obj\n<< /Type /Page /Parent {} {} R /Resources << >>",
+        object.reference.number, parent.number, parent.generation
+    )
+    .into_bytes();
+    for key in [
+        b"MediaBox".as_slice(),
+        b"CropBox",
+        b"BleedBox",
+        b"TrimBox",
+        b"ArtBox",
+        b"Rotate",
+        b"UserUnit",
+    ] {
+        if let Some(value) = dict.value(key) {
+            let valid = if key.ends_with(b"Box") {
+                media_box(value).is_some()
+            } else {
+                std::str::from_utf8(value)
+                    .ok()
+                    .and_then(|v| v.parse::<f64>().ok())
+                    .is_some_and(f64::is_finite)
+            };
+            if !valid {
+                return Err(failure());
+            }
+            let size = body
+                .len()
+                .saturating_add(key.len())
+                .saturating_add(value.len())
+                .saturating_add(32);
+            limits.check_allocation(size as u64)?;
+            let refused = limits.allocation_refused("blank page dictionary", size as u64);
+            let additional = size - body.len();
+            crate::fallible::reserve(&mut body, additional, refused)?;
+            body.extend_from_slice(b" /");
+            body.extend_from_slice(key);
+            body.push(b' ');
+            body.extend_from_slice(value);
+        }
+    }
+    body.extend_from_slice(b" >>\nendobj\n");
+    Ok(body)
+}

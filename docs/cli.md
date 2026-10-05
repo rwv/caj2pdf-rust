@@ -9,7 +9,7 @@ the input's leading signature. Format parsing and PDF writing stay in
 listed in the release notes.
 
 ```text
-caj2pdf INPUT [-o OUTPUT] [--force] [--quiet] [--no-bookmarks] [--qm-states FILE] [--mq-states FILE]
+caj2pdf INPUT [-o OUTPUT] [--force] [--quiet] [--allow-damaged] [--no-bookmarks] [--qm-states FILE] [--mq-states FILE]
 caj2pdf inspect INPUT [--json] [--bookmarks] [--pages]
 caj2pdf add-bookmarks SOURCE_CAJ INPUT_PDF -o OUTPUT_PDF [--force]
 caj2pdf --help | --version
@@ -69,6 +69,9 @@ unit. See the [controlled field checks](research/cajviewer-hnc8-kdh.md#controlle
 
 - `--qm-states FILE`: override the standard states for type-0 images.
 - `--mq-states FILE`: override the standard states for arithmetic JBIG2 images.
+- `--allow-damaged`: explicitly replace damaged CAJ pages with blanks, warn for
+  every affected page, and return status 3 when substitutions occur. See
+  [partial conversion](pdf-input.md#explicit-partial-conversion-of-damaged-caj-inputs).
 - `--no-bookmarks`: skip CAJ/HN outline import. C8/HN-B outline layouts are
   not verified, so without this flag they convert with no outline and one
   warning on standard error (`C8/HN-B bookmarks are not verified; wrote no
@@ -495,6 +498,7 @@ removes the staged output file; bytes already sent to standard output remain.
 | 0 | Success, including `--help` and `--version`. |
 | 1 | I/O, conversion, unsupported-format, refused-output, or inspection failure. |
 | 2 | Invalid arguments, including a PDF input without a distinct output. |
+| 3 | Partial PDF committed with blank page substitutions (`--allow-damaged`). |
 
 Errors are written to standard error as `caj2pdf: error: MESSAGE`. Argument
 errors add a line pointing to `--help`. Help and version text go to standard

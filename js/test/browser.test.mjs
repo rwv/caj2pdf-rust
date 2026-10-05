@@ -11,7 +11,7 @@ import { readFile } from "node:fs/promises";
 import { after, before, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { findChrome, launchChrome, openPage, startServer } from "./browser-harness.mjs";
-import { fixture, syntheticCaj, syntheticAscii85Caj, syntheticFlateReplayCaj, syntheticRecoveredCaj, syntheticLaterCopyCaj, syntheticKdh, validatePdf, validateMultiImageHn, validateType1Hn, wasmUrl } from "./helpers.mjs";
+import { fixture, syntheticDamagedCaj, syntheticCaj, syntheticAscii85Caj, syntheticFlateReplayCaj, syntheticRecoveredCaj, syntheticLaterCopyCaj, syntheticKdh, validatePdf, validateMultiImageHn, validateType1Hn, wasmUrl } from "./helpers.mjs";
 
 const chrome = findChrome();
 if (chrome == null && process.env.CI) {
@@ -31,6 +31,7 @@ before(async () => {
     "/fixtures/symbols.ttf": await readFile(new URL("../../tests/fonts/symbols.ttf", import.meta.url)),
     "/fixtures/geometric.ttf": await readFile(new URL("../../tests/fonts/geometric.ttf", import.meta.url)),
     "/fixtures/input.caj": syntheticCaj(),
+    "/fixtures/damaged.caj": syntheticDamagedCaj(),
     "/fixtures/ascii85.caj": syntheticAscii85Caj(),
     "/fixtures/adjacent-flate.caj": syntheticFlateReplayCaj({ anchor: null }),
     "/fixtures/adjacent-flate-clean.caj": syntheticFlateReplayCaj({ anchor: null, interrupted: false }),
@@ -243,4 +244,11 @@ test("Chromium: later-copy CAJ and stream replay run in a Worker", options, asyn
     assert.deepEqual(recovered.output, clean.output);
     await validatePdf(t, decode(recovered.output), 2);
   }
+});
+
+test("Chromium: damaged CAJ mode returns explicit blank-page diagnostics", options, async (t) => {
+  const result = await run("convertDamaged", "damaged.caj");
+  assert.deepEqual(result.omittedPages.map((page) => page.pageIndex), [0]);
+  assert.match(result.omittedPages[0].offset, /^\d+$/);
+  await validatePdf(t, decode(result.output), 2);
 });

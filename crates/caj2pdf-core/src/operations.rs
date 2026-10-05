@@ -151,23 +151,36 @@ pub trait BookmarkVisitor {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ConversionOptions {
     pub include_bookmarks: bool,
+    /// Replace damaged CAJ pages with blank pages and report every omission.
+    pub allow_damaged: bool,
 }
 
 impl Default for ConversionOptions {
     fn default() -> Self {
         Self {
             include_bookmarks: true,
+            allow_damaged: false,
         }
     }
 }
 
+/// A page whose content was replaced by an explicit blank page.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct OmittedPage {
+    pub page_index: u32,
+    /// Absolute input offset of the damaged object or missing dependency owner.
+    pub offset: u64,
+}
+
 /// Counters from a completed conversion or bounded I/O proof.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ConversionReport {
     pub input_bytes_read: u64,
     pub output_bytes_written: u64,
     pub pages_converted: u32,
     pub bookmarks_written: u32,
+    /// Blank substitutions in source page order; indices are zero-based.
+    pub omitted_pages: Vec<OmittedPage>,
 }
 
 /// Operation signatures for format engines built on the same I/O contract.

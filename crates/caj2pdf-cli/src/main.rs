@@ -102,11 +102,13 @@ mod cli {
             .and_then(|()| report::write_application_info_warning(&mut stderr, application_info));
     }
 
-    pub fn run(command: Command) -> Result<(), CliError> {
+    pub fn run(command: Command) -> Result<u8, CliError> {
         let limits = Limits::default();
         match command {
-            Command::Help(topic) => print(|out| out.write_all(topic.help().as_bytes())),
-            Command::Version => print(|out| writeln!(out, "caj2pdf {}", env!("CARGO_PKG_VERSION"))),
+            Command::Help(topic) => print(|out| out.write_all(topic.help().as_bytes())).map(|()| 0),
+            Command::Version => {
+                print(|out| writeln!(out, "caj2pdf {}", env!("CARGO_PKG_VERSION"))).map(|()| 0)
+            }
             Command::Convert {
                 input,
                 output,
@@ -129,12 +131,28 @@ mod cli {
                     output.writer(),
                     &limits,
                     &mut resources,
-                    !options.no_bookmarks,
+                    caj2pdf_core::ConversionOptions {
+                        include_bookmarks: !options.no_bookmarks,
+                        allow_damaged: options.allow_damaged,
+                    },
                     terminal.as_mut().map(|err| err as &mut dyn io::Write),
                 )?;
                 output.commit()?;
                 warn(&warnings.outline, warnings.application_info);
-                Ok(())
+                let mut stderr = io::stderr().lock();
+                for page in &warnings.omitted_pages {
+                    let _ = writeln!(
+                        stderr,
+                        "caj2pdf: warning: page {} replaced with a blank page (damaged input at byte {})",
+                        page.page_index + 1,
+                        page.offset
+                    );
+                }
+                Ok(if warnings.omitted_pages.is_empty() {
+                    0
+                } else {
+                    3
+                })
             }
             Command::Inspect {
                 input,
@@ -156,7 +174,7 @@ mod cli {
                     let mut writer = report::Pages::new(&mut stdout, json);
                     document::write_pages(&mut input, &limits, &info, &mut writer)?;
                 }
-                stdout.flush().map_err(stdout_error)
+                stdout.flush().map_err(stdout_error).map(|()| 0)
             }
             Command::AddBookmarks {
                 outline,
@@ -169,12 +187,12 @@ mod cli {
                 let mut pdf = open_input(&pdf, limits.max_input_bytes)?;
                 let mut output = open_output(&output, force, &[&outline, &pdf])?;
                 document::add_bookmarks(&mut outline, &mut pdf, output.writer(), &limits)?;
-                output.commit()
+                output.commit().map(|()| 0)
             }
         }
     }
 
-    pub fn main() -> Result<(), CliError> {
+    pub fn main() -> Result<u8, CliError> {
         let command = args::parse(std::env::args_os().skip(1)).map_err(CliError::usage)?;
         crate::signals::install().map_err(|error| CliError::runtime(error.to_string()))?;
         run(command)
@@ -186,7 +204,7 @@ fn main() -> ExitCode {
     use std::io::Write;
 
     match cli::main() {
-        Ok(()) => ExitCode::SUCCESS,
+        Ok(code) => ExitCode::from(code),
         Err(error) => {
             // A failure to write the diagnostic must not replace the status.
             let hint = if error.code == 2 {

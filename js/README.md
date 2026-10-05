@@ -595,3 +595,13 @@ images and unverified glyph/style combinations remain explicit errors;
 source-font identity is not inferred. Use the
 matching JavaScript and WASM builds; older WASM binaries cannot accept
 font registration. Existing image-only conversions require no font options.
+
+### Damaged CAJ inputs
+
+Pass `{ allowDamaged: true }` to explicitly permit blank substitutes for
+unrecoverable CAJ pages. Always inspect `report.omittedPages`: each entry has a
+zero-based `pageIndex` and an absolute source `offset` (`bigint`). Conversion
+resolves with the report when it produces a partial PDF; I/O, cancellation,
+resource-limit, unsupported-feature, and unavailable-geometry errors still
+reject. Shared damaged resources may affect multiple pages. The default is
+strict conversion. This option applies to CAJ, not every recognized format.

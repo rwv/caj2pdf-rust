@@ -78,7 +78,7 @@ pub extern "C" fn caj2pdf_start(
     source_size: u64,
     chunk_size: u32,
     format: u32,
-    include_bookmarks: u32,
+    flags: u32,
     max_input_bytes: u64,
     max_output_bytes: u64,
     max_allocation_bytes: u64,
@@ -92,7 +92,8 @@ pub extern "C" fn caj2pdf_start(
         OPERATION_CONVERT => Operation::Convert {
             format,
             options: ConversionOptions {
-                include_bookmarks: include_bookmarks != 0,
+                include_bookmarks: flags & 1 != 0,
+                allow_damaged: flags & 2 != 0,
             },
         },
         OPERATION_INSPECT => Operation::Inspect { format },
@@ -394,4 +395,34 @@ pub extern "C" fn caj2pdf_info_text_len(field: u32) -> u32 {
 #[unsafe(no_mangle)]
 pub extern "C" fn caj2pdf_io_reset() {
     ENGINE.with(|cell| *cell.borrow_mut() = None);
+}
+
+/// Number of explicitly blanked pages in the completed conversion.
+#[unsafe(no_mangle)]
+pub extern "C" fn caj2pdf_io_omitted_pages_count() -> u32 {
+    with_outcome(0, |outcome| outcome.report.omitted_pages.len() as u32)
+}
+
+/// Zero-based source page index; callers must check the count first.
+#[unsafe(no_mangle)]
+pub extern "C" fn caj2pdf_io_omitted_page_index(index: u32) -> u32 {
+    with_outcome(0, |outcome| {
+        outcome
+            .report
+            .omitted_pages
+            .get(index as usize)
+            .map_or(0, |page| page.page_index)
+    })
+}
+
+/// Absolute source offset explaining one blank substitution.
+#[unsafe(no_mangle)]
+pub extern "C" fn caj2pdf_io_omitted_page_offset(index: u32) -> u64 {
+    with_outcome(0, |outcome| {
+        outcome
+            .report
+            .omitted_pages
+            .get(index as usize)
+            .map_or(0, |page| page.offset)
+    })
 }

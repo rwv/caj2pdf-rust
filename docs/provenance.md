@@ -3037,3 +3037,15 @@ no additional corpus run is claimed. The tagged JS tarball reports version
 (SHA-256 `176a4b44a07762846bdfaf759b66bd7bb83176c996d55a229edcd36ee4fe3ece`).
 These artifact identity checks are distinct from final publication/signature
 verification. No binaries or external documents are committed.
+
+## Explicit damaged CAJ output (#297, 2026-10-05)
+
+The maintainer approved an opt-in partial-output path. Its scanner changes,
+reference-dependency traversal, blank dictionaries, CLI/JS adapters, and tests
+are original MIT work based on this repository's existing PDF parser and CAJ
+page-table observations. No Python, Go, viewer, or other external implementation
+was copied or translated. Synthetic controls construct malformed PDF syntax
+and a shared invalid Flate stream from authored bytes; no external document
+bytes enter Git. See [unreleased notes](releases/unreleased.md) for the Rust API
+break and [partial mode](pdf-input.md#explicit-partial-conversion-of-damaged-caj-inputs)
+for the explicit loss of page contents and remaining hard errors.

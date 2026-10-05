@@ -90,6 +90,8 @@ export interface ConvertOptions extends OperationOptions {
   hnc8?: Hnc8Options;
   /** Write supported CAJ/HN-A outlines. Default `true`; C8/HN-B require `false`. */
   includeBookmarks?: boolean;
+  /** Explicitly replace damaged CAJ pages with blanks; inspect omittedPages. */
+  allowDamaged?: boolean;
 }
 
 export interface ConversionReport {
@@ -98,6 +100,7 @@ export interface ConversionReport {
   outputBytesWritten: bigint;
   pagesConverted: number;
   bookmarksWritten: number;
+  omittedPages: Array<{ pageIndex: number; offset: bigint }>;
   /** HN-A outline entries skipped or clamped instead of failing; zero otherwise. */
   outlineWarnings: number;
   /** Requested C8/HN-B bookmarks were not written because their layout is unverified. */

@@ -254,25 +254,25 @@ fn resolve_page_root(
     Ok(resolved)
 }
 
-fn replace_object(
+pub(super) fn replace_object(
     objects: &mut [FragmentObject],
     suffix: &mut Vec<u8>,
     base: u64,
-    candidate: &mut LinkRepairCandidate,
+    (reference, replacement): (PdfRef, &[u8]),
     limits: &Limits,
 ) -> Result<()> {
     let next_size = suffix
         .len()
-        .checked_add(candidate.replacement.len())
+        .checked_add(replacement.len())
         .ok_or(Error::InvalidInput {
             reason: "CAJ repair suffix size overflows",
         })?;
     limits.check_allocation(next_size as u64)?;
     let refused = limits.allocation_refused("CAJ link repair allocation", next_size as u64);
-    reserve(suffix, candidate.replacement.len(), refused)?;
+    reserve(suffix, replacement.len(), refused)?;
     let old = objects
         .iter_mut()
-        .find(|object| object.reference == candidate.object)
+        .find(|object| object.reference == reference)
         .ok_or(Error::InvalidInput {
             reason: "CAJ link repair object is absent from fragment plan",
         })?;
@@ -282,10 +282,9 @@ fn replace_object(
             .ok_or(Error::InvalidInput {
                 reason: "CAJ link repair object offset overflows",
             })?,
-        length: candidate.replacement.len() as u64,
+        length: replacement.len() as u64,
     };
-    suffix.extend_from_slice(&candidate.replacement);
-    candidate.replacement = Vec::new();
+    suffix.extend_from_slice(replacement);
     Ok(())
 }
 
@@ -389,6 +388,7 @@ async fn scan_caj_objects<S: RangedSource, C: Cancellation>(
     metadata: &super::CajMetadata,
     limits: &Limits,
     cancellation: &C,
+    allow_damaged: bool,
 ) -> Result<FragmentScan> {
     let mut inflated_bytes = 0;
     let original_error = match scan_fragment_with_candidates(
@@ -447,12 +447,12 @@ async fn scan_caj_objects<S: RangedSource, C: Cancellation>(
             used: false,
         }));
     }
-    if candidates.is_empty() {
+    if candidates.is_empty() && !allow_damaged {
         return Err(original_error);
     }
     candidates.sort_unstable_by_key(|candidate| candidate.object.range.offset);
     candidates.dedup_by_key(|candidate| candidate.object.range.offset);
-    scan_fragment_with_candidates(
+    let result = scan_fragment_with_candidates(
         source,
         metadata.body_start,
         metadata.body_end_hint,
@@ -461,7 +461,25 @@ async fn scan_caj_objects<S: RangedSource, C: Cancellation>(
         &mut candidates,
         &mut inflated_bytes,
     )
-    .await
+    .await;
+    match result {
+        Err(Error::Pdf {
+            kind: PdfErrorKind::Malformed,
+            ..
+        }) if allow_damaged => {
+            crate::pdf::input::scan_damaged_fragment(
+                source,
+                &metadata.page_rows,
+                metadata.body_end_hint,
+                limits,
+                cancellation,
+                &mut candidates,
+                &mut inflated_bytes,
+            )
+            .await
+        }
+        other => other,
+    }
 }
 
 /// Convert a CAJ source to a forward-only PDF sink. The source must support
@@ -480,7 +498,20 @@ pub async fn convert_caj<S: RangedSource, W: SequentialSink, C: Cancellation>(
         bytes_read: 0,
     };
     let metadata = parse_metadata(&mut counted, limits, cancellation).await?;
-    let mut scan = scan_caj_objects(&mut counted, &metadata, limits, cancellation).await?;
+    let mut scan = scan_caj_objects(
+        &mut counted,
+        &metadata,
+        limits,
+        cancellation,
+        options.allow_damaged,
+    )
+    .await?;
+    let (damaged_suffix, omitted_pages) = if options.allow_damaged && !scan.damaged.is_empty() {
+        super::damaged::substitute(&mut counted, &metadata, &mut scan, limits, cancellation).await?
+    } else {
+        (Vec::new(), Vec::new())
+    };
+    let mut working = ExtendedSource::new(&mut counted, &damaged_suffix)?;
     let mut objects = std::mem::take(&mut scan.objects);
     let source_object_count = objects.len();
     // `parse_metadata` admitted the larger page-row index under the same
@@ -521,7 +552,7 @@ pub async fn convert_caj<S: RangedSource, W: SequentialSink, C: Cancellation>(
         .unwrap_or(0);
     let mut missing_references = Vec::<MissingReference>::new();
     {
-        let mut patched = PatchedSource::new(&mut counted, &scan.patches);
+        let mut patched = PatchedSource::new(&mut working, &scan.patches);
         for object in &objects {
             let inspected = inspect_fragment_object(
                 &mut patched,
@@ -643,7 +674,7 @@ pub async fn convert_caj<S: RangedSource, W: SequentialSink, C: Cancellation>(
         ));
     }
 
-    let base = counted.size();
+    let base = working.size();
     let mut suffix = Vec::new();
     let root = if let Some(root) = present_root {
         root
@@ -725,7 +756,7 @@ pub async fn convert_caj<S: RangedSource, W: SequentialSink, C: Cancellation>(
         let mut repaired = BTreeMap::<PdfRef, LinkRepairCandidate>::new();
         let mut retained_repair_bytes = 0usize;
         let mut scalar_destinations = BTreeSet::<PdfRef>::new();
-        let mut patched = PatchedSource::new(&mut counted, &scan.patches);
+        let mut patched = PatchedSource::new(&mut working, &scan.patches);
         let mut first = 0usize;
         while first < missing_references.len() {
             let owner = missing_references[first].owner;
@@ -817,7 +848,9 @@ pub async fn convert_caj<S: RangedSource, W: SequentialSink, C: Cancellation>(
             }
         }
         for candidate in repaired.values_mut() {
-            replace_object(&mut objects, &mut suffix, base, candidate, limits)?;
+            let replacement = (candidate.object, candidate.replacement.as_slice());
+            replace_object(&mut objects, &mut suffix, base, replacement, limits)?;
+            candidate.replacement = Vec::new();
         }
     }
 
@@ -832,7 +865,7 @@ pub async fn convert_caj<S: RangedSource, W: SequentialSink, C: Cancellation>(
     } else {
         &[]
     };
-    let mut patched = PatchedSource::new(&mut counted, &scan.patches);
+    let mut patched = PatchedSource::new(&mut working, &scan.patches);
     let mut extended = ExtendedSource::new(&mut patched, &suffix)?;
     let mut report = reconstruct_fragment_with_bookmarks(
         &mut extended,
@@ -844,6 +877,7 @@ pub async fn convert_caj<S: RangedSource, W: SequentialSink, C: Cancellation>(
     )
     .await?;
     report.input_bytes_read = counted.bytes_read;
+    report.omitted_pages = omitted_pages;
     Ok(report)
 }
 
