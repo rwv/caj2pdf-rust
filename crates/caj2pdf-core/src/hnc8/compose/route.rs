@@ -3,30 +3,32 @@
 //! One routing rule for documents converted with optional native fonts.
 
 use super::*;
+use crate::hnc8::native_page::admits_native_mode;
 use crate::hnc8::{ErrorKind, TextFraming};
 
 /// Whether native composition is chosen for this document.
 ///
-/// HN-A has no native text, so only its header is read. For C8 and HN-B the
-/// pages are walked in order with one cursor: each page's image descriptors
-/// are read, then its text is classified by [`Hnc8Reader::inspect_text`] with
-/// `options.text`, the budget native composition uses. The first page framed
-/// as raw C8/HN-B native records selects native composition and ends the walk;
-/// a document without such a page uses image composition.
+/// Native composition draws only C8 and HN-B documents in an admitted
+/// rendering mode (mode 2, or HN-B mode 0), so every other document, HN-A
+/// included, uses image composition after its header is read. Otherwise the
+/// first page with a nonempty text span decides; pages are walked with one
+/// cursor, reading only page rows and image descriptors before it:
 ///
-/// **Mixed documents.** Image composition rejects every C8 page framed as
-/// native records, so a C8 document with any native page can only convert
-/// natively. A document that mixes native and compressed or raw C8 text is
-/// therefore routed to native composition, which reports any page it cannot
-/// draw. A C8 document image composition can convert has no native page and
-/// is never routed away from it. HN-B text is only ever framed as native
-/// records, so an HN-B document with text uses native composition.
+/// - HN-B text is only ever native records, which image composition never
+///   reads, so such a page selects native composition. A defect in that text
+///   is then reported by native composition instead of being dropped.
+/// - C8 text is classified by [`Hnc8Reader::inspect_text`] with
+///   `options.text`, the budget native composition uses. Native records, or
+///   text neither reader accepts, select native composition, which reports
+///   the located defect; compressed or raw text selects image composition.
 ///
-/// A page that neither text reader accepts, or a malformed container,
-/// descriptor or limit, ends the walk with image composition; the composer
-/// then reports its own located error. A dropped source read or cancellation
-/// is returned. Reads are ranged and bounded by `options.container` and
-/// `options.text`; no image payload is read and no text is retained.
+/// A document without text uses image composition. Image composition refuses
+/// every native C8 page, so a mixed document fails in either composer, at its
+/// first page the composer cannot draw. A malformed container, page row or
+/// descriptor uses image composition, which reports it. A dropped source read
+/// or cancellation is returned. Reads are ranged and bounded by
+/// `options.container` and `options.text`; no image payload is read and no
+/// text is retained.
 pub async fn uses_native_text<S, C>(
     source: &mut S,
     options: ComposeOptions,
@@ -39,16 +41,16 @@ where
 {
     validate(options, limits)?;
     let mut reader = match Hnc8Reader::open(source, limits, cancellation, options.container).await {
-        Ok(reader) if reader.header().variant == Variant::HnA => return Ok(false),
+        Ok(reader) if !admits_native_mode(reader.header()) => return Ok(false),
         Ok(reader) => reader,
         Err(error) => return image_unless_fatal(error, ComposeStage::Container),
     };
     loop {
-        match reader.next_page().await {
-            Ok(Some(_)) => {}
+        let page = match reader.next_page().await {
+            Ok(Some(page)) => page,
             Ok(None) => return Ok(false),
             Err(error) => return image_unless_fatal(error, ComposeStage::Container),
-        }
+        };
         loop {
             match reader.next_image().await {
                 Ok(Some(_)) => {}
@@ -56,11 +58,16 @@ where
                 Err(error) => return image_unless_fatal(error, ComposeStage::Container),
             }
         }
-        match reader.inspect_text(options.text).await {
-            Ok(text) if text.framing == TextFraming::Native => return Ok(true),
-            Ok(_) => {}
-            Err(error) => return image_unless_fatal(error, ComposeStage::Text),
+        if page.text.length == 0 {
+            continue;
         }
+        if reader.header().variant == Variant::HnB {
+            return Ok(true);
+        }
+        return match reader.inspect_text(options.text).await {
+            Ok(text) => Ok(text.framing == TextFraming::Native),
+            Err(error) => image_unless_fatal(error, ComposeStage::Text).map(|_| true),
+        };
     }
 }
 

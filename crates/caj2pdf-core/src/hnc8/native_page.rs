@@ -71,6 +71,18 @@ pub fn is_cjk_coded(character: char) -> bool {
 /// not establish whole-document C8 support or provide the adapter font transport.
 /// Returns the zero-based PDF page index. Any failure after opening the page
 /// leaves the PDF unfinished and unusable.
+/// Whether native composition admits the document's variant and rendering
+/// mode. Character mapping, font selection and placement are mode-specific:
+/// C8 and HN-B mode 2 are admitted, and only HN-B has independently
+/// controlled mode-0 records.
+pub(crate) fn admits_native_mode(header: super::Header) -> bool {
+    match header.variant {
+        Variant::C8 => header.native_mode == Some(2),
+        Variant::HnB => matches!(header.native_mode, Some(0 | 2)),
+        Variant::HnA => false,
+    }
+}
+
 pub async fn write_c8_native_page<S, W, C>(
     reader: &mut Hnc8Reader<'_, S, C>,
     document: &mut PdfDocument<'_, W, C>,
@@ -104,11 +116,7 @@ where
             value: 0,
         }));
     }
-    // Character mapping, font selection and placement are mode-specific.
-    // Only HN-B has independently controlled mode-0 rendering records.
-    if header.native_mode != Some(2)
-        && !(header.variant == Variant::HnB && header.native_mode == Some(0))
-    {
+    if !admits_native_mode(header) {
         return Err(loc.error(ErrorKind::Unsupported {
             field: "native page rendering mode",
             value: u64::from(header.native_mode.unwrap_or(u32::MAX)),

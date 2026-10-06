@@ -178,11 +178,12 @@ font into a caller-owned ranged source with bounded temporary storage.
 
 The CLI and the WASM engine both call `hnc8::convert_document_pdf`, which
 chooses the composer once per document. With fonts, `uses_native_text`
-walks the page rows and image descriptors with one cursor and classifies
-each page's text with the bounded `inspect_text` readers (the default
-`TextBudget`), stopping at the first page framed as native records. Image
-payloads are never read and no text is retained. Without a native page,
-image composition runs and the fonts stay unread.
+reads the header (a document outside native composition's variants and
+rendering modes stops there), then walks page rows and image descriptors
+with one cursor to the first page with text. HN-B text selects native
+composition; C8 text is classified with the bounded `inspect_text` readers
+(the default `TextBudget`). Image payloads are never read and no text is
+retained. When image composition is chosen, the fonts stay unread.
 
 The WASM host registers resource sizes before the first poll using
 `caj2pdf_c8_add_font(size, face)` (`face` selects a TrueType collection face, 0 otherwise; returns IDs 1–8; 0 means rejection), then assigns zero-based role

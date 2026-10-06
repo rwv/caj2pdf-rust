@@ -140,14 +140,16 @@ The suffix needs a Unicode path and is ignored when `FILE#N` itself
 exists. Tables need not be 4-byte aligned.
 
 **Which documents use the fonts.** Fonts can be passed for any HN/C8 input.
-Before converting, the page text framing is inspected, as `inspect --pages`
-reports it. A document with a page framed as native C8/HN-B records
-(`native`) uses native composition with the fonts. All other documents,
-including every HN-A input and C8 documents with `COMPRESSTEXT` or raw text,
-are converted as images without reading the fonts; the PDF is
-byte-identical to a conversion without fonts. A C8 document mixing native
-and compressed text uses native composition, because image composition
-cannot convert its native pages. Node and the browser follow the same rule.
+Before converting, the header and the first page with text are inspected.
+A C8 or HN-B document in a native rendering mode (`native_mode` 2, or 0 for
+HN-B) whose first text holds native records uses native composition with the
+fonts: any HN-B text, and C8 text that `inspect --pages` reports as `native`
+or that neither text reader accepts, so a defect is reported by native
+composition. All other documents, including every HN-A input and C8
+documents with `COMPRESSTEXT` or raw text, are converted as images without
+reading the fonts; the PDF is byte-identical to a conversion without fonts.
+A C8 document mixing native and compressed text fails in either composer,
+at the first page it cannot draw. Node and the browser follow the same rule.
 
 **Fallback rule.** Each glyph uses the font of the role the source selects.
 If that role is absent, or its font has no cmap entry for the character,

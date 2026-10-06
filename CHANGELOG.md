@@ -31,10 +31,12 @@
   input went to native composition, so HN-A failed with `native composition
   requires C8 or HN-B` and a C8 document with `COMPRESSTEXT` pages failed
   with `unsupported native page rendering mode`. The core now routes each
-  document by its page text framing: a document with a page framed as
-  native C8/HN-B records uses native composition, and all others use image
-  composition, byte-identical to a conversion without fonts, with the fonts
-  unread (#342). New core API: `hnc8::convert_document_pdf` and
+  document once: a C8 or HN-B document in a native rendering mode whose
+  first page with text holds native records (any HN-B text, or C8 text
+  framed as native or rejected by both text readers) uses native
+  composition; all others use image composition, byte-identical to a
+  conversion without fonts, with the fonts unread (#342). Only the header
+  and the pages up to the first one with text are read. New core API: `hnc8::convert_document_pdf` and
   `hnc8::uses_native_text`, shared by the CLI and the WASM engine. Routing
   reads are included in `input_bytes_read`.
 

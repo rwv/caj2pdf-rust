@@ -14,6 +14,7 @@ fn route(bytes: &[u8], fonts: bool) -> (Result<ComposeReport, ComposeError>, Vec
     }];
     let mut sink = Sink::default();
     let limits = Limits::default();
+    let mq = mq_table(&limits);
     let (mut rows, mut first, mut second, mut refined) = Default::default();
     let result = ready(convert_document_pdf(
         &mut source,
@@ -23,7 +24,7 @@ fn route(bytes: &[u8], fonts: bool) -> (Result<ComposeReport, ComposeError>, Vec
             roles: roles(),
         }),
         Some(&table()),
-        workspaces(&mut rows, &mut first, &mut second, &mut refined, &limits),
+        workspaces(&mq, &mut rows, &mut first, &mut second, &mut refined),
         &mut Visitor::default(),
         ComposeOptions::default(),
         &limits,
@@ -33,14 +34,12 @@ fn route(bytes: &[u8], fonts: bool) -> (Result<ComposeReport, ComposeError>, Vec
 }
 
 fn workspaces<'a>(
+    table: &'a MqTable,
     rows: &'a mut Scratch,
     first: &'a mut Scratch,
     second: &'a mut Scratch,
     refined: &'a mut Scratch,
-    limits: &Limits,
 ) -> ComposeWorkspaces<'a, Scratch> {
-    // The MQ table is leaked so the borrowed workspaces outlive this helper.
-    let table: &'static MqTable = Box::leak(Box::new(mq_table(limits)));
     ComposeWorkspaces {
         rows,
         type3: Some(ComposeType3Workspaces {
@@ -87,7 +86,7 @@ fn images() -> Vec<Record> {
     ]
 }
 
-/// Compressed text before the first page without images, native after it.
+/// Compressed text on pages with images, native text on pages without.
 fn mixed_text(records: &[Record]) -> Vec<u8> {
     if records.is_empty() {
         native_text(records)
@@ -102,19 +101,19 @@ fn image_documents_ignore_fonts_and_keep_byte_identical_output() {
     let mut legacy = fixture(Variant::C8, &[images(), images()]);
     // Image-only C8 headers need not declare an admitted native mode.
     legacy.bytes[12..16].copy_from_slice(&23112_u32.to_le_bytes());
-    let direct = fixture_with_text(Variant::C8, &[images()], direct_text);
-    let hnb = fixture(Variant::HnB, &[vec![Record::jpeg(3, 2, 120, 0, 0)]]);
-    for fixture in [&hna, &legacy, &direct, &hnb] {
+    let direct = fixture_with_text(Variant::C8, &[images(), images()], direct_text);
+    for fixture in [&hna, &legacy, &direct] {
         assert!(!native(&fixture.bytes).unwrap());
         let (expected, read) = image_only(&fixture.bytes);
         assert!(expected.ends_with(b"%%EOF\n"));
         let (report, pdf) = route(&fixture.bytes, true);
         assert_eq!(pdf, expected);
-        // Routing reads are reported; HN-A has no native text, so only
-        // header fields before its page index are read.
+        // Routing reads are reported. HN-A and a C8 header without an
+        // admitted native mode decide from header fields alone; otherwise
+        // only the first page with text is inspected.
         let routing = report.unwrap().conversion.input_bytes_read - read;
         assert!(routing > 0);
-        assert_eq!(std::ptr::eq(fixture, &hna), routing < 64, "{routing}");
+        assert_eq!(std::ptr::eq(fixture, &direct), routing >= 64, "{routing}");
     }
 }
 
@@ -135,6 +134,7 @@ fn native_documents_use_native_composition_only_with_fonts() {
         }];
         let mut sink = Sink::default();
         let limits = Limits::default();
+        let mq = mq_table(&limits);
         let (mut rows, mut first, mut second, mut refined) = Default::default();
         let direct = ready(convert_c8_native_pdf(
             &mut source,
@@ -144,7 +144,7 @@ fn native_documents_use_native_composition_only_with_fonts() {
                 roles: roles(),
             },
             Some(&table()),
-            workspaces(&mut rows, &mut first, &mut second, &mut refined, &limits),
+            workspaces(&mq, &mut rows, &mut first, &mut second, &mut refined),
             ComposeOptions::default(),
             &limits,
             &NeverCancel,
@@ -163,31 +163,32 @@ fn native_documents_use_native_composition_only_with_fonts() {
 }
 
 #[test]
-fn mixed_documents_route_to_native_composition_at_their_first_native_page() {
-    // Compressed page 1 is inspected first; native page 2 decides.
-    let later = fixture_with_text(
+fn mixed_documents_follow_their_first_page_with_text() {
+    // Compressed page 1 selects image composition, which refuses native
+    // page 2 in its preflight; native page 1 selects native composition,
+    // which refuses compressed page 2 while drawing it.
+    let compressed_first = fixture_with_text(
         Variant::C8,
         &[vec![Record::jpeg(3, 2, 120, 30, 50)], vec![]],
         mixed_text,
     );
-    let first = fixture_with_text(
+    let native_first = fixture_with_text(
         Variant::C8,
         &[vec![], vec![Record::jpeg(3, 2, 120, 30, 50)]],
         mixed_text,
     );
-    for (fixture, failing) in [(&later, 1), (&first, 2)] {
-        assert!(native(&fixture.bytes).unwrap());
-        // Neither composer accepts both framings; each locates its refusal.
+    for (fixture, routed, stage) in [
+        (&compressed_first, false, ComposeStage::Preflight),
+        (&native_first, true, ComposeStage::Text),
+    ] {
+        assert_eq!(native(&fixture.bytes).unwrap(), routed);
         let error = route(&fixture.bytes, true).0.unwrap_err();
-        assert_eq!(error.page, Some(failing));
-        assert_eq!(error.stage, ComposeStage::Text);
-        let error = route(&fixture.bytes, false).0.unwrap_err();
-        assert!(error.page.is_some());
+        assert_eq!((error.page, error.stage), (Some(2), stage));
     }
 }
 
 #[test]
-fn document_defects_fall_back_to_the_image_composer_error() {
+fn container_defects_fall_back_to_the_image_composer_error() {
     let mut header = fixture(Variant::C8, &[images()]).bytes;
     header[0] = 0xc9;
     let mut row = fixture(Variant::C8, &[images(), images()]);
@@ -195,15 +196,28 @@ fn document_defects_fall_back_to_the_image_composer_error() {
     let mut descriptor = fixture(Variant::C8, &[images()]);
     let at = descriptor.descriptors[0][1] as usize;
     descriptor.bytes[at..at + 4].copy_from_slice(&9_i32.to_le_bytes());
-    let mut framing = fixture_with_text(Variant::C8, &[vec![]], native_text);
-    let at = framing.text_offsets[0];
-    framing.bytes[at..at + 2].copy_from_slice(&0x7fff_u16.to_le_bytes());
-    for bytes in [header, row.bytes, descriptor.bytes, framing.bytes] {
+    for bytes in [header, row.bytes, descriptor.bytes] {
         assert!(!native(&bytes).unwrap());
         let with_fonts = route(&bytes, true).0.unwrap_err();
         let without = route(&bytes, false).0.unwrap_err();
         assert_eq!(with_fonts.to_string(), without.to_string());
     }
+}
+
+#[test]
+fn native_text_defects_are_reported_by_native_composition() {
+    // C8 text that neither reader accepts, and HN-B text that is not native
+    // records, which image composition would silently drop.
+    let mut c8 = fixture_with_text(Variant::C8, &[vec![]], native_text);
+    let at = c8.text_offsets[0];
+    c8.bytes[at..at + 2].copy_from_slice(&0x7fff_u16.to_le_bytes());
+    let hnb = fixture(Variant::HnB, &[vec![Record::jpeg(3, 2, 120, 0, 0)]]);
+    for bytes in [&c8.bytes, &hnb.bytes] {
+        assert!(native(bytes).unwrap());
+        let error = route(bytes, true).0.unwrap_err();
+        assert_eq!((error.page, error.stage), (Some(1), ComposeStage::Text));
+    }
+    assert!(route(&hnb.bytes, false).0.is_ok());
 }
 
 #[test]
