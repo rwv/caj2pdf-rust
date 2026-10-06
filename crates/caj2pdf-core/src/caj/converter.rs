@@ -16,10 +16,11 @@ use crate::pdf::{
 };
 use crate::{
     Cancellation, ConversionOptions, ConversionReport, CountingSource, Error, Limits, PdfErrorKind,
-    RangedSource, Result, SequentialSink,
+    RangedSource, Result,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
+use std::io::Write;
 
 const OVERREAD: &str = "CAJ source reported more bytes than requested";
 
@@ -450,7 +451,7 @@ fn scan_caj_objects<S: RangedSource, C: Cancellation>(
 /// dictionaries are retained. All PDF object validation precedes output.
 /// Each source object is parsed once by the fragment scan, whose inspection
 /// carries through page-tree reconstruction and link repair.
-pub fn convert_caj<S: RangedSource, W: SequentialSink, C: Cancellation>(
+pub fn convert_caj<S: RangedSource, W: Write, C: Cancellation>(
     source: &mut S,
     sink: &mut W,
     options: ConversionOptions,

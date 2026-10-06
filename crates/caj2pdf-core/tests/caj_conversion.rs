@@ -5,9 +5,9 @@
 //! public observations registered in `docs/research/caj-format.md`.
 
 use caj2pdf_core::{
-    ConversionOptions, Error, Limits, NeverCancel, RangedSource, SequentialSink,
+    ConversionOptions, Error, Limits, NeverCancel, RangedSource,
     caj::convert_caj,
-    native::{SeekableSource, WriteSink},
+    native::SeekableSource,
     pdf::{PdfIndex, PdfRange, PdfRef},
 };
 use std::{
@@ -283,13 +283,7 @@ fn convert(
 ) -> Result<(Vec<u8>, caj2pdf_core::ConversionReport), Error> {
     let mut source = SeekableSource::new(Cursor::new(input))?;
     let mut output = Vec::new();
-    let report = convert_caj(
-        &mut source,
-        &mut WriteSink::new(&mut output),
-        options,
-        limits,
-        &NeverCancel,
-    )?;
+    let report = convert_caj(&mut source, &mut &mut output, options, limits, &NeverCancel)?;
     Ok((output, report))
 }
 
@@ -324,15 +318,15 @@ fn conversion_uses_the_platform_neutral_short_io_contract() {
         flushed: bool,
     }
 
-    impl SequentialSink for ShortSink {
-        fn write(&mut self, bytes: &[u8]) -> caj2pdf_core::Result<usize> {
+    impl Write for ShortSink {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
             self.largest_request = self.largest_request.max(bytes.len());
             let count = bytes.len().min(2);
             self.bytes.extend_from_slice(&bytes[..count]);
             Ok(count)
         }
 
-        fn flush(&mut self) -> caj2pdf_core::Result<()> {
+        fn flush(&mut self) -> std::io::Result<()> {
             self.flushed = true;
             Ok(())
         }
@@ -368,7 +362,7 @@ fn rejected_without_output(input: &[u8], limits: &Limits) -> Error {
     let mut output = Vec::new();
     let error = convert_caj(
         &mut source,
-        &mut WriteSink::new(&mut output),
+        &mut &mut output,
         ConversionOptions::default(),
         limits,
         &NeverCancel,
@@ -544,7 +538,7 @@ fn missing_page_object_is_reported_before_writing() {
     let mut output = Vec::new();
     let result = convert_caj(
         &mut source,
-        &mut WriteSink::new(&mut output),
+        &mut &mut output,
         ConversionOptions::default(),
         &Limits::default(),
         &NeverCancel,
@@ -817,7 +811,7 @@ fn unrelated_missing_resource_reference_fails_before_sink_output() {
     let mut output = Vec::new();
     let result = convert_caj(
         &mut source,
-        &mut WriteSink::new(&mut output),
+        &mut &mut output,
         ConversionOptions::default(),
         &Limits::default(),
         &NeverCancel,
@@ -1077,7 +1071,7 @@ fn rejects_a_ranged_source_that_reports_more_bytes_than_requested() {
     let mut output = Vec::new();
     let error = convert_caj(
         &mut source,
-        &mut WriteSink::new(&mut output),
+        &mut &mut output,
         ConversionOptions::default(),
         &Limits::default(),
         &NeverCancel,
@@ -1857,7 +1851,7 @@ fn damaged_shared_stream_blanks_only_dependent_pages_and_preserves_geometry() {
     assert!(
         convert_caj(
             &mut SeekableSource::new(Cursor::new(&bytes)).unwrap(),
-            &mut WriteSink::new(&mut rejected),
+            &mut &mut rejected,
             ConversionOptions::default(),
             &Limits::default(),
             &NeverCancel
@@ -1868,7 +1862,7 @@ fn damaged_shared_stream_blanks_only_dependent_pages_and_preserves_geometry() {
     let mut pdf = Vec::new();
     let report = convert_caj(
         &mut SeekableSource::new(Cursor::new(&bytes)).unwrap(),
-        &mut WriteSink::new(&mut pdf),
+        &mut &mut pdf,
         ConversionOptions {
             allow_damaged: true,
             ..ConversionOptions::default()
@@ -1904,7 +1898,7 @@ fn allow_damaged_leaves_valid_caj_bytes_identical() {
         let mut output = Vec::new();
         let report = convert_caj(
             &mut SeekableSource::new(Cursor::new(&input.bytes)).unwrap(),
-            &mut WriteSink::new(&mut output),
+            &mut &mut output,
             ConversionOptions {
                 allow_damaged,
                 ..ConversionOptions::default()

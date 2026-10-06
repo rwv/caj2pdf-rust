@@ -10,7 +10,8 @@ use super::outline::{ObjectAllocator, ObjectSink};
 use super::types::PdfRef;
 use super::xref::{Trailer, dense_xref_len, write_xref};
 use crate::fallible::{len_u64, reserve_exact};
-use crate::{Cancellation, Error, Limits, Result, SequentialSink, write_all};
+use crate::{Cancellation, Error, Limits, Result, write_counted};
+use std::io::Write;
 use std::mem::size_of;
 
 /// Classic cross-reference entries have ten decimal digits for byte offsets.
@@ -49,7 +50,7 @@ impl From<ObjectId> for PdfRef {
 /// It counts accepted bytes, refuses a write that would end past the classic
 /// xref's ten-digit offsets before the sink sees it, and poisons itself after
 /// a sink failure, which may leave a partial PDF.
-pub(super) struct Output<'a, W: SequentialSink, C: Cancellation> {
+pub(super) struct Output<'a, W: Write, C: Cancellation> {
     sink: &'a mut W,
     pub(super) limits: &'a Limits,
     pub(super) cancellation: &'a C,
@@ -57,7 +58,7 @@ pub(super) struct Output<'a, W: SequentialSink, C: Cancellation> {
     poisoned: bool,
 }
 
-impl<'a, W: SequentialSink, C: Cancellation> Output<'a, W, C> {
+impl<'a, W: Write, C: Cancellation> Output<'a, W, C> {
     pub(super) fn new(sink: &'a mut W, limits: &'a Limits, cancellation: &'a C) -> Self {
         Self {
             sink,
@@ -95,7 +96,7 @@ impl<'a, W: SequentialSink, C: Cancellation> Output<'a, W, C> {
     /// input PDF unchanged.
     pub(super) fn write_unbounded(&mut self, bytes: &[u8]) -> Result<()> {
         self.ensure_healthy()?;
-        let result = write_all(
+        let result = write_counted(
             self.sink,
             bytes,
             &mut self.position,
@@ -141,7 +142,7 @@ enum State {
 /// bytes are passed directly to the bounded core sink helper, which awaits
 /// backpressure and checks cancellation between writes. An I/O failure poisons
 /// this writer because the sink may then contain a partial PDF.
-pub struct PdfWriter<'a, W: SequentialSink, C: Cancellation> {
+pub struct PdfWriter<'a, W: Write, C: Cancellation> {
     out: Output<'a, W, C>,
     /// Zero means reserved but not emitted; the PDF header makes zero an
     /// impossible offset for a real object.
@@ -149,7 +150,7 @@ pub struct PdfWriter<'a, W: SequentialSink, C: Cancellation> {
     state: State,
 }
 
-impl<'a, W: SequentialSink, C: Cancellation> PdfWriter<'a, W, C> {
+impl<'a, W: Write, C: Cancellation> PdfWriter<'a, W, C> {
     /// Start a PDF 1.7 file, including its binary-content marker.
     pub fn new(sink: &'a mut W, limits: &'a Limits, cancellation: &'a C) -> Result<Self> {
         limits.validate()?;
@@ -456,7 +457,7 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfWriter<'a, W, C> {
     }
 }
 
-impl<W: SequentialSink, C: Cancellation> ObjectSink for PdfWriter<'_, W, C> {
+impl<W: Write, C: Cancellation> ObjectSink for PdfWriter<'_, W, C> {
     type Ref = ObjectId;
 
     fn begin_object(&mut self, reference: ObjectId) -> Result<()> {
@@ -472,7 +473,7 @@ impl<W: SequentialSink, C: Cancellation> ObjectSink for PdfWriter<'_, W, C> {
     }
 }
 
-impl<W: SequentialSink, C: Cancellation> ObjectAllocator for PdfWriter<'_, W, C> {
+impl<W: Write, C: Cancellation> ObjectAllocator for PdfWriter<'_, W, C> {
     fn reserve(&mut self) -> Result<ObjectId> {
         self.reserve_object()
     }
@@ -506,12 +507,11 @@ pub(crate) fn checked_object_number(count: usize) -> Result<u32> {
 mod tests {
     use super::*;
     use crate::NeverCancel;
-    use crate::native::WriteSink;
 
     /// Every test uses this one sink type, so their paths share one
     /// instantiation of the generic writer.
-    fn vec_sink() -> WriteSink<Vec<u8>> {
-        WriteSink::new(Vec::new())
+    fn vec_sink() -> Vec<u8> {
+        Vec::new()
     }
 
     #[test]
@@ -632,7 +632,7 @@ mod tests {
             Ok::<(), Error>(())
         })()
         .unwrap();
-        assert!(sink.into_inner().ends_with(b"stream\nendstream\0"));
+        assert!(sink.ends_with(b"stream\nendstream\0"));
     }
 
     #[test]
@@ -647,7 +647,7 @@ mod tests {
             pdf.finish(catalog)
         })()
         .unwrap();
-        let output = sink.into_inner();
+        let output = sink;
         assert_eq!(written, output.len() as u64);
         let xref = output
             .windows(b"\nxref\n".len())
@@ -720,7 +720,7 @@ mod tests {
             Ok::<u64, Error>(written)
         })()
         .unwrap();
-        assert_eq!(sink.into_inner().len() as u64, written);
+        assert_eq!(sink.len() as u64, written);
     }
 
     #[test]

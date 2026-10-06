@@ -27,7 +27,8 @@ use super::{
         read_text_region_header_with_policy,
     },
 };
-use crate::{Cancellation, Limits, MAX_BUDGET_COUNT, RangedSource, SequentialSink};
+use crate::{Cancellation, Limits, MAX_BUDGET_COUNT, RangedSource};
+use std::io::Write;
 use std::{error, fmt, mem};
 
 const MQ_BUFFER_BYTES: u64 = 256;
@@ -400,7 +401,7 @@ pub struct TextInstanceDecoder<
     S: RangedSource,
     RI: RangedSource,
     RN: RangedSource,
-    W: SequentialSink,
+    W: Write,
     C: Cancellation,
 > {
     mq: MqDecoder<'a, S, C>,
@@ -426,7 +427,7 @@ pub struct TextInstanceDecoder<
     complete: bool,
 }
 
-impl<S: RangedSource, RI: RangedSource, RN: RangedSource, W: SequentialSink, C: Cancellation> Drop
+impl<S: RangedSource, RI: RangedSource, RN: RangedSource, W: Write, C: Cancellation> Drop
     for TextInstanceDecoder<'_, S, RI, RN, W, C>
 {
     fn drop(&mut self) {
@@ -436,7 +437,7 @@ impl<S: RangedSource, RI: RangedSource, RN: RangedSource, W: SequentialSink, C: 
     }
 }
 
-impl<'a, S: RangedSource, RI: RangedSource, RN: RangedSource, W: SequentialSink, C: Cancellation>
+impl<'a, S: RangedSource, RI: RangedSource, RN: RangedSource, W: Write, C: Cancellation>
     TextInstanceDecoder<'a, S, RI, RN, W, C>
 {
     /// Reparse the segment header and validate both stores before MQ input.

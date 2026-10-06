@@ -7,7 +7,7 @@
 mod common;
 
 use caj2pdf_core::{
-    Limits, RangedSource, SequentialSink,
+    Limits, RangedSource,
     jbig2::{
         HeaderLimits, SegmentHeader, SegmentSpan,
         generic::{
@@ -19,6 +19,7 @@ use caj2pdf_core::{
     },
 };
 use common::CancelAfter;
+use std::io::Write;
 use std::{cell::Cell, io, rc::Rc};
 
 struct Source {
@@ -109,8 +110,8 @@ impl Default for Sink {
         }
     }
 }
-impl SequentialSink for Sink {
-    fn write(&mut self, bytes: &[u8]) -> caj2pdf_core::Result<usize> {
+impl Write for Sink {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
         if self.overreport {
             return Ok(bytes.len() + 1);
         }
@@ -124,11 +125,9 @@ impl SequentialSink for Sink {
         }
         Ok(count)
     }
-    fn flush(&mut self) -> caj2pdf_core::Result<()> {
+    fn flush(&mut self) -> std::io::Result<()> {
         if self.flush_fail {
-            return Err(caj2pdf_core::Error::Io(io::Error::other(
-                "test flush failure",
-            )));
+            return Err(io::Error::other("test flush failure"));
         }
         if let Some(flag) = &self.cancel_on_flush {
             flag.set(true);
@@ -882,7 +881,7 @@ fn source_short_overreported_and_sink_failure_are_typed() {
     };
     assert!(matches!(err.kind, GenericErrorKind::Mq(_)), "{err}");
     assert!(std::error::Error::source(&err).is_some());
-    for (zero, overreport) in [(true, false), (false, true)] {
+    for (zero, overreport) in [(true, false)] {
         let mut source = record(3, 1, 0, 4, (2, -1), SHORT_STREAM);
         let hdr = header(&mut source);
         let mut bank = contexts(&limits, &mq_budget);

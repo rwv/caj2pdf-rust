@@ -21,8 +21,9 @@ use super::{PdfRange, PdfRef};
 use crate::fallible::{len_u64, reserve, reserve_exact, usize_from_u32};
 use crate::{
     Bookmark, Cancellation, ConversionReport, CountingSource, Error, Limits, PdfErrorKind,
-    RangedSource, Result, SequentialSink, read_exact_at,
+    RangedSource, Result, read_exact_at,
 };
+use std::io::Write;
 use std::mem::size_of;
 
 /// The complete byte range of one generation-zero indirect object, from its
@@ -354,12 +355,12 @@ fn build_outline_nodes(
 
 /// Writes synthetic objects, recording each one's output offset for the
 /// cross-reference table.
-struct SyntheticObjects<'o, 'a, 'r, W: SequentialSink, C: Cancellation> {
+struct SyntheticObjects<'o, 'a, 'r, W: Write, C: Cancellation> {
     out: &'o mut Output<'a, W, C>,
     records: &'r mut [Record],
 }
 
-impl<W: SequentialSink, C: Cancellation> ObjectSink for SyntheticObjects<'_, '_, '_, W, C> {
+impl<W: Write, C: Cancellation> ObjectSink for SyntheticObjects<'_, '_, '_, W, C> {
     type Ref = PdfRef;
 
     fn begin_object(&mut self, reference: PdfRef) -> Result<()> {
@@ -391,7 +392,7 @@ impl<W: SequentialSink, C: Cancellation> ObjectSink for SyntheticObjects<'_, '_,
 /// Bookmark entries are depth-first and name zero-based positions in
 /// `plan.pages`. All titles and links are checked before the first sink write;
 /// title hex is then emitted in bounded chunks.
-pub fn reconstruct_fragment_with_bookmarks<R: RangedSource, W: SequentialSink, C: Cancellation>(
+pub fn reconstruct_fragment_with_bookmarks<R: RangedSource, W: Write, C: Cancellation>(
     source: &mut R,
     sink: &mut W,
     plan: &FragmentPlan<'_>,
@@ -411,7 +412,7 @@ pub(crate) struct InspectedPlan<'a> {
 }
 
 /// Reconstruct from an [`InspectedPlan`] without parsing its objects again.
-pub(crate) fn reconstruct_inspected<R: RangedSource, W: SequentialSink, C: Cancellation>(
+pub(crate) fn reconstruct_inspected<R: RangedSource, W: Write, C: Cancellation>(
     source: &mut R,
     sink: &mut W,
     plan: InspectedPlan<'_>,
@@ -454,7 +455,7 @@ pub(crate) fn reconstruct_inspected<R: RangedSource, W: SequentialSink, C: Cance
     )
 }
 
-fn reconstruct<R: RangedSource, W: SequentialSink, C: Cancellation>(
+fn reconstruct<R: RangedSource, W: Write, C: Cancellation>(
     source: &mut R,
     sink: &mut W,
     plan: &FragmentPlan<'_>,
@@ -783,7 +784,7 @@ fn index_spans(
     Ok(records)
 }
 
-fn copy_object<R: RangedSource, W: SequentialSink, C: Cancellation>(
+fn copy_object<R: RangedSource, W: Write, C: Cancellation>(
     source: &mut R,
     out: &mut Output<'_, W, C>,
     range: PdfRange,

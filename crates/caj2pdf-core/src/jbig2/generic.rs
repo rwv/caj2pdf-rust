@@ -13,7 +13,8 @@ use super::{
     text_composer::RandomAccessScratch,
 };
 use crate::fallible::reserve_exact;
-use crate::{Cancellation, Error, Limits, RangedSource, SequentialSink, read_exact_at, write_all};
+use crate::{Cancellation, Error, Limits, RangedSource, read_exact_at, write_counted};
+use std::io::Write;
 use std::{error, fmt, mem};
 
 const HEADER_BYTES: u64 = 20;
@@ -595,7 +596,7 @@ pub fn read_generic_region_header<S: RangedSource, C: Cancellation>(
 
 /// Stateful row decoder. A failed or dropped row future poisons this object;
 /// partial sink output must be discarded by the caller.
-pub struct GenericRegionDecoder<'a, S: RangedSource, W: SequentialSink, C: Cancellation> {
+pub struct GenericRegionDecoder<'a, S: RangedSource, W: Write, C: Cancellation> {
     mq: MqDecoder<'a, S, C>,
     sink: &'a mut W,
     limits: &'a Limits,
@@ -615,7 +616,7 @@ pub struct GenericRegionDecoder<'a, S: RangedSource, W: SequentialSink, C: Cance
     poisoned: bool,
 }
 
-impl<'a, S: RangedSource, W: SequentialSink, C: Cancellation> GenericRegionDecoder<'a, S, W, C> {
+impl<'a, S: RangedSource, W: Write, C: Cancellation> GenericRegionDecoder<'a, S, W, C> {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         source: &'a mut S,
@@ -758,7 +759,7 @@ impl<'a, S: RangedSource, W: SequentialSink, C: Cancellation> GenericRegionDecod
                 self.current[x as usize / 8] |= 0x80 >> (x % 8);
             }
         }
-        write_all(
+        write_counted(
             self.sink,
             &self.current,
             &mut self.output_bytes_written,
@@ -819,14 +820,17 @@ impl<'a, S: RangedSource, W: SequentialSink, C: Cancellation> GenericRegionDecod
                 kind: GenericErrorKind::Cancelled,
             });
         }
-        self.sink.flush().map_err(|e| GenericError {
-            offset: report.progress.mq.input_offset,
-            segment,
-            rows_written: progress.rows_written,
-            pixels_decoded: progress.pixels_decoded,
-            output_bytes_written: progress.output_bytes_written,
-            kind: GenericErrorKind::Sink(e),
-        })?;
+        self.sink
+            .flush()
+            .map_err(Error::from)
+            .map_err(|e| GenericError {
+                offset: report.progress.mq.input_offset,
+                segment,
+                rows_written: progress.rows_written,
+                pixels_decoded: progress.pixels_decoded,
+                output_bytes_written: progress.output_bytes_written,
+                kind: GenericErrorKind::Sink(e),
+            })?;
         if self.cancellation.is_cancelled() {
             return Err(GenericError {
                 offset: report.progress.mq.input_offset,
@@ -846,7 +850,7 @@ impl<'a, 'p, S, T, P, PC, C> GenericRegionDecoder<'a, S, PageOrSink<'p, T, P, PC
 where
     S: RangedSource,
     T: RandomAccessScratch,
-    P: SequentialSink,
+    P: Write,
     PC: Cancellation,
     C: Cancellation,
 {

@@ -5,7 +5,7 @@
 
 use caj2pdf_core::{
     Bookmark, Limits, NeverCancel, RangedSource,
-    native::{SeekableSource, WriteSink},
+    native::SeekableSource,
     pdf::{ImageEncoding, ImageSpec, PageSpec, PdfDocument, PdfWriter},
 };
 use std::{
@@ -132,7 +132,7 @@ fn compact_whitespace(text: &str) -> String {
 fn an_empty_stream_pdf_passes_independent_reopen_checks() {
     let mut output = TempPdf::new("empty-stream");
     let limits = Limits::default();
-    let mut sink = WriteSink::new(&mut output.file);
+    let mut sink = &mut output.file;
     let bytes_written = (|| {
         let mut writer = PdfWriter::new(&mut sink, &limits, &NeverCancel)?;
         let catalog = writer.reserve_object()?;
@@ -174,7 +174,7 @@ fn image_pages_and_unicode_outlines_reopen_with_correct_order_and_dimensions() {
 
     let mut output = TempPdf::new("image-outlines");
     let limits = Limits::default();
-    let mut sink = WriteSink::new(&mut output.file);
+    let mut sink = &mut output.file;
     let mut gray_source = SeekableSource::new(Cursor::new(BINARY_GRAY)).unwrap();
     let mut rgb_source = SeekableSource::new(Cursor::new(RGB.as_slice())).unwrap();
     let report = (|| {
@@ -331,7 +331,7 @@ fn jpeg_gray_image_is_passed_through_and_renders() {
 
     let mut output = TempPdf::new("jpeg-gray");
     let limits = Limits::default();
-    let mut sink = WriteSink::new(&mut output.file);
+    let mut sink = &mut output.file;
     let mut source = SeekableSource::new(Cursor::new(jpeg.as_slice())).unwrap();
     let report = (|| {
         let mut document = PdfDocument::new(&mut sink, &limits, &NeverCancel)?;
@@ -447,7 +447,7 @@ fn a_large_image_stream_reopens_without_whole_image_input_allocation() {
     };
     let mut output = TempPdf::new("large-image");
     let limits = Limits::default();
-    let mut sink = WriteSink::new(&mut output.file);
+    let mut sink = &mut output.file;
     let report = (|| {
         let mut document = PdfDocument::new(&mut sink, &limits, &NeverCancel)?;
         document.add_image_page(
@@ -487,7 +487,7 @@ fn a_large_image_stream_reopens_without_whole_image_input_allocation() {
 fn page_tree_rollover_preserves_page_order_at_257_pages() {
     let mut output = TempPdf::new("page-tree-rollover");
     let limits = Limits::default();
-    let mut sink = WriteSink::new(&mut output.file);
+    let mut sink = &mut output.file;
     let mut pixel = SeekableSource::new(Cursor::new([0x7f_u8])).unwrap();
     let report = (|| {
         let mut document = PdfDocument::new(&mut sink, &limits, &NeverCancel)?;

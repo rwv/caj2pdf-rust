@@ -26,15 +26,16 @@ use crate::jbig2::{
     text_instances::{TextInstanceBudget, TextInstanceDecoder},
 };
 use crate::pdf::{BilevelImageSpec, ImageObject, PdfDocument};
-use crate::{Cancellation, Limits, RangedSource, SequentialSink, read_exact_at};
+use crate::{Cancellation, Limits, RangedSource, read_exact_at};
 use std::error;
+use std::io::Write;
 
 const DIB_BYTES: u64 = 48;
 
 /// One symbol-dictionary store. Both read handles must observe writes by the
 /// writer, including a changing length. All handles refer to the same
 /// initially empty store; the writer appends from byte zero.
-pub(super) struct Type3Store<'a, R: RangedSource, W: SequentialSink> {
+pub(super) struct Type3Store<'a, R: RangedSource, W: Write> {
     pub reader: &'a mut R,
     /// Independent handle for text composition while the instance decoder
     /// holds `reader`. It observes the same backing bytes.
@@ -45,7 +46,7 @@ pub(super) struct Type3Store<'a, R: RangedSource, W: SequentialSink> {
 /// One refined-symbol store. Its reader observes writer growth while text
 /// instances are decoded and composed. Both handles refer to the same
 /// initially empty store; the writer appends from byte zero.
-pub(super) struct Type3RefinedStore<'a, R: RangedSource, W: SequentialSink> {
+pub(super) struct Type3RefinedStore<'a, R: RangedSource, W: Write> {
     pub reader: &'a mut R,
     pub writer: &'a mut W,
 }
@@ -53,7 +54,7 @@ pub(super) struct Type3RefinedStore<'a, R: RangedSource, W: SequentialSink> {
 /// Three bounded symbol stores plus the one full-page text scratch, each
 /// empty on entry. The second and refined stores must support reading while
 /// their paired writer appends. No intermediate is a second full-page bitmap.
-pub(super) struct Type3Workspaces<'a, R: RangedSource, W: SequentialSink, T: RandomAccessScratch> {
+pub(super) struct Type3Workspaces<'a, R: RangedSource, W: Write, T: RandomAccessScratch> {
     pub first: Type3Store<'a, R, W>,
     pub second: Type3Store<'a, R, W>,
     pub refined: Type3RefinedStore<'a, R, W>,
@@ -112,7 +113,11 @@ impl Type3Stage {
 }
 
 impl At {
-    fn stage<E: error::Error + 'static>(self, stage: Type3Stage, source: E) -> ComposeError {
+    fn stage<E: error::Error + Send + Sync + 'static>(
+        self,
+        stage: Type3Stage,
+        source: E,
+    ) -> ComposeError {
         self.error((
             stage.compose_stage(),
             ComposeErrorKind::Type3 {
@@ -138,7 +143,7 @@ fn source_stage<T, E, F>(
     offset: F,
 ) -> Result<T, ComposeError>
 where
-    E: error::Error + 'static,
+    E: error::Error + Send + Sync + 'static,
     F: FnOnce(&E) -> u64,
 {
     result.map_err(|source| at.with_offset(offset(&source)).stage(stage, source))
@@ -146,7 +151,7 @@ where
 
 fn work_stage<T, E>(result: Result<T, E>, at: At, stage: Type3Stage) -> Result<T, ComposeError>
 where
-    E: error::Error + 'static,
+    E: error::Error + Send + Sync + 'static,
 {
     result.map_err(|source| at.stage(stage, source))
 }
@@ -163,11 +168,11 @@ fn composed_stage<T>(result: Result<T, TextComposeError>, at: At) -> Result<T, C
 
 struct DiscardSink;
 
-impl SequentialSink for DiscardSink {
-    fn write(&mut self, bytes: &[u8]) -> crate::Result<usize> {
+impl Write for DiscardSink {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
         Ok(bytes.len())
     }
-    fn flush(&mut self) -> crate::Result<()> {
+    fn flush(&mut self) -> std::io::Result<()> {
         Ok(())
     }
 }
@@ -361,7 +366,7 @@ pub(super) fn prepare_type3_image<'a, S, R, W, T, C>(
 where
     S: RangedSource,
     R: RangedSource,
-    W: SequentialSink,
+    W: Write,
     T: RandomAccessScratch,
     C: Cancellation,
 {
@@ -544,7 +549,7 @@ pub(super) fn emit_type3_xobject<S, W, T, C>(
 ) -> Result<(ImageObject, PageComposeReport), ComposeError>
 where
     S: RangedSource,
-    W: SequentialSink,
+    W: Write,
     T: RandomAccessScratch,
     C: Cancellation,
 {
@@ -627,8 +632,8 @@ struct PaddedRows<'a, W> {
     padding: usize,
 }
 
-impl<W: SequentialSink> SequentialSink for PaddedRows<'_, W> {
-    fn write(&mut self, bytes: &[u8]) -> crate::Result<usize> {
+impl<W: Write> Write for PaddedRows<'_, W> {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
         let count = bytes.len().min(self.stride - self.column);
         let written = self.sink.write(&bytes[..count])?;
         self.column += written;
@@ -640,7 +645,7 @@ impl<W: SequentialSink> SequentialSink for PaddedRows<'_, W> {
         }
         Ok(written)
     }
-    fn flush(&mut self) -> crate::Result<()> {
+    fn flush(&mut self) -> std::io::Result<()> {
         self.sink.flush()
     }
 }
@@ -836,13 +841,13 @@ mod tests {
         }
     }
 
-    impl SequentialSink for Memory {
-        fn write(&mut self, bytes: &[u8]) -> crate::Result<usize> {
+    impl Write for Memory {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
             let count = bytes.len().min(3);
             self.0.borrow_mut().extend_from_slice(&bytes[..count]);
             Ok(count)
         }
-        fn flush(&mut self) -> crate::Result<()> {
+        fn flush(&mut self) -> std::io::Result<()> {
             Ok(())
         }
     }

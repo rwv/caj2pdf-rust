@@ -22,6 +22,7 @@ use crate::jbig2::{
     },
     text_instances::{TextInstanceBudget, TextInstanceDecoder},
 };
+use std::io::Write;
 use std::{
     cell::{Cell, RefCell},
     error::Error as StdError,
@@ -466,13 +467,13 @@ impl RangedSource for Bytes {
 /// Appends the decoder's refined bitmaps to a [`Bytes`] view.
 struct Appender(Rc<RefCell<Vec<u8>>>);
 
-impl SequentialSink for Appender {
-    fn write(&mut self, bytes: &[u8]) -> crate::Result<usize> {
+impl Write for Appender {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
         self.0.borrow_mut().extend_from_slice(bytes);
         Ok(bytes.len())
     }
 
-    fn flush(&mut self) -> crate::Result<()> {
+    fn flush(&mut self) -> std::io::Result<()> {
         Ok(())
     }
 }
@@ -614,8 +615,8 @@ impl Sink {
     }
 }
 
-impl SequentialSink for Sink {
-    fn write(&mut self, bytes: &[u8]) -> crate::Result<usize> {
+impl Write for Sink {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
         self.calls += 1;
         if self.zero_at_call == Some(self.calls) {
             return Ok(0);
@@ -628,13 +629,13 @@ impl SequentialSink for Sink {
         Ok(n)
     }
 
-    fn flush(&mut self) -> crate::Result<()> {
+    fn flush(&mut self) -> std::io::Result<()> {
         self.flushes += 1;
         if let Some(flag) = &self.change_size_on_flush {
             flag.set(true);
         }
         if self.fail_flush {
-            Err(Error::Io(io::Error::other("output flush")))
+            Err(io::Error::other("output flush"))
         } else {
             Ok(())
         }

@@ -3,9 +3,7 @@
 //! Native integration probe: cargo run -p caj2pdf-core --example native_caj_to_pdf -- INPUT.caj OUTPUT.pdf
 
 use caj2pdf_core::{
-    ConversionOptions, Limits, NeverCancel,
-    caj::convert_caj,
-    native::{SeekableSource, WriteSink},
+    ConversionOptions, Limits, NeverCancel, caj::convert_caj, native::SeekableSource,
 };
 use std::{env, fs::File};
 
@@ -21,7 +19,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Err("usage: native_caj_to_pdf INPUT.caj OUTPUT.pdf".into());
     }
     let mut source = SeekableSource::new(File::open(input)?)?;
-    let mut sink = WriteSink::new(File::create(output)?);
+    let mut sink = File::create(output)?;
     let report = convert_caj(
         &mut source,
         &mut sink,

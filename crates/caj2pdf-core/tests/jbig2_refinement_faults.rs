@@ -5,7 +5,7 @@
 mod common;
 
 use caj2pdf_core::{
-    Cancellation, Error, Limits, MAX_BUDGET_COUNT, NeverCancel, RangedSource, SequentialSink,
+    Cancellation, Error, Limits, MAX_BUDGET_COUNT, NeverCancel, RangedSource,
     jbig2::{
         dictionary::SymbolDescriptor,
         integer::BITMAP_BASE,
@@ -16,6 +16,7 @@ use caj2pdf_core::{
         },
     },
 };
+use std::io::Write;
 use std::{cell::Cell, io, rc::Rc};
 
 #[derive(Default)]
@@ -101,14 +102,12 @@ impl Sink {
     }
 }
 
-impl SequentialSink for Sink {
-    fn write(&mut self, bytes: &[u8]) -> caj2pdf_core::Result<usize> {
+impl Write for Sink {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
         self.calls += 1;
         self.max_request = self.max_request.max(bytes.len());
         if self.error_on_call == Some(self.calls) {
-            return Err(Error::Io(io::Error::other(
-                "injected refinement write failure",
-            )));
+            return Err(io::Error::other("injected refinement write failure"));
         }
         if self.overreport_on_call == Some(self.calls) {
             return Ok(bytes.len() + 1);
@@ -124,12 +123,10 @@ impl SequentialSink for Sink {
         Ok(count)
     }
 
-    fn flush(&mut self) -> caj2pdf_core::Result<()> {
+    fn flush(&mut self) -> std::io::Result<()> {
         self.flush_calls += 1;
         if self.flush_error {
-            return Err(Error::Io(io::Error::other(
-                "injected refinement flush failure",
-            )));
+            return Err(io::Error::other("injected refinement flush failure"));
         }
         if let Some(flag) = &self.cancel_after_flush {
             flag.set(true);

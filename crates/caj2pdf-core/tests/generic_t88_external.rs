@@ -4,7 +4,7 @@
 //! enter Git; the private fixture and source files are required at run time.
 
 use caj2pdf_core::{
-    Limits, NeverCancel, SequentialSink,
+    Limits, NeverCancel,
     jbig2::{
         HeaderLimits, SegmentSpan,
         generic::{GenericBudget, GenericRegionDecoder},
@@ -14,6 +14,7 @@ use caj2pdf_core::{
     native::SeekableSource,
 };
 use sha2::{Digest, Sha256};
+use std::io::Write;
 use std::{env, fs::File, io::Read, path::Path};
 
 const TABLE_FIXTURE_SHA: &str = "bdf6eeeca3bc5d5a8dc1a13acc7698ec356c886b27f6526f3e09fc2c8520ac57";
@@ -89,13 +90,13 @@ impl HashSink {
         }
     }
 }
-impl SequentialSink for HashSink {
-    fn write(&mut self, bytes: &[u8]) -> caj2pdf_core::Result<usize> {
+impl Write for HashSink {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
         self.hash.update(bytes);
         self.bytes += bytes.len() as u64;
         Ok(bytes.len())
     }
-    fn flush(&mut self) -> caj2pdf_core::Result<()> {
+    fn flush(&mut self) -> std::io::Result<()> {
         Ok(())
     }
 }

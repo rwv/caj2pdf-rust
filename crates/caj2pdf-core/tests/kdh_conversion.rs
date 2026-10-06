@@ -3,10 +3,10 @@
 //! Synthetic KDH wrappers around repository-owned PDF test input.
 
 use caj2pdf_core::{
-    Cancellation, Error, Limits, NeverCancel, RangedSource, SequentialSink,
+    Cancellation, Error, Limits, NeverCancel, RangedSource,
     kdh::{KdhPdfSource, convert_kdh},
-    native::WriteSink,
 };
+use std::io::Write;
 use std::{cell::Cell, fs::read, io, path::Path, rc::Rc};
 
 const PDF_START: usize = 254;
@@ -95,7 +95,7 @@ fn a_later_zero_read_reports_the_absolute_kdh_offset() {
     let mut output = Vec::new();
     let error = caj2pdf_core::pdf::copy_pdf(
         &mut decoded,
-        &mut WriteSink::new(&mut output),
+        &mut &mut output,
         &Limits::default(),
         &NeverCancel,
     )
@@ -126,17 +126,17 @@ struct FailingSink {
     remaining: usize,
 }
 
-impl SequentialSink for FailingSink {
-    fn write(&mut self, bytes: &[u8]) -> caj2pdf_core::Result<usize> {
+impl Write for FailingSink {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
         if self.remaining == 0 {
-            return Err(Error::Io(io::Error::other("injected KDH sink failure")));
+            return Err(io::Error::other("injected KDH sink failure"));
         }
         let count = bytes.len().min(self.remaining);
         self.remaining -= count;
         Ok(count)
     }
 
-    fn flush(&mut self) -> caj2pdf_core::Result<()> {
+    fn flush(&mut self) -> std::io::Result<()> {
         Ok(())
     }
 }
@@ -211,7 +211,7 @@ fn kdh_conversion_uses_the_shared_pdf_reader_and_sink() {
     let mut output = Vec::new();
     let report = convert_kdh(
         &mut source,
-        &mut WriteSink::new(&mut output),
+        &mut &mut output,
         &Limits::default(),
         &NeverCancel,
     )
@@ -231,13 +231,7 @@ fn kdh_conversion_accepts_short_positioned_reads() {
         ..Limits::default()
     };
     let mut output = Vec::new();
-    let report = convert_kdh(
-        &mut source,
-        &mut WriteSink::new(&mut output),
-        &limits,
-        &NeverCancel,
-    )
-    .unwrap();
+    let report = convert_kdh(&mut source, &mut &mut output, &limits, &NeverCancel).unwrap();
     assert_eq!(output, pdf);
     assert_eq!(report.pages_converted, 2);
     assert!(source.reads.get() > 100);
@@ -258,12 +252,7 @@ fn kdh_scan_observes_cancellation_before_writing_output() {
         ..Limits::default()
     };
     let mut output = Vec::new();
-    let result = convert_kdh(
-        &mut source,
-        &mut WriteSink::new(&mut output),
-        &limits,
-        &cancellation,
-    );
+    let result = convert_kdh(&mut source, &mut &mut output, &limits, &cancellation);
     assert!(matches!(result, Err(Error::Cancelled)));
     assert!(output.is_empty());
     assert!(source.max_request <= limits.io_chunk_bytes);
@@ -378,7 +367,7 @@ fn corrupt_pdf_object_is_reported_at_kdh_absolute_offset() {
     let mut output = Vec::new();
     let error = convert_kdh(
         &mut source,
-        &mut WriteSink::new(&mut output),
+        &mut &mut output,
         &Limits::default(),
         &NeverCancel,
     )
@@ -395,13 +384,7 @@ fn pdf_output_limit_preserves_kdh_absolute_error_location() {
         max_output_bytes: pdf.len() as u64 - 1,
         ..Limits::default()
     };
-    let error = convert_kdh(
-        &mut source,
-        &mut WriteSink::new(&mut output),
-        &limits,
-        &NeverCancel,
-    )
-    .unwrap_err();
+    let error = convert_kdh(&mut source, &mut &mut output, &limits, &NeverCancel).unwrap_err();
     assert!(
         matches!(error, Error::PdfLimitExceeded { offset, resource: "output bytes", .. } if offset >= PDF_START as u64),
         "{error}"

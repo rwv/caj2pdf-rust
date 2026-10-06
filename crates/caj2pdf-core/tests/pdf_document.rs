@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: MIT
 
 use caj2pdf_core::{
-    Bookmark, Error, Limits, NeverCancel, RangedSource, Result, SequentialSink,
-    native::{SeekableSource, WriteSink},
+    Bookmark, Error, Limits, NeverCancel, RangedSource, Result,
+    native::SeekableSource,
     pdf::{ImageEncoding, ImageSpec, PageSpec, PdfDocument},
 };
+use std::io::Write;
 use std::io::{self, Cursor};
 
 fn page() -> PageSpec {
@@ -51,7 +52,7 @@ fn two_pages_and_nested_unicode_outline_have_checked_report_and_stream_bytes() -
     let raw = b"endstream endobj xref".to_vec();
     let mut gray_source = SeekableSource::new(Cursor::new(raw.clone()))?;
     let mut rgb_source = SeekableSource::new(Cursor::new(vec![255, 0, 0, 0, 255, 0]))?;
-    let mut output = WriteSink::new(Vec::<u8>::new());
+    let mut output = Vec::<u8>::new();
     let limits = Limits::default();
     let report = (|| {
         let mut document = PdfDocument::new(&mut output, &limits, &NeverCancel)?;
@@ -95,7 +96,7 @@ fn two_pages_and_nested_unicode_outline_have_checked_report_and_stream_bytes() -
         }
         document.finish()
     })()?;
-    let pdf = output.into_inner();
+    let pdf = output;
     assert_eq!(report.input_bytes_read, raw.len() as u64 + 6);
     assert_eq!(report.output_bytes_written, pdf.len() as u64);
     assert_eq!(report.pages_converted, 2);
@@ -130,7 +131,7 @@ fn two_pages_and_nested_unicode_outline_have_checked_report_and_stream_bytes() -
 #[test]
 fn page_tree_crosses_256_page_leaf_boundary() -> Result<()> {
     let mut source = one_byte_source();
-    let mut output = WriteSink::new(Vec::<u8>::new());
+    let mut output = Vec::<u8>::new();
     let limits = Limits::default();
     let report = (|| {
         let mut document = PdfDocument::new(&mut output, &limits, &NeverCancel)?;
@@ -140,7 +141,7 @@ fn page_tree_crosses_256_page_leaf_boundary() -> Result<()> {
         }
         document.finish()
     })()?;
-    let pdf = output.into_inner();
+    let pdf = output;
     let text = String::from_utf8_lossy(&pdf);
     assert_eq!(report.pages_converted, 257);
     assert_eq!(text.matches("/Type /Page /Parent").count(), 257);
@@ -151,7 +152,7 @@ fn page_tree_crosses_256_page_leaf_boundary() -> Result<()> {
 #[test]
 fn rejects_invalid_page_and_image_specs_before_reading() -> Result<()> {
     let mut source = CountingBytes::new(vec![0; 4]);
-    let mut output = WriteSink::new(Vec::<u8>::new());
+    let mut output = Vec::<u8>::new();
     let limits = Limits::default();
     (|| {
         let mut document = PdfDocument::new(&mut output, &limits, &NeverCancel)?;
@@ -223,7 +224,7 @@ fn rejects_invalid_page_and_image_specs_before_reading() -> Result<()> {
 #[test]
 fn rejects_unavailable_image_ranges_zero_pixels_and_empty_jpeg_before_reading() -> Result<()> {
     let mut source = CountingBytes::new(vec![0x7f]);
-    let mut output = WriteSink::new(Vec::<u8>::new());
+    let mut output = Vec::<u8>::new();
     let limits = Limits::default();
     (|| {
         let mut document = PdfDocument::new(&mut output, &limits, &NeverCancel)?;
@@ -296,13 +297,13 @@ fn rejects_unavailable_image_ranges_zero_pixels_and_empty_jpeg_before_reading() 
 
 #[test]
 fn rejects_empty_document_and_missing_bookmark_links() -> Result<()> {
-    let mut output = WriteSink::new(Vec::<u8>::new());
+    let mut output = Vec::<u8>::new();
     let limits = Limits::default();
     let error = (|| PdfDocument::new(&mut output, &limits, &NeverCancel)?.finish())().unwrap_err();
     assert!(matches!(error, Error::InvalidInput { .. }));
 
     let mut source = one_byte_source();
-    let mut output = WriteSink::new(Vec::<u8>::new());
+    let mut output = Vec::<u8>::new();
     (|| {
         let mut document = PdfDocument::new(&mut output, &limits, &NeverCancel)?;
         document.add_image_page(&mut source, 0, 1, page(), gray(1))?;
@@ -330,7 +331,7 @@ fn rejects_empty_document_and_missing_bookmark_links() -> Result<()> {
 #[test]
 fn applies_page_bookmark_and_retained_title_limits() -> Result<()> {
     let mut source = one_byte_source();
-    let mut output = WriteSink::new(Vec::<u8>::new());
+    let mut output = Vec::<u8>::new();
     let limits = Limits {
         max_pages: 1,
         max_bookmarks: 1,
@@ -376,7 +377,7 @@ fn applies_page_bookmark_and_retained_title_limits() -> Result<()> {
         max_allocation_bytes: 7,
         ..Limits::default()
     };
-    let mut output = WriteSink::new(Vec::<u8>::new());
+    let mut output = Vec::<u8>::new();
     let error = PdfDocument::new(&mut output, &tiny, &NeverCancel)
         .err()
         .unwrap();
@@ -393,7 +394,7 @@ fn applies_page_bookmark_and_retained_title_limits() -> Result<()> {
         ..Limits::default()
     };
     let mut source = one_byte_source();
-    let mut output = WriteSink::new(Vec::<u8>::new());
+    let mut output = Vec::<u8>::new();
     (|| {
         let mut document = PdfDocument::new(&mut output, &bounded, &NeverCancel)?;
         document.add_image_page(&mut source, 0, 1, page(), gray(1))?;
@@ -433,7 +434,7 @@ fn applies_page_bookmark_and_retained_title_limits() -> Result<()> {
         assert_eq!(report.bookmarks_written, 2);
         Ok::<_, Error>(())
     })()?;
-    let pdf = output.into_inner();
+    let pdf = output;
     let text = String::from_utf8_lossy(&pdf);
     let (first_id, first) = outline_for_title(&text, "first");
     let (second_id, second) = outline_for_title(&text, "second");
@@ -446,7 +447,7 @@ fn applies_page_bookmark_and_retained_title_limits() -> Result<()> {
 #[test]
 fn reports_truncated_source_and_failing_sink_without_success() -> Result<()> {
     let mut short = ShortSource { calls: 0 };
-    let mut output = WriteSink::new(Vec::<u8>::new());
+    let mut output = Vec::<u8>::new();
     let limits = Limits::default();
     let error = (|| {
         let mut document = PdfDocument::new(&mut output, &limits, &NeverCancel)?;
@@ -457,7 +458,7 @@ fn reports_truncated_source_and_failing_sink_without_success() -> Result<()> {
     assert_eq!(short.calls, 2);
 
     let mut failing_source = FailingSource { calls: 0 };
-    let mut output = WriteSink::new(Vec::<u8>::new());
+    let mut output = Vec::<u8>::new();
     let error = (|| {
         let mut document = PdfDocument::new(&mut output, &limits, &NeverCancel)?;
         document.add_image_page(&mut failing_source, 0, 4, page(), gray(4))
@@ -581,16 +582,16 @@ struct FailingSink {
     budget: usize,
 }
 
-impl SequentialSink for FailingSink {
-    fn write(&mut self, bytes: &[u8]) -> Result<usize> {
+impl Write for FailingSink {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
         if self.budget == 0 {
-            return Err(Error::Io(io::Error::other("injected sink failure")));
+            return Err(io::Error::other("injected sink failure"));
         }
         let accepted = bytes.len().min(self.budget);
         self.budget -= accepted;
         Ok(accepted)
     }
-    fn flush(&mut self) -> Result<()> {
+    fn flush(&mut self) -> std::io::Result<()> {
         Ok(())
     }
 }
@@ -600,12 +601,12 @@ struct CountingSink {
     bytes: u64,
 }
 
-impl SequentialSink for CountingSink {
-    fn write(&mut self, bytes: &[u8]) -> Result<usize> {
+impl Write for CountingSink {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
         self.bytes += bytes.len() as u64;
         Ok(bytes.len())
     }
-    fn flush(&mut self) -> Result<()> {
+    fn flush(&mut self) -> std::io::Result<()> {
         Ok(())
     }
 }

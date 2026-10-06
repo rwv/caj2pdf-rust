@@ -5,6 +5,7 @@
 use super::*;
 use crate::hnc8::{C8PageFonts, write_c8_native_page};
 use crate::pdf::{FontObject, ImageObject, OpenTypeFont};
+use std::io::Write;
 
 /// Explicit ranged font sources, embedded once per document.
 /// Multiple roles may reference one source index. At most eight distinct
@@ -45,7 +46,7 @@ pub fn convert_c8_native_pdf<'a, S, F, W, T, C>(
 where
     S: RangedSource,
     F: RangedSource,
-    W: SequentialSink,
+    W: Write,
     T: RandomAccessScratch + 'a,
     C: Cancellation,
 {

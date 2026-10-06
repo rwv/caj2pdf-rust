@@ -7,11 +7,9 @@
 //! only a bounded scan buffer and exposes decrypted bytes on demand.
 
 use crate::pdf::copy_pdf;
-use crate::{
-    Cancellation, ConversionReport, Error, Limits, RangedSource, Result, SequentialSink,
-    read_exact_at,
-};
+use crate::{Cancellation, ConversionReport, Error, Limits, RangedSource, Result, read_exact_at};
 use std::cmp::min;
+use std::io::Write;
 
 const PDF_START: u64 = 254;
 /// The only measured KDH wrapper signature, at offset zero.
@@ -248,7 +246,7 @@ impl<S: RangedSource> RangedSource for KdhPdfSource<'_, S> {
 }
 
 /// Decode KDH and normalize its PDF through the shared bounded PDF path.
-pub fn convert_kdh<S: RangedSource, W: SequentialSink, C: Cancellation>(
+pub fn convert_kdh<S: RangedSource, W: Write, C: Cancellation>(
     source: &mut S,
     sink: &mut W,
     limits: &Limits,

@@ -2,11 +2,7 @@
 
 //! Native probe: cargo run -p caj2pdf-core --example native_kdh_to_pdf -- INPUT.caj OUTPUT.pdf
 
-use caj2pdf_core::{
-    Limits, NeverCancel,
-    kdh::convert_kdh,
-    native::{SeekableSource, WriteSink},
-};
+use caj2pdf_core::{Limits, NeverCancel, kdh::convert_kdh, native::SeekableSource};
 use std::{env, fs::File};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -21,7 +17,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Err("usage: native_kdh_to_pdf INPUT.caj OUTPUT.pdf".into());
     }
     let mut source = SeekableSource::new(File::open(input)?)?;
-    let mut sink = WriteSink::new(File::create(output)?);
+    let mut sink = File::create(output)?;
     let report = convert_kdh(&mut source, &mut sink, &Limits::default(), &NeverCancel)?;
     eprintln!(
         "converted {} pages; read {} bytes; wrote {} bytes",

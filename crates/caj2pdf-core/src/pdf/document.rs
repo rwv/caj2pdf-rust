@@ -10,10 +10,11 @@ use super::writer::{MAX_PDF_INTEGER, ObjectId, PdfWriter};
 use crate::fallible::{len_u64, reserve, reserve_exact, usize_from_u32};
 use crate::{
     Bookmark, BookmarkVisitor, Cancellation, ConversionReport, CountingSource, Error, Limits,
-    RangedSource, Result, SequentialSink, read_exact_at,
+    RangedSource, Result, read_exact_at,
 };
 use flate2::{Compress, Compression, FlushCompress, Status};
 use std::fmt::Write as _;
+use std::io::Write;
 
 // Conservative reservation for flate2's locked miniz_oxide Rust backend:
 // fixed dictionary, code buffer, local output buffer and Huffman tables.
@@ -136,13 +137,13 @@ impl PageImages<'_> {
 /// Streams one bilevel image's rows into an open PDF image stream.
 ///
 /// Obtain it from [`PdfDocument::begin_bilevel_image`], write exactly
-/// `row_stride * pixel_height` bytes through [`SequentialSink::write`], then
+/// `row_stride * pixel_height` bytes through [`Write::write`], then
 /// call [`BilevelImageWriter::finish`]. Writes may split or join rows. Only
 /// row-position state and a fixed-size zlib encoder are retained. Visible row
 /// bytes are compressed incrementally; storage padding is omitted. Dropping
 /// the writer before `finish` leaves the document's stream open, so every
 /// later document operation fails.
-pub struct BilevelImageWriter<'d, 'a, W: SequentialSink, C: Cancellation> {
+pub struct BilevelImageWriter<'d, 'a, W: Write, C: Cancellation> {
     document: &'d mut PdfDocument<'a, W, C>,
     object: ObjectId,
     visible: usize,
@@ -177,7 +178,7 @@ impl Zlib {
     /// Compress `input`, and with `finish` end the zlib stream. Compression
     /// can consume input before a later output write fails, so a failed call
     /// cannot be retried; callers must poison their stream.
-    pub(super) fn write<W: SequentialSink, C: Cancellation>(
+    pub(super) fn write<W: Write, C: Cancellation>(
         &mut self,
         writer: &mut PdfWriter<'_, W, C>,
         mut input: &[u8],
@@ -219,12 +220,13 @@ impl Zlib {
     }
 }
 
-impl<W: SequentialSink, C: Cancellation> SequentialSink for BilevelImageWriter<'_, '_, W, C> {
-    fn write(&mut self, bytes: &[u8]) -> Result<usize> {
+impl<W: Write, C: Cancellation> Write for BilevelImageWriter<'_, '_, W, C> {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
         if len_u64(bytes.len()) > self.remaining {
             return Err(Error::InvalidInput {
                 reason: "bilevel image rows exceed the declared height",
-            });
+            }
+            .into());
         }
         let mut done = 0;
         while done < bytes.len() {
@@ -244,7 +246,7 @@ impl<W: SequentialSink, C: Cancellation> SequentialSink for BilevelImageWriter<'
 
     /// Does not force a deflate boundary. `finish` drains the encoder, and
     /// [`PdfDocument::finish`] flushes the document sink.
-    fn flush(&mut self) -> Result<()> {
+    fn flush(&mut self) -> std::io::Result<()> {
         Ok(())
     }
 }
@@ -270,7 +272,7 @@ impl Deflate {
 
     /// Gather `bytes`, compressing whenever the buffer fills. Output errors
     /// are therefore reported by a later call, at the latest by `finish`.
-    pub(super) fn put<W: SequentialSink, C: Cancellation>(
+    pub(super) fn put<W: Write, C: Cancellation>(
         &mut self,
         writer: &mut PdfWriter<'_, W, C>,
         mut bytes: &[u8],
@@ -288,7 +290,7 @@ impl Deflate {
     }
 
     /// Compress gathered bytes, end the zlib stream and reset for another.
-    pub(super) fn finish<W: SequentialSink, C: Cancellation>(
+    pub(super) fn finish<W: Write, C: Cancellation>(
         &mut self,
         writer: &mut PdfWriter<'_, W, C>,
     ) -> Result<()> {
@@ -300,7 +302,7 @@ impl Deflate {
     }
 }
 
-impl<W: SequentialSink, C: Cancellation> BilevelImageWriter<'_, '_, W, C> {
+impl<W: Write, C: Cancellation> BilevelImageWriter<'_, '_, W, C> {
     fn encode(&mut self, input: &[u8], finish: bool) -> Result<()> {
         if self.failed {
             return Err(Error::InvalidInput {
@@ -337,7 +339,7 @@ const OVERREAD: &str = "image source reported more bytes than requested";
 /// level, and one open outline item per active outline depth. A caller may
 /// add a bookmark only after its destination page has been emitted. A document
 /// with no pages is rejected by `finish`.
-pub struct PdfDocument<'a, W: SequentialSink, C: Cancellation> {
+pub struct PdfDocument<'a, W: Write, C: Cancellation> {
     writer: PdfWriter<'a, W, C>,
     limits: &'a Limits,
     cancellation: &'a C,
@@ -362,7 +364,7 @@ pub struct PdfDocument<'a, W: SequentialSink, C: Cancellation> {
     image_page_failed: bool,
 }
 
-impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
+impl<'a, W: Write, C: Cancellation> PdfDocument<'a, W, C> {
     /// Write the PDF header and reserve the catalog and Pages root.
     pub fn new(sink: &'a mut W, limits: &'a Limits, cancellation: &'a C) -> Result<Self> {
         limits.validate()?;
@@ -1005,7 +1007,7 @@ fn validate_image_range(
     Ok(())
 }
 
-impl<W: SequentialSink, C: Cancellation> BookmarkVisitor for PdfDocument<'_, W, C> {
+impl<W: Write, C: Cancellation> BookmarkVisitor for PdfDocument<'_, W, C> {
     fn visit(&mut self, bookmark: Bookmark) -> Result<()> {
         self.add_bookmark(bookmark)
     }

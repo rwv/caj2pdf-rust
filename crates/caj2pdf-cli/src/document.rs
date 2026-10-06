@@ -14,7 +14,7 @@ use caj2pdf_core::{
         ApplicationInfoReport, ApplicationInfoStatus, ApplicationInfoTail, Header, OutlineReport,
     },
     kdh::{HEADER_SIGNATURE, KdhPdfSource, convert_kdh},
-    native::{SeekableSource, WriteSink},
+    native::SeekableSource,
     pdf::{PdfIndex, PdfOutlineAppender, PdfRange, copy_pdf_range},
     read_exact_at,
 };
@@ -122,7 +122,7 @@ fn convert_source<S: RangedSource, W: Write>(
     resources: &mut crate::hnc8::Resources,
     options: ConversionOptions,
 ) -> Result<Warnings, String> {
-    let mut sink = WriteSink::new(writer);
+    let mut sink = writer;
     let Detection {
         format,
         header_offset,
@@ -400,7 +400,7 @@ pub fn add_bookmarks<W: Write>(
             pdf.name
         )));
     }
-    let mut sink = WriteSink::new(writer);
+    let mut sink = writer;
     (|| {
         let mut appender = PdfOutlineAppender::begin(
             &mut source,

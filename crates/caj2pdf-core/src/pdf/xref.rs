@@ -4,8 +4,9 @@
 
 use super::types::PdfRef;
 use super::writer::{MAX_CLASSIC_PDF_BYTES, Output};
-use crate::{Cancellation, Error, Result, SequentialSink};
+use crate::{Cancellation, Error, Result};
 use std::fmt::Write as _;
+use std::io::Write;
 use std::iter::Peekable;
 
 /// Rows gathered before each write, so a large table costs few sink calls.
@@ -38,7 +39,7 @@ pub(super) fn write_xref<W, C, I>(
     trailer: &Trailer<'_>,
 ) -> Result<()>
 where
-    W: SequentialSink,
+    W: Write,
     C: Cancellation,
     I: Iterator<Item = (PdfRef, u64)> + Clone,
 {
@@ -218,7 +219,7 @@ impl Default for Rows {
 }
 
 impl Rows {
-    fn push<W: SequentialSink, C: Cancellation>(
+    fn push<W: Write, C: Cancellation>(
         &mut self,
         out: &mut Output<'_, W, C>,
         row: &[u8; 20],
@@ -231,10 +232,7 @@ impl Rows {
         Ok(())
     }
 
-    fn flush<W: SequentialSink, C: Cancellation>(
-        &mut self,
-        out: &mut Output<'_, W, C>,
-    ) -> Result<()> {
+    fn flush<W: Write, C: Cancellation>(&mut self, out: &mut Output<'_, W, C>) -> Result<()> {
         if self.used != 0 {
             out.write(&self.bytes[..self.used])?;
             self.used = 0;
@@ -247,7 +245,6 @@ impl Rows {
 mod tests {
     use super::*;
     use crate::Limits;
-    use crate::native::WriteSink;
     use crate::test_support::NEVER;
 
     fn reference(number: u32, generation: u16) -> PdfRef {
@@ -255,14 +252,14 @@ mod tests {
     }
 
     fn written(entries: &[(PdfRef, u64)], dense: bool, trailer: &Trailer<'_>) -> Result<Vec<u8>> {
-        let mut sink = WriteSink::new(Vec::new());
+        let mut sink = Vec::new();
         let limits = Limits::default();
         {
             let mut out = Output::new(&mut sink, &limits, &NEVER);
             out.position = 7;
             write_xref(&mut out, entries.iter().copied(), dense, trailer)
         }?;
-        Ok(sink.into_inner())
+        Ok(sink)
     }
 
     #[test]

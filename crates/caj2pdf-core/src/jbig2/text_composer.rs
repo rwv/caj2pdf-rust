@@ -11,7 +11,8 @@ use super::{
     text::{SymbolCombination, TextHeaderAnomaly, TextRegionHeader},
     text_instances::{TextBitmap, TextInstance, TextInstanceDecoder, TextInstanceError},
 };
-use crate::{Cancellation, Error, Limits, MAX_BUDGET_COUNT, RangedSource, SequentialSink};
+use crate::{Cancellation, Error, Limits, MAX_BUDGET_COUNT, RangedSource};
+use std::io::Write;
 use std::{error, fmt};
 
 /// Caller-owned random-access storage for one packed region bitmap.
@@ -305,12 +306,12 @@ pub struct TextComposer<
     S: RangedSource,
     DI: RangedSource,
     DN: RangedSource,
-    DW: SequentialSink,
+    DW: Write,
     RI: RangedSource,
     RN: RangedSource,
     RT: RangedSource,
     T: RandomAccessScratch,
-    W: SequentialSink,
+    W: Write,
     C: Cancellation,
 > {
     header: TextRegionHeader,
@@ -345,12 +346,12 @@ where
     S: RangedSource,
     DI: RangedSource,
     DN: RangedSource,
-    DW: SequentialSink,
+    DW: Write,
     RI: RangedSource,
     RN: RangedSource,
     RT: RangedSource,
     T: RandomAccessScratch,
-    W: SequentialSink,
+    W: Write,
     C: Cancellation,
 {
     #[allow(clippy::too_many_arguments)]
@@ -864,7 +865,7 @@ where
             let written = self
                 .output
                 .write(&bytes[done..done + len])
-                .map_err(|error| self.output_error(at, error))?;
+                .map_err(|error| self.output_error(at, error.into()))?;
             if written > len {
                 return Err(self.error(
                     at,
@@ -1163,7 +1164,7 @@ where
         self.check_cancelled(self.packed_bytes)?;
         self.output
             .flush()
-            .map_err(|error| self.output_error(self.packed_bytes, error))?;
+            .map_err(|error| self.output_error(self.packed_bytes, error.into()))?;
         self.check_cancelled(self.packed_bytes)?;
         if self.scratch_size(self.packed_bytes)? != self.packed_bytes {
             return Err(self.error(

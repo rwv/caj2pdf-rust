@@ -310,15 +310,12 @@ fn cancellation_and_output_page_limit_are_checked_even_before_records() {
 
 #[test]
 fn independent_pdf_reader_checks_native_outline_titles_hierarchy_and_targets() {
-    use caj2pdf_core::{
-        native::WriteSink,
-        pdf::{BookmarkView, ImageEncoding, ImageSpec, PageSpec, PdfDocument},
-    };
+    use caj2pdf_core::pdf::{BookmarkView, ImageEncoding, ImageSpec, PageSpec, PdfDocument};
     use std::{
         io::Write,
         process::{Command, Stdio},
     };
-    struct Xyz<'a, 'b>(&'a mut PdfDocument<'b, WriteSink<Vec<u8>>, NeverCancel>);
+    struct Xyz<'a, 'b>(&'a mut PdfDocument<'b, Vec<u8>, NeverCancel>);
     impl BookmarkVisitor for Xyz<'_, '_> {
         fn visit(&mut self, bookmark: Bookmark) -> caj2pdf_core::Result<()> {
             self.0.add_bookmark_with_view(bookmark, BookmarkView::Xyz)
@@ -331,7 +328,7 @@ fn independent_pdf_reader_checks_native_outline_titles_hierarchy_and_targets() {
     ])))
     .unwrap();
     let limits = Limits::default();
-    let mut sink = WriteSink::new(Vec::new());
+    let mut sink = Vec::new();
     {
         let mut reader =
             Hnc8Reader::open(&mut input, &limits, &NeverCancel, Budget::default()).unwrap();
@@ -375,7 +372,7 @@ fn independent_pdf_reader_checks_native_outline_titles_hierarchy_and_targets() {
         Temp(std::env::temp_dir().join(format!("caj2pdf-hna-outlines-{}.pdf", std::process::id())));
     std::fs::File::create_new(&file.0)
         .unwrap()
-        .write_all(&sink.into_inner())
+        .write_all(&sink)
         .unwrap();
     let check = Command::new("qpdf")
         .arg("--check")

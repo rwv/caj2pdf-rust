@@ -10,7 +10,7 @@
 mod common;
 
 use caj2pdf_core::{
-    Cancellation, Error, Limits, NeverCancel, RangedSource, SequentialSink,
+    Cancellation, Error, Limits, NeverCancel, RangedSource,
     hnc8::{
         ComposeError, ComposeErrorKind, ComposeOptions, ComposeReport, ComposeStage, ErrorKind,
         Variant,
@@ -23,6 +23,7 @@ use common::{
     CancelAfter,
     hnc8_document::{Image, RENDER_DPI, convert as compose, document},
 };
+use std::io::Write;
 use std::{
     error::Error as _,
     fs::{read, remove_file, write},
@@ -160,17 +161,17 @@ struct Sink {
     fail_at: Option<usize>,
 }
 
-impl SequentialSink for Sink {
-    fn write(&mut self, bytes: &[u8]) -> caj2pdf_core::Result<usize> {
+impl Write for Sink {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
         self.writes += 1;
         if self.fail_at == Some(self.writes) {
-            return Err(Error::Io(io::Error::other("injected sink failure")));
+            return Err(io::Error::other("injected sink failure"));
         }
         self.bytes.extend_from_slice(bytes);
         Ok(bytes.len())
     }
 
-    fn flush(&mut self) -> caj2pdf_core::Result<()> {
+    fn flush(&mut self) -> std::io::Result<()> {
         Ok(())
     }
 }
@@ -841,7 +842,7 @@ fn bilevel_writer_checks_geometry_and_row_counts() {
 
         let mut image = document.begin_bilevel_image(bilevel(8, 2, 1))?;
         image.write(&[1])?;
-        let Err(Error::InvalidInput { reason }) = image.write(&[2, 3]) else {
+        let Err(Error::InvalidInput { reason }) = image.write(&[2, 3]).map_err(Error::from) else {
             panic!("an extra row was accepted");
         };
         assert_eq!(reason, "bilevel image rows exceed the declared height");
@@ -867,7 +868,7 @@ fn bilevel_padding_writes_still_observe_cancellation() {
             let mut image = document.begin_bilevel_image(bilevel(8, 1, 4))?;
             image.write(&[0x81])?;
             // The next check is reached only by this padding-only write.
-            Ok::<_, Error>(image.write(&[0, 0, 0]))
+            Ok::<_, Error>(image.write(&[0, 0, 0]).map_err(Error::from))
         })();
         if let Ok(padding) = result {
             assert!(matches!(padding, Err(Error::Cancelled)), "{padding:?}");

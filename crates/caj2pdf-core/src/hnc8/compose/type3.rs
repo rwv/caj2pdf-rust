@@ -9,6 +9,7 @@ use crate::hnc8::type3_image::{
 };
 use crate::pdf::ImageObject;
 use std::cell::{Cell, RefCell};
+use std::io::Write;
 
 struct Meter {
     bytes: Cell<u64>,
@@ -116,8 +117,8 @@ impl<T: RandomAccessScratch> RangedSource for &Store<'_, T> {
         RandomAccessScratch::read_at(self, offset, bytes)
     }
 }
-impl<T: RandomAccessScratch> SequentialSink for &Store<'_, T> {
-    fn write(&mut self, bytes: &[u8]) -> crate::Result<usize> {
+impl<T: RandomAccessScratch> Write for &Store<'_, T> {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
         let start = self.length.get();
         let end = start
             .checked_add(bytes.len() as u64)
@@ -131,8 +132,8 @@ impl<T: RandomAccessScratch> SequentialSink for &Store<'_, T> {
         }
         Ok(written)
     }
-    fn flush(&mut self) -> crate::Result<()> {
-        RandomAccessScratch::flush(self)
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(RandomAccessScratch::flush(self)?)
     }
 }
 
@@ -149,7 +150,7 @@ pub(super) fn emit<S, W, T, C>(
 ) -> Result<(ImageObject, Option<TextHeaderAnomaly>), ComposeError>
 where
     S: RangedSource,
-    W: SequentialSink,
+    W: Write,
     T: RandomAccessScratch,
     C: Cancellation,
 {
@@ -293,18 +294,15 @@ mod tests {
         let second = Store::new(&mut other, &meter);
         let mut writer = &store;
         let mut reader = &store;
-        assert_eq!(
-            SequentialSink::write(&mut writer, &[0xab, 0xcd]).unwrap(),
-            1
-        );
+        assert_eq!(Write::write(&mut writer, &[0xab, 0xcd]).unwrap(), 1);
         assert_eq!(RangedSource::size(&reader), 1);
         assert_eq!(store.inner.borrow().size().unwrap(), 1);
         assert_eq!(RandomAccessScratch::size(&reader).unwrap(), 1);
-        assert_eq!(SequentialSink::write(&mut writer, &[0xcd]).unwrap(), 1);
+        assert_eq!(Write::write(&mut writer, &[0xcd]).unwrap(), 1);
         let mut byte = [0];
         assert_eq!(RangedSource::read_at(&mut reader, 1, &mut byte).unwrap(), 1);
         assert_eq!(byte, [0xcd]);
-        SequentialSink::flush(&mut writer).unwrap();
+        Write::flush(&mut writer).unwrap();
         RandomAccessScratch::set_len(&mut &second, 3).unwrap();
         assert!(RandomAccessScratch::set_len(&mut writer, 3).is_err());
         RandomAccessScratch::set_len(&mut writer, 0).unwrap();
@@ -312,10 +310,10 @@ mod tests {
         store.inner.borrow_mut().overread = true;
         assert!(RangedSource::read_at(&mut reader, 0, &mut byte).is_err());
         store.inner.borrow_mut().overwrite = true;
-        assert!(SequentialSink::write(&mut writer, &[1]).is_err());
+        assert!(Write::write(&mut writer, &[1]).is_err());
         assert!(RandomAccessScratch::write_at(&mut writer, u64::MAX, &[1]).is_err());
         assert!(RandomAccessScratch::write_at(&mut writer, 1, &[1]).is_err());
         store.length.set(u64::MAX);
-        assert!(SequentialSink::write(&mut writer, &[1]).is_err());
+        assert!(Write::write(&mut writer, &[1]).is_err());
     }
 }

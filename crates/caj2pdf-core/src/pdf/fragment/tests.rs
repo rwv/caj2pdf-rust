@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::test_support::{CancelAfter, NEVER};
+use std::io::Write;
 use std::{cell::Cell, io};
 
 /// Byte segments placed at offsets of a sparse test source.
@@ -81,20 +82,20 @@ struct BytesSink {
     fail_after: Option<usize>,
 }
 
-impl SequentialSink for BytesSink {
-    fn write(&mut self, bytes: &[u8]) -> Result<usize> {
+impl Write for BytesSink {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
         if self
             .fail_after
             .is_some_and(|threshold| self.bytes.len() >= threshold)
         {
-            return Err(Error::Io(io::Error::other("injected sink failure")));
+            return Err(io::Error::other("injected sink failure"));
         }
         let copied = bytes.len().min(11);
         self.bytes.extend_from_slice(&bytes[..copied]);
         Ok(copied)
     }
 
-    fn flush(&mut self) -> Result<()> {
+    fn flush(&mut self) -> std::io::Result<()> {
         Ok(())
     }
 }
@@ -1347,13 +1348,13 @@ struct CancelOnFlushSink<'a> {
     cancellation: &'a TestCancel,
 }
 
-impl SequentialSink for CancelOnFlushSink<'_> {
-    fn write(&mut self, bytes: &[u8]) -> Result<usize> {
+impl Write for CancelOnFlushSink<'_> {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
         self.bytes.extend_from_slice(bytes);
         Ok(bytes.len())
     }
 
-    fn flush(&mut self) -> Result<()> {
+    fn flush(&mut self) -> std::io::Result<()> {
         self.cancellation.0.set(true);
         Ok(())
     }

@@ -4,10 +4,10 @@
 //! No corpus, reference converter, stored JPEG or rendered fixture is used.
 
 use caj2pdf_core::{
-    Error, Limits, NeverCancel, RangedSource, Result, SequentialSink,
-    native::WriteSink,
+    Error, Limits, NeverCancel, RangedSource, Result,
     pdf::{BilevelImageSpec, ImageEncoding, ImagePlacement, ImageSpec, PageSpec, PdfDocument},
 };
+use std::io::Write;
 use std::{
     collections::{BTreeMap, BTreeSet},
     fs,
@@ -484,7 +484,7 @@ fn asymmetric_bilevel_and_raw_rgb_keep_rows_or_flip_only_with_negative_ctm() {
         io_chunk_bytes: 4,
         ..Limits::default()
     };
-    let mut output = WriteSink::new(Vec::new());
+    let mut output = Vec::new();
     let matrices = [
         [
             [12.0, 0.0, 0.0, 12.0, 0.0, 2.0],
@@ -537,7 +537,7 @@ fn asymmetric_bilevel_and_raw_rgb_keep_rows_or_flip_only_with_negative_ctm() {
     assert_eq!(report.pages_converted, 2);
     let (pdf, draws) = inspect_pdf(
         &temporary,
-        &output.into_inner(),
+        &output,
         &[(32, 16); 2],
         &[
             ExpectedImage {
@@ -642,7 +642,7 @@ fn runtime_gray_and_rgb_jpeg_streams_are_unchanged_and_both_ctm_signs_render() {
     let (rgb, rgb_pixels) = jpeg(&temporary, false);
     let mut gray_source = Source::new(&gray);
     let mut rgb_source = Source::new(&rgb);
-    let mut output = WriteSink::new(Vec::new());
+    let mut output = Vec::new();
     let limits = Limits {
         io_chunk_bytes: 31,
         ..Limits::default()
@@ -691,7 +691,7 @@ fn runtime_gray_and_rgb_jpeg_streams_are_unchanged_and_both_ctm_signs_render() {
     assert!(gray_source.max_request <= 31 && rgb_source.max_request <= 31);
     let (pdf, draws) = inspect_pdf(
         &temporary,
-        &output.into_inner(),
+        &output,
         &[(40, 20); 2],
         &[
             ExpectedImage {
@@ -743,7 +743,7 @@ fn ordered_overlaps_repeated_handles_and_affine_pages_reuse_only_two_streams() {
     let blue = [10, 20, 230];
     let mut red_source = Source::new(&red);
     let mut blue_source = Source::new(&blue);
-    let mut output = WriteSink::new(Vec::new());
+    let mut output = Vec::new();
     let limits = Limits {
         io_chunk_bytes: 2,
         ..Limits::default()
@@ -793,7 +793,7 @@ fn ordered_overlaps_repeated_handles_and_affine_pages_reuse_only_two_streams() {
     assert_eq!(report.pages_converted, 3);
     let (pdf, draws) = inspect_pdf(
         &temporary,
-        &output.into_inner(),
+        &output,
         &[(32, 24); 3],
         &[
             ExpectedImage {

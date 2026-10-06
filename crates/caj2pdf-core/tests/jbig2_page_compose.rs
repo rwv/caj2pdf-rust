@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 use caj2pdf_core::{
-    Cancellation, Error, Limits, MAX_BUDGET_COUNT, NeverCancel, RangedSource, SequentialSink,
+    Cancellation, Error, Limits, MAX_BUDGET_COUNT, NeverCancel, RangedSource,
     jbig2::{
         DirectoryLimits, HeaderLimits, SegmentHeader, SegmentSpan,
         generic::{
@@ -22,6 +22,7 @@ use caj2pdf_core::{
         },
     },
 };
+use std::io::Write;
 use std::{cell::Cell, rc::Rc, sync::LazyLock};
 
 static DEFAULT_LIMITS: LazyLock<Limits> = LazyLock::new(Limits::default);
@@ -391,16 +392,17 @@ impl Output {
     }
 }
 
-impl SequentialSink for Output {
-    fn write(&mut self, bytes: &[u8]) -> caj2pdf_core::Result<usize> {
+impl Write for Output {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
         self.write_calls += 1;
         if self.cancel_write {
-            return Err(Error::Cancelled);
+            return Err(Error::Cancelled.into());
         }
         if self.fail_write {
             return Err(Error::InvalidInput {
                 reason: "injected output error",
-            });
+            }
+            .into());
         }
         if self.overreport {
             return Ok(bytes.len() + 1);
@@ -416,10 +418,10 @@ impl SequentialSink for Output {
         Ok(count)
     }
 
-    fn flush(&mut self) -> caj2pdf_core::Result<()> {
+    fn flush(&mut self) -> std::io::Result<()> {
         self.flush_calls += 1;
         if self.cancel_flush {
-            return Err(Error::Cancelled);
+            return Err(Error::Cancelled.into());
         }
         if let Some(flag) = &self.cancel_on_flush {
             flag.set(true);
@@ -427,7 +429,8 @@ impl SequentialSink for Output {
         if self.fail_flush {
             return Err(Error::InvalidInput {
                 reason: "injected output flush error",
-            });
+            }
+            .into());
         }
         Ok(())
     }
@@ -441,7 +444,7 @@ impl Cancellation for FlagCancel {
     }
 }
 
-fn feed_all(sink: &mut impl SequentialSink, mut bytes: &[u8]) -> caj2pdf_core::Result<()> {
+fn feed_all(sink: &mut impl Write, mut bytes: &[u8]) -> caj2pdf_core::Result<()> {
     while !bytes.is_empty() {
         let accepted = sink.write(bytes)?;
         assert!(accepted > 0 && accepted <= bytes.len());

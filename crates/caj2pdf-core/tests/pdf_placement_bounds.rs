@@ -6,13 +6,14 @@
 mod common;
 
 use caj2pdf_core::{
-    Error, Limits, RangedSource, Result, SequentialSink,
+    Error, Limits, RangedSource, Result,
     pdf::{
         ImageEncoding, ImageObject, ImagePlacement, ImageSpec, MAX_PAGE_IMAGE_PLACEMENTS, PageSpec,
         PdfDocument,
     },
 };
 use common::CancelAfter;
+use std::io::Write;
 use std::{cell::Cell, io, rc::Rc};
 
 fn assert_document_refusal<T>(result: Result<T>) {
@@ -144,8 +145,8 @@ impl CountingSink {
     }
 }
 
-impl SequentialSink for CountingSink {
-    fn write(&mut self, bytes: &[u8]) -> Result<usize> {
+impl Write for CountingSink {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
         let state = &self.state;
         state.calls.set(state.calls.get() + 1);
         state
@@ -159,8 +160,8 @@ impl SequentialSink for CountingSink {
             if state.bytes.get() >= threshold {
                 return match fault {
                     Fault::Zero => Ok(0),
-                    Fault::Overreport => Ok(bytes.len() + 1),
-                    Fault::Io => Err(Error::Io(io::Error::other("synthetic sink failure"))),
+                    Fault::Io => Err(io::Error::other("synthetic sink failure")),
+                    Fault::Overreport => unreachable!("an io::Write sink cannot over-report"),
                 };
             }
             count = count.min((threshold - state.bytes.get()) as usize);
@@ -176,10 +177,10 @@ impl SequentialSink for CountingSink {
         Ok(count)
     }
 
-    fn flush(&mut self) -> Result<()> {
+    fn flush(&mut self) -> io::Result<()> {
         self.state.flushes.set(self.state.flushes.get() + 1);
         if self.state.fail_flush.get() {
-            Err(Error::Io(io::Error::other("synthetic flush failure")))
+            Err(io::Error::other("synthetic flush failure"))
         } else {
             Ok(())
         }
@@ -571,7 +572,7 @@ fn source_failure_after_partial_image_prevents_any_later_success() -> Result<()>
         io_chunk_bytes: 4,
         ..Limits::default()
     };
-    for fault in [Fault::Zero, Fault::Overreport, Fault::Io] {
+    for fault in [Fault::Zero, Fault::Io] {
         let (mut sink, state) = CountingSink::new();
         let mut valid = GeneratedSource::new(1);
         let mut source = GeneratedSource::new(12);
@@ -645,7 +646,7 @@ fn sink_failures_during_page_emission_poison_document_even_after_sink_recovers()
         io_chunk_bytes: 4,
         ..Limits::default()
     };
-    for fault in [Fault::Zero, Fault::Overreport, Fault::Io] {
+    for fault in [Fault::Zero, Fault::Io] {
         let (mut sink, state) = CountingSink::new();
         let mut source = GeneratedSource::new(1);
         (|| {
@@ -661,8 +662,8 @@ fn sink_failures_during_page_emission_poison_document_even_after_sink_recovers()
                 Fault::Zero => assert!(
                     matches!(error, Error::Io(ref e) if e.kind() == io::ErrorKind::WriteZero)
                 ),
-                Fault::Overreport => assert!(matches!(error, Error::InvalidInput { .. })),
                 Fault::Io => assert!(matches!(error, Error::Io(_))),
+                Fault::Overreport => unreachable!(),
             }
             assert_eq!(state.bytes.get(), before + 5);
             state.fault_at.set(None);

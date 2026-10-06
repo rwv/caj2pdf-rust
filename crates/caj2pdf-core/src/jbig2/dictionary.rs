@@ -26,7 +26,8 @@ use super::{
     },
 };
 use crate::fallible::try_convert;
-use crate::{Cancellation, Error, Limits, MAX_BUDGET_COUNT, RangedSource, SequentialSink};
+use crate::{Cancellation, Error, Limits, MAX_BUDGET_COUNT, RangedSource};
+use std::io::Write;
 use std::{error, fmt, io, mem};
 
 const MQ_BUFFER_BYTES: u64 = 256;
@@ -1113,7 +1114,7 @@ pub struct SymbolDictionaryDecoder<
     S: RangedSource,
     RI: RangedSource,
     RN: RangedSource,
-    W: SequentialSink,
+    W: Write,
     C: Cancellation,
 > {
     mq: MqDecoder<'a, S, C>,
@@ -1137,7 +1138,7 @@ where
     S: RangedSource,
     RI: RangedSource,
     RN: RangedSource,
-    W: SequentialSink,
+    W: Write,
     C: Cancellation,
 {
     /// Parse and check the dictionary, then start its MQ coding unit over
@@ -1330,16 +1331,20 @@ where
         if self.cancellation.is_cancelled() {
             return Err(self.error(DictionaryErrorKind::Cancelled, snapshot.input_offset));
         }
-        self.stores.new_writer.flush().map_err(|error| {
-            self.error(
-                if matches!(error, Error::Cancelled) {
-                    DictionaryErrorKind::Cancelled
-                } else {
-                    DictionaryErrorKind::Sink(error)
-                },
-                snapshot.input_offset,
-            )
-        })?;
+        self.stores
+            .new_writer
+            .flush()
+            .map_err(Error::from)
+            .map_err(|error| {
+                self.error(
+                    if matches!(error, Error::Cancelled) {
+                        DictionaryErrorKind::Cancelled
+                    } else {
+                        DictionaryErrorKind::Sink(error)
+                    },
+                    snapshot.input_offset,
+                )
+            })?;
         if self.cancellation.is_cancelled() {
             return Err(self.error(DictionaryErrorKind::Cancelled, snapshot.input_offset));
         }
@@ -1362,7 +1367,7 @@ where
 
 /// The coding unit of one `decode` call: the raw MQ decoder and the new
 /// store for a direct dictionary, or the refinement host that borrows both.
-enum Unit<'u, 'mq, M: RangedSource, C: Cancellation, W: SequentialSink> {
+enum Unit<'u, 'mq, M: RangedSource, C: Cancellation, W: Write> {
     Direct {
         mq: &'u mut MqDecoder<'mq, M, C>,
         writer: &'u mut W,
@@ -1410,7 +1415,7 @@ impl<C: Cancellation> Session<'_, C> {
         }
     }
 
-    fn error<M: RangedSource, W: SequentialSink>(
+    fn error<M: RangedSource, W: Write>(
         &self,
         unit: &Unit<'_, '_, M, C, W>,
         kind: DictionaryErrorKind,
@@ -1421,7 +1426,7 @@ impl<C: Cancellation> Session<'_, C> {
         }
     }
 
-    fn host_error<M: RangedSource, W: SequentialSink>(
+    fn host_error<M: RangedSource, W: Write>(
         &self,
         host: &RefinementDecoder<'_, '_, M, C, W>,
         kind: DictionaryErrorKind,
@@ -1431,7 +1436,7 @@ impl<C: Cancellation> Session<'_, C> {
     }
 
     /// Locate an error at its own offset when it has one.
-    fn located<M: RangedSource, W: SequentialSink>(
+    fn located<M: RangedSource, W: Write>(
         &self,
         unit: &Unit<'_, '_, M, C, W>,
         offset: Option<u64>,
@@ -1442,7 +1447,7 @@ impl<C: Cancellation> Session<'_, C> {
         error
     }
 
-    fn malformed<M: RangedSource, W: SequentialSink>(
+    fn malformed<M: RangedSource, W: Write>(
         &self,
         unit: &Unit<'_, '_, M, C, W>,
         reason: &'static str,
@@ -1450,7 +1455,7 @@ impl<C: Cancellation> Session<'_, C> {
         self.error(unit, DictionaryErrorKind::Malformed(reason))
     }
 
-    fn cap<M: RangedSource, W: SequentialSink>(
+    fn cap<M: RangedSource, W: Write>(
         &self,
         unit: &Unit<'_, '_, M, C, W>,
         resource: &'static str,
@@ -1460,7 +1465,7 @@ impl<C: Cancellation> Session<'_, C> {
         check_budget(resource, maximum, attempted).map_err(|kind| self.error(unit, kind))
     }
 
-    fn check_cancelled<M: RangedSource, W: SequentialSink>(
+    fn check_cancelled<M: RangedSource, W: Write>(
         &self,
         unit: &Unit<'_, '_, M, C, W>,
     ) -> DictionaryResult<()> {
@@ -1472,7 +1477,7 @@ impl<C: Cancellation> Session<'_, C> {
     }
 
     /// The next value of a `u32` counter, refusing a wrap.
-    fn next_count<M: RangedSource, W: SequentialSink>(
+    fn next_count<M: RangedSource, W: Write>(
         &self,
         unit: &Unit<'_, '_, M, C, W>,
         value: u32,
@@ -1483,7 +1488,7 @@ impl<C: Cancellation> Session<'_, C> {
             .ok_or_else(|| self.error(unit, DictionaryErrorKind::InvalidSpan(field)))
     }
 
-    fn integer<M: RangedSource, W: SequentialSink>(
+    fn integer<M: RangedSource, W: Write>(
         &self,
         unit: &mut Unit<'_, '_, M, C, W>,
         procedure: IntegerProcedure,
@@ -1505,7 +1510,7 @@ impl<C: Cancellation> Session<'_, C> {
         })
     }
 
-    fn iaid<M: RangedSource, W: SequentialSink>(
+    fn iaid<M: RangedSource, W: Write>(
         &self,
         unit: &mut Unit<'_, '_, M, C, W>,
     ) -> DictionaryResult<u64> {
@@ -1526,7 +1531,7 @@ impl<C: Cancellation> Session<'_, C> {
         })
     }
 
-    fn signed<M: RangedSource, W: SequentialSink>(
+    fn signed<M: RangedSource, W: Write>(
         &self,
         unit: &Unit<'_, '_, M, C, W>,
         value: IntegerValue,
@@ -1558,7 +1563,7 @@ impl<C: Cancellation> Session<'_, C> {
 
     /// Check one decoded size against every budget before any bitmap work,
     /// including the mode's working rows: three for a direct bitmap.
-    fn geometry<M: RangedSource, W: SequentialSink>(
+    fn geometry<M: RangedSource, W: Write>(
         &self,
         unit: &Unit<'_, '_, M, C, W>,
         width: i64,
@@ -1617,7 +1622,7 @@ impl<C: Cancellation> Session<'_, C> {
         M: RangedSource,
         RI: RangedSource,
         RN: RangedSource,
-        W: SequentialSink,
+        W: Write,
     {
         self.decode_symbols(unit, imported_source, new_source)?;
         self.decode_exports(unit)?;
@@ -1636,7 +1641,7 @@ impl<C: Cancellation> Session<'_, C> {
         M: RangedSource,
         RI: RangedSource,
         RN: RangedSource,
-        W: SequentialSink,
+        W: Write,
     {
         let mut class_height = 0i64;
         while self.progress.completed_symbols < self.header.new_symbols {
@@ -1709,7 +1714,7 @@ impl<C: Cancellation> Session<'_, C> {
         M: RangedSource,
         RI: RangedSource,
         RN: RangedSource,
-        W: SequentialSink,
+        W: Write,
     {
         let instances = self.integer(unit, IntegerProcedure::Iaai)?;
         let instances = self.signed(unit, instances, "REFAGGNINST OOB")?;
@@ -1794,7 +1799,7 @@ impl<C: Cancellation> Session<'_, C> {
 
     /// One template-2 generic bitmap (T.88 §6.2 with TPGDON off), streamed
     /// row by row to the new store.
-    fn direct_bitmap<M: RangedSource, W: SequentialSink>(
+    fn direct_bitmap<M: RangedSource, W: Write>(
         &mut self,
         mq: &mut MqDecoder<'_, M, C>,
         writer: &mut W,
@@ -1869,7 +1874,7 @@ impl<C: Cancellation> Session<'_, C> {
         }
     }
 
-    fn write_row<M: RangedSource, W: SequentialSink>(
+    fn write_row<M: RangedSource, W: Write>(
         &mut self,
         mq: &MqDecoder<'_, M, C>,
         writer: &mut W,
@@ -1894,6 +1899,7 @@ impl<C: Cancellation> Session<'_, C> {
             self.progress.sink_writes = attempted_writes;
             let written = writer
                 .write(&self.rows[2][done..done + count])
+                .map_err(Error::from)
                 .map_err(|error| {
                     fail(
                         self,
@@ -1932,7 +1938,7 @@ impl<C: Cancellation> Session<'_, C> {
     /// T.88 §6.5.10: alternating export runs over the imported exports and
     /// the new symbols. The first IAEX decode precedes the repeat-until
     /// condition, so even a zero-total dictionary consumes one zero run.
-    fn decode_exports<M: RangedSource, W: SequentialSink>(
+    fn decode_exports<M: RangedSource, W: Write>(
         &mut self,
         unit: &mut Unit<'_, '_, M, C, W>,
     ) -> DictionaryResult<()> {

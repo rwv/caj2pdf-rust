@@ -9,7 +9,7 @@ use crate::{
     files::{Input, anonymous_file, open_input},
 };
 use caj2pdf_core::{
-    Error, Limits, RangedSource, SequentialSink,
+    Error, Limits, RangedSource,
     hnc8::{
         ApplicationInfoReport, ApplicationInfoStatus, C8_DEFAULT_DECORATION_ALIAS, C8FontSource,
         C8FontSources, ComposeOptions, ComposePage, ComposeType3Workspaces, ComposeVisitor,
@@ -20,6 +20,7 @@ use caj2pdf_core::{
     native::FileScratch,
     qm::QmTable,
 };
+use std::io::Write;
 use std::{
     io::ErrorKind,
     path::{Path, PathBuf},
@@ -210,7 +211,7 @@ pub fn compose_options(include_bookmarks: bool) -> ComposeOptions {
     }
 }
 
-pub fn convert<S: RangedSource, W: SequentialSink>(
+pub fn convert<S: RangedSource, W: Write>(
     source: &mut S,
     sink: &mut W,
     resources: &mut Resources,

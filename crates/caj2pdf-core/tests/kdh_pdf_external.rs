@@ -3,11 +3,7 @@
 //! Optional PDF-body check against independently decoded KDH corpus files.
 //! Normal test runs report this as ignored (NOT_RUN), never as a pass.
 
-use caj2pdf_core::{
-    Limits, NeverCancel,
-    native::{SeekableSource, WriteSink},
-    pdf::copy_pdf,
-};
+use caj2pdf_core::{Limits, NeverCancel, native::SeekableSource, pdf::copy_pdf};
 use sha2::{Digest, Sha256};
 use std::{
     fs::{File, remove_file},
@@ -56,7 +52,7 @@ fn independently_decoded_kdh_pdf_bodies_normalize_and_preserve_74_pages() {
         let mut file = File::create(&output).unwrap();
         let report = copy_pdf(
             &mut source,
-            &mut WriteSink::new(&mut file),
+            &mut &mut file,
             &Limits::default(),
             &NeverCancel,
         )

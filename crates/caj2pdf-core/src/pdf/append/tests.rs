@@ -4,14 +4,15 @@ use super::*;
 use crate::pdf::MAX_CLASSIC_PDF_BYTES;
 use crate::test_support::{CancelAfter, NEVER};
 use crate::{
-    native::{SeekableSource, WriteSink},
+    native::SeekableSource,
     pdf::{ImageEncoding, ImageSpec, PageSpec, PdfDocument},
 };
+use std::io::Write;
 use std::io::{self, Cursor};
 
 fn unoutlined_pdf() -> Result<Vec<u8>> {
     let mut image = SeekableSource::new(Cursor::new(vec![0x7f]))?;
-    let mut output = WriteSink::new(Vec::<u8>::new());
+    let mut output = Vec::<u8>::new();
     let limits = Limits::default();
     (|| {
         let mut pdf = PdfDocument::new(&mut output, &limits, &NEVER)?;
@@ -32,7 +33,7 @@ fn unoutlined_pdf() -> Result<Vec<u8>> {
         pdf.finish()?;
         Ok::<(), Error>(())
     })()?;
-    Ok(output.into_inner())
+    Ok(output)
 }
 
 fn with_id(mut pdf: Vec<u8>) -> Vec<u8> {
@@ -52,7 +53,7 @@ fn with_id(mut pdf: Vec<u8>) -> Vec<u8> {
 
 fn import_one(pdf: &[u8], title: &str) -> Result<Vec<u8>> {
     let mut source = SeekableSource::new(Cursor::new(pdf))?;
-    let mut output = WriteSink::new(Vec::<u8>::new());
+    let mut output = Vec::<u8>::new();
     let limits = Limits::default();
     (|| {
         let index = PdfIndex::open(
@@ -76,7 +77,7 @@ fn import_one(pdf: &[u8], title: &str) -> Result<Vec<u8>> {
         assert_eq!(report.bookmarks_written, 1);
         Ok::<(), Error>(())
     })()?;
-    Ok(output.into_inner())
+    Ok(output)
 }
 
 fn final_id(pdf: &[u8]) -> &[u8] {
@@ -105,9 +106,9 @@ fn update_id_changes_with_the_old_id_and_the_update_position() {
 fn clean_existing_outline_is_copied_byte_for_byte() -> Result<()> {
     let original = include_bytes!("../../../../../tests/fixtures/valid_nested_outline.pdf");
     let mut source = SeekableSource::new(Cursor::new(original.as_slice()))?;
-    let mut output = WriteSink::new(Vec::<u8>::new());
+    let mut output = Vec::<u8>::new();
     let report = copy_pdf(&mut source, &mut output, &Limits::default(), &NEVER)?;
-    assert_eq!(output.into_inner(), original);
+    assert_eq!(output, original);
     assert_eq!(report.output_bytes_written, original.len() as u64);
     assert!(report.input_bytes_read >= original.len() as u64);
     assert_eq!(report.pages_converted, 2);
@@ -119,7 +120,7 @@ fn clean_existing_outline_is_copied_byte_for_byte() -> Result<()> {
 fn importing_into_existing_outline_preserves_original_navigation() -> Result<()> {
     let original = include_bytes!("../../../../../tests/fixtures/valid_nested_outline.pdf");
     let mut source = SeekableSource::new(Cursor::new(original.as_slice()))?;
-    let mut output = WriteSink::new(Vec::<u8>::new());
+    let mut output = Vec::<u8>::new();
     let limits = Limits::default();
     let report = (|| {
         let index = PdfIndex::open(
@@ -142,7 +143,7 @@ fn importing_into_existing_outline_preserves_original_navigation() -> Result<()>
         appender.finish()
     })()?;
     assert_eq!(report.bookmarks_written, 0);
-    assert_eq!(output.into_inner(), original);
+    assert_eq!(output, original);
     Ok(())
 }
 
@@ -154,7 +155,7 @@ fn embedded_pdf_range_is_copied_without_container_bytes() -> Result<()> {
     container.extend_from_slice(original);
     container.extend_from_slice(b"container suffix");
     let mut source = SeekableSource::new(Cursor::new(container))?;
-    let mut output = WriteSink::new(Vec::<u8>::new());
+    let mut output = Vec::<u8>::new();
     let report = copy_pdf_range(
         &mut source,
         &mut output,
@@ -165,7 +166,7 @@ fn embedded_pdf_range_is_copied_without_container_bytes() -> Result<()> {
         &Limits::default(),
         &NEVER,
     )?;
-    assert_eq!(output.into_inner(), original);
+    assert_eq!(output, original);
     assert_eq!(report.pages_converted, 2);
     Ok(())
 }
@@ -188,7 +189,7 @@ fn new_outline_update_preserves_pdf_prefix_and_changes_id_with_its_size() -> Res
 fn nested_siblings_and_long_title_reopen_as_one_outline_tree() -> Result<()> {
     let original = unoutlined_pdf()?;
     let mut source = SeekableSource::new(Cursor::new(original.as_slice()))?;
-    let mut output = WriteSink::new(Vec::<u8>::new());
+    let mut output = Vec::<u8>::new();
     let limits = Limits::default();
     let report = (|| {
         let index = PdfIndex::open(
@@ -217,7 +218,7 @@ fn nested_siblings_and_long_title_reopen_as_one_outline_tree() -> Result<()> {
         appender.finish()
     })()?;
     assert_eq!(report.bookmarks_written, 4);
-    let pdf = output.into_inner();
+    let pdf = output;
     let text = String::from_utf8_lossy(&pdf);
     assert!(text.contains("/Title <FEFF7B2C4E8C7AE0>"));
     assert_eq!(text.matches(" /Next ").count(), 2);
@@ -241,7 +242,7 @@ fn nested_siblings_and_long_title_reopen_as_one_outline_tree() -> Result<()> {
 fn bookmark_limits_reject_input_before_new_objects() -> Result<()> {
     let original = unoutlined_pdf()?;
     let mut source = SeekableSource::new(Cursor::new(original.as_slice()))?;
-    let mut output = WriteSink::new(Vec::<u8>::new());
+    let mut output = Vec::<u8>::new();
     let limits = Limits {
         max_bookmarks: 1,
         max_allocation_bytes: 256 * 1024,
@@ -318,7 +319,7 @@ fn bookmark_limits_reject_input_before_new_objects() -> Result<()> {
 fn copy_output_limit_is_checked_before_sink_writes() -> Result<()> {
     let original = include_bytes!("../../../../../tests/fixtures/valid_nested_outline.pdf");
     let mut source = SeekableSource::new(Cursor::new(original.as_slice()))?;
-    let mut output = WriteSink::new(Vec::<u8>::new());
+    let mut output = Vec::<u8>::new();
     let limits = Limits {
         max_output_bytes: original.len() as u64 - 1,
         ..Limits::default()
@@ -331,7 +332,7 @@ fn copy_output_limit_is_checked_before_sink_writes() -> Result<()> {
             ..
         })
     ));
-    assert!(output.into_inner().is_empty());
+    assert!(output.is_empty());
     Ok(())
 }
 
@@ -339,7 +340,7 @@ fn copy_output_limit_is_checked_before_sink_writes() -> Result<()> {
 fn invalid_bookmark_rejects_without_claiming_success() -> Result<()> {
     let original = unoutlined_pdf()?;
     let mut source = SeekableSource::new(Cursor::new(original.as_slice()))?;
-    let mut output = WriteSink::new(Vec::<u8>::new());
+    let mut output = Vec::<u8>::new();
     let limits = Limits::default();
     (|| {
         let index = PdfIndex::open(
@@ -371,7 +372,7 @@ fn new_outline_objects_stop_at_the_pdf_object_number_limit() -> Result<()> {
     let limits = Limits::default();
     let index = open_index(&original, &limits)?;
     let mut source = SeekableSource::new(Cursor::new(original.as_slice()))?;
-    let mut output = WriteSink::new(Vec::<u8>::new());
+    let mut output = Vec::<u8>::new();
     let result = (|| {
         let mut appender =
             PdfOutlineAppender::begin(&mut source, &mut output, &index, &limits, &NEVER)?;
@@ -425,13 +426,13 @@ impl TestSink {
     }
 }
 
-impl SequentialSink for TestSink {
-    fn write(&mut self, bytes: &[u8]) -> Result<usize> {
+impl Write for TestSink {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
         if self.remaining == 0 {
-            return Err(Error::Io(io::Error::new(
+            return Err(io::Error::new(
                 io::ErrorKind::BrokenPipe,
                 "injected sink failure",
-            )));
+            ));
         }
         let count = bytes.len().min(self.remaining).min(self.max_write);
         self.remaining -= count;
@@ -439,12 +440,12 @@ impl SequentialSink for TestSink {
         Ok(count)
     }
 
-    fn flush(&mut self) -> Result<()> {
+    fn flush(&mut self) -> std::io::Result<()> {
         if self.fail_flush {
-            return Err(Error::Io(io::Error::new(
+            return Err(io::Error::new(
                 io::ErrorKind::BrokenPipe,
                 "injected flush failure",
-            )));
+            ));
         }
         self.flushes += 1;
         Ok(())
@@ -541,7 +542,7 @@ fn update_keeps_trailer_info_and_replaces_an_empty_outline_root() -> Result<()> 
     let index = open_index(&original, &limits)?;
     assert!(!index.has_outlines());
     let mut source = SeekableSource::new(Cursor::new(original.as_slice()))?;
-    let mut output = WriteSink::new(Vec::<u8>::new());
+    let mut output = Vec::<u8>::new();
     let report = (|| {
         let mut appender =
             PdfOutlineAppender::begin(&mut source, &mut output, &index, &limits, &NEVER)?;
@@ -555,7 +556,7 @@ fn update_keeps_trailer_info_and_replaces_an_empty_outline_root() -> Result<()> 
     })()?;
     assert_eq!(report.bookmarks_written, 1);
     assert_eq!(report.input_bytes_read, original.len() as u64);
-    let pdf = output.into_inner();
+    let pdf = output;
     assert_eq!(report.output_bytes_written, pdf.len() as u64);
     assert!(pdf.starts_with(&original));
     let update = String::from_utf8_lossy(&pdf[original.len()..]);
@@ -615,11 +616,11 @@ fn orphan_gap_scrubbing_spans_small_copy_chunks() -> Result<()> {
     // More than two 4-byte chunks, so the scrub crosses chunk boundaries.
     assert!(patch.original.len() > 8);
     let mut source = SeekableSource::new(Cursor::new(original.as_slice()))?;
-    let mut output = WriteSink::new(Vec::<u8>::new());
+    let mut output = Vec::<u8>::new();
     let report = copy_pdf(&mut source, &mut output, &limits, &NEVER)?;
     let mut expected = original.clone();
     expected[start..end].fill(b' ');
-    let copied = output.into_inner();
+    let copied = output;
     assert_eq!(copied, expected);
     assert_eq!(report.output_bytes_written, expected.len() as u64);
     assert_eq!(report.bookmarks_written, 0);
@@ -736,7 +737,7 @@ fn append_update_rejects_open_duplicate_and_oversized_state() -> Result<()> {
         number: 4,
         generation: 0,
     };
-    let mut sink = WriteSink::new(Vec::new());
+    let mut sink = Vec::new();
     (|| {
         let mut writer = AppendWriter::new(&mut sink, &index, &limits, &NEVER);
         writer.begin_object(reference)?;
@@ -752,7 +753,7 @@ fn append_update_rejects_open_duplicate_and_oversized_state() -> Result<()> {
         Ok::<_, Error>(())
     })()?;
 
-    let mut sink = WriteSink::new(Vec::new());
+    let mut sink = Vec::new();
     let oversized = {
         let mut writer = AppendWriter::new(&mut sink, &index, &limits, &NEVER);
         writer.out.position = MAX_CLASSIC_PDF_BYTES;
@@ -767,7 +768,7 @@ fn append_update_rejects_open_duplicate_and_oversized_state() -> Result<()> {
         }) if attempted == MAX_CLASSIC_PDF_BYTES + 1
     ));
 
-    let mut sink = WriteSink::new(Vec::new());
+    let mut sink = Vec::new();
     let far_object = {
         let mut writer = AppendWriter::new(&mut sink, &index, &limits, &NEVER);
         writer.entries.push(XrefEntry {

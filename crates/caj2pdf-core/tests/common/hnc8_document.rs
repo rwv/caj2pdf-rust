@@ -8,7 +8,7 @@
 //! data, not corpus content.
 
 use caj2pdf_core::{
-    Cancellation, Error, Limits, RangedSource, SequentialSink,
+    Cancellation, Error, Limits, RangedSource,
     hnc8::{
         ComposeError, ComposeOptions, ComposeReport, ComposeType3Workspaces, ComposeVisitor,
         Variant, convert_source_pages_pdf,
@@ -207,7 +207,7 @@ pub fn convert<S, W, V, C>(
 ) -> Result<ComposeReport, ComposeError>
 where
     S: RangedSource,
-    W: SequentialSink,
+    W: Write,
     V: ComposeVisitor,
     C: Cancellation,
 {

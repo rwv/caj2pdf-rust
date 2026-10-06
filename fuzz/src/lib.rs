@@ -4,9 +4,10 @@
 //! bytes. Every result is ignored: a target fails only by panicking, aborting,
 //! exceeding the configured limits or timing out.
 
+use std::io::Write;
 use caj2pdf_core::{
     Bookmark, BookmarkVisitor, ConversionOptions, Error, InputFormat, Limits, NeverCancel,
-    RangedSource, Result, SIGNATURE_BYTES, SequentialSink, caj, detect_format,
+    RangedSource, Result, SIGNATURE_BYTES, caj, detect_format,
     hnc8::{
         Budget, ComposeOptions, ComposeType3Workspaces, Hnc8Reader,
         Type3PdfOptions, convert_source_pages_pdf,
@@ -55,13 +56,13 @@ impl RangedSource for Source<'_> {
 #[derive(Default)]
 struct Sink(u64);
 
-impl SequentialSink for Sink {
-    fn write(&mut self, bytes: &[u8]) -> Result<usize> {
+impl Write for Sink {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
         self.0 += bytes.len() as u64;
         Ok(bytes.len())
     }
 
-    fn flush(&mut self) -> Result<()> {
+    fn flush(&mut self) -> std::io::Result<()> {
         Ok(())
     }
 }

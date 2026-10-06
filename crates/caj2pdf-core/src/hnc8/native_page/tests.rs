@@ -3,6 +3,7 @@
 use super::*;
 use crate::Limits;
 use crate::pdf::{BilevelImageSpec, OpenTypeFont};
+use std::io::Write;
 use std::{cell::Cell, rc::Rc};
 
 struct Source {
@@ -43,16 +44,16 @@ struct Sink {
     bytes: Vec<u8>,
     fail: Rc<Cell<bool>>,
 }
-impl SequentialSink for Sink {
-    fn write(&mut self, bytes: &[u8]) -> crate::Result<usize> {
+impl Write for Sink {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
         if self.fail.get() {
-            return Err(invalid("original write failure"));
+            return Err(invalid("original write failure").into());
         }
         let count = bytes.len().min(7);
         self.bytes.extend_from_slice(&bytes[..count]);
         Ok(count)
     }
-    fn flush(&mut self) -> crate::Result<()> {
+    fn flush(&mut self) -> std::io::Result<()> {
         Ok(())
     }
 }

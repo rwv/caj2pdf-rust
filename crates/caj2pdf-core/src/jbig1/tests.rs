@@ -3,6 +3,7 @@
 use super::*;
 use crate::native::SeekableSource;
 use crate::test_support::CancelAfter;
+use std::io::Write;
 use std::{
     cell::Cell,
     io::{Cursor, Read, Seek, SeekFrom},
@@ -119,23 +120,24 @@ struct BytesSink {
     cancel_on_flush: Option<Rc<Cell<bool>>>,
 }
 
-impl SequentialSink for BytesSink {
-    fn write(&mut self, bytes: &[u8]) -> crate::Result<usize> {
+impl Write for BytesSink {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
         if self.fail {
             return Err(Error::InvalidInput {
                 reason: "synthetic sink failure",
-            });
+            }
+            .into());
         }
         let n = bytes.len().min(self.max_write.max(1));
         self.bytes.extend_from_slice(&bytes[..n]);
         Ok(n)
     }
-    fn flush(&mut self) -> crate::Result<()> {
+    fn flush(&mut self) -> std::io::Result<()> {
         if let Some(flag) = &self.cancel_on_flush {
             flag.set(true);
         }
         match self.flush_error {
-            Some(error) => Err(error()),
+            Some(error) => Err(error().into()),
             None => Ok(()),
         }
     }
@@ -680,28 +682,26 @@ fn sink_failure_poison_and_incomplete_finish_are_explicit() {
     ));
 }
 
-struct BadSink {
-    overreport: bool,
-}
+struct BadSink;
 
-impl SequentialSink for BadSink {
-    fn write(&mut self, bytes: &[u8]) -> crate::Result<usize> {
-        Ok(if self.overreport { bytes.len() + 1 } else { 0 })
+impl Write for BadSink {
+    fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
+        Ok(0)
     }
-    fn flush(&mut self) -> crate::Result<()> {
+    fn flush(&mut self) -> std::io::Result<()> {
         Ok(())
     }
 }
 
 #[test]
-fn zero_and_overreported_sink_writes_are_typed_errors() {
+fn zero_sink_writes_are_typed_errors() {
     let bytes = image(7, 1, &white(7, 1));
     let limits = Limits::default();
     let table = table();
-    for overreport in [false, true] {
+    {
         let mut contexts = ContextBank::new(CONTEXT_COUNT, &limits).unwrap();
         let mut source = intact(bytes.clone());
-        let mut sink = BadSink { overreport };
+        let mut sink = BadSink;
         let mut decoder = Type0Decoder::new(
             &mut source,
             Type0Span {
@@ -829,12 +829,12 @@ fn short_and_overreported_reads_and_span_bounds_are_rejected() {
 
 struct CancellingSink(Rc<Cell<bool>>);
 
-impl SequentialSink for CancellingSink {
-    fn write(&mut self, bytes: &[u8]) -> crate::Result<usize> {
+impl Write for CancellingSink {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
         self.0.set(true);
         Ok(bytes.len())
     }
-    fn flush(&mut self) -> crate::Result<()> {
+    fn flush(&mut self) -> std::io::Result<()> {
         Ok(())
     }
 }
@@ -1121,7 +1121,7 @@ fn maximal_dimensions_report_context_work_overflow_without_allocating() {
     ));
 }
 
-fn decode_every_row<S: RangedSource, W: SequentialSink, C: Cancellation>(
+fn decode_every_row<S: RangedSource, W: Write, C: Cancellation>(
     mut decoder: Type0Decoder<'_, S, W, C>,
 ) -> Type0Result<Type0Report> {
     while decoder.decode_next_row()? {}

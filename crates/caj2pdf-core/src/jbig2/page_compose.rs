@@ -13,7 +13,8 @@ use super::{
     text::TextHeaderAnomaly,
     text_composer::{RandomAccessScratch, TextComposeReport, TextComposeStage},
 };
-use crate::{Cancellation, Error, Limits, MAX_BUDGET_COUNT, SequentialSink};
+use crate::{Cancellation, Error, Limits, MAX_BUDGET_COUNT};
+use std::io::Write;
 use std::{error, fmt, io};
 
 /// Independent bounds for a single page OR operation.
@@ -207,13 +208,13 @@ fn output_error(error: Error) -> PageComposeErrorKind {
 /// arming poison it.
 /// `GenericRegionDecoder` may call `write` several times per row. This adapter
 /// accepts at most one row remainder and one bounded chunk per call, so its
-/// caller retries the unaccepted suffix through ordinary `SequentialSink`
+/// caller retries the unaccepted suffix through ordinary `Write`
 /// backpressure. Every accepted chunk is ORed with the same-position text
 /// scratch bytes and immediately forwarded. `flush` records successful
 /// generic-stream completion; `finish` separately checks `GenericReport` and
 /// flushes the final output. After any failure or dropped pending future,
 /// discard the final output and call `take_failure` for a typed sink error.
-pub struct PageOrSink<'a, T: RandomAccessScratch, W: SequentialSink, C: Cancellation> {
+pub struct PageOrSink<'a, T: RandomAccessScratch, W: Write, C: Cancellation> {
     profile: PageProfile,
     text: TextComposeReport,
     scratch: &'a mut T,
@@ -226,7 +227,7 @@ pub struct PageOrSink<'a, T: RandomAccessScratch, W: SequentialSink, C: Cancella
     armed: bool,
 }
 
-impl<'a, T: RandomAccessScratch, W: SequentialSink, C: Cancellation> PageOrSink<'a, T, W, C> {
+impl<'a, T: RandomAccessScratch, W: Write, C: Cancellation> PageOrSink<'a, T, W, C> {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         profile: PageProfile,
@@ -367,7 +368,7 @@ impl<'a, T: RandomAccessScratch, W: SequentialSink, C: Cancellation> PageOrSink<
         self.progress
     }
 
-    /// Retrieve the first typed failure raised through `SequentialSink`.
+    /// Retrieve the first typed failure raised through `Write`.
     /// A dropped pending future has no I/O error and returns `Poisoned`.
     pub fn take_failure(&mut self) -> Option<PageComposeError> {
         self.failure.take().or_else(|| {
@@ -519,9 +520,12 @@ impl<'a, T: RandomAccessScratch, W: SequentialSink, C: Cancellation> PageOrSink<
                 PageComposeErrorKind::Cancelled,
             ));
         }
-        self.output
-            .flush()
-            .map_err(|error| self.error(self.progress.output_bytes_written, output_error(error)))?;
+        self.output.flush().map_err(|error| {
+            self.error(
+                self.progress.output_bytes_written,
+                output_error(error.into()),
+            )
+        })?;
         if self.cancellation.is_cancelled() {
             return Err(self.error(
                 self.progress.output_bytes_written,
@@ -629,7 +633,9 @@ impl<'a, T: RandomAccessScratch, W: SequentialSink, C: Cancellation> PageOrSink<
             self.note_request(requested);
             let written = match self.output.write(&self.chunk[sent..sent + requested]) {
                 Ok(written) => written,
-                Err(error) => return Err(self.fail(offset + sent as u64, output_error(error))),
+                Err(error) => {
+                    return Err(self.fail(offset + sent as u64, output_error(error.into())));
+                }
             };
             if written > requested {
                 return Err(self.fail(
@@ -658,19 +664,19 @@ impl<'a, T: RandomAccessScratch, W: SequentialSink, C: Cancellation> PageOrSink<
     }
 }
 
-impl<T: RandomAccessScratch, W: SequentialSink, C: Cancellation> SequentialSink
-    for PageOrSink<'_, T, W, C>
-{
-    fn write(&mut self, bytes: &[u8]) -> crate::Result<usize> {
+impl<T: RandomAccessScratch, W: Write, C: Cancellation> Write for PageOrSink<'_, T, W, C> {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
         if !self.armed
             || self.progress.poisoned
             || self.progress.completed
             || self.progress.producer_flushed
         {
-            return Err(self.fail(
-                self.progress.generic_bytes_accepted,
-                PageComposeErrorKind::Poisoned,
-            ));
+            return Err(self
+                .fail(
+                    self.progress.generic_bytes_accepted,
+                    PageComposeErrorKind::Poisoned,
+                )
+                .into());
         }
         if bytes.is_empty() {
             return Ok(0);
@@ -680,25 +686,29 @@ impl<T: RandomAccessScratch, W: SequentialSink, C: Cancellation> SequentialSink
         if result.is_ok() {
             self.progress.poisoned = false;
         }
-        result
+        Ok(result?)
     }
 
-    fn flush(&mut self) -> crate::Result<()> {
+    fn flush(&mut self) -> std::io::Result<()> {
         if !self.armed || self.progress.poisoned || self.progress.completed {
-            return Err(self.fail(
-                self.progress.generic_bytes_accepted,
-                PageComposeErrorKind::Poisoned,
-            ));
+            return Err(self
+                .fail(
+                    self.progress.generic_bytes_accepted,
+                    PageComposeErrorKind::Poisoned,
+                )
+                .into());
         }
         let page = self.profile.page();
         if self.progress.generic_bytes_accepted != page.packed_bytes
             || self.progress.output_bytes_written != page.packed_bytes
             || self.progress.rows_written != page.height
         {
-            return Err(self.fail(
-                self.progress.generic_bytes_accepted,
-                PageComposeErrorKind::Incomplete,
-            ));
+            return Err(self
+                .fail(
+                    self.progress.generic_bytes_accepted,
+                    PageComposeErrorKind::Incomplete,
+                )
+                .into());
         }
         self.check_cancelled(self.progress.generic_bytes_accepted)?;
         self.progress.producer_flushed = true;
@@ -706,7 +716,7 @@ impl<T: RandomAccessScratch, W: SequentialSink, C: Cancellation> SequentialSink
     }
 }
 
-impl<T: RandomAccessScratch, W: SequentialSink, C: Cancellation> PageOrSink<'_, T, W, C> {
+impl<T: RandomAccessScratch, W: Write, C: Cancellation> PageOrSink<'_, T, W, C> {
     /// Accept rows only after the generic decoder compared the header it
     /// parsed with its caller's preflight header; see
     /// [`GenericRegionDecoder::arm_page_output`](super::generic::GenericRegionDecoder::arm_page_output).

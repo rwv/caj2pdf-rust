@@ -7,7 +7,7 @@
 mod common;
 
 use caj2pdf_core::{
-    Limits, NeverCancel, RangedSource, SequentialSink,
+    Limits, NeverCancel, RangedSource,
     jbig2::{
         dictionary::SymbolDescriptor,
         integer::BITMAP_BASE,
@@ -18,6 +18,7 @@ use caj2pdf_core::{
         },
     },
 };
+use std::io::Write;
 
 struct Source {
     bytes: Vec<u8>,
@@ -79,8 +80,8 @@ impl Sink {
     }
 }
 
-impl SequentialSink for Sink {
-    fn write(&mut self, bytes: &[u8]) -> caj2pdf_core::Result<usize> {
+impl Write for Sink {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
         self.calls += 1;
         self.max_request = self.max_request.max(bytes.len());
         let count = bytes.len().min(self.max_write);
@@ -88,7 +89,7 @@ impl SequentialSink for Sink {
         Ok(count)
     }
 
-    fn flush(&mut self) -> caj2pdf_core::Result<()> {
+    fn flush(&mut self) -> std::io::Result<()> {
         self.flushed = true;
         Ok(())
     }

@@ -4,7 +4,7 @@
 
 use caj2pdf_core::{
     Cancellation, Error, Limits, NeverCancel, PdfErrorKind, RangedSource, Result,
-    native::{SeekableSource, WriteSink},
+    native::SeekableSource,
     pdf::{PdfIndex, PdfRange, PdfRef, copy_pdf},
 };
 use std::{cell::Cell, io::Cursor};
@@ -742,10 +742,10 @@ fn cancelled_and_stalled_ranged_sources_never_produce_a_copy() {
         max_request: 0,
         fail_after: Some(3),
     };
-    let mut sink = WriteSink::new(Vec::<u8>::new());
+    let mut sink = Vec::<u8>::new();
     let error = copy_pdf(&mut source, &mut sink, &Limits::default(), &NeverCancel).unwrap_err();
     assert!(matches!(error, Error::TruncatedInput { .. }), "{error}");
-    assert!(sink.into_inner().is_empty());
+    assert!(sink.is_empty());
 
     let mut source = SmallReads {
         bytes,
@@ -758,10 +758,10 @@ fn cancelled_and_stalled_ranged_sources_never_produce_a_copy() {
         polls: Cell::new(0),
         limit: 4,
     };
-    let mut sink = WriteSink::new(Vec::<u8>::new());
+    let mut sink = Vec::<u8>::new();
     let error = copy_pdf(&mut source, &mut sink, &Limits::default(), &signal).unwrap_err();
     assert!(matches!(error, Error::Cancelled));
-    assert!(sink.into_inner().is_empty());
+    assert!(sink.is_empty());
 }
 
 #[test]

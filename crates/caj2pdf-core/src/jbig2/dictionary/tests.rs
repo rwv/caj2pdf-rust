@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::NeverCancel;
+use std::io::Write;
 
 #[test]
 fn every_symbol_size_budget_is_checked_before_bitmap_work() {
@@ -117,11 +118,11 @@ impl RangedSource for TinySource {
 
 struct DiscardSink;
 
-impl SequentialSink for DiscardSink {
-    fn write(&mut self, bytes: &[u8]) -> crate::Result<usize> {
+impl Write for DiscardSink {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
         Ok(bytes.len())
     }
-    fn flush(&mut self) -> crate::Result<()> {
+    fn flush(&mut self) -> std::io::Result<()> {
         Ok(())
     }
 }

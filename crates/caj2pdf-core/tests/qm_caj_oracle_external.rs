@@ -8,7 +8,7 @@
 
 use caj2pdf_core::jbig1::{Type0Budget, Type0Decoder, Type0Span};
 use caj2pdf_core::qm::{ArithmeticBudget, ContextBank, QmState, QmTable};
-use caj2pdf_core::{Limits, NeverCancel, SequentialSink, native::SeekableSource};
+use caj2pdf_core::{Limits, NeverCancel, native::SeekableSource};
 use sha2::{Digest, Sha256};
 use std::{
     collections::HashSet,
@@ -306,12 +306,12 @@ impl Drop for Spool {
     }
 }
 
-impl SequentialSink for Spool {
-    fn write(&mut self, bytes: &[u8]) -> caj2pdf_core::Result<usize> {
+impl Write for Spool {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
         Ok(self.file().write(bytes)?)
     }
 
-    fn flush(&mut self) -> caj2pdf_core::Result<()> {
+    fn flush(&mut self) -> std::io::Result<()> {
         Ok(self.file().flush()?)
     }
 }

@@ -16,8 +16,9 @@ use super::xref::{Trailer, write_xref};
 use crate::fallible::{reserve_exact, usize_from_u32};
 use crate::{
     Bookmark, Cancellation, ConversionReport, CountingSource, Error, Limits, RangedSource, Result,
-    SequentialSink, read_exact_at,
+    read_exact_at,
 };
+use std::io::Write;
 use std::mem::size_of;
 
 // The second document ID is a version marker derived from the update's
@@ -38,7 +39,7 @@ struct XrefEntry {
 /// appended revision. A validated opaque tail after the original `%%EOF` is
 /// omitted. A clean PDF is copied byte-for-byte. The returned report is only
 /// produced after the sink flush succeeds.
-pub fn copy_pdf<R: RangedSource, W: SequentialSink, C: Cancellation>(
+pub fn copy_pdf<R: RangedSource, W: Write, C: Cancellation>(
     source: &mut R,
     sink: &mut W,
     limits: &Limits,
@@ -57,7 +58,7 @@ pub fn copy_pdf<R: RangedSource, W: SequentialSink, C: Cancellation>(
 }
 
 /// Copy a PDF held in a bounded region of a larger random-access input.
-pub fn copy_pdf_range<R: RangedSource, W: SequentialSink, C: Cancellation>(
+pub fn copy_pdf_range<R: RangedSource, W: Write, C: Cancellation>(
     source: &mut R,
     sink: &mut W,
     range: PdfRange,
@@ -85,7 +86,7 @@ const OVERREAD: &str = "PDF source reported more bytes than requested";
 /// no-op, and a clean PDF is copied byte-for-byte to the distinct sink.
 /// The direct builder report counts bytes read by `begin`; `copy_pdf_range`
 /// also counts its preceding index scan.
-pub struct PdfOutlineAppender<'a, W: SequentialSink, C: Cancellation> {
+pub struct PdfOutlineAppender<'a, W: Write, C: Cancellation> {
     writer: AppendWriter<'a, W, C>,
     index: &'a PdfIndex,
     limits: &'a Limits,
@@ -127,7 +128,7 @@ fn check_append_range(index: &PdfIndex, limits: &Limits, source_size: u64) -> Re
     Ok(())
 }
 
-impl<'a, W: SequentialSink, C: Cancellation> PdfOutlineAppender<'a, W, C> {
+impl<'a, W: Write, C: Cancellation> PdfOutlineAppender<'a, W, C> {
     /// Inspect before calling this method, then retain the index until finish.
     pub fn begin<R: RangedSource>(
         source: &mut R,
@@ -266,7 +267,7 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfOutlineAppender<'a, W, C> {
     }
 }
 
-fn copy_prefix<R: RangedSource, W: SequentialSink, C: Cancellation>(
+fn copy_prefix<R: RangedSource, W: Write, C: Cancellation>(
     source: &mut R,
     writer: &mut AppendWriter<'_, W, C>,
     offset: u64,
@@ -383,7 +384,7 @@ impl<'a> CopyPatches<'a> {
     }
 }
 
-struct AppendWriter<'a, W: SequentialSink, C: Cancellation> {
+struct AppendWriter<'a, W: Write, C: Cancellation> {
     out: Output<'a, W, C>,
     index: &'a PdfIndex,
     /// The next new object number, once the first one has been reserved.
@@ -392,7 +393,7 @@ struct AppendWriter<'a, W: SequentialSink, C: Cancellation> {
     open: bool,
 }
 
-impl<'a, W: SequentialSink, C: Cancellation> AppendWriter<'a, W, C> {
+impl<'a, W: Write, C: Cancellation> AppendWriter<'a, W, C> {
     fn new(sink: &'a mut W, index: &'a PdfIndex, limits: &'a Limits, cancellation: &'a C) -> Self {
         Self {
             out: Output::new(sink, limits, cancellation),
@@ -519,7 +520,7 @@ impl<'a, W: SequentialSink, C: Cancellation> AppendWriter<'a, W, C> {
     }
 }
 
-impl<W: SequentialSink, C: Cancellation> ObjectSink for AppendWriter<'_, W, C> {
+impl<W: Write, C: Cancellation> ObjectSink for AppendWriter<'_, W, C> {
     type Ref = PdfRef;
 
     fn begin_object(&mut self, reference: PdfRef) -> Result<()> {
@@ -535,7 +536,7 @@ impl<W: SequentialSink, C: Cancellation> ObjectSink for AppendWriter<'_, W, C> {
     }
 }
 
-impl<W: SequentialSink, C: Cancellation> ObjectAllocator for AppendWriter<'_, W, C> {
+impl<W: Write, C: Cancellation> ObjectAllocator for AppendWriter<'_, W, C> {
     /// Number new objects from the input's first free number.
     fn reserve(&mut self) -> Result<PdfRef> {
         let number = match self.next_number {

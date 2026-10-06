@@ -2,15 +2,16 @@
 
 use crate::fallible::len_u64;
 use crate::{Error, Limits, Result};
-use std::io;
+use std::io::Write;
 
 /// A source with a stable size snapshot and positioned reads.
 ///
 /// A read may return fewer bytes than requested, including zero at end of
 /// input. Implementations must never write beyond `destination` or report
 /// more than its length. All callers bound each request to `MAX_IO_CHUNK`.
-/// The mutable receiver allows adapters to use a seekable handle or await a
-/// JavaScript range read without requiring thread-safe futures.
+/// The mutable receiver allows adapters over a seekable handle. Use
+/// [`crate::native::SeekableSource`] for a `Read + Seek` handle such as a
+/// `File` or a `Cursor<Vec<u8>>`; a byte slice is a source as it is.
 pub trait RangedSource {
     fn size(&self) -> u64;
     fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> Result<usize>;
@@ -68,17 +69,27 @@ impl<S: RangedSource> RangedSource for CountingSource<'_, S> {
     }
 }
 
-/// A forward-only sink whose write and flush operations may apply backpressure.
-///
-/// As with `std::io::Write`, `write` may accept only a prefix of the supplied
-/// bytes. Zero progress for a nonempty write is a `WriteZero` error in the
-/// checked `write_all` helper.
-pub trait SequentialSink {
-    fn write(&mut self, bytes: &[u8]) -> Result<usize>;
-    fn flush(&mut self) -> Result<()>;
+/// A byte slice is a source of its own length.
+impl RangedSource for &[u8] {
+    fn size(&self) -> u64 {
+        len_u64(self.len())
+    }
+
+    fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> Result<usize> {
+        let start = usize::try_from(offset)
+            .ok()
+            .filter(|&start| start <= self.len())
+            .ok_or(Error::InvalidInput {
+                reason: "read starts beyond source size",
+            })?;
+        let count = destination.len().min(self.len() - start);
+        destination[..count].copy_from_slice(&self[start..start + count]);
+        Ok(count)
+    }
 }
 
-/// A platform-provided cancellation signal checked between awaited I/O calls.
+/// A platform-provided cancellation signal, checked between rows, pages and
+/// I/O chunks.
 pub trait Cancellation {
     fn is_cancelled(&self) -> bool;
 }
@@ -173,21 +184,21 @@ pub fn read_exact_at<S: RangedSource, C: Cancellation>(
     Ok(())
 }
 
-/// Write all bytes in bounded calls, accounting for partial writes and limits.
+/// Write all bytes in chunks of at most `limits.io_chunk_bytes`, checking
+/// the output limit before the first byte and cancellation between chunks.
 ///
-/// `output_bytes_written` is an operation-wide counter. It is updated after
-/// every successful write, including when a later write or cancellation fails.
-pub fn write_all<S: SequentialSink, C: Cancellation>(
-    sink: &mut S,
+/// `output_bytes_written` is an operation-wide counter. It counts every
+/// completed chunk, including when a later chunk or cancellation fails.
+pub(crate) fn write_counted<W: Write + ?Sized, C: Cancellation>(
+    sink: &mut W,
     bytes: &[u8],
     output_bytes_written: &mut u64,
     limits: &Limits,
     cancellation: &C,
 ) -> Result<()> {
     limits.validate()?;
-    let length = len_u64(bytes.len());
     let attempted = output_bytes_written
-        .checked_add(length)
+        .checked_add(len_u64(bytes.len()))
         .ok_or(Error::InvalidInput {
             reason: "output byte count overflows 64 bits",
         })?;
@@ -199,34 +210,108 @@ pub fn write_all<S: SequentialSink, C: Cancellation>(
         });
     }
     check_cancelled(cancellation)?;
-
-    let mut done = 0;
-    while done < bytes.len() {
-        let chunk_length = (bytes.len() - done).min(limits.io_chunk_bytes);
-        let end = done.checked_add(chunk_length).ok_or(Error::InvalidInput {
-            reason: "output slice offset overflows address space",
-        })?;
-        let chunk = &bytes[done..end];
-        let written = sink.write(chunk)?;
-        if written > chunk.len() {
-            return Err(Error::InvalidInput {
-                reason: "sink reported more bytes than supplied",
-            });
-        }
-        if written == 0 {
-            return Err(Error::Io(io::Error::new(
-                io::ErrorKind::WriteZero,
-                "sink made no progress",
-            )));
-        }
-        done += written;
-        *output_bytes_written =
-            output_bytes_written
-                .checked_add(len_u64(written))
-                .ok_or(Error::InvalidInput {
-                    reason: "output byte count overflows 64 bits",
-                })?;
+    for chunk in bytes.chunks(limits.io_chunk_bytes) {
+        sink.write_all(chunk)?;
+        // Bounded by `attempted` above.
+        *output_bytes_written += len_u64(chunk.len());
         check_cancelled(cancellation)?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_support::CancelAfter;
+    use std::io;
+
+    /// Accepts at most `limit` bytes in total, then fails.
+    struct Bounded {
+        bytes: Vec<u8>,
+        limit: usize,
+    }
+
+    impl Write for Bounded {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            let count = bytes.len().min(self.limit - self.bytes.len());
+            if count == 0 {
+                return Err(io::Error::other("sink full"));
+            }
+            self.bytes.extend_from_slice(&bytes[..count]);
+            Ok(count)
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    fn chunked(chunk: usize) -> Limits {
+        Limits {
+            io_chunk_bytes: chunk,
+            ..Limits::default()
+        }
+    }
+
+    #[test]
+    fn counted_writes_check_the_output_limit_before_the_first_byte() {
+        let mut sink = Vec::new();
+        let limits = Limits {
+            max_output_bytes: 5,
+            ..Limits::default()
+        };
+        let mut count = 4;
+        assert!(matches!(
+            write_counted(&mut sink, b"xy", &mut count, &limits, &NeverCancel),
+            Err(Error::LimitExceeded { attempted: 6, .. })
+        ));
+        assert_eq!((count, sink.len()), (4, 0));
+        count = u64::MAX;
+        assert!(matches!(
+            write_counted(
+                &mut sink,
+                b"x",
+                &mut count,
+                &Limits::default(),
+                &NeverCancel
+            ),
+            Err(Error::InvalidInput { .. })
+        ));
+    }
+
+    #[test]
+    fn counted_writes_count_completed_chunks_before_a_failure() {
+        let mut sink = Bounded {
+            bytes: Vec::new(),
+            limit: 3,
+        };
+        let mut count = 0;
+        let error =
+            write_counted(&mut sink, b"abcde", &mut count, &chunked(2), &NeverCancel).unwrap_err();
+        assert!(matches!(error, Error::Io(_)));
+        assert_eq!((count, sink.bytes.as_slice()), (2, &b"abc"[..]));
+    }
+
+    #[test]
+    fn counted_writes_observe_cancellation_between_chunks() {
+        let mut sink = Vec::new();
+        let mut count = 0;
+        // The check before the first chunk passes; the one after it trips.
+        let cancellation = CancelAfter::new(1);
+        assert!(matches!(
+            write_counted(&mut sink, b"abc", &mut count, &chunked(1), &cancellation),
+            Err(Error::Cancelled)
+        ));
+        assert_eq!((count, sink.as_slice()), (1, &b"a"[..]));
+    }
+
+    #[test]
+    fn core_errors_cross_an_io_write_adapter_unchanged() {
+        let carried = io::Error::from(Error::Cancelled);
+        assert!(matches!(Error::from(carried), Error::Cancelled));
+        let plain = io::Error::other("disk failed");
+        assert!(matches!(Error::from(plain), Error::Io(_)));
+        let io = io::Error::from(Error::Io(io::Error::new(io::ErrorKind::BrokenPipe, "x")));
+        assert_eq!(io.kind(), io::ErrorKind::BrokenPipe);
+    }
 }

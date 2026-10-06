@@ -2,8 +2,7 @@
 
 use caj2pdf_core::{
     Cancellation, ConversionOptions, DEFAULT_IO_CHUNK, Error, Limits, MAX_IO_CHUNK, NeverCancel,
-    PdfErrorKind, RangedSource, SequentialSink, native::SeekableSource, native::WriteSink,
-    read_exact_at, write_all,
+    PdfErrorKind, RangedSource, native::SeekableSource, read_exact_at,
 };
 use std::{
     cell::Cell,
@@ -61,41 +60,6 @@ impl RangedSource for Source {
             flag.set(true);
         }
         Ok(count)
-    }
-}
-
-#[derive(Default)]
-struct Sink {
-    bytes: Vec<u8>,
-    max_write: usize,
-    writes: Vec<usize>,
-    fail_after: Option<usize>,
-    cancel_after_write: Option<Rc<Cell<bool>>>,
-    overreport: bool,
-}
-
-impl SequentialSink for Sink {
-    fn write(&mut self, bytes: &[u8]) -> caj2pdf_core::Result<usize> {
-        self.writes.push(bytes.len());
-        if self
-            .fail_after
-            .is_some_and(|limit| self.bytes.len() >= limit)
-        {
-            return Err(Error::Io(io::Error::other("sink failure")));
-        }
-        if self.overreport {
-            return Ok(bytes.len() + 1);
-        }
-        let count = bytes.len().min(self.max_write);
-        self.bytes.extend_from_slice(&bytes[..count]);
-        if let Some(flag) = &self.cancel_after_write {
-            flag.set(true);
-        }
-        Ok(count)
-    }
-
-    fn flush(&mut self) -> caj2pdf_core::Result<()> {
-        Ok(())
     }
 }
 
@@ -241,7 +205,7 @@ fn configured_limits_reject_oversized_requests_before_io() {
 }
 
 #[test]
-fn cancellation_stops_before_and_after_awaited_io() {
+fn cancellation_stops_before_and_after_a_read() {
     let state = Rc::new(Cell::new(true));
     let flag = Flag(state.clone());
     let mut source = Source::new(b"abc", 1);
@@ -259,138 +223,52 @@ fn cancellation_stops_before_and_after_awaited_io() {
         Err(Error::Cancelled)
     ));
     assert_eq!(source.reads.len(), 1);
-
-    state.set(false);
-    let mut sink = Sink {
-        max_write: 1,
-        cancel_after_write: Some(state.clone()),
-        ..Sink::default()
-    };
-    let mut count = 0;
-    assert!(matches!(
-        write_all(&mut sink, b"abc", &mut count, &Limits::default(), &flag),
-        Err(Error::Cancelled)
-    ));
-    assert_eq!(count, 1);
-    assert_eq!(sink.bytes, b"a");
-    assert_eq!(sink.writes.len(), 1);
-}
-
-#[test]
-fn zero_overreported_and_failing_writes_are_not_success() {
-    let mut sink = Sink::default();
-    let mut count = 0;
-    let error = write_all(
-        &mut sink,
-        b"x",
-        &mut count,
-        &Limits::default(),
-        &NeverCancel,
-    )
-    .unwrap_err();
-    assert!(matches!(error, Error::Io(ref e) if e.kind() == io::ErrorKind::WriteZero));
-    assert_eq!(count, 0);
-
-    sink.max_write = 1;
-    sink.overreport = true;
-    assert!(matches!(
-        write_all(
-            &mut sink,
-            b"x",
-            &mut count,
-            &Limits::default(),
-            &NeverCancel
-        ),
-        Err(Error::InvalidInput { .. })
-    ));
-
-    sink.overreport = false;
-    sink.fail_after = Some(1);
-    assert!(matches!(
-        write_all(
-            &mut sink,
-            b"xyz",
-            &mut count,
-            &Limits::default(),
-            &NeverCancel
-        ),
-        Err(Error::Io(_))
-    ));
-    assert_eq!(sink.bytes, b"x");
-    assert_eq!(count, 1);
-}
-
-#[test]
-fn output_budget_is_cumulative_and_counts_use_checked_arithmetic() {
-    let mut sink = Sink {
-        max_write: 4,
-        ..Sink::default()
-    };
-    let limits = Limits {
-        max_output_bytes: 5,
-        ..Limits::default()
-    };
-    let mut count = 4;
-    assert!(matches!(
-        write_all(&mut sink, b"xy", &mut count, &limits, &NeverCancel),
-        Err(Error::LimitExceeded { .. })
-    ));
-    assert_eq!(count, 4);
-    assert!(sink.writes.is_empty());
-
-    count = u64::MAX;
-    assert!(matches!(
-        write_all(
-            &mut sink,
-            b"x",
-            &mut count,
-            &Limits {
-                max_output_bytes: u64::MAX,
-                ..Limits::default()
-            },
-            &NeverCancel
-        ),
-        Err(Error::InvalidInput { .. })
-    ));
 }
 
 #[test]
 fn native_adapters_borrow_handles_and_restore_input_position() {
     let mut input = Cursor::new(b"abcdef".to_vec());
     input.set_position(4);
-    let mut output = Vec::new();
-    {
-        let mut source = SeekableSource::new(&mut input).unwrap();
-        assert_eq!(source.size(), 6);
-        let mut sink = WriteSink::new(&mut output);
-        let mut buffer = [0; 4];
-        read_exact_at(
-            &mut source,
-            1,
-            &mut buffer,
-            &Limits::default(),
-            &NeverCancel,
-        )
-        .unwrap();
-        let mut written = 0;
-        write_all(
-            &mut sink,
-            &buffer,
-            &mut written,
-            &Limits::default(),
-            &NeverCancel,
-        )
-        .unwrap();
-        assert_eq!(written, 4);
-        assert_eq!(source.into_inner().stream_position().unwrap(), 5);
-        assert_eq!(sink.into_inner().as_slice(), b"bcde");
-    }
-    assert_eq!(output, b"bcde");
+    let mut source = SeekableSource::new(&mut input).unwrap();
+    assert_eq!(source.size(), 6);
+    let mut buffer = [0; 4];
+    read_exact_at(
+        &mut source,
+        1,
+        &mut buffer,
+        &Limits::default(),
+        &NeverCancel,
+    )
+    .unwrap();
+    assert_eq!(&buffer, b"bcde");
+    assert_eq!(source.into_inner().stream_position().unwrap(), 5);
 
     input.set_position(2);
     let source = SeekableSource::new(&mut input).unwrap();
     assert_eq!(source.size(), 6);
     assert_eq!(input.stream_position().unwrap(), 2);
+}
+
+#[test]
+fn byte_slices_are_sources() {
+    let mut source: &[u8] = b"abcdef";
+    assert_eq!(source.size(), 6);
+    let mut buffer = [0; 3];
+    read_exact_at(
+        &mut source,
+        2,
+        &mut buffer,
+        &Limits::default(),
+        &NeverCancel,
+    )
+    .unwrap();
+    assert_eq!(&buffer, b"cde");
+    assert_eq!(source.read_at(6, &mut buffer).unwrap(), 0);
+    assert_eq!(source.read_at(4, &mut buffer).unwrap(), 2);
+    assert!(matches!(
+        source.read_at(7, &mut buffer),
+        Err(Error::InvalidInput { .. })
+    ));
 }
 
 #[test]
@@ -406,13 +284,6 @@ fn native_adapters_reject_oversized_direct_calls() {
         source.read_at(u64::MAX, &mut []),
         Err(Error::InvalidInput { .. })
     ));
-    let mut output = Vec::new();
-    let mut sink = WriteSink::new(&mut output);
-    assert!(matches!(
-        sink.write(&destination),
-        Err(Error::LimitExceeded { .. })
-    ));
-    assert!(output.is_empty());
 }
 
 #[test]

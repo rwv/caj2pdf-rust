@@ -5,6 +5,7 @@
 use super::*;
 use crate::pdf::OpenTypeFont;
 use crate::pdf::font::{CHANGED, Subset, SubsetOutput, has_code, mark_code};
+use std::io::Write;
 
 const BMP_BITMAP_BYTES: usize = 8192;
 const MAX_PAGE_FONTS: usize = 128;
@@ -42,12 +43,12 @@ pub(super) struct PendingFont {
 }
 
 /// Feeds subset program bytes into an open zlib-compressed stream.
-struct FontStream<'w, 'a, W: SequentialSink, C: Cancellation> {
+struct FontStream<'w, 'a, W: Write, C: Cancellation> {
     writer: &'w mut PdfWriter<'a, W, C>,
     deflate: &'w mut Deflate,
 }
 
-impl<'w, 'a, W: SequentialSink, C: Cancellation> FontStream<'w, 'a, W, C> {
+impl<'w, 'a, W: Write, C: Cancellation> FontStream<'w, 'a, W, C> {
     fn new(writer: &'w mut PdfWriter<'a, W, C>, deflate: &'w mut Deflate) -> Self {
         Self { writer, deflate }
     }
@@ -58,7 +59,7 @@ impl<'w, 'a, W: SequentialSink, C: Cancellation> FontStream<'w, 'a, W, C> {
     }
 }
 
-impl<W: SequentialSink, C: Cancellation> SubsetOutput for FontStream<'_, '_, W, C> {
+impl<W: Write, C: Cancellation> SubsetOutput for FontStream<'_, '_, W, C> {
     fn put(&mut self, bytes: &[u8]) -> Result<()> {
         self.deflate.put(self.writer, bytes)
     }
@@ -77,7 +78,7 @@ fn changed() -> Error {
     Error::InvalidInput { reason: CHANGED }
 }
 
-impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
+impl<'a, W: Write, C: Cancellation> PdfDocument<'a, W, C> {
     /// Register a static TrueType font for content pages.
     ///
     /// Characters use BMP Unicode CIDs with an explicit CID-to-glyph map and
@@ -391,7 +392,7 @@ fn bmp_glyph(
 }
 
 /// One open mixed-content page. Call `finish` before using its document again.
-pub struct ContentPageWriter<'d, 'a, 'r, W: SequentialSink, C: Cancellation> {
+pub struct ContentPageWriter<'d, 'a, 'r, W: Write, C: Cancellation> {
     document: &'d mut PdfDocument<'a, W, C>,
     fonts: &'r [&'r FontObject],
     images: &'r [ImageObject],
@@ -403,7 +404,7 @@ pub struct ContentPageWriter<'d, 'a, 'r, W: SequentialSink, C: Cancellation> {
     failed: bool,
 }
 
-impl<W: SequentialSink, C: Cancellation> ContentPageWriter<'_, '_, '_, W, C> {
+impl<W: Write, C: Cancellation> ContentPageWriter<'_, '_, '_, W, C> {
     /// Append content bytes to the compressed page stream.
     fn emit(&mut self, bytes: &[u8]) -> Result<()> {
         self.deflate.put(&mut self.document.writer, bytes)

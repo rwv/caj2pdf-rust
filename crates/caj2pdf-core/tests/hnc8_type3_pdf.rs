@@ -7,7 +7,7 @@
 mod common;
 
 use caj2pdf_core::{
-    Cancellation, Error, Limits, NeverCancel, RangedSource, SequentialSink,
+    Cancellation, Error, Limits, NeverCancel, RangedSource,
     hnc8::{
         ComposeError, ComposeErrorKind, ComposeOptions, ComposePage, ComposeReport, ComposeStage,
         ComposeVisitor, Type3PdfOptions, Type3Stage, Variant,
@@ -20,6 +20,7 @@ use common::{
     hnc8_document::{Image, RENDER_DPI, Store, convert as compose, document},
     mq_encoder,
 };
+use std::io::Write;
 use std::{
     fs, io,
     path::PathBuf,
@@ -147,11 +148,11 @@ struct Sink {
     max_write: usize,
 }
 
-impl SequentialSink for Sink {
-    fn write(&mut self, bytes: &[u8]) -> caj2pdf_core::Result<usize> {
+impl Write for Sink {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
         self.writes += 1;
         if self.fail_at == Some(self.writes) {
-            return Err(Error::Io(io::Error::other("injected sink failure")));
+            return Err(io::Error::other("injected sink failure"));
         }
         let count = if self.max_write == 0 {
             bytes.len()
@@ -162,7 +163,7 @@ impl SequentialSink for Sink {
         Ok(count)
     }
 
-    fn flush(&mut self) -> caj2pdf_core::Result<()> {
+    fn flush(&mut self) -> std::io::Result<()> {
         Ok(())
     }
 }

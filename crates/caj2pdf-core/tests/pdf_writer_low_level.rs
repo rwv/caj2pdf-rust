@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: MIT
 
-use caj2pdf_core::{
-    Cancellation, Error, Limits, NeverCancel, Result, SequentialSink, pdf::PdfWriter,
-};
+use caj2pdf_core::{Cancellation, Error, Limits, NeverCancel, pdf::PdfWriter};
+use std::io::Write;
 use std::{cell::Cell, io, rc::Rc};
 
 #[derive(Default)]
@@ -17,14 +16,14 @@ struct ProbeSink {
     flushes: usize,
 }
 
-impl SequentialSink for ProbeSink {
-    fn write(&mut self, bytes: &[u8]) -> Result<usize> {
+impl Write for ProbeSink {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
         self.requested.push(bytes.len());
         if self
             .fail_after
             .is_some_and(|limit| self.bytes.len() >= limit)
         {
-            return Err(Error::Io(io::Error::other("deliberate sink failure")));
+            return Err(io::Error::other("deliberate sink failure"));
         }
         if self.zero_write {
             return Ok(0);
@@ -37,10 +36,10 @@ impl SequentialSink for ProbeSink {
         Ok(written)
     }
 
-    fn flush(&mut self) -> Result<()> {
+    fn flush(&mut self) -> std::io::Result<()> {
         self.flushes += 1;
         if self.fail_flush {
-            return Err(Error::Io(io::Error::other("deliberate flush failure")));
+            return Err(io::Error::other("deliberate flush failure"));
         }
         Ok(())
     }
@@ -339,7 +338,8 @@ fn zero_and_failing_sinks_return_io_errors_and_poison_partial_writer() {
         let mut pdf = PdfWriter::new(&mut failing, &limits, &NeverCancel)?;
         let root = pdf.reserve_object()?;
         assert!(matches!(pdf.begin_object(root), Err(Error::Io(_))));
-        assert_eq!(pdf.position(), 16);
+        // Only the completed header write counts.
+        assert_eq!(pdf.position(), 15);
         assert!(matches!(
             pdf.reserve_object(),
             Err(Error::InvalidInput { .. })
@@ -362,7 +362,8 @@ fn cancellation_and_flush_failure_propagate() {
         PdfWriter::new(&mut cancel_sink, &Limits::default(), &flag),
         Err(Error::Cancelled)
     ));
-    assert_eq!(cancel_sink.bytes.len(), 1);
+    // Cancellation is observed after the whole header write.
+    assert_eq!(cancel_sink.bytes.len(), 15);
 
     let mut flush_sink = ProbeSink {
         max_write: usize::MAX,

@@ -7,7 +7,8 @@ use crate::qm::{
     ArithmeticBudget, ArithmeticDecoder, ArithmeticError, ArithmeticErrorKind, ArithmeticSnapshot,
     CodedSpan, ContextBank, ContextState, QM_STATE_COUNT, QmState, QmTable,
 };
-use crate::{Cancellation, Error, Limits, RangedSource, SequentialSink, read_exact_at, write_all};
+use crate::{Cancellation, Error, Limits, RangedSource, read_exact_at, write_counted};
+use std::io::Write;
 use std::{error, fmt, mem};
 
 const DIB_BYTES: u64 = 48;
@@ -512,7 +513,7 @@ pub fn read_type0_info<S: RangedSource, C: Cancellation>(
 
 /// One image with one arithmetic SCD. A failed or dropped row future poisons
 /// this object; the caller must discard any partial sink output.
-pub struct Type0Decoder<'a, S: RangedSource, W: SequentialSink, C: Cancellation> {
+pub struct Type0Decoder<'a, S: RangedSource, W: Write, C: Cancellation> {
     arithmetic: ArithmeticDecoder<'a, S, C>,
     sink: &'a mut W,
     limits: &'a Limits,
@@ -528,7 +529,7 @@ pub struct Type0Decoder<'a, S: RangedSource, W: SequentialSink, C: Cancellation>
     poisoned: bool,
 }
 
-impl<'a, S: RangedSource, W: SequentialSink, C: Cancellation> Type0Decoder<'a, S, W, C> {
+impl<'a, S: RangedSource, W: Write, C: Cancellation> Type0Decoder<'a, S, W, C> {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         source: &'a mut S,
@@ -659,7 +660,7 @@ impl<'a, S: RangedSource, W: SequentialSink, C: Cancellation> Type0Decoder<'a, S
                 }
             }
         }
-        write_all(
+        write_counted(
             self.sink,
             &self.current,
             &mut self.output_bytes_written,
@@ -704,15 +705,18 @@ impl<'a, S: RangedSource, W: SequentialSink, C: Cancellation> Type0Decoder<'a, S
                 output_bytes_written,
                 kind: arithmetic_kind(error),
             })?;
-        self.sink.flush().map_err(|error| Type0Error {
-            offset,
-            rows_written,
-            output_bytes_written,
-            kind: match error {
-                Error::Cancelled => Type0ErrorKind::Cancelled,
-                other => Type0ErrorKind::Sink(other),
-            },
-        })?;
+        self.sink
+            .flush()
+            .map_err(Error::from)
+            .map_err(|error| Type0Error {
+                offset,
+                rows_written,
+                output_bytes_written,
+                kind: match error {
+                    Error::Cancelled => Type0ErrorKind::Cancelled,
+                    other => Type0ErrorKind::Sink(other),
+                },
+            })?;
         if self.cancellation.is_cancelled() {
             return Err(Type0Error {
                 offset,

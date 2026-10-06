@@ -19,9 +19,8 @@ use caj2pdf_core::jbig2::{
     read_segment_header,
     refinement::{RefinementBudget, RefinementErrorKind},
 };
-use caj2pdf_core::{
-    Cancellation, Error, Limits, MAX_BUDGET_COUNT, NeverCancel, RangedSource, SequentialSink,
-};
+use caj2pdf_core::{Cancellation, Error, Limits, MAX_BUDGET_COUNT, NeverCancel, RangedSource};
+use std::io::Write;
 use std::{
     cell::{Cell, RefCell},
     io,
@@ -107,12 +106,12 @@ impl RangedSource for SharedSource {
 }
 
 struct SharedSink(Rc<RefCell<Vec<u8>>>);
-impl SequentialSink for SharedSink {
-    fn write(&mut self, bytes: &[u8]) -> caj2pdf_core::Result<usize> {
+impl Write for SharedSink {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
         self.0.borrow_mut().extend_from_slice(bytes);
         Ok(bytes.len())
     }
-    fn flush(&mut self) -> caj2pdf_core::Result<()> {
+    fn flush(&mut self) -> std::io::Result<()> {
         Ok(())
     }
 }
@@ -2054,12 +2053,12 @@ struct FaultSink {
     fault: SinkFault,
 }
 
-impl SequentialSink for FaultSink {
-    fn write(&mut self, bytes: &[u8]) -> caj2pdf_core::Result<usize> {
+impl Write for FaultSink {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
         match &self.fault {
             SinkFault::Zero => Ok(0),
             SinkFault::Overreport => Ok(bytes.len() + 1),
-            SinkFault::Io => Err(Error::Io(io::Error::other("injected sink failure"))),
+            SinkFault::Io => Err(io::Error::other("injected sink failure")),
             SinkFault::CancelAfterWrite(flag) => {
                 self.bytes.borrow_mut().extend_from_slice(bytes);
                 flag.set(true);
@@ -2076,10 +2075,10 @@ impl SequentialSink for FaultSink {
         }
     }
 
-    fn flush(&mut self) -> caj2pdf_core::Result<()> {
+    fn flush(&mut self) -> std::io::Result<()> {
         match &self.fault {
-            SinkFault::FlushIo => Err(Error::Io(io::Error::other("injected flush failure"))),
-            SinkFault::FlushCancelled => Err(Error::Cancelled),
+            SinkFault::FlushIo => Err(io::Error::other("injected flush failure")),
+            SinkFault::FlushCancelled => Err(Error::Cancelled.into()),
             SinkFault::CancelAfterFlush(flag) => {
                 flag.set(true);
                 Ok(())

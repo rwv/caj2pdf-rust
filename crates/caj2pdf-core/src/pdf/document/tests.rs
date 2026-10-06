@@ -4,6 +4,7 @@ use super::*;
 use crate::pdf::{MAX_CLASSIC_PDF_BYTES, PdfIndex, PdfRange};
 use crate::test_support::{CancelAfter, NEVER};
 use std::io;
+use std::io::Write;
 
 /// A source whose bytes are all `0x5A`, optionally claiming to have read
 /// one byte more than the caller requested.
@@ -41,17 +42,17 @@ struct VecSink {
     fail_at_write: Option<usize>,
 }
 
-impl SequentialSink for VecSink {
-    fn write(&mut self, bytes: &[u8]) -> Result<usize> {
+impl Write for VecSink {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
         self.writes += 1;
         if self.fail_at_write == Some(self.writes) {
-            return Err(Error::Io(io::Error::other("injected sink failure")));
+            return Err(io::Error::other("injected sink failure"));
         }
         self.bytes.extend_from_slice(bytes);
         Ok(bytes.len())
     }
 
-    fn flush(&mut self) -> Result<()> {
+    fn flush(&mut self) -> std::io::Result<()> {
         Ok(())
     }
 }
@@ -226,7 +227,7 @@ fn affine_preflight_at_leaf_rollover_preserves_existing_pages_and_object_ids() {
     index_pdf(sink.bytes).expect("refused rollover leaves a valid completed page tree");
 }
 
-fn write_sample<W: SequentialSink, C: Cancellation>(
+fn write_sample<W: Write, C: Cancellation>(
     sink: &mut W,
     limits: &Limits,
     cancellation: &C,
@@ -328,8 +329,8 @@ struct PageTreeSink {
     page_nodes: Vec<Vec<u8>>,
 }
 
-impl SequentialSink for PageTreeSink {
-    fn write(&mut self, bytes: &[u8]) -> Result<usize> {
+impl Write for PageTreeSink {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
         // Page-tree nodes are small; larger runs (the xref table) are
         // never page-tree objects and need not be retained.
         if self.object.len() > 64 * 1024 {
@@ -351,16 +352,14 @@ impl SequentialSink for PageTreeSink {
         Ok(bytes.len())
     }
 
-    fn flush(&mut self) -> Result<()> {
+    fn flush(&mut self) -> std::io::Result<()> {
         Ok(())
     }
 }
 
 /// A one-pixel image that many pages can share, which keeps documents with
 /// full page-tree nodes cheap to build.
-fn shared_image<W: SequentialSink>(
-    document: &mut PdfDocument<'_, W, CancelAfter>,
-) -> Result<ImageObject> {
+fn shared_image<W: Write>(document: &mut PdfDocument<'_, W, CancelAfter>) -> Result<ImageObject> {
     let mut writer = document.begin_bilevel_image(BilevelImageSpec {
         pixel_width: 1,
         pixel_height: 1,
@@ -739,7 +738,7 @@ fn bilevel_compression_failure_poisons_the_image_and_leaves_the_stream_open() {
                     Status::Ok
                 );
             }
-            let error = image.write(&[0x80]).unwrap_err();
+            let error = Error::from(image.write(&[0x80]).unwrap_err());
             let expected = if mode == 0 {
                 "zlib compression made no progress"
             } else {
@@ -748,7 +747,7 @@ fn bilevel_compression_failure_poisons_the_image_and_leaves_the_stream_open() {
             assert!(matches!(error, Error::InvalidInput { reason } if reason == expected));
             assert!(image.failed);
             assert!(matches!(
-                image.write(&[0x80]),
+                image.write(&[0x80]).map_err(Error::from),
                 Err(Error::InvalidInput {
                     reason: "bilevel image cannot continue after compression or output failure"
                 })

@@ -9,7 +9,8 @@ use super::{
     empirical_c8_horizontal_decoration, empirical_c8_segment,
 };
 use crate::pdf::{ContentPageWriter, FontObject, ImageObject, PdfDocument};
-use crate::{Cancellation, Error, RangedSource, SequentialSink};
+use crate::{Cancellation, Error, RangedSource};
+use std::io::Write;
 
 /// Indices into the font handles supplied to the native page writer.
 ///
@@ -96,7 +97,7 @@ pub fn write_c8_native_page<S, W, C>(
 ) -> Result<u32>
 where
     S: RangedSource,
-    W: SequentialSink,
+    W: Write,
     C: Cancellation,
 {
     let header = reader.header();
@@ -181,7 +182,7 @@ fn invalid(reason: &'static str) -> Error {
     Error::InvalidInput { reason }
 }
 
-struct PageWriter<'p, 'd, 'a, 'r, W: SequentialSink, C: Cancellation> {
+struct PageWriter<'p, 'd, 'a, 'r, W: Write, C: Cancellation> {
     page: &'p mut ContentPageWriter<'d, 'a, 'r, W, C>,
     fonts: &'r [&'r FontObject],
     roles: C8PageFonts,
@@ -201,7 +202,7 @@ struct PageWriter<'p, 'd, 'a, 'r, W: SequentialSink, C: Cancellation> {
     legacy: bool,
 }
 
-impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, '_, '_, '_, W, C> {
+impl<W: Write, C: Cancellation> NativeRecordVisitor for PageWriter<'_, '_, '_, '_, W, C> {
     fn visit(&mut self, _: u64, record: NativeRecord) -> crate::Result<()> {
         if self.legacy {
             return self.visit_mode_zero(record);
@@ -723,7 +724,7 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
     }
 }
 
-impl<W: SequentialSink, C: Cancellation> PageWriter<'_, '_, '_, '_, W, C> {
+impl<W: Write, C: Cancellation> PageWriter<'_, '_, '_, '_, W, C> {
     /// Apply the [`C8PageFonts`] fallback rule to a selected role. An index
     /// outside the page resources is kept so the draw reports it.
     fn font(&self, role: Option<usize>, character: char) -> usize {

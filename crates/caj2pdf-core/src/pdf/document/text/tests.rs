@@ -7,6 +7,7 @@ use crate::{
     test_support::{NEVER, inflated_stream, pdf_text},
 };
 use std::io::Cursor;
+use std::io::Write;
 
 #[derive(Default)]
 struct Sink {
@@ -15,8 +16,8 @@ struct Sink {
     fail_after: Option<usize>,
     fail_now: std::rc::Rc<std::cell::Cell<bool>>,
 }
-impl SequentialSink for Sink {
-    fn write(&mut self, bytes: &[u8]) -> Result<usize> {
+impl Write for Sink {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
         self.max_request = self.max_request.max(bytes.len());
         if self.fail_now.get()
             || self
@@ -29,7 +30,7 @@ impl SequentialSink for Sink {
         self.bytes.extend_from_slice(&bytes[..count]);
         Ok(count)
     }
-    fn flush(&mut self) -> Result<()> {
+    fn flush(&mut self) -> std::io::Result<()> {
         Ok(())
     }
 }

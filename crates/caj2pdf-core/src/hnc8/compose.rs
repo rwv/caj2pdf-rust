@@ -5,6 +5,7 @@
 //! The CLI and WASM adapters share this core and reject omitted source rows.
 
 use super::placement::{source_image_transform, source_page_geometry};
+use std::io::Write;
 mod native;
 mod route;
 mod type3;
@@ -30,7 +31,7 @@ use crate::pdf::{
 use crate::qm::{ArithmeticBudget, ArithmeticError, ContextBank, QmTable};
 use crate::{
     Bookmark, BookmarkVisitor, Cancellation, ConversionReport, CountingSource, Error, Limits,
-    MAX_BUDGET_COUNT, RangedSource, SequentialSink,
+    MAX_BUDGET_COUNT, RangedSource,
 };
 use std::{error, fmt, mem::size_of};
 
@@ -117,9 +118,9 @@ enum CheckedImage {
     Type3,
 }
 
-struct OutlineSink<'a, 'b, W: SequentialSink, C: Cancellation>(&'a mut PdfDocument<'b, W, C>);
+struct OutlineSink<'a, 'b, W: Write, C: Cancellation>(&'a mut PdfDocument<'b, W, C>);
 
-impl<W: SequentialSink, C: Cancellation> BookmarkVisitor for OutlineSink<'_, '_, W, C> {
+impl<W: Write, C: Cancellation> BookmarkVisitor for OutlineSink<'_, '_, W, C> {
     fn visit(&mut self, bookmark: Bookmark) -> crate::Result<()> {
         self.0.add_bookmark_with_view(bookmark, BookmarkView::Xyz)
     }
@@ -215,7 +216,7 @@ pub enum ComposeErrorKind {
     /// A typed failure of one type-3 JBIG2 decoding stage.
     Type3 {
         stage: Type3Stage,
-        source: Box<dyn error::Error>,
+        source: Box<dyn error::Error + Send + Sync>,
     },
     Contexts(Box<ArithmeticError>),
     Io(Error),
@@ -358,7 +359,7 @@ impl At {
 /// custom `/CNKI_DOI` key and its URL as `/CNKI_URL`. The observed values are
 /// CNKI identifiers rather than registered DOIs, so they are stored verbatim. A defective package is recorded in the
 /// report and ignored; only cancellation fails.
-fn finish_document<S: RangedSource, W: SequentialSink, C: Cancellation>(
+fn finish_document<S: RangedSource, W: Write, C: Cancellation>(
     reader: &mut Hnc8Reader<'_, S, C>,
     document: PdfDocument<'_, W, C>,
     report: &mut ComposeReport,
@@ -418,7 +419,7 @@ fn emit_type0<S, W, C>(
 ) -> Result<crate::pdf::ImageObject, ComposeError>
 where
     S: RangedSource,
-    W: SequentialSink,
+    W: Write,
     C: Cancellation,
 {
     let mut rows = document
@@ -688,7 +689,7 @@ fn emit_image<S, W, T, C>(
 ) -> Result<crate::pdf::ImageObject, ComposeError>
 where
     S: RangedSource,
-    W: SequentialSink,
+    W: Write,
     T: RandomAccessScratch,
     C: Cancellation,
 {
@@ -787,7 +788,7 @@ pub fn convert_source_pages_pdf<'a, S, W, T, V, C>(
 ) -> Result<ComposeReport, ComposeError>
 where
     S: RangedSource,
-    W: SequentialSink,
+    W: Write,
     T: RandomAccessScratch + 'a,
     V: ComposeVisitor,
     C: Cancellation,

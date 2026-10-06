@@ -378,11 +378,11 @@ struct Sink {
     fail_flush: bool,
 }
 
-impl SequentialSink for Sink {
-    fn write(&mut self, bytes: &[u8]) -> crate::Result<usize> {
+impl Write for Sink {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
         self.max_request = self.max_request.max(bytes.len());
         if self.fail_after.is_some_and(|at| self.bytes.len() >= at) {
-            return Err(Error::Io(io::Error::other("synthetic PDF sink failure")));
+            return Err(io::Error::other("synthetic PDF sink failure"));
         }
         let count = bytes.len().min(self.short.unwrap_or(usize::MAX));
         self.bytes.extend(&bytes[..count]);
@@ -392,9 +392,9 @@ impl SequentialSink for Sink {
         Ok(count)
     }
 
-    fn flush(&mut self) -> crate::Result<()> {
+    fn flush(&mut self) -> std::io::Result<()> {
         if self.fail_flush {
-            Err(Error::Io(io::Error::other("synthetic PDF flush failure")))
+            Err(io::Error::other("synthetic PDF flush failure"))
         } else {
             Ok(())
         }

@@ -5,9 +5,8 @@
 mod common;
 
 use caj2pdf_core::{
-    Bookmark, Cancellation, Error, InputFormat, Limits, PdfErrorKind, RangedSource, SequentialSink,
-    detect_source,
-    native::{SeekableSource, WriteSink},
+    Bookmark, Cancellation, Error, InputFormat, Limits, PdfErrorKind, RangedSource, detect_source,
+    native::SeekableSource,
     pdf::{
         FragmentObject, FragmentPlan, PdfIndex, PdfOutlineAppender, PdfRange, PdfRef, PdfWriter,
         copy_pdf, copy_pdf_range, reconstruct_fragment_with_bookmarks,
@@ -291,8 +290,8 @@ struct MutateOnFirstWrite {
     written: Vec<u8>,
 }
 
-impl SequentialSink for MutateOnFirstWrite {
-    fn write(&mut self, bytes: &[u8]) -> caj2pdf_core::Result<usize> {
+impl Write for MutateOnFirstWrite {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
         if self.written.is_empty() {
             self.bytes.borrow_mut()[self.at] = self.replacement;
         }
@@ -300,7 +299,7 @@ impl SequentialSink for MutateOnFirstWrite {
         Ok(bytes.len())
     }
 
-    fn flush(&mut self) -> caj2pdf_core::Result<()> {
+    fn flush(&mut self) -> std::io::Result<()> {
         Ok(())
     }
 }
@@ -328,7 +327,7 @@ impl RangedSource for ArmAtPdfOffset {
 fn flate_xref_stream_copy_handles_one_byte_reads() {
     let input = synthetic_xref_stream_pdf(false, false, false, b"");
     let mut source = OneBytePdfSource(input.clone());
-    let mut sink = WriteSink::new(Vec::<u8>::new());
+    let mut sink = Vec::<u8>::new();
     let report = copy_pdf(
         &mut source,
         &mut sink,
@@ -337,7 +336,7 @@ fn flate_xref_stream_copy_handles_one_byte_reads() {
     )
     .unwrap();
     assert_eq!(report.pages_converted, 1);
-    assert_eq!(sink.into_inner(), input);
+    assert_eq!(sink, input);
 }
 
 #[test]
@@ -347,7 +346,7 @@ fn unfiltered_xref_stream_copy_reopens() {
     let mut output = TempPdf::new("unfiltered-xref-stream");
     let report = copy_pdf(
         &mut source,
-        &mut WriteSink::new(&mut output.file),
+        &mut &mut output.file,
         &Limits::default(),
         &CancelAfter::Never,
     )
@@ -404,7 +403,7 @@ fn duplicate_page_box_in_xref_stream_pdf_is_repaired_and_reopens() {
     let mut output = TempPdf::new("xref-stream-repair");
     let report = copy_pdf(
         &mut source,
-        &mut WriteSink::new(&mut output.file),
+        &mut &mut output.file,
         &Limits::default(),
         &CancelAfter::Never,
     )
@@ -776,7 +775,7 @@ fn lone_cr_stream_separator_is_normalized_without_moving_offsets() {
         - 1;
     input[at] = b'\r';
     let mut source = SeekableSource::new(Cursor::new(input.clone())).unwrap();
-    let mut sink = WriteSink::new(Vec::<u8>::new());
+    let mut sink = Vec::<u8>::new();
     copy_pdf(
         &mut source,
         &mut sink,
@@ -786,7 +785,7 @@ fn lone_cr_stream_separator_is_normalized_without_moving_offsets() {
     .unwrap();
     let mut expected = input;
     expected[at] = b'\n';
-    assert_eq!(sink.into_inner(), expected);
+    assert_eq!(sink, expected);
     inspect_bytes(expected).unwrap();
 }
 
@@ -797,7 +796,7 @@ fn stale_page_parent_is_repaired_only_from_validated_kids() {
     let mut output = TempPdf::new("stale-page-parent");
     let report = copy_pdf(
         &mut source,
-        &mut WriteSink::new(&mut output.file),
+        &mut &mut output.file,
         &Limits::default(),
         &CancelAfter::Never,
     )
@@ -895,7 +894,7 @@ fn short_aborted_object_prefix_is_scrubbed_but_other_gap_content_fails() {
     let mut output = TempPdf::new("orphan-gap");
     copy_pdf(
         &mut source,
-        &mut WriteSink::new(&mut output.file),
+        &mut &mut output.file,
         &Limits::default(),
         &CancelAfter::Never,
     )
@@ -912,7 +911,7 @@ fn short_aborted_object_prefix_is_scrubbed_but_other_gap_content_fails() {
     let mut output = TempPdf::new("free-orphan-gap");
     copy_pdf(
         &mut source,
-        &mut WriteSink::new(&mut output.file),
+        &mut &mut output.file,
         &Limits::default(),
         &CancelAfter::Never,
     )
@@ -997,7 +996,7 @@ fn clean_pdf_copy_is_exact_and_preserves_binary_stream_and_outlines() {
         let mut output = TempPdf::new("clean-copy");
         let report = copy_pdf(
             &mut source,
-            &mut WriteSink::new(&mut output.file),
+            &mut &mut output.file,
             &Limits::default(),
             &CancelAfter::Never,
         )
@@ -1036,7 +1035,7 @@ fn a_displaced_header_is_viewed_from_its_offset_and_copies_the_unprefixed_pdf() 
         let mut output = TempPdf::new("displaced-header");
         let report = copy_pdf_range(
             &mut source,
-            &mut WriteSink::new(&mut output.file),
+            &mut &mut output.file,
             range,
             &Limits::default(),
             &CancelAfter::Never,
@@ -1050,7 +1049,7 @@ fn a_displaced_header_is_viewed_from_its_offset_and_copies_the_unprefixed_pdf() 
         // Read from byte 0, the same file has no header at the range start.
         let error = copy_pdf(
             &mut source,
-            &mut WriteSink::new(Vec::<u8>::new()),
+            &mut Vec::<u8>::new(),
             &Limits::default(),
             &CancelAfter::Never,
         )
@@ -1080,7 +1079,7 @@ fn indirect_media_box_is_a_valid_page_geometry_for_copy() {
     let mut output = TempPdf::new("indirect-mediabox");
     let report = copy_pdf(
         &mut source,
-        &mut WriteSink::new(&mut output.file),
+        &mut &mut output.file,
         &Limits::default(),
         &CancelAfter::Never,
     )
@@ -1109,7 +1108,7 @@ fn known_duplicate_page_box_and_long_opaque_tail_are_normalized() {
     let mut output = TempPdf::new("normalized");
     let report = copy_pdf(
         &mut source,
-        &mut WriteSink::new(&mut output.file),
+        &mut &mut output.file,
         &Limits::default(),
         &CancelAfter::Never,
     )
@@ -1131,7 +1130,7 @@ fn a_valid_pdf_with_known_webfastload_suffix_copies_its_logical_bytes() {
         tailed.extend_from_slice(marker);
         tailed.extend_from_slice(&[0x7f, 0x00, 0xff, b'X'].repeat(3_000));
         let mut source = SeekableSource::new(Cursor::new(tailed)).unwrap();
-        let mut sink = WriteSink::new(Vec::<u8>::new());
+        let mut sink = Vec::<u8>::new();
         let report = copy_pdf(
             &mut source,
             &mut sink,
@@ -1141,7 +1140,7 @@ fn a_valid_pdf_with_known_webfastload_suffix_copies_its_logical_bytes() {
         .unwrap();
         assert_eq!(report.pages_converted, 2);
         assert_eq!(report.output_bytes_written, clean.len() as u64);
-        assert_eq!(sink.into_inner(), clean);
+        assert_eq!(sink, clean);
     }
 }
 
@@ -1154,7 +1153,7 @@ fn unknown_suffix_and_incomplete_incremental_revision_are_not_silently_dropped()
         let mut input = write_pdf_without_outlines();
         input.extend_from_slice(suffix);
         let mut source = SeekableSource::new(Cursor::new(input)).unwrap();
-        let mut sink = WriteSink::new(Vec::<u8>::new());
+        let mut sink = Vec::<u8>::new();
         let error = copy_pdf(
             &mut source,
             &mut sink,
@@ -1163,7 +1162,7 @@ fn unknown_suffix_and_incomplete_incremental_revision_are_not_silently_dropped()
         )
         .expect_err("unknown trailing data must fail");
         assert!(matches!(error, Error::Pdf { kind: PdfErrorKind::Malformed | PdfErrorKind::AmbiguousRepair, .. }), "{error}");
-        assert!(sink.into_inner().is_empty());
+        assert!(sink.is_empty());
     }
 }
 
@@ -1202,7 +1201,7 @@ fn incremental_xref_cannot_activate_a_live_object_after_the_pdf_end() {
         b"3 0\tobj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] >>\nendobj\n",
     );
     let mut source = SeekableSource::new(Cursor::new(input)).unwrap();
-    let mut sink = WriteSink::new(Vec::<u8>::new());
+    let mut sink = Vec::<u8>::new();
     let error = copy_pdf(
         &mut source,
         &mut sink,
@@ -1220,7 +1219,7 @@ fn incremental_xref_cannot_activate_a_live_object_after_the_pdf_end() {
         ),
         "{error}"
     );
-    assert!(sink.into_inner().is_empty());
+    assert!(sink.is_empty());
 }
 
 #[test]
@@ -1228,7 +1227,7 @@ fn permitted_whitespace_after_eof_stays_byte_identical() {
     let mut input = read(fixture("valid_nested_outline.pdf")).unwrap();
     input.extend_from_slice(b" \t\r\n  \n");
     let mut source = SeekableSource::new(Cursor::new(&input)).unwrap();
-    let mut sink = WriteSink::new(Vec::<u8>::new());
+    let mut sink = Vec::<u8>::new();
     copy_pdf(
         &mut source,
         &mut sink,
@@ -1236,7 +1235,7 @@ fn permitted_whitespace_after_eof_stays_byte_identical() {
         &CancelAfter::Never,
     )
     .unwrap();
-    assert_eq!(sink.into_inner(), input);
+    assert_eq!(sink, input);
 }
 
 #[test]
@@ -1252,7 +1251,7 @@ fn identical_duplicate_page_box_without_tail_is_repaired() {
     let mut output = TempPdf::new("duplicate-only");
     copy_pdf(
         &mut source,
-        &mut WriteSink::new(&mut output.file),
+        &mut &mut output.file,
         &Limits::default(),
         &CancelAfter::Never,
     )
@@ -1296,9 +1295,9 @@ fn duplicate_box_orphans_pdf(orphans: usize) -> Vec<u8> {
 fn duplicate_page_box_repairs_beyond_the_budget_fail_before_output() {
     let copy = |limits: &Limits| {
         let mut source = SeekableSource::new(Cursor::new(duplicate_box_orphans_pdf(30))).unwrap();
-        let mut sink = WriteSink::new(Vec::<u8>::new());
+        let mut sink = Vec::<u8>::new();
         let result = copy_pdf(&mut source, &mut sink, limits, &CancelAfter::Never);
-        (result, sink.into_inner())
+        (result, sink)
     };
     let (result, _) = copy(&Limits::default());
     assert_eq!(result.unwrap().pages_converted, 1);
@@ -1356,7 +1355,7 @@ fn write_pdf_with_catalog_page_and_content(
     content_bytes: &[u8],
 ) -> Vec<u8> {
     let limits = Limits::default();
-    let mut sink = WriteSink::new(Vec::<u8>::new());
+    let mut sink = Vec::<u8>::new();
     (|| {
         let mut writer = PdfWriter::new(&mut sink, &limits, &CancelAfter::Never)?;
         let catalog = writer.reserve_object()?;
@@ -1377,7 +1376,7 @@ fn write_pdf_with_catalog_page_and_content(
         writer.finish(catalog)
     })()
     .unwrap();
-    sink.into_inner()
+    sink
 }
 
 #[test]
@@ -1397,7 +1396,7 @@ fn outline_import_keeps_pages_and_rendered_content() {
     .unwrap();
     let mut output = TempPdf::new("outline-import");
     let report = (|| {
-        let mut sink = WriteSink::new(&mut output.file);
+        let mut sink = &mut output.file;
         let mut appender = PdfOutlineAppender::begin(
             &mut source,
             &mut sink,
@@ -1494,7 +1493,7 @@ fn fragment_rebuild_preserves_explicit_page_order_and_binary_stream() {
     let mut output = TempPdf::new("fragment-rebuild");
     let report = reconstruct_fragment_with_bookmarks(
         &mut source,
-        &mut WriteSink::new(&mut output.file),
+        &mut &mut output.file,
         &plan,
         &[],
         &Limits::default(),
@@ -1553,7 +1552,7 @@ fn fragment_with_unchecked_existing_outline_is_rejected_before_output() {
         pages_root: fragment_ref(2),
     };
     let mut source = SeekableSource::new(Cursor::new(bytes)).unwrap();
-    let mut sink = WriteSink::new(Vec::<u8>::new());
+    let mut sink = Vec::<u8>::new();
     let error = reconstruct_fragment_with_bookmarks(
         &mut source,
         &mut sink,
@@ -1574,7 +1573,7 @@ fn fragment_with_unchecked_existing_outline_is_rejected_before_output() {
         ),
         "{error}"
     );
-    assert!(sink.into_inner().is_empty());
+    assert!(sink.is_empty());
 }
 
 #[test]
@@ -1598,7 +1597,7 @@ fn fragment_page_tree_root_rejects_a_present_non_reference_parent() {
             pages_root: fragment_ref(2),
         };
         let mut source = SeekableSource::new(Cursor::new(bytes)).unwrap();
-        let mut sink = WriteSink::new(Vec::<u8>::new());
+        let mut sink = Vec::<u8>::new();
         let error = reconstruct_fragment_with_bookmarks(
             &mut source,
             &mut sink,
@@ -1619,7 +1618,7 @@ fn fragment_page_tree_root_rejects_a_present_non_reference_parent() {
             ),
             "{error}"
         );
-        assert!(sink.into_inner().is_empty());
+        assert!(sink.is_empty());
     }
 }
 
@@ -1633,7 +1632,7 @@ fn malformed_fixture_is_located_and_never_partially_copied() {
         "truncated_xref.pdf",
     ] {
         let mut source = SeekableSource::new(File::open(fixture(name)).unwrap()).unwrap();
-        let mut sink = WriteSink::new(Vec::<u8>::new());
+        let mut sink = Vec::<u8>::new();
         let error = copy_pdf(
             &mut source,
             &mut sink,
@@ -1655,7 +1654,7 @@ fn malformed_fixture_is_located_and_never_partially_copied() {
             error.to_string().contains("PDF at byte "),
             "{name}: {error}"
         );
-        assert!(sink.into_inner().is_empty(), "{name} wrote output");
+        assert!(sink.is_empty(), "{name} wrote output");
     }
 }
 
@@ -1671,7 +1670,7 @@ fn conflicting_duplicate_page_box_is_not_guessed() {
         .unwrap();
     bytes[second + marker.len() - 4] = b'8';
     let mut source = SeekableSource::new(Cursor::new(bytes)).unwrap();
-    let mut sink = WriteSink::new(Vec::<u8>::new());
+    let mut sink = Vec::<u8>::new();
     let error = copy_pdf(
         &mut source,
         &mut sink,
@@ -1690,7 +1689,7 @@ fn conflicting_duplicate_page_box_is_not_guessed() {
         "{error}"
     );
     assert!(error.to_string().contains("object 2 0"), "{error}");
-    assert!(sink.into_inner().is_empty());
+    assert!(sink.is_empty());
 }
 
 fn inspect_bytes(bytes: Vec<u8>) -> caj2pdf_core::Result<PdfIndex> {
@@ -2080,7 +2079,7 @@ fn fragment_without_page_media_box_fails_before_output() {
         pages_root: fragment_ref(2),
     };
     let mut source = SeekableSource::new(Cursor::new(bytes)).unwrap();
-    let mut sink = WriteSink::new(Vec::<u8>::new());
+    let mut sink = Vec::<u8>::new();
     let error = reconstruct_fragment_with_bookmarks(
         &mut source,
         &mut sink,
@@ -2100,7 +2099,7 @@ fn fragment_without_page_media_box_fails_before_output() {
         ),
         "{error}"
     );
-    assert!(sink.into_inner().is_empty());
+    assert!(sink.is_empty());
 }
 
 #[test]
@@ -2120,7 +2119,7 @@ fn fragment_page_contents_must_resolve_to_stream() {
         pages_root: fragment_ref(2),
     };
     let mut source = SeekableSource::new(Cursor::new(bytes)).unwrap();
-    let mut sink = WriteSink::new(Vec::<u8>::new());
+    let mut sink = Vec::<u8>::new();
     let error = reconstruct_fragment_with_bookmarks(
         &mut source,
         &mut sink,
@@ -2140,7 +2139,7 @@ fn fragment_page_contents_must_resolve_to_stream() {
         ),
         "{error}"
     );
-    assert!(sink.into_inner().is_empty());
+    assert!(sink.is_empty());
 }
 
 #[test]
@@ -2159,7 +2158,7 @@ fn fragment_top_level_duplicate_dictionary_key_is_rejected() {
         pages_root: fragment_ref(2),
     };
     let mut source = SeekableSource::new(Cursor::new(bytes)).unwrap();
-    let mut sink = WriteSink::new(Vec::<u8>::new());
+    let mut sink = Vec::<u8>::new();
     let error = reconstruct_fragment_with_bookmarks(
         &mut source,
         &mut sink,
@@ -2179,7 +2178,7 @@ fn fragment_top_level_duplicate_dictionary_key_is_rejected() {
         ),
         "{error}"
     );
-    assert!(sink.into_inner().is_empty());
+    assert!(sink.is_empty());
 }
 
 #[test]
@@ -2244,7 +2243,7 @@ fn pdf_size_limits_keep_source_location_in_each_entry_point() {
         ..Limits::default()
     };
     let mut source = SeekableSource::new(Cursor::new(&input)).unwrap();
-    let mut sink = WriteSink::new(Vec::<u8>::new());
+    let mut sink = Vec::<u8>::new();
     let error = copy_pdf(&mut source, &mut sink, &input_limits, &CancelAfter::Never)
         .expect_err("oversized PDF input must fail before writing");
     assert!(
@@ -2258,7 +2257,7 @@ fn pdf_size_limits_keep_source_location_in_each_entry_point() {
         ),
         "{error}"
     );
-    assert!(sink.into_inner().is_empty());
+    assert!(sink.is_empty());
 
     let mut source = SeekableSource::new(Cursor::new(&input)).unwrap();
     let index = PdfIndex::open(
@@ -2271,7 +2270,7 @@ fn pdf_size_limits_keep_source_location_in_each_entry_point() {
         &CancelAfter::Never,
     )
     .unwrap();
-    let mut sink = WriteSink::new(Vec::<u8>::new());
+    let mut sink = Vec::<u8>::new();
     let error = PdfOutlineAppender::begin(
         &mut source,
         &mut sink,
@@ -2293,12 +2292,12 @@ fn pdf_size_limits_keep_source_location_in_each_entry_point() {
         ),
         "{error}"
     );
-    assert!(sink.into_inner().is_empty());
+    assert!(sink.is_empty());
     let output_limits = Limits {
         max_output_bytes: input.len() as u64 - 1,
         ..Limits::default()
     };
-    let mut sink = WriteSink::new(Vec::<u8>::new());
+    let mut sink = Vec::<u8>::new();
     let error = PdfOutlineAppender::begin(
         &mut source,
         &mut sink,
@@ -2319,7 +2318,7 @@ fn pdf_size_limits_keep_source_location_in_each_entry_point() {
         ),
         "{error}"
     );
-    assert!(sink.into_inner().is_empty());
+    assert!(sink.is_empty());
 
     let mut fragment_bytes = Vec::new();
     let page = add_fragment_object(
@@ -2339,7 +2338,7 @@ fn pdf_size_limits_keep_source_location_in_each_entry_point() {
         ..Limits::default()
     };
     let mut source = SeekableSource::new(Cursor::new(fragment_bytes)).unwrap();
-    let mut sink = WriteSink::new(Vec::<u8>::new());
+    let mut sink = Vec::<u8>::new();
     let error = reconstruct_fragment_with_bookmarks(
         &mut source,
         &mut sink,
@@ -2361,7 +2360,7 @@ fn pdf_size_limits_keep_source_location_in_each_entry_point() {
         ),
         "{error}"
     );
-    assert!(sink.into_inner().is_empty());
+    assert!(sink.is_empty());
 }
 
 #[test]
@@ -2376,7 +2375,7 @@ fn embedded_pdf_limits_count_only_the_selected_range_or_fragment_spans() {
         ..Limits::default()
     };
     let mut source = SeekableSource::new(Cursor::new(container)).unwrap();
-    let mut sink = WriteSink::new(Vec::<u8>::new());
+    let mut sink = Vec::<u8>::new();
     let report = copy_pdf_range(
         &mut source,
         &mut sink,
@@ -2389,7 +2388,7 @@ fn embedded_pdf_limits_count_only_the_selected_range_or_fragment_spans() {
     )
     .unwrap();
     assert_eq!(report.pages_converted, 1);
-    assert_eq!(sink.into_inner(), pdf);
+    assert_eq!(sink, pdf);
 
     let mut fragment_container = vec![b'X'; 4096];
     let page = add_fragment_object(
@@ -2413,7 +2412,7 @@ fn embedded_pdf_limits_count_only_the_selected_range_or_fragment_spans() {
     let mut output = TempPdf::new("embedded-fragment-range");
     let report = reconstruct_fragment_with_bookmarks(
         &mut source,
-        &mut WriteSink::new(&mut output.file),
+        &mut &mut output.file,
         &plan,
         &[],
         &limits,
@@ -2440,7 +2439,7 @@ fn appender_rejects_a_source_that_shrank_after_inspection() {
     )
     .unwrap();
     let mut shortened = SeekableSource::new(Cursor::new(&input[..input.len() - 1])).unwrap();
-    let mut sink = WriteSink::new(Vec::<u8>::new());
+    let mut sink = Vec::<u8>::new();
     let error = PdfOutlineAppender::begin(
         &mut shortened,
         &mut sink,
@@ -2451,7 +2450,7 @@ fn appender_rejects_a_source_that_shrank_after_inspection() {
     .err()
     .unwrap();
     assert!(matches!(error, Error::InvalidInput { .. }), "{error}");
-    assert!(sink.into_inner().is_empty());
+    assert!(sink.is_empty());
 }
 
 struct OverreportingPdfSource;
@@ -2507,7 +2506,7 @@ fn fragment_span_total_cannot_overflow_before_preflight_reads() {
         ..Limits::default()
     };
     let mut source = HugeNoReadSource;
-    let mut sink = WriteSink::new(Vec::<u8>::new());
+    let mut sink = Vec::<u8>::new();
     let error = reconstruct_fragment_with_bookmarks(
         &mut source,
         &mut sink,
@@ -2529,13 +2528,13 @@ fn fragment_span_total_cannot_overflow_before_preflight_reads() {
         ),
         "{error}"
     );
-    assert!(sink.into_inner().is_empty());
+    assert!(sink.is_empty());
 }
 
 #[test]
 fn pdf_copy_rejects_a_source_that_overreports_a_read() {
     let mut source = OverreportingPdfSource;
-    let mut sink = WriteSink::new(Vec::<u8>::new());
+    let mut sink = Vec::<u8>::new();
     let error = copy_pdf(
         &mut source,
         &mut sink,
@@ -2544,5 +2543,5 @@ fn pdf_copy_rejects_a_source_that_overreports_a_read() {
     )
     .expect_err("overreported source bytes must fail");
     assert!(matches!(error, Error::InvalidInput { .. }), "{error}");
-    assert!(sink.into_inner().is_empty());
+    assert!(sink.is_empty());
 }

@@ -13,7 +13,8 @@ use super::{
     mq::{ArithmeticError, ArithmeticSnapshot, ContextState, MQ_STATE_COUNT, MqDecoder, MqState},
 };
 use crate::fallible::reserve_exact;
-use crate::{Cancellation, Error, Limits, MAX_BUDGET_COUNT, RangedSource, SequentialSink};
+use crate::{Cancellation, Error, Limits, MAX_BUDGET_COUNT, RangedSource};
+use std::io::Write;
 use std::{error, fmt, io, mem};
 
 const CONTEXT_COUNT: usize = 1024;
@@ -230,7 +231,7 @@ struct Geometry {
 /// contexts at [`BITMAP_BASE`]. The bound sink cannot change between
 /// bitmaps, so relative descriptor offsets remain in one store.
 /// No MQ initialization, finish, context reset, or store flush occurs here.
-pub struct RefinementDecoder<'a, 'mq, M: RangedSource, C: Cancellation, W: SequentialSink> {
+pub struct RefinementDecoder<'a, 'mq, M: RangedSource, C: Cancellation, W: Write> {
     mq: &'a mut MqDecoder<'mq, M, C>,
     sink: &'a mut W,
     limits: &'a Limits,
@@ -240,9 +241,7 @@ pub struct RefinementDecoder<'a, 'mq, M: RangedSource, C: Cancellation, W: Seque
     progress_observer: Option<&'a mut RefinementProgress>,
 }
 
-impl<M: RangedSource, C: Cancellation, W: SequentialSink> Drop
-    for RefinementDecoder<'_, '_, M, C, W>
-{
+impl<M: RangedSource, C: Cancellation, W: Write> Drop for RefinementDecoder<'_, '_, M, C, W> {
     fn drop(&mut self) {
         if self.progress.poisoned {
             self.mq.poison();
@@ -254,9 +253,7 @@ impl<M: RangedSource, C: Cancellation, W: SequentialSink> Drop
     }
 }
 
-impl<'a, 'mq, M: RangedSource, C: Cancellation, W: SequentialSink>
-    RefinementDecoder<'a, 'mq, M, C, W>
-{
+impl<'a, 'mq, M: RangedSource, C: Cancellation, W: Write> RefinementDecoder<'a, 'mq, M, C, W> {
     /// Check the context range and fixed working-memory configuration before
     /// any source or sink call. The caller retains all other model contexts.
     pub fn new(
@@ -416,7 +413,7 @@ impl<'a, 'mq, M: RangedSource, C: Cancellation, W: SequentialSink>
         self.progress.flushes = attempted;
         self.sink
             .flush()
-            .map_err(|error| self.error(RefinementErrorKind::Sink(error), None, 0, 0))?;
+            .map_err(|error| self.error(RefinementErrorKind::Sink(error.into()), None, 0, 0))?;
         self.check_cancelled(0, 0)?;
         Ok(())
     }
@@ -786,7 +783,7 @@ impl<'a, 'mq, M: RangedSource, C: Cancellation, W: SequentialSink>
             let written = self
                 .sink
                 .write(&row[done..done + count])
-                .map_err(|error| self.error(RefinementErrorKind::Sink(error), None, y, 0))?;
+                .map_err(|error| self.error(RefinementErrorKind::Sink(error.into()), None, y, 0))?;
             if written > count {
                 return Err(self.error(
                     RefinementErrorKind::Sink(Error::InvalidInput {
@@ -1038,7 +1035,7 @@ mod tests {
     use super::*;
     use crate::jbig2::iaid::IAID_BASE;
     use crate::jbig2::mq::{CodedSpan, ContextBank, MqBudget, MqTable};
-    use crate::native::{SeekableSource, WriteSink};
+    use crate::native::SeekableSource;
     use crate::{MAX_BUDGET_COUNT, NeverCancel};
     use std::io::Cursor;
 
@@ -1062,7 +1059,7 @@ mod tests {
             mq_budget,
         )
         .unwrap();
-        let mut sink = WriteSink::new(Vec::new());
+        let mut sink = Vec::new();
         let budget = RefinementBudget {
             max_total_pixels: MAX_BUDGET_COUNT,
             ..RefinementBudget::default()

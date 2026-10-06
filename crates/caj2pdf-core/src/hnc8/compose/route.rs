@@ -5,6 +5,7 @@
 use super::*;
 use crate::hnc8::native_page::admits_native_mode;
 use crate::hnc8::{ErrorKind, TextFraming};
+use std::io::Write;
 
 /// Whether native composition is chosen for this document.
 ///
@@ -104,7 +105,7 @@ pub fn convert_document_pdf<'a, S, F, W, T, V, C>(
 where
     S: RangedSource,
     F: RangedSource,
-    W: SequentialSink,
+    W: Write,
     T: RandomAccessScratch + 'a,
     V: ComposeVisitor,
     C: Cancellation,

@@ -9,6 +9,7 @@ use super::super::{
 };
 use super::*;
 use crate::NeverCancel;
+use std::io::Write;
 use std::{
     cell::{Cell, RefCell},
     error::Error as _,
@@ -84,12 +85,12 @@ impl RangedSource for Bytes {
 #[derive(Default)]
 struct Sink(Vec<u8>);
 
-impl SequentialSink for Sink {
-    fn write(&mut self, bytes: &[u8]) -> crate::Result<usize> {
+impl Write for Sink {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
         self.0.extend_from_slice(bytes);
         Ok(bytes.len())
     }
-    fn flush(&mut self) -> crate::Result<()> {
+    fn flush(&mut self) -> std::io::Result<()> {
         Ok(())
     }
 }
@@ -99,13 +100,13 @@ struct BufferingSink {
     visible: Rc<RefCell<Vec<u8>>>,
 }
 
-impl SequentialSink for BufferingSink {
-    fn write(&mut self, bytes: &[u8]) -> crate::Result<usize> {
+impl Write for BufferingSink {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
         self.pending.extend_from_slice(bytes);
         Ok(bytes.len())
     }
 
-    fn flush(&mut self) -> crate::Result<()> {
+    fn flush(&mut self) -> std::io::Result<()> {
         self.visible.borrow_mut().extend(self.pending.drain(..));
         Ok(())
     }

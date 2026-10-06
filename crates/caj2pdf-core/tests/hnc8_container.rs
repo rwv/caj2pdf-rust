@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: MIT
 
 use caj2pdf_core::{
-    Cancellation, Limits, RangedSource, SequentialSink,
+    Cancellation, Limits, RangedSource,
     hnc8::{Budget, ErrorKind, Hnc8Reader, Variant},
     jbig1::{Type0Budget, Type0Decoder},
     qm::{ArithmeticBudget, ContextBank, QmTable},
 };
+use std::io::Write;
 use std::{
     error::Error as StdError,
     sync::atomic::{AtomicUsize, Ordering},
@@ -66,12 +67,12 @@ impl RangedSource for Source {
 
 #[derive(Default)]
 struct Sink(Vec<u8>);
-impl SequentialSink for Sink {
-    fn write(&mut self, bytes: &[u8]) -> caj2pdf_core::Result<usize> {
+impl Write for Sink {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
         self.0.extend_from_slice(bytes);
         Ok(bytes.len())
     }
-    fn flush(&mut self) -> caj2pdf_core::Result<()> {
+    fn flush(&mut self) -> std::io::Result<()> {
         Ok(())
     }
 }

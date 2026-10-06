@@ -13,7 +13,7 @@ mod decode;
 mod faults;
 
 use caj2pdf_core::{
-    Limits, RangedSource, SequentialSink,
+    Limits, RangedSource,
     jbig2::{
         HeaderLimits, SegmentHeader, SegmentSpan,
         dictionary::{
@@ -32,6 +32,7 @@ use caj2pdf_core::{
     },
 };
 use common::CancelAfter;
+use std::io::Write;
 use std::{cell::Cell, io, rc::Rc};
 
 const ONE_SYMBOL: [u8; 5] = [0x94, 0xa7, 0x7f, 0xff, 0xac];
@@ -146,15 +147,13 @@ impl Store {
     }
 }
 
-impl SequentialSink for Store {
-    fn write(&mut self, bytes: &[u8]) -> caj2pdf_core::Result<usize> {
+impl Write for Store {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
         if let Some(fault) = self.write_fault {
-            return Err(fault.error());
+            return Err(fault.error().into());
         }
         if self.fail {
-            return Err(caj2pdf_core::Error::Io(io::Error::other(
-                "test store failure",
-            )));
+            return Err(io::Error::other("test store failure"));
         }
         if self.overreport {
             return Ok(bytes.len() + 1);
@@ -167,9 +166,9 @@ impl SequentialSink for Store {
         Ok(count)
     }
 
-    fn flush(&mut self) -> caj2pdf_core::Result<()> {
+    fn flush(&mut self) -> std::io::Result<()> {
         if let Some(fault) = self.flush_fault {
-            return Err(fault.error());
+            return Err(fault.error().into());
         }
         self.flushed = true;
         Ok(())
