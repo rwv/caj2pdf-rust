@@ -168,10 +168,11 @@ pub extern "C" fn caj2pdf_io_request_resource() -> u32 {
     })
 }
 
-/// Register a stable ranged font source before polling; returns 1..=6 or 0.
+/// Register a stable ranged font source and its collection face (0 for a
+/// standalone font) before polling; returns 1..=8 or 0.
 #[unsafe(no_mangle)]
-pub extern "C" fn caj2pdf_c8_add_font(size: u64) -> u32 {
-    with_engine(0, |engine| engine.add_font_source(size))
+pub extern "C" fn caj2pdf_c8_add_font(size: u64, face: u32) -> u32 {
+    with_engine(0, |engine| engine.add_font_source(size, face))
 }
 
 /// Assign zero-based font indices and the optional decoration alias.

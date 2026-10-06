@@ -125,9 +125,19 @@ directory under fixed names and pass `--fonts DIR`:
 
 A per-role flag overrides the directory's file for that role, and the
 per-role flags alone also work: `--font-cjk FILE --font-latin FILE` is the
-minimum. Only these names are looked up in `DIR`; there is no font
-discovery, system lookup or bundled font. A missing `cjk.ttf` or `latin.ttf`
-fails before output staging. Any other missing file leaves its role absent.
+minimum. In `DIR`, each role is looked up as `NAME.ttf`, `NAME.otf`, then
+`NAME.ttc` (the first face of a collection); there is no font discovery, system lookup
+or bundled font. A missing CJK or Latin font fails before output staging.
+Any other missing file leaves its role absent.
+
+Fonts are static OpenType fonts with TrueType (`glyf`) or CFF outlines,
+standalone (`.ttf`, `.otf`) or as a face of a collection (`.ttc`), such as
+Windows `simsun.ttc` and `msyh.ttc`, `wqy-zenhei.ttc` or Noto Sans/Serif
+CJK. `FILE#N` selects face `N` (from 0) of a collection, for example
+`--font-cjk /usr/share/fonts/opentype/noto/NotoSerifCJK-Regular.ttc#2`
+(Noto Serif CJK SC). Variable fonts (`fvar`, `CFF2`) are rejected.
+The suffix needs a Unicode path and is ignored when `FILE#N` itself
+exists. Tables need not be 4-byte aligned.
 
 **Fallback rule.** Each glyph uses the font of the role the source selects.
 If that role is absent, or its font has no cmap entry for the character,
@@ -141,9 +151,8 @@ stay the same, so a substitute font can still look different or overlap.
 #### Tested free-font recipe
 
 These two TrueType fonts cover every glyph of the six pinned C8/HN-B corpus
-documents. The converter reads only standalone TrueType (`glyf`) fonts,
-not CFF/OpenType `.otf` or `.ttc` collections. That rules out Noto Sans CJK.
-Noto Sans also lacks math symbols those documents use, such as U+2217.
+documents. Noto Sans also lacks math symbols those documents use, such as
+U+2217.
 
 ```sh
 sudo apt-get install -y fonts-droid-fallback fonts-dejavu-core

@@ -9,6 +9,8 @@ import { syntheticNativeC8, syntheticNativeHnb, syntheticNativeHnbMixed, synthet
 
 const fontBytes = await readFile(new URL("../../tests/fonts/geometric.ttf", import.meta.url));
 const symbolBytes = await readFile(new URL("../../tests/fonts/symbols.ttf", import.meta.url));
+const collectionBytes = await readFile(new URL("../../tests/fonts/collection.ttc", import.meta.url));
+const cffBytes = await readFile(new URL("../../tests/fonts/geometric.otf", import.meta.url));
 const source = (bytes) => blobSource(new Blob([bytes]));
 const sink = (parts = []) => ({ async writeChunk(bytes) { parts.push(bytes.slice()); return bytes.length; }, async flush() {} });
 const roles = (font) => ({ cjk: font, latin: font, alternateLatin: font });
@@ -186,4 +188,45 @@ test("HN-B late unknown record leaves unfinished output and clears scratch", asy
   const pdf = pageText(Buffer.concat(parts));
   assert.ok(pdf.includes("<0041> Tj"), "first page must have been written");
   assert.ok(!pdf.includes("%%EOF"), "failure must not finalize the PDF");
+});
+
+test("collection faces are selected per role and embedded as distinct fonts", async (t) => {
+  const collection = source(collectionBytes);
+  const parts = [];
+  await withHnc8Scratch(async (scratch) => {
+    const result = await convert(await newInstance(), source(syntheticNativeHnb(0)), sink(parts), {
+      includeBookmarks: false,
+      hnc8: { fonts: { cjk: { source: collection }, latin: { source: collection, face: 0 }, alternateLatin: collection, symbols: { source: collection, face: 1 } }, scratch, qmStates },
+    });
+    assert.equal(result.pagesConverted, 2);
+  });
+  const pdf = Buffer.concat(parts);
+  const text = pageText(pdf);
+  // Face 0 is shared by three roles; face 1 is a second embedded font.
+  assert.equal(text.match(/\/FontFile2 /g).length, 2);
+  assert.equal(text.match(/<FF1A> Tj/g).length, 2);
+  await validatePdf(t, pdf, 2);
+  await assert.rejects(convert(await newInstance(), source(syntheticNativeC8()), sink([]), {
+    includeBookmarks: false, hnc8: { fonts: { cjk: { source: collection, face: 2 }, latin: collection } },
+  }), (error) => error.code === "HNC8" && /face index is out of range/.test(error.message));
+  await assert.rejects(convert(await newInstance(), source(syntheticNativeC8()), sink([]), {
+    hnc8: { fonts: { cjk: { source: collection, face: -1 }, latin: collection } },
+  }), RangeError);
+});
+
+test("CFF-flavoured OpenType fonts embed CID-keyed subsets", async (t) => {
+  const parts = [];
+  await withHnc8Scratch(async (scratch) => {
+    const result = await convert(await newInstance(), source(syntheticNativeC8(true)), sink(parts), {
+      includeBookmarks: false, hnc8: { fonts: roles(source(cffBytes)), scratch },
+    });
+    assert.equal(result.pagesConverted, 1);
+  });
+  const pdf = Buffer.concat(parts);
+  const text = pageText(pdf);
+  assert.equal(text.match(/\/FontFile3 /g).length, 1);
+  assert.ok(text.includes("/Subtype /CIDFontType0 "));
+  assert.ok(!text.includes("/CIDToGIDMap"));
+  assert.equal(text.match(/<0041> Tj/g).length, 2);
+  await validatePdf(t, pdf, 1);
 });

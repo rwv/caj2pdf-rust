@@ -10,10 +10,11 @@ their statements about missing adapters or profiles describe that earlier stage.
 
 ## Resource and page contract
 
-1. Supply a stable `RangedSource` to `TrueTypeFont::read`. The current profile
-   requires a standalone static TrueType font with `glyf`/`loca`, character
-   and metric tables and a Unicode PostScript name. TTC, CFF and variable
-   fonts are explicit unsupported profiles. At most 128 table entries and
+1. Supply a stable `RangedSource` to `OpenTypeFont::read`, with a face index
+   for a collection (`ttcf`). The profile requires a static OpenType face
+   with `glyf`/`loca` or `CFF ` outlines, character and metric tables and a
+   Unicode PostScript name. Variable fonts and `CFF2` are explicit
+   unsupported profiles. At most 128 table entries and
    1 MiB of combined metadata are accepted. At most 16 character-map subtables
    bound work per character independently of metadata size. Outline bytes
    stay in the source.
@@ -30,9 +31,10 @@ their statements about missing adapters or profiles describe that earlier stage.
    surface only when buffered bytes are written, at the latest in `finish`. Existing page-tree,
    output, cancellation and allocation limits continue to apply.
 4. After the last draw, call `PdfDocument::embed_font` once per font with the
-   same, unchanged source. It writes a Flate-compressed TrueType subset of the
-   drawn glyphs (see below), a Type 0/CIDFontType2 resource with a tagged
-   `BaseFont`, a compressed `CIDToGIDMap` up to the highest drawn CID, widths
+   same, unchanged source. It writes a Flate-compressed subset of the drawn
+   glyphs (see below): a TrueType subset in a Type 0/CIDFontType2 resource
+   with a compressed `CIDToGIDMap` up to the highest drawn CID, or a CFF
+   subset in a Type 0/CIDFontType0 resource, each with a tagged `BaseFont`, widths
    for drawn characters only, and a reference to one identity ToUnicode map
    shared by every font in the document. `finish` fails while an
    added font has not been embedded. A font with no drawn glyph embeds a
@@ -172,3 +174,35 @@ Receipts are external in `caj2pdf-font-foundation-native-20261002` and
 `caj2pdf-font-foundation-runtime-20261002`. Hosted platform gates remain
 required before merging. This is core-runtime evidence for #239; production
 caller-font transport remains #252 and complete C8 rendering remains #233.
+
+### CFF subsets (#338)
+
+OpenType fonts with CFF outlines (`OTTO`, also inside collections) are read
+through the same bounded metadata path; `pdf/font/cff.rs` reads the Top
+DICT, Global Subr, CharStrings and FDArray INDEXes, FDSelect (formats 0 and
+3) and each Private DICT with its local Subr INDEX by range, with every DICT
+bounded to 64 KiB and at most 256 font DICTs. The subset is a CID-keyed CFF
+(`FontFile3 /Subtype /CIDFontType0C`, descendant `CIDFontType0`):
+
+- glyph 0 is `.notdef` and glyph `n` has the CID of the Unicode character
+  it draws (charset format 0), so content streams keep Unicode CIDs and no
+  `CIDToGIDMap` is written;
+- Type 2 charstrings are desubroutinized: `callsubr`/`callgsubr` and
+  `return` are expanded (nesting ≤ 10, stack ≤ 48), stems are counted for
+  `hintmask`/`cntrmask` bytes, and the result carries no subroutines;
+- only the font DICTs drawn glyphs use are kept, with their Private DICTs
+  minus `Subrs`; a name-keyed font becomes a single-FD CID-keyed font. The
+  Top DICT and font DICT `FontMatrix` entries are copied.
+
+Charstring arithmetic operators and the deprecated `endchar` accented-glyph
+form are rejected rather than evaluated. Each glyph may interpret at most
+256 KiB of charstring bytes, counting subroutine calls and returns, so
+nested calls cannot multiply work. Each subroutine body is read once per
+subset and cached. The desubroutinized charstrings and cached subroutines
+are held in memory while the subset is assembled, within
+`max_allocation_bytes`; the structures around them are written separately,
+so the program is not copied again.
+
+With Noto Serif CJK SC (`NotoSerifCJK-Regular.ttc` face 2) and FreeSerif,
+the six pinned corpus documents convert to 0.27–1.16 MB; MuPDF and Poppler
+load the subsets and fontTools parses them.

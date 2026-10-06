@@ -553,7 +553,7 @@ the JavaScript API: open the font files and pass them as sources.
 
 Tested free-font recipe for Node. The fonts are installed separately and
 never bundled. See [docs/cli.md](../docs/cli.md#tested-free-font-recipe)
-for the installation command and the TrueType-only limit:
+for the installation command and the supported font formats:
 
 ```js
 import { open } from "node:fs/promises";
@@ -574,7 +574,9 @@ try {
 ```
 
 Each font uses the same `size: bigint` / `readAt(offset, length, signal)`
-contract as the document. Browser `blobSource` and Node `fileHandleSource`
+contract as the document. Fonts may have TrueType or CFF outlines. A role
+may instead be `{ source, face }` to use face `face` of a collection
+(`.ttc`); a plain source is face 0. Browser `blobSource` and Node `fileHandleSource`
 work for fonts too. Reuse the same source object across roles to embed it
 once. Character coverage alone does not guarantee compatible widths or
 bearings, or prevent overlap at fixed source positions. See the

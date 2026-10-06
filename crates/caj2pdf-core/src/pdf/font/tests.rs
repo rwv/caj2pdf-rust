@@ -47,8 +47,11 @@ impl RangedSource for Source {
 mod original_font {
     include!("../../../tests/common/font_fixture.rs");
 }
-pub(crate) use original_font::{drawing_font, symbol_font};
-use original_font::{entry, put16, put32};
+pub(crate) use original_font::{
+    CALLSUBR, CffOptions, ENDCHAR, RETURN, RLINETO, RMOVETO, Tables, build, charstrings,
+    collection_font, drawing_font, entry, get32, num, ops, otf, symbol_font, table, tables,
+};
+use original_font::{put16, put32};
 
 fn fixture() -> Source {
     let (bytes, outline) = original_font::metadata_font();
@@ -64,8 +67,9 @@ fn fixture() -> Source {
 fn postscript_names_are_bounded_and_validated_before_embedding() {
     for case in 0..6 {
         let mut source = fixture();
-        let mut font = run(TrueTypeFont::read(
+        let mut font = run(OpenTypeFont::read(
             &mut source,
+            0,
             &Limits::default(),
             &NeverCancel,
         ))
@@ -96,9 +100,9 @@ fn ranged_metadata_maps_unicode_without_reading_outlines() {
             io_chunk_bytes: chunk,
             ..Limits::default()
         };
-        let font = run(TrueTypeFont::read(&mut source, &limits, &NeverCancel)).unwrap();
+        let font = run(OpenTypeFont::read(&mut source, 0, &limits, &NeverCancel)).unwrap();
         assert_eq!(font.outlines[0], Some((outline, 2 * 1024 * 1024)));
-        assert_eq!(font.outlines[2..], [None; 3]);
+        assert_eq!(font.outlines[2..], [None; 4]);
         assert_eq!(font.units_per_em().unwrap(), 1000);
         assert_eq!(
             font.glyph('A').unwrap(),
@@ -173,8 +177,9 @@ fn metadata_and_directory_fail_closed() {
         let mut source = fixture();
         mutation(&mut source);
         assert!(
-            run(TrueTypeFont::read(
+            run(OpenTypeFont::read(
                 &mut source,
+                0,
                 &Limits::default(),
                 &NeverCancel
             ))
@@ -194,7 +199,12 @@ fn budget_and_cancellation_precede_payload_reads() {
     }
     let mut source = fixture();
     assert!(matches!(
-        run(TrueTypeFont::read(&mut source, &Limits::default(), &Cancel)),
+        run(OpenTypeFont::read(
+            &mut source,
+            0,
+            &Limits::default(),
+            &Cancel
+        )),
         Err(Error::Cancelled)
     ));
     assert_eq!(source.requested, 0);
@@ -203,7 +213,7 @@ fn budget_and_cancellation_precede_payload_reads() {
         ..Limits::default()
     };
     assert!(matches!(
-        run(TrueTypeFont::read(&mut source, &limits, &NeverCancel)),
+        run(OpenTypeFont::read(&mut source, 0, &limits, &NeverCancel)),
         Err(Error::LimitExceeded {
             resource: "input bytes",
             ..
@@ -215,7 +225,7 @@ fn budget_and_cancellation_precede_payload_reads() {
         ..Limits::default()
     };
     assert!(matches!(
-        run(TrueTypeFont::read(&mut source, &limits, &NeverCancel)),
+        run(OpenTypeFont::read(&mut source, 0, &limits, &NeverCancel)),
         Err(Error::LimitExceeded {
             resource: "allocation bytes",
             ..
@@ -223,8 +233,9 @@ fn budget_and_cancellation_precede_payload_reads() {
     ));
     source.bytes.truncate(11);
     assert!(matches!(
-        run(TrueTypeFont::read(
+        run(OpenTypeFont::read(
             &mut source,
+            0,
             &Limits::default(),
             &NeverCancel
         )),
@@ -245,8 +256,9 @@ fn oversized_metadata_is_rejected_without_reading_or_allocating_it() {
         MAX_FONT_METADATA_BYTES as u32 + 1,
     );
     assert!(matches!(
-        run(TrueTypeFont::read(
+        run(OpenTypeFont::read(
             &mut source,
+            0,
             &Limits::default(),
             &NeverCancel
         )),
@@ -279,8 +291,9 @@ fn many_character_maps_cannot_multiply_mapping_work_without_a_bound() {
     put32(&mut source.bytes, glyf + 12, 0);
     source.outline += table.len() as u64;
     assert!(matches!(
-        run(TrueTypeFont::read(
+        run(OpenTypeFont::read(
             &mut source,
+            0,
             &Limits::default(),
             &NeverCancel
         )),
@@ -302,4 +315,97 @@ fn shared_cross_runtime_font_matches_original_generator() {
         drawing_font(),
         include_bytes!("../../../../../tests/fonts/geometric.ttf")
     );
+    assert_eq!(
+        collection_font(),
+        include_bytes!("../../../../../tests/fonts/collection.ttc")
+    );
+    assert_eq!(
+        otf(&CffOptions::default()),
+        include_bytes!("../../../../../tests/fonts/geometric.otf")
+    );
+}
+
+fn read_face(bytes: Vec<u8>, face: u32) -> Result<(char, u16)> {
+    let mut source = crate::native::SeekableSource::new(std::io::Cursor::new(bytes)).unwrap();
+    let font = run(OpenTypeFont::read(
+        &mut source,
+        face,
+        &Limits::default(),
+        &NeverCancel,
+    ))?;
+    let face = font.face()?;
+    let mapped = [' ', 'A']
+        .into_iter()
+        .find(|character| face.glyph_index(*character).is_some())
+        .unwrap();
+    Ok((mapped, face.number_of_glyphs()))
+}
+
+#[test]
+fn collection_faces_are_selected_by_index() {
+    assert_eq!(read_face(collection_font(), 0).unwrap(), ('A', 3));
+    assert_eq!(read_face(collection_font(), 1).unwrap(), (' ', 3));
+    // Apple's `true` tag names the same TrueType outlines.
+    let mut apple = drawing_font();
+    apple[..4].copy_from_slice(b"true");
+    assert_eq!(read_face(apple, 0).unwrap(), ('A', 3));
+    // Faces of one collection have distinct identities.
+    let limits = Limits::default();
+    let fingerprint = |face| {
+        let mut source =
+            crate::native::SeekableSource::new(std::io::Cursor::new(collection_font())).unwrap();
+        run(OpenTypeFont::read(&mut source, face, &limits, &NeverCancel))
+            .unwrap()
+            .fingerprint()
+    };
+    assert_ne!(fingerprint(0), fingerprint(1));
+}
+
+#[test]
+fn collection_headers_and_face_indices_fail_closed() {
+    let reason = |bytes: Vec<u8>, face| match read_face(bytes, face) {
+        Err(Error::InvalidInput { reason }) => reason,
+        other => panic!("unexpected {other:?}"),
+    };
+    assert_eq!(
+        reason(collection_font(), 2),
+        "TrueType collection face index is out of range"
+    );
+    assert_eq!(
+        reason(drawing_font(), 1),
+        "a standalone font has only face 0"
+    );
+    let mut version = collection_font();
+    put16(&mut version, 4, 3);
+    assert_eq!(
+        reason(version, 0),
+        "unsupported TrueType collection version"
+    );
+    let mut unknown = collection_font();
+    let base = u32::from_be_bytes(unknown[12..16].try_into().unwrap()) as usize;
+    unknown[base..base + 4].copy_from_slice(b"wOFF");
+    assert_eq!(
+        reason(unknown, 0),
+        "font must be an OpenType font or collection face"
+    );
+    // No table may overlap the collection header (with version 2's DSIG
+    // fields) or its face's directory.
+    let face_one = get32(&collection_font(), 16);
+    for (version, face, offset, length) in [
+        (1, 0, 24, 4),
+        (1, 0, 8, 4),
+        (1, 1, face_one - 4, 64),
+        (2, 1, 28, 4),
+    ] {
+        let mut bytes = collection_font();
+        put16(&mut bytes, 4, version);
+        let entry = get32(&bytes, 12 + 4 * face as usize) as usize + 12;
+        put32(&mut bytes, entry + 8, offset);
+        put32(&mut bytes, entry + 12, length);
+        assert_eq!(
+            reason(bytes, face),
+            "TrueType table range is outside the source",
+            "{version} {face} {offset}"
+        );
+    }
 }

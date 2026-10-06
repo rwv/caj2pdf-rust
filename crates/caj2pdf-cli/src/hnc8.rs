@@ -5,7 +5,7 @@
 use crate::signals::ProcessCancellation;
 use crate::{
     CliError,
-    args::{ConvertOptions, Endpoint, FONT_FILES},
+    args::{ConvertOptions, Endpoint, FONT_EXTENSIONS, FONT_FILES},
     files::{Input, anonymous_file, open_input},
 };
 use caj2pdf_core::{
@@ -35,6 +35,8 @@ pub struct Resources {
     pub inputs: Vec<Input>,
     font_start: usize,
     pub font_roles: Option<caj2pdf_core::hnc8::C8PageFonts>,
+    /// Collection face of each opened font source.
+    pub font_faces: [u32; 8],
 }
 
 impl Resources {
@@ -87,19 +89,21 @@ impl Resources {
         resources.font_start = resources.inputs.len();
         let fonts = font_paths(options)?;
         if fonts.iter().any(Option::is_some) {
-            let mut paths = Vec::new();
+            let mut faces = Vec::new();
             let mut indices = [0; 8];
             for (role, path) in fonts.iter().enumerate() {
                 if let Some(path) = path {
-                    indices[role] = if let Some(index) = paths.iter().position(|p| *p == path) {
+                    let face = font_face(path)?;
+                    indices[role] = if let Some(index) = faces.iter().position(|f| *f == face) {
                         index
                     } else {
-                        let index = paths.len();
+                        let index = faces.len();
                         resources.inputs.push(open_input(
-                            &Endpoint::Path(path.clone()),
+                            &Endpoint::Path(face.0.clone()),
                             limits.max_input_bytes,
                         )?);
-                        paths.push(path);
+                        resources.font_faces[index] = face.1;
+                        faces.push(face);
                         index
                     };
                 }
@@ -156,31 +160,65 @@ fn font_paths(options: &ConvertOptions) -> Result<[Option<PathBuf>; 8], CliError
             directory.display()
         )));
     }
-    for (path, name) in paths.iter_mut().zip(FONT_FILES) {
-        let candidate = directory.join(name);
-        if path.is_none()
-            && !matches!(std::fs::metadata(&candidate), Err(e) if e.kind() == ErrorKind::NotFound)
-        {
-            *path = Some(candidate);
+    for (path, stem) in paths.iter_mut().zip(FONT_FILES) {
+        if path.is_none() {
+            *path = FONT_EXTENSIONS
+                .iter()
+                .map(|extension| directory.join(format!("{stem}.{extension}")))
+                .find(|candidate| {
+                    !matches!(std::fs::metadata(candidate), Err(e) if e.kind() == ErrorKind::NotFound)
+                });
         }
     }
+    let missing = |role: usize| {
+        let names = FONT_EXTENSIONS.map(|extension| format!("{}.{extension}", FONT_FILES[role]));
+        format!(
+            "font directory '{}' has no {}",
+            directory.display(),
+            names.join(" or ")
+        )
+    };
     for (role, flag) in [(0, "--font-cjk"), (1, "--font-latin")] {
         if paths[role].is_none() {
             return Err(CliError::runtime(format!(
-                "font directory '{}' has no {}; add it or pass {flag}",
-                directory.display(),
-                FONT_FILES[role]
+                "{}; add one or pass {flag}",
+                missing(role)
             )));
         }
     }
     if options.decoration_char.is_some() && paths[3].is_none() {
         return Err(CliError::runtime(format!(
-            "--decoration-char requires a decoration font; font directory '{}' has no {}",
-            directory.display(),
-            FONT_FILES[3]
+            "--decoration-char requires a decoration font; {}",
+            missing(3)
         )));
     }
     Ok(paths)
+}
+
+/// Split a font argument into its file and collection face. `FILE#N`
+/// selects face `N` when `FILE#N` itself is not an existing file. The
+/// suffix requires a Unicode path.
+fn font_face(path: &Path) -> Result<(PathBuf, u32), CliError> {
+    let split = path
+        .to_str()
+        .and_then(|text| text.rsplit_once('#'))
+        .filter(|(file, digits)| {
+            !file.is_empty()
+                && !digits.is_empty()
+                && digits.bytes().all(|byte| byte.is_ascii_digit())
+        });
+    match split {
+        Some((file, digits)) if !path.exists() => {
+            let face = digits.parse().map_err(|_| {
+                CliError::runtime(format!(
+                    "font face index in '{}' is too large",
+                    path.display()
+                ))
+            })?;
+            Ok((PathBuf::from(file), face))
+        }
+        _ => Ok((path.to_owned(), 0)),
+    }
 }
 
 fn parse_states(text: &str, count: usize) -> Result<Vec<[u16; 4]>, &'static str> {
@@ -265,7 +303,13 @@ pub async fn convert<S: RangedSource, W: SequentialSink>(
     if let Some(roles) = resources.font_roles {
         let mut fonts = resources.inputs[resources.font_start..]
             .iter_mut()
-            .map(|input| caj2pdf_core::native::SeekableSource::new(&mut input.file))
+            .zip(resources.font_faces)
+            .map(|(input, face)| {
+                Ok(caj2pdf_core::hnc8::C8FontSource {
+                    source: caj2pdf_core::native::SeekableSource::new(&mut input.file)?,
+                    face,
+                })
+            })
             .collect::<caj2pdf_core::Result<Vec<_>>>()
             .map_err(|e| e.to_string())?;
         return caj2pdf_core::hnc8::convert_c8_native_pdf(

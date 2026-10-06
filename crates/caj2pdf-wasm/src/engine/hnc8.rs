@@ -14,6 +14,7 @@ use caj2pdf_core::{
 #[derive(Default)]
 pub(super) struct Fonts {
     sizes: [u64; 8],
+    faces: [u32; 8],
     count: usize,
     roles: Option<caj2pdf_core::hnc8::C8PageFonts>,
 }
@@ -21,11 +22,12 @@ impl Fonts {
     pub(super) fn count(&self) -> usize {
         self.count
     }
-    pub(super) fn add(&mut self, size: u64) -> u32 {
+    pub(super) fn add(&mut self, size: u64, face: u32) -> u32 {
         if self.count == self.sizes.len() || self.roles.is_some() {
             return 0;
         }
         self.sizes[self.count] = size;
+        self.faces[self.count] = face;
         self.count += 1;
         self.count as u32
     }
@@ -229,11 +231,15 @@ pub(super) async fn convert(
         let roles = fonts.roles.ok_or(Error::InvalidInput {
             reason: "C8 font resources require explicit roles",
         })?;
-        let mut sources = std::array::from_fn::<_, 8, _>(|index| BridgeSource {
-            resource: index as u32 + 1,
-            shared: Rc::clone(&source.shared),
-            size: fonts.sizes[index],
-        });
+        let mut sources =
+            std::array::from_fn::<_, 8, _>(|index| caj2pdf_core::hnc8::C8FontSource {
+                source: BridgeSource {
+                    resource: index as u32 + 1,
+                    shared: Rc::clone(&source.shared),
+                    size: fonts.sizes[index],
+                },
+                face: fonts.faces[index],
+            });
         return caj2pdf_core::hnc8::convert_c8_native_pdf(
             source,
             sink,

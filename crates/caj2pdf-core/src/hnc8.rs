@@ -30,9 +30,9 @@ pub use appinfo::{
     MAX_APPLICATION_INFO_BYTES, MAX_APPLICATION_INFO_FIELD_BYTES,
 };
 pub use compose::{
-    C8FontSources, ComposeBudget, ComposeError, ComposeErrorKind, ComposeOptions, ComposePage,
-    ComposeReport, ComposeStage, ComposeType3Workspaces, ComposeVisitor, ComposeWorkspaces,
-    ComposedImage, convert_c8_native_pdf, convert_source_pages_pdf,
+    C8FontSource, C8FontSources, ComposeBudget, ComposeError, ComposeErrorKind, ComposeOptions,
+    ComposePage, ComposeReport, ComposeStage, ComposeType3Workspaces, ComposeVisitor,
+    ComposeWorkspaces, ComposedImage, convert_c8_native_pdf, convert_source_pages_pdf,
 };
 pub use convert::{
     MultipleImages, Type0ImageSelection, Type0PdfError, Type0PdfErrorKind, Type0PdfOptions,

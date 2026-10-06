@@ -27,3 +27,23 @@ space-record omission; it is not a real-language typeface.
 ```
 
 The core font test also checks these bytes against the original generator.
+
+## Collection fixture
+
+`collection.ttc` is a two-face TrueType collection of the same original
+fonts: face 0 is `geometric.ttf` and face 1 is `symbols.ttf`, with table
+offsets made file-relative.
+
+```sh
+/tmp/caj2pdf-font-fixture collection > tests/fonts/collection.ttc
+```
+
+## CFF fixture
+
+`geometric.otf` has CFF outlines for the same shapes as `geometric.ttf`
+(`A`, `中`) plus a hinted square (`B`), drawn through global and local
+subroutines with `hintmask`/`cntrmask`.
+
+```sh
+/tmp/caj2pdf-font-fixture cff > tests/fonts/geometric.otf
+```

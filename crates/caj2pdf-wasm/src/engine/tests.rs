@@ -1057,7 +1057,7 @@ fn native_c8_font_resources_share_the_bounded_request_channel() {
     let bytes = native_c8();
     let font = include_bytes!("../../../../tests/fonts/geometric.ttf");
     let mut engine = Engine::start(bytes.len() as u64, limits(32), native_operation()).unwrap();
-    assert_eq!(engine.add_font_source(font.len() as u64), 1);
+    assert_eq!(engine.add_font_source(font.len() as u64, 0), 1);
     // An absent alternate Latin role (`u32::MAX`) uses the core fallback.
     assert!(engine.set_c8_fonts(0, 0, u32::MAX, 0, 'A' as u32, u32::MAX));
     let run = drive_resources(&mut engine, &bytes, &[font], Some(3), None);
@@ -1071,19 +1071,19 @@ fn native_c8_font_resources_share_the_bounded_request_channel() {
         1
     );
     assert!(!engine.set_c8_fonts(0, 0, 0, u32::MAX, 0, u32::MAX));
-    assert_eq!(engine.add_font_source(10), 0);
+    assert_eq!(engine.add_font_source(10, 0), 0);
 }
 
 #[test]
 fn font_configuration_rejects_invalid_or_late_resources() {
     let mut engine = Engine::start(116, limits(32), native_operation()).unwrap();
-    assert_eq!(engine.add_font_source(0), 0);
-    assert_eq!(engine.add_font_source(u64::MAX), 0);
+    assert_eq!(engine.add_font_source(0, 0), 0);
+    assert_eq!(engine.add_font_source(u64::MAX, 0), 0);
     assert!(!engine.set_c8_fonts(0, 0, 0, u32::MAX, 0, u32::MAX));
     for id in 1..=8 {
-        assert_eq!(engine.add_font_source(100), id);
+        assert_eq!(engine.add_font_source(100, 0), id);
     }
-    assert_eq!(engine.add_font_source(100), 0);
+    assert_eq!(engine.add_font_source(100, 0), 0);
     for (decoration, alias) in [(8, 65), (0, 0xd800), (0, 0x10000)] {
         assert!(!engine.set_c8_fonts(0, 0, 0, decoration, alias, u32::MAX));
     }
@@ -1101,7 +1101,7 @@ fn font_configuration_rejects_invalid_or_late_resources() {
         assert!(!engine.set_c8_latin_state(state, index));
     }
     assert!(!engine.set_c8_fonts(0, 1, 2, u32::MAX, 0, u32::MAX));
-    assert_eq!(engine.add_font_source(100), 0);
+    assert_eq!(engine.add_font_source(100, 0), 0);
     assert_eq!(engine.poll(), Status::Read);
     assert!(!engine.set_c8_latin_state3(5));
     let mut copy = Engine::start(
@@ -1113,14 +1113,14 @@ fn font_configuration_rejects_invalid_or_late_resources() {
         },
     )
     .unwrap();
-    assert_eq!(copy.add_font_source(100), 0);
+    assert_eq!(copy.add_font_source(100, 0), 0);
 }
 
 #[test]
 fn incomplete_font_config_and_wrong_document_are_explicit_errors() {
     for bytes in [native_c8(), fixture("valid_out_of_order_objects.pdf")] {
         let mut engine = Engine::start(bytes.len() as u64, limits(32), native_operation()).unwrap();
-        assert_eq!(engine.add_font_source(100), 1);
+        assert_eq!(engine.add_font_source(100, 0), 1);
         drive(&mut engine, &bytes, Some(3));
         assert!(matches!(
             engine.result(),

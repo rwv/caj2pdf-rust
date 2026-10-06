@@ -3,55 +3,17 @@
 use super::*;
 use crate::native::SeekableSource;
 use crate::pdf::drawing_font;
+use crate::pdf::font::tests::{Tables, build, get32, table, tables};
 use crate::test_support::{NEVER, run};
 use crate::{Error, RangedSource};
 use std::io::Cursor;
 use xberg_ttf_parser::{GlyphId, OutlineBuilder};
 
-type Tables = Vec<([u8; 4], Vec<u8>)>;
 /// An expected error reason and the table edit that should cause it.
 type Case = (&'static str, fn(&mut Tables));
 
 fn put16(bytes: &mut [u8], at: usize, value: u16) {
     bytes[at..at + 2].copy_from_slice(&value.to_be_bytes());
-}
-
-fn get32(bytes: &[u8], at: usize) -> u32 {
-    u32::from_be_bytes(bytes[at..at + 4].try_into().unwrap())
-}
-
-fn tables(font: &[u8]) -> Tables {
-    let count = u16::from_be_bytes([font[4], font[5]]) as usize;
-    (0..count)
-        .map(|index| {
-            let entry = 12 + 16 * index;
-            let offset = get32(font, entry + 8) as usize;
-            let length = get32(font, entry + 12) as usize;
-            let tag = font[entry..entry + 4].try_into().unwrap();
-            (tag, font[offset..offset + length].to_vec())
-        })
-        .collect()
-}
-
-fn table<'t>(tables: &'t mut Tables, tag: &[u8; 4]) -> &'t mut Vec<u8> {
-    &mut tables.iter_mut().find(|table| &table.0 == tag).unwrap().1
-}
-
-fn build(mut tables: Tables) -> Vec<u8> {
-    tables.sort_by_key(|table| table.0);
-    let mut font = vec![0; 12 + 16 * tables.len()];
-    font[..4].copy_from_slice(&0x0001_0000_u32.to_be_bytes());
-    put16(&mut font, 4, tables.len() as u16);
-    for (index, (tag, bytes)) in tables.iter().enumerate() {
-        let entry = 12 + 16 * index;
-        let offset = font.len();
-        font[entry..entry + 4].copy_from_slice(tag);
-        font[entry + 8..entry + 12].copy_from_slice(&(offset as u32).to_be_bytes());
-        font[entry + 12..entry + 16].copy_from_slice(&(bytes.len() as u32).to_be_bytes());
-        font.extend(bytes);
-        font.resize(font.len().next_multiple_of(4), 0);
-    }
-    font
 }
 
 /// One composite component: flags without `MORE_COMPONENTS`, glyph ID and
@@ -210,7 +172,7 @@ fn subset_with<S: RangedSource>(
     limits: &Limits,
 ) -> Result<Vec<u8>> {
     run(async {
-        let mut font = TrueTypeFont::read(source, limits, &NEVER).await?;
+        let mut font = OpenTypeFont::read(source, 0, limits, &NEVER).await?;
         let plan = font
             .plan_subset(&used(characters), u64::MAX, limits, &NEVER)
             .await?;
@@ -326,7 +288,7 @@ fn plan_maps_used_characters_to_subset_glyphs() {
     let mut source = SeekableSource::new(Cursor::new(composite_font(false, false))).unwrap();
     let limits = Limits::default();
     run(async {
-        let mut font = TrueTypeFont::read(&mut source, &limits, &NEVER)
+        let mut font = OpenTypeFont::read(&mut source, 0, &limits, &NEVER)
             .await
             .unwrap();
         let plan = font
@@ -414,7 +376,13 @@ fn allocation_limits_bound_glyph_tables_and_composite_buffers() {
         ..Limits::default()
     };
     let mut source = SeekableSource::new(Cursor::new(composite_font(false, false))).unwrap();
-    let mut font = run(TrueTypeFont::read(&mut source, &Limits::default(), &NEVER)).unwrap();
+    let mut font = run(OpenTypeFont::read(
+        &mut source,
+        0,
+        &Limits::default(),
+        &NEVER,
+    ))
+    .unwrap();
     // Six glyphs need 6 * (2 + 12) bytes of glyph tables.
     assert!(matches!(
         run(font.plan_subset(&used(&['A']), u64::MAX, &limits, &NEVER)),
@@ -498,7 +466,7 @@ fn projected_program_length_is_bounded_before_measuring() {
     let mut source = SeekableSource::new(Cursor::new(composite_font(false, true))).unwrap();
     let limits = Limits::default();
     run(async {
-        let mut font = TrueTypeFont::read(&mut source, &limits, &NEVER)
+        let mut font = OpenTypeFont::read(&mut source, 0, &limits, &NEVER)
             .await
             .unwrap();
         let used = used(&['C']);

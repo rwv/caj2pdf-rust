@@ -4,7 +4,7 @@
 
 use super::*;
 use crate::hnc8::{C8PageFonts, write_c8_native_page};
-use crate::pdf::{FontObject, ImageObject, TrueTypeFont};
+use crate::pdf::{FontObject, ImageObject, OpenTypeFont};
 
 /// Explicit ranged font sources, embedded once per document.
 /// Multiple roles may reference one source index. At most eight distinct
@@ -12,8 +12,15 @@ use crate::pdf::{FontObject, ImageObject, TrueTypeFont};
 /// Absent optional roles and unmapped characters follow the
 /// [`C8PageFonts`] fallback rule.
 pub struct C8FontSources<'a, F> {
-    pub sources: &'a mut [F],
+    pub sources: &'a mut [C8FontSource<F>],
     pub roles: C8PageFonts,
+}
+
+/// One font resource: a ranged source and its face index, zero for a
+/// standalone font or the selected face of a font collection.
+pub struct C8FontSource<F> {
+    pub source: F,
+    pub face: u32,
 }
 
 /// Convert every page of the admitted raw C8 or text/vector HN-B profile.
@@ -85,9 +92,9 @@ where
     let mut handles: Vec<FontObject> =
         page_vector(count, limits, "C8 font handles").map_err(at.io(ComposeStage::Preflight))?;
     let mut font_bytes = 0u64;
-    for source in fonts.sources.iter_mut() {
+    for C8FontSource { source, face } in fonts.sources.iter_mut() {
         let mut counted_font = CountingSource { source, bytes: 0 };
-        let font = TrueTypeFont::read(&mut counted_font, limits, cancellation)
+        let font = OpenTypeFont::read(&mut counted_font, *face, limits, cancellation)
             .await
             .map_err(at.io(ComposeStage::Preflight))?;
         handles.push(document.add_font(&font).map_err(at.io(ComposeStage::Pdf))?);
@@ -211,9 +218,9 @@ where
     }
     // Metadata is read again rather than retained for every font; only the
     // drawn glyphs' outlines are then read for each subset.
-    for (handle, source) in handles.iter().zip(fonts.sources.iter_mut()) {
+    for (handle, C8FontSource { source, face }) in handles.iter().zip(fonts.sources.iter_mut()) {
         let mut counted_font = CountingSource { source, bytes: 0 };
-        let mut font = TrueTypeFont::read(&mut counted_font, limits, cancellation)
+        let mut font = OpenTypeFont::read(&mut counted_font, *face, limits, cancellation)
             .await
             .map_err(at.io(ComposeStage::Pdf))?;
         document
