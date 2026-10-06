@@ -272,3 +272,20 @@ fn source_failures_cancellation_and_invalid_limits_are_returned() {
     assert_eq!(error.stage, ComposeStage::Container);
     assert!(sink.bytes.is_empty());
 }
+
+/// No text on pages with images, native text on pages without.
+fn native_after_empty(records: &[Record]) -> Vec<u8> {
+    if records.is_empty() {
+        native_text(records)
+    } else {
+        Vec::new()
+    }
+}
+
+#[test]
+fn pages_without_text_do_not_decide() {
+    let none = fixture_with_text(Variant::C8, &[images(), images()], native_after_empty);
+    assert!(!native(&none.bytes).unwrap());
+    let later = fixture_with_text(Variant::C8, &[images(), vec![]], native_after_empty);
+    assert!(native(&later.bytes).unwrap());
+}
