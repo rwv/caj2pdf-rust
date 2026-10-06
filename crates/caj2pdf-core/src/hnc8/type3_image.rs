@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: MIT
 
-//! Shared bounded HN/C8 type-3 image emission and a selected-image PDF diagnostic.
+//! Bounded HN/C8 type-3 image preflight, decoding and emission for the
+//! document composition pipeline.
 
-use super::{At, Budget, Hnc8Error, Hnc8Reader, ImageRecord, Locate, Variant};
+use super::{At, ComposeError, ComposeErrorKind, ComposeStage, ImageRecord};
 use crate::jbig2::{
     DirectoryLimits, HeaderLimits, SegmentSpan,
     dictionary::{DictionaryBudget, DirectDictionaryDecoder},
@@ -16,37 +17,23 @@ use crate::jbig2::{
     read_embedded_directory,
     refinement::RefinementBudget,
     refinement_dictionary::{RefinementDictionaryBudget, RefinementDictionaryDecoder},
-    text::{
-        TextHeaderAnomaly, TextHeaderPolicy, TextRegionBudget, read_text_region_header_with_policy,
-    },
+    text::{TextHeaderPolicy, TextRegionBudget, read_text_region_header_with_policy},
     text_composer::{
         RandomAccessScratch, TextComposeBudget, TextComposeError, TextComposeErrorKind,
         TextComposeReport, TextComposer,
     },
     text_instances::{TextInstanceBudget, TextInstanceDecoder},
 };
-use crate::pdf::{BilevelImageSpec, ImageObject, PageSpec, PdfDocument};
-use crate::{
-    Cancellation, ConversionReport, CountingSource, Error, Limits, RangedSource, SequentialSink,
-    read_exact_at,
-};
-use std::{error, fmt};
+use crate::pdf::{BilevelImageSpec, ImageObject, PdfDocument};
+use crate::{Cancellation, Limits, RangedSource, SequentialSink, read_exact_at};
+use std::error;
 
 const DIB_BYTES: u64 = 48;
-const POINTS_PER_INCH: f64 = 72.0;
 
-/// One-based image identity. Earlier source pages are intentionally skipped.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct Type3ImageSelection {
-    pub page_number: u32,
-    pub image_number: u32,
-}
-
-/// One caller-owned symbol-dictionary store. Both read handles must observe
-/// writes by the writer, including a changing length, during this call. All
-/// handles refer to the same initially empty store; the writer appends from
-/// byte zero. The caller disposes it on success or error.
-pub struct Type3Store<'a, R: RangedSource, W: SequentialSink> {
+/// One symbol-dictionary store. Both read handles must observe writes by the
+/// writer, including a changing length. All handles refer to the same
+/// initially empty store; the writer appends from byte zero.
+pub(super) struct Type3Store<'a, R: RangedSource, W: SequentialSink> {
     pub reader: &'a mut R,
     /// Independent handle for text composition while the instance decoder
     /// holds `reader`. It observes the same backing bytes.
@@ -54,33 +41,27 @@ pub struct Type3Store<'a, R: RangedSource, W: SequentialSink> {
     pub writer: &'a mut W,
 }
 
-/// One caller-owned refined-symbol store. Its reader observes writer growth
-/// while text instances are decoded and composed. Both handles refer to the
-/// same initially empty store; the writer appends from byte zero. The caller
-/// disposes it on success or error.
-pub struct Type3RefinedStore<'a, R: RangedSource, W: SequentialSink> {
+/// One refined-symbol store. Its reader observes writer growth while text
+/// instances are decoded and composed. Both handles refer to the same
+/// initially empty store; the writer appends from byte zero.
+pub(super) struct Type3RefinedStore<'a, R: RangedSource, W: SequentialSink> {
     pub reader: &'a mut R,
     pub writer: &'a mut W,
 }
 
-/// Three bounded symbol stores plus the one full-page text scratch. Store
-/// handles may be backed by temporary files, browser storage, or another
-/// platform adapter. The second and refined stores must support reading while
+/// Three bounded symbol stores plus the one full-page text scratch, each
+/// empty on entry. The second and refined stores must support reading while
 /// their paired writer appends. No intermediate is a second full-page bitmap.
-pub struct Type3Workspaces<'a, R: RangedSource, W: SequentialSink, T: RandomAccessScratch> {
+pub(super) struct Type3Workspaces<'a, R: RangedSource, W: SequentialSink, T: RandomAccessScratch> {
     pub first: Type3Store<'a, R, W>,
     pub second: Type3Store<'a, R, W>,
     pub refined: Type3RefinedStore<'a, R, W>,
     pub text: &'a mut T,
 }
 
-/// Resource ceilings and explicit output scale for the observed profile.
-#[derive(Clone, Copy, Debug, PartialEq)]
+/// Decoder budgets and the text-header policy for the observed type-3 profile.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Type3PdfOptions {
-    /// Each image pixel occupies `72 / pixels_per_inch` PDF points. This is
-    /// a caller choice, not a recovered HN/C8 source-page dimension.
-    pub pixels_per_inch: f64,
-    pub container: Budget,
     pub header: HeaderLimits,
     pub directory: DirectoryLimits,
     pub page: PageInfoBudget,
@@ -98,42 +79,7 @@ pub struct Type3PdfOptions {
     pub text_header_policy: TextHeaderPolicy,
 }
 
-impl Default for Type3PdfOptions {
-    fn default() -> Self {
-        Self {
-            pixels_per_inch: 300.0,
-            container: Budget::default(),
-            header: HeaderLimits::default(),
-            directory: DirectoryLimits::default(),
-            page: PageInfoBudget::default(),
-            mq: MqBudget::default(),
-            dictionary: DictionaryBudget::default(),
-            refinement: RefinementBudget::default(),
-            refinement_dictionary: RefinementDictionaryBudget::default(),
-            text_region: TextRegionBudget::default(),
-            text_instance: TextInstanceBudget::default(),
-            text_compose: TextComposeBudget::default(),
-            generic: GenericBudget::default(),
-            page_compose: PageComposeBudget::default(),
-            text_header_policy: TextHeaderPolicy::Strict,
-        }
-    }
-}
-
-/// Checked metadata and the completed one-page PDF. `page` is JBIG2 image
-/// geometry, not a recovered HN/C8 document-page layout.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct Type3SelectedPdfReport {
-    pub conversion: ConversionReport,
-    pub source_variant: Variant,
-    pub source_pages: u32,
-    pub image: ImageRecord,
-    pub page: PageInfo,
-    pub text_header_anomaly: Option<TextHeaderAnomaly>,
-    pub page_compose: PageComposeReport,
-}
-
-/// The decoding stage where a typed underlying error arose.
+/// The type-3 decoding stage where a typed underlying error arose.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Type3Stage {
     Directory,
@@ -150,93 +96,37 @@ pub enum Type3Stage {
     Contexts,
 }
 
-#[derive(Debug)]
-pub enum Type3PdfErrorKind {
-    InvalidOptions(&'static str),
-    InvalidSelection(&'static str),
-    Container(Box<Hnc8Error>),
-    UnsupportedImageType(u32),
-    DibMalformed(&'static str),
-    Source(Error),
-    Workspace(&'static str),
-    Stage {
-        stage: Type3Stage,
-        source: Box<dyn error::Error>,
-    },
-    Pdf(Error),
-}
-
-/// Located failure. `offset` is always an absolute source-byte anchor; the
-/// nested text/page composition errors keep their separate scratch or output
-/// coordinate. Any PDF sink bytes accepted before failure are partial output
-/// and must be discarded by the caller.
-#[derive(Debug)]
-pub struct Type3PdfError {
-    pub page: Option<u32>,
-    pub image: Option<u32>,
-    pub offset: Option<u64>,
-    pub kind: Type3PdfErrorKind,
-}
-
-impl fmt::Display for Type3PdfError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("HN/C8 type-3 PDF conversion")?;
-        if let Some(page) = self.page {
-            write!(f, ", page {page}")?;
-        }
-        if let Some(image) = self.image {
-            write!(f, ", image {image}")?;
-        }
-        if let Some(offset) = self.offset {
-            write!(f, ", source byte {offset}")?;
-        }
-        f.write_str(": ")?;
-        match &self.kind {
-            Type3PdfErrorKind::InvalidOptions(reason) => write!(f, "invalid options: {reason}"),
-            Type3PdfErrorKind::InvalidSelection(reason) => write!(f, "invalid selection: {reason}"),
-            Type3PdfErrorKind::Container(source) => write!(f, "{source}"),
-            Type3PdfErrorKind::UnsupportedImageType(kind) => {
-                write!(f, "unsupported image record type {kind}")
-            }
-            Type3PdfErrorKind::DibMalformed(reason) => write!(f, "malformed type-3 DIB: {reason}"),
-            Type3PdfErrorKind::Source(source) => write!(f, "source: {source}"),
-            Type3PdfErrorKind::Workspace(reason) => write!(f, "workspace: {reason}"),
-            Type3PdfErrorKind::Stage { stage, source } => write!(f, "{stage:?}: {source}"),
-            Type3PdfErrorKind::Pdf(source) => write!(f, "PDF output: {source}"),
-        }
-    }
-}
-
-impl error::Error for Type3PdfError {
-    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
-        match &self.kind {
-            Type3PdfErrorKind::Container(source) => Some(source),
-            Type3PdfErrorKind::Source(source) | Type3PdfErrorKind::Pdf(source) => Some(source),
-            Type3PdfErrorKind::Stage { source, .. } => Some(source.as_ref()),
-            _ => None,
-        }
-    }
-}
-
-impl Locate for Type3PdfErrorKind {
-    type Error = Type3PdfError;
-
-    fn locate(self, at: At) -> Type3PdfError {
-        Type3PdfError {
-            page: at.page,
-            image: at.image,
-            offset: at.offset,
-            kind: self,
+impl Type3Stage {
+    /// Metadata stages run in the composition preflight; the others decode.
+    const fn compose_stage(self) -> ComposeStage {
+        match self {
+            Self::Directory
+            | Self::PageInfo
+            | Self::TextHeader
+            | Self::GenericHeader
+            | Self::Profile => ComposeStage::Headers,
+            _ => ComposeStage::Decode,
         }
     }
 }
 
 impl At {
-    fn stage<E: error::Error + 'static>(self, stage: Type3Stage, source: E) -> Type3PdfError {
-        self.error(Type3PdfErrorKind::Stage {
-            stage,
-            source: Box::new(source),
-        })
+    fn stage<E: error::Error + 'static>(self, stage: Type3Stage, source: E) -> ComposeError {
+        self.error((
+            stage.compose_stage(),
+            ComposeErrorKind::Type3 {
+                stage,
+                source: Box::new(source),
+            },
+        ))
+    }
+
+    fn dib(self, reason: &'static str) -> ComposeError {
+        self.error((ComposeStage::Headers, ComposeErrorKind::Type3Dib(reason)))
+    }
+
+    fn pdf(self) -> impl FnOnce(crate::Error) -> ComposeError {
+        move |error| self.error((ComposeStage::Pdf, ComposeErrorKind::Io(error)))
     }
 }
 
@@ -245,7 +135,7 @@ fn source_stage<T, E, F>(
     at: At,
     stage: Type3Stage,
     offset: F,
-) -> Result<T, Type3PdfError>
+) -> Result<T, ComposeError>
 where
     E: error::Error + 'static,
     F: FnOnce(&E) -> u64,
@@ -253,14 +143,14 @@ where
     result.map_err(|source| at.with_offset(offset(&source)).stage(stage, source))
 }
 
-fn work_stage<T, E>(result: Result<T, E>, at: At, stage: Type3Stage) -> Result<T, Type3PdfError>
+fn work_stage<T, E>(result: Result<T, E>, at: At, stage: Type3Stage) -> Result<T, ComposeError>
 where
     E: error::Error + 'static,
 {
     result.map_err(|source| at.stage(stage, source))
 }
 
-fn composed_stage<T>(result: Result<T, TextComposeError>, at: At) -> Result<T, Type3PdfError> {
+fn composed_stage<T>(result: Result<T, TextComposeError>, at: At) -> Result<T, ComposeError> {
     result.map_err(|source| {
         let at = match &source.kind {
             TextComposeErrorKind::Instance(instance) => at.with_offset(instance.offset),
@@ -268,15 +158,6 @@ fn composed_stage<T>(result: Result<T, TextComposeError>, at: At) -> Result<T, T
         };
         at.stage(Type3Stage::TextCompose, source)
     })
-}
-
-fn selected_container(source: Hnc8Error, selection: Type3ImageSelection) -> Type3PdfError {
-    Type3PdfError {
-        page: source.page.or(Some(selection.page_number)),
-        image: source.image.or(Some(selection.image_number)),
-        offset: Some(source.offset),
-        kind: Type3PdfErrorKind::Container(Box::new(source)),
-    }
 }
 
 struct DiscardSink;
@@ -288,161 +169,6 @@ impl SequentialSink for DiscardSink {
     async fn flush(&mut self) -> crate::Result<()> {
         Ok(())
     }
-}
-
-fn page_spec(page: PageInfo, pixels_per_inch: f64, at: At) -> Result<PageSpec, Type3PdfError> {
-    let scale = POINTS_PER_INCH / pixels_per_inch;
-    let spec = PageSpec {
-        width_points: f64::from(page.width) * scale,
-        height_points: f64::from(page.height) * scale,
-    };
-    if !spec.width_points.is_finite()
-        || !spec.height_points.is_finite()
-        || !(0.000_001..=14_400.0).contains(&spec.width_points)
-        || !(0.000_001..=14_400.0).contains(&spec.height_points)
-    {
-        return Err(at.error(Type3PdfErrorKind::InvalidOptions(
-            "selected image PDF dimensions are outside 0.000001..=14400 points",
-        )));
-    }
-    Ok(spec)
-}
-
-/// Convert one checked type-3 JBIG2 record to one PDF image page.
-///
-/// This is restricted to the observed five-segment HN/C8 profile. The 47-state
-/// MQ table is caller supplied and never bundled. The selected payload is read
-/// once for its metadata and once to decode it; like every `RangedSource`,
-/// the source must not change during the call. Intermediate stores and the full-page text scratch are caller owned and bounded by the
-/// explicit budgets; platform adapters must clean them up on all paths. The
-/// selected image is emitted top-down, MSB-first, `1 = black`, with zero low
-/// padding and `/Decode [1 0]`. A failed call can leave a partial PDF sink.
-#[allow(clippy::too_many_arguments)]
-pub async fn convert_type3_image_pdf<
-    S: RangedSource,
-    P: SequentialSink,
-    R: RangedSource,
-    W: SequentialSink,
-    T: RandomAccessScratch,
-    C: Cancellation,
->(
-    source: &mut S,
-    sink: &mut P,
-    table: &MqTable,
-    workspaces: &mut Type3Workspaces<'_, R, W, T>,
-    selection: Type3ImageSelection,
-    options: Type3PdfOptions,
-    limits: &Limits,
-    cancellation: &C,
-) -> Result<Type3SelectedPdfReport, Type3PdfError> {
-    if !options.pixels_per_inch.is_finite() || options.pixels_per_inch <= 0.0 {
-        return Err(At::NONE.error(Type3PdfErrorKind::InvalidOptions(
-            "pixels per inch must be finite and positive",
-        )));
-    }
-    if selection.page_number == 0 || selection.image_number == 0 {
-        return Err(At {
-            page: Some(selection.page_number),
-            image: Some(selection.image_number),
-            offset: Some(0),
-            ..At::NONE
-        }
-        .error(Type3PdfErrorKind::InvalidSelection(
-            "page and image numbers must be one-based",
-        )));
-    }
-    let mut input_bytes_read = 0;
-    let mut source = CountingSource::new(source, &mut input_bytes_read);
-    let mut reader = Hnc8Reader::probe_at_page(
-        &mut source,
-        limits,
-        cancellation,
-        options.container,
-        selection.page_number,
-    )
-    .await
-    .map_err(|error| selected_container(error, selection))?;
-    let header = reader.header();
-    let page_record = reader
-        .next_page()
-        .await
-        .map_err(|error| selected_container(error, selection))?
-        .expect("probe validated selected page");
-    if selection.image_number > page_record.image_count {
-        return Err(At {
-            page: Some(selection.page_number),
-            image: Some(selection.image_number),
-            offset: Some(page_record.row_offset + 8),
-            ..At::NONE
-        }
-        .error(Type3PdfErrorKind::InvalidSelection(
-            "image number exceeds page image count",
-        )));
-    }
-    let mut image = reader
-        .next_image()
-        .await
-        .map_err(|error| selected_container(error, selection))?
-        .expect("selected image count was checked");
-    for _ in 1..selection.image_number {
-        image = reader
-            .next_image()
-            .await
-            .map_err(|error| selected_container(error, selection))?
-            .expect("selected image count was checked");
-    }
-    let checked =
-        preflight_type3(reader.source_mut(), image, options, limits, cancellation).await?;
-    let page = checked.page();
-    let at = At {
-        page: Some(image.page_number),
-        image: Some(image.image_number),
-        offset: Some(image.payload.offset),
-        ..At::NONE
-    };
-    let pdf_page = page_spec(page, options.pixels_per_inch, at)?;
-    let prepared = prepare_type3_image(
-        reader.source_mut(),
-        table,
-        workspaces,
-        checked,
-        options,
-        limits,
-        cancellation,
-    )
-    .await?;
-    let mut document = PdfDocument::new(sink, limits, cancellation)
-        .await
-        .map_err(at.wrap(Type3PdfErrorKind::Pdf))?;
-    let (object, page_compose) = emit_type3_xobject(
-        reader.source_mut(),
-        &mut document,
-        table,
-        prepared,
-        page.width,
-        options,
-        limits,
-        cancellation,
-    )
-    .await?;
-    document
-        .add_page(pdf_page, &[object])
-        .await
-        .map_err(at.wrap(Type3PdfErrorKind::Pdf))?;
-    let mut conversion = document
-        .finish()
-        .await
-        .map_err(at.wrap(Type3PdfErrorKind::Pdf))?;
-    conversion.input_bytes_read = input_bytes_read;
-    Ok(Type3SelectedPdfReport {
-        conversion,
-        source_variant: header.variant,
-        source_pages: header.page_count,
-        image,
-        page,
-        text_header_anomaly: page_compose.text_header_anomaly,
-        page_compose,
-    })
 }
 
 /// Checked source metadata from one preflight pass. Geometry is exposed
@@ -485,57 +211,48 @@ pub(super) struct PreparedType3<'a, T> {
     text: &'a mut T,
 }
 
+/// Check one type-3 record's DIB wrapper and JBIG2 metadata without decoding
+/// pixels. `image_at` locates the descriptor; failures are anchored at the
+/// payload or the failing segment.
 pub(super) async fn preflight_type3<S: RangedSource, C: Cancellation>(
     source: &mut S,
     image: ImageRecord,
+    image_at: At,
     options: Type3PdfOptions,
     limits: &Limits,
     cancellation: &C,
-) -> Result<CheckedType3, Type3PdfError> {
-    let at = At {
-        page: Some(image.page_number),
-        image: Some(image.image_number),
-        offset: Some(image.payload.offset),
-        ..At::NONE
-    };
-    if image.record_type != 3 {
-        return Err(at
-            .with_offset(image.descriptor_offset)
-            .error(Type3PdfErrorKind::UnsupportedImageType(image.record_type)));
-    }
+) -> Result<CheckedType3, ComposeError> {
+    debug_assert_eq!(image.record_type, 3);
+    let at = image_at.with_offset(image.payload.offset);
     if image.payload.length <= DIB_BYTES {
-        return Err(at.error(Type3PdfErrorKind::DibMalformed(
-            "record has no enclosed JBIG2 segments",
-        )));
+        return Err(at.dib("record has no enclosed JBIG2 segments"));
     }
     let mut dib = [0_u8; DIB_BYTES as usize];
     read_exact_at(source, image.payload.offset, &mut dib, limits, cancellation)
         .await
-        .map_err(|source| at.error(Type3PdfErrorKind::Source(source)))?;
+        .map_err(|source| at.error((ComposeStage::Headers, ComposeErrorKind::Io(source))))?;
     if u32::from_le_bytes(dib[0..4].try_into().expect("fixed DIB field")) != 40 {
-        return Err(at.error(Type3PdfErrorKind::DibMalformed(
-            "header size differs from 40 bytes",
-        )));
+        return Err(at.dib("header size differs from 40 bytes"));
     }
     let dib_width = i32::from_le_bytes(dib[4..8].try_into().expect("fixed DIB field"));
     let dib_height = i32::from_le_bytes(dib[8..12].try_into().expect("fixed DIB field"));
     if dib_width <= 0 || dib_height <= 0 {
         return Err(at
             .with_offset(image.payload.offset + 4)
-            .error(Type3PdfErrorKind::DibMalformed("nonpositive dimensions")));
+            .dib("nonpositive dimensions"));
     }
     if dib[12..14] != 1_u16.to_le_bytes()
         || dib[14..16] != 1_u16.to_le_bytes()
         || dib[16..20] != 0_u32.to_le_bytes()
     {
-        return Err(at.with_offset(image.payload.offset + 12).error(
-            Type3PdfErrorKind::DibMalformed("expected one plane, one bit, and uncompressed DIB"),
-        ));
+        return Err(at
+            .with_offset(image.payload.offset + 12)
+            .dib("expected one plane, one bit, and uncompressed DIB"));
     }
     if dib[40..48] != [255, 255, 255, 0, 0, 0, 0, 0] {
-        return Err(at.with_offset(image.payload.offset + 40).error(
-            Type3PdfErrorKind::DibMalformed("expected observed white/black palette"),
-        ));
+        return Err(at
+            .with_offset(image.payload.offset + 40)
+            .dib("expected observed white/black palette"));
     }
     let embedded = SegmentSpan {
         offset: image.payload.offset + DIB_BYTES,
@@ -579,9 +296,9 @@ pub(super) async fn preflight_type3<S: RangedSource, C: Cancellation>(
         at.with_offset(offset).stage(Type3Stage::PageInfo, error)
     })?;
     if page.width != dib_width as u32 || page.height != dib_height as u32 {
-        return Err(at.with_offset(image.payload.offset + 4).error(
-            Type3PdfErrorKind::DibMalformed("DIB and JBIG2 page dimensions differ"),
-        ));
+        return Err(at
+            .with_offset(image.payload.offset + 4)
+            .dib("DIB and JBIG2 page dimensions differ"));
     }
     let text = read_text_region_header_with_policy(
         source,
@@ -632,17 +349,19 @@ pub(super) async fn preflight_type3<S: RangedSource, C: Cancellation>(
     })
 }
 
-/// Decode symbol dictionaries and the text layer without opening a PDF stream.
-/// This preserves the selected-image API's rejection before PDF output.
+/// Decode symbol dictionaries and the text layer before the image's PDF
+/// stream is opened, so their failures leave no partial image object.
+#[allow(clippy::too_many_arguments)]
 pub(super) async fn prepare_type3_image<'a, S, R, W, T, C>(
     source: &mut S,
     table: &MqTable,
     workspaces: &'a mut Type3Workspaces<'_, R, W, T>,
     checked: CheckedType3,
+    image_at: At,
     options: Type3PdfOptions,
     limits: &Limits,
     cancellation: &C,
-) -> Result<PreparedType3<'a, T>, Type3PdfError>
+) -> Result<PreparedType3<'a, T>, ComposeError>
 where
     S: RangedSource,
     R: RangedSource,
@@ -653,27 +372,7 @@ where
     let image = checked.image;
     let directory = &checked.directory;
     let text = checked.profile.text_header();
-    let at = At {
-        page: Some(image.page_number),
-        image: Some(image.image_number),
-        offset: Some(image.payload.offset),
-        ..At::NONE
-    };
-    if workspaces.first.reader.size() != 0
-        || workspaces.first.compose_reader.size() != 0
-        || workspaces.second.reader.size() != 0
-        || workspaces.second.compose_reader.size() != 0
-        || workspaces.refined.reader.size() != 0
-        || workspaces
-            .text
-            .size()
-            .map_err(|source| at.error(Type3PdfErrorKind::Source(source)))?
-            != 0
-    {
-        return Err(at.error(Type3PdfErrorKind::Workspace(
-            "intermediate stores and text scratch must start empty",
-        )));
-    }
+    let at = image_at.with_offset(image.payload.offset);
     let mut first_banks = IntegerContextBanks::with_extra_contexts(1024, limits, &options.mq)
         .map_err(|error| {
             at.with_offset(directory.segments[1].data.offset)
@@ -831,10 +530,11 @@ pub(super) async fn emit_type3_xobject<S, W, T, C>(
     table: &MqTable,
     prepared: PreparedType3<'_, T>,
     display_width: u32,
+    image_at: At,
     options: Type3PdfOptions,
     limits: &Limits,
     cancellation: &C,
-) -> Result<(ImageObject, PageComposeReport), Type3PdfError>
+) -> Result<(ImageObject, PageComposeReport), ComposeError>
 where
     S: RangedSource,
     W: SequentialSink,
@@ -850,12 +550,7 @@ where
     let page = checked.page();
     let profile = checked.profile;
     let directory = &checked.directory;
-    let at = At {
-        page: Some(image.page_number),
-        image: Some(image.image_number),
-        offset: Some(image.payload.offset),
-        ..At::NONE
-    };
+    let at = image_at.with_offset(image.payload.offset);
     // TextComposer proved the packed byte count; PageOrSink rechecks it
     // before forwarding the first combined row to the PDF image stream.
     let mut rows = document
@@ -865,7 +560,7 @@ where
             row_stride: (display_width as usize).div_ceil(8),
         })
         .await
-        .map_err(at.wrap(Type3PdfErrorKind::Pdf))?;
+        .map_err(at.pdf())?;
     let mut padded = PaddedRows {
         sink: &mut rows,
         stride: page.row_stride,
@@ -916,10 +611,7 @@ where
         .await
         .map_err(|error| at.stage(Type3Stage::PageCompose, error))?;
     drop(page_sink);
-    let object = rows
-        .finish()
-        .await
-        .map_err(at.wrap(Type3PdfErrorKind::Pdf))?;
+    let object = rows.finish().await.map_err(at.pdf())?;
     Ok((object, page_compose))
 }
 
@@ -965,7 +657,7 @@ async fn read_second_new_symbol_count<S: RangedSource, C: Cancellation>(
     cancellation: &C,
     budget: DictionaryBudget,
     at: At,
-) -> Result<u32, Type3PdfError> {
+) -> Result<u32, ComposeError> {
     use crate::jbig2::dictionary::read_dictionary_data_header;
     let result = source_stage(
         read_dictionary_data_header(source, &directory.segments[2], limits, budget, cancellation)
@@ -980,11 +672,13 @@ async fn read_second_new_symbol_count<S: RangedSource, C: Cancellation>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::hnc8::ErrorKind;
+    use crate::Error;
+    use crate::hnc8::Variant;
     use crate::jbig2::{
         text_composer::TextComposeProgress,
         text_instances::{TextInstanceError, TextInstanceErrorKind, TextInstanceProgress},
     };
+    use crate::pdf::PageSpec;
     use crate::test_support::ready;
     use std::error::Error as _;
 
@@ -995,76 +689,61 @@ mod tests {
     }
 
     #[test]
-    fn located_errors_keep_source_chain_and_distinct_refusal_messages() {
-        let container = Hnc8Error {
+    fn located_errors_keep_source_chain_compose_stage_and_distinct_messages() {
+        let at = At {
             variant: Some(Variant::HnA),
-            offset: 77,
             page: Some(2),
             image: Some(3),
-            kind: ErrorKind::Malformed {
-                field: "invented field",
-                reason: "invented fault",
-            },
+            offset: Some(77),
         };
         let examples = [
             (
-                Type3PdfErrorKind::InvalidOptions("bad scale"),
-                "invalid options",
+                at.dib("bad palette"),
+                ComposeStage::Headers,
+                "malformed type-3 DIB: bad palette",
                 false,
             ),
             (
-                Type3PdfErrorKind::InvalidSelection("bad index"),
-                "invalid selection",
-                false,
-            ),
-            (
-                Type3PdfErrorKind::Container(Box::new(container)),
-                "HN/C8 HN-A",
+                at.stage(Type3Stage::Directory, invalid_input()),
+                ComposeStage::Headers,
+                "type-3 Directory: ",
                 true,
             ),
             (
-                Type3PdfErrorKind::UnsupportedImageType(2),
-                "record type 2",
-                false,
-            ),
-            (
-                Type3PdfErrorKind::DibMalformed("bad palette"),
-                "malformed type-3 DIB",
-                false,
-            ),
-            (Type3PdfErrorKind::Source(invalid_input()), "source:", true),
-            (
-                Type3PdfErrorKind::Workspace("dirty store"),
-                "workspace:",
-                false,
-            ),
-            (
-                Type3PdfErrorKind::Stage {
-                    stage: Type3Stage::Directory,
-                    source: Box::new(invalid_input()),
-                },
-                "Directory:",
+                at.stage(Type3Stage::Profile, invalid_input()),
+                ComposeStage::Headers,
+                "type-3 Profile: ",
                 true,
             ),
-            (Type3PdfErrorKind::Pdf(invalid_input()), "PDF output:", true),
+            (
+                at.stage(Type3Stage::FirstDictionary, invalid_input()),
+                ComposeStage::Decode,
+                "type-3 FirstDictionary: ",
+                true,
+            ),
+            (
+                at.stage(Type3Stage::PageCompose, invalid_input()),
+                ComposeStage::Decode,
+                "type-3 PageCompose: ",
+                true,
+            ),
+            (
+                at.pdf()(invalid_input()),
+                ComposeStage::Pdf,
+                "invented",
+                true,
+            ),
         ];
-        for (kind, fragment, chained) in examples {
-            let error = Type3PdfError {
-                page: Some(2),
-                image: Some(3),
-                offset: Some(77),
-                kind,
-            };
+        for (error, stage, fragment, chained) in examples {
             let message = error.to_string();
-            assert!(message.contains("page 2, image 3, source byte 77"));
+            assert_eq!(error.stage, stage, "{message}");
+            assert!(
+                message.contains("HN-A, page 2, image 3, source byte 77"),
+                "{message}"
+            );
             assert!(message.contains(fragment), "{message}");
             assert_eq!(error.source().is_some(), chained);
         }
-        let unlocated = At::NONE.error(Type3PdfErrorKind::InvalidOptions("bad scale"));
-        assert_eq!(
-            unlocated.to_string(),
-            "HN/C8 type-3 PDF conversion: invalid options: bad scale"
-        );
         assert_eq!(code_length(0), 0);
         assert_eq!(code_length(1), 0);
         assert_eq!(code_length(2), 1);
@@ -1226,6 +905,7 @@ mod tests {
             let checked = ready(preflight_type3(
                 &mut source,
                 image,
+                At::NONE,
                 options,
                 &limits,
                 &NeverCancel,
@@ -1264,6 +944,7 @@ mod tests {
                 &table,
                 &mut workspaces,
                 checked,
+                At::NONE,
                 options,
                 &limits,
                 &NeverCancel,
@@ -1280,6 +961,7 @@ mod tests {
                 &table,
                 prepared,
                 width,
+                At::NONE,
                 options,
                 &limits,
                 &NeverCancel,

@@ -4,13 +4,51 @@
 //! The PDF writer drops storage padding from the emitted image.
 
 use super::ImageRecord;
-use super::convert::{Type0DecodeSettings, Type0PdfError, decode_type0_rows};
 use crate::fallible::{len_u64, reserve_exact};
-use crate::jbig1::Type0Info;
+use crate::jbig1::{Type0Budget, Type0Decoder, Type0Error, Type0Info, Type0Report};
 use crate::jbig2::text_composer::RandomAccessScratch;
 use crate::pdf::{BilevelImageSpec, ImageObject, PdfDocument};
-use crate::{Cancellation, Error, MAX_BUDGET_COUNT, RangedSource, SequentialSink, write_all};
+use crate::qm::{ArithmeticBudget, ContextBank, QmTable};
+use crate::{
+    Cancellation, Error, Limits, MAX_BUDGET_COUNT, RangedSource, SequentialSink, write_all,
+};
 use std::{error, fmt};
+
+/// Checked row decoding; image placement remains with the caller.
+pub(super) struct Type0DecodeSettings<'a, C> {
+    pub table: &'a QmTable,
+    pub arithmetic: ArithmeticBudget,
+    pub image: Type0Budget,
+    pub limits: &'a Limits,
+    pub cancellation: &'a C,
+}
+
+/// Decode one preflighted type-0 record's display-order rows into `rows`.
+async fn decode_type0_rows<S: RangedSource, R: SequentialSink, C: Cancellation>(
+    source: &mut S,
+    record: ImageRecord,
+    contexts: &mut ContextBank,
+    rows: &mut R,
+    settings: &Type0DecodeSettings<'_, C>,
+) -> Result<Type0Report, Type0Error> {
+    let span = record
+        .type0_span()
+        .expect("type-0 record checked by composition preflight");
+    let mut decoder = Type0Decoder::new(
+        source,
+        span,
+        settings.table,
+        contexts,
+        rows,
+        settings.limits,
+        settings.cancellation,
+        settings.arithmetic,
+        settings.image,
+    )
+    .await?;
+    while decoder.decode_next_row().await? {}
+    decoder.finish().await
+}
 
 #[derive(Clone, Copy, Debug)]
 pub(super) struct Type0ScratchBudget {
@@ -43,7 +81,7 @@ pub(super) enum Type0ScratchStage {
 
 #[derive(Debug)]
 pub(super) enum Type0ScratchErrorKind {
-    Decode(Type0PdfError),
+    Decode(Type0Error),
     Store(Error),
     Pdf(Error),
 }
@@ -206,7 +244,7 @@ async fn emit_inner<S, W, T, C>(
     document: &mut PdfDocument<'_, W, C>,
     image: ImageRecord,
     checked: Type0Info,
-    contexts: &mut crate::qm::ContextBank,
+    contexts: &mut ContextBank,
     scratch: &mut T,
     budget: Type0ScratchBudget,
     settings: &Type0DecodeSettings<'_, C>,
@@ -403,7 +441,7 @@ pub(super) async fn emit_type0_xobject<S, W, T, C>(
     document: &mut PdfDocument<'_, W, C>,
     image: ImageRecord,
     checked: Type0Info,
-    contexts: &mut crate::qm::ContextBank,
+    contexts: &mut ContextBank,
     scratch: &mut T,
     budget: Type0ScratchBudget,
     settings: &Type0DecodeSettings<'_, C>,
@@ -811,7 +849,7 @@ mod tests {
     }
 
     #[test]
-    fn scratch_decode_failures_preserve_location_and_secondary_cleanup_failure() {
+    fn scratch_decode_failures_preserve_the_decoder_error_and_secondary_cleanup_failure() {
         for write_fault in [1, 2, 3, 4] {
             let mut scratch = Scratch {
                 write_fault,
@@ -823,11 +861,12 @@ mod tests {
             let inner = error
                 .source()
                 .unwrap()
-                .downcast_ref::<Type0PdfError>()
+                .downcast_ref::<Type0Error>()
                 .expect("typed decoder error remains the source");
-            assert_eq!((inner.page, inner.image), (Some(7), Some(3)));
-            assert!(inner.offset.is_some());
-            assert!(error.to_string().contains("page 7, image 3"));
+            // The composer adds the page and image; the decoder keeps its
+            // absolute source offset inside the payload.
+            assert!(matches!(inner.kind, crate::jbig1::Type0ErrorKind::Sink(_)));
+            assert!(inner.offset <= 51);
             assert!(scratch.bytes.is_empty());
         }
         let mut scratch = Scratch {

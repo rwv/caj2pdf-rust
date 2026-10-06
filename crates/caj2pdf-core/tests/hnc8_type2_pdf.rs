@@ -1,40 +1,28 @@
 // SPDX-License-Identifier: MIT
 
 //! Original synthetic PGM/PPM pixels encoded as tiny baseline JPEGs at test
-//! runtime, then selected from HN-A/HN-B/C8 into one-page PDFs.
+//! runtime, then composed from HN-A/HN-B/C8 documents into PDF pages.
 
 mod common;
 
 use caj2pdf_core::{
-    Error, Limits, NeverCancel, RangedSource, SequentialSink,
+    Cancellation, Error, Limits, NeverCancel, RangedSource, SequentialSink,
     hnc8::{
-        ErrorKind, JpegColor, Type2ImageSelection, Type2PdfError, Type2PdfErrorKind,
-        Type2PdfOptions, Type2SelectedPdfReport, Variant, convert_type2_image_pdf,
+        ComposeError, ComposeErrorKind, ComposeOptions, ComposeReport, ComposeStage, ErrorKind,
+        Variant,
     },
 };
-use common::CancelAfter;
+use common::{
+    CancelAfter,
+    hnc8_document::{Image, RENDER_DPI, convert as compose, document},
+};
 use std::{
     error::Error as _,
-    fs,
-    future::Future,
-    io,
+    fs, io,
     path::PathBuf,
-    pin::pin,
     process::Command,
     sync::atomic::{AtomicUsize, Ordering},
-    task::{Context, Poll, Waker},
 };
-
-fn ready<F: Future>(future: F) -> F::Output {
-    let mut future = pin!(future);
-    match future
-        .as_mut()
-        .poll(&mut Context::from_waker(Waker::noop()))
-    {
-        Poll::Ready(value) => value,
-        Poll::Pending => panic!("test adapters complete immediately"),
-    }
-}
 
 fn segment(marker: u8, body: &[u8]) -> Vec<u8> {
     let mut out = vec![0xff, marker];
@@ -199,88 +187,12 @@ fn jpeg_from_pnm(source: &[u8]) -> Vec<u8> {
     out
 }
 
-#[derive(Clone, Copy)]
-enum Layout {
-    C8,
-    HnA,
-    HnB,
-}
-
-impl Layout {
-    fn variant(self) -> Variant {
-        match self {
-            Self::C8 => Variant::C8,
-            Self::HnA => Variant::HnA,
-            Self::HnB => Variant::HnB,
-        }
-    }
-}
-
-struct Record {
-    kind: i32,
-    payload: Vec<u8>,
-}
-struct Built {
-    bytes: Vec<u8>,
-    descriptors: Vec<Vec<u64>>,
-    payloads: Vec<Vec<u64>>,
-}
-
-fn container(layout: Layout, pages: &[Vec<Record>]) -> Built {
-    let (count_at, index_at) = match layout {
-        Layout::C8 => (0x08, 0x50),
-        Layout::HnA => (0x90, 0x15c + 308),
-        Layout::HnB => (0x90, 0xd8),
-    };
-    let mut bytes = vec![0_u8; index_at + 20 * pages.len()];
-    match layout {
-        Layout::C8 => bytes[..4].copy_from_slice(&[0xc8, 0, 0, 0]),
-        Layout::HnA | Layout::HnB => {
-            bytes[..4].copy_from_slice(b"HN\0\0");
-            bytes[4..8].copy_from_slice(if matches!(layout, Layout::HnA) {
-                &[0x90, 1, 0, 0]
-            } else {
-                &[0xc8, 0, 0, 0]
-            });
-        }
-    }
-    if matches!(layout, Layout::HnB) {
-        bytes[0x88..0x8c].copy_from_slice(&0xc8_u32.to_le_bytes());
-    }
-    bytes[count_at..count_at + 4].copy_from_slice(&(pages.len() as i32).to_le_bytes());
-    if matches!(layout, Layout::HnA) {
-        bytes[0x158..0x15c].copy_from_slice(&1_i32.to_le_bytes());
-        bytes[0x15c..0x15c + 308].fill(0xa5);
-    }
-    let mut descriptors = Vec::new();
-    let mut payloads = Vec::new();
-    for (number, records) in pages.iter().enumerate() {
-        let text = bytes.len();
-        bytes.extend_from_slice(b"tx");
-        let row = index_at + 20 * number;
-        bytes[row..row + 4].copy_from_slice(&(text as i32).to_le_bytes());
-        bytes[row + 4..row + 8].copy_from_slice(&2_i32.to_le_bytes());
-        bytes[row + 8..row + 10].copy_from_slice(&(records.len() as i16).to_le_bytes());
-        let mut page_descriptors = Vec::new();
-        let mut page_payloads = Vec::new();
-        for record in records {
-            let descriptor = bytes.len();
-            let payload = descriptor + 16;
-            bytes.extend_from_slice(&record.kind.to_le_bytes());
-            bytes.extend_from_slice(&(payload as i32).to_le_bytes());
-            bytes.extend_from_slice(&(record.payload.len() as i32).to_le_bytes());
-            bytes.extend_from_slice(&[0xee; 4]);
-            bytes.extend_from_slice(&record.payload);
-            page_descriptors.push(descriptor as u64);
-            page_payloads.push(payload as u64);
-        }
-        descriptors.push(page_descriptors);
-        payloads.push(page_payloads);
-    }
-    Built {
-        bytes,
-        descriptors,
-        payloads,
+fn jpeg_image(kind: i32, payload: Vec<u8>) -> Image {
+    Image {
+        kind,
+        payload,
+        width: 16,
+        height: 16,
     }
 }
 
@@ -362,31 +274,23 @@ impl SequentialSink for Sink {
     }
 }
 
-fn selection(page_number: u32, image_number: u32) -> Type2ImageSelection {
-    Type2ImageSelection {
-        page_number,
-        image_number,
-    }
-}
-
-fn options() -> Type2PdfOptions {
-    Type2PdfOptions {
-        pixels_per_inch: 72.0,
-        ..Type2PdfOptions::default()
-    }
-}
-
 fn run(
     source: &mut Source,
     sink: &mut Sink,
-    selected: Type2ImageSelection,
-    options: Type2PdfOptions,
+    options: ComposeOptions,
     limits: &Limits,
-    cancel: &impl caj2pdf_core::Cancellation,
-) -> Result<Type2SelectedPdfReport, Type2PdfError> {
-    ready(convert_type2_image_pdf(
-        source, sink, selected, options, limits, cancel,
-    ))
+    cancel: &impl Cancellation,
+) -> Result<ComposeReport, ComposeError> {
+    compose(
+        source,
+        sink,
+        None,
+        &mut Default::default(),
+        &mut (),
+        options,
+        limits,
+        cancel,
+    )
 }
 
 fn find(bytes: &[u8], needle: &[u8]) -> Option<usize> {
@@ -479,7 +383,7 @@ fn pnm_pixels(bytes: &[u8]) -> (usize, Vec<u8>) {
     (channels, pixels)
 }
 
-fn render_jpeg_and_pdf(jpeg: &[u8], pdf: &[u8], color: bool) -> (Vec<u8>, Vec<u8>) {
+fn render_jpeg_and_pdf(jpeg: &[u8], pdf: &[u8], color: bool, dpi: &str) -> (Vec<u8>, Vec<u8>) {
     let temporary = TempDir::new();
     let jpeg_path = temporary.file("selected.jpg");
     let pdf_path = temporary.file("selected.pdf");
@@ -511,7 +415,7 @@ fn render_jpeg_and_pdf(jpeg: &[u8], pdf: &[u8], color: bool) -> (Vec<u8>, Vec<u8
             "-c",
             if color { "rgb" } else { "gray" },
             "-r",
-            "72",
+            dpi,
             "-A",
             "0",
             "-o",
@@ -526,98 +430,73 @@ fn render_jpeg_and_pdf(jpeg: &[u8], pdf: &[u8], color: bool) -> (Vec<u8>, Vec<u8
 }
 
 #[test]
-fn original_asymmetric_pgm_ppm_pixels_render_in_their_direct_jpeg_orientation_and_color() {
-    for channels in [1, 3] {
-        let jpeg = jpeg_from_pnm(&pnm(channels));
-        let built = container(
-            Layout::HnA,
-            &[vec![Record {
-                kind: 1,
-                payload: jpeg.clone(),
-            }]],
-        );
-        let mut source = Source::new(built.bytes);
-        let mut sink = Sink::default();
-        run(
-            &mut source,
-            &mut sink,
-            selection(1, 1),
-            options(),
-            &Limits::default(),
-            &NeverCancel,
-        )
-        .unwrap();
-        let (direct, rendered) = render_jpeg_and_pdf(&jpeg, &sink.bytes, channels == 3);
-        let worst = direct
-            .iter()
-            .zip(&rendered)
-            .map(|(a, b)| a.abs_diff(*b))
-            .max()
+fn original_asymmetric_pgm_ppm_pixels_render_flipped_by_the_measured_matrix_in_their_color() {
+    // Type 1 is admitted on HN-A/C8 pages; HN-B admits type 2 only.
+    for (layout, kind) in [(Variant::HnA, 1), (Variant::HnB, 2)] {
+        for channels in [1, 3] {
+            let jpeg = jpeg_from_pnm(&pnm(channels));
+            let built = document(layout, &[vec![jpeg_image(kind, jpeg.clone())]]);
+            let mut source = Source::new(built.bytes);
+            let mut sink = Sink::default();
+            let report = run(
+                &mut source,
+                &mut sink,
+                ComposeOptions::default(),
+                &Limits::default(),
+                &NeverCancel,
+            )
             .unwrap();
-        assert!(
-            worst <= 5,
-            "direct JPEG and PDF rendered pixels differ by {worst}"
-        );
-        if channels == 1 {
-            for (x, y, expected) in [(0, 0, 15), (15, 0, 75), (0, 15, 190), (15, 15, 245)] {
-                assert!(direct[y * 16 + x].abs_diff(expected) <= 5);
+            assert_eq!(report.jpeg_images, 1);
+            // HN-B pages are the JPEG at 300 pixels per inch; HN-A/C8 pages
+            // use the declared extents, one device pixel per image pixel.
+            let dpi = if layout == Variant::HnB {
+                "300"
+            } else {
+                RENDER_DPI
+            };
+            let (direct, rendered) = render_jpeg_and_pdf(&jpeg, &sink.bytes, channels == 3, dpi);
+            // The composer draws every JPEG with the measured negative-height
+            // matrix, so its first coded row is the page's bottom row.
+            let row = 16 * channels;
+            let flipped: Vec<u8> = direct.rchunks(row).flatten().copied().collect();
+            let worst = flipped
+                .iter()
+                .zip(&rendered)
+                .map(|(a, b)| a.abs_diff(*b))
+                .max()
+                .unwrap();
+            assert!(
+                worst <= 5,
+                "{layout:?}: flipped JPEG and PDF rendered pixels differ by {worst}"
+            );
+            if channels == 1 {
+                for (x, y, expected) in [(0, 0, 15), (15, 0, 75), (0, 15, 190), (15, 15, 245)] {
+                    assert!(direct[y * 16 + x].abs_diff(expected) <= 5);
+                }
+            } else {
+                let pixel = |x: usize, y: usize| &direct[(y * 16 + x) * 3..(y * 16 + x) * 3 + 3];
+                let upper_left = pixel(0, 0);
+                let upper_right = pixel(15, 0);
+                let lower_left = pixel(0, 15);
+                let lower_right = pixel(15, 15);
+                assert!(upper_left[0] > upper_left[1] + 100 && upper_left[0] > upper_left[2] + 100);
+                assert!(
+                    upper_right[1] > upper_right[0] + 100 && upper_right[1] > upper_right[2] + 100
+                );
+                assert!(lower_left[2] > lower_left[0] + 100 && lower_left[2] > lower_left[1] + 100);
+                assert!(lower_right[0] > 180 && lower_right[1] > 150 && lower_right[2] < 80);
             }
-        } else {
-            let pixel = |x: usize, y: usize| &direct[(y * 16 + x) * 3..(y * 16 + x) * 3 + 3];
-            let upper_left = pixel(0, 0);
-            let upper_right = pixel(15, 0);
-            let lower_left = pixel(0, 15);
-            let lower_right = pixel(15, 15);
-            assert!(upper_left[0] > upper_left[1] + 100 && upper_left[0] > upper_left[2] + 100);
-            assert!(upper_right[1] > upper_right[0] + 100 && upper_right[1] > upper_right[2] + 100);
-            assert!(lower_left[2] > lower_left[0] + 100 && lower_left[2] > lower_left[1] + 100);
-            assert!(lower_right[0] > 180 && lower_right[1] > 150 && lower_right[2] < 80);
         }
     }
 }
 
 #[test]
-fn selected_first_middle_last_and_multirecord_pages_stream_exact_gray_and_color_jpegs() {
+fn every_layout_streams_the_exact_gray_and_color_jpeg_with_short_reads() {
     let gray = jpeg_from_pnm(&pnm(1));
     let color = jpeg_from_pnm(&pnm(3));
-    for layout in [Layout::HnA, Layout::HnB, Layout::C8] {
-        let built = container(
-            layout,
-            &[
-                vec![Record {
-                    kind: 2,
-                    payload: gray.clone(),
-                }],
-                vec![
-                    Record {
-                        kind: 2,
-                        payload: gray.clone(),
-                    },
-                    Record {
-                        kind: 1,
-                        payload: vec![0x11],
-                    },
-                    Record {
-                        kind: 2,
-                        payload: color.clone(),
-                    },
-                    Record {
-                        kind: 2,
-                        payload: gray.clone(),
-                    },
-                ],
-                vec![Record {
-                    kind: 2,
-                    payload: color.clone(),
-                }],
-            ],
-        );
-        for (selected, expected, rgb) in [
-            (selection(1, 1), &gray, false),
-            (selection(2, 3), &color, true),
-            (selection(2, 4), &gray, false),
-            (selection(3, 1), &color, true),
-        ] {
+    for layout in [Variant::HnA, Variant::HnB, Variant::C8] {
+        for (expected, rgb) in [(&gray, false), (&color, true)] {
+            let built = document(layout, &[vec![jpeg_image(2, expected.clone())]]);
             let mut source = Source::new(built.bytes.clone());
             source.max_read = 3;
             let mut sink = Sink::default();
@@ -628,44 +507,21 @@ fn selected_first_middle_last_and_multirecord_pages_stream_exact_gray_and_color_
             let report = run(
                 &mut source,
                 &mut sink,
-                selected,
-                options(),
+                ComposeOptions::default(),
                 &limits,
                 &NeverCancel,
             )
             .unwrap();
-            assert_eq!(report.source_variant, layout.variant());
-            assert_eq!(report.source_pages, 3);
-            assert_eq!(report.image.page_number, selected.page_number);
-            assert_eq!(report.image.image_number, selected.image_number);
-            let page = selected.page_number as usize - 1;
-            let image = selected.image_number as usize - 1;
-            assert_eq!(
-                report.image.descriptor_offset,
-                built.descriptors[page][image]
-            );
-            assert_eq!(report.image.payload.offset, built.payloads[page][image]);
-            assert_eq!(report.image.payload.length, expected.len() as u64);
-            assert_eq!(report.jpeg.payload, report.image.payload);
-            assert_eq!(
-                (report.jpeg.width, report.jpeg.height, report.jpeg.precision),
-                (16, 16, 8)
-            );
-            assert_eq!(
-                report.jpeg.color,
-                if rgb {
-                    JpegColor::Ycbcr
-                } else {
-                    JpegColor::Gray
-                }
-            );
+            assert_eq!(report.source_variant, layout);
+            assert_eq!((report.source_pages, report.output_pages), (1, 1));
+            assert_eq!(report.jpeg_images, 1);
             assert_eq!(report.conversion.pages_converted, 1);
             assert_eq!(
                 report.conversion.output_bytes_written,
                 sink.bytes.len() as u64
             );
             assert!(report.conversion.input_bytes_read >= expected.len() as u64 * 2);
-            assert_eq!(embedded_jpeg(&sink.bytes), expected);
+            assert_eq!(embedded_jpeg(&sink.bytes), expected.as_slice());
             assert_eq!(
                 sink.bytes
                     .windows(b"/Type /Page /Parent".len())
@@ -673,7 +529,6 @@ fn selected_first_middle_last_and_multirecord_pages_stream_exact_gray_and_color_
                     .count(),
                 1
             );
-            assert!(find(&sink.bytes, b"/MediaBox [0 0 16.000000 16.000000]").is_some());
             assert!(find(&sink.bytes, b"/Width 16\n/Height 16\n").is_some());
             assert!(find(&sink.bytes, b"/BitsPerComponent 8\n/Filter /DCTDecode\n").is_some());
             if rgb {
@@ -689,141 +544,11 @@ fn selected_first_middle_last_and_multirecord_pages_stream_exact_gray_and_color_
 }
 
 #[test]
-fn default_300_ppi_scales_sixteen_pixels_to_3_84_points() {
-    let built = container(
-        Layout::C8,
-        &[vec![Record {
-            kind: 2,
-            payload: jpeg_from_pnm(&pnm(1)),
-        }]],
-    );
-    let mut source = Source::new(built.bytes);
-    let mut sink = Sink::default();
-    let report = run(
-        &mut source,
-        &mut sink,
-        selection(1, 1),
-        Type2PdfOptions::default(),
-        &Limits::default(),
-        &NeverCancel,
-    )
-    .unwrap();
-    assert_eq!(report.conversion.pages_converted, 1);
-    assert!(find(&sink.bytes, b"/MediaBox [0 0 3.840000 3.840000]").is_some());
-}
-
-#[test]
-fn selection_skips_bad_earlier_page_and_rejects_invalid_id_and_wrong_type() {
-    let jpeg = jpeg_from_pnm(&pnm(1));
-    let mut built = container(
-        Layout::C8,
-        &[
-            vec![Record {
-                kind: 2,
-                payload: jpeg.clone(),
-            }],
-            vec![
-                Record {
-                    kind: 0,
-                    payload: vec![0xaa],
-                },
-                Record {
-                    kind: 2,
-                    payload: jpeg,
-                },
-            ],
-        ],
-    );
-    built.bytes[0x50 + 8..0x50 + 10].copy_from_slice(&(-1_i16).to_le_bytes());
-    let mut source = Source::new(built.bytes.clone());
-    let mut sink = Sink::default();
-    let report = run(
-        &mut source,
-        &mut sink,
-        selection(2, 2),
-        options(),
-        &Limits::default(),
-        &NeverCancel,
-    )
-    .unwrap();
-    assert_eq!(
-        (report.image.page_number, report.image.image_number),
-        (2, 2)
-    );
-    for selected in [
-        selection(0, 1),
-        selection(1, 0),
-        selection(3, 1),
-        selection(2, 3),
-    ] {
-        let mut source = Source::new(built.bytes.clone());
-        let mut sink = Sink::default();
-        let error = run(
-            &mut source,
-            &mut sink,
-            selected,
-            options(),
-            &Limits::default(),
-            &NeverCancel,
-        )
-        .unwrap_err();
-        assert!(matches!(
-            error.kind,
-            Type2PdfErrorKind::InvalidSelection(_) | Type2PdfErrorKind::Container(_)
-        ));
-        if selected.page_number != 0 && selected.image_number != 0 {
-            assert_eq!(
-                (error.page, error.image),
-                (Some(selected.page_number), Some(selected.image_number))
-            );
-            assert!(error.offset.is_some());
-        }
-        assert!(error.to_string().contains("conversion"));
-        assert!(sink.bytes.is_empty());
-    }
-    let mut source = Source::new(built.bytes);
-    let mut sink = Sink::default();
-    let error = run(
-        &mut source,
-        &mut sink,
-        selection(2, 1),
-        options(),
-        &Limits::default(),
-        &NeverCancel,
-    )
-    .unwrap_err();
-    assert!(matches!(
-        error.kind,
-        Type2PdfErrorKind::UnsupportedImageType(0)
-    ));
-    assert!(
-        error
-            .to_string()
-            .contains("unsupported image record type 0")
-    );
-    assert!(error.source().is_none());
-    assert_eq!(
-        (error.page, error.image, error.offset),
-        (Some(2), Some(1), Some(built.descriptors[1][0]))
-    );
-    assert!(sink.bytes.is_empty());
-}
-
-#[test]
 fn malformed_descriptor_and_jpeg_errors_preserve_absolute_location() {
     let jpeg = jpeg_from_pnm(&pnm(3));
-    let built = container(
-        Layout::HnB,
-        &[vec![
-            Record {
-                kind: 2,
-                payload: jpeg.clone(),
-            },
-            Record {
-                kind: 2,
-                payload: jpeg.clone(),
-            },
-        ]],
+    let built = document(
+        Variant::HnA,
+        &[vec![jpeg_image(2, jpeg.clone()), jpeg_image(2, jpeg)]],
     );
     let mut corrupt = built.bytes.clone();
     let descriptor = built.descriptors[0][1] as usize;
@@ -833,13 +558,15 @@ fn malformed_descriptor_and_jpeg_errors_preserve_absolute_location() {
     let error = run(
         &mut source,
         &mut sink,
-        selection(1, 2),
-        options(),
+        ComposeOptions::default(),
         &Limits::default(),
         &NeverCancel,
     )
     .unwrap_err();
-    assert!(matches!(error.kind, Type2PdfErrorKind::Container(_)));
+    assert!(
+        matches!(error.kind, ComposeErrorKind::Container(_)),
+        "{error}"
+    );
     assert_eq!((error.page, error.image), (Some(1), Some(2)));
     assert!(error.offset.is_some());
 
@@ -851,209 +578,165 @@ fn malformed_descriptor_and_jpeg_errors_preserve_absolute_location() {
     let error = run(
         &mut source,
         &mut sink,
-        selection(1, 1),
-        options(),
+        ComposeOptions::default(),
         &Limits::default(),
         &NeverCancel,
     )
     .unwrap_err();
     assert!(
-        matches!(&error.kind, Type2PdfErrorKind::Jpeg(inner) if matches!(inner.kind, ErrorKind::Malformed { field: "JPEG SOI", .. }))
+        matches!(&error.kind, ComposeErrorKind::Jpeg(inner) if matches!(inner.kind, ErrorKind::Malformed { field: "JPEG SOI", .. })),
+        "{error}"
     );
+    assert_eq!(error.stage, ComposeStage::Headers);
     assert_eq!(
         (error.page, error.image, error.offset),
         (Some(1), Some(1), Some(payload as u64))
     );
     assert!(error.source().is_some());
-    assert!(sink.bytes.is_empty());
+    assert!(find(&sink.bytes, b"/Subtype /Image").is_none());
 }
 
 #[test]
-fn selected_jpeg_is_read_once_for_markers_and_once_for_copy() {
-    let jpeg = jpeg_from_pnm(&pnm(3));
-    let built = container(
-        Layout::HnA,
-        &[vec![Record {
-            kind: 2,
-            payload: jpeg,
-        }]],
-    );
-    let payload = built.payloads[0][0];
-    let mut source = Source::new(built.bytes);
-    source.payload_start = Some(payload);
-    let mut sink = Sink::default();
-    run(
-        &mut source,
-        &mut sink,
-        selection(1, 1),
-        options(),
-        &Limits::default(),
-        &NeverCancel,
-    )
-    .unwrap();
-    assert_eq!(source.payload_passes, 2);
+fn jpeg_payload_is_read_once_for_markers_and_once_for_copy() {
+    for layout in [Variant::HnA, Variant::HnB] {
+        let built = document(layout, &[vec![jpeg_image(2, jpeg_from_pnm(&pnm(3)))]]);
+        let payload = built.payloads[0][0];
+        let mut source = Source::new(built.bytes);
+        source.payload_start = Some(payload);
+        let mut sink = Sink::default();
+        run(
+            &mut source,
+            &mut sink,
+            ComposeOptions::default(),
+            &Limits::default(),
+            &NeverCancel,
+        )
+        .unwrap();
+        assert_eq!(source.payload_passes, 2, "{layout:?}");
+    }
 }
 
 #[test]
 fn short_reads_sink_faults_cancellation_and_limits_are_typed() {
     let jpeg = jpeg_from_pnm(&pnm(1));
-    let built = container(
-        Layout::C8,
-        &[vec![Record {
-            kind: 2,
-            payload: jpeg,
-        }]],
-    );
+    let built = document(Variant::C8, &[vec![jpeg_image(2, jpeg)]]);
     let payload = built.payloads[0][0];
+    let run_with = |source: &mut Source, sink: &mut Sink, options, limits: &Limits| {
+        run(source, sink, options, limits, &NeverCancel).unwrap_err()
+    };
+
+    // The marker walk succeeds; the PDF copy pass then reads nothing.
     let mut source = Source::new(built.bytes.clone());
     source.payload_start = Some(payload);
     source.zero_at_pass = Some(2);
-    let mut sink = Sink::default();
-    let error = run(
+    let error = run_with(
         &mut source,
-        &mut sink,
-        selection(1, 1),
-        options(),
+        &mut Sink::default(),
+        ComposeOptions::default(),
         &Limits::default(),
-        &NeverCancel,
-    )
-    .unwrap_err();
-    assert!(matches!(
-        error.kind,
-        Type2PdfErrorKind::Pdf(Error::TruncatedInput { .. })
-    ));
-    assert!(error.to_string().contains("PDF output"));
+    );
+    assert!(
+        matches!(
+            error.kind,
+            ComposeErrorKind::Io(Error::TruncatedInput { .. })
+        ),
+        "{error}"
+    );
+    assert_eq!(error.stage, ComposeStage::Pdf);
     assert!(error.source().is_some());
     assert_eq!(
         (error.page, error.image, error.offset),
         (Some(1), Some(1), Some(payload))
     );
 
-    let mut source = Source::new(built.bytes.clone());
     let mut sink = Sink {
         fail_at: Some(3),
         ..Sink::default()
     };
-    let error = run(
-        &mut source,
+    let error = run_with(
+        &mut Source::new(built.bytes.clone()),
         &mut sink,
-        selection(1, 1),
-        options(),
+        ComposeOptions::default(),
         &Limits::default(),
-        &NeverCancel,
-    )
-    .unwrap_err();
-    assert!(matches!(error.kind, Type2PdfErrorKind::Pdf(Error::Io(_))));
-    assert_eq!((error.page, error.image), (Some(1), Some(1)));
+    );
+    assert!(
+        matches!(error.kind, ComposeErrorKind::Io(Error::Io(_))),
+        "{error}"
+    );
+    assert_eq!(error.stage, ComposeStage::Pdf);
 
-    let mut source = Source::new(built.bytes.clone());
-    let mut sink = Sink::default();
     let error = run(
-        &mut source,
-        &mut sink,
-        selection(1, 1),
-        options(),
+        &mut Source::new(built.bytes.clone()),
+        &mut Sink::default(),
+        ComposeOptions::default(),
         &Limits::default(),
         &CancelAfter::new(0),
     )
     .unwrap_err();
-    assert!(
-        matches!(&error.kind, Type2PdfErrorKind::Container(inner) if matches!(inner.kind, ErrorKind::Cancelled))
-    );
-    assert!(error.to_string().contains("cancelled"));
+    assert!(error.to_string().contains("cancelled"), "{error}");
     assert!(error.source().is_some());
 
-    let mut source = Source::new(built.bytes.clone());
-    let mut sink = Sink::default();
-    let mut opts = options();
-    opts.jpeg.max_payload_bytes = 1;
-    let error = run(
-        &mut source,
-        &mut sink,
-        selection(1, 1),
-        opts,
+    let mut options = ComposeOptions::default();
+    options.jpeg.max_payload_bytes = 1;
+    let error = run_with(
+        &mut Source::new(built.bytes.clone()),
+        &mut Sink::default(),
+        options,
         &Limits::default(),
-        &NeverCancel,
-    )
-    .unwrap_err();
-    assert!(
-        matches!(&error.kind, Type2PdfErrorKind::Jpeg(inner) if matches!(inner.kind, ErrorKind::LimitExceeded { .. }))
     );
+    assert!(
+        matches!(&error.kind, ComposeErrorKind::Jpeg(inner) if matches!(inner.kind, ErrorKind::LimitExceeded { .. })),
+        "{error}"
+    );
+    assert_eq!((error.page, error.image), (Some(1), Some(1)));
     assert!(error.to_string().contains("limit"));
 
-    let mut source = Source::new(built.bytes.clone());
-    let mut sink = Sink::default();
     let limits = Limits {
         max_output_bytes: 100,
         ..Limits::default()
     };
-    let error = run(
-        &mut source,
-        &mut sink,
-        selection(1, 1),
-        options(),
+    let error = run_with(
+        &mut Source::new(built.bytes.clone()),
+        &mut Sink::default(),
+        ComposeOptions::default(),
         &limits,
-        &NeverCancel,
-    )
-    .unwrap_err();
-    assert!(matches!(
-        error.kind,
-        Type2PdfErrorKind::Pdf(Error::LimitExceeded { .. })
-    ));
+    );
+    assert!(
+        matches!(
+            error.kind,
+            ComposeErrorKind::Io(Error::LimitExceeded { .. })
+        ),
+        "{error}"
+    );
 
-    let mut source = Source::new(built.bytes.clone());
-    let mut sink = Sink::default();
-    let mut opts = options();
-    opts.pixels_per_inch = 0.0;
-    let error = run(
-        &mut source,
-        &mut sink,
-        selection(1, 1),
-        opts,
-        &Limits::default(),
-        &NeverCancel,
-    )
-    .unwrap_err();
-    assert!(matches!(error.kind, Type2PdfErrorKind::InvalidOptions(_)));
-    assert!(error.to_string().contains("invalid options"));
-    assert!(error.source().is_none());
-    assert!(sink.bytes.is_empty());
-    assert_eq!(source.max_request, 0);
-
-    let mut source = Source::new(built.bytes.clone());
-    let mut sink = Sink::default();
     let limits = Limits {
         max_input_bytes: 1,
         ..Limits::default()
     };
-    let error = run(
-        &mut source,
-        &mut sink,
-        selection(1, 1),
-        options(),
+    let error = run_with(
+        &mut Source::new(built.bytes.clone()),
+        &mut Sink::default(),
+        ComposeOptions::default(),
         &limits,
-        &NeverCancel,
-    )
-    .unwrap_err();
+    );
     assert!(
-        matches!(&error.kind, Type2PdfErrorKind::Container(inner) if matches!(inner.kind, ErrorKind::LimitExceeded { .. }))
+        matches!(&error.kind, ComposeErrorKind::Container(inner) if matches!(inner.kind, ErrorKind::LimitExceeded { .. })),
+        "{error}"
     );
 
     let mut source = Source::new(built.bytes);
     source.payload_start = Some(payload);
     source.overreport_at_pass = Some(1);
     let mut sink = Sink::default();
-    let error = run(
+    let error = run_with(
         &mut source,
         &mut sink,
-        selection(1, 1),
-        options(),
+        ComposeOptions::default(),
         &Limits::default(),
-        &NeverCancel,
-    )
-    .unwrap_err();
-    assert!(
-        matches!(&error.kind, Type2PdfErrorKind::Jpeg(inner) if matches!(inner.kind, ErrorKind::Source { .. }))
     );
-    assert!(sink.bytes.is_empty());
+    assert!(
+        matches!(&error.kind, ComposeErrorKind::Jpeg(inner) if matches!(inner.kind, ErrorKind::Source { .. })),
+        "{error}"
+    );
+    assert!(find(&sink.bytes, b"/Subtype /Image").is_none());
 }

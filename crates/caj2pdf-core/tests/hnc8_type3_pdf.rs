@@ -1,158 +1,45 @@
 // SPDX-License-Identifier: MIT
 
-//! Original synthetic HN/C8 type-3 records and caller-supplied invented MQ
-//! states. No normative table, private document, or oracle pixel is embedded.
+//! Original synthetic HN/C8 type-3 records composed through the document
+//! pipeline with invented MQ states. No normative table, private document,
+//! or oracle pixel is embedded.
 
 mod common;
 
 use caj2pdf_core::{
     Cancellation, Error, Limits, NeverCancel, RangedSource, SequentialSink,
     hnc8::{
-        Type3ImageSelection, Type3PdfError, Type3PdfErrorKind, Type3PdfOptions, Type3RefinedStore,
-        Type3SelectedPdfReport, Type3Stage, Type3Store, Type3Workspaces, Variant,
-        convert_type3_image_pdf,
+        ComposeError, ComposeErrorKind, ComposeOptions, ComposePage, ComposeReport, ComposeStage,
+        ComposeVisitor, Type3PdfOptions, Type3Stage, Variant,
     },
-    jbig2::{
-        mq::{MQ_STATE_COUNT, MqState, MqTable},
-        text::{TextHeaderAnomaly, TextHeaderPolicy},
-        text_composer::RandomAccessScratch,
-    },
+    jbig2::text::{TextHeaderAnomaly, TextHeaderPolicy},
     pdf::{BilevelImageSpec, PageSpec, PdfDocument},
 };
-use common::CancelAfter;
+use common::{
+    CancelAfter,
+    hnc8_document::{Image, RENDER_DPI, Store, convert as compose, document, ready},
+};
 use std::{
-    cell::RefCell,
-    fs,
-    future::Future,
-    io,
+    fs, io,
     path::PathBuf,
-    pin::pin,
     process::Command,
-    rc::Rc,
     sync::atomic::{AtomicUsize, Ordering},
-    task::{Context, Poll, Waker},
 };
 
-fn ready<F: Future>(future: F) -> F::Output {
-    let mut future = pin!(future);
-    match future
-        .as_mut()
-        .poll(&mut Context::from_waker(Waker::noop()))
-    {
-        Poll::Ready(value) => value,
-        Poll::Pending => panic!("test adapters complete immediately"),
-    }
-}
-
-#[derive(Clone, Copy, Debug)]
-enum Layout {
-    C8,
-    HnA,
-    HnB,
-}
-
-impl Layout {
-    fn variant(self) -> Variant {
-        match self {
-            Self::C8 => Variant::C8,
-            Self::HnA => Variant::HnA,
-            Self::HnB => Variant::HnB,
-        }
-    }
-}
-
-struct Record {
-    kind: i32,
-    payload: Vec<u8>,
-}
-
-struct Built {
-    bytes: Vec<u8>,
-    descriptors: Vec<Vec<u64>>,
-    payloads: Vec<Vec<u64>>,
-}
-
-/// The three header/page-index layouts measured in docs/research/hnc8-container.md.
-fn container(layout: Layout, pages: &[Vec<Record>]) -> Built {
-    let (count_at, index_at) = match layout {
-        Layout::C8 => (0x08, 0x50),
-        Layout::HnA => (0x90, 0x15c + 308),
-        Layout::HnB => (0x90, 0xd8),
-    };
-    let mut bytes = vec![0_u8; index_at + 20 * pages.len()];
-    match layout {
-        Layout::C8 => bytes[..4].copy_from_slice(&[0xc8, 0, 0, 0]),
-        Layout::HnA | Layout::HnB => {
-            bytes[..4].copy_from_slice(b"HN\0\0");
-            bytes[4..8].copy_from_slice(if matches!(layout, Layout::HnA) {
-                &[0x90, 1, 0, 0]
-            } else {
-                &[0xc8, 0, 0, 0]
-            });
-        }
-    }
-    if matches!(layout, Layout::HnB) {
-        bytes[0x88..0x8c].copy_from_slice(&0xc8_u32.to_le_bytes());
-    }
-    bytes[count_at..count_at + 4].copy_from_slice(&(pages.len() as i32).to_le_bytes());
-    if matches!(layout, Layout::HnA) {
-        bytes[0x158..0x15c].copy_from_slice(&1_i32.to_le_bytes());
-        bytes[0x15c..0x15c + 308].fill(0xa5);
-    }
-    let mut descriptors = Vec::new();
-    let mut payloads = Vec::new();
-    for (number, records) in pages.iter().enumerate() {
-        let text = bytes.len();
-        bytes.extend_from_slice(b"tx");
-        let row = index_at + 20 * number;
-        bytes[row..row + 4].copy_from_slice(&(text as i32).to_le_bytes());
-        bytes[row + 4..row + 8].copy_from_slice(&2_i32.to_le_bytes());
-        bytes[row + 8..row + 10].copy_from_slice(&(records.len() as i16).to_le_bytes());
-        let mut page_descriptors = Vec::new();
-        let mut page_payloads = Vec::new();
-        for record in records {
-            let descriptor = bytes.len();
-            let payload = descriptor + 16;
-            bytes.extend_from_slice(&record.kind.to_le_bytes());
-            bytes.extend_from_slice(&(payload as i32).to_le_bytes());
-            bytes.extend_from_slice(&(record.payload.len() as i32).to_le_bytes());
-            bytes.extend_from_slice(&[0xee; 4]);
-            bytes.extend_from_slice(&record.payload);
-            page_descriptors.push(descriptor as u64);
-            page_payloads.push(payload as u64);
-        }
-        descriptors.push(page_descriptors);
-        payloads.push(page_payloads);
-    }
-    Built {
-        bytes,
-        descriptors,
-        payloads,
-    }
-}
+/// HN-B admits only JPEG pages, so type-3 images compose from C8 and HN-A.
+const LAYOUTS: [Variant; 2] = [Variant::C8, Variant::HnA];
 
 #[path = "common/type3_fixture.rs"]
 mod type3_fixture;
 use type3_fixture::*;
 
-fn type3(width: u32, height: u32, text_flags: u16) -> Record {
-    Record {
+fn type3(width: u32, height: u32, text_flags: u16) -> Image {
+    Image {
         kind: 3,
         payload: payload(width, height, text_flags),
+        width,
+        height,
     }
-}
-
-fn invented_table() -> MqTable {
-    let states = vec![
-        MqState {
-            qe: 1,
-            next_mps: 0,
-            next_lps: 0,
-            switch_mps: false,
-        };
-        MQ_STATE_COUNT
-    ];
-    MqTable::new(states, &Limits::default()).unwrap()
 }
 
 struct Source {
@@ -267,190 +154,91 @@ impl SequentialSink for Sink {
     }
 }
 
+fn type3_options(type3: Type3PdfOptions) -> ComposeOptions {
+    ComposeOptions {
+        type3,
+        ..ComposeOptions::default()
+    }
+}
+
+/// Collects each drawn image's reported text-header anomaly.
 #[derive(Default)]
-struct Scratch {
-    bytes: Vec<u8>,
-    fail_read_after: Option<usize>,
-    read_calls: usize,
-}
+struct Anomalies(Vec<Option<TextHeaderAnomaly>>);
 
-impl RandomAccessScratch for Scratch {
-    fn size(&self) -> caj2pdf_core::Result<u64> {
-        Ok(self.bytes.len() as u64)
-    }
-
-    async fn set_len(&mut self, length: u64) -> caj2pdf_core::Result<()> {
-        self.bytes.resize(length as usize, 0);
-        Ok(())
-    }
-
-    async fn read_at(
-        &mut self,
-        offset: u64,
-        destination: &mut [u8],
-    ) -> caj2pdf_core::Result<usize> {
-        self.read_calls += 1;
-        if self
-            .fail_read_after
-            .is_some_and(|count| self.read_calls > count)
-        {
-            return Err(Error::Io(io::Error::other("injected scratch read failure")));
-        }
-        let start = offset as usize;
-        let count = destination
-            .len()
-            .min(self.bytes.len().saturating_sub(start));
-        destination[..count].copy_from_slice(&self.bytes[start..start + count]);
-        Ok(count)
-    }
-
-    async fn write_at(&mut self, offset: u64, bytes: &[u8]) -> caj2pdf_core::Result<usize> {
-        let start = offset as usize;
-        self.bytes[start..start + bytes.len()].copy_from_slice(bytes);
-        Ok(bytes.len())
-    }
-
-    async fn flush(&mut self) -> caj2pdf_core::Result<()> {
+impl ComposeVisitor for Anomalies {
+    async fn page(&mut self, page: ComposePage<'_>) -> caj2pdf_core::Result<()> {
+        self.0.extend(
+            page.images
+                .iter()
+                .map(|image| image.type3_text_header_anomaly),
+        );
         Ok(())
     }
 }
 
-/// A reader sees every byte appended through its paired writer.
-#[derive(Clone)]
-struct SharedStore(Rc<RefCell<Vec<u8>>>);
-
-impl SharedStore {
-    fn handles() -> (Self, Self, Self) {
-        let shared = Rc::new(RefCell::new(Vec::new()));
-        (
-            Self(Rc::clone(&shared)),
-            Self(Rc::clone(&shared)),
-            Self(shared),
-        )
-    }
-}
-
-impl RangedSource for SharedStore {
-    fn size(&self) -> u64 {
-        self.0.borrow().len() as u64
-    }
-
-    async fn read_at(
-        &mut self,
-        offset: u64,
-        destination: &mut [u8],
-    ) -> caj2pdf_core::Result<usize> {
-        let source = self.0.borrow();
-        let start = offset as usize;
-        let count = destination.len().min(source.len().saturating_sub(start));
-        destination[..count].copy_from_slice(&source[start..start + count]);
-        Ok(count)
-    }
-}
-
-impl SequentialSink for SharedStore {
-    async fn write(&mut self, bytes: &[u8]) -> caj2pdf_core::Result<usize> {
-        self.0.borrow_mut().extend_from_slice(bytes);
-        Ok(bytes.len())
-    }
-
-    async fn flush(&mut self) -> caj2pdf_core::Result<()> {
-        Ok(())
-    }
-}
-
-fn selection(page_number: u32, image_number: u32) -> Type3ImageSelection {
-    Type3ImageSelection {
-        page_number,
-        image_number,
-    }
-}
-
-fn options() -> Type3PdfOptions {
-    Type3PdfOptions {
-        pixels_per_inch: 72.0,
-        ..Type3PdfOptions::default()
-    }
-}
-
-#[derive(Clone, Copy)]
-enum WorkspaceFault {
-    None,
-    DirtyFirst,
-    DirtySecond,
-    DirtyRefined,
-    DirtyText,
-    ScratchRead,
+fn run_with<C: Cancellation>(
+    source: &mut Source,
+    sink: &mut Sink,
+    stores: &mut [Store; 4],
+    visitor: &mut Anomalies,
+    options: ComposeOptions,
+    limits: &Limits,
+    cancellation: &C,
+) -> Result<ComposeReport, ComposeError> {
+    compose(
+        source,
+        sink,
+        None,
+        stores,
+        visitor,
+        options,
+        limits,
+        cancellation,
+    )
 }
 
 fn run<C: Cancellation>(
     source: &mut Source,
     sink: &mut Sink,
-    selected: Type3ImageSelection,
-    options: Type3PdfOptions,
+    options: ComposeOptions,
     limits: &Limits,
     cancellation: &C,
-) -> Result<Type3SelectedPdfReport, Type3PdfError> {
-    run_with_workspace_fault(
+) -> Result<ComposeReport, ComposeError> {
+    run_with(
         source,
         sink,
-        selected,
+        &mut Default::default(),
+        &mut Anomalies::default(),
         options,
         limits,
         cancellation,
-        WorkspaceFault::None,
     )
 }
 
-fn run_with_workspace_fault<C: Cancellation>(
-    source: &mut Source,
-    sink: &mut Sink,
-    selected: Type3ImageSelection,
-    options: Type3PdfOptions,
-    limits: &Limits,
-    cancellation: &C,
-    fault: WorkspaceFault,
-) -> Result<Type3SelectedPdfReport, Type3PdfError> {
-    let table = invented_table();
-    let (mut first_reader, mut first_compose_reader, mut first_writer) = SharedStore::handles();
-    let (mut second_reader, mut second_compose_reader, mut second_writer) = SharedStore::handles();
-    let (mut refined_reader, _refined_compose_reader, mut refined_writer) = SharedStore::handles();
-    let mut scratch = Scratch::default();
-    match fault {
-        WorkspaceFault::None => {}
-        WorkspaceFault::DirtyFirst => first_writer.0.borrow_mut().push(1),
-        WorkspaceFault::DirtySecond => second_writer.0.borrow_mut().push(1),
-        WorkspaceFault::DirtyRefined => refined_writer.0.borrow_mut().push(1),
-        WorkspaceFault::DirtyText => scratch.bytes.push(1),
-        WorkspaceFault::ScratchRead => scratch.fail_read_after = Some(2),
-    }
-    let mut workspaces = Type3Workspaces {
-        first: Type3Store {
-            reader: &mut first_reader,
-            compose_reader: &mut first_compose_reader,
-            writer: &mut first_writer,
-        },
-        second: Type3Store {
-            reader: &mut second_reader,
-            compose_reader: &mut second_compose_reader,
-            writer: &mut second_writer,
-        },
-        refined: Type3RefinedStore {
-            reader: &mut refined_reader,
-            writer: &mut refined_writer,
-        },
-        text: &mut scratch,
-    };
-    ready(convert_type3_image_pdf(
-        source,
-        sink,
-        &table,
-        &mut workspaces,
-        selected,
+fn run_error(bytes: Vec<u8>, options: ComposeOptions) -> (ComposeError, Vec<u8>) {
+    let mut source = Source::new(bytes);
+    let mut sink = Sink::default();
+    let error = run(
+        &mut source,
+        &mut sink,
         options,
-        limits,
-        cancellation,
-    ))
+        &Limits::default(),
+        &NeverCancel,
+    )
+    .unwrap_err();
+    (error, sink.bytes)
+}
+
+fn stage(error: &ComposeError) -> Option<Type3Stage> {
+    match error.kind {
+        ComposeErrorKind::Type3 { stage, .. } => Some(stage),
+        _ => None,
+    }
+}
+
+/// No image object was started before the failure.
+fn no_image(pdf: &[u8]) -> bool {
+    find(pdf, b"/Subtype /Image").is_none()
 }
 
 fn find(bytes: &[u8], needle: &[u8]) -> Option<usize> {
@@ -564,56 +352,32 @@ fn pnm_payload<'a>(bytes: &'a [u8], magic: &str, width: u32, height: u32) -> &'a
 }
 
 #[test]
-fn selected_first_middle_and_last_hn_c8_images_produce_one_checked_page() {
+fn one_image_documents_produce_checked_pages_in_every_layout() {
     let limits = Limits::default();
-    for layout in [Layout::C8, Layout::HnA, Layout::HnB] {
-        let built = container(
-            layout,
-            &[
-                vec![type3(3, 2, 0x10)],
-                vec![
-                    Record {
-                        kind: 0,
-                        payload: vec![0; 48],
-                    },
-                    type3(9, 3, 0x10),
-                    type3(8, 2, 0x10),
-                ],
-                vec![type3(7, 4, 0x10)],
-            ],
-        );
-        for (page, image, width, height) in [(1, 1, 3, 2), (2, 2, 9, 3), (2, 3, 8, 2), (3, 1, 7, 4)]
-        {
-            let mut source = Source::new(built.bytes.clone());
+    for layout in LAYOUTS {
+        for (width, height) in [(3, 2), (9, 3), (8, 2), (7, 4)] {
+            let built = document(layout, &[vec![type3(width, height, 0x10)]]);
+            let mut source = Source::new(built.bytes);
             source.max_read = 3;
             let mut sink = Sink {
                 max_write: 5,
                 ..Sink::default()
             };
-            let report = run(
+            let mut anomalies = Anomalies::default();
+            let report = run_with(
                 &mut source,
                 &mut sink,
-                selection(page, image),
-                options(),
+                &mut Default::default(),
+                &mut anomalies,
+                ComposeOptions::default(),
                 &limits,
                 &NeverCancel,
             )
-            .unwrap_or_else(|error| panic!("{layout:?} {page}/{image}: {error}"));
-            assert_eq!(report.image.page_number, page);
-            assert_eq!(report.image.image_number, image);
-            assert_eq!(report.image.record_type, 3);
-            assert_eq!(
-                report.image.descriptor_offset,
-                built.descriptors[(page - 1) as usize][(image - 1) as usize]
-            );
-            assert_eq!(
-                report.image.payload.offset,
-                built.payloads[(page - 1) as usize][(image - 1) as usize]
-            );
-            assert_eq!(report.source_variant, layout.variant());
-            assert_eq!(report.source_pages, 3);
-            assert_eq!((report.page.width, report.page.height), (width, height));
-            assert_eq!(report.text_header_anomaly, None);
+            .unwrap_or_else(|error| panic!("{layout:?} {width}x{height}: {error}"));
+            assert_eq!(report.source_variant, layout);
+            assert_eq!((report.source_pages, report.output_pages), (1, 1));
+            assert_eq!(report.type3_images, 1);
+            assert_eq!(anomalies.0, [None]);
             assert_eq!(report.conversion.pages_converted, 1);
             assert_eq!(
                 report.conversion.output_bytes_written,
@@ -627,25 +391,23 @@ fn selected_first_middle_and_last_hn_c8_images_produce_one_checked_page() {
 }
 
 #[test]
-fn selected_nonblank_asymmetric_pixels_keep_top_left_black_with_two_renderers() {
-    let built = container(Layout::HnB, &[vec![type3(9, 3, 0x10)]]);
+fn nonblank_asymmetric_pixels_keep_top_left_black_with_two_renderers() {
+    let built = document(Variant::C8, &[vec![type3(9, 3, 0x10)]]);
     let mut source = Source::new(built.bytes);
     let mut sink = Sink::default();
-    let report = run(
+    run(
         &mut source,
         &mut sink,
-        selection(1, 1),
-        options(),
+        ComposeOptions::default(),
         &Limits::default(),
         &NeverCancel,
     )
     .unwrap();
-    assert_eq!((report.page.width, report.page.height), (9, 3));
     const PACKED: [u8; 6] = [0x80, 0, 0, 0, 0, 0];
     assert_eq!(embedded_image(&sink.bytes), PACKED);
 
     let temp = TempDir::new();
-    let pdf = temp.file("selected.pdf");
+    let pdf = temp.file("composed.pdf");
     fs::write(&pdf, &sink.bytes).unwrap();
     tool(Command::new("qpdf").arg("--check").arg(&pdf));
     let extracted = temp.file("extracted");
@@ -653,28 +415,26 @@ fn selected_nonblank_asymmetric_pixels_keep_top_left_black_with_two_renderers() 
     let pbm = fs::read(temp.file("extracted-000.pbm")).unwrap();
     assert_eq!(pnm_payload(&pbm, "P4", 9, 3), PACKED);
 
+    // Poppler smooths a 1:1 image blit, so render it at ten device pixels
+    // per image pixel and sample each block's centre.
     let poppler = temp.file("poppler");
+    let dpi: f64 = RENDER_DPI.parse().unwrap();
     tool(
         Command::new("pdftoppm")
             .arg("-mono")
             .arg("-r")
-            .arg("72")
+            .arg((dpi * 10.0).to_string())
             .arg("-singlefile")
             .arg(&pdf)
             .arg(&poppler),
     );
     let pbm = fs::read(temp.file("poppler.pbm")).unwrap();
-    let poppler = pnm_payload(&pbm, "P4", 9, 3);
-    assert_eq!(poppler.len(), PACKED.len());
-    // Poppler's page raster can expand a 1x1 pixel into an adjacent pixel.
-    // Require the black mark to remain at the top left and every rendered
-    // black pixel to lie in its clipped 3x3 neighborhood, with no color slack.
-    assert_ne!(poppler[0] & 0x80, 0);
-    for (y, row) in poppler.as_chunks::<2>().0.iter().enumerate() {
+    let poppler = pnm_payload(&pbm, "P4", 90, 30);
+    for y in 0..3 {
         for x in 0..9 {
-            if row[x / 8] & (0x80 >> (x % 8)) != 0 {
-                assert!(x <= 1 && y <= 1, "Poppler moved a black pixel to ({x},{y})");
-            }
+            let (row, column) = (y * 10 + 5, x * 10 + 5);
+            let black = poppler[row * 12 + column / 8] & (0x80 >> (column % 8)) != 0;
+            assert_eq!(black, (x, y) == (0, 0), "Poppler pixel ({x},{y})");
         }
     }
 
@@ -686,7 +446,7 @@ fn selected_nonblank_asymmetric_pixels_keep_top_left_black_with_two_renderers() 
             .arg("-F")
             .arg("pgm")
             .arg("-r")
-            .arg("72")
+            .arg(RENDER_DPI)
             .arg("-o")
             .arg(&mupdf)
             .arg(&pdf),
@@ -699,30 +459,8 @@ fn selected_nonblank_asymmetric_pixels_keep_top_left_black_with_two_renderers() 
 }
 
 #[test]
-fn selected_page_probe_skips_earlier_unreadable_page() {
-    let mut built = container(
-        Layout::HnB,
-        &[vec![type3(3, 2, 0x10)], vec![type3(9, 2, 0x10)]],
-    );
-    built.bytes[0xd8..0xdc].copy_from_slice(&i32::MAX.to_le_bytes());
-    let mut source = Source::new(built.bytes);
-    let mut sink = Sink::default();
-    let report = run(
-        &mut source,
-        &mut sink,
-        selection(2, 1),
-        options(),
-        &Limits::default(),
-        &NeverCancel,
-    )
-    .unwrap();
-    assert_eq!(report.image.page_number, 2);
-    validate_one_image_pdf(&sink.bytes, 9, 2);
-}
-
-#[test]
-fn malformed_dib_palette_segments_and_page_geometry_are_rejected_before_pdf() {
-    let built = container(Layout::C8, &[vec![type3(9, 2, 0x10)]]);
+fn malformed_dib_palette_segments_and_page_geometry_are_rejected_before_image_output() {
+    let built = document(Variant::C8, &[vec![type3(9, 2, 0x10)]]);
     let base = built.payloads[0][0] as usize;
     for relative in [
         0,           // DIB header length
@@ -732,57 +470,20 @@ fn malformed_dib_palette_segments_and_page_geometry_are_rejected_before_pdf() {
     ] {
         let mut damaged = built.bytes.clone();
         damaged[base + relative] ^= 1;
-        let mut source = Source::new(damaged);
-        let mut sink = Sink::default();
-        let error = run(
-            &mut source,
-            &mut sink,
-            selection(1, 1),
-            options(),
-            &Limits::default(),
-            &NeverCancel,
-        )
-        .unwrap_err();
+        let (error, pdf) = run_error(damaged, ComposeOptions::default());
         assert!(
-            sink.bytes.is_empty(),
-            "failed preflight emitted PDF bytes at +{relative}"
+            no_image(&pdf),
+            "failed preflight emitted an image at +{relative}"
         );
+        assert_eq!(error.stage, ComposeStage::Headers, "{error}");
         assert_eq!((error.page, error.image), (Some(1), Some(1)));
         assert!(error.offset.is_some());
     }
 }
 
 #[test]
-fn selected_type3_payload_is_read_once_for_metadata_and_once_for_decode() {
-    let record = type3(9, 3, 0x10);
-    let length = record.payload.len() as u64;
-    let built = container(Layout::HnA, &[vec![record]]);
-    let payload = built.payloads[0][0];
-    let mut source = Source::new(built.bytes);
-    source.max_read = 7;
-    source.payload = Some((payload, payload + length));
-    let mut sink = Sink::default();
-    run(
-        &mut source,
-        &mut sink,
-        selection(1, 1),
-        options(),
-        &Limits::default(),
-        &NeverCancel,
-    )
-    .unwrap();
-    // Preflight reads the DIB and segment metadata; decode reads the coded
-    // segments. Neither pass hashes or re-reads the whole span.
-    assert!(
-        source.payload_bytes_read <= 2 * length,
-        "{} payload bytes read for a {length}-byte span",
-        source.payload_bytes_read
-    );
-}
-
-#[test]
 fn located_stage_errors_cover_each_checked_metadata_boundary() {
-    let built = container(Layout::C8, &[vec![type3(9, 2, 0x10)]]);
+    let built = document(Variant::C8, &[vec![type3(9, 2, 0x10)]]);
     let base = built.payloads[0][0] as usize;
     // Five original segments are 30, 25, 26, 42, and 36 bytes long.
     let segment = [48, 78, 103, 129, 171];
@@ -827,255 +528,143 @@ fn located_stage_errors_cover_each_checked_metadata_boundary() {
     ] {
         let mut bytes = built.bytes.clone();
         bytes[base + relative] = value;
-        let mut source = Source::new(bytes);
-        let mut sink = Sink::default();
-        let error = run(
-            &mut source,
-            &mut sink,
-            selection(1, 1),
-            options(),
-            &Limits::default(),
-            &NeverCancel,
-        )
-        .unwrap_err();
-        assert!(sink.bytes.is_empty(), "{name} unexpectedly wrote PDF bytes");
+        let (error, pdf) = run_error(bytes, ComposeOptions::default());
+        assert!(no_image(&pdf), "{name} unexpectedly started an image");
         assert_eq!((error.page, error.image), (Some(1), Some(1)), "{name}");
-        let Type3PdfErrorKind::Stage { stage, .. } = error.kind else {
-            panic!("{name}: {error:?}");
-        };
-        assert_eq!(stage, expected, "{name}");
+        assert_eq!(stage(&error), Some(expected), "{name}: {error}");
     }
 
     let mut record = type3(9, 2, 0x10);
     record.payload.truncate(segment[4]); // omit the entire fifth segment
-    let built = container(Layout::C8, &[vec![record]]);
-    let mut source = Source::new(built.bytes);
-    let mut sink = Sink::default();
-    let error = run(
-        &mut source,
-        &mut sink,
-        selection(1, 1),
-        options(),
-        &Limits::default(),
-        &NeverCancel,
-    )
-    .unwrap_err();
-    assert!(sink.bytes.is_empty());
-    assert!(matches!(
-        error.kind,
-        Type3PdfErrorKind::Stage {
-            stage: Type3Stage::Profile,
-            ..
-        }
-    ));
+    let built = document(Variant::C8, &[vec![record]]);
+    let (error, pdf) = run_error(built.bytes, ComposeOptions::default());
+    assert!(no_image(&pdf));
+    assert_eq!(stage(&error), Some(Type3Stage::Profile), "{error}");
+    assert_eq!(error.stage, ComposeStage::Headers);
 }
 
 #[test]
-fn dirty_workspaces_and_scratch_read_failure_are_typed() {
-    let built = container(Layout::HnB, &[vec![type3(9, 2, 0x10)]]);
-    for fault in [
-        WorkspaceFault::DirtyFirst,
-        WorkspaceFault::DirtySecond,
-        WorkspaceFault::DirtyRefined,
-        WorkspaceFault::DirtyText,
-    ] {
-        let mut source = Source::new(built.bytes.clone());
+fn dirty_stores_are_reset_and_scratch_read_failure_is_typed() {
+    let built = document(Variant::HnA, &[vec![type3(9, 2, 0x10)]]);
+    let clean = {
         let mut sink = Sink::default();
-        let error = run_with_workspace_fault(
-            &mut source,
+        run(
+            &mut Source::new(built.bytes.clone()),
             &mut sink,
-            selection(1, 1),
-            options(),
+            ComposeOptions::default(),
             &Limits::default(),
             &NeverCancel,
-            fault,
         )
-        .unwrap_err();
-        assert!(matches!(error.kind, Type3PdfErrorKind::Workspace(_)));
-        assert!(sink.bytes.is_empty());
+        .unwrap();
+        sink.bytes
+    };
+    for dirty in 0..4 {
+        let mut stores: [Store; 4] = Default::default();
+        stores[dirty].bytes.push(1);
+        let mut sink = Sink::default();
+        run_with(
+            &mut Source::new(built.bytes.clone()),
+            &mut sink,
+            &mut stores,
+            &mut Anomalies::default(),
+            ComposeOptions::default(),
+            &Limits::default(),
+            &NeverCancel,
+        )
+        .unwrap();
+        assert_eq!(sink.bytes, clean, "store {dirty}");
+        assert!(stores.iter().all(|store| store.bytes.is_empty()));
     }
 
-    let mut source = Source::new(built.bytes);
-    let mut sink = Sink::default();
-    let error = run_with_workspace_fault(
-        &mut source,
-        &mut sink,
-        selection(1, 1),
-        options(),
+    let mut stores: [Store; 4] = Default::default();
+    stores[0].fail_read_after = Some(2);
+    let error = run_with(
+        &mut Source::new(built.bytes),
+        &mut Sink::default(),
+        &mut stores,
+        &mut Anomalies::default(),
+        ComposeOptions::default(),
         &Limits::default(),
         &NeverCancel,
-        WorkspaceFault::ScratchRead,
     )
     .unwrap_err();
-    assert!(
-        matches!(
-            error.kind,
-            Type3PdfErrorKind::Stage {
-                stage: Type3Stage::PageCompose,
-                ..
-            }
-        ),
-        "{error:?}"
-    );
+    assert_eq!(stage(&error), Some(Type3Stage::PageCompose), "{error}");
+    assert_eq!((error.page, error.image), (Some(1), Some(1)));
 }
 
 #[test]
-fn pdf_scale_and_page_budget_are_checked_at_selected_geometry() {
-    let built = container(Layout::C8, &[vec![type3(9, 2, 0x10)]]);
-    for ppi in [f64::NAN, f64::INFINITY, -1.0, 1e-10, 1e10] {
-        let mut source = Source::new(built.bytes.clone());
-        let mut sink = Sink::default();
-        let error = run(
-            &mut source,
-            &mut sink,
-            selection(1, 1),
-            Type3PdfOptions {
-                pixels_per_inch: ppi,
-                ..options()
+fn page_compose_and_context_budgets_are_checked() {
+    let built = document(Variant::C8, &[vec![type3(9, 2, 0x10)]]);
+    let (error, _) = run_error(
+        built.bytes.clone(),
+        type3_options(Type3PdfOptions {
+            page_compose: caj2pdf_core::jbig2::page_compose::PageComposeBudget {
+                max_packed_bytes: 0,
+                ..Default::default()
             },
-            &Limits::default(),
-            &NeverCancel,
-        )
-        .unwrap_err();
-        assert!(matches!(error.kind, Type3PdfErrorKind::InvalidOptions(_)));
-        assert!(sink.bytes.is_empty());
-    }
-    let mut source = Source::new(built.bytes.clone());
-    let mut sink = Sink::default();
-    let page_budget_options = Type3PdfOptions {
-        page_compose: caj2pdf_core::jbig2::page_compose::PageComposeBudget {
-            max_packed_bytes: 0,
             ..Default::default()
-        },
-        ..options()
-    };
-    let error = run(
-        &mut source,
-        &mut sink,
-        selection(1, 1),
-        page_budget_options,
-        &Limits::default(),
-        &NeverCancel,
-    )
-    .unwrap_err();
-    assert!(matches!(
-        error.kind,
-        Type3PdfErrorKind::Stage {
-            stage: Type3Stage::PageCompose,
-            ..
-        }
-    ));
-
-    let mut source = Source::new(built.bytes);
-    let mut sink = Sink::default();
-    let context_budget_options = Type3PdfOptions {
-        mq: caj2pdf_core::jbig2::mq::MqBudget {
-            max_contexts: 1024,
-            ..Default::default()
-        },
-        ..options()
-    };
-    let error = run(
-        &mut source,
-        &mut sink,
-        selection(1, 1),
-        context_budget_options,
-        &Limits::default(),
-        &NeverCancel,
-    )
-    .unwrap_err();
-    assert!(
-        matches!(
-            error.kind,
-            Type3PdfErrorKind::Stage {
-                stage: Type3Stage::Contexts,
-                ..
-            }
-        ),
-        "{error:?}"
+        }),
     );
+    assert_eq!(stage(&error), Some(Type3Stage::PageCompose), "{error}");
+
+    let (error, _) = run_error(
+        built.bytes,
+        type3_options(Type3PdfOptions {
+            mq: caj2pdf_core::jbig2::mq::MqBudget {
+                max_contexts: 1024,
+                ..Default::default()
+            },
+            ..Default::default()
+        }),
+    );
+    assert_eq!(stage(&error), Some(Type3Stage::Contexts), "{error}");
+    assert_eq!(error.stage, ComposeStage::Decode);
 }
 
 #[test]
 fn second_dictionary_context_growth_and_text_scratch_budget_are_checked() {
-    let built = container(Layout::HnB, &[vec![type3(9, 2, 0x10)]]);
+    let built = document(Variant::HnA, &[vec![type3(9, 2, 0x10)]]);
     let mut bytes = built.bytes.clone();
     let second_data = built.payloads[0][0] as usize + 103 + 12;
     bytes[second_data + 8..second_data + 12].copy_from_slice(&2_u32.to_be_bytes());
-    let mut source = Source::new(bytes);
-    let mut sink = Sink::default();
-    let context_options = Type3PdfOptions {
-        mq: caj2pdf_core::jbig2::mq::MqBudget {
-            max_contexts: caj2pdf_core::jbig2::integer::INTEGER_CONTEXT_COUNT + 1024,
+    let (error, pdf) = run_error(
+        bytes,
+        type3_options(Type3PdfOptions {
+            mq: caj2pdf_core::jbig2::mq::MqBudget {
+                max_contexts: caj2pdf_core::jbig2::integer::INTEGER_CONTEXT_COUNT + 1024,
+                ..Default::default()
+            },
             ..Default::default()
-        },
-        ..options()
-    };
-    let error = run(
-        &mut source,
-        &mut sink,
-        selection(1, 1),
-        context_options,
-        &Limits::default(),
-        &NeverCancel,
-    )
-    .unwrap_err();
-    assert!(
-        matches!(
-            error.kind,
-            Type3PdfErrorKind::Stage {
-                stage: Type3Stage::Contexts,
-                ..
-            }
-        ),
-        "{error:?}"
+        }),
     );
-    assert!(sink.bytes.is_empty());
+    assert_eq!(stage(&error), Some(Type3Stage::Contexts), "{error}");
+    assert!(no_image(&pdf));
 
-    let mut source = Source::new(built.bytes);
-    let mut sink = Sink::default();
-    let compose_options = Type3PdfOptions {
-        text_compose: caj2pdf_core::jbig2::text_composer::TextComposeBudget {
-            max_scratch_bytes: 0,
+    let (error, pdf) = run_error(
+        built.bytes,
+        type3_options(Type3PdfOptions {
+            text_compose: caj2pdf_core::jbig2::text_composer::TextComposeBudget {
+                max_scratch_bytes: 0,
+                ..Default::default()
+            },
             ..Default::default()
-        },
-        ..options()
-    };
-    let error = run(
-        &mut source,
-        &mut sink,
-        selection(1, 1),
-        compose_options,
-        &Limits::default(),
-        &NeverCancel,
-    )
-    .unwrap_err();
-    assert!(
-        matches!(
-            error.kind,
-            Type3PdfErrorKind::Stage {
-                stage: Type3Stage::TextCompose,
-                ..
-            }
-        ),
-        "{error:?}"
+        }),
     );
-    assert!(sink.bytes.is_empty());
+    assert_eq!(stage(&error), Some(Type3Stage::TextCompose), "{error}");
+    assert!(no_image(&pdf));
 }
 
 #[test]
-fn row_width_boundaries_keep_zero_low_padding_in_selected_pdf() {
-    let limits = Limits::default();
+fn row_width_boundaries_keep_zero_low_padding() {
     for width in [7, 8, 9, 31, 32, 33] {
-        let built = container(Layout::C8, &[vec![type3(width, 3, 0x10)]]);
+        let built = document(Variant::C8, &[vec![type3(width, 3, 0x10)]]);
         let mut source = Source::new(built.bytes);
         let mut sink = Sink::default();
         let report = run(
             &mut source,
             &mut sink,
-            selection(1, 1),
-            options(),
-            &limits,
+            ComposeOptions::default(),
+            &Limits::default(),
             &NeverCancel,
         )
         .unwrap_or_else(|error| panic!("width {width}: {error}"));
@@ -1089,164 +678,76 @@ fn row_width_boundaries_keep_zero_low_padding_in_selected_pdf() {
                 assert_eq!(row[stride - 1] & low_mask, 0);
             }
         }
-        assert_eq!(report.page.width, width);
+        assert_eq!(report.type3_images, 1);
         validate_one_image_pdf(&sink.bytes, width, 3);
     }
 }
 
 #[test]
-fn selected_identity_type_and_dib_errors_are_located() {
-    let limits = Limits::default();
-    let built = container(
-        Layout::HnA,
-        &[vec![
-            Record {
-                kind: 2,
-                payload: vec![0; 48],
-            },
-            type3(9, 2, 0x10),
-        ]],
-    );
-    for selected in [
-        selection(0, 1),
-        selection(1, 0),
-        selection(1, 3),
-        selection(2, 1),
-    ] {
-        let mut source = Source::new(built.bytes.clone());
-        let mut sink = Sink::default();
-        let error = run(
-            &mut source,
-            &mut sink,
-            selected,
-            options(),
-            &limits,
-            &NeverCancel,
-        )
-        .unwrap_err();
-        assert!(sink.bytes.is_empty());
-        assert_eq!(
-            (error.page, error.image),
-            (Some(selected.page_number), Some(selected.image_number))
-        );
-        assert!(error.offset.is_some());
-        if selected.page_number == 0 || selected.image_number == 0 {
-            assert_eq!(error.offset, Some(0));
-        }
-        assert!(matches!(
-            error.kind,
-            Type3PdfErrorKind::InvalidSelection(_) | Type3PdfErrorKind::Container(_)
-        ));
-    }
-    let mut source = Source::new(built.bytes.clone());
-    let mut sink = Sink::default();
-    let error = run(
-        &mut source,
-        &mut sink,
-        selection(1, 1),
-        options(),
-        &limits,
-        &NeverCancel,
-    )
-    .unwrap_err();
-    assert_eq!(
-        (error.page, error.image, error.offset),
-        (Some(1), Some(1), Some(built.descriptors[0][0]))
-    );
-    assert!(matches!(
-        error.kind,
-        Type3PdfErrorKind::UnsupportedImageType(2)
-    ));
-
+fn dib_bit_count_empty_span_and_nonpositive_dimensions_are_refused() {
+    let built = document(Variant::HnA, &[vec![type3(9, 2, 0x10)]]);
     let mut corrupt = built.bytes.clone();
-    corrupt[built.payloads[0][1] as usize + 14] = 8; // 8 bpp, not observed 1 bpp
-    let mut source = Source::new(corrupt);
-    let mut sink = Sink::default();
-    let error = run(
-        &mut source,
-        &mut sink,
-        selection(1, 2),
-        options(),
-        &limits,
-        &NeverCancel,
-    )
-    .unwrap_err();
-    assert!(sink.bytes.is_empty());
-    assert_eq!((error.page, error.image), (Some(1), Some(2)));
-    assert!(matches!(
-        error.kind,
-        Type3PdfErrorKind::DibMalformed(_) | Type3PdfErrorKind::Stage { .. }
-    ));
-}
+    corrupt[built.payloads[0][0] as usize + 14] = 8; // 8 bpp, not observed 1 bpp
+    let (error, pdf) = run_error(corrupt, ComposeOptions::default());
+    assert!(no_image(&pdf));
+    assert_eq!((error.page, error.image), (Some(1), Some(1)));
+    assert!(
+        matches!(error.kind, ComposeErrorKind::Type3Dib(_)),
+        "{error}"
+    );
+    assert_eq!(error.offset, Some(built.payloads[0][0] + 12));
 
-#[test]
-fn empty_coded_span_and_nonpositive_dib_dimensions_are_refused() {
-    let built = container(
-        Layout::C8,
-        &[vec![Record {
+    let empty = document(
+        Variant::C8,
+        &[vec![Image {
             kind: 3,
             payload: dib(9, 2).to_vec(),
+            width: 9,
+            height: 2,
         }]],
     );
-    let mut source = Source::new(built.bytes);
-    let mut sink = Sink::default();
-    let error = run(
-        &mut source,
-        &mut sink,
-        selection(1, 1),
-        options(),
-        &Limits::default(),
-        &NeverCancel,
-    )
-    .unwrap_err();
-    assert!(matches!(error.kind, Type3PdfErrorKind::DibMalformed(_)));
-    assert!(sink.bytes.is_empty());
+    let (error, pdf) = run_error(empty.bytes, ComposeOptions::default());
+    assert!(
+        matches!(error.kind, ComposeErrorKind::Type3Dib(_)),
+        "{error}"
+    );
+    assert!(no_image(&pdf));
 
-    let built = container(Layout::C8, &[vec![type3(9, 2, 0x10)]]);
     for dimension in [4, 8] {
         let mut bytes = built.bytes.clone();
-        bytes[built.payloads[0][0] as usize + dimension
-            ..built.payloads[0][0] as usize + dimension + 4]
-            .copy_from_slice(&0_i32.to_le_bytes());
-        let mut source = Source::new(bytes);
-        let mut sink = Sink::default();
-        let error = run(
-            &mut source,
-            &mut sink,
-            selection(1, 1),
-            options(),
-            &Limits::default(),
-            &NeverCancel,
-        )
-        .unwrap_err();
-        assert!(matches!(error.kind, Type3PdfErrorKind::DibMalformed(_)));
-        assert!(sink.bytes.is_empty());
+        let at = built.payloads[0][0] as usize + dimension;
+        bytes[at..at + 4].copy_from_slice(&0_i32.to_le_bytes());
+        let (error, pdf) = run_error(bytes, ComposeOptions::default());
+        assert!(
+            matches!(error.kind, ComposeErrorKind::Type3Dib(_)),
+            "{error}"
+        );
+        assert_eq!(error.stage, ComposeStage::Headers);
+        assert!(no_image(&pdf));
     }
 }
 
 #[test]
-fn per_image_directory_and_page_limits_refuse_before_pdf() {
-    let built = container(Layout::HnB, &[vec![type3(9, 2, 0x10)]]);
+fn per_image_directory_and_page_limits_refuse_before_image_output() {
+    let built = document(Variant::C8, &[vec![type3(9, 2, 0x10)]]);
+    let mut span = ComposeOptions::default();
+    span.container.max_image_span_bytes = 100;
+    let (error, pdf) = run_error(built.bytes.clone(), span);
+    assert!(
+        matches!(error.kind, ComposeErrorKind::Container(_)),
+        "{error}"
+    );
+    assert!(no_image(&pdf));
     for (options, expected) in [
-        (
-            Type3PdfOptions {
-                container: caj2pdf_core::hnc8::Budget {
-                    max_image_span_bytes: 100,
-                    ..Default::default()
-                },
-                ..options()
-            },
-            None,
-        ),
         (
             Type3PdfOptions {
                 directory: caj2pdf_core::jbig2::DirectoryLimits {
                     max_segments: 4,
                     ..Default::default()
                 },
-                ..options()
+                ..Default::default()
             },
-            Some(Type3Stage::Directory),
+            Type3Stage::Directory,
         ),
         (
             Type3PdfOptions {
@@ -1254,111 +755,79 @@ fn per_image_directory_and_page_limits_refuse_before_pdf() {
                     max_width: 8,
                     ..Default::default()
                 },
-                ..options()
+                ..Default::default()
             },
-            Some(Type3Stage::PageInfo),
+            Type3Stage::PageInfo,
         ),
     ] {
-        let mut source = Source::new(built.bytes.clone());
-        let mut sink = Sink::default();
-        let error = run(
-            &mut source,
-            &mut sink,
-            selection(1, 1),
-            options,
-            &Limits::default(),
-            &NeverCancel,
-        )
-        .unwrap_err();
-        assert!(sink.bytes.is_empty());
-        match expected {
-            None => assert!(matches!(error.kind, Type3PdfErrorKind::Container(_))),
-            Some(stage) => assert!(
-                matches!(error.kind, Type3PdfErrorKind::Stage { stage: actual, .. } if actual == stage),
-                "{error:?}"
-            ),
-        }
+        let (error, pdf) = run_error(built.bytes.clone(), type3_options(options));
+        assert!(no_image(&pdf));
+        assert_eq!(stage(&error), Some(expected), "{error}");
     }
 }
 
 #[test]
 fn generic_marker_and_pdf_sink_faults_propagate_without_success() {
-    let built = container(Layout::C8, &[vec![type3(9, 3, 0x10)]]);
+    let built = document(Variant::C8, &[vec![type3(9, 3, 0x10)]]);
     let mut damaged = built.bytes.clone();
     let generic_tail = damaged.len() - 1;
     damaged[generic_tail] = 0xab; // not the MQ terminal marker 0xac
-    let mut source = Source::new(damaged);
-    let mut sink = Sink::default();
-    let error = run(
-        &mut source,
-        &mut sink,
-        selection(1, 1),
-        options(),
-        &Limits::default(),
-        &NeverCancel,
-    )
-    .unwrap_err();
-    assert!(
-        matches!(
-            error.kind,
-            Type3PdfErrorKind::Stage {
-                stage: Type3Stage::GenericRegion,
-                ..
-            }
-        ),
-        "{error:?}"
-    );
-    assert!(!sink.bytes.is_empty()); // caller discards this partial stream
+    let (error, pdf) = run_error(damaged, ComposeOptions::default());
+    assert_eq!(stage(&error), Some(Type3Stage::GenericRegion), "{error}");
+    assert!(!no_image(&pdf)); // the caller discards this partial stream
 
-    let mut source = Source::new(built.bytes.clone());
     let mut sink = Sink::default();
     run(
-        &mut source,
+        &mut Source::new(built.bytes.clone()),
         &mut sink,
-        selection(1, 1),
-        options(),
+        ComposeOptions::default(),
         &Limits::default(),
         &NeverCancel,
     )
     .unwrap();
     let writes = sink.writes;
     assert!(writes > 10);
-    let mut saw_pdf = false;
+    let mut saw_image = false;
     for fail_at in 1..=writes {
-        let mut source = Source::new(built.bytes.clone());
         let mut sink = Sink {
             fail_at: Some(fail_at),
             ..Sink::default()
         };
         let error = run(
-            &mut source,
+            &mut Source::new(built.bytes.clone()),
             &mut sink,
-            selection(1, 1),
-            options(),
+            ComposeOptions::default(),
             &Limits::default(),
             &NeverCancel,
         )
         .unwrap_err();
-        assert_eq!((error.page, error.image), (Some(1), Some(1)));
-        match error.kind {
-            Type3PdfErrorKind::Pdf(_) => saw_pdf = true,
-            Type3PdfErrorKind::Stage {
-                stage: Type3Stage::PageCompose,
-                ..
-            } => {}
-            other => panic!("sink failure at write {fail_at}: {other:?}"),
+        assert_eq!(error.variant, Some(Variant::C8));
+        match (&error.kind, error.stage) {
+            (ComposeErrorKind::Io(Error::Io(_)), ComposeStage::Pdf) => {}
+            (
+                ComposeErrorKind::Type3 {
+                    stage: Type3Stage::PageCompose,
+                    ..
+                },
+                _,
+            ) => {}
+            _ => panic!("sink failure at write {fail_at}: {error:?}"),
+        }
+        if error.image.is_some() {
+            assert_eq!((error.page, error.image), (Some(1), Some(1)));
+            saw_image = true;
         }
     }
-    // A small image may remain entirely inside the compressor until finalization,
-    // so sink failures need not occur during PageCompose for this fixture.
-    assert!(saw_pdf);
+    // A small image may remain entirely inside the compressor until its
+    // stream closes, so its failures need not occur during PageCompose.
+    assert!(saw_image);
 }
 
 #[test]
 fn located_decoder_input_failures_cover_dictionary_text_and_generic_stages() {
-    let built = container(Layout::HnB, &[vec![type3(9, 3, 0x10)]]);
+    let built = document(Variant::HnA, &[vec![type3(9, 3, 0x10)]]);
     let base = built.payloads[0][0];
-    for (name, relative, stage) in [
+    for (name, relative, expected) in [
         (
             "first dictionary header",
             78 + 11,
@@ -1377,24 +846,19 @@ fn located_decoder_input_failures_cover_dictionary_text_and_generic_stages() {
     ] {
         let mut source = Source::new(built.bytes.clone());
         source.fail_at = Some(base + relative);
-        let mut sink = Sink::default();
         let error = run(
             &mut source,
-            &mut sink,
-            selection(1, 1),
-            options(),
+            &mut Sink::default(),
+            ComposeOptions::default(),
             &Limits::default(),
             &NeverCancel,
         )
         .unwrap_err();
         assert_eq!((error.page, error.image), (Some(1), Some(1)), "{name}");
-        assert!(
-            matches!(error.kind, Type3PdfErrorKind::Stage { stage: actual, .. } if actual == stage),
-            "{name}: {error:?}"
-        );
+        assert_eq!(stage(&error), Some(expected), "{name}: {error}");
     }
 
-    for (name, relative, stage) in [
+    for (name, relative, expected) in [
         (
             "first dictionary body",
             78 + 11 + 12,
@@ -1414,110 +878,56 @@ fn located_decoder_input_failures_cover_dictionary_text_and_generic_stages() {
         let mut damaged = built.bytes.clone();
         let at = base as usize + relative as usize;
         damaged[at..at + 2].fill(0);
-        let mut source = Source::new(damaged);
-        let mut sink = Sink::default();
-        let error = match run(
-            &mut source,
-            &mut sink,
-            selection(1, 1),
-            options(),
-            &Limits::default(),
-            &NeverCancel,
-        ) {
-            Ok(report) => panic!("{name} unexpectedly converted: {report:?}"),
-            Err(error) => error,
-        };
-        assert!(
-            matches!(error.kind, Type3PdfErrorKind::Stage { stage: actual, .. } if actual == stage),
-            "{name}: {error:?}"
-        );
+        let (error, _) = run_error(damaged, ComposeOptions::default());
+        assert_eq!(stage(&error), Some(expected), "{name}: {error}");
     }
 
     let mut source = Source::new(built.bytes);
     source.fail_on_offset_visit = Some((base + 129 + 12, 2));
-    let mut sink = Sink::default();
     let error = run(
         &mut source,
-        &mut sink,
-        selection(1, 1),
-        options(),
+        &mut Sink::default(),
+        ComposeOptions::default(),
         &Limits::default(),
         &NeverCancel,
     )
     .unwrap_err();
-    assert!(
-        matches!(
-            error.kind,
-            Type3PdfErrorKind::Stage {
-                stage: Type3Stage::TextInstances,
-                ..
-            }
-        ),
-        "{error:?}"
-    );
+    assert_eq!(stage(&error), Some(Type3Stage::TextInstances), "{error}");
 }
 
 #[test]
 fn strict_text_header_refuses_anomaly_but_named_opt_in_records_it() {
-    let built = container(Layout::C8, &[vec![type3(9, 2, 0xa40c)]]);
-    let mut source = Source::new(built.bytes.clone());
-    let mut sink = Sink::default();
-    let strict = run(
-        &mut source,
-        &mut sink,
-        selection(1, 1),
-        options(),
-        &Limits::default(),
-        &NeverCancel,
-    )
-    .unwrap_err();
-    assert!(sink.bytes.is_empty());
+    let built = document(Variant::C8, &[vec![type3(9, 2, 0xa40c)]]);
+    let (strict, pdf) = run_error(built.bytes.clone(), ComposeOptions::default());
+    assert!(no_image(&pdf));
     assert_eq!((strict.page, strict.image), (Some(1), Some(1)));
-    assert!(matches!(strict.kind, Type3PdfErrorKind::Stage { .. }));
+    assert!(stage(&strict).is_some(), "{strict}");
 
-    let mut source = Source::new(built.bytes);
     let mut sink = Sink::default();
-    let report = run(
-        &mut source,
+    let mut anomalies = Anomalies::default();
+    run_with(
+        &mut Source::new(built.bytes),
         &mut sink,
-        selection(1, 1),
-        Type3PdfOptions {
+        &mut Default::default(),
+        &mut anomalies,
+        type3_options(Type3PdfOptions {
             text_header_policy: TextHeaderPolicy::HnC8UnusedRefinementTemplate,
-            ..options()
-        },
+            ..Default::default()
+        }),
         &Limits::default(),
         &NeverCancel,
     )
     .unwrap();
     assert_eq!(
-        report.text_header_anomaly,
-        Some(TextHeaderAnomaly::UnusedRefinementTemplate)
+        anomalies.0,
+        [Some(TextHeaderAnomaly::UnusedRefinementTemplate)]
     );
     validate_one_image_pdf(&sink.bytes, 9, 2);
 }
 
 #[test]
-fn invalid_options_limits_cancellation_and_io_faults_never_report_success() {
-    let built = container(Layout::HnB, &[vec![type3(9, 2, 0x10)]]);
-    let selected = selection(1, 1);
-    let mut source = Source::new(built.bytes.clone());
-    let mut sink = Sink::default();
-    let error = run(
-        &mut source,
-        &mut sink,
-        selected,
-        Type3PdfOptions {
-            pixels_per_inch: 0.0,
-            ..options()
-        },
-        &Limits::default(),
-        &NeverCancel,
-    )
-    .unwrap_err();
-    assert!(sink.bytes.is_empty());
-    assert!(matches!(error.kind, Type3PdfErrorKind::InvalidOptions(_)));
-
-    let mut source = Source::new(built.bytes.clone());
+fn limits_cancellation_and_io_faults_never_report_success() {
+    let built = document(Variant::HnA, &[vec![type3(9, 2, 0x10)]]);
     let mut sink = Sink::default();
     let limits = Limits {
         max_input_bytes: built.bytes.len() as u64 - 1,
@@ -1525,30 +935,28 @@ fn invalid_options_limits_cancellation_and_io_faults_never_report_success() {
     };
     assert!(
         run(
-            &mut source,
+            &mut Source::new(built.bytes.clone()),
             &mut sink,
-            selected,
-            options(),
+            ComposeOptions::default(),
             &limits,
             &NeverCancel
         )
         .is_err()
     );
-    assert!(sink.bytes.is_empty());
+    assert!(no_image(&sink.bytes));
 
-    let mut source = Source::new(built.bytes.clone());
-    let mut sink = Sink::default();
-    let error = run(
-        &mut source,
-        &mut sink,
-        selected,
-        options(),
-        &Limits::default(),
-        &CancelAfter::new(0),
-    )
-    .unwrap_err();
-    assert_eq!((error.page, error.image), (Some(1), Some(1)));
-    assert!(sink.bytes.is_empty());
+    for allowed in [0, 40] {
+        let mut sink = Sink::default();
+        let error = run(
+            &mut Source::new(built.bytes.clone()),
+            &mut sink,
+            ComposeOptions::default(),
+            &Limits::default(),
+            &CancelAfter::new(allowed),
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("cancelled"), "{error}");
+    }
 
     for kind in 0..4 {
         let mut source = Source::new(built.bytes.clone());
@@ -1563,32 +971,32 @@ fn invalid_options_limits_cancellation_and_io_faults_never_report_success() {
             run(
                 &mut source,
                 &mut sink,
-                selected,
-                options(),
+                ComposeOptions::default(),
                 &Limits::default(),
                 &NeverCancel
             )
             .is_err()
         );
-        assert!(sink.bytes.is_empty());
+        assert!(no_image(&sink.bytes));
     }
 
-    let mut source = Source::new(built.bytes);
     let mut sink = Sink {
         fail_at: Some(1),
         ..Sink::default()
     };
     let error = run(
-        &mut source,
+        &mut Source::new(built.bytes),
         &mut sink,
-        selected,
-        options(),
+        ComposeOptions::default(),
         &Limits::default(),
         &NeverCancel,
     )
     .unwrap_err();
-    assert_eq!((error.page, error.image), (Some(1), Some(1)));
-    assert!(matches!(error.kind, Type3PdfErrorKind::Pdf(_)));
+    assert!(
+        matches!(error.kind, ComposeErrorKind::Io(Error::Io(_))),
+        "{error}"
+    );
+    assert_eq!(error.stage, ComposeStage::Pdf);
 }
 
 #[test]

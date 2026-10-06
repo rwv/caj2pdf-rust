@@ -1529,79 +1529,26 @@ fn nested_type0_error_mapping_preserves_identity_stage_and_error_sources() {
     };
     let cases = [
         (
-            Type0PdfErrorKind::Image(Box::new(example_image_error(Type0ErrorKind::Malformed(
-                "original error",
-            )))),
+            Type0ErrorKind::Malformed("original error"),
             ComposeStage::Decode,
-            true,
         ),
         (
-            Type0PdfErrorKind::Image(Box::new(example_image_error(Type0ErrorKind::Sink(
-                Error::Cancelled,
-            )))),
+            Type0ErrorKind::Sink(Error::Cancelled),
             ComposeStage::Scratch,
-            true,
         ),
-        (
-            Type0PdfErrorKind::Contexts(Box::new(example_arithmetic_error())),
-            ComposeStage::Decode,
-            true,
-        ),
-        (
-            Type0PdfErrorKind::Container(Box::new(example_container_error())),
-            ComposeStage::Container,
-            true,
-        ),
-        (
-            Type0PdfErrorKind::Pdf(Error::Cancelled),
-            ComposeStage::Pdf,
-            true,
-        ),
-        (
-            Type0PdfErrorKind::InvalidOptions("original options"),
-            ComposeStage::Decode,
-            false,
-        ),
-        (
-            Type0PdfErrorKind::InvalidSelection("original selection"),
-            ComposeStage::Decode,
-            false,
-        ),
-        (
-            Type0PdfErrorKind::UnsupportedImageType(3),
-            ComposeStage::Decode,
-            false,
-        ),
-        (
-            Type0PdfErrorKind::MultipleImages(2),
-            ComposeStage::Decode,
-            false,
-        ),
-        (Type0PdfErrorKind::NoImages, ComposeStage::Decode, false),
     ];
-    for (kind, stage, nested) in cases {
-        let error = type0_decode(
-            at,
-            Type0PdfError {
-                page: Some(2),
-                image: Some(3),
-                offset: Some(99),
-                kind,
-            },
-        );
+    for (kind, stage) in cases {
+        let error = type0_decode(at, example_image_error(kind));
         located(&error, Variant::C8, Some(2), Some(3));
         assert_eq!(error.offset, Some(99));
         assert_eq!(error.stage, stage);
-        assert_error_description(&error, nested);
+        assert!(matches!(error.kind, ComposeErrorKind::Image(_)));
+        assert_error_description(&error, true);
     }
-    let jpeg = Type2PdfError {
-        page: Some(2),
-        image: Some(3),
-        offset: None,
-        kind: super::super::Type2PdfErrorKind::InvalidOptions("original JPEG choice"),
-    };
-    let error = at.jpeg(ComposeStage::Headers)(jpeg);
-    assert_eq!(error.offset, Some(41));
+    let error = at.jpeg(ComposeStage::Headers)(example_container_error());
+    located(&error, Variant::C8, Some(2), Some(3));
+    assert_eq!(error.offset, Some(99));
+    assert!(matches!(error.kind, ComposeErrorKind::Jpeg(_)));
     assert_error_description(&error, true);
     let error = at.contexts()(example_arithmetic_error());
     located(&error, Variant::C8, Some(2), Some(3));
@@ -1665,6 +1612,7 @@ fn scratch_error_mapping_preserves_primary_and_cleanup_failures() {
         ComposeErrorKind::InvalidOptions("example"),
         ComposeErrorKind::Unsupported("example"),
         ComposeErrorKind::NoImages,
+        ComposeErrorKind::Type3Dib("example"),
     ] {
         assert_error_description(&At::NONE.error((ComposeStage::Preflight, kind)), false);
     }
@@ -2208,10 +2156,18 @@ fn type3_failures_keep_location_and_cleanup_all_stores() {
         ))
         .unwrap_err();
         located(&error, Variant::C8, Some(1), Some(1));
-        assert!(
-            std::error::Error::source(&error).is_some(),
-            "mode {mode}: {error}"
-        );
+        if mode == 0 {
+            assert!(
+                matches!(error.kind, ComposeErrorKind::Type3Dib(_))
+                    && error.stage == ComposeStage::Headers,
+                "{error}"
+            );
+        } else {
+            assert!(
+                std::error::Error::source(&error).is_some(),
+                "mode {mode}: {error}"
+            );
+        }
         assert!(!error.to_string().is_empty());
         if mode == 8 {
             assert!(matches!(error.kind, ComposeErrorKind::Cleanup { .. }));
@@ -2747,6 +2703,7 @@ fn mixed_codec_content_page() -> Vec<u8> {
                     preflight_type3(
                         &mut source,
                         image.record,
+                        At::NONE,
                         options.type3,
                         &limits,
                         &NeverCancel,
