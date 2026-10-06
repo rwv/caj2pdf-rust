@@ -148,10 +148,11 @@ pub extern "C" fn caj2pdf_convert(
         return STATUS_INVALID;
     };
     let operation = Operation::Convert {
-        format,
         options: ConversionOptions {
+            format,
             include_bookmarks: flags & 1 != 0,
             allow_damaged: flags & 2 != 0,
+            ..ConversionOptions::default()
         },
     };
     let limits = limits(
@@ -336,7 +337,11 @@ pub extern "C" fn caj2pdf_omitted_page_offset(index: u32) -> u64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn caj2pdf_info_page_count() -> u32 {
     with_outcome(0, |outcome| {
-        outcome.info.as_ref().map_or(0, |info| info.page_count)
+        outcome
+            .info
+            .as_ref()
+            .and_then(|info| info.page_count)
+            .unwrap_or(0)
     })
 }
 

@@ -426,7 +426,7 @@ fn scan_caj_objects<S: RangedSource, C: Cancellation>(
 pub fn convert_caj<S: RangedSource, W: Write, C: Cancellation>(
     source: &mut S,
     sink: &mut W,
-    options: ConversionOptions,
+    options: &ConversionOptions<'_>,
     limits: &Limits,
     cancellation: &C,
 ) -> Result<ConversionReport> {

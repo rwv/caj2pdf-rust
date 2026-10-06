@@ -2,6 +2,37 @@
 
 ## Unreleased
 
+- **Breaking:** one `convert()`/`inspect()` facade for the CLI and WASM
+  (#358). Format detection and dispatch, the displaced PDF header, KDH
+  decoding, damaged-CAJ substitution, outline import and the HN/C8 font
+  routing now live once in `caj2pdf_core`; the CLI and the WASM engine call
+  `convert`, `inspect`, `inspect_pages`, `needs_fonts`, `read_outline` and
+  `index_pdf`, and the fuzz targets drive the same functions. Output bytes,
+  exit codes, `--json` fields, the raw WASM ABI and JavaScript error codes
+  are unchanged, and so are CLI messages except for the edge below.
+  - **New.** The `Progress` trait (detected format, furthest byte read,
+    cancellation; `NeverCancel` implements it), `Fonts`, `InspectOptions`,
+    `Structure`, `PageVisitor`, `ImageCounts`, `FONTS_REQUIRE_HNC8`,
+    `InputFormat::{name, is_convertible}`, and `RangedSource` for
+    `Box<S: RangedSource + ?Sized>`.
+  - **Changed shapes.** `ConversionOptions<'a>` adds `format`,
+    `text_header_policy` (default: the HN/C8 profile's documented anomaly)
+    and `fonts`, and is no longer `Copy`, `Clone`, `Debug` or `Eq`;
+    `caj::convert_caj` borrows it (`&ConversionOptions`).
+    `ConversionReport` adds `outline`, `application_info` and `images`, and
+    its `input_bytes_read` includes detection. `DocumentInfo` gains
+    `variant`, `has_outline`, `bookmarks`, `outline`, `application_info`,
+    `structure` and `input_bytes_read`, and `page_count` becomes
+    `Option<u32>` (`None` for NH, TEB and an unsupported KDH signature).
+    `hnc8::*`, `pdf::*`, `caj::*` and `kdh::*` stay public for the examples
+    and tests.
+  - **Edges.** An HN-A outline declaring more than `max_bookmarks` entries
+    (a file of over 30 MB at the default limit) now reports the located
+    `bookmarks` limit error, as WASM did, instead of `HN-A bookmark count
+    exceeds the configured limit`. A raw WASM inspection with registered
+    fonts is refused before any read, so `caj2pdf_format` stays 0; the
+    JavaScript API never registers fonts for an inspection.
+
 - **Breaking:** one located error type (#357). Every failure is
   `Error { kind, offset, context, reason }` with one `ErrorKind` and one
   `Context` (plus the `Hnc8Stage` and `Type3Stage` stage enums). Output

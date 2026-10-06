@@ -23,7 +23,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let report = convert_caj(
         &mut source,
         &mut sink,
-        ConversionOptions::default(),
+        &ConversionOptions::default(),
         &Limits::default(),
         &NeverCancel,
     )?;

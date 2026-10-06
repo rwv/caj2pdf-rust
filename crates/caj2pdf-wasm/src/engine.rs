@@ -8,16 +8,11 @@
 //! `bridge.rs` implements the host with imported JavaScript functions that
 //! run inside a Worker; native tests implement it over memory.
 
-mod hnc8;
+mod fonts;
 
 use caj2pdf_core::{
-    Cancellation, Context, ConversionOptions, ConversionReport, CountingSource, Detection,
-    DocumentInfo, Error, ErrorKind, InputFormat, Limits, RangedSource, Result,
-    caj::{convert_caj, parse_metadata},
-    detect_source,
-    hnc8::OutlineReport,
-    kdh::{KdhPdfSource, convert_kdh},
-    pdf::{PdfIndex, PdfRange, copy_pdf_range},
+    Context, ConversionOptions, ConversionReport, DocumentInfo, Error, ErrorKind,
+    FONTS_REQUIRE_HNC8, InputFormat, InspectOptions, Limits, Progress, RangedSource, Result,
 };
 use std::{cell::RefCell, io};
 
@@ -45,14 +40,11 @@ pub trait Host {
     fn cancelled(&mut self) -> bool;
 }
 
-/// The work a session performs.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+/// The work a session performs. A `None` format is detected from the
+/// leading signature.
 pub enum Operation {
-    /// Convert to PDF. `None` detects the format from the leading signature.
-    Convert {
-        format: Option<InputFormat>,
-        options: ConversionOptions,
-    },
+    /// Convert to PDF with the registered fonts, if any.
+    Convert { options: ConversionOptions<'static> },
     /// Read bounded structure metadata; writes nothing.
     Inspect { format: Option<InputFormat> },
 }
@@ -154,14 +146,11 @@ pub struct Outcome {
     pub application_info: Option<caj2pdf_core::hnc8::ApplicationInfo>,
 }
 
-/// A ranged source served by the host. The document source (resource 0)
-/// reports progress as the furthest byte read.
+/// A ranged source served by the host: the document (resource 0) or a font.
 struct HostSource<'h, H: Host> {
     host: &'h RefCell<&'h mut H>,
     resource: u32,
     size: u64,
-    furthest: u64,
-    shown: Option<u32>,
 }
 
 impl<'h, H: Host> HostSource<'h, H> {
@@ -170,21 +159,6 @@ impl<'h, H: Host> HostSource<'h, H> {
             host,
             resource,
             size,
-            furthest: 0,
-            shown: None,
-        }
-    }
-
-    fn report_progress(&mut self, end: u64) {
-        if self.resource != 0 || end <= self.furthest {
-            return;
-        }
-        self.furthest = end;
-        // `end <= size`, so the quotient is at most `PROGRESS_TOTAL`.
-        let done = (u128::from(end) * u128::from(PROGRESS_TOTAL) / u128::from(self.size)) as u32;
-        if self.shown != Some(done) {
-            self.shown = Some(done);
-            self.host.borrow_mut().progress(done, PROGRESS_TOTAL);
         }
     }
 }
@@ -216,7 +190,6 @@ impl<H: Host> RangedSource for HostSource<'_, H> {
                 "host read returned more bytes than requested",
             ));
         }
-        self.report_progress(offset + count as u64);
         Ok(count)
     }
 }
@@ -242,11 +215,30 @@ impl<H: Host> io::Write for HostSink<'_, H> {
     }
 }
 
-struct HostCancellation<'h, H: Host> {
+/// The reported format, progress in thousandths of the document read, and
+/// the host's cancellation.
+struct HostProgress<'h, H: Host> {
     host: &'h RefCell<&'h mut H>,
+    format: Option<InputFormat>,
+    shown: Option<u32>,
 }
 
-impl<H: Host> Cancellation for HostCancellation<'_, H> {
+impl<H: Host> Progress for HostProgress<'_, H> {
+    fn format(&mut self, format: Option<InputFormat>) {
+        self.format = format;
+    }
+
+    fn input_read(&mut self, done: u64, total: u64) {
+        // A host source never reads past its size, so the quotient is at
+        // most `PROGRESS_TOTAL`.
+        let done = (u128::from(done.min(total)) * u128::from(PROGRESS_TOTAL)
+            / u128::from(total.max(1))) as u32;
+        if self.shown != Some(done) {
+            self.shown = Some(done);
+            self.host.borrow_mut().progress(done, PROGRESS_TOTAL);
+        }
+    }
+
     fn is_cancelled(&self) -> bool {
         self.host.borrow_mut().cancelled()
     }
@@ -256,7 +248,7 @@ impl<H: Host> Cancellation for HostCancellation<'_, H> {
 /// session per WASM instance and resets it between operations.
 #[derive(Default)]
 pub struct Session {
-    fonts: hnc8::Fonts,
+    fonts: fonts::Fonts,
     format: Option<InputFormat>,
     result: Option<Result<Outcome>>,
     message: String,
@@ -360,181 +352,86 @@ fn bounded_message(error: &Error) -> String {
     message
 }
 
+/// Locate an unlocated failure of an HN/C8 operation in HN/C8, so that it
+/// keeps the `HNC8` code.
+fn in_hnc8(error: Error, format: Option<InputFormat>) -> Error {
+    match format {
+        Some(InputFormat::Hn | InputFormat::C8) if error.context == Context::None => {
+            error.within(Context::Hnc8 {
+                variant: None,
+                page: None,
+                image: None,
+                segment: None,
+                stage: None,
+            })
+        }
+        _ => error,
+    }
+}
+
 fn run<'h, H: Host>(
     host: &'h RefCell<&'h mut H>,
     source_size: u64,
-    fonts: &hnc8::Fonts,
+    fonts: &fonts::Fonts,
     limits: Limits,
     operation: Operation,
     detected: &mut Option<InputFormat>,
 ) -> Result<Outcome> {
     let mut source = HostSource::new(host, 0, source_size);
-    let mut sink = HostSink { host };
-    let cancellation = HostCancellation { host };
-    let explicit = match operation {
-        Operation::Convert { format, .. } | Operation::Inspect { format } => format,
+    let mut progress = HostProgress {
+        host,
+        format: None,
+        shown: None,
     };
     limits.check_input_size(source_size)?;
-    let Detection {
-        format,
-        header_offset,
-        bytes_read: detected_bytes,
-    } = resolve_format(&mut source, explicit, &limits, &cancellation)?;
-    *detected = Some(format);
-    if fonts.count() != 0
-        && !(matches!(operation, Operation::Convert { .. })
-            && matches!(format, InputFormat::C8 | InputFormat::Hn))
-    {
-        return Err(Error::invalid(
-            "explicit native font resources require converting a C8 or HN-B document",
-        ));
-    }
-    let mut outcome = match operation {
-        Operation::Convert { options, .. } => {
-            let (report, outline) = match format {
-                InputFormat::Pdf => {
-                    let range = pdf_range(source_size, header_offset);
-                    (
-                        copy_pdf_range(&mut source, &mut sink, range, &limits, &cancellation)?,
-                        OutlineReport::default(),
-                    )
-                }
-                InputFormat::Caj => (
-                    convert_caj(&mut source, &mut sink, options, &limits, &cancellation)?,
-                    OutlineReport::default(),
-                ),
-                InputFormat::Kdh => (
-                    convert_kdh(&mut source, &mut sink, &limits, &cancellation)?,
-                    OutlineReport::default(),
-                ),
-                InputFormat::Hn | InputFormat::C8 => hnc8::convert(
-                    host,
-                    &mut source,
-                    &mut sink,
-                    fonts,
-                    options,
-                    &limits,
-                    &cancellation,
-                )?,
-                _ => return Err(ErrorKind::UnsupportedFormat.into()),
+    let result = match operation {
+        Operation::Convert { options } => {
+            let options = ConversionOptions {
+                fonts: fonts.resources(host),
+                ..options
             };
-            Outcome {
-                report,
-                info: None,
-                outline_warnings: outline.defects,
-                outline_omitted: outline.unverified,
-                application_info: None,
-            }
+            let mut sink = HostSink { host };
+            caj2pdf_core::convert(&mut source, &mut sink, options, &limits, &mut progress).map(
+                |report| Outcome {
+                    outline_warnings: report.outline.defects,
+                    outline_omitted: report.outline.unverified,
+                    report,
+                    info: None,
+                    application_info: None,
+                },
+            )
         }
-        Operation::Inspect { .. } => {
-            inspect(&mut source, format, header_offset, &limits, &cancellation)?
+        Operation::Inspect { .. } if fonts.count() != 0 => {
+            return Err(Error::invalid(FONTS_REQUIRE_HNC8));
+        }
+        Operation::Inspect { format } => {
+            let options = InspectOptions {
+                format,
+                ..InspectOptions::default()
+            };
+            caj2pdf_core::inspect(&mut source, &options, &limits, &mut progress).and_then(inspected)
         }
     };
-    outcome.report.input_bytes_read = outcome
-        .report
-        .input_bytes_read
-        .saturating_add(detected_bytes);
-    Ok(outcome)
+    *detected = progress.format;
+    result.map_err(|error| in_hnc8(error, progress.format))
 }
 
-/// An explicit format skips detection, so an explicit PDF must start with
-/// its `%PDF-` header.
-fn resolve_format<S: RangedSource, C: Cancellation>(
-    source: &mut S,
-    format: Option<InputFormat>,
-    limits: &Limits,
-    cancellation: &C,
-) -> Result<Detection> {
-    if let Some(format) = format {
-        return Ok(Detection {
-            format,
-            header_offset: 0,
-            bytes_read: 0,
-        });
+/// An inspection's outcome. A document without a page count is not
+/// supported.
+fn inspected(info: DocumentInfo) -> Result<Outcome> {
+    if info.page_count.is_none() {
+        return Err(ErrorKind::UnsupportedFormat.into());
     }
-    detect_source(source, limits, cancellation)?.ok_or_else(|| ErrorKind::UnsupportedFormat.into())
-}
-
-/// The PDF viewed from its `%PDF-` header, which may follow leading bytes.
-fn pdf_range(size: u64, header_offset: u64) -> PdfRange {
-    PdfRange {
-        offset: header_offset,
-        length: size - header_offset,
-    }
-}
-
-fn inspect<S: RangedSource, C: Cancellation>(
-    source: &mut S,
-    format: InputFormat,
-    header_offset: u64,
-    limits: &Limits,
-    cancellation: &C,
-) -> Result<Outcome> {
-    let mut input_bytes_read = 0;
-    let mut counted = CountingSource::new(source, &mut input_bytes_read);
-    let mut application_info = None;
-    let (page_count, bookmark_count, outline_warnings) = match format {
-        InputFormat::Pdf => {
-            let range = pdf_range(counted.size(), header_offset);
-            (
-                pdf_pages(&mut counted, range, limits, cancellation)?,
-                None,
-                0,
-            )
-        }
-        InputFormat::Caj => {
-            let metadata = parse_metadata(&mut counted, limits, cancellation)?;
-            (
-                metadata.page_count,
-                Some(metadata.bookmarks.len() as u32),
-                0,
-            )
-        }
-        InputFormat::Kdh => {
-            let mut decoded = KdhPdfSource::open(&mut counted, limits, cancellation)?;
-            let range = pdf_range(decoded.size(), 0);
-            (
-                pdf_pages(&mut decoded, range, limits, cancellation)?,
-                None,
-                0,
-            )
-        }
-        InputFormat::Hn | InputFormat::C8 => {
-            let inspected = hnc8::inspect(&mut counted, limits, cancellation)?;
-            application_info = inspected.application_info;
-            (
-                inspected.pages,
-                inspected.bookmarks,
-                inspected.outline_warnings,
-            )
-        }
-        _ => return Err(ErrorKind::UnsupportedFormat.into()),
-    };
     Ok(Outcome {
         report: ConversionReport {
-            input_bytes_read,
+            input_bytes_read: info.input_bytes_read,
             ..ConversionReport::default()
         },
-        info: Some(DocumentInfo {
-            format,
-            page_count,
-            bookmark_count,
-        }),
-        outline_warnings,
+        outline_warnings: info.outline.defects,
         outline_omitted: false,
-        application_info,
+        application_info: info.application_info.info.clone(),
+        info: Some(info),
     })
-}
-
-fn pdf_pages<S: RangedSource, C: Cancellation>(
-    source: &mut S,
-    range: PdfRange,
-    limits: &Limits,
-    cancellation: &C,
-) -> Result<u32> {
-    let index = PdfIndex::open(source, range, limits, cancellation)?;
-    // The PDF index enforces `Limits::max_pages`, a u32.
-    Ok(index.pages().len() as u32)
 }
 
 #[cfg(test)]

@@ -6,7 +6,7 @@
 use crate::CliError;
 use crate::args::{Command, Endpoint, Topic, parse};
 use crate::cli::default_output;
-use crate::document::{Inspection, Structure, format_name, unsupported};
+use crate::document::unsupported;
 use crate::files::{
     Input, NEXT_TEMP, Output, SpoolError, TEMP_ATTEMPTS, open_input, open_input_spooling_in,
     open_output, refuse_terminal, spool,
@@ -16,7 +16,7 @@ use crate::report::{
     Pages, write_application_info_warning, write_json, write_text, write_warnings,
 };
 use caj2pdf_core::{
-    Bookmark, InputFormat,
+    Bookmark, DocumentInfo as Inspection, InputFormat, Structure,
     hnc8::{
         ApplicationInfo, ApplicationInfoDefect, ApplicationInfoReport, ApplicationInfoStatus,
         ApplicationInfoTail, Header, ImageRecord, OutlineReport, PageRecord, Span, TextFraming,
@@ -293,6 +293,8 @@ fn caj_inspection() -> Inspection {
     Inspection {
         format: InputFormat::Caj,
         variant: None,
+        bookmark_count: None,
+        input_bytes_read: 0,
         page_count: Some(3),
         has_outline: Some(true),
         bookmarks: Some(vec![
@@ -396,7 +398,9 @@ fn json_tree_clamps_a_skipped_parent_and_handles_empty_outlines() {
 fn json_report_uses_null_for_unknown_fields() {
     let info = Inspection {
         format: InputFormat::C8,
-        variant: Some("C8"),
+        variant: Some(Variant::C8),
+        bookmark_count: None,
+        input_bytes_read: 0,
         page_count: Some(1),
         has_outline: None,
         bookmarks: None,
@@ -431,6 +435,8 @@ fn text_report_describes_unknown_fields() {
     let mut info = Inspection {
         format: InputFormat::Teb,
         variant: None,
+        bookmark_count: None,
+        input_bytes_read: 0,
         page_count: None,
         has_outline: None,
         bookmarks: None,
@@ -453,7 +459,7 @@ fn text_report_describes_unknown_fields() {
     );
     assert!(unsupported(InputFormat::Teb).contains("DRM-encrypted"));
     info.format = InputFormat::Hn;
-    info.variant = Some("HN-A");
+    info.variant = Some(Variant::HnA);
     info.has_outline = Some(false);
     let text = render(false, &info, false);
     assert!(text.starts_with("Format: HN\nVariant: HN-A\n"), "{text}");
@@ -462,7 +468,7 @@ fn text_report_describes_unknown_fields() {
 
 #[test]
 fn outline_warnings_list_bounded_locations_then_a_summary() {
-    use caj2pdf_core::{Limits, native::SeekableSource};
+    use caj2pdf_core::{InspectOptions, Limits, NeverCancel};
     // One valid HN-A root followed by 18 entries whose page 0 is outside
     // the single source page.
     let count = 19;
@@ -476,8 +482,17 @@ fn outline_warnings_list_bounded_locations_then_a_summary() {
         bytes[at + 280] = if number == 0 { b'1' } else { b'0' };
         bytes[at + 304] = 1;
     }
-    let mut source = SeekableSource::new(io::Cursor::new(&bytes)).unwrap();
-    let inspected = crate::hnc8::inspect(&mut source, &Limits::default(), false).unwrap();
+    let options = InspectOptions {
+        bookmarks: true,
+        ..InspectOptions::default()
+    };
+    let inspected = caj2pdf_core::inspect(
+        &mut &bytes[..],
+        &options,
+        &Limits::default(),
+        &mut NeverCancel,
+    )
+    .unwrap();
     assert_eq!(inspected.bookmarks.unwrap().len(), 1);
     assert_eq!(inspected.application_info, ApplicationInfoReport::default());
     let outline = inspected.outline;
@@ -766,7 +781,9 @@ fn long_output_names_get_a_bounded_temporary_name() {
 fn c8_package(doi: Option<&str>, url: Option<&str>) -> Inspection {
     Inspection {
         format: InputFormat::C8,
-        variant: Some("C8"),
+        variant: Some(Variant::C8),
+        bookmark_count: None,
+        input_bytes_read: 0,
         page_count: Some(1),
         has_outline: None,
         bookmarks: None,
@@ -844,7 +861,9 @@ fn application_info_is_reported_only_when_read() {
 fn report_writers_propagate_every_sink_failure() {
     let hn = Inspection {
         format: InputFormat::Hn,
-        variant: Some("HN-B"),
+        variant: Some(Variant::HnB),
+        bookmark_count: None,
+        input_bytes_read: 0,
         page_count: None,
         has_outline: None,
         bookmarks: None,
@@ -871,7 +890,9 @@ fn report_writers_propagate_every_sink_failure() {
 fn hnc8_structure(application_info: Option<ApplicationInfoTail>) -> Inspection {
     Inspection {
         format: InputFormat::C8,
-        variant: Some("C8"),
+        variant: Some(Variant::C8),
+        bookmark_count: None,
+        input_bytes_read: 0,
         page_count: Some(2),
         has_outline: None,
         bookmarks: None,
@@ -993,6 +1014,8 @@ fn kdh_signatures_escape_bytes_outside_printable_ascii() {
     let info = Inspection {
         format: InputFormat::Kdh,
         variant: None,
+        bookmark_count: None,
+        input_bytes_read: 0,
         page_count: None,
         has_outline: None,
         bookmarks: None,
@@ -1094,7 +1117,7 @@ fn every_format_has_a_name() {
         (InputFormat::C8, "C8"),
         (InputFormat::Teb, "TEB"),
     ] {
-        assert_eq!(format_name(format), name);
+        assert_eq!(format.name(), name);
     }
 }
 
@@ -1405,39 +1428,19 @@ fn font_collections_are_found_in_directories_and_selected_by_face_suffix() {
     assert!(error.message.contains("too large"), "{}", error.message);
 }
 
-struct Bytes(Vec<u8>);
-
-impl caj2pdf_core::RangedSource for Bytes {
-    fn size(&self) -> u64 {
-        self.0.len() as u64
-    }
-
-    fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> caj2pdf_core::Result<usize> {
-        if offset > self.size() {
-            return Err(caj2pdf_core::Error::invalid("test read past end"));
-        }
-        let bytes = &self.0[offset as usize..];
-        let count = bytes.len().min(destination.len());
-        destination[..count].copy_from_slice(&bytes[..count]);
-        Ok(count)
-    }
-}
-
 #[test]
 fn progress_reports_the_furthest_input_byte_once_per_percent() {
     use crate::progress::Progress;
-    use caj2pdf_core::RangedSource;
+    use caj2pdf_core::Progress as _;
     let mut out = Vec::new();
-    let mut source = Progress::new(Bytes(vec![7; 200]), Some(&mut out));
-    let mut buffer = [0; 100];
-    assert_eq!(source.read_at(0, &mut buffer).unwrap(), 100);
-    assert_eq!(buffer, [7; 100]);
-    source.read_at(0, &mut buffer[..10]).unwrap();
-    source.read_at(100, &mut buffer[..1]).unwrap();
-    source.read_at(150, &mut buffer).unwrap();
-    assert!(source.read_at(201, &mut buffer).is_err());
-    assert_eq!(source.size(), 200);
-    source.finish();
+    let mut progress = Progress::new(Some(&mut out));
+    for done in [100, 101, 200] {
+        progress.input_read(done, 200);
+    }
+    progress.format(None);
+    assert_eq!(progress.format, Some(None));
+    assert!(!progress.is_cancelled());
+    progress.finish();
     assert_eq!(
         String::from_utf8(out).unwrap(),
         format!(
@@ -1450,11 +1453,11 @@ fn progress_reports_the_furthest_input_byte_once_per_percent() {
 #[test]
 fn progress_without_a_terminal_or_reads_writes_nothing() {
     use crate::progress::Progress;
+    use caj2pdf_core::Progress as _;
     let mut out = Vec::new();
-    Progress::new(Bytes(Vec::new()), Some(&mut out)).finish();
+    Progress::new(Some(&mut out)).finish();
     assert!(out.is_empty());
-    let mut source = Progress::new(Bytes(vec![1; 4]), None);
-    let mut buffer = [0; 4];
-    caj2pdf_core::RangedSource::read_at(&mut source, 0, &mut buffer).unwrap();
-    source.finish();
+    let mut progress = Progress::new(None);
+    progress.input_read(4, 4);
+    progress.finish();
 }

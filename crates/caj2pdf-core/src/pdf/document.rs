@@ -739,7 +739,7 @@ impl<'a, W: Write, C: Cancellation> PdfDocument<'a, W, C> {
             output_bytes_written,
             pages_converted: self.pages_written,
             bookmarks_written: self.outline.written(),
-            omitted_pages: Vec::new(),
+            ..ConversionReport::default()
         })
     }
 

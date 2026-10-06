@@ -16,15 +16,18 @@ to any [`std::io::Write`](https://doc.rust-lang.org/std/io/trait.Write.html):
 - Output bytes are written in order; the core never seeks its output. A
   writer may accept fewer bytes than offered. The core flushes once, after
   the last byte.
-- `Cancellation::is_cancelled()` is checked between rows, pages and I/O
+- `Progress::is_cancelled()` is checked between rows, pages and I/O
   chunks. Cancellation returns a distinct error; it does not undo bytes
   already written. Callers that need atomic path output stage it outside the
   core and commit it only after success (the CLI does).
+- `Progress::format()` receives the detected format once, before the
+  operation refuses it or reads past the signature, and
+  `Progress::input_read(done, total)` the furthest document byte read so
+  far. `NeverCancel` reports nothing and never cancels.
 
 Bounded means capped by `Limits`, not spooled. `Limits` is the only set of
-resource bounds; each public entry point (`convert_*`, `inspect`,
-`PdfIndex::open`, `Hnc8Reader::open` and the WASM session) validates it once,
-and every other bound is derived from its fields or from the format itself:
+resource bounds; each operation validates it once, and every other bound is
+derived from its fields or from the format itself:
 
 | Field | Default | Bounds |
 | --- | --- | --- |
@@ -45,10 +48,32 @@ limit fails with a located `LimitExceeded` error naming the resource. The
 JavaScript `limits` option sets the first six fields; `max_image_pixels` and
 `max_symbols` keep their defaults there.
 
-Format engines are plain functions over `RangedSource`, `Write` and
-`Cancellation`. Bookmark visits use a `BookmarkVisitor` rather than a
-whole-outline vector. Conversion returns a `ConversionReport` with byte, page
-and bookmark counts; inspection returns a bounded `DocumentInfo`.
+## Facade
+
+The CLI, the WASM engine and the fuzz targets call one facade in
+`caj2pdf_core`; none of them dispatches on the format:
+
+- `convert(source, sink, ConversionOptions, &Limits, &mut dyn Progress)`
+  detects the format from its leading signature (or takes
+  `ConversionOptions::format`), copies a PDF from its `%PDF-` header,
+  rebuilds CAJ and KDH, and composes HN/C8 pages. It returns a
+  `ConversionReport`: bytes read and written, pages, bookmarks, the CAJ pages
+  replaced with blanks under `allow_damaged`, the HN-A outline warnings or
+  the omitted C8/HN-B outline, the C8 application-info status and the HN/C8
+  image counts per codec. An empty or unrecognized input, NH and TEB are
+  refused with an `UnsupportedFormat` error that has no offset, context or
+  reason.
+- `inspect(source, &InspectOptions, &Limits, &mut dyn Progress)` returns a
+  bounded `DocumentInfo`: format, HN/C8 variant, page count, outline presence
+  and count, the CAJ or HN-A outline when asked, the C8 application-info
+  package and, when asked, the KDH signature or HN/C8 page-index
+  `Structure`. `inspect_pages` then streams one structural record per HN/C8
+  page to a `PageVisitor`.
+- `needs_fonts` says whether a document would draw native text;
+  `read_outline` and `index_pdf` read the two inputs of an outline import.
+
+Outlines stream through a `BookmarkVisitor` rather than a whole-outline
+vector.
 
 Every failure is one core `Error { kind, offset, context, reason }`. `kind`
 is an `ErrorKind`: unsupported format, malformed, encrypted, truncated
@@ -111,8 +136,8 @@ Worker at once and output is not throttled by the sink.
 
 ## Native C8 font resources
 
-`C8FontSources` gives the core up to eight explicit ranged resources and role
-indices; repeated roles can share an embedded font. Each source is read for
+`ConversionOptions::fonts` gives the core up to eight explicit ranged
+resources and role indices; repeated roles can share an embedded font. Each source is read for
 metadata before the first page and again, with only the drawn glyphs'
 outlines, after the last page. JavaScript exposes named roles under
 `hnc8.fonts` (inputs of the same kinds as the document) and deduplicates
@@ -127,11 +152,12 @@ state-3, 28 and 31 Latin roles with `caj2pdf_c8_set_latin_state(state,
 index)`. Absent optional roles use the CJK/Latin fallback of `C8PageFonts`; a
 glyph missing from that font fails with its location.
 
-The CLI and the WASM engine both call `hnc8::convert_document_pdf`, which
-chooses the composer once per document: `uses_native_text` reads the header
-and walks page rows and image descriptors to the first page with text, never
+`convert` chooses the composer once per document: it reads the header and
+walks page rows and image descriptors to the first page with text, never
 reading image payloads. When image composition is chosen, the fonts stay
-unread.
+unread and the PDF is the same as without fonts; fonts given for any other
+format are refused. The CLI asks `needs_fonts` before it searches for
+installed fonts; JavaScript registers the fonts its caller names.
 
 ## Verification
 

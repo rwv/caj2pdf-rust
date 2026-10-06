@@ -3,12 +3,10 @@
 //! Human-readable and JSON forms of an inspection. `docs/cli.md` documents
 //! both; the JSON form is versioned by `schema_version`.
 
-use crate::document::{
-    Inspection, Structure, conversion_supported, format_name, unsupported_reason,
-};
+use crate::document::unsupported_reason;
 use crate::json::{write_literal, write_string};
 use caj2pdf_core::{
-    Bookmark, InputFormat,
+    Bookmark, DocumentInfo, InputFormat, Structure,
     hnc8::{ApplicationInfoStatus, ImageRecord, OutlineReport, PageRecord, TextStructure},
 };
 use std::io::{self, Write};
@@ -106,15 +104,15 @@ fn write_structure_text<W: Write>(out: &mut W, structure: &Structure) -> io::Res
 /// streams one line per page.
 pub fn write_text<W: Write>(
     out: &mut W,
-    info: &Inspection,
+    info: &DocumentInfo,
     list: bool,
     pages: bool,
 ) -> io::Result<()> {
-    writeln!(out, "Format: {}", format_name(info.format))?;
+    writeln!(out, "Format: {}", info.format.name())?;
     if let Some(variant) = info.variant {
-        writeln!(out, "Variant: {variant}")?;
+        writeln!(out, "Variant: {}", variant.as_str())?;
     }
-    let supported = conversion_supported(info.format);
+    let supported = info.format.is_convertible();
     writeln!(
         out,
         "Conversion: {}",
@@ -155,7 +153,7 @@ pub fn write_text<W: Write>(
         None if list => writeln!(
             out,
             "Bookmarks: listing is not available for {} input",
-            format_name(info.format)
+            info.format.name()
         )?,
         None => {}
     }
@@ -256,21 +254,21 @@ fn write_structure_json<W: Write>(out: &mut W, structure: Option<&Structure>) ->
 /// for [`Pages`] to add `pages` and close it.
 pub fn write_json<W: Write>(
     out: &mut W,
-    info: &Inspection,
+    info: &DocumentInfo,
     list: bool,
     pages: bool,
 ) -> io::Result<()> {
     write!(out, "{{\"schema_version\":{SCHEMA_VERSION},\"format\":")?;
-    write_string(out, format_name(info.format))?;
+    write_string(out, info.format.name())?;
     out.write_all(b",\"variant\":")?;
     match info.variant {
-        Some(variant) => write_string(out, variant)?,
+        Some(variant) => write_string(out, variant.as_str())?,
         None => out.write_all(b"null")?,
     }
     write!(
         out,
         ",\"conversion_supported\":{},\"page_count\":",
-        conversion_supported(info.format)
+        info.format.is_convertible()
     )?;
     write_literal(out, info.page_count)?;
     out.write_all(b",\"has_outline\":")?;
@@ -343,7 +341,7 @@ impl<'w, W: Write> Pages<'w, W> {
             writeln!(
                 self.out,
                 "Page structure: not available for {} input",
-                format_name(format)
+                format.name()
             )
         }
     }

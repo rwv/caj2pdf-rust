@@ -69,6 +69,17 @@ impl<S: RangedSource> RangedSource for CountingSource<'_, S> {
     }
 }
 
+/// A boxed source, such as a font resource in [`crate::Fonts`].
+impl<S: RangedSource + ?Sized> RangedSource for Box<S> {
+    fn size(&self) -> u64 {
+        (**self).size()
+    }
+
+    fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> Result<usize> {
+        (**self).read_at(offset, destination)
+    }
+}
+
 /// A byte slice is a source of its own length.
 impl RangedSource for &[u8] {
     fn size(&self) -> u64 {
