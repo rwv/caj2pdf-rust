@@ -1,5 +1,23 @@
 // SPDX-License-Identifier: MIT
 
+//! Format detection and the facade every adapter calls: [`convert`],
+//! [`inspect`], [`inspect_pages`], [`needs_fonts`], [`read_outline`] and
+//! [`index_pdf`] detect the input and dispatch to the format engines.
+
+mod convert;
+mod inspect;
+mod observe;
+
+pub use convert::{
+    ConversionOptions, ConversionReport, FONTS_REQUIRE_HNC8, Fonts, ImageCounts, OmittedPage,
+    convert, needs_fonts,
+};
+pub use inspect::{
+    DocumentInfo, InspectOptions, PageVisitor, Structure, index_pdf, inspect, inspect_pages,
+    read_outline,
+};
+pub use observe::Progress;
+
 use crate::{Cancellation, Limits, RangedSource, Result, read_exact_at};
 use std::ops::Range;
 
@@ -13,6 +31,30 @@ pub enum InputFormat {
     Hn,
     C8,
     Teb,
+}
+
+impl InputFormat {
+    /// The family's name in upper case, as in `"PDF"` or `"HN"`.
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Pdf => "PDF",
+            Self::Caj => "CAJ",
+            Self::Kdh => "KDH",
+            Self::Nh => "NH",
+            Self::Hn => "HN",
+            Self::C8 => "C8",
+            Self::Teb => "TEB",
+        }
+    }
+
+    /// Whether [`convert`] converts this family; [`inspect`] reads every
+    /// family, but reports no page count for the others.
+    pub const fn is_convertible(self) -> bool {
+        matches!(
+            self,
+            Self::Pdf | Self::Caj | Self::Kdh | Self::Hn | Self::C8
+        )
+    }
 }
 
 /// Leading bytes that [`detect_format`] needs to recognize every signature
@@ -122,13 +164,12 @@ fn read_prefix<S: RangedSource, C: Cancellation>(
     Ok(())
 }
 
-/// Bounded summary returned by inspection.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct DocumentInfo {
-    pub format: InputFormat,
-    pub page_count: u32,
-    /// `None` if the outline layout is unknown or this operation does not count it.
-    pub bookmark_count: Option<u32>,
+/// The PDF viewed from its `%PDF-` header, which may follow leading bytes.
+fn pdf_range(size: u64, header_offset: u64) -> crate::pdf::PdfRange {
+    crate::pdf::PdfRange {
+        offset: header_offset,
+        length: size - header_offset,
+    }
 }
 
 /// One outline entry in document order.
@@ -144,42 +185,6 @@ pub struct Bookmark {
 /// A recipient for streamed bookmark entries, called once per entry.
 pub trait BookmarkVisitor {
     fn visit(&mut self, bookmark: Bookmark) -> Result<()>;
-}
-
-/// Options shared by platform adapters and format implementations.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct ConversionOptions {
-    pub include_bookmarks: bool,
-    /// Replace damaged CAJ pages with blank pages and report every omission.
-    pub allow_damaged: bool,
-}
-
-impl Default for ConversionOptions {
-    fn default() -> Self {
-        Self {
-            include_bookmarks: true,
-            allow_damaged: false,
-        }
-    }
-}
-
-/// A page whose content was replaced by an explicit blank page.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct OmittedPage {
-    pub page_index: u32,
-    /// Absolute input offset of the damaged object or missing dependency owner.
-    pub offset: u64,
-}
-
-/// Counters from a completed conversion.
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub struct ConversionReport {
-    pub input_bytes_read: u64,
-    pub output_bytes_written: u64,
-    pub pages_converted: u32,
-    pub bookmarks_written: u32,
-    /// Blank substitutions in source page order; indices are zero-based.
-    pub omitted_pages: Vec<OmittedPage>,
 }
 
 #[cfg(test)]

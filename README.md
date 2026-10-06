@@ -81,6 +81,28 @@ rule. Node and the browser take fonts only as explicit options.
 - Substitute fonts do not reproduce the CAJViewer typography pixel for pixel.
 - TEB files cannot be converted.
 
+## Library
+
+The `caj2pdf-core` crate is the engine behind the CLI and the WASM build. It
+reads any `RangedSource` (`SeekableSource` over a `File`, or a byte slice)
+and writes any `std::io::Write`:
+
+```rust
+use caj2pdf_core::{ConversionOptions, Limits, NeverCancel, convert, native::SeekableSource};
+use std::{fs::File, io::BufWriter};
+
+let mut input = SeekableSource::new(File::open("paper.caj")?)?;
+let mut output = BufWriter::new(File::create("paper.pdf")?);
+let report = convert(&mut input, &mut output, ConversionOptions::default(),
+                     &Limits::default(), &mut NeverCancel)?;
+```
+
+`convert` detects the format and converts it; `inspect` returns the format,
+page count, outline and structure. `ConversionOptions` selects bookmarks,
+damaged-CAJ substitution and C8/HN-B `fonts`; a `Progress` receives the
+detected format and read progress and can cancel. The
+[I/O architecture](docs/io-architecture.md) describes the contract.
+
 ## More
 
 - [CLI reference](docs/cli.md): every command, option, exit status and the

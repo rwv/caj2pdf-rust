@@ -126,7 +126,7 @@ mod cli {
                 let mut resources = crate::hnc8::Resources::load(&options, &limits)?;
                 if !resources.has_fonts()
                     && !options.no_system_fonts
-                    && document::uses_native_text(&mut input, &limits)?
+                    && document::needs_fonts(&mut input, &limits)?
                 {
                     let roots = system_fonts::roots(system_fonts::PLATFORM, std::env::var_os);
                     let installed =
@@ -140,7 +140,7 @@ mod cli {
                 protected.extend(resources.inputs.iter());
                 let mut output = open_output(&output, force, &protected)?;
                 let mut terminal = (!options.quiet && io::stderr().is_terminal()).then(io::stderr);
-                let warnings = document::convert(
+                let report = document::convert(
                     &mut input,
                     output.writer(),
                     &limits,
@@ -148,13 +148,14 @@ mod cli {
                     caj2pdf_core::ConversionOptions {
                         include_bookmarks: !options.no_bookmarks,
                         allow_damaged: options.allow_damaged,
+                        ..Default::default()
                     },
                     terminal.as_mut().map(|err| err as &mut dyn io::Write),
                 )?;
                 output.commit()?;
-                warn(&warnings.outline, warnings.application_info);
+                warn(&report.outline, report.application_info);
                 let mut stderr = io::stderr().lock();
-                for page in &warnings.omitted_pages {
+                for page in &report.omitted_pages {
                     let _ = writeln!(
                         stderr,
                         "caj2pdf: warning: page {} replaced with a blank page (damaged input at byte {})",
@@ -162,7 +163,7 @@ mod cli {
                         page.offset
                     );
                 }
-                Ok(if warnings.omitted_pages.is_empty() {
+                Ok(if report.omitted_pages.is_empty() {
                     0
                 } else {
                     3

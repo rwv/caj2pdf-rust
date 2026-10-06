@@ -83,8 +83,10 @@ fn limits(chunk: usize) -> Limits {
 
 fn convert_op(format: Option<InputFormat>) -> Operation {
     Operation::Convert {
-        format,
-        options: ConversionOptions::default(),
+        options: ConversionOptions {
+            format,
+            ..ConversionOptions::default()
+        },
     }
 }
 
@@ -309,7 +311,10 @@ fn an_auto_detected_pdf_header_after_leading_bytes_converts_and_inspects() {
         let mut host = Memory::new(&input);
         let session = run(&mut host, limits(256), Operation::Inspect { format: None });
         let outcome = outcome(&session);
-        assert_eq!(outcome.info.as_ref().map(|info| info.page_count), Some(2));
+        assert_eq!(
+            outcome.info.as_ref().and_then(|info| info.page_count),
+            Some(2)
+        );
         // The detection prefix is counted once, beside the PDF reads.
         assert!(outcome.report.input_bytes_read > 1024);
 
@@ -366,10 +371,10 @@ fn kdh_and_caj_conversions_use_the_core_engines_with_short_io() {
 fn caj_conversion_honors_disabled_bookmarks_and_explicit_format() {
     let caj = caj_bytes();
     let operation = Operation::Convert {
-        format: Some(InputFormat::Caj),
         options: ConversionOptions {
+            format: Some(InputFormat::Caj),
             include_bookmarks: false,
-            allow_damaged: false,
+            ..ConversionOptions::default()
         },
     };
     let session = run(&mut Memory::new(&caj), limits(4096), operation);
@@ -437,14 +442,12 @@ fn inspects_pdf_caj_and_kdh_without_output() {
         let session = run(&mut host, limits(1024), Operation::Inspect { format: None });
         assert!(host.output.is_empty() && host.flushes == 0);
         let outcome = outcome(&session);
+        let info = outcome.info.as_ref().unwrap();
         assert_eq!(
-            outcome.info,
-            Some(DocumentInfo {
-                format,
-                page_count: pages,
-                bookmark_count: bookmarks,
-            })
+            (info.format, info.page_count, info.bookmark_count),
+            (format, Some(pages), bookmarks)
         );
+        assert_eq!(info.bookmarks, None);
         assert!(outcome.report.input_bytes_read > 0);
     }
 }
@@ -560,7 +563,7 @@ fn source_reads_past_the_end_are_clamped_before_reaching_the_host() {
         ));
     }
     assert_eq!((memory.reads, memory.max_read), (1, 3));
-    assert_eq!(memory.progress, [PROGRESS_TOTAL]);
+    assert!(memory.progress.is_empty());
 }
 
 fn synthetic_hn() -> Vec<u8> {
@@ -670,10 +673,9 @@ fn native_c8() -> Vec<u8> {
 
 fn native_operation() -> Operation {
     Operation::Convert {
-        format: None,
         options: ConversionOptions {
             include_bookmarks: false,
-            allow_damaged: false,
+            ..ConversionOptions::default()
         },
     }
 }
@@ -761,7 +763,10 @@ fn hnc8_inspection_streams_outline_validation_without_decoding() {
         let mut host = Memory::new(&input).short(1);
         let session = run(&mut host, limits(1), Operation::Inspect { format: None });
         let info = outcome(&session).info.as_ref().unwrap();
-        assert_eq!((info.page_count, info.bookmark_count), (pages, bookmarks));
+        assert_eq!(
+            (info.page_count, info.bookmark_count),
+            (Some(pages), bookmarks)
+        );
         assert_eq!(outcome(&session).outline_warnings, warnings);
         assert!(host.output.is_empty());
         assert_eq!(host.flushes, 0);
@@ -778,7 +783,7 @@ fn c8_inspection_reports_the_application_info_package() {
             Operation::Inspect { format: None },
         );
         let outcome = outcome(&session);
-        assert_eq!(outcome.info.as_ref().unwrap().page_count, 1);
+        assert_eq!(outcome.info.as_ref().unwrap().page_count, Some(1));
         outcome.application_info.clone()
     };
     let info = inspect(&c8_with_application_info(0)).unwrap();

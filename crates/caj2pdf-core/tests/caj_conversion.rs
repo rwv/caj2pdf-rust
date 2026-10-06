@@ -291,7 +291,13 @@ fn convert(
 ) -> Result<(Vec<u8>, caj2pdf_core::ConversionReport), Error> {
     let mut source = SeekableSource::new(Cursor::new(input))?;
     let mut output = Vec::new();
-    let report = convert_caj(&mut source, &mut &mut output, options, limits, &NeverCancel)?;
+    let report = convert_caj(
+        &mut source,
+        &mut &mut output,
+        &options,
+        limits,
+        &NeverCancel,
+    )?;
     Ok((output, report))
 }
 
@@ -352,7 +358,7 @@ fn conversion_uses_the_platform_neutral_short_io_contract() {
     let report = convert_caj(
         &mut source,
         &mut sink,
-        ConversionOptions::default(),
+        &ConversionOptions::default(),
         &limits,
         &NeverCancel,
     )
@@ -371,7 +377,7 @@ fn rejected_without_output(input: &[u8], limits: &Limits) -> Error {
     let error = convert_caj(
         &mut source,
         &mut &mut output,
-        ConversionOptions::default(),
+        &ConversionOptions::default(),
         limits,
         &NeverCancel,
     )
@@ -526,7 +532,7 @@ fn bookmark_option_excludes_outline_without_changing_pages() {
         &tiny.bytes,
         ConversionOptions {
             include_bookmarks: false,
-            allow_damaged: false,
+            ..ConversionOptions::default()
         },
         &Limits::default(),
     )
@@ -547,7 +553,7 @@ fn missing_page_object_is_reported_before_writing() {
     let result = convert_caj(
         &mut source,
         &mut &mut output,
-        ConversionOptions::default(),
+        &ConversionOptions::default(),
         &Limits::default(),
         &NeverCancel,
     );
@@ -820,7 +826,7 @@ fn unrelated_missing_resource_reference_fails_before_sink_output() {
     let result = convert_caj(
         &mut source,
         &mut &mut output,
-        ConversionOptions::default(),
+        &ConversionOptions::default(),
         &Limits::default(),
         &NeverCancel,
     );
@@ -1089,7 +1095,7 @@ fn rejects_a_ranged_source_that_reports_more_bytes_than_requested() {
     let error = convert_caj(
         &mut source,
         &mut &mut output,
-        ConversionOptions::default(),
+        &ConversionOptions::default(),
         &Limits::default(),
         &NeverCancel,
     )
@@ -1867,7 +1873,7 @@ fn damaged_shared_stream_blanks_only_dependent_pages_and_preserves_geometry() {
         convert_caj(
             &mut SeekableSource::new(Cursor::new(&bytes)).unwrap(),
             &mut &mut rejected,
-            ConversionOptions::default(),
+            &ConversionOptions::default(),
             &Limits::default(),
             &NeverCancel
         )
@@ -1878,7 +1884,7 @@ fn damaged_shared_stream_blanks_only_dependent_pages_and_preserves_geometry() {
     let report = convert_caj(
         &mut SeekableSource::new(Cursor::new(&bytes)).unwrap(),
         &mut &mut pdf,
-        ConversionOptions {
+        &ConversionOptions {
             allow_damaged: true,
             ..ConversionOptions::default()
         },
@@ -1914,7 +1920,7 @@ fn allow_damaged_leaves_valid_caj_bytes_identical() {
         let report = convert_caj(
             &mut SeekableSource::new(Cursor::new(&input.bytes)).unwrap(),
             &mut &mut output,
-            ConversionOptions {
+            &ConversionOptions {
                 allow_damaged,
                 ..ConversionOptions::default()
             },

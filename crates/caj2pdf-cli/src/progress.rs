@@ -1,40 +1,33 @@
 // SPDX-License-Identifier: MIT
 
-//! Interactive conversion progress for a terminal on standard error.
+//! The CLI's side of a core operation: the input format the core reports,
+//! for diagnostics; process cancellation; and interactive conversion
+//! progress on standard error.
 //!
 //! Progress is the furthest input byte read so far as a share of the input
-//! size. Converters read their indexes first and then page payloads in order,
-//! so this advances with the conversion without a per-format page hook.
+//! size, as the core reports it. Converters read their indexes first and then
+//! page payloads in order, so this advances with the conversion without a
+//! per-format page hook.
 
-use caj2pdf_core::{RangedSource, Result};
+use crate::signals::ProcessCancellation;
+use caj2pdf_core::{Cancellation, InputFormat};
 use std::io::Write;
 
-/// A source that reports read progress to `out`, or passes reads through
-/// unchanged when `out` is `None`.
-pub struct Progress<'a, S> {
-    inner: S,
+/// Reports progress to `out`, or nothing when `out` is `None`.
+pub struct Progress<'a> {
     out: Option<&'a mut dyn Write>,
-    furthest: u64,
     shown: Option<u64>,
+    /// The format the core reported: `None` before detection completed,
+    /// `Some(None)` for an empty or unrecognized input.
+    pub format: Option<Option<InputFormat>>,
 }
 
-impl<'a, S: RangedSource> Progress<'a, S> {
-    pub fn new(inner: S, out: Option<&'a mut dyn Write>) -> Self {
+impl<'a> Progress<'a> {
+    pub fn new(out: Option<&'a mut dyn Write>) -> Self {
         Self {
-            inner,
             out,
-            furthest: 0,
             shown: None,
-        }
-    }
-
-    fn show(&mut self) {
-        let percent = self.furthest.saturating_mul(100) / self.inner.size().max(1);
-        if let Some(out) = self.out.as_mut().filter(|_| self.shown != Some(percent)) {
-            // A terminal write failure must not fail the conversion.
-            let _ = write!(out, "\rcaj2pdf: reading input {percent:>3}%");
-            let _ = out.flush();
-            self.shown = Some(percent);
+            format: None,
         }
     }
 
@@ -47,18 +40,22 @@ impl<'a, S: RangedSource> Progress<'a, S> {
     }
 }
 
-impl<S: RangedSource> RangedSource for Progress<'_, S> {
-    fn size(&self) -> u64 {
-        self.inner.size()
+impl caj2pdf_core::Progress for Progress<'_> {
+    fn format(&mut self, format: Option<InputFormat>) {
+        self.format = Some(format);
     }
 
-    fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> Result<usize> {
-        let count = self.inner.read_at(offset, destination)?;
-        let end = offset.saturating_add(count as u64);
-        if end > self.furthest {
-            self.furthest = end;
-            self.show();
+    fn input_read(&mut self, done: u64, total: u64) {
+        let percent = done.saturating_mul(100) / total.max(1);
+        if let Some(out) = self.out.as_mut().filter(|_| self.shown != Some(percent)) {
+            // A terminal write failure must not fail the conversion.
+            let _ = write!(out, "\rcaj2pdf: reading input {percent:>3}%");
+            let _ = out.flush();
+            self.shown = Some(percent);
         }
-        Ok(count)
+    }
+
+    fn is_cancelled(&self) -> bool {
+        ProcessCancellation.is_cancelled()
     }
 }
