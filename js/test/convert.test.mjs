@@ -377,44 +377,36 @@ test("CAJ later-copy recovery rejects changed prefixes without output", async ()
   await writer.close();
 });
 
-test("ASCII85 replay preserves complete output and rejects a false length", async () => {
-  const outputs = [];
-  for (const options of [{ interrupted: false }, {}, { cut: "keyword" }, { cut: "reference" }]) {
-    const { writer, bytes } = collectingWriter();
-    await convert(await wasmModule(), blobSource(new Blob([syntheticAscii85Caj(options)])),
-      webWritableSink(writer), { chunkSize: 1 });
-    await writer.close();
-    outputs.push(bytes());
-  }
-  assert.deepEqual(outputs[1], outputs[0]);
-  assert.deepEqual(outputs[2], outputs[0]);
-  assert.deepEqual(outputs[3], outputs[0]);
-  const { writer, bytes } = collectingWriter();
-  await assert.rejects(convert(await wasmModule(),
-    blobSource(new Blob([syntheticAscii85Caj({ broken: true })])), webWritableSink(writer),
-    { chunkSize: 1 }), { code: "MALFORMED_PDF" });
-  await writer.close();
-  assert.equal(bytes().length, 0);
-});
-
-test("Flate replay preserves output and rejects a bad checksum", async () => {
-  for (const anchor of [null, "scalar", "array", "deferred"]) {
+test("ASCII85 replay preserves complete output without decoding the payload", async () => {
+  for (const broken of [false, true]) {
     const outputs = [];
-    for (const interrupted of [false, true]) {
+    for (const options of [{ interrupted: false }, {}, { cut: "keyword" }, { cut: "reference" }]) {
       const { writer, bytes } = collectingWriter();
-      await convert(await wasmModule(), blobSource(new Blob([syntheticFlateReplayCaj({ interrupted, anchor, padding: anchor === "deferred" ? "" : "\n" })])),
+      await convert(await wasmModule(), blobSource(new Blob([syntheticAscii85Caj({ ...options, broken })])),
         webWritableSink(writer), { chunkSize: 1 });
       await writer.close();
       outputs.push(bytes());
     }
     assert.deepEqual(outputs[1], outputs[0]);
+    assert.deepEqual(outputs[2], outputs[0]);
+    assert.deepEqual(outputs[3], outputs[0]);
   }
-  const { writer, bytes } = collectingWriter();
-  await assert.rejects(convert(await wasmModule(),
-    blobSource(new Blob([syntheticFlateReplayCaj({ broken: true })])), webWritableSink(writer)),
-    { code: "MALFORMED_PDF" });
-  await writer.close();
-  assert.equal(bytes().length, 0);
+});
+
+test("Flate replay preserves output without decoding the payload", async () => {
+  for (const broken of [false, true]) {
+    for (const anchor of [null, "scalar", "array", "deferred"]) {
+      const outputs = [];
+      for (const interrupted of [false, true]) {
+        const { writer, bytes } = collectingWriter();
+        await convert(await wasmModule(), blobSource(new Blob([syntheticFlateReplayCaj({ interrupted, broken, anchor, padding: anchor === "deferred" ? "" : "\n" })])),
+          webWritableSink(writer), { chunkSize: 1 });
+        await writer.close();
+        outputs.push(bytes());
+      }
+      assert.deepEqual(outputs[1], outputs[0]);
+    }
+  }
 });
 
 test("explicit damaged mode reports blank pages through the public WASM API", async (t) => {

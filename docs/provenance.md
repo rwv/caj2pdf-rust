@@ -263,7 +263,7 @@ direct third-party Cargo dependencies in the current graph:
 
 | Package | Role | License | Edition / minimum Rust | External dependencies |
 | --- | --- | --- | --- | --- |
-| `caj2pdf-core` | Platform-neutral library | MIT | 2024 / 1.88.0 | `fax`, `flate2`, `sha2`, `xberg-ttf-parser` (direct) |
+| `caj2pdf-core` | Platform-neutral library | MIT | 2024 / 1.88.0 | `flate2`, `sha2`, `xberg-ttf-parser` (direct) |
 | `caj2pdf-cli` | Native executable | MIT | 2024 / 1.88.0 | Unix: `signal-hook`; Windows: `ctrlc`, `winapi-util` |
 | `caj2pdf-wasm` | WASM/JavaScript boundary | MIT | 2024 / 1.88.0 | None |
 
@@ -352,21 +352,12 @@ JS package). Record any selected MIT grant and required attribution in the
 pull request. This manual review supplements the
 checker; it cannot be replaced by a passing exit code.
 
-## PDF CCITT indirect stream framing
+## PDF stream framing without codecs
 
-The `fax` 0.3.0 dependency is MIT licensed (copyright 2021 pdf-rs
-contributors; upstream https://github.com/pdf-rs/fax). Its public Huffman
-maps and bit-reader types are used to measure Group-4 PDF stream extents.
-The upstream MIT license and decoder/table APIs were inspected. The local
-async framing walker uses bounded transition rows and the existing ranged
-reader; it does not decode or retain full-page pixels. Original synthetic
-unit inputs are generated with the dependency's encoder.
-
-This is ordinary PDF CCITT support, not CAJ-specific JBIG or HN code. No
-Python/Go/private converter implementation was used for this change. The
-external issue-77 source supplied byte-level observations only and remains
-outside Git. Successful framing alone does not establish document conversion
-or viewer parity.
+Issue #359 removed the `fax` 0.3.0 dependency together with the Group-4,
+JPEG, ASCII85 and Flate extent walkers. A headerless CAJ fragment stream now
+ends at the `endstream` that its declared or later-resolved `/Length`
+confirms, so no stream payload is decoded to frame it.
 
 ## CLI cooperative signal handling (review #193)
 

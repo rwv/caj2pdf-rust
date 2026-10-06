@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 use super::*;
 use crate::native::SeekableSource;
+use crate::pdf::input::recovery::{damaged_page_anchor, damaged_stream_end};
 use crate::test_support::{NEVER, run};
 use std::io::Cursor;
 
@@ -80,7 +81,7 @@ fn discarded_stream_boundaries_use_only_parsed_lengths_and_existing_tail_rules()
             &NEVER,
         )
         .unwrap();
-        let result = run(damaged_stream_end(&mut reader, 0, &[])).unwrap();
+        let result = run(damaged_stream_end(&mut reader, 0, &BTreeMap::new())).unwrap();
         assert_eq!(result.is_some(), bytes.contains("\nXX\n"));
     }
     let header = b"1 0 obj << /Length 10000 >> stream\n";
@@ -106,7 +107,7 @@ fn discarded_stream_boundaries_use_only_parsed_lengths_and_existing_tail_rules()
     )
     .unwrap();
     assert!(matches!(
-        run(damaged_stream_end(&mut reader, 0, &[])),
+        run(damaged_stream_end(&mut reader, 0, &BTreeMap::new())),
         Err(Error::Io(_))
     ));
 }
@@ -148,7 +149,6 @@ fn partial_scan_resumes_at_pages_and_tracks_unresolved_prefixes_and_lengths() {
             },
             used: true,
         }],
-        &mut 0,
     ))
     .unwrap();
     assert_eq!(scan.objects.len(), 2);
@@ -167,7 +167,6 @@ fn partial_scan_resumes_at_pages_and_tracks_unresolved_prefixes_and_lengths() {
         &Limits::default(),
         &NEVER,
         &mut [],
-        &mut 0,
     ))
     .unwrap();
     assert_eq!(scan.damaged[0].0.unwrap().number, 7);
@@ -193,7 +192,6 @@ fn partial_scan_resumes_at_pages_and_tracks_unresolved_prefixes_and_lengths() {
         &Limits::default(),
         &NEVER,
         &mut [],
-        &mut 0,
     ))
     .unwrap();
     assert_eq!(scan.damaged[0].0.unwrap().number, 2);
@@ -217,7 +215,6 @@ fn discarded_final_object_does_not_reuse_prior_stream_tail_state() {
         &Limits::default(),
         &NEVER,
         &mut [],
-        &mut 0,
     ))
     .unwrap();
     assert_eq!(scan.objects.len(), 1);

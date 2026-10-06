@@ -1114,37 +1114,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
         at: u64,
         object: Option<PdfRef>,
     ) -> Result<()> {
-        let bytes = dictionary
-            .entries
-            .len()
-            .checked_mul(std::mem::size_of::<usize>())
-            .ok_or(Error::InvalidInput {
-                reason: "PDF dictionary key index size overflows",
-            })?;
-        self.limits
-            .check_allocation(bytes as u64)
-            .map_err(self.locator(at, object))?;
-        let mut keys = Vec::new();
-        let refused = self.allocation_limit(at, object, "PDF dictionary key index", bytes as u64);
-        reserve_exact(&mut keys, dictionary.entries.len(), refused)?;
-        keys.extend(0..dictionary.entries.len());
-        keys.sort_unstable_by(|left, right| {
-            dictionary.entries[*left]
-                .name
-                .cmp(&dictionary.entries[*right].name)
-        });
-        if keys
-            .windows(2)
-            .any(|pair| dictionary.entries[pair[0]].name == dictionary.entries[pair[1]].name)
-        {
-            return Err(self.problem(
-                at,
-                object,
-                PdfErrorKind::AmbiguousRepair,
-                "duplicate PDF dictionary keys have undefined value",
-            ));
-        }
-        Ok(())
+        reject_duplicate_names(dictionary, self.range, at, object, self.limits)
     }
 
     async fn load_head(&mut self, at: u64, expected: Option<PdfRef>) -> Result<ObjectHead> {
@@ -2598,79 +2568,88 @@ pub(crate) struct FragmentInspection {
     pub scalar_reference_array: Option<Vec<PdfRef>>,
 }
 
-/// Inspect one complete caller-supplied object span, never scanning adjacent
-/// CAJ container bytes. `resolve_length` supplies already indexed integer
-/// objects used by an indirect stream `/Length`.
-pub(crate) async fn inspect_fragment_object<
-    S: RangedSource,
-    C: Cancellation,
-    F: Fn(PdfRef) -> Option<u64>,
->(
-    source: &mut S,
-    range: PdfRange,
-    expected: PdfRef,
-    limits: &Limits,
-    cancellation: &C,
-    resolve_length: F,
-) -> Result<FragmentInspection> {
-    limits.validate()?;
-    let mut reader = Reader::new(source, range, limits, cancellation)?;
-    let head = reader.load_head(0, Some(expected)).await?;
-    let is_stream = matches!(head.tail, ObjectTail::Stream { .. });
-    let end = match head.tail {
-        ObjectTail::EndObject { end } => end as u64,
-        ObjectTail::Stream { data_start } => {
-            let failure = reader.malformed(0, Some(expected), "stream lacks dictionary");
-            let dictionary = head.dictionary.as_ref().ok_or(failure)?;
-            let failure = reader.malformed(0, Some(expected), "stream lacks Length");
-            let value = dictionary.value(b"Length").ok_or(failure)?;
-            let length = exact_unsigned(value)
-                .or_else(|| exact_reference(value).and_then(&resolve_length))
-                .ok_or(reader.malformed(0, Some(expected), "stream Length does not resolve"))?;
-            let after_data = (data_start as u64)
-                .checked_add(length)
-                .ok_or(reader.malformed(0, Some(expected), "stream extent overflows"))?;
-            reader.check_stream_tail(after_data, Some(expected)).await?
+impl FragmentInspection {
+    /// The page-tree parent link of a Page or Pages node.
+    pub fn page_parent(&self) -> Option<PdfRef> {
+        match self.kind {
+            FragmentKind::Page { parent, .. } => Some(parent),
+            FragmentKind::Pages { parent, .. } => parent,
+            _ => None,
         }
+    }
+}
+
+/// Reject a dictionary whose repeated key leaves its value undefined.
+fn reject_duplicate_names(
+    dictionary: &Dictionary,
+    range: PdfRange,
+    at: u64,
+    object: Option<PdfRef>,
+    limits: &Limits,
+) -> Result<()> {
+    let locate = |error: Error| {
+        error.locate_pdf_limit(
+            range.offset.saturating_add(at),
+            object.map(|item| (item.number, item.generation)),
+        )
     };
-    let mut rest = end;
-    reader.skip_space(&mut rest).await?;
-    if rest != range.length {
-        return Err(reader.malformed(
-            rest,
-            Some(expected),
-            "fragment has trailing non-whitespace bytes",
+    let bytes = len_u64(dictionary.entries.len()).saturating_mul(size_of::<usize>() as u64);
+    limits.check_allocation(bytes).map_err(locate)?;
+    let mut keys = Vec::new();
+    let refused = locate(limits.allocation_refused("PDF dictionary key index", bytes));
+    reserve_exact(&mut keys, dictionary.entries.len(), refused)?;
+    keys.extend(0..dictionary.entries.len());
+    keys.sort_unstable_by(|left, right| {
+        dictionary.entries[*left]
+            .name
+            .cmp(&dictionary.entries[*right].name)
+    });
+    if keys
+        .windows(2)
+        .any(|pair| dictionary.entries[pair[0]].name == dictionary.entries[pair[1]].name)
+    {
+        return Err(located_problem(
+            range,
+            at,
+            object,
+            PdfErrorKind::AmbiguousRepair,
+            "duplicate PDF dictionary keys have undefined value",
         ));
     }
+    Ok(())
+}
+
+/// Classify one parsed object head: its page-tree role, references and
+/// outline destination, located at `at` within `range`. The caller has
+/// already fixed the object's extent, so this reads no source bytes.
+fn inspect_head(
+    head: &ObjectHead,
+    range: PdfRange,
+    at: u64,
+    limits: &Limits,
+) -> Result<FragmentInspection> {
+    let object = Some(head.reference);
+    let problem = |kind, reason| located_problem(range, at, object, kind, reason);
+    let malformed = |reason| problem(PdfErrorKind::Malformed, reason);
+    let unsupported = |reason| problem(PdfErrorKind::UnsupportedFeature, reason);
     if let Some(dictionary) = &head.dictionary {
-        reader.reject_duplicate_names(dictionary, 0, Some(expected))?;
+        reject_duplicate_names(dictionary, range, at, object, limits)?;
     }
-    let destination = if let Some(dictionary) = &head.dictionary {
-        if dictionary.value(b"Title").is_some() {
+    let destination = match &head.dictionary {
+        Some(dictionary) if dictionary.value(b"Title").is_some() => {
             if dictionary.value(b"A").is_some() {
-                return Err(reader.problem(
-                    0,
-                    Some(expected),
-                    PdfErrorKind::UnsupportedFeature,
+                return Err(unsupported(
                     "outline actions in PDF fragments are unsupported",
                 ));
             }
             match dictionary.value(b"Dest") {
                 Some(value) => Some(destination_page(value).ok_or_else(|| {
-                    reader.problem(
-                        0,
-                        Some(expected),
-                        PdfErrorKind::UnsupportedFeature,
-                        "outline destination is not a direct page array",
-                    )
+                    unsupported("outline destination is not a direct page array")
                 })?),
                 None => None,
             }
-        } else {
-            None
         }
-    } else {
-        None
+        _ => None,
     };
     let scalar_reference_array = head
         .scalar
@@ -2683,24 +2662,16 @@ pub(crate) async fn inspect_fragment_object<
             .value(b"Type")
             .and_then(exact_name)
             .unwrap_or_default();
+        let page_tree = name == b"Page" || name == b"Pages";
         let has_media_box = match dictionary.value(b"MediaBox") {
             Some(value) if media_box(value).is_some() => true,
-            Some(value)
-                if (name == b"Page" || name == b"Pages") && exact_reference(value).is_some() =>
-            {
-                return Err(reader.problem(
-                    0,
-                    Some(expected),
-                    PdfErrorKind::UnsupportedFeature,
+            Some(value) if page_tree && exact_reference(value).is_some() => {
+                return Err(unsupported(
                     "indirect MediaBox in PDF fragments is unsupported",
                 ));
             }
-            Some(_) if name == b"Page" || name == b"Pages" => {
-                return Err(reader.malformed(
-                    0,
-                    Some(expected),
-                    "fragment page tree MediaBox is invalid",
-                ));
+            Some(_) if page_tree => {
+                return Err(malformed("fragment page tree MediaBox is invalid"));
             }
             _ => false,
         };
@@ -2711,11 +2682,8 @@ pub(crate) async fn inspect_fragment_object<
                         vec![reference]
                     } else {
                         contents_is_direct_array = true;
-                        reference_array(value, head.references.len()).ok_or(reader.malformed(
-                            0,
-                            Some(expected),
-                            "fragment Page Contents is not a reference array",
-                        ))?
+                        reference_array(value, head.references.len())
+                            .ok_or(malformed("fragment Page Contents is not a reference array"))?
                     };
                     contents = Some(references);
                 }
@@ -2723,43 +2691,39 @@ pub(crate) async fn inspect_fragment_object<
                     parent: dictionary
                         .value(b"Parent")
                         .and_then(exact_reference)
-                        .ok_or(reader.malformed(0, Some(expected), "Page lacks Parent"))?,
+                        .ok_or(malformed("Page lacks Parent"))?,
                     has_media_box,
                 }
             }
             b"Pages" => FragmentKind::Pages {
                 parent: match dictionary.value(b"Parent") {
-                    Some(value) => Some(exact_reference(value).ok_or(reader.malformed(
-                        0,
-                        Some(expected),
-                        "fragment Pages Parent is not a reference",
-                    ))?),
+                    Some(value) => Some(
+                        exact_reference(value)
+                            .ok_or(malformed("fragment Pages Parent is not a reference"))?,
+                    ),
                     None => None,
                 },
                 count: dictionary
                     .value(b"Count")
                     .and_then(exact_unsigned)
                     .and_then(|n| u32::try_from(n).ok())
-                    .ok_or(reader.malformed(0, Some(expected), "Pages lacks Count"))?,
+                    .ok_or(malformed("Pages lacks Count"))?,
                 has_media_box,
                 kids: dictionary
                     .value(b"Kids")
                     .and_then(|v| reference_array(v, limits.max_pages as usize))
-                    .ok_or(reader.malformed(0, Some(expected), "Pages lacks Kids"))?,
+                    .ok_or(malformed("Pages lacks Kids"))?,
             },
             b"Catalog" => {
                 if dictionary.value(b"Outlines").is_some() {
-                    return Err(reader.problem(
-                        0,
-                        Some(expected),
-                        PdfErrorKind::UnsupportedFeature,
+                    return Err(unsupported(
                         "preexisting outline trees in PDF fragments are unsupported",
                     ));
                 }
                 dictionary
                     .value(b"Pages")
                     .and_then(exact_reference)
-                    .ok_or(reader.malformed(0, Some(expected), "Catalog lacks Pages"))?;
+                    .ok_or(malformed("Catalog lacks Pages"))?;
                 FragmentKind::Catalog
             }
             _ => FragmentKind::Other,
@@ -2768,117 +2732,156 @@ pub(crate) async fn inspect_fragment_object<
         FragmentKind::Other
     };
     Ok(FragmentInspection {
-        reference: expected,
+        reference: head.reference,
         kind,
-        references: head.references,
+        references: head.references.clone(),
         max_referenced_object: head.max_reference,
         destination,
-        is_stream,
+        is_stream: matches!(head.tail, ObjectTail::Stream { .. }),
         contents,
         contents_is_direct_array,
         scalar_reference_array,
     })
 }
 
-/// Read a complete integer-only object for a fragment `/Length` lookup.
-pub(crate) async fn inspect_fragment_scalar<S: RangedSource, C: Cancellation>(
+/// How a planned object's stream declares its length.
+enum PlannedLength {
+    NoDictionary,
+    Missing,
+    Direct(u64),
+    Indirect(PdfRef),
+    Invalid,
+}
+
+/// One parse of a caller-supplied object span. A stream's tail is checked by
+/// [`finish_planned_object`] once every integer object of the plan is known;
+/// an inspection error is reported only after that check.
+pub(crate) struct PlannedObject {
+    /// The value of an integer-only object, for an indirect `/Length`.
+    pub scalar: Option<u64>,
+    stream: Option<(u64, PlannedLength)>,
+    inspection: Result<FragmentInspection>,
+}
+
+/// Parse one complete caller-supplied object span, never scanning adjacent
+/// CAJ container bytes.
+pub(crate) async fn parse_planned_object<S: RangedSource, C: Cancellation>(
     source: &mut S,
     range: PdfRange,
     expected: PdfRef,
     limits: &Limits,
     cancellation: &C,
-) -> Result<Option<u64>> {
+) -> Result<PlannedObject> {
     limits.validate()?;
     let mut reader = Reader::new(source, range, limits, cancellation)?;
     let head = reader.load_head(0, Some(expected)).await?;
-    let ObjectTail::EndObject { end } = head.tail else {
-        return Ok(None);
+    let (scalar, stream) = match head.tail {
+        ObjectTail::EndObject { end } => {
+            let mut rest = end as u64;
+            reader.skip_space(&mut rest).await?;
+            if rest != range.length {
+                return Err(reader.malformed(
+                    rest,
+                    Some(expected),
+                    "integer fragment has trailing bytes",
+                ));
+            }
+            let scalar = head
+                .scalar
+                .as_ref()
+                .and_then(|span| exact_unsigned(&head.bytes[span.clone()]));
+            (scalar, None)
+        }
+        ObjectTail::Stream { data_start } => {
+            let length = match &head.dictionary {
+                None => PlannedLength::NoDictionary,
+                Some(dictionary) => match dictionary.value(b"Length") {
+                    None => PlannedLength::Missing,
+                    Some(value) => match (exact_unsigned(value), exact_reference(value)) {
+                        (Some(length), _) => PlannedLength::Direct(length),
+                        (None, Some(target)) => PlannedLength::Indirect(target),
+                        (None, None) => PlannedLength::Invalid,
+                    },
+                },
+            };
+            (None, Some((data_start as u64, length)))
+        }
     };
-    let mut rest = end as u64;
+    Ok(PlannedObject {
+        scalar,
+        stream,
+        inspection: inspect_head(&head, range, 0, limits),
+    })
+}
+
+/// Check a planned stream's `endstream`/`endobj` tail, resolving an indirect
+/// `/Length` through `resolve_length`, and return the object's inspection.
+pub(crate) async fn finish_planned_object<
+    S: RangedSource,
+    C: Cancellation,
+    F: Fn(PdfRef) -> Option<u64>,
+>(
+    source: &mut S,
+    range: PdfRange,
+    expected: PdfRef,
+    planned: PlannedObject,
+    limits: &Limits,
+    cancellation: &C,
+    resolve_length: F,
+) -> Result<FragmentInspection> {
+    let Some((data_start, length)) = planned.stream else {
+        return planned.inspection;
+    };
+    let object = Some(expected);
+    let mut reader = Reader::new(source, range, limits, cancellation)?;
+    let length = match length {
+        PlannedLength::NoDictionary => {
+            return Err(reader.malformed(0, object, "stream lacks dictionary"));
+        }
+        PlannedLength::Missing => return Err(reader.malformed(0, object, "stream lacks Length")),
+        PlannedLength::Direct(length) => Some(length),
+        PlannedLength::Indirect(target) => resolve_length(target),
+        PlannedLength::Invalid => None,
+    }
+    .ok_or(reader.malformed(0, object, "stream Length does not resolve"))?;
+    let after_data = data_start.checked_add(length).ok_or(reader.malformed(
+        0,
+        object,
+        "stream extent overflows",
+    ))?;
+    let mut rest = reader.check_stream_tail(after_data, object).await?;
     reader.skip_space(&mut rest).await?;
     if rest != range.length {
-        return Err(reader.malformed(rest, Some(expected), "integer fragment has trailing bytes"));
+        return Err(reader.malformed(rest, object, "fragment has trailing non-whitespace bytes"));
     }
-    Ok(head
-        .scalar
-        .and_then(|span| exact_unsigned(&head.bytes[span])))
+    planned.inspection
+}
+
+/// Inspect a small object this crate generated, such as a synthetic page
+/// tree node, a blank page or a repaired link, so that it joins the plan with
+/// the same record as a scanned source object.
+pub(crate) fn inspect_generated_object(
+    bytes: &[u8],
+    limits: &Limits,
+) -> Result<FragmentInspection> {
+    let head = parse_object_head(bytes.to_vec()).map_err(|_| Error::InvalidInput {
+        reason: "generated PDF object does not parse",
+    })?;
+    let range = PdfRange {
+        offset: 0,
+        length: len_u64(bytes.len()),
+    };
+    inspect_head(&head, range, 0, limits)
 }
 
 mod fragment_scan;
+mod recovery;
 
 pub(crate) use fragment_scan::{
-    FragmentCandidate, FragmentScan, PatchedSource, collect_fragment_candidates,
-    scan_damaged_fragment, scan_fragment_with_candidates,
+    FragmentCandidate, FragmentScan, collect_fragment_candidates, scan_damaged_fragment,
+    scan_fragment_with_candidates,
 };
+pub(crate) use recovery::{PatchedSource, substitute_damaged_pages};
 
 #[cfg(test)]
 mod tests;
-
-/// Preserve page geometry and parentage while removing all rendering dependencies.
-pub(crate) async fn blank_fragment_page<S: RangedSource, C: Cancellation>(
-    source: &mut S,
-    object: FragmentObject,
-    limits: &Limits,
-    cancellation: &C,
-) -> Result<Vec<u8>> {
-    let mut reader = Reader::new(source, object.range, limits, cancellation)?;
-    let head = reader.load_head(0, Some(object.reference)).await?;
-    let failure = || {
-        reader.malformed(
-            0,
-            Some(object.reference),
-            "damaged page geometry is unavailable",
-        )
-    };
-    let dict = head.dictionary.as_ref().ok_or_else(failure)?;
-    if dict.value(b"Type").and_then(exact_name).as_deref() != Some(b"Page") {
-        return Err(failure());
-    }
-    let parent = dict
-        .value(b"Parent")
-        .and_then(exact_reference)
-        .ok_or_else(failure)?;
-    let mut body = format!(
-        "{} 0 obj\n<< /Type /Page /Parent {} {} R /Resources << >>",
-        object.reference.number, parent.number, parent.generation
-    )
-    .into_bytes();
-    for key in [
-        b"MediaBox".as_slice(),
-        b"CropBox",
-        b"BleedBox",
-        b"TrimBox",
-        b"ArtBox",
-        b"Rotate",
-        b"UserUnit",
-    ] {
-        if let Some(value) = dict.value(key) {
-            let valid = if key.ends_with(b"Box") {
-                media_box(value).is_some()
-            } else {
-                std::str::from_utf8(value)
-                    .ok()
-                    .and_then(|v| v.parse::<f64>().ok())
-                    .is_some_and(f64::is_finite)
-            };
-            if !valid {
-                return Err(failure());
-            }
-            let size = body
-                .len()
-                .saturating_add(key.len())
-                .saturating_add(value.len())
-                .saturating_add(32);
-            limits.check_allocation(size as u64)?;
-            let refused = limits.allocation_refused("blank page dictionary", size as u64);
-            let additional = size - body.len();
-            crate::fallible::reserve(&mut body, additional, refused)?;
-            body.extend_from_slice(b" /");
-            body.extend_from_slice(key);
-            body.push(b' ');
-            body.extend_from_slice(value);
-        }
-    }
-    body.extend_from_slice(b" >>\nendobj\n");
-    Ok(body)
-}

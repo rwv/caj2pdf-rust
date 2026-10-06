@@ -5,8 +5,12 @@
 //! A format handler supplies the exact source span of every indirect object
 //! and the intended page order. This module never infers page order from
 //! object numbers or searches binary stream payloads for PDF delimiters.
+//! Each object is inspected once: a public plan is parsed here, and the CAJ
+//! converter passes the inspection its fragment scan already made.
 
-use super::input::{FragmentKind, inspect_fragment_object, inspect_fragment_scalar};
+use super::input::{
+    FragmentInspection, FragmentKind, PlannedObject, finish_planned_object, parse_planned_object,
+};
 use super::outline::{
     BookmarkView, MAX_OUTLINE_DEPTH, ObjectSink, OutlineItem, write_item, write_root,
 };
@@ -14,7 +18,7 @@ use super::page_walk::{PageStep, PageWalk};
 use super::writer::{HEADER, MAX_PDF_OBJECTS, Output, checked_object_number};
 use super::xref::{Trailer, write_xref};
 use super::{PdfRange, PdfRef};
-use crate::fallible::{len_u64, reserve_exact, usize_from_u32};
+use crate::fallible::{len_u64, reserve, reserve_exact, usize_from_u32};
 use crate::{
     Bookmark, Cancellation, ConversionReport, CountingSource, Error, Limits, PdfErrorKind,
     RangedSource, Result, SequentialSink, read_exact_at,
@@ -43,11 +47,42 @@ pub struct FragmentPlan<'a> {
     pub pages_root: PdfRef,
 }
 
+/// One planned object with its single structural inspection.
+pub(crate) struct InspectedObject {
+    pub object: FragmentObject,
+    pub inspection: FragmentInspection,
+}
+
+/// Append a generated replacement object to `suffix`, whose bytes follow a
+/// source of `base` bytes, and return its range.
+pub(crate) fn append_replacement(
+    suffix: &mut Vec<u8>,
+    base: u64,
+    bytes: &[u8],
+) -> Result<PdfRange> {
+    let offset = base
+        .checked_add(len_u64(suffix.len()))
+        .ok_or(Error::InvalidInput {
+            reason: "PDF replacement object offset overflows",
+        })?;
+    let refused = Error::InvalidInput {
+        reason: "PDF replacement object allocation was refused",
+    };
+    reserve(suffix, bytes.len(), refused)?;
+    suffix.extend_from_slice(bytes);
+    Ok(PdfRange {
+        offset,
+        length: len_u64(bytes.len()),
+    })
+}
+
 #[derive(Clone, Copy, Debug)]
 struct Record {
     reference: PdfRef,
     range: PdfRange,
     output_offset: u64,
+    /// The position of this object in the supplied plan.
+    index: Option<usize>,
 }
 
 #[derive(Clone, Copy)]
@@ -72,14 +107,6 @@ struct ContentEvidence {
 const OVERREAD: &str = "PDF source reported more bytes than requested";
 
 impl Record {
-    fn from_fragment(fragment: FragmentObject) -> Self {
-        Self {
-            reference: fragment.reference,
-            range: fragment.range,
-            output_offset: 0,
-        }
-    }
-
     fn synthetic(reference: PdfRef) -> Self {
         Self {
             reference,
@@ -88,6 +115,7 @@ impl Record {
                 length: 0,
             },
             output_offset: 0,
+            index: None,
         }
     }
 }
@@ -126,28 +154,22 @@ fn pdf_limit(
     }
 }
 
-fn check_pdf_allocation(
-    limits: &Limits,
-    bytes: u64,
-    reference: Option<PdfRef>,
-    offset: u64,
-) -> Result<()> {
-    if bytes > limits.max_allocation_bytes {
-        return Err(pdf_limit(
-            reference,
-            offset,
-            "PDF allocation bytes",
-            limits.max_allocation_bytes,
-            bytes,
-        ));
-    }
-    Ok(())
-}
-
 fn checked_add(left: u64, right: u64) -> Result<u64> {
     left.checked_add(right).ok_or(Error::InvalidInput {
         reason: "PDF arithmetic overflows 64 bits",
     })
+}
+
+/// Reserve room for `count` entries of an index whose length a count limit
+/// already bounds; an allocator refusal is a located limit error.
+fn reserve_index<T>(
+    items: &mut Vec<T>,
+    count: usize,
+    limits: &Limits,
+    resource: &'static str,
+) -> Result<()> {
+    let attempted = len_u64(count).saturating_mul(len_u64(size_of::<T>()));
+    reserve_exact(items, count, limits.allocation_refused(resource, attempted))
 }
 
 /// The object slots a reconstruction writes: the planned objects, two
@@ -173,14 +195,6 @@ fn requested_objects(
     let reference = first.map(|object| (object.reference.number, object.reference.generation));
     checked_object_number(requested).map_err(|error| error.locate_pdf_limit(offset, reference))?;
     Ok(requested)
-}
-
-/// The overflow-checked sum of `values`. They are unsigned, so the sum
-/// overflows in any order exactly when it exceeds `u64::MAX`.
-fn checked_sum(values: &[u64]) -> Result<u64> {
-    values
-        .iter()
-        .try_fold(0, |sum, &value| checked_add(sum, value))
 }
 
 fn checked_reference(reference: PdfRef, offset: u64) -> Result<()> {
@@ -222,30 +236,14 @@ fn build_outline_nodes(
     pages: &[PdfRef],
     root: PdfRef,
     limits: &Limits,
-    retained_bytes: u64,
 ) -> Result<(Vec<OutlineNode>, PdfRef, PdfRef)> {
-    let metadata_bytes = bookmarks
-        .len()
-        .checked_mul(size_of::<OutlineNode>())
-        .map(len_u64)
-        .ok_or(Error::InvalidInput {
-            reason: "PDF outline index allocation overflows 64 bits",
-        })?;
-    check_pdf_allocation(
-        limits,
-        checked_add(retained_bytes, metadata_bytes)?,
-        Some(root),
-        0,
-    )?;
     let mut nodes: Vec<OutlineNode> = Vec::new();
-    let refused = pdf_limit(
-        None,
-        0,
+    reserve_index(
+        &mut nodes,
+        bookmarks.len(),
+        limits,
         "PDF outline index allocation",
-        limits.max_allocation_bytes,
-        metadata_bytes,
-    );
-    reserve_exact(&mut nodes, bookmarks.len(), refused)?;
+    )?;
     let mut stack: [Option<usize>; MAX_OUTLINE_DEPTH] = [None; MAX_OUTLINE_DEPTH];
     let mut first_root = None;
     let mut last_root: Option<usize> = None;
@@ -406,6 +404,71 @@ pub async fn reconstruct_fragment_with_bookmarks<
     limits: &Limits,
     cancellation: &C,
 ) -> Result<ConversionReport> {
+    reconstruct(source, sink, plan, None, bookmarks, limits, cancellation).await
+}
+
+/// A reconstruction plan whose objects the caller already inspected, such as
+/// the CAJ fragment scan's records and the generated objects that join them.
+pub(crate) struct InspectedPlan<'a> {
+    pub objects: Vec<InspectedObject>,
+    pub pages: &'a [PdfRef],
+    pub pages_root: PdfRef,
+}
+
+/// Reconstruct from an [`InspectedPlan`] without parsing its objects again.
+pub(crate) async fn reconstruct_inspected<R: RangedSource, W: SequentialSink, C: Cancellation>(
+    source: &mut R,
+    sink: &mut W,
+    plan: InspectedPlan<'_>,
+    bookmarks: &[Bookmark],
+    limits: &Limits,
+    cancellation: &C,
+) -> Result<ConversionReport> {
+    let mut spans = Vec::new();
+    reserve_index(
+        &mut spans,
+        plan.objects.len(),
+        limits,
+        "PDF object index allocation",
+    )?;
+    let mut inspections = Vec::new();
+    reserve_index(
+        &mut inspections,
+        plan.objects.len(),
+        limits,
+        "PDF object index allocation",
+    )?;
+    for object in plan.objects {
+        spans.push(object.object);
+        inspections.push(Some(object.inspection));
+    }
+    let fragment_plan = FragmentPlan {
+        objects: &spans,
+        pages: plan.pages,
+        pages_root: plan.pages_root,
+    };
+    let given = Some(inspections);
+    reconstruct(
+        source,
+        sink,
+        &fragment_plan,
+        given,
+        bookmarks,
+        limits,
+        cancellation,
+    )
+    .await
+}
+
+async fn reconstruct<R: RangedSource, W: SequentialSink, C: Cancellation>(
+    source: &mut R,
+    sink: &mut W,
+    plan: &FragmentPlan<'_>,
+    given: Option<Vec<Option<FragmentInspection>>>,
+    bookmarks: &[Bookmark],
+    limits: &Limits,
+    cancellation: &C,
+) -> Result<ConversionReport> {
     let mut input_bytes_read = 0;
     let mut counted =
         CountingSource::new(source, &mut input_bytes_read).rejecting_overread(OVERREAD);
@@ -451,118 +514,21 @@ pub async fn reconstruct_fragment_with_bookmarks<
     }
 
     let requested = requested_objects(plan.objects.len(), bookmarks.len(), plan.objects.first())?;
-    let record_bytes = requested
-        .checked_mul(size_of::<Record>())
-        .ok_or(Error::InvalidInput {
-            reason: "PDF object index allocation overflows address space",
-        })?;
-    let record_bytes = len_u64(record_bytes);
-    check_pdf_allocation(
-        limits,
-        record_bytes,
-        plan.objects.first().map(|object| object.reference),
-        plan.objects.first().map_or(0, |object| object.range.offset),
-    )?;
-    let mut records = Vec::new();
-    let refused = limits.allocation_refused("PDF object index allocation", record_bytes);
-    reserve_exact(&mut records, requested, refused)?;
-    let mut fragment_bytes = 0_u64;
-    for fragment in plan.objects {
-        checked_reference(fragment.reference, fragment.range.offset)?;
-        if fragment.range.length == 0 {
-            return Err(malformed(
-                Some(fragment.reference),
-                fragment.range.offset,
-                "indirect object span is empty",
-            ));
-        }
-        let failure = malformed(
-            Some(fragment.reference),
-            fragment.range.offset,
-            "indirect object span overflows 64-bit offset",
-        );
-        let end = fragment.range.end().ok_or(failure)?;
-        if end > source.size() {
-            return Err(Error::TruncatedInput {
-                offset: fragment.range.offset,
-                expected: fragment.range.length,
-                available: source.size().saturating_sub(fragment.range.offset),
-            });
-        }
-        fragment_bytes = fragment_bytes
-            .checked_add(fragment.range.length)
-            .ok_or_else(|| {
-                pdf_limit(
-                    Some(fragment.reference),
-                    fragment.range.offset,
-                    "input bytes",
-                    limits.max_input_bytes,
-                    u64::MAX,
-                )
-            })?;
-        if fragment_bytes > limits.max_input_bytes {
-            return Err(pdf_limit(
-                Some(fragment.reference),
-                fragment.range.offset,
-                "input bytes",
-                limits.max_input_bytes,
-                fragment_bytes,
-            ));
-        }
-        records.push(Record::from_fragment(*fragment));
-    }
-    records.sort_unstable_by_key(|record| record.range.offset);
-    for pair in records.windows(2) {
-        let failure = malformed(
-            Some(pair[0].reference),
-            pair[0].range.offset,
-            "indirect object span overflows 64-bit offset",
-        );
-        let previous_end = pair[0].range.end().ok_or(failure)?;
-        if previous_end > pair[1].range.offset {
-            return Err(pdf_error(
-                Some(pair[1].reference),
-                pair[1].range.offset,
-                PdfErrorKind::AmbiguousRepair,
-                "indirect object spans overlap",
-            ));
-        }
-    }
-    records.sort_unstable_by_key(|record| record.reference.number);
-    for pair in records.windows(2) {
-        if pair[0].reference.number == pair[1].reference.number {
-            return Err(pdf_error(
-                Some(pair[1].reference),
-                pair[1].range.offset,
-                PdfErrorKind::AmbiguousRepair,
-                "duplicate indirect object number",
-            ));
-        }
-    }
+    let mut records = index_spans(source.size(), plan.objects, requested, limits)?;
     for page in plan.pages {
         checked_reference(*page, 0)?;
         if object_index(&records, *page).is_none() {
             return Err(malformed(Some(*page), 0, "ordered page object is missing"));
         }
     }
-    // Check duplicate destinations with a bounded, sorted page-ref index.
-    let page_index_bytes =
-        plan.pages
-            .len()
-            .checked_mul(size_of::<PdfRef>())
-            .ok_or(Error::InvalidInput {
-                reason: "PDF page index allocation overflows address space",
-            })?;
-    let page_index_bytes = len_u64(page_index_bytes);
-    check_pdf_allocation(
-        limits,
-        checked_add(record_bytes, page_index_bytes)?,
-        plan.pages.first().copied(),
-        plan.objects.first().map_or(0, |object| object.range.offset),
-    )?;
+    // Check duplicate destinations with a sorted page-ref index.
     let mut sorted_pages = Vec::new();
-    let refused = limits.allocation_refused("PDF page index allocation", page_index_bytes);
-    reserve_exact(&mut sorted_pages, plan.pages.len(), refused)?;
+    reserve_index(
+        &mut sorted_pages,
+        plan.pages.len(),
+        limits,
+        "PDF page index allocation",
+    )?;
     sorted_pages.extend_from_slice(plan.pages);
     sorted_pages.sort_unstable();
     for pair in sorted_pages.windows(2) {
@@ -598,9 +564,9 @@ pub async fn reconstruct_fragment_with_bookmarks<
     validate_fragment_structure(
         source,
         plan,
+        given,
         &records,
         &sorted_pages,
-        checked_add(record_bytes, page_index_bytes)?,
         limits,
         cancellation,
     )
@@ -619,10 +585,7 @@ pub async fn reconstruct_fragment_with_bookmarks<
             generation: 0,
         };
         checked_reference(root, 0)?;
-        let parts = [record_bytes, page_index_bytes, limits.io_chunk_bytes as u64];
-        let retained_bytes = checked_sum(&parts)?;
-        let (nodes, first, last) =
-            build_outline_nodes(bookmarks, plan.pages, root, limits, retained_bytes)?;
+        let (nodes, first, last) = build_outline_nodes(bookmarks, plan.pages, root, limits)?;
         records.push(Record::synthetic(root));
         for node in &nodes {
             records.push(Record::synthetic(node.item.reference));
@@ -652,18 +615,10 @@ pub async fn reconstruct_fragment_with_bookmarks<
         }
     };
 
-    let output_working_bytes = checked_add(record_bytes, limits.io_chunk_bytes as u64)?;
-    check_pdf_allocation(
-        limits,
-        output_working_bytes,
-        Some(plan.pages_root),
-        records
-            .iter()
-            .find(|record| record.reference == plan.pages_root)
-            .map_or(0, |record| record.range.offset),
-    )?;
+    // `limits.validate` admitted one I/O chunk under the allocation limit.
     let mut buffer = Vec::new();
-    let refused = limits.allocation_refused("PDF I/O buffer allocation", output_working_bytes);
+    let refused =
+        limits.allocation_refused("PDF I/O buffer allocation", len_u64(limits.io_chunk_bytes));
     reserve_exact(&mut buffer, limits.io_chunk_bytes, refused)?;
     buffer.resize(limits.io_chunk_bytes, 0_u8);
     let mut out = Output::new(sink, limits, cancellation);
@@ -741,6 +696,100 @@ pub async fn reconstruct_fragment_with_bookmarks<
     })
 }
 
+/// Check every planned span, then index the spans by object number with room
+/// for `requested` records. Spans must be nonempty, inside the source, within
+/// the input limit in total, disjoint, and uniquely numbered: the one place
+/// these properties are checked.
+fn index_spans(
+    source_size: u64,
+    objects: &[FragmentObject],
+    requested: usize,
+    limits: &Limits,
+) -> Result<Vec<Record>> {
+    let mut records = Vec::new();
+    reserve_index(
+        &mut records,
+        requested,
+        limits,
+        "PDF object index allocation",
+    )?;
+    let mut fragment_bytes = 0_u64;
+    for (index, fragment) in objects.iter().enumerate() {
+        checked_reference(fragment.reference, fragment.range.offset)?;
+        if fragment.range.length == 0 {
+            return Err(malformed(
+                Some(fragment.reference),
+                fragment.range.offset,
+                "indirect object span is empty",
+            ));
+        }
+        let failure = malformed(
+            Some(fragment.reference),
+            fragment.range.offset,
+            "indirect object span overflows 64-bit offset",
+        );
+        let end = fragment.range.end().ok_or(failure)?;
+        if end > source_size {
+            return Err(Error::TruncatedInput {
+                offset: fragment.range.offset,
+                expected: fragment.range.length,
+                available: source_size.saturating_sub(fragment.range.offset),
+            });
+        }
+        fragment_bytes = fragment_bytes
+            .checked_add(fragment.range.length)
+            .ok_or_else(|| {
+                pdf_limit(
+                    Some(fragment.reference),
+                    fragment.range.offset,
+                    "input bytes",
+                    limits.max_input_bytes,
+                    u64::MAX,
+                )
+            })?;
+        if fragment_bytes > limits.max_input_bytes {
+            return Err(pdf_limit(
+                Some(fragment.reference),
+                fragment.range.offset,
+                "input bytes",
+                limits.max_input_bytes,
+                fragment_bytes,
+            ));
+        }
+        records.push(Record {
+            reference: fragment.reference,
+            range: fragment.range,
+            output_offset: 0,
+            index: Some(index),
+        });
+    }
+    records.sort_unstable_by_key(|record| record.range.offset);
+    for pair in records.windows(2) {
+        // Every span's end was checked above.
+        let previous_end = pair[0].range.offset + pair[0].range.length;
+        if previous_end > pair[1].range.offset {
+            return Err(pdf_error(
+                Some(pair[1].reference),
+                pair[1].range.offset,
+                PdfErrorKind::AmbiguousRepair,
+                "indirect object spans overlap",
+            ));
+        }
+    }
+    records.sort_unstable_by_key(|record| record.reference.number);
+    for pair in records.windows(2) {
+        if pair[0].reference.number == pair[1].reference.number {
+            return Err(pdf_error(
+                Some(pair[1].reference),
+                pair[1].range.offset,
+                PdfErrorKind::AmbiguousRepair,
+                "duplicate indirect object number",
+            ));
+        }
+    }
+    Ok(records)
+}
+
 async fn copy_object<R: RangedSource, W: SequentialSink, C: Cancellation>(
     source: &mut R,
     out: &mut Output<'_, W, C>,
@@ -784,193 +833,164 @@ fn page_reference(reference: PdfRef, buffer: &mut [u8; 16]) -> &[u8] {
     &buffer[..count + 5]
 }
 
+/// Parse every source record once, in object-number order. Integer values
+/// are kept for indirect stream lengths; streams are framed afterwards.
+async fn parse_records<R: RangedSource, C: Cancellation>(
+    source: &mut R,
+    records: &[Record],
+    limits: &Limits,
+    cancellation: &C,
+) -> Result<Vec<Option<PlannedObject>>> {
+    let mut planned = Vec::new();
+    reserve_index(
+        &mut planned,
+        records.len(),
+        limits,
+        "PDF scalar index allocation",
+    )?;
+    for record in records {
+        planned.push(if record.range.length == 0 {
+            None
+        } else {
+            Some(
+                parse_planned_object(source, record.range, record.reference, limits, cancellation)
+                    .await?,
+            )
+        });
+    }
+    Ok(planned)
+}
+
 async fn validate_fragment_structure<R: RangedSource, C: Cancellation>(
     source: &mut R,
     plan: &FragmentPlan<'_>,
+    given: Option<Vec<Option<FragmentInspection>>>,
     records: &[Record],
     sorted_pages: &[PdfRef],
-    index_bytes: u64,
     limits: &Limits,
     cancellation: &C,
 ) -> Result<()> {
-    let scalar_bytes =
-        records
-            .len()
-            .checked_mul(size_of::<Option<u64>>())
-            .ok_or(Error::InvalidInput {
-                reason: "PDF scalar index allocation overflows address space",
-            })?;
-    let scalar_bytes = len_u64(scalar_bytes);
-    check_pdf_allocation(
-        limits,
-        checked_add(index_bytes, scalar_bytes)?,
-        plan.objects.first().map(|object| object.reference),
-        plan.objects.first().map_or(0, |object| object.range.offset),
-    )?;
-    let mut scalars = Vec::new();
-    let refused = limits.allocation_refused("PDF scalar index allocation", scalar_bytes);
-    reserve_exact(&mut scalars, records.len(), refused)?;
-    for record in records {
-        let scalar = if record.range.length == 0 {
-            None
-        } else {
-            inspect_fragment_scalar(source, record.range, record.reference, limits, cancellation)
-                .await?
-        };
-        scalars.push(scalar);
-    }
-
-    let kind_bytes = records
-        .len()
-        .checked_mul(size_of::<Option<FragmentKind>>())
-        .ok_or(Error::InvalidInput {
-            reason: "PDF structure index allocation overflows address space",
-        })?;
-    let kind_bytes = len_u64(kind_bytes);
-    let stream_bytes = len_u64(records.len());
-    let parts = [index_bytes, scalar_bytes, kind_bytes, stream_bytes];
-    let retained_base = checked_sum(&parts)?;
-    check_pdf_allocation(
-        limits,
-        retained_base,
-        plan.objects.first().map(|object| object.reference),
-        plan.objects.first().map_or(0, |object| object.range.offset),
-    )?;
+    let mut given = given;
+    let mut planned = match given {
+        Some(_) => Vec::new(),
+        None => parse_records(source, records, limits, cancellation).await?,
+    };
+    let scalars: Vec<Option<u64>> = planned
+        .iter()
+        .map(|item| item.as_ref().and_then(|item| item.scalar))
+        .collect();
     let mut kinds = Vec::new();
-    let refused = limits.allocation_refused("PDF structure index allocation", kind_bytes);
-    reserve_exact(&mut kinds, records.len(), refused)?;
-    let mut retained_structure_bytes = retained_base;
+    reserve_index(
+        &mut kinds,
+        records.len(),
+        limits,
+        "PDF structure index allocation",
+    )?;
     let mut stream_flags = Vec::new();
-    let refused = limits.allocation_refused("PDF stream index allocation", stream_bytes);
-    reserve_exact(&mut stream_flags, records.len(), refused)?;
+    reserve_index(
+        &mut stream_flags,
+        records.len(),
+        limits,
+        "PDF stream index allocation",
+    )?;
     let mut content_evidence = Vec::new();
     // At most one destination per record, so a `u64` count cannot overflow.
     let mut destination_count = 0_u64;
-    for record in records {
-        let kind = if record.range.length == 0 {
-            None
-        } else {
-            let inspection = inspect_fragment_object(
-                source,
-                record.range,
-                record.reference,
-                limits,
-                cancellation,
-                |reference| {
+    for (position, record) in records.iter().enumerate() {
+        let inspection = match (&mut given, record.index) {
+            (_, None) => None,
+            (Some(given), Some(index)) => given[index].take(),
+            (None, Some(_)) => {
+                let item = planned[position].take().ok_or(Error::InvalidInput {
+                    reason: "planned PDF object was not parsed",
+                })?;
+                let resolve = |reference| {
                     object_index(records, reference).and_then(|index| {
                         (records[index].reference == reference)
                             .then_some(scalars[index])
                             .flatten()
                     })
-                },
-            )
-            .await?;
-            // The inspector rejects any header other than the expected one.
-            debug_assert_eq!(inspection.reference, record.reference);
-            if inspection.max_referenced_object > MAX_PDF_OBJECTS {
-                return Err(pdf_error(
+                };
+                Some(
+                    finish_planned_object(
+                        source,
+                        record.range,
+                        record.reference,
+                        item,
+                        limits,
+                        cancellation,
+                        resolve,
+                    )
+                    .await?,
+                )
+            }
+        };
+        let Some(inspection) = inspection else {
+            stream_flags.push(false);
+            kinds.push(None);
+            continue;
+        };
+        // The inspector rejects any header other than the expected one.
+        debug_assert_eq!(inspection.reference, record.reference);
+        if inspection.max_referenced_object > MAX_PDF_OBJECTS {
+            return Err(pdf_error(
+                Some(record.reference),
+                record.range.offset,
+                PdfErrorKind::UnsupportedFeature,
+                "indirect reference exceeds the supported PDF profile",
+            ));
+        }
+        for reference in &inspection.references {
+            checked_reference(*reference, record.range.offset)?;
+            if object_index(records, *reference).is_none() {
+                return Err(malformed(
                     Some(record.reference),
                     record.range.offset,
-                    PdfErrorKind::UnsupportedFeature,
-                    "indirect reference exceeds the supported PDF profile",
+                    "indirect reference targets a missing object",
                 ));
             }
-            for reference in inspection.references {
-                checked_reference(reference, record.range.offset)?;
-                if object_index(records, reference).is_none() {
-                    return Err(malformed(
-                        Some(record.reference),
-                        record.range.offset,
-                        "indirect reference targets a missing object",
-                    ));
-                }
-            }
-            if let Some(destination) = inspection.destination {
-                checked_reference(destination, record.range.offset)?;
-                if sorted_pages.binary_search(&destination).is_err() {
-                    return Err(malformed(
-                        Some(record.reference),
-                        record.range.offset,
-                        "outline destination does not target an ordered Page object",
-                    ));
-                }
-                destination_count += 1;
-                if destination_count > u64::from(limits.max_bookmarks) {
-                    return Err(pdf_limit(
-                        Some(record.reference),
-                        record.range.offset,
-                        "bookmarks",
-                        u64::from(limits.max_bookmarks),
-                        destination_count,
-                    ));
-                }
-            }
-            if let FragmentKind::Pages { kids, .. } = &inspection.kind {
-                let kids_bytes = kids
-                    .len()
-                    .checked_mul(size_of::<PdfRef>())
-                    .map(len_u64)
-                    .ok_or(Error::InvalidInput {
-                        reason: "PDF page-tree child allocation overflows 64 bits",
-                    })?;
-                retained_structure_bytes = checked_add(retained_structure_bytes, kids_bytes)?;
-                check_pdf_allocation(
-                    limits,
-                    retained_structure_bytes,
+        }
+        if let Some(destination) = inspection.destination {
+            checked_reference(destination, record.range.offset)?;
+            if sorted_pages.binary_search(&destination).is_err() {
+                return Err(malformed(
                     Some(record.reference),
                     record.range.offset,
-                )?;
+                    "outline destination does not target an ordered Page object",
+                ));
             }
-            if let Some(references) = inspection.contents {
-                retain_content_evidence(
-                    &mut content_evidence,
-                    &mut retained_structure_bytes,
-                    ContentEvidence {
-                        reference: record.reference,
-                        kind: ContentEvidenceKind::Page {
-                            direct_array: inspection.contents_is_direct_array,
-                        },
-                        references,
-                    },
+            destination_count += 1;
+            if destination_count > u64::from(limits.max_bookmarks) {
+                return Err(pdf_limit(
+                    Some(record.reference),
                     record.range.offset,
-                    limits,
-                )?;
+                    "bookmarks",
+                    u64::from(limits.max_bookmarks),
+                    destination_count,
+                ));
             }
-            if let Some(references) = inspection.scalar_reference_array {
-                retain_content_evidence(
-                    &mut content_evidence,
-                    &mut retained_structure_bytes,
-                    ContentEvidence {
-                        reference: record.reference,
-                        kind: ContentEvidenceKind::ScalarArray,
-                        references,
-                    },
-                    record.range.offset,
-                    limits,
-                )?;
-            }
-            stream_flags.push(inspection.is_stream);
-            Some(inspection.kind)
-        };
-        if kind.is_none() {
-            stream_flags.push(false);
         }
-        kinds.push(kind);
+        if let Some(references) = inspection.contents {
+            content_evidence.push(ContentEvidence {
+                reference: record.reference,
+                kind: ContentEvidenceKind::Page {
+                    direct_array: inspection.contents_is_direct_array,
+                },
+                references,
+            });
+        }
+        if let Some(references) = inspection.scalar_reference_array {
+            content_evidence.push(ContentEvidence {
+                reference: record.reference,
+                kind: ContentEvidenceKind::ScalarArray,
+                references,
+            });
+        }
+        stream_flags.push(inspection.is_stream);
+        kinds.push(Some(inspection.kind));
     }
-    validate_fragment_contents(
-        records,
-        &stream_flags,
-        &content_evidence,
-        retained_structure_bytes,
-        limits,
-    )?;
-    drop(scalars);
-    let retained_without_scalars =
-        retained_structure_bytes
-            .checked_sub(scalar_bytes)
-            .ok_or(Error::InvalidInput {
-                reason: "PDF validation memory accounting underflowed",
-            })?;
+    drop(planned);
+    validate_fragment_contents(records, &stream_flags, &content_evidence)?;
 
     let mut found_pages = 0_u32;
     for (index, kind) in kinds.iter().enumerate() {
@@ -1047,32 +1067,8 @@ async fn validate_fragment_structure<R: RangedSource, C: Cancellation>(
             }
         }
     } else {
-        validate_existing_page_tree(plan, records, &kinds, retained_without_scalars, limits)?;
+        validate_existing_page_tree(plan, records, &kinds, limits)?;
     }
-    Ok(())
-}
-
-fn retain_content_evidence(
-    evidence: &mut Vec<ContentEvidence>,
-    retained_bytes: &mut u64,
-    item: ContentEvidence,
-    offset: u64,
-    limits: &Limits,
-) -> Result<()> {
-    let reference_bytes = item
-        .references
-        .len()
-        .checked_mul(size_of::<PdfRef>())
-        .map(len_u64)
-        .ok_or(Error::InvalidInput {
-            reason: "PDF content reference allocation overflows 64 bits",
-        })?;
-    let item_bytes = checked_add(size_of::<ContentEvidence>() as u64, reference_bytes)?;
-    *retained_bytes = checked_add(*retained_bytes, item_bytes)?;
-    check_pdf_allocation(limits, *retained_bytes, Some(item.reference), offset)?;
-    let refused = limits.allocation_refused("PDF content evidence allocation", *retained_bytes);
-    reserve_exact(evidence, 1, refused)?;
-    evidence.push(item);
     Ok(())
 }
 
@@ -1080,26 +1076,8 @@ fn validate_fragment_contents(
     records: &[Record],
     stream_flags: &[bool],
     evidence: &[ContentEvidence],
-    retained_bytes: u64,
-    limits: &Limits,
 ) -> Result<()> {
-    let cache_bytes = len_u64(evidence.len());
-    let first = evidence.first();
-    let first_offset = first
-        .and_then(|item| object_index(records, item.reference))
-        .and_then(|index| records.get(index))
-        .map_or(0, |record| record.range.offset);
-    check_pdf_allocation(
-        limits,
-        checked_add(retained_bytes, cache_bytes)?,
-        first.map(|item| item.reference),
-        first_offset,
-    )?;
-    let mut validated_arrays = Vec::new();
-    let refused =
-        limits.allocation_refused("PDF content-array validation index allocation", cache_bytes);
-    reserve_exact(&mut validated_arrays, evidence.len(), refused)?;
-    validated_arrays.resize(evidence.len(), false);
+    let mut validated_arrays = vec![false; evidence.len()];
     for item in evidence {
         let ContentEvidenceKind::Page { direct_array } = item.kind else {
             continue;
@@ -1191,20 +1169,9 @@ fn validate_existing_page_tree(
     plan: &FragmentPlan<'_>,
     records: &[Record],
     kinds: &[Option<FragmentKind>],
-    retained_bytes: u64,
     limits: &Limits,
 ) -> Result<()> {
-    let root_offset = object_index(records, plan.pages_root)
-        .and_then(|index| records.get(index))
-        .map_or(0, |record| record.range.offset);
-    let visit_bytes = len_u64(records.len());
-    let with_visited = checked_add(retained_bytes, visit_bytes)?;
-    check_pdf_allocation(limits, with_visited, Some(plan.pages_root), root_offset)?;
-    let mut visited = Vec::new();
-    let refused = limits.allocation_refused("PDF page-tree visited index allocation", visit_bytes);
-    reserve_exact(&mut visited, records.len(), refused)?;
-    visited.resize(records.len(), false);
-
+    let mut visited = vec![false; records.len()];
     let stack_capacity = records
         .len()
         .checked_mul(2)
@@ -1212,22 +1179,13 @@ fn validate_existing_page_tree(
         .ok_or(Error::InvalidInput {
             reason: "PDF page-tree traversal allocation overflows address space",
         })?;
-    let stack_bytes =
-        stack_capacity
-            .checked_mul(size_of::<PageStep>())
-            .ok_or(Error::InvalidInput {
-                reason: "PDF page-tree traversal allocation overflows address space",
-            })?;
-    let stack_bytes = len_u64(stack_bytes);
-    check_pdf_allocation(
-        limits,
-        checked_add(with_visited, stack_bytes)?,
-        Some(plan.pages_root),
-        root_offset,
-    )?;
     let mut stack = Vec::new();
-    let refused = limits.allocation_refused("PDF page-tree traversal allocation", stack_bytes);
-    reserve_exact(&mut stack, stack_capacity, refused)?;
+    reserve_index(
+        &mut stack,
+        stack_capacity,
+        limits,
+        "PDF page-tree traversal allocation",
+    )?;
     // The reserved stack has room for every indexed object twice, so only a
     // page tree that links more children than that can exhaust it.
     let push_within = |reference, offset| {

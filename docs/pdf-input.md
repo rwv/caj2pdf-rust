@@ -15,12 +15,12 @@ fragment spans, rather than unrelated bytes in a containing CAJ file.
   subset accepts direct `/Size`, `/W`, `/Index`, and `/Length`, unfiltered or
   `/FlateDecode` data, and ordinary free or uncompressed in-use entries. A
   later classic table may point back to an xref stream through `/Prev`.
-- Direct or indirect stream `/Length`. A direct length is trusted when
-  `endstream` follows it; otherwise, and for an indirect length that is not
-  yet known, the reader searches forward for `endstream` and accepts the
-  first candidate that the later-resolved `/Length` confirms, or the only
-  candidate when no length can be resolved. PDF-looking bytes inside a stream
-  are payload once the extent is fixed; the reader does not re-parse them.
+- Direct or indirect stream `/Length`. In a complete PDF the xref resolves
+  an indirect length, and `endstream` must follow the declared extent. A
+  headerless CAJ fragment has no xref; its extent rule is described under
+  [Stream extents in CAJ fragments](#stream-extents-in-caj-fragments).
+  PDF-looking bytes inside a stream are payload once the extent is fixed;
+  the reader does not re-parse them.
 - Catalog and page-tree links, declared page counts, and bounded object and
   page indexes. Page geometry accepts direct rectangles or indirect scalar
   rectangle objects. Encrypted input, type-2 compressed object entries,
@@ -71,6 +71,62 @@ fragment `/MediaBox` objects are also unsupported until the fragment plan can
 validate their geometry. CAJ header, page-table, and TOC extraction belong
 to [issue #7](https://github.com/rwv/caj2pdf-rust/issues/7); no end-to-end CAJ
 compatibility is inferred from this PDF-layer test alone.
+
+The CAJ converter scans the fragment once (issue
+[#359](https://github.com/rwv/caj2pdf-rust/issues/359)). Each object's
+inspection (span, role, references, page parent and whether it has a
+`/MediaBox`) is carried through page-tree synthesis, link repair and
+reconstruction instead of parsing the object again. Link repair reads only
+the objects it rewrites. Generated objects, such as a synthesized `/Pages`
+node, a repaired link or a blank page, are inspected from their own bytes.
+Reconstruction checks span overlap and duplicate object numbers in one
+place. Its memory is bounded by the object, page and bookmark counts
+(`MAX_PDF_OBJECTS`, `Limits::max_pages`, `Limits::max_bookmarks`) and by
+`Limits::max_allocation_bytes` on each buffer, not by a summed byte budget.
+
+## Stream extents in CAJ fragments
+
+The fragment scanner never decodes a stream payload to frame it:
+
+1. A direct `/Length`, or an indirect one whose integer object was already
+   scanned, is trusted when `endstream` and `endobj` follow it.
+2. An indirect `/Length` whose integer object comes later is resolved by a
+   forward search: the stream provisionally ends at the first `endstream`
+   with a complete tail. The integer object must frame the stream at the
+   same end; if it frames another end, the scan repeats with that length.
+   If the scan fails while a provisional end is still unconfirmed, it
+   repeats with the search moved past that `endstream`. At most 16 repeats
+   are made; then the first error stands. A length whose integer object
+   never appears is an error. Partial (`--allow-damaged`) and page-row
+   candidate scans do not repeat.
+3. Otherwise the stream extent is not confirmed, and recovery decides.
+
+## Damaged-input recovery
+
+All recovery rules sit behind one entry, `try_recover` in
+`pdf/input/recovery.rs`, which the scanner calls when an object does not
+parse or its stream extent is not confirmed. A rule either resumes at an
+independently derived boundary, or defers the interrupted bytes until the
+complete scan proves them an exact proper prefix of the indexed object with
+the same number. A deferred prefix without that proof is an error.
+
+- An interrupted stream followed by its complete replay: an `endstream`
+  after the interrupted stream, less at most two end-of-line bytes and the
+  declared or resolved `/Length`, fixes where the replay starts, at most
+  64 KiB later. The replay must repeat the stream header, and the
+  interrupted bytes must share at least one payload byte with it. Complete
+  objects may sit between the two; exact duplicates are kept once.
+- An understated direct `/Length`: the one complete terminator within 64
+  bytes of the declared end is accepted, and the `/Length` digits are
+  replaced in the copy by a same-width value. A final stream repaired this
+  way must be the only terminator left in the scanned bytes.
+- A syntax interruption: an exact prefix of an earlier object, of an integer
+  replay, of a later copy offered by a page-table row, or a short cut at the
+  parser's error boundary, under the bounds the rules document in code.
+
+With `--allow-damaged` (below), a failure no rule recovers is recorded and
+the scan resumes after an independently framed stream or at the page
+table's next page dictionary.
 
 ## Header offset
 

@@ -663,18 +663,6 @@ fn requested_object_counts_are_bounded_and_located() {
 }
 
 #[test]
-fn checked_sums_refuse_only_a_total_beyond_u64() {
-    assert_eq!(checked_sum(&[]).unwrap(), 0);
-    assert_eq!(checked_sum(&[u64::MAX - 3, 1, 2]).unwrap(), u64::MAX);
-    assert!(matches!(
-        checked_sum(&[u64::MAX - 3, 2, 2]),
-        Err(Error::InvalidInput {
-            reason: "PDF arithmetic overflows 64 bits"
-        })
-    ));
-}
-
-#[test]
 fn one_byte_io_chunks_still_finish_with_bounded_output() {
     run(async {
         let (mut source, objects, pages) = two_page_fragment();
@@ -740,7 +728,7 @@ fn duplicate_overlapping_and_truncated_spans_fail_before_output() {
 }
 
 #[test]
-fn missing_reference_generation_and_memory_limit_are_typed() {
+fn missing_reference_generation_and_syntax_limit_are_typed() {
     run(async {
         let (mut source, mut objects, pages) = two_page_fragment();
         objects.push(add_object(&mut source.bytes, 12, b"<< /Contents 77 0 R >>"));
@@ -814,8 +802,7 @@ fn missing_reference_generation_and_memory_limit_are_typed() {
             )
             .await,
             Err(Error::PdfLimitExceeded {
-                resource: "PDF allocation bytes",
-                object: Some((9, 0)),
+                resource: "PDF object syntax bytes",
                 ..
             })
         ));
@@ -1028,7 +1015,7 @@ fn repeated_page_tree_links_cannot_expand_the_walk_stack() {
         pages_root: root,
     };
     assert!(matches!(
-        validate_existing_page_tree(&plan, &records, &kinds, 0, &Limits::default()),
+        validate_existing_page_tree(&plan, &records, &kinds, &Limits::default()),
         Err(Error::Pdf {
             kind: PdfErrorKind::AmbiguousRepair,
             ..
@@ -1887,137 +1874,6 @@ fn nested_contents_and_outline_round_trip_through_the_reader() {
 
 /// The content-rich fragment plus many tiny unreferenced objects, so the
 /// reconstruction indexes outweigh the per-object parser budget.
-fn indexed_heavy_fragment() -> (BytesSource, Vec<FragmentObject>, Vec<PdfRef>) {
-    let (mut source, mut objects, pages) = content_rich_fragment();
-    for number in 100..220 {
-        objects.push(add_object(&mut source.bytes, number, b"0"));
-    }
-    (source, objects, pages)
-}
-
-#[test]
-fn allocation_ceiling_fails_closed_until_the_reported_need_fits() {
-    run(async {
-        let bookmarks = alternating_bookmarks(200);
-        let mut expected = BytesSink::default();
-        {
-            let (mut source, objects, pages) = indexed_heavy_fragment();
-            let plan = plan(&objects, &pages);
-            reconstruct_fragment_with_bookmarks(
-                &mut source,
-                &mut expected,
-                &plan,
-                &bookmarks,
-                &Limits::default(),
-                &NEVER,
-            )
-            .await?;
-        }
-        let mut ceiling = 1_u64;
-        let mut resources = Vec::new();
-        loop {
-            let (mut source, objects, pages) = indexed_heavy_fragment();
-            let plan = plan(&objects, &pages);
-            let limits = Limits {
-                io_chunk_bytes: 1,
-                max_allocation_bytes: ceiling,
-                ..Limits::default()
-            };
-            let mut sink = BytesSink::default();
-            match reconstruct_fragment_with_bookmarks(
-                &mut source,
-                &mut sink,
-                &plan,
-                &bookmarks,
-                &limits,
-                &NEVER,
-            )
-            .await
-            {
-                Ok(report) => {
-                    assert_eq!(sink.bytes, expected.bytes);
-                    assert_eq!(report.bookmarks_written, 200);
-                    break;
-                }
-                Err(error) => {
-                    assert!(
-                        matches!(error, Error::PdfLimitExceeded { .. }),
-                        "ceiling {ceiling}: {error}"
-                    );
-                    if let Error::PdfLimitExceeded {
-                        resource,
-                        limit,
-                        attempted,
-                        ..
-                    } = error
-                    {
-                        // Parser budgets are derived from, and never
-                        // exceed, the allocation ceiling; scale the
-                        // ceiling so the failed budget would just admit
-                        // the attempt.
-                        assert!(limit <= ceiling && limit > 0, "{error}");
-                        assert!(attempted > limit, "{error}");
-                        assert!(sink.bytes.is_empty(), "{error}");
-                        resources.push(resource);
-                        ceiling = (ceiling * attempted).div_ceil(limit);
-                    }
-                }
-            }
-        }
-        // The object index, page index, scalar and structure indexes,
-        // page-tree kids, content evidence, traversal stack, and outline
-        // nodes each tighten the requirement once; with many small
-        // objects the per-object parser budget never binds first.
-        assert!(resources.len() >= 10, "{resources:?}");
-        assert!(
-            resources
-                .iter()
-                .all(|resource| *resource == "PDF allocation bytes"),
-            "{resources:?}"
-        );
-        Ok::<(), Error>(())
-    })
-    .unwrap();
-}
-
-#[test]
-fn output_buffer_is_charged_together_with_the_object_index() {
-    run(async {
-        let (mut source, objects, pages) = two_page_fragment();
-        let plan = plan(&objects, &pages);
-        let limits = Limits {
-            io_chunk_bytes: 4096,
-            max_allocation_bytes: 4096,
-            ..Limits::default()
-        };
-        let mut sink = BytesSink::default();
-        let error = reconstruct_fragment_with_bookmarks(
-            &mut source,
-            &mut sink,
-            &plan,
-            &[],
-            &limits,
-            &NEVER,
-        )
-        .await
-        .unwrap_err();
-        assert!(
-            matches!(
-                error,
-                Error::PdfLimitExceeded {
-                    resource: "PDF allocation bytes",
-                    object: Some((5, 0)),
-                    offset: 0,
-                    limit: 4096,
-                    attempted,
-                } if attempted == 4096 + 6 * size_of::<Record>() as u64
-            ),
-            "{error}"
-        );
-        assert!(sink.bytes.is_empty());
-    });
-}
-
 #[test]
 fn page_reference_buffer_flushes_before_it_overflows_a_chunk() {
     run(async {

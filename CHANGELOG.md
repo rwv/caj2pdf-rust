@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+- **Breaking:** CAJ PDF fragments are framed without decoding stream
+  payloads, each object is inspected once, and damaged-input recovery sits
+  behind one hook (#359; see [PDF input](docs/pdf-input.md)). A stream ends
+  at the `endstream` its declared or later-resolved `/Length` confirms, so
+  the JPEG, ASCII85, Group-4 and Flate extent walkers and the `fax`
+  dependency are gone, and a stream with any filter may take its `/Length`
+  from a later object. Output is unchanged for every input that converted
+  before; a fragment that only a codec check rejected (a bad Flate checksum,
+  an ASCII85 `/Length` that also counts the end-of-line byte) now converts,
+  including under `--allow-damaged`, where it used to get blank pages. Error
+  changes: the `CAJ Flate scan bytes` and `CAJ ASCII85 boundary scan bytes`
+  limits are removed; fragment reconstruction no longer reports a summed
+  `PDF allocation bytes` budget, only the object, page and bookmark counts
+  and per-buffer allocations; an unresolved indirect `/Length` is a
+  `MALFORMED_PDF` "indirect stream Length does not match its integer object"
+  instead of an unsupported feature; and "repaired final stream has an
+  unrecognized CAJ trailer" became "repaired final stream has a later stream
+  terminator", rejecting only a trailer that holds another terminator. A
+  partial conversion may report a different damaged byte offset for a stream
+  that a codec used to reject, and CAJ `input_bytes_read` is lower.
+
 - The research tooling moved to
   [caj2pdf-samples `research/`](https://github.com/rwv/caj2pdf-samples/tree/main/research/README.md)
   (#360): the oracle, probe and conformance scripts, `tests/conformance/`
