@@ -79,14 +79,7 @@ impl<'a, S: RangedSource> OpenTypeFont<'a, S> {
         let mut header = [0; 12];
         read(source, 0, &mut header, limits, cancellation).await?;
         // The collection header and this face's directory hold no tables.
-        let (base, collection_end) = if header[..4] == *b"ttcf" {
-            // Version 2 adds three 32-bit DSIG fields to the header.
-            let dsig = match u16::from_be_bytes([header[4], header[5]]) {
-                1 => 0,
-                2 => 12,
-                _ => return Err(invalid("unsupported TrueType collection version")),
-            };
-            let faces = u32::from_be_bytes(header[8..12].try_into().unwrap());
+        let (base, collection_end) = if let Some((faces, dsig)) = collection(&header)? {
             if face >= faces {
                 return Err(invalid("TrueType collection face index is out of range"));
             }
@@ -107,7 +100,7 @@ impl<'a, S: RangedSource> OpenTypeFont<'a, S> {
         } else {
             (0, 0)
         };
-        if header[..4] != [0, 1, 0, 0] && header[..4] != *b"true" && header[..4] != *b"OTTO" {
+        if !is_font_tag(&header) {
             return Err(invalid("font must be an OpenType font or collection face"));
         }
         let count = usize::from(u16::from_be_bytes([header[4], header[5]]));
@@ -227,6 +220,25 @@ impl<'a, S: RangedSource> OpenTypeFont<'a, S> {
         Ok(font)
     }
 
+    /// The number of faces in `source`: a collection's declared face count,
+    /// or 1 for a standalone font. Only the 12-byte header is read, so the
+    /// faces themselves are not validated; [`Self::read`] validates one.
+    pub async fn face_count<C: Cancellation>(
+        source: &mut S,
+        limits: &Limits,
+        cancellation: &C,
+    ) -> Result<u32> {
+        limits.validate()?;
+        limits.check_input_size(source.size())?;
+        let mut header = [0; 12];
+        read(source, 0, &mut header, limits, cancellation).await?;
+        match collection(&header)? {
+            Some((faces, _)) => Ok(faces),
+            None if is_font_tag(&header) => Ok(1),
+            None => Err(invalid("font must be an OpenType font or collection face")),
+        }
+    }
+
     pub fn units_per_em(&self) -> Result<u16> {
         Ok(self.face()?.units_per_em())
     }
@@ -297,7 +309,9 @@ impl<'a, S: RangedSource> OpenTypeFont<'a, S> {
             .collect()
     }
 
-    pub(super) fn postscript_name(&self) -> Result<String> {
+    /// The face's PostScript name (name ID 6), validated as 1 to 63
+    /// printable ASCII characters without PDF delimiters.
+    pub fn postscript_name(&self) -> Result<String> {
         let face = self.face()?;
         let name = face
             .names()
@@ -320,6 +334,29 @@ impl<'a, S: RangedSource> OpenTypeFont<'a, S> {
         }
         Ok(name)
     }
+}
+
+/// The face count and DSIG header bytes of a TrueType collection header, or
+/// `None` for any other font header.
+fn collection(header: &[u8; 12]) -> Result<Option<(u32, u64)>> {
+    if header[..4] != *b"ttcf" {
+        return Ok(None);
+    }
+    // Version 2 adds three 32-bit DSIG fields to the header.
+    let dsig = match u16::from_be_bytes([header[4], header[5]]) {
+        1 => 0,
+        2 => 12,
+        _ => return Err(invalid("unsupported TrueType collection version")),
+    };
+    Ok(Some((
+        u32::from_be_bytes(header[8..12].try_into().unwrap()),
+        dsig,
+    )))
+}
+
+/// Whether a font header starts with a TrueType or CFF OpenType tag.
+fn is_font_tag(header: &[u8; 12]) -> bool {
+    header[..4] == [0, 1, 0, 0] || header[..4] == *b"true" || header[..4] == *b"OTTO"
 }
 
 fn span(entry: &[u8; 16]) -> (u64, u64) {

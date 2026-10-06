@@ -87,43 +87,73 @@ impl Resources {
             resources.mq = Some(MqTable::standard());
         }
         resources.font_start = resources.inputs.len();
-        let fonts = font_paths(options)?;
-        if fonts.iter().any(Option::is_some) {
-            let mut faces = Vec::new();
-            let mut indices = [0; 8];
-            for (role, path) in fonts.iter().enumerate() {
-                if let Some(path) = path {
-                    let face = font_face(path)?;
-                    indices[role] = if let Some(index) = faces.iter().position(|f| *f == face) {
-                        index
-                    } else {
-                        let index = faces.len();
-                        resources.inputs.push(open_input(
-                            &Endpoint::Path(face.0.clone()),
-                            limits.max_input_bytes,
-                        )?);
-                        resources.font_faces[index] = face.1;
-                        faces.push(face);
-                        index
-                    };
-                }
-            }
-            let role = |index: usize| fonts[index].as_ref().map(|_| indices[index]);
-            resources.font_roles = Some(caj2pdf_core::hnc8::C8PageFonts {
-                cjk: indices[0],
-                latin: indices[1],
-                alternate_latin: role(2),
-                symbols: role(4),
-                latin_state3: role(5),
-                latin_state28: role(6),
-                latin_state31: role(7),
-                decoration: role(3).map(|index| {
-                    let alias = options.decoration_char;
-                    (index, alias.unwrap_or(C8_DEFAULT_DECORATION_ALIAS))
-                }),
-            });
+        let mut fonts: [Option<(PathBuf, u32)>; 8] = Default::default();
+        for (font, path) in fonts.iter_mut().zip(font_paths(options)?) {
+            *font = path.as_deref().map(font_face).transpose()?;
         }
+        resources.open_fonts(&fonts, options.decoration_char, limits)?;
         Ok(resources)
+    }
+
+    /// Use installed fonts found by [`crate::system_fonts::discover`] for
+    /// the CJK and Latin roles; every optional role stays absent.
+    pub fn use_installed(
+        &mut self,
+        fonts: &crate::system_fonts::Installed,
+        limits: &Limits,
+    ) -> Result<(), CliError> {
+        let mut roles: [Option<(PathBuf, u32)>; 8] = Default::default();
+        for (role, choice) in roles.iter_mut().zip(&fonts.choices) {
+            *role = Some((choice.path.clone(), choice.face));
+        }
+        self.open_fonts(&roles, None, limits)
+    }
+
+    /// Open each distinct `(file, face)` once and assign the roles.
+    fn open_fonts(
+        &mut self,
+        fonts: &[Option<(PathBuf, u32)>; 8],
+        decoration_char: Option<char>,
+        limits: &Limits,
+    ) -> Result<(), CliError> {
+        if fonts.iter().all(Option::is_none) {
+            return Ok(());
+        }
+        let mut faces = Vec::new();
+        let mut indices = [0; 8];
+        for (role, face) in fonts.iter().enumerate() {
+            if let Some(face) = face {
+                indices[role] = if let Some(index) = faces.iter().position(|f| f == face) {
+                    index
+                } else {
+                    let index = faces.len();
+                    self.inputs.push(open_input(
+                        &Endpoint::Path(face.0.clone()),
+                        limits.max_input_bytes,
+                    )?);
+                    self.font_faces[index] = face.1;
+                    faces.push(face.clone());
+                    index
+                };
+            }
+        }
+        let role = |index: usize| fonts[index].as_ref().map(|_| indices[index]);
+        self.font_roles = Some(caj2pdf_core::hnc8::C8PageFonts {
+            cjk: indices[0],
+            latin: indices[1],
+            alternate_latin: role(2),
+            symbols: role(4),
+            latin_state3: role(5),
+            latin_state28: role(6),
+            latin_state31: role(7),
+            decoration: role(3).map(|index| {
+                (
+                    index,
+                    decoration_char.unwrap_or(C8_DEFAULT_DECORATION_ALIAS),
+                )
+            }),
+        });
+        Ok(())
     }
 
     fn read(&mut self, path: &Path, count: usize) -> Result<Vec<[u16; 4]>, CliError> {
@@ -263,14 +293,8 @@ impl ComposeVisitor for CompletePages {
     }
 }
 
-pub async fn convert<S: RangedSource, W: SequentialSink>(
-    source: &mut S,
-    sink: &mut W,
-    resources: &mut Resources,
-    include_bookmarks: bool,
-    limits: &Limits,
-) -> Result<(OutlineReport, ApplicationInfoStatus), String> {
-    let options = ComposeOptions {
+fn compose_options(include_bookmarks: bool) -> ComposeOptions {
+    ComposeOptions {
         // The HN/C8 profile explicitly admits the measured unused-template
         // anomaly; general JBIG2 APIs and all other malformed flags stay strict.
         type3: Type3PdfOptions {
@@ -279,7 +303,34 @@ pub async fn convert<S: RangedSource, W: SequentialSink>(
         },
         include_bookmarks,
         ..Default::default()
-    };
+    }
+}
+
+/// Whether conversion with fonts would use native composition, by the
+/// core rule [`convert`] applies. Reads are ranged and bounded; no image
+/// payload is read.
+pub async fn uses_native_text<S: RangedSource>(
+    source: &mut S,
+    limits: &Limits,
+) -> Result<bool, String> {
+    caj2pdf_core::hnc8::uses_native_text(
+        source,
+        compose_options(false),
+        limits,
+        &ProcessCancellation,
+    )
+    .await
+    .map_err(|e| e.to_string())
+}
+
+pub async fn convert<S: RangedSource, W: SequentialSink>(
+    source: &mut S,
+    sink: &mut W,
+    resources: &mut Resources,
+    include_bookmarks: bool,
+    limits: &Limits,
+) -> Result<(OutlineReport, ApplicationInfoStatus), String> {
+    let options = compose_options(include_bookmarks);
     let directory = std::env::temp_dir();
     let scratch = || {
         let file = anonymous_file(&directory).map_err(|e| {

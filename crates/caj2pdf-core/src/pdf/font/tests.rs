@@ -409,3 +409,50 @@ fn collection_headers_and_face_indices_fail_closed() {
         );
     }
 }
+
+#[test]
+fn face_counts_read_only_the_header() {
+    let count = |bytes: Vec<u8>| {
+        let mut source = crate::native::SeekableSource::new(std::io::Cursor::new(bytes)).unwrap();
+        run(OpenTypeFont::face_count(
+            &mut source,
+            &Limits::default(),
+            &NeverCancel,
+        ))
+    };
+    let mut apple = drawing_font();
+    apple[..4].copy_from_slice(b"true");
+    for (bytes, faces) in [
+        (collection_font(), 2),
+        (drawing_font(), 1),
+        (otf(&CffOptions::default()), 1),
+        (apple, 1),
+    ] {
+        assert_eq!(count(bytes).unwrap(), faces);
+    }
+    // The header alone is read: a face beyond the source is still counted.
+    let mut header = collection_font()[..12].to_vec();
+    put32(&mut header, 8, 70_000);
+    assert_eq!(count(header).unwrap(), 70_000);
+    let mut version = collection_font();
+    put16(&mut version, 4, 3);
+    let reason = |bytes| match count(bytes) {
+        Err(Error::InvalidInput { reason }) => reason,
+        other => panic!("unexpected {other:?}"),
+    };
+    assert_eq!(reason(version), "unsupported TrueType collection version");
+    assert_eq!(
+        reason(b"wOFF\0\0\0\0\0\0\0\0".to_vec()),
+        "font must be an OpenType font or collection face"
+    );
+    assert!(count(b"ttcf".to_vec()).is_err());
+    let mut source = fixture();
+    let limits = Limits {
+        max_input_bytes: 1,
+        ..Limits::default()
+    };
+    assert!(matches!(
+        run(OpenTypeFont::face_count(&mut source, &limits, &NeverCancel)),
+        Err(Error::LimitExceeded { .. })
+    ));
+}

@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- **Breaking:** without any font option, the CLI converts a native C8/HN-B
+  text document with installed fonts instead of failing (#339). It searches
+  the platform font directories (XDG data directories on Linux and other
+  Unix systems, the macOS and Windows font folders, or
+  `CAJ2PDF_FONT_DIRS`) for a fixed, documented list of CJK and Latin faces
+  matched by PostScript name, and prints the chosen files and faces to
+  standard error (`-q` silences them). The search is bounded (6 levels,
+  20,000 entries, 64 faces per collection), sorted and does not follow
+  directory links. Any font option disables it, `--no-system-fonts` turns it
+  off, and image documents never search. Node and the browser are
+  unchanged. The recommended free fonts are now Noto Serif CJK SC and
+  FreeSerif (`fonts-noto-cjk`, `fonts-freefont-ttf`), chosen by measured
+  glyph coverage of the pinned documents. New core API:
+  `OpenTypeFont::face_count` and a public `OpenTypeFont::postscript_name`.
+
 - **Breaking:** native C8/HN-B fonts may have CFF outlines (`.otf`, and CFF
   faces of collections such as Noto Sans/Serif CJK), embedded as
   desubroutinized CID-keyed CFF subsets (`FontFile3`/`CIDFontType0`, #338).

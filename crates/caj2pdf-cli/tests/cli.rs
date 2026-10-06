@@ -63,6 +63,8 @@ impl Scratch {
             .args(args)
             .current_dir(&self.0)
             .env("TMPDIR", self.path("tmp"))
+            // Never read the host's installed fonts.
+            .env("CAJ2PDF_FONT_DIRS", "")
             .stdin(Stdio::null());
         command
     }
@@ -1573,6 +1575,151 @@ fn native_c8_font_failures_preserve_inputs_and_atomic_output() {
         scratch.entries(),
         ["alias.ttf", "font.ttf", "input.c8", "out.pdf"]
     );
+}
+
+fn get_u32(bytes: &[u8], at: usize) -> usize {
+    u32::from_be_bytes(bytes[at..at + 4].try_into().unwrap()) as usize
+}
+
+/// The original geometric fixture font renamed to PostScript name `name`.
+fn named_font(name: &str) -> Vec<u8> {
+    let font = include_bytes!("../../../tests/fonts/geometric.ttf");
+    let count = u16::from_be_bytes([font[4], font[5]]) as usize;
+    let mut out = font[..12 + 16 * count].to_vec();
+    for index in 0..count {
+        let entry = 12 + 16 * index;
+        let (offset, length) = (get_u32(font, entry + 8), get_u32(font, entry + 12));
+        let mut table = font[offset..offset + length].to_vec();
+        if &font[entry..entry + 4] == b"name" {
+            table.clear();
+            for value in [0, 1, 18, 3, 1, 0x409, 6, 2 * name.len() as u16, 0] {
+                table.extend(value.to_be_bytes());
+            }
+            table.extend(name.encode_utf16().flat_map(u16::to_be_bytes));
+        }
+        let start = out.len() as u32;
+        out[entry + 8..entry + 12].copy_from_slice(&start.to_be_bytes());
+        out[entry + 12..entry + 16].copy_from_slice(&(table.len() as u32).to_be_bytes());
+        out.extend(table);
+        out.resize(out.len().next_multiple_of(4), 0);
+    }
+    out
+}
+
+/// A TrueType collection of `faces`, with file-relative table offsets.
+fn font_collection(faces: &[Vec<u8>]) -> Vec<u8> {
+    let mut bytes = b"ttcf\0\x01\0\0".to_vec();
+    bytes.extend((faces.len() as u32).to_be_bytes());
+    bytes.resize(12 + 4 * faces.len(), 0);
+    for (index, face) in faces.iter().enumerate() {
+        let base = bytes.len();
+        bytes[12 + 4 * index..16 + 4 * index].copy_from_slice(&(base as u32).to_be_bytes());
+        let mut face = face.clone();
+        for table in 0..u16::from_be_bytes([face[4], face[5]]) as usize {
+            let at = 12 + 16 * table + 8;
+            let offset = (get_u32(&face, at) + base) as u32;
+            face[at..at + 4].copy_from_slice(&offset.to_be_bytes());
+        }
+        bytes.extend(face);
+    }
+    bytes
+}
+
+#[test]
+fn native_text_without_font_options_uses_installed_fonts() {
+    let scratch = Scratch::new("installed-fonts");
+    scratch.write("input.c8", &native_c8_pages(false));
+    fs::create_dir_all(scratch.path("fonts/noto")).unwrap();
+    let cjk = font_collection(&[
+        named_font("NotoSerifCJKjp-Regular"),
+        named_font("NotoSerifCJKsc-Regular"),
+    ]);
+    scratch.write("fonts/noto/NotoSerifCJK-Regular.ttc", &cjk);
+    let latin = named_font("FreeSerif");
+    scratch.write("fonts/FreeSerif.ttf", &latin);
+    scratch.write(
+        "font.ttf",
+        include_bytes!("../../../tests/fonts/geometric.ttf"),
+    );
+    let installed = |args: &[&str]| {
+        scratch
+            .command(args)
+            .env("CAJ2PDF_FONT_DIRS", scratch.path("fonts"))
+            .output()
+            .unwrap()
+    };
+    let base = ["input.c8", "--no-bookmarks", "--force", "-o"];
+    let with = |extra: &[&'static str]| {
+        let mut args = base.to_vec();
+        args.extend(extra);
+        args
+    };
+    let output = installed(&with(&["auto.pdf"]));
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    assert_eq!(
+        stderr(&output),
+        format!(
+            "caj2pdf: using installed CJK font {}#1 (NotoSerifCJKsc-Regular)\n\
+             caj2pdf: using installed Latin font {} (FreeSerif)\n",
+            scratch
+                .path("fonts/noto/NotoSerifCJK-Regular.ttc")
+                .display(),
+            scratch.path("fonts/FreeSerif.ttf").display()
+        )
+    );
+    let auto = fs::read(scratch.path("auto.pdf")).unwrap();
+    assert_eq!(validate_pdf(&scratch.path("auto.pdf")).0, 2);
+    // The report names exactly what the explicit options select.
+    assert_success(&scratch.run(with(&[
+        "explicit.pdf",
+        "--font-cjk=fonts/noto/NotoSerifCJK-Regular.ttc#1",
+        "--font-latin=fonts/FreeSerif.ttf",
+    ])));
+    assert_eq!(fs::read(scratch.path("explicit.pdf")).unwrap(), auto);
+    // --quiet silences the report.
+    assert_success(&installed(&with(&["quiet.pdf", "-q"])));
+    assert_eq!(fs::read(scratch.path("quiet.pdf")).unwrap(), auto);
+    // Font options always win and disable the search.
+    let flags = ["flags.pdf", "--font-cjk=font.ttf", "--font-latin=font.ttf"];
+    assert_success(&installed(&with(&flags)));
+    assert_ne!(fs::read(scratch.path("flags.pdf")).unwrap(), auto);
+    // Installed fonts are protected inputs, even with --force.
+    let output = installed(&with(&["fonts/FreeSerif.ttf", "-q"]));
+    assert_failure(&output, 1, "input");
+    assert_eq!(
+        fs::read(scratch.path("fonts/FreeSerif.ttf")).unwrap(),
+        latin
+    );
+    // --no-system-fonts disables the search; nothing found fails before
+    // any output is staged.
+    let output = installed(&with(&["off.pdf", "--no-system-fonts"]));
+    assert_eq!(output.status.code(), Some(1), "{}", stderr(&output));
+    assert!(
+        !stderr(&output).contains("installed"),
+        "{}",
+        stderr(&output)
+    );
+    let output = scratch.run(with(&["none.pdf"]));
+    assert_failure(
+        &output,
+        1,
+        "no known installed CJK or Latin font was found in no directories",
+    );
+    assert!(!scratch.path("none.pdf").exists());
+    // Image documents never search or report.
+    for (name, input) in [("input.hn", image_hn()), ("image.c8", image_c8(&[]))] {
+        scratch.write(name, &input);
+        let mut args = vec![name, "--no-bookmarks", "--force", "-o"];
+        args.push("plain.pdf");
+        assert_success(&scratch.run(&args));
+        args.pop();
+        args.push("searched.pdf");
+        assert_success(&installed(&args));
+        assert_eq!(
+            fs::read(scratch.path("searched.pdf")).unwrap(),
+            fs::read(scratch.path("plain.pdf")).unwrap()
+        );
+    }
 }
 
 /// Four HN-A pages: valid raw records, paired raw records with an unknown

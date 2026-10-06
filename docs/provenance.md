@@ -2005,6 +2005,23 @@ to MIT. That experiment is not part of the shipped source or lockfile.
 No license exception, advisory suppression or local parser fork is used.
 
 
+### Installed-font discovery (#339)
+
+`crates/caj2pdf-cli/src/system_fonts.rs` is original MIT code. Its search
+directories follow the public
+[XDG Base Directory specification](https://specifications.freedesktop.org/basedir-spec/latest/)
+and the documented macOS and Windows font folders; no Fontconfig or other
+font-matching source is used or linked. Faces are matched by PostScript name
+(OpenType `name` ID 6) through the existing core reader; the face count comes
+from the TrueType collection header. The face and file-name lists are
+facts about publicly distributed fonts; no font is bundled or committed. The
+coverage and overrun measurement in [the CLI reference](cli.md#installed-fonts)
+used locally installed Debian/Ubuntu font packages and the pinned external
+corpus; outputs and fonts stay outside Git. Tests rename the original
+`geometric.ttf` fixture's PostScript name at test time and build synthetic
+collections from it; no external font bytes are used.
+
+
 ### Original embedded-font and mixed-page fixtures
 
 `pdf/document/text.rs` is original MIT output glue over the existing sequential

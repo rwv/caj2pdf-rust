@@ -1200,9 +1200,23 @@ fn experimental_conversion_options_are_scoped_and_unambiguous() {
             panic!()
         };
         assert!(options.quiet);
+        assert!(!options.no_system_fonts && !options.has_font_options());
     }
+    let Command::Convert { options, .. } =
+        parse_str(&["paper.c8", "--no-system-fonts", "--fonts", "dir"]).unwrap()
+    else {
+        panic!()
+    };
+    assert!(options.no_system_fonts && options.has_font_options());
+    let Command::Convert { options, .. } =
+        parse_str(&["paper.c8", "--font-cjk=a", "--font-latin=b"]).unwrap()
+    else {
+        panic!()
+    };
+    assert!(options.has_font_options());
     for args in [
         vec!["inspect", "paper.caj", "--quiet"],
+        vec!["inspect", "paper.c8", "--no-system-fonts"],
         vec!["paper.hn", "--qm-states"],
         vec!["paper.hn", "--mq-states", "-"],
         vec!["paper.hn", "--qm-states="],
