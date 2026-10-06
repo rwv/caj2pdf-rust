@@ -4,11 +4,12 @@
 //! both; the JSON form is versioned by `schema_version`.
 
 use crate::document::unsupported_reason;
-use crate::json::{write_literal, write_string};
 use caj2pdf_core::{
     Bookmark, DocumentInfo, InputFormat, Structure,
     hnc8::{ApplicationInfoStatus, ImageRecord, OutlineReport, PageRecord, TextStructure},
 };
+use serde::Serialize;
+use serde_json::ser::{CharEscape, CompactFormatter, Formatter};
 use std::io::{self, Write};
 
 pub const SCHEMA_VERSION: u32 = 1;
@@ -172,82 +173,194 @@ pub fn write_text<W: Write>(
     }
 }
 
-/// Write a depth-ordered outline as nested `children` arrays.
-fn write_tree<W: Write>(out: &mut W, bookmarks: &[Bookmark]) -> io::Result<()> {
-    out.write_all(b"[")?;
+/// serde_json's compact layout, except that backspace and form feed are
+/// written as `\u0008` and `\u000c` like the other control characters, as
+/// schema version 1 always has. `"`, `\`, `\n`, `\r` and `\t` use their
+/// short escapes; all other characters are written as UTF-8.
+struct ReportFormatter;
+
+impl Formatter for ReportFormatter {
+    fn write_char_escape<W: ?Sized + Write>(
+        &mut self,
+        writer: &mut W,
+        escape: CharEscape,
+    ) -> io::Result<()> {
+        let escape = match escape {
+            CharEscape::Backspace => CharEscape::AsciiControl(0x08),
+            CharEscape::FormFeed => CharEscape::AsciiControl(0x0c),
+            escape => escape,
+        };
+        CompactFormatter.write_char_escape(writer, escape)
+    }
+}
+
+/// A JSON document written member by member. serde_json serializes every
+/// key and value and the formatter writes every separator; this only
+/// tracks whether the innermost object or array is still empty. The report
+/// is streamed rather than built as one value so that pages and image
+/// descriptors are written as they are read, and so that the outline is
+/// nested from its flat, depth-ordered list without recursion.
+struct Json<'w, W: Write> {
+    out: &'w mut W,
+    first: bool,
+}
+
+impl<'w, W: Write> Json<'w, W> {
+    /// `open` continues an object that already has members.
+    fn new(out: &'w mut W, open: bool) -> Self {
+        Self { out, first: !open }
+    }
+
+    fn value<T: Serialize + ?Sized>(&mut self, value: &T) -> io::Result<()> {
+        let mut serializer =
+            serde_json::Serializer::with_formatter(&mut *self.out, ReportFormatter);
+        value.serialize(&mut serializer).map_err(io::Error::from)
+    }
+
+    fn key(&mut self, key: &str) -> io::Result<()> {
+        ReportFormatter.begin_object_key(self.out, self.first)?;
+        self.first = false;
+        self.value(key)?;
+        ReportFormatter.begin_object_value(self.out)
+    }
+
+    fn field<T: Serialize + ?Sized>(&mut self, key: &str, value: &T) -> io::Result<()> {
+        self.key(key)?;
+        self.value(value)
+    }
+
+    /// Start the next element of the innermost array.
+    fn element(&mut self) -> io::Result<()> {
+        ReportFormatter.begin_array_value(self.out, self.first)?;
+        self.first = false;
+        Ok(())
+    }
+
+    fn begin_object(&mut self) -> io::Result<()> {
+        self.first = true;
+        ReportFormatter.begin_object(self.out)
+    }
+
+    /// Closing a container completes a member of its parent, which is
+    /// therefore no longer empty.
+    fn end_object(&mut self) -> io::Result<()> {
+        self.first = false;
+        ReportFormatter.end_object(self.out)
+    }
+
+    fn begin_array(&mut self) -> io::Result<()> {
+        self.first = true;
+        ReportFormatter.begin_array(self.out)
+    }
+
+    fn end_array(&mut self) -> io::Result<()> {
+        self.first = false;
+        ReportFormatter.end_array(self.out)
+    }
+
+    /// Close the top-level object and end the line.
+    fn finish(&mut self) -> io::Result<()> {
+        self.end_object()?;
+        self.out.write_all(b"\n")
+    }
+}
+
+/// The C8 application-info package, as decoded.
+#[derive(Serialize)]
+struct ApplicationInfoJson<'a> {
+    doi: Option<&'a str>,
+    url: Option<&'a str>,
+    note_count: u32,
+}
+
+/// Where the `APPINFOSIGN` trailer declares the package.
+#[derive(Serialize)]
+struct TailJson {
+    offset: u64,
+    length: Option<u64>,
+}
+
+#[derive(Serialize)]
+#[serde(untagged)]
+enum StructureJson {
+    Kdh {
+        kdh_signature: String,
+        kdh_signature_supported: bool,
+    },
+    Hnc8 {
+        page_index_offset: u64,
+        page_index_length: u64,
+        page_row_bytes: u64,
+        native_mode: Option<u32>,
+        native_origin: Option<[u16; 2]>,
+        page_size: Option<[u16; 2]>,
+        application_info: Option<TailJson>,
+    },
+}
+
+impl From<&Structure> for StructureJson {
+    fn from(structure: &Structure) -> Self {
+        match structure {
+            Structure::Kdh {
+                signature,
+                supported,
+            } => Self::Kdh {
+                kdh_signature: signature_text(signature),
+                kdh_signature_supported: *supported,
+            },
+            Structure::Hnc8 {
+                header,
+                page_row_bytes,
+                application_info,
+            } => Self::Hnc8 {
+                page_index_offset: header.page_index.offset,
+                page_index_length: header.page_index.length,
+                page_row_bytes: *page_row_bytes,
+                native_mode: header.native_mode,
+                native_origin: header.native_origin,
+                page_size: header.page_size,
+                application_info: application_info.map(|tail| TailJson {
+                    offset: tail.offset,
+                    length: tail.length,
+                }),
+            },
+        }
+    }
+}
+
+/// An image descriptor: its type and payload span, never its bytes.
+#[derive(Serialize)]
+struct ImageJson {
+    #[serde(rename = "type")]
+    record_type: u32,
+    offset: u64,
+    length: u64,
+}
+
+/// Write a depth-ordered outline as nested `children` arrays. A bookmark
+/// deeper than its predecessor allows becomes that predecessor's child.
+fn write_tree<W: Write>(json: &mut Json<'_, W>, bookmarks: &[Bookmark]) -> io::Result<()> {
+    json.begin_array()?;
     let mut open = 0u32;
-    let mut comma = false;
     for bookmark in bookmarks {
         let depth = bookmark.depth.min(open);
-        while open > depth {
-            out.write_all(b"]}")?;
-            open -= 1;
-            comma = true;
+        for _ in depth..open {
+            json.end_array()?;
+            json.end_object()?;
         }
-        if comma {
-            out.write_all(b",")?;
-        }
-        out.write_all(b"{\"title\":")?;
-        write_string(out, &bookmark.title)?;
-        write!(
-            out,
-            ",\"page\":{},\"children\":[",
-            u64::from(bookmark.page_index) + 1
-        )?;
-        open += 1;
-        comma = false;
+        json.element()?;
+        json.begin_object()?;
+        json.field("title", &bookmark.title)?;
+        json.field("page", &(u64::from(bookmark.page_index) + 1))?;
+        json.key("children")?;
+        json.begin_array()?;
+        open = depth + 1;
     }
     for _ in 0..open {
-        out.write_all(b"]}")?;
+        json.end_array()?;
+        json.end_object()?;
     }
-    out.write_all(b"]")
-}
-
-fn write_pair<W: Write>(out: &mut W, pair: Option<[u16; 2]>) -> io::Result<()> {
-    match pair {
-        Some([a, b]) => write!(out, "[{a},{b}]"),
-        None => out.write_all(b"null"),
-    }
-}
-
-fn write_structure_json<W: Write>(out: &mut W, structure: Option<&Structure>) -> io::Result<()> {
-    match structure {
-        None => out.write_all(b"null"),
-        Some(Structure::Kdh {
-            signature,
-            supported,
-        }) => {
-            out.write_all(b"{\"kdh_signature\":")?;
-            write_string(out, &signature_text(signature))?;
-            write!(out, ",\"kdh_signature_supported\":{supported}}}")
-        }
-        Some(Structure::Hnc8 {
-            header,
-            page_row_bytes,
-            application_info,
-        }) => {
-            write!(
-                out,
-                "{{\"page_index_offset\":{},\"page_index_length\":{},\
-                 \"page_row_bytes\":{page_row_bytes},\"native_mode\":",
-                header.page_index.offset, header.page_index.length
-            )?;
-            write_literal(out, header.native_mode)?;
-            out.write_all(b",\"native_origin\":")?;
-            write_pair(out, header.native_origin)?;
-            out.write_all(b",\"page_size\":")?;
-            write_pair(out, header.page_size)?;
-            out.write_all(b",\"application_info\":")?;
-            match application_info {
-                Some(tail) => {
-                    write!(out, "{{\"offset\":{},\"length\":", tail.offset)?;
-                    write_literal(out, tail.length)?;
-                    out.write_all(b"}}")
-                }
-                None => out.write_all(b"null}"),
-            }
-        }
-    }
+    json.end_array()
 }
 
 /// With `pages`, the `structure` field follows and the object stays open
@@ -258,88 +371,77 @@ pub fn write_json<W: Write>(
     list: bool,
     pages: bool,
 ) -> io::Result<()> {
-    write!(out, "{{\"schema_version\":{SCHEMA_VERSION},\"format\":")?;
-    write_string(out, info.format.name())?;
-    out.write_all(b",\"variant\":")?;
-    match info.variant {
-        Some(variant) => write_string(out, variant.as_str())?,
-        None => out.write_all(b"null")?,
-    }
-    write!(
-        out,
-        ",\"conversion_supported\":{},\"page_count\":",
-        info.format.is_convertible()
-    )?;
-    write_literal(out, info.page_count)?;
-    out.write_all(b",\"has_outline\":")?;
-    write_literal(out, info.has_outline)?;
-    out.write_all(b",\"bookmark_count\":")?;
+    let mut json = Json::new(out, false);
     let bookmarks = info.bookmarks.as_deref();
-    write_literal(out, bookmarks.map(<[Bookmark]>::len))?;
+    json.begin_object()?;
+    json.field("schema_version", &SCHEMA_VERSION)?;
+    json.field("format", info.format.name())?;
+    json.field(
+        "variant",
+        &info.variant.as_ref().map(|variant| variant.as_str()),
+    )?;
+    json.field("conversion_supported", &info.format.is_convertible())?;
+    json.field("page_count", &info.page_count)?;
+    json.field("has_outline", &info.has_outline)?;
+    json.field("bookmark_count", &bookmarks.map(<[Bookmark]>::len))?;
     if list {
-        out.write_all(b",\"bookmarks\":")?;
+        json.key("bookmarks")?;
         match bookmarks {
-            Some(bookmarks) => write_tree(out, bookmarks)?,
-            None => out.write_all(b"null")?,
+            Some(bookmarks) => write_tree(&mut json, bookmarks)?,
+            None => json.value(&None::<()>)?,
         }
     }
-    out.write_all(b",\"outline_warnings\":")?;
-    write_literal(out, bookmarks.map(|_| info.outline.defects))?;
+    json.field("outline_warnings", &bookmarks.map(|_| info.outline.defects))?;
     if let Some(reason) = unsupported_reason(info.format) {
-        out.write_all(b",\"unsupported_reason\":")?;
-        write_string(out, reason)?;
+        json.field("unsupported_reason", reason)?;
     }
     if let Some(package) = &info.application_info.info {
-        out.write_all(b",\"application_info\":{\"doi\":")?;
-        write_optional(out, package.doi.as_deref())?;
-        out.write_all(b",\"url\":")?;
-        write_optional(out, package.url.as_deref())?;
-        write!(out, ",\"note_count\":{}}}", package.note_count)?;
+        let package = ApplicationInfoJson {
+            doi: package.doi.as_deref(),
+            url: package.url.as_deref(),
+            note_count: package.note_count,
+        };
+        json.field("application_info", &package)?;
     }
     if pages {
-        out.write_all(b",\"structure\":")?;
-        write_structure_json(out, info.structure.as_ref())
+        json.field(
+            "structure",
+            &info.structure.as_ref().map(StructureJson::from),
+        )
     } else {
-        out.write_all(b"}\n")
-    }
-}
-
-fn write_optional<W: Write>(out: &mut W, value: Option<&str>) -> io::Result<()> {
-    match value {
-        Some(value) => write_string(out, value),
-        None => out.write_all(b"null"),
+        json.finish()
     }
 }
 
 /// Streams one line (text) or one object (JSON) per page, so retained state
 /// does not grow with the page or image count.
 pub struct Pages<'w, W: Write> {
-    out: &'w mut W,
+    out: Json<'w, W>,
     json: bool,
     /// Whether the current page has a row, and how many of its images were written.
     row: bool,
     images: u32,
-    pages: u32,
 }
 
 impl<'w, W: Write> Pages<'w, W> {
+    /// For JSON, `out` continues the open object of [`write_json`].
     pub fn new(out: &'w mut W, json: bool) -> Self {
         Self {
-            out,
+            out: Json::new(out, true),
             json,
             row: false,
             images: 0,
-            pages: 0,
         }
     }
 
     /// Report that `format` has no per-page structure and end the report.
     pub fn unavailable(&mut self, format: InputFormat) -> io::Result<()> {
         if self.json {
-            self.out.write_all(b",\"pages\":null}\n")
+            self.out.field("pages", &None::<()>)?;
+            self.out.finish()
         } else {
             writeln!(
-                self.out,
+                self.out.out,
                 "Page structure: not available for {} input",
                 format.name()
             )
@@ -348,7 +450,8 @@ impl<'w, W: Write> Pages<'w, W> {
 
     pub fn begin(&mut self) -> io::Result<()> {
         if self.json {
-            self.out.write_all(b",\"pages\":[")?;
+            self.out.key("pages")?;
+            self.out.begin_array()?;
         }
         Ok(())
     }
@@ -358,48 +461,48 @@ impl<'w, W: Write> Pages<'w, W> {
         self.row = row.is_some();
         self.images = 0;
         if self.json {
-            if self.pages != 0 {
-                self.out.write_all(b",")?;
-            }
-            write!(self.out, "{{\"page\":{number},\"text_offset\":")?;
-            write_literal(self.out, row.map(|row| row.text.offset))?;
-            self.out.write_all(b",\"text_length\":")?;
-            write_literal(self.out, row.map(|row| row.text.length))?;
-            self.out.write_all(b",\"image_count\":")?;
-            write_literal(self.out, row.map(|row| row.image_count))?;
-            self.out.write_all(b",\"images\":[")?;
+            let json = &mut self.out;
+            json.element()?;
+            json.begin_object()?;
+            json.field("page", &number)?;
+            json.field("text_offset", &row.map(|row| row.text.offset))?;
+            json.field("text_length", &row.map(|row| row.text.length))?;
+            json.field("image_count", &row.map(|row| row.image_count))?;
+            json.key("images")?;
+            json.begin_array()
         } else {
-            write!(self.out, "Page {number}:")?;
+            let out = &mut self.out.out;
+            write!(out, "Page {number}:")?;
             if let Some(row) = row {
                 write!(
-                    self.out,
+                    out,
                     " text {}+{}, images [",
                     row.text.offset, row.text.length
                 )?;
             }
+            Ok(())
         }
-        self.pages += 1;
-        Ok(())
     }
 
     /// One image descriptor: its type and payload span, never its bytes.
     pub fn image(&mut self, image: &ImageRecord) -> io::Result<()> {
         let first = self.images == 0;
         self.images += 1;
-        let (kind, offset, length) = (
-            image.record_type,
-            image.payload.offset,
-            image.payload.length,
-        );
+        let image = ImageJson {
+            record_type: image.record_type,
+            offset: image.payload.offset,
+            length: image.payload.length,
+        };
         if self.json {
-            let separator = if first { "" } else { "," };
-            write!(
-                self.out,
-                "{separator}{{\"type\":{kind},\"offset\":{offset},\"length\":{length}}}"
-            )
+            self.out.element()?;
+            self.out.value(&image)
         } else {
             let separator = if first { "" } else { ", " };
-            write!(self.out, "{separator}type {kind} at {offset}+{length}")
+            write!(
+                self.out.out,
+                "{separator}type {} at {}+{}",
+                image.record_type, image.offset, image.length
+            )
         }
     }
 
@@ -411,46 +514,48 @@ impl<'w, W: Write> Pages<'w, W> {
         error: Option<&str>,
     ) -> io::Result<()> {
         if self.json {
-            self.out.write_all(b"],\"text_framing\":")?;
-            write_optional(self.out, text.map(|text| text.framing.as_str()))?;
-            self.out.write_all(b",\"text_records\":")?;
-            write_literal(self.out, text.map(|text| text.records))?;
-            self.out.write_all(b",\"text_decoded_length\":")?;
-            write_literal(self.out, text.and_then(|text| text.decoded_length))?;
-            self.out.write_all(b",\"text_error\":")?;
-            write_optional(self.out, text_error)?;
-            self.out.write_all(b",\"error\":")?;
-            write_optional(self.out, error)?;
-            return self.out.write_all(b"}");
+            let json = &mut self.out;
+            json.end_array()?;
+            json.field("text_framing", &text.map(|text| text.framing.as_str()))?;
+            json.field("text_records", &text.map(|text| text.records))?;
+            json.field(
+                "text_decoded_length",
+                &text.and_then(|text| text.decoded_length),
+            )?;
+            json.field("text_error", &text_error)?;
+            json.field("error", &error)?;
+            return json.end_object();
         }
+        let out = &mut self.out.out;
         if self.row {
-            self.out.write_all(b"]")?;
+            out.write_all(b"]")?;
         }
         if let Some(text) = text {
             write!(
-                self.out,
+                out,
                 ", framing {} ({} records",
                 text.framing.as_str(),
                 text.records
             )?;
             if let Some(length) = text.decoded_length {
-                write!(self.out, ", {length} decoded bytes")?;
+                write!(out, ", {length} decoded bytes")?;
             }
-            self.out.write_all(b")")?;
+            out.write_all(b")")?;
         }
         if let Some(message) = text_error {
-            write!(self.out, ", text error: {message}")?;
+            write!(out, ", text error: {message}")?;
         }
         if let Some(message) = error {
             let separator = if self.row { "," } else { "" };
-            write!(self.out, "{separator} error: {message}")?;
+            write!(out, "{separator} error: {message}")?;
         }
-        writeln!(self.out)
+        writeln!(out)
     }
 
     pub fn finish(&mut self) -> io::Result<()> {
         if self.json {
-            self.out.write_all(b"]}\n")?;
+            self.out.end_array()?;
+            self.out.finish()?;
         }
         Ok(())
     }

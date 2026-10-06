@@ -17,11 +17,13 @@ caj2pdf --help | --version
 
 A subcommand name is recognized only as the first argument. Convert a file
 named `inspect` as `caj2pdf ./inspect`. Options may appear before or after
-positional arguments; `--` ends option parsing. `-o FILE`, `--output FILE`,
-and `--output=FILE` are equivalent. Every path argument is kept as an
-`OsString`, so non-UTF-8 Linux file names work. The `--output=FILE` spelling
-requires a UTF-8 value; use `-o FILE` for any other name. Diagnostics shown on
-standard error replace invalid UTF-8 with U+FFFD.
+positional arguments; `--` ends option parsing. `-o FILE`, `-oFILE`,
+`-o=FILE`, `--output FILE`, and `--output=FILE` are equivalent. Every path
+argument, in every spelling, is kept as an `OsString`, so non-UTF-8 Linux file
+names work.
+Diagnostics shown on standard error replace invalid UTF-8 with U+FFFD.
+Arguments are parsed with [clap](https://crates.io/crates/clap); `--help` (or
+`caj2pdf COMMAND --help`) lists every option of a command.
 
 ## Formats
 
@@ -259,7 +261,7 @@ At most eight distinct sources are accepted. Node/browser expose the same
 roles, and the same fallback, as `hnc8.fonts` options.
 
 Font path flags accept separate values or `--font-cjk=FILE` spelling, and
-`--fonts DIR` or `--fonts=DIR`. Separate values preserve non-UTF-8 paths.
+`--fonts DIR` or `--fonts=DIR`. Both spellings preserve non-UTF-8 paths.
 Repeating a role or `--fonts`, giving per-role flags without both
 `--font-cjk` and `--font-latin` (and without `--fonts`), or using `-` as a
 font path is a usage error. Reuse the same path for multiple roles to embed
@@ -606,7 +608,8 @@ installed ...` lines unless `-q` is given.
 
 ## Verification
 
-`crates/caj2pdf-cli/src/tests.rs` covers argument parsing, output-path
+`crates/caj2pdf-cli/src/tests.rs` covers argument parsing and the options
+that `--help` lists, output-path
 derivation, signatures, JSON escaping, report rendering, spooling limits,
 same-file detection, and staged-output commit and cleanup. The process tests
 in `crates/caj2pdf-cli/tests/cli.rs` run the built executable against

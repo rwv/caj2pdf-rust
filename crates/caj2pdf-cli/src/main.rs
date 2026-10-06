@@ -12,15 +12,13 @@
 use std::process::ExitCode;
 
 #[cfg(any(unix, windows))]
-mod args;
+mod command;
 #[cfg(any(unix, windows))]
 mod document;
 #[cfg(any(unix, windows))]
 mod files;
 #[cfg(any(unix, windows))]
 mod hnc8;
-#[cfg(any(unix, windows))]
-mod json;
 #[cfg(any(unix, windows))]
 mod progress;
 #[cfg(any(unix, windows))]
@@ -58,7 +56,7 @@ impl CliError {
 #[cfg(any(unix, windows))]
 mod cli {
     use crate::CliError;
-    use crate::args::{self, Command, Endpoint};
+    use crate::command::{self, Command, Endpoint};
     use crate::files::{open_input, open_output, refuse_terminal, stdout_error};
     use crate::{document, report, system_fonts};
     use caj2pdf_core::{
@@ -107,7 +105,7 @@ mod cli {
     pub fn run(command: Command) -> Result<u8, CliError> {
         let limits = Limits::default();
         match command {
-            Command::Help(topic) => print(|out| out.write_all(topic.help().as_bytes())).map(|()| 0),
+            Command::Help(text) => print(|out| out.write_all(text.as_bytes())).map(|()| 0),
             Command::Version => {
                 print(|out| writeln!(out, "caj2pdf {}", env!("CARGO_PKG_VERSION"))).map(|()| 0)
             }
@@ -208,7 +206,7 @@ mod cli {
     }
 
     pub fn main() -> Result<u8, CliError> {
-        let command = args::parse(std::env::args_os().skip(1)).map_err(CliError::usage)?;
+        let command = command::parse(std::env::args_os().skip(1)).map_err(CliError::usage)?;
         crate::signals::install().map_err(|error| CliError::runtime(error.to_string()))?;
         run(command)
     }

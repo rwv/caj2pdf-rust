@@ -4,7 +4,7 @@
 //! checks, and staged path output that is renamed into place only on success.
 
 use crate::CliError;
-use crate::args::Endpoint;
+use crate::command::Endpoint;
 #[cfg(unix)]
 use std::ffi::OsStr;
 use std::ffi::OsString;

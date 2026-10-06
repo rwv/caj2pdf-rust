@@ -2,6 +2,32 @@
 
 ## Unreleased
 
+- Fixed: on x87 targets (Linux i586 GNU and musl), the type-0 and type-3
+  image matrix of an image spanning the full page height is written as `0`
+  instead of `0.000000000000026201263381153694`; the top-first flip now rounds
+  both terms to `f64` before adding them. SSE2 and other targets are unchanged.
+  The release platform matrix skips the renamed qpdf-dependent compose test on
+  the platforms without PDF validators again.
+
+- CLI: arguments are parsed with `clap` and `inspect --json` is written with
+  `serde` and `serde_json` (#361); the hand-written argument parser, its help
+  text and the hand-written JSON string writer are removed. The documented
+  options, exit codes and `caj2pdf: error:` diagnostics are unchanged, and
+  JSON reports are byte-identical, including the `\u0008` and `\u000c`
+  escapes. Visible differences:
+  - `--help` uses clap's layout: the usage lines, then `Commands:`,
+    `Arguments:` and `Options:` sections.
+  - `-oFILE` and `-o=FILE` are accepted, and `--output=FILE`,
+    `--fonts=DIR` and `--font-*=FILE` keep non-UTF-8 values (all were usage
+    errors).
+  - A few usage messages are worded differently: a missing value names the
+    long option (`option '--output' requires a value` for `-o`), an unknown
+    `--name=value` is reported as `unrecognized option '--name'`, a value
+    given to a flag is `unexpected value 'yes' for '--force' found`, and an
+    extra positional argument is reported before a later `--help`.
+  - The release binary grows from 2,592,632 to 3,205,664 bytes (Linux
+    x86_64).
+
 - **Breaking:** one `convert()`/`inspect()` facade for the CLI and WASM
   (#358). Format detection and dispatch, the displaced PDF header, KDH
   decoding, damaged-CAJ substitution, outline import and the HN/C8 font

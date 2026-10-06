@@ -5,6 +5,7 @@
 //! The CLI and WASM adapters share this core and reject omitted source rows.
 
 use super::placement::{source_image_transform, source_page_geometry};
+use std::hint::black_box;
 use std::io::Write;
 mod native;
 mod route;
@@ -699,7 +700,10 @@ where
             if matches!(checked, CheckedImage::Type0(_) | CheckedImage::Type3) {
                 // Top-first rows give the same placement as bottom-first rows
                 // under the reference's negative-height matrix, without a copy.
-                transform[5] += transform[3];
+                // Both terms pass through memory first: x87 targets (i586)
+                // otherwise keep one of them in extended precision and a
+                // full-height image lands at 2.6e-14 instead of exactly 0.
+                transform[5] = black_box(transform[5]) + black_box(transform[3]);
                 transform[3] = -transform[3];
             }
             images.push(ComposedImage {

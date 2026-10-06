@@ -264,7 +264,7 @@ direct third-party Cargo dependencies in the current graph:
 | Package | Role | License | Edition / minimum Rust | External dependencies |
 | --- | --- | --- | --- | --- |
 | `caj2pdf-core` | Platform-neutral library | MIT | 2024 / 1.88.0 | `flate2`, `sha2`, `xberg-ttf-parser` (direct) |
-| `caj2pdf-cli` | Native executable | MIT | 2024 / 1.88.0 | Unix: `signal-hook`; Windows: `ctrlc`, `winapi-util` |
+| `caj2pdf-cli` | Native executable | MIT | 2024 / 1.88.0 | `clap`, `serde`, `serde_json`; Unix: `signal-hook`; Windows: `ctrlc`, `winapi-util` |
 | `caj2pdf-wasm` | WASM/JavaScript boundary | MIT | 2024 / 1.88.0 | None |
 
 The Rust standard library and compiler-provided target components are not
@@ -368,6 +368,40 @@ MIT OR Apache-2.0. Existing `libc` is MIT OR Apache-2.0. Target-specific
 `windows-sys` and `windows-link` are MIT OR Apache-2.0. Versions are pinned in
 Cargo.lock. Original project glue only sets/checks cancellation flags; no
 external handler implementation was copied into this repository.
+
+## CLI argument parsing and JSON reports (#361)
+
+The CLI parses its arguments with `clap` and writes `inspect --json` with
+`serde` and `serde_json`, replacing the hand-written argument parser and JSON
+string writer. They are direct dependencies of `caj2pdf-cli` only;
+`caj2pdf-core` and `caj2pdf-wasm` do not use them, so they are absent from the
+WASM build graph. Every crate below is selected under its MIT grant, whose
+notice ships in the crate; versions are pinned in Cargo.lock and each
+`rust-version` is at most 1.88.
+
+| Crate | Version | License (selected) | Purpose and resolved features |
+| --- | --- | --- | --- |
+| `clap` | 4.6.7 | MIT OR Apache-2.0 (MIT) | Argument parser; default features off, `std`, `derive`, `help`, `usage`, `error-context` (no color, terminal or suggestion support) |
+| `clap_builder` | 4.6.7 | MIT OR Apache-2.0 (MIT) | Parser runtime of `clap`; `std`, `help`, `usage`, `error-context` |
+| `clap_lex` | 1.1.1 | MIT OR Apache-2.0 (MIT) | `OsStr` argument lexer of `clap` |
+| `anstyle` | 1.0.14 | MIT OR Apache-2.0 (MIT) | Style types in `clap`'s help text; no escape codes are written |
+| `clap_derive` | 4.6.7 | MIT OR Apache-2.0 (MIT) | Proc macro for `#[derive(Parser)]`; build time only |
+| `serde` | 1.0.229 | MIT OR Apache-2.0 (MIT) | `Serialize` trait and derive; default features off, `std`, `derive` |
+| `serde_core` | 1.0.229 | MIT OR Apache-2.0 (MIT) | Trait definitions re-exported by `serde`; `std`, `result` |
+| `serde_derive` | 1.0.229 | MIT OR Apache-2.0 (MIT) | Proc macro for `#[derive(Serialize)]`; build time only |
+| `serde_json` | 1.0.151 | MIT OR Apache-2.0 (MIT) | JSON writer for the inspection report; default features off, `std` |
+| `itoa` | 1.0.18 | MIT OR Apache-2.0 (MIT) | Integer formatting in `serde_json` |
+| `memchr` | 2.8.3 | Unlicense OR MIT (MIT) | Byte search in `serde_json`; `std` |
+| `zmij` | 1.0.23 | MIT | Float formatting in `serde_json`; the report writes no floats |
+| `heck` | 0.5.0 | MIT OR Apache-2.0 (MIT) | Case conversion in `clap_derive`; build time only |
+| `proc-macro2` | 1.0.107 | MIT OR Apache-2.0 (MIT) | Proc-macro support; build time only |
+| `quote` | 1.0.47 | MIT OR Apache-2.0 (MIT) | Proc-macro support; build time only |
+| `syn` | 3.0.6 | MIT OR Apache-2.0 (MIT) | Proc-macro parser; build time only |
+| `unicode-ident` | 1.0.26 | (MIT OR Apache-2.0) AND Unicode-3.0 (MIT and Unicode-3.0) | Identifier tables for `proc-macro2`; build time only |
+
+No source from these crates is copied into this repository. The JSON output
+is unchanged byte for byte: a small `serde_json` formatter keeps the
+`\u0008` and `\u000c` escapes of schema version 1.
 
 ## Windows adapter dependencies (#204)
 
