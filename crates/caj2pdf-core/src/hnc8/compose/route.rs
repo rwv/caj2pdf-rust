@@ -1,0 +1,151 @@
+// SPDX-License-Identifier: MIT
+
+//! One routing rule for documents converted with optional native fonts.
+
+use super::*;
+use crate::hnc8::native_page::admits_native_mode;
+use crate::hnc8::{ErrorKind, TextFraming};
+
+/// Whether native composition is chosen for this document.
+///
+/// Native composition draws only C8 and HN-B documents in an admitted
+/// rendering mode (mode 2, or HN-B mode 0), so every other document, HN-A
+/// included, uses image composition after its header is read. Otherwise the
+/// first page with a nonempty text span decides; pages are walked with one
+/// cursor, reading only page rows and image descriptors before it:
+///
+/// - HN-B text is only ever native records, which image composition never
+///   reads, so such a page selects native composition. A defect in that text
+///   is then reported by native composition instead of being dropped.
+/// - C8 text is classified by [`Hnc8Reader::inspect_text`] with
+///   `options.text`, the budget native composition uses. Native records, or
+///   text neither reader accepts, select native composition, which reports
+///   the located defect; compressed or raw text selects image composition.
+///
+/// A document without text uses image composition. Image composition refuses
+/// every native C8 page, so a mixed document fails in either composer, at its
+/// first page the composer cannot draw. A malformed container, page row or
+/// descriptor uses image composition, which reports it. A dropped source read
+/// or cancellation is returned. Reads are ranged and bounded by
+/// `options.container` and `options.text`; no image payload is read and no
+/// text is retained.
+pub async fn uses_native_text<S, C>(
+    source: &mut S,
+    options: ComposeOptions,
+    limits: &Limits,
+    cancellation: &C,
+) -> Result<bool, ComposeError>
+where
+    S: RangedSource,
+    C: Cancellation,
+{
+    validate(options, limits)?;
+    let mut reader = match Hnc8Reader::open(source, limits, cancellation, options.container).await {
+        Ok(reader) if !admits_native_mode(reader.header()) => return Ok(false),
+        Ok(reader) => reader,
+        Err(error) => return image_unless_fatal(error, ComposeStage::Container),
+    };
+    loop {
+        let page = match reader.next_page().await {
+            Ok(Some(page)) => page,
+            Ok(None) => return Ok(false),
+            Err(error) => return image_unless_fatal(error, ComposeStage::Container),
+        };
+        loop {
+            match reader.next_image().await {
+                Ok(Some(_)) => {}
+                Ok(None) => break,
+                Err(error) => return image_unless_fatal(error, ComposeStage::Container),
+            }
+        }
+        if page.text.length == 0 {
+            continue;
+        }
+        if reader.header().variant == Variant::HnB {
+            return Ok(true);
+        }
+        return match reader.inspect_text(options.text).await {
+            Ok(text) => Ok(text.framing == TextFraming::Native),
+            Err(error) => image_unless_fatal(error, ComposeStage::Text).map(|_| true),
+        };
+    }
+}
+
+/// A located document defect selects image composition, which reports it;
+/// only failures independent of the document bytes are returned.
+fn image_unless_fatal(error: Hnc8Error, stage: ComposeStage) -> Result<bool, ComposeError> {
+    match error.kind {
+        ErrorKind::Cancelled | ErrorKind::Source { .. } => Err(container(error, stage)),
+        _ => Ok(false),
+    }
+}
+
+/// Convert an HN/C8 document, with native text when fonts are supplied.
+///
+/// Without `fonts` this is exactly [`convert_source_pages_pdf`]. With fonts,
+/// [`uses_native_text`] decides once per document: native documents use
+/// [`convert_c8_native_pdf`] and all others use image composition, leaving the
+/// fonts unread and unvalidated, so the PDF is byte-identical to a conversion
+/// without fonts. `visitor` receives image-composition pages only. The
+/// routing reads are added to `conversion.input_bytes_read`. The CLI, Node
+/// and browser adapters all route through this function.
+#[allow(clippy::too_many_arguments)]
+pub async fn convert_document_pdf<'a, S, F, W, T, V, C>(
+    source: &mut S,
+    sink: &mut W,
+    fonts: Option<C8FontSources<'_, F>>,
+    table: Option<&QmTable>,
+    workspaces: impl Into<ComposeWorkspaces<'a, T>>,
+    visitor: &mut V,
+    options: ComposeOptions,
+    limits: &Limits,
+    cancellation: &C,
+) -> Result<ComposeReport, ComposeError>
+where
+    S: RangedSource,
+    F: RangedSource,
+    W: SequentialSink,
+    T: RandomAccessScratch + 'a,
+    V: ComposeVisitor,
+    C: Cancellation,
+{
+    let mut counted = CountingSource { source, bytes: 0 };
+    let native = match fonts {
+        Some(fonts) if uses_native_text(&mut counted, options, limits, cancellation).await? => {
+            Some(fonts)
+        }
+        _ => None,
+    };
+    let routing = counted.bytes;
+    let source = counted.source;
+    let mut report = match native {
+        Some(fonts) => {
+            convert_c8_native_pdf(
+                source,
+                sink,
+                fonts,
+                table,
+                workspaces,
+                options,
+                limits,
+                cancellation,
+            )
+            .await?
+        }
+        None => {
+            convert_source_pages_pdf(
+                source,
+                sink,
+                table,
+                workspaces,
+                visitor,
+                options,
+                limits,
+                cancellation,
+            )
+            .await?
+        }
+    };
+    report.conversion.input_bytes_read = report.conversion.input_bytes_read.saturating_add(routing);
+    Ok(report)
+}

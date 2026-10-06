@@ -11,9 +11,9 @@ use crate::{
 use caj2pdf_core::{
     Error, Limits, RangedSource, SequentialSink,
     hnc8::{
-        ApplicationInfoReport, ApplicationInfoStatus, C8_DEFAULT_DECORATION_ALIAS, ComposeOptions,
-        ComposePage, ComposeType3Workspaces, ComposeVisitor, ComposeWorkspaces, OutlineReport,
-        Type3PdfOptions, convert_source_pages_pdf,
+        ApplicationInfoReport, ApplicationInfoStatus, C8_DEFAULT_DECORATION_ALIAS, C8FontSource,
+        C8FontSources, ComposeOptions, ComposePage, ComposeType3Workspaces, ComposeVisitor,
+        ComposeWorkspaces, OutlineReport, Type3PdfOptions, convert_document_pdf,
     },
     jbig2::mq::{MqState, MqTable},
     jbig2::text::TextHeaderPolicy,
@@ -300,41 +300,26 @@ pub async fn convert<S: RangedSource, W: SequentialSink>(
         second: &mut second,
         refined: &mut refined,
     });
-    if let Some(roles) = resources.font_roles {
-        let mut fonts = resources.inputs[resources.font_start..]
-            .iter_mut()
-            .zip(resources.font_faces)
-            .map(|(input, face)| {
-                Ok(caj2pdf_core::hnc8::C8FontSource {
-                    source: caj2pdf_core::native::SeekableSource::new(&mut input.file)?,
-                    face,
-                })
+    // Empty unless fonts were supplied.
+    let mut fonts = resources.inputs[resources.font_start..]
+        .iter_mut()
+        .zip(resources.font_faces)
+        .map(|(input, face)| {
+            Ok(C8FontSource {
+                source: caj2pdf_core::native::SeekableSource::new(&mut input.file)?,
+                face,
             })
-            .collect::<caj2pdf_core::Result<Vec<_>>>()
-            .map_err(|e| e.to_string())?;
-        return caj2pdf_core::hnc8::convert_c8_native_pdf(
-            source,
-            sink,
-            caj2pdf_core::hnc8::C8FontSources {
-                sources: &mut fonts,
-                roles,
-            },
-            resources.qm.as_ref(),
-            ComposeWorkspaces {
-                rows: &mut rows,
-                type3,
-            },
-            options,
-            limits,
-            &ProcessCancellation,
-        )
-        .await
-        .map(|report| (report.outline, report.application_info))
-        .map_err(|e| e.to_string());
-    }
-    convert_source_pages_pdf(
+        })
+        .collect::<caj2pdf_core::Result<Vec<_>>>()
+        .map_err(|e| e.to_string())?;
+    // The core routes by text framing: image documents ignore the fonts.
+    convert_document_pdf(
         source,
         sink,
+        resources.font_roles.map(|roles| C8FontSources {
+            sources: &mut fonts,
+            roles,
+        }),
         resources.qm.as_ref(),
         ComposeWorkspaces {
             rows: &mut rows,

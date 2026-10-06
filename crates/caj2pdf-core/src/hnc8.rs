@@ -32,7 +32,8 @@ pub use appinfo::{
 pub use compose::{
     C8FontSource, C8FontSources, ComposeBudget, ComposeError, ComposeErrorKind, ComposeOptions,
     ComposePage, ComposeReport, ComposeStage, ComposeType3Workspaces, ComposeVisitor,
-    ComposeWorkspaces, ComposedImage, convert_c8_native_pdf, convert_source_pages_pdf,
+    ComposeWorkspaces, ComposedImage, convert_c8_native_pdf, convert_document_pdf,
+    convert_source_pages_pdf, uses_native_text,
 };
 pub use convert::{
     MultipleImages, Type0ImageSelection, Type0PdfError, Type0PdfErrorKind, Type0PdfOptions,

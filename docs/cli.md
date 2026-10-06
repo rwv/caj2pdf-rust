@@ -139,6 +139,18 @@ CJK. `FILE#N` selects face `N` (from 0) of a collection, for example
 The suffix needs a Unicode path and is ignored when `FILE#N` itself
 exists. Tables need not be 4-byte aligned.
 
+**Which documents use the fonts.** Fonts can be passed for any HN/C8 input.
+Before converting, the header and the first page with text are inspected.
+A C8 or HN-B document in a native rendering mode (`native_mode` 2, or 0 for
+HN-B) whose first text holds native records uses native composition with the
+fonts: any HN-B text, and C8 text that `inspect --pages` reports as `native`
+or that neither text reader accepts, so a defect is reported by native
+composition. All other documents, including every HN-A input and C8
+documents with `COMPRESSTEXT` or raw text, are converted as images without
+reading the fonts; the PDF is byte-identical to a conversion without fonts.
+A C8 document mixing native and compressed text fails in either composer,
+at the first page it cannot draw. Node and the browser follow the same rule.
+
 **Fallback rule.** Each glyph uses the font of the role the source selects.
 If that role is absent, or its font has no cmap entry for the character,
 the glyph uses the CJK font for CJK-coded characters (U+2E80–U+9FFF,
