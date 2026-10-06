@@ -5,6 +5,7 @@
 mod text;
 pub use text::{ContentPageWriter, FontObject};
 
+use super::outline::{BookmarkView, OutlineBuilder, write_utf16_hex};
 use super::writer::{MAX_PDF_INTEGER, ObjectId, PdfWriter};
 use crate::fallible::{checked_read_count, len_u64, reserve, reserve_exact, usize_from_u32};
 use crate::{
@@ -12,8 +13,7 @@ use crate::{
     SequentialSink, read_exact_at,
 };
 use flate2::{Compress, Compression, FlushCompress, Status};
-use std::fmt::{self, Write as _};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::fmt::Write as _;
 
 // Conservative reservation for flate2's locked miniz_oxide Rust backend:
 // fixed dictionary, code buffer, local output buffer and Huffman tables.
@@ -24,23 +24,15 @@ const PAGE_TREE_FANOUT: usize = 256;
 const MAX_TREE_PAGES: u64 = (PAGE_TREE_FANOUT as u64).pow(3);
 const MAX_PAGE_POINTS: f64 = 14_400.0;
 const MIN_PAGE_POINTS: f64 = 0.000_001;
-const HEX: &[u8; 16] = b"0123456789ABCDEF";
 const LEAF_CHILDREN: &str = "PDF page-tree leaf children";
 const MIDDLE_CHILDREN: &str = "PDF page-tree middle children";
 const ROOT_CHILDREN: &str = "PDF page-tree root children";
-const OUTLINE_STACK: &str = "bookmark stack allocation";
-static NEXT_DOCUMENT_ID: AtomicUsize = AtomicUsize::new(1);
 
 /// Maximum draws accepted by [`PdfDocument::add_placed_page`].
 ///
 /// This bounds validation and page-emission work independently of the caller's
 /// slice size. The legacy [`PdfDocument::add_page`] keeps its existing limits.
 pub const MAX_PAGE_IMAGE_PLACEMENTS: usize = 8192;
-
-// Shortest decimal f64 display needs at most 327 bytes, including the sign
-// and leading fractional zeros of a subnormal. Leave headroom per component;
-// no image data or whole-page content is held in this fixed scratch buffer.
-const MATRIX_TEXT_BYTES: usize = 6 * 352 + 5;
 
 /// A page's visible size in PDF points.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -78,44 +70,6 @@ struct PageNode {
     page_count: u32,
 }
 
-#[derive(Default)]
-struct ChildLinks {
-    first: Option<ObjectId>,
-    last: Option<ObjectId>,
-}
-
-/// View applied when following a bookmark.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum BookmarkView {
-    /// Fit the entire destination page (the existing default).
-    Fit,
-    /// Keep the viewer's current position and zoom: `/XYZ null null null`.
-    Xyz,
-}
-
-struct OpenOutline {
-    id: ObjectId,
-    parent: ObjectId,
-    previous: Option<ObjectId>,
-    page: ObjectId,
-    view: BookmarkView,
-    title: String,
-    ordinal: u32,
-    children: ChildLinks,
-}
-
-struct ClosedOutline {
-    id: ObjectId,
-    parent: ObjectId,
-    previous: Option<ObjectId>,
-    page: ObjectId,
-    view: BookmarkView,
-    title: String,
-    first_child: Option<ObjectId>,
-    last_child: Option<ObjectId>,
-    descendants: u32,
-}
-
 /// A 1 bit-per-component image whose rows the caller streams in order.
 ///
 /// Each supplied row has `row_stride` bytes and is packed most significant
@@ -136,14 +90,11 @@ pub struct BilevelImageSpec {
 /// A completely written image XObject that can be reused on pages with
 /// [`PdfDocument::add_page`] or [`PdfDocument::add_placed_page`].
 ///
-/// It is valid only in the document that wrote it. A private, nonreused
-/// document identity lets page validation reject a foreign handle even if
-/// the two documents assigned the same PDF object number. No image registry
-/// or image payload is retained by a handle.
+/// It is valid only in the document that wrote it. No image registry or
+/// image payload is retained by a handle.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ImageObject {
     object: ObjectId,
-    document_id: usize,
 }
 
 /// One image draw with the PDF affine matrix `[a, b, c, d, e, f]`.
@@ -375,7 +326,6 @@ impl<W: SequentialSink, C: Cancellation> BilevelImageWriter<'_, '_, W, C> {
         self.document.writer.end_stream().await?;
         Ok(ImageObject {
             object: self.object,
-            document_id: self.document.document_id,
         })
     }
 }
@@ -412,7 +362,6 @@ impl<R: RangedSource> RangedSource for CountingSource<'_, R> {
 /// with no pages is rejected by `finish`.
 pub struct PdfDocument<'a, W: SequentialSink, C: Cancellation> {
     writer: PdfWriter<'a, W, C>,
-    document_id: usize,
     limits: &'a Limits,
     cancellation: &'a C,
     catalog_id: ObjectId,
@@ -422,12 +371,7 @@ pub struct PdfDocument<'a, W: SequentialSink, C: Cancellation> {
     leaf: Option<PageNode>,
     page_ids: Vec<ObjectId>,
     pages_written: u32,
-    outline_root_id: Option<ObjectId>,
-    outline_root_children: ChildLinks,
-    open_outlines: Vec<OpenOutline>,
-    bookmarks_written: u32,
-    retained_outlines: u32,
-    retained_title_bytes: u64,
+    outline: OutlineBuilder<ObjectId>,
     input_bytes_read: u64,
     image_buffer: Vec<u8>,
     fonts: Vec<text::PendingFont>,
@@ -436,9 +380,6 @@ pub struct PdfDocument<'a, W: SequentialSink, C: Cancellation> {
     /// Compressor reused by content pages and font streams; absent until
     /// first needed, and while a content page holds it.
     deflate: Option<Deflate>,
-    /// Set while a bookmark insertion closes and links items, and left set
-    /// when it fails there; see `super::ensure_outline_intact`.
-    outline_failed: bool,
     /// New reusable-image/affine-page operations become unrecoverable once
     /// emission starts and fails. Partial output must then be discarded.
     image_page_failed: bool,
@@ -448,13 +389,11 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
     /// Write the PDF header and reserve the catalog and Pages root.
     pub async fn new(sink: &'a mut W, limits: &'a Limits, cancellation: &'a C) -> Result<Self> {
         limits.validate()?;
-        let document_id = next_document_id(&NEXT_DOCUMENT_ID)?;
         let mut writer = PdfWriter::new(sink, limits, cancellation).await?;
         let catalog_id = writer.reserve_object()?;
         let pages_root_id = writer.reserve_object()?;
         Ok(Self {
             writer,
-            document_id,
             limits,
             cancellation,
             catalog_id,
@@ -464,18 +403,12 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
             leaf: None,
             page_ids: Vec::new(),
             pages_written: 0,
-            outline_root_id: None,
-            outline_root_children: ChildLinks::default(),
-            open_outlines: Vec::new(),
-            bookmarks_written: 0,
-            retained_outlines: 0,
-            retained_title_bytes: 0,
+            outline: OutlineBuilder::new(),
             input_bytes_read: 0,
             image_buffer: Vec::new(),
             fonts: Vec::new(),
             to_unicode: None,
             deflate: None,
-            outline_failed: false,
             image_page_failed: false,
         })
     }
@@ -514,10 +447,7 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
         self.push_page(
             &width,
             &height,
-            PageImages::Full(&[ImageObject {
-                object: image_id,
-                document_id: self.document_id,
-            }]),
+            PageImages::Full(&[ImageObject { object: image_id }]),
         )
         .await
     }
@@ -561,10 +491,7 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
             .emit_image_xobject(source, offset, length, image)
             .await?;
         self.image_page_failed = false;
-        Ok(ImageObject {
-            object,
-            document_id: self.document_id,
-        })
+        Ok(ImageObject { object })
     }
 
     /// Start a 1 bpp image XObject whose rows the caller streams.
@@ -614,9 +541,6 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
         }
         let width = pdf_page_number(page.width_points)?;
         let height = pdf_page_number(page.height_points)?;
-        for image in images {
-            self.check_image_owner(*image)?;
-        }
         self.check_next_page()?;
         self.reserve_page_index_slot()?;
         self.ensure_leaf().await?;
@@ -634,9 +558,9 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
     /// Reader precision for extreme numbers is implementation dependent.
     ///
     /// An empty slice, more than [`MAX_PAGE_IMAGE_PLACEMENTS`] draws, invalid
-    /// dimensions/matrices, foreign handles or known page/object-index budget
+    /// dimensions/matrices or known page/object-index budget
     /// refusals are rejected before page bytes are written, even at a page-tree
-    /// rollover. Validation and emission use fixed per-draw scratch, without
+    /// rollover. Validation and emission format one draw at a time, without
     /// copying the caller's placement slice. Retained metadata is the same as
     /// for [`Self::add_page`]. Actual allocation, I/O, sink or cancellation
     /// failures after emission starts require discarding the partial PDF.
@@ -661,8 +585,7 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
         let width = pdf_page_number(page.width_points)?;
         let height = pdf_page_number(page.height_points)?;
         for placement in placements {
-            self.check_image_owner(placement.image)?;
-            DecimalMatrix::new(placement.transform)?;
+            decimals(&placement.transform)?;
         }
         self.writer.ensure_idle()?;
         self.check_next_page()?;
@@ -691,15 +614,6 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
         // leave unwritten objects that would prevent a later corrected page.
         self.writer
             .prepare_objects(3 + usize::from(new_leaf) + usize::from(new_middle))?;
-        Ok(())
-    }
-
-    fn check_image_owner(&self, image: ImageObject) -> Result<()> {
-        if image.document_id != self.document_id {
-            return Err(Error::InvalidInput {
-                reason: "PDF image belongs to another document",
-            });
-        }
         Ok(())
     }
 
@@ -778,7 +692,7 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
         view: BookmarkView,
     ) -> Result<()> {
         self.ensure_image_page_intact()?;
-        super::ensure_outline_intact(self.outline_failed)?;
+        self.outline.ensure_intact()?;
         let destination = self
             .page_ids
             .get(bookmark.page_index as usize)
@@ -787,71 +701,21 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
                 reason: "bookmark destination page has not been emitted",
             })?;
         self.limits
-            .check_bookmarks(self.bookmarks_written.checked_add(1).ok_or(
+            .check_bookmarks(self.outline.written().checked_add(1).ok_or(
                 Error::InvalidInput {
                     reason: "bookmark count overflows",
                 },
             )?)?;
-        let depth = usize_from_u32(bookmark.depth);
-        if depth > self.open_outlines.len() {
-            return Err(Error::InvalidInput {
-                reason: "bookmark depth skips a parent",
-            });
-        }
-        let title_capacity = len_u64(bookmark.title.capacity());
-        // A rejected title must leave all reserved objects and outline links
-        // intact, so account for siblings that this insertion would emit first.
-        let (next_titles, next_nodes) = self.preflight_outline_memory(depth, title_capacity)?;
-        // Reserve before closing anything, so a refused reservation leaves
-        // every open item and link untouched.
-        let outline_root = match self.outline_root_id {
-            Some(id) => id,
-            None => {
-                let id = self.writer.reserve_object()?;
-                self.outline_root_id = Some(id);
-                id
-            }
-        };
-        let id = self.writer.reserve_object()?;
-        // Closing pops items before writing them, so a failure from here on
-        // can lose an item that the outline already links to.
-        self.outline_failed = true;
-        let previous_item = self.close_outlines_to(depth).await?;
-        let (parent, previous) = {
-            let (parent, links) = match self.open_outlines.last_mut() {
-                Some(active) => (active.id, &mut active.children),
-                None => (outline_root, &mut self.outline_root_children),
-            };
-            let previous = links.last;
-            if links.first.is_none() {
-                links.first = Some(id);
-            }
-            links.last = Some(id);
-            (parent, previous)
-        };
-        if let Some(previous_item) = previous_item {
-            self.emit_outline_item(previous_item, Some(id)).await?;
-        }
-        self.open_outlines.push(OpenOutline {
-            id,
-            parent,
-            previous,
-            page: destination,
-            view,
-            title: bookmark.title,
-            ordinal: self.bookmarks_written,
-            children: ChildLinks::default(),
-        });
-        debug_assert_eq!(
-            self.retained_title_bytes.checked_add(title_capacity),
-            Some(next_titles)
-        );
-        debug_assert_eq!(self.retained_outlines.checked_add(1), Some(next_nodes));
-        self.retained_title_bytes = next_titles;
-        self.retained_outlines = next_nodes;
-        self.bookmarks_written += 1;
-        self.outline_failed = false;
-        Ok(())
+        self.outline
+            .add(
+                &mut self.writer,
+                self.limits,
+                usize_from_u32(bookmark.depth),
+                destination,
+                view,
+                bookmark.title,
+            )
+            .await
     }
 
     /// Write the remaining page tree, outlines, catalog, xref, and trailer.
@@ -881,7 +745,7 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
             });
         }
         self.ensure_image_page_intact()?;
-        super::ensure_outline_intact(self.outline_failed)?;
+        self.outline.ensure_intact()?;
         text::ensure_fonts_embedded(&self.fonts)?;
         if self.pages_written == 0 {
             return Err(Error::InvalidInput {
@@ -889,7 +753,7 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
             });
         }
         self.close_page_tree().await?;
-        self.close_outlines().await?;
+        let outline_root = self.outline.finish(&mut self.writer).await?;
 
         self.writer.begin_object(self.catalog_id).await?;
         self.writer
@@ -901,7 +765,7 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
                 .as_bytes(),
             )
             .await?;
-        if let Some(outline_root) = self.outline_root_id {
+        if let Some(outline_root) = outline_root {
             self.writer
                 .write_bytes(
                     format!(
@@ -924,7 +788,7 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
                     self.writer
                         .write_bytes(format!(" /{key} <FEFF").as_bytes())
                         .await?;
-                    self.write_utf16_hex(value).await?;
+                    write_utf16_hex(&mut self.writer, value).await?;
                     self.writer.write_bytes(b">").await?;
                 }
             }
@@ -942,7 +806,7 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
             input_bytes_read: self.input_bytes_read,
             output_bytes_written,
             pages_converted: self.pages_written,
-            bookmarks_written: self.bookmarks_written,
+            bookmarks_written: self.outline.written(),
             omitted_pages: Vec::new(),
         })
     }
@@ -1148,12 +1012,11 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
                         .await?;
                 }
                 PageImages::Placed(placements) => {
-                    let matrix = DecimalMatrix::new(placements[index].transform)?;
-                    self.writer.write_stream_bytes(b"q\n").await?;
-                    self.writer.write_stream_bytes(matrix.as_bytes()).await?;
-                    self.writer.write_stream_bytes(b" cm\n").await?;
+                    let matrix = decimals(&placements[index].transform)?;
                     self.writer
-                        .write_stream_bytes(format!("/Im{index} Do\nQ\n").as_bytes())
+                        .write_stream_bytes(
+                            format!("q\n{matrix} cm\n/Im{index} Do\nQ\n").as_bytes(),
+                        )
                         .await?;
                 }
             }
@@ -1173,225 +1036,6 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
             .await?;
         self.writer.end_object().await?;
         Ok(page_id)
-    }
-
-    fn preflight_outline_memory(
-        &mut self,
-        depth: usize,
-        title_capacity: u64,
-    ) -> Result<(u64, u32)> {
-        let mut released_titles = 0_u64;
-        let mut released_nodes = 0_u32;
-        let mut release = |capacity: usize| -> Result<()> {
-            let capacity = len_u64(capacity);
-            released_titles = released_titles
-                .checked_add(capacity)
-                .ok_or(Error::InvalidInput {
-                    reason: "released bookmark title bytes overflow",
-                })?;
-            released_nodes = released_nodes.checked_add(1).ok_or(Error::InvalidInput {
-                reason: "released bookmark count overflows",
-            })?;
-            Ok(())
-        };
-        // Every item that inserting at `depth` closes is written before the
-        // new item is retained; no other closed item is ever held unwritten.
-        for item in self.open_outlines.iter().skip(depth) {
-            release(item.title.capacity())?;
-        }
-        let next_titles = self
-            .retained_title_bytes
-            .checked_sub(released_titles)
-            .and_then(|retained| retained.checked_add(title_capacity))
-            .ok_or(Error::InvalidInput {
-                reason: "retained bookmark title bytes overflow",
-            })?;
-        let next_nodes = self
-            .retained_outlines
-            .checked_sub(released_nodes)
-            .and_then(|retained| retained.checked_add(1))
-            .ok_or(Error::InvalidInput {
-                reason: "retained bookmark count overflows",
-            })?;
-        let node_bytes = u64::from(next_nodes)
-            .checked_mul(size_of::<OpenOutline>() as u64)
-            .ok_or(Error::InvalidInput {
-                reason: "retained bookmark metadata bytes overflow",
-            })?;
-        let attempted = node_bytes
-            .checked_add(next_titles)
-            .ok_or(Error::InvalidInput {
-                reason: "retained bookmark allocation overflows",
-            })?;
-        self.limits.check_allocation(attempted)?;
-        if depth == self.open_outlines.len() {
-            // `add_bookmark` checked the bookmark count, and `attempted`
-            // covers every retained item including this one, so only an
-            // allocator refusal fails this reservation.
-            let maximum = u64::from(self.limits.max_bookmarks);
-            reserve_bounded(&mut self.open_outlines, maximum, self.limits, OUTLINE_STACK)?;
-        }
-        Ok((next_titles, next_nodes))
-    }
-
-    /// Close every open item deeper than `depth` and return the last one
-    /// closed, which is the item at `depth` itself when one was open.
-    ///
-    /// Each closed item is the last child of the next item closed, which
-    /// writes it; the caller writes the returned item once its `/Next` link
-    /// is known. Because the only unwritten closed item is carried here
-    /// rather than stored on its parent's links, a sibling can never be
-    /// left unwritten.
-    async fn close_outlines_to(&mut self, depth: usize) -> Result<Option<ClosedOutline>> {
-        let mut closed = None;
-        while let Some(item) = super::pop_deeper_than(&mut self.open_outlines, depth) {
-            closed = Some(self.close_outline(item, closed).await?);
-        }
-        Ok(closed)
-    }
-
-    async fn close_outline(
-        &mut self,
-        item: OpenOutline,
-        last_child: Option<ClosedOutline>,
-    ) -> Result<ClosedOutline> {
-        if let Some(last_child) = last_child {
-            self.emit_outline_item(last_child, None).await?;
-        }
-        let descendants =
-            self.bookmarks_written
-                .checked_sub(item.ordinal + 1)
-                .ok_or(Error::InvalidInput {
-                    reason: "bookmark descendant count underflows",
-                })?;
-        Ok(ClosedOutline {
-            id: item.id,
-            parent: item.parent,
-            previous: item.previous,
-            page: item.page,
-            view: item.view,
-            title: item.title,
-            first_child: item.children.first,
-            last_child: item.children.last,
-            descendants,
-        })
-    }
-
-    async fn close_outlines(&mut self) -> Result<()> {
-        if let Some(last_root) = self.close_outlines_to(0).await? {
-            self.emit_outline_item(last_root, None).await?;
-        }
-        if let Some(root) = self.outline_root_id {
-            let first = self
-                .outline_root_children
-                .first
-                .ok_or(Error::InvalidInput {
-                    reason: "outline root has no first child",
-                })?;
-            let last = self.outline_root_children.last.ok_or(Error::InvalidInput {
-                reason: "outline root has no last child",
-            })?;
-            self.writer
-                .write_object(
-                    root,
-                    format!(
-                        "<< /Type /Outlines /First {} 0 R /Last {} 0 R /Count {} >>",
-                        first.number(),
-                        last.number(),
-                        self.bookmarks_written
-                    )
-                    .as_bytes(),
-                )
-                .await?;
-        }
-        Ok(())
-    }
-
-    /// Write `text` as UTF-16BE hexadecimal digits in bounded chunks.
-    async fn write_utf16_hex(&mut self, text: &str) -> Result<()> {
-        let mut hex = [0_u8; 4096];
-        let mut used = 0;
-        for unit in text.encode_utf16() {
-            if used == hex.len() {
-                self.writer.write_bytes(&hex).await?;
-                used = 0;
-            }
-            let [high, low] = unit.to_be_bytes();
-            for byte in [high, low] {
-                hex[used] = HEX[(byte >> 4) as usize];
-                hex[used + 1] = HEX[(byte & 0x0f) as usize];
-                used += 2;
-            }
-        }
-        if used > 0 {
-            self.writer.write_bytes(&hex[..used]).await?;
-        }
-        Ok(())
-    }
-
-    async fn emit_outline_item(
-        &mut self,
-        item: ClosedOutline,
-        next: Option<ObjectId>,
-    ) -> Result<()> {
-        self.writer.begin_object(item.id).await?;
-        self.writer.write_bytes(b"<< /Title <FEFF").await?;
-        self.write_utf16_hex(&item.title).await?;
-        self.writer
-            .write_bytes(
-                format!(
-                    "> /Parent {} 0 R /Dest [{} 0 R {}]",
-                    item.parent.number(),
-                    item.page.number(),
-                    match item.view {
-                        BookmarkView::Fit => "/Fit",
-                        BookmarkView::Xyz => "/XYZ null null null",
-                    }
-                )
-                .as_bytes(),
-            )
-            .await?;
-        if let Some(previous) = item.previous {
-            self.writer
-                .write_bytes(format!(" /Prev {} 0 R", previous.number()).as_bytes())
-                .await?;
-        }
-        if let Some(next) = next {
-            self.writer
-                .write_bytes(format!(" /Next {} 0 R", next.number()).as_bytes())
-                .await?;
-        }
-        if let Some(first) = item.first_child {
-            let last = item.last_child.ok_or(Error::InvalidInput {
-                reason: "bookmark has a first child but no last child",
-            })?;
-            self.writer
-                .write_bytes(
-                    format!(
-                        " /First {} 0 R /Last {} 0 R /Count {}",
-                        first.number(),
-                        last.number(),
-                        item.descendants
-                    )
-                    .as_bytes(),
-                )
-                .await?;
-        }
-        self.writer.write_bytes(b" >>").await?;
-        self.writer.end_object().await?;
-        self.retained_title_bytes = self
-            .retained_title_bytes
-            .checked_sub(item.title.capacity() as u64)
-            .ok_or(Error::InvalidInput {
-                reason: "retained bookmark title bytes underflow",
-            })?;
-        self.retained_outlines =
-            self.retained_outlines
-                .checked_sub(1)
-                .ok_or(Error::InvalidInput {
-                    reason: "retained bookmark count underflows",
-                })?;
-        Ok(())
     }
 }
 
@@ -1543,64 +1187,23 @@ fn pdf_page_number(value: f64) -> Result<String> {
     Ok(format!("{value:.6}"))
 }
 
-fn next_document_id(counter: &AtomicUsize) -> Result<usize> {
-    counter
-        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |next| {
-            next.checked_add(1)
-        })
-        .map_err(|_| Error::LimitExceeded {
-            resource: "PDF document identities",
-            limit: len_u64(usize::MAX - 1),
-            attempted: len_u64(usize::MAX),
-        })
-}
-
-struct DecimalMatrix {
-    bytes: [u8; MATRIX_TEXT_BYTES],
-    length: usize,
-}
-
-impl DecimalMatrix {
-    fn new(values: [f64; 6]) -> Result<Self> {
-        let mut matrix = Self {
-            bytes: [0; MATRIX_TEXT_BYTES],
-            length: 0,
-        };
-        for value in values {
-            matrix.push(value)?;
-        }
-        Ok(matrix)
-    }
-
-    /// Append one checked component. The byte ceiling is defended independently
-    /// of the six-component caller, and a failed scratch buffer is discarded.
-    fn push(&mut self, value: f64) -> Result<()> {
+/// Space-separated content-stream numbers in shortest round-trip decimal
+/// syntax, writing negative zero as zero. Each value must be finite with
+/// magnitude at most `i32::MAX`.
+fn decimals(values: &[f64]) -> Result<String> {
+    let mut text = String::new();
+    for value in values {
         if !value.is_finite() || value.abs() > MAX_PDF_INTEGER as f64 {
             return Err(Error::InvalidInput {
                 reason: "PDF matrix components must be finite with magnitude at most 2147483647",
             });
         }
-        let value = if value == 0.0 { 0.0 } else { value };
-        let separator = if self.length == 0 { "" } else { " " };
-        write!(self, "{separator}{value}").map_err(|_| Error::InvalidInput {
-            reason: "PDF matrix decimal representation exceeds fixed scratch capacity",
-        })
+        let value = if *value == 0.0 { 0.0 } else { *value };
+        let separator = if text.is_empty() { "" } else { " " };
+        // Formatting into a `String` cannot fail.
+        let _ = write!(text, "{separator}{value}");
     }
-
-    fn as_bytes(&self) -> &[u8] {
-        &self.bytes[..self.length]
-    }
-}
-
-impl fmt::Write for DecimalMatrix {
-    fn write_str(&mut self, value: &str) -> fmt::Result {
-        if value.len() > self.bytes.len() - self.length {
-            return Err(fmt::Error);
-        }
-        self.bytes[self.length..self.length + value.len()].copy_from_slice(value.as_bytes());
-        self.length += value.len();
-        Ok(())
-    }
+    Ok(text)
 }
 
 /// Append `child` to a page-tree node's kids, of which there are at most
@@ -1621,7 +1224,7 @@ fn push_child(
     Ok(())
 }
 
-fn reserve_bounded<T>(
+pub(super) fn reserve_bounded<T>(
     values: &mut Vec<T>,
     maximum_items: u64,
     limits: &Limits,

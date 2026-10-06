@@ -403,7 +403,7 @@ fn foreign_resources_and_page_preflight_do_not_poison() {
         assert!(matches!(
             document.embed_font(&foreign, &mut font).await,
             Err(Error::InvalidInput {
-                reason: "PDF font belongs to another document"
+                reason: "PDF font was not added to this document"
             })
         ));
         assert!(

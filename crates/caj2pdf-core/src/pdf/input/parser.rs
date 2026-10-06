@@ -623,26 +623,29 @@ pub(super) fn unsigned_array(bytes: &[u8], max_items: usize) -> Option<Vec<u64>>
     parser.at_end().then_some(result)
 }
 
-pub(super) fn valid_id_array(bytes: &[u8]) -> bool {
+/// The first string of a trailer `/ID` array of exactly two direct strings,
+/// as written, or `None` when `bytes` is not such an array.
+pub(super) fn first_id_string(bytes: &[u8]) -> Option<&[u8]> {
     let mut parser = Syntax::new(bytes);
     parser.skip_space();
-    if parser.expect_byte(b'[', "expected PDF ID array").is_err() {
-        return false;
-    }
-    for _ in 0..2 {
+    parser.expect_byte(b'[', "expected PDF ID array").ok()?;
+    let mut first = 0..0;
+    for index in 0..2 {
         parser.skip_space();
-        if !matches!(parser.bytes.get(parser.pos), Some(b'(' | b'<'))
-            || parser.bytes.get(parser.pos..parser.pos.saturating_add(2)) == Some(b"<<".as_slice())
+        let start = parser.pos;
+        if !matches!(parser.bytes.get(start), Some(b'(' | b'<'))
+            || parser.bytes.get(start..start.saturating_add(2)) == Some(b"<<".as_slice())
             || parser.skip_value(0).is_err()
         {
-            return false;
+            return None;
+        }
+        if index == 0 {
+            first = start..parser.pos;
         }
     }
     parser.skip_space();
-    parser
-        .expect_byte(b']', "expected PDF ID array end")
-        .is_ok()
-        && parser.at_end()
+    parser.expect_byte(b']', "expected PDF ID array end").ok()?;
+    parser.at_end().then(|| &bytes[first])
 }
 
 pub(super) fn valid_text_string(bytes: &[u8]) -> bool {
@@ -852,18 +855,38 @@ mod tests {
         )
         .unwrap_err();
         assert!(issue.ambiguous);
-        assert!(valid_id_array(b"[<0123> (second)]"));
-        assert!(valid_id_array(b"[(first) <ABCD>]"));
+        assert_eq!(
+            first_id_string(b" [ % comment\r\n <0123> (second) ] "),
+            Some(b"<0123>".as_slice())
+        );
+        assert_eq!(
+            first_id_string(br"[(first\)id) <ABCD>]"),
+            Some(br"(first\)id)".as_slice())
+        );
+        assert_eq!(
+            first_id_string(b"[(a (nested) b) < 0a 1B >]"),
+            Some(b"(a (nested) b)".as_slice())
+        );
+        assert_eq!(
+            first_id_string(b"[<00 11\n22> (x)] % trailing comment"),
+            Some(b"<00 11\n22>".as_slice())
+        );
         for value in [
             b"/Bogus".as_slice(),
             b"[]",
             b"[<01>]",
             b"[1 2]",
+            b"[1 0 R <00>]",
             b"[<01> <02> <03>]",
             b"[<<>> <02>]",
+            b"<00> <11>",
+            b"[<00> <11>] junk",
+            b"[<00> <11",
+            br"[(ends with escape\",
+            b"[(unbalanced (nested) <11>]",
         ] {
             assert!(
-                !valid_id_array(value),
+                first_id_string(value).is_none(),
                 "accepted invalid trailer ID: {value:?}"
             );
         }

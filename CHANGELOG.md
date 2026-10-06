@@ -22,6 +22,18 @@
   note. The `native_bounded_copy` and `hnc8_text_placement` examples were
   deleted.
 
+- **Breaking:** the PDF writers share one outline builder, one
+  cross-reference and trailer writer and one page-tree walk (#352). Output
+  bytes are unchanged, except that the second trailer `/ID` string of an
+  appended outline update is now hashed from the old ID, the copied prefix
+  length and the xref offset instead of every written byte. Fragment
+  reconstruction (PDF-based CAJ files) no longer precomputes its exact
+  output size, so a PDF over `Limits::max_output_bytes` (JS
+  `maxOutputBytes`) now fails while it is written with `LIMIT_EXCEEDED`
+  instead of `PDF_LIMIT_EXCEEDED` before any output. `PdfDocument` image and
+  font handles no longer carry a document identity, so a handle from another
+  document is no longer detected; no public item is removed.
+
 - **Breaking:** HN/C8 image payloads are no longer re-read and hashed with
   SHA-256 to detect a source that changes during conversion (#349); like
   every `RangedSource`, the input must stay unchanged. A type-3 (JBIG2)

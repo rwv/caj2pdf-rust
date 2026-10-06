@@ -1060,7 +1060,7 @@ fn rejects_unsafe_link_repairs_without_writing() {
 }
 
 #[test]
-fn bounded_page_tree_repair_and_output_preflight_leave_sink_empty() {
+fn bounded_page_tree_repair_leaves_sink_empty() {
     let mut body = Vec::new();
     let page_objects: Vec<u32> = (1000..1161).collect();
     for number in &page_objects {
@@ -1084,25 +1084,6 @@ fn bounded_page_tree_repair_and_output_preflight_leave_sink_empty() {
             &error,
             Error::LimitExceeded {
                 resource: "allocation bytes",
-                ..
-            }
-        ),
-        "{error}"
-    );
-
-    let valid = fragment_caj(&one_page_body(None, None), &[9]);
-    let error = rejected_without_output(
-        &valid,
-        &Limits {
-            max_output_bytes: 128,
-            ..Limits::default()
-        },
-    );
-    assert!(
-        matches!(
-            &error,
-            Error::PdfLimitExceeded {
-                resource: "output bytes",
                 ..
             }
         ),

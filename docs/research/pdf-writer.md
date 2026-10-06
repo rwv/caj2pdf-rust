@@ -99,16 +99,13 @@ by [#10](https://github.com/rwv/caj2pdf-rust/issues/10) and its children.
 
 ### Preflight, resources and failures
 
-Handles retain `Copy`/`Clone`/`Eq` and privately carry a document identity.
-Only a finished stream returns a handle. A checked process-wide pointer-sized
-atomic counter supplies identities without wrap or reuse; exhaustion returns
-a typed limit error before writing a document header. Foreign handles are
-rejected even when their PDF object numbers coincide. No per-image registry
-is retained. The existing documented same-document contract also applies to
-`add_page`; its valid full-page behavior is unchanged.
+Handles retain `Copy`/`Clone`/`Eq` and carry only their object number. Only a
+finished stream returns a handle. A handle is valid only in the document that
+wrote it; that contract is documented, not checked, since issue #352. No
+per-image registry is retained.
 
 `add_placed_page` accepts 1..=8,192 draws (`MAX_PAGE_IMAGE_PLACEMENTS`). It
-checks every handle/matrix and the page dimensions, page count and required
+checks every matrix and the page dimensions, page count and required
 object-index capacity before page emission, including page-tree rollover.
 Capacity preflight does not reserve unused object numbers. Refused requests
 leave output bytes unchanged and permit a corrected request. The legacy
@@ -124,12 +121,11 @@ configured chunk for later images. All source/sink requests obey the chunk
 ceiling and checked short-read/write helpers. Image/page output, object,
 page-index and page-tree budgets use the existing writer checks.
 
-The placement slice stays caller owned. Each matrix formatter has 2,117
-bytes of inline capacity, and content/resource commands stream one draw at a
-time. No complete image, placement copy or page-content vector is allocated.
-The document retains the existing object-offset/page-ID indexes, bounded
-page-tree groups, outline depth stack and one image buffer, plus one identity
-and failure flag. `max_allocation_bytes` checks the configured buffer/index
+The placement slice stays caller owned. Each matrix is formatted into a small
+string, and content/resource commands stream one draw at a time. No complete
+image, placement copy or page-content vector is allocated. The document
+retains the existing object-offset/page-ID indexes, bounded page-tree groups,
+outline depth stack and one image buffer, plus one failure flag. `max_allocation_bytes` checks the configured buffer/index
 allocation requests. Small bounded serialization strings from the existing
 emitter (image dictionaries, page dimensions and individual object/draw
 commands) are not charged to this ceiling; a 72-byte object-index budget can
@@ -171,7 +167,7 @@ Issue #116's `pdf_placement_render.rs` additionally checks exact ordered
 content matrices/resource references and unchanged JPEG streams with qpdf;
 MuPDF and Poppler render original asymmetric bilevel/raw RGB/JPEG patterns,
 positive/negative transforms, overlapping colors and reused objects.
-`pdf_placement_bounds.rs` checks complete-request preflight, foreign handles,
+`pdf_placement_bounds.rs` checks complete-request preflight,
 work/input/object/output limits, bounded generated input, short/zero/invalid
 reads, cancellation and failure state. These mandatory synthetic checks are
 separate from optional private corpus compatibility; no external document

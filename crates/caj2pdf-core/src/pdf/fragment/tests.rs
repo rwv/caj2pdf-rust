@@ -448,7 +448,7 @@ fn malformed_indirect_stream_length_fails_before_output() {
 }
 
 #[test]
-fn input_and_output_limits_are_preflighted_before_sink_write() {
+fn output_limits_bound_writes_and_input_limits_precede_them() {
     run(async {
         let (mut source, objects, pages) = two_page_fragment();
         let mut sink = BytesSink::default();
@@ -471,14 +471,16 @@ fn input_and_output_limits_are_preflighted_before_sink_write() {
                 &NEVER
             )
             .await,
-            Err(Error::PdfLimitExceeded {
+            Err(Error::LimitExceeded {
                 resource: "output bytes",
+                limit: 100,
                 ..
             })
         ));
-        assert!(sink.bytes.is_empty());
+        assert!(sink.bytes.len() <= 100);
 
         // The summed object spans are charged against the input limit.
+        let mut sink = BytesSink::default();
         let first = objects[0].range.length;
         let limits = Limits {
             max_input_bytes: first,
@@ -658,27 +660,6 @@ fn requested_object_counts_are_bounded_and_located() {
             })
         ));
     }
-}
-
-#[test]
-fn output_that_differs_from_its_preflight_size_is_refused() {
-    for reason in [BODY_SIZE_MISMATCH, FINAL_SIZE_MISMATCH] {
-        assert!(check_preflight_size(42, 42, reason).is_ok());
-        for written in [41, 43] {
-            assert!(matches!(
-                check_preflight_size(written, 42, reason),
-                Err(Error::InvalidInput { reason: refused }) if refused == reason
-            ));
-        }
-    }
-    assert_eq!(
-        BODY_SIZE_MISMATCH,
-        "PDF body byte count differs from its preflight size"
-    );
-    assert_eq!(
-        FINAL_SIZE_MISMATCH,
-        "PDF final byte count differs from its preflight size"
-    );
 }
 
 #[test]
@@ -1021,22 +1002,6 @@ fn multi_digit_page_refs_and_small_chunk_flushes_are_supported() {
         Ok::<(), Error>(())
     })
     .unwrap();
-}
-
-#[test]
-fn xref_rows_are_fixed_width_and_link_sparse_free_slots() {
-    assert_eq!(xref_entry(17, 0, b'n').unwrap(), *b"0000000017 00000 n \n");
-    assert_eq!(
-        xref_entry(9, 65_535, b'f').unwrap(),
-        *b"0000000009 65535 f \n"
-    );
-    let records = [
-        Record::synthetic(reference(2)),
-        Record::synthetic(reference(5)),
-    ];
-    assert_eq!(next_free_number(0, 5, &records, 0), 1);
-    assert_eq!(next_free_number(1, 5, &records, 0), 3);
-    assert_eq!(next_free_number(4, 5, &records, 1), 0);
 }
 
 #[test]
@@ -2135,90 +2100,6 @@ fn cancellation_at_every_checkpoint_never_reports_success() {
             }
         }
     });
-}
-
-#[test]
-fn spans_beyond_the_classic_xref_ceiling_fail_before_output() {
-    run(async {
-        const STREAM_BYTES: u64 = 2_100_000_000;
-        let mut segments = Vec::new();
-        let mut objects = Vec::new();
-        let page = b"9 0 obj\n<< /Type /Page /Parent 5 0 R /MediaBox [0 0 1 1] >>\nendobj\n";
-        objects.push(FragmentObject {
-            reference: reference(9),
-            range: PdfRange {
-                offset: 0,
-                length: page.len() as u64,
-            },
-        });
-        segments.push((0, page.to_vec()));
-        let mut cursor = page.len() as u64;
-        for number in 20..25 {
-            let head = format!("{number} 0 obj\n<< /Length {STREAM_BYTES} >>\nstream\n");
-            let tail = b"\nendstream\nendobj\n";
-            let tail_offset = cursor + head.len() as u64 + STREAM_BYTES;
-            let end = tail_offset + tail.len() as u64;
-            objects.push(FragmentObject {
-                reference: reference(number),
-                range: PdfRange {
-                    offset: cursor,
-                    length: end - cursor,
-                },
-            });
-            segments.push((cursor, head.into_bytes()));
-            segments.push((tail_offset, tail.to_vec()));
-            cursor = end;
-        }
-        let mut source = BytesSource::sparse(cursor, segments);
-        let pages = [reference(9)];
-        let plan = plan(&objects, &pages);
-        let limits = Limits {
-            max_input_bytes: u64::MAX,
-            max_output_bytes: u64::MAX,
-            ..Limits::default()
-        };
-        let mut sink = BytesSink::default();
-        let error = reconstruct_fragment_with_bookmarks(
-            &mut source,
-            &mut sink,
-            &plan,
-            &[],
-            &limits,
-            &NEVER,
-        )
-        .await
-        .unwrap_err();
-        assert!(
-            matches!(
-                error,
-                Error::PdfLimitExceeded {
-                    resource: "classic PDF file bytes",
-                    object: Some((25, 0)),
-                    limit: MAX_CLASSIC_PDF_BYTES,
-                    attempted,
-                    ..
-                } if attempted > cursor
-            ),
-            "{error}"
-        );
-        assert!(sink.bytes.is_empty());
-    });
-}
-
-#[test]
-fn xref_offsets_are_limited_to_ten_digits() {
-    assert_eq!(
-        xref_entry(MAX_CLASSIC_PDF_BYTES, 0, b'n').unwrap(),
-        *b"9999999999 00000 n \n"
-    );
-    assert!(matches!(
-        xref_entry(MAX_CLASSIC_PDF_BYTES + 1, 0, b'n'),
-        Err(Error::LimitExceeded {
-            resource: "classic PDF xref offset",
-            limit: MAX_CLASSIC_PDF_BYTES,
-            attempted,
-        }) if attempted == MAX_CLASSIC_PDF_BYTES + 1
-    ));
 }
 
 #[test]

@@ -16,7 +16,6 @@ const MAX_PAGE_FONTS: usize = 128;
 /// subset is written by [`PdfDocument::embed_font`] after the last page.
 pub struct FontObject {
     object: ObjectId,
-    document_id: usize,
     slot: usize,
     characters: Vec<u8>,
 }
@@ -115,9 +114,15 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
         });
         Ok(FontObject {
             object: ids[4],
-            document_id: self.document_id,
             slot: self.fonts.len() - 1,
             characters,
+        })
+    }
+
+    /// The pending state of an added font.
+    fn font(&self, handle: &FontObject) -> Result<&PendingFont> {
+        self.fonts.get(handle.slot).ok_or(Error::InvalidInput {
+            reason: "PDF font was not added to this document",
         })
     }
 
@@ -163,12 +168,7 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
     ) -> Result<()> {
         self.ensure_image_page_intact()?;
         self.writer.ensure_idle()?;
-        if handle.document_id != self.document_id {
-            return Err(Error::InvalidInput {
-                reason: "PDF font belongs to another document",
-            });
-        }
-        let pending = &self.fonts[handle.slot];
+        let pending = self.font(handle)?;
         if pending.embedded {
             return Err(Error::InvalidInput {
                 reason: "PDF font subset is already embedded",
@@ -346,20 +346,12 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
             });
         }
         for font in fonts {
-            if font.document_id != self.document_id {
-                return Err(Error::InvalidInput {
-                    reason: "PDF font belongs to another document",
-                });
-            }
             // Its glyph set is final once the subset is written.
-            if self.fonts[font.slot].embedded {
+            if self.font(font)?.embedded {
                 return Err(Error::InvalidInput {
                     reason: "PDF font subset is already embedded",
                 });
             }
-        }
-        for image in images {
-            self.check_image_owner(*image)?;
         }
         self.check_next_page()?;
         let deflate = self.take_deflate()?;
@@ -513,12 +505,12 @@ impl<W: SequentialSink, C: Cancellation> ContentPageWriter<'_, '_, '_, W, C> {
             &mut self.document.fonts[resource.slot].used,
             character as usize,
         );
-        let matrix = DecimalMatrix::new(transform)?;
+        let matrix = decimals(&transform)?;
         if gray.is_some() || clip.is_some() {
             self.emit(b"q ").await?;
         }
         if let Some([left, bottom, width, height]) = clip {
-            DecimalMatrix::new([left, bottom, width, height, left + width, bottom + height])?;
+            decimals(&[left, bottom, width, height, left + width, bottom + height])?;
             if width <= 0.0 || height <= 0.0 {
                 return Err(Error::InvalidInput {
                     reason: "PDF glyph clipping extents must be positive",
@@ -556,7 +548,7 @@ impl<W: SequentialSink, C: Cancellation> ContentPageWriter<'_, '_, '_, W, C> {
                 reason: "PDF page image index is out of range",
             });
         }
-        let matrix = DecimalMatrix::new(transform)?;
+        let matrix = decimals(&transform)?;
         self.emit(b"q\n").await?;
         self.emit(matrix.as_bytes()).await?;
         self.emit(format!(" cm /Im{index} Do Q\n").as_bytes())
@@ -569,32 +561,23 @@ impl<W: SequentialSink, C: Cancellation> ContentPageWriter<'_, '_, '_, W, C> {
     /// device-dependent hairline; negative or nonfinite widths are rejected.
     pub async fn segment(&mut self, from: [f64; 2], to: [f64; 2], width: f64) -> Result<()> {
         self.start_draw().await?;
-        DecimalMatrix::new([from[0], from[1], to[0], to[1], width, 0.0])?;
+        decimals(&[from[0], from[1], to[0], to[1], width, 0.0])?;
         if width < 0.0 {
             return Err(Error::InvalidInput {
                 reason: "PDF stroke width must be nonnegative",
             });
         }
-        let mut command = DecimalMatrix {
-            bytes: [0; MATRIX_TEXT_BYTES],
-            length: 0,
-        };
-        let overflow = Error::InvalidInput {
-            reason: "PDF segment exceeds fixed scratch capacity",
-        };
-        writeln!(
-            command,
-            "q {width} w {} {} m {} {} l S Q",
+        let command = format!(
+            "q {width} w {} {} m {} {} l S Q\n",
             from[0], from[1], to[0], to[1]
-        )
-        .map_err(|_| overflow)?;
+        );
         self.emit(command.as_bytes()).await?;
         self.failed = false;
         Ok(())
     }
 
     /// Stroke a bounded continuous path with butt caps and miter joins.
-    /// Fixed decimal scratch and sequential writes avoid retaining page paths.
+    /// Sequential per-point writes avoid retaining page paths.
     pub(crate) async fn stroke_polyline(
         &mut self,
         points: &[[f64; 2]],
@@ -607,23 +590,13 @@ impl<W: SequentialSink, C: Cancellation> ContentPageWriter<'_, '_, '_, W, C> {
                 reason: "PDF polyline requires two to eight points and nonnegative width",
             });
         }
-        let mut command = DecimalMatrix {
-            bytes: [0; MATRIX_TEXT_BYTES],
-            length: 0,
-        };
-        command.push(width)?;
+        let width = decimals(&[width])?;
         self.emit(b"q 0 J 0 j 10 M ").await?;
-        self.emit(command.as_bytes()).await?;
+        self.emit(width.as_bytes()).await?;
         self.emit(format!(" w {:.6} G\n", f64::from(gray) / 255.0).as_bytes())
             .await?;
         for (index, point) in points.iter().enumerate() {
-            let mut command = DecimalMatrix {
-                bytes: [0; MATRIX_TEXT_BYTES],
-                length: 0,
-            };
-            command.push(point[0])?;
-            command.push(point[1])?;
-            self.emit(command.as_bytes()).await?;
+            self.emit(decimals(point)?.as_bytes()).await?;
             let operator = if index == 0 { b" m\n" } else { b" l\n" };
             self.emit(operator).await?;
         }
@@ -634,7 +607,7 @@ impl<W: SequentialSink, C: Cancellation> ContentPageWriter<'_, '_, '_, W, C> {
 
     /// Fill a closed black polygon using PDF's nonzero winding rule.
     /// Three to eight vertices cover small native decorations without retaining
-    /// an unbounded path. Points are streamed through fixed decimal scratch;
+    /// an unbounded path. Points are written one at a time;
     /// failure or cancellation invalidates this content page.
     pub async fn fill_polygon(&mut self, points: &[[f64; 2]]) -> Result<()> {
         self.start_draw().await?;
@@ -645,13 +618,7 @@ impl<W: SequentialSink, C: Cancellation> ContentPageWriter<'_, '_, '_, W, C> {
         }
         self.emit(b"q 0 g\n").await?;
         for (index, point) in points.iter().enumerate() {
-            let mut command = DecimalMatrix {
-                bytes: [0; MATRIX_TEXT_BYTES],
-                length: 0,
-            };
-            command.push(point[0])?;
-            command.push(point[1])?;
-            self.emit(command.as_bytes()).await?;
+            self.emit(decimals(point)?.as_bytes()).await?;
             let operator = if index == 0 { b" m\n" } else { b" l\n" };
             self.emit(operator).await?;
         }
