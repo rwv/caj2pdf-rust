@@ -22,6 +22,9 @@ pub use document::{
 };
 pub use font::{FontGlyph, MAX_FONT_METADATA_BYTES, OpenTypeFont};
 pub use fragment::{FragmentObject, FragmentPlan, reconstruct_fragment_with_bookmarks};
+pub(crate) use fragment::{
+    InspectedObject, InspectedPlan, append_replacement, reconstruct_inspected,
+};
 pub use input::{PdfIndex, RepairObject};
 pub use outline::BookmarkView;
 pub use types::{PdfRange, PdfRef};

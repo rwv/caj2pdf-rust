@@ -96,21 +96,5 @@ pub(crate) fn push_bounded<T>(
     Ok(())
 }
 
-/// Push `item` after checking `bytes`, the caller's size accounting for the
-/// grown vector, against the allocation limit. An allocator refusal is
-/// reported against `resource`.
-pub(crate) fn push_checked<T>(
-    items: &mut Vec<T>,
-    item: T,
-    bytes: u64,
-    limits: &crate::Limits,
-    resource: &'static str,
-) -> crate::Result<()> {
-    limits.check_allocation(bytes)?;
-    reserve(items, 1, limits.allocation_refused(resource, bytes))?;
-    items.push(item);
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests;

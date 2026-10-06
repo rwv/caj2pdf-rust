@@ -40,13 +40,16 @@ before(async () => {
     "/fixtures/deferred-replay.caj": syntheticFlateReplayCaj({ anchor: "deferred" }),
     "/fixtures/deferred-clean.caj": syntheticFlateReplayCaj({ anchor: "deferred", interrupted: false }),
     "/fixtures/deferred-broken.caj": syntheticFlateReplayCaj({ anchor: "deferred", broken: true }),
+    "/fixtures/deferred-broken-clean.caj": syntheticFlateReplayCaj({ anchor: "deferred", broken: true, interrupted: false }),
     "/fixtures/scalar-replay.caj": syntheticFlateReplayCaj(),
     "/fixtures/scalar-clean.caj": syntheticFlateReplayCaj({ interrupted: false }),
     "/fixtures/scalar-broken.caj": syntheticFlateReplayCaj({ broken: true }),
+    "/fixtures/scalar-broken-clean.caj": syntheticFlateReplayCaj({ broken: true, interrupted: false }),
     "/fixtures/keyword-cut.caj": syntheticAscii85Caj({ cut: "keyword" }),
     "/fixtures/reference-cut.caj": syntheticAscii85Caj({ cut: "reference" }),
     "/fixtures/ascii85-clean.caj": syntheticAscii85Caj({ interrupted: false }),
     "/fixtures/ascii85-broken.caj": syntheticAscii85Caj({ broken: true }),
+    "/fixtures/ascii85-broken-clean.caj": syntheticAscii85Caj({ broken: true, interrupted: false }),
     "/fixtures/recovered.caj": syntheticRecoveredCaj(),
     "/fixtures/later-copy.caj": syntheticLaterCopyCaj(),
     "/fixtures/broken-later-copy.caj": syntheticLaterCopyCaj(true),
@@ -236,14 +239,14 @@ test("Chromium: later-copy CAJ and stream replay run in a Worker", options, asyn
   assert.deepEqual(result.keywordCut.output, result.cleanAscii85.output);
   assert.deepEqual(result.referenceCut.output, result.cleanAscii85.output);
   await validatePdf(t, decode(result.ascii85.output), 2);
-  assert.equal(result.brokenAscii85.error?.code, "MALFORMED_PDF");
-  assert.equal(result.brokenAscii85.written, 0);
   assert.deepEqual(result.scalarReplay.output, result.scalarClean.output);
   await validatePdf(t, decode(result.scalarReplay.output), 2);
-  assert.equal(result.scalarBroken.error?.code, "MALFORMED_PDF");
-  assert.equal(result.scalarBroken.written, 0);
-  assert.equal(result.deferredBroken.error?.code, "MALFORMED_PDF");
-  assert.equal(result.deferredBroken.written, 0);
+  // Payloads are not decoded: a corrupt checksum or a Length that also
+  // covers the end-of-line byte still frames, and the replay still applies.
+  for (const [recovered, clean] of [[result.brokenAscii85, result.brokenAscii85Clean], [result.scalarBroken, result.scalarBrokenClean], [result.deferredBroken, result.deferredBrokenClean]]) {
+    assert.equal(recovered.report.pagesConverted, 2);
+    assert.deepEqual(recovered.output, clean.output);
+  }
   for (const [recovered, clean] of [[result.deferredReplay, result.deferredClean], [result.adjacentFlate, result.adjacentClean], [result.arrayReplay, result.arrayClean]]) {
     assert.deepEqual(recovered.output, clean.output);
     await validatePdf(t, decode(recovered.output), 2);

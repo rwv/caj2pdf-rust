@@ -48,7 +48,6 @@ dependencies = [
 name = "caj2pdf-core"
 version = "0.4.0"
 dependencies = [
- "fax",
  "flate2",
  "sha2",
  "xberg-ttf-parser",
@@ -142,12 +141,6 @@ dependencies = [
  "libc",
  "windows-sys",
 ]
-
-[[package]]
-name = "fax"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "70ed8646f3993cad0585c6669ffba6f7e5440a0bfb0a1f16600cae33ce7cf307"
 
 [[package]]
 name = "flate2"

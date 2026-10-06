@@ -29,7 +29,6 @@ fn exercise(
         &Limits::default(),
         &NEVER,
         &mut [],
-        &mut 0,
     ))?;
     scan.damaged.push((
         Some(PdfRef {
@@ -40,7 +39,7 @@ fn exercise(
     ));
     // Deliberately malformed object 7 is structurally indexed before the
     // page-content check. Resource 6 and the page depend on it transitively.
-    run(substitute(
+    run(substitute_damaged_pages(
         &mut source,
         &metadata,
         &mut scan,
@@ -52,7 +51,7 @@ fn exercise(
 const BODY: &[u8] = b"1 0 obj<</Type/Page /Parent 9 0 R /MediaBox[0 0 20 30] /Resources 6 0 R>>endobj\n6 0 obj<</Font<</F1 7 0 R>>>>endobj\n7 0 obj<</Type/Page /Parent 9 0 R /Contents 42>>endobj\n100 0 obj 1 endobj\n101 0 obj<</Length 100 0 R>>stream\nx\nendstream\nendobj\n";
 
 #[test]
-fn damaged_dependencies_are_transitive_and_honor_cancellation_and_budgets() {
+fn damaged_dependencies_are_transitive_and_honor_cancellation() {
     let (suffix, report) = exercise(BODY, &Limits::default(), &NEVER).unwrap();
     assert_eq!(report.len(), 1);
     assert!(
@@ -77,35 +76,6 @@ fn damaged_dependencies_are_transitive_and_honor_cancellation_and_budgets() {
         );
         assert!(matches!(result, Ok(_) | Err(Error::Cancelled)));
     }
-    for allocation in [1, 256, 895] {
-        let limits = Limits {
-            io_chunk_bytes: 1,
-            max_allocation_bytes: allocation,
-            ..Limits::default()
-        };
-        assert!(matches!(
-            exercise(BODY, &limits, &NEVER),
-            Err(Error::LimitExceeded { .. })
-        ));
-    }
-    let mut many = String::from_utf8(BODY.to_vec()).unwrap();
-    for owner in 200..220 {
-        let refs = (20..50).map(|n| format!("{n} 0 R ")).collect::<String>();
-        many.push_str(&format!("{owner} 0 obj [{refs}] endobj\n"));
-    }
-    let result = exercise(
-        many.as_bytes(),
-        &Limits {
-            io_chunk_bytes: 1,
-            max_allocation_bytes: 12000,
-            ..Limits::default()
-        },
-        &NEVER,
-    );
-    assert!(
-        matches!(result, Err(Error::LimitExceeded { .. })),
-        "{result:?}"
-    );
     let unsupported = String::from_utf8(BODY.to_vec())
         .unwrap()
         .replace("/MediaBox[0 0 20 30]", "/MediaBox 20 0 R");

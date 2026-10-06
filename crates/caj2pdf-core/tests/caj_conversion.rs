@@ -1797,7 +1797,7 @@ fn later_page_anchor_recovers_a_dictionary_without_changing_output() {
 }
 
 #[test]
-fn ascii85_adjacent_replay_preserves_visible_content_and_rejects_false_length() {
+fn ascii85_adjacent_replay_preserves_visible_content() {
     fn fixture(interrupted: bool, broken: bool) -> Vec<u8> {
         let mut body = Vec::new();
         object(
@@ -1838,7 +1838,12 @@ fn ascii85_adjacent_replay_preserves_visible_content_and_rejects_false_length() 
     assert_eq!(report.pages_converted, 1);
     assert_eq!(actual, expected);
     assert_eq!(inspect(&actual).pages().len(), 1);
-    rejected_without_output(&fixture(true, true), &limits);
+    // Payloads are not decoded: a Length one byte long frames the stream
+    // with its end-of-line byte, and the replay rule still applies.
+    let (long, _) = convert(&fixture(false, true), ConversionOptions::default(), &limits).unwrap();
+    let (replayed, _) =
+        convert(&fixture(true, true), ConversionOptions::default(), &limits).unwrap();
+    assert_eq!(replayed, long);
 }
 
 #[test]
@@ -1859,7 +1864,8 @@ fn damaged_shared_stream_blanks_only_dependent_pages_and_preserves_geometry() {
         3,
         "<< /Type /Page /Parent 8 0 R /MediaBox [0 0 400 200] /Contents 10 0 R >>",
     );
-    object(&mut body, 11, "3");
+    // The shared stream's Length object disagrees with its endstream.
+    object(&mut body, 11, "2");
     body.extend_from_slice(
         b"9 0 obj\n<< /Length 11 0 R /Filter /FlateDecode >>\nstream\nbad\nendstream\nendobj\n",
     );

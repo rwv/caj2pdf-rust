@@ -6,11 +6,13 @@ use super::parse_metadata;
 use crate::fallible::{reserve, reserve_exact};
 use crate::pdf::input::{
     FragmentCandidate, FragmentKind, FragmentScan, LinkDestinationTarget, LinkRepairCandidate,
-    LinkRepairKind, PatchedSource, collect_fragment_candidates, inspect_fragment_object,
-    inspect_link_destination_candidate, scan_fragment_with_candidates,
+    LinkRepairKind, PatchedSource, collect_fragment_candidates, inspect_generated_object,
+    inspect_link_destination_candidate, scan_damaged_fragment, scan_fragment_with_candidates,
+    substitute_damaged_pages,
 };
 use crate::pdf::{
-    FragmentObject, FragmentPlan, PdfRange, PdfRef, reconstruct_fragment_with_bookmarks,
+    FragmentObject, InspectedObject, InspectedPlan, PdfRange, PdfRef, append_replacement,
+    reconstruct_inspected,
 };
 use crate::{
     Cancellation, ConversionOptions, ConversionReport, CountingSource, Error, Limits, PdfErrorKind,
@@ -156,12 +158,12 @@ fn malformed(offset: u64, reason: &'static str) -> Error {
     }
 }
 
-fn missing_reference(objects: &[FragmentObject], owner: PdfRef) -> Error {
+fn missing_reference(objects: &[InspectedObject], owner: PdfRef) -> Error {
     Error::Pdf {
         offset: objects
             .iter()
-            .find(|object| object.reference == owner)
-            .map_or(0, |object| object.range.offset),
+            .find(|inspected| inspected.object.reference == owner)
+            .map_or(0, |inspected| inspected.object.range.offset),
         object: Some((owner.number, owner.generation)),
         kind: PdfErrorKind::Malformed,
         reason: "indirect reference targets a missing object",
@@ -231,8 +233,9 @@ fn resolve_page_root(
     Ok(resolved)
 }
 
-pub(super) fn replace_object(
-    objects: &mut [FragmentObject],
+/// Replace an object's span with a generated body appended to `suffix`.
+fn replace_object(
+    objects: &mut [InspectedObject],
     suffix: &mut Vec<u8>,
     base: u64,
     (reference, replacement): (PdfRef, &[u8]),
@@ -249,19 +252,12 @@ pub(super) fn replace_object(
     reserve(suffix, replacement.len(), refused)?;
     let old = objects
         .iter_mut()
-        .find(|object| object.reference == reference)
+        .find(|inspected| inspected.object.reference == reference)
         .ok_or(Error::InvalidInput {
             reason: "CAJ link repair object is absent from fragment plan",
         })?;
-    old.range = PdfRange {
-        offset: base
-            .checked_add(suffix.len() as u64)
-            .ok_or(Error::InvalidInput {
-                reason: "CAJ link repair object offset overflows",
-            })?,
-        length: replacement.len() as u64,
-    };
-    suffix.extend_from_slice(replacement);
+    old.object.range = append_replacement(suffix, base, replacement)?;
+    old.inspection = inspect_generated_object(replacement, limits)?;
     Ok(())
 }
 
@@ -316,7 +312,7 @@ fn retain_repair(
 
 fn push_synthetic(
     suffix: &mut Vec<u8>,
-    objects: &mut Vec<FragmentObject>,
+    objects: &mut Vec<InspectedObject>,
     base: u64,
     node: SyntheticPageTree<'_>,
     limits: &Limits,
@@ -342,24 +338,28 @@ fn push_synthetic(
     let number = node.number;
     write_page_tree(&mut body, &node)?;
     let body_len = body.bytes.len() - start;
-    objects.push(FragmentObject {
-        reference: PdfRef {
-            number,
-            generation: 0,
+    let inspection = inspect_generated_object(&suffix[start..], limits)?;
+    objects.push(InspectedObject {
+        object: FragmentObject {
+            reference: PdfRef {
+                number,
+                generation: 0,
+            },
+            range: PdfRange {
+                offset: base.checked_add(start as u64).ok_or(Error::InvalidInput {
+                    reason: "CAJ synthetic page tree offset overflows",
+                })?,
+                length: body_len as u64,
+            },
         },
-        range: PdfRange {
-            offset: base.checked_add(start as u64).ok_or(Error::InvalidInput {
-                reason: "CAJ synthetic page tree offset overflows",
-            })?,
-            length: body_len as u64,
-        },
+        inspection,
     });
     Ok(())
 }
 
 /// Retry a malformed fragment using only independently parsed page-table
 /// spans. No payload is searched for headers, and the full scan must confirm
-/// every candidate used. All attempts share one decompression-work counter.
+/// every candidate used.
 async fn scan_caj_objects<S: RangedSource, C: Cancellation>(
     source: &mut S,
     metadata: &super::CajMetadata,
@@ -367,7 +367,6 @@ async fn scan_caj_objects<S: RangedSource, C: Cancellation>(
     cancellation: &C,
     allow_damaged: bool,
 ) -> Result<FragmentScan> {
-    let mut inflated_bytes = 0;
     let original_error = match scan_fragment_with_candidates(
         source,
         metadata.body_start,
@@ -375,7 +374,6 @@ async fn scan_caj_objects<S: RangedSource, C: Cancellation>(
         limits,
         cancellation,
         &mut [],
-        &mut inflated_bytes,
     )
     .await
     {
@@ -401,7 +399,6 @@ async fn scan_caj_objects<S: RangedSource, C: Cancellation>(
             row.offset + row.length,
             limits,
             cancellation,
-            &mut inflated_bytes,
         )
         .await
         {
@@ -436,7 +433,6 @@ async fn scan_caj_objects<S: RangedSource, C: Cancellation>(
         limits,
         cancellation,
         &mut candidates,
-        &mut inflated_bytes,
     )
     .await;
     match result {
@@ -444,14 +440,13 @@ async fn scan_caj_objects<S: RangedSource, C: Cancellation>(
             kind: PdfErrorKind::Malformed,
             ..
         }) if allow_damaged => {
-            crate::pdf::input::scan_damaged_fragment(
+            scan_damaged_fragment(
                 source,
                 &metadata.page_rows,
                 metadata.body_end_hint,
                 limits,
                 cancellation,
                 &mut candidates,
-                &mut inflated_bytes,
             )
             .await
         }
@@ -463,6 +458,8 @@ async fn scan_caj_objects<S: RangedSource, C: Cancellation>(
 /// stable positioned reads. Page payloads are never materialized in a `Vec`;
 /// only page/outline metadata, object positions, and small missing page-tree
 /// dictionaries are retained. All PDF object validation precedes output.
+/// Each source object is parsed once by the fragment scan, whose inspection
+/// carries through page-tree reconstruction and link repair.
 pub async fn convert_caj<S: RangedSource, W: SequentialSink, C: Cancellation>(
     source: &mut S,
     sink: &mut W,
@@ -483,12 +480,24 @@ pub async fn convert_caj<S: RangedSource, W: SequentialSink, C: Cancellation>(
     )
     .await?;
     let (damaged_suffix, omitted_pages) = if options.allow_damaged && !scan.damaged.is_empty() {
-        super::damaged::substitute(&mut counted, &metadata, &mut scan, limits, cancellation).await?
+        substitute_damaged_pages(&mut counted, &metadata, &mut scan, limits, cancellation).await?
     } else {
         (Vec::new(), Vec::new())
     };
     let mut working = ExtendedSource::new(&mut counted, &damaged_suffix)?;
-    let mut objects = std::mem::take(&mut scan.objects);
+    // Report the first structural inspection error in source order.
+    let mut objects = Vec::new();
+    let refused = limits.allocation_refused(
+        "CAJ object index allocation",
+        (scan.objects.len() as u64).saturating_mul(size_of::<InspectedObject>() as u64),
+    );
+    reserve_exact(&mut objects, scan.objects.len(), refused)?;
+    for scanned in std::mem::take(&mut scan.objects) {
+        objects.push(InspectedObject {
+            object: scanned.object,
+            inspection: scanned.inspection?,
+        });
+    }
     let source_object_count = objects.len();
     // `parse_metadata` admitted the larger page-row index under the same
     // allocation limit, so this smaller index needs no second check.
@@ -503,8 +512,8 @@ pub async fn convert_caj<S: RangedSource, W: SequentialSink, C: Cancellation>(
         generation: 0,
     }));
 
-    // Classify page-tree nodes using the already bounded PDF parser. The
-    // source page table supplies page order but not the missing /Pages nodes.
+    // Classify page-tree nodes from the scan's inspections. The source page
+    // table supplies page order but not the missing /Pages nodes.
     let mut nodes = BTreeMap::<PdfRef, TreeNode>::new();
     let occupied_bytes = objects
         .len()
@@ -519,7 +528,7 @@ pub async fn convert_caj<S: RangedSource, W: SequentialSink, C: Cancellation>(
         occupied_bytes as u64,
     );
     reserve_exact(&mut occupied, objects.len(), refused)?;
-    occupied.extend(objects.iter().map(|object| object.reference));
+    occupied.extend(objects.iter().map(|inspected| inspected.object.reference));
     occupied.sort_unstable();
     let mut highest_referenced_object = occupied
         .iter()
@@ -527,74 +536,51 @@ pub async fn convert_caj<S: RangedSource, W: SequentialSink, C: Cancellation>(
         .max()
         .unwrap_or(0);
     let mut missing_references = Vec::<MissingReference>::new();
-    {
-        let mut patched = PatchedSource::new(&mut working, &scan.patches);
-        for object in &objects {
-            let inspected = inspect_fragment_object(
-                &mut patched,
-                object.range,
-                object.reference,
-                limits,
-                cancellation,
-                |reference| scan.resolve_length(reference),
-            )
-            .await?;
-            highest_referenced_object =
-                highest_referenced_object.max(inspected.max_referenced_object);
-            let page_parent = match &inspected.kind {
-                FragmentKind::Page { parent, .. } => Some(*parent),
-                FragmentKind::Pages { parent, .. } => *parent,
-                _ => None,
+    for InspectedObject { object, inspection } in &objects {
+        highest_referenced_object = highest_referenced_object.max(inspection.max_referenced_object);
+        let page_parent = inspection.page_parent();
+        let parent_occurrences = inspection
+            .references
+            .iter()
+            .filter(|reference| Some(**reference) == page_parent)
+            .count();
+        for missing in inspection
+            .references
+            .iter()
+            .filter(|r| occupied.binary_search(r).is_err())
+        {
+            let attempted = missing_references
+                .len()
+                .checked_add(1)
+                .and_then(|count| count.checked_mul(std::mem::size_of::<MissingReference>()))
+                .ok_or(Error::InvalidInput {
+                    reason: "CAJ missing reference index overflows",
+                })?;
+            let refused = Error::CajLimitExceeded {
+                offset: object.range.offset,
+                record: None,
+                resource: "missing PDF references",
+                limit: limits.max_allocation_bytes,
+                attempted: attempted as u64,
             };
-            let parent_occurrences = inspected
-                .references
-                .iter()
-                .filter(|reference| Some(**reference) == page_parent)
-                .count();
-            for missing in inspected
-                .references
-                .iter()
-                .filter(|r| occupied.binary_search(r).is_err())
-            {
-                let attempted = missing_references
-                    .len()
-                    .checked_add(1)
-                    .and_then(|count| count.checked_mul(std::mem::size_of::<MissingReference>()))
-                    .ok_or(Error::InvalidInput {
-                        reason: "CAJ missing reference index overflows",
-                    })?;
-                if attempted as u64 > limits.max_allocation_bytes {
-                    return Err(Error::CajLimitExceeded {
-                        offset: object.range.offset,
-                        record: None,
-                        resource: "missing PDF references",
-                        limit: limits.max_allocation_bytes,
-                        attempted: attempted as u64,
-                    });
-                }
-                let refused = Error::CajLimitExceeded {
-                    offset: object.range.offset,
-                    record: None,
-                    resource: "missing PDF references",
-                    limit: limits.max_allocation_bytes,
-                    attempted: attempted as u64,
-                };
-                reserve(&mut missing_references, 1, refused)?;
-                missing_references.push(MissingReference {
-                    owner: object.reference,
-                    target: *missing,
-                    page_parent_only: Some(*missing) == page_parent && parent_occurrences == 1,
-                });
+            if attempted as u64 > limits.max_allocation_bytes {
+                return Err(refused);
             }
-            let parent = match inspected.kind {
-                FragmentKind::Page { parent, .. } => Some(parent),
-                FragmentKind::Pages { parent, .. } => parent,
-                _ => continue,
-            };
+            reserve(&mut missing_references, 1, refused)?;
+            missing_references.push(MissingReference {
+                owner: object.reference,
+                target: *missing,
+                page_parent_only: Some(*missing) == page_parent && parent_occurrences == 1,
+            });
+        }
+        if matches!(
+            inspection.kind,
+            FragmentKind::Page { .. } | FragmentKind::Pages { .. }
+        ) {
             let previous = nodes.insert(
                 object.reference,
                 TreeNode {
-                    parent,
+                    parent: page_parent,
                     resolved_root: None,
                 },
             );
@@ -702,7 +688,10 @@ pub async fn convert_caj<S: RangedSource, W: SequentialSink, C: Cancellation>(
             limits,
         )?;
     }
-    if objects.iter().all(|object| object.reference != root) {
+    if objects
+        .iter()
+        .all(|inspected| inspected.object.reference != root)
+    {
         return Err(malformed(
             metadata.body_start,
             "CAJ page-tree root is missing",
@@ -744,8 +733,8 @@ pub async fn convert_caj<S: RangedSource, W: SequentialSink, C: Cancellation>(
             let targets = &missing_references[first..last];
             let fragment = objects[..source_object_count]
                 .iter()
-                .find(|object| object.reference == owner)
-                .copied()
+                .find(|inspected| inspected.object.reference == owner)
+                .map(|inspected| inspected.object)
                 .ok_or_else(failure)?;
             let candidate =
                 inspect_link_destination_candidate(&mut patched, fragment, limits, cancellation)
@@ -772,16 +761,11 @@ pub async fn convert_caj<S: RangedSource, W: SequentialSink, C: Cancellation>(
         }
         let mut linked_destinations = BTreeSet::<PdfRef>::new();
         if !scalar_destinations.is_empty() {
-            for fragment in &objects[..source_object_count] {
-                let inspection = inspect_fragment_object(
-                    &mut patched,
-                    fragment.range,
-                    fragment.reference,
-                    limits,
-                    cancellation,
-                    |reference| scan.resolve_length(reference),
-                )
-                .await?;
+            for InspectedObject {
+                object: fragment,
+                inspection,
+            } in &objects[..source_object_count]
+            {
                 let mut referenced_scalar = None;
                 for reference in &inspection.references {
                     if scalar_destinations.contains(reference)
@@ -830,11 +814,6 @@ pub async fn convert_caj<S: RangedSource, W: SequentialSink, C: Cancellation>(
         }
     }
 
-    let plan = FragmentPlan {
-        objects: &objects,
-        pages: &page_refs,
-        pages_root: root,
-    };
     let bookmarks = if options.include_bookmarks {
         metadata.bookmarks.as_slice()
     } else {
@@ -842,15 +821,13 @@ pub async fn convert_caj<S: RangedSource, W: SequentialSink, C: Cancellation>(
     };
     let mut patched = PatchedSource::new(&mut working, &scan.patches);
     let mut extended = ExtendedSource::new(&mut patched, &suffix)?;
-    let mut report = reconstruct_fragment_with_bookmarks(
-        &mut extended,
-        sink,
-        &plan,
-        bookmarks,
-        limits,
-        cancellation,
-    )
-    .await?;
+    let plan = InspectedPlan {
+        objects,
+        pages: &page_refs,
+        pages_root: root,
+    };
+    let mut report =
+        reconstruct_inspected(&mut extended, sink, plan, bookmarks, limits, cancellation).await?;
     report.input_bytes_read = input_bytes_read;
     report.omitted_pages = omitted_pages;
     Ok(report)
@@ -898,8 +875,8 @@ mod tests {
         );
         assert!(suffix.len() <= estimated);
         assert_eq!(objects.len(), 1);
-        assert_eq!(objects[0].range.offset, 106);
-        assert_eq!(objects[0].range.length, body.len() as u64);
+        assert_eq!(objects[0].object.range.offset, 106);
+        assert_eq!(objects[0].object.range.length, body.len() as u64);
 
         let mut too_small = b"prefix".to_vec();
         let mut rejected_objects = Vec::new();
