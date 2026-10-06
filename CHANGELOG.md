@@ -2,6 +2,72 @@
 
 ## Unreleased
 
+- **Breaking:** the core is synchronous over `RangedSource` and
+  `std::io::Write`, HN/C8 bitmaps live in memory, and the JavaScript API runs
+  each operation in a Worker (#355). Output bytes are unchanged.
+  - **JavaScript migration.** `convert` and `inspect` take the
+    `WebAssembly.Module` from `loadModule()` (an instance or its exports is no
+    longer accepted) and an input instead of a `{ size, readAt }` source: a
+    `Blob`/`File` or OPFS `FileSystemFileHandle` in browsers, a path,
+    `file:` URL, file descriptor or `Blob` in Node.js. Pass `file` instead of
+    `blobSource(file)` and `handle.fd` (or the path) instead of
+    `fileHandleSource(handle)`; fonts in `hnc8.fonts` take the same inputs.
+    Each call starts a fresh Worker (`node:worker_threads` in Node.js) and
+    resolves after the sink's final flush. Prompt cancellation and sink
+    backpressure in browsers need a cross-origin isolated page
+    (`SharedArrayBuffer`); otherwise an abort terminates the Worker. A new
+    `progress` option reports the fraction of the input read. Spooled
+    `source`s are now a path (Node.js) or an OPFS file handle (browser).
+    Removed: `blobSource`, `fileHandleSource`, `checkRange`,
+    `withHnc8Scratch`, `fileHandleScratch`, `syncAccessHandleScratch` and the
+    `hnc8.scratch` option. The browser example calls `convert` from the
+    page; `examples/browser-worker.mjs` is gone.
+  - **Raw WASM ABI.** The poll/resume engine is replaced by synchronous
+    `caj2pdf_convert`/`caj2pdf_inspect` exports over five imports
+    (`caj2pdf_read`, `caj2pdf_write`, `caj2pdf_flush`, `caj2pdf_progress`,
+    `caj2pdf_cancelled`); see the
+    [I/O architecture](docs/io-architecture.md#worker-model). All
+    `caj2pdf_io_*` exports (their result getters are now `caj2pdf_*`, for
+    example `caj2pdf_pages_converted`) and `caj2pdf_start` are removed, as
+    are `caj2pdf_c8_set_latin_state3` (use
+    `caj2pdf_c8_set_latin_state(3, index)`) and the Rust
+    `engine::{Engine, Request}` types: `engine::Session` runs an operation to
+    completion over an `engine::Host`, and `engine::Status` now holds the
+    four export statuses.
+  - **Native traits and types.** `SequentialSink` and `write_all` are
+    removed: engines take any `std::io::Write`. `RangedSource::read_at`,
+    `read_exact_at` and every engine, decoder and PDF-writer method are
+    plain functions instead of `async fn`. `&[u8]` and the new `Payload`
+    implement `RangedSource`; `read_payload` reads one bounded payload.
+    Removed with the scratch storage: `RandomAccessScratch`,
+    `native::FileScratch`, `native::WriteSink`,
+    `hnc8::ComposeType3Workspaces` (the `hnc8::convert_*` functions no longer
+    take workspaces), and the `new_reader`/`new_writer` fields of
+    `DictionaryStores`. Refinement references are a `ReferenceStore` bitmap.
+  - **Budgets, progress and errors.** `Limits` is unchanged. Fields that
+    only bounded the removed scratch and sink requests are gone:
+    `ComposeBudget::{max_type3_store_bytes, max_type3_store_io_bytes}`,
+    `DictionaryBudget::{max_sink_request_bytes, max_sink_writes}`,
+    `PageComposeBudget::{max_scratch_read_bytes, max_scratch_read_calls,
+    max_scratch_request_bytes}`, `RefinementBudget::{max_flushes,
+    max_reference_bytes_fetched, max_reference_reads, max_sink_request_bytes,
+    max_sink_writes, max_source_request_bytes}` and
+    `TextComposeBudget::{max_output_bytes, max_output_write_calls,
+    max_request_bytes, max_resident_bytes, max_scratch_read_bytes,
+    max_scratch_read_calls, max_scratch_write_bytes, max_scratch_write_calls,
+    max_source_read_bytes, max_source_read_calls}`. The matching progress
+    counters (scratch, sink, reference and output I/O, `poisoned`,
+    `completed`, `mq_initialization_bytes_fetched`, and
+    `ArithmeticSnapshot::source_bytes_fetched`) and error kinds (`Poisoned`
+    everywhere, `Scratch`, `Sink`, `Output`, `ReferenceSource`,
+    `TruncatedReference`, `ArithmeticErrorKind::Cancelled`,
+    `ComposeErrorKind::MissingType3Workspaces`, and the `Cleanup`, `Scratch`,
+    `OutputFlush` and `Readback` stages) are removed. A coded payload is
+    read once, so a truncated payload is reported where it is read.
+  - **No temporary files.** A conversion creates none: the CLI no longer
+    makes its four anonymous HN/C8 scratch files, so an unusable `TMPDIR`
+    only affects spooled standard input, which the CLI still spools.
+
 - **Breaking:** the JBIG2 symbol dictionaries, the page checks and the
   QM/MQ decoder scaffolding are merged (#353). Output is unchanged.
   - One `dictionary::SymbolDictionaryDecoder` decodes the direct and the

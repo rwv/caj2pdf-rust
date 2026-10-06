@@ -29,6 +29,18 @@ JavaScript tarball for Node.js 22+ and browsers ([JS API](js/README.md)).
 Supported operating systems and CPUs are listed in the
 [platform matrix](docs/platforms.md).
 
+The JavaScript API runs each conversion in a Worker. It reads a browser
+`File`, `Blob` or OPFS file handle, or a Node.js path, descriptor or `Blob`,
+and writes to a stream:
+
+```js
+import { convert, loadModule, webWritableSink } from "caj2pdf-rust";
+
+const writer = (await (await showSaveFilePicker()).createWritable()).getWriter();
+await convert(await loadModule(), file, webWritableSink(writer), { signal });
+await writer.close();
+```
+
 ## What converts
 
 | Input | Status |

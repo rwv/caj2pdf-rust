@@ -32,17 +32,23 @@ Earlier conversion hashes and geometry checks below predate that correction;
 
 ## Memory and temporary storage
 
-Measured on 2026-09-29 with Node 24.13.0, Chromium 154.0.8037.57, and the
-locked release WASM core used by main at `8eb3609`. Both targets returned
-identical results for the original one-page PDF fixtures below. Each row was
-run once with a directly ranged Blob and once after spooling a forward-only
-stream. Each conversion used a fresh WASM instance and discarded output
-chunks after counting them.
+Measured on 2026-10-06 with Node 22.22.0, headless Chromium 141 and the
+locked release WASM build of the synchronous core (#355). Both targets
+returned identical results for the original one-page PDF fixtures below.
+Each row was converted through the public API (a Worker) once from a Blob and
+once after spooling a forward-only stream, discarding output chunks after
+counting them. Because the module now runs inside the Worker, WASM memory and
+read sizes come from a second conversion of the same bytes through the raw
+ABI on the calling thread, with a fresh instance and plain imports.
 
 | Input bytes | Initial WASM bytes | Peak WASM bytes | Maximum read/write bytes | Direct temporary bytes | Spooled temporary bytes |
 | ---: | ---: | ---: | ---: | ---: | ---: |
-| 106,945 | 1,179,648 | 1,638,400 | 106,945 | 0 | 106,945 |
-| 25,186,757 | 1,179,648 | 1,966,080 | 262,144 | 0 | 25,186,757 |
+| 106,945 | 1,245,184 | 1,441,792 | 106,945 | 0 | 106,945 |
+| 25,186,757 | 1,245,184 | 1,769,472 | 262,144 | 0 | 25,186,757 |
+
+The earlier poll/resume build (2026-09-29, Node 24.13.0, Chromium
+154.0.8037.57, main `8eb3609`) measured 1,179,648 initial and 1,638,400 /
+1,966,080 peak WASM bytes for the same inputs.
 
 All eight runs returned one page and the expected output byte count. Node
 spool directories and browser OPFS files were absent after disposal. The
@@ -68,7 +74,7 @@ The script requires Chromium and uses the existing browser harness. Set
 `CAJ2PDF_CHROME` to select its executable. Use a temporary filesystem with
 adequate free space (`TMPDIR` selects it). The first local attempt failed
 while fetching the larger Blob with `/tmp` at 98% usage; those attempts are
-not passes. The recorded runs used a dedicated cache directory on a volume
+not passes. The 2026-09-29 runs used a dedicated cache directory on a volume
 with over 400 GiB free. No change to conversion code was needed.
 
 Type-check without adding dependencies to the shipped package:
@@ -80,18 +86,13 @@ node "$typecheck_dir/node_modules/typescript/bin/tsc" --strict --noEmit --module
 rm -rf "$typecheck_dir"
 ```
 
-## Random-access scratch adapters (#10)
+## Random-access scratch adapters (#10, removed in #355)
 
-Original tests exercise real Node files, immediate OPFS reads in a real Chromium
-Dedicated Worker, resize/reset reuse, caps and precise offsets, short/invalid
-host I/O counts, storage failures and cancellation during pending Node I/O.
-The worker closes/reopens the handle and verifies caller-owned file cleanup.
-No external corpus is needed for these storage contract checks; they do not
-claim HN/C8 WASM conversion. The existing JS suite includes the new tests.
-CI additionally compiles `js/test/types-worker/*.mts` with `ES2022,WebWorker`
-using the same pinned TypeScript installation. The actual npm tarball includes
-the shared scratch validation helper; packaging tests check the file list.
-
+The Node `fileHandleScratch`, browser `syncAccessHandleScratch` and
+`withHnc8Scratch` adapters, and their raw WASM requests, were removed with the
+synchronous core (#355): HN/C8 bitmaps are held in memory, capped by
+`maxAllocationBytes`, and no conversion creates temporary storage. The
+sections below record runs made while they existed.
 
 ## Experimental HN/C8 WASM integration (#10)
 
@@ -101,10 +102,9 @@ pixels after PDF extraction, one-byte short I/O, Node files and real Chromium
 Dedicated Worker OPFS storage. Negative tests cover missing/invalid caller
 configuration, source/sink/store failure, cancellation, cleanup failure and
 instance reuse. Rust also rejects image-less HN-B source rows explicitly.
-Since #354 only type-3 images use the stores: type-0 rows stream top-first to
-the PDF, so the type-0 JS fixtures convert without store I/O (supplied stores
-are still validated and cleared). The engine's store requests are covered by
-the WASM Rust tests; the JS suite has no standard-state type-3 fixture yet.
+Since #354 only type-3 images used the stores, and since #355 there are
+none: the WASM module runs the synchronous core in a Worker and HN/C8 bitmaps
+stay in memory. The JS suite has no standard-state type-3 fixture yet.
 DOM/Node and WebWorker TypeScript consumers compile the HN/C8 options.
 
 ### External four-page C8 check
@@ -235,9 +235,10 @@ WASM binary SHA-256:
 `961c1cf9530f751ee3e679546941c5c26aa5d86cdae99c2be8f766b44e1035d6`.
 
 Ordinary CI uses the existing original HN fixture extended to two positioned
-images and nested bookmarks. Node file-scratch and Chromium Worker OPFS tests
-extract both asymmetric pixel streams with qpdf, check both draw transforms and
-order, verify the outline tree/destinations, and check cleared scratch stores.
+images and nested bookmarks. Node and Chromium caller-Worker tests extract
+both asymmetric pixel streams with qpdf, check both draw transforms and order,
+and verify the outline tree/destinations (scratch stores were checked until
+#355 removed them).
 The fixture uses invented constant arithmetic states and no external document.
 Missing external corpus still means NOT_RUN. C8/HN-B unknown outlines require
 explicit bookmark omission; image-less HN-B rows and anomalous type-3 headers
