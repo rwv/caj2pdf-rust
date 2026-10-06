@@ -191,8 +191,7 @@ fn convert_with_fonts(
     };
     let cancel = Cancel::default();
     let result = {
-        let mut reader =
-            Hnc8Reader::open(&mut input, &limits, &cancel, Default::default()).unwrap();
+        let mut reader = Hnc8Reader::open(&mut input, &limits, &cancel).unwrap();
         reader.next_page().unwrap();
         match mode {
             1 => reader.header.variant = Variant::HnA,
@@ -292,15 +291,8 @@ fn convert_with_fonts(
             reader.source_mut().signal_on_read = Some((112, output_fault.clone()));
         }
         let slice = if mode == 8 { &[][..] } else { &images[..] };
-        let outcome = write_c8_native_page(
-            &mut reader,
-            &mut document,
-            &fonts,
-            roles,
-            slice,
-            top_first,
-            TextBudget::default(),
-        );
+        let outcome =
+            write_c8_native_page(&mut reader, &mut document, &fonts, roles, slice, top_first);
         cancel.0.set(false);
         input_fault.set(false);
         output_fault.set(false);

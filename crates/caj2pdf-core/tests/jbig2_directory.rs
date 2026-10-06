@@ -3,8 +3,8 @@
 use caj2pdf_core::{
     Cancellation, Error, Limits, NeverCancel, RangedSource,
     jbig2::{
-        DirectoryError, DirectoryErrorKind, DirectoryLimits, HeaderErrorKind, HeaderLimits,
-        SegmentDirectory, SegmentSpan, read_embedded_directory, read_segment_header,
+        DirectoryError, DirectoryErrorKind, HeaderErrorKind, SegmentDirectory, SegmentSpan,
+        read_embedded_directory, read_segment_header,
     },
 };
 use std::{cell::Cell, rc::Rc};
@@ -60,8 +60,6 @@ fn parse(bytes: &[u8]) -> Result<SegmentDirectory, caj2pdf_core::jbig2::Director
             length: bytes.len() as u64,
         },
         &Limits::default(),
-        HeaderLimits::default(),
-        DirectoryLimits::default(),
         &NeverCancel,
     )
 }
@@ -179,8 +177,6 @@ fn an_empty_embedded_span_has_no_segments_or_source_reads() {
             length: 0,
         },
         &Limits::default(),
-        HeaderLimits::default(),
-        DirectoryLimits::default(),
         &NeverCancel,
     )
     .unwrap();
@@ -214,8 +210,6 @@ fn skips_payload_bytes_and_never_reads_outside_the_given_span() {
             io_chunk_bytes: 1,
             ..Limits::default()
         },
-        HeaderLimits::default(),
-        DirectoryLimits::default(),
         &NeverCancel,
     )
     .unwrap();
@@ -280,7 +274,6 @@ fn reports_truncation_extra_bytes_and_unknown_data_length() {
             length: PAGE.len() as u64 + 1,
         },
         &Limits::default(),
-        HeaderLimits::default(),
         &NeverCancel,
     )
     .unwrap_err();
@@ -293,7 +286,6 @@ fn reports_truncation_extra_bytes_and_unknown_data_length() {
             length: PAGE.len() as u64 + 1,
         },
         &Limits::default(),
-        HeaderLimits::default(),
         &NeverCancel,
     )
     .unwrap_err();
@@ -314,7 +306,6 @@ fn reports_truncation_extra_bytes_and_unknown_data_length() {
             max_input_bytes: PAGE.len() as u64 - 1,
             ..Limits::default()
         },
-        HeaderLimits::default(),
         &NeverCancel,
     )
     .unwrap_err();
@@ -448,7 +439,7 @@ fn checks_target_types_table_caps_and_intermediate_use() {
 }
 
 #[test]
-fn duplicate_reference_scratch_obeys_the_combined_metadata_cap() {
+fn duplicate_reference_scratch_obeys_the_allocation_limit() {
     let bytes = join(&[
         segment(0, 0, 0, &[], true, &[]),
         segment(1, 0, 0, &[], true, &[]),
@@ -464,11 +455,10 @@ fn duplicate_reference_scratch_obeys_the_combined_metadata_cap() {
                 offset: 0,
                 length: bytes.len() as u64,
             },
-            &Limits::default(),
-            HeaderLimits::default(),
-            DirectoryLimits {
-                max_metadata_bytes: cap,
-                ..DirectoryLimits::default()
+            &Limits {
+                io_chunk_bytes: 1,
+                max_allocation_bytes: cap,
+                ..Limits::default()
             },
             &NeverCancel,
         );
@@ -518,7 +508,7 @@ fn checks_retention_across_number_order() {
 }
 
 #[test]
-fn preflights_span_count_reference_and_metadata_caps() {
+fn preflights_the_metadata_allocation_limit() {
     let bytes = observed_shape();
     let mut source = SpySource::new(&bytes);
     let error = read_embedded_directory(
@@ -527,89 +517,10 @@ fn preflights_span_count_reference_and_metadata_caps() {
             offset: 0,
             length: bytes.len() as u64,
         },
-        &Limits::default(),
-        HeaderLimits::default(),
-        DirectoryLimits {
-            max_span_bytes: 60,
-            ..DirectoryLimits::default()
-        },
-        &NeverCancel,
-    )
-    .unwrap_err();
-    assert!(source.ranges.is_empty());
-    assert!(matches!(
-        error.kind,
-        DirectoryErrorKind::LimitExceeded {
-            resource: "JBIG2 directory span bytes",
-            ..
-        }
-    ));
-
-    let mut source = SpySource::new(&bytes);
-    let error = read_embedded_directory(
-        &mut source,
-        SegmentSpan {
-            offset: 0,
-            length: bytes.len() as u64,
-        },
-        &Limits::default(),
-        HeaderLimits::default(),
-        DirectoryLimits {
-            max_segments: 2,
-            ..DirectoryLimits::default()
-        },
-        &NeverCancel,
-    )
-    .unwrap_err();
-    assert_eq!(error.offset, 25);
-    assert!(source.ranges.iter().all(|(offset, _)| *offset < 25));
-    assert!(matches!(
-        error.kind,
-        DirectoryErrorKind::LimitExceeded {
-            resource: "JBIG2 directory segments",
-            ..
-        }
-    ));
-
-    let mut source = SpySource::new(&bytes);
-    let error = read_embedded_directory(
-        &mut source,
-        SegmentSpan {
-            offset: 0,
-            length: bytes.len() as u64,
-        },
-        &Limits::default(),
-        HeaderLimits::default(),
-        DirectoryLimits {
-            max_total_references: 1,
-            ..DirectoryLimits::default()
-        },
-        &NeverCancel,
-    )
-    .unwrap_err();
-    assert!(matches!(
-        error.kind,
-        DirectoryErrorKind::Header(caj2pdf_core::jbig2::HeaderError {
-            kind: HeaderErrorKind::LimitExceeded {
-                resource: "JBIG2 directory references",
-                ..
-            },
-            ..
-        })
-    ));
-
-    let mut source = SpySource::new(&bytes);
-    let error = read_embedded_directory(
-        &mut source,
-        SegmentSpan {
-            offset: 0,
-            length: bytes.len() as u64,
-        },
-        &Limits::default(),
-        HeaderLimits::default(),
-        DirectoryLimits {
-            max_metadata_bytes: 1,
-            ..DirectoryLimits::default()
+        &Limits {
+            io_chunk_bytes: 1,
+            max_allocation_bytes: 1,
+            ..Limits::default()
         },
         &NeverCancel,
     )
@@ -632,8 +543,6 @@ fn preflights_span_count_reference_and_metadata_caps() {
             length: 10,
         },
         &Limits::default(),
-        HeaderLimits::default(),
-        DirectoryLimits::default(),
         &NeverCancel,
     )
     .unwrap_err();
@@ -680,8 +589,6 @@ fn cancellation_applies_during_graph_validation_and_one_byte_reads() {
             io_chunk_bytes: 1,
             ..Limits::default()
         },
-        HeaderLimits::default(),
-        DirectoryLimits::default(),
         &NeverCancel,
     )
     .unwrap();
@@ -702,8 +609,6 @@ fn cancellation_applies_during_graph_validation_and_one_byte_reads() {
             io_chunk_bytes: 1,
             ..Limits::default()
         },
-        HeaderLimits::default(),
-        DirectoryLimits::default(),
         &cancellation,
     )
     .unwrap_err();
@@ -801,19 +706,20 @@ fn directory_wide_errors_render_without_a_segment_number() {
             offset: 0,
             length: bytes.len() as u64,
         },
-        &Limits::default(),
-        HeaderLimits::default(),
-        DirectoryLimits {
-            max_segments: 1,
-            ..DirectoryLimits::default()
+        &Limits {
+            io_chunk_bytes: 1,
+            max_allocation_bytes: 1,
+            ..Limits::default()
         },
         &NeverCancel,
     )
     .unwrap_err();
-    assert_eq!((error.offset, error.segment), (11, None));
-    assert_eq!(
-        error.to_string(),
-        "JBIG2 directory at source byte 11: JBIG2 directory segments limit 1 exceeded by 2"
+    assert_eq!((error.offset, error.segment), (0, None));
+    assert!(
+        error.to_string().starts_with(
+            "JBIG2 directory at source byte 0: JBIG2 directory metadata bytes limit 1 exceeded by "
+        ),
+        "{error}"
     );
 }
 

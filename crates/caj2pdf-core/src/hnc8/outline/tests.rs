@@ -4,7 +4,7 @@
 //! checks the written hierarchy and the bounded defect record.
 
 use super::*;
-use crate::hnc8::{Budget, Hnc8Error};
+use crate::hnc8::Hnc8Error;
 use crate::{Limits, NeverCancel, native::SeekableSource};
 use std::io::Cursor;
 
@@ -46,7 +46,7 @@ fn visit(
     (|| {
         let mut input = SeekableSource::new(Cursor::new(bytes)).unwrap();
         let limits = Limits::default();
-        let mut reader = Hnc8Reader::open(&mut input, &limits, &NeverCancel, Budget::default())?;
+        let mut reader = Hnc8Reader::open(&mut input, &limits, &NeverCancel)?;
         let mut entries = Entries::default();
         let report = reader.visit_bookmarks(depth, 3, map, &mut entries)?;
         Ok((entries.0, report))

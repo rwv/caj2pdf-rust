@@ -4,7 +4,7 @@
 
 use super::{
     C8GlyphClass, EmpiricalPageGeometry, ErrorKind, Hnc8Reader, Location, NativeRecord,
-    NativeRecordVisitor, Result, TextBudget, Variant, decode_native_character,
+    NativeRecordVisitor, Result, Variant, decode_native_character,
     decode_native_character_for_mode, decode_native_image_coordinate,
     empirical_c8_horizontal_decoration, empirical_c8_segment,
 };
@@ -93,7 +93,6 @@ pub fn write_c8_native_page<S, W, C>(
     roles: C8PageFonts,
     images: &[ImageObject],
     top_first: &[bool],
-    budget: TextBudget,
 ) -> Result<u32>
 where
     S: RangedSource,
@@ -174,7 +173,7 @@ where
         variant: header.variant,
         legacy,
     };
-    reader.visit_native_records(budget, &mut writer)?;
+    reader.visit_native_records(&mut writer)?;
     page.finish().map_err(source_error)
 }
 

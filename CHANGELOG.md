@@ -2,6 +2,61 @@
 
 ## Unreleased
 
+- **Breaking:** the budget structs are collapsed into `Limits` (#356). Output
+  bytes are unchanged.
+  - **Removed types.** `MAX_BUDGET_COUNT`, `hnc8::{Budget, ComposeBudget,
+    JpegBudget, TextBudget, Type3PdfOptions}`, `jbig1::Type0Budget`,
+    `qm::ArithmeticBudget`, `jbig2::{HeaderLimits, DirectoryLimits}`,
+    `jbig2::mq::MqBudget` (its `context_bank` is now the free function
+    `jbig2::mq::context_bank`), `jbig2::page_info::PageInfoBudget`,
+    `jbig2::dictionary::{DictionaryBudget, RefinementDictionaryBudget}`,
+    `jbig2::refinement::RefinementBudget`, `jbig2::text::TextRegionBudget`,
+    `jbig2::text_instances::TextInstanceBudget`,
+    `jbig2::text_composer::TextComposeBudget`,
+    `jbig2::generic::GenericBudget` and
+    `jbig2::page_compose::PageComposeBudget`. Every function and constructor
+    that took one of them drops that parameter (for example
+    `Hnc8Reader::open(source, limits, cancellation)`,
+    `Hnc8Reader::inspect_text()`, `read_type2_jpeg_info`, `Type0Decoder::new`,
+    `MqDecoder::new`, `read_embedded_directory`, `SymbolDictionaryDecoder::new`
+    and `TextInstanceDecoder::new`), and `uses_native_text` takes no options.
+    `ComposeOptions` keeps only `include_bookmarks` and the new
+    `text_header_policy` (formerly `type3.text_header_policy`).
+  - **New `Limits` fields.** `max_image_pixels` (default 12,000,000) bounds
+    one decoded image, page, region, refinement or symbol bitmap and a text
+    region's symbol instances; `max_symbols` (default 8,192) bounds one JBIG2
+    dictionary's new, exported and total symbols, its height classes and its
+    export runs. `max_allocation_bytes` also caps one image payload (a JPEG
+    payload included), one symbol store, one page bitmap and a JBIG2
+    directory's metadata. The JavaScript `limits` option is unchanged; the
+    two new fields keep their defaults there.
+  - **Removed caps and counters.** Arithmetic symbol, work and terminal-input
+    caps, per-call I/O request and call counts, working-memory, catalog,
+    metadata-total, width, height and running-total caps are gone, with
+    `ArithmeticErrorKind::InvalidBudget`, `ArithmeticSnapshot::work_done`,
+    `RefinementProgress::context_work`, `TextComposeProgress::work_units`,
+    `PageComposeProgress::{output_write_calls, work_units,
+    peak_resident_bytes}`, `PageComposeErrorKind::Limits`,
+    `PageInfo::{source_bytes_fetched, source_read_calls,
+    max_source_request_bytes}`, `PageInfoError::{source_bytes_fetched,
+    source_read_calls}` and the counter `ComposeErrorKind::InvalidOptions`
+    refusal. The strict MQ terminator and symbol-count checks remain. Text
+    coordinates need only the T.88 signed 32-bit range, and an oversized
+    segment reference count is a truncated header.
+  - **Validation.** `Limits::validate` runs once at each public entry point
+    (`convert_*`, `inspect`, `PdfIndex::open`, `Hnc8Reader::open`, the WASM
+    session); `read_exact_at`, `read_payload`, `ContextBank::new` and the
+    decoder constructors no longer revalidate.
+  - **Limit messages.** These resources now report the `Limits` field as
+    their limit: `image pixels` (type 0), `page pixels`, `region pixels`,
+    `text region pixels`, `text region symbol instances`, `symbol pixels`,
+    `pixels per bitmap` and `instance pixels` (`max_image_pixels`);
+    `new symbols`, `exported symbols`, `total symbols`, `height classes`
+    and `export runs` (`max_symbols`); `image span bytes`, `JPEG payload
+    bytes`, `packed page bytes` and `JBIG2 directory metadata bytes`
+    (`max_allocation_bytes`); `raw text bytes` and `page output bytes`
+    (`max_output_bytes`). Messages for the removed caps are gone.
+
 - **Breaking:** the core is synchronous over `RangedSource` and
   `std::io::Write`, HN/C8 bitmaps live in memory, and the JavaScript API runs
   each operation in a Worker (#355). Output bytes are unchanged.

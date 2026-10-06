@@ -219,13 +219,13 @@ fn native_c8_bookmark_request_is_reported_not_written_or_failed() {
 
 #[test]
 fn native_document_errors_preserve_preflight_and_source_locations() {
-    for mode in 0..8 {
+    for mode in [0, 1, 2, 3, 4, 6, 7] {
         let mut fixture = fixture_with_text(
             Variant::C8,
             &[vec![Record::jpeg(3, 2, 120, 20, 40)]],
             native_text,
         );
-        let mut options = ComposeOptions::default();
+        let options = ComposeOptions::default();
         let mut fonts = [C8FontSource {
             source: Source::new(crate::pdf::drawing_font()),
             face: 0,
@@ -247,11 +247,7 @@ fn native_document_errors_preserve_preflight_and_source_locations() {
                 fixture.bytes[at..at + 4].copy_from_slice(&99i32.to_le_bytes());
             }
             4 => fonts[0].source.bytes.clear(),
-            5 => options.budget.max_page_metadata_bytes = 1,
-            6 => {
-                fixture.bytes[88..90].copy_from_slice(&32767u16.to_le_bytes());
-                options.container.max_images_per_page = 32767;
-            }
+            6 => fixture.bytes[88..90].copy_from_slice(&32767u16.to_le_bytes()),
             7 => {
                 let at = fixture.descriptors[0][0] as usize + 4;
                 fixture.bytes[at..at + 4].copy_from_slice(&u32::MAX.to_le_bytes());
@@ -273,7 +269,7 @@ fn native_document_errors_preserve_preflight_and_source_locations() {
         );
         let error = result.unwrap_err();
         assert!(!sink.bytes.ends_with(b"%%EOF\n"), "mode {mode}");
-        if matches!(mode, 2 | 3 | 5 | 6 | 7) {
+        if matches!(mode, 2 | 3 | 6 | 7) {
             assert_eq!(error.page, Some(1), "mode {mode}: {error}");
         }
         if mode == 1 {

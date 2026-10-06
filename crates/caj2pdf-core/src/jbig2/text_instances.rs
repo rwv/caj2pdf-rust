@@ -14,56 +14,18 @@ use super::{
     },
     iaid::{checked_symbol_index, decode_iaid},
     integer::{IntegerProcedure, IntegerValue, decode_integer},
-    mq::{
-        ArithmeticError, ArithmeticSnapshot, CodedSpan, ContextBank, ContextState, MQ_STATE_COUNT,
-        MqBudget, MqDecoder, MqState, MqTable,
-    },
+    mq::{ArithmeticError, ArithmeticSnapshot, CodedSpan, ContextBank, MqDecoder, MqTable},
     refinement::{
-        ReferenceStore, RefinementBudget, RefinementDecoder, RefinementError, RefinementProgress,
+        ReferenceStore, RefinementDecoder, RefinementError, RefinementProgress,
         RefinementReference, RefinementRequest,
     },
     text::{
-        ReferenceCorner, TextHeaderPolicy, TextRegionBudget, TextRegionError, TextRegionHeader,
+        ReferenceCorner, TextHeaderPolicy, TextRegionError, TextRegionHeader,
         read_text_region_header_with_policy,
     },
 };
-use crate::{Cancellation, Limits, MAX_BUDGET_COUNT, Payload};
-use std::{error, fmt, mem};
-
-/// Additional bounds for one text-region instance stream. The MQ and generic
-/// refinement budgets separately cap arithmetic work, row I/O, and writes.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct TextInstanceBudget {
-    pub max_exported_symbols: u32,
-    pub max_instances: u32,
-    pub max_strips: u32,
-    pub max_coordinate_magnitude: i64,
-    pub max_pixels_per_instance: u64,
-    pub max_total_instance_pixels: u64,
-    pub max_imported_store_span: u64,
-    pub max_new_store_span: u64,
-    pub max_temporary_store_bytes: u64,
-    pub max_metadata_bytes: u64,
-    pub max_working_bytes: u64,
-}
-
-impl Default for TextInstanceBudget {
-    fn default() -> Self {
-        Self {
-            max_exported_symbols: 8192,
-            max_instances: 1_000_000,
-            max_strips: 1_000_000,
-            max_coordinate_magnitude: 1_000_000_000,
-            max_pixels_per_instance: 12_000_000,
-            max_total_instance_pixels: 1_000_000_000,
-            max_imported_store_span: 128 * 1024 * 1024,
-            max_new_store_span: 128 * 1024 * 1024,
-            max_temporary_store_bytes: 128 * 1024 * 1024,
-            max_metadata_bytes: 1024 * 1024,
-            max_working_bytes: 16 * 1024 * 1024,
-        }
-    }
-}
+use crate::{Cancellation, Limits, Payload};
+use std::{error, fmt};
 
 /// A bitmap handle retains the store identity. A refined instance is not a
 /// dictionary symbol and can never be used as an IAID reference.
@@ -207,23 +169,6 @@ fn preflight_error(
     }
 }
 
-fn preflight_cap(
-    site: PreflightSite,
-    resource: &'static str,
-    limit: u64,
-    attempted: u64,
-) -> TextInstanceResult<()> {
-    if attempted > limit {
-        Err(site.error(TextInstanceErrorKind::LimitExceeded {
-            resource,
-            limit,
-            attempted,
-        }))
-    } else {
-        Ok(())
-    }
-}
-
 impl PreflightKind for TextInstanceErrorKind {
     type Error = TextInstanceError;
 
@@ -232,18 +177,12 @@ impl PreflightKind for TextInstanceErrorKind {
     }
 }
 
-fn catalog_metadata_bytes(new_symbols: u64, exported_symbols: u64) -> u128 {
-    u128::from(new_symbols) * mem::size_of::<SymbolDescriptor>() as u128
-        + u128::from(exported_symbols) * mem::size_of::<StoredSymbol>() as u128
-}
-
 fn validate_descriptor(
     site: PreflightSite,
     stored: StoredSymbol,
     expected_store: SymbolStore,
     expected_base: u64,
     source_size: u64,
-    max_span: u64,
 ) -> TextInstanceResult<()> {
     let bad = |reason| site.error(TextInstanceErrorKind::Malformed(reason));
     if stored.store != expected_store || stored.store_base != expected_base {
@@ -262,7 +201,6 @@ fn validate_descriptor(
         .relative_store_offset
         .checked_add(bytes)
         .ok_or_else(|| bad("dictionary descriptor end overflow"))?;
-    preflight_cap(site, "dictionary store span", max_span, relative_end)?;
     let absolute_end = expected_base
         .checked_add(relative_end)
         .ok_or_else(|| bad("dictionary absolute store end overflow"))?;
@@ -272,27 +210,19 @@ fn validate_descriptor(
     Ok(())
 }
 
-fn cap_coordinate(value: i64, magnitude: i64) -> Result<i64, TextInstanceErrorKind> {
+/// A coordinate within the T.88 signed 32-bit range.
+fn cap_coordinate(value: i64) -> Result<i64, TextInstanceErrorKind> {
     if i32::try_from(value).is_err() {
         Err(TextInstanceErrorKind::Malformed(
             "text coordinate outside T.88 signed 32-bit range",
         ))
-    } else if value.unsigned_abs() > magnitude as u64 {
-        Err(TextInstanceErrorKind::LimitExceeded {
-            resource: "signed text coordinate magnitude",
-            limit: magnitude as u64,
-            attempted: value.unsigned_abs(),
-        })
     } else {
         Ok(value)
     }
 }
 
-fn checked_coordinate(value: Option<i64>, magnitude: i64) -> Result<i64, TextInstanceErrorKind> {
-    cap_coordinate(
-        value.ok_or(TextInstanceErrorKind::Malformed("coordinate overflow"))?,
-        magnitude,
-    )
+fn checked_coordinate(value: Option<i64>) -> Result<i64, TextInstanceErrorKind> {
+    cap_coordinate(value.ok_or(TextInstanceErrorKind::Malformed("coordinate overflow"))?)
 }
 
 fn geometry(
@@ -302,7 +232,6 @@ fn geometry(
     height: u32,
     corner: ReferenceCorner,
     transposed: bool,
-    magnitude: i64,
 ) -> Result<(i64, i64, i64), TextInstanceErrorKind> {
     let right = matches!(
         corner,
@@ -323,20 +252,16 @@ fn geometry(
     } else {
         0
     };
-    let s = checked_coordinate(s.checked_add(pre), magnitude)?;
+    let s = checked_coordinate(s.checked_add(pre))?;
     let (mut x, mut y) = if transposed { (t, s) } else { (s, t) };
     if right {
-        x = checked_coordinate(x.checked_sub(i64::from(width) - 1), magnitude)?;
+        x = checked_coordinate(x.checked_sub(i64::from(width) - 1))?;
     }
     if bottom {
-        y = checked_coordinate(y.checked_sub(i64::from(height) - 1), magnitude)?;
+        y = checked_coordinate(y.checked_sub(i64::from(height) - 1))?;
     }
-    let next_s = checked_coordinate(s.checked_add(post), magnitude)?;
-    Ok((
-        cap_coordinate(x, magnitude)?,
-        cap_coordinate(y, magnitude)?,
-        next_s,
-    ))
+    let next_s = checked_coordinate(s.checked_add(post))?;
+    Ok((cap_coordinate(x)?, cap_coordinate(y)?, next_s))
 }
 
 fn refined_geometry(
@@ -390,8 +315,6 @@ pub struct TextInstanceDecoder<'a, C: Cancellation> {
     code_len: u32,
     limits: &'a Limits,
     cancellation: &'a C,
-    refinement_budget: RefinementBudget,
-    budget: TextInstanceBudget,
     progress: TextInstanceProgress,
     strip_t: i64,
     first_s: i64,
@@ -423,10 +346,6 @@ impl<'a, C: Cancellation> TextInstanceDecoder<'a, C> {
         contexts: &'a mut ContextBank,
         limits: &'a Limits,
         cancellation: &'a C,
-        mq_budget: MqBudget,
-        header_budget: TextRegionBudget,
-        refinement_budget: RefinementBudget,
-        budget: TextInstanceBudget,
     ) -> TextInstanceResult<Self> {
         Self::new_with_header_policy(
             input,
@@ -444,10 +363,6 @@ impl<'a, C: Cancellation> TextInstanceDecoder<'a, C> {
             contexts,
             limits,
             cancellation,
-            mq_budget,
-            header_budget,
-            refinement_budget,
-            budget,
             TextHeaderPolicy::Strict,
         )
     }
@@ -471,10 +386,6 @@ impl<'a, C: Cancellation> TextInstanceDecoder<'a, C> {
         contexts: &'a mut ContextBank,
         limits: &'a Limits,
         cancellation: &'a C,
-        mq_budget: MqBudget,
-        header_budget: TextRegionBudget,
-        refinement_budget: RefinementBudget,
-        budget: TextInstanceBudget,
         policy: TextHeaderPolicy,
     ) -> TextInstanceResult<Self> {
         let checked = read_text_region_header_with_policy(
@@ -482,7 +393,6 @@ impl<'a, C: Cancellation> TextInstanceDecoder<'a, C> {
             segment,
             dictionary_segment,
             limits,
-            header_budget,
             cancellation,
             policy,
         )
@@ -567,44 +477,9 @@ impl<'a, C: Cancellation> TextInstanceDecoder<'a, C> {
                 "dictionary is not a complete ordered report",
             )));
         }
-        if budget.max_coordinate_magnitude < 0 {
-            return Err(bad(TextInstanceErrorKind::Malformed(
-                "negative coordinate cap",
-            )));
-        }
-        for (name, value) in [
-            ("instance pixels budget", budget.max_pixels_per_instance),
-            (
-                "total instance pixels budget",
-                budget.max_total_instance_pixels,
-            ),
-            ("temporary store budget", budget.max_temporary_store_bytes),
-        ] {
-            preflight_cap(site, name, MAX_BUDGET_COUNT, value)?;
-        }
-        preflight_cap(
-            site,
-            "exported symbols",
-            u64::from(budget.max_exported_symbols),
-            dictionary.catalog.exported_symbols.len() as u64,
-        )?;
-        preflight_cap(
-            site,
-            "instances",
-            u64::from(budget.max_instances),
-            u64::from(parsed.instances),
-        )?;
         if parsed.instances != 0 && dictionary.catalog.exported_symbols.is_empty() {
             return Err(bad(TextInstanceErrorKind::Malformed(
                 "nonempty text region with no symbols",
-            )));
-        }
-        if refined_base
-            .checked_add(budget.max_temporary_store_bytes)
-            .is_none()
-        {
-            return Err(bad(TextInstanceErrorKind::InvalidSpan(
-                "temporary store range overflow",
             )));
         }
         if refined.len() as u64 != refined_base {
@@ -617,22 +492,6 @@ impl<'a, C: Cancellation> TextInstanceDecoder<'a, C> {
                 "dictionary store base outside its store",
             )));
         }
-        // Bound caller-owned catalog work before walking any descriptors. A
-        // completed dictionary report may contain unexported new symbols.
-        let metadata_count = catalog_metadata_bytes(
-            dictionary.catalog.new_symbols.len() as u64,
-            dictionary.catalog.exported_symbols.len() as u64,
-        );
-        if metadata_count > u128::from(budget.max_metadata_bytes) {
-            return Err(bad(TextInstanceErrorKind::LimitExceeded {
-                resource: "catalog metadata bytes",
-                limit: budget.max_metadata_bytes,
-                attempted: metadata_count.min(u128::from(u64::MAX)) as u64,
-            }));
-        }
-        // The preceding cap proves this conversion safe even if the caller
-        // chooses the largest representable metadata budget.
-        let metadata_count = metadata_count as u64;
         let mut last_catalog_end = 0u64;
         for descriptor in &dictionary.catalog.new_symbols {
             if descriptor.relative_store_offset < last_catalog_end {
@@ -650,7 +509,6 @@ impl<'a, C: Cancellation> TextInstanceDecoder<'a, C> {
                 SymbolStore::New,
                 new_store_base,
                 new.len() as u64,
-                budget.max_new_store_span,
             )?;
             last_catalog_end = descriptor.relative_store_offset + descriptor.stored_bytes;
         }
@@ -658,32 +516,21 @@ impl<'a, C: Cancellation> TextInstanceDecoder<'a, C> {
         let mut imported_end = 0u64;
         let mut new_end = 0u64;
         for stored in &dictionary.catalog.exported_symbols {
-            let (source_size, expected_base, max_span) = match stored.store {
+            let (source_size, expected_base) = match stored.store {
                 SymbolStore::Imported => {
                     if seen_new {
                         return Err(bad(TextInstanceErrorKind::Malformed(
                             "imported export follows new export",
                         )));
                     }
-                    (
-                        imported.len() as u64,
-                        imported_store_base,
-                        budget.max_imported_store_span,
-                    )
+                    (imported.len() as u64, imported_store_base)
                 }
                 SymbolStore::New => {
                     seen_new = true;
-                    (new.len() as u64, new_store_base, budget.max_new_store_span)
+                    (new.len() as u64, new_store_base)
                 }
             };
-            validate_descriptor(
-                site,
-                *stored,
-                stored.store,
-                expected_base,
-                source_size,
-                max_span,
-            )?;
+            validate_descriptor(site, *stored, stored.store, expected_base, source_size)?;
             let end = stored.symbol.relative_store_offset + stored.symbol.stored_bytes;
             let prior_end = match stored.store {
                 SymbolStore::Imported => &mut imported_end,
@@ -720,33 +567,6 @@ impl<'a, C: Cancellation> TextInstanceDecoder<'a, C> {
                 "IAID width or GR context layout mismatch",
             )));
         }
-        let target_row = u64::from(refinement_budget.max_width).div_ceil(8);
-        let reference_row = u64::from(refinement_budget.max_reference_width).div_ceil(8);
-        let working = contexts.len() as u128 * mem::size_of::<ContextState>() as u128
-            + (MQ_STATE_COUNT * mem::size_of::<MqState>()) as u128
-            + u128::from(metadata_count)
-            + 2 * u128::from(target_row)
-            + 3 * u128::from(reference_row);
-        let working_cap = budget.max_working_bytes.min(limits.max_allocation_bytes);
-        if working > u128::from(working_cap) {
-            return Err(bad(TextInstanceErrorKind::LimitExceeded {
-                resource: "resident text working bytes",
-                limit: working_cap,
-                attempted: working.min(u128::from(u64::MAX)) as u64,
-            }));
-        }
-        let refinement_budget = RefinementBudget {
-            max_total_output_bytes: refinement_budget
-                .max_total_output_bytes
-                .min(budget.max_temporary_store_bytes),
-            max_pixels_per_bitmap: refinement_budget
-                .max_pixels_per_bitmap
-                .min(budget.max_pixels_per_instance),
-            max_total_pixels: refinement_budget
-                .max_total_pixels
-                .min(budget.max_total_instance_pixels),
-            ..refinement_budget
-        };
         // A fresh text region resets every arithmetic statistic.
         contexts.reset();
         let mq = MqDecoder::new(
@@ -758,7 +578,6 @@ impl<'a, C: Cancellation> TextInstanceDecoder<'a, C> {
             table,
             contexts,
             limits,
-            mq_budget,
         )
         .map_err(|error| {
             let offset = error.offset.unwrap_or(at);
@@ -781,8 +600,6 @@ impl<'a, C: Cancellation> TextInstanceDecoder<'a, C> {
             code_len,
             limits,
             cancellation,
-            refinement_budget,
-            budget,
             progress: TextInstanceProgress {
                 header_bytes_fetched: fetched,
                 ..TextInstanceProgress::default()
@@ -839,8 +656,7 @@ impl<'a, C: Cancellation> TextInstanceDecoder<'a, C> {
     }
 
     fn coordinate(&self, value: Option<i64>) -> TextInstanceResult<i64> {
-        checked_coordinate(value, self.budget.max_coordinate_magnitude)
-            .map_err(|kind| self.error(kind))
+        checked_coordinate(value).map_err(|kind| self.error(kind))
     }
 
     fn check_cancelled(&self) -> TextInstanceResult<()> {
@@ -880,7 +696,6 @@ impl<'a, C: Cancellation> TextInstanceDecoder<'a, C> {
             self.refined,
             self.limits,
             self.cancellation,
-            self.refinement_budget,
             self.progress.refinement,
         )?;
         let report = host.decode_bitmap(ReferenceStore::Other(store), request);
@@ -919,14 +734,13 @@ impl<'a, C: Cancellation> TextInstanceDecoder<'a, C> {
                 return Ok(None);
             }
             if !self.strip_open {
-                let strips = u64::from(self.progress.strips) + 1;
-                self.cap("text strips", u64::from(self.budget.max_strips), strips)?;
-                // This branch implies strips <= max_strips <= u32::MAX.
-                self.progress.strips = strips as u32;
+                // Every strip places at least one instance, so the strip
+                // count stays at most the u32 instance count.
+                self.progress.strips += 1;
                 let dt = self.signed(IntegerProcedure::Iadt, TextDecision::StripDeltaT)?;
                 // Annex A.2 emits <2^33 magnitude and SBSTRIPS <= 8, so
                 // multiplication stays below 2^36. The accumulated T still
-                // requires a checked add and the configured signed cap.
+                // requires a checked add and the signed 32-bit range.
                 self.strip_t = self.coordinate(
                     self.strip_t
                         .checked_add(dt * i64::from(self.header.flags.strips())),
@@ -1010,19 +824,8 @@ impl<'a, C: Cancellation> TextInstanceDecoder<'a, C> {
                 });
             }
             let pixels = u64::from(width) * u64::from(height);
-            self.cap(
-                "instance pixels",
-                self.budget.max_pixels_per_instance,
-                pixels,
-            )?;
-            // Both addends are at most MAX_BUDGET_COUNT after constructor and
-            // per-instance checks; their sum fits u64 before the total cap.
-            let total = self.progress.total_instance_pixels + pixels;
-            self.cap(
-                "total instance pixels",
-                self.budget.max_total_instance_pixels,
-                total,
-            )?;
+            self.cap("instance pixels", self.limits.max_image_pixels, pixels)?;
+            let total = self.progress.total_instance_pixels.saturating_add(pixels);
             let (x, y, next_s) = geometry(
                 self.current_s,
                 t,
@@ -1030,7 +833,6 @@ impl<'a, C: Cancellation> TextInstanceDecoder<'a, C> {
                 height,
                 self.header.flags.reference_corner,
                 self.header.flags.transposed,
-                self.budget.max_coordinate_magnitude,
             )
             .map_err(|kind| self.error(kind))?;
             if let Some(request) = refinement_request {

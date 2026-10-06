@@ -16,87 +16,15 @@ use super::{
     generic::template2_context,
     iaid::{IAID_BASE, checked_symbol_index, decode_iaid},
     integer::{BITMAP_BASE, IntegerProcedure, IntegerValue, decode_integer},
-    mq::{
-        ArithmeticError, ArithmeticSnapshot, CodedSpan, ContextBank, ContextState, MQ_STATE_COUNT,
-        MqBudget, MqDecoder, MqState, MqTable,
-    },
+    mq::{ArithmeticError, ArithmeticSnapshot, CodedSpan, ContextBank, MqDecoder, MqTable},
     refinement::{
-        ReferenceStore, RefinementBudget, RefinementDecoder, RefinementError, RefinementProgress,
+        ReferenceStore, RefinementDecoder, RefinementError, RefinementProgress,
         RefinementReference, RefinementRequest,
     },
 };
 use crate::fallible::try_convert;
-use crate::{Cancellation, Error, Limits, MAX_BUDGET_COUNT, Payload, RangedSource};
+use crate::{Cancellation, Error, Limits, Payload, RangedSource};
 use std::{error, fmt, mem};
-
-/// Resource bounds for one symbol dictionary, in addition to `Limits` and `MqBudget`.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct DictionaryBudget {
-    /// Segment-data dictionary header only.
-    pub max_data_header_bytes: u64,
-    pub max_body_bytes: u64,
-    pub max_new_symbols: u32,
-    pub max_exported_symbols: u32,
-    pub max_height_classes: u32,
-    pub max_width: u32,
-    pub max_height: u32,
-    pub max_pixels_per_symbol: u64,
-    pub max_bytes_per_symbol: u64,
-    pub max_total_pixels: u64,
-    pub max_stored_bitmap_bytes: u64,
-    pub max_catalog_bytes: u64,
-    pub max_export_runs: u32,
-    pub max_source_request_bytes: usize,
-    /// Combined contexts, table, descriptor capacity, and rows.
-    pub max_working_bytes: u64,
-}
-
-impl Default for DictionaryBudget {
-    fn default() -> Self {
-        Self {
-            max_data_header_bytes: 64,
-            max_body_bytes: 64 * 1024 * 1024,
-            max_new_symbols: 4096,
-            max_exported_symbols: 4096,
-            max_height_classes: 8192,
-            max_width: 32_768,
-            max_height: 32_768,
-            max_pixels_per_symbol: 12_000_000,
-            max_bytes_per_symbol: 64 * 1024 * 1024,
-            max_total_pixels: 24_000_000,
-            max_stored_bitmap_bytes: 128 * 1024 * 1024,
-            max_catalog_bytes: 1024 * 1024,
-            max_export_runs: 8192,
-            max_source_request_bytes: 256,
-            max_working_bytes: 16 * 1024 * 1024,
-        }
-    }
-}
-
-/// Additional limits for a refinement dictionary's imported symbols and the
-/// combined symbol set.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct RefinementDictionaryBudget {
-    pub max_imported_symbols: u32,
-    pub max_total_symbols: u32,
-    pub max_imported_bitmap_bytes: u64,
-    pub max_imported_store_span: u64,
-    pub max_catalog_bytes: u64,
-    pub max_working_bytes: u64,
-}
-
-impl Default for RefinementDictionaryBudget {
-    fn default() -> Self {
-        Self {
-            max_imported_symbols: 4096,
-            max_total_symbols: 8192,
-            max_imported_bitmap_bytes: 128 * 1024 * 1024,
-            max_imported_store_span: 128 * 1024 * 1024,
-            max_catalog_bytes: 1024 * 1024,
-            max_working_bytes: 16 * 1024 * 1024,
-        }
-    }
-}
 
 /// Coding mode identified from the segment-data flags.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -293,7 +221,7 @@ impl PreflightKind for DictionaryErrorKind {
     }
 }
 
-fn check_budget(
+fn check_limit(
     resource: &'static str,
     limit: u64,
     attempted: u64,
@@ -316,7 +244,7 @@ fn preflight_cap(
     limit: u64,
     attempted: u64,
 ) -> DictionaryResult<()> {
-    check_budget(resource, limit, attempted).map_err(|kind| site.error(kind))
+    check_limit(resource, limit, attempted).map_err(|kind| site.error(kind))
 }
 
 struct HeaderCursor<'a> {
@@ -352,13 +280,6 @@ impl HeaderCursor<'_> {
 
     fn fault(&self, fault: FieldFault, name: &'static str) -> DictionaryError {
         match fault {
-            FieldFault::LimitExceeded { attempted } => {
-                self.error(DictionaryErrorKind::LimitExceeded {
-                    resource: "dictionary header bytes",
-                    limit: self.fields.max_header_bytes,
-                    attempted,
-                })
-            }
             FieldFault::Overflow => {
                 self.error(DictionaryErrorKind::InvalidSpan("header offset overflow"))
             }
@@ -380,7 +301,6 @@ impl HeaderCursor<'_> {
 fn data_header_bounds(
     header: &SegmentHeader,
     limits: &Limits,
-    budget: DictionaryBudget,
     cancellation: &dyn Cancellation,
     source_size: u64,
 ) -> DictionaryResult<u64> {
@@ -389,12 +309,6 @@ fn data_header_bounds(
         offset: header.data.offset,
         header_fetched: 0,
     };
-    limits
-        .validate()
-        .map_err(|e| site.error(DictionaryErrorKind::Source(e)))?;
-    if budget.max_source_request_bytes == 0 {
-        return Err(site.error(DictionaryErrorKind::Malformed("zero I/O request bound")));
-    }
     if cancellation.is_cancelled() {
         return Err(site.error(DictionaryErrorKind::Cancelled));
     }
@@ -425,15 +339,15 @@ fn data_header_bounds(
 /// fields, within `header.data`, which the segment directory has already
 /// framed. This never initializes MQ or writes output.
 /// `ArithmeticRefinementAggregate` is a classifier result, not a promise that
-/// every such mode is decoded.
+/// every such mode is decoded. The new and exported symbol counts are each
+/// bounded by `Limits::max_symbols`.
 pub fn read_dictionary_data_header<S: RangedSource, C: Cancellation>(
     source: &mut S,
     header: &SegmentHeader,
     limits: &Limits,
-    budget: DictionaryBudget,
     cancellation: &C,
 ) -> DictionaryResult<DictionaryDataHeader> {
-    let end = data_header_bounds(header, limits, budget, cancellation, source.size())?;
+    let end = data_header_bounds(header, limits, cancellation, source.size())?;
     let mut cursor = HeaderCursor {
         header,
         fields: FieldCursor {
@@ -441,8 +355,7 @@ pub fn read_dictionary_data_header<S: RangedSource, C: Cancellation>(
             at: header.data.offset,
             end,
             fetched: 0,
-            request_bytes: budget.max_source_request_bytes.min(limits.io_chunk_bytes),
-            max_header_bytes: budget.max_data_header_bytes,
+            request_bytes: limits.io_chunk_bytes.max(1),
         },
     };
     let flags = u16::from_be_bytes(cursor.read(source, "dictionary flags", cancellation)?);
@@ -519,34 +432,27 @@ pub fn read_dictionary_data_header<S: RangedSource, C: Cancellation>(
     let new_offset = cursor.fields.at;
     let new_symbols = u32::from_be_bytes(cursor.read(source, "new symbol count", cancellation)?);
     let header_bytes = cursor.fields.at - header.data.offset;
-    if new_symbols > budget.max_new_symbols {
+    if new_symbols > limits.max_symbols {
         return Err(cursor.error_at(
             new_offset,
             DictionaryErrorKind::LimitExceeded {
                 resource: "new symbols",
-                limit: u64::from(budget.max_new_symbols),
+                limit: u64::from(limits.max_symbols),
                 attempted: u64::from(new_symbols),
             },
         ));
     }
-    if exported_symbols > budget.max_exported_symbols {
+    if exported_symbols > limits.max_symbols {
         return Err(cursor.error_at(
             exported_offset,
             DictionaryErrorKind::LimitExceeded {
                 resource: "exported symbols",
-                limit: u64::from(budget.max_exported_symbols),
+                limit: u64::from(limits.max_symbols),
                 attempted: u64::from(exported_symbols),
             },
         ));
     }
     let body_length = end - cursor.fields.at;
-    if body_length > budget.max_body_bytes {
-        return Err(cursor.error(DictionaryErrorKind::LimitExceeded {
-            resource: "dictionary body bytes",
-            limit: budget.max_body_bytes,
-            attempted: body_length,
-        }));
-    }
     if !huffman && body_length < 2 {
         return Err(cursor.error(DictionaryErrorKind::Truncated("MQ body terminal pair")));
     }
@@ -616,8 +522,6 @@ fn validate_imported(
     segment: &SegmentHeader,
     imported: ImportedDictionary<'_>,
     store: (u64, u64),
-    budget: RefinementDictionaryBudget,
-    refinement_budget: RefinementBudget,
 ) -> DictionaryResult<()> {
     let (store_size, store_base) = store;
     let bad = |reason| site.error(DictionaryErrorKind::Malformed(reason));
@@ -668,29 +572,6 @@ fn validate_imported(
     if store_base > store_size {
         return Err(bad("imported store base outside the store"));
     }
-    preflight_cap(
-        site,
-        "imported symbols",
-        u64::from(budget.max_imported_symbols),
-        report.catalog.exported_symbols.len() as u64,
-    )?;
-    preflight_cap(
-        site,
-        "imported catalog new symbols",
-        u64::from(budget.max_imported_symbols),
-        report.catalog.new_symbols.len() as u64,
-    )?;
-    // Both lengths equal checked u32 header counts, so this sum and its byte
-    // product fit u64 on native and wasm32 targets.
-    let imported_catalog_count =
-        report.catalog.new_symbols.len() as u64 + report.catalog.exported_symbols.len() as u64;
-    let imported_catalog_bytes = imported_catalog_count * mem::size_of::<SymbolDescriptor>() as u64;
-    preflight_cap(
-        site,
-        "imported catalog metadata bytes",
-        budget.max_catalog_bytes,
-        imported_catalog_bytes,
-    )?;
     let mut next_new = 0usize;
     for exported in &report.catalog.exported_symbols {
         let matching = report.catalog.new_symbols[next_new..]
@@ -700,7 +581,6 @@ fn validate_imported(
         next_new += matching + 1;
     }
     let mut previous_end = 0;
-    let mut total_bytes = 0u64;
     for exported in &report.catalog.exported_symbols {
         let descriptor = exported.symbol;
         if descriptor.width == 0 || descriptor.height == 0 {
@@ -708,7 +588,6 @@ fn validate_imported(
         }
         let stride = u64::from(descriptor.width).div_ceil(8);
         let bytes = stride * u64::from(descriptor.height);
-        let pixels = u64::from(descriptor.width) * u64::from(descriptor.height);
         if u64::from(descriptor.row_stride) != stride || descriptor.stored_bytes != bytes {
             return Err(bad("noncanonical imported bitmap descriptor"));
         }
@@ -725,44 +604,6 @@ fn validate_imported(
         if absolute_end > store_size {
             return Err(bad("imported descriptor outside the store"));
         }
-        for (name, cap, value) in [
-            (
-                "imported width",
-                u64::from(refinement_budget.max_reference_width),
-                u64::from(descriptor.width),
-            ),
-            (
-                "imported height",
-                u64::from(refinement_budget.max_reference_height),
-                u64::from(descriptor.height),
-            ),
-            (
-                "imported pixels per bitmap",
-                refinement_budget.max_reference_pixels_per_bitmap,
-                pixels,
-            ),
-            (
-                "imported bytes per bitmap",
-                refinement_budget.max_reference_bytes_per_bitmap,
-                bytes,
-            ),
-            (
-                "imported store span",
-                budget.max_imported_store_span,
-                relative_end,
-            ),
-        ] {
-            preflight_cap(site, name, cap, value)?;
-        }
-        // A descriptor is at most u32-by-u32 packed pixels (<2^61 bytes),
-        // while every prior total was capped below 2^48 on this loop.
-        total_bytes += bytes;
-        preflight_cap(
-            site,
-            "imported bitmap bytes",
-            budget.max_imported_bitmap_bytes.min(MAX_BUDGET_COUNT),
-            total_bytes,
-        )?;
         previous_end = relative_end;
     }
     Ok(())
@@ -774,16 +615,11 @@ struct Plan {
     refine: bool,
     /// The IAID width over imported exports and new symbols.
     code_len: u32,
-    /// Contexts, table, and catalog metadata.
-    base_working: u64,
-    working_cap: u64,
-    refinement_budget: RefinementBudget,
 }
 
 /// The source-independent profile and resource checks between the data
 /// header and MQ initialization, shared by every decoder instantiation.
 /// `stores` are the imported store size and base, then the new store's.
-#[allow(clippy::too_many_arguments)]
 fn check_header(
     segment: &SegmentHeader,
     header: &DictionaryDataHeader,
@@ -791,9 +627,6 @@ fn check_header(
     stores: [(u64, u64); 2],
     context_count: usize,
     limits: &Limits,
-    budget: DictionaryBudget,
-    refinement_budget: RefinementBudget,
-    second_budget: RefinementDictionaryBudget,
 ) -> DictionaryResult<Plan> {
     let site = PreflightSite {
         segment: segment.number,
@@ -877,8 +710,6 @@ fn check_header(
                 segment,
                 import,
                 stores[0],
-                second_budget,
-                refinement_budget,
             )?;
             import.report.catalog.exported_symbols.len() as u64
         }
@@ -886,12 +717,7 @@ fn check_header(
     // Imported and declared counts are each bounded by u32 header fields.
     let total = imported_exports + u64::from(header.new_symbols);
     if refine {
-        preflight_cap(
-            site,
-            "total symbols",
-            u64::from(second_budget.max_total_symbols),
-            total,
-        )?;
+        preflight_cap(site, "total symbols", u64::from(limits.max_symbols), total)?;
     }
     if u64::from(header.exported_symbols) > total {
         return Err(malformed("exported count exceeds available symbols"));
@@ -909,65 +735,17 @@ fn check_header(
             "expected exactly 7680 integer and bitmap MQ contexts"
         }));
     }
-    // Every descriptor count is a u32 header count, and the combined
-    // descriptor byte total is far below u64::MAX even at those maxima.
-    let imported_metadata = import.filter(|_| refine).map_or(0, |import| {
-        (import.report.catalog.new_symbols.len() as u64 + imported_exports)
-            * mem::size_of::<SymbolDescriptor>() as u64
-    });
+    // Both counts are u32 header fields, so the byte total fits u64.
     let new_metadata = u64::from(header.new_symbols) * mem::size_of::<SymbolDescriptor>() as u64;
     let export_metadata =
         u64::from(header.exported_symbols) * mem::size_of::<StoredSymbol>() as u64;
-    let metadata = imported_metadata + new_metadata + export_metadata;
-    let (catalog_cap, working_cap) = if refine {
-        (
-            second_budget
-                .max_catalog_bytes
-                .min(budget.max_catalog_bytes),
-            second_budget
-                .max_working_bytes
-                .min(budget.max_working_bytes),
-        )
-    } else {
-        (budget.max_catalog_bytes, budget.max_working_bytes)
-    };
-    preflight_cap(site, "catalog metadata bytes", catalog_cap, metadata)?;
     preflight_cap(
         site,
         "catalog allocation bytes",
         limits.max_allocation_bytes,
         new_metadata + export_metadata,
     )?;
-    // The caller's context bank is already allocated. Its byte count is
-    // bounded by isize::MAX; the u32-limited metadata cannot overflow u64.
-    let base_working = context_count as u64 * mem::size_of::<ContextState>() as u64
-        + (MQ_STATE_COUNT * mem::size_of::<MqState>()) as u64
-        + metadata;
-    preflight_cap(site, "dictionary working bytes", working_cap, base_working)?;
-    let refinement_budget = RefinementBudget {
-        max_width: refinement_budget.max_width.min(budget.max_width),
-        max_height: refinement_budget.max_height.min(budget.max_height),
-        max_pixels_per_bitmap: refinement_budget
-            .max_pixels_per_bitmap
-            .min(budget.max_pixels_per_symbol),
-        max_total_pixels: refinement_budget
-            .max_total_pixels
-            .min(budget.max_total_pixels),
-        max_bytes_per_bitmap: refinement_budget
-            .max_bytes_per_bitmap
-            .min(budget.max_bytes_per_symbol),
-        max_total_output_bytes: refinement_budget
-            .max_total_output_bytes
-            .min(budget.max_stored_bitmap_bytes),
-        ..refinement_budget
-    };
-    Ok(Plan {
-        refine,
-        code_len,
-        base_working,
-        working_cap,
-        refinement_budget,
-    })
+    Ok(Plan { refine, code_len })
 }
 
 fn reserve_catalog<T>(count: usize, site: PreflightSite) -> DictionaryResult<Vec<T>> {
@@ -982,16 +760,13 @@ fn reserve_catalog<T>(count: usize, site: PreflightSite) -> DictionaryResult<Vec
 /// bytes.
 type SymbolGeometry = (u32, u32, u64, u64);
 
-/// Validate one decoded symbol size against the dictionary budgets before
-/// any bitmap work, given the pixels and stored bytes decoded so far. Not
-/// generic, so every decoder instantiation shares it; the caller locates the
-/// returned error kind at the current MQ offset.
+/// Validate one decoded symbol size before any bitmap work. Not generic, so
+/// every decoder instantiation shares it; the caller locates the returned
+/// error kind at the current MQ offset.
 fn symbol_geometry(
     width: i64,
     height: i64,
-    budget: &DictionaryBudget,
-    decoded_pixels: u64,
-    stored_bytes: u64,
+    limits: &Limits,
 ) -> Result<SymbolGeometry, DictionaryErrorKind> {
     if width < 0 || height < 0 {
         return Err(DictionaryErrorKind::Malformed("negative symbol dimension"));
@@ -1010,47 +785,11 @@ fn symbol_geometry(
         height,
         DictionaryErrorKind::Malformed("symbol height exceeds 32 bits"),
     )?;
-    check_budget(
-        "symbol width",
-        u64::from(budget.max_width),
-        u64::from(width),
-    )?;
-    check_budget(
-        "symbol height",
-        u64::from(budget.max_height),
-        u64::from(height),
-    )?;
     // A product of two u32 dimensions fits u64 exactly.
     let pixels = u64::from(width) * u64::from(height);
-    check_budget(
-        "symbol pixels",
-        budget.max_pixels_per_symbol.min(MAX_BUDGET_COUNT),
-        pixels,
-    )?;
-    let total_pixels =
-        decoded_pixels
-            .checked_add(pixels)
-            .ok_or(DictionaryErrorKind::InvalidSpan(
-                "total pixel count overflow",
-            ))?;
-    check_budget("dictionary pixels", budget.max_total_pixels, total_pixels)?;
+    check_limit("symbol pixels", limits.max_image_pixels, pixels)?;
     // The maximum stride is 2^29 bytes, so this product fits u64.
     let bytes = u64::from(width).div_ceil(8) * u64::from(height);
-    check_budget(
-        "symbol bytes",
-        budget.max_bytes_per_symbol.min(MAX_BUDGET_COUNT),
-        bytes,
-    )?;
-    let stored = stored_bytes
-        .checked_add(bytes)
-        .ok_or(DictionaryErrorKind::InvalidSpan(
-            "stored byte count overflow",
-        ))?;
-    check_budget(
-        "stored bitmap bytes",
-        budget.max_stored_bitmap_bytes,
-        stored,
-    )?;
     Ok((width, height, pixels, bytes))
 }
 
@@ -1069,7 +808,6 @@ pub struct SymbolDictionaryDecoder<'a, C: Cancellation> {
     segment: u32,
     limits: &'a Limits,
     cancellation: &'a C,
-    budget: DictionaryBudget,
     progress: DictionaryProgress,
     catalog: DictionaryCatalog,
 }
@@ -1091,13 +829,8 @@ impl<'a, C: Cancellation> SymbolDictionaryDecoder<'a, C> {
         contexts: &'a mut ContextBank,
         limits: &'a Limits,
         cancellation: &'a C,
-        mq_budget: MqBudget,
-        budget: DictionaryBudget,
-        refinement_budget: RefinementBudget,
-        second_budget: RefinementDictionaryBudget,
     ) -> DictionaryResult<Self> {
-        let header =
-            read_dictionary_data_header(&mut { input }, segment, limits, budget, cancellation)?;
+        let header = read_dictionary_data_header(&mut { input }, segment, limits, cancellation)?;
         let plan = check_header(
             segment,
             &header,
@@ -1108,9 +841,6 @@ impl<'a, C: Cancellation> SymbolDictionaryDecoder<'a, C> {
             ],
             contexts.len(),
             limits,
-            budget,
-            refinement_budget,
-            second_budget,
         )?;
         let site = PreflightSite {
             segment: segment.number,
@@ -1126,14 +856,13 @@ impl<'a, C: Cancellation> SymbolDictionaryDecoder<'a, C> {
             offset: header.body.offset,
             length: header.body.length,
         };
-        let mq =
-            MqDecoder::new(input, span, table, contexts, limits, mq_budget).map_err(|error| {
-                PreflightSite {
-                    offset: error.offset.unwrap_or(site.offset),
-                    ..site
-                }
-                .error(DictionaryErrorKind::Mq(Box::new(error)))
-            })?;
+        let mq = MqDecoder::new(input, span, table, contexts, limits).map_err(|error| {
+            PreflightSite {
+                offset: error.offset.unwrap_or(site.offset),
+                ..site
+            }
+            .error(DictionaryErrorKind::Mq(Box::new(error)))
+        })?;
         let progress = DictionaryProgress {
             header_bytes_fetched: header.header_bytes,
             mq: Some(mq.snapshot()),
@@ -1152,7 +881,6 @@ impl<'a, C: Cancellation> SymbolDictionaryDecoder<'a, C> {
             segment: segment.number,
             limits,
             cancellation,
-            budget,
             progress,
             catalog: DictionaryCatalog {
                 new_symbols,
@@ -1185,7 +913,6 @@ impl<'a, C: Cancellation> SymbolDictionaryDecoder<'a, C> {
             plan: &self.plan,
             limits: self.limits,
             cancellation: self.cancellation,
-            budget: self.budget,
             progress: &mut self.progress,
             catalog: &mut self.catalog,
             rows: [Vec::new(), Vec::new(), Vec::new()],
@@ -1196,7 +923,6 @@ impl<'a, C: Cancellation> SymbolDictionaryDecoder<'a, C> {
                 &mut *self.stores.new,
                 self.limits,
                 self.cancellation,
-                self.plan.refinement_budget,
             )
             .map_err(|error| DictionaryError {
                 segment,
@@ -1270,7 +996,6 @@ struct Session<'s, C: Cancellation> {
     plan: &'s Plan,
     limits: &'s Limits,
     cancellation: &'s C,
-    budget: DictionaryBudget,
     progress: &'s mut DictionaryProgress,
     catalog: &'s mut DictionaryCatalog,
     /// Two previous rows and the current row of a direct bitmap.
@@ -1332,7 +1057,7 @@ impl<C: Cancellation> Session<'_, C> {
         maximum: u64,
         attempted: u64,
     ) -> DictionaryResult<()> {
-        check_budget(resource, maximum, attempted).map_err(|kind| self.error(unit, kind))
+        check_limit(resource, maximum, attempted).map_err(|kind| self.error(unit, kind))
     }
 
     fn check_cancelled(&self, unit: &Unit<'_, '_, C>) -> DictionaryResult<()> {
@@ -1403,48 +1128,25 @@ impl<C: Cancellation> Session<'_, C> {
         }
     }
 
-    /// Check one decoded size against every budget before any bitmap work,
-    /// including the mode's working rows: three for a direct bitmap.
+    /// Check one decoded size before any bitmap work, including the three
+    /// working rows of a direct bitmap; a refinement host checks its own.
     fn geometry(
         &self,
         unit: &Unit<'_, '_, C>,
         width: i64,
         height: i64,
     ) -> DictionaryResult<SymbolGeometry> {
-        let (pixels_so_far, bytes_so_far) = match unit {
-            Unit::Direct { .. } => (
-                self.progress.decoded_pixels,
-                self.progress.stored_bitmap_bytes,
-            ),
-            Unit::Refined(host) => {
-                let progress = host.progress();
-                (progress.pixels_decoded, progress.output_bytes_written)
-            }
-        };
-        let geometry = symbol_geometry(width, height, &self.budget, pixels_so_far, bytes_so_far)
-            .map_err(|kind| self.error(unit, kind))?;
-        let (width, _, _, bytes) = geometry;
-        // `symbol_geometry` capped both totals, so neither sum overflows.
-        let stored = bytes_so_far + bytes;
-        if let Unit::Refined(_) = unit {
-            // The refinement host caps output against Limits before writing,
-            // and its working rows depend on the reference.
-            return Ok(geometry);
+        let geometry =
+            symbol_geometry(width, height, self.limits).map_err(|kind| self.error(unit, kind))?;
+        if let Unit::Direct { .. } = unit {
+            let scratch = u64::from(geometry.0).div_ceil(8) * 3;
+            self.cap(
+                unit,
+                "row scratch bytes",
+                self.limits.max_allocation_bytes,
+                scratch,
+            )?;
         }
-        self.cap(unit, "output bytes", self.limits.max_output_bytes, stored)?;
-        let scratch = u64::from(width).div_ceil(8) * 3;
-        self.cap(
-            unit,
-            "row scratch bytes",
-            self.limits.max_allocation_bytes,
-            scratch,
-        )?;
-        self.cap(
-            unit,
-            "dictionary working bytes",
-            self.plan.working_cap,
-            self.plan.base_working + scratch,
-        )?;
         Ok(geometry)
     }
 
@@ -1468,7 +1170,7 @@ impl<C: Cancellation> Session<'_, C> {
             self.cap(
                 unit,
                 "height classes",
-                u64::from(self.budget.max_height_classes),
+                u64::from(self.limits.max_symbols),
                 u64::from(classes),
             )?;
             self.progress.height_classes = classes;
@@ -1479,12 +1181,6 @@ impl<C: Cancellation> Session<'_, C> {
             if class_height < 0 || class_height > i64::from(u32::MAX) {
                 return Err(self.malformed(unit, "height class dimension"));
             }
-            self.cap(
-                unit,
-                "height class",
-                u64::from(self.budget.max_height),
-                class_height as u64,
-            )?;
             let mut class_width = 0i64;
             loop {
                 let value = self.integer(unit, IntegerProcedure::Iadw)?;
@@ -1545,16 +1241,6 @@ impl<C: Cancellation> Session<'_, C> {
         let index = checked_symbol_index(raw_id, active as u64, active)
             .map_err(|_| self.malformed(unit, "future, self, or absent symbol ID"))?;
         let reference = self.stored(index);
-        let rows =
-            2 * u64::from(width).div_ceil(8) + 3 * u64::from(reference.symbol.width).div_ceil(8);
-        // The allocated context bank is below isize::MAX bytes, catalog
-        // counts are u32-bounded, and five packed rows add at most 2.7 GiB.
-        self.cap(
-            unit,
-            "dictionary working bytes",
-            self.plan.working_cap,
-            self.plan.base_working + rows,
-        )?;
         let dx = self.integer(unit, IntegerProcedure::Iardx)?;
         let dy = self.integer(unit, IntegerProcedure::Iardy)?;
         let dx = self.signed(unit, dx, "IARDX out of band")?;
@@ -1658,8 +1344,7 @@ impl<C: Cancellation> Session<'_, C> {
                 }
             }
             store.extend_from_slice(&self.rows[2]);
-            // `symbol_geometry` checked that this symbol's packed bytes fit
-            // `max_stored_bitmap_bytes` after every earlier symbol.
+            // The store, and so this running count, fits the allocation limit.
             self.progress.stored_bitmap_bytes += stride as u64;
             self.rows.rotate_left(1);
             self.rows[2].fill(0);
@@ -1692,7 +1377,7 @@ impl<C: Cancellation> Session<'_, C> {
             self.cap(
                 unit,
                 "export runs",
-                u64::from(self.budget.max_export_runs),
+                u64::from(self.limits.max_symbols),
                 u64::from(runs),
             )?;
             self.progress.export_runs = runs;

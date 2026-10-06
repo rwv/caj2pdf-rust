@@ -665,21 +665,6 @@ fn short_reads_sink_faults_cancellation_and_limits_are_typed() {
     assert!(error.to_string().contains("cancelled"), "{error}");
     assert!(error.source().is_some());
 
-    let mut options = ComposeOptions::default();
-    options.jpeg.max_payload_bytes = 1;
-    let error = run_with(
-        &mut Source::new(built.bytes.clone()),
-        &mut Sink::default(),
-        options,
-        &Limits::default(),
-    );
-    assert!(
-        matches!(&error.kind, ComposeErrorKind::Jpeg(inner) if matches!(inner.kind, ErrorKind::LimitExceeded { .. })),
-        "{error}"
-    );
-    assert_eq!((error.page, error.image), (Some(1), Some(1)));
-    assert!(error.to_string().contains("limit"));
-
     let limits = Limits {
         max_output_bytes: 100,
         ..Limits::default()

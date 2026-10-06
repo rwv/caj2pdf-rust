@@ -319,9 +319,6 @@ mod tests {
             striping_raw: 0,
             row_stride: 2,
             packed_bytes: 4,
-            source_bytes_fetched: 19,
-            source_read_calls: 1,
-            max_source_request_bytes: 19,
         }
     }
 

@@ -163,7 +163,7 @@ fn trace(seed: u64, contexts: usize, length: usize) -> Vec<(usize, bool)> {
 #[test]
 fn encoded_mq_traces_decode_back_with_the_standard_states() {
     use crate::Limits;
-    use crate::jbig2::mq::{CodedSpan, ContextBank, MqBudget, MqDecoder, MqTable};
+    use crate::jbig2::mq::{CodedSpan, ContextBank, MqDecoder, MqTable};
     for (seed, contexts, length) in [
         (1, 1, 0),
         (2, 1, 1),
@@ -178,7 +178,6 @@ fn encoded_mq_traces_decode_back_with_the_standard_states() {
         }
         let bytes = encoder.finish();
         let limits = Limits::default();
-        let budget = MqBudget::default();
         let mut bank = ContextBank::new(contexts, &limits).unwrap();
         let table = MqTable::standard();
         let mut decoder = MqDecoder::new(
@@ -190,7 +189,6 @@ fn encoded_mq_traces_decode_back_with_the_standard_states() {
             &table,
             &mut bank,
             &limits,
-            budget,
         )
         .unwrap();
         for &(context, bit) in &decisions {
@@ -203,7 +201,7 @@ fn encoded_mq_traces_decode_back_with_the_standard_states() {
 #[test]
 fn encoded_qm_traces_decode_back_with_the_standard_states() {
     use crate::Limits;
-    use crate::qm::{ArithmeticBudget, ArithmeticDecoder, CodedSpan, ContextBank, QmTable};
+    use crate::qm::{ArithmeticDecoder, CodedSpan, ContextBank, QmTable};
     for (seed, contexts, length) in [
         (1, 1, 0),
         (2, 1, 1),
@@ -230,10 +228,6 @@ fn encoded_qm_traces_decode_back_with_the_standard_states() {
             &table,
             &mut bank,
             &limits,
-            ArithmeticBudget {
-                max_symbols: 10_000,
-                max_work: 1_000_000,
-            },
         )
         .unwrap();
         for &(context, bit) in &decisions {

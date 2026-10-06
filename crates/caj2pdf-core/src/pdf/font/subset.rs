@@ -531,7 +531,6 @@ impl<S: RangedSource> OpenTypeFont<'_, S> {
         Ok(())
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn copy<O: SubsetOutput, C: Cancellation>(
         &mut self,
         offset: u64,

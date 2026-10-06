@@ -6,18 +6,17 @@
 mod common;
 
 use caj2pdf_core::jbig2::{
-    HeaderLimits, SegmentHeader, SegmentSpan,
+    SegmentHeader, SegmentSpan,
     dictionary::{
-        DictionaryBudget, DictionaryCatalog, DictionaryError, DictionaryErrorKind,
-        DictionaryProgress, DictionaryReport, DictionaryStores, ImportedDictionary,
-        RefinementDictionaryBudget, StoredSymbol, SymbolDescriptor, SymbolDictionaryDecoder,
-        SymbolStore, coding_unit_contexts, read_dictionary_data_header,
+        DictionaryCatalog, DictionaryError, DictionaryErrorKind, DictionaryProgress,
+        DictionaryReport, DictionaryStores, ImportedDictionary, StoredSymbol, SymbolDescriptor,
+        SymbolDictionaryDecoder, SymbolStore, coding_unit_contexts, read_dictionary_data_header,
     },
     iaid::IAID_BASE,
-    integer::{BITMAP_BASE, INTEGER_CONTEXT_COUNT, IntegerProcedure, IntegerValue, decode_integer},
-    mq::{ArithmeticSnapshot, CodedSpan, ContextBank, ContextState, MqBudget, MqDecoder, MqTable},
+    integer::{BITMAP_BASE, IntegerProcedure, IntegerValue, decode_integer},
+    mq::{ArithmeticSnapshot, CodedSpan, ContextBank, ContextState, MqDecoder, MqTable},
     read_segment_header,
-    refinement::{RefinementBudget, RefinementErrorKind},
+    refinement::RefinementErrorKind,
 };
 use caj2pdf_core::{Cancellation, Limits, NeverCancel, Payload, RangedSource};
 
@@ -84,14 +83,7 @@ fn segment_on_page(
         offset: 0,
         length: source.size(),
     };
-    let header = read_segment_header(
-        &mut source,
-        span,
-        &Limits::default(),
-        HeaderLimits::default(),
-        &NeverCancel,
-    )
-    .unwrap();
+    let header = read_segment_header(&mut source, span, &Limits::default(), &NeverCancel).unwrap();
     (source, header)
 }
 
@@ -100,17 +92,14 @@ fn table() -> MqTable {
 }
 
 /// The contexts of a refinement dictionary whose IAID width is `code_len`.
-fn coding_unit(code_len: u32, limits: &Limits, budget: &MqBudget) -> ContextBank {
-    budget
-        .context_bank(coding_unit_contexts(code_len).unwrap(), limits)
-        .unwrap()
+fn coding_unit(code_len: u32, limits: &Limits) -> ContextBank {
+    caj2pdf_core::jbig2::mq::context_bank(coding_unit_contexts(code_len).unwrap(), limits).unwrap()
 }
 
 fn integer_prefix(body: &[u8], procedures: &[IntegerProcedure]) -> Option<Vec<IntegerValue>> {
     let limits = Limits::default();
-    let budget = MqBudget::default();
     let table = table();
-    let mut contexts = coding_unit(1, &limits, &budget);
+    let mut contexts = coding_unit(1, &limits);
     let mut mq = MqDecoder::new(
         Payload::from(body),
         CodedSpan {
@@ -120,7 +109,6 @@ fn integer_prefix(body: &[u8], procedures: &[IntegerProcedure]) -> Option<Vec<In
         &table,
         &mut contexts,
         &limits,
-        budget,
     )
     .ok()?;
     procedures
@@ -132,14 +120,8 @@ fn integer_prefix(body: &[u8], procedures: &[IntegerProcedure]) -> Option<Vec<In
 fn imported(count: u32, width: u32, row: &[u8]) -> (SegmentHeader, DictionaryReport, Bytes) {
     assert_eq!(row.len(), width.div_ceil(8) as usize);
     let (mut source, header) = segment(1, None, 0x0800, count, count, &[0x97, 0xff, 0xac]);
-    let data = read_dictionary_data_header(
-        &mut source,
-        &header,
-        &Limits::default(),
-        DictionaryBudget::default(),
-        &NeverCancel,
-    )
-    .unwrap();
+    let data = read_dictionary_data_header(&mut source, &header, &Limits::default(), &NeverCancel)
+        .unwrap();
     let symbols: Vec<_> = (0..count)
         .map(|index| SymbolDescriptor {
             width,
@@ -171,7 +153,6 @@ fn imported(count: u32, width: u32, row: &[u8]) -> (SegmentHeader, DictionaryRep
                 input_offset: data.body.offset,
                 synthesized_inputs: 0,
                 symbols_decoded: 0,
-                work_done: 0,
             }),
             ..DictionaryProgress::default()
         },
@@ -194,25 +175,21 @@ fn run_with_imported_io(
     imported_row: &[u8],
     new: u32,
     exported: u32,
-    dict_budget: DictionaryBudget,
-    refinement_budget: RefinementBudget,
-    second_budget: RefinementDictionaryBudget,
+    limits: Limits,
     cancellation: &impl Cancellation,
-    mq_budget: MqBudget,
 ) -> Observation {
     let (imported_header, imported_report, imported_source) =
         imported(imported_count, imported_width, imported_row);
     let (source, header) = segment(2, Some(1), 0x1802, exported, new, body);
     let mut store = Vec::new();
     let table = table();
-    let limits = Limits::default();
     let total = imported_count + new;
     let width = if total <= 1 {
         0
     } else {
         32 - (total - 1).leading_zeros()
     };
-    let mut contexts = coding_unit(width, &limits, &mq_budget);
+    let mut contexts = coding_unit(width, &Limits::default());
     let result = SymbolDictionaryDecoder::new(
         source.payload(),
         &header,
@@ -230,10 +207,6 @@ fn run_with_imported_io(
         &mut contexts,
         &limits,
         cancellation,
-        mq_budget,
-        dict_budget,
-        refinement_budget,
-        second_budget,
     )
     .and_then(|decoder| decoder.decode());
     let output = store;
@@ -250,7 +223,6 @@ fn run_with_imported_io(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 fn run_with_imported(
     body: &[u8],
     imported_count: u32,
@@ -258,9 +230,6 @@ fn run_with_imported(
     imported_row: &[u8],
     new: u32,
     exported: u32,
-    dict_budget: DictionaryBudget,
-    refinement_budget: RefinementBudget,
-    second_budget: RefinementDictionaryBudget,
 ) -> Observation {
     run_with_imported_io(
         body,
@@ -269,34 +238,31 @@ fn run_with_imported(
         imported_row,
         new,
         exported,
-        dict_budget,
-        refinement_budget,
-        second_budget,
+        Limits::default(),
         &NeverCancel,
-        MqBudget::default(),
     )
 }
 
-#[allow(clippy::too_many_arguments)]
-fn run(
+fn run(body: &[u8], imported_count: u32, new: u32, exported: u32) -> Observation {
+    run_limited(body, imported_count, new, exported, Limits::default())
+}
+
+fn run_limited(
     body: &[u8],
     imported_count: u32,
     new: u32,
     exported: u32,
-    dict_budget: DictionaryBudget,
-    refinement_budget: RefinementBudget,
-    second_budget: RefinementDictionaryBudget,
+    limits: Limits,
 ) -> Observation {
-    run_with_imported(
+    run_with_imported_io(
         body,
         imported_count,
         1,
         &[0x80],
         new,
         exported,
-        dict_budget,
-        refinement_budget,
-        second_budget,
+        limits,
+        &NeverCancel,
     )
 }
 
@@ -312,15 +278,7 @@ const ZERO_NEW_EXPORT_IMPORTED: [u8; 3] = [0xa3, 0xff, 0xac];
 
 #[test]
 fn zero_new_and_zero_imported_still_consumes_one_iaex() {
-    let observed = run(
-        &[0x97, 0xff, 0xac],
-        0,
-        0,
-        0,
-        DictionaryBudget::default(),
-        RefinementBudget::default(),
-        RefinementDictionaryBudget::default(),
-    );
+    let observed = run(&[0x97, 0xff, 0xac], 0, 0, 0);
     let report = observed.result.unwrap();
     assert!(report.catalog.new_symbols.is_empty());
     assert!(report.catalog.exported_symbols.is_empty());
@@ -331,15 +289,7 @@ fn zero_new_and_zero_imported_still_consumes_one_iaex() {
 
 #[test]
 fn iaai_zero_and_aggregation_are_located_typed_refusals() {
-    let zero = run(
-        &ZERO_PREFIX,
-        1,
-        1,
-        2,
-        DictionaryBudget::default(),
-        RefinementBudget::default(),
-        RefinementDictionaryBudget::default(),
-    );
+    let zero = run(&ZERO_PREFIX, 1, 1, 2);
     let error = zero.result.unwrap_err();
     assert!(
         matches!(
@@ -352,15 +302,7 @@ fn iaai_zero_and_aggregation_are_located_typed_refusals() {
     assert_eq!(error.progress.iaai.single_reference, 0);
     assert!(zero.output.is_empty());
 
-    let many = run(
-        &MANY_PREFIX,
-        1,
-        1,
-        2,
-        DictionaryBudget::default(),
-        RefinementBudget::default(),
-        RefinementDictionaryBudget::default(),
-    );
+    let many = run(&MANY_PREFIX, 1, 1, 2);
     let error = many.result.unwrap_err();
     assert!(
         matches!(
@@ -378,15 +320,7 @@ fn iaai_zero_and_aggregation_are_located_typed_refusals() {
 
 #[test]
 fn one_reference_prefix_reaches_bitmap_and_stays_in_one_mq_unit() {
-    let observed = run(
-        &ONE_PREFIX,
-        1,
-        1,
-        2,
-        DictionaryBudget::default(),
-        RefinementBudget::default(),
-        RefinementDictionaryBudget::default(),
-    );
+    let observed = run(&ONE_PREFIX, 1, 1, 2);
     match observed.result {
         Ok(report) => {
             assert_eq!(report.progress.iaai.single_reference, 1);
@@ -406,15 +340,7 @@ fn one_reference_complete_stream_stores_one_packed_symbol_and_checks_tail() {
     // A bounded test-only search selected these bytes for the independent
     // control sequence IADH=1, IADW=1, IAAI=1, IAID=0, IARDX=17,
     // IARDY=-2596, GR pixel=1, IADW=OOB, IAEX=2.
-    let observed = run(
-        &COMPLETE_ONE,
-        1,
-        1,
-        0,
-        DictionaryBudget::default(),
-        RefinementBudget::default(),
-        RefinementDictionaryBudget::default(),
-    );
+    let observed = run(&COMPLETE_ONE, 1, 1, 0);
     let report = observed.result.unwrap();
     assert_eq!(report.progress.iaai.single_reference, 1);
     assert_eq!(report.progress.completed_symbols, 1);
@@ -439,48 +365,20 @@ fn one_reference_complete_stream_stores_one_packed_symbol_and_checks_tail() {
 fn imported_rows_change_gr_context_before_one_refined_bitmap() {
     // IARDX=-16 and IARDY=1 align the imported pixel at (16,0) with the
     // Figure 13 (0,+1) reference tap for target (0,0).
-    let set = run_with_imported(
-        &READ_REFERENCE_PIXEL,
-        1,
-        18,
-        &[0, 0, 0x80],
-        1,
-        0,
-        DictionaryBudget::default(),
-        RefinementBudget::default(),
-        RefinementDictionaryBudget::default(),
-    );
+    let set = run_with_imported(&READ_REFERENCE_PIXEL, 1, 18, &[0, 0, 0x80], 1, 0);
     let report = set.result.unwrap();
     assert_eq!(report.progress.completed_symbols, 1);
     assert_eq!(set.gr_contexts, vec![2]);
     assert_eq!(set.output, vec![0x80]);
 
-    let clear = run_with_imported(
-        &READ_REFERENCE_PIXEL,
-        1,
-        18,
-        &[0, 0, 0],
-        1,
-        0,
-        DictionaryBudget::default(),
-        RefinementBudget::default(),
-        RefinementDictionaryBudget::default(),
-    );
+    let clear = run_with_imported(&READ_REFERENCE_PIXEL, 1, 18, &[0, 0, 0], 1, 0);
     assert_eq!(clear.result.unwrap().progress.completed_symbols, 1);
     assert_eq!(clear.gr_contexts, vec![0]);
 }
 
 #[test]
 fn a_new_export_retains_the_new_store_identity() {
-    let observed = run(
-        &READ_REFERENCE_AND_EXPORT_NEW,
-        1,
-        1,
-        1,
-        DictionaryBudget::default(),
-        RefinementBudget::default(),
-        RefinementDictionaryBudget::default(),
-    );
+    let observed = run(&READ_REFERENCE_AND_EXPORT_NEW, 1, 1, 1);
     let report = observed.result.unwrap();
     assert_eq!(report.catalog.exported_symbols.len(), 1);
     assert_eq!(report.catalog.exported_symbols[0].store, SymbolStore::New);
@@ -491,45 +389,6 @@ fn a_new_export_retains_the_new_store_identity() {
         0
     );
     assert_eq!(observed.output, vec![0x80]);
-}
-
-#[test]
-fn one_mq_symbol_budget_covers_integer_and_iaid_decisions() {
-    let mut integer_limit = false;
-    let mut iaid_limit = false;
-    for max_symbols in 1..64 {
-        let observed = run_with_imported_io(
-            &COMPLETE_ONE,
-            1,
-            1,
-            &[0x80],
-            1,
-            0,
-            DictionaryBudget::default(),
-            RefinementBudget::default(),
-            RefinementDictionaryBudget::default(),
-            &NeverCancel,
-            MqBudget {
-                max_symbols,
-                ..MqBudget::default()
-            },
-        );
-        let Err(error) = observed.result else {
-            continue;
-        };
-        if let DictionaryErrorKind::Mq(mq) = &error.kind
-            && let Some(context) = mq.context
-        {
-            integer_limit |= context < INTEGER_CONTEXT_COUNT;
-            iaid_limit |=
-                context >= INTEGER_CONTEXT_COUNT && error.progress.iaai.single_reference == 1;
-        }
-        if integer_limit && iaid_limit {
-            break;
-        }
-    }
-    assert!(integer_limit, "integer decisions must share the MQ cap");
-    assert!(iaid_limit, "IAID decisions must share the same MQ cap");
 }
 
 #[test]
@@ -556,15 +415,7 @@ fn declared_catalog_allocation_is_checked_before_mq_or_store_access() {
 
 #[test]
 fn one_iaex_view_exports_imported_then_new_with_distinct_store_owners() {
-    let observed = run(
-        &COMPLETE_BOTH_EXPORTS,
-        1,
-        1,
-        2,
-        DictionaryBudget::default(),
-        RefinementBudget::default(),
-        RefinementDictionaryBudget::default(),
-    );
+    let observed = run(&COMPLETE_BOTH_EXPORTS, 1, 1, 2);
     let report = observed.result.unwrap();
     assert_eq!(report.progress.iaai.single_reference, 1);
     assert_eq!(report.progress.export_runs, 2);
@@ -598,15 +449,7 @@ fn two_refined_symbols_retain_one_gr_context_bank_until_dictionary_failure() {
     // bitmap uses GR context zero. Both decisions renormalize, so two uses
     // leave state 2, proving the dictionary retained GR statistics. A later
     // malformed control value is intentionally outside this prefix test.
-    let observed = run(
-        &TWO_REFINEMENTS_PREFIX,
-        1,
-        2,
-        0,
-        DictionaryBudget::default(),
-        RefinementBudget::default(),
-        RefinementDictionaryBudget::default(),
-    );
+    let observed = run(&TWO_REFINEMENTS_PREFIX, 1, 2, 0);
     let error = observed.result.unwrap_err();
     assert_eq!(error.progress.completed_symbols, 2, "{error}");
     assert_eq!(error.progress.iaai.single_reference, 2);
@@ -622,15 +465,7 @@ fn two_refined_symbols_retain_one_gr_context_bank_until_dictionary_failure() {
 
 #[test]
 fn zero_new_symbols_can_reexport_imported_store_in_order() {
-    let observed = run(
-        &ZERO_NEW_EXPORT_IMPORTED,
-        1,
-        0,
-        1,
-        DictionaryBudget::default(),
-        RefinementBudget::default(),
-        RefinementDictionaryBudget::default(),
-    );
+    let observed = run(&ZERO_NEW_EXPORT_IMPORTED, 1, 0, 1);
     let report = observed.result.unwrap();
     assert!(report.catalog.new_symbols.is_empty());
     assert_eq!(report.progress.iaai.single_reference, 0);
@@ -650,43 +485,8 @@ fn zero_new_symbols_can_reexport_imported_store_in_order() {
 }
 
 #[test]
-fn imported_descriptor_and_count_limits_fail_before_mq_or_reference_reads() {
-    let second_budget = RefinementDictionaryBudget {
-        max_imported_symbols: 0,
-        ..RefinementDictionaryBudget::default()
-    };
-    let observed = run(
-        &ONE_PREFIX,
-        1,
-        1,
-        2,
-        DictionaryBudget::default(),
-        RefinementBudget::default(),
-        second_budget,
-    );
-    let error = observed.result.unwrap_err();
-    assert!(matches!(
-        error.kind,
-        DictionaryErrorKind::LimitExceeded {
-            resource: "imported symbols",
-            ..
-        }
-    ));
-    assert!(error.progress.mq.is_none());
-    assert!(observed.output.is_empty());
-}
-
-#[test]
 fn header_and_contexts_are_read_through_public_decoder() {
-    let observed = run(
-        &ONE_PREFIX,
-        1,
-        1,
-        2,
-        DictionaryBudget::default(),
-        RefinementBudget::default(),
-        RefinementDictionaryBudget::default(),
-    );
+    let observed = run(&ONE_PREFIX, 1, 1, 2);
     if let Ok(report) = observed.result {
         assert!(
             report
@@ -705,7 +505,7 @@ fn second_dictionary_clears_integer_iaid_and_gr_statistics_before_mq_work() {
     let mut store = Vec::new();
     let limits = Limits::default();
     let table = table();
-    let mut contexts = coding_unit(0, &limits, &MqBudget::default());
+    let mut contexts = coding_unit(0, &limits);
     // An earlier coding unit adapts one integer, one bitmap, and one IAID
     // context: the first decision in a context always leaves state zero.
     let touched = [0, BITMAP_BASE, IAID_BASE];
@@ -719,7 +519,6 @@ fn second_dictionary_clears_integer_iaid_and_gr_statistics_before_mq_work() {
         &table,
         &mut contexts,
         &limits,
-        MqBudget::default(),
     )
     .unwrap();
     for index in touched {
@@ -745,10 +544,6 @@ fn second_dictionary_clears_integer_iaid_and_gr_statistics_before_mq_work() {
         &mut contexts,
         &limits,
         &NeverCancel,
-        MqBudget::default(),
-        DictionaryBudget::default(),
-        RefinementBudget::default(),
-        RefinementDictionaryBudget::default(),
     )
     .unwrap();
     drop(decoder);
@@ -758,124 +553,37 @@ fn second_dictionary_clears_integer_iaid_and_gr_statistics_before_mq_work() {
 }
 
 #[test]
-fn resource_caps_reject_before_or_during_one_coding_unit() {
-    let combined = RefinementDictionaryBudget {
-        max_total_symbols: 1,
-        ..RefinementDictionaryBudget::default()
+fn the_symbol_limit_counts_imported_and_new_symbols_before_mq() {
+    let limits = Limits {
+        max_symbols: 1,
+        ..Limits::default()
     };
-    let observed = run(
-        &COMPLETE_ONE,
-        1,
-        1,
-        0,
-        DictionaryBudget::default(),
-        RefinementBudget::default(),
-        combined,
-    );
+    let observed = run_limited(&COMPLETE_ONE, 1, 1, 0, limits);
     let error = observed.result.unwrap_err();
     assert!(matches!(
         error.kind,
         DictionaryErrorKind::LimitExceeded {
             resource: "total symbols",
-            ..
+            limit: 1,
+            attempted: 2,
         }
     ));
     assert!(error.progress.mq.is_none());
-
-    let dictionary = DictionaryBudget {
-        max_height_classes: 0,
-        ..DictionaryBudget::default()
-    };
-    let observed = run(
-        &COMPLETE_ONE,
-        1,
-        1,
-        0,
-        dictionary,
-        RefinementBudget::default(),
-        RefinementDictionaryBudget::default(),
-    );
-    let error = observed.result.unwrap_err();
-    assert!(matches!(
-        error.kind,
-        DictionaryErrorKind::LimitExceeded {
-            resource: "height classes",
-            ..
-        }
-    ));
-    assert_eq!(error.progress.completed_symbols, 0);
-
-    let refinement = RefinementBudget {
-        max_mq_decisions: 0,
-        ..RefinementBudget::default()
-    };
-    let observed = run_with_imported(
-        &READ_REFERENCE_PIXEL,
-        1,
-        18,
-        &[0, 0, 0x80],
-        1,
-        0,
-        DictionaryBudget::default(),
-        refinement,
-        RefinementDictionaryBudget::default(),
-    );
-    let error = observed.result.unwrap_err();
-    assert!(matches!(error.kind, DictionaryErrorKind::Refinement(_)));
-    assert_eq!(error.progress.refinement.pixels_decoded, 0);
     assert!(observed.output.is_empty());
-
-    let dictionary = DictionaryBudget {
-        max_export_runs: 1,
-        ..DictionaryBudget::default()
-    };
-    let observed = run(
-        &COMPLETE_BOTH_EXPORTS,
-        1,
-        1,
-        2,
-        dictionary,
-        RefinementBudget::default(),
-        RefinementDictionaryBudget::default(),
-    );
-    let error = observed.result.unwrap_err();
-    assert!(matches!(
-        error.kind,
-        DictionaryErrorKind::LimitExceeded {
-            resource: "export runs",
-            ..
-        }
-    ));
-    assert_eq!(error.progress.completed_symbols, 1);
-    assert_eq!(error.progress.export_runs, 1);
-    assert_eq!(observed.output.len(), 1);
 }
 
 #[test]
-fn fixed_budget_body_mutations_have_bounded_output_and_progress() {
-    let budget = DictionaryBudget {
-        max_width: 8,
-        max_height: 8,
-        max_pixels_per_symbol: 64,
-        max_total_pixels: 64,
-        max_bytes_per_symbol: 8,
-        max_stored_bitmap_bytes: 8,
-        max_export_runs: 8,
-        ..DictionaryBudget::default()
+fn body_mutations_have_bounded_output_and_progress() {
+    let limits = Limits {
+        max_image_pixels: 8,
+        max_symbols: 8,
+        ..Limits::default()
     };
     for position in 0..COMPLETE_ONE.len() - 2 {
         for mask in [1u8, 0x80] {
             let mut body = COMPLETE_ONE;
             body[position] ^= mask;
-            let observed = run(
-                &body,
-                1,
-                1,
-                0,
-                budget,
-                RefinementBudget::default(),
-                RefinementDictionaryBudget::default(),
-            );
+            let observed = run_limited(&body, 1, 1, 0, limits);
             assert!(
                 observed.output.len() <= 8,
                 "position {position} mask {mask}"
@@ -891,11 +599,7 @@ fn fixed_budget_body_mutations_have_bounded_output_and_progress() {
     }
 }
 
-fn forged_error(
-    count: u32,
-    mutate: impl FnOnce(&mut DictionaryReport),
-    budget: RefinementDictionaryBudget,
-) -> DictionaryError {
+fn forged_error(count: u32, mutate: impl FnOnce(&mut DictionaryReport)) -> DictionaryError {
     let (imported_header, mut report, imported_source) = imported(count, 1, &[0x80]);
     mutate(&mut report);
     let (source, header) = segment(2, Some(1), 0x1802, 0, 0, &[0x97, 0xff, 0xac]);
@@ -907,7 +611,7 @@ fn forged_error(
     } else {
         32 - (count - 1).leading_zeros()
     };
-    let mut contexts = coding_unit(width, &limits, &MqBudget::default());
+    let mut contexts = coding_unit(width, &limits);
     let result = SymbolDictionaryDecoder::new(
         source.payload(),
         &header,
@@ -925,10 +629,6 @@ fn forged_error(
         &mut contexts,
         &limits,
         &NeverCancel,
-        MqBudget::default(),
-        DictionaryBudget::default(),
-        RefinementBudget::default(),
-        budget,
     );
     let error = match result {
         Ok(_) => panic!("forged report was accepted"),
@@ -948,9 +648,6 @@ struct PreflightCase {
     imported_base: u64,
     new_base: u64,
     bank_width: Option<u32>,
-    dictionary_budget: DictionaryBudget,
-    refinement_budget: RefinementBudget,
-    second_budget: RefinementDictionaryBudget,
     limits: Limits,
 }
 
@@ -966,9 +663,6 @@ impl Default for PreflightCase {
             imported_base: 0,
             new_base: 0,
             bank_width: None,
-            dictionary_budget: DictionaryBudget::default(),
-            refinement_budget: RefinementBudget::default(),
-            second_budget: RefinementDictionaryBudget::default(),
             limits: Limits::default(),
         }
     }
@@ -1010,7 +704,7 @@ fn preflight_result(
     } else {
         32 - (total - 1).leading_zeros()
     });
-    let mut contexts = coding_unit(width, &limits, &MqBudget::default());
+    let mut contexts = coding_unit(width, &limits);
     SymbolDictionaryDecoder::new(
         source.payload(),
         &header,
@@ -1028,68 +722,32 @@ fn preflight_result(
         &mut contexts,
         &limits,
         &NeverCancel,
-        MqBudget::default(),
-        setup.dictionary_budget,
-        setup.refinement_budget,
-        setup.second_budget,
     )
     .map(drop)
 }
 
 #[test]
 fn forged_imported_reports_fail_before_mq_and_store_access() {
-    let error = forged_error(
-        1,
-        |report| {
-            report.catalog.exported_symbols[0].symbol.row_stride = 2;
-            report.catalog.new_symbols[0].row_stride = 2;
-        },
-        RefinementDictionaryBudget::default(),
-    );
+    let error = forged_error(1, |report| {
+        report.catalog.exported_symbols[0].symbol.row_stride = 2;
+        report.catalog.new_symbols[0].row_stride = 2;
+    });
     assert!(matches!(
         error.kind,
         DictionaryErrorKind::Malformed("noncanonical imported bitmap descriptor")
     ));
 
-    let error = forged_error(
-        2,
-        |report| {
-            report.catalog.exported_symbols.swap(0, 1);
-        },
-        RefinementDictionaryBudget::default(),
-    );
+    let error = forged_error(2, |report| {
+        report.catalog.exported_symbols.swap(0, 1);
+    });
     assert!(matches!(
         error.kind,
         DictionaryErrorKind::Malformed("imported exports do not follow new-symbol order")
     ));
 
-    let budget = RefinementDictionaryBudget {
-        max_imported_symbols: 1,
-        ..RefinementDictionaryBudget::default()
-    };
-    let error = forged_error(
-        2,
-        |report| {
-            report.catalog.exported_symbols.truncate(1);
-            report.header.exported_symbols = 1;
-        },
-        budget,
-    );
-    assert!(matches!(
-        error.kind,
-        DictionaryErrorKind::LimitExceeded {
-            resource: "imported catalog new symbols",
-            ..
-        }
-    ));
-
-    let error = forged_error(
-        1,
-        |report| {
-            report.progress.mq = None;
-        },
-        RefinementDictionaryBudget::default(),
-    );
+    let error = forged_error(1, |report| {
+        report.progress.mq = None;
+    });
     assert!(matches!(
         error.kind,
         DictionaryErrorKind::Malformed("imported dictionary is not a complete direct report")
@@ -1125,16 +783,12 @@ fn forged_imported_span_overflows_fail_before_arithmetic_or_store_io() {
         );
     }
 
-    let error = forged_error(
-        1,
-        |report| {
-            report.catalog.exported_symbols[0]
-                .symbol
-                .relative_store_offset = u64::MAX;
-            report.catalog.new_symbols[0].relative_store_offset = u64::MAX;
-        },
-        RefinementDictionaryBudget::default(),
-    );
+    let error = forged_error(1, |report| {
+        report.catalog.exported_symbols[0]
+            .symbol
+            .relative_store_offset = u64::MAX;
+        report.catalog.new_symbols[0].relative_store_offset = u64::MAX;
+    });
     assert!(matches!(
         error.kind,
         DictionaryErrorKind::Malformed("imported descriptor end overflow")
@@ -1173,137 +827,43 @@ fn imported_bitmap_metadata_and_store_bounds_are_checked_before_mq() {
             "imported descriptor outside the store",
         ),
     ] {
-        let error = forged_error(1, mutate, RefinementDictionaryBudget::default());
+        let error = forged_error(1, mutate);
         assert!(matches!(error.kind, DictionaryErrorKind::Malformed(found) if found == reason));
     }
 
-    let error = forged_error(
-        2,
-        |report| {
-            report.catalog.new_symbols[1].relative_store_offset = 0;
-            report.catalog.exported_symbols[1]
-                .symbol
-                .relative_store_offset = 0;
-        },
-        RefinementDictionaryBudget::default(),
-    );
+    let error = forged_error(2, |report| {
+        report.catalog.new_symbols[1].relative_store_offset = 0;
+        report.catalog.exported_symbols[1]
+            .symbol
+            .relative_store_offset = 0;
+    });
     assert!(matches!(
         error.kind,
         DictionaryErrorKind::Malformed("overlapping or unordered imported descriptors")
     ));
-
-    let error = forged_error(
-        1,
-        |_| {},
-        RefinementDictionaryBudget {
-            max_imported_bitmap_bytes: 0,
-            ..RefinementDictionaryBudget::default()
-        },
-    );
-    assert!(matches!(
-        error.kind,
-        DictionaryErrorKind::LimitExceeded {
-            resource: "imported bitmap bytes",
-            ..
-        }
-    ));
-
-    let error = forged_error(
-        1,
-        |_| {},
-        RefinementDictionaryBudget {
-            max_imported_store_span: 0,
-            ..RefinementDictionaryBudget::default()
-        },
-    );
-    assert!(matches!(
-        error.kind,
-        DictionaryErrorKind::LimitExceeded {
-            resource: "imported store span",
-            ..
-        }
-    ));
-
-    let error = forged_error(
-        1,
-        |_| {},
-        RefinementDictionaryBudget {
-            max_catalog_bytes: 0,
-            ..RefinementDictionaryBudget::default()
-        },
-    );
-    assert!(matches!(
-        error.kind,
-        DictionaryErrorKind::LimitExceeded {
-            resource: "imported catalog metadata bytes",
-            ..
-        }
-    ));
 }
 
 #[test]
-fn each_symbol_geometry_bound_blocks_output_before_refinement() {
-    for (budget, resource) in [
-        (
-            DictionaryBudget {
-                max_width: 0,
-                ..DictionaryBudget::default()
-            },
-            "symbol width",
+fn the_symbol_pixel_limit_blocks_output_before_refinement() {
+    let limits = Limits {
+        max_image_pixels: 0,
+        ..Limits::default()
+    };
+    let observed = run_limited(&COMPLETE_ONE, 1, 1, 0, limits);
+    let error = observed.result.unwrap_err();
+    assert!(
+        matches!(
+            error.kind,
+            DictionaryErrorKind::LimitExceeded {
+                resource: "symbol pixels",
+                limit: 0,
+                ..
+            }
         ),
-        (
-            DictionaryBudget {
-                max_height: 0,
-                ..DictionaryBudget::default()
-            },
-            "height class",
-        ),
-        (
-            DictionaryBudget {
-                max_pixels_per_symbol: 0,
-                ..DictionaryBudget::default()
-            },
-            "symbol pixels",
-        ),
-        (
-            DictionaryBudget {
-                max_bytes_per_symbol: 0,
-                ..DictionaryBudget::default()
-            },
-            "symbol bytes",
-        ),
-        (
-            DictionaryBudget {
-                max_total_pixels: 0,
-                ..DictionaryBudget::default()
-            },
-            "dictionary pixels",
-        ),
-        (
-            DictionaryBudget {
-                max_stored_bitmap_bytes: 0,
-                ..DictionaryBudget::default()
-            },
-            "stored bitmap bytes",
-        ),
-    ] {
-        let observed = run(
-            &COMPLETE_ONE,
-            1,
-            1,
-            0,
-            budget,
-            RefinementBudget::default(),
-            RefinementDictionaryBudget::default(),
-        );
-        let error = observed.result.unwrap_err();
-        assert!(
-            matches!(error.kind, DictionaryErrorKind::LimitExceeded { resource: found, .. } if found == resource),
-            "{resource}: {error}"
-        );
-        assert_eq!(error.progress.completed_symbols, 0);
-        assert!(observed.output.is_empty());
-    }
+        "{error}"
+    );
+    assert_eq!(error.progress.completed_symbols, 0);
+    assert!(observed.output.is_empty());
 }
 
 #[test]
@@ -1460,44 +1020,6 @@ fn combined_preflight_limits_and_iaid_layout_are_independent() {
 
     let error = preflight_error(
         PreflightCase {
-            new: 1,
-            exported: 1,
-            second_budget: RefinementDictionaryBudget {
-                max_catalog_bytes: 64,
-                ..RefinementDictionaryBudget::default()
-            },
-            ..PreflightCase::default()
-        },
-        |_, _| {},
-    );
-    assert!(matches!(
-        error.kind,
-        DictionaryErrorKind::LimitExceeded {
-            resource: "catalog metadata bytes",
-            ..
-        }
-    ));
-
-    let error = preflight_error(
-        PreflightCase {
-            second_budget: RefinementDictionaryBudget {
-                max_working_bytes: 0,
-                ..RefinementDictionaryBudget::default()
-            },
-            ..PreflightCase::default()
-        },
-        |_, _| {},
-    );
-    assert!(matches!(
-        error.kind,
-        DictionaryErrorKind::LimitExceeded {
-            resource: "dictionary working bytes",
-            ..
-        }
-    ));
-
-    let error = preflight_error(
-        PreflightCase {
             body: &[],
             ..PreflightCase::default()
         },
@@ -1528,22 +1050,12 @@ fn public_error_messages_keep_locations_and_nested_sources() {
         },
         |_, _| {},
     );
-    let malformed = run(
-        &ZERO_PREFIX,
-        1,
-        1,
-        2,
-        DictionaryBudget::default(),
-        RefinementBudget::default(),
-        RefinementDictionaryBudget::default(),
-    )
-    .result
-    .unwrap_err();
+    let malformed = run(&ZERO_PREFIX, 1, 1, 2).result.unwrap_err();
     let limit = preflight_error(
         PreflightCase {
-            second_budget: RefinementDictionaryBudget {
-                max_working_bytes: 0,
-                ..RefinementDictionaryBudget::default()
+            limits: Limits {
+                max_symbols: 0,
+                ..Limits::default()
             },
             ..PreflightCase::default()
         },
@@ -1561,9 +1073,6 @@ fn public_error_messages_keep_locations_and_nested_sources() {
         1,
         1,
         2,
-        DictionaryBudget::default(),
-        RefinementBudget::default(),
-        RefinementDictionaryBudget::default(),
     )
     .result
     .unwrap_err();
@@ -1646,27 +1155,13 @@ fn bounded_synthetic_control_witnesses_keep_typed_locations() {
             "malformed:IARDX outside signed 32-bit range",
         ),
     ];
-    let budget = DictionaryBudget {
-        max_width: 8,
-        max_height: 8,
-        max_pixels_per_symbol: 64,
-        max_total_pixels: 64,
-        max_bytes_per_symbol: 8,
-        max_stored_bitmap_bytes: 8,
-        max_export_runs: 4,
-        max_height_classes: 4,
-        ..DictionaryBudget::default()
+    let limits = Limits {
+        max_image_pixels: 64,
+        max_symbols: 4,
+        ..Limits::default()
     };
     for (body, expected) in witnesses {
-        let observed = run(
-            body,
-            1,
-            1,
-            0,
-            budget,
-            RefinementBudget::default(),
-            RefinementDictionaryBudget::default(),
-        );
+        let observed = run_limited(body, 1, 1, 0, limits);
         let error = observed.result.unwrap_err();
         let label = match error.kind {
             DictionaryErrorKind::Malformed(s) => format!("malformed:{s}"),
@@ -1689,15 +1184,7 @@ fn a_later_symbol_refines_an_earlier_new_symbol() {
     // symbol) for the second target and an in-range reference row. The later
     // malformed width control is outside this prefix check.
     let body = [0x95, 0x13, 0x98, 0x97, 0x6f, 0x41, 0x9a, 0x7f, 0xff, 0xac];
-    let observed = run(
-        &body,
-        1,
-        2,
-        0,
-        DictionaryBudget::default(),
-        RefinementBudget::default(),
-        RefinementDictionaryBudget::default(),
-    );
+    let observed = run(&body, 1, 2, 0);
     let error = observed.result.unwrap_err();
     assert_eq!(error.progress.completed_symbols, 2, "{error}");
     assert_eq!(error.progress.iaai.single_reference, 2);
@@ -1708,15 +1195,7 @@ fn a_later_symbol_refines_an_earlier_new_symbol() {
 fn export_count_mismatch_refuses_partial_cross_store_catalog() {
     // The same independently chosen stream exports both the import and its
     // refined successor. Claiming only one export must fail during IAEX.
-    let observed = run(
-        &COMPLETE_BOTH_EXPORTS,
-        1,
-        1,
-        1,
-        DictionaryBudget::default(),
-        RefinementBudget::default(),
-        RefinementDictionaryBudget::default(),
-    );
+    let observed = run(&COMPLETE_BOTH_EXPORTS, 1, 1, 1);
     let error = observed.result.unwrap_err();
     assert!(matches!(
         error.kind,
@@ -1730,20 +1209,12 @@ fn export_count_mismatch_refuses_partial_cross_store_catalog() {
 #[test]
 fn malformed_iaex_mutations_remain_bounded_and_expose_overshoot() {
     let mut saw_overshoot = false;
-    let budget = DictionaryBudget {
-        max_export_runs: 2,
-        ..DictionaryBudget::default()
+    let limits = Limits {
+        max_symbols: 2,
+        ..Limits::default()
     };
     for byte in 0u8..=255 {
-        let observed = run(
-            &[byte, 0xff, 0xac],
-            0,
-            0,
-            0,
-            budget,
-            RefinementBudget::default(),
-            RefinementDictionaryBudget::default(),
-        );
+        let observed = run_limited(&[byte, 0xff, 0xac], 0, 0, 0, limits);
         match observed.result {
             Ok(report) => assert_eq!(report.progress.export_runs, 1),
             Err(error) => {
@@ -1769,9 +1240,6 @@ fn truncated_terminal_after_complete_exports_is_located() {
         1,
         1,
         2,
-        DictionaryBudget::default(),
-        RefinementBudget::default(),
-        RefinementDictionaryBudget::default(),
     );
     let error = observed.result.unwrap_err();
     assert!(matches!(error.kind, DictionaryErrorKind::Mq(_)));
@@ -1805,15 +1273,7 @@ fn signed_height_class_deltas_reach_the_next_symbol_control() {
                 expected_delta
             ]
         );
-        let observed = run(
-            body,
-            1,
-            1,
-            0,
-            DictionaryBudget::default(),
-            RefinementBudget::default(),
-            RefinementDictionaryBudget::default(),
-        );
+        let observed = run(body, 1, 1, 0);
         let error = observed.result.unwrap_err();
         assert_eq!(error.progress.height_classes, 2);
         assert_eq!(error.progress.completed_symbols, 0);
@@ -1848,11 +1308,8 @@ fn cancellation_checkpoints_preserve_typed_progress_through_exports() {
             &[0x80],
             1,
             0,
-            DictionaryBudget::default(),
-            RefinementBudget::default(),
-            RefinementDictionaryBudget::default(),
+            Limits::default(),
             &cancellation,
-            MqBudget::default(),
         );
         if let Err(error) = observed.result {
             assert!(observed.output.len() <= 1);
@@ -1883,21 +1340,7 @@ fn negative_width_delta_reaches_a_positive_second_symbol_geometry() {
         integer_prefix(&body, &[IntegerProcedure::Iadh, IntegerProcedure::Iadw]).unwrap(),
         [IntegerValue::Signed(1), IntegerValue::Signed(2)]
     );
-    let budget = DictionaryBudget {
-        max_width: 2,
-        max_height: 1,
-        max_total_pixels: 3,
-        ..DictionaryBudget::default()
-    };
-    let observed = run(
-        &body,
-        1,
-        2,
-        0,
-        budget,
-        RefinementBudget::default(),
-        RefinementDictionaryBudget::default(),
-    );
+    let observed = run(&body, 1, 2, 0);
     let error = observed.result.unwrap_err();
     assert_eq!(error.progress.height_classes, 1);
     assert_eq!(error.progress.completed_symbols, 1);
@@ -1913,31 +1356,6 @@ fn negative_width_delta_reaches_a_positive_second_symbol_geometry() {
         ),
         "{error:?}"
     );
-
-    // A two-pixel cap stops at the second geometry; a three-pixel cap reaches
-    // IAAI. The first symbol has width two and both heights are one, so the
-    // accepted second width is one and its signed IADW is -1.
-    let observed = run(
-        &body,
-        1,
-        2,
-        0,
-        DictionaryBudget {
-            max_total_pixels: 2,
-            ..budget
-        },
-        RefinementBudget::default(),
-        RefinementDictionaryBudget::default(),
-    );
-    let error = observed.result.unwrap_err();
-    assert!(matches!(
-        error.kind,
-        DictionaryErrorKind::LimitExceeded {
-            resource: "dictionary pixels",
-            attempted: 3,
-            ..
-        }
-    ));
 }
 
 #[test]
@@ -1947,67 +1365,12 @@ fn negative_initial_width_delta_is_rejected_before_bitmap_io() {
         integer_prefix(&body, &[IntegerProcedure::Iadh, IntegerProcedure::Iadw]).unwrap(),
         [IntegerValue::Signed(3), IntegerValue::Signed(-1)]
     );
-    let observed = run(
-        &body,
-        1,
-        1,
-        0,
-        DictionaryBudget::default(),
-        RefinementBudget::default(),
-        RefinementDictionaryBudget::default(),
-    );
+    let observed = run(&body, 1, 1, 0);
     let error = observed.result.unwrap_err();
     assert!(matches!(
         error.kind,
         DictionaryErrorKind::Malformed("negative symbol dimension")
     ));
-    assert!(observed.output.is_empty());
-}
-
-#[test]
-fn reference_row_caches_are_charged_after_preflight_working_memory() {
-    let error = preflight_error(
-        PreflightCase {
-            new: 1,
-            second_budget: RefinementDictionaryBudget {
-                max_working_bytes: 0,
-                ..RefinementDictionaryBudget::default()
-            },
-            ..PreflightCase::default()
-        },
-        |_, _| {},
-    );
-    let base_working = match error.kind {
-        DictionaryErrorKind::LimitExceeded {
-            resource: "dictionary working bytes",
-            attempted,
-            ..
-        } => attempted,
-        other => panic!("unexpected preflight result: {other:?}"),
-    };
-    let observed = run(
-        &COMPLETE_ONE,
-        1,
-        1,
-        0,
-        DictionaryBudget::default(),
-        RefinementBudget::default(),
-        RefinementDictionaryBudget {
-            max_working_bytes: base_working,
-            ..RefinementDictionaryBudget::default()
-        },
-    );
-    let error = observed.result.unwrap_err();
-    assert!(matches!(
-        error.kind,
-        DictionaryErrorKind::LimitExceeded {
-            resource: "dictionary working bytes",
-            attempted,
-            ..
-        } if attempted > base_working
-    ));
-    assert!(error.progress.mq.is_some());
-    assert_eq!(error.progress.completed_symbols, 0);
     assert!(observed.output.is_empty());
 }
 
@@ -2018,15 +1381,7 @@ fn height_class_oob_is_a_located_refusal_before_bitmap_output() {
         integer_prefix(&body, &[IntegerProcedure::Iadh]).unwrap(),
         [IntegerValue::OutOfBand]
     );
-    let observed = run(
-        &body,
-        1,
-        1,
-        0,
-        DictionaryBudget::default(),
-        RefinementBudget::default(),
-        RefinementDictionaryBudget::default(),
-    );
+    let observed = run(&body, 1, 1, 0);
     let error = observed.result.unwrap_err();
     assert!(matches!(
         error.kind,
@@ -2041,15 +1396,7 @@ fn height_class_oob_is_a_located_refusal_before_bitmap_output() {
 fn final_iaex_count_mismatch_rejects_an_underexported_import() {
     // IAEX skips the sole imported symbol, while the header requires one
     // export. The mismatch is detected after consuming the complete run.
-    let observed = run(
-        &[0x87, 0xff, 0xac],
-        1,
-        0,
-        1,
-        DictionaryBudget::default(),
-        RefinementBudget::default(),
-        RefinementDictionaryBudget::default(),
-    );
+    let observed = run(&[0x87, 0xff, 0xac], 1, 0, 1);
     let error = observed.result.unwrap_err();
     assert!(matches!(
         error.kind,

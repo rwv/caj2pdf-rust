@@ -16,23 +16,10 @@ pub use crate::arith::{
     ContextBank, ContextState,
 };
 
-use crate::arith::{Counters, check_span, valid_counts};
-use crate::{Limits, MAX_BUDGET_COUNT, Payload};
-use std::mem;
+use crate::arith::{Counters, check_span};
+use crate::{Limits, Payload};
 
 pub const MQ_STATE_COUNT: usize = 47;
-
-/// Working bytes of a decoder with `contexts` contexts: the bank and the
-/// state table.
-fn allocation_bytes(contexts: usize) -> ArithmeticResult<u64> {
-    contexts
-        .checked_mul(mem::size_of::<ContextState>())
-        .and_then(|value| value.checked_add(MQ_STATE_COUNT * mem::size_of::<MqState>()))
-        .and_then(|value| u64::try_from(value).ok())
-        .ok_or_else(|| {
-            ArithmeticError::configuration(Coder::T88, ArithmeticErrorKind::InvalidContext)
-        })
-}
 
 /// One probability state, in T.88 Table E.1 column order.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -57,70 +44,13 @@ impl MqTable {
     }
 }
 
-/// Per-stream CPU, input, context, and synthesized terminal bounds.
-///
-/// `max_symbols`, `max_work`, and `max_terminal_inputs` bound running
-/// counters and must each be at most [`MAX_BUDGET_COUNT`]; a larger value is
-/// rejected as `InvalidBudget` before any I/O.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct MqBudget {
-    pub max_span_bytes: u64,
-    pub max_contexts: usize,
-    /// Nonzero and at most [`MAX_BUDGET_COUNT`].
-    pub max_symbols: u64,
-    /// Includes symbol decisions, renormalization shifts, and byte-input
-    /// events. Nonzero and at most [`MAX_BUDGET_COUNT`].
-    pub max_work: u64,
-    /// At most [`MAX_BUDGET_COUNT`].
-    pub max_terminal_inputs: u64,
-}
-
-impl Default for MqBudget {
-    fn default() -> Self {
-        Self {
-            max_span_bytes: 64 * 1024 * 1024,
-            max_contexts: 65_536,
-            max_symbols: 12_000_000,
-            max_work: 400_000_000,
-            max_terminal_inputs: 12_000_000,
-        }
-    }
-}
-
-impl MqBudget {
-    fn validate(&self) -> ArithmeticResult<()> {
-        if self.max_span_bytes == 0
-            || self.max_contexts == 0
-            || !valid_counts(self.max_symbols, self.max_work)
-            || self.max_terminal_inputs > MAX_BUDGET_COUNT
-        {
-            return Err(ArithmeticError::configuration(
-                Coder::T88,
-                ArithmeticErrorKind::InvalidBudget,
-            ));
-        }
-        Ok(())
-    }
-
-    /// Allocate a bank of `count` contexts within this budget and `limits`,
-    /// before any decoder uses it.
-    pub fn context_bank(&self, count: usize, limits: &Limits) -> ArithmeticResult<ContextBank> {
-        self.validate()?;
-        if count > self.max_contexts {
-            return Err(ArithmeticError::configuration(
-                Coder::T88,
-                ArithmeticErrorKind::LimitExceeded {
-                    resource: "MQ contexts",
-                    limit: self.max_contexts as u64,
-                    attempted: count as u64,
-                },
-            ));
-        }
-        ContextBank::new(count, limits).map_err(|error| ArithmeticError {
-            coder: Some(Coder::T88),
-            ..error
-        })
-    }
+/// Allocate a bank of `count` MQ contexts within `limits`, before any
+/// decoder uses it.
+pub fn context_bank(count: usize, limits: &Limits) -> ArithmeticResult<ContextBank> {
+    ContextBank::new(count, limits).map_err(|error| ArithmeticError {
+        coder: Some(Coder::T88),
+        ..error
+    })
 }
 
 /// Decoder of one MQ arithmetic substream; no JBIG2 image pixels are produced.
@@ -129,7 +59,6 @@ pub struct MqDecoder<'a> {
     span: CodedSpan,
     table: &'a MqTable,
     contexts: &'a mut ContextBank,
-    budget: MqBudget,
     bp: u64,
     current_byte: u8,
     counters: Counters,
@@ -148,12 +77,7 @@ impl<'a> MqDecoder<'a> {
         table: &'a MqTable,
         contexts: &'a mut ContextBank,
         limits: &Limits,
-        budget: MqBudget,
     ) -> ArithmeticResult<Self> {
-        limits.validate().map_err(|source| {
-            ArithmeticError::configuration(Coder::T88, ArithmeticErrorKind::Source(source))
-        })?;
-        budget.validate()?;
         let at_start = |kind| ArithmeticError {
             coder: Some(Coder::T88),
             offset: Some(span.offset),
@@ -165,31 +89,12 @@ impl<'a> MqDecoder<'a> {
                 "requires at least two terminal bytes",
             )));
         }
-        if span.length > budget.max_span_bytes {
-            return Err(at_start(ArithmeticErrorKind::LimitExceeded {
-                resource: "MQ span bytes",
-                limit: budget.max_span_bytes,
-                attempted: span.length,
-            }));
-        }
         let data = check_span(Coder::T88, span, input, limits)?;
-        if contexts.len() > budget.max_contexts {
-            return Err(ArithmeticError::configuration(
-                Coder::T88,
-                ArithmeticErrorKind::InvalidContext,
-            ));
-        }
-        limits
-            .check_allocation(allocation_bytes(contexts.len())?)
-            .map_err(|source| {
-                ArithmeticError::configuration(Coder::T88, ArithmeticErrorKind::Source(source))
-            })?;
         let mut decoder = Self {
             data,
             span,
             table,
             contexts,
-            budget,
             bp: 0,
             current_byte: 0,
             counters: Counters::default(),
@@ -211,12 +116,8 @@ impl<'a> MqDecoder<'a> {
         if self.contexts.get(context).is_none() {
             return Err(self.at(Some(context), ArithmeticErrorKind::InvalidContext));
         }
-        let symbols = self
-            .counters
-            .next_symbol(self.budget.max_symbols)
-            .map_err(|kind| self.at(Some(context), kind))?;
         let bit = self.decode_bit_inner(context)?;
-        self.counters.symbols_decoded = symbols;
+        self.counters.symbols_decoded += 1;
         Ok(bit)
     }
 
@@ -288,12 +189,6 @@ impl<'a> MqDecoder<'a> {
         self.located(self.span.offset + self.bp, context, kind)
     }
 
-    fn charge(&mut self, context: Option<usize>) -> ArithmeticResult<()> {
-        self.counters
-            .charge(self.budget.max_work)
-            .map_err(|kind| self.at(context, kind))
-    }
-
     fn read_byte(&self, relative: u64, context: Option<usize>) -> ArithmeticResult<u8> {
         if relative >= self.span.length {
             return Err(self.located(
@@ -307,7 +202,6 @@ impl<'a> MqDecoder<'a> {
     }
 
     fn byte_in(&mut self, context: Option<usize>) -> ArithmeticResult<()> {
-        self.charge(context)?;
         let next = self.bp + 1;
         let next_byte = self.read_byte(next, context)?;
         if self.current_byte == 0xFF {
@@ -319,19 +213,7 @@ impl<'a> MqDecoder<'a> {
                         ArithmeticErrorKind::InvalidMarker(next_byte),
                     ));
                 }
-                // Bounded by `max_terminal_inputs <= MAX_BUDGET_COUNT`.
-                let attempted = self.counters.synthesized_inputs + 1;
-                if attempted > self.budget.max_terminal_inputs {
-                    return Err(self.at(
-                        context,
-                        ArithmeticErrorKind::LimitExceeded {
-                            resource: "MQ terminal inputs",
-                            limit: self.budget.max_terminal_inputs,
-                            attempted,
-                        },
-                    ));
-                }
-                self.counters.synthesized_inputs = attempted;
+                self.counters.synthesized_inputs += 1;
                 self.code = self.code.wrapping_add(0xFF00);
                 self.bit_counter = 8;
             } else {
@@ -354,7 +236,6 @@ impl<'a> MqDecoder<'a> {
             if self.bit_counter == 0 {
                 self.byte_in(Some(context))?;
             }
-            self.charge(Some(context))?;
             self.interval <<= 1;
             self.code <<= 1;
             self.bit_counter -= 1;
@@ -363,7 +244,6 @@ impl<'a> MqDecoder<'a> {
     }
 
     fn decode_bit_inner(&mut self, context: usize) -> ArithmeticResult<bool> {
-        self.charge(Some(context))?;
         let current = self.contexts.state(context);
         let state = self.table.state(current.state_index);
         let qe = u32::from(state.qe);
@@ -427,12 +307,8 @@ mod tests {
     use super::*;
 
     /// Runs `test` on the result of initializing a decoder over `bytes` with
-    /// one context and the given budget.
-    fn with_init<R>(
-        bytes: &[u8],
-        budget: MqBudget,
-        test: impl FnOnce(ArithmeticResult<MqDecoder<'_>>) -> R,
-    ) -> R {
+    /// one context.
+    fn with_init<R>(bytes: &[u8], test: impl FnOnce(ArithmeticResult<MqDecoder<'_>>) -> R) -> R {
         let limits = Limits::default();
         let table = MqTable::standard();
         let mut contexts = ContextBank::new(1, &limits).unwrap();
@@ -445,116 +321,51 @@ mod tests {
             &table,
             &mut contexts,
             &limits,
-            budget,
         ))
     }
 
-    /// Runs `test` on a decoder over a three-byte span with one context
-    /// and the given budget.
-    fn with_decoder<R>(budget: MqBudget, test: impl FnOnce(&mut MqDecoder<'_>) -> R) -> R {
-        with_init(&[0, 0xff, 0xac], budget, |decoder| {
-            test(&mut decoder.unwrap())
-        })
-    }
-
-    /// The initialization error over `bytes`.
-    fn init_error(bytes: &[u8], budget: MqBudget) -> ArithmeticErrorKind {
-        with_init(bytes, budget, |decoder| {
-            decoder.err().expect("MQ initialization must fail").kind
-        })
-    }
-
     #[test]
-    fn initialization_checks_markers_and_budgets_on_its_first_byte() {
-        assert!(matches!(
-            init_error(&[0xff, 0x90], MqBudget::default()),
-            ArithmeticErrorKind::InvalidMarker(0x90)
-        ));
-        let no_terminal = MqBudget {
-            max_terminal_inputs: 0,
-            ..MqBudget::default()
-        };
-        assert!(matches!(
-            init_error(&[0xff, 0xac], no_terminal),
-            ArithmeticErrorKind::LimitExceeded {
-                resource: "MQ terminal inputs",
-                limit: 0,
-                attempted: 1,
-            }
-        ));
+    fn initialization_checks_markers_on_its_first_byte() {
+        with_init(&[0xff, 0x90], |decoder| {
+            assert!(matches!(
+                decoder.err().expect("MQ initialization must fail").kind,
+                ArithmeticErrorKind::InvalidMarker(0x90)
+            ));
+        });
+        // The terminal marker at initialization synthesizes one bits.
+        with_init(&[0xff, 0xac], |decoder| {
+            assert_eq!(decoder.unwrap().counters.synthesized_inputs, 1);
+        });
         // A stuffed 0xFF followed by a data byte is consumed as seven bits.
-        with_init(&[0xff, 0x7f, 0xff, 0xac], MqBudget::default(), |decoder| {
+        with_init(&[0xff, 0x7f, 0xff, 0xac], |decoder| {
             let decoder = decoder.unwrap();
             assert_eq!((decoder.bp, decoder.current_byte), (1, 0x7f));
         });
     }
 
     #[test]
-    fn decisions_reject_unknown_contexts_and_excess_work() {
-        with_decoder(MqBudget::default(), |decoder| {
+    fn decisions_reject_unknown_contexts() {
+        with_init(&[0, 0xff, 0xac], |decoder| {
+            let mut decoder = decoder.unwrap();
             assert!(matches!(
                 decoder.decode_bit(1).unwrap_err().kind,
                 ArithmeticErrorKind::InvalidContext
-            ));
-            let limit = decoder.budget.max_work;
-            decoder.counters.work_done = limit - 1;
-            decoder.charge(Some(0)).unwrap();
-            let error = decoder.charge(Some(0)).unwrap_err();
-            assert!(matches!(
-                error.kind,
-                ArithmeticErrorKind::LimitExceeded {
-                    resource: "arithmetic work",
-                    attempted,
-                    ..
-                } if attempted == limit + 1
             ));
         });
     }
 
     #[test]
-    fn counters_at_the_budget_ceiling_report_the_exact_excess() {
-        let ceiling = MqBudget {
-            max_symbols: MAX_BUDGET_COUNT,
-            max_work: MAX_BUDGET_COUNT,
-            max_terminal_inputs: MAX_BUDGET_COUNT,
-            ..MqBudget::default()
+    fn context_banks_name_the_mq_decoder() {
+        let tiny = Limits {
+            io_chunk_bytes: 1,
+            max_allocation_bytes: 1,
+            ..Limits::default()
         };
-        with_decoder(ceiling, |decoder| {
-            decoder.counters.work_done = MAX_BUDGET_COUNT;
-            assert!(matches!(
-                decoder.charge(None).unwrap_err().kind,
-                ArithmeticErrorKind::LimitExceeded {
-                    resource: "arithmetic work",
-                    limit: MAX_BUDGET_COUNT,
-                    attempted,
-                } if attempted == MAX_BUDGET_COUNT + 1
-            ));
-            decoder.counters.work_done = 0;
-            decoder.counters.synthesized_inputs = MAX_BUDGET_COUNT;
-            assert!(matches!(
-                decoder.byte_in(None).unwrap_err().kind,
-                ArithmeticErrorKind::LimitExceeded {
-                    resource: "MQ terminal inputs",
-                    limit: MAX_BUDGET_COUNT,
-                    attempted,
-                } if attempted == MAX_BUDGET_COUNT + 1
-            ));
-        });
-        with_decoder(ceiling, |decoder| {
-            decoder.counters.symbols_decoded = MAX_BUDGET_COUNT;
-            let before = decoder.snapshot();
-            let error = decoder.decode_bit(0).unwrap_err();
-            assert_eq!(error.context, Some(0));
-            assert!(matches!(
-                error.kind,
-                ArithmeticErrorKind::LimitExceeded {
-                    resource: "symbols",
-                    limit: MAX_BUDGET_COUNT,
-                    attempted,
-                } if attempted == MAX_BUDGET_COUNT + 1
-            ));
-            // The preflight failure leaves registers and work untouched.
-            assert_eq!(decoder.snapshot(), before);
-        });
+        let error = context_bank(1, &tiny).unwrap_err();
+        assert_eq!(error.coder, Some(Coder::T88));
+        assert!(matches!(
+            error.kind,
+            ArithmeticErrorKind::Source(crate::Error::LimitExceeded { .. })
+        ));
     }
 }

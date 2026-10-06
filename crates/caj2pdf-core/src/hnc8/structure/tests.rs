@@ -3,7 +3,7 @@
 //! Original synthetic containers for every accepted text framing.
 
 use super::*;
-use crate::hnc8::{Budget, Hnc8Error};
+use crate::hnc8::Hnc8Error;
 use crate::test_support::NEVER;
 use crate::{Error, Limits};
 use flate2::{Compression, write::ZlibEncoder};
@@ -144,18 +144,17 @@ fn inspect(bytes: Vec<u8>) -> Vec<Outcome> {
     };
     let limits = Limits::default();
     {
-        let pages = Hnc8Reader::open(&mut source, &limits, &NEVER, Budget::default())
+        let pages = Hnc8Reader::open(&mut source, &limits, &NEVER)
             .unwrap()
             .header()
             .page_count;
         let mut outcomes = Vec::new();
         for number in 1..=pages {
             let mut reader =
-                Hnc8Reader::probe_at_page(&mut source, &limits, &NEVER, Budget::default(), number)
-                    .unwrap();
+                Hnc8Reader::probe_at_page(&mut source, &limits, &NEVER, number).unwrap();
             reader.next_page().unwrap().unwrap();
             while reader.next_image().unwrap().is_some() {}
-            outcomes.push(reader.inspect_text(TextBudget::default()));
+            outcomes.push(reader.inspect_text());
         }
         outcomes
     }
@@ -257,12 +256,12 @@ fn inspect_text_requires_a_current_page() {
     };
     let limits = Limits::default();
     {
-        let mut reader = Hnc8Reader::open(&mut source, &limits, &NEVER, Budget::default()).unwrap();
+        let mut reader = Hnc8Reader::open(&mut source, &limits, &NEVER).unwrap();
         assert_eq!(reader.page_row_bytes(), 20);
-        let error = reader.inspect_text(TextBudget::default()).unwrap_err();
+        let error = reader.inspect_text().unwrap_err();
         assert!(matches!(error.kind, ErrorKind::NoCurrentPage));
         reader.next_page().unwrap();
-        reader.inspect_text(TextBudget::default()).unwrap_err();
+        reader.inspect_text().unwrap_err();
     };
 }
 
@@ -276,7 +275,7 @@ fn compact_hn_b_rows_are_reported() {
     };
     let limits = Limits::default();
     let rows = {
-        Hnc8Reader::open(&mut source, &limits, &NEVER, Budget::default())
+        Hnc8Reader::open(&mut source, &limits, &NEVER)
             .unwrap()
             .page_row_bytes()
     };
@@ -289,7 +288,7 @@ fn tail(trailer: &[u8], fail_at: u64) -> crate::hnc8::Result<Option<ApplicationI
     let mut source = Memory { bytes, fail_at };
     let limits = Limits::default();
     {
-        Hnc8Reader::open(&mut source, &limits, &NEVER, Budget::default())
+        Hnc8Reader::open(&mut source, &limits, &NEVER)
             .unwrap()
             .application_info_tail()
     }

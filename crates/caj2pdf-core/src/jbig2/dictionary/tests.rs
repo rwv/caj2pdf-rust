@@ -4,51 +4,20 @@ use super::*;
 use crate::{NeverCancel, Payload};
 
 #[test]
-fn every_symbol_size_budget_is_checked_before_bitmap_work() {
-    let budget = DictionaryBudget::default();
+fn every_symbol_size_is_checked_before_bitmap_work() {
+    let limits = Limits::default();
     let wide = i64::from(u32::MAX) + 1;
     let cases = [
-        ((-1, 1), budget, (0, 0), "negative symbol dimension"),
-        ((1, -1), budget, (0, 0), "negative symbol dimension"),
-        ((0, 1), budget, (0, 0), "zero-dimension symbol bitmap"),
-        ((1, 0), budget, (0, 0), "zero-dimension symbol bitmap"),
-        ((wide, 1), budget, (0, 0), "symbol width exceeds 32 bits"),
-        ((1, wide), budget, (0, 0), "symbol height exceeds 32 bits"),
-        ((40_000, 1), budget, (0, 0), "symbol width"),
-        ((1, 40_000), budget, (0, 0), "symbol height"),
-        ((4_000, 4_000), budget, (0, 0), "symbol pixels"),
-        ((8, 8), budget, (u64::MAX, 0), "total pixel count overflow"),
-        (
-            (8, 8),
-            DictionaryBudget {
-                max_total_pixels: 63,
-                ..budget
-            },
-            (0, 0),
-            "dictionary pixels",
-        ),
-        (
-            (8, 8),
-            DictionaryBudget {
-                max_bytes_per_symbol: 7,
-                ..budget
-            },
-            (0, 0),
-            "symbol bytes",
-        ),
-        ((8, 8), budget, (0, u64::MAX), "stored byte count overflow"),
-        (
-            (8, 8),
-            DictionaryBudget {
-                max_stored_bitmap_bytes: 7,
-                ..budget
-            },
-            (0, 0),
-            "stored bitmap bytes",
-        ),
+        ((-1, 1), "negative symbol dimension"),
+        ((1, -1), "negative symbol dimension"),
+        ((0, 1), "zero-dimension symbol bitmap"),
+        ((1, 0), "zero-dimension symbol bitmap"),
+        ((wide, 1), "symbol width exceeds 32 bits"),
+        ((1, wide), "symbol height exceeds 32 bits"),
+        ((4_000, 4_000), "symbol pixels"),
     ];
-    for ((width, height), budget, (pixels, stored), expected) in cases {
-        let result = symbol_geometry(width, height, &budget, pixels, stored);
+    for ((width, height), expected) in cases {
+        let result = symbol_geometry(width, height, &limits);
         // Each expected text is the rejection's resource, reason, or feature.
         let text = format!("{result:?}");
         assert!(
@@ -56,24 +25,15 @@ fn every_symbol_size_budget_is_checked_before_bitmap_work() {
             "{width}x{height}: {text}"
         );
     }
-    assert!(matches!(
-        symbol_geometry(9, 2, &budget, 0, 0),
-        Ok((9, 2, 18, 4))
-    ));
+    assert!(matches!(symbol_geometry(9, 2, &limits), Ok((9, 2, 18, 4))));
     assert!(matches!(
         symbol_geometry(
             i64::from(u32::MAX),
             1,
-            &DictionaryBudget {
-                max_width: u32::MAX,
-                max_pixels_per_symbol: u64::MAX,
-                max_total_pixels: u64::MAX,
-                max_bytes_per_symbol: u64::MAX,
-                max_stored_bitmap_bytes: u64::MAX,
-                ..budget
+            &Limits {
+                max_image_pixels: u64::MAX,
+                ..limits
             },
-            0,
-            0
         ),
         Ok((u32::MAX, 1, _, _))
     ));
@@ -119,7 +79,6 @@ fn corrupted_internal_counters_refuse_overflow_with_located_progress() {
             &table,
             &mut contexts,
             &limits,
-            MqBudget::default(),
         )
         .unwrap();
         let header = DictionaryDataHeader {
@@ -157,15 +116,11 @@ fn corrupted_internal_counters_refuse_overflow_with_located_progress() {
             plan: Plan {
                 refine,
                 code_len: 0,
-                base_working: 0,
-                working_cap: u64::MAX,
-                refinement_budget: RefinementBudget::default(),
             },
             header,
             segment: 7,
             limits: &limits,
             cancellation: &NeverCancel,
-            budget: DictionaryBudget::default(),
             progress: DictionaryProgress {
                 height_classes,
                 export_runs,

@@ -9,8 +9,7 @@ use crate::fallible::len_u64;
 use crate::{Cancellation, Error, RangedSource};
 
 /// A forward position within `start..end` whose fields are read in requests
-/// of at most `request_bytes`. The bytes read from `start` may not exceed
-/// `max_header_bytes`.
+/// of at most `request_bytes`.
 pub(super) struct FieldCursor {
     pub(super) start: u64,
     pub(super) at: u64,
@@ -18,15 +17,10 @@ pub(super) struct FieldCursor {
     /// Bytes returned by the source, including any the caller counted first.
     pub(super) fetched: u64,
     pub(super) request_bytes: usize,
-    pub(super) max_header_bytes: u64,
 }
 
 /// Why a header field could not be read at the cursor.
 pub(super) enum FieldFault {
-    /// The header would grow past `max_header_bytes`.
-    LimitExceeded {
-        attempted: u64,
-    },
     /// The field end overflows 64 bits.
     Overflow,
     /// The field would end past the cursor's `end`.
@@ -43,13 +37,8 @@ pub(super) enum FieldFault {
 }
 
 impl FieldCursor {
-    /// Check that `additional` more header bytes fit the budget and the range.
+    /// Check that `additional` more header bytes fit the range.
     pub(super) fn check_room(&self, additional: u64) -> Result<(), FieldFault> {
-        // `start <= at`, and `at - start` is at most the budget already read.
-        let attempted = (self.at - self.start).saturating_add(additional);
-        if attempted > self.max_header_bytes {
-            return Err(FieldFault::LimitExceeded { attempted });
-        }
         let future = self
             .at
             .checked_add(additional)

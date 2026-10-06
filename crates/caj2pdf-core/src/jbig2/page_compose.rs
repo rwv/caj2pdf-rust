@@ -14,43 +14,9 @@ use super::{
     text::TextHeaderAnomaly,
     text_composer::{TextComposeReport, TextComposeStage},
 };
-use crate::{Cancellation, Error, Limits, MAX_BUDGET_COUNT};
+use crate::{Cancellation, Error, Limits};
 use std::io::Write;
 use std::{error, fmt};
-
-/// Independent bounds for a single page OR operation.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct PageComposeBudget {
-    pub max_width: u32,
-    pub max_height: u32,
-    pub max_pixels: u64,
-    pub max_packed_bytes: u64,
-    pub max_generic_bytes: u64,
-    pub max_output_bytes: u64,
-    pub max_output_write_calls: u64,
-    pub max_work_units: u64,
-    pub max_generic_request_bytes: usize,
-    pub max_output_request_bytes: usize,
-    pub max_resident_bytes: u64,
-}
-
-impl Default for PageComposeBudget {
-    fn default() -> Self {
-        Self {
-            max_width: 32_768,
-            max_height: 32_768,
-            max_pixels: 12_000_000,
-            max_packed_bytes: 128 * 1024 * 1024,
-            max_generic_bytes: 128 * 1024 * 1024,
-            max_output_bytes: 128 * 1024 * 1024,
-            max_output_write_calls: 10_000_000,
-            max_work_units: 400_000_000,
-            max_generic_request_bytes: 256 * 1024,
-            max_output_request_bytes: 256 * 1024,
-            max_resident_bytes: 256 * 1024,
-        }
-    }
-}
 
 /// Output and semantic progress. A failed operation's output is not a
 /// completed page, even when `output_bytes_written` equals `packed_bytes`.
@@ -59,11 +25,7 @@ pub struct PageComposeProgress {
     pub generic_bytes_accepted: u64,
     pub output_bytes_written: u64,
     pub rows_written: u32,
-    pub output_write_calls: u64,
-    /// One unit per ORed byte and per byte written.
-    pub work_units: u64,
     pub max_request_bytes: usize,
-    pub peak_resident_bytes: u64,
     pub producer_flushed: bool,
 }
 
@@ -97,7 +59,6 @@ pub enum PageComposeErrorKind {
     },
     AllocationFailed,
     Cancelled,
-    Limits(Error),
     Output(Error),
     Incomplete,
 }
@@ -117,7 +78,6 @@ impl fmt::Display for PageComposeError {
             } => write!(f, "{resource} limit {limit} exceeded by {attempted}"),
             PageComposeErrorKind::AllocationFailed => f.write_str("chunk allocation failed"),
             PageComposeErrorKind::Cancelled => f.write_str("cancelled"),
-            PageComposeErrorKind::Limits(source) => write!(f, "limits: {source}"),
             PageComposeErrorKind::Output(source) => write!(f, "output: {source}"),
             PageComposeErrorKind::Incomplete => f.write_str("page rows are incomplete"),
         }
@@ -127,9 +87,7 @@ impl fmt::Display for PageComposeError {
 impl error::Error for PageComposeError {
     fn source(&self) -> Option<&(dyn error::Error + 'static)> {
         match &self.kind {
-            PageComposeErrorKind::Limits(source) | PageComposeErrorKind::Output(source) => {
-                Some(source)
-            }
+            PageComposeErrorKind::Output(source) => Some(source),
             _ => None,
         }
     }
@@ -156,20 +114,6 @@ fn cap(resource: &'static str, maximum: u64, attempted: u64) -> PageComposeResul
     } else {
         Ok(())
     }
-}
-
-fn checked_resident_capacity(
-    actual: usize,
-    budget: &PageComposeBudget,
-    limits: &Limits,
-) -> PageComposeResult<u64> {
-    let actual = actual as u64;
-    cap(
-        "resident chunk bytes",
-        budget.max_resident_bytes.min(limits.max_allocation_bytes),
-        actual,
-    )?;
-    Ok(actual)
 }
 
 fn output_error(error: Error) -> PageComposeErrorKind {
@@ -200,7 +144,6 @@ pub struct PageOrSink<'a, W: Write, C: Cancellation> {
     bitmap: &'a [u8],
     output: &'a mut W,
     cancellation: &'a C,
-    budget: PageComposeBudget,
     chunk: Vec<u8>,
     progress: PageComposeProgress,
     failure: Option<PageComposeError>,
@@ -209,7 +152,6 @@ pub struct PageOrSink<'a, W: Write, C: Cancellation> {
 
 impl<'a, W: Write, C: Cancellation> PageOrSink<'a, W, C> {
     /// `bitmap` is the packed text region that `text` reports.
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
         profile: PageProfile,
         text: TextComposeReport,
@@ -217,35 +159,9 @@ impl<'a, W: Write, C: Cancellation> PageOrSink<'a, W, C> {
         output: &'a mut W,
         limits: &Limits,
         cancellation: &'a C,
-        budget: PageComposeBudget,
     ) -> PageComposeResult<Self> {
-        limits
-            .validate()
-            .map_err(|error| at(0, PageComposeErrorKind::Limits(error)))?;
         if cancellation.is_cancelled() {
             return Err(at(0, PageComposeErrorKind::Cancelled));
-        }
-        if budget.max_generic_request_bytes == 0
-            || budget.max_output_request_bytes == 0
-            || budget.max_resident_bytes == 0
-        {
-            return Err(at(
-                0,
-                PageComposeErrorKind::Malformed("zero request or resident cap"),
-            ));
-        }
-        let counters = [
-            budget.max_packed_bytes,
-            budget.max_generic_bytes,
-            budget.max_output_bytes,
-            budget.max_output_write_calls,
-            budget.max_work_units,
-        ];
-        if counters.into_iter().any(|count| count > MAX_BUDGET_COUNT) {
-            return Err(at(
-                0,
-                PageComposeErrorKind::Malformed("budget count exceeds hard ceiling"),
-            ));
         }
         // PageProfile can only be made by the checked observed-profile
         // preflight. Its dimensions, packed geometry, flags, and operators
@@ -269,48 +185,22 @@ impl<'a, W: Write, C: Cancellation> PageOrSink<'a, W, C> {
         if text.progress.stage != TextComposeStage::Complete {
             return Err(at(0, PageComposeErrorKind::Incomplete));
         }
-        // u32 dimensions make both products fit u64. With packed rows,
-        // packed * 2 stays below 2^63 even at the u32 dimension ceiling.
-        let pixels = u64::from(page.width) * u64::from(page.height);
-        let work = packed * 2;
-        cap(
-            "page width",
-            u64::from(budget.max_width),
-            u64::from(page.width),
-        )?;
-        cap(
-            "page height",
-            u64::from(budget.max_height),
-            u64::from(page.height),
-        )?;
-        cap("page pixels", budget.max_pixels, pixels)?;
-        cap("packed page bytes", budget.max_packed_bytes, packed)?;
-        cap("generic input bytes", budget.max_generic_bytes, packed)?;
-        cap(
-            "page output bytes",
-            budget.max_output_bytes.min(limits.max_output_bytes),
-            packed,
-        )?;
-        cap("page work units", budget.max_work_units, work)?;
+        // The page-information preflight bounded the page's pixels and
+        // packed bytes; the output limit also bounds the packed page.
+        cap("page output bytes", limits.max_output_bytes, packed)?;
         if bitmap.len() as u64 != packed {
             return Err(at(
                 0,
                 PageComposeErrorKind::InvalidSpan("text bitmap size differs"),
             ));
         }
-        let chunk_size = page
-            .row_stride
-            .min(budget.max_generic_request_bytes)
-            .min(budget.max_output_request_bytes)
-            .min(limits.io_chunk_bytes)
-            .min(usize::try_from(budget.max_resident_bytes).unwrap_or(usize::MAX));
-        // Every factor is nonzero and chunk_size <= limits.io_chunk_bytes;
-        // Limits::validate already capped that chunk by max_allocation_bytes.
+        // A row is nonempty and the entry point's `Limits::validate` capped
+        // the I/O chunk by `max_allocation_bytes`.
+        let chunk_size = page.row_stride.min(limits.io_chunk_bytes.max(1));
         let mut chunk = Vec::new();
         chunk
             .try_reserve_exact(chunk_size)
             .map_err(|_| at(0, PageComposeErrorKind::AllocationFailed))?;
-        let resident = checked_resident_capacity(chunk.capacity(), &budget, limits)?;
         chunk.resize(chunk_size, 0);
         Ok(Self {
             profile,
@@ -318,12 +208,8 @@ impl<'a, W: Write, C: Cancellation> PageOrSink<'a, W, C> {
             bitmap,
             output,
             cancellation,
-            budget,
             chunk,
-            progress: PageComposeProgress {
-                peak_resident_bytes: resident,
-                ..PageComposeProgress::default()
-            },
+            progress: PageComposeProgress::default(),
             failure: None,
             armed: false,
         })
@@ -480,31 +366,11 @@ impl<'a, W: Write, C: Cancellation> PageOrSink<'a, W, C> {
             self.chunk[index] = generic | value;
         }
         self.progress.generic_bytes_accepted += count as u64;
-        self.progress.work_units += count as u64;
-        let mut sent = 0usize;
-        while sent < count {
-            self.check_cancelled(offset + sent as u64)?;
-            let requested = (count - sent).min(self.budget.max_output_request_bytes);
-            let attempted = self.progress.output_write_calls + 1;
-            if attempted > self.budget.max_output_write_calls {
-                return Err(self.fail(
-                    offset + sent as u64,
-                    PageComposeErrorKind::LimitExceeded {
-                        resource: "output write calls",
-                        limit: self.budget.max_output_write_calls,
-                        attempted,
-                    },
-                ));
-            }
-            self.progress.output_write_calls = attempted;
-            self.note_request(requested);
-            if let Err(error) = self.output.write_all(&self.chunk[sent..sent + requested]) {
-                return Err(self.fail(offset + sent as u64, output_error(error.into())));
-            }
-            self.progress.output_bytes_written += requested as u64;
-            self.progress.work_units += requested as u64;
-            sent += requested;
+        self.check_cancelled(offset)?;
+        if let Err(error) = self.output.write_all(&self.chunk[..count]) {
+            return Err(self.fail(offset, output_error(error.into())));
         }
+        self.progress.output_bytes_written += count as u64;
         if column + count == page.row_stride {
             self.progress.rows_written += 1;
         }
@@ -596,46 +462,5 @@ impl<W: Write, C: Cancellation> PageOrSink<'_, W, C> {
         }
         self.armed = true;
         Ok(())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn actual_allocator_capacity_must_fit_both_resident_limits() {
-        let budget = PageComposeBudget {
-            max_resident_bytes: 3,
-            ..PageComposeBudget::default()
-        };
-        let limits = Limits {
-            max_allocation_bytes: 4,
-            ..Limits::default()
-        };
-        assert_eq!(checked_resident_capacity(3, &budget, &limits).unwrap(), 3);
-        let error = checked_resident_capacity(4, &budget, &limits).unwrap_err();
-        assert!(matches!(
-            error.kind,
-            PageComposeErrorKind::LimitExceeded {
-                resource: "resident chunk bytes",
-                limit: 3,
-                attempted: 4,
-            }
-        ));
-        let larger_budget = PageComposeBudget {
-            max_resident_bytes: 5,
-            ..budget
-        };
-        assert!(matches!(
-            checked_resident_capacity(5, &larger_budget, &limits)
-                .unwrap_err()
-                .kind,
-            PageComposeErrorKind::LimitExceeded {
-                resource: "resident chunk bytes",
-                limit: 4,
-                attempted: 5,
-            }
-        ));
     }
 }

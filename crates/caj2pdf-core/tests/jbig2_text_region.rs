@@ -10,11 +10,11 @@ use common::CancelAfter;
 use caj2pdf_core::{
     Cancellation, Error, Limits, RangedSource,
     jbig2::{
-        HeaderLimits, SegmentHeader, SegmentSpan, read_segment_header,
+        SegmentHeader, SegmentSpan, read_segment_header,
         text::{
             ReferenceCorner, RegionCombination, SymbolCombination, TextHeaderAnomaly,
-            TextHeaderPolicy, TextRegionBudget, TextRegionError, TextRegionErrorKind,
-            TextRegionHeader, read_text_region_header, read_text_region_header_with_policy,
+            TextHeaderPolicy, TextRegionError, TextRegionErrorKind, TextRegionHeader,
+            read_text_region_header, read_text_region_header_with_policy,
         },
     },
 };
@@ -104,7 +104,6 @@ fn parse_header(bytes: &[u8]) -> SegmentHeader {
             length: bytes.len() as u64,
         },
         &Limits::default(),
-        HeaderLimits::default(),
         &CancelAfter::Never,
     )
     .unwrap()
@@ -177,26 +176,22 @@ impl Region {
 
 fn parse_with(
     source: &mut Source,
-    budget: TextRegionBudget,
+    cancellation: &impl Cancellation,
+) -> Result<TextRegionHeader, TextRegionError> {
+    parse_limited(source, Limits::default(), cancellation)
+}
+
+fn parse_limited(
+    source: &mut Source,
+    limits: Limits,
     cancellation: &impl Cancellation,
 ) -> Result<TextRegionHeader, TextRegionError> {
     let header = parse_header(&source.bytes);
-    read_text_region_header(
-        source,
-        &header,
-        &dictionary(2, 1),
-        &Limits::default(),
-        budget,
-        cancellation,
-    )
+    read_text_region_header(source, &header, &dictionary(2, 1), &limits, cancellation)
 }
 
 fn parse(region: &Region) -> Result<TextRegionHeader, TextRegionError> {
-    parse_with(
-        &mut Source::new(region.segment()),
-        TextRegionBudget::default(),
-        &CancelAfter::Never,
-    )
+    parse_with(&mut Source::new(region.segment()), &CancelAfter::Never)
 }
 
 fn error(region: &Region) -> TextRegionError {
@@ -214,7 +209,6 @@ fn parse_policy(
         &header,
         &dictionary(2, 1),
         &Limits::default(),
-        TextRegionBudget::default(),
         &CancelAfter::Never,
         policy,
     )
@@ -450,7 +444,6 @@ fn hn_c8_policy_rejects_adjacent_invalid_flags_and_changed_framing() {
         &segment,
         &dictionary(2, 1),
         &Limits::default(),
-        TextRegionBudget::default(),
         &CancelAfter::Never,
         TextHeaderPolicy::HnC8UnusedRefinementTemplate,
     )
@@ -483,7 +476,6 @@ fn hn_c8_policy_rejects_adjacent_invalid_flags_and_changed_framing() {
         &segment,
         &dictionary(2, 1),
         &Limits::default(),
-        TextRegionBudget::default(),
         &CancelAfter::Never,
         TextHeaderPolicy::HnC8UnusedRefinementTemplate,
     )
@@ -505,7 +497,6 @@ fn hn_c8_policy_rejects_adjacent_invalid_flags_and_changed_framing() {
         &segment,
         &dictionary(2, 1),
         &Limits::default(),
-        TextRegionBudget::default(),
         &CancelAfter::Never,
         TextHeaderPolicy::HnC8UnusedRefinementTemplate,
     )
@@ -626,68 +617,28 @@ fn region_information_is_validated() {
 }
 
 #[test]
-fn dimensions_pixels_instances_and_body_respect_budget() {
-    let budget = TextRegionBudget {
-        max_width: 64,
-        max_height: 32,
-        max_pixels: 64 * 32,
-        max_instances: 6,
-        max_body_bytes: 4,
-        ..TextRegionBudget::default()
+fn pixels_and_instances_respect_the_image_pixel_limit() {
+    let limits = Limits {
+        max_image_pixels: 64 * 32,
+        ..Limits::default()
     };
-    let check = |region: Region, resource: &str, offset: u64, attempted: u64| {
-        let error = parse_with(
-            &mut Source::new(region.segment()),
-            budget,
-            &CancelAfter::Never,
-        )
-        .expect_err("budget must be enforced");
-        assert_eq!(error.offset, offset, "{resource}");
-        match error.kind {
-            TextRegionErrorKind::LimitExceeded {
-                resource: got,
-                attempted: value,
-                ..
-            } => assert_eq!((got, value), (resource, attempted)),
-            other => panic!("unexpected {other:?}"),
-        }
-    };
-    parse_with(
+    parse_limited(
         &mut Source::new(Region::default().segment()),
-        budget,
+        limits,
         &CancelAfter::Never,
     )
     .unwrap();
-    check(
-        Region {
-            width: 65,
-            height: 1,
-            ..Region::default()
-        },
-        "text region width",
-        DATA_OFFSET,
-        65,
-    );
-    check(
-        Region {
-            width: 1,
-            height: 33,
-            ..Region::default()
-        },
-        "text region height",
-        DATA_OFFSET + 4,
-        33,
-    );
-    let tight = TextRegionBudget {
-        max_pixels: 64 * 32 - 1,
-        ..budget
+    let tight = Limits {
+        max_image_pixels: 64 * 32 - 1,
+        ..limits
     };
-    let error = parse_with(
+    let error = parse_limited(
         &mut Source::new(Region::default().segment()),
         tight,
         &CancelAfter::Never,
     )
     .unwrap_err();
+    assert_eq!(error.offset, DATA_OFFSET);
     assert!(matches!(
         error.kind,
         TextRegionErrorKind::LimitExceeded {
@@ -696,47 +647,31 @@ fn dimensions_pixels_instances_and_body_respect_budget() {
             ..
         }
     ));
-    check(
-        Region {
-            instances: 7,
-            ..Region::default()
-        },
-        "text region symbol instances",
-        DATA_OFFSET + 19,
-        7,
-    );
-    check(
-        Region {
-            body: vec![0; 5],
-            ..Region::default()
-        },
-        "text region body bytes",
-        DATA_OFFSET + 23,
-        5,
-    );
-    let small_header = TextRegionBudget {
-        max_data_header_bytes: 22,
-        ..budget
-    };
-    let error = parse_with(
-        &mut Source::new(Region::default().segment()),
-        small_header,
+    let error = parse_limited(
+        &mut Source::new(
+            Region {
+                instances: 64 * 32 + 1,
+                ..Region::default()
+            }
+            .segment(),
+        ),
+        limits,
         &CancelAfter::Never,
     )
     .unwrap_err();
+    assert_eq!(error.offset, DATA_OFFSET + 19);
     assert!(matches!(
         error.kind,
         TextRegionErrorKind::LimitExceeded {
-            resource: "text region header bytes",
-            limit: 22,
-            attempted: 23
+            resource: "text region symbol instances",
+            attempted: 2049,
+            ..
         }
     ));
-    assert_eq!(error.bytes_fetched, 19);
     assert!(
         error
             .to_string()
-            .ends_with("text region header bytes limit 22 exceeded by 23")
+            .ends_with("text region symbol instances limit 2048 exceeded by 2049")
     );
 }
 
@@ -760,12 +695,7 @@ fn truncated_fields_and_mq_terminal_pair() {
         (24, "MQ body terminal pair"),
     ] {
         let segment = frame(3, 6, &[2], 1, &data[..length]);
-        let error = parse_with(
-            &mut Source::new(segment),
-            TextRegionBudget::default(),
-            &CancelAfter::Never,
-        )
-        .unwrap_err();
+        let error = parse_with(&mut Source::new(segment), &CancelAfter::Never).unwrap_err();
         match error.kind {
             TextRegionErrorKind::Truncated(got) => assert_eq!(got, field, "{length}"),
             other => panic!("unexpected {other:?} at {length}"),
@@ -779,7 +709,6 @@ fn truncated_fields_and_mq_terminal_pair() {
     .data();
     let error = parse_with(
         &mut Source::new(frame(3, 6, &[2], 1, &huffman[..20])),
-        TextRegionBudget::default(),
         &CancelAfter::Never,
     )
     .unwrap_err();
@@ -795,7 +724,6 @@ fn truncated_fields_and_mq_terminal_pair() {
     .data();
     let error = parse_with(
         &mut Source::new(frame(3, 6, &[2], 1, &adaptive[..22])),
-        TextRegionBudget::default(),
         &CancelAfter::Never,
     )
     .unwrap_err();
@@ -818,7 +746,6 @@ fn with_header(
         &region,
         &dict,
         &Limits::default(),
-        TextRegionBudget::default(),
         &CancelAfter::Never,
     )
     .unwrap_err();
@@ -897,7 +824,6 @@ fn segment_type_reference_and_page_are_checked_before_reads() {
         &region,
         &dictionary(2, 0),
         &Limits::default(),
-        TextRegionBudget::default(),
         &CancelAfter::Never,
     )
     .unwrap();
@@ -936,7 +862,6 @@ fn spans_are_checked_before_reads() {
             max_input_bytes: 10,
             ..Limits::default()
         },
-        TextRegionBudget::default(),
         &CancelAfter::Never,
     )
     .unwrap_err();
@@ -966,7 +891,6 @@ fn header_near_the_end_of_a_huge_source_is_truncated_without_overflow() {
         &region,
         &dictionary(2, 1),
         &Limits::default(),
-        TextRegionBudget::default(),
         &CancelAfter::Never,
     )
     .unwrap_err();
@@ -979,50 +903,14 @@ fn header_near_the_end_of_a_huge_source_is_truncated_without_overflow() {
 }
 
 #[test]
-fn invalid_limits_and_zero_request_bound_are_rejected() {
-    let bytes = Region::default().segment();
-    let region = parse_header(&bytes);
-    let mut source = Source::new(bytes);
-    let error = read_text_region_header(
-        &mut source,
-        &region,
-        &dictionary(2, 1),
-        &Limits {
-            io_chunk_bytes: 0,
-            ..Limits::default()
-        },
-        TextRegionBudget::default(),
-        &CancelAfter::Never,
-    )
-    .unwrap_err();
-    assert!(matches!(error.kind, TextRegionErrorKind::Source(_)));
-    assert!(std::error::Error::source(&error).is_some());
-    let error = parse_with(
-        &mut source,
-        TextRegionBudget {
-            max_source_request_bytes: 0,
-            ..TextRegionBudget::default()
-        },
-        &CancelAfter::Never,
-    )
-    .unwrap_err();
-    assert!(matches!(
-        error.kind,
-        TextRegionErrorKind::Malformed("zero I/O request bound")
-    ));
-    assert!(std::error::Error::source(&error).is_none());
-    assert!(source.reads.is_empty());
-}
-
-#[test]
 fn requests_are_bounded_and_short_reads_resume() {
     let mut source = Source::new(Region::default().segment());
     source.max_read = 3;
-    let budget = TextRegionBudget {
-        max_source_request_bytes: 5,
-        ..TextRegionBudget::default()
+    let limits = Limits {
+        io_chunk_bytes: 5,
+        ..Limits::default()
     };
-    let parsed = parse_with(&mut source, budget, &CancelAfter::Never).unwrap();
+    let parsed = parse_limited(&mut source, limits, &CancelAfter::Never).unwrap();
     assert_eq!(parsed.header_bytes, 23);
     assert!(source.reads.iter().all(|&(_, length)| length <= 5));
     // Each read serves three bytes and resumes at the next offset; the last
@@ -1035,7 +923,7 @@ fn requests_are_bounded_and_short_reads_resume() {
     assert_eq!(offsets, expected);
     assert_eq!(source.reads.last(), Some(&(DATA_OFFSET + 22, 1)));
 
-    // `Limits::io_chunk_bytes` also caps each request.
+    // A smaller `Limits::io_chunk_bytes` caps each request further.
     let bytes = Region::default().segment();
     let header = parse_header(&bytes);
     let mut source = Source::new(bytes);
@@ -1047,7 +935,6 @@ fn requests_are_bounded_and_short_reads_resume() {
             io_chunk_bytes: 2,
             ..Limits::default()
         },
-        TextRegionBudget::default(),
         &CancelAfter::Never,
     )
     .unwrap();
@@ -1076,12 +963,7 @@ fn source_faults_are_typed_and_located() {
         let mut source = Source::new(Region::default().segment());
         source.fault = fault;
         source.max_read = 5;
-        let error = parse_with(
-            &mut source,
-            TextRegionBudget::default(),
-            &CancelAfter::Never,
-        )
-        .unwrap_err();
+        let error = parse_with(&mut source, &CancelAfter::Never).unwrap_err();
         assert!(error.to_string().contains(message), "{error}");
         assert_eq!(error.bytes_fetched, fetched);
         assert_eq!(error.offset, DATA_OFFSET + fetched);
@@ -1103,7 +985,6 @@ fn cancellation_is_checked_before_and_between_reads() {
             &region,
             &dictionary(2, 1),
             &Limits::default(),
-            TextRegionBudget::default(),
             &cancellation,
         )
         .unwrap_err();
@@ -1121,7 +1002,7 @@ fn cancellation_is_checked_before_and_between_reads() {
 }
 
 #[test]
-fn fixed_budget_mutations_never_panic_or_read_past_header() {
+fn input_mutations_never_panic_or_read_past_header() {
     let original = Region::default().segment();
     let region = parse_header(&original);
     let dict = dictionary(2, 1);
@@ -1143,7 +1024,6 @@ fn fixed_budget_mutations_never_panic_or_read_past_header() {
             &region,
             &dict,
             &Limits::default(),
-            TextRegionBudget::default(),
             &CancelAfter::Never,
         );
         outcomes[usize::from(result.is_ok())] += 1;

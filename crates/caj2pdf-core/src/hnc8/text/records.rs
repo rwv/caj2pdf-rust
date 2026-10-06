@@ -73,16 +73,16 @@ impl Records {
     }
 
     /// Ordered uncompressed HN-A records. Errors are located at the record.
-    pub(super) fn ordered(limit: u32) -> Self {
-        Self::with(Grammar::Ordered(Stage::Start), limit)
+    pub(super) fn ordered() -> Self {
+        Self::with(Grammar::Ordered(Stage::Start), u32::MAX)
     }
 
     /// Tagged records, accepting the paired `8003` page prefix and the `80ce`
     /// control of the raw profile when `page_prefix` is set. Errors are
     /// located at the frame start: a compressed byte offset cannot identify
     /// the corresponding expanded record byte.
-    pub(super) fn tagged(limit: u32, page_prefix: bool) -> Self {
-        Self::with(Grammar::Tagged { page_prefix }, limit)
+    pub(super) fn tagged(page_prefix: bool) -> Self {
+        Self::with(Grammar::Tagged { page_prefix }, u32::MAX)
     }
 
     /// The fixed glyph/tail layout of `record_count` checked glyph records.

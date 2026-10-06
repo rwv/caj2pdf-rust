@@ -8,39 +8,10 @@
 //! profile. It is not a general JBIG2 page-information decoder.
 
 use super::{SegmentHeader, SegmentSpan};
-use crate::{Cancellation, Error, Limits, MAX_IO_CHUNK, RangedSource};
+use crate::{Cancellation, Error, Limits, RangedSource};
 use std::{error, fmt};
 
 const PAGE_INFORMATION_BYTES: u64 = 19;
-
-/// Resource bounds for parsing one page-information body.
-///
-/// Packed bytes can live in caller-owned temporary storage. This limit does
-/// not require an in-memory allocation of the whole page.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct PageInfoBudget {
-    pub max_width: u32,
-    pub max_height: u32,
-    pub max_pixels: u64,
-    pub max_packed_bytes: u64,
-    pub max_source_request_bytes: usize,
-    pub max_source_io_bytes: u64,
-    pub max_source_io_calls: u64,
-}
-
-impl Default for PageInfoBudget {
-    fn default() -> Self {
-        Self {
-            max_width: 32_768,
-            max_height: 32_768,
-            max_pixels: 12_000_000,
-            max_packed_bytes: 8 * 1024 * 1024,
-            max_source_request_bytes: PAGE_INFORMATION_BYTES as usize,
-            max_source_io_bytes: PAGE_INFORMATION_BYTES,
-            max_source_io_calls: PAGE_INFORMATION_BYTES,
-        }
-    }
-}
 
 /// Validated page geometry and the retained original page flags.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -57,22 +28,15 @@ pub struct PageInfo {
     pub striping_raw: u16,
     pub row_stride: usize,
     pub packed_bytes: u64,
-    /// Body reads only; segment framing reads are accounted separately.
-    pub source_bytes_fetched: u64,
-    pub source_read_calls: u64,
-    pub max_source_request_bytes: usize,
 }
 
-/// A located page-information error with partial source progress.
+/// A located page-information error.
 #[derive(Debug)]
 pub struct PageInfoError {
     pub offset: u64,
     pub segment: u32,
-    pub source_bytes_fetched: u64,
-    pub source_read_calls: u64,
     pub kind: PageInfoErrorKind,
 }
-
 #[derive(Debug)]
 pub enum PageInfoErrorKind {
     InvalidSpan(&'static str),
@@ -129,8 +93,6 @@ fn at(header: &SegmentHeader, offset: u64, kind: PageInfoErrorKind) -> PageInfoE
     PageInfoError {
         offset,
         segment: header.number,
-        source_bytes_fetched: 0,
-        source_read_calls: 0,
         kind,
     }
 }
@@ -157,20 +119,9 @@ fn validate_span(
     header: &SegmentHeader,
     source_size: u64,
     limits: &Limits,
-    budget: PageInfoBudget,
     cancellation: &dyn Cancellation,
 ) -> PageInfoResult<()> {
     let offset = header.data.offset;
-    limits
-        .validate()
-        .map_err(|error| at(header, offset, PageInfoErrorKind::Source(error)))?;
-    if budget.max_source_request_bytes == 0 {
-        return Err(at(
-            header,
-            offset,
-            PageInfoErrorKind::Malformed("zero source request bound"),
-        ));
-    }
     if cancellation.is_cancelled() {
         return Err(at(header, offset, PageInfoErrorKind::Cancelled));
     }
@@ -197,15 +148,6 @@ fn validate_span(
             PAGE_INFORMATION_BYTES,
         ));
     }
-    if PAGE_INFORMATION_BYTES > budget.max_source_io_bytes {
-        return Err(limit(
-            header,
-            offset,
-            "page information source bytes",
-            budget.max_source_io_bytes,
-            PAGE_INFORMATION_BYTES,
-        ));
-    }
     let end = offset.checked_add(PAGE_INFORMATION_BYTES).ok_or_else(|| {
         at(
             header,
@@ -227,9 +169,6 @@ fn checked_info(
     header: &SegmentHeader,
     bytes: [u8; PAGE_INFORMATION_BYTES as usize],
     limits: &Limits,
-    budget: PageInfoBudget,
-    source_read_calls: u64,
-    max_source_request_bytes: usize,
 ) -> PageInfoResult<PageInfo> {
     let offset = header.data.offset;
     let width = u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
@@ -238,32 +177,14 @@ fn checked_info(
     let y_resolution = u32::from_be_bytes([bytes[12], bytes[13], bytes[14], bytes[15]]);
     let flags = bytes[16];
     let striping = u16::from_be_bytes([bytes[17], bytes[18]]);
-    if width > budget.max_width {
-        return Err(limit(
-            header,
-            offset,
-            "page width",
-            u64::from(budget.max_width),
-            u64::from(width),
-        ));
-    }
-    if height > budget.max_height {
-        return Err(limit(
-            header,
-            offset + 4,
-            "page height",
-            u64::from(budget.max_height),
-            u64::from(height),
-        ));
-    }
     // Both dimensions are u32, so their product is strictly below u64::MAX.
     let pixels = u64::from(width) * u64::from(height);
-    if pixels > budget.max_pixels {
+    if pixels > limits.max_image_pixels {
         return Err(limit(
             header,
             offset,
             "page pixels",
-            budget.max_pixels,
+            limits.max_image_pixels,
             pixels,
         ));
     }
@@ -272,12 +193,12 @@ fn checked_info(
     // have at least a 32-bit usize.
     let row_stride = width.div_ceil(8) as usize;
     let packed_bytes = row_stride as u64 * u64::from(height);
-    if packed_bytes > budget.max_packed_bytes {
+    if packed_bytes > limits.max_allocation_bytes {
         return Err(limit(
             header,
             offset,
             "packed page bytes",
-            budget.max_packed_bytes,
+            limits.max_allocation_bytes,
             packed_bytes,
         ));
     }
@@ -300,108 +221,64 @@ fn checked_info(
         striping_raw: striping,
         row_stride,
         packed_bytes,
-        source_bytes_fetched: PAGE_INFORMATION_BYTES,
-        source_read_calls,
-        max_source_request_bytes,
     })
 }
 
 /// Read and bound the caller-delimited page-information body of `header`.
 ///
-/// The caller owns the range source. Reads are positioned, at most 19 bytes,
-/// and may complete through several short reads. No heap allocation occurs.
+/// The caller owns the range source. Reads are positioned, at most 19 bytes
+/// and one I/O chunk, and may complete through several short reads. No heap
+/// allocation occurs.
 pub fn read_page_info<S: RangedSource, C: Cancellation>(
     source: &mut S,
     header: &SegmentHeader,
     limits: &Limits,
-    budget: PageInfoBudget,
     cancellation: &C,
 ) -> PageInfoResult<PageInfo> {
-    validate_span(header, source.size(), limits, budget, cancellation)?;
+    validate_span(header, source.size(), limits, cancellation)?;
     let mut bytes = [0_u8; PAGE_INFORMATION_BYTES as usize];
     let mut done = 0_usize;
-    let mut calls = 0_u64;
-    let request_bound = budget
-        .max_source_request_bytes
-        .min(limits.io_chunk_bytes)
-        .min(MAX_IO_CHUNK);
-    let mut max_request = 0_usize;
+    let request_bound = limits.io_chunk_bytes.max(1);
     while done < bytes.len() {
         let offset = header.data.offset + done as u64;
+        let failed = |kind| PageInfoError {
+            offset,
+            segment: header.number,
+            kind,
+        };
         if cancellation.is_cancelled() {
-            return Err(PageInfoError {
-                offset,
-                segment: header.number,
-                source_bytes_fetched: done as u64,
-                source_read_calls: calls,
-                kind: PageInfoErrorKind::Cancelled,
-            });
-        }
-        if calls >= budget.max_source_io_calls {
-            return Err(PageInfoError {
-                offset,
-                segment: header.number,
-                source_bytes_fetched: done as u64,
-                source_read_calls: calls,
-                kind: PageInfoErrorKind::LimitExceeded {
-                    resource: "page information source calls",
-                    limit: budget.max_source_io_calls,
-                    attempted: calls + 1,
-                },
-            });
+            return Err(failed(PageInfoErrorKind::Cancelled));
         }
         let request = (bytes.len() - done).min(request_bound);
-        max_request = max_request.max(request);
-        calls += 1;
-        let result = source.read_at(offset, &mut bytes[done..done + request]);
-        let count = result.map_err(|error| {
-            let kind = match error {
-                Error::Cancelled => PageInfoErrorKind::Cancelled,
-                Error::TruncatedInput { .. } => {
-                    PageInfoErrorKind::Truncated("page information body")
-                }
-                other => PageInfoErrorKind::Source(other),
-            };
-            PageInfoError {
-                offset,
-                segment: header.number,
-                source_bytes_fetched: done as u64,
-                source_read_calls: calls,
-                kind,
-            }
-        })?;
+        let count = source
+            .read_at(offset, &mut bytes[done..done + request])
+            .map_err(|error| {
+                failed(match error {
+                    Error::Cancelled => PageInfoErrorKind::Cancelled,
+                    Error::TruncatedInput { .. } => {
+                        PageInfoErrorKind::Truncated("page information body")
+                    }
+                    other => PageInfoErrorKind::Source(other),
+                })
+            })?;
         if count > request {
-            return Err(PageInfoError {
-                offset,
-                segment: header.number,
-                source_bytes_fetched: done as u64,
-                source_read_calls: calls,
-                kind: PageInfoErrorKind::Malformed("source reported more bytes than requested"),
-            });
+            return Err(failed(PageInfoErrorKind::Malformed(
+                "source reported more bytes than requested",
+            )));
         }
         done += count;
         if cancellation.is_cancelled() {
             return Err(PageInfoError {
                 offset: header.data.offset + done as u64,
                 segment: header.number,
-                source_bytes_fetched: done as u64,
-                source_read_calls: calls,
                 kind: PageInfoErrorKind::Cancelled,
             });
         }
         if count == 0 {
-            return Err(PageInfoError {
-                offset,
-                segment: header.number,
-                source_bytes_fetched: done as u64,
-                source_read_calls: calls,
-                kind: PageInfoErrorKind::Truncated("page information body"),
-            });
+            return Err(failed(PageInfoErrorKind::Truncated(
+                "page information body",
+            )));
         }
     }
-    checked_info(header, bytes, limits, budget, calls, max_request).map_err(|mut error| {
-        error.source_bytes_fetched = done as u64;
-        error.source_read_calls = calls;
-        error
-    })
+    checked_info(header, bytes, limits)
 }

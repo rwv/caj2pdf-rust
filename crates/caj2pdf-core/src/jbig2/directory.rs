@@ -2,33 +2,10 @@
 
 //! A bounded index of contiguous embedded JBIG2 segments.
 
-use super::{
-    HeaderError, HeaderLimits, PrefixBudget, SegmentHeader, SegmentSpan, read_header_prefix,
-    validate_enclosing_span,
-};
+use super::{HeaderError, SegmentHeader, SegmentSpan, read_header_prefix, validate_enclosing_span};
 use crate::fallible::{len_u64, reserve_exact};
 use crate::{Cancellation, Limits, RangedSource};
 use std::{error, fmt, mem};
-
-/// Per-image bounds in addition to [`HeaderLimits`] and the shared [`Limits`].
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct DirectoryLimits {
-    pub max_span_bytes: u64,
-    pub max_segments: u32,
-    pub max_total_references: u32,
-    pub max_metadata_bytes: u64,
-}
-
-impl Default for DirectoryLimits {
-    fn default() -> Self {
-        Self {
-            max_span_bytes: 64 * 1024 * 1024,
-            max_segments: 4096,
-            max_total_references: 16_384,
-            max_metadata_bytes: 1024 * 1024,
-        }
-    }
-}
 
 /// Headers in physical source order. Segment numbers need not be in that order.
 #[derive(Debug)]
@@ -224,7 +201,7 @@ fn allowed_target(source: u8, target: u8) -> bool {
 fn validate_graph<C: Cancellation>(
     segments: &[SegmentHeader],
     metadata_bytes: u64,
-    limits: DirectoryLimits,
+    limits: &Limits,
     cancellation: &C,
 ) -> Result<()> {
     let mut index = Vec::new();
@@ -260,12 +237,12 @@ fn validate_graph<C: Cancellation>(
                 .checked_mul(mem::size_of::<u32>() as u64)
                 .ok_or(invalid_span(source, "scratch size overflows"))?;
             let attempted = checked_total(metadata_bytes, scratch_bytes, source.header_offset())?;
-            if attempted > limits.max_metadata_bytes {
+            if attempted > limits.max_allocation_bytes {
                 return Err(at(
                     source,
                     DirectoryErrorKind::LimitExceeded {
                         resource: "JBIG2 directory metadata bytes",
-                        limit: limits.max_metadata_bytes,
+                        limit: limits.max_allocation_bytes,
                         attempted,
                     },
                 ));
@@ -354,32 +331,15 @@ fn validate_graph<C: Cancellation>(
 /// checked offset arithmetic. Physical segment order may differ from number
 /// order, as allowed by T.88 Annex D.3. The caller must identify the enclosing
 /// embedded span; this API does not discover HN/C8 records or standalone files.
+/// The directory's headers and index together are bounded by
+/// `Limits::max_allocation_bytes`.
 pub fn read_embedded_directory<S: RangedSource, C: Cancellation>(
     source: &mut S,
     span: SegmentSpan,
     limits: &Limits,
-    header_limits: HeaderLimits,
-    directory_limits: DirectoryLimits,
     cancellation: &C,
 ) -> Result<SegmentDirectory> {
     let end = validate_enclosing_span(source, span, limits)?;
-    let directory_limits = DirectoryLimits {
-        max_metadata_bytes: directory_limits
-            .max_metadata_bytes
-            .min(limits.max_allocation_bytes),
-        ..directory_limits
-    };
-    if span.length > directory_limits.max_span_bytes {
-        return Err(DirectoryError {
-            offset: span.offset,
-            segment: None,
-            kind: DirectoryErrorKind::LimitExceeded {
-                resource: "JBIG2 directory span bytes",
-                limit: directory_limits.max_span_bytes,
-                attempted: span.length,
-            },
-        });
-    }
     let entry_bytes = (mem::size_of::<SegmentHeader>() as u64)
         .checked_add(mem::size_of::<IndexEntry>() as u64)
         .ok_or(DirectoryError {
@@ -387,71 +347,45 @@ pub fn read_embedded_directory<S: RangedSource, C: Cancellation>(
             segment: None,
             kind: DirectoryErrorKind::InvalidSpan("entry size overflows"),
         })?;
-    let mut segments = Vec::new();
-    let mut next = span.offset;
-    let mut references_used = 0_u64;
-    let mut metadata_used = 0_u64;
-    while next < end {
-        check_cancelled(cancellation, next)?;
-        let failure = unassigned(
-            next,
-            DirectoryErrorKind::InvalidSpan("segment count overflows"),
-        );
-        let count = len_u64(segments.len()).checked_add(1).ok_or(failure)?;
-        if count > u64::from(directory_limits.max_segments) {
-            return Err(DirectoryError {
-                offset: next,
-                segment: None,
-                kind: DirectoryErrorKind::LimitExceeded {
-                    resource: "JBIG2 directory segments",
-                    limit: u64::from(directory_limits.max_segments),
-                    attempted: count,
-                },
-            });
-        }
-        let entry_total = checked_total(metadata_used, entry_bytes, next)?;
-        if entry_total > directory_limits.max_metadata_bytes {
-            return Err(DirectoryError {
-                offset: next,
+    let metadata_limit = |attempted: u64, offset: u64| {
+        if attempted > limits.max_allocation_bytes {
+            Err(DirectoryError {
+                offset,
                 segment: None,
                 kind: DirectoryErrorKind::LimitExceeded {
                     resource: "JBIG2 directory metadata bytes",
-                    limit: directory_limits.max_metadata_bytes,
-                    attempted: entry_total,
+                    limit: limits.max_allocation_bytes,
+                    attempted,
                 },
-            });
+            })
+        } else {
+            Ok(())
         }
+    };
+    let mut segments = Vec::new();
+    let mut next = span.offset;
+    let mut metadata_used = 0_u64;
+    while next < end {
+        check_cancelled(cancellation, next)?;
+        let entry_total = checked_total(metadata_used, entry_bytes, next)?;
+        metadata_limit(entry_total, next)?;
         let refused = unassigned(next, DirectoryErrorKind::AllocationFailed);
         reserve_exact(&mut segments, 1, refused)?;
-        let budget = PrefixBudget {
-            metadata_used: entry_total,
-            metadata_limit: directory_limits.max_metadata_bytes,
-            references_used,
-            references_limit: u64::from(directory_limits.max_total_references),
-        };
-        let (header, after) = read_header_prefix(
-            source,
-            next,
-            end,
-            limits,
-            header_limits,
-            Some(budget),
-            cancellation,
-        )?;
+        let (header, after) = read_header_prefix(source, next, end, limits, cancellation)?;
         // A parsed header consumes at least its fixed number, flag, count,
-        // page, and length fields, and its data end is not before them. The
-        // segment limit above bounds this loop regardless.
+        // page, and length fields, and its data end is not before them, so
+        // this loop ends.
         debug_assert!(after > next);
         let header_metadata = header
             .metadata_bytes()
             .ok_or(invalid_span(&header, "metadata size overflows"))?;
         metadata_used = checked_total(entry_total, header_metadata, next)?;
-        references_used = checked_total(references_used, len_u64(header.referred_to.len()), next)?;
+        metadata_limit(metadata_used, next)?;
         segments.push(header);
         next = after;
         check_cancelled(cancellation, next)?;
     }
-    validate_graph(&segments, metadata_used, directory_limits, cancellation)?;
+    validate_graph(&segments, metadata_used, limits, cancellation)?;
     check_cancelled(cancellation, end)?;
     Ok(SegmentDirectory { span, segments })
 }

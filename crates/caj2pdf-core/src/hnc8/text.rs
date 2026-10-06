@@ -16,39 +16,14 @@ use records::Records;
 
 const HEADER_BYTES: usize = 24;
 const CHUNK_BYTES: usize = 64 * 1024;
-const FIXED_WORKING_BYTES: u64 = 4096;
 /// Conservative working reservation for the locked flate2/miniz_oxide
 /// backend, including its 32 KiB dictionary and Huffman state. Reaudit this
 /// reservation when changing the backend or lock. Compiler call stacks and
 /// allocator overhead are not a process-memory guarantee.
-/// The backend allocates its fixed state infallibly: this budget accounts
-/// for it, but cannot make a process-wide allocator failure recoverable.
+/// The backend allocates its fixed state infallibly: this reservation
+/// accounts for it, but cannot make a process-wide allocator failure
+/// recoverable.
 pub const TEXT_DECODER_RESERVATION_BYTES: u64 = 128 * 1024;
-
-/// Separate limits for compressed text, expanded text, retained coordinates
-/// and accounted working storage. Zero record/image ceilings are allowed.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct TextBudget {
-    pub max_span_bytes: u64,
-    pub max_decoded_bytes: u64,
-    pub max_records: u32,
-    pub max_images: u32,
-    /// Owned buffer capacities plus the decoder reservation and 4 KiB of
-    /// fixed parser/hash scratch. This is not total process residency.
-    pub max_working_bytes: u64,
-}
-
-impl Default for TextBudget {
-    fn default() -> Self {
-        Self {
-            max_span_bytes: 1024 * 1024,
-            max_decoded_bytes: 1024 * 1024,
-            max_records: 65_536,
-            max_images: 8192,
-            max_working_bytes: 1024 * 1024,
-        }
-    }
-}
 
 /// The position and display extent words at +0/+2/+4/+6 of a tail record.
 /// These are raw bits; an unsigned Rust representation does not establish
@@ -82,8 +57,6 @@ pub struct TextCoordinates {
     pub max_decoder_output_chunk_bytes: usize,
     /// Capacities of the compressed/expanded scratch and coordinate Vecs.
     pub owned_buffer_bytes: u64,
-    /// Owned buffers and fixed scratch; compressed input also reserves a decoder.
-    pub working_memory_bytes: u64,
 }
 
 /// Page text the coordinate readers accept, or text they do not frame.
@@ -116,9 +89,8 @@ pub(super) fn read_coordinates<S: RangedSource, C: Cancellation>(
     page: PageRecord,
     limits: &Limits,
     cancellation: &C,
-    budget: TextBudget,
 ) -> Result<TextCoordinates> {
-    match read_page_text(source, header, page, limits, cancellation, budget)? {
+    match read_page_text(source, header, page, limits, cancellation)? {
         PageText::Framed(text) => Ok(text),
         PageText::Unframed(error) => Err(error),
     }
@@ -131,7 +103,6 @@ pub(super) fn read_page_text<S: RangedSource, C: Cancellation>(
     page: PageRecord,
     limits: &Limits,
     cancellation: &C,
-    budget: TextBudget,
 ) -> Result<PageText> {
     if header.variant == Variant::HnB {
         return Err(location(header, page).error(ErrorKind::Unsupported {
@@ -148,7 +119,6 @@ pub(super) fn read_page_text<S: RangedSource, C: Cancellation>(
             available: page.text.length,
         })));
     }
-    validate_budget(page, budget, loc)?;
     let mut prefix = [0; 4];
     read_chunks(
         source,
@@ -191,13 +161,13 @@ pub(super) fn read_page_text<S: RangedSource, C: Cancellation>(
         && (prefixed_raw || matches!(tag, 0x8001 | 0x800a | 0x8004))
     {
         let records = if prefixed_raw || tag == 0x800a {
-            Records::tagged(budget.max_records, prefixed_raw).decode_markers(true)
+            Records::tagged(prefixed_raw).decode_markers(true)
         } else {
-            Records::ordered(budget.max_records)
+            Records::ordered()
         };
-        raw::read(source, page, limits, cancellation, budget, loc, records)?
+        raw::read(source, page, limits, cancellation, loc, records)?
     } else {
-        match read_compressed_text(source, header, page, limits, cancellation, budget)? {
+        match read_compressed_text(source, header, page, limits, cancellation)? {
             PageText::Framed(text) => text,
             unframed => return Ok(unframed),
         }
@@ -236,12 +206,6 @@ fn validate_metadata(
     limits: &Limits,
     loc: Location,
 ) -> Result<()> {
-    limits.validate().map_err(|source| {
-        loc.error(ErrorKind::Source {
-            field: "limits",
-            source,
-        })
-    })?;
     if size > limits.max_input_bytes {
         return Err(loc.limit("source bytes", limits.max_input_bytes, size));
     }
@@ -286,21 +250,6 @@ fn validate_metadata(
     }
     if page.text.offset > i32::MAX as u64 || page.text.length > i32::MAX as u64 {
         return Err(loc.malformed("page text span", "outside nonnegative signed 32-bit range"));
-    }
-    Ok(())
-}
-
-fn validate_budget(page: PageRecord, budget: TextBudget, loc: Location) -> Result<()> {
-    if page.text.length > budget.max_span_bytes {
-        return Err(loc.limit("page text bytes", budget.max_span_bytes, page.text.length));
-    }
-    let images = budget.max_images.min(i16::MAX as u32);
-    if page.image_count > images {
-        return Err(loc.limit(
-            "text images",
-            u64::from(images),
-            u64::from(page.image_count),
-        ));
     }
     Ok(())
 }
@@ -351,26 +300,12 @@ fn allocate<T: Clone>(count: usize, value: T, limits: &Limits, loc: Location) ->
     Ok(result)
 }
 
-fn check_working(owned: u64, compressed: bool, budget: TextBudget, loc: Location) -> Result<u64> {
-    let decoder = if compressed {
-        TEXT_DECODER_RESERVATION_BYTES
-    } else {
-        0
-    };
-    let working = owned.saturating_add(decoder + FIXED_WORKING_BYTES);
-    if working > budget.max_working_bytes {
-        return Err(loc.limit("text working bytes", budget.max_working_bytes, working));
-    }
-    Ok(working)
-}
-
 fn read_compressed_text<S: RangedSource, C: Cancellation>(
     source: &mut S,
     header: Header,
     page: PageRecord,
     limits: &Limits,
     cancellation: &C,
-    budget: TextBudget,
 ) -> Result<PageText> {
     let loc = location(header, page);
 
@@ -407,13 +342,6 @@ fn read_compressed_text<S: RangedSource, C: Cancellation>(
             .expect("fixed field width"),
     );
     let decoded_bytes = u64::from(decoded_length);
-    if decoded_bytes > budget.max_decoded_bytes {
-        return Err(loc.limit(
-            "decoded text bytes",
-            budget.max_decoded_bytes,
-            decoded_bytes,
-        ));
-    }
     if decoded_bytes > limits.max_output_bytes {
         return Err(loc.limit(
             "text decoded output bytes",
@@ -432,14 +360,8 @@ fn read_compressed_text<S: RangedSource, C: Cancellation>(
         if glyph_bytes % 16 != 0 {
             return Err(loc.malformed("decoded text layout", "record area is not a multiple of 16"));
         }
+        // At most u32::MAX / 16 records.
         let record_count = (glyph_bytes / 16) as u32;
-        if record_count > budget.max_records {
-            return Err(loc.limit(
-                "text records",
-                u64::from(budget.max_records),
-                u64::from(record_count),
-            ));
-        }
         (glyph_bytes, record_count)
     } else {
         (0, 0)
@@ -458,9 +380,6 @@ fn read_compressed_text<S: RangedSource, C: Cancellation>(
     let chunk = limits.io_chunk_bytes.min(CHUNK_BYTES);
     let input_count = zlib_frame.length.min(len_u64(chunk)) as usize;
     let output_count = (decoded_bytes + 1).min(len_u64(chunk)) as usize;
-    let planned_buffers = len_u64(input_count + output_count)
-        + u64::from(page.image_count) * size_of::<RawTextCoordinate>() as u64;
-    check_working(planned_buffers, true, budget, loc)?;
     if TEXT_DECODER_RESERVATION_BYTES > limits.max_allocation_bytes {
         return Err(loc.limit(
             "text decoder allocation reservation",
@@ -473,7 +392,7 @@ fn read_compressed_text<S: RangedSource, C: Cancellation>(
     let images = usize_from_u32(page.image_count);
     let mut coordinates = allocate(images, RawTextCoordinate::default(), limits, loc)?;
     let mut records = if header_bytes == 16 {
-        Records::tagged(budget.max_records, false)
+        Records::tagged(false)
     } else {
         Records::fixed(
             8 + glyph_bytes,
@@ -488,7 +407,6 @@ fn read_compressed_text<S: RangedSource, C: Cancellation>(
         .saturating_add(
             len_u64(coordinates.capacity()).saturating_mul(size_of::<RawTextCoordinate>() as u64),
         );
-    let working_memory_bytes = check_working(owned_buffer_bytes, true, budget, loc)?;
     let mut inflate = ExactInflate::new(zlib_frame.offset, zlib_frame.length, decoded_bytes);
     let fault = |fault: InflateFault| {
         let (field, reason) = match fault.kind {
@@ -553,7 +471,6 @@ fn read_compressed_text<S: RangedSource, C: Cancellation>(
         max_source_request_bytes,
         max_decoder_output_chunk_bytes,
         owned_buffer_bytes,
-        working_memory_bytes,
     }))
 }
 

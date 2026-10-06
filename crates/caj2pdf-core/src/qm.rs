@@ -17,7 +17,7 @@ pub use crate::arith::{
     ContextBank, ContextState,
 };
 
-use crate::arith::{Counters, check_span, valid_counts};
+use crate::arith::{Counters, check_span};
 use crate::{Limits, Payload};
 
 /// Number of probability-estimation states in T.82 Table 24.
@@ -46,26 +46,12 @@ impl QmTable {
     }
 }
 
-/// Per-stripe bounds. Work counts each symbol, renormalization shift, and
-/// byte input.
-///
-/// Both fields must be in `1..=MAX_BUDGET_COUNT`; other values are rejected
-/// as `InvalidBudget` before decoding.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct ArithmeticBudget {
-    /// In `1..=`[`MAX_BUDGET_COUNT`](crate::MAX_BUDGET_COUNT).
-    pub max_symbols: u64,
-    /// In `1..=`[`MAX_BUDGET_COUNT`](crate::MAX_BUDGET_COUNT).
-    pub max_work: u64,
-}
-
 /// Incremental decoder for one already isolated arithmetic stripe.
 pub struct ArithmeticDecoder<'a> {
     data: &'a [u8],
     span: CodedSpan,
     table: &'a QmTable,
     contexts: &'a mut ContextBank,
-    budget: ArithmeticBudget,
     physical_bytes_consumed: u64,
     counters: Counters,
     interval: u32,
@@ -83,36 +69,25 @@ impl<'a> ArithmeticDecoder<'a> {
         table: &'a QmTable,
         contexts: &'a mut ContextBank,
         limits: &Limits,
-        budget: ArithmeticBudget,
     ) -> ArithmeticResult<Self> {
-        limits.validate().map_err(|source| {
-            ArithmeticError::configuration(Coder::T82, ArithmeticErrorKind::Source(source))
-        })?;
         let data = check_span(Coder::T82, span, input, limits)?;
-        if !valid_counts(budget.max_symbols, budget.max_work) {
-            return Err(ArithmeticError::configuration(
-                Coder::T82,
-                ArithmeticErrorKind::InvalidBudget,
-            ));
-        }
         contexts.reset();
         let mut decoder = Self {
             data,
             span,
             table,
             contexts,
-            budget,
             physical_bytes_consumed: 0,
             counters: Counters::default(),
             interval: 0x10000,
             code: 0,
             bit_counter: 0,
         };
-        decoder.byte_in(None)?;
+        decoder.byte_in();
         decoder.code <<= 8;
-        decoder.byte_in(None)?;
+        decoder.byte_in();
         decoder.code <<= 8;
-        decoder.byte_in(None)?;
+        decoder.byte_in();
         Ok(decoder)
     }
 
@@ -122,12 +97,8 @@ impl<'a> ArithmeticDecoder<'a> {
         if self.contexts.get(context).is_none() {
             return Err(self.at(Some(context), ArithmeticErrorKind::InvalidContext));
         }
-        let symbols = self
-            .counters
-            .next_symbol(self.budget.max_symbols)
-            .map_err(|kind| self.at(Some(context), kind))?;
-        let bit = self.decode_symbol_inner(context)?;
-        self.counters.symbols_decoded = symbols;
+        let bit = self.decode_symbol_inner(context);
+        self.counters.symbols_decoded += 1;
         Ok(bit)
     }
 
@@ -169,17 +140,9 @@ impl<'a> ArithmeticDecoder<'a> {
         }
     }
 
-    fn charge(&mut self, context: Option<usize>) -> ArithmeticResult<()> {
-        self.counters
-            .charge(self.budget.max_work)
-            .map_err(|kind| self.at(context, kind))
-    }
-
     fn next_byte(&mut self) -> u8 {
         let relative = self.physical_bytes_consumed;
         if relative == self.span.length {
-            // Only `byte_in` reads bytes, after charging one unit of work,
-            // so this count stays below `max_work <= MAX_BUDGET_COUNT`.
             self.counters.synthesized_inputs += 1;
             return 0;
         }
@@ -188,20 +151,17 @@ impl<'a> ArithmeticDecoder<'a> {
         self.data[relative as usize]
     }
 
-    fn byte_in(&mut self, context: Option<usize>) -> ArithmeticResult<()> {
-        self.charge(context)?;
+    fn byte_in(&mut self) {
         let byte = self.next_byte();
         self.code = self.code.wrapping_add(u32::from(byte) << 8);
         self.bit_counter = 8;
-        Ok(())
     }
 
-    fn renormalize(&mut self, context: usize) -> ArithmeticResult<()> {
+    fn renormalize(&mut self) {
         loop {
             if self.bit_counter == 0 {
-                self.byte_in(Some(context))?;
+                self.byte_in();
             }
-            self.charge(Some(context))?;
             self.interval <<= 1;
             self.code <<= 1;
             self.bit_counter -= 1;
@@ -210,13 +170,11 @@ impl<'a> ArithmeticDecoder<'a> {
             }
         }
         if self.bit_counter == 0 {
-            self.byte_in(Some(context))?;
+            self.byte_in();
         }
-        Ok(())
     }
 
-    fn decode_symbol_inner(&mut self, context: usize) -> ArithmeticResult<bool> {
-        self.charge(Some(context))?;
+    fn decode_symbol_inner(&mut self, context: usize) -> bool {
         let current = self.contexts.state(context);
         let state = self.table.get(current.state_index);
         let qe = u32::from(state.qe);
@@ -242,7 +200,7 @@ impl<'a> ArithmeticDecoder<'a> {
                         mps: current.mps,
                     }
                 };
-                self.renormalize(context)?;
+                self.renormalize();
                 (current.mps ^ exchange, next)
             } else {
                 (current.mps, current)
@@ -263,25 +221,17 @@ impl<'a> ArithmeticDecoder<'a> {
                     mps: current.mps,
                 }
             };
-            self.renormalize(context)?;
+            self.renormalize();
             (current.mps ^ exchange, next)
         };
         self.contexts.update(context, next);
-        Ok(bit)
+        bit
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::MAX_BUDGET_COUNT;
-
-    fn budget() -> ArithmeticBudget {
-        ArithmeticBudget {
-            max_symbols: 1000,
-            max_work: 100_000,
-        }
-    }
 
     fn span(length: u64) -> CodedSpan {
         CodedSpan { offset: 0, length }
@@ -293,14 +243,13 @@ mod tests {
         span: CodedSpan,
         contexts: &'a mut ContextBank,
         limits: &Limits,
-        budget: ArithmeticBudget,
     ) -> ArithmeticResult<ArithmeticDecoder<'a>> {
         const TABLE: QmTable = QmTable::standard();
-        ArithmeticDecoder::new(bytes.into(), span, &TABLE, contexts, limits, budget)
+        ArithmeticDecoder::new(bytes.into(), span, &TABLE, contexts, limits)
     }
 
     #[test]
-    fn validates_spans_and_budgets_before_input() {
+    fn validates_spans_before_input() {
         let limits = Limits::default();
         let mut contexts = ContextBank::new(2, &limits).unwrap();
         let bytes = [0, 0, 0];
@@ -312,7 +261,6 @@ mod tests {
             },
             &mut contexts,
             &limits,
-            budget(),
         );
         assert!(matches!(
             invalid_span.err().unwrap().kind,
@@ -328,7 +276,6 @@ mod tests {
             },
             &mut contexts,
             &small_input,
-            budget(),
         )
         .err()
         .unwrap();
@@ -337,47 +284,6 @@ mod tests {
             input_limit.kind,
             ArithmeticErrorKind::Source(crate::Error::LimitExceeded { .. })
         ));
-        let invalid_budget = decoder(
-            &bytes,
-            span(3),
-            &mut contexts,
-            &limits,
-            ArithmeticBudget {
-                max_symbols: 0,
-                max_work: 1,
-            },
-        );
-        assert!(matches!(
-            invalid_budget.err().unwrap().kind,
-            ArithmeticErrorKind::InvalidBudget
-        ));
-        for (max_symbols, max_work) in [(MAX_BUDGET_COUNT + 1, 1), (1, MAX_BUDGET_COUNT + 1)] {
-            let above_ceiling = decoder(
-                &bytes,
-                span(3),
-                &mut contexts,
-                &limits,
-                ArithmeticBudget {
-                    max_symbols,
-                    max_work,
-                },
-            );
-            assert!(matches!(
-                above_ceiling.err().unwrap().kind,
-                ArithmeticErrorKind::InvalidBudget
-            ));
-        }
-        decoder(
-            &bytes,
-            span(3),
-            &mut contexts,
-            &limits,
-            ArithmeticBudget {
-                max_symbols: MAX_BUDGET_COUNT,
-                max_work: MAX_BUDGET_COUNT,
-            },
-        )
-        .unwrap();
     }
 
     #[test]
@@ -385,7 +291,7 @@ mod tests {
         let limits = Limits::default();
         let mut contexts = ContextBank::new(2, &limits).unwrap();
         // An LPS in context 1 switches its MPS and moves it to state 1.
-        let mut stripe = decoder(&[0xc0, 0, 0], span(3), &mut contexts, &limits, budget()).unwrap();
+        let mut stripe = decoder(&[0xc0, 0, 0], span(3), &mut contexts, &limits).unwrap();
         assert!(stripe.decode_symbol(1).unwrap());
         stripe.finish(1).unwrap();
         let adapted = ContextState {
@@ -404,7 +310,7 @@ mod tests {
                 length: 0,
             },
         ] {
-            let error = decoder(&[0, 0, 0], span, &mut contexts, &limits, budget())
+            let error = decoder(&[0, 0, 0], span, &mut contexts, &limits)
                 .err()
                 .unwrap();
             assert_eq!(error.offset, Some(span.offset));
@@ -430,17 +336,7 @@ mod tests {
     fn arithmetic_errors_keep_actionable_locations() {
         let limits = Limits::default();
         let mut contexts = ContextBank::new(1, &limits).unwrap();
-        let mut stripe = decoder(
-            &[0, 0, 0],
-            span(3),
-            &mut contexts,
-            &limits,
-            ArithmeticBudget {
-                max_symbols: 1,
-                max_work: 100,
-            },
-        )
-        .unwrap();
+        let mut stripe = decoder(&[0, 0, 0], span(3), &mut contexts, &limits).unwrap();
         let invalid_context = stripe.decode_symbol(1).unwrap_err();
         assert_eq!(
             invalid_context.to_string(),
@@ -448,12 +344,6 @@ mod tests {
         );
         assert!(std::error::Error::source(&invalid_context).is_none());
         assert!(!stripe.decode_symbol(0).unwrap());
-        let limit = stripe.decode_symbol(0).unwrap_err();
-        assert_eq!(
-            limit.to_string(),
-            "T.82 arithmetic decoder at source byte 3, context 0: symbols limit 1 exceeded by 2"
-        );
-        assert!(std::error::Error::source(&limit).is_none());
         let incomplete = stripe.finish(2).unwrap_err();
         assert_eq!(
             incomplete.to_string(),
@@ -465,14 +355,7 @@ mod tests {
     fn initializes_registers_with_virtual_zeros() {
         let limits = Limits::default();
         let mut contexts = ContextBank::new(1, &limits).unwrap();
-        let stripe = decoder(
-            &[0x12, 0x34, 0x56, 0x78],
-            span(3),
-            &mut contexts,
-            &limits,
-            budget(),
-        )
-        .unwrap();
+        let stripe = decoder(&[0x12, 0x34, 0x56, 0x78], span(3), &mut contexts, &limits).unwrap();
         let snapshot = stripe.snapshot();
         assert_eq!(snapshot.interval, 0x10000);
         assert_eq!(snapshot.code, 0x12345600);
@@ -481,7 +364,7 @@ mod tests {
         assert_eq!(snapshot.input_offset, 3);
         stripe.finish(0).unwrap();
 
-        let stripe = decoder(&[0xff], span(0), &mut contexts, &limits, budget()).unwrap();
+        let stripe = decoder(&[0xff], span(0), &mut contexts, &limits).unwrap();
         assert_eq!(stripe.snapshot().code, 0);
         assert_eq!(stripe.snapshot().synthesized_inputs, 3);
         assert_eq!(stripe.snapshot().input_offset, 0);
@@ -495,7 +378,7 @@ mod tests {
         let limits = Limits::default();
         let mut contexts = ContextBank::new(1, &limits).unwrap();
         let mut decode = |bytes: &[u8], symbols: usize| {
-            let mut stripe = decoder(bytes, span(3), &mut contexts, &limits, budget()).unwrap();
+            let mut stripe = decoder(bytes, span(3), &mut contexts, &limits).unwrap();
             let mut trace = Vec::new();
             for _ in 0..symbols {
                 let bit = stripe.decode_symbol(0).unwrap();
@@ -544,110 +427,39 @@ mod tests {
     }
 
     #[test]
-    fn fixed_width_register_operations_and_small_work_budget_are_explicit() {
+    fn fixed_width_register_operations_are_explicit() {
         let limits = Limits::default();
         let mut contexts = ContextBank::new(1, &limits).unwrap();
-        let mut stripe =
-            decoder(&[0, 0, 0, 0xff], span(4), &mut contexts, &limits, budget()).unwrap();
+        let mut stripe = decoder(&[0, 0, 0, 0xff], span(4), &mut contexts, &limits).unwrap();
         stripe.code = 0xffff_ff00;
-        stripe.byte_in(None).unwrap();
+        stripe.byte_in();
         assert_eq!(stripe.snapshot().code, 0x0000_fe00);
         assert_eq!(stripe.snapshot().input_offset, 4);
         stripe.interval = 0x7fff;
         stripe.bit_counter = 8;
-        stripe.renormalize(0).unwrap();
+        stripe.renormalize();
         assert_eq!(stripe.snapshot().interval, 0xfffe);
         assert_eq!(stripe.snapshot().bit_counter, 7);
-        stripe.budget.max_symbols = MAX_BUDGET_COUNT;
-        stripe.counters.symbols_decoded = MAX_BUDGET_COUNT;
-        assert!(matches!(
-            stripe.decode_symbol(0).unwrap_err().kind,
-            ArithmeticErrorKind::LimitExceeded {
-                resource: "symbols",
-                limit: MAX_BUDGET_COUNT,
-                attempted,
-            } if attempted == MAX_BUDGET_COUNT + 1
-        ));
-        stripe.counters.symbols_decoded = 0;
-        stripe.budget.max_work = MAX_BUDGET_COUNT;
-        stripe.counters.work_done = MAX_BUDGET_COUNT;
-        assert!(matches!(
-            stripe.charge(None).unwrap_err().kind,
-            ArithmeticErrorKind::LimitExceeded {
-                resource: "arithmetic work",
-                limit: MAX_BUDGET_COUNT,
-                attempted,
-            } if attempted == MAX_BUDGET_COUNT + 1
-        ));
         stripe.finish(0).unwrap();
-
-        let large_span = [0; 256];
-        let mut stripe = decoder(
-            &large_span,
-            span(256),
-            &mut contexts,
-            &limits,
-            ArithmeticBudget {
-                max_symbols: 1,
-                max_work: 4,
-            },
-        )
-        .unwrap();
-        assert!(!stripe.decode_symbol(0).unwrap());
-        assert_eq!(stripe.snapshot().work_done, 4);
-        let error = stripe.decode_symbol(0).unwrap_err();
-        assert!(matches!(
-            error.kind,
-            ArithmeticErrorKind::LimitExceeded {
-                resource: "symbols",
-                limit: 1,
-                attempted: 2,
-            }
-        ));
-        stripe.finish(1).unwrap();
     }
 
     #[test]
-    fn work_errors_and_invalid_context_preflight_are_distinct() {
+    fn invalid_context_preflight_leaves_the_stripe_usable() {
         let limits = Limits::default();
         let mut contexts = ContextBank::new(1, &limits).unwrap();
-        let mut stripe = decoder(&[0, 0, 0], span(3), &mut contexts, &limits, budget()).unwrap();
+        let mut stripe = decoder(&[0, 0, 0], span(3), &mut contexts, &limits).unwrap();
         let error = stripe.decode_symbol(1).unwrap_err();
         assert_eq!(error.context, Some(1));
         assert!(matches!(error.kind, ArithmeticErrorKind::InvalidContext));
         assert!(!stripe.decode_symbol(0).unwrap());
         stripe.finish(1).unwrap();
-
-        let mut stripe = decoder(
-            &[0xc0, 0, 0],
-            span(3),
-            &mut contexts,
-            &limits,
-            ArithmeticBudget {
-                max_symbols: 1,
-                max_work: 4,
-            },
-        )
-        .unwrap();
-        let error = stripe.decode_symbol(0).unwrap_err();
-        assert_eq!(error.context, Some(0));
-        assert!(matches!(
-            error.kind,
-            ArithmeticErrorKind::LimitExceeded {
-                resource: "arithmetic work",
-                limit: 4,
-                attempted: 5,
-            }
-        ));
-        assert_eq!(stripe.snapshot().symbols_decoded, 0);
-        assert_eq!(stripe.context_state(0), Some(ContextState::default()));
     }
 
     #[test]
     fn finish_requires_the_exact_symbol_count_and_each_stripe_resets_contexts() {
         let limits = Limits::default();
         let mut contexts = ContextBank::new(1, &limits).unwrap();
-        let mut stripe = decoder(&[0xc0, 0, 0], span(3), &mut contexts, &limits, budget()).unwrap();
+        let mut stripe = decoder(&[0xc0, 0, 0], span(3), &mut contexts, &limits).unwrap();
         assert!(stripe.decode_symbol(0).unwrap());
         assert!(matches!(
             stripe.finish(2).unwrap_err().kind,
@@ -657,7 +469,7 @@ mod tests {
             }
         ));
 
-        let mut stripe = decoder(&[0xc0, 0, 0], span(3), &mut contexts, &limits, budget()).unwrap();
+        let mut stripe = decoder(&[0xc0, 0, 0], span(3), &mut contexts, &limits).unwrap();
         assert!(stripe.decode_symbol(0).unwrap());
         stripe.finish(1).unwrap();
         assert_eq!(
@@ -668,7 +480,7 @@ mod tests {
             })
         );
 
-        let mut stripe = decoder(&[0, 0, 0], span(3), &mut contexts, &limits, budget()).unwrap();
+        let mut stripe = decoder(&[0, 0, 0], span(3), &mut contexts, &limits).unwrap();
         assert_eq!(stripe.context_state(0), Some(ContextState::default()));
         assert!(!stripe.decode_symbol(0).unwrap());
         contexts.reset();
@@ -676,28 +488,18 @@ mod tests {
     }
 
     #[test]
-    fn fixed_budget_mutations_are_deterministic_and_bounded() {
+    fn input_mutations_are_deterministic_and_bounded() {
         fn trace(input: &[u8; 8]) -> (Vec<bool>, ArithmeticSnapshot) {
             let limits = Limits::default();
             let mut contexts = ContextBank::new(2, &limits).unwrap();
-            let mut stripe = decoder(
-                input,
-                span(input.len() as u64),
-                &mut contexts,
-                &limits,
-                ArithmeticBudget {
-                    max_symbols: 64,
-                    max_work: 512,
-                },
-            )
-            .unwrap();
+            let mut stripe =
+                decoder(input, span(input.len() as u64), &mut contexts, &limits).unwrap();
             let mut bits = Vec::new();
             for symbol in 0..64 {
                 bits.push(stripe.decode_symbol(symbol % 2).unwrap());
             }
             let snapshot = stripe.snapshot();
             assert_eq!(snapshot.symbols_decoded, 64);
-            assert!(snapshot.work_done <= 512);
             assert!(snapshot.input_offset <= input.len() as u64);
             stripe.finish(64).unwrap();
             (bits, snapshot)
@@ -719,28 +521,6 @@ mod tests {
         assert!(
             changed,
             "at least one input bit must affect the decoded symbols"
-        );
-    }
-
-    #[test]
-    fn configuration_errors_have_distinct_messages() {
-        let limits = Limits::default();
-        let mut contexts = ContextBank::new(2, &limits).unwrap();
-        let zero_budget = decoder(
-            &[0, 0, 0],
-            span(3),
-            &mut contexts,
-            &limits,
-            ArithmeticBudget {
-                max_symbols: 1,
-                max_work: 0,
-            },
-        )
-        .err()
-        .unwrap();
-        assert_eq!(
-            zero_budget.to_string(),
-            "T.82 arithmetic decoder: invalid budget"
         );
     }
 }

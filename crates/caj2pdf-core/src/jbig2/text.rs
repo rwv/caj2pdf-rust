@@ -20,33 +20,6 @@ const FLAGS_BYTES: usize = 2;
 /// The fixed prefix read before optional fields: region information and flags.
 const PREFIX_BYTES: usize = REGION_INFO_BYTES + FLAGS_BYTES;
 
-/// Resource bounds for one text-region header, in addition to `Limits`.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct TextRegionBudget {
-    /// Region information, flags, optional fields, and `SBNUMINSTANCES`.
-    pub max_data_header_bytes: u64,
-    pub max_body_bytes: u64,
-    pub max_width: u32,
-    pub max_height: u32,
-    pub max_pixels: u64,
-    pub max_instances: u32,
-    pub max_source_request_bytes: usize,
-}
-
-impl Default for TextRegionBudget {
-    fn default() -> Self {
-        Self {
-            max_data_header_bytes: 64,
-            max_body_bytes: 64 * 1024 * 1024,
-            max_width: 65_536,
-            max_height: 65_536,
-            max_pixels: 256 * 1024 * 1024,
-            max_instances: 1_000_000,
-            max_source_request_bytes: 256,
-        }
-    }
-}
-
 /// External combination operator of a region with its page (§7.4.1.5).
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RegionCombination {
@@ -269,13 +242,6 @@ impl<S: RangedSource, C: Cancellation> Cursor<'_, S, C> {
 
     fn fault(&self, fault: FieldFault, field: &'static str) -> TextRegionError {
         match fault {
-            FieldFault::LimitExceeded { attempted } => {
-                self.error(TextRegionErrorKind::LimitExceeded {
-                    resource: "text region header bytes",
-                    limit: self.fields.max_header_bytes,
-                    attempted,
-                })
-            }
             FieldFault::Overflow | FieldFault::PastEnd | FieldFault::Ended { .. } => {
                 self.error(TextRegionErrorKind::Truncated(field))
             }
@@ -297,12 +263,13 @@ fn be32(bytes: &[u8]) -> u32 {
 /// `dictionary` is the validated header of the single symbol dictionary this
 /// region refers to. Framing, reference, page, and span checks complete before
 /// any source read; the returned `body` range is never read or allocated.
+/// The region's pixels and its `SBNUMINSTANCES` are each bounded by
+/// `Limits::max_image_pixels`.
 pub fn read_text_region_header<S: RangedSource, C: Cancellation>(
     source: &mut S,
     header: &SegmentHeader,
     dictionary: &SegmentHeader,
     limits: &Limits,
-    budget: TextRegionBudget,
     cancellation: &C,
 ) -> TextRegionResult<TextRegionHeader> {
     read_text_region_header_with_policy(
@@ -310,7 +277,6 @@ pub fn read_text_region_header<S: RangedSource, C: Cancellation>(
         header,
         dictionary,
         limits,
-        budget,
         cancellation,
         TextHeaderPolicy::Strict,
     )
@@ -324,7 +290,6 @@ pub fn read_text_region_header_with_policy<S: RangedSource, C: Cancellation>(
     header: &SegmentHeader,
     dictionary: &SegmentHeader,
     limits: &Limits,
-    budget: TextRegionBudget,
     cancellation: &C,
     policy: TextHeaderPolicy,
 ) -> TextRegionResult<TextRegionHeader> {
@@ -334,14 +299,6 @@ pub fn read_text_region_header_with_policy<S: RangedSource, C: Cancellation>(
         bytes_fetched: 0,
         kind,
     };
-    limits
-        .validate()
-        .map_err(|e| fail(TextRegionErrorKind::Source(e)))?;
-    if budget.max_source_request_bytes == 0 {
-        return Err(fail(TextRegionErrorKind::Malformed(
-            "zero I/O request bound",
-        )));
-    }
     if cancellation.is_cancelled() {
         return Err(fail(TextRegionErrorKind::Cancelled));
     }
@@ -422,13 +379,12 @@ pub fn read_text_region_header_with_policy<S: RangedSource, C: Cancellation>(
             at: header.data.offset,
             end,
             fetched: 0,
-            request_bytes: budget.max_source_request_bytes.min(limits.io_chunk_bytes),
-            max_header_bytes: budget.max_data_header_bytes,
+            request_bytes: limits.io_chunk_bytes.max(1),
         },
     };
     let start = header.data.offset;
     let prefix: [u8; PREFIX_BYTES] = cursor.read("text region header")?;
-    let region = parse_region(&prefix, &cursor, budget)?;
+    let region = parse_region(&prefix, &cursor, limits)?;
     let (flags, anomaly) = parse_flags(
         u16::from_be_bytes([prefix[REGION_INFO_BYTES], prefix[REGION_INFO_BYTES + 1]]),
         policy,
@@ -451,24 +407,17 @@ pub fn read_text_region_header_with_policy<S: RangedSource, C: Cancellation>(
     };
     let instances_offset = cursor.fields.at;
     let instances = u32::from_be_bytes(cursor.read("SBNUMINSTANCES")?);
-    if instances > budget.max_instances {
+    if u64::from(instances) > limits.max_image_pixels {
         return Err(cursor.error_at(
             instances_offset,
             TextRegionErrorKind::LimitExceeded {
                 resource: "text region symbol instances",
-                limit: u64::from(budget.max_instances),
+                limit: limits.max_image_pixels,
                 attempted: u64::from(instances),
             },
         ));
     }
     let body_length = end - cursor.fields.at;
-    if body_length > budget.max_body_bytes {
-        return Err(cursor.error(TextRegionErrorKind::LimitExceeded {
-            resource: "text region body bytes",
-            limit: budget.max_body_bytes,
-            attempted: body_length,
-        }));
-    }
     if !flags.huffman && body_length < 2 {
         return Err(cursor.error(TextRegionErrorKind::Truncated("MQ body terminal pair")));
     }
@@ -493,7 +442,7 @@ pub fn read_text_region_header_with_policy<S: RangedSource, C: Cancellation>(
 fn parse_region<S: RangedSource, C: Cancellation>(
     bytes: &[u8; PREFIX_BYTES],
     cursor: &Cursor<'_, S, C>,
-    budget: TextRegionBudget,
+    limits: &Limits,
 ) -> TextRegionResult<RegionInfo> {
     let start = cursor.fields.start;
     let (width, height) = (be32(&bytes[0..4]), be32(&bytes[4..8]));
@@ -518,10 +467,7 @@ fn parse_region<S: RangedSource, C: Cancellation>(
             ));
         }
     };
-    for (resource, limit, attempted, offset) in [
-        ("text region width", budget.max_width, width, start),
-        ("text region height", budget.max_height, height, start + 4),
-    ] {
+    for (attempted, offset) in [(width, start), (height, start + 4)] {
         if attempted == 0 {
             return Err(cursor.error_at(
                 offset,
@@ -531,24 +477,14 @@ fn parse_region<S: RangedSource, C: Cancellation>(
                 },
             ));
         }
-        if attempted > limit {
-            return Err(cursor.error_at(
-                offset,
-                TextRegionErrorKind::LimitExceeded {
-                    resource,
-                    limit: u64::from(limit),
-                    attempted: u64::from(attempted),
-                },
-            ));
-        }
     }
     let pixels = u64::from(width) * u64::from(height);
-    if pixels > budget.max_pixels {
+    if pixels > limits.max_image_pixels {
         return Err(cursor.error_at(
             start,
             TextRegionErrorKind::LimitExceeded {
                 resource: "text region pixels",
-                limit: budget.max_pixels,
+                limit: limits.max_image_pixels,
                 attempted: pixels,
             },
         ));

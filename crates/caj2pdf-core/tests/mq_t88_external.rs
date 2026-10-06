@@ -5,7 +5,7 @@
 
 use caj2pdf_core::{
     Limits, Payload,
-    jbig2::mq::{CodedSpan, ContextBank, MQ_STATE_COUNT, MqBudget, MqDecoder, MqState, MqTable},
+    jbig2::mq::{CodedSpan, ContextBank, MQ_STATE_COUNT, MqDecoder, MqState, MqTable},
 };
 use sha2::{Digest, Sha256};
 use std::{env, fs::File, io::Read, path::Path};
@@ -143,13 +143,6 @@ fn official_2000_h2_decisions_and_h1_register_checkpoints() {
     let text = String::from_utf8(bytes).expect("external H.2 fixture is not UTF-8");
     let fixture = parse_fixture(&text);
     let limits = Limits::default();
-    let budget = MqBudget {
-        max_span_bytes: 30,
-        max_contexts: 1,
-        max_symbols: H2_SYMBOLS as u64,
-        max_work: 100_000,
-        max_terminal_inputs: H2_SYMBOLS as u64,
-    };
     assert_eq!(fixture.states, caj2pdf_core::jbig2::mq::STANDARD_STATES);
     let table = MqTable::standard();
     let mut contexts = ContextBank::new(1, &limits).unwrap();
@@ -162,7 +155,6 @@ fn official_2000_h2_decisions_and_h1_register_checkpoints() {
         &table,
         &mut contexts,
         &limits,
-        budget,
     )
     .expect("Annex H.2 initialization failed");
     for symbol in 0..H2_SYMBOLS {

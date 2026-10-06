@@ -4,8 +4,8 @@
 
 use crate::fallible::reserve_exact;
 use crate::qm::{
-    ArithmeticBudget, ArithmeticDecoder, ArithmeticError, ArithmeticSnapshot, CodedSpan,
-    ContextBank, ContextState, QM_STATE_COUNT, QmState, QmTable,
+    ArithmeticDecoder, ArithmeticError, ArithmeticSnapshot, CodedSpan, ContextBank, ContextState,
+    QM_STATE_COUNT, QmState, QmTable,
 };
 use crate::{Cancellation, Error, Limits, Payload, RangedSource, read_exact_at, write_counted};
 use std::io::Write;
@@ -14,26 +14,6 @@ use std::{error, fmt, mem};
 const DIB_BYTES: u64 = 48;
 const CONTEXT_COUNT: usize = 1024;
 const CONTROL_CONTEXT: usize = 457;
-
-/// Limits for one image in addition to the shared I/O and arithmetic limits.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct Type0Budget {
-    pub max_width: u32,
-    pub max_height: u32,
-    pub max_pixels: u64,
-    pub max_context_work: u64,
-}
-
-impl Default for Type0Budget {
-    fn default() -> Self {
-        Self {
-            max_width: 32_768,
-            max_height: 32_768,
-            max_pixels: 12_000_000,
-            max_context_work: 120_000_000,
-        }
-    }
-}
 
 /// Absolute DIB-plus-coded-byte range and type from the outer HN/C8 record.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -175,13 +155,7 @@ fn le_u32(header: &[u8; 48], start: usize) -> u32 {
     ])
 }
 
-fn checked_info(
-    header: &[u8; 48],
-    span: Type0Span,
-    limits: &Limits,
-    arithmetic: ArithmeticBudget,
-    budget: Type0Budget,
-) -> Type0Result<Type0Info> {
+fn checked_info(header: &[u8; 48], span: Type0Span, limits: &Limits) -> Type0Result<Type0Info> {
     let base = span.offset;
     if le_u32(header, 0) != 40 {
         return Err(at(
@@ -199,22 +173,6 @@ fn checked_info(
     }
     let width = width_i as u32;
     let height = height_i as u32;
-    if width > budget.max_width {
-        return Err(limit(
-            base + 4,
-            "image width",
-            u64::from(budget.max_width),
-            u64::from(width),
-        ));
-    }
-    if height > budget.max_height {
-        return Err(limit(
-            base + 8,
-            "image height",
-            u64::from(budget.max_height),
-            u64::from(height),
-        ));
-    }
     if le_u16(header, 12) != 1 {
         return Err(at(
             base + 12,
@@ -264,31 +222,12 @@ fn checked_info(
     let pixels = u64::from(width)
         .checked_mul(u64::from(height))
         .ok_or(malformed(base + 4, "pixel area overflows"))?;
-    if pixels > budget.max_pixels {
-        return Err(limit(base + 4, "image pixels", budget.max_pixels, pixels));
-    }
-    let potential_symbols = u64::from(width)
-        .checked_add(1)
-        .and_then(|row| row.checked_mul(u64::from(height)))
-        .ok_or(malformed(base + 4, "symbol count overflows"))?;
-    if potential_symbols > arithmetic.max_symbols {
+    if pixels > limits.max_image_pixels {
         return Err(limit(
             base + 4,
-            "arithmetic symbols",
-            arithmetic.max_symbols,
-            potential_symbols,
-        ));
-    }
-    let context_work = pixels
-        .checked_mul(10)
-        .and_then(|value| value.checked_add(u64::from(height)))
-        .ok_or(malformed(base + 4, "context work overflows"))?;
-    if context_work > budget.max_context_work {
-        return Err(limit(
-            base + 4,
-            "context work",
-            budget.max_context_work,
-            context_work,
+            "image pixels",
+            limits.max_image_pixels,
+            pixels,
         ));
     }
     let stride_u64 = u64::from(width)
@@ -386,7 +325,7 @@ fn three_line_context(
     cx
 }
 
-/// Checks that need no source bytes: shared limits, cancellation, the outer
+/// Checks that need no source bytes: cancellation, the outer
 /// record type, and the span's containment in the source. Not generic, so
 /// every source and cancellation type shares one copy.
 fn check_span(
@@ -395,9 +334,6 @@ fn check_span(
     limits: &Limits,
     cancellation: &dyn Cancellation,
 ) -> Type0Result<()> {
-    limits
-        .validate()
-        .map_err(|error| at(image.offset, Type0ErrorKind::Source(error)))?;
     if cancellation.is_cancelled() {
         return Err(at(image.offset, Type0ErrorKind::Cancelled));
     }
@@ -441,8 +377,6 @@ fn read_info<S: RangedSource, C: Cancellation>(
     image: Type0Span,
     limits: &Limits,
     cancellation: &C,
-    arithmetic_budget: ArithmeticBudget,
-    budget: Type0Budget,
 ) -> Type0Result<Type0Info> {
     let mut header = [0_u8; DIB_BYTES as usize];
     let mut done = 0;
@@ -467,7 +401,7 @@ fn read_info<S: RangedSource, C: Cancellation>(
         })?;
         done += count;
     }
-    checked_info(&header, image, limits, arithmetic_budget, budget)
+    checked_info(&header, image, limits)
 }
 
 /// Validate one type-0 span and its 48-byte DIB wrapper without decoding.
@@ -482,18 +416,9 @@ pub fn read_type0_info<S: RangedSource, C: Cancellation>(
     image: Type0Span,
     limits: &Limits,
     cancellation: &C,
-    arithmetic_budget: ArithmeticBudget,
-    budget: Type0Budget,
 ) -> Type0Result<Type0Info> {
     check_span(source.size(), image, limits, cancellation)?;
-    read_info(
-        source,
-        image,
-        limits,
-        cancellation,
-        arithmetic_budget,
-        budget,
-    )
+    read_info(source, image, limits, cancellation)
 }
 
 /// One image with one arithmetic SCD read from memory. After an error the
@@ -516,7 +441,6 @@ pub struct Type0Decoder<'a, W: Write, C: Cancellation> {
 impl<'a, W: Write, C: Cancellation> Type0Decoder<'a, W, C> {
     /// Check the DIB wrapper and start the SCD of `image`, whose bytes must
     /// all be in `input`.
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
         input: Payload<'a>,
         image: Type0Span,
@@ -525,8 +449,6 @@ impl<'a, W: Write, C: Cancellation> Type0Decoder<'a, W, C> {
         sink: &'a mut W,
         limits: &'a Limits,
         cancellation: &'a C,
-        arithmetic_budget: ArithmeticBudget,
-        budget: Type0Budget,
     ) -> Type0Result<Self> {
         check_span(input.size(), image, limits, cancellation)?;
         if contexts.get(CONTEXT_COUNT - 1).is_none() || contexts.get(CONTEXT_COUNT).is_some() {
@@ -544,7 +466,7 @@ impl<'a, W: Write, C: Cancellation> Type0Decoder<'a, W, C> {
                     Type0ErrorKind::InvalidSpan("outside source size"),
                 )
             })?;
-        let info = checked_info(header, image, limits, arithmetic_budget, budget)?;
+        let info = checked_info(header, image, limits)?;
         let previous_two = blank_row(info.dib_stride, image.offset)?;
         let previous = blank_row(info.dib_stride, image.offset)?;
         let current = blank_row(info.dib_stride, image.offset)?;
@@ -553,13 +475,12 @@ impl<'a, W: Write, C: Cancellation> Type0Decoder<'a, W, C> {
             length: image.length - DIB_BYTES,
         };
         let arithmetic =
-            ArithmeticDecoder::new(input, coded, table, contexts, limits, arithmetic_budget)
-                .map_err(|error| {
-                    at(
-                        error.offset.unwrap_or(coded.offset),
-                        Type0ErrorKind::Arithmetic(error),
-                    )
-                })?;
+            ArithmeticDecoder::new(input, coded, table, contexts, limits).map_err(|error| {
+                at(
+                    error.offset.unwrap_or(coded.offset),
+                    Type0ErrorKind::Arithmetic(error),
+                )
+            })?;
         Ok(Self {
             arithmetic,
             sink,

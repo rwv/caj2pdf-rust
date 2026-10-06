@@ -32,7 +32,7 @@ pub(crate) use io::write_counted;
 pub use io::{
     Cancellation, CountingSource, NeverCancel, Payload, RangedSource, read_exact_at, read_payload,
 };
-pub use limits::{DEFAULT_IO_CHUNK, Limits, MAX_BUDGET_COUNT, MAX_IO_CHUNK};
+pub use limits::{DEFAULT_IO_CHUNK, Limits, MAX_IO_CHUNK};
 pub use operations::{
     Bookmark, BookmarkVisitor, ConversionOptions, ConversionReport, Detection, DocumentInfo,
     InputFormat, OmittedPage, PDF_HEADER_SEARCH_BYTES, SIGNATURE_BYTES, detect_format,

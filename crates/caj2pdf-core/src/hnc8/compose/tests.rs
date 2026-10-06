@@ -827,21 +827,8 @@ fn missing_table_and_text_working_allocation_failures_remain_located() {
 }
 
 #[test]
-fn metadata_allocation_and_count_ceilings_precede_text_or_payload_output() {
+fn allocation_and_count_ceilings_precede_text_or_payload_output() {
     let images = vec![Record::jpeg(8, 8, 128, 0, 0); 2];
-    let mut case = Harness::new(Variant::C8, std::slice::from_ref(&images));
-    let mut options = ComposeOptions::default();
-    options.budget.max_page_metadata_bytes = 1;
-    let error = case.run(None, options, &Limits::default()).unwrap_err();
-    assert_eq!(error.stage, ComposeStage::Preflight);
-    assert!(matches!(
-        error.kind,
-        ComposeErrorKind::Io(Error::LimitExceeded {
-            resource: "current-page metadata bytes",
-            ..
-        })
-    ));
-    assert!(!contains(&case.sink.bytes, b"/Subtype /Image"));
     let mut case = Harness::new(Variant::C8, &[images]);
     let limits = Limits {
         io_chunk_bytes: 7,
@@ -862,9 +849,9 @@ fn metadata_allocation_and_count_ceilings_precede_text_or_payload_output() {
     let mut case = Harness::new(Variant::C8, &[vec![Record::jpeg(8, 8, 128, 0, 0)]]);
     let row = case.fixture.index;
     case.source.bytes[row + 8..row + 10].copy_from_slice(&8193_i16.to_le_bytes());
-    let mut options = ComposeOptions::default();
-    options.container.max_images_per_page = 10_000;
-    let error = case.run(None, options, &Limits::default()).unwrap_err();
+    let error = case
+        .run(None, ComposeOptions::default(), &Limits::default())
+        .unwrap_err();
     assert_eq!(error.stage, ComposeStage::Preflight);
     assert!(matches!(
         error.kind,
@@ -967,25 +954,6 @@ fn visitor_failure_and_inter_page_cancellation_invalidate_the_whole_conversion()
 
 #[test]
 fn invalid_configuration_is_refused_before_source_or_sink_access() {
-    for field in 0..3 {
-        for value in [0, MAX_BUDGET_COUNT + 1] {
-            let mut case = Harness::type0();
-            let mut options = ComposeOptions::default();
-            match field {
-                0 => options.arithmetic.max_symbols = value,
-                1 => options.arithmetic.max_work = value,
-                _ => options.budget.max_page_metadata_bytes = value,
-            }
-            let error = case
-                .run(Some(&table()), options, &Limits::default())
-                .unwrap_err();
-            assert_eq!(error.stage, ComposeStage::Preflight);
-            assert!(matches!(error.kind, ComposeErrorKind::InvalidOptions(_)));
-            assert_eq!(error.variant, None);
-            assert_eq!(case.source.max_request, 0);
-            assert!(case.sink.bytes.is_empty());
-        }
-    }
     let mut case = Harness::type0();
     let limits = Limits {
         io_chunk_bytes: 0,
@@ -1511,16 +1479,7 @@ fn type3_complete_mixed_pages_keep_top_first_pixels() {
         &mut sink,
         Some(&table()),
         &mut visitor,
-        ComposeOptions {
-            type3: Type3PdfOptions {
-                page_compose: crate::jbig2::page_compose::PageComposeBudget {
-                    max_output_request_bytes: 1,
-                    ..Default::default()
-                },
-                ..Default::default()
-            },
-            ..Default::default()
-        },
+        ComposeOptions::default(),
         &limits,
         &NeverCancel,
     )
@@ -1661,10 +1620,7 @@ fn type3_anomaly_is_explicitly_opted_in_and_reported_per_image() {
             None,
             &mut visitor,
             ComposeOptions {
-                type3: Type3PdfOptions {
-                    text_header_policy: policy,
-                    ..Default::default()
-                },
+                text_header_policy: policy,
                 ..Default::default()
             },
             &limits,
@@ -2037,7 +1993,7 @@ fn mixed_codec_content_page() -> Vec<u8> {
                         &mut source,
                         image.record,
                         At::NONE,
-                        options.type3,
+                        options.text_header_policy,
                         &limits,
                         &NeverCancel,
                     )
@@ -2054,7 +2010,6 @@ fn mixed_codec_content_page() -> Vec<u8> {
                     At::NONE.image(image.record),
                     &mut buffers,
                     Some(&qm),
-                    options,
                     &limits,
                     &NeverCancel,
                     &mut report,

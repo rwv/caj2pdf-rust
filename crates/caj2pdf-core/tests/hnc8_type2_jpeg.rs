@@ -3,8 +3,8 @@
 use caj2pdf_core::{
     Cancellation, Limits, RangedSource,
     hnc8::{
-        Budget, ErrorKind, Hnc8Error, Hnc8Reader, ImageRecord, JpegBudget, JpegColor, JpegInfo,
-        Span, Variant, read_type2_jpeg_info,
+        ErrorKind, Hnc8Error, Hnc8Reader, ImageRecord, JpegColor, JpegInfo, Span, Variant,
+        read_type2_jpeg_info,
     },
 };
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -146,20 +146,13 @@ fn parse_with(
     record: ImageRecord,
     limits: Limits,
     cancel: &Flag,
-    budget: JpegBudget,
 ) -> Result<JpegInfo, Hnc8Error> {
-    read_type2_jpeg_info(source, record, &limits, cancel, budget)
+    read_type2_jpeg_info(source, record, &limits, cancel)
 }
 
 fn parse(payload: &[u8]) -> Result<JpegInfo, Hnc8Error> {
     let (mut source, record) = record_for(payload);
-    parse_with(
-        &mut source,
-        record,
-        Limits::default(),
-        &NEVER,
-        JpegBudget::default(),
-    )
+    parse_with(&mut source, record, Limits::default(), &NEVER)
 }
 
 fn format_source(variant: Variant, first: &[u8], last: &[u8]) -> Source {
@@ -206,18 +199,11 @@ fn checked_first_and_last_images_in_each_container_profile_are_bounded() {
             io_chunk_bytes: 7,
             ..Limits::default()
         };
-        let mut reader = Hnc8Reader::open(&mut source, &limits, &NEVER, Budget::default()).unwrap();
+        let mut reader = Hnc8Reader::open(&mut source, &limits, &NEVER).unwrap();
         assert_eq!(reader.header().variant, variant);
         assert_eq!(reader.next_page().unwrap().unwrap().image_count, 2);
         let first = reader.next_image().unwrap().unwrap();
-        let first_info = read_type2_jpeg_info(
-            reader.source_mut(),
-            first,
-            &limits,
-            &NEVER,
-            JpegBudget::default(),
-        )
-        .unwrap();
+        let first_info = read_type2_jpeg_info(reader.source_mut(), first, &limits, &NEVER).unwrap();
         assert_eq!((first_info.width, first_info.height), (9, 7));
         assert_eq!(
             (first_info.components, first_info.color),
@@ -227,14 +213,7 @@ fn checked_first_and_last_images_in_each_container_profile_are_bounded() {
         assert_eq!(first_info.scans, 1);
         assert_eq!(first_info.payload, first.payload);
         let last = reader.next_image().unwrap().unwrap();
-        let last_info = read_type2_jpeg_info(
-            reader.source_mut(),
-            last,
-            &limits,
-            &NEVER,
-            JpegBudget::default(),
-        )
-        .unwrap();
+        let last_info = read_type2_jpeg_info(reader.source_mut(), last, &limits, &NEVER).unwrap();
         assert_eq!(
             (last_info.components, last_info.color),
             (3, JpegColor::Ycbcr)
@@ -443,45 +422,27 @@ fn checked_span_identity_limits_cancellation_and_disrupted_reads() {
     let mut bad = record;
     bad.page_number = 0;
     assert_eq!(
-        parse_with(
-            &mut source,
-            bad,
-            Limits::default(),
-            &NEVER,
-            JpegBudget::default()
-        )
-        .unwrap_err()
-        .kind
-        .field(),
+        parse_with(&mut source, bad, Limits::default(), &NEVER)
+            .unwrap_err()
+            .kind
+            .field(),
         "image identity"
     );
     bad = record;
     bad.image_number = 0;
     assert_eq!(
-        parse_with(
-            &mut source,
-            bad,
-            Limits::default(),
-            &NEVER,
-            JpegBudget::default()
-        )
-        .unwrap_err()
-        .kind
-        .field(),
+        parse_with(&mut source, bad, Limits::default(), &NEVER)
+            .unwrap_err()
+            .kind
+            .field(),
         "image identity"
     );
     bad = record;
     bad.record_type = 0;
     assert!(matches!(
-        parse_with(
-            &mut source,
-            bad,
-            Limits::default(),
-            &NEVER,
-            JpegBudget::default()
-        )
-        .unwrap_err()
-        .kind,
+        parse_with(&mut source, bad, Limits::default(), &NEVER)
+            .unwrap_err()
+            .kind,
         ErrorKind::Unsupported {
             field: "image type",
             ..
@@ -490,75 +451,45 @@ fn checked_span_identity_limits_cancellation_and_disrupted_reads() {
     bad = record;
     bad.descriptor_offset = u64::MAX;
     assert_eq!(
-        parse_with(
-            &mut source,
-            bad,
-            Limits::default(),
-            &NEVER,
-            JpegBudget::default()
-        )
-        .unwrap_err()
-        .kind
-        .field(),
+        parse_with(&mut source, bad, Limits::default(), &NEVER)
+            .unwrap_err()
+            .kind
+            .field(),
         "image descriptor"
     );
     bad = record;
     bad.payload.offset = 11;
     assert_eq!(
-        parse_with(
-            &mut source,
-            bad,
-            Limits::default(),
-            &NEVER,
-            JpegBudget::default()
-        )
-        .unwrap_err()
-        .kind
-        .field(),
+        parse_with(&mut source, bad, Limits::default(), &NEVER)
+            .unwrap_err()
+            .kind
+            .field(),
         "image payload"
     );
     bad = record;
     bad.payload.length = 0;
     assert_eq!(
-        parse_with(
-            &mut source,
-            bad,
-            Limits::default(),
-            &NEVER,
-            JpegBudget::default()
-        )
-        .unwrap_err()
-        .kind
-        .field(),
+        parse_with(&mut source, bad, Limits::default(), &NEVER)
+            .unwrap_err()
+            .kind
+            .field(),
         "image payload"
     );
     bad = record;
     bad.payload.length = u64::MAX;
     assert_eq!(
-        parse_with(
-            &mut source,
-            bad,
-            Limits::default(),
-            &NEVER,
-            JpegBudget::default()
-        )
-        .unwrap_err()
-        .kind
-        .field(),
+        parse_with(&mut source, bad, Limits::default(), &NEVER)
+            .unwrap_err()
+            .kind
+            .field(),
         "image payload"
     );
     bad = record;
     bad.payload.length += 1;
     assert!(matches!(
-        parse_with(
-            &mut source,
-            bad,
-            Limits::default(),
-            &NEVER,
-            JpegBudget::default()
-        )
-        .unwrap_err()
-        .kind,
+        parse_with(&mut source, bad, Limits::default(), &NEVER)
+            .unwrap_err()
+            .kind,
         ErrorKind::Truncated { .. }
     ));
 
@@ -567,7 +498,7 @@ fn checked_span_identity_limits_cancellation_and_disrupted_reads() {
         ..Limits::default()
     };
     assert!(matches!(
-        parse_with(&mut source, record, limits, &NEVER, JpegBudget::default())
+        parse_with(&mut source, record, limits, &NEVER)
             .unwrap_err()
             .kind,
         ErrorKind::LimitExceeded {
@@ -575,112 +506,44 @@ fn checked_span_identity_limits_cancellation_and_disrupted_reads() {
             ..
         }
     ));
-    let budget = JpegBudget {
-        max_payload_bytes: 1,
-        ..JpegBudget::default()
+    let limits = Limits {
+        io_chunk_bytes: 1,
+        max_allocation_bytes: 1,
+        ..Limits::default()
     };
     assert!(matches!(
-        parse_with(&mut source, record, Limits::default(), &NEVER, budget)
+        parse_with(&mut source, record, limits, &NEVER)
             .unwrap_err()
             .kind,
         ErrorKind::LimitExceeded {
             resource: "JPEG payload bytes",
+            limit: 1,
             ..
         }
     ));
-    let budget = JpegBudget {
-        max_work_bytes: 1,
-        ..JpegBudget::default()
-    };
     assert!(matches!(
-        parse_with(&mut source, record, Limits::default(), &NEVER, budget)
+        parse_with(&mut source, record, Limits::default(), &Flag::new(0))
             .unwrap_err()
             .kind,
-        ErrorKind::LimitExceeded {
-            resource: "JPEG work bytes",
-            ..
-        }
-    ));
-    let budget = JpegBudget {
-        max_markers: 1,
-        ..JpegBudget::default()
-    };
-    assert!(matches!(
-        parse_with(&mut source, record, Limits::default(), &NEVER, budget)
-            .unwrap_err()
-            .kind,
-        ErrorKind::LimitExceeded {
-            resource: "JPEG markers",
-            ..
-        }
-    ));
-    assert!(matches!(
-        parse_with(
-            &mut source,
-            record,
-            Limits::default(),
-            &Flag::new(0),
-            JpegBudget::default()
-        )
-        .unwrap_err()
-        .kind,
         ErrorKind::Cancelled
     ));
     source.zero_at = Some(36);
-    let error = parse_with(
-        &mut source,
-        record,
-        Limits::default(),
-        &NEVER,
-        JpegBudget::default(),
-    )
-    .unwrap_err();
+    let error = parse_with(&mut source, record, Limits::default(), &NEVER).unwrap_err();
     assert_eq!(error.offset, 36);
     assert!(matches!(error.kind, ErrorKind::Truncated { .. }));
     source.zero_at = None;
     source.overreport = true;
     assert!(matches!(
-        parse_with(
-            &mut source,
-            record,
-            Limits::default(),
-            &NEVER,
-            JpegBudget::default()
-        )
-        .unwrap_err()
-        .kind,
+        parse_with(&mut source, record, Limits::default(), &NEVER)
+            .unwrap_err()
+            .kind,
         ErrorKind::Source { .. }
     ));
     source.overreport = false;
-    let invalid_limits = Limits {
-        io_chunk_bytes: 0,
-        ..Limits::default()
-    };
     assert!(matches!(
-        parse_with(
-            &mut source,
-            record,
-            invalid_limits,
-            &NEVER,
-            JpegBudget::default()
-        )
-        .unwrap_err()
-        .kind,
-        ErrorKind::Source {
-            field: "limits",
-            ..
-        }
-    ));
-    assert!(matches!(
-        parse_with(
-            &mut source,
-            record,
-            Limits::default(),
-            &Flag::new(3),
-            JpegBudget::default()
-        )
-        .unwrap_err()
-        .kind,
+        parse_with(&mut source, record, Limits::default(), &Flag::new(3))
+            .unwrap_err()
+            .kind,
         ErrorKind::Cancelled
     ));
 }

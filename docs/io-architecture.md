@@ -21,14 +21,29 @@ to any [`std::io::Write`](https://doc.rust-lang.org/std/io/trait.Write.html):
   already written. Callers that need atomic path output stage it outside the
   core and commit it only after success (the CLI does).
 
-Bounded means capped by `Limits`, not spooled. One image payload, one symbol
-dictionary or one page bitmap may be held in memory, each read once and
-capped by `max_allocation_bytes`; HN/C8 bitmaps live in memory and no
-conversion creates a temporary file. The default limits are 8 GiB input,
-16 GiB output, 64 MiB for any single allocation (at most 256 MiB), and
-100,000 pages or bookmarks. Reads and writes are at most 1 MiB per call; the
-default chunk is 256 KiB. Memory budgets also include retained indexes,
-bookmarks and decoder state.
+Bounded means capped by `Limits`, not spooled. `Limits` is the only set of
+resource bounds; each public entry point (`convert_*`, `inspect`,
+`PdfIndex::open`, `Hnc8Reader::open` and the WASM session) validates it once,
+and every other bound is derived from its fields or from the format itself:
+
+| Field | Default | Bounds |
+| --- | --- | --- |
+| `io_chunk_bytes` | 256 KiB | each read or write request, at most 1 MiB (`MAX_IO_CHUNK`) |
+| `max_input_bytes` | 8 GiB | the selected input |
+| `max_output_bytes` | 16 GiB | the output of one operation |
+| `max_allocation_bytes` | 64 MiB | one allocation: one image payload, one JBIG2 symbol store, one page or region bitmap |
+| `max_pages` | 100,000 | pages accepted from an input |
+| `max_bookmarks` | 100,000 | bookmarks accepted from an input |
+| `max_image_pixels` | 12,000,000 | one decoded image, page, region, refinement or symbol bitmap, and a text region's symbol instances |
+| `max_symbols` | 8,192 | the symbols of one JBIG2 dictionary (new, exported, imported plus new), its height classes and its export runs |
+
+One image payload, one symbol store or one page bitmap may be held in
+memory, each read once; HN/C8 bitmaps live in memory and no conversion
+creates a temporary file. Decoding work is bounded by these sizes: the
+decoders count no arithmetic work or I/O calls of their own. An exceeded
+limit fails with a located `LimitExceeded` error naming the resource. The
+JavaScript `limits` option sets the first six fields; `max_image_pixels` and
+`max_symbols` keep their defaults there.
 
 Format engines are plain functions over `RangedSource`, `Write` and
 `Cancellation`. Bookmark visits use a `BookmarkVisitor` rather than a

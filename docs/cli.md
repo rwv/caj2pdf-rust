@@ -510,8 +510,8 @@ records. Cancellation and read failures end the command with status 1; the
 report already written to standard output is then incomplete.
 
 Memory stays bounded: pages and descriptors are written as they are read,
-and each page's text is checked with the conversion text budget
-(`TextBudget::default()`). Image payloads are never read.
+and each page's text is checked under the same `Limits` as conversion.
+Image payloads are never read.
 
 Text form, after the usual lines (the synthetic HN-A test input):
 

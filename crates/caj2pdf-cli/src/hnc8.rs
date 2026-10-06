@@ -12,7 +12,7 @@ use caj2pdf_core::{
     Error, Limits, RangedSource,
     hnc8::{
         ApplicationInfoReport, ApplicationInfoStatus, C8_DEFAULT_DECORATION_ALIAS, C8FontSource,
-        C8FontSources, ComposeOptions, ComposePage, ComposeVisitor, OutlineReport, Type3PdfOptions,
+        C8FontSources, ComposeOptions, ComposePage, ComposeVisitor, OutlineReport,
         convert_document_pdf,
     },
     jbig2::text::TextHeaderPolicy,
@@ -200,12 +200,8 @@ pub fn compose_options(include_bookmarks: bool) -> ComposeOptions {
     ComposeOptions {
         // The HN/C8 profile explicitly admits the measured unused-template
         // anomaly; general JBIG2 APIs and all other malformed flags stay strict.
-        type3: Type3PdfOptions {
-            text_header_policy: TextHeaderPolicy::HnC8UnusedRefinementTemplate,
-            ..Default::default()
-        },
+        text_header_policy: TextHeaderPolicy::HnC8UnusedRefinementTemplate,
         include_bookmarks,
-        ..Default::default()
     }
 }
 
@@ -267,9 +263,9 @@ pub fn inspect<S: RangedSource>(
     limits: &Limits,
     structure: bool,
 ) -> Result<Inspected, String> {
-    use caj2pdf_core::hnc8::{Budget, Hnc8Reader};
-    let mut reader = Hnc8Reader::open(source, limits, &ProcessCancellation, Budget::default())
-        .map_err(|e| e.to_string())?;
+    use caj2pdf_core::hnc8::Hnc8Reader;
+    let mut reader =
+        Hnc8Reader::open(source, limits, &ProcessCancellation).map_err(|e| e.to_string())?;
     let header = reader.header();
     let structure = if structure {
         Some(crate::document::Structure::Hnc8 {
@@ -342,17 +338,11 @@ pub fn write_pages<S: RangedSource, W: std::io::Write>(
     page_count: u32,
     out: &mut crate::report::Pages<'_, W>,
 ) -> Result<(), PagesError> {
-    use caj2pdf_core::hnc8::{Budget, Hnc8Reader, TextBudget};
+    use caj2pdf_core::hnc8::Hnc8Reader;
     out.begin().map_err(PagesError::Output)?;
     for number in 1..=page_count {
-        let mut reader = Hnc8Reader::probe_at_page(
-            source,
-            limits,
-            &ProcessCancellation,
-            Budget::default(),
-            number,
-        )
-        .map_err(|e| PagesError::Input(e.to_string()))?;
+        let mut reader = Hnc8Reader::probe_at_page(source, limits, &ProcessCancellation, number)
+            .map_err(|e| PagesError::Input(e.to_string()))?;
         let row = match reader.next_page() {
             Ok(row) => row.expect("a probe opens at a declared page"),
             Err(error) => {
@@ -376,7 +366,7 @@ pub fn write_pages<S: RangedSource, W: std::io::Write>(
                 .map_err(PagesError::Output)?;
             continue;
         }
-        match reader.inspect_text(TextBudget::default()) {
+        match reader.inspect_text() {
             Ok(text) => out.end_page(Some(&text), None, None),
             Err(error) => out.end_page(None, Some(&fatal(error)?), None),
         }

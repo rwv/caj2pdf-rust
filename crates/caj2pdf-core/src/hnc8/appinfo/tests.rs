@@ -4,7 +4,7 @@
 //! The XML text is invented; no document values or bytes are used.
 
 use super::*;
-use crate::hnc8::{Budget, Hnc8Reader};
+use crate::hnc8::Hnc8Reader;
 use crate::test_support::{CancelAfter, NEVER};
 use crate::{Limits, native::SeekableSource};
 use flate2::{Compression, write::ZlibEncoder};
@@ -56,7 +56,7 @@ fn read_with(
 ) -> Result<Option<ApplicationInfo>> {
     (|| {
         let mut source = SeekableSource::new(Cursor::new(bytes)).unwrap();
-        let mut reader = Hnc8Reader::open(&mut source, limits, cancellation, Budget::default())?;
+        let mut reader = Hnc8Reader::open(&mut source, limits, cancellation)?;
         reader.application_info()
     })()
 }
@@ -265,7 +265,7 @@ fn allocation_limits_and_cancellation_are_reported() {
     let error = {
         let mut source = SeekableSource::new(Cursor::new(package(VALID))).unwrap();
         let limits = Limits::default();
-        let mut reader = Hnc8Reader::open(&mut source, &limits, &NEVER, Budget::default()).unwrap();
+        let mut reader = Hnc8Reader::open(&mut source, &limits, &NEVER).unwrap();
         reader.cancellation = &ALWAYS;
         reader.application_info()
     }

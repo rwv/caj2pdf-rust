@@ -4,7 +4,7 @@ use super::*;
 use caj2pdf_core::{
     hnc8::{
         ApplicationInfo, C8FontSource, C8FontSources, C8PageFonts, ComposeOptions, ComposePage,
-        ComposeVisitor, Type3PdfOptions, convert_document_pdf,
+        ComposeVisitor, convert_document_pdf,
     },
     jbig2::text::TextHeaderPolicy,
     qm::QmTable,
@@ -127,12 +127,8 @@ pub(super) fn convert<'h, H: Host>(
     let options = ComposeOptions {
         // The HN/C8 profile explicitly admits the measured unused-template
         // anomaly; general JBIG2 APIs and all other malformed flags stay strict.
-        type3: Type3PdfOptions {
-            text_header_policy: TextHeaderPolicy::HnC8UnusedRefinementTemplate,
-            ..Default::default()
-        },
+        text_header_policy: TextHeaderPolicy::HnC8UnusedRefinementTemplate,
         include_bookmarks: options.include_bookmarks,
-        ..Default::default()
     };
     let roles = match fonts.count {
         0 => None,
@@ -190,8 +186,8 @@ fn read_metadata<S: RangedSource, C: Cancellation>(
     limits: &Limits,
     cancellation: &C,
 ) -> caj2pdf_core::hnc8::Result<Inspected> {
-    use caj2pdf_core::hnc8::{Budget, Hnc8Reader};
-    let mut reader = Hnc8Reader::open(source, limits, cancellation, Budget::default())?;
+    use caj2pdf_core::hnc8::Hnc8Reader;
+    let mut reader = Hnc8Reader::open(source, limits, cancellation)?;
     let pages = reader.header().page_count;
     let application_info = reader.application_info_report()?.info;
     let mut inspected = Inspected {

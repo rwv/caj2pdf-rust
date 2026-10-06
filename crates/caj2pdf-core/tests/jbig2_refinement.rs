@@ -11,11 +11,8 @@ use caj2pdf_core::{
     jbig2::{
         dictionary::SymbolDescriptor,
         integer::BITMAP_BASE,
-        mq::{CodedSpan, ContextBank, ContextState, MqBudget, MqDecoder, MqTable},
-        refinement::{
-            ReferenceStore, RefinementBudget, RefinementDecoder, RefinementReference,
-            RefinementRequest,
-        },
+        mq::{CodedSpan, ContextBank, ContextState, MqDecoder, MqTable},
+        refinement::{ReferenceStore, RefinementDecoder, RefinementReference, RefinementRequest},
     },
 };
 
@@ -25,8 +22,8 @@ fn table() -> MqTable {
 
 /// A coding unit's contexts with the bitmap range at
 /// [`BITMAP_BASE`]; refinement needs no IAID contexts.
-fn contexts(limits: &Limits, mq_budget: &MqBudget) -> ContextBank {
-    mq_budget.context_bank(BITMAP_BASE + 1024, limits).unwrap()
+fn contexts(limits: &Limits) -> ContextBank {
+    caj2pdf_core::jbig2::mq::context_bank(BITMAP_BASE + 1024, limits).unwrap()
 }
 
 /// An MQ stream coding each `(context, pixel)` decision in order.
@@ -85,9 +82,8 @@ fn request(
 #[test]
 fn two_bitmaps_share_gr_statistics_but_restart_target_history_and_store_offsets() {
     let limits = Limits::default();
-    let mq_budget = MqBudget::default();
     let table = table();
-    let mut contexts = contexts(&limits, &mq_budget);
+    let mut contexts = contexts(&limits);
     let base = BITMAP_BASE;
     // Figure 13: the reference centre is context bit 3. Both first pixels
     // use GR context 8.
@@ -98,7 +94,6 @@ fn two_bitmaps_share_gr_statistics_but_restart_target_history_and_store_offsets(
         &table,
         &mut contexts,
         &limits,
-        mq_budget,
     )
     .unwrap();
     // The valid one-bit reference is at absolute byte 2. Byte 1 is zero, so
@@ -106,14 +101,7 @@ fn two_bitmaps_share_gr_statistics_but_restart_target_history_and_store_offsets(
     let reference_source = [0x57, 0x00, 0x80];
     let reference = reference(1, 1, 1, 1);
     let mut sink = vec![0x57];
-    let mut host = RefinementDecoder::new(
-        &mut mq,
-        &mut sink,
-        &limits,
-        &NeverCancel,
-        RefinementBudget::default(),
-    )
-    .unwrap();
+    let mut host = RefinementDecoder::new(&mut mq, &mut sink, &limits, &NeverCancel).unwrap();
     let first = host
         .decode_bitmap(
             ReferenceStore::Other(&reference_source),
@@ -144,9 +132,8 @@ fn two_bitmaps_share_gr_statistics_but_restart_target_history_and_store_offsets(
 #[test]
 fn an_interleaved_non_gr_mq_decision_keeps_the_store_and_gr_session() {
     let limits = Limits::default();
-    let mq_budget = MqBudget::default();
     let table = table();
-    let mut contexts = contexts(&limits, &mq_budget);
+    let mut contexts = contexts(&limits);
     let gr_base = BITMAP_BASE;
     let bytes = stream(&[(gr_base + 8, true), (0, false), (gr_base + 8, true)]);
     let mut mq = MqDecoder::new(
@@ -155,19 +142,11 @@ fn an_interleaved_non_gr_mq_decision_keeps_the_store_and_gr_session() {
         &table,
         &mut contexts,
         &limits,
-        mq_budget,
     )
     .unwrap();
     let reference_source = [0x80];
     let mut sink = vec![0x57];
-    let mut host = RefinementDecoder::new(
-        &mut mq,
-        &mut sink,
-        &limits,
-        &NeverCancel,
-        RefinementBudget::default(),
-    )
-    .unwrap();
+    let mut host = RefinementDecoder::new(&mut mq, &mut sink, &limits, &NeverCancel).unwrap();
     let first = host
         .decode_bitmap(
             ReferenceStore::Other(&reference_source),
@@ -213,9 +192,8 @@ fn signed_offsets_select_the_specified_reference_taps_without_overflow() {
     ];
     for (dx, dy, expected_context) in cases {
         let limits = Limits::default();
-        let mq_budget = MqBudget::default();
         let table = table();
-        let mut contexts = contexts(&limits, &mq_budget);
+        let mut contexts = contexts(&limits);
         let base = BITMAP_BASE;
         let bytes = stream(&[(base + expected_context, true)]);
         let mut mq = MqDecoder::new(
@@ -224,19 +202,11 @@ fn signed_offsets_select_the_specified_reference_taps_without_overflow() {
             &table,
             &mut contexts,
             &limits,
-            mq_budget,
         )
         .unwrap();
         let reference_source = [0x80];
         let mut sink = Vec::new();
-        let mut host = RefinementDecoder::new(
-            &mut mq,
-            &mut sink,
-            &limits,
-            &NeverCancel,
-            RefinementBudget::default(),
-        )
-        .unwrap();
+        let mut host = RefinementDecoder::new(&mut mq, &mut sink, &limits, &NeverCancel).unwrap();
         let report = host
             .decode_bitmap(
                 ReferenceStore::Other(&reference_source),
@@ -262,9 +232,8 @@ fn rows_stay_packed_and_three_reference_rows_are_reused() {
         io_chunk_bytes: 2,
         ..Limits::default()
     };
-    let mq_budget = MqBudget::default();
     let table = table();
-    let mut contexts = contexts(&limits, &mq_budget);
+    let mut contexts = contexts(&limits);
     // Every target pixel is set. The template-1 contexts of the 18 pixels,
     // over the all-set reference: the left edge, the row interior, and the
     // right edge, with the previous target row set on the second row.
@@ -281,20 +250,12 @@ fn rows_stay_packed_and_three_reference_rows_are_reused() {
         &table,
         &mut contexts,
         &limits,
-        mq_budget,
     )
     .unwrap();
     // The low seven bits in each second reference byte are outside width 9.
     let reference_source = [0xff, 0xff, 0xff, 0xff, 0xff, 0xff];
     let mut sink = Vec::new();
-    let mut host = RefinementDecoder::new(
-        &mut mq,
-        &mut sink,
-        &limits,
-        &NeverCancel,
-        RefinementBudget::default(),
-    )
-    .unwrap();
+    let mut host = RefinementDecoder::new(&mut mq, &mut sink, &limits, &NeverCancel).unwrap();
     let report = host
         .decode_bitmap(
             ReferenceStore::Other(&reference_source),
@@ -303,7 +264,6 @@ fn rows_stay_packed_and_three_reference_rows_are_reused() {
         .unwrap();
     assert_eq!(report.progress.output_bytes_written, 4);
     assert_eq!(report.progress.rows_written, 2);
-    assert_eq!(report.progress.context_work, 180);
     assert_eq!(report.progress.mq.unwrap().symbols_decoded, 18);
     assert_eq!(sink, [0xff, 0x80, 0xff, 0x80]);
     mq.finish(18).unwrap();
@@ -318,9 +278,8 @@ fn exact_packed_set_and_clear_pixels_at_byte_boundaries() {
     ];
     for (width, expected, clear_pixels) in cases {
         let limits = Limits::default();
-        let mq_budget = MqBudget::default();
         let table = table();
-        let mut contexts = contexts(&limits, &mq_budget);
+        let mut contexts = contexts(&limits);
         // Over an all-zero reference, the only nonzero template-1 neighbour
         // in one row is the target pixel to the left (context bit 6). Clear
         // pixels must leave both packed bytes clear, including the seven
@@ -339,19 +298,11 @@ fn exact_packed_set_and_clear_pixels_at_byte_boundaries() {
             &table,
             &mut contexts,
             &limits,
-            mq_budget,
         )
         .unwrap();
         let reference_source = [0x00];
         let mut sink = Vec::new();
-        let mut host = RefinementDecoder::new(
-            &mut mq,
-            &mut sink,
-            &limits,
-            &NeverCancel,
-            RefinementBudget::default(),
-        )
-        .unwrap();
+        let mut host = RefinementDecoder::new(&mut mq, &mut sink, &limits, &NeverCancel).unwrap();
         let report = host
             .decode_bitmap(
                 ReferenceStore::Other(&reference_source),

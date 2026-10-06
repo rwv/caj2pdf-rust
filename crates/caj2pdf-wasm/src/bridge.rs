@@ -100,7 +100,8 @@ fn with_outcome<T>(default: T, access: impl FnOnce(&Outcome) -> T) -> T {
     })
 }
 
-#[allow(clippy::too_many_arguments)]
+/// The JavaScript limits; the image-pixel and symbol limits keep their
+/// defaults.
 fn limits(
     chunk_size: u32,
     max_input_bytes: u64,
@@ -116,6 +117,7 @@ fn limits(
         max_allocation_bytes,
         max_pages,
         max_bookmarks,
+        ..Limits::default()
     }
 }
 

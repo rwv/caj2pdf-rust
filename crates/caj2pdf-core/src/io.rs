@@ -173,10 +173,13 @@ pub fn read_payload<'a, S: RangedSource, C: Cancellation>(
         .try_reserve_exact(size)
         .map_err(|_| limits.allocation_refused("payload bytes", length))?;
     buffer.resize(size, 0);
-    for (index, chunk) in buffer.chunks_mut(limits.io_chunk_bytes).enumerate() {
+    // A zero chunk size is refused by `Limits::validate` at the entry point;
+    // `read_exact_at` then refuses each nonempty chunk.
+    let chunk_bytes = limits.io_chunk_bytes.max(1);
+    for (index, chunk) in buffer.chunks_mut(chunk_bytes).enumerate() {
         // Each chunk starts below `length`, which fits a `usize`.
         let at = offset
-            .checked_add(len_u64(index * limits.io_chunk_bytes))
+            .checked_add(len_u64(index * chunk_bytes))
             .ok_or(Error::InvalidInput {
                 reason: "payload offset overflows 64-bit offset",
             })?;
@@ -241,7 +244,6 @@ pub fn read_exact_at<S: RangedSource, C: Cancellation>(
     limits: &Limits,
     cancellation: &C,
 ) -> Result<()> {
-    limits.validate()?;
     let length = len_u64(destination.len());
     limits.check_input_size(length)?;
     if destination.len() > limits.io_chunk_bytes {
@@ -293,7 +295,6 @@ pub(crate) fn write_counted<W: Write + ?Sized, C: Cancellation>(
     limits: &Limits,
     cancellation: &C,
 ) -> Result<()> {
-    limits.validate()?;
     let attempted = output_bytes_written
         .checked_add(len_u64(bytes.len()))
         .ok_or(Error::InvalidInput {
@@ -307,7 +308,8 @@ pub(crate) fn write_counted<W: Write + ?Sized, C: Cancellation>(
         });
     }
     check_cancelled(cancellation)?;
-    for chunk in bytes.chunks(limits.io_chunk_bytes) {
+    // A zero chunk size is refused by `Limits::validate` at the entry point.
+    for chunk in bytes.chunks(limits.io_chunk_bytes.max(1)) {
         sink.write_all(chunk)?;
         // Bounded by `attempted` above.
         *output_bytes_written += len_u64(chunk.len());

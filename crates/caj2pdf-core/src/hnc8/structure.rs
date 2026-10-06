@@ -7,8 +7,7 @@
 //! titles or image payload bytes, and they add no format interpretation.
 
 use super::{
-    ErrorKind, Hnc8Reader, Location, NativeRecord, NativeRecordVisitor, Result, TextBudget,
-    Variant,
+    ErrorKind, Hnc8Reader, Location, NativeRecord, NativeRecordVisitor, Result, Variant,
     appinfo::Trailer,
     text::{PageText, read_page_text},
 };
@@ -87,7 +86,7 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
     /// coordinate-group rule as composition. C8 spans whose compressed header
     /// is absent, and all HN-B spans, are framed as native records. Errors are
     /// the first located error of the deciding reader.
-    pub fn inspect_text(&mut self, budget: TextBudget) -> Result<TextStructure> {
+    pub fn inspect_text(&mut self) -> Result<TextStructure> {
         let header = self.header;
         let loc = Location {
             variant: Some(header.variant),
@@ -107,14 +106,7 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
             });
         }
         if header.variant != Variant::HnB {
-            match read_page_text(
-                self.source,
-                header,
-                page,
-                self.limits,
-                self.cancellation,
-                budget,
-            ) {
+            match read_page_text(self.source, header, page, self.limits, self.cancellation) {
                 Ok(PageText::Framed(text)) => {
                     let framing = match text.zlib_frame {
                         None if text.page_size.is_some() => TextFraming::RawPaired,
@@ -135,7 +127,7 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
                 Ok(PageText::Unframed(error)) | Err(error) => return Err(error),
             }
         }
-        let records = self.visit_native_records(budget, &mut Discard)?;
+        let records = self.visit_native_records(&mut Discard)?;
         Ok(TextStructure {
             framing: TextFraming::Native,
             records,

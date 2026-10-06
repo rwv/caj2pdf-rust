@@ -26,11 +26,11 @@ pub use appinfo::{
     MAX_APPLICATION_INFO_BYTES, MAX_APPLICATION_INFO_FIELD_BYTES,
 };
 pub use compose::{
-    C8FontSource, C8FontSources, ComposeBudget, ComposeError, ComposeErrorKind, ComposeOptions,
-    ComposePage, ComposeReport, ComposeStage, ComposeVisitor, ComposedImage, convert_document_pdf,
+    C8FontSource, C8FontSources, ComposeError, ComposeErrorKind, ComposeOptions, ComposePage,
+    ComposeReport, ComposeStage, ComposeVisitor, ComposedImage, convert_document_pdf,
     convert_source_pages_pdf, uses_native_text,
 };
-pub use jpeg::{JpegBudget, JpegColor, JpegInfo, read_type2_jpeg_info};
+pub use jpeg::{JpegColor, JpegInfo, read_type2_jpeg_info};
 pub(crate) use native::{
     NativeRecord, NativeRecordVisitor, decode_native_character, decode_native_character_for_mode,
     decode_native_image_coordinate,
@@ -44,9 +44,9 @@ pub(crate) use placement::{
     empirical_page_from_pixels,
 };
 pub use structure::{ApplicationInfoTail, TextFraming, TextStructure};
+pub use text::RawTextCoordinate;
 pub(crate) use text::TEXT_DECODER_RESERVATION_BYTES;
-pub use text::{RawTextCoordinate, TextBudget};
-pub use type3_image::{Type3PdfOptions, Type3Stage};
+pub use type3_image::Type3Stage;
 
 use crate::jbig1::Type0Span;
 use crate::{Cancellation, Error, Limits, RangedSource, read_exact_at};
@@ -171,30 +171,6 @@ impl ImageRecord {
             offset: self.payload.offset,
             length: self.payload.length,
         })
-    }
-}
-
-/// Format-specific ceilings independent of the shared `Limits` contract.
-/// `max_input_bytes` bounds the entire selected source at open, while these
-/// text/image limits bound each declared span separately.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct Budget {
-    pub max_outline_records: u32,
-    pub max_images_per_page: u32,
-    pub max_images_total: u64,
-    pub max_text_span_bytes: u64,
-    pub max_image_span_bytes: u64,
-}
-
-impl Default for Budget {
-    fn default() -> Self {
-        Self {
-            max_outline_records: 100_000,
-            max_images_per_page: 8_192,
-            max_images_total: 1_000_000,
-            max_text_span_bytes: 64 * 1024 * 1024,
-            max_image_span_bytes: 64 * 1024 * 1024,
-        }
     }
 }
 
@@ -445,45 +421,37 @@ pub struct Hnc8Reader<'a, S: RangedSource, C: Cancellation> {
     source: &'a mut S,
     limits: &'a Limits,
     cancellation: &'a C,
-    budget: Budget,
     header: Header,
     page_row_bytes: u64,
     next_page: u32,
     current: Option<CurrentPage>,
-    declared_images: u64,
 }
 
 impl<'a, S: RangedSource, C: Cancellation> Hnc8Reader<'a, S, C> {
-    pub fn open(
-        source: &'a mut S,
-        limits: &'a Limits,
-        cancellation: &'a C,
-        budget: Budget,
-    ) -> Result<Self> {
-        Self::open_starting_at(source, limits, cancellation, budget, 1)
+    /// Open a cursor at the first page. `limits` are validated here; each
+    /// image payload is bounded by `Limits::max_allocation_bytes`.
+    pub fn open(source: &'a mut S, limits: &'a Limits, cancellation: &'a C) -> Result<Self> {
+        Self::open_starting_at(source, limits, cancellation, 1)
     }
 
     /// Open a fresh diagnostic cursor at one page-index row.
     ///
     /// This deliberately skips earlier pages so that malformed pages can be
-    /// inspected independently. Its total-image budget covers only the
-    /// selected suffix, not the whole document. Full-document conversion
-    /// must use `open`; the CLI's per-page structure report uses this cursor.
+    /// inspected independently. Full-document conversion must use `open`;
+    /// the CLI's per-page structure report uses this cursor.
     pub fn probe_at_page(
         source: &'a mut S,
         limits: &'a Limits,
         cancellation: &'a C,
-        budget: Budget,
         start_page: u32,
     ) -> Result<Self> {
-        Self::open_starting_at(source, limits, cancellation, budget, start_page)
+        Self::open_starting_at(source, limits, cancellation, start_page)
     }
 
     fn open_starting_at(
         source: &'a mut S,
         limits: &'a Limits,
         cancellation: &'a C,
-        budget: Budget,
         start_page: u32,
     ) -> Result<Self> {
         let base = Location {
@@ -637,14 +605,7 @@ impl<'a, S: RangedSource, C: Cancellation> Hnc8Reader<'a, S, C> {
                 "outline count",
             )?;
             let outline_count = nonnegative32(signed32(&outline), loc.at(0x158), "outline count")?;
-            if outline_count > u64::from(budget.max_outline_records) {
-                return Err(loc.at(0x158).limit(
-                    "outline records",
-                    u64::from(budget.max_outline_records),
-                    outline_count,
-                ));
-            }
-            // The count fits 32 bits, so the product fits 64 bits.
+            // The count is below 2^31, so the index starts below 2^42.
             let outline_bytes = outline_count * OUTLINE_RECORD_BYTES;
             index_start + outline_bytes
         } else {
@@ -691,7 +652,6 @@ impl<'a, S: RangedSource, C: Cancellation> Hnc8Reader<'a, S, C> {
             source,
             limits,
             cancellation,
-            budget,
             header: Header {
                 variant,
                 native_mode,
@@ -703,7 +663,6 @@ impl<'a, S: RangedSource, C: Cancellation> Hnc8Reader<'a, S, C> {
             page_row_bytes,
             next_page: start_page,
             current: None,
-            declared_images: 0,
         })
     }
 
@@ -764,13 +723,6 @@ impl<'a, S: RangedSource, C: Cancellation> Hnc8Reader<'a, S, C> {
             loc.at(row_offset),
             "text span",
         )?;
-        if text_length > self.budget.max_text_span_bytes {
-            return Err(loc.at(row_offset + 4).limit(
-                "text span bytes",
-                self.budget.max_text_span_bytes,
-                text_length,
-            ));
-        }
         if self.page_row_bytes == 12 {
             if text.offset < self.header.page_index.checked_end().expect("checked index") {
                 return Err(loc.malformed("text span", "overlaps protected container index"));
@@ -790,23 +742,6 @@ impl<'a, S: RangedSource, C: Cancellation> Hnc8Reader<'a, S, C> {
                 .malformed("image count", "negative signed value"));
         }
         let image_count = signed_images as u32;
-        if image_count > self.budget.max_images_per_page {
-            return Err(loc.at(row_offset + 8).limit(
-                "images per page",
-                u64::from(self.budget.max_images_per_page),
-                u64::from(image_count),
-            ));
-        }
-        // At most 2^32 page rows each declare fewer than 2^15 images, so the
-        // running total stays below 2^47.
-        let total = self.declared_images + u64::from(image_count);
-        if total > self.budget.max_images_total {
-            return Err(loc.at(row_offset + 8).limit(
-                "images total",
-                self.budget.max_images_total,
-                total,
-            ));
-        }
         let mut unknown = [0; 10];
         unknown.copy_from_slice(&row[10..]);
         let page = PageRecord {
@@ -816,7 +751,6 @@ impl<'a, S: RangedSource, C: Cancellation> Hnc8Reader<'a, S, C> {
             image_count,
             unknown,
         };
-        self.declared_images = total;
         self.current = Some(CurrentPage {
             page,
             next_image: 1,
@@ -902,10 +836,10 @@ impl<'a, S: RangedSource, C: Cancellation> Hnc8Reader<'a, S, C> {
             loc.at(descriptor_offset + 4),
             "image payload",
         )?;
-        if payload_length > self.budget.max_image_span_bytes {
+        if payload_length > self.limits.max_allocation_bytes {
             return Err(loc.at(descriptor_offset + 8).limit(
                 "image span bytes",
-                self.budget.max_image_span_bytes,
+                self.limits.max_allocation_bytes,
                 payload_length,
             ));
         }
