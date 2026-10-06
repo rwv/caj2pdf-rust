@@ -1,22 +1,14 @@
 // SPDX-License-Identifier: MIT
 
-//! Temporary live views for the existing type-3 decoder. All handles are used
+//! Temporary live views for the type-3 decoder. All handles are used
 //! serially by one conversion future; no task can access a store concurrently.
 
 use super::*;
-use crate::hnc8::convert_jbig2::{
+use crate::hnc8::type3_image::{
     Type3RefinedStore, Type3Store, Type3Workspaces, emit_type3_xobject, prepare_type3_image,
 };
 use crate::pdf::ImageObject;
 use std::cell::{Cell, RefCell};
-
-pub(super) fn error(at: At, stage: ComposeStage, error: Type3PdfError) -> ComposeError {
-    At {
-        offset: error.offset.or(at.offset),
-        ..at
-    }
-    .error((stage, ComposeErrorKind::Type3(Box::new(error))))
-}
 
 struct Meter {
     bytes: Cell<u64>,
@@ -206,24 +198,24 @@ where
             stores.table,
             &mut decoding,
             checked,
+            at,
             options.type3,
             limits,
             cancellation,
         )
-        .await
-        .map_err(|e| error(at, ComposeStage::Decode, e))?;
+        .await?;
         let (object, report) = emit_type3_xobject(
             source,
             document,
             stores.table,
             prepared,
             page.width,
+            at,
             options.type3,
             limits,
             cancellation,
         )
-        .await
-        .map_err(|e| error(at, ComposeStage::Decode, e))?;
+        .await?;
         Ok((object, report.text_header_anomaly))
     }
     .await;

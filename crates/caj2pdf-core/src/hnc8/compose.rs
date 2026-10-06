@@ -4,7 +4,6 @@
 //! profile, and the separately measured single-JPEG HN-B profile.
 //! The CLI and WASM adapters share this core and reject omitted source rows.
 
-use super::convert::{Type0DecodeSettings, Type0PdfError, Type0PdfErrorKind, Type0PdfOptions};
 use super::placement::{source_image_transform, source_page_geometry};
 mod native;
 mod route;
@@ -12,22 +11,24 @@ mod type3;
 pub use native::{C8FontSource, C8FontSources, convert_c8_native_pdf};
 pub use route::{convert_document_pdf, uses_native_text};
 
-use super::convert_jbig2::{CheckedType3, Type3PdfError, Type3PdfOptions, preflight_type3};
-use super::convert_jpeg::{CheckedType2, Type2PdfError, emit_type2_xobject, preflight_type2};
 use super::image_emit::{
-    Type0ScratchBudget, Type0ScratchError, Type0ScratchErrorKind, Type0ScratchStage,
-    emit_type0_xobject,
+    Type0DecodeSettings, Type0ScratchBudget, Type0ScratchError, Type0ScratchErrorKind,
+    Type0ScratchStage, emit_type0_xobject,
 };
+use super::type3_image::{CheckedType3, Type3PdfOptions, Type3Stage, preflight_type3};
 use super::{
     ApplicationInfoStatus, At, Budget, Header, Hnc8Error, Hnc8Reader, ImageRecord, JpegBudget,
-    Locate, OutlineReport, PageRecord, RawTextCoordinate, TextBudget, Variant,
-    empirical_image_transform, empirical_page_from_pixels,
+    JpegColor, JpegInfo, Locate, OutlineReport, PageRecord, RawTextCoordinate, TextBudget, Variant,
+    empirical_image_transform, empirical_page_from_pixels, read_type2_jpeg_info,
 };
 use crate::fallible::{len_u64, reserve, reserve_exact, usize_from_u32};
 use crate::jbig1::{Type0Budget, Type0Error, Type0ErrorKind, Type0Info, read_type0_info};
 use crate::jbig2::text_composer::RandomAccessScratch;
 use crate::jbig2::{mq::MqTable, text::TextHeaderAnomaly};
-use crate::pdf::{BookmarkView, ImagePlacement, MAX_PAGE_IMAGE_PLACEMENTS, PageSpec, PdfDocument};
+use crate::pdf::{
+    BookmarkView, ImageEncoding, ImagePlacement, ImageSpec, MAX_PAGE_IMAGE_PLACEMENTS, PageSpec,
+    PdfDocument,
+};
 use crate::qm::{ArithmeticBudget, ArithmeticError, ContextBank, QmTable};
 use crate::{
     Bookmark, BookmarkVisitor, Cancellation, ConversionReport, CountingSource, Error, Limits,
@@ -89,33 +90,42 @@ pub struct ComposeOptions {
     pub jpeg: JpegBudget,
     pub image: Type0Budget,
     pub arithmetic: ArithmeticBudget,
-    /// Decoder budgets/policy; selected-image scale/container fields are ignored.
+    /// Type-3 decoder budgets and text-header policy.
     pub type3: Type3PdfOptions,
     pub budget: ComposeBudget,
 }
 
 impl Default for ComposeOptions {
     fn default() -> Self {
-        let type0 = Type0PdfOptions::default();
+        // One decision per pixel plus one row-control decision per row of
+        // the largest admitted type-0 image.
+        let image = Type0Budget::default();
+        let max_symbols = image.max_pixels + u64::from(image.max_height);
         Self {
             include_bookmarks: false,
             container: Budget::default(),
             text: TextBudget::default(),
             jpeg: JpegBudget::default(),
-            image: type0.image,
-            arithmetic: type0.arithmetic,
+            image,
+            arithmetic: ArithmeticBudget {
+                max_symbols,
+                max_work: max_symbols * 32 + 1024,
+            },
             type3: Type3PdfOptions::default(),
             budget: ComposeBudget::default(),
         }
     }
 }
 
-/// Copyable per-descriptor codec state. Type-3 metadata owns a segment
+/// Copyable per-descriptor codec state, paired with its record by the
+/// private field of [`ComposedImage`]. Type-3 metadata owns a segment
 /// directory, so it is retained beside the page plan and moved into its emit.
 #[derive(Clone, Copy, Debug)]
 enum CheckedImage {
     Type0(Type0Info),
-    Jpeg(CheckedType2),
+    /// Marker/profile facts from one complete traversal; the bytes are
+    /// copied unchanged.
+    Jpeg(JpegInfo),
     Type3,
 }
 
@@ -215,8 +225,15 @@ pub enum ComposeErrorKind {
     NoImages,
     Container(Box<Hnc8Error>),
     Image(Box<Type0Error>),
-    Jpeg(Box<Type2PdfError>),
-    Type3(Box<Type3PdfError>),
+    /// A type-1/type-2 JPEG marker or profile failure.
+    Jpeg(Box<Hnc8Error>),
+    /// A type-3 DIB wrapper outside the observed one-bit profile.
+    Type3Dib(&'static str),
+    /// A typed failure of one type-3 JBIG2 decoding stage.
+    Type3 {
+        stage: Type3Stage,
+        source: Box<dyn error::Error>,
+    },
     Contexts(Box<ArithmeticError>),
     Io(Error),
     /// Both failures are preserved; neither makes the partial output valid.
@@ -267,7 +284,8 @@ impl fmt::Display for ComposeError {
             ComposeErrorKind::MissingType3Workspaces => {
                 f.write_str("type-3 image requires MQ table and symbol stores")
             }
-            ComposeErrorKind::Type3(error) => write!(f, "{error}"),
+            ComposeErrorKind::Type3Dib(reason) => write!(f, "malformed type-3 DIB: {reason}"),
+            ComposeErrorKind::Type3 { stage, source } => write!(f, "type-3 {stage:?}: {source}"),
             ComposeErrorKind::NoImages => f.write_str("image-only output has no image to draw"),
             ComposeErrorKind::Container(error) => write!(f, "{error}"),
             ComposeErrorKind::Image(error) => write!(f, "{error}"),
@@ -288,7 +306,7 @@ impl error::Error for ComposeError {
             ComposeErrorKind::Image(error) => Some(error),
             ComposeErrorKind::Jpeg(error) => Some(error),
             ComposeErrorKind::Contexts(error) => Some(error),
-            ComposeErrorKind::Type3(error) => Some(error),
+            ComposeErrorKind::Type3 { source, .. } => Some(source.as_ref()),
             ComposeErrorKind::Io(error) => Some(error),
             ComposeErrorKind::Cleanup { primary, .. } => Some(primary),
             _ => None,
@@ -337,13 +355,10 @@ impl At {
                 .error((stage, ComposeErrorKind::Image(Box::new(error))))
         }
     }
-    fn jpeg(self, stage: ComposeStage) -> impl FnOnce(Type2PdfError) -> ComposeError {
+    fn jpeg(self, stage: ComposeStage) -> impl FnOnce(Hnc8Error) -> ComposeError {
         move |error| {
-            Self {
-                offset: error.offset.or(self.offset),
-                ..self
-            }
-            .error((stage, ComposeErrorKind::Jpeg(Box::new(error))))
+            self.with_offset(error.offset)
+                .error((stage, ComposeErrorKind::Jpeg(Box::new(error))))
         }
     }
     fn contexts(self) -> impl FnOnce(ArithmeticError) -> ComposeError {
@@ -391,41 +406,15 @@ fn container(error: Hnc8Error, stage: ComposeStage) -> ComposeError {
     .error((stage, ComposeErrorKind::Container(Box::new(error))))
 }
 
-fn type0_decode(at: At, error: Type0PdfError) -> ComposeError {
-    let at = At {
-        offset: error.offset.or(at.offset),
-        ..at
+/// A decoder failure at its own offset; a row-store refusal surfaces as a
+/// sink error and is reported at the scratch stage.
+fn type0_decode(at: At, error: Type0Error) -> ComposeError {
+    let stage = if matches!(error.kind, Type0ErrorKind::Sink(_)) {
+        ComposeStage::Scratch
+    } else {
+        ComposeStage::Decode
     };
-    match error.kind {
-        Type0PdfErrorKind::Image(error) => {
-            let stage = if matches!(error.kind, Type0ErrorKind::Sink(_)) {
-                ComposeStage::Scratch
-            } else {
-                ComposeStage::Decode
-            };
-            at.error((stage, ComposeErrorKind::Image(error)))
-        }
-        Type0PdfErrorKind::Pdf(error) => at.error((ComposeStage::Pdf, ComposeErrorKind::Io(error))),
-        Type0PdfErrorKind::Contexts(error) => {
-            at.error((ComposeStage::Decode, ComposeErrorKind::Contexts(error)))
-        }
-        Type0PdfErrorKind::Container(error) => container(*error, ComposeStage::Container),
-        Type0PdfErrorKind::InvalidOptions(reason) | Type0PdfErrorKind::InvalidSelection(reason) => {
-            at.error((
-                ComposeStage::Decode,
-                ComposeErrorKind::InvalidOptions(reason),
-            ))
-        }
-        Type0PdfErrorKind::UnsupportedImageType(kind) => at.error((
-            ComposeStage::Decode,
-            ComposeErrorKind::UnsupportedImageType(kind),
-        )),
-        Type0PdfErrorKind::MultipleImages(_) => at.error((
-            ComposeStage::Decode,
-            ComposeErrorKind::Unsupported("type-0 decoding profile"),
-        )),
-        Type0PdfErrorKind::NoImages => at.error((ComposeStage::Decode, ComposeErrorKind::NoImages)),
-    }
+    at.type0(stage)(error)
 }
 
 fn scratch_error(at: At, error: Type0ScratchError) -> ComposeError {
@@ -561,6 +550,38 @@ fn page_vector<T>(count: usize, limits: &Limits, resource: &'static str) -> crat
     Ok(values)
 }
 
+/// Admit one page's image count before any allocation or image output from
+/// it: the PDF placement ceiling, each per-image vector of `element_bytes`
+/// against the allocation limit, and their coexistence against the
+/// page-metadata budget. Shared by image-only and native composition.
+fn admit_page_images(
+    page: PageRecord,
+    element_bytes: &[usize],
+    at: At,
+    options: ComposeOptions,
+    limits: &Limits,
+) -> Result<usize, ComposeError> {
+    let count = usize_from_u32(page.image_count);
+    if count > MAX_PAGE_IMAGE_PLACEMENTS {
+        return Err(at.io(ComposeStage::Preflight)(Error::LimitExceeded {
+            resource: "PDF image placements per page",
+            limit: MAX_PAGE_IMAGE_PLACEMENTS as u64,
+            attempted: u64::from(page.image_count),
+        }));
+    }
+    let mut total = 0;
+    for &element in element_bytes {
+        let bytes = metadata_bytes(u64::from(page.image_count), len_u64(element))
+            .map_err(at.io(ComposeStage::Preflight))?;
+        limits
+            .check_allocation(bytes)
+            .map_err(at.io(ComposeStage::Preflight))?;
+        total += bytes;
+    }
+    check_metadata(total, options.budget).map_err(at.io(ComposeStage::Preflight))?;
+    Ok(count)
+}
+
 /// Check one descriptor without decoding it. Native mixed pages and the
 /// image-only path must use the same codec admission, budgets and diagnostics.
 #[allow(clippy::too_many_arguments)]
@@ -606,9 +627,15 @@ async fn preflight_image<S: RangedSource, C: Cancellation>(
                     ComposeErrorKind::MissingType3Workspaces,
                 )));
             }
-            let checked = preflight_type3(source, record, options.type3, limits, cancellation)
-                .await
-                .map_err(|error| type3::error(image_at, ComposeStage::Headers, error))?;
+            let checked = preflight_type3(
+                source,
+                record,
+                image_at,
+                options.type3,
+                limits,
+                cancellation,
+            )
+            .await?;
             let page = checked.page();
             let display_width = page.width;
             (
@@ -622,13 +649,12 @@ async fn preflight_image<S: RangedSource, C: Cancellation>(
         // Type 1 reuses the validated JPEG path in the measured
         // HN-A/C8 composition profile; HN-B remains type-2 only.
         1 | 2 if record.record_type == 2 || variant != Variant::HnB => {
-            let checked = preflight_type2(source, record, limits, cancellation, options.jpeg)
+            let info = read_type2_jpeg_info(source, record, limits, cancellation, options.jpeg)
                 .await
                 .map_err(image_at.jpeg(ComposeStage::Headers))?;
-            let info = checked.info();
             let width = u32::from(info.width);
             let height = u32::from(info.height);
-            (CheckedImage::Jpeg(checked), None, width, width, height)
+            (CheckedImage::Jpeg(info), None, width, width, height)
         }
         _ => {
             return Err(image_at.error((
@@ -709,10 +735,27 @@ where
             report.type3_images += 1;
             object
         }
-        CheckedImage::Jpeg(checked) => {
-            let object = emit_type2_xobject(source, document, checked)
+        CheckedImage::Jpeg(info) => {
+            // The checked marker profile is streamed unchanged: /DeviceGray
+            // for grayscale, /DeviceRGB with /ColorTransform 1 for YCbCr.
+            let record = image.record;
+            let encoding = match info.color {
+                JpegColor::Gray => ImageEncoding::JpegGray8,
+                JpegColor::Ycbcr => ImageEncoding::JpegRgb8,
+            };
+            let spec = ImageSpec {
+                pixel_width: u32::from(info.width),
+                pixel_height: u32::from(info.height),
+                encoding,
+            };
+            let object = document
+                .add_image(source, record.payload.offset, record.payload.length, spec)
                 .await
-                .map_err(image_at.jpeg(ComposeStage::Pdf))?;
+                .map_err(
+                    image_at
+                        .with_offset(record.payload.offset)
+                        .io(ComposeStage::Pdf),
+                )?;
             report.jpeg_images += 1;
             object
         }
@@ -807,34 +850,14 @@ where
                 ComposeErrorKind::Unsupported("HN-B image-bearing rows require exactly one JPEG"),
             )));
         }
-        let count = usize_from_u32(page.image_count);
-        if count > MAX_PAGE_IMAGE_PLACEMENTS {
-            return Err(at.io(ComposeStage::Preflight)(Error::LimitExceeded {
-                resource: "PDF image placements per page",
-                limit: MAX_PAGE_IMAGE_PLACEMENTS as u64,
-                attempted: u64::from(page.image_count),
-            }));
-        }
-        // Both requested Vec sizes and their coexistence are checked before
-        // either allocation or any image output from this page.
-        let plan_bytes = metadata_bytes(
-            u64::from(page.image_count),
-            size_of::<ComposedImage>() as u64,
-        )
-        .map_err(at.io(ComposeStage::Preflight))?;
-        let placement_bytes = metadata_bytes(
-            u64::from(page.image_count),
-            size_of::<ImagePlacement>() as u64,
-        )
-        .map_err(at.io(ComposeStage::Preflight))?;
-        limits
-            .check_allocation(plan_bytes)
-            .map_err(at.io(ComposeStage::Preflight))?;
-        limits
-            .check_allocation(placement_bytes)
-            .map_err(at.io(ComposeStage::Preflight))?;
-        check_metadata(plan_bytes + placement_bytes, options.budget)
-            .map_err(at.io(ComposeStage::Preflight))?;
+        // Both Vec sizes and their coexistence are admitted up front.
+        let count = admit_page_images(
+            page,
+            &[size_of::<ComposedImage>(), size_of::<ImagePlacement>()],
+            at,
+            options,
+            limits,
+        )?;
         let mut coordinates = Vec::new();
         // Legacy HN-B image-only composition derives its canvas from the image.
         // Its header extents are admitted for native text composition separately.

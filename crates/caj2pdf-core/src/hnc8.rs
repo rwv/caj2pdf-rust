@@ -2,20 +2,15 @@
 
 //! Bounded metadata traversal for the three independently measured HN/C8
 //! container profiles. Image payloads and text are never loaded here.
-//! [`convert_type0_pdf`] builds bounded PDF pages from type-0 records.
-//! [`convert_type2_image_pdf`] streams one checked type-2 JPEG to PDF.
-//! [`convert_type3_image_pdf`] decodes one observed type-3 JBIG2 image with a
-//! caller-supplied MQ table and bounded stores.
-//! Composition validates the observed text frame while retaining only raw
-//! image-coordinate words. Empirical geometry remains diagnostic.
+//! [`convert_document_pdf`] and [`convert_source_pages_pdf`] convert whole
+//! documents; type-0, JPEG and type-3 images are checked and emitted by the
+//! one shared composition pipeline. Composition validates the observed text
+//! frame while retaining only raw image-coordinate words. Empirical geometry remains diagnostic.
 //! [`Hnc8Reader::application_info`] reads the trailing C8 application-info
 //! package's DOI, URL and note count.
 
 mod appinfo;
 mod compose;
-mod convert;
-mod convert_jbig2;
-mod convert_jpeg;
 mod image_emit;
 mod inflate;
 mod jpeg;
@@ -25,6 +20,7 @@ mod outline;
 mod placement;
 mod structure;
 mod text;
+mod type3_image;
 
 pub use appinfo::{
     ApplicationInfo, ApplicationInfoDefect, ApplicationInfoReport, ApplicationInfoStatus,
@@ -35,18 +31,6 @@ pub use compose::{
     ComposePage, ComposeReport, ComposeStage, ComposeType3Workspaces, ComposeVisitor,
     ComposeWorkspaces, ComposedImage, convert_document_pdf, convert_source_pages_pdf,
     uses_native_text,
-};
-pub use convert::{
-    MultipleImages, Type0ImageSelection, Type0PdfError, Type0PdfErrorKind, Type0PdfOptions,
-    Type0PdfReport, Type0SelectedPdfReport, convert_type0_image_pdf, convert_type0_pdf,
-};
-pub use convert_jbig2::{
-    Type3ImageSelection, Type3PdfError, Type3PdfErrorKind, Type3PdfOptions, Type3RefinedStore,
-    Type3SelectedPdfReport, Type3Stage, Type3Store, Type3Workspaces, convert_type3_image_pdf,
-};
-pub use convert_jpeg::{
-    Type2ImageSelection, Type2PdfError, Type2PdfErrorKind, Type2PdfOptions, Type2SelectedPdfReport,
-    convert_type2_image_pdf,
 };
 pub use jpeg::{JpegBudget, JpegColor, JpegInfo, read_type2_jpeg_info};
 pub(crate) use native::{
@@ -64,6 +48,7 @@ pub(crate) use placement::{
 pub use structure::{ApplicationInfoTail, TextFraming, TextStructure};
 pub(crate) use text::TEXT_DECODER_RESERVATION_BYTES;
 pub use text::{RawTextCoordinate, TextBudget};
+pub use type3_image::{Type3PdfOptions, Type3Stage};
 
 use crate::jbig1::Type0Span;
 use crate::{Cancellation, Error, Limits, RangedSource, read_exact_at};
@@ -124,11 +109,6 @@ impl At {
 
     fn error<K: Locate>(self, kind: K) -> K::Error {
         kind.locate(self)
-    }
-
-    /// Map a source error into the located error that `kind` wraps it in.
-    fn wrap<E, K: Locate>(self, kind: impl FnOnce(E) -> K) -> impl FnOnce(E) -> K::Error {
-        move |error| self.error(kind(error))
     }
 }
 
@@ -496,7 +476,7 @@ impl<'a, S: RangedSource, C: Cancellation> Hnc8Reader<'a, S, C> {
     /// This deliberately skips earlier pages so that malformed pages can be
     /// inspected independently. Its total-image budget covers only the
     /// selected suffix, not the whole document. Full-document conversion
-    /// must use `open`; `convert_type0_image_pdf` uses this diagnostic cursor.
+    /// must use `open`; the CLI's per-page structure report uses this cursor.
     pub async fn probe_at_page(
         source: &'a mut S,
         limits: &'a Limits,

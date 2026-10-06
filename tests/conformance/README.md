@@ -6,9 +6,9 @@ documents, PDFs, pixels or text from the external corpus.
 
 | File | Read by |
 | --- | --- |
-| [`matrix.json`](matrix.json) | `js/scripts/corpus.mjs` (and its tests), `crates/caj2pdf-core/tests/hnc8_type2_*_external.rs` |
-| [`jbig1_oracle.json`](jbig1_oracle.json) | `crates/caj2pdf-core/tests/{hnc8_type0_pdf,hnc8_type2_pdf,hnc8_type2_jpeg,qm_caj_oracle}_external.rs` |
-| [`hnc8_type2_jpeg_inventory.tsv`](hnc8_type2_jpeg_inventory.tsv) | `crates/caj2pdf-core/tests/hnc8_type2_{pdf,jpeg}_external.rs` |
+| [`matrix.json`](matrix.json) | `js/scripts/corpus.mjs` (and its tests), `crates/caj2pdf-core/tests/hnc8_type2_jpeg_external.rs` |
+| [`jbig1_oracle.json`](jbig1_oracle.json) | `crates/caj2pdf-core/tests/{hnc8_type2_jpeg,qm_caj_oracle}_external.rs` |
+| [`hnc8_type2_jpeg_inventory.tsv`](hnc8_type2_jpeg_inventory.tsv) | `crates/caj2pdf-core/tests/hnc8_type2_jpeg_external.rs` |
 
 `matrix.json` inventories the external
 [CAJSamples](https://github.com/caj2pdf/CAJSamples) repository at commit

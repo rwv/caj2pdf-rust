@@ -4,6 +4,8 @@
 //! them, so unused items are expected.
 #![allow(dead_code)]
 
+pub mod hnc8_document;
+
 use caj2pdf_core::Cancellation;
 use std::fmt::{self, Display};
 use std::{cell::Cell, rc::Rc};

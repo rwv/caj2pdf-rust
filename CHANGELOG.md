@@ -53,6 +53,28 @@
   are removed, and `TextComposer` takes plain `RangedSource` bitmap stores:
   the `BitmapView` revision trait is removed.
 
+- **Breaking:** the HN/C8 selected-image converters are folded into the
+  document pipeline (#351); `hnc8::convert_document_pdf` and
+  `hnc8::convert_source_pages_pdf` remain the entry points and their output
+  is unchanged. Removed from `caj2pdf_core::hnc8`: `convert_type0_pdf`,
+  `convert_type0_image_pdf`, `convert_type2_image_pdf`,
+  `convert_type3_image_pdf`, `MultipleImages`, `Type0ImageSelection`,
+  `Type0PdfOptions`, `Type0PdfReport`, `Type0SelectedPdfReport`,
+  `Type0PdfError`, `Type0PdfErrorKind`, `Type2ImageSelection`,
+  `Type2PdfOptions`, `Type2SelectedPdfReport`, `Type2PdfError`,
+  `Type2PdfErrorKind`, `Type3ImageSelection`, `Type3SelectedPdfReport`,
+  `Type3PdfError`, `Type3PdfErrorKind`, `Type3Workspaces`, `Type3Store` and
+  `Type3RefinedStore`. `Type3PdfOptions` keeps only the decoder budgets and
+  text-header policy (`pixels_per_inch` and `container` are removed; use
+  `ComposeOptions::container`). `ComposeErrorKind::Jpeg` now wraps the
+  `Hnc8Error` directly, `ComposeErrorKind::Type3` is a
+  `{ stage: Type3Stage, source }` variant, and a malformed type-3 DIB is
+  `ComposeErrorKind::Type3Dib`; type-1/2/3 PDF write failures are
+  `ComposeErrorKind::Io` at `ComposeStage::Pdf`. `Hnc8Reader::probe_at_page`
+  stays for the CLI's per-page structure report. The private-corpus
+  `hnc8_type0_pdf_external` and `hnc8_type2_pdf_external` harnesses, which
+  drove the selected-image API, are removed.
+
 - Internal: one byte-counting source, error locator, JBIG2 header-field
   cursor, page-text record parser, bounded inflate loop and bounded-push
   helper replace their per-module copies (#350); output is unchanged. The

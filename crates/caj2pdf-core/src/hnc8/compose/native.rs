@@ -132,20 +132,13 @@ where
         .map_err(|error| container(error, ComposeStage::Container))?
     {
         let at = At::page(header, page);
-        let count = usize_from_u32(page.image_count);
-        if count > MAX_PAGE_IMAGE_PLACEMENTS {
-            return Err(at.io(ComposeStage::Preflight)(Error::LimitExceeded {
-                resource: "PDF image placements per page",
-                limit: MAX_PAGE_IMAGE_PLACEMENTS as u64,
-                attempted: u64::from(page.image_count),
-            }));
-        }
-        let bytes = metadata_bytes(
-            u64::from(page.image_count),
-            (size_of::<ImageObject>() + size_of::<bool>()) as u64,
-        )
-        .map_err(at.io(ComposeStage::Preflight))?;
-        check_metadata(bytes, options.budget).map_err(at.io(ComposeStage::Preflight))?;
+        let count = admit_page_images(
+            page,
+            &[size_of::<ImageObject>(), size_of::<bool>()],
+            at,
+            options,
+            limits,
+        )?;
         let mut images = page_vector(count, limits, "native page image handles")
             .map_err(at.io(ComposeStage::Preflight))?;
         let mut top_first = page_vector(count, limits, "native page image orientation")
