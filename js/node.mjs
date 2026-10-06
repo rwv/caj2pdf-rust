@@ -32,26 +32,17 @@ function size(stats) {
 }
 
 /**
- * The caller's Node options minus those that name an entry point, which a
- * Worker started from a file rejects (`node --input-type=module --eval`).
+ * The Worker runs the package's own module and needs none of the caller's
+ * Node options. Passing an explicit list also keeps the Worker from
+ * inheriting `--input-type`/`--eval`, which a Worker started from a file
+ * rejects, and skips the strict validation that an inherited process-level
+ * flag such as `--secure-heap` fails when it is passed back explicitly.
  */
-function workerExecArgv() {
-  const options = [];
-  const argv = process.execArgv;
-  for (let index = 0; index < argv.length; index++) {
-    const option = argv[index];
-    if (["--eval", "-e", "--print", "-p", "--input-type"].includes(option)) {
-      index++;
-    } else if (!/^--(eval|print|input-type)=/.test(option)) {
-      options.push(option);
-    }
-  }
-  return options;
-}
+const WORKER_EXEC_ARGV = Object.freeze([]);
 
 const platform = Object.freeze({
   async createWorker() {
-    const worker = new Worker(new URL("./internal/worker.mjs", import.meta.url), { execArgv: workerExecArgv() });
+    const worker = new Worker(new URL("./internal/worker.mjs", import.meta.url), { execArgv: WORKER_EXEC_ARGV });
     return {
       post: (message) => worker.postMessage(message),
       onMessage: (listener) => worker.on("message", listener),
