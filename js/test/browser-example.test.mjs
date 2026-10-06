@@ -185,7 +185,7 @@ test("browser example replaces and discards downloadable OPFS output", options, 
 });
 
 
-test("browser worker example converts HN/C8 with standard tables and removes scratch", options, async () => {
+test("browser example converts HN/C8 with standard tables and leaves only its output", options, async () => {
   for (const format of ["hn", "c8"]) {
     await page.evaluate(`document.querySelector('#bookmarks').checked = ${format !== "c8"}`);
     const result = await convert(`input.${format}`);

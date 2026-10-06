@@ -1,102 +1,51 @@
 // SPDX-License-Identifier: MIT
 
-//! Platform-neutral poll/resume engine behind the raw WASM exports.
+//! Platform-neutral session behind the raw WASM exports.
 //!
-//! An [`Engine`] owns one pinned core future. The future's source and sink
-//! record a single outstanding request (read, write, or flush) in shared state
-//! and return `Pending`. The host performs that request with its own
-//! asynchronous I/O, completes it, and polls again. The staging buffer holds
-//! at most one configured chunk; no whole document crosses this boundary.
-//!
-//! This module has no WASM-specific code, so native unit tests drive the same
-//! state machine that `bridge.rs` exposes to JavaScript.
+//! A [`Session`] runs one conversion or inspection to completion on the
+//! calling thread. Every read, write, flush, progress report and
+//! cancellation check is a synchronous call into a [`Host`]. On `wasm32`,
+//! `bridge.rs` implements the host with imported JavaScript functions that
+//! run inside a Worker; native tests implement it over memory.
 
 mod hnc8;
-mod scratch;
 
 use caj2pdf_core::{
     Cancellation, ConversionOptions, ConversionReport, CountingSource, Detection, DocumentInfo,
-    Error, InputFormat, Limits, PdfErrorKind, RangedSource, Result, SequentialSink,
+    Error, InputFormat, Limits, PdfErrorKind, RangedSource, Result,
     caj::{convert_caj, parse_metadata},
     detect_source,
     hnc8::OutlineReport,
     kdh::{KdhPdfSource, convert_kdh},
     pdf::{PdfIndex, PdfRange, copy_pdf_range},
 };
-use std::{
-    cell::RefCell,
-    future::{Future, poll_fn},
-    pin::Pin,
-    rc::Rc,
-    task::{Context, Poll, Waker},
-};
+use std::{cell::RefCell, io};
 
 /// Largest single allocation a caller may permit inside 32-bit WASM memory.
 pub const MAX_ALLOCATION_LIMIT: u64 = 256 * 1024 * 1024;
 /// Longest error message kept for the host, in bytes.
 pub const MAX_MESSAGE_BYTES: usize = 1024;
+/// Progress is reported in thousandths of the document read.
+pub const PROGRESS_TOTAL: u32 = 1000;
 
-/// Poll result reported to the host.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum Status {
-    /// The future made progress without an I/O request; poll again.
-    Idle = 0,
-    Read = 1,
-    Write = 2,
-    Flush = 3,
-    Done = 4,
-    Failed = 5,
-    ScratchRead = 6,
-    ScratchWrite = 7,
-    ScratchResize = 8,
-    ScratchFlush = 9,
+/// Synchronous host I/O. A failed call returns an error; the host keeps its
+/// own description of the failure.
+pub trait Host {
+    /// Copy at most `destination.len()` bytes of `resource` (0 for the
+    /// document, 1..=8 for registered fonts) at `offset` into
+    /// `destination`, returning the count. A short read is allowed.
+    fn read(&mut self, resource: u32, offset: u64, destination: &mut [u8]) -> io::Result<usize>;
+    /// Accept a prefix of `bytes`, returning its length.
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize>;
+    /// The output's ordering barrier; called once, after the last write.
+    fn flush(&mut self) -> io::Result<()>;
+    /// `done` of `total` thousandths of the document have been read.
+    fn progress(&mut self, done: u32, total: u32);
+    /// Whether the caller has asked to stop.
+    fn cancelled(&mut self) -> bool;
 }
 
-/// One outstanding host request.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum Request {
-    /// Copy up to `length` source bytes at `offset` into the staging buffer.
-    Read {
-        /// 0 is the document; 1..=6 are explicitly registered font resources.
-        resource: u32,
-        offset: u64,
-        length: usize,
-    },
-    /// Deliver the first `length` staging bytes to the sink.
-    Write {
-        length: usize,
-    },
-    /// Await the sink's I/O barrier.
-    Flush,
-    /// A scratch store is one of four fixed, session-owned workspaces (1..=4).
-    ScratchRead {
-        store: u32,
-        offset: u64,
-        length: usize,
-    },
-    ScratchWrite {
-        store: u32,
-        offset: u64,
-        length: usize,
-    },
-    ScratchResize {
-        store: u32,
-        bytes: u64,
-    },
-    ScratchFlush {
-        store: u32,
-    },
-}
-
-#[derive(Clone, Copy)]
-enum Response {
-    Read(usize),
-    Write(usize),
-    Flush,
-    Resize,
-}
-
-/// The work an engine performs.
+/// The work a session performs.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Operation {
     /// Convert to PDF. `None` detects the format from the leading signature.
@@ -106,6 +55,19 @@ pub enum Operation {
     },
     /// Read bounded structure metadata; writes nothing.
     Inspect { format: Option<InputFormat> },
+}
+
+/// The result of [`Session::run`].
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Status {
+    /// The operation succeeded; see [`Session::result`].
+    Done = 0,
+    /// The operation failed; see [`Session::result`] and [`Session::message`].
+    Failed = 1,
+    /// The configuration was refused before any host call.
+    Invalid = 2,
+    /// The session already ran an operation; reset it first.
+    Busy = 3,
 }
 
 /// Stable numeric code for an input format (0 means auto/unknown).
@@ -190,28 +152,48 @@ pub struct Outcome {
     pub application_info: Option<caj2pdf_core::hnc8::ApplicationInfo>,
 }
 
-struct Shared {
-    staging: Vec<u8>,
-    request: Option<Request>,
-    response: Option<Response>,
-    cancelled: bool,
-    format: Option<InputFormat>,
-    fonts: hnc8::Fonts,
-}
-
-struct BridgeSource {
+/// A ranged source served by the host. The document source (resource 0)
+/// reports progress as the furthest byte read.
+struct HostSource<'h, H: Host> {
+    host: &'h RefCell<&'h mut H>,
     resource: u32,
-    shared: Rc<RefCell<Shared>>,
     size: u64,
+    furthest: u64,
+    shown: Option<u32>,
 }
 
-impl RangedSource for BridgeSource {
+impl<'h, H: Host> HostSource<'h, H> {
+    fn new(host: &'h RefCell<&'h mut H>, resource: u32, size: u64) -> Self {
+        Self {
+            host,
+            resource,
+            size,
+            furthest: 0,
+            shown: None,
+        }
+    }
+
+    fn report_progress(&mut self, end: u64) {
+        if self.resource != 0 || end <= self.furthest {
+            return;
+        }
+        self.furthest = end;
+        // `end <= size`, so the quotient is at most `PROGRESS_TOTAL`.
+        let done = (u128::from(end) * u128::from(PROGRESS_TOTAL) / u128::from(self.size)) as u32;
+        if self.shown != Some(done) {
+            self.shown = Some(done);
+            self.host.borrow_mut().progress(done, PROGRESS_TOTAL);
+        }
+    }
+}
+
+impl<H: Host> RangedSource for HostSource<'_, H> {
     fn size(&self) -> u64 {
         self.size
     }
 
     fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> Result<usize> {
-        // The host rejects any request outside the source, while the
+        // A host refuses ranges outside its resource, while the
         // `RangedSource` contract allows a read that runs past the end. Clamp
         // such a read here so it becomes a short read, as on native sources.
         let Some(remaining) = self.size.checked_sub(offset) else {
@@ -225,230 +207,75 @@ impl RangedSource for BridgeSource {
         if wanted == 0 {
             return Ok(0);
         }
-        poll_fn(|_| {
-            let mut shared = self.shared.borrow_mut();
-            if shared.cancelled {
-                return Poll::Ready(Err(Error::Cancelled));
-            }
-            if let Some(Response::Read(length)) = shared.response {
-                shared.response = None;
-                // `complete_read` bounded `length` by the requested length.
-                destination[..length].copy_from_slice(&shared.staging[..length]);
-                return Poll::Ready(Ok(length));
-            }
-            let length = wanted.min(shared.staging.len());
-            shared.request = Some(Request::Read {
-                resource: self.resource,
-                offset,
-                length,
+        let count =
+            self.host
+                .borrow_mut()
+                .read(self.resource, offset, &mut destination[..wanted])?;
+        if count > wanted {
+            return Err(Error::InvalidInput {
+                reason: "host read returned more bytes than requested",
             });
-            Poll::Pending
-        })
+        }
+        self.report_progress(offset + count as u64);
+        Ok(count)
     }
 }
 
-struct BridgeSink {
-    shared: Rc<RefCell<Shared>>,
+/// The host's ordered output.
+struct HostSink<'h, H: Host> {
+    host: &'h RefCell<&'h mut H>,
 }
 
-impl SequentialSink for BridgeSink {
-    fn write(&mut self, bytes: &[u8]) -> Result<usize> {
-        poll_fn(|_| {
-            let mut shared = self.shared.borrow_mut();
-            if shared.cancelled {
-                return Poll::Ready(Err(Error::Cancelled));
-            }
-            if let Some(Response::Write(length)) = shared.response {
-                shared.response = None;
-                return Poll::Ready(Ok(length));
-            }
-            if shared.request.is_none() {
-                // A sink may accept a prefix; the core retries the rest.
-                let length = bytes.len().min(shared.staging.len());
-                shared.staging[..length].copy_from_slice(&bytes[..length]);
-                shared.request = Some(Request::Write { length });
-            }
-            Poll::Pending
-        })
+impl<H: Host> io::Write for HostSink<'_, H> {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        let count = self.host.borrow_mut().write(bytes)?;
+        if count > bytes.len() {
+            return Err(io::Error::other(
+                "host write accepted more bytes than offered",
+            ));
+        }
+        Ok(count)
     }
 
-    fn flush(&mut self) -> Result<()> {
-        poll_fn(|_| {
-            let mut shared = self.shared.borrow_mut();
-            if shared.cancelled {
-                return Poll::Ready(Err(Error::Cancelled));
-            }
-            if let Some(Response::Flush) = shared.response {
-                shared.response = None;
-                return Poll::Ready(Ok(()));
-            }
-            shared.request = Some(Request::Flush);
-            Poll::Pending
-        })
+    fn flush(&mut self) -> io::Result<()> {
+        self.host.borrow_mut().flush()
     }
 }
 
-struct BridgeCancellation(Rc<RefCell<Shared>>);
+struct HostCancellation<'h, H: Host> {
+    host: &'h RefCell<&'h mut H>,
+}
 
-impl Cancellation for BridgeCancellation {
+impl<H: Host> Cancellation for HostCancellation<'_, H> {
     fn is_cancelled(&self) -> bool {
-        self.0.borrow().cancelled
+        self.host.borrow_mut().cancelled()
     }
 }
 
-type Task = Pin<Box<dyn Future<Output = Result<Outcome>>>>;
-
-/// One active operation. A host keeps at most one engine per WASM instance.
-pub struct Engine {
-    shared: Rc<RefCell<Shared>>,
-    task: Task,
+/// Font registration, then one operation and its result. A host keeps one
+/// session per WASM instance and resets it between operations.
+#[derive(Default)]
+pub struct Session {
+    fonts: hnc8::Fonts,
+    format: Option<InputFormat>,
     result: Option<Result<Outcome>>,
     message: String,
-    started: bool,
-    accepts_fonts: bool,
-    limits: Limits,
 }
 
-impl Engine {
-    /// Validate the configuration and create a pinned operation.
-    ///
-    /// Nothing is read until the first [`Engine::poll`].
-    pub fn start(source_size: u64, limits: Limits, operation: Operation) -> Result<Self> {
-        validate_limits(&limits)?;
-        let shared = Rc::new(RefCell::new(Shared {
-            staging: vec![0; limits.io_chunk_bytes],
-            request: None,
-            response: None,
-            cancelled: false,
-            format: None,
-            fonts: hnc8::Fonts::default(),
-        }));
-        let source = BridgeSource {
-            resource: 0,
-            shared: Rc::clone(&shared),
-            size: source_size,
-        };
-        let sink = BridgeSink {
-            shared: Rc::clone(&shared),
-        };
-        let cancellation = BridgeCancellation(Rc::clone(&shared));
-        let task = Box::pin(run(source, sink, cancellation, limits, operation));
-        Ok(Self {
-            shared,
-            task,
-            result: None,
-            message: String::new(),
-            started: false,
-            accepts_fonts: matches!(
-                operation,
-                Operation::Convert {
-                    format: None | Some(InputFormat::C8),
-                    ..
-                }
-            ),
-            limits,
-        })
-    }
-
-    /// Advance the operation until it needs host I/O or completes.
-    pub fn poll(&mut self) -> Status {
-        self.started = true;
-        if self.result.is_none() {
-            let mut context = Context::from_waker(Waker::noop());
-            if let Poll::Ready(result) = self.task.as_mut().poll(&mut context) {
-                let result = if self.shared.borrow().cancelled {
-                    Err(Error::Cancelled)
-                } else {
-                    result
-                };
-                if let Err(error) = &result {
-                    self.message = bounded_message(error);
-                }
-                self.shared.borrow_mut().request = None;
-                self.result = Some(result);
-            }
-        }
-        match (&self.result, self.request()) {
-            (Some(Ok(_)), _) => Status::Done,
-            (Some(Err(_)), _) => Status::Failed,
-            (None, Some(Request::Read { .. })) => Status::Read,
-            (None, Some(Request::Write { .. })) => Status::Write,
-            (None, Some(Request::Flush)) => Status::Flush,
-            (None, Some(Request::ScratchRead { .. })) => Status::ScratchRead,
-            (None, Some(Request::ScratchWrite { .. })) => Status::ScratchWrite,
-            (None, Some(Request::ScratchResize { .. })) => Status::ScratchResize,
-            (None, Some(Request::ScratchFlush { .. })) => Status::ScratchFlush,
-            (None, None) => Status::Idle,
-        }
-    }
-
-    /// The outstanding request, if the future is waiting for the host.
-    pub fn request(&self) -> Option<Request> {
-        self.shared.borrow().request
-    }
-
-    /// Run `access` with the staging chunk. The host copies read bytes into it
-    /// or delivers written bytes from it.
-    pub fn with_staging<T>(&self, access: impl FnOnce(&mut [u8]) -> T) -> T {
-        access(&mut self.shared.borrow_mut().staging)
-    }
-
-    /// Complete a pending read with `length` bytes now in staging.
-    /// Returns false, leaving the request pending, for an invalid response.
-    pub fn complete_read(&self, length: usize) -> bool {
-        self.complete(|request| match request {
-            Request::Read {
-                length: maximum, ..
-            }
-            | Request::ScratchRead {
-                length: maximum, ..
-            } if length <= maximum => Some(Response::Read(length)),
-            _ => None,
-        })
-    }
-
-    /// Complete a pending write with the number of bytes the sink accepted.
-    pub fn complete_write(&self, length: usize) -> bool {
-        self.complete(|request| match request {
-            Request::Write { length: maximum }
-            | Request::ScratchWrite {
-                length: maximum, ..
-            } if length <= maximum => Some(Response::Write(length)),
-            _ => None,
-        })
-    }
-
-    /// Complete a pending flush.
-    pub fn complete_flush(&self) -> bool {
-        self.complete(|request| {
-            matches!(request, Request::Flush | Request::ScratchFlush { .. })
-                .then_some(Response::Flush)
-        })
-    }
-
-    /// Acknowledge an awaited scratch resize; no other request is consumed.
-    pub fn complete_resize(&self) -> bool {
-        self.complete(|request| {
-            matches!(request, Request::ScratchResize { .. }).then_some(Response::Resize)
-        })
-    }
-
+impl Session {
     /// Register one ranged font resource and its collection face (0 for a
-    /// standalone font) before polling. Returns its 1-based host resource
+    /// standalone font) before running. Returns its 1-based host resource
     /// ID, or 0 when registration is rejected.
     pub fn add_font_source(&mut self, size: u64, face: u32) -> u32 {
-        if self.started
-            || !self.accepts_fonts
-            || size == 0
-            || self.limits.check_input_size(size).is_err()
-        {
+        if self.result.is_some() || size == 0 {
             return 0;
         }
-        self.shared.borrow_mut().fonts.add(size, face)
+        self.fonts.add(size, face)
     }
 
-    /// Select zero-based font source indices before polling. A missing
-    /// decoration/symbol role uses `u32::MAX`; decoration aliases are Unicode scalars.
+    /// Select zero-based font source indices before running. A missing
+    /// alternate, decoration or symbol role uses `u32::MAX`; decoration
+    /// aliases are Unicode scalars.
     pub fn set_c8_fonts(
         &mut self,
         cjk: u32,
@@ -458,46 +285,61 @@ impl Engine {
         alias: u32,
         symbols: u32,
     ) -> bool {
-        !self.started
+        self.result.is_none()
             && self
-                .shared
-                .borrow_mut()
                 .fonts
                 .set(cjk, latin, alternate, decoration, alias, symbols)
     }
 
-    /// Assign a verified Latin role after the base roles, before polling.
+    /// Assign a verified Latin role (state 3, 28 or 31) after the base roles,
+    /// before running.
     pub fn set_c8_latin_state(&mut self, state: u32, index: u32) -> bool {
-        !self.started && self.shared.borrow_mut().fonts.set_latin_state(state, index)
+        self.result.is_none() && self.fonts.set_latin_state(state, index)
     }
 
-    pub fn set_c8_latin_state3(&mut self, index: u32) -> bool {
-        self.set_c8_latin_state(3, index)
-    }
-
-    fn complete(&self, accept: impl FnOnce(Request) -> Option<Response>) -> bool {
-        let mut shared = self.shared.borrow_mut();
-        let Some(response) = shared.request.and_then(accept) else {
-            return false;
+    /// Run `operation` over a document of `source_size` bytes to completion.
+    pub fn run<H: Host>(
+        &mut self,
+        host: &mut H,
+        source_size: u64,
+        limits: Limits,
+        operation: Operation,
+    ) -> Status {
+        if self.result.is_some() {
+            return Status::Busy;
+        }
+        if validate_limits(&limits).is_err() {
+            return Status::Invalid;
+        }
+        let fonts = std::mem::take(&mut self.fonts);
+        let host = RefCell::new(host);
+        let mut format = None;
+        let result = run(&host, source_size, &fonts, limits, operation, &mut format);
+        self.format = format;
+        let status = match &result {
+            Ok(_) => Status::Done,
+            Err(error) => {
+                self.message = bounded_message(error);
+                Status::Failed
+            }
         };
-        shared.request = None;
-        shared.response = Some(response);
-        true
-    }
-
-    /// Request cancellation; the next poll resolves with `Error::Cancelled`.
-    pub fn cancel(&self) {
-        self.shared.borrow_mut().cancelled = true;
+        self.result = Some(result);
+        status
     }
 
     /// The selected or detected format, once known.
     pub fn format(&self) -> Option<InputFormat> {
-        self.shared.borrow().format
+        self.format
     }
 
     /// The completed result, if any.
     pub fn result(&self) -> Option<&Result<Outcome>> {
         self.result.as_ref()
+    }
+
+    /// The completed outcome, if the operation succeeded.
+    pub fn outcome(&self) -> Option<&Outcome> {
+        self.result.as_ref()?.as_ref().ok()
     }
 
     /// A human-readable error message bounded to [`MAX_MESSAGE_BYTES`].
@@ -518,36 +360,40 @@ fn bounded_message(error: &Error) -> String {
     message
 }
 
-fn run(
-    mut source: BridgeSource,
-    mut sink: BridgeSink,
-    cancellation: BridgeCancellation,
+fn run<'h, H: Host>(
+    host: &'h RefCell<&'h mut H>,
+    source_size: u64,
+    fonts: &hnc8::Fonts,
     limits: Limits,
     operation: Operation,
+    detected: &mut Option<InputFormat>,
 ) -> Result<Outcome> {
+    let mut source = HostSource::new(host, 0, source_size);
+    let mut sink = HostSink { host };
+    let cancellation = HostCancellation { host };
+    let explicit = match operation {
+        Operation::Convert { format, .. } | Operation::Inspect { format } => format,
+    };
+    limits.check_input_size(source_size)?;
     let Detection {
         format,
         header_offset,
         bytes_read: detected_bytes,
-    } = match operation {
-        Operation::Convert { format, .. } | Operation::Inspect { format } => {
-            limits.check_input_size(source.size)?;
-            resolve_format(&mut source, format, &limits, &cancellation)?
-        }
-    };
-    if source.shared.borrow().fonts.count() != 0
-        && !matches!(format, InputFormat::C8 | InputFormat::Hn)
+    } = resolve_format(&mut source, explicit, &limits, &cancellation)?;
+    *detected = Some(format);
+    if fonts.count() != 0
+        && !(matches!(operation, Operation::Convert { .. })
+            && matches!(format, InputFormat::C8 | InputFormat::Hn))
     {
         return Err(Error::InvalidInput {
-            reason: "explicit native font resources require a C8 or HN-B document",
+            reason: "explicit native font resources require converting a C8 or HN-B document",
         });
     }
-    source.shared.borrow_mut().format = Some(format);
     let mut outcome = match operation {
         Operation::Convert { options, .. } => {
             let (report, outline) = match format {
                 InputFormat::Pdf => {
-                    let range = pdf_range(source.size, header_offset);
+                    let range = pdf_range(source_size, header_offset);
                     (
                         copy_pdf_range(&mut source, &mut sink, range, &limits, &cancellation)?,
                         OutlineReport::default(),
@@ -561,9 +407,15 @@ fn run(
                     convert_kdh(&mut source, &mut sink, &limits, &cancellation)?,
                     OutlineReport::default(),
                 ),
-                InputFormat::Hn | InputFormat::C8 => {
-                    hnc8::convert(&mut source, &mut sink, options, &limits, &cancellation)?
-                }
+                InputFormat::Hn | InputFormat::C8 => hnc8::convert(
+                    host,
+                    &mut source,
+                    &mut sink,
+                    fonts,
+                    options,
+                    &limits,
+                    &cancellation,
+                )?,
                 _ => return Err(Error::UnsupportedFormat),
             };
             Outcome {
@@ -574,7 +426,9 @@ fn run(
                 application_info: None,
             }
         }
-        _ => inspect(&mut source, format, header_offset, &limits, &cancellation)?,
+        Operation::Inspect { .. } => {
+            inspect(&mut source, format, header_offset, &limits, &cancellation)?
+        }
     };
     outcome.report.input_bytes_read = outcome
         .report
@@ -585,11 +439,11 @@ fn run(
 
 /// An explicit format skips detection, so an explicit PDF must start with
 /// its `%PDF-` header.
-fn resolve_format(
-    source: &mut BridgeSource,
+fn resolve_format<S: RangedSource, C: Cancellation>(
+    source: &mut S,
     format: Option<InputFormat>,
     limits: &Limits,
-    cancellation: &BridgeCancellation,
+    cancellation: &C,
 ) -> Result<Detection> {
     if let Some(format) = format {
         return Ok(Detection {
@@ -609,12 +463,12 @@ fn pdf_range(size: u64, header_offset: u64) -> PdfRange {
     }
 }
 
-fn inspect(
-    source: &mut BridgeSource,
+fn inspect<S: RangedSource, C: Cancellation>(
+    source: &mut S,
     format: InputFormat,
     header_offset: u64,
     limits: &Limits,
-    cancellation: &BridgeCancellation,
+    cancellation: &C,
 ) -> Result<Outcome> {
     let mut input_bytes_read = 0;
     let mut counted = CountingSource::new(source, &mut input_bytes_read);
@@ -672,11 +526,11 @@ fn inspect(
     })
 }
 
-fn pdf_pages<S: RangedSource>(
+fn pdf_pages<S: RangedSource, C: Cancellation>(
     source: &mut S,
     range: PdfRange,
     limits: &Limits,
-    cancellation: &BridgeCancellation,
+    cancellation: &C,
 ) -> Result<u32> {
     let index = PdfIndex::open(source, range, limits, cancellation)?;
     // The PDF index enforces `Limits::max_pages`, a u32.

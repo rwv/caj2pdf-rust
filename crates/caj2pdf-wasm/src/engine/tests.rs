@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: MIT
 
-//! Native tests of the poll/resume engine used by the WASM exports.
+//! Native tests of the session behind the WASM exports, over an in-memory
+//! host.
 
 use super::*;
 use caj2pdf_core::{Limits, PdfErrorKind};
-use std::{fs::read, io, path::Path};
+use std::{fs::read, path::Path};
 
 const KDH_PDF_START: usize = 254;
 
@@ -87,138 +88,114 @@ fn convert_op(format: Option<InputFormat>) -> Operation {
     }
 }
 
-/// Host-side record of one driven operation.
+/// An in-memory host with optional short I/O, failures and cancellation.
 #[derive(Default)]
-struct Run {
+struct Memory<'a> {
+    input: &'a [u8],
+    fonts: Vec<&'a [u8]>,
+    short: Option<usize>,
     output: Vec<u8>,
     flushes: usize,
+    reads: usize,
     max_read: usize,
     max_write: usize,
-    stores: [Vec<u8>; 4],
+    progress: Vec<u32>,
+    cancel_after_reads: Option<usize>,
+    cancel_after_writes: Option<usize>,
+    cancel_checks: usize,
+    fail_reads: bool,
+    fail_writes: bool,
 }
 
-/// Drive an engine as the JavaScript host does, with optional short I/O.
-fn drive(engine: &mut Engine, input: &[u8], short: Option<usize>) -> Run {
-    drive_until(engine, input, short, None)
-}
-
-fn drive_until(
-    engine: &mut Engine,
-    input: &[u8],
-    short: Option<usize>,
-    stop: Option<Status>,
-) -> Run {
-    drive_resources(engine, input, &[], short, stop)
-}
-
-fn drive_resources(
-    engine: &mut Engine,
-    input: &[u8],
-    fonts: &[&[u8]],
-    short: Option<usize>,
-    stop: Option<Status>,
-) -> Run {
-    let mut run = Run::default();
-    loop {
-        let status = engine.poll();
-        if Some(status) == stop {
-            return run;
+impl<'a> Memory<'a> {
+    fn new(input: &'a [u8]) -> Self {
+        Self {
+            input,
+            ..Self::default()
         }
-        match status {
-            Status::Read => {
-                let Some(Request::Read {
-                    resource,
-                    offset,
-                    length,
-                }) = engine.request()
-                else {
-                    panic!("read status without a read request");
-                };
-                let input = if resource == 0 {
-                    input
-                } else {
-                    fonts[resource as usize - 1]
-                };
-                run.max_read = run.max_read.max(length);
-                let start = offset as usize;
-                let count = short.unwrap_or(length).min(length).min(input.len() - start);
-                engine.with_staging(|staging| {
-                    staging[..count].copy_from_slice(&input[start..start + count]);
-                });
-                assert!(engine.complete_read(count));
-            }
-            Status::Write => {
-                let Some(Request::Write { length }) = engine.request() else {
-                    panic!("write status without a write request");
-                };
-                run.max_write = run.max_write.max(length);
-                let accepted = short.unwrap_or(length).min(length);
-                engine.with_staging(|staging| run.output.extend_from_slice(&staging[..accepted]));
-                assert!(engine.complete_write(accepted));
-            }
-            Status::Flush => {
-                run.flushes += 1;
-                assert!(engine.complete_flush());
-            }
-            Status::ScratchResize => {
-                let Some(Request::ScratchResize { store, bytes }) = engine.request() else {
-                    panic!("resize request");
-                };
-                run.stores[store as usize - 1].resize(bytes as usize, 0);
-                assert!(engine.complete_resize());
-            }
-            Status::ScratchRead => {
-                let Some(Request::ScratchRead {
-                    store,
-                    offset,
-                    length,
-                }) = engine.request()
-                else {
-                    panic!("scratch read request");
-                };
-                let count = short.unwrap_or(length).min(length);
-                engine.with_staging(|staging| {
-                    staging[..count].copy_from_slice(
-                        &run.stores[store as usize - 1][offset as usize..offset as usize + count],
-                    )
-                });
-                assert!(engine.complete_read(count));
-            }
-            Status::ScratchWrite => {
-                let Some(Request::ScratchWrite {
-                    store,
-                    offset,
-                    length,
-                }) = engine.request()
-                else {
-                    panic!("scratch write request");
-                };
-                let count = short.unwrap_or(length).min(length);
-                engine.with_staging(|staging| {
-                    run.stores[store as usize - 1][offset as usize..offset as usize + count]
-                        .copy_from_slice(&staging[..count])
-                });
-                assert!(engine.complete_write(count));
-            }
-            Status::ScratchFlush => {
-                assert!(engine.complete_flush());
-            }
-            Status::Done | Status::Failed => return run,
-            Status::Idle => panic!("engine yielded without a request"),
-        }
+    }
+
+    fn short(mut self, short: usize) -> Self {
+        self.short = Some(short);
+        self
     }
 }
 
-fn outcome(engine: &Engine) -> &Outcome {
-    match engine.result() {
+impl Host for Memory<'_> {
+    fn read(&mut self, resource: u32, offset: u64, destination: &mut [u8]) -> io::Result<usize> {
+        if self.fail_reads {
+            return Err(io::Error::other("host read failure"));
+        }
+        let input = if resource == 0 {
+            self.input
+        } else {
+            self.fonts[resource as usize - 1]
+        };
+        self.reads += 1;
+        self.max_read = self.max_read.max(destination.len());
+        let start = offset as usize;
+        assert!(
+            start + destination.len() <= input.len(),
+            "the host was asked for bytes beyond the resource"
+        );
+        let count = self.short.unwrap_or(usize::MAX).min(destination.len());
+        destination[..count].copy_from_slice(&input[start..start + count]);
+        Ok(count)
+    }
+
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        if self.fail_writes {
+            return Err(io::Error::other("host write failure"));
+        }
+        self.max_write = self.max_write.max(bytes.len());
+        let count = self.short.unwrap_or(usize::MAX).min(bytes.len());
+        self.output.extend_from_slice(&bytes[..count]);
+        Ok(count)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.flushes += 1;
+        Ok(())
+    }
+
+    fn progress(&mut self, done: u32, total: u32) {
+        assert_eq!(total, PROGRESS_TOTAL);
+        self.progress.push(done);
+    }
+
+    fn cancelled(&mut self) -> bool {
+        self.cancel_checks += 1;
+        self.cancel_after_reads
+            .is_some_and(|reads| self.reads >= reads)
+            || self
+                .cancel_after_writes
+                .is_some_and(|writes| self.output.len() >= writes)
+    }
+}
+
+/// Run `operation` over `host` in a fresh session.
+fn run(host: &mut Memory<'_>, limits: Limits, operation: Operation) -> Session {
+    let mut session = Session::default();
+    let size = host.input.len() as u64;
+    let status = session.run(host, size, limits, operation);
+    assert_eq!(
+        status == Status::Done,
+        matches!(session.result(), Some(Ok(_))),
+        "{status:?}"
+    );
+    session
+}
+
+fn outcome(session: &Session) -> &Outcome {
+    match session.result() {
         Some(Ok(outcome)) => outcome,
         Some(Err(error)) => panic!("operation failed: {error}"),
-        None => panic!("operation incomplete"),
+        None => panic!("operation did not run"),
     }
 }
 
-fn failure(engine: &Engine) -> &Error {
-    match engine.result() {
+fn failure(session: &Session) -> &Error {
+    match session.result() {
         Some(Err(error)) => error,
         _ => panic!("operation did not fail"),
     }
@@ -313,36 +290,39 @@ fn error_codes_are_stable() {
 }
 
 #[test]
-fn rejects_invalid_limits_before_allocating() {
-    for chunk in [0, caj2pdf_core::MAX_IO_CHUNK + 1] {
-        assert!(Engine::start(1, limits(chunk), convert_op(None)).is_err());
-    }
+fn invalid_limits_are_refused_before_any_host_call() {
     let oversized = Limits {
         max_allocation_bytes: MAX_ALLOCATION_LIMIT + 1,
         ..Limits::default()
     };
-    assert!(matches!(
-        Engine::start(1, oversized, convert_op(None)),
-        Err(Error::LimitExceeded {
-            resource: "WASM allocation limit",
-            ..
-        })
-    ));
+    for limits in [limits(0), limits(caj2pdf_core::MAX_IO_CHUNK + 1), oversized] {
+        let mut host = Memory::new(b"%PDF-1.7");
+        let mut session = Session::default();
+        assert_eq!(
+            session.run(&mut host, 8, limits, convert_op(None)),
+            Status::Invalid
+        );
+        assert!(session.result().is_none());
+        assert_eq!((host.reads, host.cancel_checks), (0, 0));
+    }
 }
 
 #[test]
 fn auto_detected_pdf_is_copied_through_bounded_chunks_and_flushed() {
     let pdf = fixture("valid_out_of_order_objects.pdf");
-    let mut engine = Engine::start(pdf.len() as u64, limits(512), convert_op(None)).unwrap();
-    let run = drive(&mut engine, &pdf, None);
-    assert_eq!(run.output, pdf);
-    assert_eq!(run.flushes, 1);
-    assert!(run.max_read <= 512 && run.max_write <= 512);
-    assert_eq!(engine.format(), Some(InputFormat::Pdf));
-    let report = &outcome(&engine).report;
+    let mut host = Memory::new(&pdf);
+    let session = run(&mut host, limits(512), convert_op(None));
+    assert_eq!(host.output, pdf);
+    assert_eq!(host.flushes, 1);
+    assert!(host.max_read <= 512 && host.max_write <= 512);
+    assert_eq!(session.format(), Some(InputFormat::Pdf));
+    let report = &outcome(&session).report;
     assert_eq!(report.output_bytes_written, pdf.len() as u64);
     assert_eq!(report.pages_converted, 2);
     assert!(report.input_bytes_read >= pdf.len() as u64);
+    // Progress is the furthest byte read, in increasing thousandths.
+    assert!(host.progress.windows(2).all(|pair| pair[0] < pair[1]));
+    assert_eq!(host.progress.last(), Some(&PROGRESS_TOTAL));
 }
 
 #[test]
@@ -352,55 +332,53 @@ fn an_auto_detected_pdf_header_after_leading_bytes_converts_and_inspects() {
     junk.push(b'\n');
     for prefix in [b"\n".to_vec(), b"\xef\xbb\xbf".to_vec(), junk] {
         let input = [prefix.as_slice(), &pdf].concat();
-        let mut engine = Engine::start(input.len() as u64, limits(256), convert_op(None)).unwrap();
-        let run = drive(&mut engine, &input, Some(100));
-        assert_eq!(run.output, pdf);
-        assert!(run.max_read <= 256);
-        assert_eq!(engine.format(), Some(InputFormat::Pdf));
-        assert_eq!(outcome(&engine).report.pages_converted, 2);
+        let mut host = Memory::new(&input).short(100);
+        let session = run(&mut host, limits(256), convert_op(None));
+        assert_eq!(host.output, pdf);
+        assert!(host.max_read <= 256);
+        assert_eq!(session.format(), Some(InputFormat::Pdf));
+        assert_eq!(outcome(&session).report.pages_converted, 2);
 
-        let operation = Operation::Inspect { format: None };
-        let mut engine = Engine::start(input.len() as u64, limits(256), operation).unwrap();
-        drive(&mut engine, &input, None);
-        let outcome = outcome(&engine);
+        let mut host = Memory::new(&input);
+        let session = run(&mut host, limits(256), Operation::Inspect { format: None });
+        let outcome = outcome(&session);
         assert_eq!(outcome.info.as_ref().map(|info| info.page_count), Some(2));
         // The detection prefix is counted once, beside the PDF reads.
         assert!(outcome.report.input_bytes_read > 1024);
 
         // An explicit format skips detection, so the header must be at byte 0.
-        let operation = convert_op(Some(InputFormat::Pdf));
-        let mut engine = Engine::start(input.len() as u64, limits(256), operation).unwrap();
-        let run = drive(&mut engine, &input, None);
-        assert!(run.output.is_empty());
-        assert!(matches!(failure(&engine), Error::Pdf { offset: 0, .. }));
+        let mut host = Memory::new(&input);
+        let session = run(&mut host, limits(256), convert_op(Some(InputFormat::Pdf)));
+        assert!(host.output.is_empty());
+        assert!(matches!(failure(&session), Error::Pdf { offset: 0, .. }));
     }
     let late = [vec![b' '; 1020].as_slice(), &pdf].concat();
-    let mut engine = Engine::start(late.len() as u64, limits(256), convert_op(None)).unwrap();
-    drive(&mut engine, &late, None);
-    assert!(matches!(failure(&engine), Error::UnsupportedFormat));
+    let mut host = Memory::new(&late);
+    let session = run(&mut host, limits(256), convert_op(None));
+    assert!(matches!(failure(&session), Error::UnsupportedFormat));
 }
 
 #[test]
 fn kdh_and_caj_conversions_use_the_core_engines_with_short_io() {
     let pdf = fixture("valid_out_of_order_objects.pdf");
     let kdh = kdh_bytes(&pdf);
-    let mut engine = Engine::start(kdh.len() as u64, limits(4096), convert_op(None)).unwrap();
-    let run = drive(&mut engine, &kdh, Some(333));
-    assert_eq!(run.output, pdf);
-    assert_eq!(engine.format(), Some(InputFormat::Kdh));
-    assert_eq!(outcome(&engine).report.pages_converted, 2);
+    let mut host = Memory::new(&kdh).short(333);
+    let session = run(&mut host, limits(4096), convert_op(None));
+    assert_eq!(host.output, pdf);
+    assert_eq!(session.format(), Some(InputFormat::Kdh));
+    assert_eq!(outcome(&session).report.pages_converted, 2);
 
     let caj = caj_bytes();
-    let mut engine = Engine::start(caj.len() as u64, limits(256), convert_op(None)).unwrap();
-    let run = drive(&mut engine, &caj, Some(100));
-    assert!(run.output.starts_with(b"%PDF-"));
-    assert!(run.output.trim_ascii_end().ends_with(b"%%EOF"));
-    assert!(run.max_read <= 256 && run.max_write <= 256);
-    let report = &outcome(&engine).report;
-    assert_eq!(engine.format(), Some(InputFormat::Caj));
+    let mut host = Memory::new(&caj).short(100);
+    let session = run(&mut host, limits(256), convert_op(None));
+    assert!(host.output.starts_with(b"%PDF-"));
+    assert!(host.output.trim_ascii_end().ends_with(b"%%EOF"));
+    assert!(host.max_read <= 256 && host.max_write <= 256);
+    let report = &outcome(&session).report;
+    assert_eq!(session.format(), Some(InputFormat::Caj));
     assert_eq!(report.pages_converted, 2);
     assert_eq!(report.bookmarks_written, 1);
-    assert_eq!(report.output_bytes_written, run.output.len() as u64);
+    assert_eq!(report.output_bytes_written, host.output.len() as u64);
 }
 
 #[test]
@@ -413,9 +391,8 @@ fn caj_conversion_honors_disabled_bookmarks_and_explicit_format() {
             allow_damaged: false,
         },
     };
-    let mut engine = Engine::start(caj.len() as u64, limits(4096), operation).unwrap();
-    drive(&mut engine, &caj, None);
-    assert_eq!(outcome(&engine).report.bookmarks_written, 0);
+    let session = run(&mut Memory::new(&caj), limits(4096), operation);
+    assert_eq!(outcome(&session).report.bookmarks_written, 0);
 }
 
 #[test]
@@ -428,29 +405,30 @@ fn malformed_known_formats_and_unsupported_inputs_have_distinct_errors() {
         (b"", None),
     ];
     for (input, format) in cases {
-        let mut engine = Engine::start(input.len() as u64, limits(64), convert_op(None)).unwrap();
-        let run = drive(&mut engine, input, None);
-        assert!(run.output.is_empty());
+        let mut host = Memory::new(input);
+        let session = run(&mut host, limits(64), convert_op(None));
+        assert!(host.output.is_empty());
         if matches!(format, Some(InputFormat::Hn | InputFormat::C8)) {
-            assert!(matches!(failure(&engine), Error::Hnc8(_)));
-            assert!(engine.message().contains("HN/C8"));
+            assert!(matches!(failure(&session), Error::Hnc8(_)));
+            assert!(session.message().contains("HN/C8"));
         } else {
-            assert!(matches!(failure(&engine), Error::UnsupportedFormat));
-            assert_eq!(engine.message(), "unsupported input format");
+            assert!(matches!(failure(&session), Error::UnsupportedFormat));
+            assert_eq!(session.message(), "unsupported input format");
         }
-        assert_eq!(engine.format(), format);
-        assert!(engine.request().is_none());
+        assert_eq!(session.format(), format);
     }
     let inspect_hn = Operation::Inspect {
         format: Some(InputFormat::Hn),
     };
-    let mut engine = Engine::start(4, limits(64), inspect_hn).unwrap();
-    drive(&mut engine, b"HN\0\0", None);
-    assert!(matches!(failure(&engine), Error::Hnc8Metadata(_)));
-    assert_eq!(error_code(failure(&engine)), 16);
-    assert!(std::error::Error::source(failure(&engine)).is_some());
-    let mut teb = Engine::start(3, limits(1), Operation::Inspect { format: None }).unwrap();
-    drive(&mut teb, b"TEB", None);
+    let session = run(&mut Memory::new(b"HN\0\0"), limits(64), inspect_hn);
+    assert!(matches!(failure(&session), Error::Hnc8Metadata(_)));
+    assert_eq!(error_code(failure(&session)), 16);
+    assert!(std::error::Error::source(failure(&session)).is_some());
+    let teb = run(
+        &mut Memory::new(b"TEB"),
+        limits(1),
+        Operation::Inspect { format: None },
+    );
     assert!(matches!(failure(&teb), Error::UnsupportedFormat));
 }
 
@@ -463,11 +441,10 @@ fn inspects_pdf_caj_and_kdh_without_output() {
         (kdh_bytes(&pdf), InputFormat::Kdh, 2, None),
     ];
     for (input, format, pages, bookmarks) in cases {
-        let operation = Operation::Inspect { format: None };
-        let mut engine = Engine::start(input.len() as u64, limits(1024), operation).unwrap();
-        let run = drive(&mut engine, &input, None);
-        assert!(run.output.is_empty() && run.flushes == 0);
-        let outcome = outcome(&engine);
+        let mut host = Memory::new(&input);
+        let session = run(&mut host, limits(1024), Operation::Inspect { format: None });
+        assert!(host.output.is_empty() && host.flushes == 0);
+        let outcome = outcome(&session);
         assert_eq!(
             outcome.info,
             Some(DocumentInfo {
@@ -481,78 +458,53 @@ fn inspects_pdf_caj_and_kdh_without_output() {
 }
 
 #[test]
-fn engine_errors_carry_typed_errors_and_messages() {
+fn failures_carry_typed_errors_and_messages_and_a_session_runs_once() {
     let truncated = fixture("truncated_kdh.kdh");
-    let mut engine = Engine::start(truncated.len() as u64, limits(64), convert_op(None)).unwrap();
-    drive(&mut engine, &truncated, None);
-    assert!(matches!(failure(&engine), Error::TruncatedInput { .. }));
-    assert!(engine.message().starts_with("truncated input"));
+    let session = run(&mut Memory::new(&truncated), limits(64), convert_op(None));
+    assert!(matches!(failure(&session), Error::TruncatedInput { .. }));
+    assert!(session.message().starts_with("truncated input"));
 
     let small = Limits {
         max_input_bytes: 3,
         ..limits(64)
     };
-    let mut engine = Engine::start(4, small, convert_op(None)).unwrap();
-    assert_eq!(engine.poll(), Status::Failed);
-    assert!(matches!(failure(&engine), Error::LimitExceeded { .. }));
-    // A completed engine keeps reporting its result.
-    assert_eq!(engine.poll(), Status::Failed);
+    let mut host = Memory::new(b"%PDF");
+    let mut session = run(&mut host, small, convert_op(None));
+    assert!(matches!(failure(&session), Error::LimitExceeded { .. }));
+    assert_eq!(host.reads, 0);
+    // A completed session keeps its result until it is replaced.
+    assert_eq!(
+        session.run(&mut host, 4, limits(64), convert_op(None)),
+        Status::Busy
+    );
+    assert!(matches!(failure(&session), Error::LimitExceeded { .. }));
 }
 
 #[test]
-fn rejects_invalid_completions_without_corrupting_the_request() {
-    let input = fixture("valid_out_of_order_objects.pdf");
-    let mut engine = Engine::start(input.len() as u64, limits(2), convert_op(None)).unwrap();
-    assert!(!engine.complete_read(0), "no request is pending yet");
-    assert_eq!(engine.poll(), Status::Read);
-    assert_eq!(
-        engine.request(),
-        Some(Request::Read {
-            resource: 0,
-            offset: 0,
-            length: 2
-        })
-    );
-    assert!(!engine.complete_read(3));
-    assert!(!engine.complete_write(1));
-    assert!(!engine.complete_flush());
-    assert_eq!(engine.poll(), Status::Read);
-    engine.with_staging(|staging| staging[..2].copy_from_slice(&input[..2]));
-    assert!(engine.complete_read(2));
-    assert!(!engine.complete_read(2), "the request was consumed");
-    drive_until(&mut engine, &input, None, Some(Status::Write));
-    let Some(Request::Write { length }) = engine.request() else {
-        panic!("write status without a write request");
-    };
-    assert!(!engine.complete_write(length + 1));
-    assert!(!engine.complete_read(1));
-    let mut output = Vec::new();
-    engine.with_staging(|staging| output.extend_from_slice(&staging[..length]));
-    assert!(engine.complete_write(length));
-    output.extend(drive(&mut engine, &input, None).output);
-    assert_eq!(output, input, "the first chunk was accepted by hand");
-    assert_eq!(
-        outcome(&engine).report.output_bytes_written,
-        input.len() as u64
-    );
-}
-
-#[test]
-fn cancellation_resolves_the_pending_request_with_a_typed_error() {
+fn host_failures_and_cancellation_end_the_operation_with_typed_errors() {
     let pdf = fixture("valid_out_of_order_objects.pdf");
-    let mut engine = Engine::start(pdf.len() as u64, limits(64), convert_op(None)).unwrap();
-    assert_eq!(engine.poll(), Status::Read);
-    engine.cancel();
-    assert_eq!(engine.poll(), Status::Failed);
-    assert!(matches!(failure(&engine), Error::Cancelled));
-    assert!(engine.request().is_none());
-
-    for status in [Status::Write, Status::Flush] {
-        let mut engine = Engine::start(pdf.len() as u64, limits(64), convert_op(None)).unwrap();
-        drive_until(&mut engine, &pdf, None, Some(status));
-        engine.cancel();
-        assert_eq!(engine.poll(), Status::Failed);
-        assert!(matches!(failure(&engine), Error::Cancelled));
+    for (fail_reads, fail_writes) in [(true, false), (false, true)] {
+        let mut host = Memory {
+            fail_reads,
+            fail_writes,
+            ..Memory::new(&pdf)
+        };
+        let session = run(&mut host, limits(64), convert_op(None));
+        assert!(matches!(failure(&session), Error::Io(_)));
+        assert_eq!(error_code(failure(&session)), 5);
+        assert_eq!(host.flushes, 0);
+    }
+    for (reads, writes) in [(Some(0), None), (Some(2), None), (None, Some(64))] {
+        let mut host = Memory {
+            cancel_after_reads: reads,
+            cancel_after_writes: writes,
+            ..Memory::new(&pdf)
+        };
+        let session = run(&mut host, limits(64), convert_op(None));
+        assert!(matches!(failure(&session), Error::Cancelled));
+        assert_eq!(error_code(failure(&session)), 6);
+        assert_eq!(host.flushes, 0);
+        assert!(host.output.len() < pdf.len());
     }
 }
 
@@ -568,68 +520,22 @@ fn error_messages_are_bounded_on_a_character_boundary() {
 
 #[test]
 fn source_reads_past_the_end_are_clamped_before_reaching_the_host() {
-    let shared = Rc::new(RefCell::new(Shared {
-        staging: vec![0; 8],
-        request: None,
-        response: None,
-        cancelled: false,
-        format: None,
-        fonts: hnc8::Fonts::default(),
-    }));
-    let mut source = BridgeSource {
-        resource: 0,
-        shared: Rc::clone(&shared),
-        size: 10,
-    };
-    let mut context = Context::from_waker(Waker::noop());
-    let mut destination = [0_u8; 6];
-
-    let mut read = Box::pin(source.read_at(7, &mut destination));
-    assert!(read.as_mut().poll(&mut context).is_pending());
-    assert_eq!(
-        shared.borrow().request,
-        Some(Request::Read {
-            resource: 0,
-            offset: 7,
-            length: 3
-        })
-    );
-    drop(read);
-
-    for offset in [10, 11] {
-        let result = Box::pin(source.read_at(offset, &mut destination))
-            .as_mut()
-            .poll(&mut context);
-        match (offset, result) {
-            (10, Poll::Ready(Ok(0))) => {}
-            (11, Poll::Ready(Err(Error::InvalidInput { .. }))) => {}
-            (_, other) => panic!("unexpected read at {offset}: {other:?}"),
-        }
+    let input = [7_u8; 10];
+    let mut memory = Memory::new(&input);
+    {
+        let host = RefCell::new(&mut memory);
+        let mut source = HostSource::new(&host, 0, 10);
+        let mut destination = [0_u8; 6];
+        assert_eq!(source.read_at(7, &mut destination).unwrap(), 3);
+        assert_eq!(destination[..3], [7; 3]);
+        assert_eq!(source.read_at(10, &mut destination).unwrap(), 0);
+        assert!(matches!(
+            source.read_at(11, &mut destination),
+            Err(Error::InvalidInput { .. })
+        ));
     }
-}
-
-#[test]
-fn a_task_pending_without_a_request_reports_idle_until_it_completes() {
-    // The bridged operations always leave a request when they wait, so a
-    // hand-built task stands in for one that yields without host I/O.
-    let mut engine = Engine::start(0, limits(512), convert_op(None)).unwrap();
-    let mut yielded = false;
-    engine.task = Box::pin(poll_fn(move |_| {
-        if std::mem::replace(&mut yielded, true) {
-            Poll::Ready(Ok(Outcome {
-                report: ConversionReport::default(),
-                info: None,
-                outline_warnings: 0,
-                outline_omitted: false,
-                application_info: None,
-            }))
-        } else {
-            Poll::Pending
-        }
-    }));
-    assert_eq!(engine.poll(), Status::Idle);
-    assert_eq!(engine.request(), None);
-    assert_eq!(engine.poll(), Status::Done);
+    assert_eq!((memory.reads, memory.max_read), (1, 3));
+    assert_eq!(memory.progress, [PROGRESS_TOTAL]);
 }
 
 fn synthetic_hn() -> Vec<u8> {
@@ -669,138 +575,6 @@ fn synthetic_hn() -> Vec<u8> {
     bytes
 }
 
-#[test]
-fn hnc8_type0_converts_without_scratch_io() {
-    let input = synthetic_hn();
-    for chunk in [1, 3, 7] {
-        let mut engine =
-            Engine::start(input.len() as u64, limits(chunk), convert_op(None)).unwrap();
-        let run = drive(&mut engine, &input, Some(1));
-        assert_eq!(outcome(&engine).report.pages_converted, 1);
-        assert!(run.output.starts_with(b"%PDF-1.7"));
-        assert!(run.output.ends_with(b"%%EOF\n"));
-        assert!(run.stores.iter().all(Vec::is_empty));
-    }
-}
-
-#[test]
-fn hnc8_configuration_and_located_failures_are_explicit() {
-    let input = synthetic_hn();
-    let mut standard = Engine::start(input.len() as u64, limits(8), convert_op(None)).unwrap();
-    let result = drive(&mut standard, &input, Some(1));
-    assert_eq!(outcome(&standard).report.pages_converted, 1);
-    assert!(result.stores.iter().all(Vec::is_empty));
-    let mut invalid = input.clone();
-    put_u32(&mut invalid, 0x15c + 20 + 32, 99);
-    let mut engine = Engine::start(invalid.len() as u64, limits(8), convert_op(None)).unwrap();
-    drive(&mut engine, &invalid, None);
-    let error = failure(&engine);
-    assert_eq!(error_code(error), 16);
-    assert!(engine.message().contains("page 1"));
-    assert!(engine.message().contains("image 1"));
-    assert!(std::error::Error::source(error).is_some());
-}
-
-#[test]
-fn default_tables_do_not_turn_small_allocation_limits_into_invalid_input() {
-    let input = synthetic_hn();
-    let mut bounded = limits(8);
-    bounded.max_allocation_bytes = 8;
-    let mut engine = Engine::start(input.len() as u64, bounded, convert_op(None)).unwrap();
-    drive(&mut engine, &input, None);
-    let Error::Hnc8(error) = failure(&engine) else {
-        panic!("expected located allocation limit");
-    };
-    assert!(matches!(
-        error.kind,
-        caj2pdf_core::hnc8::ComposeErrorKind::Io(Error::LimitExceeded { .. })
-    ));
-}
-
-fn scratch_engine() -> Engine {
-    use caj2pdf_core::jbig2::text_composer::RandomAccessScratch;
-    let mut engine = Engine::start(0, limits(3), convert_op(None)).unwrap();
-    let shared = Rc::clone(&engine.shared);
-    engine.task = Box::pin((move || {
-        for id in 1..=4 {
-            let mut store = scratch::Scratch::new(Rc::clone(&shared), id, 8);
-            assert_eq!(store.size()?, 0);
-            assert!(matches!(store.set_len(9), Err(Error::LimitExceeded { .. })));
-            store.set_len(8)?;
-            assert!(store.read_at(u64::MAX, &mut [0]).is_err());
-            assert!(store.write_at(7, &[0; 2]).is_err());
-            assert_eq!(store.read_at(8, &mut [])?, 0);
-            assert_eq!(store.write_at(8, &[])?, 0);
-            assert_eq!(store.write_at(2, &[1, 2, 3, 4])?, 3);
-            let mut bytes = [0; 4];
-            assert_eq!(store.read_at(2, &mut bytes)?, 3);
-            assert_eq!(bytes, [1, 2, 3, 0]);
-            store.flush()?;
-            store.set_len(0)?;
-        }
-        Ok(Outcome::default())
-    })());
-    engine
-}
-
-#[test]
-fn all_four_scratch_stores_use_bounded_acknowledged_requests() {
-    let mut engine = scratch_engine();
-    assert!(!engine.complete_resize());
-    assert_eq!(engine.poll(), Status::ScratchResize);
-    assert!(!engine.complete_read(0));
-    assert!(!engine.complete_write(0));
-    assert!(!engine.complete_flush());
-    let run = drive(&mut engine, &[], None);
-    outcome(&engine);
-    assert!(run.stores.iter().all(Vec::is_empty));
-}
-
-#[test]
-fn each_pending_scratch_operation_cancels_without_another_host_request() {
-    for stop in [
-        Status::ScratchResize,
-        Status::ScratchRead,
-        Status::ScratchWrite,
-        Status::ScratchFlush,
-    ] {
-        let mut engine = scratch_engine();
-        drive_until(&mut engine, &[], None, Some(stop));
-        engine.cancel();
-        assert_eq!(engine.poll(), Status::Failed);
-        assert_eq!(error_code(failure(&engine)), 6);
-        assert!(engine.request().is_none());
-    }
-}
-
-#[test]
-fn hnb_empty_source_rows_are_not_silently_omitted() {
-    let mut input = vec![0; 0xd8 + 20];
-    input[..8].copy_from_slice(&[72, 78, 0, 0, 0xc8, 0, 0, 0]);
-    put_u32(&mut input, 0x90, 1);
-    put_u32(&mut input, 0xd8, 0xd8 + 20);
-    let mut engine = Engine::start(
-        input.len() as u64,
-        limits(7),
-        Operation::Convert {
-            format: None,
-            options: ConversionOptions {
-                include_bookmarks: false,
-                allow_damaged: false,
-            },
-        },
-    )
-    .unwrap();
-    drive(&mut engine, &input, None);
-    assert!(matches!(failure(&engine), Error::Hnc8(_)));
-    assert!(
-        engine.message().contains("cannot omit source pages"),
-        "{}",
-        engine.message()
-    );
-    assert!(engine.message().contains("page 1"));
-}
-
 fn hn_metadata() -> Vec<u8> {
     let mut bytes = vec![0; 0x15c + 2 * 308 + 2 * 20];
     bytes[..8].copy_from_slice(&[72, 78, 0, 0, 0x90, 1, 0, 0]);
@@ -813,45 +587,6 @@ fn hn_metadata() -> Vec<u8> {
         put_u32(&mut bytes, at + 304, index as u32 + 1);
     }
     bytes
-}
-
-#[test]
-fn hnc8_inspection_streams_outline_validation_without_codec_or_scratch() {
-    let mut c8 = vec![0; 0x50 + 20];
-    c8[0] = 0xc8;
-    put_u32(&mut c8, 8, 1);
-    let mut hnb = vec![0; 0xd8 + 20];
-    hnb[..8].copy_from_slice(&[72, 78, 0, 0, 0xc8, 0, 0, 0]);
-    put_u32(&mut hnb, 0x90, 1);
-    // A level skip is clamped and an out-of-range destination is skipped;
-    // each is one warning, and the count is what would be written.
-    let mut clamped = hn_metadata();
-    put_u32(&mut clamped, 0x15c + 308 + 304, 4);
-    let mut skipped = hn_metadata();
-    skipped[0x15c + 308 + 280] = b'9';
-    for (input, pages, bookmarks, warnings) in [
-        (hn_metadata(), 2, Some(2), 0),
-        (clamped, 2, Some(2), 1),
-        (skipped, 2, Some(1), 1),
-        (synthetic_hn(), 1, Some(0), 0),
-        (c8, 1, None, 0),
-        (hnb, 1, None, 0),
-    ] {
-        let mut engine = Engine::start(
-            input.len() as u64,
-            limits(1),
-            Operation::Inspect { format: None },
-        )
-        .unwrap();
-        let run = drive(&mut engine, &input, Some(1));
-        let info = outcome(&engine).info.as_ref().unwrap();
-        assert_eq!((info.page_count, info.bookmark_count), (pages, bookmarks));
-        assert_eq!(outcome(&engine).outline_warnings, warnings);
-        assert!(run.output.is_empty());
-        assert_eq!(run.flushes, 0);
-        assert_eq!(run.max_read, 1);
-        assert!(run.stores.iter().all(Vec::is_empty));
-    }
 }
 
 /// A stored (uncompressed) zlib stream: the framing without a compressor.
@@ -888,54 +623,6 @@ fn c8_with_application_info(decoded_extra: u32) -> Vec<u8> {
     bytes
 }
 
-#[test]
-fn c8_inspection_reports_the_application_info_package() {
-    let inspect = |input: &[u8]| {
-        let mut engine = Engine::start(
-            input.len() as u64,
-            limits(1024),
-            Operation::Inspect { format: None },
-        )
-        .unwrap();
-        drive(&mut engine, input, None);
-        let outcome = outcome(&engine);
-        assert_eq!(outcome.info.as_ref().unwrap().page_count, 1);
-        outcome.application_info.clone()
-    };
-    let info = inspect(&c8_with_application_info(0)).unwrap();
-    assert_eq!(info.doi.as_deref(), Some("INVENTED:1"));
-    assert_eq!(info.url.as_deref(), Some("http://example.invalid/x"));
-    assert_eq!(info.note_count, 2);
-    // A defective package is ignored, as in conversion.
-    assert_eq!(inspect(&c8_with_application_info(1)), None);
-}
-
-#[test]
-fn hna_inspection_rejects_unreadable_outlines_and_resource_limits() {
-    for case in 0..4 {
-        let mut input = hn_metadata();
-        let mut bounded = limits(1);
-        match case {
-            0 => bounded.max_bookmarks = 1,
-            1 => bounded.max_pages = 1,
-            2 => bounded.max_allocation_bytes = 8,
-            _ => {
-                input.pop();
-            }
-        }
-        let mut engine = Engine::start(
-            input.len() as u64,
-            bounded,
-            Operation::Inspect { format: None },
-        )
-        .unwrap();
-        drive(&mut engine, &input, None);
-        assert_eq!(error_code(failure(&engine)), 16);
-        assert!(engine.message().contains("byte"));
-        assert!(std::error::Error::source(failure(&engine)).is_some());
-    }
-}
-
 fn native_c8() -> Vec<u8> {
     let mut bytes = vec![0u8; 100];
     bytes[0] = 0xc8;
@@ -967,70 +654,234 @@ fn native_operation() -> Operation {
 }
 
 #[test]
-fn native_c8_font_resources_share_the_bounded_request_channel() {
+fn hnc8_type0_converts_with_short_io() {
+    let input = synthetic_hn();
+    for chunk in [1, 3, 7] {
+        let mut host = Memory::new(&input).short(1);
+        let session = run(&mut host, limits(chunk), convert_op(None));
+        assert_eq!(outcome(&session).report.pages_converted, 1);
+        assert!(host.output.starts_with(b"%PDF-1.7"));
+        assert!(host.output.ends_with(b"%%EOF\n"));
+        assert!(host.max_read <= chunk && host.max_write <= chunk);
+    }
+}
+
+#[test]
+fn hnc8_located_failures_are_explicit() {
+    let mut invalid = synthetic_hn();
+    put_u32(&mut invalid, 0x15c + 20 + 32, 99);
+    let session = run(&mut Memory::new(&invalid), limits(8), convert_op(None));
+    let error = failure(&session);
+    assert_eq!(error_code(error), 16);
+    assert!(session.message().contains("page 1"));
+    assert!(session.message().contains("image 1"));
+    assert!(std::error::Error::source(error).is_some());
+}
+
+#[test]
+fn default_tables_do_not_turn_small_allocation_limits_into_invalid_input() {
+    let input = synthetic_hn();
+    let mut bounded = limits(8);
+    bounded.max_allocation_bytes = 8;
+    let session = run(&mut Memory::new(&input), bounded, convert_op(None));
+    let Error::Hnc8(error) = failure(&session) else {
+        panic!("expected located allocation limit");
+    };
+    assert!(matches!(
+        error.kind,
+        caj2pdf_core::hnc8::ComposeErrorKind::Io(Error::LimitExceeded { .. })
+    ));
+}
+
+#[test]
+fn hnb_empty_source_rows_are_not_silently_omitted() {
+    let mut input = vec![0; 0xd8 + 20];
+    input[..8].copy_from_slice(&[72, 78, 0, 0, 0xc8, 0, 0, 0]);
+    put_u32(&mut input, 0x90, 1);
+    put_u32(&mut input, 0xd8, 0xd8 + 20);
+    let session = run(&mut Memory::new(&input), limits(7), native_operation());
+    assert!(matches!(failure(&session), Error::Hnc8(_)));
+    assert!(
+        session.message().contains("cannot omit source pages"),
+        "{}",
+        session.message()
+    );
+    assert!(session.message().contains("page 1"));
+}
+
+#[test]
+fn hnc8_inspection_streams_outline_validation_without_decoding() {
+    let mut c8 = vec![0; 0x50 + 20];
+    c8[0] = 0xc8;
+    put_u32(&mut c8, 8, 1);
+    let mut hnb = vec![0; 0xd8 + 20];
+    hnb[..8].copy_from_slice(&[72, 78, 0, 0, 0xc8, 0, 0, 0]);
+    put_u32(&mut hnb, 0x90, 1);
+    // A level skip is clamped and an out-of-range destination is skipped;
+    // each is one warning, and the count is what would be written.
+    let mut clamped = hn_metadata();
+    put_u32(&mut clamped, 0x15c + 308 + 304, 4);
+    let mut skipped = hn_metadata();
+    skipped[0x15c + 308 + 280] = b'9';
+    for (input, pages, bookmarks, warnings) in [
+        (hn_metadata(), 2, Some(2), 0),
+        (clamped, 2, Some(2), 1),
+        (skipped, 2, Some(1), 1),
+        (synthetic_hn(), 1, Some(0), 0),
+        (c8, 1, None, 0),
+        (hnb, 1, None, 0),
+    ] {
+        let mut host = Memory::new(&input).short(1);
+        let session = run(&mut host, limits(1), Operation::Inspect { format: None });
+        let info = outcome(&session).info.as_ref().unwrap();
+        assert_eq!((info.page_count, info.bookmark_count), (pages, bookmarks));
+        assert_eq!(outcome(&session).outline_warnings, warnings);
+        assert!(host.output.is_empty());
+        assert_eq!(host.flushes, 0);
+        assert_eq!(host.max_read, 1);
+    }
+}
+
+#[test]
+fn c8_inspection_reports_the_application_info_package() {
+    let inspect = |input: &[u8]| {
+        let session = run(
+            &mut Memory::new(input),
+            limits(1024),
+            Operation::Inspect { format: None },
+        );
+        let outcome = outcome(&session);
+        assert_eq!(outcome.info.as_ref().unwrap().page_count, 1);
+        outcome.application_info.clone()
+    };
+    let info = inspect(&c8_with_application_info(0)).unwrap();
+    assert_eq!(info.doi.as_deref(), Some("INVENTED:1"));
+    assert_eq!(info.url.as_deref(), Some("http://example.invalid/x"));
+    assert_eq!(info.note_count, 2);
+    // A defective package is ignored, as in conversion.
+    assert_eq!(inspect(&c8_with_application_info(1)), None);
+}
+
+#[test]
+fn hna_inspection_rejects_unreadable_outlines_and_resource_limits() {
+    for case in 0..4 {
+        let mut input = hn_metadata();
+        let mut bounded = limits(1);
+        match case {
+            0 => bounded.max_bookmarks = 1,
+            1 => bounded.max_pages = 1,
+            2 => bounded.max_allocation_bytes = 8,
+            _ => {
+                input.pop();
+            }
+        }
+        let session = run(
+            &mut Memory::new(&input),
+            bounded,
+            Operation::Inspect { format: None },
+        );
+        assert_eq!(error_code(failure(&session)), 16);
+        assert!(session.message().contains("byte"));
+        assert!(std::error::Error::source(failure(&session)).is_some());
+    }
+}
+
+#[test]
+fn native_c8_font_resources_are_read_as_host_resources() {
     let bytes = native_c8();
     let font = include_bytes!("../../../../tests/fonts/geometric.ttf");
-    let mut engine = Engine::start(bytes.len() as u64, limits(32), native_operation()).unwrap();
-    assert_eq!(engine.add_font_source(font.len() as u64, 0), 1);
+    let mut session = Session::default();
+    assert_eq!(session.add_font_source(font.len() as u64, 0), 1);
     // An absent alternate Latin role (`u32::MAX`) uses the core fallback.
-    assert!(engine.set_c8_fonts(0, 0, u32::MAX, 0, 'A' as u32, u32::MAX));
-    let run = drive_resources(&mut engine, &bytes, &[font], Some(3), None);
-    assert!(engine.result().unwrap().is_ok(), "{}", engine.message());
-    assert!(run.max_read <= 32 && run.max_write <= 32);
-    assert!(run.output.ends_with(b"%%EOF\n"));
+    assert!(session.set_c8_fonts(0, 0, u32::MAX, 0, 'A' as u32, u32::MAX));
+    let mut host = Memory {
+        fonts: vec![font],
+        ..Memory::new(&bytes).short(3)
+    };
+    let status = session.run(
+        &mut host,
+        bytes.len() as u64,
+        limits(32),
+        native_operation(),
+    );
+    assert_eq!(status, Status::Done, "{}", session.message());
+    assert!(host.max_read <= 32 && host.max_write <= 32);
+    assert!(host.output.ends_with(b"%%EOF\n"));
     assert_eq!(
-        String::from_utf8_lossy(&run.output)
+        String::from_utf8_lossy(&host.output)
             .matches("/FontFile2 ")
             .count(),
         1
     );
-    assert!(!engine.set_c8_fonts(0, 0, 0, u32::MAX, 0, u32::MAX));
-    assert_eq!(engine.add_font_source(10, 0), 0);
+    // Registration closes once the session has run.
+    assert!(!session.set_c8_fonts(0, 0, 0, u32::MAX, 0, u32::MAX));
+    assert_eq!(session.add_font_source(10, 0), 0);
+    assert!(!session.set_c8_latin_state(3, 0));
 }
 
 #[test]
-fn font_configuration_rejects_invalid_or_late_resources() {
-    let mut engine = Engine::start(116, limits(32), native_operation()).unwrap();
-    assert_eq!(engine.add_font_source(0, 0), 0);
-    assert_eq!(engine.add_font_source(u64::MAX, 0), 0);
-    assert!(!engine.set_c8_fonts(0, 0, 0, u32::MAX, 0, u32::MAX));
+fn font_configuration_rejects_invalid_resources_and_roles() {
+    let mut session = Session::default();
+    assert_eq!(session.add_font_source(0, 0), 0);
+    assert!(!session.set_c8_fonts(0, 0, 0, u32::MAX, 0, u32::MAX));
     for id in 1..=8 {
-        assert_eq!(engine.add_font_source(100, 0), id);
+        assert_eq!(session.add_font_source(100, 0), id);
     }
-    assert_eq!(engine.add_font_source(100, 0), 0);
+    assert_eq!(session.add_font_source(100, 0), 0);
     for (decoration, alias) in [(8, 65), (0, 0xd800), (0, 0x10000)] {
-        assert!(!engine.set_c8_fonts(0, 0, 0, decoration, alias, u32::MAX));
+        assert!(!session.set_c8_fonts(0, 0, 0, decoration, alias, u32::MAX));
     }
-    assert!(!engine.set_c8_fonts(0, 1, 2, u32::MAX, 0, 8));
-    assert!(!engine.set_c8_fonts(0, 1, 8, u32::MAX, 0, u32::MAX));
-    assert!(!engine.set_c8_latin_state3(5));
-    assert!(engine.set_c8_fonts(0, 1, 2, 3, 65, 4));
-    assert!(!engine.set_c8_latin_state3(8));
-    assert!(engine.set_c8_latin_state3(5));
-    assert!(!engine.set_c8_latin_state3(5));
-    assert!(!engine.set_c8_latin_state(99, 6));
+    assert!(!session.set_c8_fonts(0, 1, 2, u32::MAX, 0, 8));
+    assert!(!session.set_c8_fonts(0, 1, 8, u32::MAX, 0, u32::MAX));
+    assert!(!session.set_c8_latin_state(3, 5));
+    assert!(session.set_c8_fonts(0, 1, 2, 3, 65, 4));
+    assert!(!session.set_c8_latin_state(3, 8));
+    assert!(session.set_c8_latin_state(3, 5));
+    assert!(!session.set_c8_latin_state(3, 5));
+    assert!(!session.set_c8_latin_state(99, 6));
     for (state, index) in [(28, 6), (31, 7)] {
-        assert!(!engine.set_c8_latin_state(state, 8));
-        assert!(engine.set_c8_latin_state(state, index));
-        assert!(!engine.set_c8_latin_state(state, index));
+        assert!(!session.set_c8_latin_state(state, 8));
+        assert!(session.set_c8_latin_state(state, index));
+        assert!(!session.set_c8_latin_state(state, index));
     }
-    assert!(!engine.set_c8_fonts(0, 1, 2, u32::MAX, 0, u32::MAX));
-    assert_eq!(engine.add_font_source(100, 0), 0);
-    assert_eq!(engine.poll(), Status::Read);
-    assert!(!engine.set_c8_latin_state3(5));
-    let mut inspect = Engine::start(1, limits(32), Operation::Inspect { format: None }).unwrap();
-    assert_eq!(inspect.add_font_source(100, 0), 0);
+    assert!(!session.set_c8_fonts(0, 1, 2, u32::MAX, 0, u32::MAX));
+    assert_eq!(session.add_font_source(100, 0), 0);
 }
 
 #[test]
-fn incomplete_font_config_and_wrong_document_are_explicit_errors() {
-    for bytes in [native_c8(), fixture("valid_out_of_order_objects.pdf")] {
-        let mut engine = Engine::start(bytes.len() as u64, limits(32), native_operation()).unwrap();
-        assert_eq!(engine.add_font_source(100, 0), 1);
-        drive(&mut engine, &bytes, Some(3));
+fn font_limits_incomplete_roles_and_wrong_operations_are_explicit_errors() {
+    let bytes = native_c8();
+    // A font larger than the input limit is refused before it is read.
+    let mut session = Session::default();
+    assert_eq!(session.add_font_source(u64::MAX, 0), 1);
+    assert!(session.set_c8_fonts(0, 0, u32::MAX, u32::MAX, 0, u32::MAX));
+    let mut host = Memory::new(&bytes);
+    session.run(
+        &mut host,
+        bytes.len() as u64,
+        limits(32),
+        native_operation(),
+    );
+    assert!(matches!(failure(&session), Error::LimitExceeded { .. }));
+    // Fonts without roles, fonts for a document without native text, and
+    // fonts for an inspection are configuration errors.
+    let pdf = fixture("valid_out_of_order_objects.pdf");
+    for (input, operation) in [
+        (&bytes, native_operation()),
+        (&pdf, native_operation()),
+        (&bytes, Operation::Inspect { format: None }),
+    ] {
+        let mut session = Session::default();
+        assert_eq!(session.add_font_source(100, 0), 1);
+        if input == &pdf {
+            assert!(session.set_c8_fonts(0, 0, u32::MAX, u32::MAX, 0, u32::MAX));
+        }
+        let mut host = Memory::new(input).short(3);
+        session.run(&mut host, input.len() as u64, limits(32), operation);
         assert!(matches!(
-            engine.result(),
+            session.result(),
             Some(Err(Error::InvalidInput { .. }))
         ));
+        assert!(host.output.is_empty());
     }
 }

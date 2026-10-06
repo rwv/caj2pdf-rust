@@ -7,7 +7,6 @@
  * Inputs are served by the test at `/fixtures/<name>`.
  */
 import {
-  blobSource,
   convert,
   convertReadableStream,
   inspect,
@@ -37,20 +36,6 @@ function collector() {
     },
   }).getWriter();
   return { writer, chunks, maxWrite: () => maxWrite };
-}
-
-/** A File whose slices are recorded; whole-file reads are forbidden. */
-function tracked(file, record) {
-  return {
-    size: file.size,
-    slice(start, end) {
-      record.maxRead = Math.max(record.maxRead, end - start);
-      return file.slice(start, end);
-    },
-    arrayBuffer() {
-      throw new Error("whole File.arrayBuffer() is forbidden");
-    },
-  };
 }
 
 async function encode(chunks) {
@@ -93,27 +78,48 @@ async function opfsEntries() {
   return names.filter((name) => name.startsWith("caj2pdf-spool-")).sort();
 }
 
-/** File source to WritableStream sink, with bounded-chunk evidence. */
+/** File source to WritableStream sink, with bounded-chunk and progress evidence. */
 export async function convertFile(name) {
-  const record = { maxRead: 0 };
   const sink = collector();
-  const source = blobSource(tracked(await input(name), record));
-  const report = await convert(await modulePromise, source, webWritableSink(sink.writer), { chunkSize: CHUNK });
+  const progress = [];
+  const report = await convert(await modulePromise, await input(name), webWritableSink(sink.writer), {
+    chunkSize: CHUNK,
+    progress: (fraction) => progress.push(fraction),
+  });
   await sink.writer.close();
-  const inspected = await inspect(await modulePromise, blobSource(await input(name)));
+  const inspected = await inspect(await modulePromise, await input(name));
   return {
     report: plainReport(report),
     pageCount: inspected.pageCount,
-    maxRead: record.maxRead,
+    progress,
     maxWrite: sink.maxWrite(),
     output: await encode(sink.chunks),
   };
 }
 
+/** An OPFS file handle as the source; the conversion Worker opens it. */
+export async function convertOpfsHandle(name) {
+  const root = await navigator.storage.getDirectory();
+  const entry = `caj2pdf-spool-handle-${crypto.randomUUID()}`;
+  const handle = await root.getFileHandle(entry, { create: true });
+  const sink = collector();
+  let report;
+  try {
+    const writable = await handle.createWritable();
+    await writable.write(await input(name));
+    await writable.close();
+    report = await convert(await modulePromise, handle, webWritableSink(sink.writer), { chunkSize: CHUNK });
+    await sink.writer.close();
+  } finally {
+    await root.removeEntry(entry);
+  }
+  return { report: plainReport(report), after: await opfsEntries(), output: await encode(sink.chunks) };
+}
+
 /** A recognized but unsupported input must reject with its format. */
 export async function reject(name) {
   const sink = collector();
-  const result = await settle(convert(await modulePromise, blobSource(await input(name)), webWritableSink(sink.writer)));
+  const result = await settle(convert(await modulePromise, await input(name), webWritableSink(sink.writer)));
   return { ...result, written: sink.chunks.length };
 }
 
@@ -141,7 +147,7 @@ export async function abortBackpressure(name) {
     },
   }, { highWaterMark: 1 }).getWriter();
   const result = await settle(
-    convert(await modulePromise, blobSource(await input(name)), webWritableSink(writer), {
+    convert(await modulePromise, await input(name), webWritableSink(writer), {
       chunkSize: 256,
       signal: controller.signal,
     }),
@@ -212,7 +218,7 @@ export async function opfsFailures(name) {
     unlocked: [boundedStream, lowLevelStream, unsupportedStream, abortedStream].map(readerReleased) };
 }
 
-/** Run either bounded-storage integration case in a real Dedicated Worker. */
+/** Run a case module in a real Dedicated Worker that calls the API itself. */
 async function runWorker(path) {
   const worker = new Worker(path, { type: "module" });
   let timeout;
@@ -228,7 +234,6 @@ async function runWorker(path) {
   }
 }
 
-export const scratchInWorker = () => runWorker("/test/scratch-worker.mjs");
 export const cajRecoveryInWorker = () => runWorker("/test/caj-recovery-worker.mjs");
 export const hnc8InWorker = () => runWorker("/test/hnc8-worker.mjs");
 
@@ -239,7 +244,7 @@ export async function inspectHnc8() {
   const skipped = syntheticHn(true);
   skipped[0x15c + 308 + 280] = 57;
   for (const bytes of [syntheticHn(true), skipped, unknownOutline("c8"), unknownOutline("hn")]) {
-    const info = await inspect(await modulePromise, blobSource(new Blob([bytes])), { chunkSize: 3 });
+    const info = await inspect(await modulePromise, new Blob([bytes]), { chunkSize: 3 });
     result.push({ format: info.format, pages: info.pageCount, bookmarks: info.bookmarkCount, warnings: info.outlineWarnings });
   }
   return result;
@@ -247,7 +252,7 @@ export async function inspectHnc8() {
 
 export async function convertDamaged(name) {
   const sink = collector();
-  const report = await convert(await modulePromise, blobSource(await input(name)), webWritableSink(sink.writer), { allowDamaged: true, chunkSize: CHUNK });
+  const report = await convert(await modulePromise, await input(name), webWritableSink(sink.writer), { allowDamaged: true, chunkSize: CHUNK });
   await sink.writer.close();
   return { omittedPages: report.omittedPages.map((page) => ({ pageIndex: page.pageIndex, offset: page.offset.toString() })), output: await encode(sink.chunks) };
 }

@@ -3,33 +3,31 @@
 import assert from "node:assert/strict";
 import { readFile, readdir, rm } from "node:fs/promises";
 import { test } from "node:test";
-import { blobSource, convert, spoolToTempFile, withHnc8Scratch } from "../node.mjs";
-import { newInstance, pageText, tempDirectory, validatePdf } from "./helpers.mjs";
+import { convert, spoolToTempFile } from "../node.mjs";
+import { pageText, tempDirectory, trackedBlob, validatePdf, wasmModule } from "./helpers.mjs";
 import { syntheticC8, syntheticHn, syntheticNativeC8, syntheticNativeHnb, syntheticNativeHnbMixed, syntheticNativeHnbAxes, syntheticType1Hn } from "./hnc8-fixtures.mjs";
 
 const fontBytes = await readFile(new URL("../../tests/fonts/geometric.ttf", import.meta.url));
 const symbolBytes = await readFile(new URL("../../tests/fonts/symbols.ttf", import.meta.url));
 const collectionBytes = await readFile(new URL("../../tests/fonts/collection.ttc", import.meta.url));
 const cffBytes = await readFile(new URL("../../tests/fonts/geometric.otf", import.meta.url));
-const source = (bytes) => blobSource(new Blob([bytes]));
+const source = (bytes) => new Blob([bytes]);
 const sink = (parts = []) => ({ async writeChunk(bytes) { parts.push(bytes.slice()); return bytes.length; }, async flush() {} });
 const roles = (font) => ({ cjk: font, latin: font, alternateLatin: font });
 const required = (font) => ({ cjk: font, latin: font });
 
-test("native C8/HN-B public Node path reuses ranged fonts and preserves pages", async (t) => {
+test("native C8/HN-B public Node path reads fonts in bounded ranges and preserves pages", async (t) => {
   for (const [inputBytes, pages, glyphs, hasSymbols, hasJpeg, hasState3, latinState] of [[syntheticNativeC8(), 1, 1], [syntheticNativeC8(true), 1, 2], [syntheticNativeHnb(), 2, 2], [syntheticNativeHnb(0), 2, 2, true], [syntheticNativeHnbMixed(), 1, 2, false, true], [syntheticNativeHnb(2, true), 2, 2, false, false, true], [syntheticNativeHnbAxes(), 2, 2], ...[3, 28, 31].map(state => [syntheticNativeC8(false, state), 1, 1, false, false, false, state])]) {
-    let maxRead = 0;
-    const input = source(fontBytes);
-    const font = { size: input.size, async readAt(offset, length, signal) { maxRead = Math.max(maxRead, length); return input.readAt(offset, Math.min(length, 3), signal); } };
+    const record = {};
+    // A second Blob of the same bytes is a distinct font resource.
+    const font = trackedBlob(new Blob([fontBytes]), record);
+    const other = () => trackedBlob(new Blob([fontBytes]), record);
     const parts = [];
-    await withHnc8Scratch(async (scratch) => {
-      const result = await convert(await newInstance(), source(inputBytes), sink(parts), {
-        includeBookmarks: false, chunkSize: 32, hnc8: { fonts: { ...roles(font), ...(hasSymbols ? { symbols: source(symbolBytes) } : {}), ...(hasState3 ? { latinState3: { ...font } } : {}), ...(latinState ? { [`latinState${latinState}`]: { ...font } } : {}) }, scratch },
-      });
-      assert.equal(result.pagesConverted, pages);
-      assert.ok(scratch.every((store) => store.size === 0n));
+    const result = await convert(await wasmModule(), source(inputBytes), sink(parts), {
+      includeBookmarks: false, chunkSize: 32, hnc8: { fonts: { ...roles(font), ...(hasSymbols ? { symbols: source(symbolBytes) } : {}), ...(hasState3 ? { latinState3: other() } : {}), ...(latinState ? { [`latinState${latinState}`]: other() } : {}) } },
     });
-    assert.ok(maxRead > 0 && maxRead <= 32);
+    assert.equal(result.pagesConverted, pages);
+    assert.ok(record.maxRead > 0 && record.maxRead <= 32);
     const pdf = Buffer.concat(parts);
     const text = pageText(pdf);
     assert.equal(text.match(/\/FontFile2 /g).length, hasSymbols || hasState3 || latinState ? 2 : 1);
@@ -51,12 +49,10 @@ test("image HN-A and compressed-text C8 inputs ignore supplied fonts", async (t)
     const outputs = [];
     for (const fonts of [undefined, roles(source(fontBytes))]) {
       const parts = [];
-      await withHnc8Scratch(async (scratch) => {
-        const result = await convert(await newInstance(), source(inputBytes), sink(parts), {
-          includeBookmarks: false, hnc8: { scratch, ...(fonts ? { fonts } : {}) },
-        });
-        assert.equal(result.pagesConverted, 1);
+      const result = await convert(await wasmModule(), source(inputBytes), sink(parts), {
+        includeBookmarks: false, ...(fonts ? { hnc8: { fonts } } : {}),
       });
+      assert.equal(result.pagesConverted, 1);
       outputs.push(Buffer.concat(parts));
     }
     assert.deepEqual(outputs[1], outputs[0]);
@@ -69,7 +65,7 @@ test("requested C8 bookmarks are omitted and reported, not a failure", async () 
   const outputs = [];
   for (const includeBookmarks of [false, true]) {
     const parts = [];
-    const result = await convert(await newInstance(), source(syntheticNativeC8()), sink(parts), {
+    const result = await convert(await wasmModule(), source(syntheticNativeC8()), sink(parts), {
       includeBookmarks, hnc8: { fonts: roles(source(fontBytes)) },
     });
     assert.equal(result.outlineOmitted, includeBookmarks);
@@ -82,32 +78,40 @@ test("requested C8 bookmarks are omitted and reported, not a failure", async () 
 test("native C8 font validation and failed reads preserve caller errors", async () => {
   const font = source(fontBytes);
   for (const fonts of [{}, { ...roles(font), decoration: { source: font, character: "ab" } }, { ...roles(font), decoration: { source: font, character: "\ud800" } }]) {
-    await assert.rejects(convert(await newInstance(), source(syntheticNativeC8()), sink(), { hnc8: { fonts } }), TypeError);
+    await assert.rejects(convert(await wasmModule(), source(syntheticNativeC8()), sink(), { hnc8: { fonts } }), TypeError);
   }
   const failure = new Error("caller font read failed");
-  const broken = { size: font.size, async readAt() { throw failure; } };
-  await assert.rejects(convert(await newInstance(), source(syntheticNativeC8()), sink(), {
+  class Broken extends Blob {
+    slice() {
+      throw failure;
+    }
+  }
+  const broken = new Broken([fontBytes]);
+  await assert.rejects(convert(await wasmModule(), source(syntheticNativeC8()), sink(), {
     includeBookmarks: false, hnc8: { fonts: roles(broken) },
   }), (error) => error === failure);
   for (const bytes of [new Uint8Array(16), fontBytes]) {
     const input = syntheticNativeC8();
     if (bytes === fontBytes) new DataView(input.buffer).setUint16(110, 0xa0c2, true);
-    await assert.rejects(convert(await newInstance(), source(input), sink(), {
+    await assert.rejects(convert(await wasmModule(), source(input), sink(), {
       includeBookmarks: false, hnc8: { fonts: roles(source(bytes)) },
     }), { code: "HNC8" });
   }
 });
 
-test("cancellation during a font read resets the instance and preserves resource ownership", async () => {
-  const wasm = await newInstance();
+test("cancellation during a font read stops further reads and the module converts again", async () => {
+  const wasm = await wasmModule();
   const controller = new AbortController();
   const input = source(fontBytes);
   let reads = 0;
-  const font = { size: input.size, async readAt(offset, length) {
-    reads++;
-    controller.abort();
-    return input.readAt(offset, length);
-  } };
+  class Aborting extends Blob {
+    slice(start, end) {
+      reads++;
+      controller.abort();
+      return super.slice(start, end);
+    }
+  }
+  const font = new Aborting([fontBytes]);
   await assert.rejects(convert(wasm, source(syntheticNativeC8()), sink(), {
     signal: controller.signal, includeBookmarks: false, hnc8: { fonts: roles(font) },
   }), { name: "AbortError" });
@@ -117,7 +121,6 @@ test("cancellation during a font read resets the instance and preserves resource
   });
   assert.equal(result.pagesConverted, 1);
 });
-
 
 test("forward-only fonts enforce spool limits and dispose after conversion outcomes", async () => {
   const directory = await tempDirectory("c8-font-spool");
@@ -131,11 +134,11 @@ test("forward-only fonts enforce spool limits and dispose after conversion outco
         const input = syntheticNativeC8();
         if (mode === "missing-glyph") new DataView(input.buffer).setUint16(110, 0xa0c2, true);
         const controller = new AbortController();
-        const font = mode === "cancel" ? { size: spool.source.size, async readAt(offset, length) {
-          controller.abort(); return spool.source.readAt(offset, length);
-        } } : spool.source;
-        const operation = convert(await newInstance(), source(input), sink(), {
-          includeBookmarks: false, signal: controller.signal, hnc8: { fonts: roles(font) },
+        const operation = convert(await wasmModule(), source(input), sink(), {
+          includeBookmarks: false,
+          signal: controller.signal,
+          ...(mode === "cancel" ? { progress: () => controller.abort() } : {}),
+          hnc8: { fonts: roles(spool.source) },
         });
         if (mode === "success") assert.equal((await operation).pagesConverted, 1);
         else await assert.rejects(operation, mode === "cancel" ? { name: "AbortError" } : { code: "HNC8" });
@@ -147,30 +150,24 @@ test("forward-only fonts enforce spool limits and dispose after conversion outco
 
 // Without a symbol role, the visible space falls back to the Latin font,
 // which lacks it; the located missing-glyph error is preserved.
-test("HN-B symbols missing from the fallback font fail and clean scratch", async () => {
-  const wasm = await newInstance();
+test("HN-B symbols missing from the fallback font fail", async () => {
+  const wasm = await wasmModule();
   const font = source(fontBytes);
   for (const symbols of [undefined, font]) {
-    await withHnc8Scratch(async (scratch) => {
-      await assert.rejects(convert(wasm, source(syntheticNativeHnb(0)), sink(), {
-        includeBookmarks: false, hnc8: { fonts: { ...roles(font), symbols }, scratch },
-      }), { code: "HNC8" });
-      assert.ok(scratch.every((store) => store.size === 0n));
-    });
+    await assert.rejects(convert(wasm, source(syntheticNativeHnb(0)), sink(), {
+      includeBookmarks: false, hnc8: { fonts: { ...roles(font), symbols } },
+    }), { code: "HNC8" });
   }
 });
 
-test("HN-B image after text fails explicitly and releases scratch", async () => {
+test("HN-B image after text fails explicitly", async () => {
   const bytes = syntheticNativeHnbMixed();
   const image = bytes.slice(236, 264);
   bytes.copyWithin(236, 264, 276);
   bytes.set(image, 248);
-  await withHnc8Scratch(async (scratch) => {
-    await assert.rejects(convert(await newInstance(), source(bytes), sink(), {
-      includeBookmarks: false, hnc8: { fonts: roles(source(fontBytes)), scratch },
-    }), (error) => error.code === "HNC8" && /image after text or drawing/.test(error.message));
-    assert.ok(scratch.every((store) => store.size === 0n));
-  });
+  await assert.rejects(convert(await wasmModule(), source(bytes), sink(), {
+    includeBookmarks: false, hnc8: { fonts: roles(source(fontBytes)) },
+  }), (error) => error.code === "HNC8" && /image after text or drawing/.test(error.message));
 });
 
 // Absent optional roles use the core CJK/Latin fallback; only the two
@@ -178,13 +175,10 @@ test("HN-B image after text fails explicitly and releases scratch", async () => 
 test("absent optional Latin roles fall back to the required fonts", async (t) => {
   for (const [input, pages] of [[syntheticNativeHnb(2, true), 2], ...[3, 28, 31].map((state) => [syntheticNativeC8(false, state), 1])]) {
     const parts = [];
-    await withHnc8Scratch(async (scratch) => {
-      const result = await convert(await newInstance(), source(input), sink(parts), {
-        includeBookmarks: false, hnc8: { fonts: required(source(fontBytes)), scratch },
-      });
-      assert.equal(result.pagesConverted, pages);
-      assert.ok(scratch.every((store) => store.size === 0n));
+    const result = await convert(await wasmModule(), source(input), sink(parts), {
+      includeBookmarks: false, hnc8: { fonts: required(source(fontBytes)) },
     });
+    assert.equal(result.pagesConverted, pages);
     const pdf = Buffer.concat(parts);
     const text = pageText(pdf);
     assert.equal(text.match(/\/FontFile2 /g).length, 1);
@@ -192,18 +186,14 @@ test("absent optional Latin roles fall back to the required fonts", async (t) =>
   }
 });
 
-
-test("HN-B late unknown record leaves unfinished output and clears scratch", async () => {
+test("HN-B late unknown record leaves unfinished output", async () => {
   const bytes = syntheticNativeHnb();
   const view = new DataView(bytes.buffer);
   view.setUint16(view.getUint32(228, true), 0x8099, true);
   const parts = [];
-  await withHnc8Scratch(async (scratch) => {
-    await assert.rejects(convert(await newInstance(), source(bytes), sink(parts), {
-      includeBookmarks: false, hnc8: { fonts: roles(source(fontBytes)), scratch },
-    }), (error) => error.code === "HNC8" && /page 2/.test(error.message));
-    assert.ok(scratch.every((store) => store.size === 0n));
-  });
+  await assert.rejects(convert(await wasmModule(), source(bytes), sink(parts), {
+    includeBookmarks: false, hnc8: { fonts: roles(source(fontBytes)) },
+  }), (error) => error.code === "HNC8" && /page 2/.test(error.message));
   const pdf = pageText(Buffer.concat(parts));
   assert.ok(pdf.includes("<0041> Tj"), "first page must have been written");
   assert.ok(!pdf.includes("%%EOF"), "failure must not finalize the PDF");
@@ -212,35 +202,31 @@ test("HN-B late unknown record leaves unfinished output and clears scratch", asy
 test("collection faces are selected per role and embedded as distinct fonts", async (t) => {
   const collection = source(collectionBytes);
   const parts = [];
-  await withHnc8Scratch(async (scratch) => {
-    const result = await convert(await newInstance(), source(syntheticNativeHnb(0)), sink(parts), {
-      includeBookmarks: false,
-      hnc8: { fonts: { cjk: { source: collection }, latin: { source: collection, face: 0 }, alternateLatin: collection, symbols: { source: collection, face: 1 } }, scratch },
-    });
-    assert.equal(result.pagesConverted, 2);
+  const result = await convert(await wasmModule(), source(syntheticNativeHnb(0)), sink(parts), {
+    includeBookmarks: false,
+    hnc8: { fonts: { cjk: { source: collection }, latin: { source: collection, face: 0 }, alternateLatin: collection, symbols: { source: collection, face: 1 } } },
   });
+  assert.equal(result.pagesConverted, 2);
   const pdf = Buffer.concat(parts);
   const text = pageText(pdf);
   // Face 0 is shared by three roles; face 1 is a second embedded font.
   assert.equal(text.match(/\/FontFile2 /g).length, 2);
   assert.equal(text.match(/<FF1A> Tj/g).length, 2);
   await validatePdf(t, pdf, 2);
-  await assert.rejects(convert(await newInstance(), source(syntheticNativeC8()), sink([]), {
+  await assert.rejects(convert(await wasmModule(), source(syntheticNativeC8()), sink([]), {
     includeBookmarks: false, hnc8: { fonts: { cjk: { source: collection, face: 2 }, latin: collection } },
   }), (error) => error.code === "HNC8" && /face index is out of range/.test(error.message));
-  await assert.rejects(convert(await newInstance(), source(syntheticNativeC8()), sink([]), {
+  await assert.rejects(convert(await wasmModule(), source(syntheticNativeC8()), sink([]), {
     hnc8: { fonts: { cjk: { source: collection, face: -1 }, latin: collection } },
   }), RangeError);
 });
 
 test("CFF-flavoured OpenType fonts embed CID-keyed subsets", async (t) => {
   const parts = [];
-  await withHnc8Scratch(async (scratch) => {
-    const result = await convert(await newInstance(), source(syntheticNativeC8(true)), sink(parts), {
-      includeBookmarks: false, hnc8: { fonts: roles(source(cffBytes)), scratch },
-    });
-    assert.equal(result.pagesConverted, 1);
+  const result = await convert(await wasmModule(), source(syntheticNativeC8(true)), sink(parts), {
+    includeBookmarks: false, hnc8: { fonts: roles(source(cffBytes)) },
   });
+  assert.equal(result.pagesConverted, 1);
   const pdf = Buffer.concat(parts);
   const text = pageText(pdf);
   assert.equal(text.match(/\/FontFile3 /g).length, 1);

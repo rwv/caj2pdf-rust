@@ -3,25 +3,27 @@
 use super::*;
 use caj2pdf_core::{
     hnc8::{
-        ApplicationInfo, ComposeOptions, ComposePage, ComposeType3Workspaces, ComposeVisitor,
-        Type3PdfOptions, convert_document_pdf,
+        ApplicationInfo, C8FontSource, C8FontSources, C8PageFonts, ComposeOptions, ComposePage,
+        ComposeVisitor, Type3PdfOptions, convert_document_pdf,
     },
-    jbig2::mq::MqTable,
     jbig2::text::TextHeaderPolicy,
     qm::QmTable,
 };
 
+/// Explicitly registered font resources and their roles.
 #[derive(Default)]
 pub(super) struct Fonts {
     sizes: [u64; 8],
     faces: [u32; 8],
     count: usize,
-    roles: Option<caj2pdf_core::hnc8::C8PageFonts>,
+    roles: Option<C8PageFonts>,
 }
+
 impl Fonts {
     pub(super) fn count(&self) -> usize {
         self.count
     }
+
     pub(super) fn add(&mut self, size: u64, face: u32) -> u32 {
         if self.count == self.sizes.len() || self.roles.is_some() {
             return 0;
@@ -31,6 +33,7 @@ impl Fonts {
         self.count += 1;
         self.count as u32
     }
+
     pub(super) fn set_latin_state(&mut self, state: u32, index: u32) -> bool {
         let Some(roles) = &mut self.roles else {
             return false;
@@ -85,7 +88,7 @@ impl Fonts {
         } else {
             Some(symbols as usize)
         };
-        self.roles = Some(caj2pdf_core::hnc8::C8PageFonts {
+        self.roles = Some(C8PageFonts {
             cjk: cjk as usize,
             latin: latin as usize,
             alternate_latin,
@@ -100,6 +103,7 @@ impl Fonts {
 }
 
 struct CompletePages;
+
 impl ComposeVisitor for CompletePages {
     fn page(&mut self, page: ComposePage<'_>) -> Result<()> {
         if page.output_page.is_none() {
@@ -111,14 +115,15 @@ impl ComposeVisitor for CompletePages {
     }
 }
 
-pub(super) fn convert(
-    source: &mut BridgeSource,
-    sink: &mut BridgeSink,
+pub(super) fn convert<'h, H: Host>(
+    host: &'h RefCell<&'h mut H>,
+    source: &mut HostSource<'h, H>,
+    sink: &mut HostSink<'h, H>,
+    fonts: &Fonts,
     options: ConversionOptions,
     limits: &Limits,
-    cancellation: &BridgeCancellation,
+    cancellation: &HostCancellation<'h, H>,
 ) -> Result<(ConversionReport, OutlineReport)> {
-    let (qm, mq) = (QmTable::standard(), MqTable::standard());
     let options = ComposeOptions {
         // The HN/C8 profile explicitly admits the measured unused-template
         // anomaly; general JBIG2 APIs and all other malformed flags stay strict.
@@ -129,46 +134,28 @@ pub(super) fn convert(
         include_bookmarks: options.include_bookmarks,
         ..Default::default()
     };
-    let mut stores = std::array::from_fn::<_, 4, _>(|index| {
-        scratch::Scratch::new(
-            Rc::clone(&source.shared),
-            index as u32 + 1,
-            options.budget.max_type3_store_bytes,
-        )
-    });
-    let [first, second, refined, text] = &mut stores;
-    let workspaces = Some(ComposeType3Workspaces {
-        table: &mq,
-        first,
-        second,
-        refined,
-        text,
-    });
-    let fonts = std::mem::take(&mut source.shared.borrow_mut().fonts);
     let roles = match fonts.count {
         0 => None,
         _ => Some(fonts.roles.ok_or(Error::InvalidInput {
             reason: "C8 font resources require explicit roles",
         })?),
     };
-    let mut sources = std::array::from_fn::<_, 8, _>(|index| caj2pdf_core::hnc8::C8FontSource {
-        source: BridgeSource {
-            resource: index as u32 + 1,
-            shared: Rc::clone(&source.shared),
-            size: fonts.sizes[index],
-        },
+    for &size in &fonts.sizes[..fonts.count] {
+        limits.check_input_size(size)?;
+    }
+    let mut sources = std::array::from_fn::<_, 8, _>(|index| C8FontSource {
+        source: HostSource::new(host, index as u32 + 1, fonts.sizes[index]),
         face: fonts.faces[index],
     });
     // The core routes by text framing: image documents ignore the fonts.
     convert_document_pdf(
         source,
         sink,
-        roles.map(|roles| caj2pdf_core::hnc8::C8FontSources {
+        roles.map(|roles| C8FontSources {
             sources: &mut sources[..fonts.count],
             roles,
         }),
-        Some(&qm),
-        workspaces,
+        Some(&QmTable::standard()),
         &mut CompletePages,
         options,
         limits,
@@ -179,6 +166,7 @@ pub(super) fn convert(
 }
 
 struct IgnoreBookmarks;
+
 impl caj2pdf_core::BookmarkVisitor for IgnoreBookmarks {
     fn visit(&mut self, _: caj2pdf_core::Bookmark) -> Result<()> {
         Ok(())
@@ -197,29 +185,35 @@ pub(super) struct Inspected {
     pub application_info: Option<ApplicationInfo>,
 }
 
+fn read_metadata<S: RangedSource, C: Cancellation>(
+    source: &mut S,
+    limits: &Limits,
+    cancellation: &C,
+) -> caj2pdf_core::hnc8::Result<Inspected> {
+    use caj2pdf_core::hnc8::{Budget, Hnc8Reader};
+    let mut reader = Hnc8Reader::open(source, limits, cancellation, Budget::default())?;
+    let pages = reader.header().page_count;
+    let application_info = reader.application_info_report()?.info;
+    let mut inspected = Inspected {
+        pages,
+        bookmarks: None,
+        outline_warnings: 0,
+        application_info,
+    };
+    if reader.declared_bookmark_count().is_some() {
+        let outline =
+            reader.visit_bookmarks(64, pages, |page| Some(page - 1), &mut IgnoreBookmarks)?;
+        inspected.bookmarks = Some(outline.written);
+        inspected.outline_warnings = outline.defects;
+    }
+    Ok(inspected)
+}
+
 pub(super) fn inspect<S: RangedSource, C: Cancellation>(
     source: &mut S,
     limits: &Limits,
     cancellation: &C,
 ) -> Result<Inspected> {
-    use caj2pdf_core::hnc8::{Budget, Hnc8Reader};
-    let result: caj2pdf_core::hnc8::Result<_> = (|| {
-        let mut reader = Hnc8Reader::open(source, limits, cancellation, Budget::default())?;
-        let pages = reader.header().page_count;
-        let application_info = reader.application_info_report()?.info;
-        let mut inspected = Inspected {
-            pages,
-            bookmarks: None,
-            outline_warnings: 0,
-            application_info,
-        };
-        if reader.declared_bookmark_count().is_some() {
-            let outline =
-                reader.visit_bookmarks(64, pages, |page| Some(page - 1), &mut IgnoreBookmarks)?;
-            inspected.bookmarks = Some(outline.written);
-            inspected.outline_warnings = outline.defects;
-        }
-        Ok(inspected)
-    })();
-    result.map_err(|error| Error::Hnc8Metadata(Box::new(error)))
+    read_metadata(source, limits, cancellation)
+        .map_err(|error| Error::Hnc8Metadata(Box::new(error)))
 }

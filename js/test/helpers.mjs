@@ -18,10 +18,6 @@ export async function wasmModule() {
   return compiled;
 }
 
-export async function newInstance() {
-  return WebAssembly.instantiate(await wasmModule(), {});
-}
-
 export async function fixture(name) {
   return new Uint8Array(await readFile(new URL(`../../tests/fixtures/${name}`, import.meta.url)));
 }
@@ -205,18 +201,18 @@ export function largePdfBlob(streamBytes) {
   return new Blob(parts);
 }
 
-/** A Blob wrapper that records slice sizes and forbids whole-Blob reads. */
+/**
+ * A Blob that records the largest range sliced from it. Node serves Blob
+ * reads on the calling thread, so every Worker read goes through `slice`.
+ */
 export function trackedBlob(blob, record) {
-  return {
-    size: blob.size,
+  class Tracked extends Blob {
     slice(start, end) {
       record.maxRead = Math.max(record.maxRead ?? 0, end - start);
-      return blob.slice(start, end);
-    },
-    arrayBuffer() {
-      throw new Error("whole Blob.arrayBuffer() is forbidden");
-    },
-  };
+      return super.slice(start, end);
+    }
+  }
+  return new Tracked([blob]);
 }
 
 /** Wrap a sink, recording the largest chunk it is offered. */

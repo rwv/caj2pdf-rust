@@ -44,8 +44,9 @@ test("npm pack includes the WASM build, entry points, declarations, LICENSE, and
       "browser.d.mts",
       "browser.mjs",
       "caj2pdf_wasm.wasm",
-      "internal/scratch.mjs",
+      "internal/run.mjs",
       "internal/spool-write.mjs",
+      "internal/worker.mjs",
       "io.d.mts",
       "io.mjs",
       "node.d.mts",
@@ -77,28 +78,25 @@ test("npm pack includes the WASM build, entry points, declarations, LICENSE, and
       import * as browser from "caj2pdf-rust/browser";
       assert.equal(root.loadModule, node.loadModule);
       assert.equal(root.writeSpoolChunk, undefined);
-      assert.equal(browser.convert, node.convert);
+      assert.equal(typeof browser.convert, "function");
+      assert.notEqual(browser.convert, node.convert);
       const module = await root.loadModule();
-      assert.ok(WebAssembly.Module.exports(module).some(({name}) => name === "caj2pdf_io_poll"));
+      assert.ok(WebAssembly.Module.exports(module).some(({name}) => name === "caj2pdf_convert"));
       for (const [name, target, pages, state] of [["input.caj", "output.pdf", 2], ["input.c8", "c8.pdf", 1], ...[3, 28, 31].map(state => ["native-" + state + ".c8", "native-" + state + ".pdf", 1, state])]) {
-        const input = await open(name, "r");
         const output = (await open(target, "wx")).createWriteStream();
-        const fontHandle = state === undefined ? undefined : await open("font.ttf", "r");
         try {
-          const font = fontHandle ? await root.fileHandleSource(fontHandle) : undefined;
-          const fonts = font ? { cjk: font, latin: font, alternateLatin: font, ["latinState" + state]: { ...font } } : undefined;
-          const report = await root.withHnc8Scratch(async (scratch) => root.convert(
-            module, await root.fileHandleSource(input), root.nodeWritableSink(output),
-            { includeBookmarks: name === "input.caj", hnc8: { scratch, fonts } },
-          ));
+          // A second spelling of the font path is a distinct font resource.
+          const fonts = state === undefined ? undefined : { cjk: "font.ttf", latin: "font.ttf", alternateLatin: "font.ttf", ["latinState" + state]: "./font.ttf" };
+          const report = await root.convert(
+            module, name, root.nodeWritableSink(output),
+            { includeBookmarks: name === "input.caj", hnc8: { fonts } },
+          );
           output.end();
           await finished(output);
           assert.equal(report.pagesConverted, pages);
         } finally {
           output.destroy();
           await finished(output).catch(() => {});
-          await input.close();
-          await fontHandle?.close();
         }
       }
       console.log("packed exports and Node conversion passed");
@@ -139,20 +137,18 @@ test("npm pack includes the WASM build, entry points, declarations, LICENSE, and
           try {
             const outputs = [];
             const module = await api.loadModule();
-            const font = api.blobSource(await (await fetch("/font.ttf")).blob());
+            const font = await (await fetch("/font.ttf")).blob();
             for (const state of [undefined, 3, 28, 31]) {
-              outputs.push(await api.withHnc8Scratch(async (scratch) => {
-                const name = state === undefined ? "/input.c8" : "/native-" + state + ".c8";
-                const input = await (await fetch(name)).blob();
-                const fonts = state === undefined ? undefined : { cjk: font, latin: font, alternateLatin: font, ["latinState" + state]: { ...font } };
-                const chunks = [];
-                const report = await api.convert(module, api.blobSource(input), {
-                  async writeChunk(bytes) { chunks.push(bytes.slice()); return bytes.length; },
-                  async flush() {},
-                }, { includeBookmarks: false, hnc8: { scratch, fonts } });
-                if (!scratch.every(store => store.size === 0n)) throw new Error("packed conversion left scratch data");
-                return { pages: report.pagesConverted, bytes: Array.from(new Uint8Array(await new Blob(chunks).arrayBuffer())) };
-              }));
+              const name = state === undefined ? "/input.c8" : "/native-" + state + ".c8";
+              const input = await (await fetch(name)).blob();
+              // A second Blob of the font is a distinct font resource.
+              const fonts = state === undefined ? undefined : { cjk: font, latin: font, alternateLatin: font, ["latinState" + state]: font.slice() };
+              const chunks = [];
+              const report = await api.convert(module, input, {
+                async writeChunk(bytes) { chunks.push(bytes.slice()); return bytes.length; },
+                async flush() {},
+              }, { includeBookmarks: false, hnc8: { fonts } });
+              outputs.push({ pages: report.pagesConverted, bytes: Array.from(new Uint8Array(await new Blob(chunks).arrayBuffer())) });
             }
             const root = await navigator.storage.getDirectory();
             postMessage({ outputs, remaining: await Array.fromAsync(root.keys()) });
@@ -170,7 +166,7 @@ test("npm pack includes the WASM build, entry points, declarations, LICENSE, and
           const input = await (await fetch("/input.caj")).blob();
           const chunks = [];
           const writer = new WritableStream({ write(bytes) { chunks.push(bytes); } }).getWriter();
-          const report = await api.convert(module, api.blobSource(input), api.webWritableSink(writer));
+          const report = await api.convert(module, input, api.webWritableSink(writer));
           await writer.close();
           return { pages: report.pagesConverted, bytes: Array.from(new Uint8Array(await new Blob(chunks).arrayBuffer())) };
         })()`);

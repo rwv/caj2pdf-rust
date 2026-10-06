@@ -2,7 +2,7 @@
   "name": "caj2pdf-rust",
   "version": "0.4.0",
   "private": true,
-  "description": "Streaming CAJ, KDH, and PDF to PDF conversion for browsers and Node.js through WebAssembly",
+  "description": "CAJ, KDH, HN/C8 and PDF to PDF conversion for browsers and Node.js through WebAssembly in a Worker",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -37,8 +37,9 @@
     "./package.json": "./package.json"
   },
   "files": [
+    "internal/run.mjs",
     "internal/spool-write.mjs",
-    "internal/scratch.mjs",
+    "internal/worker.mjs",
     "io.mjs",
     "io.d.mts",
     "node.mjs",

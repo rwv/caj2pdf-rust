@@ -368,7 +368,7 @@ test("HN/C8 without runner configuration are NOT_RUN, never compatibility passes
   assert.deepEqual(report.failures, []);
   for (const row of report.results.slice(4)) {
     assert.equal(row.outcome, "not_run");
-    assert.match(row.reason, /requires runtime codec tables/);
+    assert.match(row.reason, /no font configuration/);
     assert.equal(row.observed, null);
   }
 });
