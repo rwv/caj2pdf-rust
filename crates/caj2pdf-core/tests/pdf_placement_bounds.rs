@@ -214,23 +214,11 @@ impl caj2pdf_core::Cancellation for SinkState {
 #[test]
 fn complete_page_preflight_refuses_invalid_later_items_without_output() -> Result<()> {
     let limits = Limits::default();
-    let mut foreign_source = GeneratedSource::new(1);
-    let (mut foreign_sink, _) = CountingSink::new();
-    let foreign = run(async {
-        let mut document =
-            PdfDocument::new(&mut foreign_sink, &limits, &CancelAfter::Never).await?;
-        document.add_image(&mut foreign_source, 0, 1, gray(1)).await
-    })?;
-
     let (mut sink, state) = CountingSink::new();
     let mut source = GeneratedSource::new(1);
     let report = run(async {
         let mut document = PdfDocument::new(&mut sink, &limits, &CancelAfter::Never).await?;
         let image = document.add_image(&mut source, 0, 1, gray(1)).await?;
-        assert_ne!(
-            image, foreign,
-            "equal object numbers do not share ownership"
-        );
         let good = placed(image);
         for component in 0..6 {
             for value in [
@@ -252,12 +240,6 @@ fn complete_page_preflight_refuses_invalid_later_items_without_output() -> Resul
             }
         }
         let before = state.bytes.get();
-        let error = document
-            .add_placed_page(page(), &[good, placed(foreign)])
-            .await
-            .unwrap_err();
-        assert!(matches!(error, Error::InvalidInput { .. }));
-        assert_eq!(state.bytes.get(), before);
         let error = document.add_placed_page(page(), &[]).await.unwrap_err();
         assert!(matches!(error, Error::InvalidInput { .. }));
         assert_eq!(state.bytes.get(), before);
@@ -305,25 +287,13 @@ fn complete_page_preflight_refuses_invalid_later_items_without_output() -> Resul
 }
 
 #[test]
-fn old_page_method_rejects_foreign_handles_and_accepts_owned_handles() -> Result<()> {
+fn old_and_placed_page_methods_share_one_image_handle() -> Result<()> {
     let limits = Limits::default();
-    let (mut other_sink, _) = CountingSink::new();
-    let mut other_source = GeneratedSource::new(1);
-    let foreign = run(async {
-        let mut document = PdfDocument::new(&mut other_sink, &limits, &CancelAfter::Never).await?;
-        document.add_image(&mut other_source, 0, 1, gray(1)).await
-    })?;
-    let (mut sink, state) = CountingSink::new();
+    let (mut sink, _) = CountingSink::new();
     let mut source = GeneratedSource::new(1);
     let report = run(async {
         let mut document = PdfDocument::new(&mut sink, &limits, &CancelAfter::Never).await?;
         let image = document.add_image(&mut source, 0, 1, gray(1)).await?;
-        let before = state.bytes.get();
-        assert!(matches!(
-            document.add_page(page(), &[image, foreign]).await,
-            Err(Error::InvalidInput { .. })
-        ));
-        assert_eq!(state.bytes.get(), before);
         assert_eq!(document.add_page(page(), &[image]).await?, 0);
         assert_eq!(document.add_placed_page(page(), &[placed(image)]).await?, 1);
         document.finish().await

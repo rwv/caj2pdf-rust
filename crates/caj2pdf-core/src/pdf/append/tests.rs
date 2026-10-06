@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 use super::*;
+use crate::pdf::MAX_CLASSIC_PDF_BYTES;
 use crate::test_support::{CancelAfter, NEVER, run};
 use crate::{
     native::{SeekableSource, WriteSink},
@@ -96,39 +97,12 @@ fn final_id(pdf: &[u8]) -> &[u8] {
 }
 
 #[test]
-fn direct_id_parser_accepts_hex_literal_and_comments() {
-    assert_eq!(
-        first_id_string(b" [ % comment\r\n <0123> (second) ] ", 0).unwrap(),
-        b"<0123>"
-    );
-    assert_eq!(
-        first_id_string(br"[(first\)id) <ABCD>]", 0).unwrap(),
-        br"(first\)id)"
-    );
-}
-
-#[test]
-fn direct_id_parser_rejects_indirect_and_unterminated_values() {
-    for raw in [
-        b"[1 0 R <00>]".as_slice(),
-        b"[<00> <11>".as_slice(),
-        b"[(unterminated <11>]".as_slice(),
-    ] {
-        assert!(matches!(
-            first_id_string(raw, 123),
-            Err(Error::Pdf {
-                offset: 123,
-                kind: PdfErrorKind::UnsupportedFeature,
-                ..
-            })
-        ));
-    }
-}
-
-#[test]
-fn update_id_hash_changes_with_update_bytes() {
-    let first = fnv128(FNV128_BASIS, b"[<first> <old>]");
-    assert_ne!(fnv128(first, b"outline A"), fnv128(first, b"outline B"));
+fn update_id_changes_with_the_old_id_and_the_update_position() {
+    let id = update_id(b"[<first> <old>]", 100, 200);
+    assert_eq!(id, update_id(b"[<first> <old>]", 100, 200));
+    assert_ne!(id, update_id(b"[<first> <new>]", 100, 200));
+    assert_ne!(id, update_id(b"[<first> <old>]", 101, 200));
+    assert_ne!(id, update_id(b"[<first> <old>]", 100, 201));
 }
 
 #[test]
@@ -209,14 +183,15 @@ fn embedded_pdf_range_is_copied_without_container_bytes() -> Result<()> {
 }
 
 #[test]
-fn new_outline_update_preserves_pdf_prefix_and_changes_id_by_title() -> Result<()> {
+fn new_outline_update_preserves_pdf_prefix_and_changes_id_with_its_size() -> Result<()> {
     let original = with_id(unoutlined_pdf()?);
-    let one = import_one(&original, "AA")?;
+    let one = import_one(&original, "A")?;
     let two = import_one(&original, "BB")?;
     assert!(one.starts_with(&original));
     assert!(two.starts_with(&original));
     assert_ne!(final_id(&one), final_id(&two));
-    assert!(String::from_utf8_lossy(&one).contains("/Title <FEFF00410041>"));
+    assert!(final_id(&one).starts_with(b" /ID [<00112233445566778899AABBCCDDEEFF> <"));
+    assert!(String::from_utf8_lossy(&one).contains("/Title <FEFF0041>"));
     assert!(String::from_utf8_lossy(&two).contains("/Title <FEFF00420042>"));
     Ok(())
 }
@@ -431,7 +406,7 @@ fn new_outline_objects_stop_at_the_pdf_object_number_limit() -> Result<()> {
     let result = run(async {
         let mut appender =
             PdfOutlineAppender::begin(&mut source, &mut output, &index, &limits, &NEVER).await?;
-        appender.next_number = Some(MAX_PDF_OBJECTS + 1);
+        appender.writer.next_number = Some(MAX_PDF_OBJECTS + 1);
         Ok::<_, Error>(
             appender
                 .add_bookmark(Bookmark {
@@ -585,40 +560,6 @@ fn open_index(pdf: &[u8], limits: &Limits) -> Result<PdfIndex> {
 }
 
 #[test]
-fn id_parser_rejects_non_arrays_trailing_values_and_bad_strings() {
-    for raw in [
-        b"<00> <11>".as_slice(),
-        b"[<00> <11>] junk",
-        b"[<0G> <11>]",
-        b"[<00> <11",
-        br"[(ends with escape\",
-        b"[(unbalanced (nested) <11>]",
-        b"[<< >> <11>]",
-    ] {
-        assert!(
-            matches!(
-                first_id_string(raw, 77),
-                Err(Error::Pdf {
-                    offset: 77,
-                    object: None,
-                    kind: PdfErrorKind::UnsupportedFeature,
-                    reason: "unsupported PDF trailer ID syntax",
-                })
-            ),
-            "accepted {raw:?}"
-        );
-    }
-    assert_eq!(
-        first_id_string(b"[(a (nested) b) < 0a 1B >]", 0).unwrap(),
-        b"(a (nested) b)"
-    );
-    assert_eq!(
-        first_id_string(b"[<00 11\n22> (x)] % trailing comment", 0).unwrap(),
-        b"<00 11\n22>"
-    );
-}
-
-#[test]
 fn update_keeps_trailer_info_and_replaces_an_empty_outline_root() -> Result<()> {
     let original = classic_pdf(
         &[
@@ -756,7 +697,7 @@ fn writer_refuses_new_bookmarks_after_an_output_failure() -> Result<()> {
         assert!(matches!(
             result,
             Err(Error::InvalidInput {
-                reason: "PDF append writer cannot continue after an output failure"
+                reason: "PDF writer cannot continue after a sink failure"
             })
         ));
     }
@@ -803,13 +744,14 @@ fn invalid(reason: &'static str) -> impl Fn(&Result<()>) -> bool {
 #[test]
 fn append_writer_rejects_misordered_object_calls() -> Result<()> {
     let limits = Limits::default();
+    let index = open_index(&classic_pdf(&[CATALOG, PAGES, PAGE], None, ""), &limits)?;
     let mut sink = TestSink::recording();
     let reference = PdfRef {
         number: 7,
         generation: 0,
     };
     run(async {
-        let mut writer = AppendWriter::new(&mut sink, &limits, &NEVER);
+        let mut writer = AppendWriter::new(&mut sink, &index, &limits, &NEVER);
         let misuse = invalid("invalid PDF append object state or number");
         assert!(misuse(
             &writer
@@ -842,25 +784,25 @@ fn append_update_rejects_open_duplicate_and_oversized_state() -> Result<()> {
     };
     let mut sink = WriteSink::new(Vec::new());
     run(async {
-        let mut writer = AppendWriter::new(&mut sink, &limits, &NEVER);
+        let mut writer = AppendWriter::new(&mut sink, &index, &limits, &NEVER);
         writer.begin_object(reference).await?;
         assert!(invalid("PDF append object remains open")(
-            &writer.finish_update(&index).await
+            &writer.finish_update().await
         ));
         writer.end_object().await?;
         writer.begin_object(reference).await?;
         writer.end_object().await?;
         assert!(invalid("PDF update defines an object twice")(
-            &writer.finish_update(&index).await
+            &writer.finish_update().await
         ));
         Ok::<_, Error>(())
     })?;
 
     let mut sink = WriteSink::new(Vec::new());
     let oversized = run(async {
-        let mut writer = AppendWriter::new(&mut sink, &limits, &NEVER);
-        writer.position = MAX_CLASSIC_PDF_BYTES + 1;
-        writer.finish_update(&index).await
+        let mut writer = AppendWriter::new(&mut sink, &index, &limits, &NEVER);
+        writer.out.position = MAX_CLASSIC_PDF_BYTES;
+        writer.begin_object(reference).await
     });
     assert!(matches!(
         oversized,
@@ -873,12 +815,12 @@ fn append_update_rejects_open_duplicate_and_oversized_state() -> Result<()> {
 
     let mut sink = WriteSink::new(Vec::new());
     let far_object = run(async {
-        let mut writer = AppendWriter::new(&mut sink, &limits, &NEVER);
+        let mut writer = AppendWriter::new(&mut sink, &index, &limits, &NEVER);
         writer.entries.push(XrefEntry {
             reference,
             offset: MAX_CLASSIC_PDF_BYTES + 1,
         });
-        writer.finish_update(&index).await
+        writer.finish_update().await
     });
     assert!(matches!(
         far_object,
@@ -991,10 +933,10 @@ fn a_bookmark_that_fails_while_closing_items_stops_the_outline() -> Result<()> {
         // fails before the sink sees a byte and so leaves the writer usable.
         // Restoring the position afterwards makes the failure transient, as
         // an allocator refusal would be.
-        let position = appender.writer.position;
-        appender.writer.position = MAX_CLASSIC_PDF_BYTES;
+        let position = appender.writer.out.position;
+        appender.writer.out.position = MAX_CLASSIC_PDF_BYTES;
         let failed = appender.add_bookmark(bookmark(0, "C")).await;
-        appender.writer.position = position;
+        appender.writer.out.position = position;
         let retry = appender.add_bookmark(bookmark(0, "D")).await;
         Ok::<_, Error>((failed, retry, appender.finish().await))
     })?;

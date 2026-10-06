@@ -16,6 +16,7 @@ pub(crate) use link_repair::{
 pub use parser::DictEntry;
 
 use super::FragmentObject;
+use super::page_walk::{PageStep, PageWalk};
 use super::types::{PdfRange, PdfRef};
 use super::writer::MAX_PDF_OBJECTS;
 use crate::error::PdfErrorKind;
@@ -24,7 +25,7 @@ use crate::{Cancellation, Error, Limits, RangedSource, Result, read_exact_at};
 use flate2::{Decompress, FlushDecompress, Status};
 use parser::{
     Dictionary, ObjectHead, ObjectTail, Syntax, destination_page, exact_name, exact_reference,
-    exact_unsigned, media_box, parse_object_head, reference_array, unsigned_array, valid_id_array,
+    exact_unsigned, first_id_string, media_box, parse_object_head, reference_array, unsigned_array,
     valid_text_string,
 };
 use std::cmp::min;
@@ -100,6 +101,10 @@ impl PdfIndex {
     }
     pub fn trailer_id(&self) -> Option<&[u8]> {
         self.trailer_id.as_deref()
+    }
+    /// The first string of the trailer `/ID`, as written.
+    pub(crate) fn trailer_first_id(&self) -> Option<&[u8]> {
+        self.trailer_id().and_then(first_id_string)
     }
     pub fn catalog(&self) -> PdfRef {
         self.catalog
@@ -271,20 +276,6 @@ struct XrefSlot {
 struct XrefRecord {
     number: u32,
     slot: XrefSlot,
-}
-
-#[derive(Clone, Copy)]
-enum PageVisit {
-    Enter {
-        reference: PdfRef,
-        parent: Option<PdfRef>,
-        inherited_media_box: bool,
-    },
-    Exit {
-        reference: PdfRef,
-        declared_count: u32,
-        first_leaf: usize,
-    },
 }
 
 #[derive(Clone, Copy)]
@@ -1106,7 +1097,10 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
             .transpose_option()
             .ok_or(self.malformed(at, None, "invalid PDF trailer Info"))?;
         let id = dictionary.value(b"ID").map(|value| value.to_vec());
-        if id.as_deref().is_some_and(|value| !valid_id_array(value)) {
+        if id
+            .as_deref()
+            .is_some_and(|value| first_id_string(value).is_none())
+        {
             return Err(self.malformed(at, None, "PDF trailer ID must be an array of two strings"));
         }
         let prev = dictionary
@@ -1524,18 +1518,12 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
             .and_then(exact_reference)
             .ok_or(failure)?;
         let mut pages = Vec::new();
-        let mut stack = Vec::new();
-        push_bounded(
-            &mut stack,
-            PageVisit::Enter {
-                reference: pages_root,
-                parent: None,
-                inherited_media_box: false,
-            },
-            self.limits.max_allocation_bytes,
-            "PDF page tree stack",
-        )
-        .map_err(self.locator(catalog_location.offset, Some(index.catalog)))?;
+        let max_stack_bytes = self.limits.max_allocation_bytes;
+        let push = |stack: &mut Vec<PageStep>, step| {
+            push_bounded(stack, step, max_stack_bytes, "PDF page tree stack")
+        };
+        let mut walk = PageWalk::new(pages_root, Vec::new(), push)
+            .map_err(self.locator(catalog_location.offset, Some(index.catalog)))?;
         // `PdfIndex::open` admitted more than one byte per slot under this
         // allocation limit, so a one-byte-per-slot index fits it.
         debug_assert!(self.limits.check_allocation(slots.len() as u64).is_ok());
@@ -1557,29 +1545,19 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
         );
         reserve_exact(&mut contents_validated, slots.len(), refused)?;
         contents_validated.resize(slots.len(), false);
-        while let Some(task) = stack.pop() {
-            let (reference, parent, inherited_media_box) = match task {
-                PageVisit::Exit {
-                    reference,
-                    declared_count,
-                    first_leaf,
-                } => {
-                    if pages.len().saturating_sub(first_leaf) != declared_count as usize {
-                        let location = index.object_location(reference)?;
-                        return Err(self.malformed(
-                            location.offset,
-                            Some(reference),
-                            "Pages Count does not equal leaf descendants",
-                        ));
-                    }
-                    continue;
+        while let Some(visit) = walk.next(pages.len()) {
+            let node = match visit {
+                Ok(node) => node,
+                Err(reference) => {
+                    let location = index.object_location(reference)?;
+                    return Err(self.malformed(
+                        location.offset,
+                        Some(reference),
+                        "Pages Count does not equal leaf descendants",
+                    ));
                 }
-                PageVisit::Enter {
-                    reference,
-                    parent,
-                    inherited_media_box,
-                } => (reference, parent, inherited_media_box),
             };
+            let (reference, parent) = (node.reference, node.parent);
             let location = index.object_location(reference)?;
             // A resolved reference has a slot, and `visited` has one entry
             // per slot.
@@ -1661,7 +1639,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                         .await?;
                     true
                 }
-                None => inherited_media_box,
+                None => node.inherited_media_box,
             };
             match kind.as_slice() {
                 b"Pages" => {
@@ -1694,30 +1672,8 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                             "Pages Count/Kids are inconsistent",
                         ));
                     }
-                    push_bounded(
-                        &mut stack,
-                        PageVisit::Exit {
-                            reference,
-                            declared_count: count,
-                            first_leaf: pages.len(),
-                        },
-                        self.limits.max_allocation_bytes,
-                        "PDF page tree stack",
-                    )
-                    .map_err(self.locator(location.offset, Some(reference)))?;
-                    for kid in kids.into_iter().rev() {
-                        push_bounded(
-                            &mut stack,
-                            PageVisit::Enter {
-                                reference: kid,
-                                parent: Some(reference),
-                                inherited_media_box: has_media_box,
-                            },
-                            self.limits.max_allocation_bytes,
-                            "PDF page tree stack",
-                        )
+                    walk.push_kids(reference, count, &kids, has_media_box, pages.len(), push)
                         .map_err(self.locator(location.offset, Some(reference)))?;
-                    }
                 }
                 b"Page" => {
                     if !has_media_box {

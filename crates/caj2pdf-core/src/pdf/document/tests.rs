@@ -143,9 +143,7 @@ fn decimal_matrices_preserve_small_values_and_signed_bounds_without_exponents() 
         MAX_PDF_INTEGER as f64,
         -0.0,
     ];
-    let matrix = DecimalMatrix::new(values).unwrap();
-    let text = std::str::from_utf8(matrix.as_bytes()).unwrap();
-    assert!(text.len() <= MATRIX_TEXT_BYTES);
+    let text = decimals(&values).unwrap();
     assert!(
         text.bytes()
             .all(|b| b.is_ascii_digit() || b"-. ".contains(&b))
@@ -156,20 +154,10 @@ fn decimal_matrices_preserve_small_values_and_signed_bounds_without_exponents() 
         assert_eq!(word.parse::<f64>().unwrap(), value);
     }
     assert_eq!(words[5], "0");
-    let small = DecimalMatrix::new([1.0e-20; 6]).unwrap();
-    assert!(
-        std::str::from_utf8(small.as_bytes())
-            .unwrap()
-            .contains("0.00000000000000000001")
-    );
-    let worst = DecimalMatrix::new([-f64::from_bits(1); 6]).unwrap();
-    assert_eq!(
-        std::str::from_utf8(worst.as_bytes())
-            .unwrap()
-            .split_ascii_whitespace()
-            .count(),
-        6
-    );
+    let small = decimals(&[1.0e-20; 6]).unwrap();
+    assert!(small.contains("0.00000000000000000001"));
+    let worst = decimals(&[-f64::from_bits(1); 6]).unwrap();
+    assert_eq!(worst.split_ascii_whitespace().count(), 6);
 }
 
 #[test]
@@ -185,41 +173,12 @@ fn decimal_matrices_reject_nonfinite_and_out_of_profile_components() {
         for index in [0, 5] {
             let mut values = [1.0; 6];
             values[index] = bad;
-            assert!(matches!(
-                DecimalMatrix::new(values),
-                Err(Error::InvalidInput { .. })
-            ));
+            assert!(matches!(decimals(&values), Err(Error::InvalidInput { .. })));
         }
     }
     // Singular matrices are deliberately allowed, with no rounding or epsilon
     // determinant rule. PDF consumers decide their visibility.
-    assert_eq!(
-        DecimalMatrix::new([0.0; 6]).unwrap().as_bytes(),
-        b"0 0 0 0 0 0"
-    );
-}
-
-#[test]
-fn decimal_scratch_refuses_overflow_without_modifying_existing_text() {
-    let mut matrix = DecimalMatrix::new([1.0; 6]).unwrap();
-    let before = matrix.as_bytes().to_vec();
-    assert!(matrix.write_str(&"0".repeat(MATRIX_TEXT_BYTES)).is_err());
-    assert_eq!(matrix.as_bytes(), before);
-
-    // Six minimum-subnormal numbers fit. A seventh exceeds the fixed byte
-    // capacity: exercise the append helper's actual typed failure, without
-    // changing its capacity or injecting a formatting error.
-    let mut matrix = DecimalMatrix::new([-f64::from_bits(1); 6]).unwrap();
-    let prefix = matrix.as_bytes().to_vec();
-    let error = matrix.push(-f64::from_bits(1)).unwrap_err();
-    assert!(matches!(
-        error,
-        Error::InvalidInput {
-            reason: "PDF matrix decimal representation exceeds fixed scratch capacity",
-        }
-    ));
-    assert!(matrix.as_bytes().starts_with(&prefix));
-    assert!(matrix.as_bytes().len() <= MATRIX_TEXT_BYTES);
+    assert_eq!(decimals(&[0.0; 6]).unwrap(), "0 0 0 0 0 0");
 }
 
 #[test]
@@ -271,25 +230,6 @@ fn affine_preflight_at_leaf_rollover_preserves_existing_pages_and_object_ids() {
     assert_eq!(report.input_bytes_read, 1);
     assert_eq!(report.output_bytes_written, sink.bytes.len() as u64);
     index_pdf(sink.bytes).expect("refused rollover leaves a valid completed page tree");
-}
-
-#[test]
-fn document_identities_are_unique_and_never_wrap_or_reuse() {
-    let counter = AtomicUsize::new(1);
-    assert_eq!(next_document_id(&counter).unwrap(), 1);
-    assert_eq!(next_document_id(&counter).unwrap(), 2);
-    let last = AtomicUsize::new(usize::MAX - 1);
-    assert_eq!(next_document_id(&last).unwrap(), usize::MAX - 1);
-    for _ in 0..2 {
-        assert!(matches!(
-            next_document_id(&last),
-            Err(Error::LimitExceeded {
-                resource: "PDF document identities",
-                ..
-            })
-        ));
-        assert_eq!(last.load(Ordering::Relaxed), usize::MAX);
-    }
 }
 
 async fn write_sample<W: SequentialSink, C: Cancellation>(

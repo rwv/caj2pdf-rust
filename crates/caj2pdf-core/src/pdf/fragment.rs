@@ -7,18 +7,19 @@
 //! object numbers or searches binary stream payloads for PDF delimiters.
 
 use super::input::{FragmentKind, inspect_fragment_object, inspect_fragment_scalar};
-use super::writer::{MAX_PDF_OBJECTS, check_classic_pdf_bytes, checked_object_number};
-use super::{MAX_CLASSIC_PDF_BYTES, PdfRange, PdfRef};
+use super::outline::{
+    BookmarkView, MAX_OUTLINE_DEPTH, ObjectSink, OutlineItem, write_item, write_root,
+};
+use super::page_walk::{PageStep, PageWalk};
+use super::writer::{HEADER, MAX_PDF_OBJECTS, Output, checked_object_number};
+use super::xref::{Trailer, write_xref};
+use super::{PdfRange, PdfRef};
 use crate::fallible::{checked_read_count, len_u64, reserve_exact, usize_from_u32};
 use crate::{
     Bookmark, Cancellation, ConversionReport, Error, Limits, PdfErrorKind, RangedSource, Result,
-    SequentialSink, read_exact_at, write_all,
+    SequentialSink, read_exact_at,
 };
 use std::mem::size_of;
-
-const HEADER: &[u8] = b"%PDF-1.7\n%\xE2\xE3\xCF\xD3\n";
-const HEX: &[u8; 16] = b"0123456789ABCDEF";
-const MAX_OUTLINE_DEPTH: usize = 256;
 
 /// The complete byte range of one generation-zero indirect object, from its
 /// `<number> 0 obj` header through its `endobj` keyword.
@@ -51,15 +52,8 @@ struct Record {
 
 #[derive(Clone, Copy)]
 struct OutlineNode {
-    reference: PdfRef,
-    parent: PdfRef,
+    item: OutlineItem<PdfRef>,
     parent_index: Option<usize>,
-    previous: Option<PdfRef>,
-    next: Option<PdfRef>,
-    first_child: Option<PdfRef>,
-    last_child: Option<PdfRef>,
-    descendants: u32,
-    page: PdfRef,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -212,30 +206,6 @@ fn checked_sum(values: &[u64]) -> Result<u64> {
         .try_fold(0, |sum, &value| checked_add(sum, value))
 }
 
-const BODY_SIZE_MISMATCH: &str = "PDF body byte count differs from its preflight size";
-const FINAL_SIZE_MISMATCH: &str = "PDF final byte count differs from its preflight size";
-
-/// Refuses output whose byte count differs from the size its preflight
-/// computed. That size was checked against the output limits and, for the
-/// body, written into `startxref`, so a mismatch means the output would be
-/// corrupt; the check stays on in release builds.
-fn check_preflight_size(written: u64, expected: u64, reason: &'static str) -> Result<()> {
-    if written == expected {
-        Ok(())
-    } else {
-        Err(Error::InvalidInput { reason })
-    }
-}
-
-fn decimal_digits(mut value: u64) -> u64 {
-    let mut digits = 1;
-    while value >= 10 {
-        value /= 10;
-        digits += 1;
-    }
-    digits
-}
-
 fn checked_reference(reference: PdfRef, offset: u64) -> Result<()> {
     if reference.number == 0 {
         return Err(malformed(
@@ -345,21 +315,14 @@ fn build_outline_nodes(
             Some(stack[depth - 1].ok_or(malformed(None, 0, "bookmark parent is missing"))?)
         };
         let previous_index = if let Some(parent_index) = parent_index {
-            nodes[parent_index].last_child
+            nodes[parent_index].item.last_child
         } else {
-            last_root.map(|previous| nodes[previous].reference)
+            last_root.map(|previous| nodes[previous].item.reference)
         };
-        let parent = parent_index.map_or(root, |parent_index| nodes[parent_index].reference);
+        let parent = parent_index.map_or(root, |parent_index| nodes[parent_index].item.reference);
         nodes.push(OutlineNode {
-            reference,
-            parent,
+            item: OutlineItem::new(reference, parent, previous_index, page, BookmarkView::Xyz),
             parent_index,
-            previous: previous_index,
-            next: None,
-            first_child: None,
-            last_child: None,
-            descendants: 0,
-            page,
         });
         if let Some(previous) = previous_index {
             let previous_position = previous
@@ -370,13 +333,12 @@ fn build_outline_nodes(
                 .ok_or(Error::InvalidInput {
                     reason: "PDF outline sibling index overflows",
                 })?;
-            nodes[previous_position].next = Some(reference);
+            nodes[previous_position].item.next = Some(reference);
         }
         if let Some(parent_index) = parent_index {
-            if nodes[parent_index].first_child.is_none() {
-                nodes[parent_index].first_child = Some(reference);
-            }
-            nodes[parent_index].last_child = Some(reference);
+            let parent = &mut nodes[parent_index].item;
+            parent.first_child.get_or_insert(reference);
+            parent.last_child = Some(reference);
         } else {
             first_root.get_or_insert(reference);
             last_root = Some(index);
@@ -386,14 +348,17 @@ fn build_outline_nodes(
     }
     for index in (0..nodes.len()).rev() {
         if let Some(parent) = nodes[index].parent_index {
-            let subtree = nodes[index]
-                .descendants
-                .checked_add(1)
-                .ok_or(Error::InvalidInput {
-                    reason: "PDF outline descendant count overflows",
-                })?;
-            nodes[parent].descendants =
-                nodes[parent]
+            let subtree =
+                nodes[index]
+                    .item
+                    .descendants
+                    .checked_add(1)
+                    .ok_or(Error::InvalidInput {
+                        reason: "PDF outline descendant count overflows",
+                    })?;
+            let parent = &mut nodes[parent].item;
+            parent.descendants =
+                parent
                     .descendants
                     .checked_add(subtree)
                     .ok_or(Error::InvalidInput {
@@ -407,82 +372,38 @@ fn build_outline_nodes(
     let last_root = nodes[last_root.ok_or(Error::InvalidInput {
         reason: "PDF outline root has no last item",
     })?]
+    .item
     .reference;
     Ok((nodes, first_root, last_root))
 }
 
-fn outline_item_prefix(node: &OutlineNode) -> String {
-    format!("{} 0 obj\n<< /Title <FEFF", node.reference.number)
+/// Writes synthetic objects, recording each one's output offset for the
+/// cross-reference table.
+struct SyntheticObjects<'o, 'a, 'r, W: SequentialSink, C: Cancellation> {
+    out: &'o mut Output<'a, W, C>,
+    records: &'r mut [Record],
 }
 
-fn outline_item_suffix(node: &OutlineNode) -> String {
-    let mut suffix = format!(
-        "> /Parent {} 0 R /Dest [{} 0 R /XYZ null null null]",
-        node.parent.number, node.page.number
-    );
-    if let Some(previous) = node.previous {
-        suffix.push_str(&format!(" /Prev {} 0 R", previous.number));
-    }
-    if let Some(next) = node.next {
-        suffix.push_str(&format!(" /Next {} 0 R", next.number));
-    }
-    if let (Some(first), Some(last)) = (node.first_child, node.last_child) {
-        suffix.push_str(&format!(
-            " /First {} 0 R /Last {} 0 R /Count {}",
-            first.number, last.number, node.descendants
-        ));
-    }
-    suffix.push_str(" >>\nendobj\n");
-    suffix
-}
+impl<W: SequentialSink, C: Cancellation> ObjectSink for SyntheticObjects<'_, '_, '_, W, C> {
+    type Ref = PdfRef;
 
-fn outline_title_hex_len(title: &str) -> Result<u64> {
-    let units = len_u64(title.encode_utf16().count());
-    units.checked_mul(4).ok_or(Error::InvalidInput {
-        reason: "PDF outline title hex length overflows 64 bits",
-    })
-}
-
-async fn emit_outline_item<W: SequentialSink, C: Cancellation>(
-    sink: &mut W,
-    report: &mut ConversionReport,
-    bookmark: &Bookmark,
-    node: &OutlineNode,
-    limits: &Limits,
-    cancellation: &C,
-) -> Result<()> {
-    emit(
-        sink,
-        outline_item_prefix(node).as_bytes(),
-        report,
-        limits,
-        cancellation,
-    )
-    .await?;
-    let mut hex = [0_u8; 4096];
-    let mut used = 0;
-    for unit in bookmark.title.encode_utf16() {
-        if used == hex.len() {
-            emit(sink, &hex, report, limits, cancellation).await?;
-            used = 0;
-        }
-        for byte in unit.to_be_bytes() {
-            hex[used] = HEX[(byte >> 4) as usize];
-            hex[used + 1] = HEX[(byte & 0x0f) as usize];
-            used += 2;
-        }
+    async fn begin_object(&mut self, reference: PdfRef) -> Result<()> {
+        let index = object_index(self.records, reference).ok_or(Error::InvalidInput {
+            reason: "synthetic PDF object was not indexed",
+        })?;
+        self.records[index].output_offset = self.out.position;
+        self.out
+            .write(format!("{} {} obj\n", reference.number, reference.generation).as_bytes())
+            .await
     }
-    // Bookmark titles are nonempty, so the final chunk is too.
-    debug_assert!(used != 0);
-    emit(sink, &hex[..used], report, limits, cancellation).await?;
-    emit(
-        sink,
-        outline_item_suffix(node).as_bytes(),
-        report,
-        limits,
-        cancellation,
-    )
-    .await
+
+    async fn write(&mut self, bytes: &[u8]) -> Result<()> {
+        self.out.write(bytes).await
+    }
+
+    async fn end_object(&mut self) -> Result<()> {
+        self.out.write(b"\nendobj\n").await
+    }
 }
 
 /// Reconstruct one PDF from indexed indirect objects and explicit page order,
@@ -726,16 +647,12 @@ pub async fn reconstruct_fragment_with_bookmarks<
         let retained_bytes = checked_sum(&parts)?;
         let (nodes, first, last) =
             build_outline_nodes(bookmarks, plan.pages, root, limits, retained_bytes)?;
-        let root_text = format!(
-            "{} 0 obj\n<< /Type /Outlines /First {} 0 R /Last {} 0 R /Count {} >>\nendobj\n",
-            root.number, first.number, last.number, bookmark_count
-        );
         records.push(Record::synthetic(root));
         for node in &nodes {
-            records.push(Record::synthetic(node.reference));
+            records.push(Record::synthetic(node.item.reference));
         }
         records.sort_unstable_by_key(|record| record.reference.number);
-        Some((root, nodes, root_text))
+        Some((root, nodes, first, last))
     };
 
     let pages_prefix = synthetic_pages.then(|| {
@@ -745,95 +662,20 @@ pub async fn reconstruct_fragment_with_bookmarks<
         )
     });
     let pages_suffix = b"] >>\nendobj\n";
-    let catalog_text = if let Some((outline_root, _, _)) = &outline {
-        format!(
-            "{} 0 obj\n<< /Type /Catalog /Pages {} 0 R /Outlines {} 0 R >>\nendobj\n",
-            catalog.number, plan.pages_root.number, outline_root.number
-        )
-    } else {
-        format!(
-            "{} 0 obj\n<< /Type /Catalog /Pages {} 0 R >>\nendobj\n",
-            catalog.number, plan.pages_root.number
-        )
+    let catalog_text = {
+        if let Some((outline_root, ..)) = &outline {
+            format!(
+                "{} 0 obj\n<< /Type /Catalog /Pages {} 0 R /Outlines {} 0 R >>\nendobj\n",
+                catalog.number, plan.pages_root.number, outline_root.number
+            )
+        } else {
+            format!(
+                "{} 0 obj\n<< /Type /Catalog /Pages {} 0 R >>\nendobj\n",
+                catalog.number, plan.pages_root.number
+            )
+        }
     };
-    let mut body_bytes = HEADER.len() as u64;
-    for record in &records {
-        if record.range.length != 0 {
-            body_bytes = checked_add(body_bytes, checked_add(record.range.length, 1)?)?;
-        }
-    }
-    if let Some(prefix) = &pages_prefix {
-        body_bytes = checked_add(body_bytes, prefix.len() as u64)?;
-        for page in plan.pages {
-            body_bytes = checked_add(body_bytes, decimal_digits(u64::from(page.number)) + 5)?;
-        }
-        body_bytes = checked_add(body_bytes, pages_suffix.len() as u64)?;
-    }
-    body_bytes = checked_add(body_bytes, catalog_text.len() as u64)?;
-    if let Some((_, nodes, root_text)) = &outline {
-        body_bytes = checked_add(body_bytes, root_text.len() as u64)?;
-        for (bookmark, node) in bookmarks.iter().zip(nodes) {
-            let parts = [
-                body_bytes,
-                outline_item_prefix(node).len() as u64,
-                outline_item_suffix(node).len() as u64,
-                outline_title_hex_len(&bookmark.title)?,
-            ];
-            body_bytes = checked_sum(&parts)?;
-        }
-    }
-    let largest = records
-        .last()
-        .ok_or(Error::InvalidInput {
-            reason: "fragment has no PDF objects",
-        })?
-        .reference
-        .number;
-    let xref_size = u64::from(largest) + 1;
-    let xref_header = format!("xref\n0 {xref_size}\n");
-    let trailer = format!(
-        "trailer\n<< /Size {xref_size} /Root {} 0 R >>\nstartxref\n{body_bytes}\n%%EOF\n",
-        catalog.number
-    );
-    // `largest` is a `u32`, so this product fits `u64`.
-    let xref_bytes = xref_size * 20;
-    let parts = [
-        body_bytes,
-        xref_header.len() as u64,
-        xref_bytes,
-        trailer.len() as u64,
-    ];
-    let final_size = checked_sum(&parts)?;
-    if final_size > MAX_CLASSIC_PDF_BYTES {
-        return Err(pdf_limit(
-            Some(catalog),
-            records
-                .iter()
-                .find(|record| record.reference == catalog)
-                .map_or(0, |record| record.range.offset),
-            "classic PDF file bytes",
-            MAX_CLASSIC_PDF_BYTES,
-            final_size,
-        ));
-    }
-    if final_size > limits.max_output_bytes {
-        return Err(pdf_limit(
-            Some(catalog),
-            records
-                .iter()
-                .find(|record| record.reference == catalog)
-                .map_or(0, |record| record.range.offset),
-            "output bytes",
-            limits.max_output_bytes,
-            final_size,
-        ));
-    }
 
-    let mut report = ConversionReport {
-        pages_converted: page_count,
-        bookmarks_written: bookmark_count,
-        ..ConversionReport::default()
-    };
     let output_working_bytes = checked_add(record_bytes, limits.io_chunk_bytes as u64)?;
     check_pdf_allocation(
         limits,
@@ -848,168 +690,100 @@ pub async fn reconstruct_fragment_with_bookmarks<
     let refused = limits.allocation_refused("PDF I/O buffer allocation", output_working_bytes);
     reserve_exact(&mut buffer, limits.io_chunk_bytes, refused)?;
     buffer.resize(limits.io_chunk_bytes, 0_u8);
-    emit(sink, HEADER, &mut report, limits, cancellation).await?;
+    let mut out = Output::new(sink, limits, cancellation);
+    out.write(HEADER).await?;
     for record in records.iter_mut().filter(|record| record.range.length != 0) {
-        record.output_offset = report.output_bytes_written;
-        copy_object(
-            source,
-            sink,
-            record.range,
-            &mut buffer,
-            &mut report,
-            limits,
-            cancellation,
-        )
-        .await?;
-        emit(sink, b"\n", &mut report, limits, cancellation).await?;
+        record.output_offset = out.position;
+        copy_object(source, &mut out, record.range, &mut buffer).await?;
+        out.write(b"\n").await?;
     }
     if let Some(prefix) = pages_prefix {
         let index = object_index(&records, plan.pages_root).ok_or(Error::InvalidInput {
             reason: "synthetic page tree root was not indexed",
         })?;
-        records[index].output_offset = report.output_bytes_written;
-        emit(sink, prefix.as_bytes(), &mut report, limits, cancellation).await?;
+        records[index].output_offset = out.position;
+        out.write(prefix.as_bytes()).await?;
         buffer.clear();
         for page in plan.pages {
             let mut encoded = [0_u8; 16];
             let bytes = page_reference(*page, &mut encoded);
             if bytes.len() > limits.io_chunk_bytes {
-                emit(sink, &buffer, &mut report, limits, cancellation).await?;
+                out.write(&buffer).await?;
                 buffer.clear();
-                emit(sink, bytes, &mut report, limits, cancellation).await?;
+                out.write(bytes).await?;
                 continue;
             }
             if buffer.len() + bytes.len() > limits.io_chunk_bytes {
-                emit(sink, &buffer, &mut report, limits, cancellation).await?;
+                out.write(&buffer).await?;
                 buffer.clear();
             }
             buffer.extend_from_slice(bytes);
         }
-        emit(sink, &buffer, &mut report, limits, cancellation).await?;
-        emit(sink, pages_suffix, &mut report, limits, cancellation).await?;
+        out.write(&buffer).await?;
+        out.write(pages_suffix).await?;
     }
     let index = object_index(&records, catalog).ok_or(Error::InvalidInput {
         reason: "synthetic catalog was not indexed",
     })?;
-    records[index].output_offset = report.output_bytes_written;
-    emit(
-        sink,
-        catalog_text.as_bytes(),
-        &mut report,
-        limits,
-        cancellation,
-    )
-    .await?;
-    if let Some((root, nodes, root_text)) = &outline {
-        let index = object_index(&records, *root).ok_or(Error::InvalidInput {
-            reason: "synthetic outline root was not indexed",
-        })?;
-        records[index].output_offset = report.output_bytes_written;
-        emit(
-            sink,
-            root_text.as_bytes(),
-            &mut report,
-            limits,
-            cancellation,
-        )
-        .await?;
-        for (bookmark, node) in bookmarks.iter().zip(nodes) {
-            let index = object_index(&records, node.reference).ok_or(Error::InvalidInput {
-                reason: "synthetic outline item was not indexed",
-            })?;
-            records[index].output_offset = report.output_bytes_written;
-            emit_outline_item(sink, &mut report, bookmark, node, limits, cancellation).await?;
-        }
-    }
-    check_preflight_size(report.output_bytes_written, body_bytes, BODY_SIZE_MISMATCH)?;
-    emit(
-        sink,
-        xref_header.as_bytes(),
-        &mut report,
-        limits,
-        cancellation,
-    )
-    .await?;
-    buffer.clear();
-    let mut record_index = 0;
-    for number in 0..=largest {
-        let entry = if number != 0
-            && records
-                .get(record_index)
-                .is_some_and(|record| record.reference.number == number)
-        {
-            let record = records[record_index];
-            record_index += 1;
-            xref_entry(record.output_offset, 0, b'n')?
-        } else {
-            let next_free = next_free_number(number, largest, &records, record_index);
-            // A `u32` object number always fits the ten-digit field.
-            xref_digits(
-                u64::from(next_free),
-                if number == 0 { 65_535 } else { 0 },
-                b'f',
-            )
+    records[index].output_offset = out.position;
+    out.write(catalog_text.as_bytes()).await?;
+    if let Some((root, nodes, first, last)) = &outline {
+        let mut objects = SyntheticObjects {
+            out: &mut out,
+            records: &mut records,
         };
-        if entry.len() > limits.io_chunk_bytes {
-            emit(sink, &buffer, &mut report, limits, cancellation).await?;
-            buffer.clear();
-            emit(sink, &entry, &mut report, limits, cancellation).await?;
-            continue;
+        write_root(&mut objects, *root, *first, *last, bookmark_count).await?;
+        for (bookmark, node) in bookmarks.iter().zip(nodes) {
+            write_item(&mut objects, &node.item, &bookmark.title).await?;
         }
-        if buffer.len() + entry.len() > limits.io_chunk_bytes {
-            emit(sink, &buffer, &mut report, limits, cancellation).await?;
-            buffer.clear();
-        }
-        buffer.extend_from_slice(&entry);
     }
-    emit(sink, &buffer, &mut report, limits, cancellation).await?;
-    emit(sink, trailer.as_bytes(), &mut report, limits, cancellation).await?;
-    check_preflight_size(report.output_bytes_written, final_size, FINAL_SIZE_MISMATCH)?;
-    if cancellation.is_cancelled() {
-        return Err(Error::Cancelled);
-    }
-    sink.flush().await?;
-    if cancellation.is_cancelled() {
-        return Err(Error::Cancelled);
-    }
-    report.input_bytes_read = counted.bytes_read;
-    Ok(report)
-}
-
-async fn emit<W: SequentialSink, C: Cancellation>(
-    sink: &mut W,
-    bytes: &[u8],
-    report: &mut ConversionReport,
-    limits: &Limits,
-    cancellation: &C,
-) -> Result<()> {
-    let attempted = checked_add(report.output_bytes_written, bytes.len() as u64)?;
-    check_classic_pdf_bytes(attempted)?;
-    write_all(
-        sink,
-        bytes,
-        &mut report.output_bytes_written,
-        limits,
-        cancellation,
-    )
-    .await
+    let largest = records
+        .last()
+        .ok_or(Error::InvalidInput {
+            reason: "fragment has no PDF objects",
+        })?
+        .reference
+        .number;
+    let trailer = Trailer {
+        size: u64::from(largest) + 1,
+        root: catalog,
+        prev: None,
+        info: None,
+        id: None,
+    };
+    let entries = records
+        .iter()
+        .map(|record| (record.reference, record.output_offset));
+    write_xref(&mut out, entries, true, &trailer).await?;
+    out.flush().await?;
+    Ok(ConversionReport {
+        input_bytes_read: counted.bytes_read,
+        output_bytes_written: out.position,
+        pages_converted: page_count,
+        bookmarks_written: bookmark_count,
+        ..ConversionReport::default()
+    })
 }
 
 async fn copy_object<R: RangedSource, W: SequentialSink, C: Cancellation>(
     source: &mut R,
-    sink: &mut W,
+    out: &mut Output<'_, W, C>,
     range: PdfRange,
     buffer: &mut [u8],
-    report: &mut ConversionReport,
-    limits: &Limits,
-    cancellation: &C,
 ) -> Result<()> {
     let mut copied = 0;
     while copied < range.length {
         let length = (range.length - copied).min(buffer.len() as u64) as usize;
         let offset = checked_add(range.offset, copied)?;
-        read_exact_at(source, offset, &mut buffer[..length], limits, cancellation).await?;
-        emit(sink, &buffer[..length], report, limits, cancellation).await?;
+        read_exact_at(
+            source,
+            offset,
+            &mut buffer[..length],
+            out.limits,
+            out.cancellation,
+        )
+        .await?;
+        out.write(&buffer[..length]).await?;
         copied += length as u64;
     }
     Ok(())
@@ -1032,55 +806,6 @@ fn page_reference(reference: PdfRef, buffer: &mut [u8; 16]) -> &[u8] {
     }
     buffer[count..count + 5].copy_from_slice(b" 0 R ");
     &buffer[..count + 5]
-}
-
-fn xref_entry(offset: u64, generation: u16, status: u8) -> Result<[u8; 20]> {
-    if offset > MAX_CLASSIC_PDF_BYTES {
-        return Err(Error::LimitExceeded {
-            resource: "classic PDF xref offset",
-            limit: MAX_CLASSIC_PDF_BYTES,
-            attempted: offset,
-        });
-    }
-    Ok(xref_digits(offset, generation, status))
-}
-
-/// Format an xref entry whose `offset` has at most ten decimal digits.
-fn xref_digits(offset: u64, generation: u16, status: u8) -> [u8; 20] {
-    let mut entry = *b"0000000000 00000 n \n";
-    let mut value = offset;
-    for digit in entry[..10].iter_mut().rev() {
-        *digit = b'0' + (value % 10) as u8;
-        value /= 10;
-    }
-    let mut value = generation;
-    for digit in entry[11..16].iter_mut().rev() {
-        *digit = b'0' + (value % 10) as u8;
-        value /= 10;
-    }
-    entry[17] = status;
-    entry
-}
-
-fn next_free_number(current: u32, largest: u32, records: &[Record], mut index: usize) -> u32 {
-    let mut candidate = current.saturating_add(1);
-    while candidate <= largest {
-        while records
-            .get(index)
-            .is_some_and(|record| record.reference.number < candidate)
-        {
-            index += 1;
-        }
-        if records
-            .get(index)
-            .is_some_and(|record| record.reference.number == candidate)
-        {
-            candidate += 1;
-        } else {
-            return candidate;
-        }
-    }
-    0
 }
 
 async fn validate_fragment_structure<R: RangedSource, C: Cancellation>(
@@ -1486,20 +1211,6 @@ fn require_content_stream(
     Ok(())
 }
 
-#[derive(Clone, Copy)]
-enum WalkStep {
-    Enter {
-        reference: PdfRef,
-        parent: Option<PdfRef>,
-        inherited_media_box: bool,
-    },
-    Exit {
-        reference: PdfRef,
-        leaves_before: usize,
-        declared_count: u32,
-    },
-}
-
 fn validate_existing_page_tree(
     plan: &FragmentPlan<'_>,
     records: &[Record],
@@ -1527,7 +1238,7 @@ fn validate_existing_page_tree(
         })?;
     let stack_bytes =
         stack_capacity
-            .checked_mul(size_of::<WalkStep>())
+            .checked_mul(size_of::<PageStep>())
             .ok_or(Error::InvalidInput {
                 reason: "PDF page-tree traversal allocation overflows address space",
             })?;
@@ -1541,136 +1252,108 @@ fn validate_existing_page_tree(
     let mut stack = Vec::new();
     let refused = limits.allocation_refused("PDF page-tree traversal allocation", stack_bytes);
     reserve_exact(&mut stack, stack_capacity, refused)?;
-    stack.push(WalkStep::Enter {
-        reference: plan.pages_root,
-        parent: None,
-        inherited_media_box: false,
-    });
-    let mut leaves = 0_usize;
-    while let Some(step) = stack.pop() {
-        match step {
-            WalkStep::Enter {
-                reference,
-                parent,
-                inherited_media_box,
-            } => {
-                let failure = malformed(Some(reference), 0, "page-tree child object is missing");
-                let index = object_index(records, reference).ok_or(failure)?;
-                if visited[index] {
-                    return Err(malformed(
-                        Some(reference),
-                        records[index].range.offset,
-                        "page tree contains a repeated child or cycle",
-                    ));
-                }
-                visited[index] = true;
-                match kinds[index].as_ref() {
-                    Some(FragmentKind::Page {
-                        parent: actual,
-                        has_media_box,
-                    }) => {
-                        if Some(*actual) != parent {
-                            return Err(malformed(
-                                Some(reference),
-                                records[index].range.offset,
-                                "Page /Parent link does not match the page tree",
-                            ));
-                        }
-                        if !has_media_box && !inherited_media_box {
-                            return Err(malformed(
-                                Some(reference),
-                                records[index].range.offset,
-                                "Page has no direct or inherited MediaBox",
-                            ));
-                        }
-                        if plan.pages.get(leaves) != Some(&reference) {
-                            return Err(pdf_error(
-                                Some(reference),
-                                records[index].range.offset,
-                                PdfErrorKind::AmbiguousRepair,
-                                "page-tree order differs from explicit page order",
-                            ));
-                        }
-                        leaves += 1;
-                    }
-                    Some(FragmentKind::Pages {
-                        parent: actual,
-                        count,
-                        kids,
-                        has_media_box,
-                    }) => {
-                        if *actual != parent {
-                            return Err(malformed(
-                                Some(reference),
-                                records[index].range.offset,
-                                "Pages /Parent link does not match the page tree",
-                            ));
-                        }
-                        if *count == 0 || kids.is_empty() {
-                            return Err(malformed(
-                                Some(reference),
-                                records[index].range.offset,
-                                "Pages node is empty",
-                            ));
-                        }
-                        if u64::from(*count) > u64::from(limits.max_pages) {
-                            return Err(pdf_limit(
-                                Some(reference),
-                                records[index].range.offset,
-                                "page-tree count",
-                                u64::from(limits.max_pages),
-                                u64::from(*count),
-                            ));
-                        }
-                        let pending = stack
-                            .len()
-                            .checked_add(1)
-                            .and_then(|length| length.checked_add(kids.len()))
-                            .ok_or(Error::InvalidInput {
-                                reason: "PDF page-tree traversal length overflows address space",
-                            })?;
-                        if pending > stack_capacity {
-                            return Err(pdf_error(
-                                Some(reference),
-                                records[index].range.offset,
-                                PdfErrorKind::AmbiguousRepair,
-                                "page tree has more child links than indexed objects",
-                            ));
-                        }
-                        stack.push(WalkStep::Exit {
-                            reference,
-                            leaves_before: leaves,
-                            declared_count: *count,
-                        });
-                        for child in kids.iter().rev() {
-                            stack.push(WalkStep::Enter {
-                                reference: *child,
-                                parent: Some(reference),
-                                inherited_media_box: inherited_media_box || *has_media_box,
-                            });
-                        }
-                    }
-                    _ => {
-                        return Err(malformed(
-                            Some(reference),
-                            records[index].range.offset,
-                            "page-tree child has neither Page nor Pages type",
-                        ));
-                    }
-                }
+    // The reserved stack has room for every indexed object twice, so only a
+    // page tree that links more children than that can exhaust it.
+    let push_within = |reference, offset| {
+        move |stack: &mut Vec<PageStep>, step| {
+            if stack.len() >= stack_capacity {
+                return Err(pdf_error(
+                    Some(reference),
+                    offset,
+                    PdfErrorKind::AmbiguousRepair,
+                    "page tree has more child links than indexed objects",
+                ));
             }
-            WalkStep::Exit {
-                reference,
-                leaves_before,
-                declared_count,
-            } => {
-                if leaves - leaves_before != declared_count as usize {
+            stack.push(step);
+            Ok(())
+        }
+    };
+    let mut walk = PageWalk::new(plan.pages_root, stack, push_within(plan.pages_root, 0))?;
+    let mut leaves = 0_usize;
+    while let Some(visit) = walk.next(leaves) {
+        let node = visit.map_err(|reference| {
+            malformed(
+                Some(reference),
+                0,
+                "Pages /Count differs from descendant page count",
+            )
+        })?;
+        let reference = node.reference;
+        let failure = malformed(Some(reference), 0, "page-tree child object is missing");
+        let index = object_index(records, reference).ok_or(failure)?;
+        let offset = records[index].range.offset;
+        if visited[index] {
+            return Err(malformed(
+                Some(reference),
+                offset,
+                "page tree contains a repeated child or cycle",
+            ));
+        }
+        visited[index] = true;
+        match kinds[index].as_ref() {
+            Some(FragmentKind::Page {
+                parent,
+                has_media_box,
+            }) => {
+                if Some(*parent) != node.parent {
                     return Err(malformed(
                         Some(reference),
-                        0,
-                        "Pages /Count differs from descendant page count",
+                        offset,
+                        "Page /Parent link does not match the page tree",
                     ));
                 }
+                if !has_media_box && !node.inherited_media_box {
+                    return Err(malformed(
+                        Some(reference),
+                        offset,
+                        "Page has no direct or inherited MediaBox",
+                    ));
+                }
+                if plan.pages.get(leaves) != Some(&reference) {
+                    return Err(pdf_error(
+                        Some(reference),
+                        offset,
+                        PdfErrorKind::AmbiguousRepair,
+                        "page-tree order differs from explicit page order",
+                    ));
+                }
+                leaves += 1;
+            }
+            Some(FragmentKind::Pages {
+                parent,
+                count,
+                kids,
+                has_media_box,
+            }) => {
+                if *parent != node.parent {
+                    return Err(malformed(
+                        Some(reference),
+                        offset,
+                        "Pages /Parent link does not match the page tree",
+                    ));
+                }
+                if *count == 0 || kids.is_empty() {
+                    return Err(malformed(Some(reference), offset, "Pages node is empty"));
+                }
+                if u64::from(*count) > u64::from(limits.max_pages) {
+                    return Err(pdf_limit(
+                        Some(reference),
+                        offset,
+                        "page-tree count",
+                        u64::from(limits.max_pages),
+                        u64::from(*count),
+                    ));
+                }
+                let media_box = node.inherited_media_box || *has_media_box;
+                let push = push_within(reference, offset);
+                walk.push_kids(reference, *count, kids, media_box, leaves, push)?;
+            }
+            _ => {
+                return Err(malformed(
+                    Some(reference),
+                    offset,
+                    "page-tree child has neither Page nor Pages type",
+                ));
             }
         }
     }

@@ -234,7 +234,7 @@ test("configured limits reach the Rust engine and are validated first", async ()
     code: "LIMIT_EXCEEDED",
   });
   await assert.rejects(convert(await wasmModule(), source, sink, { limits: { maxOutputBytes: 100 } }), {
-    code: "PDF_LIMIT_EXCEEDED",
+    code: "LIMIT_EXCEEDED",
   });
   for (const limits of [
     { maxAllocationBytes: MAX_ALLOCATION_LIMIT + 1n },
