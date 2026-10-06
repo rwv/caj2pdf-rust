@@ -157,16 +157,11 @@ impl TextInstanceSource for Manual {
 #[derive(Default)]
 struct Bytes {
     data: Vec<u8>,
-    revision: Cell<u64>,
-    revision_calls: Cell<usize>,
-    fail_revision_at_call: Option<usize>,
-    bump_revision_at_call: Option<usize>,
     max_part: usize,
     zero_at_call: Option<usize>,
     over_at_call: Option<usize>,
     shrink_at_call: Option<usize>,
     shrink_after_read_at_call: Option<usize>,
-    rewrite_after_read_at_call: Option<usize>,
     reported_size: Option<u64>,
     calls: usize,
 }
@@ -179,24 +174,6 @@ impl Bytes {
             ..Self::default()
         }
     }
-
-    fn changed(&self) {
-        self.revision.set(self.revision.get() + 1);
-    }
-}
-
-impl BitmapView for Bytes {
-    fn revision(&self) -> crate::Result<u64> {
-        let call = self.revision_calls.get() + 1;
-        self.revision_calls.set(call);
-        if self.fail_revision_at_call == Some(call) {
-            return Err(Error::Io(io::Error::other("revision")));
-        }
-        if self.bump_revision_at_call == Some(call) {
-            self.changed();
-        }
-        Ok(self.revision.get())
-    }
 }
 
 impl RangedSource for Bytes {
@@ -208,7 +185,6 @@ impl RangedSource for Bytes {
         self.calls += 1;
         if self.shrink_at_call == Some(self.calls) {
             self.data.clear();
-            self.changed();
         }
         if self.zero_at_call == Some(self.calls) {
             return Ok(0);
@@ -227,11 +203,6 @@ impl RangedSource for Bytes {
         destination[..n].copy_from_slice(&self.data[start..start + n]);
         if self.shrink_after_read_at_call == Some(self.calls) {
             self.data.clear();
-            self.changed();
-        }
-        if self.rewrite_after_read_at_call == Some(self.calls) {
-            self.data[0] ^= 0x80;
-            self.changed();
         }
         Ok(n)
     }
@@ -1618,7 +1589,6 @@ fn internal_io_error_mapping_and_pre_io_size_guards_are_located() {
         TextComposeErrorKind::Malformed("scratch size changed")
     ));
     composer.imported.data.clear();
-    composer.imported.changed();
     assert!(matches!(
         composer
             .checked_event(event(0, 0, 0, 0, TextBitmap::Stored(symbol)))
@@ -1630,7 +1600,7 @@ fn internal_io_error_mapping_and_pre_io_size_guards_are_located() {
         }
     ));
     assert!(matches!(
-        ready(composer.source_read(BitmapStore::Imported, 1, 0, 0, &mut [0]))
+        ready(composer.source_read(BitmapStore::Imported, 1, 0, &mut [0]))
             .unwrap_err()
             .kind,
         TextComposeErrorKind::StoreMutation {
@@ -1681,114 +1651,7 @@ fn short_reader_mutation_and_final_scratch_mutation_are_rejected() {
 }
 
 #[test]
-fn same_length_rewrite_during_source_read_is_located_for_each_store() {
-    let imported_symbol = stored(SymbolStore::Imported, descriptor(1, 1, 0));
-    let new_symbol = stored(SymbolStore::New, descriptor(1, 1, 0));
-    for store in [
-        BitmapStore::Imported,
-        BitmapStore::New,
-        BitmapStore::Refined,
-    ] {
-        let mut imported = Bytes::new(&[0x80]);
-        let mut new = Bytes::new(&[0x80]);
-        let mut refined = Bytes::new(&[0x80]);
-        let bitmap = match store {
-            BitmapStore::Imported => {
-                imported.rewrite_after_read_at_call = Some(1);
-                TextBitmap::Stored(imported_symbol)
-            }
-            BitmapStore::New => {
-                new.rewrite_after_read_at_call = Some(1);
-                TextBitmap::Stored(new_symbol)
-            }
-            BitmapStore::Refined => {
-                refined.rewrite_after_read_at_call = Some(1);
-                TextBitmap::Refined {
-                    store_base: 0,
-                    symbol: descriptor(1, 1, 0),
-                }
-            }
-        };
-        let mut scratch = Scratch::new();
-        let mut output = Sink::new();
-        let error = compose_manual(
-            header(1, 1, 1, false, SymbolCombination::Or),
-            &[imported_symbol, new_symbol],
-            vec![event(0, u32::from(store == BitmapStore::New), 0, 0, bitmap)],
-            &mut imported,
-            &mut new,
-            &mut refined,
-            &mut scratch,
-            &mut output,
-            TextComposeBudget::default(),
-        )
-        .unwrap_err();
-        assert!(error.to_string().contains("bitmap store mutation"));
-        assert!(matches!(
-            error.kind,
-            TextComposeErrorKind::StoreMutation {
-                store: actual,
-                reason: "revision changed"
-            } if actual == store
-        ));
-        assert_eq!(error.offset, 1);
-        assert_eq!(error.progress.stage, TextComposeStage::Instance);
-        assert_eq!(error.progress.source_bytes_read, 1);
-        assert_eq!(error.progress.completed_instances, 0);
-        assert_eq!(error.progress.output_bytes_written, 0);
-        assert!(error.progress.poisoned);
-    }
-}
-
-#[test]
-fn bitmap_revision_and_scratch_size_errors_are_typed_and_located() {
-    let symbol = stored(SymbolStore::Imported, descriptor(1, 1, 0));
-    let limits = Limits::default();
-    for store in [
-        BitmapStore::Imported,
-        BitmapStore::New,
-        BitmapStore::Refined,
-    ] {
-        let mut stream = Manual::new(header(1, 1, 0, false, SymbolCombination::Or), vec![]);
-        let mut imported = Bytes::new(&[0x80]);
-        let mut new = Bytes::new(&[0x80]);
-        let mut refined = Bytes::new(&[0x80]);
-        match store {
-            BitmapStore::Imported => imported.fail_revision_at_call = Some(1),
-            BitmapStore::New => new.fail_revision_at_call = Some(1),
-            BitmapStore::Refined => refined.fail_revision_at_call = Some(1),
-        }
-        let mut scratch = Scratch::new();
-        let mut output = Sink::new();
-        let error = TextComposer::new(
-            3,
-            stream.header(),
-            &[symbol],
-            &mut stream,
-            &mut imported,
-            0,
-            &mut new,
-            0,
-            &mut refined,
-            0,
-            &mut scratch,
-            &mut output,
-            &limits,
-            &NeverCancel,
-            TextComposeBudget::default(),
-        )
-        .err()
-        .unwrap();
-        assert!(matches!(
-            error.kind,
-            TextComposeErrorKind::Source {
-                store: actual,
-                error: Error::Io(_)
-            } if actual == store
-        ));
-        assert_eq!(error.offset, 0);
-        assert_eq!(error.progress.stage, TextComposeStage::Preflight);
-    }
+fn scratch_size_errors_are_typed_and_located() {
     let mut imported = Bytes::new(&[0x80]);
     let mut scratch = Scratch::new();
     scratch.fail_size_at_call = Some(1);
@@ -1827,43 +1690,10 @@ fn bitmap_revision_and_scratch_size_errors_are_typed_and_located() {
 }
 
 #[test]
-fn revision_snapshot_and_refined_append_rules_are_checked_between_events() {
+fn refined_append_rules_are_checked_between_events() {
     let symbol = stored(SymbolStore::Imported, descriptor(1, 1, 0));
     let limits = Limits::default();
     let mut stream = Manual::new(header(1, 1, 0, false, SymbolCombination::Or), vec![]);
-    let mut imported = Bytes::new(&[0x80]);
-    imported.bump_revision_at_call = Some(2);
-    let mut new = Bytes::new(&[]);
-    let mut refined = Bytes::new(&[]);
-    let mut scratch = Scratch::new();
-    let mut output = Sink::new();
-    let error = TextComposer::new(
-        3,
-        stream.header(),
-        &[symbol],
-        &mut stream,
-        &mut imported,
-        0,
-        &mut new,
-        0,
-        &mut refined,
-        0,
-        &mut scratch,
-        &mut output,
-        &limits,
-        &NeverCancel,
-        TextComposeBudget::default(),
-    )
-    .err()
-    .unwrap();
-    assert!(matches!(
-        error.kind,
-        TextComposeErrorKind::StoreMutation {
-            store: BitmapStore::Imported,
-            reason: "revision changed while sampled"
-        }
-    ));
-
     let mut imported = Bytes::new(&[0x80]);
     let mut new = Bytes::new(&[]);
     let mut refined = Bytes::new(&[]);
@@ -1900,7 +1730,6 @@ fn revision_snapshot_and_refined_append_rules_are_checked_between_events() {
         },
     );
     composer.refined.data.push(0x80);
-    composer.refined.changed();
     for event in [None, Some(&unrefined_event)] {
         let error = composer.check_views_after_next(event).unwrap_err();
         assert!(matches!(
@@ -1914,22 +1743,9 @@ fn revision_snapshot_and_refined_append_rules_are_checked_between_events() {
     composer
         .check_views_after_next(Some(&refined_event))
         .unwrap();
-    assert_eq!((composer.refined_size, composer.refined_revision), (1, 1));
-    composer.refined.data[0] ^= 0x80;
-    composer.refined.changed();
-    let error = composer
-        .check_views_after_next(Some(&refined_event))
-        .unwrap_err();
-    assert!(matches!(
-        error.kind,
-        TextComposeErrorKind::StoreMutation {
-            store: BitmapStore::Refined,
-            reason: "revision changed without append"
-        }
-    ));
+    assert_eq!(composer.refined_size, 1);
 
     composer.refined.data.clear();
-    composer.refined.changed();
     let error = composer
         .check_views_after_next(Some(&refined_event))
         .unwrap_err();
@@ -1937,26 +1753,13 @@ fn revision_snapshot_and_refined_append_rules_are_checked_between_events() {
         error.kind,
         TextComposeErrorKind::StoreMutation {
             store: BitmapStore::Refined,
-            reason: "shrank or revision regressed"
-        }
-    ));
-
-    composer.refined.data.extend_from_slice(&[0x80, 0x80]);
-    composer.refined.revision.set(composer.refined_revision);
-    let error = composer
-        .check_views_after_next(Some(&refined_event))
-        .unwrap_err();
-    assert!(matches!(
-        error.kind,
-        TextComposeErrorKind::StoreMutation {
-            store: BitmapStore::Refined,
-            reason: "append has no new revision"
+            reason: "shrank"
         }
     ));
 }
 
 #[test]
-fn fixed_bitmap_view_rewrite_between_events_is_rejected() {
+fn fixed_bitmap_view_resize_between_events_is_rejected() {
     let symbol = stored(SymbolStore::Imported, descriptor(1, 1, 0));
     let limits = Limits::default();
     let catalog = [symbol];
@@ -1990,14 +1793,13 @@ fn fixed_bitmap_view_rewrite_between_events_is_rejected() {
             BitmapStore::New => &mut composer.new,
             BitmapStore::Refined => unreachable!(),
         };
-        view.data[0] ^= 0x80;
-        view.changed();
+        view.data.push(0x80);
         let error = composer.check_views_after_next(None).unwrap_err();
         assert!(matches!(
             error.kind,
             TextComposeErrorKind::StoreMutation {
                 store: actual,
-                reason: "revision changed"
+                reason: "size changed"
             } if actual == store
         ));
         assert_eq!(error.offset, 0);

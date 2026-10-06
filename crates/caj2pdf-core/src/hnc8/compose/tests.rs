@@ -398,9 +398,9 @@ struct Source {
     short: usize,
     max_request: usize,
     fault_at: Option<(u64, Fault)>,
-    payload_start: Option<u64>,
-    payload_passes: usize,
-    mutate_at_pass: Option<(usize, usize)>,
+    /// Absolute `[start, end)` span whose returned bytes are counted.
+    payload: Option<(u64, u64)>,
+    payload_bytes_read: u64,
 }
 
 impl Source {
@@ -410,9 +410,8 @@ impl Source {
             short: usize::MAX,
             max_request: 0,
             fault_at: None,
-            payload_start: None,
-            payload_passes: 0,
-            mutate_at_pass: None,
+            payload: None,
+            payload_bytes_read: 0,
         }
     }
 }
@@ -427,14 +426,6 @@ impl RangedSource for Source {
         if self.fault_at.is_some_and(|(at, _)| offset >= at) {
             return fault(self.fault_at.unwrap().1, destination.len());
         }
-        if self.payload_start == Some(offset) {
-            self.payload_passes += 1;
-            if let Some((pass, index)) = self.mutate_at_pass
-                && pass == self.payload_passes
-            {
-                self.bytes[index] ^= 1;
-            }
-        }
         let start = usize::try_from(offset).unwrap();
         let count = destination
             .len()
@@ -442,6 +433,12 @@ impl RangedSource for Source {
             .min(self.bytes.len().saturating_sub(start));
         if count > 0 {
             destination[..count].copy_from_slice(&self.bytes[start..start + count]);
+        }
+        if let Some((first, end)) = self.payload {
+            let overlap = (offset + count as u64)
+                .min(end)
+                .saturating_sub(offset.max(first));
+            self.payload_bytes_read += overlap;
         }
         Ok(count)
     }
@@ -1152,24 +1149,6 @@ fn malformed_counts_spans_and_text_declared_length_are_not_partial_passes() {
 }
 
 #[test]
-fn size_stable_jpeg_mutation_between_preflight_and_copy_is_detected() {
-    let mut case = Harness::new(Variant::HnB, &[vec![Record::jpeg(8, 8, 128, 0, 0)]]);
-    let start = case.fixture.payloads[0][0];
-    case.source.payload_start = Some(start);
-    // Change only an invented comment byte, preserving all marker lengths.
-    case.source.mutate_at_pass = Some((2, start as usize + 24));
-    let error = case
-        .run(None, ComposeOptions::default(), &Limits::default())
-        .unwrap_err();
-    located(&error, Variant::HnB, Some(1), Some(1));
-    assert_eq!(error.stage, ComposeStage::Pdf);
-    assert!(
-        matches!(error.kind, ComposeErrorKind::Jpeg(ref inner) if matches!(inner.kind, super::super::Type2PdfErrorKind::SourceChanged))
-    );
-    assert!(case.visitor.mappings.is_empty());
-}
-
-#[test]
 fn bounded_row_store_capacity_and_work_failures_reset_the_store() {
     for capacity in [true, false] {
         let mut case = Harness::type0();
@@ -1480,23 +1459,7 @@ fn larger_padded_rows_are_streamed_in_chunks_without_growing_page_metadata() {
 }
 
 #[test]
-fn changed_type0_wrapper_and_malformed_jpeg_headers_are_located() {
-    let mut case = Harness::type0();
-    let payload = case.fixture.payloads[0][0];
-    case.source.payload_start = Some(payload);
-    case.source.mutate_at_pass = Some((2, payload as usize + 4));
-    let error = case
-        .run(
-            Some(&table()),
-            ComposeOptions::default(),
-            &Limits::default(),
-        )
-        .unwrap_err();
-    located(&error, Variant::C8, Some(1), Some(1));
-    assert_eq!(error.stage, ComposeStage::Decode);
-    assert_eq!(error.offset, Some(payload));
-    assert!(matches!(error.kind, ComposeErrorKind::Image(_)));
-    assert!(case.scratch.bytes.is_empty());
+fn malformed_jpeg_headers_are_located() {
     let mut case = Harness::new(Variant::HnB, &[vec![Record::jpeg(8, 8, 128, 0, 0)]]);
     case.source.bytes[case.fixture.payloads[0][0] as usize + 1] = 0;
     let error = case
@@ -2211,7 +2174,7 @@ fn type3_complete_mixed_pages_reuse_stores_and_keep_top_first_pixels() {
 
 #[test]
 fn type3_failures_keep_location_and_cleanup_all_stores() {
-    for mode in 0..12 {
+    for mode in 0..11 {
         let limits = Limits::default();
         let mq = mq_table(&limits);
         let mut record = type3_record(9, 3, 0, 0);
@@ -2220,10 +2183,6 @@ fn type3_failures_keep_location_and_cleanup_all_stores() {
         }
         let f = fixture(Variant::C8, &[vec![record]]);
         let mut source = Source::new(f.bytes);
-        if mode == 1 {
-            source.payload_start = Some(f.payloads[0][0]);
-            source.mutate_at_pass = Some((3, f.payloads[0][0] as usize + 36));
-        }
         let mut sink = Sink::default();
         let mut rows = Scratch::default();
         let mut first = Scratch::default();
@@ -2232,19 +2191,19 @@ fn type3_failures_keep_location_and_cleanup_all_stores() {
         let flag = Rc::new(Cell::new(false));
         let mut options = ComposeOptions::default();
         match mode {
-            2 => rows.fail_initialize = true,
-            3 => rows.write_fault = Some(Fault::Overreport),
-            4 => rows.read_fault = Some(Fault::Overreport),
-            5 => rows.cancel_write = Some(flag.clone()),
-            6 => options.budget.max_row_store_bytes = 1,
-            7 => options.budget.max_row_store_io_bytes = 1,
-            8 => rows.fail_cleanup = true,
-            9 => {
+            1 => rows.fail_initialize = true,
+            2 => rows.write_fault = Some(Fault::Overreport),
+            3 => rows.read_fault = Some(Fault::Overreport),
+            4 => rows.cancel_write = Some(flag.clone()),
+            5 => options.budget.max_row_store_bytes = 1,
+            6 => options.budget.max_row_store_io_bytes = 1,
+            7 => rows.fail_cleanup = true,
+            8 => {
                 rows.fail_cleanup = true;
                 rows.read_fault = Some(Fault::Io);
             }
-            10 => rows.fail_flush = true,
-            11 => sink.fail_after = Some(20),
+            9 => rows.fail_flush = true,
+            10 => sink.fail_after = Some(20),
             _ => (),
         }
         let error = ready(convert_source_pages_pdf(
@@ -2272,13 +2231,7 @@ fn type3_failures_keep_location_and_cleanup_all_stores() {
             "mode {mode}: {error}"
         );
         assert!(!error.to_string().is_empty());
-        if mode == 1 {
-            assert!(
-                matches!(error.kind, ComposeErrorKind::Type3(ref inner) if matches!(inner.kind, super::super::convert_jbig2::Type3PdfErrorKind::SourceChanged)),
-                "{error}"
-            );
-        }
-        if mode == 9 {
+        if mode == 8 {
             assert!(matches!(error.kind, ComposeErrorKind::Cleanup { .. }));
         }
         for store in [&first, &second, &refined] {
@@ -2288,6 +2241,59 @@ fn type3_failures_keep_location_and_cleanup_all_stores() {
             assert!(rows.bytes.is_empty());
         }
         assert!(!contains(&sink.bytes, b"%%EOF"));
+    }
+}
+
+#[test]
+fn each_payload_is_read_at_most_twice_per_conversion() {
+    // Type 3: metadata then decode. JPEG: marker walk then copy. Type 0: the
+    // DIB header then decode. No pass hashes or re-reads the span.
+    for record in [
+        type3_record(9, 3, 0, 0),
+        Record::jpeg(8, 8, 128, 0, 0),
+        Record::type0(&rows(9), 0, 0),
+    ] {
+        let kind = record.kind;
+        let length = record.bytes.len() as u64;
+        let limits = Limits::default();
+        let mq = mq_table(&limits);
+        let mut f = fixture(Variant::C8, &[vec![record]]);
+        // Keep the application-info probe at end of file off the payload.
+        f.bytes.extend_from_slice(&[0; 64]);
+        let mut source = Source::new(f.bytes);
+        source.short = 7;
+        source.payload = Some((f.payloads[0][0], f.payloads[0][0] + length));
+        let (mut rows, mut first, mut second, mut refined) = (
+            Scratch::default(),
+            Scratch::default(),
+            Scratch::default(),
+            Scratch::default(),
+        );
+        let mut sink = Sink::default();
+        ready(convert_source_pages_pdf(
+            &mut source,
+            &mut sink,
+            Some(&table()),
+            ComposeWorkspaces {
+                rows: &mut rows,
+                type3: Some(ComposeType3Workspaces {
+                    table: &mq,
+                    first: &mut first,
+                    second: &mut second,
+                    refined: &mut refined,
+                }),
+            },
+            &mut (),
+            ComposeOptions::default(),
+            &limits,
+            &NeverCancel,
+        ))
+        .unwrap();
+        assert!(
+            source.payload_bytes_read <= 2 * length,
+            "type {kind}: {} payload bytes read for a {length}-byte span",
+            source.payload_bytes_read
+        );
     }
 }
 
@@ -2752,11 +2758,28 @@ fn mixed_codec_content_page() -> Vec<u8> {
         let mut handles = Vec::new();
         let mut contexts = None;
         for image in &mut plan.0 {
+            // The visitor sees only the copyable plan; re-check type-3
+            // metadata the composer moved into its own emit.
+            let type3 = match image.checked {
+                CheckedImage::Type3 => Some(
+                    preflight_type3(
+                        &mut source,
+                        image.record,
+                        options.type3,
+                        &limits,
+                        &NeverCancel,
+                    )
+                    .await
+                    .unwrap(),
+                ),
+                _ => None,
+            };
             handles.push(
                 emit_image(
                     &mut source,
                     &mut document,
                     image,
+                    type3,
                     At::NONE.image(image.record),
                     &mut contexts,
                     &mut workspaces,

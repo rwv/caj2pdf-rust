@@ -12,7 +12,7 @@ mod type3;
 pub use native::{C8FontSource, C8FontSources, convert_c8_native_pdf};
 pub use route::{convert_document_pdf, uses_native_text};
 
-use super::convert_jbig2::{Type3PdfError, Type3PdfOptions, preflight_type3};
+use super::convert_jbig2::{CheckedType3, Type3PdfError, Type3PdfOptions, preflight_type3};
 use super::convert_jpeg::{CheckedType2, Type2PdfError, emit_type2_xobject, preflight_type2};
 use super::image_emit::{
     Type0ScratchBudget, Type0ScratchError, Type0ScratchErrorKind, Type0ScratchStage,
@@ -23,7 +23,7 @@ use super::{
     OutlineReport, PageRecord, RawTextCoordinate, TextBudget, Variant, empirical_image_transform,
     empirical_page_from_pixels,
 };
-use crate::fallible::{len_u64, reserve_exact, usize_from_u32};
+use crate::fallible::{len_u64, reserve, reserve_exact, usize_from_u32};
 use crate::jbig1::{Type0Budget, Type0Error, Type0ErrorKind, Type0Info, read_type0_info};
 use crate::jbig2::text_composer::RandomAccessScratch;
 use crate::jbig2::{mq::MqTable, text::TextHeaderAnomaly};
@@ -110,11 +110,13 @@ impl Default for ComposeOptions {
     }
 }
 
+/// Copyable per-descriptor codec state. Type-3 metadata owns a segment
+/// directory, so it is retained beside the page plan and moved into its emit.
 #[derive(Clone, Copy, Debug)]
 enum CheckedImage {
     Type0(Type0Info),
     Jpeg(CheckedType2),
-    Type3 { digest: [u8; 32] },
+    Type3,
 }
 
 struct OutlineSink<'a, 'b, W: SequentialSink, C: Cancellation>(&'a mut PdfDocument<'b, W, C>);
@@ -613,7 +615,7 @@ async fn preflight_image<S: RangedSource, C: Cancellation>(
     options: ComposeOptions,
     limits: &Limits,
     cancellation: &C,
-) -> Result<(CheckedImage, u32, u32, u32), ComposeError> {
+) -> Result<(CheckedImage, Option<CheckedType3>, u32, u32, u32), ComposeError> {
     Ok(match record.record_type {
         0 if variant != Variant::HnB => {
             if table.is_none() {
@@ -632,6 +634,7 @@ async fn preflight_image<S: RangedSource, C: Cancellation>(
             let display_width = info.width;
             (
                 CheckedImage::Type0(info),
+                None,
                 info.width,
                 display_width,
                 info.height,
@@ -650,9 +653,8 @@ async fn preflight_image<S: RangedSource, C: Cancellation>(
             let page = checked.page();
             let display_width = page.width;
             (
-                CheckedImage::Type3 {
-                    digest: checked.digest(),
-                },
+                CheckedImage::Type3,
+                Some(checked),
                 page.width,
                 display_width,
                 page.height,
@@ -667,7 +669,7 @@ async fn preflight_image<S: RangedSource, C: Cancellation>(
             let info = checked.info();
             let width = u32::from(info.width);
             let height = u32::from(info.height);
-            (CheckedImage::Jpeg(checked), width, width, height)
+            (CheckedImage::Jpeg(checked), None, width, width, height)
         }
         _ => {
             return Err(image_at.error(
@@ -686,6 +688,7 @@ async fn emit_image<S, W, T, C>(
     source: &mut S,
     document: &mut PdfDocument<'_, W, C>,
     image: &mut ComposedImage,
+    type3: Option<CheckedType3>,
     image_at: At,
     contexts: &mut Option<ContextBank>,
     workspaces: &mut ComposeWorkspaces<'_, T>,
@@ -744,13 +747,12 @@ where
             report.type0_images += 1;
             object
         }
-        CheckedImage::Type3 { digest } => {
+        CheckedImage::Type3 => {
             let (object, stats) = type3::emit(
                 source,
                 document,
                 image_at,
-                image.record,
-                digest,
+                type3.expect("type-3 metadata retained from preflight"),
                 workspaces,
                 options,
                 limits,
@@ -789,10 +791,10 @@ where
 /// the empirical coordinate unit. Zero extents are errors. DIB storage
 /// padding is omitted from PDF image widths and streams. Type-0 rows are
 /// reversed in one bounded store before the negative-height CTM is applied.
-/// JPEG bytes are copied unchanged and SHA revalidated. Only current-page
-/// plans/placements are held; the existing PDF writer retains its indexes.
-/// Type-3 retains top-first packed rows while streaming to an equivalent
-/// positive-height CTM. Three symbol stores and text scratch
+/// JPEG bytes are copied unchanged. Only current-page plans/placements and
+/// checked type-3 directories are held; the existing PDF writer retains its
+/// indexes. Type-3 retains top-first packed rows while streaming to an
+/// equivalent positive-height CTM. Three symbol stores and text scratch
 /// are cleared per image; their aggregate size and I/O share the store budget.
 /// Normal completed type-0/type-3 paths truncate their stores, including errors.
 /// A dropped pending future cannot perform async cleanup: the adapter must
@@ -935,6 +937,9 @@ where
             plan_capacity + capacity_bytes::<RawTextCoordinate>(coordinates.capacity());
         check_metadata(planning_peak, options.budget).map_err(at.io(ComposeStage::Preflight))?;
         report.peak_page_metadata_bytes = report.peak_page_metadata_bytes.max(planning_peak);
+        // Checked type-3 metadata in emit order, charged to the same budget.
+        let mut type3_plans: Vec<CheckedType3> = Vec::new();
+        let mut type3_bytes = 0;
         let mut geometry = page_size
             .map(source_page_geometry)
             .transpose()
@@ -963,7 +968,7 @@ where
                 });
                 continue;
             }
-            let (checked, visible_width, display_width, height) = preflight_image(
+            let (checked, type3, visible_width, display_width, height) = preflight_image(
                 reader.source_mut(),
                 record,
                 header.variant,
@@ -975,6 +980,22 @@ where
                 cancellation,
             )
             .await?;
+            if let Some(type3) = type3 {
+                type3_bytes += type3.retained_bytes();
+                let wanted = capacity_bytes::<CheckedType3>(type3_plans.len() + 1);
+                reserve(
+                    &mut type3_plans,
+                    1,
+                    limits.allocation_refused("current-page type-3 plans", wanted),
+                )
+                .map_err(image_at.io(ComposeStage::Preflight))?;
+                type3_plans.push(type3);
+                let peak = planning_peak
+                    + capacity_bytes::<CheckedType3>(type3_plans.capacity())
+                    + type3_bytes;
+                check_metadata(peak, options.budget).map_err(at.io(ComposeStage::Preflight))?;
+                report.peak_page_metadata_bytes = report.peak_page_metadata_bytes.max(peak);
+            }
             if geometry.is_none() {
                 // Only HN-B lacks source page dimensions. Its admitted single
                 // JPEG supplies page size; the codec preflight is independent.
@@ -995,7 +1016,7 @@ where
                 source_image_transform(page_geometry, coordinate)
             }
             .map_err(image_at.io(ComposeStage::Geometry))?;
-            if matches!(checked, CheckedImage::Type3 { .. }) {
+            if matches!(checked, CheckedImage::Type3) {
                 // Top-first rows give the same placement as bottom-first rows
                 // under the reference's negative-height matrix, without a copy.
                 transform[5] += transform[3];
@@ -1016,9 +1037,13 @@ where
         let mut placements = page_vector(count, limits, "current-page image placements")
             .map_err(at.io(ComposeStage::Preflight))?;
         let placement_capacity = capacity_bytes::<ImagePlacement>(placements.capacity());
-        let metadata_peak = plan_capacity + placement_capacity;
+        let metadata_peak = plan_capacity
+            + placement_capacity
+            + capacity_bytes::<CheckedType3>(type3_plans.capacity())
+            + type3_bytes;
         check_metadata(metadata_peak, options.budget).map_err(at.io(ComposeStage::Preflight))?;
         report.peak_page_metadata_bytes = report.peak_page_metadata_bytes.max(metadata_peak);
+        let mut type3_plans = type3_plans.into_iter();
         for index in 0..images.len() {
             if let Some(original) = images[index].duplicate_of {
                 images[index].type3_text_header_anomaly =
@@ -1028,10 +1053,15 @@ where
             }
             let image = &mut images[index];
             let image_at = at.image(image.record);
+            let type3 = match image.checked {
+                CheckedImage::Type3 => type3_plans.next(),
+                _ => None,
+            };
             let object = emit_image(
                 reader.source_mut(),
                 &mut document,
                 image,
+                type3,
                 image_at,
                 &mut contexts,
                 &mut workspaces,

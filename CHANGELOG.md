@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- **Breaking:** HN/C8 image payloads are no longer re-read and hashed with
+  SHA-256 to detect a source that changes during conversion (#349); like
+  every `RangedSource`, the input must stay unchanged. A type-3 (JBIG2)
+  payload is now read once for its metadata and once to decode it (it was
+  hashed four times), a JPEG once for its markers and once for the copy, and
+  a type-0 image once for its DIB header and once to decode it. The
+  `Type2PdfErrorKind::SourceChanged` and `Type3PdfErrorKind::SourceChanged`
+  error kinds and the type-0 "DIB wrapper that changed between reads" error
+  are removed, and `TextComposer` takes plain `RangedSource` bitmap stores:
+  the `BitmapView` revision trait is removed.
+
 - Fix: font embedding permissions follow the least restrictive OS/2
   `fsType` licensing bit, so fonts that set both print and editable
   embedding (`fsType` 12, such as TeX Gyre) are accepted. Fonts whose

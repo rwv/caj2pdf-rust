@@ -290,7 +290,6 @@ struct Source {
     max_request: usize,
     payload_start: Option<u64>,
     payload_passes: usize,
-    mutate_at_pass: Option<(usize, usize)>,
     zero_at_pass: Option<usize>,
     overreport_at_pass: Option<usize>,
 }
@@ -303,7 +302,6 @@ impl Source {
             max_request: 0,
             payload_start: None,
             payload_passes: 0,
-            mutate_at_pass: None,
             zero_at_pass: None,
             overreport_at_pass: None,
         }
@@ -323,11 +321,6 @@ impl RangedSource for Source {
         self.max_request = self.max_request.max(destination.len());
         if self.payload_start == Some(offset) {
             self.payload_passes += 1;
-            if let Some((pass, index)) = self.mutate_at_pass
-                && self.payload_passes == pass
-            {
-                self.bytes[index] ^= 1;
-            }
             if self.zero_at_pass == Some(self.payload_passes) {
                 return Ok(0);
             }
@@ -876,7 +869,7 @@ fn malformed_descriptor_and_jpeg_errors_preserve_absolute_location() {
 }
 
 #[test]
-fn source_mutation_during_pdf_copy_is_detected_even_when_length_is_unchanged() {
+fn selected_jpeg_is_read_once_for_markers_and_once_for_copy() {
     let jpeg = jpeg_from_pnm(&pnm(3));
     let built = container(
         Layout::HnA,
@@ -888,9 +881,8 @@ fn source_mutation_during_pdf_copy_is_detected_even_when_length_is_unchanged() {
     let payload = built.payloads[0][0];
     let mut source = Source::new(built.bytes);
     source.payload_start = Some(payload);
-    source.mutate_at_pass = Some((2, payload as usize + 12)); // JFIF field, same length
     let mut sink = Sink::default();
-    let error = run(
+    run(
         &mut source,
         &mut sink,
         selection(1, 1),
@@ -898,20 +890,8 @@ fn source_mutation_during_pdf_copy_is_detected_even_when_length_is_unchanged() {
         &Limits::default(),
         &NeverCancel,
     )
-    .unwrap_err();
-    assert!(matches!(error.kind, Type2PdfErrorKind::SourceChanged));
-    assert!(
-        error
-            .to_string()
-            .contains("changed between preflight and PDF copy")
-    );
-    assert!(error.source().is_none());
-    assert_eq!(
-        (error.page, error.image, error.offset),
-        (Some(1), Some(1), Some(payload))
-    );
+    .unwrap();
     assert_eq!(source.payload_passes, 2);
-    assert!(!sink.bytes.is_empty()); // Must be discarded by the caller.
 }
 
 #[test]
