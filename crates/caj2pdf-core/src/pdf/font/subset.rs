@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 
-//! TrueType subsets of drawn glyphs, read again through the ranged source.
+//! Subsets of drawn glyphs, read again through the ranged source: TrueType
+//! subsets here, CFF subsets in [`super::cff`].
 //!
 //! A subset keeps `.notdef`, then the glyphs of the used characters in
 //! Unicode order, then composite components in discovery order. It contains
@@ -10,7 +11,7 @@
 //! written. Each selected glyph is read whole, once while planning (to find
 //! components and measure checksums) and once while writing.
 
-use super::{CHANGED, OUTLINE_TAGS, TrueTypeFont, has_code, invalid, read};
+use super::{CHANGED, OUTLINE_TAGS, OpenTypeFont, invalid, read};
 use crate::fallible::reserve_exact;
 use crate::{Cancellation, Error, Limits, RangedSource, Result};
 use sha2::{Digest, Sha256};
@@ -89,6 +90,50 @@ enum Table {
     Maxp,
 }
 
+/// A planned subset program of either outline format.
+pub(crate) enum Subset {
+    /// A TrueType program; characters map to glyphs through a PDF
+    /// `CIDToGIDMap`.
+    TrueType(SubsetPlan),
+    /// A CID-keyed CFF program whose CIDs are the drawn characters.
+    Cff(super::cff::CffSubset),
+}
+
+impl Subset {
+    /// Total bytes of the subset font program.
+    pub(crate) fn length(&self) -> u64 {
+        match self {
+            Self::TrueType(plan) => plan.length(),
+            Self::Cff(subset) => subset.length(),
+        }
+    }
+
+    /// Six uppercase letters identifying this subset program (ISO 32000-1
+    /// §9.6.4), derived from the PostScript name and the program's content.
+    /// Equal programs get equal tags.
+    pub(crate) fn tag(&self, name: &str) -> String {
+        let mut hash = Sha256::new().chain_update(name);
+        match self {
+            Self::TrueType(plan) => {
+                for (tag, _, measure) in &plan.tables {
+                    hash.update(tag);
+                    hash.update(measure.length.to_be_bytes());
+                    hash.update(measure.sum.to_be_bytes());
+                }
+            }
+            Self::Cff(subset) => {
+                for part in subset.parts() {
+                    hash.update(part);
+                }
+            }
+        }
+        hash.finalize()[..6]
+            .iter()
+            .map(|byte| char::from(b'A' + byte % 26))
+            .collect()
+    }
+}
+
 /// The glyphs and table layout of one subset, measured before it is written.
 pub(crate) struct SubsetPlan {
     glyphs: Vec<Glyph>,
@@ -106,22 +151,6 @@ impl SubsetPlan {
             .fold(directory, |total, (_, _, measure)| {
                 total + measure.length.next_multiple_of(4)
             })
-    }
-
-    /// Six uppercase letters identifying this subset program (ISO 32000-1
-    /// §9.6.4), derived from the PostScript name and every table's tag,
-    /// length and checksum. Equal programs get equal tags.
-    pub(crate) fn tag(&self, name: &str) -> String {
-        let mut hash = Sha256::new().chain_update(name);
-        for (tag, _, measure) in &self.tables {
-            hash.update(tag);
-            hash.update(measure.length.to_be_bytes());
-            hash.update(measure.sum.to_be_bytes());
-        }
-        hash.finalize()[..6]
-            .iter()
-            .map(|byte| char::from(b'A' + byte % 26))
-            .collect()
     }
 
     /// Subset glyph ID of a planned character, or zero for any other.
@@ -168,7 +197,47 @@ fn components(data: &mut [u8], mut visit: impl FnMut(&mut [u8]) -> Result<()>) -
     }
 }
 
-impl<S: RangedSource> TrueTypeFont<'_, S> {
+impl<S: RangedSource> OpenTypeFont<'_, S> {
+    /// Plan the subset of the characters set in `used`, a BMP bitmap, whose
+    /// program is at most `max_length` bytes, in the font's outline format.
+    pub(crate) async fn subset<C: Cancellation>(
+        &mut self,
+        used: &[u8],
+        max_length: u64,
+        limits: &Limits,
+        cancellation: &C,
+    ) -> Result<Subset> {
+        if let Some(cff) = self.cff.clone() {
+            let subset = self
+                .plan_cff(&cff, used, max_length, limits, cancellation)
+                .await?;
+            return Ok(Subset::Cff(subset));
+        }
+        let plan = self
+            .plan_subset(used, max_length, limits, cancellation)
+            .await?;
+        Ok(Subset::TrueType(plan))
+    }
+
+    /// Write a planned subset program to `output`.
+    pub(crate) async fn write<O: SubsetOutput, C: Cancellation>(
+        &mut self,
+        subset: &Subset,
+        output: &mut O,
+        limits: &Limits,
+        cancellation: &C,
+    ) -> Result<()> {
+        match subset {
+            Subset::TrueType(plan) => self.write_subset(plan, output, limits, cancellation).await,
+            Subset::Cff(subset) => {
+                for part in subset.parts() {
+                    output.put(part).await?;
+                }
+                Ok(())
+            }
+        }
+    }
+
     /// Range of a required outline table, checked present by `read`.
     fn table(&self, slot: usize) -> (u64, u64) {
         self.outlines[slot].unwrap_or_default()
@@ -237,12 +306,8 @@ impl<S: RangedSource> TrueTypeFont<'_, S> {
             offset: 0,
             length: 0,
         });
-        for code in (0..used.len() * 8).filter(|code| has_code(used, *code)) {
-            let id = char::from_u32(code as u32)
-                .and_then(|character| face.glyph_index(character))
-                .filter(|id| id.0 != 0 && id.0 < count)
-                .ok_or(invalid(CHANGED))?;
-            add(&mut glyphs, id.0);
+        for (glyph, _) in self.used_glyphs(used)? {
+            add(&mut glyphs, glyph);
         }
         let mut scratch = Vec::new();
         let mut glyf = Measure::default();
@@ -515,7 +580,7 @@ impl<S: RangedSource> TrueTypeFont<'_, S> {
     }
 }
 
-fn too_long(length: u64, max_length: u64) -> Result<()> {
+pub(super) fn too_long(length: u64, max_length: u64) -> Result<()> {
     let limit = max_length.min(u64::from(u32::MAX));
     if length > limit {
         return Err(Error::LimitExceeded {

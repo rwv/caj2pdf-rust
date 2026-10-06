@@ -188,6 +188,387 @@ pub fn symbol_font() -> Vec<u8> {
     bytes
 }
 
+/// Original two-face TrueType collection: face 0 is the geometric font and
+/// face 1 the symbol font. Table offsets become file-relative.
+pub fn collection_font() -> Vec<u8> {
+    let faces = [drawing_font(), symbol_font()];
+    let mut bytes = vec![0; 12 + 4 * faces.len()];
+    bytes[..4].copy_from_slice(b"ttcf");
+    put16(&mut bytes, 4, 1);
+    put32(&mut bytes, 8, faces.len() as u32);
+    for (index, face) in faces.iter().enumerate() {
+        let base = bytes.len();
+        put32(&mut bytes, 12 + 4 * index, base as u32);
+        let mut face = face.clone();
+        let count = u16::from_be_bytes([face[4], face[5]]) as usize;
+        for table in 0..count {
+            let at = 12 + 16 * table + 8;
+            let offset = u32::from_be_bytes(face[at..at + 4].try_into().unwrap());
+            put32(&mut face, at, offset + base as u32);
+        }
+        bytes.extend(face);
+    }
+    bytes
+}
+
+// SFNT table helpers shared by the fixture builders and unit tests.
+
+pub type Tables = Vec<([u8; 4], Vec<u8>)>;
+
+pub fn get32(bytes: &[u8], at: usize) -> u32 {
+    u32::from_be_bytes(bytes[at..at + 4].try_into().unwrap())
+}
+
+pub fn tables(font: &[u8]) -> Tables {
+    let count = u16::from_be_bytes([font[4], font[5]]) as usize;
+    (0..count)
+        .map(|index| {
+            let entry = 12 + 16 * index;
+            let offset = get32(font, entry + 8) as usize;
+            let length = get32(font, entry + 12) as usize;
+            let tag = font[entry..entry + 4].try_into().unwrap();
+            (tag, font[offset..offset + length].to_vec())
+        })
+        .collect()
+}
+
+pub fn table<'t>(tables: &'t mut Tables, tag: &[u8; 4]) -> &'t mut Vec<u8> {
+    &mut tables.iter_mut().find(|table| &table.0 == tag).unwrap().1
+}
+
+pub fn build(mut tables: Tables) -> Vec<u8> {
+    tables.sort_by_key(|table| table.0);
+    let mut font = vec![0; 12 + 16 * tables.len()];
+    font[..4].copy_from_slice(&0x0001_0000_u32.to_be_bytes());
+    put16(&mut font, 4, tables.len() as u16);
+    for (index, (tag, bytes)) in tables.iter().enumerate() {
+        let entry = 12 + 16 * index;
+        let offset = font.len();
+        font[entry..entry + 4].copy_from_slice(tag);
+        font[entry + 8..entry + 12].copy_from_slice(&(offset as u32).to_be_bytes());
+        font[entry + 12..entry + 16].copy_from_slice(&(bytes.len() as u32).to_be_bytes());
+        font.extend(bytes);
+        font.resize(font.len().next_multiple_of(4), 0);
+    }
+    font
+}
+
+// Original CFF fixtures: Type 2 charstrings for the same geometric shapes,
+// with global and local subroutines and hint masks.
+
+pub const RMOVETO: u8 = 21;
+pub const RLINETO: u8 = 5;
+pub const ENDCHAR: u8 = 14;
+pub const CALLSUBR: u8 = 10;
+pub const CALLGSUBR: u8 = 29;
+pub const RETURN: u8 = 11;
+
+/// A Type 2 / DICT integer in its shortest encoding.
+pub fn num(value: i32) -> Vec<u8> {
+    match value {
+        -107..=107 => vec![(value + 139) as u8],
+        108..=1131 => vec![
+            ((value - 108) / 256 + 247) as u8,
+            ((value - 108) % 256) as u8,
+        ],
+        -1131..=-108 => vec![
+            ((-value - 108) / 256 + 251) as u8,
+            ((-value - 108) % 256) as u8,
+        ],
+        _ => {
+            let mut bytes = vec![28];
+            bytes.extend((value as i16).to_be_bytes());
+            bytes
+        }
+    }
+}
+
+pub fn ops(parts: &[&[i32]]) -> Vec<u8> {
+    // Each part is operands followed by one operator; operators >= 1200 are
+    // two-byte escapes, and -1 marks a raw byte (hint mask data).
+    let mut out = Vec::new();
+    for part in parts {
+        let (operator, operands) = part.split_last().unwrap();
+        for value in operands {
+            out.extend(num(*value));
+        }
+        match *operator {
+            raw if raw < 0 => out.push((-raw - 1) as u8),
+            escape if escape >= 1200 => out.extend([12, (escape - 1200) as u8]),
+            operator => out.push(operator as u8),
+        }
+    }
+    out
+}
+
+pub fn index(items: &[Vec<u8>]) -> Vec<u8> {
+    let mut out = (items.len() as u16).to_be_bytes().to_vec();
+    if items.is_empty() {
+        return out;
+    }
+    let data = items.iter().map(Vec::len).sum::<usize>() + 1;
+    let size = (1..4).find(|size| data < 1 << (8 * size)).unwrap_or(4);
+    out.push(size as u8);
+    let mut offset = 1_usize;
+    for item in std::iter::once(&Vec::new()).chain(items) {
+        offset += item.len();
+        out.extend(&(offset as u32).to_be_bytes()[4 - size..]);
+    }
+    for item in items {
+        out.extend(item);
+    }
+    out
+}
+
+fn int5(out: &mut Vec<u8>, value: u64) {
+    out.push(29);
+    out.extend((value as i32).to_be_bytes());
+}
+
+pub fn dict_int(value: i64, op: &[u8]) -> Vec<u8> {
+    let mut out = Vec::new();
+    int5(&mut out, value as u64);
+    out.extend(op);
+    out
+}
+
+/// Original charstrings: .notdef, a rectangle (`A`) through a local subr, a
+/// triangle (`中`) through a global subr that calls a local one, and a hinted
+/// square (`B`) with hintmask, cntrmask, implicit stems and a dotsection.
+pub fn charstrings() -> Vec<Vec<u8>> {
+    let local = |number: i32| number - 107;
+    vec![
+        ops(&[&[ENDCHAR as i32]]),
+        [
+            ops(&[&[500, 0, 0, RMOVETO as i32], &[local(0), CALLSUBR as i32]]),
+            ops(&[&[ENDCHAR as i32]]),
+        ]
+        .concat(),
+        [
+            ops(&[&[0, 0, RMOVETO as i32], &[-107, CALLGSUBR as i32]]),
+            ops(&[&[ENDCHAR as i32]]),
+        ]
+        .concat(),
+        [ops(&[
+            // One hstem and two vstems, then cntrmask with an implied
+            // fourth (vertical) stem: masks are one byte.
+            &[0, 10, 1],
+            &[0, 10, 20, 10, 23],
+            &[0, 5, 20],
+            &[-0b1111_0001],
+            &[19],
+            &[-0b1110_0001],
+            &[0, 0, RMOVETO as i32],
+            &[100, 6],
+            &[100, 7],
+            &[-100, 6],
+            &[1200],
+            &[ENDCHAR as i32],
+        ])]
+        .concat(),
+    ]
+}
+
+pub fn local_subrs() -> Vec<Vec<u8>> {
+    vec![
+        ops(&[
+            &[400, 0, RLINETO as i32],
+            &[0, 700, RLINETO as i32],
+            &[-400, 0, RLINETO as i32],
+            &[RETURN as i32],
+        ]),
+        ops(&[&[-400, 700, RLINETO as i32], &[RETURN as i32]]),
+    ]
+}
+
+pub fn global_subrs() -> Vec<Vec<u8>> {
+    vec![ops(&[
+        &[800, 0, RLINETO as i32],
+        &[-106, CALLSUBR as i32],
+        &[RETURN as i32],
+    ])]
+}
+
+/// FontMatrix [0.001 0 0 0.001 0 0] as real and integer operands.
+pub fn matrix() -> Vec<u8> {
+    let thousandth = [30, 0x1c, 0x3f];
+    [
+        &thousandth[..],
+        &[139, 139],
+        &thousandth,
+        &[139, 139, 12, 7],
+    ]
+    .concat()
+}
+
+#[derive(Clone)]
+pub struct CffOptions {
+    pub cid: bool,
+    pub select_format: u8,
+    pub charstrings: Vec<Vec<u8>>,
+    pub global: Vec<Vec<u8>>,
+    pub local: Vec<Vec<u8>>,
+    /// Whether Private DICTs reference the local subroutines.
+    pub subrs: bool,
+    /// Entries placed before the Top and Private DICTs' own.
+    pub top_extra: Vec<u8>,
+    pub private_extra: Vec<u8>,
+    /// Raw FDSelect of a CID-keyed font instead of one in `select_format`.
+    pub select: Option<Vec<u8>>,
+}
+
+impl Default for CffOptions {
+    fn default() -> Self {
+        Self {
+            cid: false,
+            select_format: 3,
+            charstrings: charstrings(),
+            global: global_subrs(),
+            local: local_subrs(),
+            subrs: true,
+            top_extra: Vec::new(),
+            private_extra: Vec::new(),
+            select: None,
+        }
+    }
+}
+
+/// Assemble a CFF table. Top DICT offsets are five-byte integers, so the
+/// layout is computed with placeholder offsets first.
+pub fn cff(options: &CffOptions) -> Vec<u8> {
+    let glyphs = options.charstrings.len();
+    let local = index(&options.local);
+    let private = |subrs_at: i64| {
+        let mut private = options.private_extra.clone();
+        if options.subrs {
+            private.extend(dict_int(subrs_at, &[19]));
+        }
+        private
+    };
+    let private_length = private(0).len();
+    let layout = |[charstrings_at, private_at, array_at, select_at, charset_at]: [i64; 5]| {
+        let mut top = options.top_extra.clone();
+        if options.cid {
+            top.extend([&num(391)[..], &num(392), &num(0), &[12, 30]].concat());
+            top.extend(matrix());
+            top.extend(dict_int(array_at, &[12, 36]));
+            top.extend(dict_int(select_at, &[12, 37]));
+        } else {
+            let mut entry = Vec::new();
+            int5(&mut entry, private_length as u64);
+            int5(&mut entry, private_at as u64);
+            entry.push(18);
+            top.extend(entry);
+        }
+        top.extend(dict_int(charstrings_at, &[17]));
+        top.extend(dict_int(charset_at, &[15]));
+        let mut head = vec![1, 0, 4, 1];
+        head.extend(index(&[b"Fixture".to_vec()]));
+        head.extend(index(&[top]));
+        let strings = if options.cid {
+            vec![b"Adobe".to_vec(), b"Identity".to_vec()]
+        } else {
+            Vec::new()
+        };
+        head.extend(index(&strings));
+        head.extend(index(&options.global));
+        head
+    };
+    let head_length = layout([0; 5]).len() as i64;
+    let charstrings = index(&options.charstrings);
+    let charstrings_at = head_length;
+    let private_at = charstrings_at + charstrings.len() as i64;
+    // A CID font has two font DICTs with identical Private DICTs.
+    let font_dict = |at: i64| {
+        let mut dict = Vec::new();
+        int5(&mut dict, private_length as u64);
+        int5(&mut dict, at as u64);
+        dict.push(18);
+        dict
+    };
+    let array_at = private_at + 2 * (private_length + local.len()) as i64;
+    let array = index(&[font_dict(0), font_dict(0)]);
+    // A name-keyed font has no FDArray or FDSelect.
+    let select_at = array_at + if options.cid { array.len() as i64 } else { 0 };
+    let select = match (options.cid, &options.select, options.select_format) {
+        (false, _, _) => Vec::new(),
+        (true, Some(select), _) => select.clone(),
+        (true, None, 0) => [
+            vec![0],
+            (0..glyphs).map(|glyph| u8::from(glyph >= 2)).collect(),
+        ]
+        .concat(),
+        (true, None, _) => [
+            &[3, 0, 2, 0, 0, 0, 0, 2, 1][..],
+            &(glyphs as u16).to_be_bytes(),
+        ]
+        .concat(),
+    };
+    let charset_at = select_at + select.len() as i64;
+    let mut bytes = layout([charstrings_at, private_at, array_at, select_at, charset_at]);
+    bytes.extend(&charstrings);
+    for _ in 0..2 {
+        bytes.extend(private(private_length as i64));
+        bytes.extend(&local);
+    }
+    if options.cid {
+        let mut array = Vec::new();
+        let dicts: Vec<Vec<u8>> = (0..2)
+            .map(|fd| font_dict(private_at + fd * (private_length + local.len()) as i64))
+            .collect();
+        array.extend(index(&dicts));
+        bytes.extend(array);
+    }
+    bytes.extend(select);
+    // Format 0 charset: glyph n has CID n, or standard string ID n.
+    bytes.push(0);
+    for glyph in 1..glyphs as u16 {
+        bytes.extend(glyph.to_be_bytes());
+    }
+    bytes
+}
+
+/// The original geometric font's metadata with CFF outlines: glyphs
+/// .notdef, `A`, `中` and `B`.
+pub fn otf(options: &CffOptions) -> Vec<u8> {
+    let mut tables: Tables = tables(&drawing_font())
+        .into_iter()
+        .filter(|(tag, _)| tag != b"glyf" && tag != b"loca")
+        .collect();
+    let glyphs = options.charstrings.len() as u16;
+    let maxp = table(&mut tables, b"maxp");
+    maxp.truncate(6);
+    maxp[..4].copy_from_slice(&0x5000_u32.to_be_bytes());
+    maxp[4..6].copy_from_slice(&glyphs.to_be_bytes());
+    table(&mut tables, b"hhea")[34..36].copy_from_slice(&glyphs.to_be_bytes());
+    let hmtx = table(&mut tables, b"hmtx");
+    hmtx.clear();
+    for advance in [500_u16, 500, 1000, 600]
+        .into_iter()
+        .cycle()
+        .take(usize::from(glyphs))
+    {
+        hmtx.extend(advance.to_be_bytes());
+        hmtx.extend([0, 0]);
+    }
+    let cmap = table(&mut tables, b"cmap");
+    let groups = [(0x41_u32, 1_u32), (0x42, 3), (0x4e2d, 2)];
+    cmap.truncate(16);
+    cmap[20 - 4..].fill(0);
+    cmap.extend((16 + 12 * groups.len() as u32).to_be_bytes());
+    cmap.extend(0_u32.to_be_bytes());
+    cmap.extend((groups.len() as u32).to_be_bytes());
+    for (code, glyph) in groups {
+        cmap.extend(code.to_be_bytes());
+        cmap.extend(code.to_be_bytes());
+        cmap.extend(glyph.to_be_bytes());
+    }
+    tables.push((*b"CFF ", cff(options)));
+    let mut font = build(tables);
+    font[..4].copy_from_slice(b"OTTO");
+    font
+}
+
 fn finish_checksums(bytes: &mut [u8]) {
     let head_entry = entry(bytes, b"head");
     let head = span(bytes[head_entry..head_entry + 16].try_into().unwrap()).0 as usize;
@@ -215,8 +596,10 @@ fn finish_checksums(bytes: &mut [u8]) {
 }
 
 fn span(entry: &[u8; 16]) -> (u64, u64) {
-    (u64::from(u32::from_be_bytes(entry[8..12].try_into().unwrap())),
-     u64::from(u32::from_be_bytes(entry[12..16].try_into().unwrap())))
+    (
+        u64::from(u32::from_be_bytes(entry[8..12].try_into().unwrap())),
+        u64::from(u32::from_be_bytes(entry[12..16].try_into().unwrap())),
+    )
 }
 
 // Also usable as a standalone generator for cross-runtime test fixtures.
@@ -225,7 +608,9 @@ fn main() {
     let bytes = match std::env::args().nth(1).as_deref() {
         None => drawing_font(),
         Some("symbols") => symbol_font(),
-        _ => panic!("expected no argument or symbols"),
+        Some("collection") => collection_font(),
+        Some("cff") => otf(&CffOptions::default()),
+        _ => panic!("expected no argument, symbols, collection or cff"),
     };
     std::io::stdout().write_all(&bytes).unwrap();
 }

@@ -8,7 +8,7 @@ use super::convert::{Type0DecodeSettings, Type0PdfError, Type0PdfErrorKind, Type
 use super::placement::{source_image_transform, source_page_geometry};
 mod native;
 mod type3;
-pub use native::{C8FontSources, convert_c8_native_pdf};
+pub use native::{C8FontSource, C8FontSources, convert_c8_native_pdf};
 
 use super::convert_jbig2::{Type3PdfError, Type3PdfOptions, preflight_type3};
 use super::convert_jpeg::{CheckedType2, Type2PdfError, emit_type2_xobject, preflight_type2};

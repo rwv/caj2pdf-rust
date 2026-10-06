@@ -70,7 +70,10 @@ fn admitted_framing_rejects_late_mutations_with_bounded_read_progress() {
             if mutation == 4 {
                 source.source.fault_at = Some((fixture.text_offsets[1] as u64, Fault::Zero));
             }
-            let mut fonts = [BudgetSource::new(crate::pdf::drawing_font())];
+            let mut fonts = [C8FontSource {
+                source: BudgetSource::new(crate::pdf::drawing_font()),
+                face: 0,
+            }];
             let mut sink = Sink {
                 short: Some(7),
                 ..Default::default()
@@ -124,7 +127,7 @@ fn admitted_framing_rejects_late_mutations_with_bounded_read_progress() {
             }
             assert!(scratch.bytes.is_empty());
             assert!(source.source.max_request <= 64);
-            assert!(fonts[0].source.max_request <= 64);
+            assert!(fonts[0].source.source.max_request <= 64);
             assert!(sink.max_request <= 64);
         }
     }

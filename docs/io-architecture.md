@@ -177,7 +177,7 @@ or create another scheduler. Existing spool helpers can turn a forward-only
 font into a caller-owned ranged source with bounded temporary storage.
 
 The WASM host registers resource sizes before the first poll using
-`caj2pdf_c8_add_font(size)` (returns IDs 1–8; 0 means rejection), then assigns zero-based role
+`caj2pdf_c8_add_font(size, face)` (`face` selects a TrueType collection face, 0 otherwise; returns IDs 1–8; 0 means rejection), then assigns zero-based role
 indices using `caj2pdf_c8_set_fonts(cjk, latin, alternate, decoration, alias)`.
 A decoration index of `0xffffffff` means absent. `caj2pdf_io_request_resource()`
 identifies each ordinary read: 0 is the document, 1–8 are registered fonts.

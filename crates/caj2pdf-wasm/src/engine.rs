@@ -461,9 +461,10 @@ impl Engine {
             )
     }
 
-    /// Register one ranged font resource before polling. Returns its 1-based
-    /// host resource ID, or 0 when registration is rejected.
-    pub fn add_font_source(&mut self, size: u64) -> u32 {
+    /// Register one ranged font resource and its collection face (0 for a
+    /// standalone font) before polling. Returns its 1-based host resource
+    /// ID, or 0 when registration is rejected.
+    pub fn add_font_source(&mut self, size: u64, face: u32) -> u32 {
         if self.started
             || !self.accepts_fonts
             || size == 0
@@ -471,7 +472,7 @@ impl Engine {
         {
             return 0;
         }
-        self.shared.borrow_mut().fonts.add(size)
+        self.shared.borrow_mut().fonts.add(size, face)
     }
 
     /// Select zero-based font source indices before polling. A missing

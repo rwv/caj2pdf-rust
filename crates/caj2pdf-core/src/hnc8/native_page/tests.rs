@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::Limits;
-use crate::pdf::{BilevelImageSpec, TrueTypeFont};
+use crate::pdf::{BilevelImageSpec, OpenTypeFont};
 use crate::test_support::ready;
 use std::{cell::Cell, rc::Rc};
 
@@ -257,7 +257,7 @@ fn convert_with_fonts(
         let mut readers = Vec::new();
         for font_source in &mut sources {
             readers.push(
-                TrueTypeFont::read(font_source, &limits, &cancel)
+                OpenTypeFont::read(font_source, 0, &limits, &cancel)
                     .await
                     .unwrap(),
             );

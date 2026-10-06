@@ -34,17 +34,22 @@ pub struct ConvertOptions {
     pub decoration_char: Option<char>,
 }
 
-/// Fixed `--fonts DIR` file names, in `ConvertOptions::fonts` role order.
+/// Fixed `--fonts DIR` file stems, in `ConvertOptions::fonts` role order.
+/// Each is looked up with the extensions in [`FONT_EXTENSIONS`].
 pub const FONT_FILES: [&str; 8] = [
-    "cjk.ttf",
-    "latin.ttf",
-    "alternate-latin.ttf",
-    "decoration.ttf",
-    "symbols.ttf",
-    "latin-state3.ttf",
-    "latin-state28.ttf",
-    "latin-state31.ttf",
+    "cjk",
+    "latin",
+    "alternate-latin",
+    "decoration",
+    "symbols",
+    "latin-state3",
+    "latin-state28",
+    "latin-state31",
 ];
+
+/// Font file extensions tried for each `--fonts DIR` role, in order. A
+/// collection (`.ttc`) supplies its first face.
+pub const FONT_EXTENSIONS: [&str; 3] = ["ttf", "otf", "ttc"];
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Command {
@@ -93,7 +98,7 @@ Options:
   --no-bookmarks      Skip outline import (silences the C8/HN-B warning)
   --qm-states FILE    Experimental QM states for HN/C8 type-0 images
   --mq-states FILE    Experimental MQ states for arithmetic JBIG2 images
-  --fonts DIR         Native C8/HN-B fonts named cjk.ttf, latin.ttf, ... in DIR
+  --fonts DIR         Native C8/HN-B fonts named cjk, latin, ... (.ttf/.otf/.ttc) in DIR
   --font-cjk FILE     Native C8/HN-B CJK font (required with --font-latin)
   --font-latin FILE   Native C8/HN-B ordinary Latin font
   --font-alternate-latin FILE  Optional native C8/HN-B alternate Latin font

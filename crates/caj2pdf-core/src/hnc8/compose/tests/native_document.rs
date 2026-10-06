@@ -71,8 +71,11 @@ fn native_document_streams_text_and_all_shared_image_codecs() {
         );
         let mut source = Source::new(fixture.bytes);
         source.short = 3;
-        let mut fonts = [Source::new(crate::pdf::drawing_font())];
-        fonts[0].short = 3;
+        let mut fonts = [C8FontSource {
+            source: Source::new(crate::pdf::drawing_font()),
+            face: 0,
+        }];
+        fonts[0].source.short = 3;
         let mut sink = Sink {
             short: Some(7),
             ..Default::default()
@@ -114,7 +117,9 @@ fn native_document_streams_text_and_all_shared_image_codecs() {
             (report.type0_images, report.jpeg_images, report.type3_images),
             (1, 1, 1)
         );
-        assert!(source.max_request <= 64 && fonts[0].max_request <= 64 && sink.max_request <= 64);
+        assert!(
+            source.max_request <= 64 && fonts[0].source.max_request <= 64 && sink.max_request <= 64
+        );
         for store in [&rows, &first, &second, &refined] {
             assert!(store.bytes.is_empty());
         }
@@ -134,7 +139,10 @@ fn native_document_streams_text_and_all_shared_image_codecs() {
 fn native_document_checks_resource_contract_before_output() {
     for count in [0, 1, 9] {
         let mut fonts: Vec<_> = (0..count)
-            .map(|_| Source::new(crate::pdf::drawing_font()))
+            .map(|_| C8FontSource {
+                source: Source::new(crate::pdf::drawing_font()),
+                face: 0,
+            })
             .collect();
         let mut role = roles();
         if count == 1 {
@@ -166,7 +174,10 @@ fn native_document_late_unknown_record_cannot_finish_pdf() {
     let second = fixture.text_offsets[1];
     fixture.bytes[second..second + 2].copy_from_slice(&0x8072u16.to_le_bytes());
     let mut sink = Sink::default();
-    let mut fonts = [Source::new(crate::pdf::drawing_font())];
+    let mut fonts = [C8FontSource {
+        source: Source::new(crate::pdf::drawing_font()),
+        face: 0,
+    }];
     let error = ready(convert_c8_native_pdf(
         &mut Source::new(fixture.bytes),
         &mut sink,
@@ -194,7 +205,10 @@ fn native_c8_bookmark_request_is_reported_not_written_or_failed() {
             &[vec![Record::jpeg(3, 2, 120, 20, 40)]],
             native_text,
         );
-        let mut fonts = [Source::new(crate::pdf::drawing_font())];
+        let mut fonts = [C8FontSource {
+            source: Source::new(crate::pdf::drawing_font()),
+            face: 0,
+        }];
         let mut role = roles();
         role.decoration = Some((0, 'A'));
         let mut sink = Sink::default();
@@ -231,7 +245,10 @@ fn native_document_errors_preserve_preflight_and_source_locations() {
             native_text,
         );
         let mut options = ComposeOptions::default();
-        let mut fonts = [Source::new(crate::pdf::drawing_font())];
+        let mut fonts = [C8FontSource {
+            source: Source::new(crate::pdf::drawing_font()),
+            face: 0,
+        }];
         let mut role = roles();
         role.decoration = Some((0, 'A'));
         match mode {
@@ -248,7 +265,7 @@ fn native_document_errors_preserve_preflight_and_source_locations() {
                 let at = fixture.descriptors[0][0] as usize;
                 fixture.bytes[at..at + 4].copy_from_slice(&99i32.to_le_bytes());
             }
-            4 => fonts[0].bytes.clear(),
+            4 => fonts[0].source.bytes.clear(),
             5 => options.budget.max_page_metadata_bytes = 1,
             6 => {
                 fixture.bytes[88..90].copy_from_slice(&32767u16.to_le_bytes());
@@ -289,11 +306,14 @@ fn native_document_errors_preserve_preflight_and_source_locations() {
 fn native_document_font_io_output_and_cancellation_fail_explicitly() {
     for mode in 0..4 {
         let fixture = fixture_with_text(Variant::C8, &[vec![]], native_text);
-        let mut fonts = [Source::new(crate::pdf::drawing_font())];
+        let mut fonts = [C8FontSource {
+            source: Source::new(crate::pdf::drawing_font()),
+            face: 0,
+        }];
         let flag = Rc::new(Cell::new(false));
         let mut sink = Sink::default();
         match mode {
-            0 => fonts[0].fault_at = Some((0, Fault::Io)),
+            0 => fonts[0].source.fault_at = Some((0, Fault::Io)),
             1 => sink.fail_after = Some(64),
             2 => sink.cancel = Some(flag.clone()),
             3 => sink.fail_flush = true,
@@ -366,8 +386,11 @@ fn hnb_native_document_streams_every_compact_page_and_keeps_late_errors_located(
         }
         let mut source = Source::new(fixture.bytes);
         source.short = 3;
-        let mut fonts = [Source::new(crate::pdf::drawing_font())];
-        fonts[0].short = 3;
+        let mut fonts = [C8FontSource {
+            source: Source::new(crate::pdf::drawing_font()),
+            face: 0,
+        }];
+        fonts[0].source.short = 3;
         let mut sink = Sink {
             short: Some(7),
             ..Default::default()

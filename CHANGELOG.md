@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- **Breaking:** native C8/HN-B fonts may have CFF outlines (`.otf`, and CFF
+  faces of collections such as Noto Sans/Serif CJK), embedded as
+  desubroutinized CID-keyed CFF subsets (`FontFile3`/`CIDFontType0`, #338).
+  `--fonts DIR` also finds `NAME.otf`. `TrueTypeFont` is renamed
+  `OpenTypeFont`.
+
+- **Breaking:** native C8/HN-B fonts may be faces of TrueType collections
+  (`.ttc`), such as `simsun.ttc`, `msyh.ttc` and `wqy-zenhei.ttc` (#337). The
+  CLI selects face `N` with `FILE#N` and `--fonts DIR` also finds
+  `NAME.ttc`; JS roles accept `{ source, face }`. Unaligned table offsets,
+  common in installed fonts, are accepted. `OpenTypeFont::read` takes a face
+  index, `C8FontSources::sources` holds `C8FontSource { source, face }`
+  values, and `Engine::add_font_source` and the WASM export
+  `caj2pdf_c8_add_font` take a face argument.
+
 - **Breaking:** native C8/HN-B page content streams are Flate-compressed.
   The six pinned corpus documents shrink further to 0.20–1.06 MB (from
   6.0–7.1 MB in v0.4.0) with identical renders and text (#336).

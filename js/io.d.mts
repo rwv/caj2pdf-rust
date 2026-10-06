@@ -212,24 +212,29 @@ export interface ProbabilityState {
   nextMps: number;
   switchMps: boolean;
 }
+/** An OpenType font (TrueType or CFF outlines), or one face of a font
+ * collection (`.ttc`). */
+export type C8Font = RangedSource | { source: RangedSource; face?: number };
+
 /** Explicit C8 resources. Reuse the same source object across roles to embed once.
  * Sources remain caller-owned and must stay stable until conversion settles.
  * Only `cjk` and `latin` are required. An absent optional role, or a role font
  * that does not map a character, falls back to `cjk` for CJK-coded characters
  * and to `latin` otherwise; a glyph missing from that font still fails. */
+
 export interface C8Fonts {
-  cjk: RangedSource;
-  latin: RangedSource;
-  alternateLatin?: RangedSource;
+  cjk: C8Font;
+  latin: C8Font;
+  alternateLatin?: C8Font;
   /** Semantic symbols/spaces required by the admitted HN-B mode-0 records. */
-  symbols?: RangedSource;
+  symbols?: C8Font;
   /** Optional explicit font selected by HN-B/C8 state 801d/3. */
-  latinState3?: RangedSource;
+  latinState3?: C8Font;
   /** Distinct caller-supplied resources for verified C8 Latin states. */
-  latinState28?: RangedSource;
-  latinState31?: RangedSource;
+  latinState28?: C8Font;
+  latinState31?: C8Font;
   /** Nonsemantic decoration alias; must be one BMP Unicode scalar. */
-  decoration?: { source: RangedSource; character: string };
+  decoration?: { source: C8Font; character: string };
 }
 
 export interface Hnc8Options {

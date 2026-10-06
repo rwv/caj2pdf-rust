@@ -18,7 +18,7 @@ pub use document::{
     ImageEncoding, ImageObject, ImagePlacement, ImageSpec, MAX_PAGE_IMAGE_PLACEMENTS, PageSpec,
     PdfDocument,
 };
-pub use font::{FontGlyph, MAX_FONT_METADATA_BYTES, TrueTypeFont};
+pub use font::{FontGlyph, MAX_FONT_METADATA_BYTES, OpenTypeFont};
 pub use fragment::{
     FragmentObject, FragmentPlan, reconstruct_fragment, reconstruct_fragment_with_bookmarks,
 };

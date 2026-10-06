@@ -1,13 +1,16 @@
 // SPDX-License-Identifier: MIT
 
-//! Ranged metadata access for explicitly supplied static TrueType fonts.
+//! Ranged metadata access for explicitly supplied static OpenType fonts:
+//! TrueType or CFF outlines, standalone or in a collection.
 
+mod cff;
 mod subset;
-pub(crate) use subset::SubsetOutput;
+pub(crate) use subset::{Subset, SubsetOutput};
 
 use crate::fallible::reserve_exact;
 use crate::{Cancellation, Error, Limits, RangedSource, Result, read_exact_at};
 use sha2::Digest;
+use std::rc::Rc;
 use xberg_ttf_parser::{Face, RawFaceTables};
 
 const MAX_TABLES: usize = 128;
@@ -30,8 +33,10 @@ pub(crate) fn mark_code(bitmap: &mut [u8], code: usize) {
 }
 
 /// Tables whose bytes stay in the source and are read again when subsetting.
-/// `glyf` and `loca` are required; the hinting tables are optional.
-const OUTLINE_TAGS: [[u8; 4]; 5] = [*b"glyf", *b"loca", *b"cvt ", *b"fpgm", *b"prep"];
+/// A font has either `glyf` and `loca` (with optional hinting tables) or
+/// `CFF `.
+const OUTLINE_TAGS: [[u8; 4]; 6] = [*b"glyf", *b"loca", *b"cvt ", *b"fpgm", *b"prep", *b"CFF "];
+const CFF: usize = 5;
 
 /// A Unicode glyph's ID and horizontal advance in font units.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -40,24 +45,32 @@ pub struct FontGlyph {
     pub advance: u16,
 }
 
-/// Metadata and a borrowed source for one standalone static TrueType font.
+/// Metadata and a borrowed source for one face of a static OpenType font or
+/// collection, with TrueType (`glyf`/`loca`) or CFF outlines.
 ///
-/// Only small metric/character tables are retained; outline bytes remain in
-/// the ranged source and only drawn glyphs are later read again for a
-/// subset. This validates metadata, not every glyph outline. Font
-/// collections, CFF and variable fonts are outside this initial profile.
-pub struct TrueTypeFont<'a, S> {
+/// Only small metric/character tables and the CFF structures are retained;
+/// outline bytes remain in the ranged source and only drawn glyphs are later
+/// read again for a subset. This validates metadata, not every glyph
+/// outline. Variable fonts and `CFF2` are not supported.
+pub struct OpenTypeFont<'a, S> {
     pub(super) source: &'a mut S,
+    face: u32,
     tables: [Vec<u8>; 8],
     /// `(offset, length)` of each present [`OUTLINE_TAGS`] table.
-    outlines: [Option<(u64, u64)>; 5],
+    outlines: [Option<(u64, u64)>; 6],
+    /// Parsed CFF structures of a CFF-flavoured OpenType font.
+    cff: Option<Rc<cff::Cff>>,
     /// Outline bytes read again for subsets, counted toward input limits.
     subset_bytes_read: u64,
 }
 
-impl<'a, S: RangedSource> TrueTypeFont<'a, S> {
+impl<'a, S: RangedSource> OpenTypeFont<'a, S> {
+    /// Read face `face` of a TrueType font or TrueType collection (`ttcf`).
+    /// A standalone font has only face 0. Collection table offsets are
+    /// file-relative, so faces may share tables.
     pub async fn read<C: Cancellation>(
         source: &'a mut S,
+        face: u32,
         limits: &Limits,
         cancellation: &C,
     ) -> Result<Self> {
@@ -65,21 +78,50 @@ impl<'a, S: RangedSource> TrueTypeFont<'a, S> {
         limits.check_input_size(source.size())?;
         let mut header = [0; 12];
         read(source, 0, &mut header, limits, cancellation).await?;
-        if header[..4] != [0, 1, 0, 0] {
-            return Err(invalid("font must be a standalone TrueType SFNT"));
+        // The collection header and this face's directory hold no tables.
+        let (base, collection_end) = if header[..4] == *b"ttcf" {
+            // Version 2 adds three 32-bit DSIG fields to the header.
+            let dsig = match u16::from_be_bytes([header[4], header[5]]) {
+                1 => 0,
+                2 => 12,
+                _ => return Err(invalid("unsupported TrueType collection version")),
+            };
+            let faces = u32::from_be_bytes(header[8..12].try_into().unwrap());
+            if face >= faces {
+                return Err(invalid("TrueType collection face index is out of range"));
+            }
+            let mut offset = [0; 4];
+            read(
+                source,
+                12 + 4 * u64::from(face),
+                &mut offset,
+                limits,
+                cancellation,
+            )
+            .await?;
+            let base = u64::from(u32::from_be_bytes(offset));
+            read(source, base, &mut header, limits, cancellation).await?;
+            (base, 12 + 4 * u64::from(faces) + dsig)
+        } else if face != 0 {
+            return Err(invalid("a standalone font has only face 0"));
+        } else {
+            (0, 0)
+        };
+        if header[..4] != [0, 1, 0, 0] && header[..4] != *b"true" && header[..4] != *b"OTTO" {
+            return Err(invalid("font must be an OpenType font or collection face"));
         }
         let count = usize::from(u16::from_be_bytes([header[4], header[5]]));
         if count == 0 || count > MAX_TABLES {
             return Err(invalid("unsupported TrueType table count"));
         }
-        let directory_end = 12 + 16 * count as u64;
+        let directory_end = base + 12 + 16 * count as u64;
         let mut directory = [[0_u8; 16]; MAX_TABLES];
         let mut metadata_bytes = 0_u64;
-        let mut outlines = [None; 5];
+        let mut outlines = [None; 6];
         for i in 0..count {
             read(
                 source,
-                12 + 16 * i as u64,
+                base + 12 + 16 * i as u64,
                 &mut directory[i],
                 limits,
                 cancellation,
@@ -90,14 +132,17 @@ impl<'a, S: RangedSource> TrueTypeFont<'a, S> {
             if i != 0 && directory[i - 1][..4] >= *tag {
                 return Err(invalid("TrueType table tags must be unique and sorted"));
             }
-            if tag == b"fvar" || tag == b"CFF " || tag == b"CFF2" {
-                return Err(invalid("only static TrueType outlines are supported"));
+            if tag == b"fvar" || tag == b"CFF2" {
+                return Err(invalid("variable fonts are not supported"));
             }
             let (offset, length) = span(&entry);
-            if offset < directory_end || offset % 4 != 0 || offset + length > source.size() {
-                return Err(invalid(
-                    "TrueType table range is outside the source or unaligned",
-                ));
+            // Tables should be 4-byte aligned, but installed fonts such as
+            // WenQuanYi Zen Hei are not; readers accept any offset.
+            if (offset < directory_end && base < offset + length.max(1))
+                || offset < collection_end
+                || offset + length > source.size()
+            {
+                return Err(invalid("TrueType table range is outside the source"));
             }
             for previous in &directory[..i] {
                 let (start, len) = span(previous);
@@ -112,8 +157,9 @@ impl<'a, S: RangedSource> TrueTypeFont<'a, S> {
                 metadata_bytes += length;
             }
         }
-        if outlines[0].is_none() || outlines[1].is_none() {
-            return Err(invalid("TrueType outline tables are missing"));
+        let truetype = outlines[0].is_some() && outlines[1].is_some();
+        if truetype == outlines[CFF].is_some() {
+            return Err(invalid("font needs either glyf and loca or CFF outlines"));
         }
         if metadata_bytes > MAX_FONT_METADATA_BYTES {
             return Err(Error::LimitExceeded {
@@ -135,10 +181,12 @@ impl<'a, S: RangedSource> TrueTypeFont<'a, S> {
             table.resize(length as usize, 0);
             read(source, offset, table, limits, cancellation).await?;
         }
-        let font = Self {
+        let mut font = Self {
             source,
+            face,
             tables,
             outlines,
+            cff: None,
             subset_bytes_read: 0,
         };
         let face = font.face()?;
@@ -169,6 +217,12 @@ impl<'a, S: RangedSource> TrueTypeFont<'a, S> {
         ) || !face.is_outline_embedding_allowed()
         {
             return Err(invalid("font metadata does not permit outline embedding"));
+        }
+        if let Some(span) = font.outlines[CFF] {
+            let glyphs = face.number_of_glyphs();
+            font.cff = Some(Rc::new(
+                cff::Cff::read(font.source, span, glyphs, limits, cancellation).await?,
+            ));
         }
         Ok(font)
     }
@@ -205,10 +259,15 @@ impl<'a, S: RangedSource> TrueTypeFont<'a, S> {
         .map_err(|_| invalid("invalid required TrueType face metadata"))
     }
 
+    /// Whether the font has CFF rather than TrueType outlines.
+    pub(crate) fn is_cff(&self) -> bool {
+        self.cff.is_some()
+    }
+
     /// Digest of the retained metadata and outline table ranges, identifying
     /// the font when its source is read again.
     pub(crate) fn fingerprint(&self) -> [u8; 32] {
-        let mut hash = sha2::Sha256::new();
+        let mut hash = sha2::Sha256::new().chain_update(self.face.to_be_bytes());
         for table in &self.tables {
             hash.update((table.len() as u64).to_be_bytes());
             hash.update(table);
@@ -218,6 +277,24 @@ impl<'a, S: RangedSource> TrueTypeFont<'a, S> {
             hash.update(length.to_be_bytes());
         }
         hash.finalize().into()
+    }
+
+    /// The `(glyph, code)` of each character set in `used`, a BMP bitmap, in
+    /// code order. A character the font no longer maps means its source
+    /// changed after the metadata was read.
+    pub(super) fn used_glyphs(&self, used: &[u8]) -> Result<Vec<(u16, u16)>> {
+        let face = self.face()?;
+        let count = face.number_of_glyphs();
+        (0..used.len() * 8)
+            .filter(|code| has_code(used, *code))
+            .map(|code| {
+                char::from_u32(code as u32)
+                    .and_then(|character| face.glyph_index(character))
+                    .filter(|id| id.0 != 0 && id.0 < count)
+                    .map(|id| (id.0, code as u16))
+                    .ok_or(invalid(CHANGED))
+            })
+            .collect()
     }
 
     pub(super) fn postscript_name(&self) -> Result<String> {

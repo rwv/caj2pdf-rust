@@ -148,7 +148,10 @@ fn native_c8_package_is_written_to_the_info_dictionary() {
         if tail {
             append_package(&mut fixture.bytes, XML.as_bytes(), XML.len() as u32);
         }
-        let mut fonts = [Source::new(crate::pdf::drawing_font())];
+        let mut fonts = [C8FontSource {
+            source: Source::new(crate::pdf::drawing_font()),
+            face: 0,
+        }];
         let mut sink = Sink::default();
         let report = ready(convert_c8_native_pdf(
             &mut Source::new(fixture.bytes),

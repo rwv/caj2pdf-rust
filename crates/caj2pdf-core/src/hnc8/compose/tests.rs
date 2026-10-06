@@ -2742,7 +2742,7 @@ fn mixed_codec_content_page() -> Vec<u8> {
     };
     ready(async {
         let mut font_source = Source::new(crate::pdf::drawing_font());
-        let mut font = crate::pdf::TrueTypeFont::read(&mut font_source, &limits, &NeverCancel)
+        let mut font = crate::pdf::OpenTypeFont::read(&mut font_source, 0, &limits, &NeverCancel)
             .await
             .unwrap();
         let mut document = PdfDocument::new(&mut sink, &limits, &NeverCancel)

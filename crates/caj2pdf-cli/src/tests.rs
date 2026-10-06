@@ -1375,7 +1375,7 @@ fn font_directory_maps_fixed_names_and_leaves_missing_optional_roles_to_fallback
             .contains("decoration.ttf")
     );
     for name in crate::args::FONT_FILES {
-        fs::write(dir.0.join(name), name).unwrap();
+        fs::write(dir.0.join(format!("{name}.ttf")), name).unwrap();
     }
     let resources = load_fonts(&options).unwrap();
     let roles = resources.font_roles.unwrap();
@@ -1414,6 +1414,33 @@ fn explicit_font_flags_override_the_directory_and_entries_are_opened() {
     options.font_dir = None;
     let resources = load_fonts(&options).unwrap();
     assert_eq!(resources.font_roles.unwrap().latin, 0);
+}
+
+#[test]
+fn font_collections_are_found_in_directories_and_selected_by_face_suffix() {
+    let dir = TempDir::new("font-faces");
+    fs::write(dir.0.join("cjk.ttc"), b"cjk").unwrap();
+    fs::write(dir.0.join("latin.otf"), b"latin").unwrap();
+    // A literal file name ending in `#digits` is used whole.
+    fs::write(dir.0.join("odd#7"), b"odd").unwrap();
+    let mut options = font_options(&dir.0);
+    options.fonts[2] = Some(dir.0.join("cjk.ttc#2"));
+    options.fonts[4] = Some(dir.0.join("odd#7"));
+    options.fonts[5] = Some(dir.0.join("cjk.ttc#x"));
+    let resources = load_fonts(&options);
+    // `cjk.ttc#x` is not a face suffix and names no file.
+    assert!(resources.is_err());
+    options.fonts[5] = None;
+    let resources = load_fonts(&options).unwrap();
+    let roles = resources.font_roles.unwrap();
+    assert_eq!((roles.cjk, roles.latin), (0, 1));
+    // The same collection opened again as face 2 is a distinct source.
+    assert_eq!(roles.alternate_latin, Some(2));
+    assert_eq!(roles.symbols, Some(3));
+    assert_eq!(resources.font_faces[..4], [0, 0, 2, 0]);
+    options.fonts[2] = Some(dir.0.join("cjk.ttc#4294967296"));
+    let error = load_fonts(&options).err().unwrap();
+    assert!(error.message.contains("too large"), "{}", error.message);
 }
 
 struct Bytes(Vec<u8>);

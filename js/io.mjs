@@ -426,7 +426,7 @@ async function drive(exports, start, source, sink, chunkSize, signal, finish = r
       const setFonts = hnc8.fonts.symbols === undefined ? exports.caj2pdf_c8_set_fonts : exports.caj2pdf_c8_set_fonts_with_symbols;
       if (typeof setFonts !== "function") throw new Error("this WASM build does not support native symbol fonts");
       for (const [index, font] of hnc8.fonts.sources.entries()) {
-        if (exports.caj2pdf_c8_add_font(font.size) !== index + 1) throw new RangeError("WASM rejected a C8 font resource");
+        if (exports.caj2pdf_c8_add_font(font.size, hnc8.fonts.faces[index]) !== index + 1) throw new RangeError("WASM rejected a C8 font resource");
       }
       const accepted = hnc8.fonts.symbols === undefined ? setFonts(...hnc8.fonts.roles) : setFonts(...hnc8.fonts.roles, hnc8.fonts.symbols);
       if (accepted !== 1) throw new RangeError("WASM rejected C8 font roles");
@@ -576,11 +576,15 @@ function hnc8Config(options) {
   if (options.fonts !== undefined) {
     const { cjk, latin, alternateLatin, decoration, symbols, latinState3, latinState28, latinState31 } = options.fonts ?? {};
     const sources = [];
-    const index = (source) => {
+    const faces = [];
+    // A role is a ranged source, or { source, face } for a collection face.
+    const index = (font) => {
+      const { source, face = 0 } = font?.source === undefined ? { source: font } : font;
       requireSource(source);
       if (source.size === 0n) throw new RangeError("font source must not be empty");
-      let id = sources.indexOf(source);
-      if (id < 0) { id = sources.length; sources.push(source); }
+      if (!Number.isInteger(face) || face < 0 || face > 0xffffffff) throw new RangeError("font face must be an unsigned 32-bit integer");
+      let id = sources.findIndex((known, at) => known === source && faces[at] === face);
+      if (id < 0) { id = sources.length; sources.push(source); faces.push(face); }
       return id;
     };
     // An absent optional role (0xffffffff) uses the core CJK/Latin fallback.
@@ -592,7 +596,7 @@ function hnc8Config(options) {
       if (typeof character !== "string" || [...character].length !== 1 || character.codePointAt(0) > 0xffff || (character.charCodeAt(0) >= 0xd800 && character.charCodeAt(0) <= 0xdfff)) throw new TypeError("decoration character must be one BMP Unicode scalar");
       roles.push(index(decoration.source), character.codePointAt(0));
     }
-    fonts = { sources, roles, symbols: symbols === undefined ? undefined : index(symbols), latinState3: latinState3 === undefined ? undefined : index(latinState3), latinState28: latinState28 === undefined ? undefined : index(latinState28), latinState31: latinState31 === undefined ? undefined : index(latinState31) };
+    fonts = { sources, faces, roles, symbols: symbols === undefined ? undefined : index(symbols), latinState3: latinState3 === undefined ? undefined : index(latinState3), latinState28: latinState28 === undefined ? undefined : index(latinState28), latinState31: latinState31 === undefined ? undefined : index(latinState31) };
   }
   return { scratch, states, fonts };
 }
