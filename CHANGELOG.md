@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+- CLI: staged output and the stdin spool use `tempfile`, and same-file
+  checks use `same-file` (#378); the hand-written temporary-name scheme
+  (`.NAME.PID-N.tmp`), its retry loop, the hard-link commit and the
+  per-platform identity code are removed. The documented output, `--force`,
+  spooling and terminal rules, exit codes and `caj2pdf: error:` diagnostics
+  are unchanged. Visible differences:
+  - The staged file is named `.caj2pdf-XXXXXX.tmp` (random letters and
+    digits) in the output's directory, independent of the output name.
+  - Without `--force` the commit is an exclusive rename where the system
+    offers one (`RENAME_NOREPLACE` on Linux, `RENAME_EXCL` on Apple systems,
+    `MoveFileExW` on Windows) and a hard link otherwise; both still refuse a
+    target that appeared during conversion.
+  - On Linux the stdin spool is opened with `O_TMPFILE` and never has a name.
+  - Only regular files are compared for identity. A FIFO or device named as
+    both input and output is no longer reported as the same file; it was
+    spooled in full, and the output path follows the existence rule. Unix
+    identifies an existing output from its metadata, so an unreadable one is
+    still replaced with `--force`; Windows opens it and refuses one it
+    cannot open, as before.
+  - A failure to create the staged file also names the attempted path.
+  - The release binary grows from 3,245,576 to 3,275,376 bytes (Linux
+    x86_64).
+
 - Fixed: on x87 targets (Linux i586 GNU and musl), the type-0 and type-3
   image matrix of an image spanning the full page height is written as `0`
   instead of `0.000000000000026201263381153694`; the top-first flip now rounds

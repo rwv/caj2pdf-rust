@@ -264,7 +264,7 @@ direct third-party Cargo dependencies in the current graph:
 | Package | Role | License | Edition / minimum Rust | External dependencies |
 | --- | --- | --- | --- | --- |
 | `caj2pdf-core` | Platform-neutral library | MIT | 2024 / 1.88.0 | `flate2`, `sha2`, `xberg-ttf-parser` (direct) |
-| `caj2pdf-cli` | Native executable | MIT | 2024 / 1.88.0 | `clap`, `serde`, `serde_json`; Unix: `signal-hook`; Windows: `ctrlc`, `winapi-util` |
+| `caj2pdf-cli` | Native executable | MIT | 2024 / 1.88.0 | `clap`, `serde`, `serde_json`; Unix and Windows: `same-file`, `tempfile`; Unix: `signal-hook`; Windows: `ctrlc`, `winapi-util` |
 | `caj2pdf-wasm` | WASM/JavaScript boundary | MIT | 2024 / 1.88.0 | None |
 
 The Rust standard library and compiler-provided target components are not
@@ -403,11 +403,42 @@ No source from these crates is copied into this repository. The JSON output
 is unchanged byte for byte: a small `serde_json` formatter keeps the
 `\u0008` and `\u000c` escapes of schema version 1.
 
+## CLI temporary files and file identity (#378)
+
+The CLI stages path output and spools forward-only input with `tempfile`,
+and compares output and input files with `same-file`, replacing the
+hand-written temporary-name scheme, its retry loop, the hard-link commit and
+the per-platform identity code. Both are `cfg(any(unix, windows))`
+dependencies of `caj2pdf-cli` only; `caj2pdf-core` and `caj2pdf-wasm` do not
+use them, so they are absent from the WASM build graph. Every crate below is
+selected under its MIT grant, whose notice ships in the crate; versions are
+pinned in Cargo.lock and each `rust-version` is at most 1.88 (`same-file`
+declares none and builds with 1.88.0).
+
+| Crate | Version | License (selected) | Purpose and resolved features |
+| --- | --- | --- | --- |
+| `tempfile` | 3.27.0 | MIT OR Apache-2.0 (MIT) | Hidden staged output (`Builder::tempfile_in`, `TempPath::persist`, `TempPath::persist_noclobber`) and the anonymous stdin spool (`tempfile_in`); default features off, so `getrandom` is not used |
+| `fastrand` | 2.5.0 | Apache-2.0 OR MIT (MIT) | Random temporary names in `tempfile`; `std`, `alloc` |
+| `once_cell` | 1.21.4 | MIT OR Apache-2.0 (MIT) | Lazy statics in `tempfile`; `std`, `alloc`, `race` |
+| `rustix` | 1.1.5 | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT (MIT) | Unix system calls of `tempfile` (`O_TMPFILE`, exclusive rename, link, unlink); `std`, `alloc`, `fs`. Unix only. Its build script only probes the compiler for language features; it compiles no native code |
+| `linux-raw-sys` | 0.12.1 | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT (MIT) | Generated Linux system-call bindings of `rustix`; Linux and Android only |
+| `bitflags` | 2.13.2 | MIT OR Apache-2.0 (MIT) | Flag types in `rustix`; `std`. Unix only (already in the Windows graph through `ctrlc`) |
+| `same-file` | 1.0.6 | Unlicense OR MIT (MIT) | `Handle` identity: device and inode on Unix, volume serial number and file index on Windows; no features |
+
+Other Unix targets reach the C library through the already audited `errno`
+0.3.14 and `libc` 0.2.189. On Windows, `tempfile` uses the already audited
+`windows-sys` 0.61.2 with `Win32_Foundation` and `Win32_Storage_FileSystem`,
+both already enabled, and `same-file` uses `winapi-util` 0.1.11 (below). No
+crate is build-time only, and no source from these crates is copied into
+this repository.
+
 ## Windows adapter dependencies (#204)
 
 The Windows CLI uses `ctrlc` 3.5.2 (MIT OR Apache-2.0, selected MIT) for safe
 console interrupt registration and `winapi-util` 0.1.11 (Unlicense OR MIT,
-selected MIT) for file type and volume/file identity queries. Both use the
+selected MIT) for the file type query that tells disk files from pipes,
+consoles and character devices. Since #378 volume/file identity comes from
+`same-file`, which uses `winapi-util` itself. Both use the
 already audited `windows-sys` 0.61.2 / `windows-link` 0.2.1 under MIT. Their
 published MIT notices and Windows source paths were reviewed; no converter,
 codec or vendored native implementation is imported. Project source retains

@@ -413,7 +413,14 @@ fn inputs_are_never_overwritten() {
     let input = scratch.write("paper.caj", &caj(OUTLINE));
     std::os::unix::fs::symlink("paper.caj", scratch.path("link.pdf")).unwrap();
     fs::hard_link(&input, scratch.path("hard.pdf")).unwrap();
-    for target in ["paper.caj", "./paper.caj", "link.pdf", "hard.pdf"] {
+    fs::create_dir(scratch.path("sub")).unwrap();
+    for target in [
+        "paper.caj",
+        "./paper.caj",
+        "sub/../paper.caj",
+        "link.pdf",
+        "hard.pdf",
+    ] {
         let output = scratch.run(["paper.caj", "-o", target, "--force"]);
         assert_failure(&output, 1, "is the same file as input 'paper.caj'");
     }
@@ -427,7 +434,37 @@ fn inputs_are_never_overwritten() {
     assert_eq!(output.status.code(), Some(1));
     assert!(stderr(&output).contains("standard output is the same file as input"));
     assert_eq!(fs::read(&input).unwrap(), caj(OUTLINE));
-    assert_eq!(scratch.entries(), ["hard.pdf", "link.pdf", "paper.caj"]);
+    assert_eq!(
+        scratch.entries(),
+        ["hard.pdf", "link.pdf", "paper.caj", "sub"]
+    );
+}
+
+#[test]
+fn a_dangling_symbolic_link_output_is_replaced_only_with_force() {
+    let scratch = Scratch::new("dangling");
+    scratch.write("paper.caj", &caj(OUTLINE));
+    std::os::unix::fs::symlink("nowhere.pdf", scratch.path("out.pdf")).unwrap();
+    let output = scratch.run(["paper.caj", "-o", "out.pdf"]);
+    assert_failure(
+        &output,
+        1,
+        "output 'out.pdf' already exists; use --force to replace it",
+    );
+    assert!(
+        fs::symlink_metadata(scratch.path("out.pdf"))
+            .unwrap()
+            .is_symlink()
+    );
+    // --force replaces the link itself; its target is not created.
+    assert_success(&scratch.run(["paper.caj", "-o", "out.pdf", "--force"]));
+    assert!(
+        fs::symlink_metadata(scratch.path("out.pdf"))
+            .unwrap()
+            .is_file()
+    );
+    assert_eq!(validate_pdf(&scratch.path("out.pdf")).0, 3);
+    assert_eq!(scratch.entries(), ["out.pdf", "paper.caj"]);
 }
 
 #[test]
@@ -1199,7 +1236,7 @@ fn termination_signals_clean_staged_output_and_preserve_destination() {
                     .unwrap()
                     .file_name()
                     .to_string_lossy()
-                    .starts_with(".out.pdf.")
+                    .starts_with(".caj2pdf-")
             }) {
                 break;
             }
@@ -1238,7 +1275,7 @@ fn termination_signals_clean_staged_output_and_preserve_destination() {
                 .unwrap()
                 .file_name()
                 .to_string_lossy()
-                .starts_with(".out.pdf.")
+                .starts_with(".caj2pdf-")
         }));
     }
 }

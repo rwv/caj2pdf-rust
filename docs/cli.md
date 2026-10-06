@@ -351,22 +351,38 @@ Output rules:
 - An existing output path, including a dangling symbolic link, is refused
   unless `--force` is given.
 - An output that is the same file as an input is always refused, even with
-  `--force`. The check compares device and inode numbers of the opened input
-  with the output path after following symbolic links, so hard links,
-  symbolic links, and differently spelled paths are all detected. Standard
-  output is checked the same way when it is a regular file, such as
-  `>> paper.caj`.
+  `--force`. The check compares the identity of each opened input that is a
+  regular file (device and inode numbers on Unix, volume serial number and
+  file index on Windows, through the `same-file` crate) with the output path
+  after following symbolic links, so hard links, symbolic links, and
+  differently spelled paths such as `./paper.caj` or `sub/../paper.caj` are
+  all detected. Font files are protected the same way. Standard output is
+  checked the same way when it is a regular file, such as `>> paper.caj`.
+  Pipes, FIFOs, devices and consoles have no identity and are never
+  compared: an input of that kind has already been spooled in full, and an
+  output of that kind is subject only to the existence rule. Unix reads the
+  output's identity from its metadata, so an unreadable existing output can
+  still be replaced with `--force`; Windows has to open it, and an existing
+  regular output file that cannot be opened for the comparison is refused
+  there (`cannot open output '…' for identity check`).
 - A path output is written to a new hidden temporary file in the output's
-  directory (`.NAME.PID-N.tmp`, created exclusively with mode `0666` before
-  the umask; `NAME` is cut to 200 bytes). It is flushed and synchronized
-  only after the whole conversion succeeds, and then given the target name.
-  Every error path removes the temporary file. A process killed by a signal
-  can leave it behind.
-- The existence and same-file checks are repeated at that point, because the target may change
-  during a conversion. Without `--force` the file is hard-linked to the
-  target name, which fails atomically if any entry has appeared there; only
-  on a file system without hard links does the command fall back to a
-  re-check followed by a rename, which leaves a short race window.
+  directory (`.caj2pdf-XXXXXX.tmp` with six random letters and digits,
+  created exclusively by the `tempfile` crate, with mode `0666` before the
+  umask on Unix). The name does not depend on the output name, so an output
+  name at the file-system limit still stages. The file is flushed and
+  synchronized only after the whole conversion succeeds, and then given the
+  target name. Every error path removes the temporary file. A process killed
+  by a signal can leave it behind.
+- The same-file check is repeated at that point, because the target may
+  change during a conversion. Without `--force` the file is moved to the
+  target name with an exclusive rename (`renameat2` with `RENAME_NOREPLACE`
+  on Linux, `renameatx_np` with `RENAME_EXCL` on Apple systems, `MoveFileExW`
+  without `MOVEFILE_REPLACE_EXISTING` on Windows) or, where that is not
+  available, a hard link followed by removing the temporary name. Either
+  fails atomically if any entry, including a dangling symbolic link, has
+  appeared there. Only on a file system supporting neither does the command
+  fall back to a re-check followed by a rename, which leaves a short race
+  window.
 - `--force` replaces the directory entry by rename. A symbolic link at the
   output path is replaced by the new file; its target is not written. An
   input swapped into the output path between the final same-file check and
@@ -381,9 +397,11 @@ Input rules:
 - A regular file, named or supplied as standard input, is read in place with
   positioned reads. Standard input is read from its beginning.
 - Standard input that is a pipe, and any other non-regular input such as
-  `/dev/stdin` or a FIFO, is copied in 64 KiB chunks to an unnamed file in
-  `$TMPDIR` (or `/tmp`). The file is created with mode `0600` and unlinked
-  before the copy starts, so its storage is released when the command exits,
+  `/dev/stdin` or a FIFO, is copied in 64 KiB chunks to an anonymous file in
+  `$TMPDIR` (or `/tmp`), created by `tempfile::tempfile_in`. On Linux it is
+  opened with `O_TMPFILE`, so it never has a name; where that is not
+  supported it is created with mode `0600` and unlinked before the copy
+  starts. Either way its storage is released when the command exits,
   including after errors. The copy is bounded by the core's
   `Limits::max_input_bytes`, currently 8 GiB.
 - A directory input is refused.
@@ -669,10 +687,13 @@ released by the operating system. Do not rely on forced termination for cleanup.
 ## Native platform adapters
 
 The Windows CLI uses the same conversion, argument and report code as Unix.
-Windows identity checks use volume and file indexes, including hard-link
-aliases. Paths remain native OS strings. Temporary files inherit their parent
-directory's ACL; use a private user temp/output directory. The stdin spool is
-marked for deletion through its open handle and removed when closed.
+Windows identity checks use volume serial numbers and file indexes
+(`same_file::Handle`), including hard-link aliases. Only disk files are
+compared; a console, pipe or character device has no identity, so a console
+standard output is never an error. Paths remain native OS strings. Temporary
+files inherit their parent directory's ACL; use a private user temp/output
+directory. The stdin spool is opened with `FILE_FLAG_DELETE_ON_CLOSE` and
+removed when closed.
 
 On Windows, Ctrl-C/Ctrl-Break request cooperative cancellation; a second
 interrupt exits with status 130 immediately and may leave staged output.
