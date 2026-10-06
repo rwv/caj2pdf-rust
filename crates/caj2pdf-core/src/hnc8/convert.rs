@@ -4,7 +4,7 @@
 
 use super::{Budget, ErrorKind, Hnc8Error, Hnc8Reader, ImageRecord, Variant};
 use crate::jbig1::{
-    Type0Budget, Type0Decoder, Type0Error, Type0ErrorKind, Type0Info, Type0Report, read_type0_info,
+    Type0Budget, Type0Decoder, Type0Error, Type0Info, Type0Report, read_type0_info,
 };
 use crate::pdf::{BilevelImageSpec, ImageObject, PageSpec, PdfDocument};
 use crate::qm::{ArithmeticBudget, ArithmeticError, ContextBank, QmTable};
@@ -288,7 +288,6 @@ pub(super) struct Type0DecodeSettings<'a, C> {
 pub(super) async fn decode_type0_rows<S: RangedSource, R: SequentialSink, C: Cancellation>(
     source: &mut S,
     record: ImageRecord,
-    checked: Type0Info,
     contexts: &mut ContextBank,
     rows: &mut R,
     settings: &Type0DecodeSettings<'_, C>,
@@ -314,16 +313,6 @@ pub(super) async fn decode_type0_rows<S: RangedSource, R: SequentialSink, C: Can
     )
     .await
     .map_err(at.image())?;
-    // The destination's dimensions were chosen from this earlier wrapper.
-    // Reject changes before emitting any decoded row.
-    if decoder.progress().info != checked {
-        return Err(at.image()(Type0Error {
-            offset: span.offset,
-            rows_written: 0,
-            output_bytes_written: 0,
-            kind: Type0ErrorKind::Malformed("DIB wrapper that changed between reads"),
-        }));
-    }
     while decoder.decode_next_row().await.map_err(at.image())? {}
     decoder.finish().await.map_err(at.image())
 }
@@ -350,7 +339,7 @@ pub(super) async fn emit_type0_xobject<S: RangedSource, W: SequentialSink, C: Ca
         })
         .await
         .map_err(at.pdf())?;
-    decode_type0_rows(source, record, checked, contexts, &mut rows, settings).await?;
+    decode_type0_rows(source, record, contexts, &mut rows, settings).await?;
     rows.finish().await.map_err(at.pdf())
 }
 

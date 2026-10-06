@@ -5,8 +5,7 @@
 
 use super::*;
 use crate::hnc8::convert_jbig2::{
-    Type3PdfErrorKind, Type3RefinedStore, Type3Store, Type3Workspaces, emit_type3_xobject,
-    prepare_type3_image,
+    Type3RefinedStore, Type3Store, Type3Workspaces, emit_type3_xobject, prepare_type3_image,
 };
 use crate::pdf::ImageObject;
 use std::cell::{Cell, RefCell};
@@ -163,8 +162,7 @@ pub(super) async fn emit<S, W, T, C>(
     source: &mut S,
     document: &mut PdfDocument<'_, W, C>,
     at: At,
-    image: ImageRecord,
-    digest: [u8; 32],
+    checked: CheckedType3,
     workspaces: &mut ComposeWorkspaces<'_, T>,
     options: ComposeOptions,
     limits: &Limits,
@@ -184,23 +182,6 @@ where
         budget: options.budget,
     };
     let result = async {
-        // Re-read the fixed-size metadata instead of retaining a directory for
-        // every image. The original digest anchors geometry to the page plan.
-        let checked = preflight_type3(source, image, options.type3, limits, cancellation)
-            .await
-            .map_err(|e| error(at, ComposeStage::Headers, e))?;
-        if checked.digest() != digest {
-            return Err(error(
-                at,
-                ComposeStage::Headers,
-                Type3PdfError {
-                    page: at.page,
-                    image: at.image,
-                    offset: at.offset,
-                    kind: Type3PdfErrorKind::SourceChanged,
-                },
-            ));
-        }
         for store in [
             &mut *stores.first,
             &mut *stores.second,

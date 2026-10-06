@@ -8,7 +8,6 @@ use super::{
 };
 use crate::pdf::{ImageEncoding, ImageObject, ImageSpec, PageSpec, PdfDocument};
 use crate::{Cancellation, ConversionReport, Error, Limits, RangedSource, SequentialSink};
-use sha2::{Digest, Sha256};
 use std::{error, fmt};
 
 const POINTS_PER_INCH: f64 = 72.0;
@@ -60,8 +59,6 @@ pub enum Type2PdfErrorKind {
     Jpeg(Box<Hnc8Error>),
     Pdf(Error),
     UnsupportedImageType(u32),
-    /// Selected source bytes changed after JPEG preflight; discard the sink.
-    SourceChanged,
 }
 
 /// A failure located at a one-based source page/image and absolute source
@@ -96,9 +93,6 @@ impl fmt::Display for Type2PdfError {
             Type2PdfErrorKind::Pdf(error) => write!(f, "PDF output: {error}"),
             Type2PdfErrorKind::UnsupportedImageType(kind) => {
                 write!(f, "unsupported image record type {kind}")
-            }
-            Type2PdfErrorKind::SourceChanged => {
-                f.write_str("selected JPEG changed between preflight and PDF copy")
             }
         }
     }
@@ -187,52 +181,6 @@ impl<S: RangedSource> RangedSource for CountingSource<'_, S> {
     }
 }
 
-/// The marker cursor and PDF writer both read the selected span from start to
-/// end in order. Hash returned bytes in each pass, retaining only 32 bytes of
-/// digest state. A short read remains the underlying reader's typed error.
-struct DigestingSource<'a, S> {
-    inner: &'a mut S,
-    next: u64,
-    end: u64,
-    hash: Sha256,
-}
-
-impl<'a, S: RangedSource> DigestingSource<'a, S> {
-    fn new(inner: &'a mut S, image: ImageRecord) -> Self {
-        Self {
-            inner,
-            next: image.payload.offset,
-            end: image
-                .payload
-                .checked_end()
-                .expect("checked descriptor span"),
-            hash: Sha256::new(),
-        }
-    }
-
-    fn finish(self) -> [u8; 32] {
-        debug_assert_eq!(self.next, self.end);
-        self.hash.finalize().into()
-    }
-}
-
-impl<S: RangedSource> RangedSource for DigestingSource<'_, S> {
-    fn size(&self) -> u64 {
-        self.inner.size()
-    }
-
-    async fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> crate::Result<usize> {
-        debug_assert_eq!(offset, self.next);
-        let count = self.inner.read_at(offset, destination).await?;
-        if count <= destination.len() {
-            self.hash.update(&destination[..count]);
-            self.next += count as u64;
-            debug_assert!(self.next <= self.end);
-        }
-        Ok(count)
-    }
-}
-
 fn page_spec(info: JpegInfo, pixels_per_inch: f64) -> PageSpec {
     let scale = POINTS_PER_INCH / pixels_per_inch;
     PageSpec {
@@ -253,13 +201,12 @@ fn image_spec(info: JpegInfo) -> ImageSpec {
     }
 }
 
-/// The same descriptor, geometry and digest from one complete JPEG traversal.
-/// Private fields prevent callers pairing a checked hash with another span.
+/// The same descriptor and geometry from one complete JPEG traversal.
+/// Private fields keep the checked geometry paired with its span.
 #[derive(Clone, Copy, Debug)]
 pub(super) struct CheckedType2 {
     record: ImageRecord,
     info: JpegInfo,
-    digest: [u8; 32],
 }
 
 impl CheckedType2 {
@@ -291,14 +238,12 @@ pub(super) async fn preflight_type2<S: RangedSource, C: Cancellation>(
         }
         .error(Type2PdfErrorKind::UnsupportedImageType(image.record_type)));
     }
-    let mut preflight = DigestingSource::new(source, image);
-    let info = read_type2_jpeg_info(&mut preflight, image, limits, cancellation, budget)
+    let info = read_type2_jpeg_info(source, image, limits, cancellation, budget)
         .await
         .map_err(|error| at.jpeg(error))?;
     Ok(CheckedType2 {
         record: image,
         info,
-        digest: preflight.finish(),
     })
 }
 
@@ -313,20 +258,15 @@ pub(super) async fn emit_type2_xobject<S: RangedSource, W: SequentialSink, C: Ca
         image: Some(image.image_number),
         offset: Some(image.payload.offset),
     };
-    let mut copy = DigestingSource::new(source, image);
-    let object = document
+    document
         .add_image(
-            &mut copy,
+            source,
             image.payload.offset,
             image.payload.length,
             image_spec(checked.info()),
         )
         .await
-        .map_err(|error| at.pdf(error))?;
-    if copy.finish() != checked.digest {
-        return Err(at.error(Type2PdfErrorKind::SourceChanged));
-    }
-    Ok(object)
+        .map_err(|error| at.pdf(error))
 }
 
 /// Stream one checked HN/C8 type-1 or type-2 JPEG record into a one-page PDF.
@@ -338,10 +278,10 @@ pub(super) async fn emit_type2_xobject<S: RangedSource, W: SequentialSink, C: Ca
 /// `/DeviceGray` is used for grayscale and `/DeviceRGB` with explicit
 /// `/ColorTransform 1` for three-component JFIF YCbCr. A marker profile alone
 /// does not establish decoded-pixel validity; PDF render conformance is a
-/// separate test. JPEG bytes are not collected: the parser and PDF writer
-/// each read the selected range through a bounded SHA-256 source wrapper, and
-/// differing digests reject changed input. The PDF sink is forward-only and
-/// must be discarded by the caller on any error.
+/// separate test. JPEG bytes are not collected: the marker walk and the PDF
+/// copy each read the selected range once, in bounded chunks. Like every
+/// `RangedSource`, the source must not change during the call. The PDF sink
+/// is forward-only and must be discarded by the caller on any error.
 pub async fn convert_type2_image_pdf<S: RangedSource, W: SequentialSink, C: Cancellation>(
     source: &mut S,
     sink: &mut W,

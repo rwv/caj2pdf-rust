@@ -820,38 +820,6 @@ fn separate_pages_stop_at_the_page_limit_before_reading_the_image() {
 }
 
 #[test]
-fn a_wrapper_that_changes_between_reads_is_refused() {
-    // Width 9 -> 17 keeps the 4-byte DIB stride, so only this check can
-    // notice that the image dictionary no longer matches the rows.
-    let rows = pattern(9, 3, 19);
-    let built = container(Layout::HnB, &[vec![type0(&rows)]]);
-    let payload = built.payloads[0][0];
-    let mut source = Source::new(built.bytes);
-    source.rewrite = Some((payload, payload as usize + 4, 17));
-    let error = convert_with(
-        &mut source,
-        &mut Sink::default(),
-        options(),
-        &Limits::default(),
-    )
-    .unwrap_err();
-    assert!(
-        matches!(&error.kind, Type0PdfErrorKind::Image(e) if matches!(e.kind, Type0ErrorKind::Malformed(_))),
-        "{error}"
-    );
-    assert_eq!(
-        (error.page, error.image, error.offset),
-        (Some(1), Some(1), Some(payload))
-    );
-    assert!(
-        error
-            .to_string()
-            .ends_with("malformed DIB wrapper that changed between reads"),
-        "{error}"
-    );
-}
-
-#[test]
 fn resolution_scales_page_geometry_only() {
     let rows = pattern(32, 2, 7);
     let built = container(Layout::HnB, &[vec![type0(&rows)]]);
@@ -1096,32 +1064,6 @@ fn selected_wrong_type_and_damaged_descriptors_keep_source_location() {
         (error.page, error.image, error.offset),
         (Some(1), Some(2), Some(descriptor as u64))
     );
-}
-
-#[test]
-fn selected_image_rejects_a_wrapper_mutated_between_reads() {
-    let rows = pattern(9, 3, 37);
-    let built = container(Layout::HnB, &[vec![type0(&rows), type0(&rows)]]);
-    let payload = built.payloads[0][1];
-    let mut source = Source::new(built.bytes);
-    source.rewrite = Some((payload, payload as usize + 4, 17));
-    let mut sink = Sink::default();
-    let error = select_with(
-        &mut source,
-        &mut sink,
-        selection(1, 2),
-        options(),
-        &Limits::default(),
-    )
-    .unwrap_err();
-    assert!(
-        matches!(&error.kind, Type0PdfErrorKind::Image(e) if matches!(e.kind, Type0ErrorKind::Malformed(_)))
-    );
-    assert_eq!(
-        (error.page, error.image, error.offset),
-        (Some(1), Some(2), Some(payload))
-    );
-    assert!(error.to_string().contains("changed between reads"));
 }
 
 #[test]

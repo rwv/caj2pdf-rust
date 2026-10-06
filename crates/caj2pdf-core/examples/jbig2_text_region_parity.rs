@@ -273,19 +273,4 @@ mod tests {
         ready(scratch.write_at(1, &[0b0100_0001])).unwrap();
         assert!(pixel_metrics(store.path(), 3, 2).is_err());
     }
-
-    #[test]
-    fn refined_writer_advances_revision_only_after_written_bytes() {
-        let revision = Rc::new(Cell::new(0));
-        let mut sink = TrackedSink {
-            inner: WriteSink::new(Vec::new()),
-            revision: Rc::clone(&revision),
-        };
-        assert_eq!(ready(sink.write(&[1, 2, 3])).unwrap(), 3);
-        assert_eq!(revision.get(), 1);
-        ready(sink.flush()).unwrap();
-        assert_eq!(revision.get(), 1);
-        assert_eq!(ready(sink.write(&[])).unwrap(), 0);
-        assert_eq!(revision.get(), 1);
-    }
 }

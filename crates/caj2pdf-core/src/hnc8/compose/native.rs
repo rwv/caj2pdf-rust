@@ -160,7 +160,7 @@ where
             .map_err(|error| container(error, ComposeStage::Container))?
         {
             let image_at = at.image(record);
-            let (checked, visible_width, display_width, height) = preflight_image(
+            let (checked, type3, visible_width, display_width, height) = preflight_image(
                 reader.source_mut(),
                 record,
                 header.variant,
@@ -172,7 +172,7 @@ where
                 cancellation,
             )
             .await?;
-            top_first.push(matches!(checked, CheckedImage::Type3 { .. }));
+            top_first.push(matches!(checked, CheckedImage::Type3));
             // Native placement comes from the record visitor, after resources
             // are emitted. The codec emitter does not consume this transform.
             let mut image = ComposedImage {
@@ -190,6 +190,7 @@ where
                     reader.source_mut(),
                     &mut document,
                     &mut image,
+                    type3,
                     image_at,
                     &mut contexts,
                     &mut workspaces,

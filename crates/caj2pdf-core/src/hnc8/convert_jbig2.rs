@@ -20,7 +20,7 @@ use crate::jbig2::{
         TextHeaderAnomaly, TextHeaderPolicy, TextRegionBudget, read_text_region_header_with_policy,
     },
     text_composer::{
-        BitmapView, RandomAccessScratch, TextComposeBudget, TextComposeError, TextComposeErrorKind,
+        RandomAccessScratch, TextComposeBudget, TextComposeError, TextComposeErrorKind,
         TextComposeReport, TextComposer,
     },
     text_instances::{TextInstanceBudget, TextInstanceDecoder},
@@ -29,11 +29,9 @@ use crate::pdf::{BilevelImageSpec, ImageObject, PageSpec, PdfDocument};
 use crate::{
     Cancellation, ConversionReport, Error, Limits, RangedSource, SequentialSink, read_exact_at,
 };
-use sha2::{Digest, Sha256};
-use std::{cell::Cell, error, fmt, rc::Rc};
+use std::{error, fmt};
 
 const DIB_BYTES: u64 = 48;
-const HASH_CHUNK: usize = 64 * 1024;
 const POINTS_PER_INCH: f64 = 72.0;
 
 /// One-based image identity. Earlier source pages are intentionally skipped.
@@ -50,7 +48,7 @@ pub struct Type3ImageSelection {
 pub struct Type3Store<'a, R: RangedSource, W: SequentialSink> {
     pub reader: &'a mut R,
     /// Independent handle for text composition while the instance decoder
-    /// holds `reader`. It observes the same backing bytes and revision.
+    /// holds `reader`. It observes the same backing bytes.
     pub compose_reader: &'a mut R,
     pub writer: &'a mut W,
 }
@@ -159,7 +157,6 @@ pub enum Type3PdfErrorKind {
     UnsupportedImageType(u32),
     DibMalformed(&'static str),
     Source(Error),
-    SourceChanged,
     Workspace(&'static str),
     Stage {
         stage: Type3Stage,
@@ -202,9 +199,6 @@ impl fmt::Display for Type3PdfError {
             }
             Type3PdfErrorKind::DibMalformed(reason) => write!(f, "malformed type-3 DIB: {reason}"),
             Type3PdfErrorKind::Source(source) => write!(f, "source: {source}"),
-            Type3PdfErrorKind::SourceChanged => {
-                f.write_str("selected type-3 source span changed between passes")
-            }
             Type3PdfErrorKind::Workspace(reason) => write!(f, "workspace: {reason}"),
             Type3PdfErrorKind::Stage { stage, source } => write!(f, "{stage:?}: {source}"),
             Type3PdfErrorKind::Pdf(source) => write!(f, "PDF output: {source}"),
@@ -316,51 +310,6 @@ impl<S: RangedSource> RangedSource for CountingSource<'_, S> {
     }
 }
 
-struct RevisionedSource<'a, R> {
-    inner: &'a mut R,
-    revision: Rc<Cell<u64>>,
-}
-
-impl<R: RangedSource> RangedSource for RevisionedSource<'_, R> {
-    fn size(&self) -> u64 {
-        self.inner.size()
-    }
-    async fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> crate::Result<usize> {
-        self.inner.read_at(offset, destination).await
-    }
-}
-
-impl<R: RangedSource> BitmapView for RevisionedSource<'_, R> {
-    fn revision(&self) -> crate::Result<u64> {
-        Ok(self.revision.get())
-    }
-}
-
-struct RevisionedSink<'a, W> {
-    inner: &'a mut W,
-    revision: Rc<Cell<u64>>,
-}
-
-impl<W: SequentialSink> SequentialSink for RevisionedSink<'_, W> {
-    async fn write(&mut self, bytes: &[u8]) -> crate::Result<usize> {
-        let next = self
-            .revision
-            .get()
-            .checked_add(1)
-            .ok_or(Error::InvalidInput {
-                reason: "bitmap revision exhausted",
-            })?;
-        let count = self.inner.write(bytes).await?;
-        if count > 0 {
-            self.revision.set(next);
-        }
-        Ok(count)
-    }
-    async fn flush(&mut self) -> crate::Result<()> {
-        self.inner.flush().await
-    }
-}
-
 struct DiscardSink;
 
 impl SequentialSink for DiscardSink {
@@ -370,31 +319,6 @@ impl SequentialSink for DiscardSink {
     async fn flush(&mut self) -> crate::Result<()> {
         Ok(())
     }
-}
-
-async fn digest_span<S: RangedSource, C: Cancellation>(
-    source: &mut S,
-    image: ImageRecord,
-    limits: &Limits,
-    cancellation: &C,
-    at: At,
-) -> Result<[u8; 32], Type3PdfError> {
-    let mut buffer = vec![0_u8; HASH_CHUNK.min(limits.io_chunk_bytes)];
-    let mut hash = Sha256::new();
-    let mut done = 0_u64;
-    while done < image.payload.length {
-        let count = (image.payload.length - done).min(buffer.len() as u64) as usize;
-        let offset = image.payload.offset + done;
-        read_exact_at(source, offset, &mut buffer[..count], limits, cancellation)
-            .await
-            .map_err(|source| {
-                at.with_offset(offset)
-                    .error(Type3PdfErrorKind::Source(source))
-            })?;
-        hash.update(&buffer[..count]);
-        done += count as u64;
-    }
-    Ok(hash.finalize().into())
 }
 
 fn page_spec(page: PageInfo, pixels_per_inch: f64, at: At) -> Result<PageSpec, Type3PdfError> {
@@ -418,9 +342,9 @@ fn page_spec(page: PageInfo, pixels_per_inch: f64, at: At) -> Result<PageSpec, T
 /// Convert one checked type-3 JBIG2 record to one PDF image page.
 ///
 /// This is restricted to the observed five-segment HN/C8 profile. The 47-state
-/// MQ table is caller supplied and never bundled. Selected source bytes are
-/// hashed before preflight, after preflight, and after decode. Intermediate
-/// stores and the full-page text scratch are caller owned and bounded by the
+/// MQ table is caller supplied and never bundled. The selected payload is read
+/// once for its metadata and once to decode it; like every `RangedSource`,
+/// the source must not change during the call. Intermediate stores and the full-page text scratch are caller owned and bounded by the
 /// explicit budgets; platform adapters must clean them up on all paths. The
 /// selected image is emitted top-down, MSB-first, `1 = black`, with zero low
 /// padding and `/Decode [1 0]`. A failed call can leave a partial PDF sink.
@@ -548,18 +472,31 @@ pub async fn convert_type3_image_pdf<
     })
 }
 
-/// Checked source metadata and digest. Geometry is exposed without decoding
-/// pixels; the remaining fields stay paired with their original image span.
+/// Checked source metadata from one preflight pass. Geometry is exposed
+/// without decoding pixels; the directory and profile are reused for decode.
+#[derive(Debug)]
 pub(super) struct CheckedType3 {
     image: ImageRecord,
     directory: crate::jbig2::SegmentDirectory,
     profile: PageProfile,
-    initial_digest: [u8; 32],
 }
 
 impl CheckedType3 {
-    pub(super) fn digest(&self) -> [u8; 32] {
-        self.initial_digest
+    /// Bytes this value keeps alive, including its directory's heap
+    /// allocations, for a caller that retains several checked images.
+    pub(super) fn retained_bytes(&self) -> u64 {
+        let segments = &self.directory.segments;
+        let headers = segments.capacity() * size_of::<crate::jbig2::SegmentHeader>();
+        let references: usize = segments
+            .iter()
+            .map(|segment| {
+                // Each header also keeps one retention bit per reference
+                // plus one for itself.
+                segment.referred_to.capacity() * size_of::<u32>()
+                    + (segment.referred_to.len() + 1).div_ceil(8)
+            })
+            .sum();
+        (size_of::<Self>() + headers + references) as u64
     }
 
     pub(super) fn page(&self) -> PageInfo {
@@ -597,7 +534,6 @@ pub(super) async fn preflight_type3<S: RangedSource, C: Cancellation>(
             "record has no enclosed JBIG2 segments",
         )));
     }
-    let initial_digest = digest_span(source, image, limits, cancellation, at).await?;
     let mut dib = [0_u8; DIB_BYTES as usize];
     read_exact_at(source, image.payload.offset, &mut dib, limits, cancellation)
         .await
@@ -719,7 +655,6 @@ pub(super) async fn preflight_type3<S: RangedSource, C: Cancellation>(
         image,
         directory,
         profile,
-        initial_digest,
     })
 }
 
@@ -744,15 +679,11 @@ where
     let image = checked.image;
     let directory = &checked.directory;
     let text = checked.profile.text_header();
-    let initial_digest = checked.initial_digest;
     let at = At {
         page: Some(image.page_number),
         image: Some(image.image_number),
         offset: Some(image.payload.offset),
     };
-    if digest_span(source, image, limits, cancellation, at).await? != initial_digest {
-        return Err(at.error(Type3PdfErrorKind::SourceChanged));
-    }
     if workspaces.first.reader.size() != 0
         || workspaces.first.compose_reader.size() != 0
         || workspaces.second.reader.size() != 0
@@ -768,41 +699,6 @@ where
             "intermediate stores and text scratch must start empty",
         )));
     }
-    let first_revision = Rc::new(Cell::new(0));
-    let second_revision = Rc::new(Cell::new(0));
-    let refined_revision = Rc::new(Cell::new(0));
-    let mut first_reader = RevisionedSource {
-        inner: workspaces.first.reader,
-        revision: first_revision.clone(),
-    };
-    let mut first_compose_reader = RevisionedSource {
-        inner: workspaces.first.compose_reader,
-        revision: first_revision.clone(),
-    };
-    let mut second_reader = RevisionedSource {
-        inner: workspaces.second.reader,
-        revision: second_revision.clone(),
-    };
-    let mut second_compose_reader = RevisionedSource {
-        inner: workspaces.second.compose_reader,
-        revision: second_revision.clone(),
-    };
-    let mut refined_reader = RevisionedSource {
-        inner: workspaces.refined.reader,
-        revision: refined_revision.clone(),
-    };
-    let mut first_writer = RevisionedSink {
-        inner: workspaces.first.writer,
-        revision: first_revision,
-    };
-    let mut second_writer = RevisionedSink {
-        inner: workspaces.second.writer,
-        revision: second_revision,
-    };
-    let mut refined_writer = RevisionedSink {
-        inner: workspaces.refined.writer,
-        revision: refined_revision,
-    };
     let mut first_banks = IntegerContextBanks::with_extra_contexts(1024, limits, &options.mq)
         .map_err(|error| {
             at.with_offset(directory.segments[1].data.offset)
@@ -813,7 +709,7 @@ where
         &directory.segments[1],
         table,
         &mut first_banks,
-        &mut first_writer,
+        workspaces.first.writer,
         limits,
         cancellation,
         options.mq,
@@ -854,10 +750,10 @@ where
         &directory.segments[2],
         &directory.segments[1],
         &first_report,
-        &mut first_reader,
+        workspaces.first.reader,
         0,
-        &mut second_reader,
-        &mut second_writer,
+        workspaces.second.reader,
+        workspaces.second.writer,
         0,
         table,
         &mut second_banks,
@@ -891,11 +787,11 @@ where
         text,
         &directory.segments[2],
         &second_report,
-        &mut first_reader,
+        workspaces.first.reader,
         0,
-        &mut second_reader,
+        workspaces.second.reader,
         0,
-        &mut refined_writer,
+        workspaces.refined.writer,
         0,
         table,
         &mut text_banks,
@@ -928,11 +824,11 @@ where
             text,
             &second_report.catalog.exported_symbols,
             &mut text_decoder,
-            &mut first_compose_reader,
+            workspaces.first.compose_reader,
             0,
-            &mut second_compose_reader,
+            workspaces.second.compose_reader,
             0,
-            &mut refined_reader,
+            workspaces.refined.reader,
             0,
             workspaces.text,
             &mut discard,
@@ -979,7 +875,6 @@ where
     let page = checked.page();
     let profile = checked.profile;
     let directory = &checked.directory;
-    let initial_digest = checked.initial_digest;
     let at = At {
         page: Some(image.page_number),
         image: Some(image.image_number),
@@ -1045,9 +940,6 @@ where
         .await
         .map_err(|error| at.stage(Type3Stage::PageCompose, error))?;
     drop(page_sink);
-    if digest_span(source, image, limits, cancellation, at).await? != initial_digest {
-        return Err(at.error(Type3PdfErrorKind::SourceChanged));
-    }
     let object = rows.finish().await.map_err(|error| at.pdf(error))?;
     Ok((object, page_compose))
 }
@@ -1163,11 +1055,6 @@ mod tests {
             ),
             (Type3PdfErrorKind::Source(invalid_input()), "source:", true),
             (
-                Type3PdfErrorKind::SourceChanged,
-                "changed between passes",
-                false,
-            ),
-            (
                 Type3PdfErrorKind::Workspace("dirty store"),
                 "workspace:",
                 false,
@@ -1257,58 +1144,6 @@ mod tests {
         }
     }
 
-    struct ShortWriter {
-        bytes: Vec<u8>,
-        fail: bool,
-    }
-
-    impl SequentialSink for ShortWriter {
-        async fn write(&mut self, bytes: &[u8]) -> crate::Result<usize> {
-            if self.fail {
-                return Err(invalid_input());
-            }
-            let count = bytes.len().min(1);
-            self.bytes.extend_from_slice(&bytes[..count]);
-            Ok(count)
-        }
-
-        async fn flush(&mut self) -> crate::Result<()> {
-            Ok(())
-        }
-    }
-
-    #[test]
-    fn bitmap_revision_advances_only_when_a_store_accepts_bytes() {
-        let revision = Rc::new(Cell::new(0));
-        let mut reader = ByteReader(vec![0x80]);
-        let mut viewed = RevisionedSource {
-            inner: &mut reader,
-            revision: revision.clone(),
-        };
-        let mut byte = [0];
-        assert_eq!(viewed.size(), 1);
-        assert_eq!(ready(viewed.read_at(0, &mut byte)).unwrap(), 1);
-        assert_eq!(byte, [0x80]);
-        assert_eq!(viewed.revision().unwrap(), 0);
-
-        let mut store = ShortWriter {
-            bytes: Vec::new(),
-            fail: false,
-        };
-        let mut writer = RevisionedSink {
-            inner: &mut store,
-            revision,
-        };
-        assert_eq!(ready(writer.write(&[0xaa, 0xbb])).unwrap(), 1);
-        assert_eq!(viewed.revision().unwrap(), 1);
-        assert_eq!(ready(writer.write(&[])).unwrap(), 0);
-        assert_eq!(viewed.revision().unwrap(), 1);
-        ready(writer.flush()).unwrap();
-        writer.inner.fail = true;
-        assert!(ready(writer.write(&[0xcc])).is_err());
-        assert_eq!(viewed.revision().unwrap(), 1);
-        assert_eq!(writer.inner.bytes, [0xaa]);
-    }
     mod fixture {
         include!("../../tests/common/type3_fixture.rs");
     }

@@ -166,9 +166,9 @@ struct Source {
     fail_at: Option<u64>,
     fail_on_offset_visit: Option<(u64, usize)>,
     failed_offset_visits: usize,
-    mutate_at_call: Option<(usize, usize)>,
-    mutate_at_offset_visit: Option<(u64, usize, usize)>,
-    offset_visits: usize,
+    /// Absolute `[start, end)` span whose returned bytes are counted.
+    payload: Option<(u64, u64)>,
+    payload_bytes_read: u64,
 }
 
 impl Source {
@@ -184,9 +184,8 @@ impl Source {
             fail_at: None,
             fail_on_offset_visit: None,
             failed_offset_visits: 0,
-            mutate_at_call: None,
-            mutate_at_offset_visit: None,
-            offset_visits: 0,
+            payload: None,
+            payload_bytes_read: 0,
         }
     }
 }
@@ -203,19 +202,6 @@ impl RangedSource for Source {
     ) -> caj2pdf_core::Result<usize> {
         self.calls += 1;
         self.max_request = self.max_request.max(destination.len());
-        if let Some((call, index)) = self.mutate_at_call
-            && self.calls == call
-        {
-            self.bytes[index] ^= 1;
-        }
-        if let Some((watched, visit, index)) = self.mutate_at_offset_visit
-            && offset == watched
-        {
-            self.offset_visits += 1;
-            if self.offset_visits == visit {
-                self.bytes[index] ^= 1;
-            }
-        }
         if self.fail_at == Some(offset) {
             return Err(Error::Io(io::Error::other("injected source failure")));
         }
@@ -243,6 +229,12 @@ impl RangedSource for Source {
             .min(destination.len())
             .min(self.max_read);
         destination[..count].copy_from_slice(&self.bytes[start..start + count]);
+        if let Some((first, end)) = self.payload {
+            let overlap = (offset + count as u64)
+                .min(end)
+                .saturating_sub(offset.max(first));
+            self.payload_bytes_read += overlap;
+        }
         Ok(count)
     }
 }
@@ -761,30 +753,31 @@ fn malformed_dib_palette_segments_and_page_geometry_are_rejected_before_pdf() {
 }
 
 #[test]
-fn selected_span_mutation_between_checked_passes_is_refused() {
-    let built = container(Layout::HnA, &[vec![type3(9, 3, 0x10)]]);
+fn selected_type3_payload_is_read_once_for_metadata_and_once_for_decode() {
+    let record = type3(9, 3, 0x10);
+    let length = record.payload.len() as u64;
+    let built = container(Layout::HnA, &[vec![record]]);
     let payload = built.payloads[0][0];
-    for visit in [2, 3, 4] {
-        let mut source = Source::new(built.bytes.clone());
-        source.mutate_at_offset_visit = Some((payload, visit, payload as usize + 24));
-        let mut sink = Sink::default();
-        let error = run(
-            &mut source,
-            &mut sink,
-            selection(1, 1),
-            options(),
-            &Limits::default(),
-            &NeverCancel,
-        )
-        .unwrap_err();
-        assert_eq!((error.page, error.image), (Some(1), Some(1)));
-        assert!(
-            matches!(error.kind, Type3PdfErrorKind::SourceChanged),
-            "visit {visit}: {error:?}"
-        );
-        // A post-decode failure may already have written an image stream.
-        // The caller must discard this sink and never expose it as a PDF.
-    }
+    let mut source = Source::new(built.bytes);
+    source.max_read = 7;
+    source.payload = Some((payload, payload + length));
+    let mut sink = Sink::default();
+    run(
+        &mut source,
+        &mut sink,
+        selection(1, 1),
+        options(),
+        &Limits::default(),
+        &NeverCancel,
+    )
+    .unwrap();
+    // Preflight reads the DIB and segment metadata; decode reads the coded
+    // segments. Neither pass hashes or re-reads the whole span.
+    assert!(
+        source.payload_bytes_read <= 2 * length,
+        "{} payload bytes read for a {length}-byte span",
+        source.payload_bytes_read
+    );
 }
 
 #[test]

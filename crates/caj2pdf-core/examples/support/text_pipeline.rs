@@ -18,7 +18,7 @@ use caj2pdf_core::{
             read_text_region_header_with_policy,
         },
         text_composer::{
-            BitmapStore, BitmapView, RandomAccessScratch, TextComposeBudget, TextComposeError,
+            BitmapStore, RandomAccessScratch, TextComposeBudget, TextComposeError,
             TextComposeErrorKind, TextComposeReport, TextComposer,
         },
         text_instances::{TextInstanceBudget, TextInstanceDecoder, TextInstanceError},
@@ -29,11 +29,9 @@ use sha2::{Digest, Sha256};
 #[cfg(unix)]
 use std::fs;
 use std::{
-    cell::Cell,
     error::Error as StdError,
     fs::{File, OpenOptions},
     io::{Read, Seek, SeekFrom, Write},
-    rc::Rc,
 };
 
 pub(crate) const COMPATIBILITY_ARG: &str = "hn-c8-unused-refinement-template";
@@ -193,59 +191,6 @@ impl RandomAccessScratch for FileScratch {
         self.0.flush()?;
         self.0.sync_data()?;
         Ok(())
-    }
-}
-
-/// The source handle is read-only; only the matching producer advances its
-/// revision. The producer has exclusive ownership of a private temp file.
-struct TrackedSource<S> {
-    inner: S,
-    revision: Rc<Cell<u64>>,
-}
-
-impl<S: RangedSource> RangedSource for TrackedSource<S> {
-    fn size(&self) -> u64 {
-        self.inner.size()
-    }
-
-    async fn read_at(
-        &mut self,
-        offset: u64,
-        destination: &mut [u8],
-    ) -> caj2pdf_core::Result<usize> {
-        self.inner.read_at(offset, destination).await
-    }
-}
-
-impl<S: RangedSource> BitmapView for TrackedSource<S> {
-    fn revision(&self) -> caj2pdf_core::Result<u64> {
-        Ok(self.revision.get())
-    }
-}
-
-pub(crate) struct TrackedSink<W> {
-    pub(crate) inner: W,
-    pub(crate) revision: Rc<Cell<u64>>,
-}
-
-impl<W: SequentialSink> SequentialSink for TrackedSink<W> {
-    async fn write(&mut self, bytes: &[u8]) -> caj2pdf_core::Result<usize> {
-        let next = self
-            .revision
-            .get()
-            .checked_add(1)
-            .ok_or(Error::InvalidInput {
-                reason: "refined bitmap-store revision exhausted",
-            })?;
-        let written = self.inner.write(bytes).await?;
-        if written > 0 {
-            self.revision.set(next);
-        }
-        Ok(written)
-    }
-
-    async fn flush(&mut self) -> caj2pdf_core::Result<()> {
-        self.inner.flush().await
     }
 }
 
@@ -485,11 +430,7 @@ pub(crate) fn run_text_phase<W: SequentialSink>(
         IaidContextBanks::with_bitmap_contexts(code_len, 1024, &limits, &mq_budget)?;
     let mut new_store = SeekableSource::new(File::open(second_store.path())?)?;
     let (temporary_store, temporary_file) = TempStore::create("caj2pdf-text-refined")?;
-    let refined_revision = Rc::new(Cell::new(0));
-    let mut temporary_sink = TrackedSink {
-        inner: WriteSink::new(temporary_file),
-        revision: Rc::clone(&refined_revision),
-    };
+    let mut temporary_sink = WriteSink::new(temporary_file);
     let mut text_decoder = match ready(TextInstanceDecoder::new_with_header_policy(
         &mut *source,
         &third,
@@ -515,18 +456,9 @@ pub(crate) fn run_text_phase<W: SequentialSink>(
         Ok(decoder) => decoder,
         Err(error) => return Ok(TextPhaseOutcome::Refused(instance_refusal(error))),
     };
-    let mut imported_for_compose = TrackedSource {
-        inner: SeekableSource::new(File::open(first_store.path())?)?,
-        revision: Rc::new(Cell::new(0)),
-    };
-    let mut new_for_compose = TrackedSource {
-        inner: SeekableSource::new(File::open(second_store.path())?)?,
-        revision: Rc::new(Cell::new(0)),
-    };
-    let mut refined_for_compose = TrackedSource {
-        inner: GrowingFileSource(File::open(temporary_store.path())?),
-        revision: Rc::clone(&refined_revision),
-    };
+    let mut imported_for_compose = SeekableSource::new(File::open(first_store.path())?)?;
+    let mut new_for_compose = SeekableSource::new(File::open(second_store.path())?)?;
+    let mut refined_for_compose = GrowingFileSource(File::open(temporary_store.path())?);
     #[cfg(unix)]
     for path in [
         first_store.path(),
@@ -591,7 +523,7 @@ pub(crate) fn run_text_phase<W: SequentialSink>(
         return Err("composed report differs from validated text-header policy".into());
     }
     drop(text_decoder);
-    let refined_bytes = temporary_sink.inner.into_inner().metadata()?.len();
+    let refined_bytes = temporary_sink.into_inner().metadata()?.len();
     let scratch_bytes = first_bytes
         .checked_add(second_bytes)
         .and_then(|n| n.checked_add(refined_bytes))

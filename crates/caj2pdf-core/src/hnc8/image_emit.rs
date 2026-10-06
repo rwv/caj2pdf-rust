@@ -290,7 +290,7 @@ where
             length,
             position: 0,
         };
-        decode_type0_rows(source, image, checked, contexts, &mut rows, settings)
+        decode_type0_rows(source, image, contexts, &mut rows, settings)
             .await
             .map_err(|error| {
                 failed(
@@ -682,7 +682,7 @@ mod tests {
     fn run(
         scratch: &mut Scratch,
         budget: Type0ScratchBudget,
-        alter: impl FnOnce(&mut Type0Info, &mut Source),
+        alter: impl FnOnce(&mut Type0Info),
         fail_pdf: bool,
     ) -> Result<Type0ScratchReport, Box<Type0ScratchError>> {
         let (mut source, record) = image();
@@ -693,7 +693,7 @@ mod tests {
         let table = table();
         let settings = settings(&table, &limits, &NEVER);
         let mut checked = info(&mut source, record, &settings);
-        alter(&mut checked, &mut source);
+        alter(&mut checked);
         let mut contexts = ContextBank::new(1024, &limits).unwrap();
         let mut sink = Sink::default();
         let sink_failure = Rc::clone(&sink.fail);
@@ -719,7 +719,7 @@ mod tests {
             let error = run(
                 &mut scratch,
                 Type0ScratchBudget::default(),
-                |info, _| match alter {
+                |info| match alter {
                     0 => info.width = 0,
                     1 => info.height = 0,
                     2 => info.dib_stride = 3,
@@ -760,7 +760,7 @@ mod tests {
                 bytes: vec![0x5a; 4],
                 ..Scratch::default()
             };
-            let error = run(&mut scratch, budget, |_, _| {}, false).unwrap_err();
+            let error = run(&mut scratch, budget, |_| {}, false).unwrap_err();
             assert_eq!(error.stage, Type0ScratchStage::Prepare);
             assert!(scratch.bytes.is_empty());
         }
@@ -779,7 +779,7 @@ mod tests {
                     max_work_bytes,
                     ..Type0ScratchBudget::default()
                 },
-                |_, _| {},
+                |_| {},
                 false,
             )
             .unwrap_err();
@@ -803,13 +803,8 @@ mod tests {
                 } else {
                     scratch.fail_len_at = Some(call);
                 }
-                let error = run(
-                    &mut scratch,
-                    Type0ScratchBudget::default(),
-                    |_, _| {},
-                    false,
-                )
-                .unwrap_err();
+                let error =
+                    run(&mut scratch, Type0ScratchBudget::default(), |_| {}, false).unwrap_err();
                 assert_eq!(
                     error.stage,
                     if call == 3 {
@@ -829,13 +824,7 @@ mod tests {
             fail_size: true,
             ..Scratch::default()
         };
-        let error = run(
-            &mut scratch,
-            Type0ScratchBudget::default(),
-            |_, _| {},
-            false,
-        )
-        .unwrap_err();
+        let error = run(&mut scratch, Type0ScratchBudget::default(), |_| {}, false).unwrap_err();
         assert_eq!(error.stage, Type0ScratchStage::Prepare);
         assert!(error.cleanup_error.is_some());
         assert!(error.to_string().contains("cleanup also failed"));
@@ -848,13 +837,8 @@ mod tests {
                 write_fault,
                 ..Scratch::default()
             };
-            let error = run(
-                &mut scratch,
-                Type0ScratchBudget::default(),
-                |_, _| {},
-                false,
-            )
-            .unwrap_err();
+            let error =
+                run(&mut scratch, Type0ScratchBudget::default(), |_| {}, false).unwrap_err();
             assert_eq!(error.stage, Type0ScratchStage::Decode);
             let inner = error
                 .source()
@@ -871,13 +855,7 @@ mod tests {
             fail_len_at: Some(3),
             ..Scratch::default()
         };
-        let error = run(
-            &mut scratch,
-            Type0ScratchBudget::default(),
-            |_, _| {},
-            false,
-        )
-        .unwrap_err();
+        let error = run(&mut scratch, Type0ScratchBudget::default(), |_| {}, false).unwrap_err();
         assert_eq!(error.stage, Type0ScratchStage::Decode);
         assert!(error.cleanup_error.is_some());
         assert_eq!(
@@ -889,41 +867,9 @@ mod tests {
             fail_flush: true,
             ..Scratch::default()
         };
-        let error = run(
-            &mut scratch,
-            Type0ScratchBudget::default(),
-            |_, _| {},
-            false,
-        )
-        .unwrap_err();
+        let error = run(&mut scratch, Type0ScratchBudget::default(), |_| {}, false).unwrap_err();
         assert_eq!(error.stage, Type0ScratchStage::Decode);
         assert_eq!(error.report.scratch_write_bytes, 8);
-        assert!(scratch.bytes.is_empty());
-    }
-
-    #[test]
-    fn changed_wrapper_is_rejected_before_any_row_or_image_bytes() {
-        let mut scratch = Scratch::default();
-        let error = run(
-            &mut scratch,
-            Type0ScratchBudget::default(),
-            |_, source| source.0[4..8].copy_from_slice(&2_u32.to_le_bytes()),
-            false,
-        )
-        .unwrap_err();
-        assert_eq!(error.stage, Type0ScratchStage::Decode);
-        let inner = error
-            .source()
-            .unwrap()
-            .downcast_ref::<Type0PdfError>()
-            .expect("typed wrapper error remains the source");
-        assert_eq!(inner.offset, Some(0));
-        assert!(
-            inner
-                .to_string()
-                .contains("DIB wrapper that changed between reads")
-        );
-        assert_eq!(error.report.scratch_write_bytes, 0);
         assert!(scratch.bytes.is_empty());
     }
 
@@ -934,20 +880,15 @@ mod tests {
                 read_fault,
                 ..Scratch::default()
             };
-            let error = run(
-                &mut scratch,
-                Type0ScratchBudget::default(),
-                |_, _| {},
-                false,
-            )
-            .unwrap_err();
+            let error =
+                run(&mut scratch, Type0ScratchBudget::default(), |_| {}, false).unwrap_err();
             assert_eq!(error.stage, Type0ScratchStage::Emit);
             assert!(matches!(error.kind, Type0ScratchErrorKind::Store(_)));
             assert_eq!(error.report.scratch_write_bytes, 8);
             assert!(scratch.bytes.is_empty());
         }
         let mut scratch = Scratch::default();
-        let error = run(&mut scratch, Type0ScratchBudget::default(), |_, _| {}, true).unwrap_err();
+        let error = run(&mut scratch, Type0ScratchBudget::default(), |_| {}, true).unwrap_err();
         assert_eq!(error.stage, Type0ScratchStage::Emit);
         assert!(matches!(error.kind, Type0ScratchErrorKind::Pdf(_)));
         assert!(error.to_string().contains("PDF output"));
@@ -1115,26 +1056,15 @@ mod tests {
     #[test]
     fn metadata_read_errors_before_readback_are_typed_and_reset_storage() {
         let mut baseline = Scratch::default();
-        run(
-            &mut baseline,
-            Type0ScratchBudget::default(),
-            |_, _| {},
-            false,
-        )
-        .unwrap();
+        run(&mut baseline, Type0ScratchBudget::default(), |_| {}, false).unwrap();
         let mut reached_readback = false;
         for at in 1..=baseline.size_calls.get() {
             let mut scratch = Scratch {
                 fail_size_at: Some(at),
                 ..Scratch::default()
             };
-            let error = run(
-                &mut scratch,
-                Type0ScratchBudget::default(),
-                |_, _| {},
-                false,
-            )
-            .unwrap_err();
+            let error =
+                run(&mut scratch, Type0ScratchBudget::default(), |_| {}, false).unwrap_err();
             reached_readback |= error.stage == Type0ScratchStage::Emit
                 && error.report.scratch_write_bytes == 8
                 && error.report.scratch_read_bytes == 0;
