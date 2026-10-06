@@ -4,111 +4,24 @@
 //! host's installed fonts are never read.
 
 use super::*;
-use crate::files::NEXT_TEMP;
+use crate::tests::TempDir;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::symlink;
-use std::sync::atomic::Ordering;
 
-const GEOMETRIC: &[u8] = include_bytes!("../../../../tests/fonts/geometric.ttf");
+#[allow(dead_code)]
+mod original_font {
+    include!("../../../caj2pdf-core/tests/common/font_fixture.rs");
+}
+use original_font::{collection, named_font as named};
 
-struct Tree(PathBuf);
-
-impl Tree {
-    fn new() -> Self {
-        let path = std::env::temp_dir().join(format!(
-            "caj2pdf-cli-fonts-{}-{}",
-            std::process::id(),
-            NEXT_TEMP.fetch_add(1, Ordering::Relaxed)
-        ));
-        fs::create_dir(&path).unwrap();
-        Self(path)
-    }
-
-    fn path(&self, name: &str) -> PathBuf {
-        self.0.join(name)
-    }
-
-    fn write(&self, name: &str, bytes: &[u8]) -> PathBuf {
-        let path = self.path(name);
-        fs::create_dir_all(path.parent().unwrap()).unwrap();
-        fs::write(&path, bytes).unwrap();
-        path
+fn wanted(names: &'static [&'static str]) -> impl Fn(&OsStr) -> bool {
+    move |name| {
+        name.to_str()
+            .is_some_and(|name| names.iter().any(|wanted| wanted.eq_ignore_ascii_case(name)))
     }
 }
 
-impl Drop for Tree {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.0);
-    }
-}
-
-fn get32(bytes: &[u8], at: usize) -> usize {
-    u32::from_be_bytes(bytes[at..at + 4].try_into().unwrap()) as usize
-}
-
-/// The original geometric fixture with PostScript name `postscript`: its
-/// tables are copied and the `name` table is replaced.
-fn named(postscript: &str) -> Vec<u8> {
-    let count = u16::from_be_bytes([GEOMETRIC[4], GEOMETRIC[5]]) as usize;
-    let mut tables: Vec<([u8; 4], Vec<u8>)> = (0..count)
-        .map(|index| {
-            let entry = 12 + 16 * index;
-            let (offset, length) = (get32(GEOMETRIC, entry + 8), get32(GEOMETRIC, entry + 12));
-            let tag = GEOMETRIC[entry..entry + 4].try_into().unwrap();
-            (tag, GEOMETRIC[offset..offset + length].to_vec())
-        })
-        .collect();
-    let mut name = Vec::new();
-    for value in [0, 1, 18, 3, 1, 0x409, 6, 2 * postscript.len() as u16, 0] {
-        name.extend(value.to_be_bytes());
-    }
-    name.extend(postscript.encode_utf16().flat_map(u16::to_be_bytes));
-    tables
-        .iter_mut()
-        .find(|table| &table.0 == b"name")
-        .unwrap()
-        .1 = name;
-    let mut font = GEOMETRIC[..12 + 16 * count].to_vec();
-    for (index, (_, bytes)) in tables.iter().enumerate() {
-        let entry = 12 + 16 * index;
-        let offset = font.len() as u32;
-        font[entry + 8..entry + 12].copy_from_slice(&offset.to_be_bytes());
-        font[entry + 12..entry + 16].copy_from_slice(&(bytes.len() as u32).to_be_bytes());
-        font.extend(bytes);
-        font.resize(font.len().next_multiple_of(4), 0);
-    }
-    font
-}
-
-/// A collection whose face `i` is `fonts[order[i]]`; faces may share bytes.
-fn collection(fonts: &[Vec<u8>], order: &[usize]) -> Vec<u8> {
-    let mut bytes = b"ttcf\0\x01\0\0".to_vec();
-    bytes.extend((order.len() as u32).to_be_bytes());
-    bytes.resize(12 + 4 * order.len(), 0);
-    let mut bases = Vec::new();
-    for font in fonts {
-        let base = bytes.len();
-        bases.push(base);
-        let mut font = font.clone();
-        let count = u16::from_be_bytes([font[4], font[5]]) as usize;
-        for table in 0..count {
-            let at = 12 + 16 * table + 8;
-            let offset = (get32(&font, at) + base) as u32;
-            font[at..at + 4].copy_from_slice(&offset.to_be_bytes());
-        }
-        bytes.extend(font);
-    }
-    for (face, font) in order.iter().enumerate() {
-        bytes[12 + 4 * face..16 + 4 * face].copy_from_slice(&(bases[*font] as u32).to_be_bytes());
-    }
-    bytes
-}
-
-fn wanted(names: &[&str]) -> HashSet<String> {
-    names.iter().map(|name| name.to_ascii_lowercase()).collect()
-}
-
-fn env<'a>(pairs: &'a [(&'a str, &'a str)]) -> impl Fn(&str) -> Option<OsString> + 'a {
+fn env<'a>(pairs: &'a [(&'a str, &'a str)]) -> impl Fn(&'static str) -> Option<OsString> + 'a {
     move |name| {
         pairs
             .iter()
@@ -184,9 +97,9 @@ fn platform_roots_follow_the_environment_in_a_fixed_order() {
 
 #[test]
 fn walks_are_sorted_bounded_and_never_follow_directory_links() {
-    let tree = Tree::new();
+    let tree = TempDir::new("fonts");
     let names = wanted(&["a.ttf", "b.ttf"]);
-    let root = tree.path("root");
+    let root = tree.0.join("root");
     // Entries are visited in name order, files of a directory before the
     // contents of later subdirectories; names match without case.
     tree.write("root/z/a.ttf", b"");
@@ -196,15 +109,15 @@ fn walks_are_sorted_bounded_and_never_follow_directory_links() {
     tree.write("root/other.ttf", b"");
     // A wanted name that is a directory or a dangling link is not a file;
     // a link to a file is.
-    fs::create_dir_all(tree.path("root/dir/b.ttf")).unwrap();
-    fs::create_dir_all(tree.path("root/dangling")).unwrap();
-    symlink(tree.path("missing"), tree.path("root/dangling/a.ttf")).unwrap();
+    fs::create_dir_all(tree.0.join("root/dir/b.ttf")).unwrap();
+    fs::create_dir_all(tree.0.join("root/dangling")).unwrap();
+    symlink(tree.0.join("missing"), tree.0.join("root/dangling/a.ttf")).unwrap();
     tree.write("outside/b.ttf", b"");
-    fs::create_dir_all(tree.path("root/link")).unwrap();
-    symlink(tree.path("outside/b.ttf"), tree.path("root/link/b.ttf")).unwrap();
+    fs::create_dir_all(tree.0.join("root/link")).unwrap();
+    symlink(tree.0.join("outside/b.ttf"), tree.0.join("root/link/b.ttf")).unwrap();
     // A directory link (here a cycle back to the root) is not followed.
-    symlink(&root, tree.path("root/m/loop")).unwrap();
-    symlink(tree.path("outside"), tree.path("root/m/out")).unwrap();
+    symlink(&root, tree.0.join("root/m/loop")).unwrap();
+    symlink(tree.0.join("outside"), tree.0.join("root/m/out")).unwrap();
     // A name that is not Unicode never matches.
     let raw = root.join(OsStr::from_bytes(b"\xff.ttf"));
     fs::write(&raw, b"").unwrap();
@@ -218,12 +131,12 @@ fn walks_are_sorted_bounded_and_never_follow_directory_links() {
     let expected: Vec<_> = expected.iter().map(|p| tree.0.join(p)).collect();
     // A missing root, a file root and a repeated root (also through a link)
     // add nothing.
-    symlink(&root, tree.path("alias")).unwrap();
+    symlink(&root, tree.0.join("alias")).unwrap();
     let roots = [
-        tree.path("absent"),
-        tree.path("root/a.ttf"),
+        tree.0.join("absent"),
+        tree.0.join("root/a.ttf"),
         root.clone(),
-        tree.path("alias"),
+        tree.0.join("alias"),
     ];
     let found = walk(&roots, &names, MAX_ENTRIES);
     assert_eq!(
@@ -243,7 +156,7 @@ fn walks_are_sorted_bounded_and_never_follow_directory_links() {
         expected[..3]
     );
     // A root and MAX_DEPTH levels below it are entered; deeper ones are not.
-    let top = tree.path("deep");
+    let top = tree.0.join("deep");
     let mut deep = top.clone();
     let mut entered = Vec::new();
     for level in 0..=MAX_DEPTH + 1 {
@@ -259,7 +172,7 @@ fn walks_are_sorted_bounded_and_never_follow_directory_links() {
 
 #[test]
 fn faces_are_matched_by_postscript_name_in_list_order() {
-    let tree = Tree::new();
+    let tree = TempDir::new("fonts");
     let limits = Limits::default();
     let jp = named("NotoSerifCJKjp-Regular");
     let sc = named("NotoSerifCJKsc-Regular");
@@ -275,24 +188,24 @@ fn faces_are_matched_by_postscript_name_in_list_order() {
     tree.write("a/FreeSerif.ttf", &named("NotFreeSerif"));
     tree.write("b/DejaVuSans.ttf", b"not a font");
     tree.write("c/LiberationSerif-Regular.ttf", &named("LiberationSerif"));
-    let roots = [tree.path("a"), tree.path("b"), tree.path("c")];
+    let roots = [tree.0.join("a"), tree.0.join("b"), tree.0.join("c")];
     let installed = discover(&roots, &limits).unwrap();
     assert_eq!(
         installed,
         Installed {
             choices: [
                 Choice {
-                    path: tree.path("a/NotoSerifCJK-Regular.ttc"),
+                    path: tree.0.join("a/NotoSerifCJK-Regular.ttc"),
                     face: 1,
                     postscript: "NotoSerifCJKsc-Regular",
                 },
                 Choice {
-                    path: tree.path("c/LiberationSerif-Regular.ttf"),
+                    path: tree.0.join("c/LiberationSerif-Regular.ttf"),
                     face: 0,
                     postscript: "LiberationSerif",
                 },
             ],
-            truncated: false,
+            stopped_after: None,
         }
     );
     assert_eq!(
@@ -300,15 +213,15 @@ fn faces_are_matched_by_postscript_name_in_list_order() {
         format!(
             "caj2pdf: using installed CJK font {}#1 (NotoSerifCJKsc-Regular)\n\
              caj2pdf: using installed Latin font {} (LiberationSerif)\n",
-            tree.path("a/NotoSerifCJK-Regular.ttc").display(),
-            tree.path("c/LiberationSerif-Regular.ttf").display()
+            tree.0.join("a/NotoSerifCJK-Regular.ttc").display(),
+            tree.0.join("c/LiberationSerif-Regular.ttf").display()
         )
     );
     // List order, not root order, picks between installed faces.
     tree.write("a/FreeSerif.ttf", &named("FreeSerif"));
-    let installed = discover(&[tree.path("c"), tree.path("a")], &limits).unwrap();
+    let installed = discover(&[tree.0.join("c"), tree.0.join("a")], &limits).unwrap();
     assert_eq!(installed.choices[1].postscript, "FreeSerif");
-    fs::remove_file(tree.path("a/NotoSerifCJK-Regular.ttc")).unwrap();
+    fs::remove_file(tree.0.join("a/NotoSerifCJK-Regular.ttc")).unwrap();
     let installed = discover(&roots, &limits).unwrap();
     assert_eq!(installed.choices[0].postscript, "WenQuanYiZenHei");
     assert_eq!(installed.choices[0].face, 0);
@@ -325,55 +238,50 @@ fn faces_are_matched_by_postscript_name_in_list_order() {
     );
     fs::write(&file, faces(MAX_FACES as usize + 1)).unwrap();
     assert_eq!(find_face(&file, "NotoSerifCJKsc-Regular", &limits), None);
-    assert_eq!(find_face(&tree.path("d/absent.ttc"), "x", &limits), None);
+    assert_eq!(find_face(&tree.0.join("d/absent.ttc"), "x", &limits), None);
 }
 
 #[test]
 fn missing_roles_name_the_searched_directories_and_the_options() {
-    let tree = Tree::new();
+    let tree = TempDir::new("fonts");
     let limits = Limits::default();
     let message = discover(&[], &limits).unwrap_err();
     assert!(message.contains("no known installed CJK or Latin font was found in no directories"));
     assert!(message.contains("--fonts DIR or --font-cjk FILE --font-latin FILE"));
     tree.write("fonts/FreeSerif.ttf", &named("FreeSerif"));
-    let message = discover(&[tree.path("fonts"), tree.path("none")], &limits).unwrap_err();
+    let message = discover(&[tree.0.join("fonts"), tree.0.join("none")], &limits).unwrap_err();
     assert!(
         message.contains(&format!(
             "no known installed CJK font was found in '{}', '{}';",
-            tree.path("fonts").display(),
-            tree.path("none").display()
+            tree.0.join("fonts").display(),
+            tree.0.join("none").display()
         )),
         "{message}"
     );
     tree.write("fonts/simsun.ttc", &named("SimSun"));
-    discover(&[tree.path("fonts")], &limits).unwrap();
-    // The entry bound is reported with the result.
-    for index in 0..MAX_ENTRIES {
-        fs::write(tree.path(&format!("fonts/{index:05}")), b"").unwrap();
+    discover(&[tree.0.join("fonts")], &limits).unwrap();
+    // The entry bound is reported with the result: the directory holds
+    // two fonts and three other entries, read in name order.
+    for name in ["0", "1", "2"] {
+        tree.write(&format!("fonts/{name}"), b"");
     }
-    let message = discover(&[tree.path("fonts")], &limits).unwrap_err();
+    let message = discover_with(&[tree.0.join("fonts")], &limits, 4).unwrap_err();
+    assert!(message.contains("(stopped after 4 entries)"), "{message}");
     assert!(
-        message.contains(&format!("(stopped after {MAX_ENTRIES} entries)")),
+        message.contains("with --no-system-fonts, an HN-B document"),
         "{message}"
     );
+    let installed = discover_with(&[tree.0.join("fonts")], &limits, 5).unwrap();
+    assert_eq!(installed.stopped_after, None);
     let installed = Installed {
-        choices: [
-            Choice {
-                path: "/c.ttf".into(),
-                face: 0,
-                postscript: "SimSun",
-            },
-            Choice {
-                path: "/l.ttf".into(),
-                face: 0,
-                postscript: "FreeSerif",
-            },
-        ],
-        truncated: true,
+        stopped_after: Some(4),
+        ..installed
     };
-    assert!(installed.report().ends_with(&format!(
-        "caj2pdf: note: the font search stopped after {MAX_ENTRIES} directory entries\n"
-    )));
+    assert!(
+        installed
+            .report()
+            .ends_with("caj2pdf: note: the font search stopped after 4 directory entries\n")
+    );
 }
 
 #[test]

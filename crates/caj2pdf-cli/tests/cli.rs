@@ -1577,52 +1577,30 @@ fn native_c8_font_failures_preserve_inputs_and_atomic_output() {
     );
 }
 
-fn get_u32(bytes: &[u8], at: usize) -> usize {
-    u32::from_be_bytes(bytes[at..at + 4].try_into().unwrap()) as usize
+#[allow(dead_code)]
+mod original_font {
+    include!("../../caj2pdf-core/tests/common/font_fixture.rs");
 }
+use original_font::{collection, named_font};
 
-/// The original geometric fixture font renamed to PostScript name `name`.
-fn named_font(name: &str) -> Vec<u8> {
-    let font = include_bytes!("../../../tests/fonts/geometric.ttf");
-    let count = u16::from_be_bytes([font[4], font[5]]) as usize;
-    let mut out = font[..12 + 16 * count].to_vec();
-    for index in 0..count {
-        let entry = 12 + 16 * index;
-        let (offset, length) = (get_u32(font, entry + 8), get_u32(font, entry + 12));
-        let mut table = font[offset..offset + length].to_vec();
-        if &font[entry..entry + 4] == b"name" {
-            table.clear();
-            for value in [0, 1, 18, 3, 1, 0x409, 6, 2 * name.len() as u16, 0] {
-                table.extend(value.to_be_bytes());
-            }
-            table.extend(name.encode_utf16().flat_map(u16::to_be_bytes));
-        }
-        let start = out.len() as u32;
-        out[entry + 8..entry + 12].copy_from_slice(&start.to_be_bytes());
-        out[entry + 12..entry + 16].copy_from_slice(&(table.len() as u32).to_be_bytes());
-        out.extend(table);
-        out.resize(out.len().next_multiple_of(4), 0);
+/// A two-page HN-B document of native text records only, drawing `A`.
+fn native_hnb() -> Vec<u8> {
+    let mut input = vec![0u8; 240];
+    input[..4].copy_from_slice(b"HN\0\0");
+    for (at, value) in [(4, 200u32), (8, 136), (144, 2), (148, 2)] {
+        put_u32(&mut input, at, value);
     }
-    out
-}
-
-/// A TrueType collection of `faces`, with file-relative table offsets.
-fn font_collection(faces: &[Vec<u8>]) -> Vec<u8> {
-    let mut bytes = b"ttcf\0\x01\0\0".to_vec();
-    bytes.extend((faces.len() as u32).to_be_bytes());
-    bytes.resize(12 + 4 * faces.len(), 0);
-    for (index, face) in faces.iter().enumerate() {
-        let base = bytes.len();
-        bytes[12 + 4 * index..16 + 4 * index].copy_from_slice(&(base as u32).to_be_bytes());
-        let mut face = face.clone();
-        for table in 0..u16::from_be_bytes([face[4], face[5]]) as usize {
-            let at = 12 + 16 * table + 8;
-            let offset = (get_u32(&face, at) + base) as u32;
-            face[at..at + 4].copy_from_slice(&offset.to_be_bytes());
+    input[168..170].copy_from_slice(&100u16.to_le_bytes());
+    input[170..172].copy_from_slice(&200u16.to_le_bytes());
+    for page in 0..2 {
+        let offset = input.len() as u32;
+        put_u32(&mut input, 216 + page * 12, offset);
+        put_u32(&mut input, 220 + page * 12, 14);
+        for word in [0x8001u16, 60, 0x8002, 0x1084, 30, 0xa0c1, 0x8004] {
+            input.extend(word.to_le_bytes());
         }
-        bytes.extend(face);
     }
-    bytes
+    input
 }
 
 #[test]
@@ -1630,10 +1608,13 @@ fn native_text_without_font_options_uses_installed_fonts() {
     let scratch = Scratch::new("installed-fonts");
     scratch.write("input.c8", &native_c8_pages(false));
     fs::create_dir_all(scratch.path("fonts/noto")).unwrap();
-    let cjk = font_collection(&[
-        named_font("NotoSerifCJKjp-Regular"),
-        named_font("NotoSerifCJKsc-Regular"),
-    ]);
+    let cjk = collection(
+        &[
+            named_font("NotoSerifCJKjp-Regular"),
+            named_font("NotoSerifCJKsc-Regular"),
+        ],
+        &[0, 1],
+    );
     scratch.write("fonts/noto/NotoSerifCJK-Regular.ttc", &cjk);
     let latin = named_font("FreeSerif");
     scratch.write("fonts/FreeSerif.ttf", &latin);
@@ -1720,6 +1701,26 @@ fn native_text_without_font_options_uses_installed_fonts() {
             fs::read(scratch.path("plain.pdf")).unwrap()
         );
     }
+    // An HN-B native document uses the same installed fonts.
+    scratch.write("native.hn", &native_hnb());
+    let hnb = ["native.hn", "--no-bookmarks", "--force", "-q", "-o"];
+    let mut args = hnb.to_vec();
+    args.push("hnb-auto.pdf");
+    assert_success(&installed(&args));
+    let mut args = hnb.to_vec();
+    args.extend([
+        "hnb-explicit.pdf",
+        "--font-cjk=fonts/noto/NotoSerifCJK-Regular.ttc#1",
+        "--font-latin=fonts/FreeSerif.ttf",
+    ]);
+    assert_success(&scratch.run(&args));
+    assert_eq!(
+        fs::read(scratch.path("hnb-auto.pdf")).unwrap(),
+        fs::read(scratch.path("hnb-explicit.pdf")).unwrap()
+    );
+    let mut args = hnb.to_vec();
+    args.push("hnb-none.pdf");
+    assert_failure(&scratch.run(&args), 1, "no known installed");
 }
 
 /// Four HN-A pages: valid raw records, paired raw records with an unknown

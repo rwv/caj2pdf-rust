@@ -42,10 +42,11 @@ fn parse_str(values: &[&str]) -> Result<Command, String> {
     parse(args(values))
 }
 
-struct TempDir(PathBuf);
+/// A temporary directory removed on drop; shared by the module tests.
+pub(crate) struct TempDir(pub(crate) PathBuf);
 
 impl TempDir {
-    fn new(label: &str) -> Self {
+    pub(crate) fn new(label: &str) -> Self {
         let counter = NEXT_TEMP.fetch_add(1, Ordering::Relaxed);
         let path = std::env::temp_dir().join(format!(
             "caj2pdf-cli-unit-{label}-{}-{counter}",
@@ -53,6 +54,14 @@ impl TempDir {
         ));
         fs::create_dir(&path).unwrap();
         Self(path)
+    }
+
+    /// Write `bytes` to `name` below the directory, creating parents.
+    pub(crate) fn write(&self, name: &str, bytes: &[u8]) -> PathBuf {
+        let path = self.0.join(name);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, bytes).unwrap();
+        path
     }
 
     fn entries(&self) -> Vec<OsString> {
@@ -1200,20 +1209,14 @@ fn experimental_conversion_options_are_scoped_and_unambiguous() {
             panic!()
         };
         assert!(options.quiet);
-        assert!(!options.no_system_fonts && !options.has_font_options());
+        assert!(!options.no_system_fonts);
     }
     let Command::Convert { options, .. } =
         parse_str(&["paper.c8", "--no-system-fonts", "--fonts", "dir"]).unwrap()
     else {
         panic!()
     };
-    assert!(options.no_system_fonts && options.has_font_options());
-    let Command::Convert { options, .. } =
-        parse_str(&["paper.c8", "--font-cjk=a", "--font-latin=b"]).unwrap()
-    else {
-        panic!()
-    };
-    assert!(options.has_font_options());
+    assert!(options.no_system_fonts);
     for args in [
         vec!["inspect", "paper.caj", "--quiet"],
         vec!["inspect", "paper.c8", "--no-system-fonts"],

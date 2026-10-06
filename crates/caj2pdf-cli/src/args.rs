@@ -36,14 +36,6 @@ pub struct ConvertOptions {
     pub no_system_fonts: bool,
 }
 
-impl ConvertOptions {
-    /// Whether any native font option was given, which disables the
-    /// installed-font search.
-    pub fn has_font_options(&self) -> bool {
-        self.font_dir.is_some() || self.fonts.iter().any(Option::is_some)
-    }
-}
-
 /// Fixed `--fonts DIR` file stems, in `ConvertOptions::fonts` role order.
 /// Each is looked up with the extensions in [`FONT_EXTENSIONS`].
 pub const FONT_FILES: [&str; 8] = [

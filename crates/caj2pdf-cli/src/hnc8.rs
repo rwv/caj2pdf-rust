@@ -293,7 +293,7 @@ impl ComposeVisitor for CompletePages {
     }
 }
 
-fn compose_options(include_bookmarks: bool) -> ComposeOptions {
+pub fn compose_options(include_bookmarks: bool) -> ComposeOptions {
     ComposeOptions {
         // The HN/C8 profile explicitly admits the measured unused-template
         // anomaly; general JBIG2 APIs and all other malformed flags stay strict.
@@ -304,23 +304,6 @@ fn compose_options(include_bookmarks: bool) -> ComposeOptions {
         include_bookmarks,
         ..Default::default()
     }
-}
-
-/// Whether conversion with fonts would use native composition, by the
-/// core rule [`convert`] applies. Reads are ranged and bounded; no image
-/// payload is read.
-pub async fn uses_native_text<S: RangedSource>(
-    source: &mut S,
-    limits: &Limits,
-) -> Result<bool, String> {
-    caj2pdf_core::hnc8::uses_native_text(
-        source,
-        compose_options(false),
-        limits,
-        &ProcessCancellation,
-    )
-    .await
-    .map_err(|e| e.to_string())
 }
 
 pub async fn convert<S: RangedSource, W: SequentialSink>(

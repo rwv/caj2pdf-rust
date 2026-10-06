@@ -194,7 +194,14 @@ pub fn uses_native_text(input: &mut Input, limits: &Limits) -> Result<bool, CliE
             Ok(Detection {
                 format: InputFormat::Hn | InputFormat::C8,
                 ..
-            }) => crate::hnc8::uses_native_text(&mut source, limits).await,
+            }) => caj2pdf_core::hnc8::uses_native_text(
+                &mut source,
+                crate::hnc8::compose_options(false),
+                limits,
+                &ProcessCancellation,
+            )
+            .await
+            .map_err(|e| e.to_string()),
             _ => Ok(false),
         }
     })

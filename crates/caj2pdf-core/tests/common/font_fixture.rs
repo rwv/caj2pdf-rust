@@ -44,18 +44,7 @@ pub fn metadata_font() -> (Vec<u8>, u64) {
     put32(&mut post, 0, 0x30000);
     let mut os2 = vec![0; 96];
     put16(&mut os2, 0, 3);
-    let ps_name = "CajFixture";
-    let mut name = vec![0; 18];
-    put16(&mut name, 2, 1);
-    put16(&mut name, 4, 18);
-    put16(&mut name, 6, 3);
-    put16(&mut name, 8, 1);
-    put16(&mut name, 10, 0x409);
-    put16(&mut name, 12, 6);
-    put16(&mut name, 14, ps_name.len() as u16 * 2);
-    for unit in ps_name.encode_utf16() {
-        name.extend(unit.to_be_bytes());
-    }
+    let name = name_table("CajFixture");
     let mut tables = vec![
         (*b"head", head),
         (*b"hhea", hhea),
@@ -87,6 +76,29 @@ pub fn metadata_font() -> (Vec<u8>, u64) {
     put32(&mut bytes, glyf + 12, 2 * 1024 * 1024);
     bytes.resize(outline as usize + 2 * 1024 * 1024, 0);
     (bytes, outline)
+}
+
+/// A `name` table holding only the Windows Unicode PostScript name (ID 6).
+pub fn name_table(postscript: &str) -> Vec<u8> {
+    let mut name = vec![0; 18];
+    put16(&mut name, 2, 1);
+    put16(&mut name, 4, 18);
+    put16(&mut name, 6, 3);
+    put16(&mut name, 8, 1);
+    put16(&mut name, 10, 0x409);
+    put16(&mut name, 12, 6);
+    put16(&mut name, 14, postscript.len() as u16 * 2);
+    for unit in postscript.encode_utf16() {
+        name.extend(unit.to_be_bytes());
+    }
+    name
+}
+
+/// The geometric drawing font with PostScript name `postscript`.
+pub fn named_font(postscript: &str) -> Vec<u8> {
+    let mut font = tables(&drawing_font());
+    *table(&mut font, b"name") = name_table(postscript);
+    build(font)
 }
 
 pub fn entry(bytes: &[u8], tag: &[u8; 4]) -> usize {
@@ -191,22 +203,32 @@ pub fn symbol_font() -> Vec<u8> {
 /// Original two-face TrueType collection: face 0 is the geometric font and
 /// face 1 the symbol font. Table offsets become file-relative.
 pub fn collection_font() -> Vec<u8> {
-    let faces = [drawing_font(), symbol_font()];
+    collection(&[drawing_font(), symbol_font()], &[0, 1])
+}
+
+/// A version-1 TrueType collection whose face `i` is `fonts[faces[i]]`, so
+/// faces may share one font's tables. Each font is stored once, in order,
+/// with its table offsets made file-relative.
+pub fn collection(fonts: &[Vec<u8>], faces: &[usize]) -> Vec<u8> {
     let mut bytes = vec![0; 12 + 4 * faces.len()];
     bytes[..4].copy_from_slice(b"ttcf");
     put16(&mut bytes, 4, 1);
     put32(&mut bytes, 8, faces.len() as u32);
-    for (index, face) in faces.iter().enumerate() {
+    let mut bases = Vec::new();
+    for font in fonts {
         let base = bytes.len();
-        put32(&mut bytes, 12 + 4 * index, base as u32);
-        let mut face = face.clone();
-        let count = u16::from_be_bytes([face[4], face[5]]) as usize;
+        bases.push(base as u32);
+        let mut font = font.clone();
+        let count = u16::from_be_bytes([font[4], font[5]]) as usize;
         for table in 0..count {
             let at = 12 + 16 * table + 8;
-            let offset = u32::from_be_bytes(face[at..at + 4].try_into().unwrap());
-            put32(&mut face, at, offset + base as u32);
+            let offset = u32::from_be_bytes(font[at..at + 4].try_into().unwrap());
+            put32(&mut font, at, offset + base as u32);
         }
-        bytes.extend(face);
+        bytes.extend(font);
+    }
+    for (index, font) in faces.iter().enumerate() {
+        put32(&mut bytes, 12 + 4 * index, bases[*font]);
     }
     bytes
 }

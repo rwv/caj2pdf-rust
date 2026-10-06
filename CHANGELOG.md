@@ -10,19 +10,19 @@
   since only subset outlines are embedded; the error now reads `font metadata does not permit subset
   embedding`.
 
-- **Breaking:** without any font option, the CLI converts a native C8/HN-B
-  text document with installed fonts instead of failing (#339). It searches
-  the platform font directories (XDG data directories on Linux and other
-  Unix systems, the macOS and Windows font folders, or
-  `CAJ2PDF_FONT_DIRS`) for a fixed, documented list of CJK and Latin faces
-  matched by PostScript name, and prints the chosen files and faces to
-  standard error (`-q` silences them). The search is bounded (6 levels,
-  20,000 entries, 64 faces per collection), sorted and does not follow
-  directory links. Any font option disables it, `--no-system-fonts` turns it
-  off, and image documents never search. Node and the browser are
-  unchanged. The recommended free fonts are now Noto Serif CJK SC and
-  FreeSerif (`fonts-noto-cjk`, `fonts-freefont-ttf`), chosen by measured
-  glyph coverage of the pinned documents. New core API:
+- **Breaking:** without any font option, the CLI converts a document with
+  native C8/HN-B text using installed fonts (#339). It searches the platform
+  font directories (or `CAJ2PDF_FONT_DIRS`) for a documented list of CJK and
+  Latin faces matched by PostScript name and prints the chosen files and
+  faces to standard error (`-q` silences them). If none is found, such a
+  document fails with a message naming the searched directories; before,
+  it failed for lack of fonts, except that an HN-B document whose pages all
+  have images converted as images without its text, which
+  `--no-system-fonts` still does. Any font option disables the search and
+  image documents never search. Node and the browser are unchanged. The
+  recommended free fonts are now Noto Serif CJK SC and FreeSerif
+  (`fonts-noto-cjk`, `fonts-freefont-ttf`), chosen by measured glyph
+  coverage of the pinned documents. New core API:
   `OpenTypeFont::face_count` and a public `OpenTypeFont::postscript_name`.
 
 - **Breaking:** native C8/HN-B fonts may have CFF outlines (`.otf`, and CFF

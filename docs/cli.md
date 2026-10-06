@@ -167,9 +167,11 @@ When no font option (`--fonts`, `--font-*`) is given and the document routes
 to native composition (the rule above), the CLI searches the installed fonts
 for one CJK and one Latin face. Image documents never search. Any font option
 disables the search entirely, so explicit fonts always win and the search
-never fills a role you left out. `--no-system-fonts` disables it too; a native
-document then fails as before. Node and the browser never search: they take
-only explicit fonts.
+never fills a role you left out. `--no-system-fonts` disables it too: the
+document is then converted without fonts, so a C8 document with native
+pages, or an HN-B document with a text-only page, fails, while an HN-B
+document whose pages all have images converts as images without its text.
+Node and the browser never search: they take only explicit fonts.
 
 The directories, in order:
 
@@ -182,9 +184,10 @@ The directories, in order:
 `CAJ2PDF_FONT_DIRS`, a path list (`:`-separated, `;` on Windows), replaces
 these directories; set it empty to search nothing. Relative entries are
 ignored. The walk is deterministic and bounded: entries are visited in byte
-order of their names, at most 6 directory levels below each directory, and
+order of their names, at most 6 directory levels below each searched directory, and
 at most 20,000 directory entries in total (a note is printed if the bound
-stops it). Symbolic links to files are followed, links to directories are
+stops it; which entries of the last directory were read then depends on
+the file system). Symbolic links to files are followed, links to directories are
 not, and a directory reached twice is walked once, so a link cycle cannot
 loop. Unreadable directories and entries are skipped.
 
@@ -210,7 +213,9 @@ caj2pdf: using installed Latin font /usr/share/fonts/truetype/freefont/FreeSerif
 ```
 
 If either role is not found, conversion fails before output staging with a
-message naming the missing role, the directories searched and the options.
+message naming the missing role, the directories searched, the font options
+and the `--no-system-fonts` image fallback for HN-B. This keeps native text
+from being dropped silently.
 The search reads the document's text framing once more before conversion
 (bounded, no image payload) and opens only the listed files.
 

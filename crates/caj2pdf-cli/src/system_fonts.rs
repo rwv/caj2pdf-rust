@@ -105,7 +105,7 @@ pub const PLATFORM: Platform = Platform::Windows;
 pub const PLATFORM: Platform = Platform::Unix;
 
 /// The directories searched, in order, from the environment `var`.
-pub fn roots(platform: Platform, var: impl Fn(&str) -> Option<OsString>) -> Vec<PathBuf> {
+pub fn roots(platform: Platform, var: impl Fn(&'static str) -> Option<OsString>) -> Vec<PathBuf> {
     // Relative values are ignored, as the XDG specification requires.
     let absolute = |value: Option<OsString>| value.map(PathBuf::from).filter(|p| p.is_absolute());
     let mut roots = Vec::new();
@@ -175,16 +175,23 @@ fn directory_key(path: &Path) -> Option<DirectoryKey> {
     metadata.map(|_| path.to_owned())
 }
 
-fn lowercase(name: &OsStr) -> Option<String> {
-    name.to_str().map(str::to_ascii_lowercase)
+/// Whether `name` is a file name listed for one of `faces`, ignoring ASCII
+/// case.
+fn listed(faces: &[Face], name: &OsStr) -> bool {
+    name.to_str().is_some_and(|name| {
+        faces
+            .iter()
+            .flat_map(|face| face.files)
+            .any(|file| file.eq_ignore_ascii_case(name))
+    })
 }
 
 /// Walk `roots` depth-first, each directory's entries in byte order of
 /// their names, collecting regular files (or symbolic links to them) whose
-/// lowercase names are in `wanted`. Symbolic links to directories are not
-/// followed, a directory reached twice is walked once, unreadable entries
-/// are skipped, and at most `max_entries` entries are read.
-pub fn walk(roots: &[PathBuf], wanted: &HashSet<String>, max_entries: usize) -> Walk {
+/// names are `wanted`. Symbolic links to directories are not followed, a
+/// directory reached twice is walked once, unreadable entries are skipped,
+/// and at most `max_entries` entries are read.
+pub fn walk(roots: &[PathBuf], wanted: impl Fn(&OsStr) -> bool, max_entries: usize) -> Walk {
     let mut walk = Walk::default();
     let mut budget = max_entries;
     let mut visited = HashSet::new();
@@ -209,15 +216,15 @@ pub fn walk(roots: &[PathBuf], wanted: &HashSet<String>, max_entries: usize) -> 
             names.sort_by(|a, b| a.0.cmp(&b.0));
             let mut subdirectories = Vec::new();
             for (name, kind) in names {
-                let path = directory.join(&name);
                 if kind.is_dir() {
                     if depth < MAX_DEPTH {
-                        subdirectories.push((path, depth + 1));
+                        subdirectories.push((directory.join(name), depth + 1));
                     }
-                } else if lowercase(&name).is_some_and(|name| wanted.contains(&name))
-                    && fs::metadata(&path).is_ok_and(|m| m.is_file())
-                {
-                    walk.files.push(path);
+                } else if wanted(&name) {
+                    let path = directory.join(name);
+                    if fs::metadata(&path).is_ok_and(|m| m.is_file()) {
+                        walk.files.push(path);
+                    }
                 }
             }
             stack.extend(subdirectories.into_iter().rev());
@@ -263,11 +270,8 @@ fn choose(files: &[PathBuf], faces: &'static [Face], limits: &Limits) -> Option<
         files
             .iter()
             .filter(|path| {
-                let name = path.file_name().and_then(lowercase);
-                known
-                    .files
-                    .iter()
-                    .any(|file| name.as_deref() == Some(&file.to_ascii_lowercase()))
+                path.file_name()
+                    .is_some_and(|name| listed(std::slice::from_ref(known), name))
             })
             .find_map(|path| {
                 find_face(path, known.postscript, limits).map(|face| Choice {
@@ -283,7 +287,8 @@ fn choose(files: &[PathBuf], faces: &'static [Face], limits: &Limits) -> Option<
 #[derive(Debug, Eq, PartialEq)]
 pub struct Installed {
     pub choices: [Choice; 2],
-    pub truncated: bool,
+    /// The entry bound that stopped the search, if it did.
+    pub stopped_after: Option<usize>,
 }
 
 const ROLES: [&str; 2] = ["CJK", "Latin"];
@@ -305,9 +310,9 @@ impl Installed {
                 choice.postscript
             );
         }
-        if self.truncated {
+        if let Some(entries) = self.stopped_after {
             text += &format!(
-                "caj2pdf: note: the font search stopped after {MAX_ENTRIES} directory entries\n"
+                "caj2pdf: note: the font search stopped after {entries} directory entries\n"
             );
         }
         text
@@ -315,21 +320,29 @@ impl Installed {
 }
 
 /// Search `roots` for a CJK and a Latin face. The error names what was
-/// searched and how to give fonts instead.
+/// searched and the alternatives.
 pub fn discover(roots: &[PathBuf], limits: &Limits) -> Result<Installed, String> {
-    let wanted = CJK
-        .iter()
-        .chain(&LATIN)
-        .flat_map(|face| face.files)
-        .map(|file| file.to_ascii_lowercase())
-        .collect();
-    let walk = walk(roots, &wanted, MAX_ENTRIES);
+    discover_with(roots, limits, MAX_ENTRIES)
+}
+
+/// [`discover`] reading at most `max_entries` directory entries.
+fn discover_with(
+    roots: &[PathBuf],
+    limits: &Limits,
+    max_entries: usize,
+) -> Result<Installed, String> {
+    let walk = walk(
+        roots,
+        |name| listed(&CJK, name) || listed(&LATIN, name),
+        max_entries,
+    );
+    let stopped_after = walk.truncated.then_some(max_entries);
     let cjk = choose(&walk.files, &CJK, limits);
     let latin = choose(&walk.files, &LATIN, limits);
     match (cjk, latin) {
         (Some(cjk), Some(latin)) => Ok(Installed {
             choices: [cjk, latin],
-            truncated: walk.truncated,
+            stopped_after,
         }),
         (cjk, latin) => {
             let missing: Vec<_> = [cjk.is_none(), latin.is_none()]
@@ -346,15 +359,15 @@ pub fn discover(roots: &[PathBuf], limits: &Limits) -> Result<Installed, String>
                     .collect::<Vec<_>>()
                     .join(", ")
             };
-            let stopped = if walk.truncated {
-                format!(" (stopped after {MAX_ENTRIES} entries)")
-            } else {
-                String::new()
-            };
+            let stopped = stopped_after
+                .map(|entries| format!(" (stopped after {entries} entries)"))
+                .unwrap_or_default();
             Err(format!(
                 "this document has native C8/HN-B text, and no known installed {} font \
                  was found in {searched}{stopped}; install one listed in docs/cli.md \
-                 (Installed fonts), or pass --fonts DIR or --font-cjk FILE --font-latin FILE",
+                 (Installed fonts), or pass --fonts DIR or --font-cjk FILE --font-latin FILE \
+                 (with --no-system-fonts, an HN-B document whose pages all have images \
+                 converts as images without its text)",
                 missing.join(" or ")
             ))
         }

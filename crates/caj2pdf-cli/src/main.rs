@@ -124,12 +124,11 @@ mod cli {
                 refuse_terminal(&output, io::stdout().is_terminal())?;
                 let mut input = open_input(&input, limits.max_input_bytes)?;
                 let mut resources = crate::hnc8::Resources::load(&options, &limits)?;
-                if !options.has_font_options()
+                if !resources.has_fonts()
                     && !options.no_system_fonts
                     && document::uses_native_text(&mut input, &limits)?
                 {
-                    let roots =
-                        system_fonts::roots(system_fonts::PLATFORM, |name| std::env::var_os(name));
+                    let roots = system_fonts::roots(system_fonts::PLATFORM, std::env::var_os);
                     let installed =
                         system_fonts::discover(&roots, &limits).map_err(CliError::runtime)?;
                     if !options.quiet {
