@@ -32,6 +32,8 @@ pub struct ConvertOptions {
     /// Directory supplying roles by the fixed names in `FONT_FILES`.
     pub font_dir: Option<PathBuf>,
     pub decoration_char: Option<char>,
+    /// Never search the installed fonts for native C8/HN-B text.
+    pub no_system_fonts: bool,
 }
 
 /// Fixed `--fonts DIR` file stems, in `ConvertOptions::fonts` role order.
@@ -86,14 +88,14 @@ Usage:
 Conversion writes INPUT's sibling .pdf file unless -o is given. Use - for
 standard input or output; standard input without -o writes to standard output.
 Supported inputs: CAJ, KDH, PDF, experimental HN/C8 image pages,
-and admitted native C8/HN-B text profiles with caller-supplied fonts.
+and admitted native C8/HN-B text profiles with installed or given fonts.
 HN/C8 uses built-in standard codec states; TEB remains unsupported.
 C8/HN-B outlines are unverified: none is written and a warning is shown.
 
 Options:
   -o, --output OUTPUT  Write the PDF to OUTPUT (- for standard output)
   -f, --force          Replace an existing output file (never an input)
-  -q, --quiet          Do not show progress on a terminal
+  -q, --quiet          Do not show progress on a terminal or the chosen fonts
   --allow-damaged     Replace damaged CAJ pages with blanks; exit 3 if any
   --no-bookmarks      Skip outline import (silences the C8/HN-B warning)
   --qm-states FILE    Experimental QM states for HN/C8 type-0 images
@@ -108,11 +110,15 @@ Options:
   --font-symbols FILE         Optional HN-B mode-0 semantic symbol font
   --font-decoration FILE      Optional native C8/HN-B decoration font
   --decoration-char CHAR      Decoration alias (default: ►; not document text)
+  --no-system-fonts   Do not search installed fonts for native C8/HN-B text
   -h, --help           Print help (also: caj2pdf COMMAND --help)
   -V, --version        Print version
 
-Absent optional font roles and characters a role's font lacks fall back to
-the CJK font for CJK-coded characters and to the Latin font otherwise.
+Without font options, a native C8/HN-B text document uses the first
+installed CJK and Latin fonts from a fixed list (see docs/cli.md) and names
+them on standard error. Absent optional font roles and characters a role's
+font lacks fall back to the CJK font for CJK-coded characters and to the
+Latin font otherwise.
 
 Exit status: 0 on success, 3 for a partial PDF with blank pages,
 2 for invalid arguments, 1 for other failures.
@@ -254,6 +260,7 @@ pub fn parse<I: IntoIterator<Item = OsString>>(args: I) -> Result<Command, Strin
             "--allow-damaged" if topic == Topic::Convert => options.allow_damaged = true,
             "--no-bookmarks" if topic == Topic::Convert => options.no_bookmarks = true,
             "-q" | "--quiet" if topic == Topic::Convert => options.quiet = true,
+            "--no-system-fonts" if topic == Topic::Convert => options.no_system_fonts = true,
             "--qm-states" | "--mq-states" if topic == Topic::Convert => {
                 let value = args
                     .next()

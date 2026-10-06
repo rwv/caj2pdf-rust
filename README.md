@@ -37,7 +37,7 @@ Supported operating systems and CPUs are listed in the
 | CAJ | Supported, with its bookmarks. |
 | KDH | Supported for embedded PDFs. |
 | HN-A | Experimental: scanned page images and bookmarks; no text layer. |
-| C8, HN-B | Experimental: image pages, and native text pages with your fonts (below). No bookmarks yet. |
+| C8, HN-B | Experimental: image pages, and native text pages with installed or given fonts (below). No bookmarks yet. |
 | TEB | Rejected: a DRM-encrypted container. |
 
 The [support matrix](docs/conformance.md#current-support-and-release-status)
@@ -46,19 +46,20 @@ Unsupported content fails with a located error instead of dropping pages.
 
 ## Fonts for C8 and HN-B text pages
 
-Native C8/HN-B text pages need a CJK and a Latin TrueType font. Nothing is
-bundled. This free pair covers every tested document:
+Native C8/HN-B text pages need a CJK and a Latin font. Nothing is bundled.
+Without font options the CLI uses installed fonts from a fixed list and
+names them on standard error. This free pair covers every tested document:
 
 ```sh
-sudo apt-get install -y fonts-droid-fallback fonts-dejavu-core
-mkdir -p ~/caj2pdf-fonts
-ln -s /usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf ~/caj2pdf-fonts/cjk.ttf
-ln -s /usr/share/fonts/truetype/dejavu/DejaVuSans.ttf ~/caj2pdf-fonts/latin.ttf
-caj2pdf paper.caj --fonts ~/caj2pdf-fonts -o paper.pdf
+sudo apt-get install -y fonts-noto-cjk fonts-freefont-ttf
+caj2pdf paper.caj -o paper.pdf
 ```
 
-The [CLI reference](docs/cli.md#native-c8-font-resources) lists the optional
-font roles and the fallback rule.
+To choose fonts yourself, pass `--font-cjk FILE --font-latin FILE` or
+`--fonts DIR`; `--no-system-fonts` turns the search off. The
+[CLI reference](docs/cli.md#installed-fonts) lists the searched directories
+and faces, the measured comparison, the optional font roles and the fallback
+rule. Node and the browser take fonts only as explicit options.
 
 ## Limits
 

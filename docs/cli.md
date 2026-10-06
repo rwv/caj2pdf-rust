@@ -9,7 +9,7 @@ the input's leading signature. Format parsing and PDF writing stay in
 listed in the release notes.
 
 ```text
-caj2pdf INPUT [-o OUTPUT] [--force] [--quiet] [--allow-damaged] [--no-bookmarks] [--qm-states FILE] [--mq-states FILE]
+caj2pdf INPUT [-o OUTPUT] [--force] [--quiet] [--allow-damaged] [--no-bookmarks] [--qm-states FILE] [--mq-states FILE] [--no-system-fonts]
 caj2pdf inspect INPUT [--json] [--bookmarks] [--pages]
 caj2pdf add-bookmarks SOURCE_CAJ INPUT_PDF -o OUTPUT_PDF [--force]
 caj2pdf --help | --version
@@ -36,7 +36,7 @@ that starts with `CAJ` but lacks the CAJ header is reported as malformed.
 | `CAJ` | CAJ | Reconstructed PDF with the CAJ outline | Pages and full outline |
 | `KDH` | KDH | Decoded embedded PDF | Pages and outline presence |
 | `HN` | HN | Experimental image-page conversion with built-in standard codec states; HN-A pages are images, not searchable text ([why](research/hnc8-text-fidelity.md#hn-a-pages-carry-no-native-text)) | Variant/pages; HN-A full outline, HN-B outline unknown |
-| `c8 00 00 00` | C8 | Experimental image pages; admitted native text/mixed pages with explicit fonts | Container variant and pages |
+| `c8 00 00 00` | C8 | Experimental image pages; admitted native text/mixed pages with installed or given fonts | Container variant and pages |
 | `TEB` | TEB | Unsupported; exits with status 1 | Format only |
 
 HN/C8 routes use the same independently implemented core page composer as
@@ -95,8 +95,8 @@ Standard T.82/T.88 states are built in. These files are optional overrides;
 valid shape alone does not prove that a custom table is correct.
 
 Omit both state flags for normal conversion. HN-A outlines are supported;
-C8/HN-B outlines are omitted with a warning (see `--no-bookmarks`). Admitted native-text pages require the explicit
-font roles below; unverified profiles are rejected. Image-only pages receive
+C8/HN-B outlines are omitted with a warning (see `--no-bookmarks`). Admitted native-text pages require the
+fonts below, installed or given; unverified profiles are rejected. Image-only pages receive
 no OCR text layer. General text extraction and semantic reading order remain
 outside the [verified text scope](research/hnc8-text-fidelity.md). The HN/C8 route admits the measured unused-refinement-template anomaly; other
 malformed JBIG2 flags remain errors.
@@ -126,8 +126,9 @@ directory under fixed names and pass `--fonts DIR`:
 A per-role flag overrides the directory's file for that role, and the
 per-role flags alone also work: `--font-cjk FILE --font-latin FILE` is the
 minimum. In `DIR`, each role is looked up as `NAME.ttf`, `NAME.otf`, then
-`NAME.ttc` (the first face of a collection); there is no font discovery, system lookup
-or bundled font. A missing CJK or Latin font fails before output staging.
+`NAME.ttc` (the first face of a collection). Without any font option, the
+[installed fonts](#installed-fonts) are searched instead; no font is bundled.
+A missing CJK or Latin font fails before output staging.
 Any other missing file leaves its role absent.
 
 Fonts are static OpenType fonts with TrueType (`glyf`) or CFF outlines,
@@ -160,24 +161,107 @@ decoration alias. If that font lacks the glyph too, conversion fails with
 the page and source byte. Fallback picks only a font. Glyph positions
 stay the same, so a substitute font can still look different or overlap.
 
-#### Tested free-font recipe
+#### Installed fonts
 
-These two TrueType fonts cover every glyph of the six pinned C8/HN-B corpus
-documents. Noto Sans also lacks math symbols those documents use, such as
-U+2217.
+When no font option (`--fonts`, `--font-*`) is given and the document routes
+to native composition (the rule above), the CLI searches the installed fonts
+for one CJK and one Latin face. Image documents never search. Any font option
+disables the search entirely, so explicit fonts always win and the search
+never fills a role you left out. `--no-system-fonts` disables it too: the
+document is then converted without fonts, so a C8 document with native
+pages, or an HN-B document with a text-only page, fails, while an HN-B
+document whose pages all have images converts as images without its text.
+Node and the browser never search: they take only explicit fonts.
 
-```sh
-sudo apt-get install -y fonts-droid-fallback fonts-dejavu-core
-mkdir -p ~/caj2pdf-fonts
-ln -s /usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf ~/caj2pdf-fonts/cjk.ttf
-ln -s /usr/share/fonts/truetype/dejavu/DejaVuSans.ttf ~/caj2pdf-fonts/latin.ttf
-caj2pdf input.caj --no-bookmarks --fonts ~/caj2pdf-fonts -o output.pdf
+The directories, in order:
+
+| Platform | Directories |
+| --- | --- |
+| Linux and other Unix | `$XDG_DATA_HOME/fonts` (default `~/.local/share/fonts`), `~/.fonts`, then `DIR/fonts` for each `$XDG_DATA_DIRS` entry (default `/usr/local/share:/usr/share`) |
+| macOS | `~/Library/Fonts`, `/Library/Fonts`, `/System/Library/Fonts` |
+| Windows | `%LOCALAPPDATA%\Microsoft\Windows\Fonts`, `%WINDIR%\Fonts` |
+
+`CAJ2PDF_FONT_DIRS`, a path list (`:`-separated, `;` on Windows), replaces
+these directories; set it empty to search nothing. Relative entries are
+ignored. The walk is deterministic and bounded: entries are visited in byte
+order of their names, at most 6 directory levels below each searched directory, and
+at most 20,000 directory entries in total (a note is printed if the bound
+stops it; which entries of the last directory were read then depends on
+the file system). Symbolic links to files are followed, links to directories are
+not, and a directory reached twice is walked once, so a link cycle cannot
+loop. Unreadable directories and entries are skipped.
+
+Only files with the names below (compared without case) are opened. A face
+is accepted when the font reader validates it and its PostScript name
+matches; at most 64 faces of a collection are checked. The first face found
+in list order wins, whatever its directory.
+
+| Role | Faces in order (PostScript name; file names) |
+| --- | --- |
+| CJK | Noto Serif CJK SC (`NotoSerifCJKsc-Regular`; `NotoSerifCJK-Regular.ttc`, `NotoSerifCJKsc-Regular.otf`), Source Han Serif SC (`SourceHanSerifSC-Regular`; `SourceHanSerif-Regular.ttc`, `SourceHanSerifSC-Regular.otf`), SimSun (`SimSun`; `simsun.ttc`), Songti SC (`STSongti-SC-Regular`; `Songti.ttc`), Noto Sans CJK SC (`NotoSansCJKsc-Regular`; `NotoSansCJK-Regular.ttc`, `NotoSansCJKsc-Regular.otf`), Source Han Sans SC (`SourceHanSansSC-Regular`; `SourceHanSans-Regular.ttc`, `SourceHanSansSC-Regular.otf`), Microsoft YaHei (`MicrosoftYaHei`; `msyh.ttc`, `msyh.ttf`), PingFang SC (`PingFangSC-Regular`; `PingFang.ttc`), WenQuanYi Zen Hei (`WenQuanYiZenHei`; `wqy-zenhei.ttc`), Droid Sans Fallback (`DroidSansFallback`; `DroidSansFallbackFull.ttf`, `DroidSansFallback.ttf`) |
+| Latin | FreeSerif (`FreeSerif`; `FreeSerif.ttf`, `FreeSerif.otf`), DejaVu Sans (`DejaVuSans`; `DejaVuSans.ttf`), Nimbus Roman (`NimbusRoman-Regular`; `NimbusRoman-Regular.otf`), DejaVu Serif (`DejaVuSerif`; `DejaVuSerif.ttf`), Liberation Serif (`LiberationSerif`; `LiberationSerif-Regular.ttf`), Times New Roman (`TimesNewRomanPSMT`; `times.ttf`, `Times New Roman.ttf`), Times (`Times-Roman`; `Times.ttc`) |
+
+Serif CJK faces come first because the documents are printed in Song/Ming
+style; sans faces follow. The Latin order comes from the measurement below:
+faces that cover every Latin-font glyph of the pinned documents come first.
+The choice is printed to standard error before conversion, in the `FILE#N`
+form the options accept (`#N` only for a face other than 0); `-q` silences it:
+
+```text
+caj2pdf: using installed CJK font /usr/share/fonts/opentype/noto/NotoSerifCJK-Regular.ttc#2 (NotoSerifCJKsc-Regular)
+caj2pdf: using installed Latin font /usr/share/fonts/truetype/freefont/FreeSerif.ttf (FreeSerif)
 ```
 
-Droid Sans Fallback is Apache-2.0. DejaVu Sans uses the free Bitstream Vera
-license. Both stay external resources: they are not vendored or bundled.
+If either role is not found, conversion fails before output staging with a
+message naming the missing role, the directories searched, the font options
+and the `--no-system-fonts` image fallback for HN-B. This keeps native text
+from being dropped silently.
+The search reads the document's text framing once more before conversion
+(bounded, no image payload) and opens only the listed files.
+
+#### Recommended free fonts
+
+On Debian and Ubuntu, this pair converts every pinned document with no font
+option:
+
+```sh
+sudo apt-get install -y fonts-noto-cjk fonts-freefont-ttf
+caj2pdf input.caj --no-bookmarks -o output.pdf
+```
+
+Noto Serif CJK is SIL OFL 1.1 and FreeSerif is GPL-3.0 with the font
+exception. Both stay external resources: they are not vendored or bundled.
 The output is not a faithful copy of the source typography: weights,
 bearings and widths differ from the CAJViewer fonts.
+
+**Measurement.** The six pinned C8/HN-B documents (issues 63, 65, 66,
+90 `4-[21]` and `4-[24]`, 100) were converted with Noto Serif CJK SC and
+each Latin candidate, and with FreeSerif and each CJK candidate. A face
+"misses" a character when it lacks a glyph the document draws with the Latin
+font (94 distinct characters over the six documents; a CJK-coded character
+could fall back to the CJK font). "Overrun" counts adjacent glyph pairs on a
+line where the face's advance passes the next glyph's source position by
+more than 5% of the font size: high values look crowded or overlap.
+
+| Latin face | Documents converted | Missing characters | Overrun pairs |
+| --- | --- | --- | --- |
+| FreeSerif | 6/6 | none | 924 / 6,764 |
+| DejaVu Sans | 6/6 | none | 3,894 / 6,764 |
+| Nimbus Roman (`.otf`) | 4/6 | `①`–`⑦`, `┆` | 957 / 6,762 |
+| DejaVu Serif | 4/6 | `①`–`⑦` | 4,702 / 6,764 |
+| Liberation Serif | 1/6 | `∗ ∥ ∪ ①`–`⑦ ┆` | 957 / 6,760 |
+| Noto Serif | 1/6 | 15, including `∑ ∗ ∞ ①`–`⑦ ►` | 4,026 / 6,715 |
+| Caladea | 1/6 | 16, including `Ω δ ε θ ∗ ①`–`⑦` | 1,057 / 6,716 |
+| TeX Gyre Termes (`.otf`) | 2/6 | `∥ ∪ ①`–`⑦ ┆` | not measured |
+
+FreeSerif's advances are Times-like (the Times-metric faces overrun least),
+so it has both full coverage and the closest widths; DejaVu Sans covers
+everything but is wider. Times New Roman and Times were not available for
+measurement; they are listed last for systems without the free faces. All
+measured CJK candidates (Noto Serif CJK SC, Noto Sans CJK SC, WenQuanYi
+Zen Hei, Droid Sans Fallback) converted all six documents with FreeSerif;
+Droid Sans Fallback lacks `l` and `p`, which then use the Latin font.
+Source Han faces carry the same glyph set as the Noto CJK faces.
 
 #### Notes
 
@@ -208,7 +292,8 @@ hard-link/symlink aliases, are protected against output replacement even
 with `--force`. A missing font fails before output staging; invalid fonts,
 missing glyphs and later-page errors discard staged output and preserve an
 existing destination. Standard output can still contain partial bytes on
-failure. Fonts are caller-provided and are not bundled with the executable.
+failure. Fonts are installed or caller-provided and are not bundled with
+the executable.
 
 ### v0.x migration
 
@@ -532,7 +617,9 @@ output. On success it prints nothing except `caj2pdf: warning: ...` lines for
 when standard error is a terminal, a single updating `caj2pdf: reading input
 NN%` line during conversion. The percentage is the furthest input byte read;
 the line is erased before exit. `-q`/`--quiet` disables it, and it is never
-written when standard error is redirected.
+written when standard error is redirected. A conversion using
+[installed fonts](#installed-fonts) also prints two `caj2pdf: using
+installed ...` lines unless `-q` is given.
 
 ## Verification
 

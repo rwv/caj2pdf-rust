@@ -124,6 +124,13 @@ jobs:
           report="$(cargo test -p caj2pdf-core --test hnc8_type2_pdf_external --locked -- --nocapture)"
           printf '%s\n' "$report"
           python3 -c 'import sys; report = sys.argv[1]; assert "NOT_RUN\tchecked=0\tmatched=0\trendered=0\tunsupported=0\tskipped=0\tfailed=0" in report and "2 ignored" in report, report' "$report"
+      - name: Report external installed-font conversion as not run
+        env:
+          CAJ2PDF_CORPUS_DIR: ""
+        run: |
+          report="$(cargo test -p caj2pdf-cli --test installed_fonts_external --locked -- --nocapture)"
+          printf '%s\n' "$report"
+          python3 -c 'import sys; report = sys.argv[1]; assert "NOT_RUN\tchecked=0\tconverted=0\tfailed=0" in report and "1 ignored" in report, report' "$report"
       - name: Report external JBIG2 directory inventory as not run
         env:
           CAJ2PDF_CORPUS_DIR: ""

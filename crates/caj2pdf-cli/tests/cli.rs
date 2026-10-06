@@ -63,6 +63,8 @@ impl Scratch {
             .args(args)
             .current_dir(&self.0)
             .env("TMPDIR", self.path("tmp"))
+            // Never read the host's installed fonts.
+            .env("CAJ2PDF_FONT_DIRS", "")
             .stdin(Stdio::null());
         command
     }
@@ -1573,6 +1575,152 @@ fn native_c8_font_failures_preserve_inputs_and_atomic_output() {
         scratch.entries(),
         ["alias.ttf", "font.ttf", "input.c8", "out.pdf"]
     );
+}
+
+#[allow(dead_code)]
+mod original_font {
+    include!("../../caj2pdf-core/tests/common/font_fixture.rs");
+}
+use original_font::{collection, named_font};
+
+/// A two-page HN-B document of native text records only, drawing `A`.
+fn native_hnb() -> Vec<u8> {
+    let mut input = vec![0u8; 240];
+    input[..4].copy_from_slice(b"HN\0\0");
+    for (at, value) in [(4, 200u32), (8, 136), (144, 2), (148, 2)] {
+        put_u32(&mut input, at, value);
+    }
+    input[168..170].copy_from_slice(&100u16.to_le_bytes());
+    input[170..172].copy_from_slice(&200u16.to_le_bytes());
+    for page in 0..2 {
+        let offset = input.len() as u32;
+        put_u32(&mut input, 216 + page * 12, offset);
+        put_u32(&mut input, 220 + page * 12, 14);
+        for word in [0x8001u16, 60, 0x8002, 0x1084, 30, 0xa0c1, 0x8004] {
+            input.extend(word.to_le_bytes());
+        }
+    }
+    input
+}
+
+#[test]
+fn native_text_without_font_options_uses_installed_fonts() {
+    let scratch = Scratch::new("installed-fonts");
+    scratch.write("input.c8", &native_c8_pages(false));
+    fs::create_dir_all(scratch.path("fonts/noto")).unwrap();
+    let cjk = collection(
+        &[
+            named_font("NotoSerifCJKjp-Regular"),
+            named_font("NotoSerifCJKsc-Regular"),
+        ],
+        &[0, 1],
+    );
+    scratch.write("fonts/noto/NotoSerifCJK-Regular.ttc", &cjk);
+    let latin = named_font("FreeSerif");
+    scratch.write("fonts/FreeSerif.ttf", &latin);
+    scratch.write(
+        "font.ttf",
+        include_bytes!("../../../tests/fonts/geometric.ttf"),
+    );
+    let installed = |args: &[&str]| {
+        scratch
+            .command(args)
+            .env("CAJ2PDF_FONT_DIRS", scratch.path("fonts"))
+            .output()
+            .unwrap()
+    };
+    let base = ["input.c8", "--no-bookmarks", "--force", "-o"];
+    let with = |extra: &[&'static str]| {
+        let mut args = base.to_vec();
+        args.extend(extra);
+        args
+    };
+    let output = installed(&with(&["auto.pdf"]));
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    assert_eq!(
+        stderr(&output),
+        format!(
+            "caj2pdf: using installed CJK font {}#1 (NotoSerifCJKsc-Regular)\n\
+             caj2pdf: using installed Latin font {} (FreeSerif)\n",
+            scratch
+                .path("fonts/noto/NotoSerifCJK-Regular.ttc")
+                .display(),
+            scratch.path("fonts/FreeSerif.ttf").display()
+        )
+    );
+    let auto = fs::read(scratch.path("auto.pdf")).unwrap();
+    assert_eq!(validate_pdf(&scratch.path("auto.pdf")).0, 2);
+    // The report names exactly what the explicit options select.
+    assert_success(&scratch.run(with(&[
+        "explicit.pdf",
+        "--font-cjk=fonts/noto/NotoSerifCJK-Regular.ttc#1",
+        "--font-latin=fonts/FreeSerif.ttf",
+    ])));
+    assert_eq!(fs::read(scratch.path("explicit.pdf")).unwrap(), auto);
+    // --quiet silences the report.
+    assert_success(&installed(&with(&["quiet.pdf", "-q"])));
+    assert_eq!(fs::read(scratch.path("quiet.pdf")).unwrap(), auto);
+    // Font options always win and disable the search.
+    let flags = ["flags.pdf", "--font-cjk=font.ttf", "--font-latin=font.ttf"];
+    assert_success(&installed(&with(&flags)));
+    assert_ne!(fs::read(scratch.path("flags.pdf")).unwrap(), auto);
+    // Installed fonts are protected inputs, even with --force.
+    let output = installed(&with(&["fonts/FreeSerif.ttf", "-q"]));
+    assert_failure(&output, 1, "input");
+    assert_eq!(
+        fs::read(scratch.path("fonts/FreeSerif.ttf")).unwrap(),
+        latin
+    );
+    // --no-system-fonts disables the search; nothing found fails before
+    // any output is staged.
+    let output = installed(&with(&["off.pdf", "--no-system-fonts"]));
+    assert_eq!(output.status.code(), Some(1), "{}", stderr(&output));
+    assert!(
+        !stderr(&output).contains("installed"),
+        "{}",
+        stderr(&output)
+    );
+    let output = scratch.run(with(&["none.pdf"]));
+    assert_failure(
+        &output,
+        1,
+        "no known installed CJK or Latin font was found in no directories",
+    );
+    assert!(!scratch.path("none.pdf").exists());
+    // Image documents never search or report.
+    for (name, input) in [("input.hn", image_hn()), ("image.c8", image_c8(&[]))] {
+        scratch.write(name, &input);
+        let mut args = vec![name, "--no-bookmarks", "--force", "-o"];
+        args.push("plain.pdf");
+        assert_success(&scratch.run(&args));
+        args.pop();
+        args.push("searched.pdf");
+        assert_success(&installed(&args));
+        assert_eq!(
+            fs::read(scratch.path("searched.pdf")).unwrap(),
+            fs::read(scratch.path("plain.pdf")).unwrap()
+        );
+    }
+    // An HN-B native document uses the same installed fonts.
+    scratch.write("native.hn", &native_hnb());
+    let hnb = ["native.hn", "--no-bookmarks", "--force", "-q", "-o"];
+    let mut args = hnb.to_vec();
+    args.push("hnb-auto.pdf");
+    assert_success(&installed(&args));
+    let mut args = hnb.to_vec();
+    args.extend([
+        "hnb-explicit.pdf",
+        "--font-cjk=fonts/noto/NotoSerifCJK-Regular.ttc#1",
+        "--font-latin=fonts/FreeSerif.ttf",
+    ]);
+    assert_success(&scratch.run(&args));
+    assert_eq!(
+        fs::read(scratch.path("hnb-auto.pdf")).unwrap(),
+        fs::read(scratch.path("hnb-explicit.pdf")).unwrap()
+    );
+    let mut args = hnb.to_vec();
+    args.push("hnb-none.pdf");
+    assert_failure(&scratch.run(&args), 1, "no known installed");
 }
 
 /// Four HN-A pages: valid raw records, paired raw records with an unknown

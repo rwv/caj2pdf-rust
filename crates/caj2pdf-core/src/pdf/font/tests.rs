@@ -172,6 +172,15 @@ fn metadata_and_directory_fail_closed() {
             let (at, _) = span(s.bytes[i..i + 16].try_into().unwrap());
             put16(&mut s.bytes, at as usize + 8, 0x200);
         },
+        |s| {
+            let i = entry(&s.bytes, b"OS/2");
+            let (at, _) = span(s.bytes[i..i + 16].try_into().unwrap());
+            put16(&mut s.bytes, at as usize + 8, 0x108);
+        },
+        |s| {
+            let i = entry(&s.bytes, b"OS/2");
+            s.bytes[i..i + 4].copy_from_slice(b"OS/3");
+        },
     ];
     for (index, mutation) in mutations.iter().enumerate() {
         let mut source = fixture();
@@ -187,6 +196,55 @@ fn metadata_and_directory_fail_closed() {
             "mutation {index}"
         );
     }
+}
+
+#[test]
+fn the_least_restrictive_embedding_bit_applies() {
+    // Installable, print, editable, print with editable (TeX Gyre), and
+    // restricted with print, where print wins.
+    for fs_type in [0, 4, 8, 12, 6] {
+        let mut source = fixture();
+        let i = entry(&source.bytes, b"OS/2");
+        let (at, _) = span(source.bytes[i..i + 16].try_into().unwrap());
+        put16(&mut source.bytes, at as usize + 8, fs_type);
+        assert!(
+            run(OpenTypeFont::read(
+                &mut source,
+                0,
+                &Limits::default(),
+                &NeverCancel
+            ))
+            .is_ok(),
+            "{fs_type:#x}"
+        );
+    }
+    for version in [0, 1, 2, 3, 5] {
+        assert!(!permits_subset_embedding(version, 2), "{version}");
+        assert!(!permits_subset_embedding(version, 3), "{version}");
+        // Versions 0 and 1 reserve the no-subsetting and bitmap-only bits.
+        for bits in [0x100, 0x200, 0x300] {
+            assert_eq!(
+                permits_subset_embedding(version, bits),
+                version < 2,
+                "{version} {bits:#x}"
+            );
+        }
+    }
+    // A version-1 OS/2 table with the reserved bits set is accepted.
+    let mut source = fixture();
+    let i = entry(&source.bytes, b"OS/2");
+    let (at, _) = span(source.bytes[i..i + 16].try_into().unwrap());
+    put16(&mut source.bytes, at as usize, 1);
+    put16(&mut source.bytes, at as usize + 8, 0x304);
+    assert!(
+        run(OpenTypeFont::read(
+            &mut source,
+            0,
+            &Limits::default(),
+            &NeverCancel
+        ))
+        .is_ok()
+    );
 }
 
 #[test]
@@ -408,4 +466,51 @@ fn collection_headers_and_face_indices_fail_closed() {
             "{version} {face} {offset}"
         );
     }
+}
+
+#[test]
+fn face_counts_read_only_the_header() {
+    let count = |bytes: Vec<u8>| {
+        let mut source = crate::native::SeekableSource::new(std::io::Cursor::new(bytes)).unwrap();
+        run(OpenTypeFont::face_count(
+            &mut source,
+            &Limits::default(),
+            &NeverCancel,
+        ))
+    };
+    let mut apple = drawing_font();
+    apple[..4].copy_from_slice(b"true");
+    for (bytes, faces) in [
+        (collection_font(), 2),
+        (drawing_font(), 1),
+        (otf(&CffOptions::default()), 1),
+        (apple, 1),
+    ] {
+        assert_eq!(count(bytes).unwrap(), faces);
+    }
+    // The header alone is read: a face beyond the source is still counted.
+    let mut header = collection_font()[..12].to_vec();
+    put32(&mut header, 8, 70_000);
+    assert_eq!(count(header).unwrap(), 70_000);
+    let mut version = collection_font();
+    put16(&mut version, 4, 3);
+    let reason = |bytes| match count(bytes) {
+        Err(Error::InvalidInput { reason }) => reason,
+        other => panic!("unexpected {other:?}"),
+    };
+    assert_eq!(reason(version), "unsupported TrueType collection version");
+    assert_eq!(
+        reason(b"wOFF\0\0\0\0\0\0\0\0".to_vec()),
+        "font must be an OpenType font or collection face"
+    );
+    assert!(count(b"ttcf".to_vec()).is_err());
+    let mut source = fixture();
+    let limits = Limits {
+        max_input_bytes: 1,
+        ..Limits::default()
+    };
+    assert!(matches!(
+        run(OpenTypeFont::face_count(&mut source, &limits, &NeverCancel)),
+        Err(Error::LimitExceeded { .. })
+    ));
 }

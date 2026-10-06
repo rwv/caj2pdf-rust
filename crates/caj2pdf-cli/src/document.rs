@@ -184,6 +184,30 @@ async fn convert_source<S: RangedSource, W: Write>(
     })
 }
 
+/// Whether `input` is an HN/C8 document that converts with native text
+/// composition and therefore needs fonts. Other and unrecognized formats
+/// return `false`; conversion then reports its own errors.
+pub fn uses_native_text(input: &mut Input, limits: &Limits) -> Result<bool, CliError> {
+    block_on(async {
+        let mut source = ranged(&mut input.file)?;
+        match detect(&mut source, limits).await {
+            Ok(Detection {
+                format: InputFormat::Hn | InputFormat::C8,
+                ..
+            }) => caj2pdf_core::hnc8::uses_native_text(
+                &mut source,
+                crate::hnc8::compose_options(false),
+                limits,
+                &ProcessCancellation,
+            )
+            .await
+            .map_err(|e| e.to_string()),
+            _ => Ok(false),
+        }
+    })
+    .map_err(read_error(&input.name))
+}
+
 /// Bounded document metadata for `inspect`.
 #[derive(Debug, Eq, PartialEq)]
 pub struct Inspection {

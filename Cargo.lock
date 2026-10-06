@@ -39,6 +39,7 @@ dependencies = [
  "caj2pdf-core",
  "ctrlc",
  "flate2",
+ "sha2",
  "signal-hook",
  "winapi-util",
 ]

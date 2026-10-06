@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+- Fix: font embedding permissions follow the least restrictive OS/2
+  `fsType` licensing bit, so fonts that set both print and editable
+  embedding (`fsType` 12, such as TeX Gyre) are accepted. Fonts whose
+  `fsType` forbids subsetting (bit 8) or allows only bitmaps (bit 9) are
+  refused when their OS/2 table defines those bits (version 2 or later),
+  since only subset outlines are embedded; the error now reads `font metadata does not permit subset
+  embedding`.
+
+- **Breaking:** without any font option, the CLI converts a document with
+  native C8/HN-B text using installed fonts (#339). It searches the platform
+  font directories (or `CAJ2PDF_FONT_DIRS`) for a documented list of CJK and
+  Latin faces matched by PostScript name and prints the chosen files and
+  faces to standard error (`-q` silences them). If none is found, such a
+  document fails with a message naming the searched directories; before,
+  it failed for lack of fonts, except that an HN-B document whose pages all
+  have images converted as images without its text, which
+  `--no-system-fonts` still does. Any font option disables the search and
+  image documents never search. Node and the browser are unchanged. The
+  recommended free fonts are now Noto Serif CJK SC and FreeSerif
+  (`fonts-noto-cjk`, `fonts-freefont-ttf`), chosen by measured glyph
+  coverage of the pinned documents. New core API:
+  `OpenTypeFont::face_count` and a public `OpenTypeFont::postscript_name`.
+
 - **Breaking:** native C8/HN-B fonts may have CFF outlines (`.otf`, and CFF
   faces of collections such as Noto Sans/Serif CJK), embedded as
   desubroutinized CID-keyed CFF subsets (`FontFile3`/`CIDFontType0`, #338).

@@ -27,6 +27,8 @@ mod progress;
 mod report;
 #[cfg(any(unix, windows))]
 mod signals;
+#[cfg(any(unix, windows))]
+mod system_fonts;
 #[cfg(all(test, unix))]
 mod tests;
 
@@ -58,7 +60,7 @@ mod cli {
     use crate::CliError;
     use crate::args::{self, Command, Endpoint};
     use crate::files::{open_input, open_output, refuse_terminal, stdout_error};
-    use crate::{document, report};
+    use crate::{document, report, system_fonts};
     use caj2pdf_core::{
         Limits,
         hnc8::{ApplicationInfoStatus, OutlineReport},
@@ -122,6 +124,18 @@ mod cli {
                 refuse_terminal(&output, io::stdout().is_terminal())?;
                 let mut input = open_input(&input, limits.max_input_bytes)?;
                 let mut resources = crate::hnc8::Resources::load(&options, &limits)?;
+                if !resources.has_fonts()
+                    && !options.no_system_fonts
+                    && document::uses_native_text(&mut input, &limits)?
+                {
+                    let roots = system_fonts::roots(system_fonts::PLATFORM, std::env::var_os);
+                    let installed =
+                        system_fonts::discover(&roots, &limits).map_err(CliError::runtime)?;
+                    if !options.quiet {
+                        let _ = io::stderr().write_all(installed.report().as_bytes());
+                    }
+                    resources.use_installed(&installed, &limits)?;
+                }
                 let mut protected = vec![&input];
                 protected.extend(resources.inputs.iter());
                 let mut output = open_output(&output, force, &protected)?;
