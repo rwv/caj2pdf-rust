@@ -7,7 +7,7 @@ use super::{
     SegmentHeader, SegmentSpan,
     mq::{
         ArithmeticError, ArithmeticSnapshot, CodedSpan, ContextBank, ContextState, MQ_STATE_COUNT,
-        MqBudget, MqDecoder, MqTable,
+        MqDecoder, MqTable,
     },
     page_compose::PageOrSink,
 };
@@ -18,27 +18,6 @@ use std::{error, fmt, mem};
 
 const HEADER_BYTES: u64 = 20;
 const CONTEXT_COUNT: usize = 1024;
-
-/// Bounds for one generic-region image model, in addition to `Limits` and `MqBudget`.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct GenericBudget {
-    pub max_width: u32,
-    pub max_height: u32,
-    pub max_pixels: u64,
-    /// Maximum context-neighbor probes (ten per pixel).
-    pub max_context_work: u64,
-}
-
-impl Default for GenericBudget {
-    fn default() -> Self {
-        Self {
-            max_width: 32_768,
-            max_height: 32_768,
-            max_pixels: 12_000_000,
-            max_context_work: 120_000_000,
-        }
-    }
-}
 
 /// Region geometry and external combination operator; no page composition occurs.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -279,8 +258,6 @@ fn checked_layout(
     header: &SegmentHeader,
     source_size: u64,
     limits: &Limits,
-    mq_budget: &MqBudget,
-    budget: GenericBudget,
     bytes: [u8; 20],
 ) -> GenericResult<(GenericRegionInfo, CodedSpan, u64)> {
     let offset = header.data.offset;
@@ -294,24 +271,6 @@ fn checked_layout(
     let ay = bytes[19] as i8;
     if width == 0 || height == 0 {
         return Err(malformed(segment, offset, "zero region dimension"));
-    }
-    if width > budget.max_width {
-        return Err(limit(
-            segment,
-            offset,
-            "region width",
-            u64::from(budget.max_width),
-            u64::from(width),
-        ));
-    }
-    if height > budget.max_height {
-        return Err(limit(
-            segment,
-            offset,
-            "region height",
-            u64::from(budget.max_height),
-            u64::from(height),
-        ));
     }
     // Both callers read these header bytes at `offset` within the source, so
     // field offsets cannot overflow even when built before their checks.
@@ -346,35 +305,13 @@ fn checked_layout(
     let pixels = u64::from(width)
         .checked_mul(u64::from(height))
         .ok_or(malformed(segment, offset, "pixel area overflows"))?;
-    if pixels > budget.max_pixels {
+    if pixels > limits.max_image_pixels {
         return Err(limit(
             segment,
             offset,
             "region pixels",
-            budget.max_pixels,
+            limits.max_image_pixels,
             pixels,
-        ));
-    }
-    if pixels > mq_budget.max_symbols {
-        return Err(limit(
-            segment,
-            offset,
-            "symbols",
-            mq_budget.max_symbols,
-            pixels,
-        ));
-    }
-    let context_work =
-        pixels
-            .checked_mul(10)
-            .ok_or(malformed(segment, offset, "context work overflows"))?;
-    if context_work > budget.max_context_work {
-        return Err(limit(
-            segment,
-            offset,
-            "context work",
-            budget.max_context_work,
-            context_work,
         ));
     }
     let stride_u64 = u64::from(width).div_ceil(8);
@@ -411,15 +348,6 @@ fn checked_layout(
             rows_alloc,
         ));
     }
-    if mq_budget.max_contexts < CONTEXT_COUNT {
-        return Err(limit(
-            segment,
-            offset,
-            "MQ contexts",
-            mq_budget.max_contexts as u64,
-            CONTEXT_COUNT as u64,
-        ));
-    }
     let failure = invalid_span(segment, offset, "MQ start overflows");
     let payload_offset = offset.checked_add(HEADER_BYTES).ok_or(failure)?;
     let mq_span = CodedSpan {
@@ -431,15 +359,6 @@ fn checked_layout(
             segment,
             payload_offset,
             GenericErrorKind::Truncated("MQ terminal pair"),
-        ));
-    }
-    if mq_span.length > mq_budget.max_span_bytes {
-        return Err(limit(
-            segment,
-            payload_offset,
-            "MQ span bytes",
-            mq_budget.max_span_bytes,
-            mq_span.length,
         ));
     }
     if payload_offset.checked_add(mq_span.length)
@@ -471,14 +390,9 @@ pub fn read_generic_region_header<S: RangedSource, C: Cancellation>(
     header: &SegmentHeader,
     limits: &Limits,
     cancellation: &C,
-    mq_budget: MqBudget,
-    budget: GenericBudget,
 ) -> GenericResult<GenericRegionHeader> {
     let segment = header.number;
     let offset = header.data.offset;
-    limits
-        .validate()
-        .map_err(|e| at(segment, offset, GenericErrorKind::Source(e)))?;
     if cancellation.is_cancelled() {
         return Err(at(segment, offset, GenericErrorKind::Cancelled));
     }
@@ -573,8 +487,7 @@ pub fn read_generic_region_header<S: RangedSource, C: Cancellation>(
         limits,
         cancellation,
     )?;
-    let (info, mq_span, pixels) =
-        checked_layout(header, source.size(), limits, &mq_budget, budget, bytes)?;
+    let (info, mq_span, pixels) = checked_layout(header, source.size(), limits, bytes)?;
     Ok(GenericRegionHeader {
         segment: header.number,
         page_association: header.page_association,
@@ -610,7 +523,6 @@ pub struct GenericRegionDecoder<'a, W: Write, C: Cancellation> {
 impl<'a, W: Write, C: Cancellation> GenericRegionDecoder<'a, W, C> {
     /// Parse the segment's header from `input`, which must hold the whole
     /// segment data, and start its MQ coding unit.
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
         input: Payload<'a>,
         header: &SegmentHeader,
@@ -619,19 +531,10 @@ impl<'a, W: Write, C: Cancellation> GenericRegionDecoder<'a, W, C> {
         sink: &'a mut W,
         limits: &'a Limits,
         cancellation: &'a C,
-        mq_budget: MqBudget,
-        budget: GenericBudget,
     ) -> GenericResult<Self> {
         let segment = header.number;
         let offset = header.data.offset;
-        let checked = read_generic_region_header(
-            &mut { input },
-            header,
-            limits,
-            cancellation,
-            mq_budget,
-            budget,
-        )?;
+        let checked = read_generic_region_header(&mut { input }, header, limits, cancellation)?;
         let info = checked.info;
         let mq_span = checked.mq_span;
         let pixels = checked.pixels;
@@ -646,14 +549,13 @@ impl<'a, W: Write, C: Cancellation> GenericRegionDecoder<'a, W, C> {
         let previous_one = checked_row(info.row_stride, segment, offset)?;
         let current = checked_row(info.row_stride, segment, offset)?;
         contexts.reset();
-        let mq =
-            MqDecoder::new(input, mq_span, table, contexts, limits, mq_budget).map_err(|e| {
-                at(
-                    segment,
-                    e.offset.unwrap_or(mq_span.offset),
-                    GenericErrorKind::Mq(Box::new(e)),
-                )
-            })?;
+        let mq = MqDecoder::new(input, mq_span, table, contexts, limits).map_err(|e| {
+            at(
+                segment,
+                e.offset.unwrap_or(mq_span.offset),
+                GenericErrorKind::Mq(Box::new(e)),
+            )
+        })?;
         Ok(Self {
             mq,
             sink,

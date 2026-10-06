@@ -39,37 +39,20 @@ fn assert_nested_error(error: &DictionaryError, label: &str) {
     assert!(std::error::Error::source(error).is_some());
 }
 
-fn observe(
-    source: Source,
-    header: &SegmentHeader,
-    limits: &Limits,
-    mq_budget: MqBudget,
-    budget: DictionaryBudget,
-) -> Observation {
-    observe_custom(
-        source,
-        header,
-        limits,
-        mq_budget,
-        budget,
-        Store::default(),
-        IAID_BASE,
-    )
+fn observe(source: Source, header: &SegmentHeader, limits: &Limits) -> Observation {
+    observe_custom(source, header, limits, Store::default(), IAID_BASE)
 }
 
 fn observe_custom(
     source: Source,
     header: &SegmentHeader,
     limits: &Limits,
-    mq_budget: MqBudget,
-    budget: DictionaryBudget,
     mut store: Store,
     context_count: usize,
 ) -> Observation {
     let table = table();
-    let mut contexts = MqBudget::default()
-        .context_bank(context_count, &Limits::default())
-        .unwrap();
+    let mut contexts =
+        caj2pdf_core::jbig2::mq::context_bank(context_count, &Limits::default()).unwrap();
     let unread = Unread::default();
     let result = SymbolDictionaryDecoder::new(
         source.payload(),
@@ -80,23 +63,13 @@ fn observe_custom(
         &mut contexts,
         limits,
         &CancelAfter::Never,
-        mq_budget,
-        budget,
-        RefinementBudget::default(),
-        RefinementDictionaryBudget::default(),
     )
     .and_then(|decoder| decoder.decode());
     Observation { result, store }
 }
 
 fn defaults(source: Source, header: &SegmentHeader) -> Observation {
-    observe(
-        source,
-        header,
-        &Limits::default(),
-        MqBudget::default(),
-        DictionaryBudget::default(),
-    )
+    observe(source, header, &Limits::default())
 }
 
 #[test]
@@ -159,7 +132,6 @@ fn cancellation_at_dictionary_entry_reads_no_header_or_body() {
         &mut input,
         &segment,
         &Limits::default(),
-        DictionaryBudget::default(),
         &CancelAfter::new(0),
     )
     .unwrap_err();
@@ -182,7 +154,6 @@ fn cancellation_after_one_header_byte_preserves_partial_progress() {
         &mut input,
         &segment,
         &Limits::default(),
-        DictionaryBudget::default(),
         &CancelAfter::While(cancelled),
     )
     .unwrap_err();
@@ -203,7 +174,6 @@ fn dictionary_header_source_error_and_cancellation_keep_partial_fetch_count() {
             &mut input,
             &segment,
             &Limits::default(),
-            DictionaryBudget::default(),
             &CancelAfter::Never,
         )
         .unwrap_err();
@@ -228,8 +198,6 @@ fn context_bank_count_is_checked_before_arithmetic_or_output() {
         input,
         &segment,
         &Limits::default(),
-        MqBudget::default(),
-        DictionaryBudget::default(),
         Store::default(),
         IAID_BASE + 1,
     );
@@ -297,41 +265,27 @@ fn malformed_geometry_and_limits_fail_before_output() {
     let cases = [
         (
             &NEGATIVE_HEIGHT[..],
-            DictionaryBudget::default(),
+            Limits::default(),
             "height class dimension",
         ),
         (
             &NEGATIVE_WIDTH[..],
-            DictionaryBudget::default(),
+            Limits::default(),
             "negative symbol dimension",
         ),
         (
             &WIDTH_NINE[..],
-            DictionaryBudget {
-                max_width: 8,
-                ..DictionaryBudget::default()
+            Limits {
+                max_image_pixels: 8,
+                ..Limits::default()
             },
-            "symbol width limit",
-        ),
-        (
-            &ONE_SYMBOL[..],
-            DictionaryBudget {
-                max_height: 0,
-                ..DictionaryBudget::default()
-            },
-            "height class limit",
+            "symbol pixels limit 8 exceeded by 9",
         ),
     ];
-    for (body, budget, expected) in cases {
+    for (body, limits, expected) in cases {
         let mut input = source(body, 1, 1, (2, -1), &[]);
         let segment = header(&mut input);
-        let observation = observe(
-            input,
-            &segment,
-            &Limits::default(),
-            MqBudget::default(),
-            budget,
-        );
+        let observation = observe(input, &segment, &limits);
         let error = observation.result.unwrap_err();
         assert!(error.to_string().contains(expected), "{error}");
         assert!(observation.store.bytes.is_empty());
@@ -354,29 +308,17 @@ fn extra_width_before_oob_fails_after_one_committed_symbol() {
 }
 
 #[test]
-fn fixed_budget_mutations_terminate_with_bounded_io_and_state() {
+fn input_mutations_terminate_with_bounded_io_and_state() {
     // Fixed seed and 96 cases keep this useful as a regression test rather than
     // an unbounded fuzzer. Preserve the synthetic FFAC marker to reach the model.
     let mut state = 0x6a09_e667_f3bc_c909u64;
+    // Small limits keep every mutated dictionary cheap: a few height
+    // classes and export runs, and symbols of at most 16 pixels.
     let limits = Limits {
         io_chunk_bytes: 2,
+        max_symbols: 4,
+        max_image_pixels: 16,
         ..Limits::default()
-    };
-    let mq_budget = MqBudget {
-        max_symbols: 256,
-        max_work: 1024,
-        max_terminal_inputs: 256,
-        ..MqBudget::default()
-    };
-    let budget = DictionaryBudget {
-        max_height_classes: 4,
-        max_export_runs: 4,
-        max_width: 16,
-        max_height: 16,
-        max_total_pixels: 256,
-        max_stored_bitmap_bytes: 32,
-        max_source_request_bytes: 2,
-        ..DictionaryBudget::default()
     };
     for case in 0..96 {
         state ^= state << 13;
@@ -387,13 +329,13 @@ fn fixed_budget_mutations_terminate_with_bounded_io_and_state() {
         body[index] ^= (state >> 32) as u8 | 1;
         let mut input = source(&body, 1, 1, (2, -1), &[]);
         let segment = header(&mut input);
-        let observation = observe(input, &segment, &limits, mq_budget, budget);
+        let observation = observe(input, &segment, &limits);
         assert!(observation.store.bytes.len() <= 32, "case {case}");
         match observation.result {
             Ok(report) => {
                 assert_eq!(report.progress.completed_symbols, 1, "case {case}");
                 assert!(
-                    report.progress.mq.unwrap().symbols_decoded <= 256,
+                    report.progress.mq.unwrap().symbols_decoded <= 1024,
                     "case {case}"
                 );
             }
@@ -403,7 +345,10 @@ fn fixed_budget_mutations_terminate_with_bounded_io_and_state() {
                     "case {case}: {error}"
                 );
                 assert!(
-                    error.progress.mq.is_none_or(|mq| mq.symbols_decoded <= 256),
+                    error
+                        .progress
+                        .mq
+                        .is_none_or(|mq| mq.symbols_decoded <= 1024),
                     "case {case}"
                 );
             }

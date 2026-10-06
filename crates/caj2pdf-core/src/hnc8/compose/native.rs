@@ -47,7 +47,7 @@ where
     W: Write,
     C: Cancellation,
 {
-    validate(options, limits)?;
+    validate(limits)?;
     let roles = fonts.roles;
     let count = fonts.sources.len();
     if !(1..=8).contains(&count)
@@ -70,7 +70,7 @@ where
     }
     let mut input_bytes_read = 0;
     let mut counted = CountingSource::new(source, &mut input_bytes_read);
-    let mut reader = Hnc8Reader::open(&mut counted, limits, cancellation, options.container)
+    let mut reader = Hnc8Reader::open(&mut counted, limits, cancellation)
         .map_err(|error| container(error, ComposeStage::Container))?;
     let header = reader.header();
     let at = At {
@@ -129,16 +129,12 @@ where
             page,
             &[size_of::<ImageObject>(), size_of::<bool>()],
             at,
-            options,
             limits,
         )?;
         let mut images = page_vector(count, limits, "native page image handles")
             .map_err(at.io(ComposeStage::Preflight))?;
         let mut top_first = page_vector(count, limits, "native page image orientation")
             .map_err(at.io(ComposeStage::Preflight))?;
-        let bytes = capacity_bytes::<ImageObject>(images.capacity())
-            + capacity_bytes::<bool>(top_first.capacity());
-        check_metadata(bytes, options.budget).map_err(at.io(ComposeStage::Preflight))?;
         while let Some(record) = reader
             .next_image()
             .map_err(|error| container(error, ComposeStage::Container))?
@@ -147,7 +143,6 @@ where
             let (checked, plan, visible_width, display_width, height) = preflight_image(
                 reader.source_mut(),
                 record,
-                header.variant,
                 image_at,
                 table,
                 options,
@@ -175,7 +170,6 @@ where
                 image_at,
                 &mut buffers,
                 table,
-                options,
                 limits,
                 cancellation,
                 &mut report,
@@ -188,7 +182,6 @@ where
             page_roles,
             &images,
             &top_first,
-            options.text,
         )
         .map_err(|error| container(error, ComposeStage::Text))?
             + 1;

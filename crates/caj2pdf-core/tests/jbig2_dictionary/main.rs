@@ -15,20 +15,16 @@ mod faults;
 use caj2pdf_core::{
     Limits, Payload, RangedSource,
     jbig2::{
-        HeaderLimits, SegmentHeader, SegmentSpan,
+        SegmentHeader, SegmentSpan,
         dictionary::{
-            DictionaryBudget, DictionaryError, DictionaryErrorKind, DictionaryMode,
-            DictionaryReport, DictionaryStores, RefinementDictionaryBudget, SymbolDescriptor,
-            SymbolDictionaryDecoder, SymbolStore, read_dictionary_data_header,
+            DictionaryError, DictionaryErrorKind, DictionaryMode, DictionaryReport,
+            DictionaryStores, SymbolDescriptor, SymbolDictionaryDecoder, SymbolStore,
+            read_dictionary_data_header,
         },
         iaid::IAID_BASE,
         integer::{BITMAP_BASE, INTEGER_CONTEXT_COUNT},
-        mq::{
-            ArithmeticErrorKind, ContextBank, ContextState, MQ_STATE_COUNT, MqBudget, MqState,
-            MqTable,
-        },
+        mq::{ArithmeticErrorKind, ContextBank, ContextState, MqTable},
         read_segment_header,
-        refinement::RefinementBudget,
     },
 };
 use common::CancelAfter;
@@ -147,7 +143,6 @@ fn header(source: &mut Source) -> SegmentHeader {
             length: source.size(),
         },
         &Limits::default(),
-        HeaderLimits::default(),
         &CancelAfter::Never,
     )
     .unwrap()
@@ -159,9 +154,7 @@ fn table() -> MqTable {
 
 /// The integer and bitmap contexts of a direct dictionary.
 fn direct_contexts() -> ContextBank {
-    MqBudget::default()
-        .context_bank(IAID_BASE, &Limits::default())
-        .unwrap()
+    caj2pdf_core::jbig2::mq::context_bank(IAID_BASE, &Limits::default()).unwrap()
 }
 
 /// The exported descriptors of a direct dictionary, all in its new store.

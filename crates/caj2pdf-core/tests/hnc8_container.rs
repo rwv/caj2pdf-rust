@@ -3,9 +3,9 @@
 use caj2pdf_core::read_payload;
 use caj2pdf_core::{
     Cancellation, Limits, RangedSource,
-    hnc8::{Budget, ErrorKind, Hnc8Reader, Variant},
-    jbig1::{Type0Budget, Type0Decoder},
-    qm::{ArithmeticBudget, ContextBank, QmTable},
+    hnc8::{ErrorKind, Hnc8Reader, Variant},
+    jbig1::Type0Decoder,
+    qm::{ContextBank, QmTable},
 };
 use std::io::Write;
 use std::{
@@ -165,14 +165,14 @@ fn image(bytes: &mut [u8], descriptor: usize, kind: i32, offset: i32, length: i3
 fn error_after_page(bytes: Vec<u8>) -> caj2pdf_core::hnc8::Hnc8Error {
     let mut source = Source::new(bytes);
     let limits = Limits::default();
-    let mut reader = Hnc8Reader::open(&mut source, &limits, &NEVER, Budget::default()).unwrap();
+    let mut reader = Hnc8Reader::open(&mut source, &limits, &NEVER).unwrap();
     reader.next_page().unwrap();
     reader.next_image().unwrap_err()
 }
 fn page_error(bytes: Vec<u8>) -> caj2pdf_core::hnc8::Hnc8Error {
     let mut source = Source::new(bytes);
     let limits = Limits::default();
-    let mut reader = Hnc8Reader::open(&mut source, &limits, &NEVER, Budget::default()).unwrap();
+    let mut reader = Hnc8Reader::open(&mut source, &limits, &NEVER).unwrap();
     reader.next_page().unwrap_err()
 }
 
@@ -191,7 +191,7 @@ fn c8_zero_image_page_and_four_types_follow_payload_ends_with_gaps() {
         io_chunk_bytes: 1,
         ..Limits::default()
     };
-    let mut reader = Hnc8Reader::open(&mut source, &limits, &NEVER, Budget::default()).unwrap();
+    let mut reader = Hnc8Reader::open(&mut source, &limits, &NEVER).unwrap();
     assert_eq!(reader.header().variant, Variant::C8);
     assert_eq!(reader.header().page_index.offset, 0x50);
     assert_eq!(reader.header().page_index.length, 40);
@@ -252,7 +252,7 @@ fn hn_a_and_b_have_distinct_checked_index_offsets() {
         page(&mut bytes, index, 1, 900, 0, 0);
         let mut source = Source::new(bytes);
         let limits = Limits::default();
-        let mut reader = Hnc8Reader::open(&mut source, &limits, &NEVER, Budget::default()).unwrap();
+        let mut reader = Hnc8Reader::open(&mut source, &limits, &NEVER).unwrap();
         assert_eq!(reader.header().variant, variant);
         assert_eq!(reader.header().page_index.offset, expected as u64);
         assert_eq!(
@@ -271,7 +271,7 @@ fn text_and_records_may_alias_across_pages_but_each_identity_is_checked() {
     image(&mut bytes, 200, 0, 240, 2);
     let mut source = Source::new(bytes);
     let limits = Limits::default();
-    let mut reader = Hnc8Reader::open(&mut source, &limits, &NEVER, Budget::default()).unwrap();
+    let mut reader = Hnc8Reader::open(&mut source, &limits, &NEVER).unwrap();
     assert_eq!(reader.next_page().unwrap().unwrap().page_number, 1);
     assert_eq!(reader.next_image().unwrap().unwrap().image_number, 1);
     assert_eq!(reader.next_page().unwrap().unwrap().page_number, 2);
@@ -295,7 +295,7 @@ fn disjoint_out_of_order_page_intervals_are_accepted() {
     image(&mut bytes, 200, 1, 240, 2);
     let mut source = Source::new(bytes);
     let limits = Limits::default();
-    let mut reader = Hnc8Reader::open(&mut source, &limits, &NEVER, Budget::default()).unwrap();
+    let mut reader = Hnc8Reader::open(&mut source, &limits, &NEVER).unwrap();
     assert_eq!(reader.next_page().unwrap().unwrap().page_number, 1);
     assert_eq!(reader.next_image().unwrap().unwrap().payload.offset, 440);
     assert_eq!(reader.next_page().unwrap().unwrap().page_number, 2);
@@ -328,7 +328,7 @@ fn type0_handoff_keeps_outer_type_and_full_dib_span() {
     let table = QmTable::standard();
     let mut contexts = ContextBank::new(1024, &limits).unwrap();
     let mut sink = Sink::default();
-    let mut reader = Hnc8Reader::open(&mut source, &limits, &NEVER, Budget::default()).unwrap();
+    let mut reader = Hnc8Reader::open(&mut source, &limits, &NEVER).unwrap();
     reader.next_page().unwrap();
     let span = reader.next_image().unwrap().unwrap().type0_span().unwrap();
     assert_eq!((span.record_type, span.offset, span.length), (0, 256, 51));
@@ -350,11 +350,6 @@ fn type0_handoff_keeps_outer_type_and_full_dib_span() {
         &mut sink,
         &limits,
         &NEVER,
-        ArithmeticBudget {
-            max_symbols: 100,
-            max_work: 1_000,
-        },
-        Type0Budget::default(),
     )
     .unwrap();
     assert!(decoder.decode_next_row().unwrap());
@@ -372,7 +367,7 @@ fn signatures_markers_and_header_counts_are_located() {
         (b"HN\0\0bad!".to_vec(), "HN marker", 4),
     ] {
         let mut source = Source::new(bytes);
-        let error = Hnc8Reader::open(&mut source, &limits, &NEVER, Budget::default())
+        let error = Hnc8Reader::open(&mut source, &limits, &NEVER)
             .err()
             .unwrap();
         assert_eq!((error.kind.field(), error.offset), (field, offset));
@@ -380,7 +375,7 @@ fn signatures_markers_and_header_counts_are_located() {
     }
     for count in [0, -1] {
         let mut source = Source::new(c8(count));
-        let error = Hnc8Reader::open(&mut source, &limits, &NEVER, Budget::default())
+        let error = Hnc8Reader::open(&mut source, &limits, &NEVER)
             .err()
             .unwrap();
         assert_eq!((error.kind.field(), error.offset), ("page count", 8));
@@ -390,9 +385,7 @@ fn signatures_markers_and_header_counts_are_located() {
         max_pages: 1,
         ..limits
     };
-    let error = Hnc8Reader::open(&mut source, &small, &NEVER, Budget::default())
-        .err()
-        .unwrap();
+    let error = Hnc8Reader::open(&mut source, &small, &NEVER).err().unwrap();
     assert!(matches!(
         error.kind,
         ErrorKind::LimitExceeded {
@@ -404,40 +397,19 @@ fn signatures_markers_and_header_counts_are_located() {
 }
 
 #[test]
-fn outline_count_negative_limit_and_checked_index_arithmetic() {
+fn outline_count_negative_and_checked_index_arithmetic() {
     let limits = Limits::default();
     let (mut bytes, _) = hn(Variant::HnA, 1, -1);
     let mut source = Source::new(bytes.clone());
-    let error = Hnc8Reader::open(&mut source, &limits, &NEVER, Budget::default())
+    let error = Hnc8Reader::open(&mut source, &limits, &NEVER)
         .err()
         .unwrap();
     assert_eq!((error.kind.field(), error.offset), ("outline count", 0x158));
-    put_i32(&mut bytes, 0x158, 2);
-    let mut source = Source::new(bytes.clone());
-    let budget = Budget {
-        max_outline_records: 1,
-        ..Budget::default()
-    };
-    let error = Hnc8Reader::open(&mut source, &limits, &NEVER, budget)
-        .err()
-        .unwrap();
-    assert!(matches!(
-        error.kind,
-        ErrorKind::LimitExceeded {
-            resource: "outline records",
-            limit: 1,
-            attempted: 2
-        }
-    ));
     // i32::MAX * 308 is representable in u64, but the checked index start
     // lies far beyond this source and must fail before any seek/allocation.
     put_i32(&mut bytes, 0x158, i32::MAX);
     let mut source = Source::new(bytes);
-    let budget = Budget {
-        max_outline_records: u32::MAX,
-        ..Budget::default()
-    };
-    let error = Hnc8Reader::open(&mut source, &limits, &NEVER, budget)
+    let error = Hnc8Reader::open(&mut source, &limits, &NEVER)
         .err()
         .unwrap();
     assert_eq!(error.kind.field(), "page index");
@@ -464,61 +436,33 @@ fn negative_and_out_of_source_page_fields_fail_even_without_images() {
 }
 
 #[test]
-fn page_and_image_budgets_are_distinct_and_located() {
+fn image_span_allocation_limit_is_located() {
     let mut bytes = c8(2);
     page(&mut bytes, 0x50, 1, 200, 3, 1);
     page(&mut bytes, 0x50, 2, 300, 0, 1);
     image(&mut bytes, 203, 0, 240, 4);
     image(&mut bytes, 300, 0, 340, 4);
-    let limits = Limits::default();
-    let cases = [
-        (
-            Budget {
-                max_text_span_bytes: 2,
-                ..Budget::default()
-            },
-            "text span bytes",
-        ),
-        (
-            Budget {
-                max_images_per_page: 0,
-                ..Budget::default()
-            },
-            "images per page",
-        ),
-        (
-            Budget {
-                max_images_total: 0,
-                ..Budget::default()
-            },
-            "images total",
-        ),
-    ];
-    for (budget, expected) in cases {
-        let mut source = Source::new(bytes.clone());
-        let mut reader = Hnc8Reader::open(&mut source, &limits, &NEVER, budget).unwrap();
-        assert_eq!(reader.next_page().unwrap_err().kind.field(), expected);
-    }
-    let mut source = Source::new(bytes.clone());
-    let budget = Budget {
-        max_images_total: 1,
-        ..Budget::default()
+    let limits = Limits {
+        io_chunk_bytes: 3,
+        max_allocation_bytes: 3,
+        ..Limits::default()
     };
-    let mut reader = Hnc8Reader::open(&mut source, &limits, &NEVER, budget).unwrap();
-    reader.next_page().unwrap();
-    reader.next_image().unwrap();
-    assert_eq!(reader.next_page().unwrap_err().kind.field(), "images total");
     let mut source = Source::new(bytes);
-    let budget = Budget {
-        max_image_span_bytes: 3,
-        ..Budget::default()
-    };
-    let mut reader = Hnc8Reader::open(&mut source, &limits, &NEVER, budget).unwrap();
+    let mut reader = Hnc8Reader::open(&mut source, &limits, &NEVER).unwrap();
     reader.next_page().unwrap();
+    let error = reader.next_image().unwrap_err();
     assert_eq!(
-        reader.next_image().unwrap_err().kind.field(),
-        "image span bytes"
+        (error.page, error.image, error.offset),
+        (Some(1), Some(1), 211)
     );
+    assert!(matches!(
+        error.kind,
+        ErrorKind::LimitExceeded {
+            resource: "image span bytes",
+            limit: 3,
+            attempted: 4
+        }
+    ));
 }
 
 #[test]
@@ -538,7 +482,7 @@ fn malformed_descriptors_are_located_and_poison_normal_cursor() {
         image(&mut bytes, 200, kind, offset, length);
         let mut source = Source::new(bytes);
         let limits = Limits::default();
-        let mut reader = Hnc8Reader::open(&mut source, &limits, &NEVER, Budget::default()).unwrap();
+        let mut reader = Hnc8Reader::open(&mut source, &limits, &NEVER).unwrap();
         reader.next_page().unwrap();
         let error = reader.next_image().unwrap_err();
         assert_eq!(
@@ -577,7 +521,7 @@ fn descriptor_payload_chain_cannot_regress_on_later_image() {
     image(&mut bytes, 242, 1, 241, 3);
     let mut source = Source::new(bytes);
     let limits = Limits::default();
-    let mut reader = Hnc8Reader::open(&mut source, &limits, &NEVER, Budget::default()).unwrap();
+    let mut reader = Hnc8Reader::open(&mut source, &limits, &NEVER).unwrap();
     reader.next_page().unwrap();
     assert_eq!(reader.next_image().unwrap().unwrap().descriptor_offset, 200);
     let error = reader.next_image().unwrap_err();
@@ -609,7 +553,7 @@ fn incomplete_page_cannot_silently_drop_images() {
     image(&mut bytes, 200, 0, 240, 2);
     let mut source = Source::new(bytes);
     let limits = Limits::default();
-    let mut reader = Hnc8Reader::open(&mut source, &limits, &NEVER, Budget::default()).unwrap();
+    let mut reader = Hnc8Reader::open(&mut source, &limits, &NEVER).unwrap();
     reader.next_page().unwrap();
     assert!(matches!(
         reader.next_page().unwrap_err().kind,
@@ -626,7 +570,7 @@ fn truncation_and_disrupted_reads_are_located() {
         let mut bytes = c8(1);
         bytes.truncate(size);
         let mut source = Source::new(bytes);
-        let error = Hnc8Reader::open(&mut source, &limits, &NEVER, Budget::default())
+        let error = Hnc8Reader::open(&mut source, &limits, &NEVER)
             .err()
             .unwrap();
         assert_eq!(error.kind.field(), field);
@@ -634,14 +578,14 @@ fn truncation_and_disrupted_reads_are_located() {
     let (mut bytes, _) = hn(Variant::HnB, 1, 0);
     bytes.truncate(6);
     let mut source = Source::new(bytes);
-    let error = Hnc8Reader::open(&mut source, &limits, &NEVER, Budget::default())
+    let error = Hnc8Reader::open(&mut source, &limits, &NEVER)
         .err()
         .unwrap();
     assert_eq!((error.kind.field(), error.offset), ("HN marker", 4));
     let (mut bytes, _) = hn(Variant::HnA, 1, 0);
     bytes.truncate(0x15a);
     let mut source = Source::new(bytes);
-    let error = Hnc8Reader::open(&mut source, &limits, &NEVER, Budget::default())
+    let error = Hnc8Reader::open(&mut source, &limits, &NEVER)
         .err()
         .unwrap();
     assert_eq!((error.kind.field(), error.offset), ("outline count", 0x158));
@@ -656,7 +600,7 @@ fn truncation_and_disrupted_reads_are_located() {
         let mut truncated = bytes.clone();
         truncated.truncate(size);
         let mut source = Source::new(truncated);
-        let mut reader = Hnc8Reader::open(&mut source, &limits, &NEVER, Budget::default()).unwrap();
+        let mut reader = Hnc8Reader::open(&mut source, &limits, &NEVER).unwrap();
         // Zero-length text may end at EOF; each case fails at a later boundary.
         reader.next_page().unwrap();
         let error = reader.next_image().unwrap_err();
@@ -664,14 +608,14 @@ fn truncation_and_disrupted_reads_are_located() {
     }
     let mut source = Source::new(c8(1));
     source.overreport = true;
-    let error = Hnc8Reader::open(&mut source, &limits, &NEVER, Budget::default())
+    let error = Hnc8Reader::open(&mut source, &limits, &NEVER)
         .err()
         .unwrap();
     assert_eq!(error.kind.field(), "signature");
     assert!(matches!(error.kind, ErrorKind::Source { .. }));
     let mut source = Source::new(c8(1));
     source.zero = true;
-    let error = Hnc8Reader::open(&mut source, &limits, &NEVER, Budget::default())
+    let error = Hnc8Reader::open(&mut source, &limits, &NEVER)
         .err()
         .unwrap();
     assert!(matches!(error.kind, ErrorKind::Truncated { .. }));
@@ -680,7 +624,7 @@ fn truncation_and_disrupted_reads_are_located() {
     page(&mut bytes, 0x50, 1, 200, 0, 1);
     image(&mut bytes, 200, 0, 240, 2);
     let mut source = Source::new(bytes);
-    let mut reader = Hnc8Reader::open(&mut source, &limits, &NEVER, Budget::default()).unwrap();
+    let mut reader = Hnc8Reader::open(&mut source, &limits, &NEVER).unwrap();
     reader.source_mut().overreport = true;
     let error = reader.next_page().unwrap_err();
     assert_eq!((error.kind.field(), error.page), ("page row", Some(1)));
@@ -696,7 +640,7 @@ fn configured_source_size_and_cancellation_are_checked() {
         max_input_bytes: 100,
         ..Limits::default()
     };
-    let error = Hnc8Reader::open(&mut source, &limits, &NEVER, Budget::default())
+    let error = Hnc8Reader::open(&mut source, &limits, &NEVER)
         .err()
         .unwrap();
     assert!(matches!(
@@ -710,7 +654,7 @@ fn configured_source_size_and_cancellation_are_checked() {
     let mut source = Source::new(bytes);
     let flag = Flag::new(false);
     let limits = Limits::default();
-    let mut reader = Hnc8Reader::open(&mut source, &limits, &flag, Budget::default()).unwrap();
+    let mut reader = Hnc8Reader::open(&mut source, &limits, &flag).unwrap();
     reader.next_page().unwrap();
     flag.set(true);
     assert!(matches!(
@@ -745,12 +689,7 @@ fn fixed_seed_mutations_terminate_under_fixed_record_budget() {
             io_chunk_bytes: 4,
             ..Limits::default()
         };
-        let budget = Budget {
-            max_images_per_page: 4,
-            max_images_total: 8,
-            ..Budget::default()
-        };
-        if let Ok(mut reader) = Hnc8Reader::open(&mut source, &limits, &NEVER, budget) {
+        if let Ok(mut reader) = Hnc8Reader::open(&mut source, &limits, &NEVER) {
             for _ in 0..4 {
                 match reader.next_page() {
                     Ok(Some(page)) => {
@@ -775,7 +714,7 @@ fn public_error_contract_preserves_variant_location_field_and_cause() {
     assert_eq!(Variant::HnB.as_str(), "HN-B");
     let limits = Limits::default();
     let mut source = Source::new(c8(0));
-    let malformed = Hnc8Reader::open(&mut source, &limits, &NEVER, Budget::default())
+    let malformed = Hnc8Reader::open(&mut source, &limits, &NEVER)
         .err()
         .unwrap();
     assert_eq!(
@@ -786,7 +725,7 @@ fn public_error_contract_preserves_variant_location_field_and_cause() {
     assert!(StdError::source(&malformed).is_none());
 
     let mut source = Source::new(vec![0xff; 4]);
-    let unsupported = Hnc8Reader::open(&mut source, &limits, &NEVER, Budget::default())
+    let unsupported = Hnc8Reader::open(&mut source, &limits, &NEVER)
         .err()
         .unwrap();
     assert_eq!(
@@ -797,7 +736,7 @@ fn public_error_contract_preserves_variant_location_field_and_cause() {
 
     let mut source = Source::new(c8(1));
     source.overreport = true;
-    let source_error = Hnc8Reader::open(&mut source, &limits, &NEVER, Budget::default())
+    let source_error = Hnc8Reader::open(&mut source, &limits, &NEVER)
         .err()
         .unwrap();
     assert_eq!(
@@ -821,9 +760,7 @@ fn public_error_contract_preserves_variant_location_field_and_cause() {
         max_pages: 1,
         ..limits
     };
-    let limited = Hnc8Reader::open(&mut source, &small, &NEVER, Budget::default())
-        .err()
-        .unwrap();
+    let limited = Hnc8Reader::open(&mut source, &small, &NEVER).err().unwrap();
     assert_eq!(
         (limited.kind.field(), limited.kind.as_str()),
         ("pages", "limit")
@@ -832,9 +769,7 @@ fn public_error_contract_preserves_variant_location_field_and_cause() {
 
     let flag = Flag::new(true);
     let mut source = Source::new(c8(1));
-    let cancelled = Hnc8Reader::open(&mut source, &limits, &flag, Budget::default())
-        .err()
-        .unwrap();
+    let cancelled = Hnc8Reader::open(&mut source, &limits, &flag).err().unwrap();
     assert_eq!(
         (cancelled.kind.field(), cancelled.kind.as_str()),
         ("cancellation", "cancelled")
@@ -845,7 +780,7 @@ fn public_error_contract_preserves_variant_location_field_and_cause() {
     page(&mut bytes, 0x50, 1, 200, 0, 1);
     image(&mut bytes, 200, 0, 240, 2);
     let mut source = Source::new(bytes);
-    let mut reader = Hnc8Reader::open(&mut source, &limits, &NEVER, Budget::default()).unwrap();
+    let mut reader = Hnc8Reader::open(&mut source, &limits, &NEVER).unwrap();
     let no_page = reader.next_image().unwrap_err();
     assert_eq!(
         (no_page.kind.field(), no_page.kind.as_str()),
@@ -881,22 +816,19 @@ fn independent_page_probe_can_report_later_errors_without_recovery() {
     let mut source = Source::new(bytes);
     let limits = Limits::default();
     {
-        let mut bad_page =
-            Hnc8Reader::open(&mut source, &limits, &NEVER, Budget::default()).unwrap();
+        let mut bad_page = Hnc8Reader::open(&mut source, &limits, &NEVER).unwrap();
         assert_eq!(bad_page.next_page().unwrap_err().page, Some(1));
     }
     {
-        let mut probe =
-            Hnc8Reader::probe_at_page(&mut source, &limits, &NEVER, Budget::default(), 2).unwrap();
+        let mut probe = Hnc8Reader::probe_at_page(&mut source, &limits, &NEVER, 2).unwrap();
         assert_eq!(probe.next_page().unwrap().unwrap().page_number, 2);
         assert_eq!(probe.next_image().unwrap().unwrap().page_number, 2);
         assert!(probe.next_image().unwrap().is_none());
     }
     for page_number in [0, 3] {
-        let error =
-            Hnc8Reader::probe_at_page(&mut source, &limits, &NEVER, Budget::default(), page_number)
-                .err()
-                .unwrap();
+        let error = Hnc8Reader::probe_at_page(&mut source, &limits, &NEVER, page_number)
+            .err()
+            .unwrap();
         assert_eq!(
             (error.kind.field(), error.kind.as_str()),
             ("page number", "malformed")
@@ -911,7 +843,7 @@ fn invalid_shared_limits_are_reported_as_a_located_source_error() {
         io_chunk_bytes: 0,
         ..Limits::default()
     };
-    let error = Hnc8Reader::open(&mut source, &limits, &NEVER, Budget::default())
+    let error = Hnc8Reader::open(&mut source, &limits, &NEVER)
         .err()
         .unwrap();
     assert_eq!((error.variant, error.offset), (None, 0));
@@ -932,7 +864,7 @@ fn cancellation_inside_a_fixed_read_and_before_a_page_row_is_located() {
     let mut source = Source::new(c8(1));
     let cancellation = Flag::from_query(2);
     let limits = Limits::default();
-    let error = Hnc8Reader::open(&mut source, &limits, &cancellation, Budget::default())
+    let error = Hnc8Reader::open(&mut source, &limits, &cancellation)
         .err()
         .unwrap();
     assert!(matches!(error.kind, ErrorKind::Cancelled));
@@ -943,7 +875,7 @@ fn cancellation_inside_a_fixed_read_and_before_a_page_row_is_located() {
     page(&mut bytes, 0x50, 1, 200, 0, 0);
     let mut source = Source::new(bytes);
     let flag = Flag::new(false);
-    let mut reader = Hnc8Reader::open(&mut source, &limits, &flag, Budget::default()).unwrap();
+    let mut reader = Hnc8Reader::open(&mut source, &limits, &flag).unwrap();
     flag.set(true);
     let error = reader.next_page().unwrap_err();
     assert!(matches!(error.kind, ErrorKind::Cancelled));
@@ -972,7 +904,7 @@ fn native_origin_preserves_unsigned_c8_and_hnb_words() {
             bytes[offset + 2..offset + 4].copy_from_slice(&origin[1].to_le_bytes());
             let mut source = Source::new(bytes);
             source.max_read = 1;
-            let reader = Hnc8Reader::open(&mut source, &limits, &NEVER, Budget::default()).unwrap();
+            let reader = Hnc8Reader::open(&mut source, &limits, &NEVER).unwrap();
             assert_eq!(
                 reader.header().native_origin,
                 (variant != Variant::HnA).then_some(origin)
@@ -984,7 +916,7 @@ fn native_origin_preserves_unsigned_c8_and_hnb_words() {
         let mut bytes = c8(1);
         bytes.truncate(length);
         let mut source = Source::new(bytes);
-        let error = Hnc8Reader::open(&mut source, &limits, &NEVER, Budget::default())
+        let error = Hnc8Reader::open(&mut source, &limits, &NEVER)
             .err()
             .unwrap();
         assert_eq!(error.variant, Some(Variant::C8));
@@ -1005,7 +937,7 @@ fn declared_page_extents_use_variant_offsets_and_bounded_reads() {
         bytes[offset..offset + 4].copy_from_slice(&[0x23, 0x81, 0x67, 0x45]);
         let mut source = Source::new(bytes);
         source.max_read = 1;
-        let reader = Hnc8Reader::open(&mut source, &limits, &NEVER, Budget::default()).unwrap();
+        let reader = Hnc8Reader::open(&mut source, &limits, &NEVER).unwrap();
         assert_eq!(reader.header().page_size, Some([0x8123, 0x4567]));
     }
     for (mut bytes, offset) in [
@@ -1015,7 +947,7 @@ fn declared_page_extents_use_variant_offsets_and_bounded_reads() {
     ] {
         bytes.truncate(offset + 3);
         let mut source = Source::new(bytes);
-        let error = Hnc8Reader::open(&mut source, &limits, &NEVER, Budget::default())
+        let error = Hnc8Reader::open(&mut source, &limits, &NEVER)
             .err()
             .unwrap();
         assert_eq!(error.kind.field(), "page dimensions");
@@ -1040,7 +972,7 @@ fn compact_hnb_uses_explicit_layout_marker_and_checked_twelve_byte_rows() {
     for short in [1, 3, usize::MAX] {
         let mut source = Source::new(compact_hnb());
         source.max_read = short;
-        let mut reader = Hnc8Reader::open(&mut source, &limits, &NEVER, Budget::default()).unwrap();
+        let mut reader = Hnc8Reader::open(&mut source, &limits, &NEVER).unwrap();
         assert_eq!(reader.header().page_index.length, 24);
         for (number, offset, length) in [(1, 240, 292), (2, 532, 148)] {
             let page = reader.next_page().unwrap().unwrap();
@@ -1054,8 +986,7 @@ fn compact_hnb_uses_explicit_layout_marker_and_checked_twelve_byte_rows() {
         assert!(reader.next_page().unwrap().is_none());
     }
     let mut source = Source::new(compact_hnb());
-    let mut reader =
-        Hnc8Reader::probe_at_page(&mut source, &limits, &NEVER, Budget::default(), 2).unwrap();
+    let mut reader = Hnc8Reader::probe_at_page(&mut source, &limits, &NEVER, 2).unwrap();
     assert_eq!(reader.next_page().unwrap().unwrap().text.offset, 532);
 }
 
@@ -1073,7 +1004,7 @@ fn compact_hnb_does_not_guess_unknown_fields_or_retry_other_layouts() {
         put_i32(&mut bytes, at, value);
         let mut source = Source::new(bytes);
         let result = (|| {
-            let mut reader = Hnc8Reader::open(&mut source, &limits, &NEVER, Budget::default())?;
+            let mut reader = Hnc8Reader::open(&mut source, &limits, &NEVER)?;
             reader.next_page()
         })();
         assert_eq!(result.unwrap_err().offset, expected as u64);
@@ -1084,7 +1015,7 @@ fn compact_hnb_does_not_guess_unknown_fields_or_retry_other_layouts() {
     // Text bytes for the compact layout, but a negative length in a 20-byte row.
     put_i32(&mut bytes, 240, -1);
     let mut source = Source::new(bytes);
-    let mut reader = Hnc8Reader::open(&mut source, &limits, &NEVER, Budget::default()).unwrap();
+    let mut reader = Hnc8Reader::open(&mut source, &limits, &NEVER).unwrap();
     assert_eq!(reader.header().page_index.length, 40);
     reader.next_page().unwrap();
     assert!(reader.next_page().is_err());
@@ -1097,28 +1028,20 @@ fn compact_hnb_index_truncation_budgets_and_cancellation_remain_bounded() {
         let mut bytes = compact_hnb();
         bytes.truncate(length);
         let mut source = Source::new(bytes);
-        let error = Hnc8Reader::open(&mut source, &limits, &NEVER, Budget::default())
+        let error = Hnc8Reader::open(&mut source, &limits, &NEVER)
             .err()
             .expect("truncated compact index");
         assert_eq!(error.offset, 216);
     }
     let mut source = Source::new(compact_hnb());
     let cancel = Flag::new(false);
-    let mut reader = Hnc8Reader::open(&mut source, &limits, &cancel, Budget::default()).unwrap();
+    let mut reader = Hnc8Reader::open(&mut source, &limits, &cancel).unwrap();
     reader.next_page().unwrap();
     cancel.set(true);
     assert!(matches!(
         reader.next_page().unwrap_err().kind,
         ErrorKind::Cancelled
     ));
-
-    let mut source = Source::new(compact_hnb());
-    let budget = Budget {
-        max_text_span_bytes: 291,
-        ..Budget::default()
-    };
-    let mut reader = Hnc8Reader::open(&mut source, &limits, &NEVER, budget).unwrap();
-    assert_eq!(reader.next_page().unwrap_err().offset, 220);
 }
 
 #[test]
@@ -1134,7 +1057,7 @@ fn native_modes_preserve_raw_values_without_assuming_character_semantics() {
             bytes[offset..offset + 4].copy_from_slice(&mode.to_le_bytes());
             let mut source = Source::new(bytes);
             source.max_read = 1;
-            let reader = Hnc8Reader::open(&mut source, &limits, &NEVER, Budget::default()).unwrap();
+            let reader = Hnc8Reader::open(&mut source, &limits, &NEVER).unwrap();
             assert_eq!(
                 reader.header().native_mode,
                 (variant != Variant::HnA).then_some(mode)
@@ -1145,7 +1068,7 @@ fn native_modes_preserve_raw_values_without_assuming_character_semantics() {
     for length in 12..16 {
         let mut bytes = c8(1);
         bytes.truncate(length);
-        let error = Hnc8Reader::open(&mut Source::new(bytes), &limits, &NEVER, Budget::default())
+        let error = Hnc8Reader::open(&mut Source::new(bytes), &limits, &NEVER)
             .err()
             .unwrap();
         assert_eq!(error.offset, 12);

@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: MIT
 
 use caj2pdf_core::{
-    Cancellation, Error, Limits, MAX_BUDGET_COUNT, NeverCancel, Payload, RangedSource,
+    Cancellation, Error, Limits, NeverCancel, Payload, RangedSource,
     jbig2::{
-        DirectoryLimits, HeaderLimits, SegmentHeader, SegmentSpan,
+        SegmentHeader, SegmentSpan,
         generic::{
-            GenericBudget, GenericError, GenericErrorKind, GenericProgress, GenericRegionDecoder,
+            GenericError, GenericErrorKind, GenericProgress, GenericRegionDecoder,
             GenericRegionHeader, GenericRegionInfo, GenericReport,
         },
-        mq::{ArithmeticSnapshot, CodedSpan, ContextBank, MqBudget, MqTable},
-        page_compose::{PageComposeBudget, PageComposeError, PageComposeErrorKind, PageOrSink},
-        page_info::{PageInfoBudget, read_page_info},
+        mq::{ArithmeticSnapshot, CodedSpan, ContextBank, MqTable},
+        page_compose::{PageComposeError, PageComposeErrorKind, PageOrSink},
+        page_info::read_page_info,
         page_profile::{PageProfile, validate_observed_page_profile},
         read_embedded_directory,
         text::{
@@ -93,15 +93,7 @@ fn directory(source: &mut BytesSource) -> caj2pdf_core::jbig2::SegmentDirectory 
         offset: 0,
         length: source.size(),
     };
-    read_embedded_directory(
-        source,
-        span,
-        &DEFAULT_LIMITS,
-        HeaderLimits::default(),
-        DirectoryLimits::default(),
-        &NeverCancel,
-    )
-    .unwrap()
+    read_embedded_directory(source, span, &DEFAULT_LIMITS, &NeverCancel).unwrap()
 }
 
 fn synthetic_table() -> MqTable {
@@ -118,7 +110,6 @@ fn try_arm_from_source_with_header<C: Cancellation>(
     let mut directory = directory(&mut source);
     change_header(&mut directory.segments[4]);
     let table = synthetic_table();
-    let mq_budget = MqBudget::default();
     let mut contexts = ContextBank::new(1024, &DEFAULT_LIMITS).unwrap();
     let never = NeverCancel;
     let mut decoder = GenericRegionDecoder::new(
@@ -129,8 +120,6 @@ fn try_arm_from_source_with_header<C: Cancellation>(
         sink,
         &DEFAULT_LIMITS,
         &never,
-        mq_budget,
-        GenericBudget::default(),
     )?;
     decoder.arm_page_output(expected)
 }
@@ -209,7 +198,6 @@ fn profile_with_header(width: u32, height: u32, mut text: TextRegionHeader) -> P
         &mut source,
         &directory.segments[0],
         &DEFAULT_LIMITS,
-        PageInfoBudget::default(),
         &NeverCancel,
     )
     .unwrap();
@@ -270,7 +258,6 @@ fn generic_report(profile: PageProfile) -> GenericReport {
                 input_offset: 0,
                 synthesized_inputs: 0,
                 symbols_decoded: pixels,
-                work_done: 0,
             },
         },
     }
@@ -358,7 +345,7 @@ fn feed_all(sink: &mut impl Write, mut bytes: &[u8]) -> caj2pdf_core::Result<()>
     Ok(())
 }
 
-fn constructor_error(budget: PageComposeBudget, limits: Limits) -> PageComposeError {
+fn constructor_error(limits: Limits) -> PageComposeError {
     let profile = profile(9, 2);
     let scratch = vec![0; 4];
     let mut output = Output::new();
@@ -369,79 +356,17 @@ fn constructor_error(budget: PageComposeBudget, limits: Limits) -> PageComposeEr
         &mut output,
         &limits,
         &NeverCancel,
-        budget,
     )
     .err()
     .unwrap()
 }
 
 #[test]
-fn constructor_rejects_each_geometry_and_byte_budget_before_output() {
-    let cases = [
-        (
-            "page width",
-            PageComposeBudget {
-                max_width: 8,
-                ..PageComposeBudget::default()
-            },
-        ),
-        (
-            "page height",
-            PageComposeBudget {
-                max_height: 1,
-                ..PageComposeBudget::default()
-            },
-        ),
-        (
-            "page pixels",
-            PageComposeBudget {
-                max_pixels: 17,
-                ..PageComposeBudget::default()
-            },
-        ),
-        (
-            "packed page bytes",
-            PageComposeBudget {
-                max_packed_bytes: 3,
-                ..PageComposeBudget::default()
-            },
-        ),
-        (
-            "generic input bytes",
-            PageComposeBudget {
-                max_generic_bytes: 3,
-                ..PageComposeBudget::default()
-            },
-        ),
-        (
-            "page output bytes",
-            PageComposeBudget {
-                max_output_bytes: 3,
-                ..PageComposeBudget::default()
-            },
-        ),
-        (
-            "page work units",
-            PageComposeBudget {
-                max_work_units: 7,
-                ..PageComposeBudget::default()
-            },
-        ),
-    ];
-    for (resource, budget) in cases {
-        let error = constructor_error(budget, Limits::default());
-        assert!(matches!(
-            error.kind,
-            PageComposeErrorKind::LimitExceeded { resource: found, .. } if found == resource
-        ));
-    }
-    let error = constructor_error(
-        PageComposeBudget::default(),
-        Limits {
-            max_output_bytes: 3,
-            ..Limits::default()
-        },
-    );
+fn constructor_rejects_the_output_limit_before_output() {
+    let error = constructor_error(Limits {
+        max_output_bytes: 3,
+        ..Limits::default()
+    });
     assert!(matches!(
         error.kind,
         PageComposeErrorKind::LimitExceeded {
@@ -452,32 +377,7 @@ fn constructor_rejects_each_geometry_and_byte_budget_before_output() {
 }
 
 #[test]
-fn invalid_budget_limits_or_cancellation_reject_before_output() {
-    let error = constructor_error(
-        PageComposeBudget {
-            max_generic_request_bytes: 0,
-            ..PageComposeBudget::default()
-        },
-        Limits::default(),
-    );
-    assert!(matches!(error.kind, PageComposeErrorKind::Malformed(_)));
-    let error = constructor_error(
-        PageComposeBudget {
-            max_work_units: MAX_BUDGET_COUNT + 1,
-            ..PageComposeBudget::default()
-        },
-        Limits::default(),
-    );
-    assert!(matches!(error.kind, PageComposeErrorKind::Malformed(_)));
-    let error = constructor_error(
-        PageComposeBudget::default(),
-        Limits {
-            io_chunk_bytes: 0,
-            ..Limits::default()
-        },
-    );
-    assert!(matches!(error.kind, PageComposeErrorKind::Limits(_)));
-
+fn cancellation_rejects_before_output() {
     let profile = profile(8, 1);
     let scratch = vec![0];
     let mut output = Output::new();
@@ -489,7 +389,6 @@ fn invalid_budget_limits_or_cancellation_reject_before_output() {
         &mut output,
         &DEFAULT_LIMITS,
         &cancelled,
-        PageComposeBudget::default(),
     )
     .err()
     .unwrap();
@@ -525,13 +424,6 @@ fn public_error_diagnostics_and_sources_are_stable() {
             false,
         ),
         (PageComposeErrorKind::Cancelled, "cancelled", false),
-        (
-            PageComposeErrorKind::Limits(Error::InvalidInput {
-                reason: "bad limit",
-            }),
-            "limits: ",
-            true,
-        ),
         (
             PageComposeErrorKind::Output(Error::InvalidInput {
                 reason: "bad write",
@@ -571,23 +463,16 @@ fn bytewise_or_respects_rows_partial_io_and_single_final_flush() {
         &mut output,
         &DEFAULT_LIMITS,
         &NeverCancel,
-        PageComposeBudget {
-            max_generic_request_bytes: 2,
-            ..PageComposeBudget::default()
-        },
     )
     .unwrap();
     arm_from_real_decoder(&mut sink, profile);
     assert_eq!(sink.write(&[]).unwrap(), 0);
     feed_all(&mut sink, &[0x01, 0x00, 0x80, 0x80]).unwrap();
     assert_eq!(sink.progress().rows_written, 2);
-    assert_eq!(sink.progress().output_write_calls, 2);
     sink.flush().unwrap();
     let report = sink.finish(&generic_report(profile)).unwrap();
     assert_eq!(report.progress.generic_bytes_accepted, 4);
     assert_eq!(report.progress.max_request_bytes, 2);
-    assert!(report.progress.peak_resident_bytes >= 2);
-    assert!(report.progress.peak_resident_bytes <= PageComposeBudget::default().max_resident_bytes);
     assert_eq!(output.bytes, [0x81, 0x80, 0xa0, 0x80]);
     assert_eq!(output.flush_calls, 1);
 }
@@ -598,7 +483,6 @@ fn real_generic_decoder_arms_and_streams_rows_through_page_sink() {
     let mut source = BytesSource(observed_bytes(3, 2));
     let directory = directory(&mut source);
     let table = synthetic_table();
-    let mq_budget = MqBudget::default();
     let mut contexts = ContextBank::new(1024, &DEFAULT_LIMITS).unwrap();
     let scratch = vec![0, 0];
     let mut output = Output::new();
@@ -610,7 +494,6 @@ fn real_generic_decoder_arms_and_streams_rows_through_page_sink() {
         &mut output,
         &DEFAULT_LIMITS,
         &NeverCancel,
-        PageComposeBudget::default(),
     )
     .unwrap();
     let mut decoder = GenericRegionDecoder::new(
@@ -621,8 +504,6 @@ fn real_generic_decoder_arms_and_streams_rows_through_page_sink() {
         &mut sink,
         &DEFAULT_LIMITS,
         &NeverCancel,
-        mq_budget,
-        GenericBudget::default(),
     )
     .unwrap();
     decoder.arm_page_output(profile.generic_header()).unwrap();
@@ -656,7 +537,6 @@ fn a_late_or_mismatched_arming_is_refused() {
             &mut output,
             &DEFAULT_LIMITS,
             &NeverCancel,
-            PageComposeBudget::default(),
         )
         .unwrap();
         let mut decoder = GenericRegionDecoder::new(
@@ -667,8 +547,6 @@ fn a_late_or_mismatched_arming_is_refused() {
             &mut sink,
             &DEFAULT_LIMITS,
             &NeverCancel,
-            MqBudget::default(),
-            GenericBudget::default(),
         )
         .unwrap();
         let mut expected = profile.generic_header();
@@ -710,7 +588,6 @@ fn generic_header_mismatch_is_rejected_before_first_output_byte() {
         &mut output,
         &DEFAULT_LIMITS,
         &NeverCancel,
-        PageComposeBudget::default(),
     )
     .unwrap();
     let mut actual = profile.generic_header();
@@ -736,7 +613,6 @@ fn wrong_generic_page_association_with_same_data_is_rejected_before_output() {
         &mut output,
         &DEFAULT_LIMITS,
         &NeverCancel,
-        PageComposeBudget::default(),
     )
     .unwrap();
     let mut actual = profile.generic_header();
@@ -767,7 +643,6 @@ fn no_generic_write_or_flush_is_allowed_before_checked_header_arming() {
             &mut output,
             &DEFAULT_LIMITS,
             &NeverCancel,
-            PageComposeBudget::default(),
         )
         .unwrap();
         let kind = match operation {
@@ -803,7 +678,6 @@ fn exact_header_span_geometry_and_pixel_count_are_bound_before_output() {
             &mut output,
             &DEFAULT_LIMITS,
             &NeverCancel,
-            PageComposeBudget::default(),
         )
         .unwrap();
         let mut actual = profile.generic_header();
@@ -850,7 +724,6 @@ fn a_checked_header_cannot_rearm_the_same_sink() {
         &mut output,
         &DEFAULT_LIMITS,
         &NeverCancel,
-        PageComposeBudget::default(),
     )
     .unwrap();
     arm_from_real_decoder(&mut sink, profile);
@@ -877,7 +750,6 @@ fn incomplete_flush_and_extra_generic_bytes_are_rejected() {
         &mut output,
         &DEFAULT_LIMITS,
         &NeverCancel,
-        PageComposeBudget::default(),
     )
     .unwrap();
     arm_from_real_decoder(&mut sink, profile);
@@ -899,7 +771,6 @@ fn incomplete_flush_and_extra_generic_bytes_are_rejected() {
         &mut output,
         &DEFAULT_LIMITS,
         &NeverCancel,
-        PageComposeBudget::default(),
     )
     .unwrap();
     arm_from_real_decoder(&mut sink, profile);
@@ -926,7 +797,6 @@ fn a_cancelled_output_write_is_reported_as_cancellation() {
         &mut output,
         &DEFAULT_LIMITS,
         &NeverCancel,
-        PageComposeBudget::default(),
     )
     .unwrap();
     arm_from_real_decoder(&mut sink, profile);
@@ -955,7 +825,6 @@ fn cancellation_before_and_after_final_flush_prevents_completion() {
             &mut output,
             &DEFAULT_LIMITS,
             &token,
-            PageComposeBudget::default(),
         )
         .unwrap();
         arm_from_real_decoder(&mut sink, profile);
@@ -987,7 +856,6 @@ fn narrow_and_byte_aligned_rows_have_exact_packed_boundaries() {
             &mut output,
             &DEFAULT_LIMITS,
             &NeverCancel,
-            PageComposeBudget::default(),
         )
         .unwrap();
         arm_from_real_decoder(&mut sink, profile);
@@ -1017,7 +885,6 @@ fn empty_text_only_generic_only_and_overlapping_pixels_use_or() {
             &mut output,
             &DEFAULT_LIMITS,
             &NeverCancel,
-            PageComposeBudget::default(),
         )
         .unwrap();
         arm_from_real_decoder(&mut sink, profile);
@@ -1047,7 +914,6 @@ fn successful_report_retains_explicit_text_header_anomaly() {
         &mut output,
         &DEFAULT_LIMITS,
         &NeverCancel,
-        PageComposeBudget::default(),
     )
     .unwrap();
     arm_from_real_decoder(&mut sink, profile);
@@ -1075,7 +941,6 @@ fn rejects_incomplete_or_inconsistent_inputs_before_final_bytes() {
         &mut output,
         &DEFAULT_LIMITS,
         &NeverCancel,
-        PageComposeBudget::default(),
     )
     .err()
     .unwrap();
@@ -1089,7 +954,6 @@ fn rejects_incomplete_or_inconsistent_inputs_before_final_bytes() {
         &mut output,
         &DEFAULT_LIMITS,
         &NeverCancel,
-        PageComposeBudget::default(),
     )
     .err()
     .unwrap();
@@ -1113,7 +977,6 @@ fn rejects_incomplete_or_inconsistent_inputs_before_final_bytes() {
             &mut output,
             &DEFAULT_LIMITS,
             &NeverCancel,
-            PageComposeBudget::default(),
         )
         .err()
         .unwrap();
@@ -1127,7 +990,6 @@ fn rejects_incomplete_or_inconsistent_inputs_before_final_bytes() {
         &mut output,
         &DEFAULT_LIMITS,
         &NeverCancel,
-        PageComposeBudget::default(),
     )
     .err()
     .unwrap();
@@ -1148,7 +1010,6 @@ fn rejects_generic_and_text_padding_without_output() {
             &mut output,
             &DEFAULT_LIMITS,
             &NeverCancel,
-            PageComposeBudget::default(),
         )
         .unwrap();
         arm_from_real_decoder(&mut sink, profile);
@@ -1165,39 +1026,24 @@ fn rejects_generic_and_text_padding_without_output() {
 }
 
 #[test]
-fn output_faults_and_the_write_call_cap_are_typed() {
-    for fault in 0..2 {
-        let profile = profile(8, 1);
-        let scratch = vec![0x80];
-        let mut output = Output::new();
-        let mut budget = PageComposeBudget::default();
-        if fault == 0 {
-            output.zero_write = true;
-        } else {
-            budget.max_output_write_calls = 0;
-        }
-        let mut sink = PageOrSink::new(
-            profile,
-            text_report(profile),
-            &scratch,
-            &mut output,
-            &DEFAULT_LIMITS,
-            &NeverCancel,
-            budget,
-        )
-        .unwrap();
-        arm_from_real_decoder(&mut sink, profile);
-        assert!(sink.write(&[0]).is_err(), "fault {fault}");
-        let failure = sink.take_failure().unwrap();
-        if fault == 0 {
-            assert!(matches!(failure.kind, PageComposeErrorKind::Output(_)));
-        } else {
-            assert!(matches!(
-                failure.kind,
-                PageComposeErrorKind::LimitExceeded { .. }
-            ));
-        }
-    }
+fn output_faults_are_typed() {
+    let profile = profile(8, 1);
+    let scratch = vec![0x80];
+    let mut output = Output::new();
+    output.zero_write = true;
+    let mut sink = PageOrSink::new(
+        profile,
+        text_report(profile),
+        &scratch,
+        &mut output,
+        &DEFAULT_LIMITS,
+        &NeverCancel,
+    )
+    .unwrap();
+    arm_from_real_decoder(&mut sink, profile);
+    assert!(sink.write(&[0]).is_err());
+    let failure = sink.take_failure().unwrap();
+    assert!(matches!(failure.kind, PageComposeErrorKind::Output(_)));
 }
 
 #[test]
@@ -1213,7 +1059,6 @@ fn final_report_must_belong_to_preflighted_generic_segment() {
             &mut output,
             &DEFAULT_LIMITS,
             &NeverCancel,
-            PageComposeBudget::default(),
         )
         .unwrap();
         arm_from_real_decoder(&mut sink, profile);
@@ -1250,7 +1095,6 @@ fn output_error_and_cancellation_do_not_commit_a_page() {
         &mut output,
         &DEFAULT_LIMITS,
         &NeverCancel,
-        PageComposeBudget::default(),
     )
     .unwrap();
     arm_from_real_decoder(&mut sink, profile);
@@ -1273,7 +1117,6 @@ fn output_error_and_cancellation_do_not_commit_a_page() {
         &mut output,
         &DEFAULT_LIMITS,
         &token,
-        PageComposeBudget::default(),
     )
     .unwrap();
     arm_from_real_decoder(&mut sink, profile);
@@ -1298,7 +1141,6 @@ fn finish_requires_generic_report_and_flushes_output_only_after_validation() {
         &mut output,
         &DEFAULT_LIMITS,
         &NeverCancel,
-        PageComposeBudget::default(),
     )
     .unwrap();
     arm_from_real_decoder(&mut sink, profile);
@@ -1318,7 +1160,6 @@ fn finish_requires_generic_report_and_flushes_output_only_after_validation() {
         &mut output,
         &DEFAULT_LIMITS,
         &NeverCancel,
-        PageComposeBudget::default(),
     )
     .unwrap();
     arm_from_real_decoder(&mut sink, profile);

@@ -10,62 +10,13 @@
 use super::{
     dictionary::SymbolDescriptor,
     integer::BITMAP_BASE,
-    mq::{ArithmeticError, ArithmeticSnapshot, ContextState, MQ_STATE_COUNT, MqDecoder, MqState},
+    mq::{ArithmeticError, ArithmeticSnapshot, MqDecoder},
 };
 use crate::fallible::reserve_exact;
-use crate::{Cancellation, Limits, MAX_BUDGET_COUNT};
+use crate::{Cancellation, Limits};
 use std::{error, fmt, mem};
 
 const CONTEXT_COUNT: usize = 1024;
-
-/// A checked bound for one refinement session. All totals include every
-/// successfully decoded bitmap in the session; MQ itself has additional caps.
-///
-/// The fields that bound running counters (`max_pixels_per_bitmap`,
-/// `max_total_pixels` and `max_total_output_bytes`) must each be at most
-/// [`MAX_BUDGET_COUNT`]. [`RefinementDecoder::new`] rejects a larger value as
-/// `LimitExceeded` before decoding.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct RefinementBudget {
-    pub max_width: u32,
-    pub max_height: u32,
-    pub max_reference_width: u32,
-    pub max_reference_height: u32,
-    pub max_reference_pixels_per_bitmap: u64,
-    pub max_reference_bytes_per_bitmap: u64,
-    pub max_pixels_per_bitmap: u64,
-    pub max_total_pixels: u64,
-    pub max_bytes_per_bitmap: u64,
-    pub max_total_output_bytes: u64,
-    /// GR pixel decisions only; the borrowed MQ's own budget covers all
-    /// interleaved dictionary decisions in the coding unit.
-    pub max_mq_decisions: u64,
-    /// Ten neighbor probes per explicitly decoded pixel.
-    pub max_context_work: u64,
-    /// Full caller MQ bank and table, two target rows and three reference
-    /// rows; the reference and output stores are separate.
-    pub max_working_bytes: u64,
-}
-
-impl Default for RefinementBudget {
-    fn default() -> Self {
-        Self {
-            max_width: 32_768,
-            max_height: 32_768,
-            max_reference_width: 32_768,
-            max_reference_height: 32_768,
-            max_reference_pixels_per_bitmap: 24_000_000,
-            max_reference_bytes_per_bitmap: 64 * 1024 * 1024,
-            max_pixels_per_bitmap: 12_000_000,
-            max_total_pixels: 24_000_000,
-            max_bytes_per_bitmap: 64 * 1024 * 1024,
-            max_total_output_bytes: 128 * 1024 * 1024,
-            max_mq_decisions: 24_000_000,
-            max_context_work: 240_000_000,
-            max_working_bytes: 16 * 1024 * 1024,
-        }
-    }
-}
 
 /// The reference bitmap in a store. `store_base` is the store offset of its
 /// dictionary's first symbol; `symbol.relative_store_offset` is relative to
@@ -106,7 +57,6 @@ pub struct RefinementProgress {
     pub rows_written: u64,
     pub pixels_decoded: u64,
     pub output_bytes_written: u64,
-    pub context_work: u64,
     pub mq: Option<ArithmeticSnapshot>,
 }
 
@@ -211,26 +161,25 @@ pub struct RefinementDecoder<'a, 'mq, C: Cancellation> {
     output: &'a mut Vec<u8>,
     limits: &'a Limits,
     cancellation: &'a C,
-    budget: RefinementBudget,
     progress: RefinementProgress,
 }
 
 impl<'a, 'mq, C: Cancellation> RefinementDecoder<'a, 'mq, C> {
-    /// Check the context range and fixed working-memory configuration before
-    /// decoding. The caller retains all other model contexts.
+    /// Check the context range before decoding. The caller retains all other
+    /// model contexts. Each target bitmap is bounded by
+    /// `Limits::max_image_pixels` and the output store by
+    /// `Limits::max_allocation_bytes`.
     pub fn new(
         mq: &'a mut MqDecoder<'mq>,
         output: &'a mut Vec<u8>,
         limits: &'a Limits,
         cancellation: &'a C,
-        budget: RefinementBudget,
     ) -> RefinementResult<Self> {
         Self::new_continuing(
             mq,
             output,
             limits,
             cancellation,
-            budget,
             RefinementProgress::default(),
         )
     }
@@ -243,7 +192,6 @@ impl<'a, 'mq, C: Cancellation> RefinementDecoder<'a, 'mq, C> {
         output: &'a mut Vec<u8>,
         limits: &'a Limits,
         cancellation: &'a C,
-        budget: RefinementBudget,
         previous: RefinementProgress,
     ) -> RefinementResult<Self> {
         let invalid = |kind| RefinementError {
@@ -254,32 +202,9 @@ impl<'a, 'mq, C: Cancellation> RefinementDecoder<'a, 'mq, C> {
             progress: Box::new(previous),
             kind,
         };
-        limits
-            .validate()
-            .map_err(|_| invalid(RefinementErrorKind::Malformed("Limits")))?;
-        for (resource, value) in [
-            ("pixels per bitmap budget", budget.max_pixels_per_bitmap),
-            ("total pixels budget", budget.max_total_pixels),
-            ("total output bytes budget", budget.max_total_output_bytes),
-        ] {
-            if value > MAX_BUDGET_COUNT {
-                return Err(invalid(RefinementErrorKind::LimitExceeded {
-                    resource,
-                    limit: MAX_BUDGET_COUNT,
-                    attempted: value,
-                }));
-            }
-        }
         if mq.context_count() < BITMAP_BASE + CONTEXT_COUNT {
             return Err(invalid(RefinementErrorKind::InvalidSpan(
                 "coding unit lacks the GR context range",
-            )));
-        }
-        if previous.output_bytes_written > budget.max_total_output_bytes
-            || previous.pixels_decoded > budget.max_total_pixels
-        {
-            return Err(invalid(RefinementErrorKind::Malformed(
-                "previous progress exceeds the budget",
             )));
         }
         Ok(Self {
@@ -287,7 +212,6 @@ impl<'a, 'mq, C: Cancellation> RefinementDecoder<'a, 'mq, C> {
             output,
             limits,
             cancellation,
-            budget,
             progress: previous,
         })
     }
@@ -299,7 +223,7 @@ impl<'a, 'mq, C: Cancellation> RefinementDecoder<'a, 'mq, C> {
     }
 
     /// Borrow the same coding unit for interleaved dictionary integer or
-    /// IAID decisions. No GR statistics, bitmap offset, or budget is reset.
+    /// IAID decisions. No GR statistics or bitmap offset is reset.
     pub fn mq_mut(&mut self) -> &mut MqDecoder<'mq> {
         self.mq
     }
@@ -366,8 +290,8 @@ impl<'a, 'mq, C: Cancellation> RefinementDecoder<'a, 'mq, C> {
         reference_size: u64,
         request: RefinementRequest,
     ) -> RefinementResult<Geometry> {
-        // One-pixel bitmaps within a MAX_BUDGET_COUNT pixel budget could
-        // otherwise complete more bitmaps than the u32 index represents.
+        // One-pixel bitmaps could otherwise complete more bitmaps than the
+        // u32 index represents.
         let next = u64::from(self.progress.completed_bitmaps) + 1;
         self.cap("completed bitmaps", u64::from(u32::MAX), next)?;
         if request.template != 1 {
@@ -404,26 +328,6 @@ impl<'a, 'mq, C: Cancellation> RefinementDecoder<'a, 'mq, C> {
                 0,
             ));
         }
-        self.cap(
-            "target width",
-            u64::from(self.budget.max_width),
-            u64::from(request.width),
-        )?;
-        self.cap(
-            "target height",
-            u64::from(self.budget.max_height),
-            u64::from(request.height),
-        )?;
-        self.cap(
-            "reference width",
-            u64::from(self.budget.max_reference_width),
-            u64::from(symbol.width),
-        )?;
-        self.cap(
-            "reference height",
-            u64::from(self.budget.max_reference_height),
-            u64::from(symbol.height),
-        )?;
         let target_stride = u64::from(request.width).div_ceil(8);
         let reference_stride = u64::from(symbol.width).div_ceil(8);
         if u64::from(symbol.row_stride) != reference_stride {
@@ -445,18 +349,6 @@ impl<'a, 'mq, C: Cancellation> RefinementDecoder<'a, 'mq, C> {
                 0,
             ));
         }
-        // u32::MAX squared remains below u64::MAX.
-        let reference_pixels = u64::from(symbol.width) * u64::from(symbol.height);
-        self.cap(
-            "reference pixels per bitmap",
-            self.budget.max_reference_pixels_per_bitmap,
-            reference_pixels,
-        )?;
-        self.cap(
-            "reference bytes per bitmap",
-            self.budget.max_reference_bytes_per_bitmap,
-            reference_bytes,
-        )?;
         let reference_offset = request
             .reference
             .store_base
@@ -480,38 +372,9 @@ impl<'a, 'mq, C: Cancellation> RefinementDecoder<'a, 'mq, C> {
                 0,
             ));
         }
-        self.cap(
-            "reference stored bytes",
-            self.limits.max_input_bytes,
-            reference_bytes,
-        )?;
         let pixels = u64::from(request.width) * u64::from(request.height);
         let bytes = target_stride * u64::from(request.height);
-        self.cap(
-            "pixels per bitmap",
-            self.budget.max_pixels_per_bitmap,
-            pixels,
-        )?;
-        self.cap("bytes per bitmap", self.budget.max_bytes_per_bitmap, bytes)?;
-        // Every completed or failed bitmap passed these caps, so
-        // `pixels_decoded <= max_total_pixels` and `output_bytes_written <=
-        // max_total_output_bytes`, both at most MAX_BUDGET_COUNT (2^48).
-        // With `pixels <= max_pixels_per_bitmap <= 2^48` and `bytes < 2^61`
-        // (a stride of at most 2^29 times a u32 height), neither sum
-        // overflows, and ten times `total_pixels <= 2^49` fits u64 below.
-        let total_pixels = self.progress.pixels_decoded + pixels;
-        let total_bytes = self.progress.output_bytes_written + bytes;
-        self.cap("total pixels", self.budget.max_total_pixels, total_pixels)?;
-        self.cap(
-            "total output bytes",
-            self.budget
-                .max_total_output_bytes
-                .min(self.limits.max_output_bytes),
-            total_bytes,
-        )?;
-        self.cap("MQ decisions", self.budget.max_mq_decisions, total_pixels)?;
-        let work = total_pixels * 10;
-        self.cap("context work", self.budget.max_context_work, work)?;
+        self.cap("pixels per bitmap", self.limits.max_image_pixels, pixels)?;
         // Both strides are at most 2^29 bytes, which every supported
         // (at least 32-bit) `usize` represents.
         let target_stride = target_stride as usize;
@@ -538,16 +401,6 @@ impl<'a, 'mq, C: Cancellation> RefinementDecoder<'a, 'mq, C> {
                     0,
                 )
             })?;
-        let row_bytes = 2 * target_stride as u64 + 3 * reference_stride as u64;
-        // The existing MQ bank's constructor already checked this allocation
-        // with the same fixed table term. Include the entire bank, not only
-        // the GR slice, in the combined cap.
-        let mq_bytes = self.mq.context_count() as u64 * mem::size_of::<ContextState>() as u64
-            + (MQ_STATE_COUNT * mem::size_of::<MqState>()) as u64;
-        // `row_bytes <= 5 * 2^29`, and the allocated context bank occupies
-        // at most `isize::MAX` bytes, so this sum stays below 2^64.
-        let working = row_bytes + mq_bytes;
-        self.cap("working bytes", self.budget.max_working_bytes, working)?;
         Ok(Geometry {
             reference_offset,
             reference_width: symbol.width,
@@ -657,7 +510,6 @@ impl<'a, 'mq, C: Cancellation> RefinementDecoder<'a, 'mq, C> {
                     current[(x / 8) as usize] |= 0x80 >> (x % 8);
                 }
                 self.progress.pixels_decoded += 1;
-                self.progress.context_work += 10;
             }
             self.output.extend_from_slice(&current);
             self.progress.output_bytes_written += current.len() as u64;
@@ -790,14 +642,13 @@ fn template1_context(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::NeverCancel;
     use crate::jbig2::iaid::IAID_BASE;
-    use crate::jbig2::mq::{CodedSpan, ContextBank, MqBudget, MqTable};
-    use crate::{MAX_BUDGET_COUNT, NeverCancel};
+    use crate::jbig2::mq::{CodedSpan, ContextBank, MqTable};
 
     #[test]
     fn the_bitmap_index_cannot_pass_u32_max() {
         let limits = Limits::default();
-        let mq_budget = MqBudget::default();
         let table = MqTable::standard();
         let mut banks = ContextBank::new(IAID_BASE + 2, &limits).unwrap();
         let bytes = [0, 0xff, 0xac];
@@ -810,16 +661,11 @@ mod tests {
             &table,
             &mut banks,
             &limits,
-            mq_budget,
         )
         .unwrap();
         let mut sink = Vec::new();
-        let budget = RefinementBudget {
-            max_total_pixels: MAX_BUDGET_COUNT,
-            ..RefinementBudget::default()
-        };
         let mut decoder =
-            RefinementDecoder::new(&mut mq, &mut sink, &limits, &NeverCancel, budget).unwrap();
+            RefinementDecoder::new(&mut mq, &mut sink, &limits, &NeverCancel).unwrap();
         decoder.progress.completed_bitmaps = u32::MAX;
         let symbol = SymbolDescriptor {
             width: 1,

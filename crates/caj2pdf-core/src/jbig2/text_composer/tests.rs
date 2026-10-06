@@ -15,13 +15,11 @@ use crate::jbig2::{
     },
     iaid::IAID_BASE,
     integer::{BITMAP_BASE, IntegerProcedure},
-    mq::{ArithmeticSnapshot, ContextBank, MqBudget, MqTable},
-    refinement::RefinementBudget,
+    mq::{ArithmeticSnapshot, ContextBank, MqTable},
     text::{
-        ReferenceCorner, TextHeaderPolicy, TextRegionBudget, TextRegionFlags,
-        read_text_region_header_with_policy,
+        ReferenceCorner, TextHeaderPolicy, TextRegionFlags, read_text_region_header_with_policy,
     },
-    text_instances::{TextInstanceBudget, TextInstanceDecoder},
+    text_instances::TextInstanceDecoder,
 };
 use std::{cell::Cell, error::Error as StdError, rc::Rc};
 
@@ -240,7 +238,6 @@ fn report(catalog: &[StoredSymbol]) -> DictionaryReport {
                 input_offset: 100,
                 synthesized_inputs: 0,
                 symbols_decoded: 0,
-                work_done: 0,
             }),
             ..DictionaryProgress::default()
         },
@@ -266,7 +263,6 @@ struct Region {
     contexts: ContextBank,
     table: MqTable,
     limits: Limits,
-    budget: TextInstanceBudget,
 }
 
 impl Region {
@@ -287,9 +283,9 @@ impl Region {
             Self::parse(width, height, flags, instances, &body);
         let limits = Limits::default();
         let code_len = symbol_code_length(catalog.len() as u64);
-        let contexts = MqBudget::default()
-            .context_bank(coding_unit_contexts(code_len).unwrap(), &limits)
-            .unwrap();
+        let contexts =
+            crate::jbig2::mq::context_bank(coding_unit_contexts(code_len).unwrap(), &limits)
+                .unwrap();
         Self {
             source,
             text_segment,
@@ -303,7 +299,6 @@ impl Region {
             contexts,
             table: MqTable::standard(),
             limits,
-            budget: TextInstanceBudget::default(),
         }
     }
 
@@ -322,7 +317,6 @@ impl Region {
             &text_segment,
             &dictionary_segment,
             &Limits::default(),
-            TextRegionBudget::default(),
             &NeverCancel,
             TextHeaderPolicy::HnC8UnusedRefinementTemplate,
         )
@@ -369,10 +363,6 @@ impl Region {
             &mut self.contexts,
             &self.limits,
             cancellation,
-            MqBudget::default(),
-            TextRegionBudget::default(),
-            RefinementBudget::default(),
-            self.budget,
             TextHeaderPolicy::HnC8UnusedRefinementTemplate,
         )
         .unwrap()
@@ -394,11 +384,10 @@ fn compose_views<C: Cancellation>(
     catalog: &[StoredSymbol],
     [imported, new]: [&[u8]; 2],
     refined_base: u64,
-    budget: TextComposeBudget,
+    limits: &Limits,
     cancellation: &C,
 ) -> TextComposeResult<Composed> {
     let header = region.header;
-    let limits = Limits::default();
     let mut refined = Vec::new();
     let mut bitmap = Vec::new();
     let mut decoder = region.decoder(&mut refined, cancellation);
@@ -413,9 +402,8 @@ fn compose_views<C: Cancellation>(
         0,
         refined_base,
         &mut bitmap,
-        &limits,
+        limits,
         cancellation,
-        budget,
     )?
     .compose()?;
     Ok(Composed {
@@ -426,10 +414,17 @@ fn compose_views<C: Cancellation>(
 }
 
 /// Compose `region` over its own catalog and stores.
-fn compose(region: &mut Region, budget: TextComposeBudget) -> TextComposeResult<Composed> {
+fn compose(region: &mut Region) -> TextComposeResult<Composed> {
     let catalog = region.catalog();
     let (imported, new) = (region.imported.clone(), region.new.clone());
-    compose_views(region, &catalog, [&imported, &new], 0, budget, &NeverCancel)
+    compose_views(
+        region,
+        &catalog,
+        [&imported, &new],
+        0,
+        &Limits::default(),
+        &NeverCancel,
+    )
 }
 
 #[test]
@@ -439,9 +434,7 @@ fn completed_report_retains_explicit_header_anomaly() {
     let mut region = Region::new(1, 1, 0xa40c, &[symbol], [&[0x80], &[]], &[place(0, 0, 0)]);
     assert_eq!(region.header.flags.log_strips, 3);
     assert_eq!(region.header.flags.ds_offset, 9);
-    let report = compose(&mut region, TextComposeBudget::default())
-        .unwrap()
-        .report;
+    let report = compose(&mut region).unwrap().report;
     assert_eq!(report.text_flags_raw, 0xa40c);
     assert_eq!(
         report.header_anomaly,
@@ -468,7 +461,7 @@ fn composes_imported_new_and_refined_handles_in_nonmonotone_order() {
             place(1, -4, 1),
         ],
     );
-    let composed = compose(&mut region, TextComposeBudget::default()).unwrap();
+    let composed = compose(&mut region).unwrap();
     // The decoder appended the refined 1x2 bitmap the composer then read.
     assert_eq!(composed.refined, [0x80, 0x80]);
     assert_eq!(composed.bitmap, [0xd0, 0xb8, 0x18]);
@@ -496,7 +489,7 @@ fn exact_negative_clipping_and_entirely_off_region_instances() {
         [&rows, &[]],
         &[place(0, -1, -1), place(0, 5, 4)],
     );
-    let composed = compose(&mut region, TextComposeBudget::default()).unwrap();
+    let composed = compose(&mut region).unwrap();
     assert_eq!(composed.bitmap, [0x80, 0x00]);
     assert_eq!(composed.report.progress.touched_pixels, 2);
     assert_eq!(composed.report.progress.completed_instances, 2);
@@ -522,7 +515,7 @@ fn all_symbol_operators_preserve_placement_order_and_padding() {
             [&rows, &[]],
             &[place(0, 0, 0), place(1, 1, 0)],
         );
-        let composed = compose(&mut region, TextComposeBudget::default()).unwrap();
+        let composed = compose(&mut region).unwrap();
         assert_eq!(composed.bitmap, [expected], "{operator:?}");
     }
 }
@@ -541,10 +534,9 @@ fn zero_instances_initialize_both_default_pixels_and_clear_padding() {
             [&[], &[]],
             &[],
         );
-        let composed = compose(&mut region, TextComposeBudget::default()).unwrap();
+        let composed = compose(&mut region).unwrap();
         assert_eq!(composed.bitmap, expected);
         assert_eq!(composed.report.progress.completed_instances, 0);
-        assert_eq!(composed.report.progress.work_units, 4);
     }
 }
 
@@ -561,7 +553,7 @@ fn checked_top_left_placement_is_used_for_every_corner_and_transpose_mode() {
             let raw = code << 4 | u16::from(transposed) << 6;
             let mut region = Region::new(4, 3, raw, &[symbol], [&[0xc0], &[]], &[place(0, 1, 2)]);
             assert_eq!(region.header.flags.reference_corner, corner);
-            let composed = compose(&mut region, TextComposeBudget::default()).unwrap();
+            let composed = compose(&mut region).unwrap();
             assert_eq!(
                 composed.bitmap,
                 [0, 0, 0x60],
@@ -604,14 +596,12 @@ fn cancellation_is_checked_before_initialization() {
         &mut bitmap,
         &limits,
         &cancel,
-        TextComposeBudget::default(),
     )
     .unwrap();
     flag.set(true);
     let error = composer.compose().unwrap_err();
     assert!(matches!(error.kind, TextComposeErrorKind::Cancelled));
     assert_eq!(error.progress.stage, TextComposeStage::Initialize);
-    assert_eq!(error.progress.work_units, 0);
 }
 
 #[test]
@@ -637,7 +627,7 @@ fn handles_unlike_the_callers_catalog_or_views_fail_before_composition() {
             &catalog,
             [&[0x80], &[0x80]],
             refined_base,
-            TextComposeBudget::default(),
+            &Limits::default(),
             &NeverCancel,
         )
         .err()
@@ -686,7 +676,7 @@ fn catalog_store_base_must_match_the_caller_view() {
             &[symbol],
             [&views, &views],
             0,
-            TextComposeBudget::default(),
+            &Limits::default(),
             &NeverCancel,
         )
         .err()
@@ -702,148 +692,44 @@ fn catalog_store_base_must_match_the_caller_view() {
 }
 
 #[test]
-fn region_and_runtime_budgets_refuse_before_excess_work() {
-    let default = TextComposeBudget::default();
-    let checks = [
+fn region_limits_refuse_before_composition() {
+    for (limits, resource) in [
         (
-            TextComposeBudget {
-                max_region_pixels: 5,
-                ..default
+            Limits {
+                max_image_pixels: 5,
+                ..Limits::default()
             },
             "region pixels",
-            TextComposeStage::Preflight,
         ),
         (
-            TextComposeBudget {
-                max_scratch_bytes: 1,
-                ..default
+            Limits {
+                io_chunk_bytes: 1,
+                max_allocation_bytes: 1,
+                ..Limits::default()
             },
-            "scratch bytes",
-            TextComposeStage::Preflight,
+            "region bitmap bytes",
         ),
-        (
-            TextComposeBudget {
-                max_row_bytes: 0,
-                ..default
-            },
-            "row bytes",
-            TextComposeStage::Preflight,
-        ),
-        (
-            TextComposeBudget {
-                max_touched_pixels_per_instance: 0,
-                ..default
-            },
-            "per-instance touched pixels",
-            TextComposeStage::Instance,
-        ),
-        (
-            TextComposeBudget {
-                max_total_touched_pixels: 0,
-                ..default
-            },
-            "total touched pixels",
-            TextComposeStage::Instance,
-        ),
-        (
-            TextComposeBudget {
-                max_symbol_bytes: 0,
-                ..default
-            },
-            "symbol bytes",
-            TextComposeStage::Instance,
-        ),
-        (
-            TextComposeBudget {
-                max_work_units: 0,
-                ..default
-            },
-            "composition work",
-            TextComposeStage::Initialize,
-        ),
-        (
-            TextComposeBudget {
-                max_work_units: 2,
-                ..default
-            },
-            "composition work",
-            TextComposeStage::Instance,
-        ),
-    ];
-    for (budget, resource, stage) in checks {
-        let error = compose(&mut Region::one_pixel(), budget)
-            .err()
-            .expect("expected a refusal");
-        assert_eq!(error.progress.stage, stage, "{resource}");
+    ] {
+        let mut region = Region::one_pixel();
+        let catalog = region.catalog();
+        let (imported, new) = (region.imported.clone(), region.new.clone());
+        let error = compose_views(
+            &mut region,
+            &catalog,
+            [&imported, &new],
+            0,
+            &limits,
+            &NeverCancel,
+        )
+        .err()
+        .expect("expected a refusal");
+        assert_eq!(error.progress.stage, TextComposeStage::Preflight);
         assert!(
             matches!(error.kind, TextComposeErrorKind::LimitExceeded { resource: actual, .. } if actual == resource),
             "{resource}"
         );
         assert_eq!(error.progress.touched_pixels, 0, "{resource}");
     }
-}
-
-#[test]
-fn fixed_budget_mutations_produce_bounded_success_or_typed_refusal() {
-    let symbol = stored(SymbolStore::Imported, descriptor(1, 1, 0));
-    let mut state = 0x4b1d_57a9_u32;
-    let mut refused = 0;
-    let mut completed = 0;
-    for _ in 0..96 {
-        state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
-        // Mostly off-region placements, and now and then one inside.
-        let (x, y) = if state & 0x30 == 0 {
-            (i64::from(state >> 8 & 3), i64::from(state >> 10 & 1))
-        } else {
-            (
-                i64::from((state >> 16) as i16),
-                i64::from((state >> 1) as i16),
-            )
-        };
-        let mut budget = TextComposeBudget {
-            max_region_pixels: 6,
-            max_scratch_bytes: 2,
-            max_touched_pixels_per_instance: 1,
-            max_total_touched_pixels: 1,
-            max_work_units: 3,
-            max_row_bytes: 1,
-            ..TextComposeBudget::default()
-        };
-        match state & 7 {
-            0 => budget.max_region_pixels = 5,
-            1 => budget.max_touched_pixels_per_instance = 0,
-            2 => budget.max_work_units = 2,
-            3 => budget.max_symbol_bytes = 0,
-            _ => {}
-        }
-        let mut region = Region::new(
-            3,
-            2,
-            flags(false, SymbolCombination::Or),
-            &[symbol],
-            [&[0x80], &[]],
-            &[place(0, x, y)],
-        );
-        match compose(&mut region, budget) {
-            Ok(composed) => {
-                completed += 1;
-                assert_eq!(composed.bitmap.len(), 2);
-                assert!(composed.report.progress.work_units <= 3);
-            }
-            Err(error) => {
-                refused += 1;
-                assert!(matches!(
-                    error.kind,
-                    TextComposeErrorKind::Malformed(_)
-                        | TextComposeErrorKind::InvalidSpan(_)
-                        | TextComposeErrorKind::LimitExceeded { .. }
-                ));
-                assert!(error.progress.touched_pixels <= 1);
-            }
-        }
-    }
-    assert!(completed > 0);
-    assert!(refused > 0);
 }
 
 #[test]
@@ -932,8 +818,8 @@ fn constructor_rejects_invalid_header_stream_identity_stores_and_limits() {
         let mut imported_base = 0;
         // Every header change also differs from the decoder's own header.
         match case {
-            0 => limits.io_chunk_bytes = 0,
-            1 => limits.io_chunk_bytes = crate::MAX_IO_CHUNK + 1,
+            0 => limits.max_image_pixels = 5,
+            1 => limits.max_allocation_bytes = 1,
             2 => segment = 4,
             3 => h.region.width = 0,
             4 => h.flags.huffman = true,
@@ -959,7 +845,6 @@ fn constructor_rejects_invalid_header_stream_identity_stores_and_limits() {
             &mut bitmap,
             &limits,
             &NeverCancel,
-            TextComposeBudget::default(),
         )
         .err()
         .expect("expected preflight refusal");
@@ -970,7 +855,7 @@ fn constructor_rejects_invalid_header_stream_identity_stores_and_limits() {
         );
         assert!(bitmap.is_empty(), "case {case}");
         match case {
-            1 => assert!(matches!(
+            0 | 1 => assert!(matches!(
                 error.kind,
                 TextComposeErrorKind::LimitExceeded { .. }
             )),
@@ -1000,7 +885,7 @@ fn malformed_source_descriptors_are_refused() {
             &[stored(SymbolStore::Imported, descriptor)],
             [&[0x80, 0], &[]],
             0,
-            TextComposeBudget::default(),
+            &Limits::default(),
             &NeverCancel,
         )
         .err()
@@ -1012,50 +897,25 @@ fn malformed_source_descriptors_are_refused() {
 
 #[test]
 fn an_instance_refusal_stops_composition() {
-    let mut region = Region::one_pixel();
-    region.budget.max_strips = 0;
-    let error = compose(&mut region, TextComposeBudget::default())
-        .err()
-        .expect("expected a refusal");
-    assert!(
-        matches!(&error.kind, TextComposeErrorKind::Instance(instance)
-        if matches!(instance.kind, crate::jbig2::text_instances::TextInstanceErrorKind::LimitExceeded {
-            resource: "text strips",
-            ..
-        })),
-        "{error}"
-    );
-    assert_eq!(error.offset, region.header.body.offset + 2);
-    assert_eq!(error.progress.completed_instances, 0);
-    assert_eq!(error.progress.touched_pixels, 0);
-}
-
-#[test]
-fn symbol_row_cap_is_checked_before_composition() {
-    let symbol = stored(SymbolStore::Imported, descriptor(9, 1, 0));
+    let symbol = stored(SymbolStore::Imported, descriptor(1, 1, 0));
+    // The first S coordinate lies outside the T.88 signed 32-bit range.
     let mut region = Region::new(
         3,
         2,
         flags(false, SymbolCombination::Or),
         &[symbol],
-        [&[0x80, 0x00], &[]],
-        &[place(0, 0, 0)],
+        [&[0x80], &[]],
+        &[place(0, 1 << 31, 1)],
     );
-    let error = compose(
-        &mut region,
-        TextComposeBudget {
-            max_row_bytes: 1,
-            ..TextComposeBudget::default()
-        },
-    )
-    .err()
-    .expect("expected a refusal");
-    assert!(matches!(
-        error.kind,
-        TextComposeErrorKind::LimitExceeded {
-            resource: "row bytes",
-            ..
-        }
-    ));
+    let error = compose(&mut region).err().expect("expected a refusal");
+    assert!(
+        matches!(&error.kind, TextComposeErrorKind::Instance(instance)
+        if matches!(instance.kind, crate::jbig2::text_instances::TextInstanceErrorKind::Malformed(
+            "text coordinate outside T.88 signed 32-bit range"
+        ))),
+        "{error}"
+    );
+    assert!(error.offset > region.header.body.offset);
+    assert_eq!(error.progress.completed_instances, 0);
     assert_eq!(error.progress.touched_pixels, 0);
 }

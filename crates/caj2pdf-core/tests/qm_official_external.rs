@@ -14,9 +14,7 @@ const OFFICIAL_FIXTURE_SHA256: &str =
     "11fe241dedbbf4faa542af4a1485566c2794fa69e5c06e2e5c8542adfe9b1ab7";
 const MAX_FIXTURE_BYTES: u64 = 16 * 1024;
 
-use caj2pdf_core::qm::{
-    ArithmeticBudget, ArithmeticDecoder, CodedSpan, ContextBank, QmState, QmTable,
-};
+use caj2pdf_core::qm::{ArithmeticDecoder, CodedSpan, ContextBank, QmState, QmTable};
 
 struct Checkpoint {
     symbols_decoded: usize,
@@ -158,10 +156,6 @@ fn official_1993_vector_and_register_checkpoints() {
         &table,
         &mut contexts,
         &limits,
-        ArithmeticBudget {
-            max_symbols: 256,
-            max_work: 100_000,
-        },
     )
     .expect("standard stripe initialization failed");
 

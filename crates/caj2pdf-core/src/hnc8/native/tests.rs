@@ -85,13 +85,13 @@ impl NativeRecordVisitor for Visitor {
         Ok(())
     }
 }
-fn parse(source: &mut Source, budget: TextBudget, visitor: &mut Visitor) -> Result<u32> {
+fn parse(source: &mut Source, visitor: &mut Visitor) -> Result<u32> {
     (|| {
         let limits = Limits::default();
         let cancel = Cancel::default();
-        let mut reader = Hnc8Reader::open(source, &limits, &cancel, Default::default())?;
+        let mut reader = Hnc8Reader::open(source, &limits, &cancel)?;
         reader.next_page()?;
-        reader.visit_native_records(budget, visitor)
+        reader.visit_native_records(visitor)
     })()
 }
 
@@ -133,10 +133,7 @@ fn streams_raw_glyph_context_and_atomic_drawing_image_records() {
         let mut source = fixture(&words, 1);
         source.short = short;
         let mut visitor = Visitor::default();
-        assert_eq!(
-            parse(&mut source, TextBudget::default(), &mut visitor).unwrap(),
-            16
-        );
+        assert_eq!(parse(&mut source, &mut visitor).unwrap(), 16);
         assert!(source.max_request <= 24);
         assert_eq!(
             visitor.events[4],
@@ -225,7 +222,7 @@ fn unsupported_records_stop_without_consuming_their_payload_as_glyphs() {
             0,
         );
         let mut visitor = Visitor::default();
-        let error = parse(&mut source, TextBudget::default(), &mut visitor).unwrap_err();
+        let error = parse(&mut source, &mut visitor).unwrap_err();
         assert_eq!(error.offset, 108);
         assert_eq!(error.page, Some(1));
         assert!(matches!(error.kind, ErrorKind::Unsupported { .. }));
@@ -243,12 +240,7 @@ fn context_end_and_image_counts_are_checked() {
         vec![[0x8001, 5]],
         vec![[0x8004, 0], [0x8004, 0]],
     ] {
-        let error = parse(
-            &mut fixture(&words, 0),
-            TextBudget::default(),
-            &mut Visitor::default(),
-        )
-        .unwrap_err();
+        let error = parse(&mut fixture(&words, 0), &mut Visitor::default()).unwrap_err();
         assert!(matches!(error.kind, ErrorKind::Malformed { .. }));
     }
     let mut image = vec![[0x800a, 0xd300]];
@@ -256,13 +248,9 @@ fn context_end_and_image_counts_are_checked() {
     image.push([0x8004, 0]);
     for (words, count) in [(&image[..], 0), (&[[0x8004, 0]][..], 1)] {
         assert!(matches!(
-            parse(
-                &mut fixture(words, count),
-                TextBudget::default(),
-                &mut Visitor::default()
-            )
-            .unwrap_err()
-            .kind,
+            parse(&mut fixture(words, count), &mut Visitor::default())
+                .unwrap_err()
+                .kind,
             ErrorKind::Malformed { .. }
         ));
     }
@@ -293,8 +281,7 @@ fn never_reads_past_indexed_span_for_any_truncated_record() {
         for length in 1..words.len() * 4 {
             let mut source = fixture(&words, u16::from(words[0][0] == 0x800a));
             source.bytes[84..88].copy_from_slice(&(length as u32).to_le_bytes());
-            let error =
-                parse(&mut source, TextBudget::default(), &mut Visitor::default()).unwrap_err();
+            let error = parse(&mut source, &mut Visitor::default()).unwrap_err();
             assert!(
                 matches!(error.kind, ErrorKind::Truncated { .. }),
                 "{length}: {error:?}"
@@ -304,53 +291,11 @@ fn never_reads_past_indexed_span_for_any_truncated_record() {
 }
 
 #[test]
-fn budgets_and_protected_index_fail_before_emitting_records() {
-    let budget = TextBudget::default();
-    for limited in [
-        TextBudget {
-            max_span_bytes: 3,
-            ..budget
-        },
-        TextBudget {
-            max_decoded_bytes: 3,
-            ..budget
-        },
-        TextBudget {
-            max_working_bytes: 4095,
-            ..budget
-        },
-        TextBudget {
-            max_records: 0,
-            ..budget
-        },
-    ] {
-        let mut visitor = Visitor::default();
-        assert!(matches!(
-            parse(&mut fixture(&[[0x8004, 0]], 0), limited, &mut visitor)
-                .unwrap_err()
-                .kind,
-            ErrorKind::LimitExceeded { .. }
-        ));
-        assert!(visitor.events.is_empty());
-    }
-    let mut source = fixture(&[[0x8004, 0]], 1);
-    assert!(matches!(
-        parse(
-            &mut source,
-            TextBudget {
-                max_images: 0,
-                ..budget
-            },
-            &mut Visitor::default()
-        )
-        .unwrap_err()
-        .kind,
-        ErrorKind::LimitExceeded { .. }
-    ));
+fn protected_index_fails_before_emitting_records() {
     let mut source = fixture(&[[0x8004, 0]], 0);
     source.bytes[80..84].copy_from_slice(&96_u32.to_le_bytes());
     assert!(matches!(
-        parse(&mut source, budget, &mut Visitor::default())
+        parse(&mut source, &mut Visitor::default())
             .unwrap_err()
             .kind,
         ErrorKind::Malformed { .. }
@@ -362,13 +307,10 @@ fn native_records_require_a_current_page() {
     let limits = Limits::default();
     let cancel = Cancel::default();
     let mut source = fixture(&[[0x8004, 0]], 0);
-    let mut reader = Hnc8Reader::open(&mut source, &limits, &cancel, Default::default()).unwrap();
+    let mut reader = Hnc8Reader::open(&mut source, &limits, &cancel).unwrap();
     let mut visitor = Visitor::default();
     assert!(matches!(
-        reader
-            .visit_native_records(TextBudget::default(), &mut visitor)
-            .unwrap_err()
-            .kind,
+        reader.visit_native_records(&mut visitor).unwrap_err().kind,
         ErrorKind::NoCurrentPage
     ));
 }
@@ -379,8 +321,7 @@ fn cancellation_source_and_visitor_failures_are_located() {
         let limits = Limits::default();
         let cancel = Cancel::default();
         let mut source = fixture(&[[0x8004, 0]], 0);
-        let mut reader =
-            Hnc8Reader::open(&mut source, &limits, &cancel, Default::default()).unwrap();
+        let mut reader = Hnc8Reader::open(&mut source, &limits, &cancel).unwrap();
         reader.next_page().unwrap();
         let mut visitor = Visitor::default();
         match fault {
@@ -390,9 +331,7 @@ fn cancellation_source_and_visitor_failures_are_located() {
             3 => reader.source.fault = true,
             _ => visitor.fail = true,
         }
-        let error = reader
-            .visit_native_records(TextBudget::default(), &mut visitor)
-            .unwrap_err();
+        let error = reader.visit_native_records(&mut visitor).unwrap_err();
         assert_eq!(error.offset, 100);
         if fault < 3 {
             assert!(matches!(error.kind, ErrorKind::Cancelled));
@@ -417,11 +356,10 @@ fn current_variant_is_enforced() {
             ],
             0,
         );
-        let mut reader =
-            Hnc8Reader::open(&mut source, &limits, &cancel, Default::default()).unwrap();
+        let mut reader = Hnc8Reader::open(&mut source, &limits, &cancel).unwrap();
         reader.next_page().unwrap();
         reader.header.variant = variant;
-        let result = reader.visit_native_records(TextBudget::default(), &mut Visitor::default());
+        let result = reader.visit_native_records(&mut Visitor::default());
         if variant == Variant::C8 {
             assert_eq!(result.unwrap(), 5);
             assert_eq!(reader.next_image().unwrap(), None);
@@ -503,10 +441,9 @@ fn a_text_consumer_rejects_unmapped_glyphs_at_their_source_record() {
         let mut source = fixture(&[[0x8001, 3], [0x8002, 5], [11, code], [0x8004, 0]], 0);
         let limits = Limits::default();
         let cancel = Cancel::default();
-        let mut reader =
-            Hnc8Reader::open(&mut source, &limits, &cancel, Default::default()).unwrap();
+        let mut reader = Hnc8Reader::open(&mut source, &limits, &cancel).unwrap();
         reader.next_page().unwrap();
-        let result = reader.visit_native_records(TextBudget::default(), &mut Text);
+        let result = reader.visit_native_records(&mut Text);
         if matches!(code, 0xcec4 | 0xa0da) {
             assert_eq!(result.unwrap(), 4);
         } else {
@@ -543,10 +480,7 @@ fn preserves_additional_controls_and_atomic_8010_payload() {
         let mut source = fixture(&words, 0);
         source.short = short;
         let mut visitor = Visitor::default();
-        assert_eq!(
-            parse(&mut source, TextBudget::default(), &mut visitor).unwrap(),
-            11
-        );
+        assert_eq!(parse(&mut source, &mut visitor).unwrap(), 11);
         for (index, tag) in [0x8072, 0x8073, 0x8074, 0xc053, 0xc054]
             .into_iter()
             .enumerate()
@@ -589,7 +523,6 @@ fn preserves_additional_controls_and_atomic_8010_payload() {
     }
     let error = parse(
         &mut fixture(&[[0x8010, 1], [7, 9], [21, 13], [0xffff, 6]], 0),
-        TextBudget::default(),
         &mut Visitor::default(),
     )
     .unwrap_err();
@@ -667,10 +600,7 @@ fn a385_drawing_preserves_coordinates_and_following_glyph_context() {
         );
         source.short = short;
         let mut visitor = Visitor::default();
-        assert_eq!(
-            parse(&mut source, TextBudget::default(), &mut visitor).unwrap(),
-            6
-        );
+        assert_eq!(parse(&mut source, &mut visitor).unwrap(), 6);
         assert_eq!(
             visitor.events[2],
             (
@@ -728,10 +658,7 @@ fn drawing_boundary_preserves_independent_y_end_and_control_records() {
             );
             source.short = short;
             let mut visitor = Visitor::default();
-            assert_eq!(
-                parse(&mut source, TextBudget::default(), &mut visitor).unwrap(),
-                7
-            );
+            assert_eq!(parse(&mut source, &mut visitor).unwrap(), 7);
             assert_eq!(
                 visitor.events[3],
                 (
@@ -762,10 +689,7 @@ fn drawing_boundary_preserves_independent_y_end_and_control_records() {
                 )
             );
             let mut source = fixture(&[[tag, value], [1, 2], [3, 4], [0x8004, 1]], 0);
-            assert_eq!(
-                parse(&mut source, TextBudget::default(), &mut Visitor::default()).unwrap(),
-                2
-            );
+            assert_eq!(parse(&mut source, &mut Visitor::default()).unwrap(), 2);
         }
     }
 }
@@ -794,10 +718,7 @@ fn encoded_strings_preserve_run_context_and_bounded_source_spans() {
             let mut source = encoded_string_fixture(characters);
             source.short = short;
             let mut visitor = Visitor::default();
-            assert_eq!(
-                parse(&mut source, TextBudget::default(), &mut visitor).unwrap(),
-                5
-            );
+            assert_eq!(parse(&mut source, &mut visitor).unwrap(), 5);
             assert_eq!(
                 visitor.events[2],
                 (
@@ -834,7 +755,7 @@ fn encoded_strings_reject_unknown_lengths_and_embedded_markers() {
         let mut source = encoded_string_fixture(5);
         source.bytes[110..112].copy_from_slice(&value.to_le_bytes());
         let mut visitor = Visitor::default();
-        let error = parse(&mut source, TextBudget::default(), &mut visitor).unwrap_err();
+        let error = parse(&mut source, &mut visitor).unwrap_err();
         assert_eq!(error.offset, 108);
         assert!(matches!(error.kind, ErrorKind::Unsupported { .. }));
         assert_eq!(visitor.events.len(), 2);
@@ -844,13 +765,10 @@ fn encoded_strings_reject_unknown_lengths_and_embedded_markers() {
         source.bytes[140..142].copy_from_slice(&word.to_le_bytes());
         let limits = Limits::default();
         let cancel = Cancel::default();
-        let mut reader =
-            Hnc8Reader::open(&mut source, &limits, &cancel, Default::default()).unwrap();
+        let mut reader = Hnc8Reader::open(&mut source, &limits, &cancel).unwrap();
         reader.next_page().unwrap();
         let mut visitor = Visitor::default();
-        let error = reader
-            .visit_native_records(TextBudget::default(), &mut visitor)
-            .unwrap_err();
+        let error = reader.visit_native_records(&mut visitor).unwrap_err();
         assert_eq!(error.offset, 140);
         assert!(matches!(
             error.kind,
@@ -869,26 +787,13 @@ fn encoded_string_truncation_never_consumes_outside_the_page_span() {
         let mut source = encoded_string_fixture(28);
         source.bytes[84..88].copy_from_slice(&(8_u32 + bytes).to_le_bytes());
         let mut visitor = Visitor::default();
-        let error = parse(&mut source, TextBudget::default(), &mut visitor).unwrap_err();
+        let error = parse(&mut source, &mut visitor).unwrap_err();
         assert!(
             matches!(error.kind, ErrorKind::Truncated { .. }),
             "{bytes}: {error:?}"
         );
         assert_eq!(visitor.events.len(), 2);
     }
-    let mut visitor = Visitor::default();
-    let error = parse(
-        &mut encoded_string_fixture(253),
-        TextBudget {
-            max_records: 3,
-            ..Default::default()
-        },
-        &mut visitor,
-    )
-    .unwrap_err();
-    assert_eq!(error.offset, 618);
-    assert!(matches!(error.kind, ErrorKind::LimitExceeded { .. }));
-    assert_eq!(visitor.events.len(), 3);
 }
 
 #[test]
@@ -929,10 +834,7 @@ fn additional_controls_preserve_raw_values_without_inventing_glyphs() {
         );
         source.short = 1;
         let mut visitor = Visitor::default();
-        assert_eq!(
-            parse(&mut source, TextBudget::default(), &mut visitor).unwrap(),
-            6
-        );
+        assert_eq!(parse(&mut source, &mut visitor).unwrap(), 6);
         assert_eq!(
             visitor.events[3],
             (
@@ -957,7 +859,7 @@ fn additional_controls_preserve_raw_values_without_inventing_glyphs() {
         );
         assert!(source.max_request <= 24);
         source.bytes[114..116].copy_from_slice(&0xffff_u16.to_le_bytes());
-        let error = parse(&mut source, TextBudget::default(), &mut Visitor::default()).unwrap_err();
+        let error = parse(&mut source, &mut Visitor::default()).unwrap_err();
         assert_eq!(error.offset, 112);
         assert!(matches!(error.kind, ErrorKind::Unsupported { .. }));
     }
@@ -981,10 +883,7 @@ fn extended_controls_are_atomic_and_bounded_even_with_marker_payloads() {
                 );
                 source.short = short;
                 let mut visitor = Visitor::default();
-                assert_eq!(
-                    parse(&mut source, TextBudget::default(), &mut visitor).unwrap(),
-                    5
-                );
+                assert_eq!(parse(&mut source, &mut visitor).unwrap(), 5);
                 assert_eq!(
                     visitor.events[2],
                     (108, NativeRecord::ExtendedControl { tag, value, words })
@@ -1008,9 +907,7 @@ fn extended_controls_are_atomic_and_bounded_even_with_marker_payloads() {
             source.bytes[84..88].copy_from_slice(&length.to_le_bytes());
             let mut visitor = Visitor::default();
             assert!(matches!(
-                parse(&mut source, TextBudget::default(), &mut visitor)
-                    .unwrap_err()
-                    .kind,
+                parse(&mut source, &mut visitor).unwrap_err().kind,
                 ErrorKind::Truncated { .. }
             ));
             assert!(visitor.events.is_empty());
@@ -1019,7 +916,7 @@ fn extended_controls_are_atomic_and_bounded_even_with_marker_payloads() {
     for pair in [[0x81ff, 0], [0x81ff, 4], [0x80cc, 0x0203], [0x80cc, 0x0205]] {
         let mut source = fixture(&[pair, [0, 200], [0x8004, 0]], 0);
         assert!(matches!(
-            parse(&mut source, TextBudget::default(), &mut Visitor::default())
+            parse(&mut source, &mut Visitor::default())
                 .unwrap_err()
                 .kind,
             ErrorKind::Unsupported { .. }
@@ -1058,10 +955,7 @@ fn image_references_stream_names_with_byte_lengths_and_aligned_ends() {
             let mut source = image_reference_fixture(&name, 1);
             source.short = short;
             let mut visitor = Visitor::default();
-            assert_eq!(
-                parse(&mut source, TextBudget::default(), &mut visitor).unwrap(),
-                2
-            );
+            assert_eq!(parse(&mut source, &mut visitor).unwrap(), 2);
             assert_eq!(
                 visitor.events[0],
                 (
@@ -1092,7 +986,7 @@ fn image_reference_flags_padding_and_counts_fail_at_their_source_positions() {
         let mut source = image_reference_fixture(b"abcd", 1);
         source.bytes[offset..offset + 2].copy_from_slice(&value.to_le_bytes());
         let mut visitor = Visitor::default();
-        let error = parse(&mut source, TextBudget::default(), &mut visitor).unwrap_err();
+        let error = parse(&mut source, &mut visitor).unwrap_err();
         assert_eq!(error.offset, at);
         assert!(matches!(error.kind, ErrorKind::Unsupported { .. }));
         assert!(visitor.events.is_empty());
@@ -1101,7 +995,7 @@ fn image_reference_flags_padding_and_counts_fail_at_their_source_positions() {
         let mut source = image_reference_fixture(b"abcd", 1);
         source.bytes[offset] = 1;
         let mut visitor = Visitor::default();
-        let error = parse(&mut source, TextBudget::default(), &mut visitor).unwrap_err();
+        let error = parse(&mut source, &mut visitor).unwrap_err();
         assert_eq!(error.offset, offset as u64);
         assert!(matches!(
             error.kind,
@@ -1115,7 +1009,7 @@ fn image_reference_flags_padding_and_counts_fail_at_their_source_positions() {
     for count in [0, 2] {
         let mut source = image_reference_fixture(b"abcd", count);
         assert!(matches!(
-            parse(&mut source, TextBudget::default(), &mut Visitor::default())
+            parse(&mut source, &mut Visitor::default())
                 .unwrap_err()
                 .kind,
             ErrorKind::Malformed {
@@ -1132,7 +1026,7 @@ fn image_reference_lengths_cannot_cross_the_indexed_span() {
         let mut source = image_reference_fixture(&[b'a'; 29], 1);
         source.bytes[84..88].copy_from_slice(&length.to_le_bytes());
         let mut visitor = Visitor::default();
-        let error = parse(&mut source, TextBudget::default(), &mut visitor).unwrap_err();
+        let error = parse(&mut source, &mut visitor).unwrap_err();
         assert!(
             matches!(error.kind, ErrorKind::Truncated { .. }),
             "{length}: {error:?}"
@@ -1142,7 +1036,7 @@ fn image_reference_lengths_cannot_cross_the_indexed_span() {
     let mut source = image_reference_fixture(b"abc", 1);
     source.bytes[114..116].copy_from_slice(&65535_u16.to_le_bytes());
     assert!(matches!(
-        parse(&mut source, TextBudget::default(), &mut Visitor::default())
+        parse(&mut source, &mut Visitor::default())
             .unwrap_err()
             .kind,
         ErrorKind::Truncated { .. }
@@ -1178,13 +1072,10 @@ fn image_reference_mid_payload_failure_and_cancellation_are_reported() {
             cancel: cancel.clone(),
             fail,
         };
-        let mut reader =
-            Hnc8Reader::open(&mut source, &limits, &cancel, Default::default()).unwrap();
+        let mut reader = Hnc8Reader::open(&mut source, &limits, &cancel).unwrap();
         reader.next_page().unwrap();
         let mut visitor = Visitor::default();
-        let error = reader
-            .visit_native_records(TextBudget::default(), &mut visitor)
-            .unwrap_err();
+        let error = reader.visit_native_records(&mut visitor).unwrap_err();
         assert!(matches!(
             error.kind,
             ErrorKind::Cancelled | ErrorKind::Source { .. }
@@ -1213,10 +1104,7 @@ fn reference_and_legacy_images_share_the_declared_page_count() {
     }
     source.bytes[84..88].copy_from_slice(&56_u32.to_le_bytes());
     let mut visitor = Visitor::default();
-    assert_eq!(
-        parse(&mut source, TextBudget::default(), &mut visitor).unwrap(),
-        3
-    );
+    assert_eq!(parse(&mut source, &mut visitor).unwrap(), 3);
     assert!(matches!(
         visitor.events[0].1,
         NativeRecord::ImageReference { .. }
@@ -1284,8 +1172,7 @@ fn hnb_glyph_runs_use_both_verified_indexes_without_crossing_pages() {
             {
                 let limits = Limits::default();
                 let cancel = Cancel::default();
-                let mut reader =
-                    Hnc8Reader::open(&mut source, &limits, &cancel, Default::default()).unwrap();
+                let mut reader = Hnc8Reader::open(&mut source, &limits, &cancel).unwrap();
                 assert_eq!(reader.header().variant, Variant::HnB);
                 for (page, words) in [&first[..], &second[..]].into_iter().enumerate() {
                     assert_eq!(
@@ -1294,9 +1181,7 @@ fn hnb_glyph_runs_use_both_verified_indexes_without_crossing_pages() {
                     );
                     let mut visitor = Visitor::default();
                     assert_eq!(
-                        reader
-                            .visit_native_records(TextBudget::default(), &mut visitor)
-                            .unwrap(),
+                        reader.visit_native_records(&mut visitor).unwrap(),
                         words.len() as u32
                     );
                     let start = (216 + width * 2 + page * first.len() * 4) as u64;
@@ -1345,7 +1230,7 @@ fn hnb_does_not_inherit_unverified_c8_records_or_font_controls() {
             &[&[[0x8001, 4700], [0x8002, 0x1084], pair, [0x8004, 1]]],
         );
         let mut visitor = Visitor::default();
-        let error = parse(&mut source, TextBudget::default(), &mut visitor).unwrap_err();
+        let error = parse(&mut source, &mut visitor).unwrap_err();
         assert_eq!(error.variant, Some(Variant::HnB));
         assert_eq!(error.page, Some(1));
         assert_eq!(error.offset, 236);
@@ -1369,13 +1254,10 @@ fn hnb_truncated_record_keeps_the_next_page_unread() {
             {
                 let limits = Limits::default();
                 let cancel = Cancel::default();
-                let mut reader =
-                    Hnc8Reader::open(&mut source, &limits, &cancel, Default::default()).unwrap();
+                let mut reader = Hnc8Reader::open(&mut source, &limits, &cancel).unwrap();
                 reader.next_page().unwrap();
                 let mut visitor = Visitor::default();
-                let error = reader
-                    .visit_native_records(TextBudget::default(), &mut visitor)
-                    .unwrap_err();
+                let error = reader.visit_native_records(&mut visitor).unwrap_err();
                 assert!(
                     matches!(error.kind, ErrorKind::Truncated { expected: 4, available, .. } if available == u64::from(length))
                 );
@@ -1403,10 +1285,7 @@ fn hnb_prefix_is_one_atomic_eight_byte_record() {
                 );
                 source.short = short;
                 let mut visitor = Visitor::default();
-                assert_eq!(
-                    parse(&mut source, TextBudget::default(), &mut visitor).unwrap(),
-                    5
-                );
+                assert_eq!(parse(&mut source, &mut visitor).unwrap(), 5);
                 assert_eq!(
                     visitor.events[0],
                     (
@@ -1434,9 +1313,7 @@ fn hnb_prefix_is_one_atomic_eight_byte_record() {
             source.bytes[220..224].copy_from_slice(&length.to_le_bytes());
             let mut visitor = Visitor::default();
             assert!(matches!(
-                parse(&mut source, TextBudget::default(), &mut visitor)
-                    .unwrap_err()
-                    .kind,
+                parse(&mut source, &mut visitor).unwrap_err().kind,
                 ErrorKind::Truncated { .. }
             ));
             assert!(visitor.events.is_empty());
@@ -1500,10 +1377,7 @@ fn hnb_run_controls_and_drawing_preserve_following_glyph_context() {
                 );
                 source.short = short;
                 let mut visitor = Visitor::default();
-                assert_eq!(
-                    parse(&mut source, TextBudget::default(), &mut visitor).unwrap(),
-                    5
-                );
+                assert_eq!(parse(&mut source, &mut visitor).unwrap(), 5);
                 assert_eq!(
                     visitor.events[2].1,
                     NativeRecord::Control {
@@ -1538,10 +1412,7 @@ fn hnb_run_controls_and_drawing_preserve_following_glyph_context() {
                     );
                     source.short = short;
                     let mut visitor = Visitor::default();
-                    assert_eq!(
-                        parse(&mut source, TextBudget::default(), &mut visitor).unwrap(),
-                        6
-                    );
+                    assert_eq!(parse(&mut source, &mut visitor).unwrap(), 6);
                     assert_eq!(
                         visitor.events[2].1,
                         NativeRecord::Drawing {
@@ -1569,10 +1440,7 @@ fn hnb_run_controls_and_drawing_preserve_following_glyph_context() {
                 &[&[[0x8006, style], [5200, 4800], [6300, 4850], [0x8004, 1]]],
             );
             let mut visitor = Visitor::default();
-            assert_eq!(
-                parse(&mut source, TextBudget::default(), &mut visitor).unwrap(),
-                2
-            );
+            assert_eq!(parse(&mut source, &mut visitor).unwrap(), 2);
             assert_eq!(visitor.events[1].1, NativeRecord::End { value: Some(1) });
         }
         for length in 1..12_u32 {
@@ -1583,9 +1451,7 @@ fn hnb_run_controls_and_drawing_preserve_following_glyph_context() {
             source.bytes[220..224].copy_from_slice(&length.to_le_bytes());
             let mut visitor = Visitor::default();
             assert!(matches!(
-                parse(&mut source, TextBudget::default(), &mut visitor)
-                    .unwrap_err()
-                    .kind,
+                parse(&mut source, &mut visitor).unwrap_err().kind,
                 ErrorKind::Truncated { .. }
             ));
             assert!(visitor.events.is_empty());
@@ -1601,7 +1467,7 @@ fn hnb_run_controls_and_drawing_preserve_following_glyph_context() {
             ]],
         );
         assert!(matches!(
-            parse(&mut source, TextBudget::default(), &mut Visitor::default())
+            parse(&mut source, &mut Visitor::default())
                 .unwrap_err()
                 .kind,
             ErrorKind::Unsupported { .. }
@@ -1626,7 +1492,7 @@ fn hnb_run_controls_and_drawing_preserve_following_glyph_context() {
     ] {
         let mut source = hnb_source(12, &[&[control, [0x8004, 1]]]);
         assert!(matches!(
-            parse(&mut source, TextBudget::default(), &mut Visitor::default())
+            parse(&mut source, &mut Visitor::default())
                 .unwrap_err()
                 .kind,
             ErrorKind::Unsupported { .. }
@@ -1643,7 +1509,7 @@ fn hnb_run_controls_and_drawing_preserve_following_glyph_context() {
     ] {
         let mut source = fixture(&[control, [0x8004, 1]], 0);
         assert!(matches!(
-            parse(&mut source, TextBudget::default(), &mut Visitor::default())
+            parse(&mut source, &mut Visitor::default())
                 .unwrap_err()
                 .kind,
             ErrorKind::Unsupported { .. }
@@ -1665,14 +1531,10 @@ fn hnb_implicit_style_requires_verified_paired_axes() {
             words.extend([[5200, 0xd6d0], [0x8004, 1]]);
             let mut source = hnb_source(width, &[&words]);
             if admitted {
-                assert_eq!(
-                    parse(&mut source, TextBudget::default(), &mut Visitor::default()).unwrap(),
-                    5
-                );
+                assert_eq!(parse(&mut source, &mut Visitor::default()).unwrap(), 5);
                 continue;
             }
-            let error =
-                parse(&mut source, TextBudget::default(), &mut Visitor::default()).unwrap_err();
+            let error = parse(&mut source, &mut Visitor::default()).unwrap_err();
             assert!(matches!(
                 error.kind,
                 ErrorKind::Unsupported {
@@ -1705,7 +1567,7 @@ fn hnb_images_preserve_atomic_words_and_following_glyph_order() {
             source.bytes[224..226].copy_from_slice(&declared.to_le_bytes());
             source.short = short;
             let mut visitor = Visitor::default();
-            let result = parse(&mut source, TextBudget::default(), &mut visitor);
+            let result = parse(&mut source, &mut visitor);
             if declared == 2 {
                 assert_eq!(result.unwrap(), 6);
                 assert_eq!(
@@ -1756,13 +1618,10 @@ fn hnb_truncated_image_does_not_consume_the_following_page() {
         {
             let limits = Limits::default();
             let cancel = Cancel::default();
-            let mut reader =
-                Hnc8Reader::open(&mut source, &limits, &cancel, Default::default()).unwrap();
+            let mut reader = Hnc8Reader::open(&mut source, &limits, &cancel).unwrap();
             reader.next_page().unwrap();
             let mut visitor = Visitor::default();
-            let error = reader
-                .visit_native_records(TextBudget::default(), &mut visitor)
-                .unwrap_err();
+            let error = reader.visit_native_records(&mut visitor).unwrap_err();
             assert!(
                 matches!(error.kind, ErrorKind::Truncated { expected: 24, available, .. }
                 if available == u64::from(length as u32 - 4))
@@ -1789,17 +1648,11 @@ fn hnb_bare_end_tags_stay_inside_each_indexed_page() {
             {
                 let limits = Limits::default();
                 let cancel = Cancel::default();
-                let mut reader =
-                    Hnc8Reader::open(&mut source, &limits, &cancel, Default::default()).unwrap();
+                let mut reader = Hnc8Reader::open(&mut source, &limits, &cancel).unwrap();
                 for page in 0..2 {
                     reader.next_page().unwrap().unwrap();
                     let mut visitor = Visitor::default();
-                    assert_eq!(
-                        reader
-                            .visit_native_records(TextBudget::default(), &mut visitor)
-                            .unwrap(),
-                        1
-                    );
+                    assert_eq!(reader.visit_native_records(&mut visitor).unwrap(), 1);
                     assert_eq!(
                         visitor.events,
                         [(start as u64 + page * 2, NativeRecord::End { value: None })]
@@ -1812,7 +1665,7 @@ fn hnb_bare_end_tags_stay_inside_each_indexed_page() {
     let mut source = hnb_source(12, &[&[[0x8074, 0xb7bd]]]);
     source.bytes.truncate(230);
     source.bytes[220..224].copy_from_slice(&2u32.to_le_bytes());
-    let error = parse(&mut source, TextBudget::default(), &mut Visitor::default()).unwrap_err();
+    let error = parse(&mut source, &mut Visitor::default()).unwrap_err();
     assert!(matches!(
         error.kind,
         ErrorKind::Truncated {
@@ -1824,7 +1677,7 @@ fn hnb_bare_end_tags_stay_inside_each_indexed_page() {
     let mut c8 = fixture(&[[0x8004, 1]], 0);
     c8.bytes.truncate(102);
     c8.bytes[84..88].copy_from_slice(&2u32.to_le_bytes());
-    assert!(parse(&mut c8, TextBudget::default(), &mut Visitor::default()).is_err());
+    assert!(parse(&mut c8, &mut Visitor::default()).is_err());
 }
 
 #[test]
@@ -1856,19 +1709,11 @@ fn hnb_end_stops_before_opaque_tail_and_next_page_uses_its_index() {
         {
             let limits = Limits::default();
             let cancel = Cancel::default();
-            let mut reader =
-                Hnc8Reader::open(&mut source, &limits, &cancel, Default::default()).unwrap();
+            let mut reader = Hnc8Reader::open(&mut source, &limits, &cancel).unwrap();
             for (code, value) in [(0xd6d0, 44), (0xcec4, 45)] {
                 reader.next_page().unwrap().unwrap();
                 let mut visitor = Visitor::default();
-                let budget = TextBudget {
-                    max_records: 4,
-                    ..Default::default()
-                };
-                assert_eq!(
-                    reader.visit_native_records(budget, &mut visitor).unwrap(),
-                    4
-                );
+                assert_eq!(reader.visit_native_records(&mut visitor).unwrap(), 4);
                 assert!(
                     matches!(visitor.events[2].1, NativeRecord::Glyph { code: actual, .. } if actual == code)
                 );
@@ -1882,7 +1727,7 @@ fn hnb_end_stops_before_opaque_tail_and_next_page_uses_its_index() {
     }
     // C8 retains its independently established strict terminal position.
     let mut c8 = fixture(&[[0x8004, 1], [0x8099, 0xffff]], 0);
-    let error = parse(&mut c8, TextBudget::default(), &mut Visitor::default()).unwrap_err();
+    let error = parse(&mut c8, &mut Visitor::default()).unwrap_err();
     assert_eq!(error.kind.field(), "native page end");
 }
 
@@ -1970,7 +1815,7 @@ fn c8_control_9002_requires_its_complete_value_word() {
         source.bytes.truncate(100 + length as usize);
         source.short = 1;
         let mut visitor = Visitor::default();
-        assert!(parse(&mut source, TextBudget::default(), &mut visitor).is_err());
+        assert!(parse(&mut source, &mut visitor).is_err());
         assert!(visitor.events.is_empty());
     }
 }
@@ -1999,10 +1844,7 @@ fn c8_radical_is_atomic_and_preserves_following_glyph_context() {
             );
             source.short = short;
             let mut visitor = Visitor::default();
-            assert_eq!(
-                parse(&mut source, TextBudget::default(), &mut visitor).unwrap(),
-                5
-            );
+            assert_eq!(parse(&mut source, &mut visitor).unwrap(), 5);
             assert_eq!(
                 visitor.events[2],
                 (
@@ -2036,7 +1878,7 @@ fn c8_radical_is_atomic_and_preserves_following_glyph_context() {
     for (tag, value) in [(0x808f, 0xa3e6), (0x8091, 0xa3e6), (0x8006, 0), (0x8010, 2)] {
         let mut source = fixture(&[[tag, value], [1, 2], [3, 4]], 0);
         let mut visitor = Visitor::default();
-        assert!(parse(&mut source, TextBudget::default(), &mut visitor).is_err());
+        assert!(parse(&mut source, &mut visitor).is_err());
         assert!(visitor.events.is_empty());
     }
 }
@@ -2048,28 +1890,25 @@ fn c8_80d5_preserves_strict_indexed_end_boundaries() {
         source.bytes[84..88].copy_from_slice(&8_u32.to_le_bytes());
         source.short = 1;
         let mut visitor = Visitor::default();
-        assert_eq!(
-            parse(&mut source, TextBudget::default(), &mut visitor).unwrap(),
-            2
-        );
+        assert_eq!(parse(&mut source, &mut visitor).unwrap(), 2);
         assert_eq!(
             visitor.events[1],
             (104, NativeRecord::End { value: Some(value) })
         );
         let mut source = fixture(&[[0x80d5, 0], [0x8004, value], [0x8099, 0]], 0);
-        assert!(parse(&mut source, TextBudget::default(), &mut Visitor::default()).is_err());
+        assert!(parse(&mut source, &mut Visitor::default()).is_err());
     }
     for length in 1..4_u32 {
         let mut source = fixture(&[[0x80d5, 0], [0x8004, 1]], 0);
         source.bytes[84..88].copy_from_slice(&length.to_le_bytes());
         source.short = 1;
         let mut visitor = Visitor::default();
-        assert!(parse(&mut source, TextBudget::default(), &mut visitor).is_err());
+        assert!(parse(&mut source, &mut visitor).is_err());
         assert!(visitor.events.is_empty());
     }
     for value in [1, 0xffff] {
         let mut source = fixture(&[[0x80d5, value], [0x8004, 1]], 0);
-        assert!(parse(&mut source, TextBudget::default(), &mut Visitor::default()).is_err());
+        assert!(parse(&mut source, &mut Visitor::default()).is_err());
     }
 }
 
@@ -2079,13 +1918,13 @@ fn c8_80d3_requires_a_complete_verified_value() {
         let mut source = fixture(&[[0x80d3, 1]], 0);
         source.bytes[84..88].copy_from_slice(&(length as u32).to_le_bytes());
         let mut visitor = Visitor::default();
-        assert!(parse(&mut source, TextBudget::default(), &mut visitor).is_err());
+        assert!(parse(&mut source, &mut visitor).is_err());
         assert!(visitor.events.is_empty());
     }
     for value in [3, 0xffff] {
         let mut source = fixture(&[[0x80d3, value], [0x8004, 1]], 0);
         let mut visitor = Visitor::default();
-        assert!(parse(&mut source, TextBudget::default(), &mut visitor).is_err());
+        assert!(parse(&mut source, &mut visitor).is_err());
         assert!(visitor.events.is_empty());
     }
 }

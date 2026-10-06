@@ -147,24 +147,12 @@ impl Fixture {
         &self.source.bytes[536..]
     }
 
-    fn parse<C: Cancellation>(
-        &mut self,
-        limits: Limits,
-        budget: TextBudget,
-        cancel: &C,
-    ) -> Result<TextCoordinates> {
-        read_coordinates(
-            &mut self.source,
-            self.header,
-            self.page,
-            &limits,
-            cancel,
-            budget,
-        )
+    fn parse<C: Cancellation>(&mut self, limits: Limits, cancel: &C) -> Result<TextCoordinates> {
+        read_coordinates(&mut self.source, self.header, self.page, &limits, cancel)
     }
 
     fn normal(&mut self) -> Result<TextCoordinates> {
-        self.parse(Limits::default(), TextBudget::default(), &NeverCancel)
+        self.parse(Limits::default(), &NeverCancel)
     }
 }
 
@@ -196,10 +184,6 @@ fn invented_frames_preserve_raw_words_order_and_repeats() {
     );
     assert_eq!((result.decoded_length, result.record_count), (144, 3));
     assert_eq!(result.max_source_request_bytes, fixture.source.max_request);
-    assert_eq!(
-        result.working_memory_bytes,
-        result.owned_buffer_bytes + TEXT_DECODER_RESERVATION_BYTES + FIXED_WORKING_BYTES
-    );
 }
 
 #[test]
@@ -216,7 +200,6 @@ fn chunk_boundaries_and_short_reads_do_not_change_metadata() {
                         io_chunk_bytes: chunk,
                         ..Limits::default()
                     },
-                    TextBudget::default(),
                     &NeverCancel,
                 )
                 .unwrap();
@@ -234,17 +217,7 @@ fn chunk_boundaries_and_short_reads_do_not_change_metadata() {
 #[test]
 fn empty_records_and_coordinates_are_structurally_valid() {
     let mut fixture = Fixture::new(0, &[]);
-    let report = fixture
-        .parse(
-            Limits::default(),
-            TextBudget {
-                max_records: 0,
-                max_images: 0,
-                ..TextBudget::default()
-            },
-            &NeverCancel,
-        )
-        .unwrap();
+    let report = fixture.normal().unwrap();
     assert_eq!((report.decoded_length, report.record_count), (12, 0));
     assert!(report.coordinates.is_empty());
     assert_eq!(report.owned_buffer_bytes, fixture.frame().len() as u64 + 13);
@@ -258,7 +231,6 @@ fn large_decoded_text_is_discarded_in_bounded_chunks() {
     assert_eq!(result.coordinates, [point(0, 65535)]);
     assert_eq!(result.max_decoder_output_chunk_bytes, CHUNK_BYTES);
     assert!(result.owned_buffer_bytes < 70 * 1024);
-    assert!(result.working_memory_bytes < 210 * 1024);
     assert!(fixture.plain.len() > result.owned_buffer_bytes as usize);
 }
 
@@ -303,7 +275,6 @@ fn both_variants_reject_unknown_compression_markers() {
             fixture.page,
             &Limits::default(),
             &NeverCancel,
-            TextBudget::default(),
         )
         .unwrap_err();
         assert_eq!(error.kind.field(), "page text prefix");
@@ -325,7 +296,6 @@ fn hn_a_outline_aligned_index_is_supported_and_hn_b_is_not() {
         fixture.page,
         &Limits::default(),
         &NeverCancel,
-        TextBudget::default(),
     )
     .unwrap_err();
     assert_eq!(error.kind.as_str(), "unsupported");
@@ -380,7 +350,6 @@ fn fabricated_metadata_is_revalidated_before_reads() {
             },
             "page text span",
         ),
-        (|f| f.page.image_count = 32_768, "text images"),
     ];
     for (change, field) in cases {
         let mut fixture = ordinary();
@@ -415,7 +384,6 @@ fn fabricated_metadata_is_revalidated_before_reads() {
                     max_input_bytes: u64::MAX,
                     ..Limits::default()
                 },
-                TextBudget::default(),
                 &NeverCancel,
             )
             .unwrap_err();
@@ -429,31 +397,6 @@ fn fabricated_metadata_is_revalidated_before_reads() {
 
 #[test]
 fn limits_refuse_work_before_unbounded_allocation() {
-    for limits in [
-        Limits {
-            io_chunk_bytes: 0,
-            ..Limits::default()
-        },
-        Limits {
-            io_chunk_bytes: crate::limits::MAX_IO_CHUNK + 1,
-            ..Limits::default()
-        },
-        Limits {
-            max_allocation_bytes: 1,
-            ..Limits::default()
-        },
-    ] {
-        let mut fixture = ordinary();
-        assert_eq!(
-            fixture
-                .parse(limits, TextBudget::default(), &NeverCancel)
-                .unwrap_err()
-                .kind
-                .field(),
-            "limits"
-        );
-        assert_eq!(fixture.source.requests, 0);
-    }
     for (limits, field) in [
         (
             Limits {
@@ -487,53 +430,7 @@ fn limits_refuse_work_before_unbounded_allocation() {
     ] {
         assert_eq!(
             ordinary()
-                .parse(limits, TextBudget::default(), &NeverCancel)
-                .unwrap_err()
-                .kind
-                .field(),
-            field
-        );
-    }
-    for (budget, field) in [
-        (
-            TextBudget {
-                max_span_bytes: 0,
-                ..TextBudget::default()
-            },
-            "page text bytes",
-        ),
-        (
-            TextBudget {
-                max_decoded_bytes: 0,
-                ..TextBudget::default()
-            },
-            "decoded text bytes",
-        ),
-        (
-            TextBudget {
-                max_records: 2,
-                ..TextBudget::default()
-            },
-            "text records",
-        ),
-        (
-            TextBudget {
-                max_images: 2,
-                ..TextBudget::default()
-            },
-            "text images",
-        ),
-        (
-            TextBudget {
-                max_working_bytes: 0,
-                ..TextBudget::default()
-            },
-            "text working bytes",
-        ),
-    ] {
-        assert_eq!(
-            ordinary()
-                .parse(Limits::default(), budget, &NeverCancel)
+                .parse(limits, &NeverCancel)
                 .unwrap_err()
                 .kind
                 .field(),
@@ -563,15 +460,6 @@ fn limits_refuse_work_before_unbounded_allocation() {
     )
     .unwrap_err();
     assert_eq!(error.kind.field(), "text allocation bytes");
-    assert!(
-        check_working(
-            u64::MAX,
-            true,
-            TextBudget::default(),
-            location(f.header, f.page)
-        )
-        .is_err()
-    );
 }
 
 #[test]
@@ -729,7 +617,6 @@ fn every_cancellation_checkpoint_returns_no_partial_coordinates() {
                 io_chunk_bytes: 7,
                 ..Limits::default()
             },
-            TextBudget::default(),
             &CancelAfter(Cell::new(polls)),
         );
         match result {
@@ -816,7 +703,6 @@ fn raw_records_cross_every_small_chunk_boundary_without_false_image_markers() {
                     io_chunk_bytes: chunk,
                     ..Limits::default()
                 },
-                TextBudget::default(),
                 &NeverCancel,
             )
             .unwrap();
@@ -860,39 +746,14 @@ fn raw_record_order_counts_and_truncation_are_checked() {
 }
 
 #[test]
-fn raw_budgets_and_source_failures_do_not_return_partial_coordinates() {
-    for (limits, budget, field) in [
-        (
-            Limits::default(),
-            TextBudget {
-                max_decoded_bytes: 1,
-                ..TextBudget::default()
-            },
-            "raw text bytes",
-        ),
+fn raw_limits_and_source_failures_do_not_return_partial_coordinates() {
+    for (limits, field) in [
         (
             Limits {
                 max_output_bytes: 1,
                 ..Limits::default()
             },
-            TextBudget::default(),
             "raw text bytes",
-        ),
-        (
-            Limits::default(),
-            TextBudget {
-                max_records: 7,
-                ..TextBudget::default()
-            },
-            "text records",
-        ),
-        (
-            Limits::default(),
-            TextBudget {
-                max_working_bytes: 1,
-                ..TextBudget::default()
-            },
-            "text working bytes",
         ),
         (
             Limits {
@@ -900,13 +761,12 @@ fn raw_budgets_and_source_failures_do_not_return_partial_coordinates() {
                 io_chunk_bytes: 1,
                 ..Limits::default()
             },
-            TextBudget::default(),
             "text allocation bytes",
         ),
     ] {
         assert_eq!(
             raw_fixture()
-                .parse(limits, budget, &NeverCancel)
+                .parse(limits, &NeverCancel)
                 .unwrap_err()
                 .kind
                 .field(),
@@ -923,7 +783,6 @@ fn raw_budgets_and_source_failures_do_not_return_partial_coordinates() {
                     io_chunk_bytes: 4,
                     ..Limits::default()
                 },
-                TextBudget::default(),
                 &NeverCancel
             )
             .is_err()
@@ -958,7 +817,6 @@ fn raw_cancellation_including_opaque_tail_returns_no_partial_coordinates() {
                 io_chunk_bytes: 7,
                 ..Limits::default()
             },
-            TextBudget::default(),
             &CancelAfter(Cell::new(polls)),
         ) {
             Err(error) => assert_eq!(error.kind.as_str(), "cancelled"),
@@ -1038,7 +896,6 @@ fn direct_compressed_records_cross_chunks_without_scanning_image_or_tail_payload
                     io_chunk_bytes: chunk,
                     ..Limits::default()
                 },
-                TextBudget::default(),
                 &NeverCancel,
             )
             .unwrap();
@@ -1076,35 +933,7 @@ fn direct_record_counts_unknown_tags_and_incomplete_records_are_refused() {
     let no_images = direct_fixture(end.to_vec(), 0).normal().unwrap();
     assert!(no_images.coordinates.is_empty());
     assert_eq!(no_images.record_count, 1);
-    for limit in [0, 1] {
-        let mut fixture = direct_fixture(valid.clone(), 1);
-        assert!(
-            fixture
-                .parse(
-                    Limits::default(),
-                    TextBudget {
-                        max_records: limit,
-                        ..TextBudget::default()
-                    },
-                    &NeverCancel
-                )
-                .is_err()
-        );
-    }
-    assert_eq!(
-        direct_fixture(valid, 1)
-            .parse(
-                Limits::default(),
-                TextBudget {
-                    max_records: 2,
-                    ..TextBudget::default()
-                },
-                &NeverCancel
-            )
-            .unwrap()
-            .record_count,
-        2
-    );
+    assert_eq!(direct_fixture(valid, 1).normal().unwrap().record_count, 2);
 }
 
 #[test]
@@ -1119,7 +948,6 @@ fn direct_opaque_tail_stays_bounded_and_requires_the_complete_checksum() {
                 io_chunk_bytes: 17,
                 ..Limits::default()
             },
-            TextBudget::default(),
             &NeverCancel,
         )
         .unwrap();
@@ -1163,7 +991,6 @@ fn direct_frame_cancellation_and_source_faults_return_no_partial_coordinates() {
                 io_chunk_bytes: 7,
                 ..Limits::default()
             },
-            TextBudget::default(),
             &CancelAfter(Cell::new(polls)),
         );
         match result {
@@ -1187,7 +1014,6 @@ fn direct_frame_cancellation_and_source_faults_return_no_partial_coordinates() {
                         io_chunk_bytes: 7,
                         ..Limits::default()
                     },
-                    TextBudget::default(),
                     &NeverCancel
                 )
                 .is_err()
@@ -1219,7 +1045,6 @@ fn raw_image_first_records_reuse_compact_controls() {
                     io_chunk_bytes: chunk,
                     ..Default::default()
                 },
-                TextBudget::default(),
                 &NeverCancel,
             )
             .unwrap();
@@ -1300,7 +1125,6 @@ fn paired_prefix_raw_records_preserve_extents_hashes_and_chunk_bounds() {
                     io_chunk_bytes: chunk,
                     ..Default::default()
                 },
-                TextBudget::default(),
                 &NeverCancel,
             )
             .unwrap();
@@ -1346,18 +1170,6 @@ fn paired_prefix_does_not_admit_unknown_controls_or_other_variants() {
         assert!(f.normal().is_err(), "end {end}");
     }
     let mut f = prefixed_raw_fixture();
-    assert!(
-        f.parse(
-            Limits::default(),
-            TextBudget {
-                max_records: 9,
-                ..Default::default()
-            },
-            &NeverCancel
-        )
-        .is_err()
-    );
-    let mut f = prefixed_raw_fixture();
     f.source.fault_at = 516;
     f.source.fault = Fault::Error;
     assert!(f.normal().is_err());
@@ -1380,7 +1192,6 @@ fn prefixed_image_only_and_cancellation_keep_the_same_bounded_contract() {
                 io_chunk_bytes: 3,
                 ..Default::default()
             },
-            TextBudget::default(),
             &CancelAfter(Cell::new(polls)),
         ) {
             Err(error) => assert_eq!(error.kind.as_str(), "cancelled"),
@@ -1419,7 +1230,6 @@ fn raw_hna_composition_decodes_only_verified_image_markers() {
                     ..Limits::default()
                 },
                 &NeverCancel,
-                TextBudget::default(),
             )
             .unwrap();
             assert_eq!(
@@ -1475,7 +1285,6 @@ fn compressed_hna_markers_preserve_other_profiles() {
                         ..Limits::default()
                     },
                     &NeverCancel,
-                    TextBudget::default(),
                 )
                 .unwrap();
                 let expected = if variant == Variant::HnA {

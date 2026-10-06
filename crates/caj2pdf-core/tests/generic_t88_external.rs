@@ -6,9 +6,9 @@
 use caj2pdf_core::{
     Limits, NeverCancel,
     jbig2::{
-        HeaderLimits, SegmentSpan,
-        generic::{GenericBudget, GenericRegionDecoder},
-        mq::{ContextBank, MQ_STATE_COUNT, MqBudget, MqState, MqTable},
+        SegmentSpan,
+        generic::GenericRegionDecoder,
+        mq::{ContextBank, MQ_STATE_COUNT, MqState, MqTable},
         read_segment_header,
     },
     native::SeekableSource,
@@ -107,7 +107,6 @@ impl Write for HashSink {
 fn generic_only_spots_match_black_box_pixel_hashes() {
     let root = env::var("CAJ2PDF_GENERIC_CORPUS_DIR").expect("NOT_RUN: set external corpus root");
     let limits = Limits::default();
-    let mq_budget = MqBudget::default();
     let table = external_table();
     // Source hashes and segment coordinates come from #42's SHA-checked
     // directory inventory. Pixel hashes come from a temporary page-info +
@@ -142,7 +141,6 @@ fn generic_only_spots_match_black_box_pixel_hashes() {
             &mut source,
             SegmentSpan { offset, length },
             &limits,
-            HeaderLimits::default(),
             &NeverCancel,
         )
         .unwrap();
@@ -167,8 +165,6 @@ fn generic_only_spots_match_black_box_pixel_hashes() {
             &mut sink,
             &limits,
             &NeverCancel,
-            mq_budget,
-            GenericBudget::default(),
         )
         .unwrap();
         assert_eq!(

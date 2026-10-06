@@ -5,24 +5,21 @@
 
 use super::{At, ComposeError, ComposeErrorKind, ComposeStage, ImageRecord};
 use crate::jbig2::{
-    DirectoryLimits, HeaderLimits, SegmentSpan,
+    SegmentSpan,
     dictionary::{
-        DictionaryBudget, DictionaryStores, ImportedDictionary, RefinementDictionaryBudget,
-        SymbolDictionaryDecoder, coding_unit_contexts, symbol_code_length,
+        DictionaryStores, ImportedDictionary, SymbolDictionaryDecoder, coding_unit_contexts,
+        symbol_code_length,
     },
-    generic::{GenericBudget, GenericRegionDecoder, read_generic_region_header},
+    generic::{GenericRegionDecoder, read_generic_region_header},
     iaid::IAID_BASE,
-    mq::{ArithmeticError, ArithmeticResult, ContextBank, MqBudget, MqTable},
-    page_compose::{PageComposeBudget, PageComposeReport, PageOrSink},
-    page_info::{PageInfo, PageInfoBudget, read_page_info},
+    mq::{ArithmeticError, ArithmeticResult, ContextBank, MqTable},
+    page_compose::{PageComposeReport, PageOrSink},
+    page_info::{PageInfo, read_page_info},
     page_profile::{PageProfile, validate_observed_page_profile},
     read_embedded_directory,
-    refinement::RefinementBudget,
-    text::{TextHeaderPolicy, TextRegionBudget, read_text_region_header_with_policy},
-    text_composer::{
-        TextComposeBudget, TextComposeError, TextComposeErrorKind, TextComposeReport, TextComposer,
-    },
-    text_instances::{TextInstanceBudget, TextInstanceDecoder},
+    text::{TextHeaderPolicy, read_text_region_header_with_policy},
+    text_composer::{TextComposeError, TextComposeErrorKind, TextComposeReport, TextComposer},
+    text_instances::TextInstanceDecoder,
 };
 use crate::pdf::{BilevelImageSpec, ImageObject, PdfDocument};
 use crate::{Cancellation, Limits, Payload, RangedSource, read_exact_at};
@@ -40,26 +37,6 @@ pub(super) struct Type3Stores {
     second: Vec<u8>,
     refined: Vec<u8>,
     text: Vec<u8>,
-}
-
-/// Decoder budgets and the text-header policy for the observed type-3 profile.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub struct Type3PdfOptions {
-    pub header: HeaderLimits,
-    pub directory: DirectoryLimits,
-    pub page: PageInfoBudget,
-    pub mq: MqBudget,
-    pub dictionary: DictionaryBudget,
-    pub refinement: RefinementBudget,
-    pub refinement_dictionary: RefinementDictionaryBudget,
-    pub text_region: TextRegionBudget,
-    pub text_instance: TextInstanceBudget,
-    pub text_compose: TextComposeBudget,
-    pub generic: GenericBudget,
-    pub page_compose: PageComposeBudget,
-    /// Strict T.88 validation is the default; the named HN/C8 exception is
-    /// opt-in and reported when it applies.
-    pub text_header_policy: TextHeaderPolicy,
 }
 
 /// The type-3 decoding stage where a typed underlying error arose.
@@ -154,26 +131,11 @@ pub(super) struct CheckedType3 {
     image: ImageRecord,
     directory: crate::jbig2::SegmentDirectory,
     profile: PageProfile,
+    /// The text-header policy the preflight admitted, reapplied by decode.
+    policy: TextHeaderPolicy,
 }
 
 impl CheckedType3 {
-    /// Bytes this value keeps alive, including its directory's heap
-    /// allocations, for a caller that retains several checked images.
-    pub(super) fn retained_bytes(&self) -> u64 {
-        let segments = &self.directory.segments;
-        let headers = segments.capacity() * size_of::<crate::jbig2::SegmentHeader>();
-        let references: usize = segments
-            .iter()
-            .map(|segment| {
-                // Each header also keeps one retention bit per reference
-                // plus one for itself.
-                segment.referred_to.capacity() * size_of::<u32>()
-                    + (segment.referred_to.len() + 1).div_ceil(8)
-            })
-            .sum();
-        (size_of::<Self>() + headers + references) as u64
-    }
-
     pub(super) fn page(&self) -> PageInfo {
         self.profile.page()
     }
@@ -193,7 +155,7 @@ pub(super) fn preflight_type3<S: RangedSource, C: Cancellation>(
     source: &mut S,
     image: ImageRecord,
     image_at: At,
-    options: Type3PdfOptions,
+    policy: TextHeaderPolicy,
     limits: &Limits,
     cancellation: &C,
 ) -> Result<CheckedType3, ComposeError> {
@@ -232,18 +194,11 @@ pub(super) fn preflight_type3<S: RangedSource, C: Cancellation>(
         offset: image.payload.offset + DIB_BYTES,
         length: image.payload.length - DIB_BYTES,
     };
-    let directory = read_embedded_directory(
-        source,
-        embedded,
-        limits,
-        options.header,
-        options.directory,
-        cancellation,
-    )
-    .map_err(|error| {
-        let offset = error.offset;
-        at.with_offset(offset).stage(Type3Stage::Directory, error)
-    })?;
+    let directory =
+        read_embedded_directory(source, embedded, limits, cancellation).map_err(|error| {
+            let offset = error.offset;
+            at.with_offset(offset).stage(Type3Stage::Directory, error)
+        })?;
     if directory.segments.len() != 5 {
         return Err(at.with_offset(embedded.offset).stage(
             Type3Stage::Profile,
@@ -256,17 +211,11 @@ pub(super) fn preflight_type3<S: RangedSource, C: Cancellation>(
             },
         ));
     }
-    let page = read_page_info(
-        source,
-        &directory.segments[0],
-        limits,
-        options.page,
-        cancellation,
-    )
-    .map_err(|error| {
-        let offset = error.offset;
-        at.with_offset(offset).stage(Type3Stage::PageInfo, error)
-    })?;
+    let page =
+        read_page_info(source, &directory.segments[0], limits, cancellation).map_err(|error| {
+            let offset = error.offset;
+            at.with_offset(offset).stage(Type3Stage::PageInfo, error)
+        })?;
     if page.width != dib_width as u32 || page.height != dib_height as u32 {
         return Err(at
             .with_offset(image.payload.offset + 4)
@@ -277,27 +226,19 @@ pub(super) fn preflight_type3<S: RangedSource, C: Cancellation>(
         &directory.segments[3],
         &directory.segments[2],
         limits,
-        options.text_region,
         cancellation,
-        options.text_header_policy,
+        policy,
     )
     .map_err(|error| {
         let offset = error.offset;
         at.with_offset(offset).stage(Type3Stage::TextHeader, error)
     })?;
-    let generic = read_generic_region_header(
-        source,
-        &directory.segments[4],
-        limits,
-        cancellation,
-        options.mq,
-        options.generic,
-    )
-    .map_err(|error| {
-        let offset = error.offset;
-        at.with_offset(offset)
-            .stage(Type3Stage::GenericHeader, error)
-    })?;
+    let generic = read_generic_region_header(source, &directory.segments[4], limits, cancellation)
+        .map_err(|error| {
+            let offset = error.offset;
+            at.with_offset(offset)
+                .stage(Type3Stage::GenericHeader, error)
+        })?;
     let profile =
         validate_observed_page_profile(&directory, page, &text, generic).map_err(|error| {
             let offset = error
@@ -316,24 +257,21 @@ pub(super) fn preflight_type3<S: RangedSource, C: Cancellation>(
         image,
         directory,
         profile,
+        policy,
     })
 }
 
 /// Decode one checked type-3 record from its `payload` into `document`,
 /// using and first clearing `stores`.
-#[allow(clippy::too_many_arguments)]
 pub(super) fn emit_type3<W: Write, C: Cancellation>(
     payload: Payload<'_>,
     document: &mut PdfDocument<'_, W, C>,
     stores: &mut Type3Stores,
     checked: CheckedType3,
     image_at: At,
-    options: Type3PdfOptions,
     limits: &Limits,
     cancellation: &C,
 ) -> Result<(ImageObject, PageComposeReport), ComposeError> {
-    let table = MqTable::standard();
-    let width = checked.page().width;
     for store in [
         &mut stores.first,
         &mut stores.second,
@@ -342,25 +280,13 @@ pub(super) fn emit_type3<W: Write, C: Cancellation>(
     ] {
         store.clear();
     }
-    let prepared = prepare_type3_image(
-        payload,
-        &table,
-        stores,
-        checked,
-        image_at,
-        options,
-        limits,
-        cancellation,
-    )?;
+    let prepared = prepare_type3_image(payload, stores, checked, image_at, limits, cancellation)?;
     emit_type3_xobject(
         payload,
         document,
-        &table,
         prepared,
         &stores.text,
-        width,
         image_at,
-        options,
         limits,
         cancellation,
     )
@@ -368,22 +294,21 @@ pub(super) fn emit_type3<W: Write, C: Cancellation>(
 
 /// Decode symbol dictionaries and the text layer before the image's PDF
 /// stream is opened, so their failures leave no partial image object.
-#[allow(clippy::too_many_arguments)]
 pub(super) fn prepare_type3_image<C: Cancellation>(
     payload: Payload<'_>,
-    table: &MqTable,
     stores: &mut Type3Stores,
     checked: CheckedType3,
     image_at: At,
-    options: Type3PdfOptions,
     limits: &Limits,
     cancellation: &C,
 ) -> Result<PreparedType3, ComposeError> {
+    let table = &MqTable::standard();
+    let policy = checked.policy;
     let image = checked.image;
     let directory = &checked.directory;
     let text = checked.profile.text_header();
     let at = image_at.with_offset(image.payload.offset);
-    let first_contexts = options.mq.context_bank(IAID_BASE, limits);
+    let first_contexts = crate::jbig2::mq::context_bank(IAID_BASE, limits);
     let first_at = at.with_offset(directory.segments[1].data.offset);
     let mut first_contexts = work_stage(first_contexts, first_at, Type3Stage::Contexts)?;
     // A direct dictionary has no import and never reads its own store.
@@ -401,10 +326,6 @@ pub(super) fn prepare_type3_image<C: Cancellation>(
         &mut first_contexts,
         limits,
         cancellation,
-        options.mq,
-        options.dictionary,
-        options.refinement,
-        options.refinement_dictionary,
     )
     .map_err(|error| {
         let offset = error.offset;
@@ -423,14 +344,9 @@ pub(super) fn prepare_type3_image<C: Cancellation>(
         payload,
         limits,
         cancellation,
-        options.dictionary,
         at,
     )?);
-    let second_contexts = context_bank(
-        symbol_code_length(imported_count + second_count),
-        limits,
-        &options.mq,
-    );
+    let second_contexts = context_bank(symbol_code_length(imported_count + second_count), limits);
     let second_at = at.with_offset(directory.segments[2].data.offset);
     let mut second_contexts = work_stage(second_contexts, second_at, Type3Stage::Contexts)?;
     let second_decoder = SymbolDictionaryDecoder::new(
@@ -450,10 +366,6 @@ pub(super) fn prepare_type3_image<C: Cancellation>(
         &mut second_contexts,
         limits,
         cancellation,
-        options.mq,
-        options.dictionary,
-        options.refinement,
-        options.refinement_dictionary,
     )
     .map_err(|error| {
         let offset = error.offset;
@@ -469,7 +381,6 @@ pub(super) fn prepare_type3_image<C: Cancellation>(
     let text_contexts = context_bank(
         symbol_code_length(second_report.catalog.exported_symbols.len() as u64),
         limits,
-        &options.mq,
     );
     let text_at = at.with_offset(directory.segments[3].data.offset);
     let mut text_contexts = work_stage(text_contexts, text_at, Type3Stage::Contexts)?;
@@ -489,11 +400,7 @@ pub(super) fn prepare_type3_image<C: Cancellation>(
         &mut text_contexts,
         limits,
         cancellation,
-        options.mq,
-        options.text_region,
-        options.refinement,
-        options.text_instance,
-        options.text_header_policy,
+        policy,
     );
     let mut text_decoder = source_stage(text_decoder, at, Type3Stage::TextInstances, |error| {
         error.offset
@@ -511,7 +418,6 @@ pub(super) fn prepare_type3_image<C: Cancellation>(
         &mut stores.text,
         limits,
         cancellation,
-        options.text_compose,
     );
     let composer = work_stage(composer, at, Type3Stage::TextCompose)?;
     let text_report = composed_stage(composer.compose(), at)?;
@@ -523,16 +429,12 @@ pub(super) fn prepare_type3_image<C: Cancellation>(
 
 /// Append one image to an existing PDF. Page creation/placement belongs to
 /// the caller; the decoder never opens or finishes another document.
-#[allow(clippy::too_many_arguments)]
 pub(super) fn emit_type3_xobject<W: Write, C: Cancellation>(
     payload: Payload<'_>,
     document: &mut PdfDocument<'_, W, C>,
-    table: &MqTable,
     prepared: PreparedType3,
     text: &[u8],
-    display_width: u32,
     image_at: At,
-    options: Type3PdfOptions,
     limits: &Limits,
     cancellation: &C,
 ) -> Result<(ImageObject, PageComposeReport), ComposeError> {
@@ -542,6 +444,7 @@ pub(super) fn emit_type3_xobject<W: Write, C: Cancellation>(
     } = prepared;
     let image = checked.image;
     let page = checked.page();
+    let display_width = page.width;
     let profile = checked.profile;
     let directory = &checked.directory;
     let at = image_at.with_offset(image.payload.offset);
@@ -567,20 +470,17 @@ pub(super) fn emit_type3_xobject<W: Write, C: Cancellation>(
         &mut padded,
         limits,
         cancellation,
-        options.page_compose,
     )
     .map_err(|error| at.stage(Type3Stage::PageCompose, error))?;
-    let generic_result = options.mq.context_bank(1024, limits);
+    let generic_result = crate::jbig2::mq::context_bank(1024, limits);
     let generic_at = at.with_offset(directory.segments[4].data.offset);
     let mut generic_contexts = work_stage(generic_result, generic_at, Type3Stage::Contexts)?;
     let generic_report = decode_generic(
         payload,
         &directory.segments[4],
-        table,
         &mut generic_contexts,
         &mut page_sink,
         profile,
-        options,
         limits,
         cancellation,
     )
@@ -600,28 +500,24 @@ pub(super) fn emit_type3_xobject<W: Write, C: Cancellation>(
 }
 
 /// Decode the generic region into the armed page sink.
-#[allow(clippy::too_many_arguments)]
 fn decode_generic<W: Write, C: Cancellation>(
     payload: Payload<'_>,
     segment: &crate::jbig2::SegmentHeader,
-    table: &MqTable,
     contexts: &mut ContextBank,
     page_sink: &mut PageOrSink<'_, W, C>,
     profile: PageProfile,
-    options: Type3PdfOptions,
     limits: &Limits,
     cancellation: &C,
 ) -> crate::jbig2::generic::GenericResult<crate::jbig2::generic::GenericReport> {
+    let table = MqTable::standard();
     let mut decoder = GenericRegionDecoder::new(
         payload,
         segment,
-        table,
+        &table,
         contexts,
         page_sink,
         limits,
         cancellation,
-        options.mq,
-        options.generic,
     )?;
     decoder.arm_page_output(profile.generic_header())?;
     while decoder.decode_next_row()? {}
@@ -656,18 +552,14 @@ impl<W: Write> Write for PaddedRows<'_, W> {
 }
 
 /// The contexts of a coding unit whose IAID width is `code_len`.
-fn context_bank(
-    code_len: u32,
-    limits: &Limits,
-    budget: &MqBudget,
-) -> ArithmeticResult<ContextBank> {
+fn context_bank(code_len: u32, limits: &Limits) -> ArithmeticResult<ContextBank> {
     let count = coding_unit_contexts(code_len).ok_or_else(|| ArithmeticError {
         coder: Some(crate::arith::Coder::T88),
         offset: None,
         context: None,
         kind: crate::arith::ArithmeticErrorKind::InvalidContext,
     })?;
-    budget.context_bank(count, limits)
+    crate::jbig2::mq::context_bank(count, limits)
 }
 
 fn read_second_new_symbol_count<C: Cancellation>(
@@ -675,7 +567,6 @@ fn read_second_new_symbol_count<C: Cancellation>(
     payload: Payload<'_>,
     limits: &Limits,
     cancellation: &C,
-    budget: DictionaryBudget,
     at: At,
 ) -> Result<u32, ComposeError> {
     use crate::jbig2::dictionary::read_dictionary_data_header;
@@ -684,7 +575,6 @@ fn read_second_new_symbol_count<C: Cancellation>(
             &mut { payload },
             &directory.segments[2],
             limits,
-            budget,
             cancellation,
         ),
         at,
@@ -836,8 +726,7 @@ mod tests {
     fn shared_emitter_appends_two_asymmetric_images_to_an_existing_document() {
         use crate::{NeverCancel, hnc8::Span};
         let limits = Limits::default();
-        let options = Type3PdfOptions::default();
-        let table = MqTable::standard();
+        let policy = TextHeaderPolicy::default();
         let mut sink = Memory::default();
         let output = sink.clone();
         let mut document = PdfDocument::new(&mut sink, &limits, &NeverCancel).unwrap();
@@ -863,7 +752,7 @@ mod tests {
                 &mut &bytes[..],
                 image,
                 At::NONE,
-                options,
+                policy,
                 &limits,
                 &NeverCancel,
             )
@@ -876,11 +765,9 @@ mod tests {
             let before = output.0.borrow().len();
             let prepared = prepare_type3_image(
                 payload,
-                &table,
                 &mut stores,
                 checked,
                 At::NONE,
-                options,
                 &limits,
                 &NeverCancel,
             )
@@ -893,12 +780,9 @@ mod tests {
             let (object, report) = emit_type3_xobject(
                 payload,
                 &mut document,
-                &table,
                 prepared,
                 &stores.text,
-                width,
                 At::NONE,
-                options,
                 &limits,
                 &NeverCancel,
             )

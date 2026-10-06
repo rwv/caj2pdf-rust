@@ -5,14 +5,14 @@
 mod common;
 
 use caj2pdf_core::{
-    Cancellation, Limits, MAX_BUDGET_COUNT, NeverCancel, Payload,
+    Cancellation, Limits, NeverCancel, Payload,
     jbig2::{
         dictionary::SymbolDescriptor,
         integer::BITMAP_BASE,
-        mq::{ArithmeticErrorKind, CodedSpan, ContextBank, MqBudget, MqDecoder, MqTable},
+        mq::{ArithmeticErrorKind, CodedSpan, ContextBank, MqDecoder, MqTable},
         refinement::{
-            ReferenceStore, RefinementBudget, RefinementDecoder, RefinementError,
-            RefinementErrorKind, RefinementReference, RefinementRequest,
+            ReferenceStore, RefinementDecoder, RefinementError, RefinementErrorKind,
+            RefinementReference, RefinementRequest,
         },
     },
 };
@@ -32,8 +32,8 @@ fn table() -> MqTable {
 
 /// A coding unit's contexts with the bitmap range at
 /// [`BITMAP_BASE`]; refinement needs no IAID contexts.
-fn contexts(limits: &Limits, budget: &MqBudget) -> ContextBank {
-    budget.context_bank(BITMAP_BASE + 1024, limits).unwrap()
+fn contexts(limits: &Limits) -> ContextBank {
+    caj2pdf_core::jbig2::mq::context_bank(BITMAP_BASE + 1024, limits).unwrap()
 }
 
 fn span(bytes: &[u8]) -> CodedSpan {
@@ -111,26 +111,22 @@ fn request(width: u32, height: u32, reference: RefinementReference) -> Refinemen
 fn observe_error<C: Cancellation>(
     reference: &[u8],
     request: RefinementRequest,
-    budget: RefinementBudget,
     limits: Limits,
     cancellation: &C,
 ) -> (RefinementError, Vec<u8>) {
-    let mq_budget = MqBudget::default();
     let table = table();
-    let mut contexts = contexts(&limits, &mq_budget);
+    let mut contexts = contexts(&Limits::default());
     let bytes = set_stream(&request, reference);
     let mut mq = MqDecoder::new(
         Payload::from(&bytes[..]),
         span(&bytes),
         &table,
         &mut contexts,
-        &limits,
-        mq_budget,
+        &Limits::default(),
     )
     .unwrap();
     let mut output = Vec::new();
-    let mut host =
-        RefinementDecoder::new(&mut mq, &mut output, &limits, cancellation, budget).unwrap();
+    let mut host = RefinementDecoder::new(&mut mq, &mut output, &limits, cancellation).unwrap();
     let error = host
         .decode_bitmap(ReferenceStore::Other(reference), request)
         .unwrap_err();
@@ -164,13 +160,7 @@ fn unsupported_modes_and_zero_dimensions_fail_before_decoding() {
         },
     ];
     for request in variants {
-        let (error, output) = observe_error(
-            &[0x80],
-            request,
-            RefinementBudget::default(),
-            Limits::default(),
-            &NeverCancel,
-        );
+        let (error, output) = observe_error(&[0x80], request, Limits::default(), &NeverCancel);
         assert!(matches!(
             error.kind,
             RefinementErrorKind::Unsupported { .. }
@@ -203,7 +193,6 @@ fn forged_reference_descriptors_and_store_ranges_are_rejected_before_decoding() 
         let (error, output) = observe_error(
             &[0x80],
             request(1, 1, reference),
-            RefinementBudget::default(),
             Limits::default(),
             &NeverCancel,
         );
@@ -218,100 +207,28 @@ fn forged_reference_descriptors_and_store_ranges_are_rejected_before_decoding() 
 }
 
 #[test]
-fn constructor_rejects_invalid_limits_and_layout() {
-    for invalid in ["limits", "short GR bank"] {
-        let limits = Limits::default();
-        let mq_budget = MqBudget::default();
-        let table = table();
-        let short = usize::from(invalid == "short GR bank");
-        let mut contexts = mq_budget
-            .context_bank(BITMAP_BASE + 1024 - short, &limits)
-            .unwrap();
-        let bytes = [0x3f, 0xff, 0xac];
-        let mut mq = MqDecoder::new(
-            Payload::from(&bytes[..]),
-            span(&bytes),
-            &table,
-            &mut contexts,
-            &limits,
-            mq_budget,
-        )
-        .unwrap();
-        let bad_limits = Limits {
-            io_chunk_bytes: 0,
-            ..limits
-        };
-        let host_limits = if invalid == "limits" {
-            &bad_limits
-        } else {
-            &limits
-        };
-        let mut output = Vec::new();
-        let error = match RefinementDecoder::new(
-            &mut mq,
-            &mut output,
-            host_limits,
-            &NeverCancel,
-            RefinementBudget::default(),
-        ) {
-            Ok(_) => panic!("accepted invalid {invalid}"),
-            Err(error) => error,
-        };
-        if invalid == "short GR bank" {
-            assert!(matches!(error.kind, RefinementErrorKind::InvalidSpan(_)));
-        } else {
-            assert!(matches!(error.kind, RefinementErrorKind::Malformed(_)));
-        }
-        assert!(error.to_string().contains("JBIG2 refinement bitmap"));
-        // Rejected construction has not started a bitmap and leaves MQ usable.
-        mq.decode_bit(BITMAP_BASE).unwrap();
-    }
-}
-
-#[test]
-fn reference_byte_limit_uses_the_host_limits_before_decoding() {
+fn constructor_rejects_a_bank_without_the_gr_range() {
     let limits = Limits::default();
-    let mq_budget = MqBudget::default();
     let table = table();
-    let mut contexts = contexts(&limits, &mq_budget);
-    let bytes = [0xff, 0xac];
+    let mut contexts = caj2pdf_core::jbig2::mq::context_bank(BITMAP_BASE + 1023, &limits).unwrap();
+    let bytes = [0x3f, 0xff, 0xac];
     let mut mq = MqDecoder::new(
         Payload::from(&bytes[..]),
         span(&bytes),
         &table,
         &mut contexts,
         &limits,
-        mq_budget,
     )
     .unwrap();
-    let host_limits = Limits {
-        max_input_bytes: 0,
-        ..limits
-    };
     let mut output = Vec::new();
-    let mut host = RefinementDecoder::new(
-        &mut mq,
-        &mut output,
-        &host_limits,
-        &NeverCancel,
-        RefinementBudget::default(),
-    )
-    .unwrap();
-    let error = host
-        .decode_bitmap(
-            ReferenceStore::Other(&[0x80]),
-            request(1, 1, reference(1, 1)),
-        )
-        .unwrap_err();
-    assert!(matches!(
-        error.kind,
-        RefinementErrorKind::LimitExceeded {
-            resource: "reference stored bytes",
-            ..
-        }
-    ));
-    assert_eq!(error.progress.pixels_decoded, 0);
-    assert!(output.is_empty());
+    let error = match RefinementDecoder::new(&mut mq, &mut output, &limits, &NeverCancel) {
+        Ok(_) => panic!("accepted a short GR bank"),
+        Err(error) => error,
+    };
+    assert!(matches!(error.kind, RefinementErrorKind::InvalidSpan(_)));
+    assert!(error.to_string().contains("JBIG2 refinement bitmap"));
+    // Rejected construction has not started a bitmap and leaves MQ usable.
+    mq.decode_bit(BITMAP_BASE).unwrap();
 }
 
 #[test]
@@ -321,14 +238,9 @@ fn target_and_reference_row_allocation_limits_are_distinct() {
         max_allocation_bytes: 20_000,
         ..Limits::default()
     };
-    let budget = RefinementBudget {
-        max_width: 240_000,
-        ..RefinementBudget::default()
-    };
     let (target_error, output) = observe_error(
         &[0x80],
         request(240_000, 1, reference(1, 1)),
-        budget,
         limits,
         &NeverCancel,
     );
@@ -341,14 +253,9 @@ fn target_and_reference_row_allocation_limits_are_distinct() {
     ));
     assert!(output.is_empty());
 
-    let budget = RefinementBudget {
-        max_reference_width: 240_000,
-        ..RefinementBudget::default()
-    };
     let (reference_error, output) = observe_error(
         &vec![0; 30_000],
         request(1, 1, reference(240_000, 1)),
-        budget,
         limits,
         &NeverCancel,
     );
@@ -365,9 +272,8 @@ fn target_and_reference_row_allocation_limits_are_distinct() {
 #[test]
 fn mq_marker_failure_keeps_its_actual_byte_offset() {
     let limits = Limits::default();
-    let mq_budget = MqBudget::default();
     let table = table();
-    let mut contexts = contexts(&limits, &mq_budget);
+    let mut contexts = contexts(&limits);
     // Initial bytes are legal. FF followed by 90 is forbidden once byte-in
     // reaches that position; the final FF AC remains a separate tail.
     let bytes = [0x00, 0x00, 0xff, 0x90, 0xff, 0xac];
@@ -377,18 +283,10 @@ fn mq_marker_failure_keeps_its_actual_byte_offset() {
         &table,
         &mut contexts,
         &limits,
-        mq_budget,
     )
     .unwrap();
     let mut output = Vec::new();
-    let mut host = RefinementDecoder::new(
-        &mut mq,
-        &mut output,
-        &limits,
-        &NeverCancel,
-        RefinementBudget::default(),
-    )
-    .unwrap();
+    let mut host = RefinementDecoder::new(&mut mq, &mut output, &limits, &NeverCancel).unwrap();
     let error = host
         .decode_bitmap(
             ReferenceStore::Other(&[0x80]),
@@ -412,163 +310,77 @@ fn mq_marker_failure_keeps_its_actual_byte_offset() {
 }
 
 #[test]
-fn per_bitmap_and_cumulative_caps_are_checked_before_decoding() {
-    let cases: &[(RefinementBudget, &str)] = &[
-        (
-            RefinementBudget {
-                max_width: 0,
-                ..RefinementBudget::default()
-            },
-            "target width",
+fn the_pixel_limit_is_checked_before_decoding() {
+    let limits = Limits {
+        max_image_pixels: 0,
+        ..Limits::default()
+    };
+    let (error, output) = observe_error(
+        &[0x80],
+        request(1, 1, reference(1, 1)),
+        limits,
+        &NeverCancel,
+    );
+    assert!(
+        matches!(
+            error.kind,
+            RefinementErrorKind::LimitExceeded {
+                resource: "pixels per bitmap",
+                limit: 0,
+                attempted: 1,
+            }
         ),
-        (
-            RefinementBudget {
-                max_height: 0,
-                ..RefinementBudget::default()
-            },
-            "target height",
-        ),
-        (
-            RefinementBudget {
-                max_reference_width: 0,
-                ..RefinementBudget::default()
-            },
-            "reference width",
-        ),
-        (
-            RefinementBudget {
-                max_reference_height: 0,
-                ..RefinementBudget::default()
-            },
-            "reference height",
-        ),
-        (
-            RefinementBudget {
-                max_reference_pixels_per_bitmap: 0,
-                ..RefinementBudget::default()
-            },
-            "reference pixels per bitmap",
-        ),
-        (
-            RefinementBudget {
-                max_reference_bytes_per_bitmap: 0,
-                ..RefinementBudget::default()
-            },
-            "reference bytes per bitmap",
-        ),
-        (
-            RefinementBudget {
-                max_pixels_per_bitmap: 0,
-                ..RefinementBudget::default()
-            },
-            "pixels per bitmap",
-        ),
-        (
-            RefinementBudget {
-                max_bytes_per_bitmap: 0,
-                ..RefinementBudget::default()
-            },
-            "bytes per bitmap",
-        ),
-        (
-            RefinementBudget {
-                max_total_pixels: 0,
-                ..RefinementBudget::default()
-            },
-            "total pixels",
-        ),
-        (
-            RefinementBudget {
-                max_total_output_bytes: 0,
-                ..RefinementBudget::default()
-            },
-            "total output bytes",
-        ),
-        (
-            RefinementBudget {
-                max_mq_decisions: 0,
-                ..RefinementBudget::default()
-            },
-            "MQ decisions",
-        ),
-        (
-            RefinementBudget {
-                max_context_work: 0,
-                ..RefinementBudget::default()
-            },
-            "context work",
-        ),
-        (
-            RefinementBudget {
-                max_working_bytes: 0,
-                ..RefinementBudget::default()
-            },
-            "working bytes",
-        ),
-    ];
-    for &(budget, expected) in cases {
-        let (error, output) = observe_error(
-            &[0x80],
-            request(1, 1, reference(1, 1)),
-            budget,
-            Limits::default(),
-            &NeverCancel,
-        );
-        assert!(
-            matches!(error.kind, RefinementErrorKind::LimitExceeded { resource, .. } if resource == expected),
-            "{error}"
-        );
-        assert!(output.is_empty());
-    }
+        "{error}"
+    );
+    assert!(output.is_empty());
 }
 
 #[test]
-fn cumulative_pixel_and_output_caps_apply_to_the_next_bitmap() {
-    for cap_pixels in [false, true] {
-        let limits = Limits::default();
-        let mq_budget = MqBudget::default();
-        let table = table();
-        let mut contexts = contexts(&limits, &mq_budget);
-        let bytes = [0xbf, 0xff, 0xac];
-        let mut mq = MqDecoder::new(
-            Payload::from(&bytes[..]),
-            span(&bytes),
-            &table,
-            &mut contexts,
-            &limits,
-            mq_budget,
-        )
-        .unwrap();
-        let reference_store = [0x80];
-        let mut output = Vec::new();
-        let mut budget = RefinementBudget::default();
-        if cap_pixels {
-            budget.max_total_pixels = 1;
-        } else {
-            budget.max_total_output_bytes = 1;
-        }
-        let mut host =
-            RefinementDecoder::new(&mut mq, &mut output, &limits, &NeverCancel, budget).unwrap();
-        host.decode_bitmap(
+fn the_store_allocation_limit_applies_to_the_next_bitmap() {
+    let limits = Limits::default();
+    let table = table();
+    let mut contexts = contexts(&limits);
+    let bytes = [0xbf, 0xff, 0xac];
+    let mut mq = MqDecoder::new(
+        Payload::from(&bytes[..]),
+        span(&bytes),
+        &table,
+        &mut contexts,
+        &limits,
+    )
+    .unwrap();
+    let reference_store = [0x80];
+    let mut output = Vec::new();
+    let host_limits = Limits {
+        io_chunk_bytes: 1,
+        max_allocation_bytes: 1,
+        ..limits
+    };
+    let mut host =
+        RefinementDecoder::new(&mut mq, &mut output, &host_limits, &NeverCancel).unwrap();
+    host.decode_bitmap(
+        ReferenceStore::Other(&reference_store),
+        request(1, 1, reference(1, 1)),
+    )
+    .unwrap();
+    let error = host
+        .decode_bitmap(
             ReferenceStore::Other(&reference_store),
             request(1, 1, reference(1, 1)),
         )
-        .unwrap();
-        let error = host
-            .decode_bitmap(
-                ReferenceStore::Other(&reference_store),
-                request(1, 1, reference(1, 1)),
-            )
-            .unwrap_err();
-        assert!(
-            matches!(error.kind, RefinementErrorKind::LimitExceeded { resource, .. }
-            if resource == if cap_pixels { "total pixels" } else { "total output bytes" })
-        );
-        assert_eq!(error.progress.completed_bitmaps, 1);
-        assert_eq!(error.progress.pixels_decoded, 1);
-        assert_eq!(error.progress.output_bytes_written, 1);
-        assert_eq!(output, [0x80]);
-    }
+        .unwrap_err();
+    assert!(matches!(
+        error.kind,
+        RefinementErrorKind::LimitExceeded {
+            resource: "refinement store bytes",
+            limit: 1,
+            attempted: 2,
+        }
+    ));
+    assert_eq!(error.progress.completed_bitmaps, 1);
+    assert_eq!(error.progress.pixels_decoded, 1);
+    assert_eq!(error.progress.output_bytes_written, 1);
+    assert_eq!(output, [0x80]);
 }
 
 #[test]
@@ -578,7 +390,6 @@ fn cancellation_is_checked_between_rows() {
     let (error, output) = observe_error(
         &[0x80],
         request(9, 2, reference(1, 1)),
-        RefinementBudget::default(),
         Limits::default(),
         &signal,
     );
@@ -587,80 +398,8 @@ fn cancellation_is_checked_between_rows() {
     assert!(output.is_empty());
 }
 
-/// Every cap at its most permissive accepted value: dimensions and
-/// non-counter fields unbounded, counter fields at `MAX_BUDGET_COUNT`.
-fn ceiling_budget() -> RefinementBudget {
-    RefinementBudget {
-        max_width: u32::MAX,
-        max_height: u32::MAX,
-        max_reference_width: u32::MAX,
-        max_reference_height: u32::MAX,
-        max_reference_pixels_per_bitmap: u64::MAX,
-        max_reference_bytes_per_bitmap: u64::MAX,
-        max_pixels_per_bitmap: MAX_BUDGET_COUNT,
-        max_total_pixels: MAX_BUDGET_COUNT,
-        max_bytes_per_bitmap: u64::MAX,
-        max_total_output_bytes: MAX_BUDGET_COUNT,
-        max_mq_decisions: u64::MAX,
-        max_context_work: u64::MAX,
-        max_working_bytes: u64::MAX,
-    }
-}
-
 #[test]
-fn constructor_rejects_counter_budgets_above_the_ceiling() {
-    type Field = fn(&mut RefinementBudget) -> &mut u64;
-    let fields: [(&str, Field); 3] = [
-        ("pixels per bitmap budget", |b| &mut b.max_pixels_per_bitmap),
-        ("total pixels budget", |b| &mut b.max_total_pixels),
-        ("total output bytes budget", |b| {
-            &mut b.max_total_output_bytes
-        }),
-    ];
-    let limits = Limits::default();
-    let mq_budget = MqBudget::default();
-    let table = table();
-    for (name, field) in fields {
-        let mut contexts = contexts(&limits, &mq_budget);
-        let bytes = [0xbf, 0xff, 0xac];
-        let mut mq = MqDecoder::new(
-            Payload::from(&bytes[..]),
-            span(&bytes),
-            &table,
-            &mut contexts,
-            &limits,
-            mq_budget,
-        )
-        .unwrap();
-        let mut output = Vec::new();
-        let mut budget = ceiling_budget();
-        *field(&mut budget) = MAX_BUDGET_COUNT + 1;
-        let error =
-            match RefinementDecoder::new(&mut mq, &mut output, &limits, &NeverCancel, budget) {
-                Ok(_) => panic!("accepted {name} above the ceiling"),
-                Err(error) => error,
-            };
-        assert!(
-            matches!(
-                error.kind,
-                RefinementErrorKind::LimitExceeded {
-                    resource,
-                    limit: MAX_BUDGET_COUNT,
-                    attempted,
-                } if resource == name && attempted == MAX_BUDGET_COUNT + 1
-            ),
-            "{error}"
-        );
-        assert_eq!((error.offset, error.row, error.x), (None, 0, 0));
-        // Rejected construction leaves MQ usable.
-        mq.decode_bit(BITMAP_BASE).unwrap();
-    }
-}
-
-#[test]
-fn maximal_geometry_under_ceiling_caps_is_refused_before_decoding() {
-    // (2^32 - 1)^2 pixels exceed the per-bitmap pixel ceiling, which is the
-    // cap that keeps ten context probes per pixel within u64.
+fn maximal_geometry_is_refused_by_the_pixel_limit_before_decoding() {
     let limits = Limits {
         max_output_bytes: u64::MAX,
         ..Limits::default()
@@ -668,7 +407,6 @@ fn maximal_geometry_under_ceiling_caps_is_refused_before_decoding() {
     let (error, output) = observe_error(
         &[0x80],
         request(u32::MAX, u32::MAX, reference(1, 1)),
-        ceiling_budget(),
         limits,
         &NeverCancel,
     );
@@ -677,7 +415,7 @@ fn maximal_geometry_under_ceiling_caps_is_refused_before_decoding() {
             error.kind,
             RefinementErrorKind::LimitExceeded {
                 resource: "pixels per bitmap",
-                limit: MAX_BUDGET_COUNT,
+                limit: 12_000_000,
                 attempted,
             } if attempted == u64::from(u32::MAX) * u64::from(u32::MAX)
         ),

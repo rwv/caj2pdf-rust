@@ -6,18 +6,11 @@ use crate::{Error, Result};
 pub const DEFAULT_IO_CHUNK: usize = 256 * 1024;
 /// Hard payload ceiling per read or write call: 1 MiB.
 pub const MAX_IO_CHUNK: usize = 1024 * 1024;
-/// Hard ceiling, 2^48, for the running-counter fields of the arithmetic
-/// decoder budgets (`MqBudget`, `ArithmeticBudget`, and `RefinementBudget`).
-///
-/// A counter never exceeds its budget field, and each step adds at most one
-/// I/O chunk (1 MiB), so a ceiling of 2^48 keeps every counter, every sum of
-/// two such counters, and every per-pixel work product (at most ten times a
-/// counter) far below `u64::MAX`. Decoders therefore use plain arithmetic on
-/// those counters. The ceiling is about 2.8 * 10^14, far above any realistic
-/// document budget; a budget above it is rejected before any I/O.
-pub const MAX_BUDGET_COUNT: u64 = 1 << 48;
-
 /// Resource limits applied before allocation and during I/O.
+///
+/// These are the only resource bounds of an operation. Each public entry
+/// point validates them once; format handlers derive every other bound from
+/// these fields or from the format itself.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Limits {
     /// Maximum payload per source/sink call. Must be in `1..=MAX_IO_CHUNK`.
@@ -26,12 +19,19 @@ pub struct Limits {
     pub max_input_bytes: u64,
     /// Maximum total output bytes for an operation.
     pub max_output_bytes: u64,
-    /// Maximum single dynamic allocation requested by a format handler.
+    /// Maximum single dynamic allocation requested by a format handler. It
+    /// also caps one image payload, one JBIG2 symbol store and one page or
+    /// region bitmap.
     pub max_allocation_bytes: u64,
     /// Maximum pages accepted from an input document.
     pub max_pages: u32,
     /// Maximum bookmarks accepted from an input document.
     pub max_bookmarks: u32,
+    /// Maximum pixels of one decoded image, page, region or symbol bitmap.
+    pub max_image_pixels: u64,
+    /// Maximum symbols in one JBIG2 symbol dictionary, including imported
+    /// symbols, and the bound on its height classes and export runs.
+    pub max_symbols: u32,
 }
 
 impl Default for Limits {
@@ -43,6 +43,8 @@ impl Default for Limits {
             max_allocation_bytes: 64 * 1024 * 1024,
             max_pages: 100_000,
             max_bookmarks: 100_000,
+            max_image_pixels: 12_000_000,
+            max_symbols: 8192,
         }
     }
 }
@@ -106,6 +108,30 @@ impl Limits {
                 resource: "pages",
                 limit: u64::from(self.max_pages),
                 attempted: u64::from(count),
+            });
+        }
+        Ok(())
+    }
+
+    /// Check the pixel count of one image, page, region or symbol bitmap.
+    pub fn check_image_pixels(&self, pixels: u64) -> Result<()> {
+        if pixels > self.max_image_pixels {
+            return Err(Error::LimitExceeded {
+                resource: "image pixels",
+                limit: self.max_image_pixels,
+                attempted: pixels,
+            });
+        }
+        Ok(())
+    }
+
+    /// Check the symbol count of one JBIG2 symbol dictionary.
+    pub fn check_symbols(&self, symbols: u64) -> Result<()> {
+        if symbols > u64::from(self.max_symbols) {
+            return Err(Error::LimitExceeded {
+                resource: "symbols",
+                limit: u64::from(self.max_symbols),
+                attempted: symbols,
             });
         }
         Ok(())

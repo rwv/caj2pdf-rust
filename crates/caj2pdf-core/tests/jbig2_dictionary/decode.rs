@@ -40,12 +40,7 @@ fn segment(
     Source::new(bytes)
 }
 
-fn decode_error(
-    body: &[u8],
-    new_symbols: u32,
-    budget: DictionaryBudget,
-    limits: Limits,
-) -> DictionaryError {
+fn decode_error(body: &[u8], new_symbols: u32, limits: Limits) -> DictionaryError {
     let mut source = segment(0x0800, &[(2, -1)], &[], 0, new_symbols, body, &[]);
     let hdr = header(&mut source);
     let mut store = Store::default();
@@ -61,10 +56,6 @@ fn decode_error(
         &mut contexts,
         &limits,
         &CancelAfter::Never,
-        MqBudget::default(),
-        budget,
-        RefinementBudget::default(),
-        RefinementDictionaryBudget::default(),
     ) {
         Ok(decoder) => decoder,
         Err(error) => panic!("decoder construction failed: {error}"),
@@ -79,14 +70,12 @@ fn assert_resource(error: DictionaryError, expected: &str) {
     );
 }
 
-#[allow(clippy::too_many_arguments)]
 fn constructor_error(
     flags: u16,
     at: &[(i8, i8)],
     exported_symbols: u32,
     new_symbols: u32,
     body: &[u8],
-    budget: DictionaryBudget,
     limits: Limits,
 ) -> DictionaryError {
     let mut source = segment(flags, at, &[], exported_symbols, new_symbols, body, &[]);
@@ -104,10 +93,6 @@ fn constructor_error(
         &mut contexts,
         &limits,
         &CancelAfter::Never,
-        MqBudget::default(),
-        budget,
-        RefinementBudget::default(),
-        RefinementDictionaryBudget::default(),
     ) {
         Ok(_) => panic!("unsupported dictionary accepted"),
         Err(error) => error,
@@ -134,10 +119,6 @@ fn zero_symbol_dictionary_consumes_one_zero_iaex_run_and_finishes() {
         &mut contexts,
         &limits,
         &CancelAfter::Never,
-        MqBudget::default(),
-        DictionaryBudget::default(),
-        RefinementBudget::default(),
-        RefinementDictionaryBudget::default(),
     )
     .unwrap();
     let report = decoder.decode().unwrap();
@@ -181,10 +162,6 @@ fn one_symbol_uses_a_single_mq_unit_and_stores_an_unexported_bitmap() {
         &mut contexts,
         &limits,
         &CancelAfter::Never,
-        MqBudget::default(),
-        DictionaryBudget::default(),
-        RefinementBudget::default(),
-        RefinementDictionaryBudget::default(),
     )
     .unwrap();
     let report = decoder.decode().unwrap();
@@ -229,10 +206,6 @@ fn descriptor_offset_is_relative_to_the_first_append_in_a_prefilled_store() {
         &mut contexts,
         &limits,
         &CancelAfter::Never,
-        MqBudget::default(),
-        DictionaryBudget::default(),
-        RefinementBudget::default(),
-        RefinementDictionaryBudget::default(),
     ) {
         Ok(decoder) => decoder,
         Err(error) => panic!("first append was rejected: {error}"),
@@ -266,10 +239,6 @@ fn successive_symbols_share_bitmap_statistics_but_reset_row_history() {
         &mut contexts,
         &limits,
         &CancelAfter::Never,
-        MqBudget::default(),
-        DictionaryBudget::default(),
-        RefinementBudget::default(),
-        RefinementDictionaryBudget::default(),
     )
     .unwrap();
     let report = decoder.decode().unwrap();
@@ -323,10 +292,6 @@ fn zero_length_export_run_toggles_flag_and_catalog_keeps_store_offset() {
         &mut contexts,
         &limits,
         &CancelAfter::Never,
-        MqBudget::default(),
-        DictionaryBudget::default(),
-        RefinementBudget::default(),
-        RefinementDictionaryBudget::default(),
     )
     .unwrap();
     let report = decoder.decode().unwrap();
@@ -364,10 +329,6 @@ fn empty_height_class_then_zero_delta_class_decodes_one_symbol() {
         &mut contexts,
         &limits,
         &CancelAfter::Never,
-        MqBudget::default(),
-        DictionaryBudget::default(),
-        RefinementBudget::default(),
-        RefinementDictionaryBudget::default(),
     )
     .unwrap();
     let report = decoder.decode().unwrap();
@@ -411,10 +372,6 @@ fn signed_negative_height_delta_can_follow_a_taller_empty_class() {
         &mut contexts,
         &limits,
         &CancelAfter::Never,
-        MqBudget::default(),
-        DictionaryBudget::default(),
-        RefinementBudget::default(),
-        RefinementDictionaryBudget::default(),
     )
     .unwrap();
     let report = decoder.decode().unwrap();
@@ -457,10 +414,6 @@ fn packed_width_nine_uses_partial_writes_and_zero_padding() {
         &mut contexts,
         &limits,
         &CancelAfter::Never,
-        MqBudget::default(),
-        DictionaryBudget::default(),
-        RefinementBudget::default(),
-        RefinementDictionaryBudget::default(),
     )
     .unwrap();
     let report = decoder.decode().unwrap();
@@ -505,10 +458,6 @@ fn alternating_export_runs_select_second_symbol_in_original_order() {
         &mut contexts,
         &limits,
         &CancelAfter::Never,
-        MqBudget::default(),
-        DictionaryBudget::default(),
-        RefinementBudget::default(),
-        RefinementDictionaryBudget::default(),
     )
     .unwrap();
     let report = decoder.decode().unwrap();
@@ -530,14 +479,9 @@ fn alternating_export_runs_select_second_symbol_in_original_order() {
 fn refinement_header_without_its_imported_report_is_refused_before_mq_or_output() {
     let mut source = segment(0x1802, &[(2, -1)], &[], 8, 2, &[0, 0, 0xff, 0xac], &[1]);
     let hdr = header(&mut source);
-    let parsed = read_dictionary_data_header(
-        &mut source,
-        &hdr,
-        &Limits::default(),
-        DictionaryBudget::default(),
-        &CancelAfter::Never,
-    )
-    .unwrap();
+    let parsed =
+        read_dictionary_data_header(&mut source, &hdr, &Limits::default(), &CancelAfter::Never)
+            .unwrap();
     assert_eq!(parsed.mode, DictionaryMode::ArithmeticRefinementAggregate);
     assert_eq!(parsed.refinement_template, 1);
     assert_eq!(parsed.refinement_at_count, 0);
@@ -555,10 +499,6 @@ fn refinement_header_without_its_imported_report_is_refused_before_mq_or_output(
         &mut contexts,
         &Limits::default(),
         &CancelAfter::Never,
-        MqBudget::default(),
-        DictionaryBudget::default(),
-        RefinementBudget::default(),
-        RefinementDictionaryBudget::default(),
     ) {
         Ok(_) => panic!("refinement/aggregate accepted"),
         Err(error) => error,
@@ -617,14 +557,9 @@ fn malformed_and_bounded_headers_never_enter_mq() {
     for (flags, at, rat, exported, new, body, expected) in cases {
         let mut source = segment(flags, &at, &rat, exported, new, &body, &[]);
         let hdr = header(&mut source);
-        let error = read_dictionary_data_header(
-            &mut source,
-            &hdr,
-            &Limits::default(),
-            DictionaryBudget::default(),
-            &CancelAfter::Never,
-        )
-        .unwrap_err();
+        let error =
+            read_dictionary_data_header(&mut source, &hdr, &Limits::default(), &CancelAfter::Never)
+                .unwrap_err();
         assert!(error.to_string().contains(expected), "{error}");
         if flags == 0x8800 || flags == 0x0804 || flags == 0x1800 {
             assert_eq!(error.offset, hdr.data.offset);
@@ -632,73 +567,42 @@ fn malformed_and_bounded_headers_never_enter_mq() {
             assert_eq!(error.offset, hdr.data.offset + 2);
         }
     }
-    let mut source = segment(0x0800, &[(2, -1)], &[], 1, 1, &[0xff, 0xac], &[]);
-    let hdr = header(&mut source);
-    let budget = DictionaryBudget {
-        max_data_header_bytes: 3,
-        ..DictionaryBudget::default()
+    let limits = Limits {
+        max_symbols: 2,
+        ..Limits::default()
     };
-    let before = source.read_calls;
-    let error = read_dictionary_data_header(
-        &mut source,
-        &hdr,
-        &Limits::default(),
-        budget,
-        &CancelAfter::Never,
-    )
-    .unwrap_err();
-    assert!(matches!(
-        error.kind,
-        DictionaryErrorKind::LimitExceeded {
-            resource: "dictionary header bytes",
-            ..
-        }
-    ));
-    assert_eq!(source.read_calls - before, 1); // flags; AT refused before I/O.
-    assert_eq!(error.progress.header_bytes_fetched, 2);
-
-    let mut source = segment(0x0800, &[(2, -1)], &[], 3, 3, &[0xff, 0xac], &[]);
+    let mut source = segment(0x0800, &[(2, -1)], &[], 3, 2, &[0xff, 0xac], &[]);
     let hdr = header(&mut source);
-    let budget = DictionaryBudget {
-        max_exported_symbols: 2,
-        ..DictionaryBudget::default()
-    };
-    let error = read_dictionary_data_header(
-        &mut source,
-        &hdr,
-        &Limits::default(),
-        budget,
-        &CancelAfter::Never,
-    )
-    .unwrap_err();
+    let error =
+        read_dictionary_data_header(&mut source, &hdr, &limits, &CancelAfter::Never).unwrap_err();
     assert_eq!(error.offset, hdr.data.offset + 4);
     assert!(matches!(
         error.kind,
         DictionaryErrorKind::LimitExceeded {
             resource: "exported symbols",
-            ..
+            limit: 2,
+            attempted: 3,
         }
     ));
-    let budget = DictionaryBudget {
-        max_new_symbols: 2,
-        ..DictionaryBudget::default()
-    };
-    let error = read_dictionary_data_header(
-        &mut source,
-        &hdr,
-        &Limits::default(),
-        budget,
-        &CancelAfter::Never,
-    )
-    .unwrap_err();
+    let mut source = segment(0x0800, &[(2, -1)], &[], 3, 3, &[0xff, 0xac], &[]);
+    let hdr = header(&mut source);
+    let error =
+        read_dictionary_data_header(&mut source, &hdr, &limits, &CancelAfter::Never).unwrap_err();
     assert_eq!(error.offset, hdr.data.offset + 8);
     assert!(matches!(
         error.kind,
         DictionaryErrorKind::LimitExceeded {
             resource: "new symbols",
-            ..
+            limit: 2,
+            attempted: 3,
         }
     ));
+    assert!(
+        error
+            .to_string()
+            .ends_with("new symbols limit 2 exceeded by 3"),
+        "{error}"
+    );
 }
 
 /// The data bytes of one zero IAEX run, valid before zero padding.
@@ -730,10 +634,6 @@ fn terminal_failure_reports_the_invalid_marker() {
         &mut contexts,
         &limits,
         &CancelAfter::Never,
-        MqBudget::default(),
-        DictionaryBudget::default(),
-        RefinementBudget::default(),
-        RefinementDictionaryBudget::default(),
     )
     .unwrap();
     let error = decoder.decode().unwrap_err();
@@ -759,14 +659,9 @@ fn conditional_dictionary_headers_classify_each_mode_and_field_layout() {
         let refinement_at = vec![(-1, -2); refinement_count];
         let mut source = segment(flags, &at, &refinement_at, 2, 3, &[0xff, 0xac], &[]);
         let hdr = header(&mut source);
-        let parsed = read_dictionary_data_header(
-            &mut source,
-            &hdr,
-            &Limits::default(),
-            DictionaryBudget::default(),
-            &CancelAfter::Never,
-        )
-        .unwrap();
+        let parsed =
+            read_dictionary_data_header(&mut source, &hdr, &Limits::default(), &CancelAfter::Never)
+                .unwrap();
         assert_eq!(parsed.mode, expected_mode, "flags {flags:#06x}");
         assert_eq!(parsed.at_count, at_count as u8);
         assert_eq!(parsed.refinement_at_count, refinement_count as u8);
@@ -794,14 +689,9 @@ fn invalid_flag_combinations_are_located_at_flags_before_mq() {
     for (flags, expected) in cases {
         let mut source = segment(flags, &[], &[], 0, 0, &[0xff, 0xac], &[]);
         let hdr = header(&mut source);
-        let error = read_dictionary_data_header(
-            &mut source,
-            &hdr,
-            &Limits::default(),
-            DictionaryBudget::default(),
-            &CancelAfter::Never,
-        )
-        .unwrap_err();
+        let error =
+            read_dictionary_data_header(&mut source, &hdr, &Limits::default(), &CancelAfter::Never)
+                .unwrap_err();
         assert_eq!(error.offset, hdr.data.offset);
         assert!(error.to_string().contains(expected), "{error}");
         assert_eq!(error.progress.header_bytes_fetched, 2);
@@ -809,132 +699,32 @@ fn invalid_flag_combinations_are_located_at_flags_before_mq() {
 }
 
 #[test]
-fn decoded_geometry_and_output_limits_stop_before_excess_work() {
-    let defaults = DictionaryBudget::default();
+fn decoded_geometry_and_count_limits_stop_before_excess_work() {
     let cases = [
         (
-            DictionaryBudget {
-                max_height_classes: 0,
-                ..defaults
-            },
-            "height classes",
-        ),
-        (
-            DictionaryBudget {
-                max_height: 0,
-                ..defaults
-            },
-            "height class",
-        ),
-        (
-            DictionaryBudget {
-                max_width: 0,
-                ..defaults
-            },
-            "symbol width",
-        ),
-        (
-            DictionaryBudget {
-                max_pixels_per_symbol: 0,
-                ..defaults
-            },
-            "symbol pixels",
-        ),
-        (
-            DictionaryBudget {
-                max_total_pixels: 0,
-                ..defaults
-            },
-            "dictionary pixels",
-        ),
-        (
-            DictionaryBudget {
-                max_bytes_per_symbol: 0,
-                ..defaults
-            },
-            "symbol bytes",
-        ),
-        (
-            DictionaryBudget {
-                max_stored_bitmap_bytes: 0,
-                ..defaults
-            },
-            "stored bitmap bytes",
-        ),
-        (
-            DictionaryBudget {
-                max_export_runs: 0,
-                ..defaults
-            },
-            "export runs",
-        ),
-    ];
-    for (budget, resource) in cases {
-        assert_resource(
-            decode_error(&ONE_SYMBOL, 1, budget, Limits::default()),
-            resource,
-        );
-    }
-    assert_resource(
-        decode_error(
-            &ONE_SYMBOL,
-            1,
-            defaults,
             Limits {
-                max_output_bytes: 0,
+                max_symbols: 0,
                 ..Limits::default()
             },
+            0,
+            "export runs",
         ),
-        "output bytes",
-    );
-    assert_resource(
-        decode_error(
-            &TWO_SYMBOLS,
-            2,
-            DictionaryBudget {
-                max_total_pixels: 1,
-                ..defaults
+        (
+            Limits {
+                max_image_pixels: 0,
+                ..Limits::default()
             },
-            Limits::default(),
-        ),
-        "dictionary pixels",
-    );
-    assert_resource(
-        decode_error(
-            &TWO_SYMBOLS,
-            2,
-            DictionaryBudget {
-                max_stored_bitmap_bytes: 1,
-                ..defaults
-            },
-            Limits::default(),
-        ),
-        "stored bitmap bytes",
-    );
-}
-
-#[test]
-fn working_budget_covers_row_scratch_in_addition_to_preflight_catalog() {
-    let preflight_bytes = 7680 * std::mem::size_of::<ContextState>()
-        + MQ_STATE_COUNT * std::mem::size_of::<MqState>()
-        + std::mem::size_of::<SymbolDescriptor>();
-    assert_resource(
-        decode_error(
-            &ONE_SYMBOL,
             1,
-            DictionaryBudget {
-                max_working_bytes: preflight_bytes as u64,
-                ..DictionaryBudget::default()
-            },
-            Limits::default(),
+            "symbol pixels",
         ),
-        "dictionary working bytes",
-    );
+    ];
+    for (limits, new_symbols, resource) in cases {
+        assert_resource(decode_error(&ONE_SYMBOL, new_symbols, limits), resource);
+    }
 }
 
 #[test]
 fn unsupported_modes_and_direct_features_refuse_before_mq_or_store() {
-    let defaults = DictionaryBudget::default();
     type ModeCase<'a> = (u16, &'a [(i8, i8)], u32, u32, &'a str);
     let cases: [ModeCase<'_>; 6] = [
         (0x0001, &[], 0, 0, "Huffman symbol dictionary"),
@@ -945,15 +735,7 @@ fn unsupported_modes_and_direct_features_refuse_before_mq_or_store() {
         (0x0800, &[(2, -1)], 2, 1, "exported count exceeds"),
     ];
     for (flags, at, exported, new, expected) in cases {
-        let error = constructor_error(
-            flags,
-            at,
-            exported,
-            new,
-            &[0xff, 0xac],
-            defaults,
-            Limits::default(),
-        );
+        let error = constructor_error(flags, at, exported, new, &[0xff, 0xac], Limits::default());
         assert!(error.to_string().contains(expected), "{error}");
         assert!(error.progress.header_bytes_fetched >= 10);
         assert!(error.progress.mq.is_none());
@@ -962,36 +744,16 @@ fn unsupported_modes_and_direct_features_refuse_before_mq_or_store() {
 
 #[test]
 fn preflight_resource_limits_are_typed_and_count_header_io() {
-    let defaults = DictionaryBudget::default();
-    let cases = [
-        (
-            DictionaryBudget {
-                max_catalog_bytes: 0,
-                ..defaults
-            },
-            Limits::default(),
-            "catalog metadata bytes",
-        ),
-        (
-            DictionaryBudget {
-                max_working_bytes: 0,
-                ..defaults
-            },
-            Limits::default(),
-            "dictionary working bytes",
-        ),
-        (
-            defaults,
-            Limits {
-                io_chunk_bytes: 1,
-                max_allocation_bytes: 1,
-                ..Limits::default()
-            },
-            "catalog allocation bytes",
-        ),
-    ];
-    for (budget, limits, expected) in cases {
-        let error = constructor_error(0x0800, &[(2, -1)], 0, 1, &ONE_SYMBOL, budget, limits);
+    let cases = [(
+        Limits {
+            io_chunk_bytes: 1,
+            max_allocation_bytes: 1,
+            ..Limits::default()
+        },
+        "catalog allocation bytes",
+    )];
+    for (limits, expected) in cases {
+        let error = constructor_error(0x0800, &[(2, -1)], 0, 1, &ONE_SYMBOL, limits);
         assert!(
             matches!(&error.kind, DictionaryErrorKind::LimitExceeded { resource, .. } if resource == &expected),
             "{error}"
@@ -1005,7 +767,6 @@ fn preflight_resource_limits_are_typed_and_count_header_io() {
         0,
         1,
         &ONE_SYMBOL,
-        defaults,
         Limits {
             max_input_bytes: 1,
             ..Limits::default()
@@ -1021,152 +782,7 @@ fn preflight_resource_limits_are_typed_and_count_header_io() {
     assert_eq!(error.progress.header_bytes_fetched, 0);
 }
 
-#[test]
-fn dictionary_body_limit_uses_the_parsed_body_length() {
-    let mut source = segment(0x0800, &[(2, -1)], &[], 0, 1, &ONE_SYMBOL, &[]);
-    let hdr = header(&mut source);
-    let error = read_dictionary_data_header(
-        &mut source,
-        &hdr,
-        &Limits::default(),
-        DictionaryBudget {
-            max_body_bytes: ONE_SYMBOL.len() as u64 - 1,
-            ..DictionaryBudget::default()
-        },
-        &CancelAfter::Never,
-    )
-    .unwrap_err();
-    assert!(matches!(
-        error.kind,
-        DictionaryErrorKind::LimitExceeded {
-            resource: "dictionary body bytes",
-            limit,
-            attempted,
-        } if limit + 1 == attempted && attempted == ONE_SYMBOL.len() as u64
-    ));
-    assert_eq!(error.offset, hdr.data.offset + 12);
-    assert_eq!(error.progress.header_bytes_fetched, 12);
-}
-
-#[test]
-fn invalid_limits_and_zero_io_request_bound_are_rejected_before_framing_io() {
-    let mut source = segment(0x0800, &[(2, -1)], &[], 0, 1, &ONE_SYMBOL, &[]);
-    let hdr = header(&mut source);
-    let before = source.read_calls;
-    let error = read_dictionary_data_header(
-        &mut source,
-        &hdr,
-        &Limits::default(),
-        DictionaryBudget {
-            max_source_request_bytes: 0,
-            ..DictionaryBudget::default()
-        },
-        &CancelAfter::Never,
-    )
-    .unwrap_err();
-    assert!(matches!(
-        error.kind,
-        DictionaryErrorKind::Malformed("zero I/O request bound")
-    ));
-    assert_eq!(source.read_calls, before);
-    assert_eq!(error.progress.header_bytes_fetched, 0);
-
-    let error = read_dictionary_data_header(
-        &mut source,
-        &hdr,
-        &Limits {
-            io_chunk_bytes: 0,
-            ..Limits::default()
-        },
-        DictionaryBudget::default(),
-        &CancelAfter::Never,
-    )
-    .unwrap_err();
-    assert_eq!(error.offset, hdr.data.offset);
-    assert!(matches!(
-        error.kind,
-        DictionaryErrorKind::Source(caj2pdf_core::Error::InvalidInput {
-            reason: "I/O chunk size must be nonzero"
-        })
-    ));
-    assert_eq!(source.read_calls, before);
-}
-
-#[test]
-fn integer_decision_budget_failure_precedes_any_bitmap() {
-    let mut source = segment(0x0800, &[(2, -1)], &[], 0, 1, &ONE_SYMBOL, &[]);
-    let hdr = header(&mut source);
-    let mut store = Store::default();
-    let mut contexts = direct_contexts();
-    let table = table();
-    let limits = Limits::default();
-    let unread = Unread::default();
-    let decoder = match SymbolDictionaryDecoder::new(
-        source.payload(),
-        &hdr,
-        None,
-        direct_stores(&unread, &mut store),
-        &table,
-        &mut contexts,
-        &limits,
-        &CancelAfter::Never,
-        MqBudget {
-            max_symbols: 1,
-            ..MqBudget::default()
-        },
-        DictionaryBudget::default(),
-        RefinementBudget::default(),
-        RefinementDictionaryBudget::default(),
-    ) {
-        Ok(decoder) => decoder,
-        Err(error) => panic!("small decision budget prevented construction: {error}"),
-    };
-    let error = decoder.decode().unwrap_err();
-    assert!(matches!(error.kind, DictionaryErrorKind::Mq(_)));
-    assert_eq!(error.progress.completed_symbols, 0);
-    assert_eq!(error.progress.mq.unwrap().symbols_decoded, 1);
-    assert!(store.bytes.is_empty());
-}
-
-#[test]
-fn bitmap_decision_budget_failure_reports_bitmap_context_and_no_store_bytes() {
-    let mut source = segment(0x0800, &[(2, -1)], &[], 0, 1, &ONE_SYMBOL, &[]);
-    let hdr = header(&mut source);
-    let mut store = Store::default();
-    let mut contexts = direct_contexts();
-    let table = table();
-    let limits = Limits::default();
-    let unread = Unread::default();
-    let decoder = match SymbolDictionaryDecoder::new(
-        source.payload(),
-        &hdr,
-        None,
-        direct_stores(&unread, &mut store),
-        &table,
-        &mut contexts,
-        &limits,
-        &CancelAfter::Never,
-        MqBudget {
-            max_symbols: 8,
-            ..MqBudget::default()
-        },
-        DictionaryBudget::default(),
-        RefinementBudget::default(),
-        RefinementDictionaryBudget::default(),
-    ) {
-        Ok(decoder) => decoder,
-        Err(error) => panic!("bitmap decision budget prevented construction: {error}"),
-    };
-    let error = decoder.decode().unwrap_err();
-    assert!(
-        matches!(&error.kind, DictionaryErrorKind::Mq(mq) if mq.context.is_some_and(|context| context >= INTEGER_CONTEXT_COUNT)),
-        "{error}"
-    );
-    assert_eq!(error.progress.completed_symbols, 0);
-    assert!(store.bytes.is_empty());
-}
-
-// The following bodies were produced by the test-only MQ encoder; only the
+// The following bodies were produced by the test-only MQ encoder// The following bodies were produced by the test-only MQ encoder; only the
 // resulting bytes are kept. Each encodes IADH=1 followed by the stated IADW,
 // which is all these tests consume.
 /// IADW = 2^32, the smallest width that no longer fits `u32`.
@@ -1177,12 +793,8 @@ const WIDTH_U32_MAX: [u8; 6] = [0x8b, 0xc5, 0xe3, 0x76, 0xff, 0xac];
 const WIDTH_48000: [u8; 9] = [0x8c, 0x17, 0x93, 0x1f, 0xc6, 0x37, 0x4a, 0xff, 0xac];
 
 #[test]
-fn decoded_width_beyond_u32_is_malformed_while_u32_max_meets_the_width_budget() {
-    let unbounded = DictionaryBudget {
-        max_width: u32::MAX,
-        ..DictionaryBudget::default()
-    };
-    let error = decode_error(&WIDTH_2_POW_32, 1, unbounded, Limits::default());
+fn decoded_width_beyond_u32_is_malformed_while_u32_max_meets_the_pixel_limit() {
+    let error = decode_error(&WIDTH_2_POW_32, 1, Limits::default());
     assert!(
         matches!(
             error.kind,
@@ -1193,42 +805,31 @@ fn decoded_width_beyond_u32_is_malformed_while_u32_max_meets_the_width_budget() 
     assert_eq!(error.progress.completed_symbols, 0);
     assert_eq!(error.progress.stored_bitmap_bytes, 0);
 
-    // One less is a representable width, so the configured budget decides.
-    let error = decode_error(
-        &WIDTH_U32_MAX,
-        1,
-        DictionaryBudget::default(),
-        Limits::default(),
-    );
+    // One less is a representable width, so the pixel limit decides.
+    let error = decode_error(&WIDTH_U32_MAX, 1, Limits::default());
     assert!(
         matches!(
             error.kind,
             DictionaryErrorKind::LimitExceeded {
-                resource: "symbol width",
-                limit: 32_768,
+                resource: "symbol pixels",
+                limit: 12_000_000,
                 attempted: 4_294_967_295,
             }
         ),
         "{error}"
     );
-    let error = decode_error(&WIDTH_U32_MAX, 1, unbounded, Limits::default());
-    assert_resource(error, "symbol pixels");
 }
 
 #[test]
 fn row_scratch_allocation_limit_is_exact_and_precedes_bitmap_decisions() {
     // Three 6000-byte rows need 18000 bytes of scratch, more than the MQ
     // decoder's own fixed working allocation.
-    let wide = DictionaryBudget {
-        max_width: 48_000,
-        ..DictionaryBudget::default()
-    };
     let limits = |max_allocation_bytes| Limits {
         io_chunk_bytes: 256,
         max_allocation_bytes,
         ..Limits::default()
     };
-    let error = decode_error(&WIDTH_48000, 1, wide, limits(17_999));
+    let error = decode_error(&WIDTH_48000, 1, limits(17_999));
     assert!(
         matches!(
             error.kind,
@@ -1242,7 +843,7 @@ fn row_scratch_allocation_limit_is_exact_and_precedes_bitmap_decisions() {
     );
     assert_eq!(error.progress.mq.unwrap().symbols_decoded, 42);
     // With exactly enough scratch the decoder goes on to pixel decisions.
-    let error = decode_error(&WIDTH_48000, 1, wide, limits(18_000));
+    let error = decode_error(&WIDTH_48000, 1, limits(18_000));
     assert!(
         !matches!(
             error.kind,
@@ -1280,10 +881,6 @@ fn fewer_exported_symbols_than_declared_are_rejected_after_the_final_run() {
         &mut contexts,
         &limits,
         &CancelAfter::Never,
-        MqBudget::default(),
-        DictionaryBudget::default(),
-        RefinementBudget::default(),
-        RefinementDictionaryBudget::default(),
     )
     .unwrap();
     let error = decoder.decode().unwrap_err();
@@ -1308,14 +905,9 @@ fn count_field_cut_by_the_segment_length_is_truncated_before_reading_it() {
     source.advertised = source.bytes.len() as u64;
     let hdr = header(&mut source);
     let reads = source.read_calls;
-    let error = read_dictionary_data_header(
-        &mut source,
-        &hdr,
-        &Limits::default(),
-        DictionaryBudget::default(),
-        &CancelAfter::Never,
-    )
-    .unwrap_err();
+    let error =
+        read_dictionary_data_header(&mut source, &hdr, &Limits::default(), &CancelAfter::Never)
+            .unwrap_err();
     assert!(
         matches!(
             error.kind,
@@ -1366,19 +958,13 @@ fn header_field_at_the_end_of_the_address_space_is_an_invalid_span() {
             length: 12,
         },
         &Limits::default(),
-        HeaderLimits::default(),
         &CancelAfter::Never,
     )
     .unwrap();
     assert_eq!(hdr.data.offset + hdr.data.length, u64::MAX);
-    let error = read_dictionary_data_header(
-        &mut source,
-        &hdr,
-        &Limits::default(),
-        DictionaryBudget::default(),
-        &CancelAfter::Never,
-    )
-    .unwrap_err();
+    let error =
+        read_dictionary_data_header(&mut source, &hdr, &Limits::default(), &CancelAfter::Never)
+            .unwrap_err();
     assert!(
         matches!(
             error.kind,
@@ -1412,10 +998,6 @@ fn cancellation_at_every_checkpoint_never_reports_a_catalog() {
                 &mut contexts,
                 &limits,
                 &cancellation,
-                MqBudget::default(),
-                DictionaryBudget::default(),
-                RefinementBudget::default(),
-                RefinementDictionaryBudget::default(),
             )?;
             decoder.decode()
         })();

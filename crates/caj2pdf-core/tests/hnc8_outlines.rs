@@ -2,7 +2,7 @@
 
 use caj2pdf_core::{
     Bookmark, BookmarkVisitor, Error, Limits, NeverCancel, RangedSource,
-    hnc8::{Budget, ErrorKind, Hnc8Reader, OutlineRepair, OutlineReport},
+    hnc8::{ErrorKind, Hnc8Reader, OutlineRepair, OutlineReport},
     native::SeekableSource,
 };
 use std::io::Cursor;
@@ -39,7 +39,7 @@ fn read(
 ) -> Result<(Vec<Bookmark>, OutlineReport), caj2pdf_core::hnc8::Hnc8Error> {
     (|| {
         let mut input = SeekableSource::new(Cursor::new(bytes)).unwrap();
-        let mut reader = Hnc8Reader::open(&mut input, &limits, &NeverCancel, Budget::default())?;
+        let mut reader = Hnc8Reader::open(&mut input, &limits, &NeverCancel)?;
         let mut entries = Entries::default();
         let report = reader.visit_bookmarks(depth, 3, map, &mut entries)?;
         Ok((entries.0, report))
@@ -197,8 +197,7 @@ fn visitor_failure_and_cancellation_are_located() {
         {
             let mut input = SeekableSource::new(Cursor::new(source(&[(b"x", b"1", 1)]))).unwrap();
             let limits = Limits::default();
-            let mut reader =
-                Hnc8Reader::open(&mut input, &limits, &NeverCancel, Budget::default()).unwrap();
+            let mut reader = Hnc8Reader::open(&mut input, &limits, &NeverCancel).unwrap();
             let error = reader
                 .visit_bookmarks(64, 3, |p| Some(p - 1), &mut FailedVisitor(cancelled))
                 .unwrap_err();
@@ -249,8 +248,7 @@ fn a_short_record_read_is_not_a_partial_bookmark() {
     {
         let mut input = TruncatedRecord(source(&[(b"x", b"1", 1)]));
         let limits = Limits::default();
-        let mut reader =
-            Hnc8Reader::open(&mut input, &limits, &NeverCancel, Budget::default()).unwrap();
+        let mut reader = Hnc8Reader::open(&mut input, &limits, &NeverCancel).unwrap();
         let mut entries = Entries::default();
         let error = reader
             .visit_bookmarks(64, 3, |p| Some(p - 1), &mut entries)
@@ -277,7 +275,7 @@ fn cancellation_and_output_page_limit_are_checked_even_before_records() {
             max_pages: 3,
             ..Limits::default()
         };
-        let mut reader = Hnc8Reader::open(&mut input, &limits, &flag, Budget::default()).unwrap();
+        let mut reader = Hnc8Reader::open(&mut input, &limits, &flag).unwrap();
         let mut entries = Entries::default();
         flag.0.set(true);
         assert!(matches!(
@@ -288,7 +286,7 @@ fn cancellation_and_output_page_limit_are_checked_even_before_records() {
             ErrorKind::Cancelled
         ));
         flag.0.set(false);
-        let mut reader = Hnc8Reader::open(&mut input, &limits, &flag, Budget::default()).unwrap();
+        let mut reader = Hnc8Reader::open(&mut input, &limits, &flag).unwrap();
         assert!(matches!(
             reader
                 .visit_bookmarks(64, 4, |p| Some(p - 1), &mut entries)
@@ -324,8 +322,7 @@ fn independent_pdf_reader_checks_native_outline_titles_hierarchy_and_targets() {
     let limits = Limits::default();
     let mut sink = Vec::new();
     {
-        let mut reader =
-            Hnc8Reader::open(&mut input, &limits, &NeverCancel, Budget::default()).unwrap();
+        let mut reader = Hnc8Reader::open(&mut input, &limits, &NeverCancel).unwrap();
         let mut doc = PdfDocument::new(&mut sink, &limits, &NeverCancel).unwrap();
         let mut white = SeekableSource::new(Cursor::new([255_u8])).unwrap();
         let image = doc

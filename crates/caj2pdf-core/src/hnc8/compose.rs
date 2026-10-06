@@ -11,45 +11,25 @@ mod route;
 pub use native::{C8FontSource, C8FontSources, convert_c8_native_pdf};
 pub use route::{convert_document_pdf, uses_native_text};
 
-use super::type3_image::{
-    CheckedType3, Type3PdfOptions, Type3Stage, Type3Stores, emit_type3, preflight_type3,
-};
+use super::type3_image::{CheckedType3, Type3Stage, Type3Stores, emit_type3, preflight_type3};
 use super::{
-    ApplicationInfoStatus, At, Budget, Header, Hnc8Error, Hnc8Reader, ImageRecord, JpegBudget,
-    JpegColor, JpegInfo, Locate, OutlineReport, PageRecord, RawTextCoordinate, TextBudget, Variant,
-    empirical_image_transform, empirical_page_from_pixels, read_type2_jpeg_info,
+    ApplicationInfoStatus, At, Header, Hnc8Error, Hnc8Reader, ImageRecord, JpegColor, JpegInfo,
+    Locate, OutlineReport, PageRecord, RawTextCoordinate, Variant, empirical_image_transform,
+    empirical_page_from_pixels, read_type2_jpeg_info,
 };
 use crate::fallible::{len_u64, reserve, reserve_exact, usize_from_u32};
-use crate::jbig1::{
-    Type0Budget, Type0Decoder, Type0Error, Type0ErrorKind, Type0Info, read_type0_info,
-};
-use crate::jbig2::text::TextHeaderAnomaly;
+use crate::jbig1::{Type0Decoder, Type0Error, Type0ErrorKind, Type0Info, read_type0_info};
+use crate::jbig2::text::{TextHeaderAnomaly, TextHeaderPolicy};
 use crate::pdf::{
     BilevelImageSpec, BookmarkView, ImageEncoding, ImagePlacement, ImageSpec,
     MAX_PAGE_IMAGE_PLACEMENTS, PageSpec, PdfDocument,
 };
-use crate::qm::{ArithmeticBudget, ArithmeticError, ContextBank, QmTable};
+use crate::qm::{ArithmeticError, ContextBank, QmTable};
 use crate::{
     Bookmark, BookmarkVisitor, Cancellation, ConversionReport, CountingSource, Error, Limits,
-    MAX_BUDGET_COUNT, Payload, RangedSource, read_payload,
+    Payload, RangedSource, read_payload,
 };
 use std::{error, fmt, mem::size_of};
-
-/// Per-page metadata ceiling. It does not cap PDF indexes, the image
-/// payload, the type-3 stores or process residency; each payload and store is
-/// a single allocation within `Limits::max_allocation_bytes`.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct ComposeBudget {
-    pub max_page_metadata_bytes: u64,
-}
-
-impl Default for ComposeBudget {
-    fn default() -> Self {
-        Self {
-            max_page_metadata_bytes: 4 * 1024 * 1024,
-        }
-    }
-}
 
 /// Memory reused between images: the arithmetic contexts of type-0 images,
 /// the payload being decoded, and the type-3 symbol stores and text region.
@@ -60,43 +40,17 @@ struct ImageBuffers {
     type3: Type3Stores,
 }
 
-/// Independent codec/resource choices. The geometry is the measured profile
-/// with origin `[0, 0]`; arbitrary scaling and clipping are not performed.
-#[derive(Clone, Copy, Debug, PartialEq)]
+/// The conversion choices. The geometry is the measured profile with origin
+/// `[0, 0]`; arbitrary scaling and clipping are not performed. Every resource
+/// bound comes from [`Limits`].
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct ComposeOptions {
     /// Emit validated HN-A outlines after page composition. Defaults to false
     /// to preserve the existing image-only diagnostic API; C8/HN-B are refused.
     pub include_bookmarks: bool,
-    pub container: Budget,
-    pub text: TextBudget,
-    pub jpeg: JpegBudget,
-    pub image: Type0Budget,
-    pub arithmetic: ArithmeticBudget,
-    /// Type-3 decoder budgets and text-header policy.
-    pub type3: Type3PdfOptions,
-    pub budget: ComposeBudget,
-}
-
-impl Default for ComposeOptions {
-    fn default() -> Self {
-        // One decision per pixel plus one row-control decision per row of
-        // the largest admitted type-0 image.
-        let image = Type0Budget::default();
-        let max_symbols = image.max_pixels + u64::from(image.max_height);
-        Self {
-            include_bookmarks: false,
-            container: Budget::default(),
-            text: TextBudget::default(),
-            jpeg: JpegBudget::default(),
-            image,
-            arithmetic: ArithmeticBudget {
-                max_symbols,
-                max_work: max_symbols * 32 + 1024,
-            },
-            type3: Type3PdfOptions::default(),
-            budget: ComposeBudget::default(),
-        }
-    }
+    /// Strict T.88 validation of type-3 text-region headers is the default;
+    /// the named HN/C8 exception is opt-in and reported when it applies.
+    pub text_header_policy: TextHeaderPolicy,
 }
 
 /// Copyable per-descriptor codec state, paired with its record by the
@@ -390,7 +344,6 @@ fn emit_type0<W, C>(
     table: &QmTable,
     contexts: &mut ContextBank,
     at: At,
-    options: ComposeOptions,
     limits: &Limits,
     cancellation: &C,
 ) -> Result<crate::pdf::ImageObject, ComposeError>
@@ -416,8 +369,6 @@ where
         &mut rows,
         limits,
         cancellation,
-        options.arithmetic,
-        options.image,
     )
     .map_err(type0_decode(at))?;
     while decoder.decode_next_row().map_err(type0_decode(at))? {}
@@ -476,23 +427,10 @@ fn verify_repeated_image<S: RangedSource, C: Cancellation>(
     Ok(())
 }
 
-fn validate(options: ComposeOptions, limits: &Limits) -> Result<(), ComposeError> {
+fn validate(limits: &Limits) -> Result<(), ComposeError> {
     limits
         .validate()
-        .map_err(At::NONE.io(ComposeStage::Preflight))?;
-    let counters = 1..=MAX_BUDGET_COUNT;
-    if !counters.contains(&options.arithmetic.max_symbols)
-        || !counters.contains(&options.arithmetic.max_work)
-        || !counters.contains(&options.budget.max_page_metadata_bytes)
-    {
-        return Err(At::NONE.error((
-            ComposeStage::Preflight,
-            ComposeErrorKind::InvalidOptions(
-                "composition and arithmetic counters must be in 1..=MAX_BUDGET_COUNT",
-            ),
-        )));
-    }
-    Ok(())
+        .map_err(At::NONE.io(ComposeStage::Preflight))
 }
 
 fn metadata_bytes(count: u64, element_bytes: u64) -> crate::Result<u64> {
@@ -501,20 +439,8 @@ fn metadata_bytes(count: u64, element_bytes: u64) -> crate::Result<u64> {
     })
 }
 
-fn check_metadata(bytes: u64, budget: ComposeBudget) -> crate::Result<()> {
-    if bytes > budget.max_page_metadata_bytes {
-        return Err(Error::LimitExceeded {
-            resource: "current-page metadata bytes",
-            limit: budget.max_page_metadata_bytes,
-            attempted: bytes,
-        });
-    }
-    Ok(())
-}
-
 fn capacity_bytes<T>(capacity: usize) -> u64 {
-    // All allocations were preflighted against <=2^48; actual capacities
-    // must fit addressable bytes.
+    // Actual capacities are addressable bytes.
     len_u64(capacity) * size_of::<T>() as u64
 }
 
@@ -532,14 +458,13 @@ fn page_vector<T>(count: usize, limits: &Limits, resource: &'static str) -> crat
 }
 
 /// Admit one page's image count before any allocation or image output from
-/// it: the PDF placement ceiling, each per-image vector of `element_bytes`
-/// against the allocation limit, and their coexistence against the
-/// page-metadata budget. Shared by image-only and native composition.
+/// it: the PDF placement ceiling and each per-image vector of
+/// `element_bytes` against the allocation limit. Shared by image-only and
+/// native composition.
 fn admit_page_images(
     page: PageRecord,
     element_bytes: &[usize],
     at: At,
-    options: ComposeOptions,
     limits: &Limits,
 ) -> Result<usize, ComposeError> {
     let count = usize_from_u32(page.image_count);
@@ -550,32 +475,29 @@ fn admit_page_images(
             attempted: u64::from(page.image_count),
         }));
     }
-    let mut total = 0;
     for &element in element_bytes {
         let bytes = metadata_bytes(u64::from(page.image_count), len_u64(element))
             .map_err(at.io(ComposeStage::Preflight))?;
         limits
             .check_allocation(bytes)
             .map_err(at.io(ComposeStage::Preflight))?;
-        total += bytes;
     }
-    check_metadata(total, options.budget).map_err(at.io(ComposeStage::Preflight))?;
     Ok(count)
 }
 
 /// Check one descriptor without decoding it. Native mixed pages and the
-/// image-only path must use the same codec admission, budgets and diagnostics.
-#[allow(clippy::too_many_arguments)]
+/// image-only path must use the same codec admission, limits and diagnostics.
+/// `image_at` locates the record on a page of a known variant.
 fn preflight_image<S: RangedSource, C: Cancellation>(
     source: &mut S,
     record: ImageRecord,
-    variant: Variant,
     image_at: At,
     table: Option<&QmTable>,
     options: ComposeOptions,
     limits: &Limits,
     cancellation: &C,
 ) -> Result<(CheckedImage, Option<CheckedType3>, u32, u32, u32), ComposeError> {
+    let variant = image_at.variant.expect("a page location names its variant");
     Ok(match record.record_type {
         0 if variant != Variant::HnB => {
             if table.is_none() {
@@ -586,8 +508,6 @@ fn preflight_image<S: RangedSource, C: Cancellation>(
                 record.type0_span().expect("matched type zero"),
                 limits,
                 cancellation,
-                options.arithmetic,
-                options.image,
             )
             .map_err(image_at.type0(ComposeStage::Headers))?;
             let display_width = info.width;
@@ -604,7 +524,7 @@ fn preflight_image<S: RangedSource, C: Cancellation>(
                 source,
                 record,
                 image_at,
-                options.type3,
+                options.text_header_policy,
                 limits,
                 cancellation,
             )?;
@@ -621,7 +541,7 @@ fn preflight_image<S: RangedSource, C: Cancellation>(
         // Type 1 reuses the validated JPEG path in the measured
         // HN-A/C8 composition profile; HN-B remains type-2 only.
         1 | 2 if record.record_type == 2 || variant != Variant::HnB => {
-            let info = read_type2_jpeg_info(source, record, limits, cancellation, options.jpeg)
+            let info = read_type2_jpeg_info(source, record, limits, cancellation)
                 .map_err(image_at.jpeg(ComposeStage::Headers))?;
             let width = u32::from(info.width);
             let height = u32::from(info.height);
@@ -649,7 +569,6 @@ fn emit_image<S, W, C>(
     image_at: At,
     buffers: &mut ImageBuffers,
     table: Option<&QmTable>,
-    options: ComposeOptions,
     limits: &Limits,
     cancellation: &C,
     report: &mut ComposeReport,
@@ -684,7 +603,6 @@ where
                 table.expect("type-zero table checked"),
                 buffers.contexts.as_mut().expect("contexts constructed"),
                 image_at,
-                options,
                 limits,
                 cancellation,
             )?;
@@ -707,7 +625,6 @@ where
                 &mut buffers.type3,
                 type3.expect("type-3 metadata retained from preflight"),
                 image_at,
-                options.type3,
                 limits,
                 cancellation,
             )?;
@@ -754,7 +671,6 @@ where
 /// type-0 or type-3 payload at a time is held in memory, and type-3 images
 /// decode into three in-memory symbol stores and a text region, each a
 /// single allocation within `Limits::max_allocation_bytes`.
-#[allow(clippy::too_many_arguments)]
 pub fn convert_source_pages_pdf<S, W, V, C>(
     source: &mut S,
     sink: &mut W,
@@ -770,10 +686,10 @@ where
     V: ComposeVisitor,
     C: Cancellation,
 {
-    validate(options, limits)?;
+    validate(limits)?;
     let mut input_bytes_read = 0;
     let mut counted = CountingSource::new(source, &mut input_bytes_read);
-    let mut reader = Hnc8Reader::open(&mut counted, limits, cancellation, options.container)
+    let mut reader = Hnc8Reader::open(&mut counted, limits, cancellation)
         .map_err(|error| container(error, ComposeStage::Container))?;
     let header = reader.header();
     let document_at = At {
@@ -820,7 +736,6 @@ where
             page,
             &[size_of::<ComposedImage>(), size_of::<ImagePlacement>()],
             at,
-            options,
             limits,
         )?;
         let mut coordinates = Vec::new();
@@ -838,7 +753,6 @@ where
                 page,
                 limits,
                 cancellation,
-                options.text,
             )
             .map_err(|error| container(error, ComposeStage::Text))?;
             page_size = text.page_size.or(page_size);
@@ -856,13 +770,8 @@ where
         }
         let mut images: Vec<ComposedImage> = page_vector(count, limits, "current-page image plans")
             .map_err(at.io(ComposeStage::Preflight))?;
-        let plan_capacity = capacity_bytes::<ComposedImage>(images.capacity());
-        let planning_peak =
-            plan_capacity + capacity_bytes::<RawTextCoordinate>(coordinates.capacity());
-        check_metadata(planning_peak, options.budget).map_err(at.io(ComposeStage::Preflight))?;
-        // Checked type-3 metadata in emit order, charged to the same budget.
+        // Checked type-3 metadata in emit order.
         let mut type3_plans: Vec<CheckedType3> = Vec::new();
-        let mut type3_bytes = 0;
         let mut geometry = page_size
             .map(source_page_geometry)
             .transpose()
@@ -892,7 +801,6 @@ where
             let (checked, plan, visible_width, display_width, height) = preflight_image(
                 reader.source_mut(),
                 record,
-                header.variant,
                 image_at,
                 table,
                 options,
@@ -900,7 +808,6 @@ where
                 cancellation,
             )?;
             if let Some(plan) = plan {
-                type3_bytes += plan.retained_bytes();
                 let wanted = capacity_bytes::<CheckedType3>(type3_plans.len() + 1);
                 reserve(
                     &mut type3_plans,
@@ -909,10 +816,6 @@ where
                 )
                 .map_err(image_at.io(ComposeStage::Preflight))?;
                 type3_plans.push(plan);
-                let peak = planning_peak
-                    + capacity_bytes::<CheckedType3>(type3_plans.capacity())
-                    + type3_bytes;
-                check_metadata(peak, options.budget).map_err(at.io(ComposeStage::Preflight))?;
             }
             if geometry.is_none() {
                 // Only HN-B lacks source page dimensions. Its admitted single
@@ -954,12 +857,6 @@ where
         drop(coordinates);
         let mut placements = page_vector(count, limits, "current-page image placements")
             .map_err(at.io(ComposeStage::Preflight))?;
-        let placement_capacity = capacity_bytes::<ImagePlacement>(placements.capacity());
-        let metadata_peak = plan_capacity
-            + placement_capacity
-            + capacity_bytes::<CheckedType3>(type3_plans.capacity())
-            + type3_bytes;
-        check_metadata(metadata_peak, options.budget).map_err(at.io(ComposeStage::Preflight))?;
         let mut type3_plans = type3_plans.into_iter();
         for index in 0..images.len() {
             if let Some(original) = images[index].duplicate_of {
@@ -982,7 +879,6 @@ where
                 image_at,
                 &mut buffers,
                 table,
-                options,
                 limits,
                 cancellation,
                 &mut report,

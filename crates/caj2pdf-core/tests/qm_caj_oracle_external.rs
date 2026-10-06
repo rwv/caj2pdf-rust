@@ -6,8 +6,8 @@
 //! A normal test run must report this test as ignored. An explicit run checks
 //! every image in the pinned #22 hash catalog and fails on missing inputs.
 
-use caj2pdf_core::jbig1::{Type0Budget, Type0Decoder, Type0Span};
-use caj2pdf_core::qm::{ArithmeticBudget, ContextBank, QmState, QmTable};
+use caj2pdf_core::jbig1::{Type0Decoder, Type0Span};
+use caj2pdf_core::qm::{ContextBank, QmState, QmTable};
 use caj2pdf_core::{Limits, NeverCancel, native::SeekableSource, read_payload};
 use sha2::{Digest, Sha256};
 use std::{
@@ -355,10 +355,6 @@ fn run_image(
     if max_symbols > MAX_SYMBOLS {
         return Err("symbol budget exceeds local hard cap".into());
     }
-    let max_work = max_symbols
-        .checked_mul(32)
-        .and_then(|n| n.checked_add(1024))
-        .ok_or("work budget overflows")?;
 
     let mut output = Spool::new(index)?;
     let limits = Limits::default();
@@ -388,16 +384,6 @@ fn run_image(
         &mut output,
         &limits,
         &NeverCancel,
-        ArithmeticBudget {
-            max_symbols,
-            max_work,
-        },
-        Type0Budget {
-            max_width: 10_000,
-            max_height: 20_000,
-            max_pixels: MAX_SYMBOLS,
-            max_context_work: MAX_SYMBOLS * 10 + 20_000,
-        },
     )?;
     let info = decoder.progress().info;
     if (info.width as usize, info.height as usize, info.dib_stride) != (width, height, stride) {

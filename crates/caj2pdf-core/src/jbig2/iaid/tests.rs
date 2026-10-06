@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 use super::*;
-use crate::jbig2::mq::{CodedSpan, ContextBank, ContextState, MqBudget, MqTable};
+use crate::jbig2::mq::{CodedSpan, ContextBank, ContextState, MqTable};
 use crate::test_support::mq_encoder;
 use crate::{Limits, Payload};
 
@@ -29,7 +29,6 @@ fn round_trip(code_len: u32, values: &[u64]) -> (Vec<u64>, Vec<ContextState>) {
         &table,
         &mut bank,
         &limits,
-        MqBudget::default(),
     )
     .unwrap();
     let decoded = values
@@ -90,7 +89,6 @@ fn largest_default_width_and_truncated_stream_error() {
         &table,
         &mut bank,
         &limits,
-        MqBudget::default(),
     )
     .unwrap();
     let error = decode_iaid(&mut decoder, 15).unwrap_err();
@@ -119,7 +117,6 @@ fn widths_beyond_the_bank_or_the_address_space_are_refused_before_input() {
         &table,
         &mut bank,
         &limits,
-        MqBudget::default(),
     )
     .unwrap();
     let before = decoder.snapshot();

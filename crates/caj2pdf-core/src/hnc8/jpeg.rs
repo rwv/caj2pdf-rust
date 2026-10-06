@@ -9,25 +9,6 @@ use crate::{Cancellation, Error, Limits, RangedSource, read_exact_at};
 
 const BUFFER_BYTES: usize = 4096;
 
-/// Independent ceilings for one JPEG marker traversal. Work counts source
-/// bytes fetched, including buffered bytes, rather than decoded pixels.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct JpegBudget {
-    pub max_payload_bytes: u64,
-    pub max_markers: u32,
-    pub max_work_bytes: u64,
-}
-
-impl Default for JpegBudget {
-    fn default() -> Self {
-        Self {
-            max_payload_bytes: 64 * 1024 * 1024,
-            max_markers: 100_000,
-            max_work_bytes: 64 * 1024 * 1024,
-        }
-    }
-}
-
 /// Color interpretation established by an explicit interchange marker.
 /// Three-component JPEG without such a marker is rejected as unsupported.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -61,8 +42,6 @@ struct Cursor<'a, S: RangedSource, C: Cancellation> {
     buffer: [u8; BUFFER_BYTES],
     buffered: usize,
     used: usize,
-    work: u64,
-    max_work: u64,
 }
 
 impl<S: RangedSource, C: Cancellation> Cursor<'_, S, C> {
@@ -78,17 +57,9 @@ impl<S: RangedSource, C: Cancellation> Cursor<'_, S, C> {
                 available: 0,
             }));
         }
-        if self.work >= self.max_work {
-            return Err(self.at(self.position).limit(
-                "JPEG work bytes",
-                self.max_work,
-                self.work.saturating_add(1),
-            ));
-        }
         let count = (self.end - self.position)
             .min(BUFFER_BYTES as u64)
-            .min(self.limits.io_chunk_bytes as u64)
-            .min(self.max_work - self.work) as usize;
+            .min(self.limits.io_chunk_bytes as u64) as usize;
         let offset = self.position;
         read_exact_at(
             self.source,
@@ -108,7 +79,6 @@ impl<S: RangedSource, C: Cancellation> Cursor<'_, S, C> {
                 }),
             source => self.at(offset).error(ErrorKind::Source { field, source }),
         })?;
-        self.work += count as u64;
         self.buffered = count;
         self.used = 0;
         Ok(())
@@ -207,7 +177,7 @@ struct Frame {
 
 struct Parser<'a, S: RangedSource, C: Cancellation> {
     cursor: Cursor<'a, S, C>,
-    budget: JpegBudget,
+    /// Markers read so far; each takes at least two payload bytes.
     markers: u32,
     frame: Option<Frame>,
     quant_mask: u8,
@@ -218,22 +188,9 @@ struct Parser<'a, S: RangedSource, C: Cancellation> {
 }
 
 impl<S: RangedSource, C: Cancellation> Parser<'_, S, C> {
-    fn charge_marker(&mut self, offset: u64) -> Result<()> {
-        let attempted = u64::from(self.markers) + 1;
-        if self.markers >= self.budget.max_markers {
-            return Err(self.cursor.at(offset).limit(
-                "JPEG markers",
-                u64::from(self.budget.max_markers),
-                attempted,
-            ));
-        }
-        self.markers += 1;
-        Ok(())
-    }
-
     fn next_marker(&mut self) -> Result<(u64, u8)> {
         let (offset, code) = self.cursor.marker("JPEG marker")?;
-        self.charge_marker(offset)?;
+        self.markers = self.markers.saturating_add(1);
         Ok((offset, code))
     }
 
@@ -575,7 +532,7 @@ impl<S: RangedSource, C: Cancellation> Parser<'_, S, C> {
                 }
                 continue;
             }
-            self.charge_marker(at)?;
+            self.markers = self.markers.saturating_add(1);
             if (0xd0..=0xd7).contains(&code) {
                 if self.restart_interval.unwrap_or(0) == 0 {
                     return Err(self
@@ -711,13 +668,13 @@ impl<S: RangedSource, C: Cancellation> Parser<'_, S, C> {
 
 /// Traverse one checked type-1 or type-2 JPEG descriptor without copying its complete JPEG.
 /// A successful result proves only the documented marker/profile subset;
-/// entropy code validity and PDF pixel parity require later checks.
+/// entropy code validity and PDF pixel parity require later checks. The
+/// payload is bounded by `Limits::max_allocation_bytes`.
 pub fn read_type2_jpeg_info<S: RangedSource, C: Cancellation>(
     source: &mut S,
     record: ImageRecord,
     limits: &Limits,
     cancellation: &C,
-    budget: JpegBudget,
 ) -> Result<JpegInfo> {
     let location = Location {
         variant: None,
@@ -725,12 +682,6 @@ pub fn read_type2_jpeg_info<S: RangedSource, C: Cancellation>(
         page: Some(record.page_number),
         image: Some(record.image_number),
     };
-    limits.validate().map_err(|source| {
-        location.error(ErrorKind::Source {
-            field: "limits",
-            source,
-        })
-    })?;
     if cancellation.is_cancelled() {
         return Err(location.error(ErrorKind::Cancelled));
     }
@@ -777,10 +728,10 @@ pub fn read_type2_jpeg_info<S: RangedSource, C: Cancellation>(
             available: source.size().saturating_sub(record.payload.offset),
         }));
     }
-    if record.payload.length > budget.max_payload_bytes {
+    if record.payload.length > limits.max_allocation_bytes {
         return Err(location.at(record.descriptor_offset + 8).limit(
             "JPEG payload bytes",
-            budget.max_payload_bytes,
+            limits.max_allocation_bytes,
             record.payload.length,
         ));
     }
@@ -794,12 +745,9 @@ pub fn read_type2_jpeg_info<S: RangedSource, C: Cancellation>(
         buffer: [0; BUFFER_BYTES],
         buffered: 0,
         used: 0,
-        work: 0,
-        max_work: budget.max_work_bytes,
     };
     Parser {
         cursor,
-        budget,
         markers: 0,
         frame: None,
         quant_mask: 0,

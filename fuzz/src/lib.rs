@@ -7,7 +7,7 @@
 use caj2pdf_core::{
     Bookmark, BookmarkVisitor, ConversionOptions, Error, InputFormat, Limits, NeverCancel, Result,
     SIGNATURE_BYTES, caj, detect_format,
-    hnc8::{Budget, ComposeOptions, Hnc8Reader, Type3PdfOptions, convert_source_pages_pdf},
+    hnc8::{ComposeOptions, Hnc8Reader, convert_source_pages_pdf},
     jbig2::text::TextHeaderPolicy,
     kdh::convert_kdh,
     pdf::copy_pdf,
@@ -62,10 +62,7 @@ pub fn convert(data: &[u8]) {
         InputFormat::Kdh => convert_kdh(&mut source, &mut sink, &limits, &NeverCancel),
         InputFormat::Hn | InputFormat::C8 => {
             let compose = ComposeOptions {
-                type3: Type3PdfOptions {
-                    text_header_policy: TextHeaderPolicy::HnC8UnusedRefinementTemplate,
-                    ..Default::default()
-                },
+                text_header_policy: TextHeaderPolicy::HnC8UnusedRefinementTemplate,
                 ..Default::default()
             };
             convert_source_pages_pdf(
@@ -94,7 +91,7 @@ impl BookmarkVisitor for Bookmarks {
 
 /// Read every HN/C8 page row and, for HN-A, the outline.
 fn hnc8_metadata(mut source: &[u8], limits: &Limits) -> Option<()> {
-    let mut reader = Hnc8Reader::open(&mut source, limits, &NeverCancel, Budget::default()).ok()?;
+    let mut reader = Hnc8Reader::open(&mut source, limits, &NeverCancel).ok()?;
     let pages = reader.header().page_count;
     while reader.next_page().ok()?.is_some() {}
     if reader.declared_bookmark_count().is_some() {

@@ -7,10 +7,7 @@
 
 use caj2pdf_core::{
     Limits, NeverCancel, RangedSource,
-    hnc8::{
-        Budget, ErrorKind, Hnc8Error, Hnc8Reader, JpegBudget, JpegColor, Variant,
-        read_type2_jpeg_info,
-    },
+    hnc8::{ErrorKind, Hnc8Error, Hnc8Reader, JpegColor, Variant, read_type2_jpeg_info},
 };
 use sha2::{Digest, Sha256};
 use std::{
@@ -457,11 +454,7 @@ fn run_all() -> TestResult<()> {
         max_allocation_bytes: MAX_JPEG,
         max_pages: 100_000,
         max_bookmarks: 100_000,
-    };
-    let jpeg_budget = JpegBudget {
-        max_payload_bytes: MAX_JPEG,
-        max_markers: 65_536,
-        max_work_bytes: 128 * 1024 * 1024,
+        ..Limits::default()
     };
     let mut checked = 0;
     let mut matched = 0;
@@ -479,7 +472,7 @@ fn run_all() -> TestResult<()> {
     for (index, (sample, path)) in samples.iter().zip(&paths).enumerate() {
         let mut source = CountedSource::open(path, sample.size)?;
         let mut verifier = File::open(path)?;
-        let mut root = Hnc8Reader::open(&mut source, &limits, &NeverCancel, Budget::default())?;
+        let mut root = Hnc8Reader::open(&mut source, &limits, &NeverCancel)?;
         let header = root.header();
         let pages = header.page_count;
         let variant_index = match header.variant {
@@ -489,13 +482,8 @@ fn run_all() -> TestResult<()> {
         };
         let mut images = sample.images.iter();
         for page_number in 1..=pages {
-            let mut page = Hnc8Reader::probe_at_page(
-                root.source_mut(),
-                &limits,
-                &NeverCancel,
-                Budget::default(),
-                page_number,
-            )?;
+            let mut page =
+                Hnc8Reader::probe_at_page(root.source_mut(), &limits, &NeverCancel, page_number)?;
             match page.next_page() {
                 Ok(Some(_)) => {}
                 Ok(None) => return Err("declared page disappeared".into()),
@@ -547,13 +535,7 @@ fn run_all() -> TestResult<()> {
                     &hash_span(&mut verifier, expected.offset, expected.length)?,
                     &expected.sha,
                 )?;
-                let result = read_type2_jpeg_info(
-                    page.source_mut(),
-                    record,
-                    &limits,
-                    &NeverCancel,
-                    jpeg_budget,
-                );
+                let result = read_type2_jpeg_info(page.source_mut(), record, &limits, &NeverCancel);
                 check_hash(
                     "JPEG span after parsing",
                     &hash_span(&mut verifier, expected.offset, expected.length)?,

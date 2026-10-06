@@ -3,8 +3,8 @@
 use caj2pdf_core::{
     Cancellation, Error, Limits, NeverCancel, RangedSource,
     jbig2::{
-        HeaderLimits, SegmentHeader, SegmentSpan,
-        page_info::{PageInfoBudget, PageInfoErrorKind, read_page_info},
+        SegmentHeader, SegmentSpan,
+        page_info::{PageInfoErrorKind, read_page_info},
         read_segment_header,
     },
 };
@@ -131,14 +131,7 @@ fn prepared_with_fields(
         offset: 0,
         length: source.size,
     };
-    let header = read_segment_header(
-        &mut source,
-        span,
-        &Limits::default(),
-        HeaderLimits::default(),
-        &NeverCancel,
-    )
-    .unwrap();
+    let header = read_segment_header(&mut source, span, &Limits::default(), &NeverCancel).unwrap();
     source.reads.clear();
     (source, header)
 }
@@ -150,43 +143,26 @@ fn prepared(bytes: &[u8]) -> (Source, SegmentHeader) {
 #[test]
 fn parses_invented_odd_width_page_and_keeps_nonzero_resolutions() {
     let (mut source, header) = prepared(&body(13, 7, 3_779, 4_000));
-    let info = read_page_info(
-        &mut source,
-        &header,
-        &Limits::default(),
-        PageInfoBudget::default(),
-        &NeverCancel,
-    )
-    .unwrap();
+    let info = read_page_info(&mut source, &header, &Limits::default(), &NeverCancel).unwrap();
     assert_eq!((info.width, info.height), (13, 7));
     assert_eq!(info.data, header.data);
     assert_eq!((info.x_resolution, info.y_resolution), (3_779, 4_000));
     assert_eq!(info.flags_raw, 0x01);
     assert_eq!(info.striping_raw, 0);
     assert_eq!((info.row_stride, info.packed_bytes), (2, 14));
-    assert_eq!((info.source_bytes_fetched, info.source_read_calls), (19, 1));
-    assert_eq!(info.max_source_request_bytes, 19);
     assert_eq!(source.reads, [(header.data.offset, 19)]);
 }
 
 #[test]
 fn one_pixel_and_exact_dimension_limits_are_inclusive() {
     let (mut source, header) = prepared(&body(1, 1, 0, 0));
-    let budget = PageInfoBudget {
-        max_width: 1,
-        max_height: 1,
-        max_pixels: 1,
-        max_packed_bytes: 1,
-        ..PageInfoBudget::default()
+    let limits = Limits {
+        io_chunk_bytes: 1,
+        max_allocation_bytes: 1,
+        max_image_pixels: 1,
+        ..Limits::default()
     };
-    let info = read_page_info(
-        &mut source,
-        &header,
-        &Limits::default(),
-        budget,
-        &NeverCancel,
-    )
-    .unwrap();
+    let info = read_page_info(&mut source, &header, &limits, &NeverCancel).unwrap();
     assert_eq!((info.row_stride, info.packed_bytes), (1, 1));
 }
 
@@ -194,24 +170,13 @@ fn one_pixel_and_exact_dimension_limits_are_inclusive() {
 fn positioned_short_reads_are_bounded_and_counted() {
     let (mut source, header) = prepared(&body(9, 2, 0, 0));
     source.max_read = 2;
-    let budget = PageInfoBudget {
-        max_source_request_bytes: 4,
-        ..PageInfoBudget::default()
+    let limits = Limits {
+        io_chunk_bytes: 4,
+        ..Limits::default()
     };
-    let info = read_page_info(
-        &mut source,
-        &header,
-        &Limits::default(),
-        budget,
-        &NeverCancel,
-    )
-    .unwrap();
+    let info = read_page_info(&mut source, &header, &limits, &NeverCancel).unwrap();
     assert_eq!((info.row_stride, info.packed_bytes), (2, 4));
-    assert_eq!(
-        (info.source_bytes_fetched, info.source_read_calls),
-        (19, 10)
-    );
-    assert_eq!(info.max_source_request_bytes, 4);
+    assert_eq!(source.reads.len(), 10);
     assert_eq!(source.reads.first(), Some(&(header.data.offset, 4)));
     assert_eq!(source.reads.last(), Some(&(header.data.offset + 18, 1)));
     assert!(source.reads.iter().all(|(_, requested)| *requested <= 4));
@@ -224,7 +189,6 @@ fn rejects_short_and_extra_declared_bodies_before_reading() {
         &mut short_source,
         &short_header,
         &Limits::default(),
-        PageInfoBudget::default(),
         &NeverCancel,
     )
     .unwrap_err();
@@ -243,7 +207,6 @@ fn rejects_short_and_extra_declared_bodies_before_reading() {
         &mut extra_source,
         &extra_header,
         &Limits::default(),
-        PageInfoBudget::default(),
         &NeverCancel,
     )
     .unwrap_err();
@@ -257,55 +220,30 @@ fn rejects_short_and_extra_declared_bodies_before_reading() {
 }
 
 #[test]
-fn rejects_over_budget_geometry() {
-    for (width, height, expected) in [(10, 2, "limit"), (2, 10, "limit")] {
-        let (mut source, header) = prepared(&body(width, height, 0, 0));
-        let budget = PageInfoBudget {
-            max_width: 9,
-            max_height: 9,
-            ..PageInfoBudget::default()
-        };
-        let error = read_page_info(
-            &mut source,
-            &header,
-            &Limits::default(),
-            budget,
-            &NeverCancel,
-        )
-        .unwrap_err();
-        assert_eq!(
-            match error.kind {
-                PageInfoErrorKind::LimitExceeded { .. } => "limit",
-                _ => "other",
-            },
-            expected,
-            "{width}x{height}"
-        );
-        assert!(error.to_string().contains(expected));
-    }
+fn rejects_geometry_over_the_pixel_and_allocation_limits() {
     let (mut source, header) = prepared(&body(9, 9, 0, 0));
-    for budget in [
-        PageInfoBudget {
-            max_pixels: 80,
-            ..PageInfoBudget::default()
-        },
-        PageInfoBudget {
-            max_packed_bytes: 17,
-            ..PageInfoBudget::default()
-        },
+    for (limits, resource) in [
+        (
+            Limits {
+                max_image_pixels: 80,
+                ..Limits::default()
+            },
+            "page pixels",
+        ),
+        (
+            Limits {
+                io_chunk_bytes: 1,
+                max_allocation_bytes: 17,
+                ..Limits::default()
+            },
+            "packed page bytes",
+        ),
     ] {
-        let error = read_page_info(
-            &mut source,
-            &header,
-            &Limits::default(),
-            budget,
-            &NeverCancel,
-        )
-        .unwrap_err();
-        assert!(matches!(
-            error.kind,
-            PageInfoErrorKind::LimitExceeded { .. }
-        ));
+        let error = read_page_info(&mut source, &header, &limits, &NeverCancel).unwrap_err();
+        assert!(
+            matches!(error.kind, PageInfoErrorKind::LimitExceeded { resource: actual, .. } if actual == resource),
+            "{error}"
+        );
     }
 }
 
@@ -314,14 +252,7 @@ fn rejects_a_body_span_beyond_the_address_space() {
     let (mut source, mut header) = prepared(&body(2, 2, 0, 0));
     header.data.offset = u64::MAX - 10;
     source.size = u64::MAX;
-    let error = read_page_info(
-        &mut source,
-        &header,
-        &Limits::default(),
-        PageInfoBudget::default(),
-        &NeverCancel,
-    )
-    .unwrap_err();
+    let error = read_page_info(&mut source, &header, &Limits::default(), &NeverCancel).unwrap_err();
     assert!(matches!(error.kind, PageInfoErrorKind::InvalidSpan(_)));
     assert!(error.to_string().contains("invalid span"));
     assert!(source.reads.is_empty());
@@ -331,59 +262,23 @@ fn rejects_a_body_span_beyond_the_address_space() {
 fn rejects_physical_truncation_zero_progress_overreport_and_source_failure() {
     let (mut source, header) = prepared(&body(2, 2, 0, 0));
     source.size -= 1;
-    let error = read_page_info(
-        &mut source,
-        &header,
-        &Limits::default(),
-        PageInfoBudget::default(),
-        &NeverCancel,
-    )
-    .unwrap_err();
+    let error = read_page_info(&mut source, &header, &Limits::default(), &NeverCancel).unwrap_err();
     assert!(matches!(error.kind, PageInfoErrorKind::Truncated(_)));
     assert!(source.reads.is_empty());
 
     let (mut source, header) = prepared(&body(2, 2, 0, 0));
     source.max_read = 0;
-    let error = read_page_info(
-        &mut source,
-        &header,
-        &Limits::default(),
-        PageInfoBudget::default(),
-        &NeverCancel,
-    )
-    .unwrap_err();
+    let error = read_page_info(&mut source, &header, &Limits::default(), &NeverCancel).unwrap_err();
     assert!(matches!(error.kind, PageInfoErrorKind::Truncated(_)));
-    assert_eq!(
-        (error.source_bytes_fetched, error.source_read_calls),
-        (0, 1)
-    );
 
     let (mut source, header) = prepared(&body(2, 2, 0, 0));
     source.overreport = true;
-    let error = read_page_info(
-        &mut source,
-        &header,
-        &Limits::default(),
-        PageInfoBudget::default(),
-        &NeverCancel,
-    )
-    .unwrap_err();
+    let error = read_page_info(&mut source, &header, &Limits::default(), &NeverCancel).unwrap_err();
     assert!(matches!(error.kind, PageInfoErrorKind::Malformed(_)));
-    assert_eq!(
-        (error.source_bytes_fetched, error.source_read_calls),
-        (0, 1)
-    );
 
     let (mut source, header) = prepared(&body(2, 2, 0, 0));
     source.fail_at = Some((header.data.offset, SourceFailure::Io));
-    let error = read_page_info(
-        &mut source,
-        &header,
-        &Limits::default(),
-        PageInfoBudget::default(),
-        &NeverCancel,
-    )
-    .unwrap_err();
+    let error = read_page_info(&mut source, &header, &Limits::default(), &NeverCancel).unwrap_err();
     assert!(matches!(error.kind, PageInfoErrorKind::Source(_)));
     assert!(error.to_string().contains("source: I/O error"));
     assert!(std::error::Error::source(&error).is_some());
@@ -394,19 +289,9 @@ fn rejects_physical_truncation_zero_progress_overreport_and_source_failure() {
     ] {
         let (mut source, header) = prepared(&body(2, 2, 0, 0));
         source.fail_at = Some((header.data.offset, failure));
-        let error = read_page_info(
-            &mut source,
-            &header,
-            &Limits::default(),
-            PageInfoBudget::default(),
-            &NeverCancel,
-        )
-        .unwrap_err();
+        let error =
+            read_page_info(&mut source, &header, &Limits::default(), &NeverCancel).unwrap_err();
         assert!(error.to_string().contains(expected));
-        assert_eq!(
-            (error.source_bytes_fetched, error.source_read_calls),
-            (0, 1)
-        );
     }
 }
 
@@ -418,7 +303,6 @@ fn cancellation_before_and_after_a_body_read_is_located() {
         &mut source,
         &header,
         &Limits::default(),
-        PageInfoBudget::default(),
         &Flag(state.clone()),
     )
     .unwrap_err();
@@ -434,87 +318,31 @@ fn cancellation_before_and_after_a_body_read_is_located() {
         &mut source,
         &header,
         &Limits::default(),
-        PageInfoBudget::default(),
         &Flag(state.clone()),
     )
     .unwrap_err();
     assert!(matches!(error.kind, PageInfoErrorKind::Cancelled));
-    assert_eq!(
-        (error.source_bytes_fetched, error.source_read_calls),
-        (1, 1)
-    );
 
     let (mut source, header) = prepared(&body(2, 2, 0, 0));
     let cancellation = CancelOnCheck {
         checks: Cell::new(0),
         from: 2,
     };
-    let error = read_page_info(
-        &mut source,
-        &header,
-        &Limits::default(),
-        PageInfoBudget::default(),
-        &cancellation,
-    )
-    .unwrap_err();
+    let error =
+        read_page_info(&mut source, &header, &Limits::default(), &cancellation).unwrap_err();
     assert!(matches!(error.kind, PageInfoErrorKind::Cancelled));
     assert_eq!(cancellation.checks.get(), 2);
     assert!(source.reads.is_empty());
 }
 
 #[test]
-fn explicit_source_and_output_budgets_stop_work() {
+fn input_and_output_limits_stop_work() {
     let (mut source, header) = prepared(&body(9, 2, 0, 0));
-    let budgets = [
-        PageInfoBudget {
-            max_source_io_bytes: 18,
-            ..PageInfoBudget::default()
-        },
-        PageInfoBudget {
-            max_source_request_bytes: 1,
-            max_source_io_calls: 18,
-            ..PageInfoBudget::default()
-        },
-    ];
-    for budget in budgets {
-        let error = read_page_info(
-            &mut source,
-            &header,
-            &Limits::default(),
-            budget,
-            &NeverCancel,
-        )
-        .unwrap_err();
-        assert!(matches!(
-            error.kind,
-            PageInfoErrorKind::LimitExceeded { .. }
-        ));
-    }
-    let error = read_page_info(
-        &mut source,
-        &header,
-        &Limits::default(),
-        PageInfoBudget {
-            max_source_request_bytes: 0,
-            ..PageInfoBudget::default()
-        },
-        &NeverCancel,
-    )
-    .unwrap_err();
-    assert!(matches!(error.kind, PageInfoErrorKind::Malformed(_)));
-
     let limits = Limits {
         max_input_bytes: 18,
         ..Limits::default()
     };
-    let error = read_page_info(
-        &mut source,
-        &header,
-        &limits,
-        PageInfoBudget::default(),
-        &NeverCancel,
-    )
-    .unwrap_err();
+    let error = read_page_info(&mut source, &header, &limits, &NeverCancel).unwrap_err();
     assert!(matches!(
         error.kind,
         PageInfoErrorKind::LimitExceeded { .. }
@@ -525,14 +353,7 @@ fn explicit_source_and_output_budgets_stop_work() {
         max_output_bytes: 3,
         ..Limits::default()
     };
-    let error = read_page_info(
-        &mut source,
-        &header,
-        &limits,
-        PageInfoBudget::default(),
-        &NeverCancel,
-    )
-    .unwrap_err();
+    let error = read_page_info(&mut source, &header, &limits, &NeverCancel).unwrap_err();
     assert!(matches!(
         error.kind,
         PageInfoErrorKind::LimitExceeded { .. }

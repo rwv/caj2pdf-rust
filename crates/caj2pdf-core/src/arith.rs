@@ -2,11 +2,11 @@
 
 //! Scaffolding shared by the T.82 QM decoder ([`crate::qm`]) and the T.88 MQ
 //! decoder ([`crate::jbig2::mq`]): the context bank, the coded span, the
-//! located error, the register snapshot, and the symbol and work counters.
+//! located error, the register snapshot, and the symbol counters.
 //! Each decoder keeps its own interval arithmetic and probability states and
 //! reads its coded bytes from a [`Payload`] in memory.
 
-use crate::{Error, Limits, MAX_BUDGET_COUNT, Payload};
+use crate::{Error, Limits, Payload};
 use std::{error, fmt, mem};
 
 /// One context's probability-state index and more-probable symbol.
@@ -32,9 +32,6 @@ impl ContextBank {
             context: None,
             kind,
         };
-        limits
-            .validate()
-            .map_err(|source| failed(ArithmeticErrorKind::Source(source)))?;
         if count == 0 {
             return Err(failed(ArithmeticErrorKind::InvalidContext));
         }
@@ -112,7 +109,6 @@ pub struct ArithmeticError {
 pub enum ArithmeticErrorKind {
     InvalidContext,
     InvalidSpan(&'static str),
-    InvalidBudget,
     /// `finish` was given a symbol count other than the decoded count.
     SymbolCount {
         expected: u64,
@@ -133,18 +129,6 @@ pub enum ArithmeticErrorKind {
 
 pub type ArithmeticResult<T> = std::result::Result<T, ArithmeticError>;
 
-impl ArithmeticError {
-    /// An error located only by its decoder, before any input is read.
-    pub(crate) fn configuration(coder: Coder, kind: ArithmeticErrorKind) -> Self {
-        Self {
-            coder: Some(coder),
-            offset: None,
-            context: None,
-            kind,
-        }
-    }
-}
-
 impl fmt::Display for ArithmeticError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self.coder {
@@ -162,7 +146,6 @@ impl fmt::Display for ArithmeticError {
         match &self.kind {
             ArithmeticErrorKind::InvalidContext => f.write_str("invalid context index or count"),
             ArithmeticErrorKind::InvalidSpan(reason) => write!(f, "invalid span: {reason}"),
-            ArithmeticErrorKind::InvalidBudget => f.write_str("invalid budget"),
             ArithmeticErrorKind::SymbolCount { expected, decoded } => {
                 write!(f, "expected {expected} symbols, decoded {decoded}")
             }
@@ -204,13 +187,6 @@ pub struct ArithmeticSnapshot {
     /// span, or T.88 one bits at the terminal marker.
     pub synthesized_inputs: u64,
     pub symbols_decoded: u64,
-    pub work_done: u64,
-}
-
-/// Whether the symbol and work budgets of a decoder are in
-/// `1..=MAX_BUDGET_COUNT`.
-pub(crate) fn valid_counts(max_symbols: u64, max_work: u64) -> bool {
-    (1..=MAX_BUDGET_COUNT).contains(&max_symbols) && (1..=MAX_BUDGET_COUNT).contains(&max_work)
 }
 
 /// Check a coded span against the input limit and the payload, returning
@@ -238,45 +214,15 @@ pub(crate) fn check_span<'a>(
         .ok_or_else(|| at(ArithmeticErrorKind::InvalidSpan("outside source size")))
 }
 
-/// The counters of one coding unit.
+/// The counters of one coding unit. Each step adds one, so neither can
+/// reach `u64::MAX`.
 #[derive(Clone, Copy, Debug, Default)]
 pub(crate) struct Counters {
     pub symbols_decoded: u64,
-    pub work_done: u64,
     pub synthesized_inputs: u64,
 }
 
 impl Counters {
-    /// Check the symbol budget for one more decision, returning the count
-    /// after it.
-    pub(crate) fn next_symbol(&self, max_symbols: u64) -> Result<u64, ArithmeticErrorKind> {
-        // `symbols_decoded <= max_symbols <= MAX_BUDGET_COUNT`.
-        let attempted = self.symbols_decoded + 1;
-        if attempted > max_symbols {
-            return Err(ArithmeticErrorKind::LimitExceeded {
-                resource: "symbols",
-                limit: max_symbols,
-                attempted,
-            });
-        }
-        Ok(attempted)
-    }
-
-    /// Charge one unit of work. With `work_done <= max_work <=
-    /// MAX_BUDGET_COUNT` the sum cannot overflow.
-    pub(crate) fn charge(&mut self, max_work: u64) -> Result<(), ArithmeticErrorKind> {
-        let attempted = self.work_done + 1;
-        if attempted > max_work {
-            return Err(ArithmeticErrorKind::LimitExceeded {
-                resource: "arithmetic work",
-                limit: max_work,
-                attempted,
-            });
-        }
-        self.work_done = attempted;
-        Ok(())
-    }
-
     pub(crate) fn snapshot(
         &self,
         interval: u32,
@@ -291,7 +237,6 @@ impl Counters {
             input_offset,
             synthesized_inputs: self.synthesized_inputs,
             symbols_decoded: self.symbols_decoded,
-            work_done: self.work_done,
         }
     }
 }

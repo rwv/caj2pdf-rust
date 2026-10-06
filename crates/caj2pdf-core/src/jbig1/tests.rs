@@ -57,13 +57,6 @@ fn white(width: u32, height: u32) -> Vec<u8> {
     coded(&vec![vec![false; width as usize]; height as usize], false)
 }
 
-fn arithmetic_budget() -> ArithmeticBudget {
-    ArithmeticBudget {
-        max_symbols: 1_000,
-        max_work: 20_000,
-    }
-}
-
 #[derive(Default)]
 struct BytesSink {
     bytes: Vec<u8>,
@@ -156,8 +149,6 @@ fn zero_rows_at_boundary_widths_are_stride_padded_and_sequential() {
             &mut sink,
             &limits,
             &Cancel::Never,
-            arithmetic_budget(),
-            Type0Budget::default(),
         )
         .unwrap();
         let stride = (width.div_ceil(32) * 4) as usize;
@@ -202,8 +193,6 @@ fn hand_derived_first_lps_produces_one_black_pixel() {
         &mut sink,
         &limits,
         &Cancel::Never,
-        arithmetic_budget(),
-        Type0Budget::default(),
     )
     .unwrap();
     assert!(decoder.decode_next_row().unwrap());
@@ -234,8 +223,6 @@ fn black_row_is_copied_without_decoding_its_pixels() {
         &mut sink,
         &limits,
         &Cancel::Never,
-        arithmetic_budget(),
-        Type0Budget::default(),
     )
     .unwrap();
     assert!(decoder.decode_next_row().unwrap());
@@ -265,7 +252,6 @@ fn image_contexts_reset_and_first_row_copy_is_blank() {
         &table,
         &mut contexts,
         &limits,
-        arithmetic_budget(),
     )
     .unwrap();
     assert!(decoder.decode_symbol(CONTROL_CONTEXT).unwrap());
@@ -286,8 +272,6 @@ fn image_contexts_reset_and_first_row_copy_is_blank() {
             &mut sink,
             &limits,
             &Cancel::Never,
-            arithmetic_budget(),
-            Type0Budget::default(),
         )
         .unwrap();
         assert!(decoder.decode_next_row().unwrap());
@@ -300,7 +284,6 @@ fn image_contexts_reset_and_first_row_copy_is_blank() {
 #[test]
 fn malformed_wrapper_and_preallocation_limits_fail_before_decoding() {
     let limits = Limits::default();
-    let budget = Type0Budget::default();
     let base = image(9, 1, &white(9, 1));
     let info = checked_info(
         (&base[..48]).try_into().unwrap(),
@@ -310,8 +293,6 @@ fn malformed_wrapper_and_preallocation_limits_fail_before_decoding() {
             length: base.len() as u64,
         },
         &limits,
-        arithmetic_budget(),
-        budget,
     )
     .unwrap();
     assert_eq!((info.dib_stride, info.visible_bytes), (4, 2));
@@ -350,8 +331,6 @@ fn malformed_wrapper_and_preallocation_limits_fail_before_decoding() {
                     length: bytes.len() as u64
                 },
                 &limits,
-                arithmetic_budget(),
-                budget
             )
             .is_err()
         );
@@ -369,8 +348,6 @@ fn malformed_wrapper_and_preallocation_limits_fail_before_decoding() {
                 length: base.len() as u64
             },
             &tiny,
-            arithmetic_budget(),
-            budget
         )
         .unwrap_err()
         .kind,
@@ -392,8 +369,6 @@ fn malformed_wrapper_and_preallocation_limits_fail_before_decoding() {
                 length: base.len() as u64
             },
             &tiny,
-            arithmetic_budget(),
-            budget
         )
         .unwrap_err()
         .kind,
@@ -425,8 +400,6 @@ fn non_type_zero_outer_record_is_rejected_at_image_start() {
             &mut sink,
             &limits,
             &Cancel::Never,
-            arithmetic_budget(),
-            Type0Budget::default(),
         )
         .err()
         .expect("non-type-zero image must be rejected");
@@ -451,70 +424,16 @@ fn independent_preflight_limits_identify_the_resource() {
         offset: 19,
         length: bytes.len() as u64,
     };
-    let limits = Limits::default();
-    let budget = Type0Budget {
-        max_width: 8,
-        ..Type0Budget::default()
+    let limits = Limits {
+        max_image_pixels: 8,
+        ..Limits::default()
     };
     assert!(matches!(
-        checked_info(header, span, &limits, arithmetic_budget(), budget)
-            .unwrap_err()
-            .kind,
-        Type0ErrorKind::LimitExceeded {
-            resource: "image width",
-            ..
-        }
-    ));
-    let budget = Type0Budget {
-        max_height: 0,
-        ..Type0Budget::default()
-    };
-    assert!(matches!(
-        checked_info(header, span, &limits, arithmetic_budget(), budget)
-            .unwrap_err()
-            .kind,
-        Type0ErrorKind::LimitExceeded {
-            resource: "image height",
-            ..
-        }
-    ));
-    let budget = Type0Budget {
-        max_pixels: 8,
-        ..Type0Budget::default()
-    };
-    assert!(matches!(
-        checked_info(header, span, &limits, arithmetic_budget(), budget)
-            .unwrap_err()
-            .kind,
+        checked_info(header, span, &limits).unwrap_err().kind,
         Type0ErrorKind::LimitExceeded {
             resource: "image pixels",
-            ..
-        }
-    ));
-    let budget = Type0Budget {
-        max_context_work: 90,
-        ..Type0Budget::default()
-    };
-    assert!(matches!(
-        checked_info(header, span, &limits, arithmetic_budget(), budget)
-            .unwrap_err()
-            .kind,
-        Type0ErrorKind::LimitExceeded {
-            resource: "context work",
-            ..
-        }
-    ));
-    let low_symbols = ArithmeticBudget {
-        max_symbols: 9,
-        ..arithmetic_budget()
-    };
-    assert!(matches!(
-        checked_info(header, span, &limits, low_symbols, Type0Budget::default())
-            .unwrap_err()
-            .kind,
-        Type0ErrorKind::LimitExceeded {
-            resource: "arithmetic symbols",
-            ..
+            limit: 8,
+            attempted: 9,
         }
     ));
 }
@@ -595,8 +514,6 @@ fn sink_failure_and_incomplete_finish_are_explicit() {
         &mut sink,
         &limits,
         &Cancel::Never,
-        arithmetic_budget(),
-        Type0Budget::default(),
     )
     .unwrap();
     assert!(matches!(
@@ -619,8 +536,6 @@ fn sink_failure_and_incomplete_finish_are_explicit() {
         &mut sink,
         &limits,
         &Cancel::Never,
-        arithmetic_budget(),
-        Type0Budget::default(),
     )
     .unwrap();
     assert!(matches!(
@@ -661,8 +576,6 @@ fn zero_sink_writes_are_typed_errors() {
             &mut sink,
             &limits,
             &Cancel::Never,
-            arithmetic_budget(),
-            Type0Budget::default(),
         )
         .unwrap();
         let error = decoder.decode_next_row().unwrap_err();
@@ -691,8 +604,6 @@ fn span_bounds_and_context_counts_are_rejected() {
         &mut sink,
         &limits,
         &Cancel::Never,
-        arithmetic_budget(),
-        Type0Budget::default(),
     )
     .err()
     .unwrap();
@@ -713,8 +624,6 @@ fn span_bounds_and_context_counts_are_rejected() {
         &mut sink,
         &limits,
         &Cancel::Never,
-        arithmetic_budget(),
-        Type0Budget::default(),
     )
     .err()
     .unwrap();
@@ -736,8 +645,6 @@ fn span_bounds_and_context_counts_are_rejected() {
             &mut sink,
             &limits,
             &Cancel::Never,
-            arithmetic_budget(),
-            Type0Budget::default(),
         )
         .err()
         .unwrap();
@@ -782,8 +689,6 @@ fn cancellation_after_row_write_preserves_byte_progress() {
         &mut sink,
         &limits,
         &cancel,
-        arithmetic_budget(),
-        Type0Budget::default(),
     )
     .unwrap();
     let error = decoder.decode_next_row().unwrap_err();
@@ -811,8 +716,6 @@ fn arithmetic_virtual_padding_and_work_limit_remain_bounded() {
         &mut sink,
         &limits,
         &Cancel::Never,
-        arithmetic_budget(),
-        Type0Budget::default(),
     )
     .unwrap();
     for _ in 0..3 {
@@ -821,33 +724,6 @@ fn arithmetic_virtual_padding_and_work_limit_remain_bounded() {
     let report = decoder.finish().unwrap();
     assert!(report.progress.arithmetic.synthesized_inputs > 0);
     assert_eq!(report.progress.arithmetic.input_offset, DIB_BYTES + 1);
-
-    let mut contexts = ContextBank::new(CONTEXT_COUNT, &limits).unwrap();
-    let source = bytes.clone();
-    let mut sink = BytesSink::default();
-    let low = ArithmeticBudget {
-        max_symbols: 102,
-        max_work: 3,
-    };
-    let error = match Type0Decoder::new(
-        Payload::from(&source[..]),
-        Type0Span {
-            record_type: 0,
-            offset: 0,
-            length: bytes.len() as u64,
-        },
-        &table,
-        &mut contexts,
-        &mut sink,
-        &limits,
-        &Cancel::Never,
-        low,
-        Type0Budget::default(),
-    ) {
-        Ok(mut decoder) => decoder.decode_next_row().unwrap_err(),
-        Err(error) => error,
-    };
-    assert!(matches!(error.kind, Type0ErrorKind::Arithmetic(_)));
 }
 
 #[test]
@@ -870,8 +746,6 @@ fn report_separates_consumed_and_virtual_bytes() {
         &mut sink,
         &limits,
         &Cancel::Never,
-        arithmetic_budget(),
-        Type0Budget::default(),
     )
     .unwrap();
     assert!(decoder.decode_next_row().unwrap());
@@ -881,14 +755,10 @@ fn report_separates_consumed_and_virtual_bytes() {
 }
 
 #[test]
-fn fixed_budget_mutations_return_without_panic_or_unbounded_work() {
+fn input_mutations_return_without_panic() {
     let original = image(9, 2, &[0x90, 0, 0]);
     let limits = Limits::default();
     let table = table();
-    let budget = ArithmeticBudget {
-        max_symbols: 20,
-        max_work: 600,
-    };
     for seed in 0..128_usize {
         let mut bytes = original.clone();
         let index = (seed * 17) % bytes.len();
@@ -908,8 +778,6 @@ fn fixed_budget_mutations_return_without_panic_or_unbounded_work() {
             &mut sink,
             &limits,
             &Cancel::Never,
-            budget,
-            Type0Budget::default(),
         ) {
             for _ in 0..2 {
                 if decoder.decode_next_row().is_err() {
@@ -931,7 +799,7 @@ fn span_of(bytes: &[u8]) -> Type0Span {
 }
 
 #[test]
-fn preflight_rejects_invalid_limits_cancelled_short_and_oversized_spans_before_reading() {
+fn preflight_rejects_cancelled_short_and_oversized_spans_before_reading() {
     let bytes = image(3, 1, &white(3, 1));
     let table = table();
     let limits = Limits::default();
@@ -945,15 +813,10 @@ fn preflight_rejects_invalid_limits_cancelled_short_and_oversized_spans_before_r
         offset: 5,
         length: DIB_BYTES,
     };
-    let invalid = Limits {
-        io_chunk_bytes: 0,
-        ..limits
-    };
     let cases = [
         (span_of(&bytes), limits, true),
         (short, limits, false),
         (span_of(&bytes), oversized, false),
-        (span_of(&bytes), invalid, true),
     ];
     let mut errors = Vec::new();
     for (span, limits, cancel) in cases {
@@ -973,8 +836,6 @@ fn preflight_rejects_invalid_limits_cancelled_short_and_oversized_spans_before_r
             &mut sink,
             &limits,
             &Cancel::Checks(&cancellation),
-            arithmetic_budget(),
-            Type0Budget::default(),
         )
         .err()
         .expect("preflight must fail");
@@ -997,26 +858,12 @@ fn preflight_rejects_invalid_limits_cancelled_short_and_oversized_spans_before_r
             attempted,
         } if limit == bytes.len() as u64 - 1 && attempted == bytes.len() as u64
     ));
-    // Invalid limits are reported before the cancellation check.
-    assert_eq!(errors[3].offset, 0);
-    assert!(matches!(
-        errors[3].kind,
-        Type0ErrorKind::Source(Error::InvalidInput {
-            reason: "I/O chunk size must be nonzero"
-        })
-    ));
 }
 
 #[test]
-fn maximal_dimensions_report_context_work_overflow_without_allocating() {
+fn maximal_dimensions_are_refused_by_the_pixel_limit_without_allocating() {
     let bytes = image(i32::MAX as u32, i32::MAX as u32, &[]);
     let header: &[u8; 48] = (&bytes[..48]).try_into().unwrap();
-    let unbounded = Type0Budget {
-        max_width: u32::MAX,
-        max_height: u32::MAX,
-        max_pixels: u64::MAX,
-        max_context_work: u64::MAX,
-    };
     let error = checked_info(
         header,
         Type0Span {
@@ -1025,17 +872,15 @@ fn maximal_dimensions_report_context_work_overflow_without_allocating() {
             length: 49,
         },
         &Limits::default(),
-        ArithmeticBudget {
-            max_symbols: u64::MAX,
-            max_work: u64::MAX,
-        },
-        unbounded,
     )
     .unwrap_err();
     assert_eq!(error.offset, 104);
     assert!(matches!(
         error.kind,
-        Type0ErrorKind::Malformed("context work overflows")
+        Type0ErrorKind::LimitExceeded {
+            resource: "image pixels",
+            ..
+        }
     ));
 }
 
@@ -1063,8 +908,6 @@ fn decode_with_checks(bytes: &[u8], cancel: &CancelAfter) -> (Type0Result<Type0R
         &mut sink,
         &limits,
         &Cancel::Checks(cancel),
-        arithmetic_budget(),
-        Type0Budget::default(),
     )
     .and_then(decode_every_row);
     (result, sink.bytes)
@@ -1122,8 +965,6 @@ fn early_finish_is_refused_before_the_terminal_check() {
             &mut sink,
             &limits,
             &cancel,
-            arithmetic_budget(),
-            Type0Budget::default(),
         )
         .unwrap();
         let row = decoder.decode_next_row();
@@ -1176,8 +1017,6 @@ fn final_flush_failure_and_late_cancellation_keep_row_progress() {
             &mut sink,
             &limits,
             &cancel,
-            arithmetic_budget(),
-            Type0Budget::default(),
         )
         .unwrap();
         assert!(decoder.decode_next_row().unwrap());
@@ -1218,8 +1057,6 @@ fn finish_rejects_a_failed_decoder_and_cancellation_before_flush() {
         &mut sink,
         &limits,
         &Cancel::Never,
-        arithmetic_budget(),
-        Type0Budget::default(),
     )
     .unwrap();
     assert!(matches!(
@@ -1249,8 +1086,6 @@ fn finish_rejects_a_failed_decoder_and_cancellation_before_flush() {
         &mut sink,
         &limits,
         &cancel,
-        arithmetic_budget(),
-        Type0Budget::default(),
     )
     .unwrap();
     assert!(decoder.decode_next_row().unwrap());

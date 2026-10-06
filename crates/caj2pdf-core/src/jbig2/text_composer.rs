@@ -11,40 +11,8 @@ use super::{
     text::{SymbolCombination, TextHeaderAnomaly, TextRegionHeader},
     text_instances::{TextBitmap, TextInstance, TextInstanceDecoder, TextInstanceError},
 };
-use crate::{Cancellation, Error, Limits, MAX_BUDGET_COUNT};
+use crate::{Cancellation, Limits};
 use std::{error, fmt};
-
-/// Independent composition bounds. Counters are also limited to
-/// `MAX_BUDGET_COUNT`, leaving room for checked per-call accounting.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct TextComposeBudget {
-    pub max_exported_symbols: u32,
-    pub max_instances: u32,
-    pub max_region_pixels: u64,
-    /// The packed region bitmap, also capped by `Limits::max_allocation_bytes`.
-    pub max_scratch_bytes: u64,
-    pub max_symbol_bytes: u64,
-    pub max_touched_pixels_per_instance: u64,
-    pub max_total_touched_pixels: u64,
-    pub max_work_units: u64,
-    pub max_row_bytes: usize,
-}
-
-impl Default for TextComposeBudget {
-    fn default() -> Self {
-        Self {
-            max_exported_symbols: 8192,
-            max_instances: 1_000_000,
-            max_region_pixels: 256 * 1024 * 1024,
-            max_scratch_bytes: 128 * 1024 * 1024,
-            max_symbol_bytes: 128 * 1024 * 1024,
-            max_touched_pixels_per_instance: 12_000_000,
-            max_total_touched_pixels: 1_000_000_000,
-            max_work_units: 2_000_000_000,
-            max_row_bytes: 1024 * 1024,
-        }
-    }
-}
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum TextComposeStage {
@@ -55,14 +23,13 @@ pub enum TextComposeStage {
     Complete,
 }
 
-/// `work_units` counts initialized bytes and visited pixels.
+/// `touched_pixels` counts the region pixels instances have visited.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct TextComposeProgress {
     pub stage: TextComposeStage,
     pub completed_instances: u32,
     pub current_row: u32,
     pub touched_pixels: u64,
-    pub work_units: u64,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -219,7 +186,6 @@ pub struct TextComposer<'a, 'd, C: Cancellation> {
     refined_base: u64,
     bitmap: &'a mut Vec<u8>,
     cancellation: &'a C,
-    budget: TextComposeBudget,
     row_stride: usize,
     packed_bytes: u64,
     progress: TextComposeProgress,
@@ -240,7 +206,6 @@ impl<'a, 'd, C: Cancellation> TextComposer<'a, 'd, C> {
         bitmap: &'a mut Vec<u8>,
         limits: &Limits,
         cancellation: &'a C,
-        budget: TextComposeBudget,
     ) -> TextComposeResult<Self> {
         let bad = |kind| TextComposeError {
             segment,
@@ -248,16 +213,6 @@ impl<'a, 'd, C: Cancellation> TextComposer<'a, 'd, C> {
             progress: Box::new(TextComposeProgress::default()),
             kind,
         };
-        limits.validate().map_err(|error| {
-            bad(match error {
-                Error::LimitExceeded {
-                    resource,
-                    limit,
-                    attempted,
-                } => limited(resource, limit, attempted),
-                _ => TextComposeErrorKind::Malformed("invalid global limits"),
-            })
-        })?;
         if instances.segment() != segment || instances.header() != header {
             return Err(bad(TextComposeErrorKind::Malformed(
                 "instance stream segment or header differs",
@@ -279,49 +234,21 @@ impl<'a, 'd, C: Cancellation> TextComposer<'a, 'd, C> {
             )));
         }
         let pixels = u64::from(header.region.width) * u64::from(header.region.height);
-        cap("region pixels", budget.max_region_pixels, pixels).map_err(&bad)?;
+        cap("region pixels", limits.max_image_pixels, pixels).map_err(&bad)?;
         let stride = u64::from(header.region.width).div_ceil(8);
         let packed_bytes = stride * u64::from(header.region.height);
-        cap("scratch bytes", budget.max_scratch_bytes, packed_bytes).map_err(&bad)?;
         cap(
             "region bitmap bytes",
             limits.max_allocation_bytes,
             packed_bytes,
         )
         .map_err(&bad)?;
-        cap("row bytes", budget.max_row_bytes as u64, stride).map_err(&bad)?;
-        cap(
-            "exported symbols",
-            u64::from(budget.max_exported_symbols),
-            catalog.len() as u64,
-        )
-        .map_err(&bad)?;
-        cap(
-            "instances",
-            u64::from(budget.max_instances),
-            u64::from(header.instances),
-        )
-        .map_err(&bad)?;
+        let row_stride = usize::try_from(stride)
+            .map_err(|_| bad(limited("region row bytes", usize::MAX as u64, stride)))?;
         if header.instances > 0 && catalog.is_empty() {
             return Err(bad(TextComposeErrorKind::Malformed(
                 "nonempty text region with no symbols",
             )));
-        }
-        for (name, count) in [
-            ("region pixels budget", budget.max_region_pixels),
-            ("scratch budget", budget.max_scratch_bytes),
-            ("symbol budget", budget.max_symbol_bytes),
-            (
-                "per-instance touched pixels budget",
-                budget.max_touched_pixels_per_instance,
-            ),
-            (
-                "total touched pixels budget",
-                budget.max_total_touched_pixels,
-            ),
-            ("work budget", budget.max_work_units),
-        ] {
-            cap(name, MAX_BUDGET_COUNT, count).map_err(&bad)?;
         }
         if imported_base > imported.len() as u64
             || new_base > new.len() as u64
@@ -331,8 +258,6 @@ impl<'a, 'd, C: Cancellation> TextComposer<'a, 'd, C> {
                 "bitmap store base beyond its store",
             )));
         }
-        // The row-byte cap above is a `usize`, so `stride` fits this target.
-        let row_stride = stride as usize;
         Ok(Self {
             header,
             segment,
@@ -345,7 +270,6 @@ impl<'a, 'd, C: Cancellation> TextComposer<'a, 'd, C> {
             refined_base,
             bitmap,
             cancellation,
-            budget,
             row_stride,
             packed_bytes,
             progress: TextComposeProgress::default(),
@@ -371,15 +295,6 @@ impl<'a, 'd, C: Cancellation> TextComposer<'a, 'd, C> {
         } else {
             Ok(())
         }
-    }
-
-    fn check_cap(
-        &self,
-        resource: &'static str,
-        limit: u64,
-        attempted: u64,
-    ) -> TextComposeResult<()> {
-        cap(resource, limit, attempted).map_err(|kind| self.error(0, kind))
     }
 
     fn store(&self, store: BitmapStore) -> &[u8] {
@@ -450,9 +365,7 @@ impl<'a, 'd, C: Cancellation> TextComposer<'a, 'd, C> {
                 TextComposeErrorKind::Malformed("bitmap geometry differs from placement"),
             ));
         }
-        let (stride, bytes) = descriptor_bytes(descriptor).map_err(|kind| self.error(0, kind))?;
-        self.check_cap("symbol bytes", self.budget.max_symbol_bytes, bytes)?;
-        self.check_cap("row bytes", self.budget.max_row_bytes as u64, stride)?;
+        let (_, bytes) = descriptor_bytes(descriptor).map_err(|kind| self.error(0, kind))?;
         let start = base
             .checked_add(descriptor.relative_store_offset)
             .ok_or_else(|| {
@@ -479,22 +392,6 @@ impl<'a, 'd, C: Cancellation> TextComposer<'a, 'd, C> {
         if x0 >= x1 || y0 >= y1 {
             return Ok(None);
         }
-        let touched = (x1 - x0) * (y1 - y0);
-        self.check_cap(
-            "per-instance touched pixels",
-            self.budget.max_touched_pixels_per_instance,
-            touched,
-        )?;
-        self.check_cap(
-            "total touched pixels",
-            self.budget.max_total_touched_pixels,
-            self.progress.touched_pixels + touched,
-        )?;
-        self.check_cap(
-            "composition work",
-            self.budget.max_work_units,
-            self.progress.work_units + touched,
-        )?;
         Ok(Some(CheckedEvent {
             store,
             start,
@@ -555,7 +452,6 @@ impl<'a, 'd, C: Cancellation> TextComposer<'a, 'd, C> {
         }
         let touched = (x1 - x0) * (y1 - y0);
         self.progress.touched_pixels += touched;
-        self.progress.work_units += touched;
         self.progress.completed_instances += 1;
         Ok(())
     }
@@ -565,11 +461,6 @@ impl<'a, 'd, C: Cancellation> TextComposer<'a, 'd, C> {
     pub fn compose(mut self) -> TextComposeResult<TextComposeReport> {
         self.progress.stage = TextComposeStage::Initialize;
         self.check_cancelled(0)?;
-        self.check_cap(
-            "composition work",
-            self.budget.max_work_units,
-            self.packed_bytes,
-        )?;
         // The packed size was capped by `max_allocation_bytes`, so it fits a
         // `usize` on this target.
         let packed = self.packed_bytes as usize;
@@ -587,7 +478,6 @@ impl<'a, 'd, C: Cancellation> TextComposer<'a, 'd, C> {
         for row in self.bitmap.chunks_exact_mut(self.row_stride) {
             row[self.row_stride - 1] &= padding;
         }
-        self.progress.work_units += self.packed_bytes;
         loop {
             self.progress.stage = TextComposeStage::Instance;
             self.check_cancelled(self.packed_bytes)?;

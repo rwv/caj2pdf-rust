@@ -3,7 +3,7 @@
 //! Framing of independently observed raw C8 and HN-B native-page subsets.
 //! Events preserve uninterpreted words; they do not imply renderability.
 
-use super::{ErrorKind, Hnc8Reader, Location, Result, TextBudget, Variant, read_fixed};
+use super::{ErrorKind, Hnc8Reader, Location, Result, Variant, read_fixed};
 use crate::{Cancellation, RangedSource};
 
 /// One framed native record. Units, style/font words and image words remain raw.
@@ -180,15 +180,7 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
     /// forms and fixed-length image records. Other C8 framing is not inherited.
     /// Call `next_page` first. This does not consume image descriptors, decode
     /// characters or enable conversion. Unknown framing stops at its source byte.
-    ///
-    /// `TextBudget` caps span bytes, records, images and fixed working storage.
-    /// Raw span bytes also count against its decoded-byte ceiling. The 4 KiB
-    /// reservation accounts for fixed parser state, not process/visitor memory.
-    pub fn visit_native_records<V: NativeRecordVisitor>(
-        &mut self,
-        budget: TextBudget,
-        visitor: &mut V,
-    ) -> Result<u32> {
+    pub fn visit_native_records<V: NativeRecordVisitor>(&mut self, visitor: &mut V) -> Result<u32> {
         let loc = Location {
             variant: Some(self.header.variant),
             offset: self
@@ -215,27 +207,6 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
         if page.text.offset < self.header.page_index.checked_end().expect("checked index") {
             return Err(loc.malformed("native text span", "overlaps protected container index"));
         }
-        for (resource, limit, attempted) in [
-            (
-                "native text bytes",
-                budget.max_span_bytes.min(budget.max_decoded_bytes),
-                page.text.length,
-            ),
-            (
-                "native text images",
-                u64::from(budget.max_images),
-                u64::from(page.image_count),
-            ),
-            (
-                "native parser working bytes",
-                budget.max_working_bytes,
-                4096,
-            ),
-        ] {
-            if attempted > limit {
-                return Err(loc.limit(resource, limit, attempted));
-            }
-        }
         let end = page.text.checked_end().expect("checked text span");
         let mut position = page.text.offset;
         let mut count = 0;
@@ -244,13 +215,6 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
         let mut explicit_axes = [None; 2];
         while position < end {
             let at = loc.at(position);
-            if count == budget.max_records {
-                return Err(at.limit(
-                    "native records",
-                    u64::from(budget.max_records),
-                    u64::from(count) + 1,
-                ));
-            }
             let mut bytes = [0_u8; 28];
             let bare_end = self.header.variant == Variant::HnB && end - position == 2;
             let mut length = if bare_end { 2 } else { 4 };

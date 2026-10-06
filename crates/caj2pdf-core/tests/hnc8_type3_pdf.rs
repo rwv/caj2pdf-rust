@@ -11,7 +11,7 @@ use caj2pdf_core::{
     Cancellation, Error, Limits, NeverCancel, RangedSource,
     hnc8::{
         ComposeError, ComposeErrorKind, ComposeOptions, ComposePage, ComposeReport, ComposeStage,
-        ComposeVisitor, Type3PdfOptions, Type3Stage, Variant,
+        ComposeVisitor, Type3Stage, Variant,
     },
     jbig2::text::{TextHeaderAnomaly, TextHeaderPolicy},
     pdf::{BilevelImageSpec, PageSpec, PdfDocument},
@@ -166,13 +166,6 @@ impl Write for Sink {
 
     fn flush(&mut self) -> std::io::Result<()> {
         Ok(())
-    }
-}
-
-fn type3_options(type3: Type3PdfOptions) -> ComposeOptions {
-    ComposeOptions {
-        type3,
-        ..ComposeOptions::default()
     }
 }
 
@@ -546,69 +539,6 @@ fn located_stage_errors_cover_each_checked_metadata_boundary() {
 }
 
 #[test]
-fn page_compose_and_context_budgets_are_checked() {
-    let built = document(Variant::C8, &[vec![type3(9, 2, 0x10)]]);
-    let (error, _) = run_error(
-        built.bytes.clone(),
-        type3_options(Type3PdfOptions {
-            page_compose: caj2pdf_core::jbig2::page_compose::PageComposeBudget {
-                max_packed_bytes: 0,
-                ..Default::default()
-            },
-            ..Default::default()
-        }),
-    );
-    assert_eq!(stage(&error), Some(Type3Stage::PageCompose), "{error}");
-
-    let (error, _) = run_error(
-        built.bytes,
-        type3_options(Type3PdfOptions {
-            mq: caj2pdf_core::jbig2::mq::MqBudget {
-                max_contexts: 1024,
-                ..Default::default()
-            },
-            ..Default::default()
-        }),
-    );
-    assert_eq!(stage(&error), Some(Type3Stage::Contexts), "{error}");
-    assert_eq!(error.stage, ComposeStage::Decode);
-}
-
-#[test]
-fn second_dictionary_context_growth_and_text_scratch_budget_are_checked() {
-    let built = document(Variant::HnA, &[vec![type3(9, 2, 0x10)]]);
-    let mut bytes = built.bytes.clone();
-    let segment = segment_starts(&type3(9, 2, 0x10).payload);
-    let second_data = built.payloads[0][0] as usize + segment[2] + 12;
-    bytes[second_data + 8..second_data + 12].copy_from_slice(&2_u32.to_be_bytes());
-    let (error, pdf) = run_error(
-        bytes,
-        type3_options(Type3PdfOptions {
-            mq: caj2pdf_core::jbig2::mq::MqBudget {
-                max_contexts: caj2pdf_core::jbig2::integer::INTEGER_CONTEXT_COUNT + 1024,
-                ..Default::default()
-            },
-            ..Default::default()
-        }),
-    );
-    assert_eq!(stage(&error), Some(Type3Stage::Contexts), "{error}");
-    assert!(no_image(&pdf));
-
-    let (error, pdf) = run_error(
-        built.bytes,
-        type3_options(Type3PdfOptions {
-            text_compose: caj2pdf_core::jbig2::text_composer::TextComposeBudget {
-                max_scratch_bytes: 0,
-                ..Default::default()
-            },
-            ..Default::default()
-        }),
-    );
-    assert_eq!(stage(&error), Some(Type3Stage::TextCompose), "{error}");
-    assert!(no_image(&pdf));
-}
-
-#[test]
 fn row_width_boundaries_keep_zero_low_padding() {
     for width in [7, 8, 9, 31, 32, 33] {
         let built = document(Variant::C8, &[vec![type3(width, 3, 0x10)]]);
@@ -682,42 +612,57 @@ fn dib_bit_count_empty_span_and_nonpositive_dimensions_are_refused() {
 }
 
 #[test]
-fn per_image_directory_and_page_limits_refuse_before_image_output() {
+fn symbol_limit_refuses_the_first_dictionary_before_image_output() {
     let built = document(Variant::C8, &[vec![type3(9, 2, 0x10)]]);
-    let mut span = ComposeOptions::default();
-    span.container.max_image_span_bytes = 100;
-    let (error, pdf) = run_error(built.bytes.clone(), span);
+    let limits = Limits {
+        max_symbols: 0,
+        ..Limits::default()
+    };
+    let mut sink = Sink::default();
+    let error = run(
+        &mut Source::new(built.bytes),
+        &mut sink,
+        ComposeOptions::default(),
+        &limits,
+        &NeverCancel,
+    )
+    .unwrap_err();
+    assert!(no_image(&sink.bytes));
+    assert_eq!((error.page, error.image), (Some(1), Some(1)));
+    assert_eq!(stage(&error), Some(Type3Stage::FirstDictionary), "{error}");
     assert!(
-        matches!(error.kind, ComposeErrorKind::Container(_)),
+        error
+            .to_string()
+            .ends_with("export runs limit 0 exceeded by 1"),
         "{error}"
     );
-    assert!(no_image(&pdf));
-    for (options, expected) in [
-        (
-            Type3PdfOptions {
-                directory: caj2pdf_core::jbig2::DirectoryLimits {
-                    max_segments: 4,
-                    ..Default::default()
-                },
-                ..Default::default()
-            },
-            Type3Stage::Directory,
-        ),
-        (
-            Type3PdfOptions {
-                page: caj2pdf_core::jbig2::page_info::PageInfoBudget {
-                    max_width: 8,
-                    ..Default::default()
-                },
-                ..Default::default()
-            },
-            Type3Stage::PageInfo,
-        ),
-    ] {
-        let (error, pdf) = run_error(built.bytes.clone(), type3_options(options));
-        assert!(no_image(&pdf));
-        assert_eq!(stage(&error), Some(expected), "{error}");
-    }
+}
+
+#[test]
+fn page_pixel_limit_refuses_before_image_output() {
+    let built = document(Variant::C8, &[vec![type3(9, 2, 0x10)]]);
+    let limits = Limits {
+        max_image_pixels: 17,
+        ..Limits::default()
+    };
+    let mut sink = Sink::default();
+    let error = run(
+        &mut Source::new(built.bytes),
+        &mut sink,
+        ComposeOptions::default(),
+        &limits,
+        &NeverCancel,
+    )
+    .unwrap_err();
+    assert!(no_image(&sink.bytes));
+    assert_eq!((error.page, error.image), (Some(1), Some(1)));
+    assert_eq!(stage(&error), Some(Type3Stage::PageInfo), "{error}");
+    assert!(
+        error
+            .to_string()
+            .ends_with("page pixels limit 17 exceeded by 18"),
+        "{error}"
+    );
 }
 
 #[test]
@@ -850,10 +795,10 @@ fn strict_text_header_refuses_anomaly_but_named_opt_in_records_it() {
         &mut Source::new(built.bytes),
         &mut sink,
         &mut anomalies,
-        type3_options(Type3PdfOptions {
+        ComposeOptions {
             text_header_policy: TextHeaderPolicy::HnC8UnusedRefinementTemplate,
             ..Default::default()
-        }),
+        },
         &Limits::default(),
         &NeverCancel,
     )

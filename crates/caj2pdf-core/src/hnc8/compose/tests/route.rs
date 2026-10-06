@@ -43,7 +43,7 @@ fn native_with(
     limits: &Limits,
     cancellation: &impl Cancellation,
 ) -> Result<bool, ComposeError> {
-    uses_native_text(&mut source, ComposeOptions::default(), limits, cancellation)
+    uses_native_text(&mut source, limits, cancellation)
 }
 
 /// The image path's PDF and read count, with no fonts supplied.

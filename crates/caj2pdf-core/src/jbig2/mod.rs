@@ -8,7 +8,7 @@
 
 mod directory;
 pub use directory::{
-    DirectoryError, DirectoryErrorKind, DirectoryLimits, SegmentDirectory, read_embedded_directory,
+    DirectoryError, DirectoryErrorKind, SegmentDirectory, read_embedded_directory,
 };
 
 pub mod dictionary;
@@ -34,24 +34,6 @@ use std::{error, fmt, mem};
 pub struct SegmentSpan {
     pub offset: u64,
     pub length: u64,
-}
-
-/// Per-segment bounds, independent of any enclosing document limits.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct HeaderLimits {
-    pub max_header_bytes: u64,
-    pub max_references: u32,
-    pub max_data_bytes: u64,
-}
-
-impl Default for HeaderLimits {
-    fn default() -> Self {
-        Self {
-            max_header_bytes: 64 * 1024,
-            max_references: 4096,
-            max_data_bytes: 64 * 1024 * 1024,
-        }
-    }
 }
 
 /// Validated metadata for one segment. The data range is not read by this API.
@@ -124,47 +106,6 @@ pub enum HeaderErrorKind {
 
 pub type HeaderResult<T> = std::result::Result<T, HeaderError>;
 
-#[derive(Clone, Copy)]
-pub(super) struct PrefixBudget {
-    pub metadata_used: u64,
-    pub metadata_limit: u64,
-    pub references_used: u64,
-    pub references_limit: u64,
-}
-
-// Kept outside the generic prefix reader so every source type shares them.
-impl PrefixBudget {
-    fn check_references(&self, cursor: &HeaderCursor, reference_count: u32) -> HeaderResult<()> {
-        let attempted = self
-            .references_used
-            .checked_add(u64::from(reference_count))
-            .ok_or(cursor.invalid_span("reference total overflows"))?;
-        if attempted > self.references_limit {
-            return Err(cursor.error(HeaderErrorKind::LimitExceeded {
-                resource: "JBIG2 directory references",
-                limit: self.references_limit,
-                attempted,
-            }));
-        }
-        Ok(())
-    }
-
-    fn check_metadata(&self, cursor: &HeaderCursor, allocation_bytes: u64) -> HeaderResult<()> {
-        let attempted = self
-            .metadata_used
-            .checked_add(allocation_bytes)
-            .ok_or(cursor.invalid_span("metadata total overflows"))?;
-        if attempted > self.metadata_limit {
-            return Err(cursor.error(HeaderErrorKind::LimitExceeded {
-                resource: "JBIG2 directory metadata bytes",
-                limit: self.metadata_limit,
-                attempted,
-            }));
-        }
-        Ok(())
-    }
-}
-
 impl fmt::Display for HeaderError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "JBIG2 segment header at source byte {}", self.offset)?;
@@ -209,7 +150,7 @@ struct HeaderCursor {
 }
 
 impl HeaderCursor {
-    fn new(start: u64, end: u64, max_header_bytes: u64, request_bytes: usize) -> Self {
+    fn new(start: u64, end: u64, request_bytes: usize) -> Self {
         Self {
             fields: FieldCursor {
                 start,
@@ -217,7 +158,6 @@ impl HeaderCursor {
                 end,
                 fetched: 0,
                 request_bytes,
-                max_header_bytes,
             },
             segment: None,
         }
@@ -245,11 +185,6 @@ impl HeaderCursor {
 
     fn fault(&self, fault: FieldFault, field: &'static str) -> HeaderError {
         match fault {
-            FieldFault::LimitExceeded { attempted } => self.error(HeaderErrorKind::LimitExceeded {
-                resource: "JBIG2 header bytes",
-                limit: self.fields.max_header_bytes,
-                attempted,
-            }),
             FieldFault::Overflow => self.invalid_span("header end overflows"),
             FieldFault::PastEnd => HeaderError {
                 offset: self.fields.end,
@@ -365,10 +300,9 @@ pub(super) fn validate_enclosing_span<S: RangedSource>(
     span: SegmentSpan,
     limits: &Limits,
 ) -> HeaderResult<u64> {
-    let cursor = HeaderCursor::new(span.offset, span.offset, 0, limits.io_chunk_bytes);
+    let cursor = HeaderCursor::new(span.offset, span.offset, limits.io_chunk_bytes);
     limits
-        .validate()
-        .and_then(|()| limits.check_input_size(span.length))
+        .check_input_size(span.length)
         .map_err(|error| cursor.error(HeaderErrorKind::Source(error)))?;
     let end = span
         .offset
@@ -387,16 +321,9 @@ pub(super) fn read_header_prefix<S: RangedSource, C: Cancellation>(
     start: u64,
     end: u64,
     limits: &Limits,
-    header_limits: HeaderLimits,
-    budget: Option<PrefixBudget>,
     cancellation: &C,
 ) -> HeaderResult<(SegmentHeader, u64)> {
-    let mut cursor = HeaderCursor::new(
-        start,
-        end,
-        header_limits.max_header_bytes,
-        limits.io_chunk_bytes,
-    );
+    let mut cursor = HeaderCursor::new(start, end, limits.io_chunk_bytes);
     cursor.check_cancelled(cancellation)?;
 
     let number = u32::from_be_bytes(cursor.read(source, "segment number", cancellation)?);
@@ -435,16 +362,6 @@ pub(super) fn read_header_prefix<S: RangedSource, C: Cancellation>(
             "reference count for segment type",
         )));
     }
-    if reference_count > header_limits.max_references {
-        return Err(cursor.error(HeaderErrorKind::LimitExceeded {
-            resource: "JBIG2 references",
-            limit: u64::from(header_limits.max_references),
-            attempted: u64::from(reference_count),
-        }));
-    }
-    if let Some(budget) = budget {
-        budget.check_references(&cursor, reference_count)?;
-    }
     let reference_width = if number <= 256 {
         1_u64
     } else if number <= 65_536 {
@@ -472,9 +389,6 @@ pub(super) fn read_header_prefix<S: RangedSource, C: Cancellation>(
             limit: limits.max_allocation_bytes,
             attempted: allocation_bytes,
         }));
-    }
-    if let Some(budget) = budget {
-        budget.check_metadata(&cursor, allocation_bytes)?;
     }
 
     let mut retention = Vec::new();
@@ -536,13 +450,6 @@ pub(super) fn read_header_prefix<S: RangedSource, C: Cancellation>(
             value: u64::from(data_length),
         }));
     }
-    if u64::from(data_length) > header_limits.max_data_bytes {
-        return Err(cursor.error(HeaderErrorKind::LimitExceeded {
-            resource: "JBIG2 segment data bytes",
-            limit: header_limits.max_data_bytes,
-            attempted: u64::from(data_length),
-        }));
-    }
     let data_end = cursor
         .fields
         .at
@@ -578,19 +485,10 @@ pub fn read_segment_header<S: RangedSource, C: Cancellation>(
     source: &mut S,
     span: SegmentSpan,
     limits: &Limits,
-    header_limits: HeaderLimits,
     cancellation: &C,
 ) -> HeaderResult<SegmentHeader> {
     let end = validate_enclosing_span(source, span, limits)?;
-    let (header, next) = read_header_prefix(
-        source,
-        span.offset,
-        end,
-        limits,
-        header_limits,
-        None,
-        cancellation,
-    )?;
+    let (header, next) = read_header_prefix(source, span.offset, end, limits, cancellation)?;
     if next != end {
         return Err(HeaderError {
             offset: header.data.offset,

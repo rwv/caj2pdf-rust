@@ -583,9 +583,9 @@ fn corrupt_wrappers_and_impossible_dimensions_are_located() {
         ),
         (
             4,
-            &40_000_i32.to_le_bytes(),
+            &5_000_000_i32.to_le_bytes(),
             4,
-            "image width limit 32768 exceeded by 40000",
+            "image pixels limit 12000000 exceeded by 15000000",
         ),
         (40, &[0, 0, 0], 40, "unsupported DIB palette (0)"),
     ];
@@ -725,31 +725,16 @@ fn shared_and_format_limits_fail_with_their_resource() {
         "{error}"
     );
 
-    let mut small = ComposeOptions::default();
-    small.image.max_pixels = 100;
-    let error = run(Limits::default(), small);
+    let small = Limits {
+        max_image_pixels: 100,
+        ..Limits::default()
+    };
+    let error = run(small, ComposeOptions::default());
     assert_eq!(error.stage, ComposeStage::Headers);
     assert!(
         error
             .to_string()
             .ends_with("image pixels limit 100 exceeded by 132"),
-        "{error}"
-    );
-
-    let mut small = ComposeOptions::default();
-    small.arithmetic.max_work = 10;
-    let error = run(Limits::default(), small);
-    assert!(
-        matches!(&error.kind, ComposeErrorKind::Image(e) if matches!(e.kind, Type0ErrorKind::Arithmetic(_))),
-        "{error}"
-    );
-    assert_eq!((error.page, error.image), (Some(1), Some(1)));
-
-    let mut small = ComposeOptions::default();
-    small.container.max_images_per_page = 0;
-    let error = run(Limits::default(), small);
-    assert!(
-        matches!(&error.kind, ComposeErrorKind::Container(e) if matches!(e.kind, ErrorKind::LimitExceeded { resource: "images per page", .. })),
         "{error}"
     );
 }

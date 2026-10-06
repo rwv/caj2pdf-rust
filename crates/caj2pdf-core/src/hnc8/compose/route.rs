@@ -18,21 +18,19 @@ use std::io::Write;
 /// - HN-B text is only ever native records, which image composition never
 ///   reads, so such a page selects native composition. A defect in that text
 ///   is then reported by native composition instead of being dropped.
-/// - C8 text is classified by [`Hnc8Reader::inspect_text`] with
-///   `options.text`, the budget native composition uses. Native records, or
-///   text neither reader accepts, select native composition, which reports
-///   the located defect; compressed or raw text selects image composition.
+/// - C8 text is classified by [`Hnc8Reader::inspect_text`]. Native records,
+///   or text neither reader accepts, select native composition, which
+///   reports the located defect; compressed or raw text selects image
+///   composition.
 ///
 /// A document without text uses image composition. Image composition refuses
 /// every native C8 page, so a mixed document fails in either composer, at its
 /// first page the composer cannot draw. A malformed container, page row or
 /// descriptor uses image composition, which reports it. A failed source read
-/// or cancellation is returned. Reads are ranged and bounded by
-/// `options.container` and `options.text`; no image payload is read and no
-/// text is retained.
+/// or cancellation is returned. Reads are ranged and bounded by `limits`; no
+/// image payload is read and no text is retained.
 pub fn uses_native_text<S, C>(
     source: &mut S,
-    options: ComposeOptions,
     limits: &Limits,
     cancellation: &C,
 ) -> Result<bool, ComposeError>
@@ -40,8 +38,8 @@ where
     S: RangedSource,
     C: Cancellation,
 {
-    validate(options, limits)?;
-    let mut reader = match Hnc8Reader::open(source, limits, cancellation, options.container) {
+    validate(limits)?;
+    let mut reader = match Hnc8Reader::open(source, limits, cancellation) {
         Ok(reader) if !admits_native_mode(reader.header()) => return Ok(false),
         Ok(reader) => reader,
         Err(error) => return image_unless_fatal(error, ComposeStage::Container),
@@ -65,7 +63,7 @@ where
         if reader.header().variant == Variant::HnB {
             return Ok(true);
         }
-        return match reader.inspect_text(options.text) {
+        return match reader.inspect_text() {
             Ok(text) => Ok(text.framing == TextFraming::Native),
             Err(error) => image_unless_fatal(error, ComposeStage::Text).map(|_| true),
         };
@@ -111,9 +109,7 @@ where
     let mut routing = 0;
     let mut counted = CountingSource::new(&mut *source, &mut routing);
     let native = match fonts {
-        Some(fonts) if uses_native_text(&mut counted, options, limits, cancellation)? => {
-            Some(fonts)
-        }
+        Some(fonts) if uses_native_text(&mut counted, limits, cancellation)? => Some(fonts),
         _ => None,
     };
     let mut report = match native {

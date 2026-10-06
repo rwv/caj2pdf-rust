@@ -3,8 +3,8 @@
 use caj2pdf_core::{
     Cancellation, Error, Limits, NeverCancel, RangedSource,
     jbig2::{
-        DirectoryError, DirectoryErrorKind, DirectoryLimits, HeaderError, HeaderErrorKind,
-        HeaderLimits, SegmentDirectory, SegmentSpan, read_embedded_directory, read_segment_header,
+        DirectoryError, DirectoryErrorKind, HeaderError, HeaderErrorKind, SegmentDirectory,
+        SegmentSpan, read_embedded_directory, read_segment_header,
     },
 };
 use std::{cell::Cell, io, rc::Rc};
@@ -89,7 +89,6 @@ fn parse(
             length: bytes.len() as u64,
         },
         &Limits::default(),
-        HeaderLimits::default(),
         &NeverCancel,
     )
 }
@@ -246,7 +245,6 @@ fn bounded_reads_use_absolute_offsets_and_ignore_data_bytes() {
             length: SHORT_FOUR.len() as u64,
         },
         &limits,
-        HeaderLimits::default(),
         &NeverCancel,
     )
     .unwrap();
@@ -278,7 +276,6 @@ fn truncated_fields_never_read_beyond_declared_span() {
                 length: length as u64,
             },
             &Limits::default(),
-            HeaderLimits::default(),
             &NeverCancel,
         )
         .unwrap_err();
@@ -303,7 +300,6 @@ fn truncated_fields_never_read_beyond_declared_span() {
             length: LONG_FIVE.len() as u64,
         },
         &Limits::default(),
-        HeaderLimits::default(),
         &NeverCancel,
     )
     .unwrap_err();
@@ -438,7 +434,6 @@ fn span_data_and_allocation_limits_fail_before_unbounded_work() {
             length: 10,
         },
         &Limits::default(),
-        HeaderLimits::default(),
         &NeverCancel,
     )
     .unwrap_err();
@@ -469,17 +464,14 @@ fn span_data_and_allocation_limits_fail_before_unbounded_work() {
             length: huge.len() as u64,
         },
         &Limits::default(),
-        HeaderLimits::default(),
         &NeverCancel,
     )
     .unwrap_err();
-    assert!(matches!(
-        error.kind,
-        HeaderErrorKind::LimitExceeded {
-            resource: "JBIG2 references",
-            ..
-        }
-    ));
+    // The references the count declares cannot fit the span.
+    assert!(
+        matches!(error.kind, HeaderErrorKind::Truncated("segment header")),
+        "{error}"
+    );
     assert_eq!(source.reads.len(), 4);
 
     let mut source = TestSource::new(LONG_FIVE);
@@ -495,7 +487,6 @@ fn span_data_and_allocation_limits_fail_before_unbounded_work() {
             length: LONG_FIVE.len() as u64,
         },
         &limits,
-        HeaderLimits::default(),
         &NeverCancel,
     )
     .unwrap_err();
@@ -504,54 +495,6 @@ fn span_data_and_allocation_limits_fail_before_unbounded_work() {
         HeaderErrorKind::LimitExceeded {
             resource: "JBIG2 header metadata bytes",
             attempted: 21,
-            ..
-        }
-    ));
-
-    let mut source = TestSource::new(LONG_FIVE);
-    let header_limits = HeaderLimits {
-        max_header_bytes: 27,
-        ..HeaderLimits::default()
-    };
-    assert!(matches!(
-        read_segment_header(
-            &mut source,
-            SegmentSpan {
-                offset: 0,
-                length: LONG_FIVE.len() as u64
-            },
-            &Limits::default(),
-            header_limits,
-            &NeverCancel,
-        )
-        .unwrap_err()
-        .kind,
-        HeaderErrorKind::LimitExceeded {
-            resource: "JBIG2 header bytes",
-            ..
-        }
-    ));
-
-    let mut source = TestSource::new(SHORT_FOUR);
-    let header_limits = HeaderLimits {
-        max_data_bytes: 1,
-        ..HeaderLimits::default()
-    };
-    assert!(matches!(
-        read_segment_header(
-            &mut source,
-            SegmentSpan {
-                offset: 0,
-                length: SHORT_FOUR.len() as u64
-            },
-            &Limits::default(),
-            header_limits,
-            &NeverCancel,
-        )
-        .unwrap_err()
-        .kind,
-        HeaderErrorKind::LimitExceeded {
-            resource: "JBIG2 segment data bytes",
             ..
         }
     ));
@@ -568,7 +511,6 @@ fn cancellation_and_source_failures_keep_locations() {
             length: GLOBAL_EMPTY.len() as u64,
         },
         &Limits::default(),
-        HeaderLimits::default(),
         &Flag(active),
     )
     .unwrap_err();
@@ -586,7 +528,6 @@ fn cancellation_and_source_failures_keep_locations() {
             length: SHORT_FOUR.len() as u64,
         },
         &Limits::default(),
-        HeaderLimits::default(),
         &Flag(active),
     )
     .unwrap_err();
@@ -605,7 +546,6 @@ fn cancellation_and_source_failures_keep_locations() {
             length: LONG_FIVE.len() as u64,
         },
         &Limits::default(),
-        HeaderLimits::default(),
         &Flag(active),
     )
     .unwrap_err();
@@ -626,7 +566,6 @@ fn cancellation_and_source_failures_keep_locations() {
             length: GLOBAL_EMPTY.len() as u64,
         },
         &Limits::default(),
-        HeaderLimits::default(),
         &Flag(active),
     )
     .unwrap_err();
@@ -643,7 +582,6 @@ fn cancellation_and_source_failures_keep_locations() {
             length: GLOBAL_EMPTY.len() as u64,
         },
         &Limits::default(),
-        HeaderLimits::default(),
         &NeverCancel,
     )
     .unwrap_err();
@@ -659,7 +597,6 @@ fn cancellation_and_source_failures_keep_locations() {
             length: GLOBAL_EMPTY.len() as u64,
         },
         &Limits::default(),
-        HeaderLimits::default(),
         &NeverCancel,
     )
     .unwrap_err();
@@ -676,7 +613,6 @@ fn cancellation_and_source_failures_keep_locations() {
                 length: GLOBAL_EMPTY.len() as u64
             },
             &Limits::default(),
-            HeaderLimits::default(),
             &NeverCancel,
         )
         .unwrap_err()
@@ -741,11 +677,8 @@ fn public_errors_preserve_readable_locations_and_source_causes() {
 }
 
 /// Parses `bytes` as an embedded directory with this file's source type, so
-/// directory-budgeted header parsing shares the header tests' instantiation.
-fn parse_directory(
-    bytes: &[u8],
-    directory_limits: DirectoryLimits,
-) -> Result<SegmentDirectory, DirectoryError> {
+/// directory header parsing shares the header tests' instantiation.
+fn parse_directory(bytes: &[u8], limits: Limits) -> Result<SegmentDirectory, DirectoryError> {
     let mut source = TestSource::new(bytes);
     read_embedded_directory(
         &mut source,
@@ -753,15 +686,13 @@ fn parse_directory(
             offset: 0,
             length: bytes.len() as u64,
         },
-        &Limits::default(),
-        HeaderLimits::default(),
-        directory_limits,
+        &limits,
         &NeverCancel,
     )
 }
 
 #[test]
-fn directory_budgets_bound_each_header_before_its_references_are_read() {
+fn directory_metadata_is_bounded_by_the_allocation_limit() {
     // Segment 0 is retained; segments 1 and 2 each refer to it once.
     let bytes = [
         [0, 0, 0, 0, 0, 0x01, 0, 0, 0, 0, 0].as_slice(),
@@ -769,41 +700,32 @@ fn directory_budgets_bound_each_header_before_its_references_are_read() {
         &[0, 0, 0, 2, 0, 0x23, 0, 0, 0, 0, 0, 0],
     ]
     .concat();
-    let references = DirectoryLimits {
-        max_total_references: 1,
-        ..DirectoryLimits::default()
-    };
-    assert!(matches!(
-        parse_directory(&bytes, references).unwrap_err().kind,
-        DirectoryErrorKind::Header(HeaderError {
-            kind: HeaderErrorKind::LimitExceeded {
-                resource: "JBIG2 directory references",
-                limit: 1,
-                attempted: 2,
-            },
-            ..
-        })
-    ));
-    // Some metadata cap admits the directory preflight but not a header's
-    // retention and reference storage. This does not depend on struct layout.
-    let header_failure = (1..=4096).find(|&cap| {
-        let metadata = DirectoryLimits {
-            max_metadata_bytes: cap,
-            ..DirectoryLimits::default()
+    assert_eq!(
+        parse_directory(&bytes, Limits::default())
+            .unwrap()
+            .segments
+            .len(),
+        3
+    );
+    // Some cap admits the first index entry but not the whole directory.
+    // This does not depend on struct layout.
+    let refused = (1..=4096).find(|&cap| {
+        let limits = Limits {
+            io_chunk_bytes: 1,
+            max_allocation_bytes: cap,
+            ..Limits::default()
         };
         matches!(
-            parse_directory(&bytes, metadata),
+            parse_directory(&bytes, limits),
             Err(DirectoryError {
-                kind: DirectoryErrorKind::Header(HeaderError {
-                    kind: HeaderErrorKind::LimitExceeded {
-                        resource: "JBIG2 directory metadata bytes",
-                        ..
-                    },
+                kind: DirectoryErrorKind::LimitExceeded {
+                    resource: "JBIG2 directory metadata bytes",
+                    limit,
                     ..
-                }),
+                },
                 ..
-            })
+            }) if limit == cap
         )
     });
-    assert!(header_failure.is_some());
+    assert!(refused.is_some());
 }

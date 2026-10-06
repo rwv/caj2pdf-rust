@@ -8,6 +8,7 @@ use super::super::{
     integer::{BITMAP_BASE, BITMAP_CONTEXT_COUNT, INTEGER_CONTEXT_COUNT},
 };
 use super::*;
+use crate::jbig2::mq::ContextState;
 use crate::{NeverCancel, RangedSource};
 use std::{cell::Cell, error::Error as _};
 
@@ -114,7 +115,6 @@ fn report(symbols: &[SymbolDescriptor]) -> DictionaryReport {
                 input_offset: 100,
                 synthesized_inputs: 0,
                 symbols_decoded: 0,
-                work_done: 0,
             }),
             ..Default::default()
         },
@@ -154,10 +154,7 @@ struct Fixture {
     fresh_base: u64,
     temporary_base: u64,
     code_len: u32,
-    budget: TextInstanceBudget,
-    header_budget: TextRegionBudget,
-    refinement_budget: RefinementBudget,
-    mq_budget: MqBudget,
+    limits: Limits,
     qe: u16,
 }
 
@@ -171,7 +168,6 @@ impl Fixture {
             &text_segment,
             &dictionary_segment,
             &Limits::default(),
-            TextRegionBudget::default(),
             &NeverCancel,
         )
         .unwrap();
@@ -198,18 +194,15 @@ impl Fixture {
             } else {
                 64 - (count - 1).leading_zeros()
             },
-            budget: TextInstanceBudget::default(),
-            header_budget: TextRegionBudget::default(),
-            refinement_budget: RefinementBudget::default(),
-            mq_budget: MqBudget::default(),
+            limits: Limits::default(),
             qe: 1,
         }
     }
 
     fn attempt(&mut self) -> TextInstanceResult<TextInstanceProgress> {
-        let limits = Limits::default();
+        let limits = self.limits;
         let table = MqTable::standard();
-        let mut contexts = coding_unit(self.code_len, &limits, &self.mq_budget);
+        let mut contexts = coding_unit(self.code_len, &Limits::default());
         let decoder = TextInstanceDecoder::new(
             Payload::from(&self.source.data[..]),
             &self.text_segment,
@@ -226,10 +219,6 @@ impl Fixture {
             &mut contexts,
             &limits,
             &NeverCancel,
-            self.mq_budget,
-            self.header_budget,
-            self.refinement_budget,
-            self.budget,
         )?;
         Ok(decoder.progress())
     }
@@ -242,9 +231,9 @@ impl Fixture {
         &mut self,
         policy: TextHeaderPolicy,
     ) -> TextInstanceResult<(Vec<TextInstance>, TextInstanceProgress)> {
-        let limits = Limits::default();
+        let limits = self.limits;
         let table = MqTable::standard();
-        let mut contexts = coding_unit(self.code_len, &limits, &self.mq_budget);
+        let mut contexts = coding_unit(self.code_len, &Limits::default());
         let mut decoder = TextInstanceDecoder::new_with_header_policy(
             Payload::from(&self.source.data[..]),
             &self.text_segment,
@@ -261,10 +250,6 @@ impl Fixture {
             &mut contexts,
             &limits,
             &NeverCancel,
-            self.mq_budget,
-            self.header_budget,
-            self.refinement_budget,
-            self.budget,
             policy,
         )?;
         let mut instances = Vec::new();
@@ -280,10 +265,8 @@ impl Fixture {
 }
 
 /// The contexts of a text region whose IAID width is `code_len`.
-fn coding_unit(code_len: u32, limits: &Limits, budget: &MqBudget) -> ContextBank {
-    budget
-        .context_bank(coding_unit_contexts(code_len).unwrap(), limits)
-        .unwrap()
+fn coding_unit(code_len: u32, limits: &Limits) -> ContextBank {
+    crate::jbig2::mq::context_bank(coding_unit_contexts(code_len).unwrap(), limits).unwrap()
 }
 
 fn preflight_reject(mut fixture: Fixture, reason: &str) -> TextInstanceError {
@@ -355,17 +338,9 @@ fn located_error_variants_and_progress_are_inspectable() {
         offset: 23,
         header_fetched: 2,
     };
-    assert!(preflight_cap(site, "test", 2, 2).is_ok());
-    let error = preflight_cap(site, "test", 2, 3).unwrap_err();
-    assert!(matches!(
-        error.kind,
-        TextInstanceErrorKind::LimitExceeded { attempted: 3, .. }
-    ));
-    assert_eq!(
-        catalog_metadata_bytes(2, 3),
-        2 * mem::size_of::<SymbolDescriptor>() as u128 + 3 * mem::size_of::<StoredSymbol>() as u128
-    );
-    assert!(catalog_metadata_bytes(u64::MAX, u64::MAX) > u128::from(u64::MAX));
+    let error = site.error(TextInstanceErrorKind::Malformed("test"));
+    assert_eq!((error.segment, error.offset), (3, 23));
+    assert_eq!(error.progress.header_bytes_fetched, 2);
 }
 
 #[test]
@@ -380,7 +355,7 @@ fn descriptor_preflight_refuses_identity_geometry_and_store_bounds() {
         store_base: 5,
         symbol: ONE_PIXEL,
     };
-    assert!(validate_descriptor(site, valid, SymbolStore::Imported, 5, 6, 1).is_ok());
+    assert!(validate_descriptor(site, valid, SymbolStore::Imported, 5, 6).is_ok());
     let cases = [
         (
             StoredSymbol {
@@ -389,7 +364,6 @@ fn descriptor_preflight_refuses_identity_geometry_and_store_bounds() {
             },
             5,
             6,
-            1,
             "identity",
         ),
         (
@@ -399,7 +373,6 @@ fn descriptor_preflight_refuses_identity_geometry_and_store_bounds() {
             },
             5,
             6,
-            1,
             "identity",
         ),
         (
@@ -412,7 +385,6 @@ fn descriptor_preflight_refuses_identity_geometry_and_store_bounds() {
             },
             5,
             6,
-            1,
             "zero",
         ),
         (
@@ -425,7 +397,6 @@ fn descriptor_preflight_refuses_identity_geometry_and_store_bounds() {
             },
             5,
             6,
-            1,
             "noncanonical",
         ),
         (
@@ -438,10 +409,8 @@ fn descriptor_preflight_refuses_identity_geometry_and_store_bounds() {
             },
             5,
             u64::MAX,
-            u64::MAX,
             "overflow",
         ),
-        (valid, 5, 6, 0, "LimitExceeded"),
         (
             StoredSymbol {
                 store_base: u64::MAX,
@@ -449,36 +418,25 @@ fn descriptor_preflight_refuses_identity_geometry_and_store_bounds() {
             },
             u64::MAX,
             u64::MAX,
-            1,
             "overflow",
         ),
-        (valid, 5, 5, 1, "outside"),
+        (valid, 5, 5, "outside"),
     ];
-    for (stored, base, size, span, reason) in cases {
+    for (stored, base, size, reason) in cases {
         let error =
-            validate_descriptor(site, stored, SymbolStore::Imported, base, size, span).unwrap_err();
+            validate_descriptor(site, stored, SymbolStore::Imported, base, size).unwrap_err();
         assert!(format!("{:?}", error.kind).contains(reason), "{error:?}");
         assert_eq!((error.segment, error.offset), (3, 23));
     }
     assert!(matches!(
-        checked_coordinate(None, 10),
+        checked_coordinate(None),
         Err(TextInstanceErrorKind::Malformed(_))
     ));
-    assert!(matches!(
-        cap_coordinate(-11, 10),
-        Err(TextInstanceErrorKind::LimitExceeded { attempted: 11, .. })
-    ));
-    assert_eq!(
-        cap_coordinate(i32::MIN as i64, i64::MAX).unwrap(),
-        i32::MIN as i64
-    );
-    assert_eq!(
-        cap_coordinate(i32::MAX as i64, i64::MAX).unwrap(),
-        i32::MAX as i64
-    );
+    assert_eq!(cap_coordinate(i32::MIN as i64).unwrap(), i32::MIN as i64);
+    assert_eq!(cap_coordinate(i32::MAX as i64).unwrap(), i32::MAX as i64);
     for value in [i32::MIN as i64 - 1, i32::MAX as i64 + 1] {
         assert!(matches!(
-            cap_coordinate(value, i64::MAX),
+            cap_coordinate(value),
             Err(TextInstanceErrorKind::Malformed(
                 "text coordinate outside T.88 signed 32-bit range"
             ))
@@ -490,19 +448,6 @@ fn descriptor_preflight_refuses_identity_geometry_and_store_bounds() {
 fn parser_and_report_preflight_refuse_forged_metadata_before_mq() {
     const BODY: &[u8] = &[0xeb, 0x80, 0xa7, 0xff, 0xac];
     let make = || Fixture::new(0x10, 1, BODY, &[ONE_PIXEL]);
-
-    let mut f = make();
-    f.dictionary.catalog.new_symbols = vec![
-        SymbolDescriptor {
-            width: 0,
-            ..ONE_PIXEL
-        };
-        32
-    ];
-    f.dictionary.header.new_symbols = 32;
-    f.dictionary.progress.completed_symbols = 32;
-    f.budget.max_metadata_bytes = 1;
-    preflight_reject(f, "catalog metadata bytes");
 
     let mut f = make();
     f.parsed.region.width += 1;
@@ -535,32 +480,12 @@ fn parser_and_report_preflight_refuse_forged_metadata_before_mq() {
     f.dictionary.progress.mq = None;
     preflight_reject(f, "complete ordered report");
 
-    let mut f = make();
-    f.budget.max_coordinate_magnitude = -1;
-    preflight_reject(f, "negative coordinate cap");
-
-    let mut f = make();
-    f.budget.max_total_instance_pixels = MAX_BUDGET_COUNT + 1;
-    preflight_reject(f, "total instance pixels budget");
-
-    let mut f = make();
-    f.budget.max_temporary_store_bytes = MAX_BUDGET_COUNT + 1;
-    preflight_reject(f, "temporary store budget");
-
-    let mut f = make();
-    f.budget.max_exported_symbols = 0;
-    preflight_reject(f, "exported symbols");
-
-    let mut f = make();
-    f.budget.max_instances = 0;
-    preflight_reject(f, "instances");
-
     let f = Fixture::new(0x10, 1, BODY, &[]);
     preflight_reject(f, "no symbols");
 
     let mut f = make();
     f.temporary_base = u64::MAX;
-    preflight_reject(f, "temporary store range overflow");
+    preflight_reject(f, "refined store base differs");
 
     let mut f = make();
     f.imported_base = 2;
@@ -573,14 +498,6 @@ fn parser_and_report_preflight_refuse_forged_metadata_before_mq() {
     let mut f = make();
     f.code_len = 1;
     preflight_reject(f, "IAID width");
-
-    let mut f = make();
-    f.budget.max_metadata_bytes = 0;
-    preflight_reject(f, "catalog metadata");
-
-    let mut f = make();
-    f.budget.max_working_bytes = 0;
-    preflight_reject(f, "working bytes");
 }
 
 #[test]
@@ -597,7 +514,6 @@ fn hn_c8_unused_template_policy_decodes_same_instances_as_canonical_header() {
         &anomaly.text_segment,
         &anomaly.dictionary_segment,
         &Limits::default(),
-        anomaly.header_budget,
         &NeverCancel,
         TextHeaderPolicy::HnC8UnusedRefinementTemplate,
     )
@@ -647,7 +563,6 @@ fn valid_huffman_and_template_zero_headers_are_typed_refusals() {
             &fixture.text_segment,
             &fixture.dictionary_segment,
             &Limits::default(),
-            TextRegionBudget::default(),
             &NeverCancel,
         )
         .unwrap();
@@ -777,64 +692,12 @@ fn truncated_payload_and_bad_marker_errors_are_located() {
 }
 
 #[test]
-fn runtime_budgets_refuse_before_emitting_an_instance() {
-    const BODY: &[u8] = &[0xeb, 0x7f, 0x7f, 0xff, 0xac];
-    let mut f = Fixture::new(0x10, 1, BODY, &[ONE_PIXEL]);
-    f.budget.max_pixels_per_instance = MAX_BUDGET_COUNT + 1;
-    preflight_reject(f, "instance pixels budget");
-
-    let mut f = Fixture::new(0x10, 1, BODY, &[ONE_PIXEL]);
-    f.budget.max_strips = 0;
-    let error = f.decode_all().unwrap_err();
-    assert!(matches!(
-        error.kind,
-        TextInstanceErrorKind::LimitExceeded {
-            resource: "text strips",
-            attempted: 1,
-            ..
-        }
-    ));
-    assert_eq!(error.progress.completed_instances, 0);
-
-    let mut f = Fixture::new(0x10, 1, BODY, &[ONE_PIXEL]);
-    f.budget.max_pixels_per_instance = 0;
-    let error = f.decode_all().unwrap_err();
-    assert!(matches!(
-        error.kind,
-        TextInstanceErrorKind::LimitExceeded {
-            resource: "instance pixels",
-            attempted: 1,
-            ..
-        }
-    ));
-    assert_eq!(error.progress.completed_instances, 0);
-
-    let mut f = Fixture::new(0x10, 1, BODY, &[ONE_PIXEL]);
-    f.budget.max_total_instance_pixels = 0;
-    let error = f.decode_all().unwrap_err();
-    assert!(matches!(
-        error.kind,
-        TextInstanceErrorKind::LimitExceeded {
-            resource: "total instance pixels",
-            attempted: 1,
-            ..
-        }
-    ));
-    assert_eq!(error.progress.completed_instances, 0);
-
-    let mut f = Fixture::new(0x10, 1, BODY, &[ONE_PIXEL]);
-    f.mq_budget.max_symbols = 1;
-    let error = f.decode_all().unwrap_err();
-    assert!(matches!(error.kind, TextInstanceErrorKind::Mq(_)));
-    assert_eq!(error.progress.decision, TextDecision::InitialStripT);
-}
-
-#[test]
 fn refinement_errors_end_the_text_session() {
     const BODY: [u8; 11] = [138, 19, 228, 1, 154, 208, 119, 232, 127, 255, 172];
     let mut f = Fixture::new(0x8012, 1, &BODY, &[ONE_PIXEL]);
     f.qe = 0x4000;
-    f.refinement_budget.max_width = 0;
+    // Only the refinement host allocates: its target rows and store.
+    f.limits.max_allocation_bytes = 0;
     let error = f.decode_all().unwrap_err();
     assert!(matches!(error.kind, TextInstanceErrorKind::Refinement(_)));
     assert_eq!(error.progress.completed_instances, 0);
@@ -865,7 +728,7 @@ fn refined_new_store_handle_remains_distinct_from_dictionary_symbols() {
 }
 
 #[test]
-fn fixed_budget_malformed_body_mutations_end_with_located_results() {
+fn malformed_body_mutations_end_with_located_results() {
     let mut seed = 0x7f4a7c15u32;
     let mut unexpected_oob = 0;
     let mut outside_strip = 0;
@@ -882,11 +745,6 @@ fn fixed_budget_malformed_body_mutations_end_with_located_results() {
         let flags = [0x10, 0x1c, 0x8012, 0x801e][candidate as usize % 4];
         let mut f = Fixture::new(flags, 2, &body, &[ONE_PIXEL]);
         f.qe = 0x4000;
-        f.budget.max_strips = 4;
-        f.budget.max_pixels_per_instance = 64;
-        f.budget.max_total_instance_pixels = 128;
-        f.refinement_budget.max_width = 64;
-        f.refinement_budget.max_height = 64;
         match f.decode_all() {
             Ok((events, progress)) => {
                 assert_eq!(events.len(), 2);
@@ -918,7 +776,7 @@ fn cancellation_is_reported_with_progress() {
     let mut f = Fixture::new(0x10, 1, BODY, &[ONE_PIXEL]);
     let limits = Limits::default();
     let table = MqTable::standard();
-    let mut contexts = coding_unit(0, &limits, &f.mq_budget);
+    let mut contexts = coding_unit(0, &limits);
     let cancellation = ToggleCancel(Cell::new(false));
     let mut decoder = TextInstanceDecoder::new(
         Payload::from(&f.source.data[..]),
@@ -936,10 +794,6 @@ fn cancellation_is_reported_with_progress() {
         &mut contexts,
         &limits,
         &cancellation,
-        f.mq_budget,
-        f.header_budget,
-        f.refinement_budget,
-        f.budget,
     )
     .unwrap();
     cancellation.0.set(true);
@@ -962,13 +816,13 @@ fn every_corner_and_transpose_uses_correct_pre_and_post_curs() {
     ];
     for (corner, transposed, expected) in cases {
         assert_eq!(
-            geometry(13, 20, 3, 5, corner, transposed, 100).unwrap(),
+            geometry(13, 20, 3, 5, corner, transposed).unwrap(),
             expected,
             "{corner:?}, transposed {transposed}"
         );
     }
     assert_eq!(
-        geometry(-4, -3, 2, 2, ReferenceCorner::BottomRight, false, 10).unwrap(),
+        geometry(-4, -3, 2, 2, ReferenceCorner::BottomRight, false).unwrap(),
         (-4, -4, -3)
     );
 }
@@ -1085,9 +939,8 @@ fn table12_offsets_floor_negative_half_deltas() {
 #[test]
 fn real_mq_single_unmodified_instance_and_exact_terminal() {
     let limits = Limits::default();
-    let mq_budget = MqBudget::default();
     let table = MqTable::standard();
-    let mut contexts = coding_unit(0, &limits, &mq_budget);
+    let mut contexts = coding_unit(0, &limits);
     let mut source = Bytes::new(text_data(0x10, 1, &[0xeb, 0x7f, 0x7f, 0xff, 0xac]));
     let text_segment = segment(3, 6, vec![2], 0, source.size());
     let dictionary_segment = segment(2, 0, vec![1], 100, 2);
@@ -1100,7 +953,6 @@ fn real_mq_single_unmodified_instance_and_exact_terminal() {
         &text_segment,
         &dictionary_segment,
         &limits,
-        TextRegionBudget::default(),
         &NeverCancel,
     )
     .unwrap();
@@ -1120,10 +972,6 @@ fn real_mq_single_unmodified_instance_and_exact_terminal() {
         &mut contexts,
         &limits,
         &NeverCancel,
-        mq_budget,
-        TextRegionBudget::default(),
-        RefinementBudget::default(),
-        TextInstanceBudget::default(),
     )
     .unwrap();
     let first = decoder.next_instance().unwrap().unwrap();
@@ -1153,9 +1001,8 @@ fn real_mq_single_unmodified_instance_and_exact_terminal() {
 #[test]
 fn real_mq_refinement_reads_reference_and_writes_packed_rows() {
     let limits = Limits::default();
-    let mq_budget = MqBudget::default();
     let table = MqTable::standard();
-    let mut contexts = coding_unit(0, &limits, &mq_budget);
+    let mut contexts = coding_unit(0, &limits);
     let dictionary_segment = segment(2, 0, vec![1], 100, 2);
     let dictionary = report(&[ONE_PIXEL]);
     const BODY: [u8; 11] = [138, 19, 228, 1, 154, 208, 119, 233, 63, 255, 172];
@@ -1169,7 +1016,6 @@ fn real_mq_refinement_reads_reference_and_writes_packed_rows() {
         &text_segment,
         &dictionary_segment,
         &limits,
-        TextRegionBudget::default(),
         &NeverCancel,
     )
     .unwrap();
@@ -1189,10 +1035,6 @@ fn real_mq_refinement_reads_reference_and_writes_packed_rows() {
         &mut contexts,
         &limits,
         &NeverCancel,
-        mq_budget,
-        TextRegionBudget::default(),
-        RefinementBudget::default(),
-        TextInstanceBudget::default(),
     )
     .unwrap();
     let instance = decoder.next_instance().unwrap().unwrap();
@@ -1240,7 +1082,7 @@ fn a_text_region_resets_dirty_integer_iaid_and_gr_statistics() {
     let mut f = Fixture::new(0x8012, 1, &BODY, &[ONE_PIXEL]);
     let limits = Limits::default();
     let table = MqTable::standard();
-    let mut contexts = coding_unit(0, &limits, &f.mq_budget);
+    let mut contexts = coding_unit(0, &limits);
     let indices = [0, BITMAP_BASE, IAID_BASE];
     for index in indices {
         contexts.update(
@@ -1267,10 +1109,6 @@ fn a_text_region_resets_dirty_integer_iaid_and_gr_statistics() {
         &mut contexts,
         &limits,
         &NeverCancel,
-        f.mq_budget,
-        f.header_budget,
-        f.refinement_budget,
-        f.budget,
     )
     .unwrap();
     for index in indices {
@@ -1295,7 +1133,7 @@ fn public_mq_negative_half_deltas_and_contexts_continue_across_refined_instances
     f.imported.data = vec![0x80, 0x40, 0x40, 0x80];
     let limits = Limits::default();
     let table = MqTable::standard();
-    let mut contexts = coding_unit(1, &limits, &f.mq_budget);
+    let mut contexts = coding_unit(1, &limits);
     let mut decoder = TextInstanceDecoder::new(
         Payload::from(&f.source.data[..]),
         &f.text_segment,
@@ -1312,10 +1150,6 @@ fn public_mq_negative_half_deltas_and_contexts_continue_across_refined_instances
         &mut contexts,
         &limits,
         &NeverCancel,
-        f.mq_budget,
-        f.header_budget,
-        f.refinement_budget,
-        f.budget,
     )
     .unwrap();
     let first = decoder.next_instance().unwrap().unwrap();
@@ -1395,9 +1229,8 @@ fn public_mq_negative_half_deltas_and_contexts_continue_across_refined_instances
 fn refined_bitmap_is_in_the_store_before_the_next_pull() {
     const BODY: [u8; 11] = [138, 19, 228, 1, 154, 208, 119, 233, 63, 255, 172];
     let limits = Limits::default();
-    let mq_budget = MqBudget::default();
     let table = MqTable::standard();
-    let mut contexts = coding_unit(0, &limits, &mq_budget);
+    let mut contexts = coding_unit(0, &limits);
     let mut source = Bytes::new(text_data(0x8012, 1, &BODY));
     let text_segment = segment(3, 6, vec![2], 0, source.size());
     let dictionary_segment = segment(2, 0, vec![1], 100, 2);
@@ -1410,7 +1243,6 @@ fn refined_bitmap_is_in_the_store_before_the_next_pull() {
         &text_segment,
         &dictionary_segment,
         &limits,
-        TextRegionBudget::default(),
         &NeverCancel,
     )
     .unwrap();
@@ -1430,10 +1262,6 @@ fn refined_bitmap_is_in_the_store_before_the_next_pull() {
         &mut contexts,
         &limits,
         &NeverCancel,
-        mq_budget,
-        TextRegionBudget::default(),
-        RefinementBudget::default(),
-        TextInstanceBudget::default(),
     )
     .unwrap();
     let instance = decoder.next_instance().unwrap().unwrap();
@@ -1445,9 +1273,8 @@ fn refined_bitmap_is_in_the_store_before_the_next_pull() {
 #[test]
 fn real_mq_multistrip_oob_and_subsequent_s_with_ds_offset() {
     let limits = Limits::default();
-    let mq_budget = MqBudget::default();
     let table = MqTable::standard();
-    let mut contexts = coding_unit(0, &limits, &mq_budget);
+    let mut contexts = coding_unit(0, &limits);
     let dictionary_segment = segment(2, 0, vec![1], 100, 2);
     let dictionary = report(&[ONE_PIXEL]);
     const DIFFERENT: &[u8] = &[
@@ -1472,7 +1299,6 @@ fn real_mq_multistrip_oob_and_subsequent_s_with_ds_offset() {
             &text_segment,
             &dictionary_segment,
             &limits,
-            TextRegionBudget::default(),
             &NeverCancel,
         )
         .unwrap();
@@ -1492,13 +1318,6 @@ fn real_mq_multistrip_oob_and_subsequent_s_with_ds_offset() {
             &mut contexts,
             &limits,
             &NeverCancel,
-            mq_budget,
-            TextRegionBudget::default(),
-            RefinementBudget::default(),
-            TextInstanceBudget {
-                max_strips: 4,
-                ..TextInstanceBudget::default()
-            },
         )
         .unwrap();
         for (index, expected) in expected.into_iter().enumerate() {
