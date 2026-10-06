@@ -118,7 +118,6 @@ fn fallible_catalog_reservation_preserves_preflight_location() {
         segment: 7,
         offset: 19,
         header_fetched: 13,
-        max_allocation_bytes: u64::MAX,
     };
     let entries = reserve_catalog::<u8>(2, site).unwrap();
     assert!(entries.is_empty());
@@ -134,21 +133,17 @@ fn fallible_catalog_reservation_preserves_preflight_location() {
     assert_eq!(error.progress.header_bytes_fetched, 13);
     assert!(error.progress.mq.is_none());
 
-    let (new, exported) = reserve_catalogs((1, 2), site, 3).unwrap();
+    let (new, exported) = reserve_catalogs((1, 2), site, 3, u64::MAX).unwrap();
     assert!(new.is_empty() && exported.is_empty());
     for (new_count, exported_count) in [(usize::MAX, 0), (0, usize::MAX)] {
-        let error = reserve_catalogs((new_count, exported_count), site, 0).unwrap_err();
+        let error = reserve_catalogs((new_count, exported_count), site, 0, u64::MAX).unwrap_err();
         assert!(matches!(
             error.kind,
             RefinementDictionaryErrorKind::AllocationFailed
         ));
         assert_eq!(error.progress.header_bytes_fetched, 13);
     }
-    let capped = PreflightSite {
-        max_allocation_bytes: 2,
-        ..site
-    };
-    let error = reserve_catalogs((1, 2), capped, 3).unwrap_err();
+    let error = reserve_catalogs((1, 2), site, 3, 2).unwrap_err();
     assert!(matches!(
         error.kind,
         RefinementDictionaryErrorKind::LimitExceeded {

@@ -5,7 +5,7 @@
 //! stores; this module contains no document or official table bytes.
 
 use super::{
-    SegmentHeader,
+    PreflightKind, PreflightSite, SegmentHeader,
     dictionary::{
         DictionaryBudget, DictionaryDataHeader, DictionaryError, DictionaryMode, DictionaryReport,
         SymbolDescriptor, read_dictionary_data_header,
@@ -231,24 +231,18 @@ fn checked_cap(
     }
 }
 
-#[derive(Clone, Copy)]
-struct PreflightSite {
-    segment: u32,
-    offset: u64,
-    header_fetched: u64,
-    max_allocation_bytes: u64,
-}
+impl PreflightKind for RefinementDictionaryErrorKind {
+    type Error = RefinementDictionaryError;
 
-impl PreflightSite {
-    fn error(self, kind: RefinementDictionaryErrorKind) -> RefinementDictionaryError {
+    fn locate(self, site: PreflightSite) -> RefinementDictionaryError {
         RefinementDictionaryError {
-            segment: self.segment,
-            offset: self.offset,
+            segment: site.segment,
+            offset: site.offset,
             progress: Box::new(RefinementDictionaryProgress {
-                header_bytes_fetched: self.header_fetched,
+                header_bytes_fetched: site.header_fetched,
                 ..RefinementDictionaryProgress::default()
             }),
-            kind,
+            kind: self,
         }
     }
 }
@@ -265,11 +259,12 @@ fn reserve_catalogs(
     counts: (usize, usize),
     site: PreflightSite,
     allocation_bytes: u64,
+    max_allocation_bytes: u64,
 ) -> RefinementDictionaryResult<(Vec<SymbolDescriptor>, Vec<StoredSymbol>)> {
-    if allocation_bytes > site.max_allocation_bytes {
+    if allocation_bytes > max_allocation_bytes {
         return Err(site.error(RefinementDictionaryErrorKind::LimitExceeded {
             resource: "catalog allocation bytes",
-            limit: site.max_allocation_bytes,
+            limit: max_allocation_bytes,
             attempted: allocation_bytes,
         }));
     }
@@ -703,10 +698,10 @@ impl<'a, S: RangedSource, RI: RangedSource, RN: RangedSource, W: SequentialSink,
             segment: segment.number,
             offset: location,
             header_fetched: fetched,
-            max_allocation_bytes: limits.max_allocation_bytes,
         };
         let allocation_bytes = new_metadata + export_metadata;
-        let (new_symbols, exported_symbols) = reserve_catalogs(counts, site, allocation_bytes)?;
+        let (new_symbols, exported_symbols) =
+            reserve_catalogs(counts, site, allocation_bytes, limits.max_allocation_bytes)?;
         // This profile never carries bitmap contexts, so a single reset
         // clears integer, IAID, and GR statistics at the dictionary boundary.
         banks.mq_contexts_mut().reset();

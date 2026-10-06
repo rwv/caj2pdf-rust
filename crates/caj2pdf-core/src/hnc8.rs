@@ -17,6 +17,7 @@ mod convert;
 mod convert_jbig2;
 mod convert_jpeg;
 mod image_emit;
+mod inflate;
 mod jpeg;
 mod native;
 mod native_page;
@@ -87,6 +88,47 @@ impl Variant {
             Self::HnA => "HN-A",
             Self::HnB => "HN-B",
         }
+    }
+}
+
+/// Where a conversion error occurred: the container variant, the one-based
+/// page and image numbers, and the source offset, each when known.
+#[derive(Clone, Copy)]
+struct At {
+    variant: Option<Variant>,
+    page: Option<u32>,
+    image: Option<u32>,
+    offset: Option<u64>,
+}
+
+/// An error kind that an [`At`] locates as its converter's error.
+trait Locate {
+    type Error;
+    fn locate(self, at: At) -> Self::Error;
+}
+
+impl At {
+    const NONE: Self = Self {
+        variant: None,
+        page: None,
+        image: None,
+        offset: None,
+    };
+
+    fn with_offset(self, offset: u64) -> Self {
+        Self {
+            offset: Some(offset),
+            ..self
+        }
+    }
+
+    fn error<K: Locate>(self, kind: K) -> K::Error {
+        kind.locate(self)
+    }
+
+    /// Map a source error into the located error that `kind` wraps it in.
+    fn wrap<E, K: Locate>(self, kind: impl FnOnce(E) -> K) -> impl FnOnce(E) -> K::Error {
+        move |error| self.error(kind(error))
     }
 }
 

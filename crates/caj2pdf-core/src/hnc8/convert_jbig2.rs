@@ -2,7 +2,7 @@
 
 //! Shared bounded HN/C8 type-3 image emission and a selected-image PDF diagnostic.
 
-use super::{Budget, Hnc8Error, Hnc8Reader, ImageRecord, Variant};
+use super::{At, Budget, Hnc8Error, Hnc8Reader, ImageRecord, Locate, Variant};
 use crate::jbig2::{
     DirectoryLimits, HeaderLimits, SegmentSpan,
     dictionary::{DictionaryBudget, DirectDictionaryDecoder},
@@ -27,7 +27,8 @@ use crate::jbig2::{
 };
 use crate::pdf::{BilevelImageSpec, ImageObject, PageSpec, PdfDocument};
 use crate::{
-    Cancellation, ConversionReport, Error, Limits, RangedSource, SequentialSink, read_exact_at,
+    Cancellation, ConversionReport, CountingSource, Error, Limits, RangedSource, SequentialSink,
+    read_exact_at,
 };
 use std::{error, fmt};
 
@@ -217,41 +218,25 @@ impl error::Error for Type3PdfError {
     }
 }
 
-#[derive(Clone, Copy)]
-struct At {
-    page: Option<u32>,
-    image: Option<u32>,
-    offset: Option<u64>,
+impl Locate for Type3PdfErrorKind {
+    type Error = Type3PdfError;
+
+    fn locate(self, at: At) -> Type3PdfError {
+        Type3PdfError {
+            page: at.page,
+            image: at.image,
+            offset: at.offset,
+            kind: self,
+        }
+    }
 }
 
 impl At {
-    const NONE: Self = Self {
-        page: None,
-        image: None,
-        offset: None,
-    };
-    fn with_offset(self, offset: u64) -> Self {
-        Self {
-            offset: Some(offset),
-            ..self
-        }
-    }
-    fn error(self, kind: Type3PdfErrorKind) -> Type3PdfError {
-        Type3PdfError {
-            page: self.page,
-            image: self.image,
-            offset: self.offset,
-            kind,
-        }
-    }
     fn stage<E: error::Error + 'static>(self, stage: Type3Stage, source: E) -> Type3PdfError {
         self.error(Type3PdfErrorKind::Stage {
             stage,
             source: Box::new(source),
         })
-    }
-    fn pdf(self, source: Error) -> Type3PdfError {
-        self.error(Type3PdfErrorKind::Pdf(source))
     }
 }
 
@@ -291,22 +276,6 @@ fn selected_container(source: Hnc8Error, selection: Type3ImageSelection) -> Type
         image: source.image.or(Some(selection.image_number)),
         offset: Some(source.offset),
         kind: Type3PdfErrorKind::Container(Box::new(source)),
-    }
-}
-
-struct CountingSource<'a, S> {
-    inner: &'a mut S,
-    read: u64,
-}
-
-impl<S: RangedSource> RangedSource for CountingSource<'_, S> {
-    fn size(&self) -> u64 {
-        self.inner.size()
-    }
-    async fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> crate::Result<usize> {
-        let count = self.inner.read_at(offset, destination).await?;
-        self.read = self.read.saturating_add(count as u64);
-        Ok(count)
     }
 }
 
@@ -376,15 +345,14 @@ pub async fn convert_type3_image_pdf<
             page: Some(selection.page_number),
             image: Some(selection.image_number),
             offset: Some(0),
+            ..At::NONE
         }
         .error(Type3PdfErrorKind::InvalidSelection(
             "page and image numbers must be one-based",
         )));
     }
-    let mut source = CountingSource {
-        inner: source,
-        read: 0,
-    };
+    let mut input_bytes_read = 0;
+    let mut source = CountingSource::new(source, &mut input_bytes_read);
     let mut reader = Hnc8Reader::probe_at_page(
         &mut source,
         limits,
@@ -405,6 +373,7 @@ pub async fn convert_type3_image_pdf<
             page: Some(selection.page_number),
             image: Some(selection.image_number),
             offset: Some(page_record.row_offset + 8),
+            ..At::NONE
         }
         .error(Type3PdfErrorKind::InvalidSelection(
             "image number exceeds page image count",
@@ -429,6 +398,7 @@ pub async fn convert_type3_image_pdf<
         page: Some(image.page_number),
         image: Some(image.image_number),
         offset: Some(image.payload.offset),
+        ..At::NONE
     };
     let pdf_page = page_spec(page, options.pixels_per_inch, at)?;
     let prepared = prepare_type3_image(
@@ -443,7 +413,7 @@ pub async fn convert_type3_image_pdf<
     .await?;
     let mut document = PdfDocument::new(sink, limits, cancellation)
         .await
-        .map_err(|error| at.pdf(error))?;
+        .map_err(at.wrap(Type3PdfErrorKind::Pdf))?;
     let (object, page_compose) = emit_type3_xobject(
         reader.source_mut(),
         &mut document,
@@ -458,9 +428,12 @@ pub async fn convert_type3_image_pdf<
     document
         .add_page(pdf_page, &[object])
         .await
-        .map_err(|error| at.pdf(error))?;
-    let mut conversion = document.finish().await.map_err(|error| at.pdf(error))?;
-    conversion.input_bytes_read = source.read;
+        .map_err(at.wrap(Type3PdfErrorKind::Pdf))?;
+    let mut conversion = document
+        .finish()
+        .await
+        .map_err(at.wrap(Type3PdfErrorKind::Pdf))?;
+    conversion.input_bytes_read = input_bytes_read;
     Ok(Type3SelectedPdfReport {
         conversion,
         source_variant: header.variant,
@@ -523,6 +496,7 @@ pub(super) async fn preflight_type3<S: RangedSource, C: Cancellation>(
         page: Some(image.page_number),
         image: Some(image.image_number),
         offset: Some(image.payload.offset),
+        ..At::NONE
     };
     if image.record_type != 3 {
         return Err(at
@@ -683,6 +657,7 @@ where
         page: Some(image.page_number),
         image: Some(image.image_number),
         offset: Some(image.payload.offset),
+        ..At::NONE
     };
     if workspaces.first.reader.size() != 0
         || workspaces.first.compose_reader.size() != 0
@@ -879,6 +854,7 @@ where
         page: Some(image.page_number),
         image: Some(image.image_number),
         offset: Some(image.payload.offset),
+        ..At::NONE
     };
     // TextComposer proved the packed byte count; PageOrSink rechecks it
     // before forwarding the first combined row to the PDF image stream.
@@ -889,7 +865,7 @@ where
             row_stride: (display_width as usize).div_ceil(8),
         })
         .await
-        .map_err(|error| at.pdf(error))?;
+        .map_err(at.wrap(Type3PdfErrorKind::Pdf))?;
     let mut padded = PaddedRows {
         sink: &mut rows,
         stride: page.row_stride,
@@ -940,7 +916,10 @@ where
         .await
         .map_err(|error| at.stage(Type3Stage::PageCompose, error))?;
     drop(page_sink);
-    let object = rows.finish().await.map_err(|error| at.pdf(error))?;
+    let object = rows
+        .finish()
+        .await
+        .map_err(at.wrap(Type3PdfErrorKind::Pdf))?;
     Ok((object, page_compose))
 }
 
@@ -1098,6 +1077,7 @@ mod tests {
             page: Some(4),
             image: Some(2),
             offset: Some(100),
+            ..At::NONE
         };
         let instance = TextInstanceError {
             segment: 3,

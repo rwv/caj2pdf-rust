@@ -8,7 +8,9 @@
 
 use super::{
     ErrorKind, Hnc8Reader, Location, NativeRecord, NativeRecordVisitor, Result, TextBudget,
-    Variant, appinfo::Trailer, text::read_coordinates,
+    Variant,
+    appinfo::Trailer,
+    text::{PageText, read_page_text},
 };
 use crate::{Cancellation, RangedSource};
 
@@ -110,7 +112,7 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
             });
         }
         if header.variant != Variant::HnB {
-            match read_coordinates(
+            match read_page_text(
                 self.source,
                 header,
                 page,
@@ -120,7 +122,7 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
             )
             .await
             {
-                Ok(text) => {
+                Ok(PageText::Framed(text)) => {
                     let framing = match text.zlib_frame {
                         None if text.page_size.is_some() => TextFraming::RawPaired,
                         None => TextFraming::Raw,
@@ -135,13 +137,9 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
                         decoded_length: text.zlib_frame.map(|_| text.decoded_length),
                     });
                 }
-                Err(error)
-                    if header.variant == Variant::C8
-                        && matches!(
-                            error.kind.field(),
-                            "page text prefix" | "page text header"
-                        ) => {}
-                Err(error) => return Err(error),
+                // C8 native text has neither compressed nor raw framing.
+                Ok(PageText::Unframed(_)) if header.variant == Variant::C8 => {}
+                Ok(PageText::Unframed(error)) | Err(error) => return Err(error),
             }
         }
         let records = self.visit_native_records(budget, &mut Discard).await?;

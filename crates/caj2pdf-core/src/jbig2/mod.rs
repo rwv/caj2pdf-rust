@@ -201,18 +201,32 @@ impl error::Error for HeaderError {
     }
 }
 
+mod cursor;
+use cursor::{FieldCursor, FieldFault};
+
 struct HeaderCursor {
-    start: u64,
-    at: u64,
-    end: u64,
-    max_header_bytes: u64,
+    fields: FieldCursor,
     segment: Option<u32>,
 }
 
 impl HeaderCursor {
+    fn new(start: u64, end: u64, max_header_bytes: u64, request_bytes: usize) -> Self {
+        Self {
+            fields: FieldCursor {
+                start,
+                at: start,
+                end,
+                fetched: 0,
+                request_bytes,
+                max_header_bytes,
+            },
+            segment: None,
+        }
+    }
+
     fn error(&self, kind: HeaderErrorKind) -> HeaderError {
         HeaderError {
-            offset: self.at,
+            offset: self.fields.at,
             segment: self.segment,
             kind,
         }
@@ -230,29 +244,34 @@ impl HeaderCursor {
         }
     }
 
-    fn check_future_header(&self, additional: u64) -> HeaderResult<()> {
-        let attempted = (self.at - self.start)
-            .checked_add(additional)
-            .ok_or(self.invalid_span("header length overflows"))?;
-        if attempted > self.max_header_bytes {
-            return Err(self.error(HeaderErrorKind::LimitExceeded {
+    fn fault(&self, fault: FieldFault, field: &'static str) -> HeaderError {
+        match fault {
+            FieldFault::LimitExceeded { attempted } => self.error(HeaderErrorKind::LimitExceeded {
                 resource: "JBIG2 header bytes",
-                limit: self.max_header_bytes,
+                limit: self.fields.max_header_bytes,
                 attempted,
-            }));
-        }
-        let future = self
-            .at
-            .checked_add(additional)
-            .ok_or(self.invalid_span("header end overflows"))?;
-        if future > self.end {
-            return Err(HeaderError {
-                offset: self.end,
+            }),
+            FieldFault::Overflow => self.invalid_span("header end overflows"),
+            FieldFault::PastEnd => HeaderError {
+                offset: self.fields.end,
                 segment: self.segment,
                 kind: HeaderErrorKind::Truncated("segment header"),
-            });
+            },
+            FieldFault::Cancelled => self.error(HeaderErrorKind::Cancelled),
+            FieldFault::Source(error) => self.error(HeaderErrorKind::Source(error)),
+            FieldFault::Overread => self.error(HeaderErrorKind::Malformed(
+                "source returned more bytes than requested",
+            )),
+            // A cancellation seen with the short read takes precedence.
+            FieldFault::Ended { cancelled: true } => self.error(HeaderErrorKind::Cancelled),
+            FieldFault::Ended { cancelled: false } => self.error(HeaderErrorKind::Truncated(field)),
         }
-        Ok(())
+    }
+
+    fn check_future_header(&self, additional: u64) -> HeaderResult<()> {
+        self.fields
+            .check_room(additional)
+            .map_err(|fault| self.fault(fault, "segment header"))
     }
 
     async fn read_into<S: RangedSource, C: Cancellation>(
@@ -260,51 +279,43 @@ impl HeaderCursor {
         source: &mut S,
         destination: &mut [u8],
         field: &'static str,
-        limits: &Limits,
         cancellation: &C,
     ) -> HeaderResult<()> {
-        let requested = len_u64(destination.len());
-        self.check_future_header(requested)?;
-        let mut done = 0;
-        while done < destination.len() {
-            self.check_cancelled(cancellation)?;
-            let chunk = (destination.len() - done).min(limits.io_chunk_bytes);
-            let read = source
-                .read_at(self.at, &mut destination[done..done + chunk])
-                .await
-                .map_err(|error| match error {
-                    Error::Cancelled => self.error(HeaderErrorKind::Cancelled),
-                    other => self.error(HeaderErrorKind::Source(other)),
-                })?;
-            if read > chunk {
-                return Err(self.error(HeaderErrorKind::Malformed(
-                    "source returned more bytes than requested",
-                )));
-            }
-            done += read;
-            self.at = self
-                .at
-                .checked_add(len_u64(read))
-                .ok_or(self.invalid_span("read end overflows"))?;
-            self.check_cancelled(cancellation)?;
-            if read == 0 {
-                return Err(self.error(HeaderErrorKind::Truncated(field)));
-            }
-        }
-        self.check_cancelled(cancellation)
+        let result = self.fields.fill(source, cancellation, destination).await;
+        result.map_err(|fault| self.fault(fault, field))
     }
 
     async fn read<const N: usize, S: RangedSource, C: Cancellation>(
         &mut self,
         source: &mut S,
         field: &'static str,
-        limits: &Limits,
         cancellation: &C,
     ) -> HeaderResult<[u8; N]> {
         let mut bytes = [0; N];
-        self.read_into(source, &mut bytes, field, limits, cancellation)
+        self.read_into(source, &mut bytes, field, cancellation)
             .await?;
         Ok(bytes)
+    }
+}
+
+/// Where a dictionary or text-region check before decoding failed: the
+/// segment, the offset, and the header bytes fetched so far.
+#[derive(Clone, Copy)]
+struct PreflightSite {
+    segment: u32,
+    offset: u64,
+    header_fetched: u64,
+}
+
+/// An error kind that a [`PreflightSite`] locates as its module's error.
+trait PreflightKind {
+    type Error;
+    fn locate(self, site: PreflightSite) -> Self::Error;
+}
+
+impl PreflightSite {
+    fn error<K: PreflightKind>(self, kind: K) -> K::Error {
+        kind.locate(self)
     }
 }
 
@@ -356,13 +367,7 @@ pub(super) fn validate_enclosing_span<S: RangedSource>(
     span: SegmentSpan,
     limits: &Limits,
 ) -> HeaderResult<u64> {
-    let cursor = HeaderCursor {
-        start: span.offset,
-        at: span.offset,
-        end: span.offset,
-        max_header_bytes: 0,
-        segment: None,
-    };
+    let cursor = HeaderCursor::new(span.offset, span.offset, 0, limits.io_chunk_bytes);
     limits
         .validate()
         .and_then(|()| limits.check_input_size(span.length))
@@ -388,23 +393,18 @@ pub(super) async fn read_header_prefix<S: RangedSource, C: Cancellation>(
     budget: Option<PrefixBudget>,
     cancellation: &C,
 ) -> HeaderResult<(SegmentHeader, u64)> {
-    let mut cursor = HeaderCursor {
+    let mut cursor = HeaderCursor::new(
         start,
-        at: start,
         end,
-        max_header_bytes: header_limits.max_header_bytes,
-        segment: None,
-    };
+        header_limits.max_header_bytes,
+        limits.io_chunk_bytes,
+    );
     cursor.check_cancelled(cancellation)?;
 
-    let number = u32::from_be_bytes(
-        cursor
-            .read(source, "segment number", limits, cancellation)
-            .await?,
-    );
+    let number = u32::from_be_bytes(cursor.read(source, "segment number", cancellation).await?);
     cursor.segment = Some(number);
     let flags = cursor
-        .read::<1, _, _>(source, "segment flags", limits, cancellation)
+        .read::<1, _, _>(source, "segment flags", cancellation)
         .await?[0];
     let segment_type = flags & 0x3f;
     if !allowed_type(segment_type) {
@@ -414,19 +414,14 @@ pub(super) async fn read_header_prefix<S: RangedSource, C: Cancellation>(
         }));
     }
     let first = cursor
-        .read::<1, _, _>(
-            source,
-            "reference count and retention",
-            limits,
-            cancellation,
-        )
+        .read::<1, _, _>(source, "reference count and retention", cancellation)
         .await?[0];
     let count_tag = first >> 5;
     let (reference_count, retention_bytes, short_retention) = match count_tag {
         0..=4 => (u32::from(count_tag), 1_u64, Some(first & 0x1f)),
         7 => {
             let tail = cursor
-                .read::<3, _, _>(source, "long reference count", limits, cancellation)
+                .read::<3, _, _>(source, "long reference count", cancellation)
                 .await?;
             let count = u32::from_be_bytes([first, tail[0], tail[1], tail[2]]) & 0x1fff_ffff;
             if count <= 4 {
@@ -504,13 +499,7 @@ pub(super) async fn read_header_prefix<S: RangedSource, C: Cancellation>(
     } else {
         retention.resize(retention_length, 0);
         cursor
-            .read_into(
-                source,
-                &mut retention,
-                "long retention flags",
-                limits,
-                cancellation,
-            )
+            .read_into(source, &mut retention, "long retention flags", cancellation)
             .await?;
         let used = ((reference_count + 1) % 8) as u8;
         if used != 0 && retention[retention_length - 1] & !((1_u8 << used) - 1) != 0 {
@@ -526,17 +515,17 @@ pub(super) async fn read_header_prefix<S: RangedSource, C: Cancellation>(
         let reference = match reference_width {
             1 => u32::from(
                 cursor
-                    .read::<1, _, _>(source, "reference number", limits, cancellation)
+                    .read::<1, _, _>(source, "reference number", cancellation)
                     .await?[0],
             ),
             2 => u32::from(u16::from_be_bytes(
                 cursor
-                    .read(source, "reference number", limits, cancellation)
+                    .read(source, "reference number", cancellation)
                     .await?,
             )),
             _ => u32::from_be_bytes(
                 cursor
-                    .read(source, "reference number", limits, cancellation)
+                    .read(source, "reference number", cancellation)
                     .await?,
             ),
         };
@@ -550,13 +539,13 @@ pub(super) async fn read_header_prefix<S: RangedSource, C: Cancellation>(
     let page_association = if association_width == 1 {
         u32::from(
             cursor
-                .read::<1, _, _>(source, "page association", limits, cancellation)
+                .read::<1, _, _>(source, "page association", cancellation)
                 .await?[0],
         )
     } else {
         u32::from_be_bytes(
             cursor
-                .read(source, "page association", limits, cancellation)
+                .read(source, "page association", cancellation)
                 .await?,
         )
     };
@@ -567,7 +556,7 @@ pub(super) async fn read_header_prefix<S: RangedSource, C: Cancellation>(
     }
     let data_length = u32::from_be_bytes(
         cursor
-            .read(source, "segment data length", limits, cancellation)
+            .read(source, "segment data length", cancellation)
             .await?,
     );
     if data_length == u32::MAX {
@@ -584,10 +573,11 @@ pub(super) async fn read_header_prefix<S: RangedSource, C: Cancellation>(
         }));
     }
     let data_end = cursor
+        .fields
         .at
         .checked_add(u64::from(data_length))
         .ok_or(cursor.invalid_span("data end overflows"))?;
-    if data_end > cursor.end {
+    if data_end > cursor.fields.end {
         return Err(cursor.error(HeaderErrorKind::Truncated("segment data")));
     }
     cursor.check_cancelled(cancellation)?;
@@ -599,10 +589,10 @@ pub(super) async fn read_header_prefix<S: RangedSource, C: Cancellation>(
             page_association,
             referred_to,
             data: SegmentSpan {
-                offset: cursor.at,
+                offset: cursor.fields.at,
                 length: u64::from(data_length),
             },
-            header_length: cursor.at - cursor.start,
+            header_length: cursor.fields.at - cursor.fields.start,
             retention,
         },
         data_end,

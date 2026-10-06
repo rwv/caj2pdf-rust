@@ -7,7 +7,7 @@
 //! `SBNUMINSTANCES`, then exposes the remaining body as an exact source range.
 //! It never reads the body, decodes symbol instances, or composes pixels.
 
-use super::{SegmentHeader, SegmentSpan};
+use super::{FieldCursor, FieldFault, SegmentHeader, SegmentSpan};
 use crate::{Cancellation, Error, Limits, RangedSource};
 use std::{error, fmt};
 
@@ -242,12 +242,7 @@ struct Cursor<'a, S, C> {
     source: &'a mut S,
     cancellation: &'a C,
     segment: u32,
-    start: u64,
-    at: u64,
-    end: u64,
-    fetched: u64,
-    request_bytes: usize,
-    max_header_bytes: u64,
+    fields: FieldCursor,
 }
 
 impl<S: RangedSource, C: Cancellation> Cursor<'_, S, C> {
@@ -255,73 +250,44 @@ impl<S: RangedSource, C: Cancellation> Cursor<'_, S, C> {
         TextRegionError {
             segment: self.segment,
             offset,
-            bytes_fetched: self.fetched,
+            bytes_fetched: self.fields.fetched,
             kind,
         }
     }
 
     fn error(&self, kind: TextRegionErrorKind) -> TextRegionError {
-        self.error_at(self.at, kind)
-    }
-
-    fn check_cancelled(&self) -> TextRegionResult<()> {
-        if self.cancellation.is_cancelled() {
-            Err(self.error(TextRegionErrorKind::Cancelled))
-        } else {
-            Ok(())
-        }
+        self.error_at(self.fields.at, kind)
     }
 
     /// Read exactly `N` header bytes with bounded requests.
     async fn read<const N: usize>(&mut self, field: &'static str) -> TextRegionResult<[u8; N]> {
         let mut bytes = [0u8; N];
-        self.fill(field, &mut bytes).await?;
+        let result = self
+            .fields
+            .fill(self.source, self.cancellation, &mut bytes)
+            .await;
+        result.map_err(|fault| self.fault(fault, field))?;
         Ok(bytes)
     }
 
-    /// Fill `bytes` from the cursor. Not generic over the field width, so
-    /// every header field shares one instantiation per source type.
-    async fn fill(&mut self, field: &'static str, bytes: &mut [u8]) -> TextRegionResult<()> {
-        let count = bytes.len();
-        // `start <= at <= end`, so the consumed count is at most the data
-        // length and adding a field width cannot overflow; `end - at` avoids
-        // overflowing `at + count` when the source advertises a size near u64::MAX.
-        let attempted = self.at - self.start + count as u64;
-        if attempted > self.max_header_bytes {
-            return Err(self.error(TextRegionErrorKind::LimitExceeded {
-                resource: "text region header bytes",
-                limit: self.max_header_bytes,
-                attempted,
-            }));
-        }
-        if count as u64 > self.end - self.at {
-            return Err(self.error(TextRegionErrorKind::Truncated(field)));
-        }
-        let mut done = 0;
-        while done < count {
-            self.check_cancelled()?;
-            let request = (count - done).min(self.request_bytes);
-            let got = match self
-                .source
-                .read_at(self.at, &mut bytes[done..done + request])
-                .await
-            {
-                Ok(got) => got,
-                Err(Error::Cancelled) => return Err(self.error(TextRegionErrorKind::Cancelled)),
-                Err(error) => return Err(self.error(TextRegionErrorKind::Source(error))),
-            };
-            if got > request {
-                return Err(self.error(TextRegionErrorKind::Malformed("source read length")));
+    fn fault(&self, fault: FieldFault, field: &'static str) -> TextRegionError {
+        match fault {
+            FieldFault::LimitExceeded { attempted } => {
+                self.error(TextRegionErrorKind::LimitExceeded {
+                    resource: "text region header bytes",
+                    limit: self.fields.max_header_bytes,
+                    attempted,
+                })
             }
-            if got == 0 {
-                return Err(self.error(TextRegionErrorKind::Truncated(field)));
+            FieldFault::Overflow | FieldFault::PastEnd | FieldFault::Ended { .. } => {
+                self.error(TextRegionErrorKind::Truncated(field))
             }
-            self.at += got as u64;
-            self.fetched += got as u64;
-            done += got;
+            FieldFault::Cancelled => self.error(TextRegionErrorKind::Cancelled),
+            FieldFault::Source(error) => self.error(TextRegionErrorKind::Source(error)),
+            FieldFault::Overread => {
+                self.error(TextRegionErrorKind::Malformed("source read length"))
+            }
         }
-        self.check_cancelled()?;
-        Ok(())
     }
 }
 
@@ -455,12 +421,14 @@ pub async fn read_text_region_header_with_policy<S: RangedSource, C: Cancellatio
         source,
         cancellation,
         segment: header.number,
-        start: header.data.offset,
-        at: header.data.offset,
-        end,
-        fetched: 0,
-        request_bytes: budget.max_source_request_bytes.min(limits.io_chunk_bytes),
-        max_header_bytes: budget.max_data_header_bytes,
+        fields: FieldCursor {
+            start: header.data.offset,
+            at: header.data.offset,
+            end,
+            fetched: 0,
+            request_bytes: budget.max_source_request_bytes.min(limits.io_chunk_bytes),
+            max_header_bytes: budget.max_data_header_bytes,
+        },
     };
     let start = header.data.offset;
     let prefix: [u8; PREFIX_BYTES] = cursor.read("text region header").await?;
@@ -472,7 +440,7 @@ pub async fn read_text_region_header_with_policy<S: RangedSource, C: Cancellatio
     .map_err(|kind| cursor.error_at(start + REGION_INFO_BYTES as u64, kind))?;
 
     let huffman_flags = if flags.huffman {
-        let offset = cursor.at;
+        let offset = cursor.fields.at;
         let raw = u16::from_be_bytes(cursor.read("text region Huffman flags").await?);
         check_huffman_flags(raw, flags.refine).map_err(|kind| cursor.error_at(offset, kind))?;
         Some(raw)
@@ -485,7 +453,7 @@ pub async fn read_text_region_header_with_policy<S: RangedSource, C: Cancellatio
     } else {
         None
     };
-    let instances_offset = cursor.at;
+    let instances_offset = cursor.fields.at;
     let instances = u32::from_be_bytes(cursor.read("SBNUMINSTANCES").await?);
     if instances > budget.max_instances {
         return Err(cursor.error_at(
@@ -497,7 +465,7 @@ pub async fn read_text_region_header_with_policy<S: RangedSource, C: Cancellatio
             },
         ));
     }
-    let body_length = end - cursor.at;
+    let body_length = end - cursor.fields.at;
     if body_length > budget.max_body_bytes {
         return Err(cursor.error(TextRegionErrorKind::LimitExceeded {
             resource: "text region body bytes",
@@ -518,9 +486,9 @@ pub async fn read_text_region_header_with_policy<S: RangedSource, C: Cancellatio
         huffman_flags,
         refinement_at,
         instances,
-        header_bytes: cursor.at - start,
+        header_bytes: cursor.fields.at - start,
         body: SegmentSpan {
-            offset: cursor.at,
+            offset: cursor.fields.at,
             length: body_length,
         },
     })
@@ -531,7 +499,7 @@ fn parse_region<S: RangedSource, C: Cancellation>(
     cursor: &Cursor<'_, S, C>,
     budget: TextRegionBudget,
 ) -> TextRegionResult<RegionInfo> {
-    let start = cursor.start;
+    let start = cursor.fields.start;
     let (width, height) = (be32(&bytes[0..4]), be32(&bytes[4..8]));
     let (x, y) = (be32(&bytes[8..12]), be32(&bytes[12..16]));
     let flags_offset = start + 16;

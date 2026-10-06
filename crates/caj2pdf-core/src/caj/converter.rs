@@ -3,7 +3,7 @@
 //! CAJ to PDF conversion using bounded PDF fragment reconstruction.
 
 use super::parse_metadata;
-use crate::fallible::{checked_read_count, reserve, reserve_exact};
+use crate::fallible::{reserve, reserve_exact};
 use crate::pdf::input::{
     FragmentCandidate, FragmentKind, FragmentScan, LinkDestinationTarget, LinkRepairCandidate,
     LinkRepairKind, PatchedSource, collect_fragment_candidates, inspect_fragment_object,
@@ -13,36 +13,13 @@ use crate::pdf::{
     FragmentObject, FragmentPlan, PdfRange, PdfRef, reconstruct_fragment_with_bookmarks,
 };
 use crate::{
-    Cancellation, ConversionOptions, ConversionReport, Error, Limits, PdfErrorKind, RangedSource,
-    Result, SequentialSink,
+    Cancellation, ConversionOptions, ConversionReport, CountingSource, Error, Limits, PdfErrorKind,
+    RangedSource, Result, SequentialSink,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 
 const OVERREAD: &str = "CAJ source reported more bytes than requested";
-
-struct CountingSource<'a, S> {
-    source: &'a mut S,
-    bytes_read: u64,
-}
-
-impl<S: RangedSource> RangedSource for CountingSource<'_, S> {
-    fn size(&self) -> u64 {
-        self.source.size()
-    }
-
-    async fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> Result<usize> {
-        let read = self.source.read_at(offset, destination).await?;
-        let read = checked_read_count(read, destination.len(), OVERREAD)?;
-        self.bytes_read = self
-            .bytes_read
-            .checked_add(read as u64)
-            .ok_or(Error::InvalidInput {
-                reason: "CAJ input byte counter overflows",
-            })?;
-        Ok(read)
-    }
-}
 
 /// Expose small generated page-tree objects after the immutable CAJ source.
 /// Reads never copy an original PDF object into memory.
@@ -493,10 +470,9 @@ pub async fn convert_caj<S: RangedSource, W: SequentialSink, C: Cancellation>(
     limits: &Limits,
     cancellation: &C,
 ) -> Result<ConversionReport> {
-    let mut counted = CountingSource {
-        source,
-        bytes_read: 0,
-    };
+    let mut input_bytes_read = 0;
+    let mut counted =
+        CountingSource::new(source, &mut input_bytes_read).rejecting_overread(OVERREAD);
     let metadata = parse_metadata(&mut counted, limits, cancellation).await?;
     let mut scan = scan_caj_objects(
         &mut counted,
@@ -875,7 +851,7 @@ pub async fn convert_caj<S: RangedSource, W: SequentialSink, C: Cancellation>(
         cancellation,
     )
     .await?;
-    report.input_bytes_read = counted.bytes_read;
+    report.input_bytes_read = input_bytes_read;
     report.omitted_pages = omitted_pages;
     Ok(report)
 }

@@ -1,7 +1,11 @@
 // SPDX-License-Identifier: MIT
 
-use super::{checked_read_count, len_u64, reserve, reserve_exact, try_convert, usize_from_u32};
+use super::{
+    checked_read_count, len_u64, push_bounded, push_checked, reserve, reserve_exact, try_convert,
+    usize_from_u32,
+};
 use crate::Error;
+use crate::Limits;
 
 #[test]
 fn length_conversion_is_lossless() {
@@ -51,4 +55,46 @@ fn reservation_failures_return_the_supplied_error() {
         Err("amortized")
     );
     assert!(values.is_empty());
+}
+
+#[test]
+fn bounded_index_growth_reports_the_attempted_capacity() {
+    let mut items: Vec<u64> = Vec::new();
+    assert!(matches!(
+        push_bounded(&mut items, 1, 16, "test index"),
+        Err(Error::LimitExceeded {
+            resource: "test index",
+            limit: 16,
+            attempted: 32,
+        })
+    ));
+    assert!(items.is_empty());
+    for value in 0..8 {
+        push_bounded(&mut items, value, 64, "test index").unwrap();
+    }
+    assert_eq!(items, [0, 1, 2, 3, 4, 5, 6, 7]);
+    assert!(matches!(
+        push_bounded(&mut items, 8, 64, "test index"),
+        Err(Error::LimitExceeded { attempted: 128, .. })
+    ));
+    assert_eq!(items.len(), 8);
+}
+
+#[test]
+fn checked_push_applies_the_caller_accounting() {
+    let limits = Limits {
+        max_allocation_bytes: 16,
+        ..Limits::default()
+    };
+    let mut items: Vec<u64> = Vec::new();
+    push_checked(&mut items, 1, 16, &limits, "test index").unwrap();
+    assert!(matches!(
+        push_checked(&mut items, 2, 17, &limits, "test index"),
+        Err(Error::LimitExceeded {
+            resource: "allocation bytes",
+            limit: 16,
+            attempted: 17,
+        })
+    ));
+    assert_eq!(items, [1]);
 }

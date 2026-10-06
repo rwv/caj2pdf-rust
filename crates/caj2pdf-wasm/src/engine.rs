@@ -15,8 +15,8 @@ mod hnc8;
 mod scratch;
 
 use caj2pdf_core::{
-    Cancellation, ConversionOptions, ConversionReport, Detection, DocumentInfo, Error, InputFormat,
-    Limits, PdfErrorKind, RangedSource, Result, SequentialSink,
+    Cancellation, ConversionOptions, ConversionReport, CountingSource, Detection, DocumentInfo,
+    Error, InputFormat, Limits, PdfErrorKind, RangedSource, Result, SequentialSink,
     caj::{convert_caj, parse_metadata},
     detect_source,
     hnc8::OutlineReport,
@@ -622,10 +622,8 @@ async fn inspect(
     limits: &Limits,
     cancellation: &BridgeCancellation,
 ) -> Result<Outcome> {
-    let mut counted = CountingSource {
-        inner: source,
-        bytes_read: 0,
-    };
+    let mut input_bytes_read = 0;
+    let mut counted = CountingSource::new(source, &mut input_bytes_read);
     let mut application_info = None;
     let (page_count, bookmark_count, outline_warnings) = match format {
         InputFormat::Pdf => {
@@ -666,7 +664,7 @@ async fn inspect(
     };
     Ok(Outcome {
         report: ConversionReport {
-            input_bytes_read: counted.bytes_read,
+            input_bytes_read,
             ..ConversionReport::default()
         },
         info: Some(DocumentInfo {
@@ -689,23 +687,6 @@ async fn pdf_pages<S: RangedSource>(
     let index = PdfIndex::open(source, range, limits, cancellation).await?;
     // The PDF index enforces `Limits::max_pages`, a u32.
     Ok(index.pages().len() as u32)
-}
-
-struct CountingSource<'a> {
-    inner: &'a mut BridgeSource,
-    bytes_read: u64,
-}
-
-impl RangedSource for CountingSource<'_> {
-    fn size(&self) -> u64 {
-        self.inner.size
-    }
-
-    async fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> Result<usize> {
-        let read = self.inner.read_at(offset, destination).await?;
-        self.bytes_read = self.bytes_read.saturating_add(read as u64);
-        Ok(read)
-    }
 }
 
 #[cfg(test)]

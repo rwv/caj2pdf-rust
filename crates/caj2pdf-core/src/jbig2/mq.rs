@@ -9,7 +9,9 @@
 mod standard;
 pub use standard::STANDARD_STATES;
 
-use crate::{Cancellation, Error, Limits, MAX_BUDGET_COUNT, RangedSource, read_exact_at};
+use crate::{
+    Cancellation, CountingSource, Error, Limits, MAX_BUDGET_COUNT, RangedSource, read_exact_at,
+};
 use std::{error, fmt, mem};
 
 pub const MQ_STATE_COUNT: usize = 47;
@@ -22,32 +24,6 @@ fn allocation_bytes(contexts: usize) -> MqResult<u64> {
         .and_then(|value| value.checked_add(INPUT_BUFFER_BYTES))
         .and_then(|value| u64::try_from(value).ok())
         .ok_or_else(|| MqError::configuration(MqErrorKind::InvalidContext))
-}
-
-/// Count completed source reads even when a later short read or cancellation
-/// makes the enclosing checked refill fail.
-struct ProgressSource<'a, S> {
-    inner: &'a mut S,
-    fetched: &'a mut u64,
-}
-
-impl<S: RangedSource> RangedSource for ProgressSource<'_, S> {
-    fn size(&self) -> u64 {
-        self.inner.size()
-    }
-
-    async fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> crate::Result<usize> {
-        let read = self.inner.read_at(offset, destination).await?;
-        if read <= destination.len() {
-            *self.fetched = self
-                .fetched
-                .checked_add(read as u64)
-                .ok_or(Error::InvalidInput {
-                    reason: "MQ fetched-byte counter overflows u64",
-                })?;
-        }
-        Ok(read)
-    }
 }
 
 /// One caller-supplied probability state, in T.88 Table E.1 column order.
@@ -693,10 +669,9 @@ impl<'a, S: RangedSource, C: Cancellation> MqDecoder<'a, S, C> {
             }
             self.charge(count, context)?;
             let offset = self.span.offset + relative;
-            let mut source = ProgressSource {
-                inner: self.source,
-                fetched: &mut self.source_bytes_fetched,
-            };
+            // The counter keeps completed reads when a later short read or
+            // cancellation fails the checked refill.
+            let mut source = CountingSource::new(self.source, &mut self.source_bytes_fetched);
             read_exact_at(
                 &mut source,
                 offset,

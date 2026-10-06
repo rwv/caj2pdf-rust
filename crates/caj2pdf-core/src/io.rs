@@ -17,6 +17,58 @@ pub trait RangedSource {
     async fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> Result<usize>;
 }
 
+/// A [`RangedSource`] adapter that adds each count its source returns to a
+/// caller-owned byte counter.
+///
+/// The counter is borrowed, so it keeps the bytes of the successful reads
+/// before a failing one and can accumulate across short-lived adapters. It
+/// saturates; reaching `u64::MAX` would take more reads than any input allows.
+///
+/// A count larger than the destination is passed on uncounted, for the
+/// caller's read helper to reject, unless [`Self::rejecting_overread`] makes
+/// the adapter reject it first.
+pub struct CountingSource<'a, S> {
+    source: &'a mut S,
+    bytes_read: &'a mut u64,
+    overread: Option<&'static str>,
+}
+
+impl<'a, S> CountingSource<'a, S> {
+    /// Count the bytes `source` returns into `bytes_read`.
+    pub fn new(source: &'a mut S, bytes_read: &'a mut u64) -> Self {
+        Self {
+            source,
+            bytes_read,
+            overread: None,
+        }
+    }
+
+    /// Reject a count larger than the destination as
+    /// [`Error::InvalidInput`] with `reason`.
+    pub fn rejecting_overread(self, reason: &'static str) -> Self {
+        Self {
+            overread: Some(reason),
+            ..self
+        }
+    }
+}
+
+impl<S: RangedSource> RangedSource for CountingSource<'_, S> {
+    fn size(&self) -> u64 {
+        self.source.size()
+    }
+
+    async fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> Result<usize> {
+        let read = self.source.read_at(offset, destination).await?;
+        if read <= destination.len() {
+            *self.bytes_read = self.bytes_read.saturating_add(len_u64(read));
+        } else if let Some(reason) = self.overread {
+            return Err(Error::InvalidInput { reason });
+        }
+        Ok(read)
+    }
+}
+
 /// A forward-only sink whose write and flush operations may apply backpressure.
 ///
 /// As with `std::io::Write`, `write` may accept only a prefix of the supplied

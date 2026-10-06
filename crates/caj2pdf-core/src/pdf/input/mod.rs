@@ -20,7 +20,7 @@ use super::page_walk::{PageStep, PageWalk};
 use super::types::{PdfRange, PdfRef};
 use super::writer::MAX_PDF_OBJECTS;
 use crate::error::PdfErrorKind;
-use crate::fallible::{len_u64, reserve_exact};
+use crate::fallible::{len_u64, push_bounded, reserve_exact};
 use crate::{Cancellation, Error, Limits, RangedSource, Result, read_exact_at};
 use flate2::{Decompress, FlushDecompress, Status};
 use parser::{
@@ -907,11 +907,8 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                 "xref stream decode parameters are unsupported",
             ));
         }
-        let filter = dictionary
-            .value(b"Filter")
-            .map(exact_name)
-            .transpose_option()
-            .ok_or_else(|| {
+        let filter =
+            optional_entry(dictionary.value(b"Filter").map(exact_name)).ok_or_else(|| {
                 self.problem(
                     at,
                     Some(reference),
@@ -1091,10 +1088,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
         let size = size_raw as u32;
         let root = exact_reference(required(b"Root", "PDF trailer lacks Root")?)
             .ok_or(self.malformed(at, None, "invalid PDF trailer Root"))?;
-        let info = dictionary
-            .value(b"Info")
-            .map(exact_reference)
-            .transpose_option()
+        let info = optional_entry(dictionary.value(b"Info").map(exact_reference))
             .ok_or(self.malformed(at, None, "invalid PDF trailer Info"))?;
         let id = dictionary.value(b"ID").map(|value| value.to_vec());
         if id
@@ -1103,10 +1097,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
         {
             return Err(self.malformed(at, None, "PDF trailer ID must be an array of two strings"));
         }
-        let prev = dictionary
-            .value(b"Prev")
-            .map(exact_unsigned)
-            .transpose_option()
+        let prev = optional_entry(dictionary.value(b"Prev").map(exact_unsigned))
             .ok_or(self.malformed(at, None, "invalid PDF trailer Prev"))?;
         Ok(Trailer {
             size,
@@ -1872,10 +1863,7 @@ impl<'a, S: RangedSource, C: Cancellation> Reader<'a, S, C> {
                 "outline root Count is invalid",
             ));
         }
-        let (Some(first), Some(last)) = (
-            first.transpose_option().flatten(),
-            last.transpose_option().flatten(),
-        ) else {
+        let (Some(first), Some(last)) = (first.flatten(), last.flatten()) else {
             if first.is_none() && last.is_none() {
                 if root_count.flatten().unwrap_or(0) != 0 {
                     return Err(self.malformed(
@@ -2570,52 +2558,13 @@ fn check_live_object_end(
     Ok(())
 }
 
-fn push_bounded<T>(
-    items: &mut Vec<T>,
-    item: T,
-    max_bytes: u64,
-    resource: &'static str,
-) -> Result<()> {
-    let element_bytes = std::mem::size_of::<T>();
-    let next = items.len().checked_add(1).ok_or(Error::InvalidInput {
-        reason: "PDF index length overflows address space",
-    })?;
-    if next > items.capacity() {
-        let target = items.capacity().saturating_mul(2).max(4).max(next);
-        let attempted = target
-            .checked_mul(element_bytes)
-            .ok_or(Error::InvalidInput {
-                reason: "PDF index allocation overflows address space",
-            })?;
-        if attempted as u64 > max_bytes {
-            return Err(Error::LimitExceeded {
-                resource,
-                limit: max_bytes,
-                attempted: attempted as u64,
-            });
-        }
-        let additional = target - items.len();
-        let refused = Error::LimitExceeded {
-            resource,
-            limit: max_bytes,
-            attempted: attempted as u64,
-        };
-        reserve_exact(items, additional, refused)?;
-    }
-    items.push(item);
-    Ok(())
-}
-
-trait TransposeOption<T> {
-    fn transpose_option(self) -> Option<Option<T>>;
-}
-impl<T> TransposeOption<T> for Option<Option<T>> {
-    fn transpose_option(self) -> Option<Option<T>> {
-        match self {
-            Some(Some(value)) => Some(Some(value)),
-            Some(None) => None,
-            None => Some(None),
-        }
+/// Validate an optional dictionary entry parsed as `entry.map(parse)`: an
+/// absent entry is `Some(None)`, an entry that fails to parse is `None`.
+fn optional_entry<T>(entry: Option<Option<T>>) -> Option<Option<T>> {
+    match entry {
+        Some(Some(value)) => Some(Some(value)),
+        Some(None) => None,
+        None => Some(None),
     }
 }
 

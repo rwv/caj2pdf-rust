@@ -2562,29 +2562,6 @@ fn xref_inflation_requires_exact_complete_streams() {
     ));
 }
 
-#[test]
-fn bounded_index_growth_reports_the_attempted_capacity() {
-    let mut items: Vec<u64> = Vec::new();
-    assert!(matches!(
-        push_bounded(&mut items, 1, 16, "test index"),
-        Err(Error::LimitExceeded {
-            resource: "test index",
-            limit: 16,
-            attempted: 32,
-        })
-    ));
-    assert!(items.is_empty());
-    for value in 0..8 {
-        push_bounded(&mut items, value, 64, "test index").unwrap();
-    }
-    assert_eq!(items, [0, 1, 2, 3, 4, 5, 6, 7]);
-    assert!(matches!(
-        push_bounded(&mut items, 8, 64, "test index"),
-        Err(Error::LimitExceeded { attempted: 128, .. })
-    ));
-    assert_eq!(items.len(), 8);
-}
-
 /// Open `bytes` with a small allocation limit and return the typed limit.
 fn index_limit(
     bytes: Vec<u8>,

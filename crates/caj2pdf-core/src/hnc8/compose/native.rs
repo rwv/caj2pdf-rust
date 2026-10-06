@@ -63,14 +63,15 @@ where
             .chain(roles.latin_state31)
             .any(|index| index >= count)
     {
-        return Err(At::NONE.error(
+        return Err(At::NONE.error((
             ComposeStage::Preflight,
             ComposeErrorKind::InvalidOptions(
                 "C8 font roles require 1..=8 explicit resources with valid indices",
             ),
-        ));
+        )));
     }
-    let mut counted = CountingSource { source, bytes: 0 };
+    let mut input_bytes_read = 0;
+    let mut counted = CountingSource::new(source, &mut input_bytes_read);
     let mut reader = Hnc8Reader::open(&mut counted, limits, cancellation, options.container)
         .await
         .map_err(|error| container(error, ComposeStage::Container))?;
@@ -81,10 +82,10 @@ where
         ..At::NONE
     };
     if !matches!(header.variant, Variant::C8 | Variant::HnB) {
-        return Err(at.error(
+        return Err(at.error((
             ComposeStage::Preflight,
             ComposeErrorKind::Unsupported("native composition requires C8 or HN-B"),
-        ));
+        )));
     }
     let mut document = PdfDocument::new(sink, limits, cancellation)
         .await
@@ -93,12 +94,11 @@ where
         page_vector(count, limits, "C8 font handles").map_err(at.io(ComposeStage::Preflight))?;
     let mut font_bytes = 0u64;
     for C8FontSource { source, face } in fonts.sources.iter_mut() {
-        let mut counted_font = CountingSource { source, bytes: 0 };
+        let mut counted_font = CountingSource::new(source, &mut font_bytes);
         let font = OpenTypeFont::read(&mut counted_font, *face, limits, cancellation)
             .await
             .map_err(at.io(ComposeStage::Preflight))?;
         handles.push(document.add_font(&font).map_err(at.io(ComposeStage::Pdf))?);
-        font_bytes = font_bytes.saturating_add(counted_font.bytes);
     }
     // Fixed profile bound avoids a second allocation for references.
     let references = [
@@ -219,7 +219,7 @@ where
     // Metadata is read again rather than retained for every font; only the
     // drawn glyphs' outlines are then read for each subset.
     for (handle, C8FontSource { source, face }) in handles.iter().zip(fonts.sources.iter_mut()) {
-        let mut counted_font = CountingSource { source, bytes: 0 };
+        let mut counted_font = CountingSource::new(source, &mut font_bytes);
         let mut font = OpenTypeFont::read(&mut counted_font, *face, limits, cancellation)
             .await
             .map_err(at.io(ComposeStage::Pdf))?;
@@ -227,9 +227,8 @@ where
             .embed_font(handle, &mut font)
             .await
             .map_err(at.io(ComposeStage::Pdf))?;
-        font_bytes = font_bytes.saturating_add(counted_font.bytes);
     }
     report.conversion = finish_document(&mut reader, document, &mut report, at).await?;
-    report.conversion.input_bytes_read = counted.bytes.saturating_add(font_bytes);
+    report.conversion.input_bytes_read = input_bytes_read.saturating_add(font_bytes);
     Ok(report)
 }

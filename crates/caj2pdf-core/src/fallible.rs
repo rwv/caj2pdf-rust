@@ -60,5 +60,57 @@ pub(crate) fn reserve<T, E>(vec: &mut Vec<T>, additional: usize, error: E) -> Re
     vec.try_reserve(additional).map_err(|_| error)
 }
 
+/// Push `item`, growing `items` to at least double its capacity (minimum
+/// four) when it is full. A target capacity over `max_bytes` fails as
+/// `LimitExceeded { resource }` without growing.
+pub(crate) fn push_bounded<T>(
+    items: &mut Vec<T>,
+    item: T,
+    max_bytes: u64,
+    resource: &'static str,
+) -> crate::Result<()> {
+    let next = items
+        .len()
+        .checked_add(1)
+        .ok_or(crate::Error::InvalidInput {
+            reason: "PDF index length overflows address space",
+        })?;
+    if next > items.capacity() {
+        let target = items.capacity().saturating_mul(2).max(4).max(next);
+        let attempted = target
+            .checked_mul(size_of::<T>())
+            .ok_or(crate::Error::InvalidInput {
+                reason: "PDF index allocation overflows address space",
+            })?;
+        let limit = crate::Error::LimitExceeded {
+            resource,
+            limit: max_bytes,
+            attempted: len_u64(attempted),
+        };
+        if len_u64(attempted) > max_bytes {
+            return Err(limit);
+        }
+        reserve_exact(items, target - items.len(), limit)?;
+    }
+    items.push(item);
+    Ok(())
+}
+
+/// Push `item` after checking `bytes`, the caller's size accounting for the
+/// grown vector, against the allocation limit. An allocator refusal is
+/// reported against `resource`.
+pub(crate) fn push_checked<T>(
+    items: &mut Vec<T>,
+    item: T,
+    bytes: u64,
+    limits: &crate::Limits,
+    resource: &'static str,
+) -> crate::Result<()> {
+    limits.check_allocation(bytes)?;
+    reserve(items, 1, limits.allocation_refused(resource, bytes))?;
+    items.push(item);
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests;
