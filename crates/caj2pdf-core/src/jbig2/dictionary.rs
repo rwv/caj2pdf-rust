@@ -362,14 +362,14 @@ impl HeaderCursor<'_> {
         .error(kind)
     }
 
-    async fn read<const N: usize, S: RangedSource, C: Cancellation>(
+    fn read<const N: usize, S: RangedSource, C: Cancellation>(
         &mut self,
         source: &mut S,
         name: &'static str,
         cancellation: &C,
     ) -> DictionaryResult<[u8; N]> {
         let mut bytes = [0u8; N];
-        let result = self.fields.fill(source, cancellation, &mut bytes).await;
+        let result = self.fields.fill(source, cancellation, &mut bytes);
         result.map_err(|fault| self.fault(fault, name))?;
         Ok(bytes)
     }
@@ -450,7 +450,7 @@ fn data_header_bounds(
 /// framed. This never initializes MQ or writes output.
 /// `ArithmeticRefinementAggregate` is a classifier result, not a promise that
 /// every such mode is decoded.
-pub async fn read_dictionary_data_header<S: RangedSource, C: Cancellation>(
+pub fn read_dictionary_data_header<S: RangedSource, C: Cancellation>(
     source: &mut S,
     header: &SegmentHeader,
     limits: &Limits,
@@ -469,11 +469,7 @@ pub async fn read_dictionary_data_header<S: RangedSource, C: Cancellation>(
             max_header_bytes: budget.max_data_header_bytes,
         },
     };
-    let flags = u16::from_be_bytes(
-        cursor
-            .read(source, "dictionary flags", cancellation)
-            .await?,
-    );
+    let flags = u16::from_be_bytes(cursor.read(source, "dictionary flags", cancellation)?);
     let flags_error = |cursor: &HeaderCursor<'_>, reason| {
         cursor.error_at(header.data.offset, DictionaryErrorKind::Malformed(reason))
     };
@@ -519,7 +515,7 @@ pub async fn read_dictionary_data_header<S: RangedSource, C: Cancellation>(
         1
     };
     for position in at.iter_mut().take(at_count) {
-        let [x, y] = cursor.read(source, "dictionary AT", cancellation).await?;
+        let [x, y] = cursor.read(source, "dictionary AT", cancellation)?;
         *position = (x as i8, y as i8);
     }
     if !huffman && template == 2 {
@@ -538,23 +534,14 @@ pub async fn read_dictionary_data_header<S: RangedSource, C: Cancellation>(
         0
     };
     for position in refinement_at.iter_mut().take(refinement_at_count) {
-        let [x, y] = cursor
-            .read(source, "dictionary refinement AT", cancellation)
-            .await?;
+        let [x, y] = cursor.read(source, "dictionary refinement AT", cancellation)?;
         *position = (x as i8, y as i8);
     }
     let exported_offset = cursor.fields.at;
-    let exported_symbols = u32::from_be_bytes(
-        cursor
-            .read(source, "exported symbol count", cancellation)
-            .await?,
-    );
+    let exported_symbols =
+        u32::from_be_bytes(cursor.read(source, "exported symbol count", cancellation)?);
     let new_offset = cursor.fields.at;
-    let new_symbols = u32::from_be_bytes(
-        cursor
-            .read(source, "new symbol count", cancellation)
-            .await?,
-    );
+    let new_symbols = u32::from_be_bytes(cursor.read(source, "new symbol count", cancellation)?);
     let header_bytes = cursor.fields.at - header.data.offset;
     if new_symbols > budget.max_new_symbols {
         return Err(cursor.error_at(
@@ -1159,7 +1146,7 @@ where
     /// dictionary. Every context is reset; this profile never carries bitmap
     /// contexts. A refinement dictionary needs `import`.
     #[allow(clippy::too_many_arguments)]
-    pub async fn new(
+    pub fn new(
         source: &'a mut S,
         segment: &SegmentHeader,
         import: Option<ImportedDictionary<'a>>,
@@ -1173,8 +1160,7 @@ where
         refinement_budget: RefinementBudget,
         second_budget: RefinementDictionaryBudget,
     ) -> DictionaryResult<Self> {
-        let header =
-            read_dictionary_data_header(source, segment, limits, budget, cancellation).await?;
+        let header = read_dictionary_data_header(source, segment, limits, budget, cancellation)?;
         let plan = check_header(
             segment,
             &header,
@@ -1214,7 +1200,6 @@ where
             mq_budget,
             &mut mq_initialization_bytes_fetched,
         )
-        .await
         .map_err(|error| {
             let mut located = PreflightSite {
                 offset: error.offset.unwrap_or(site.offset),
@@ -1279,7 +1264,7 @@ where
     /// Decode all new symbols, ordered exports, and the exact MQ terminal
     /// sequence, then flush the new store. `Ok` is the only state in which
     /// the catalog and store are valid.
-    pub async fn decode(&mut self) -> DictionaryResult<DictionaryReport> {
+    pub fn decode(&mut self) -> DictionaryResult<DictionaryReport> {
         if self.poisoned || self.complete {
             return Err(self.error(
                 DictionaryErrorKind::Poisoned,
@@ -1326,20 +1311,17 @@ where
                 writer: &mut *self.stores.new_writer,
             }
         };
-        let decoded = session
-            .decode_all(
-                &mut unit,
-                &mut *self.stores.imported,
-                &mut *self.stores.new_reader,
-            )
-            .await;
+        let decoded = session.decode_all(
+            &mut unit,
+            &mut *self.stores.imported,
+            &mut *self.stores.new_reader,
+        );
         drop(unit);
         decoded?;
         let expected = self.mq.snapshot().symbols_decoded;
         let snapshot = self
             .mq
             .finish_with_snapshot_mut(expected)
-            .await
             .map_err(|error| {
                 let offset = error.offset.unwrap_or(self.mq.snapshot().input_offset);
                 self.error(DictionaryErrorKind::Mq(Box::new(error)), offset)
@@ -1348,7 +1330,7 @@ where
         if self.cancellation.is_cancelled() {
             return Err(self.error(DictionaryErrorKind::Cancelled, snapshot.input_offset));
         }
-        self.stores.new_writer.flush().await.map_err(|error| {
+        self.stores.new_writer.flush().map_err(|error| {
             self.error(
                 if matches!(error, Error::Cancelled) {
                     DictionaryErrorKind::Cancelled
@@ -1501,15 +1483,15 @@ impl<C: Cancellation> Session<'_, C> {
             .ok_or_else(|| self.error(unit, DictionaryErrorKind::InvalidSpan(field)))
     }
 
-    async fn integer<M: RangedSource, W: SequentialSink>(
+    fn integer<M: RangedSource, W: SequentialSink>(
         &self,
         unit: &mut Unit<'_, '_, M, C, W>,
         procedure: IntegerProcedure,
     ) -> DictionaryResult<IntegerValue> {
         let result = match unit {
-            Unit::Direct { mq, .. } => decode_integer(mq, procedure).await,
+            Unit::Direct { mq, .. } => decode_integer(mq, procedure),
             Unit::Refined(host) => match host.mq_mut() {
-                Ok(mq) => decode_integer(mq, procedure).await,
+                Ok(mq) => decode_integer(mq, procedure),
                 Err(error) => {
                     return Err(
                         self.host_error(host, DictionaryErrorKind::Refinement(Box::new(error)))
@@ -1523,14 +1505,14 @@ impl<C: Cancellation> Session<'_, C> {
         })
     }
 
-    async fn iaid<M: RangedSource, W: SequentialSink>(
+    fn iaid<M: RangedSource, W: SequentialSink>(
         &self,
         unit: &mut Unit<'_, '_, M, C, W>,
     ) -> DictionaryResult<u64> {
         let result = match unit {
-            Unit::Direct { mq, .. } => decode_iaid(mq, self.plan.code_len).await,
+            Unit::Direct { mq, .. } => decode_iaid(mq, self.plan.code_len),
             Unit::Refined(host) => match host.mq_mut() {
-                Ok(mq) => decode_iaid(mq, self.plan.code_len).await,
+                Ok(mq) => decode_iaid(mq, self.plan.code_len),
                 Err(error) => {
                     return Err(
                         self.host_error(host, DictionaryErrorKind::Refinement(Box::new(error)))
@@ -1625,7 +1607,7 @@ impl<C: Cancellation> Session<'_, C> {
         Ok(geometry)
     }
 
-    async fn decode_all<M, RI, RN, W>(
+    fn decode_all<M, RI, RN, W>(
         &mut self,
         unit: &mut Unit<'_, '_, M, C, W>,
         imported_source: &mut RI,
@@ -1637,15 +1619,14 @@ impl<C: Cancellation> Session<'_, C> {
         RN: RangedSource,
         W: SequentialSink,
     {
-        self.decode_symbols(unit, imported_source, new_source)
-            .await?;
-        self.decode_exports(unit).await?;
+        self.decode_symbols(unit, imported_source, new_source)?;
+        self.decode_exports(unit)?;
         self.check_cancelled(unit)
     }
 
     /// T.88 §6.5.5 steps 4b–4c: height classes of new symbols, each either a
     /// direct bitmap or the single-reference refinement of an earlier symbol.
-    async fn decode_symbols<M, RI, RN, W>(
+    fn decode_symbols<M, RI, RN, W>(
         &mut self,
         unit: &mut Unit<'_, '_, M, C, W>,
         imported_source: &mut RI,
@@ -1672,7 +1653,7 @@ impl<C: Cancellation> Session<'_, C> {
                 u64::from(classes),
             )?;
             self.progress.height_classes = classes;
-            let value = self.integer(unit, IntegerProcedure::Iadh).await?;
+            let value = self.integer(unit, IntegerProcedure::Iadh)?;
             // Each prior class height is at most u32::MAX, while Annex A.2
             // integer magnitudes stay below 2^33, so this fits i64.
             class_height += self.signed(unit, value, "IADH out of band")?;
@@ -1687,7 +1668,7 @@ impl<C: Cancellation> Session<'_, C> {
             )?;
             let mut class_width = 0i64;
             loop {
-                let value = self.integer(unit, IntegerProcedure::Iadw).await?;
+                let value = self.integer(unit, IntegerProcedure::Iadw)?;
                 let delta = match value {
                     IntegerValue::OutOfBand => break,
                     IntegerValue::Signed(delta) => delta,
@@ -1702,12 +1683,10 @@ impl<C: Cancellation> Session<'_, C> {
                     self.geometry(unit, class_width, class_height)?;
                 let descriptor = match unit {
                     Unit::Direct { mq, writer } => {
-                        self.direct_bitmap(mq, &mut **writer, width, height, pixels, bytes)
-                            .await?
+                        self.direct_bitmap(mq, &mut **writer, width, height, pixels, bytes)?
                     }
                     Unit::Refined(_) => {
-                        self.refined_bitmap(unit, width, height, imported_source, new_source)
-                            .await?
+                        self.refined_bitmap(unit, width, height, imported_source, new_source)?
                     }
                 };
                 self.catalog.new_symbols.push(descriptor);
@@ -1718,7 +1697,7 @@ impl<C: Cancellation> Session<'_, C> {
     }
 
     /// T.88 §6.5.8.2: one REFAGGNINST = 1 symbol refining one active symbol.
-    async fn refined_bitmap<M, RI, RN, W>(
+    fn refined_bitmap<M, RI, RN, W>(
         &mut self,
         unit: &mut Unit<'_, '_, M, C, W>,
         width: u32,
@@ -1732,7 +1711,7 @@ impl<C: Cancellation> Session<'_, C> {
         RN: RangedSource,
         W: SequentialSink,
     {
-        let instances = self.integer(unit, IntegerProcedure::Iaai).await?;
+        let instances = self.integer(unit, IntegerProcedure::Iaai)?;
         let instances = self.signed(unit, instances, "REFAGGNINST OOB")?;
         if instances == 0 {
             self.progress.iaai.zero += 1;
@@ -1752,7 +1731,7 @@ impl<C: Cancellation> Session<'_, C> {
             ));
         }
         self.progress.iaai.single_reference += 1;
-        let raw_id = self.iaid(unit).await?;
+        let raw_id = self.iaid(unit)?;
         let active = self.imported.len() + self.catalog.new_symbols.len();
         let index = checked_symbol_index(raw_id, active as u64, active)
             .map_err(|_| self.malformed(unit, "future, self, or absent symbol ID"))?;
@@ -1767,8 +1746,8 @@ impl<C: Cancellation> Session<'_, C> {
             self.plan.working_cap,
             self.plan.base_working + rows,
         )?;
-        let dx = self.integer(unit, IntegerProcedure::Iardx).await?;
-        let dy = self.integer(unit, IntegerProcedure::Iardy).await?;
+        let dx = self.integer(unit, IntegerProcedure::Iardx)?;
+        let dy = self.integer(unit, IntegerProcedure::Iardy)?;
         let dx = self.signed(unit, dx, "IARDX out of band")?;
         let dy = self.signed(unit, dy, "IARDY out of band")?;
         let dx = i32::try_from(dx)
@@ -1791,14 +1770,14 @@ impl<C: Cancellation> Session<'_, C> {
             unreachable!("a refined bitmap needs the refinement host");
         };
         let result = match reference.store {
-            SymbolStore::Imported => host.decode_bitmap(imported_source, request).await,
+            SymbolStore::Imported => host.decode_bitmap(imported_source, request),
             SymbolStore::New => {
-                if let Err(error) = host.flush_store().await {
+                if let Err(error) = host.flush_store() {
                     return Err(
                         self.host_error(host, DictionaryErrorKind::Refinement(Box::new(error)))
                     );
                 }
-                host.decode_bitmap(new_source, request).await
+                host.decode_bitmap(new_source, request)
             }
         };
         match result {
@@ -1815,7 +1794,7 @@ impl<C: Cancellation> Session<'_, C> {
 
     /// One template-2 generic bitmap (T.88 §6.2 with TPGDON off), streamed
     /// row by row to the new store.
-    async fn direct_bitmap<M: RangedSource, W: SequentialSink>(
+    fn direct_bitmap<M: RangedSource, W: SequentialSink>(
         &mut self,
         mq: &mut MqDecoder<'_, M, C>,
         writer: &mut W,
@@ -1844,7 +1823,7 @@ impl<C: Cancellation> Session<'_, C> {
                 let [previous_two, previous_one, current] = &self.rows;
                 let context =
                     BITMAP_BASE + template2_context(previous_two, previous_one, current, width, x);
-                let bit = match mq.decode_bit(context).await {
+                let bit = match mq.decode_bit(context) {
                     Ok(bit) => bit,
                     Err(error) => {
                         let offset = error.offset;
@@ -1861,7 +1840,7 @@ impl<C: Cancellation> Session<'_, C> {
                     self.rows[2][x as usize / 8] |= 0x80 >> (x % 8);
                 }
             }
-            self.write_row(mq, writer).await?;
+            self.write_row(mq, writer)?;
             self.rows.rotate_left(1);
             self.rows[2].fill(0);
         }
@@ -1890,7 +1869,7 @@ impl<C: Cancellation> Session<'_, C> {
         }
     }
 
-    async fn write_row<M: RangedSource, W: SequentialSink>(
+    fn write_row<M: RangedSource, W: SequentialSink>(
         &mut self,
         mq: &MqDecoder<'_, M, C>,
         writer: &mut W,
@@ -1915,7 +1894,6 @@ impl<C: Cancellation> Session<'_, C> {
             self.progress.sink_writes = attempted_writes;
             let written = writer
                 .write(&self.rows[2][done..done + count])
-                .await
                 .map_err(|error| {
                     fail(
                         self,
@@ -1954,7 +1932,7 @@ impl<C: Cancellation> Session<'_, C> {
     /// T.88 §6.5.10: alternating export runs over the imported exports and
     /// the new symbols. The first IAEX decode precedes the repeat-until
     /// condition, so even a zero-total dictionary consumes one zero run.
-    async fn decode_exports<M: RangedSource, W: SequentialSink>(
+    fn decode_exports<M: RangedSource, W: SequentialSink>(
         &mut self,
         unit: &mut Unit<'_, '_, M, C, W>,
     ) -> DictionaryResult<()> {
@@ -1972,7 +1950,7 @@ impl<C: Cancellation> Session<'_, C> {
                 u64::from(runs),
             )?;
             self.progress.export_runs = runs;
-            let value = self.integer(unit, IntegerProcedure::Iaex).await?;
+            let value = self.integer(unit, IntegerProcedure::Iaex)?;
             let length = self.signed(unit, value, "IAEX out of band")?;
             if length < 0 {
                 return Err(self.malformed(unit, "negative export run"));

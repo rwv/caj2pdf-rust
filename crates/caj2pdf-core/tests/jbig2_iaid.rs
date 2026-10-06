@@ -14,22 +14,7 @@ use caj2pdf_core::{
         },
     },
 };
-use std::{
-    cell::Cell,
-    future::Future,
-    pin::pin,
-    rc::Rc,
-    task::{Context, Poll, Waker},
-};
-
-fn ready<F: Future>(future: F) -> F::Output {
-    let mut future = pin!(future);
-    let mut task = Context::from_waker(Waker::noop());
-    match future.as_mut().poll(&mut task) {
-        Poll::Ready(result) => result,
-        Poll::Pending => panic!("unexpected pending source"),
-    }
-}
+use std::{cell::Cell, rc::Rc};
 
 fn table() -> MqTable {
     MqTable::standard()
@@ -38,7 +23,6 @@ fn table() -> MqTable {
 struct Source {
     bytes: Vec<u8>,
     advertised: u64,
-    pending_at: Option<u64>,
     reads: Vec<(u64, usize)>,
 }
 
@@ -47,7 +31,6 @@ impl Source {
         Self {
             bytes: bytes.to_vec(),
             advertised: bytes.len() as u64,
-            pending_at: None,
             reads: Vec::new(),
         }
     }
@@ -65,15 +48,8 @@ impl RangedSource for Source {
         self.advertised
     }
 
-    async fn read_at(
-        &mut self,
-        offset: u64,
-        destination: &mut [u8],
-    ) -> caj2pdf_core::Result<usize> {
+    fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> caj2pdf_core::Result<usize> {
         self.reads.push((offset, destination.len()));
-        if self.pending_at == Some(offset) {
-            std::future::pending::<()>().await;
-        }
         let start = usize::try_from(offset).unwrap_or(usize::MAX);
         let count = self
             .bytes
@@ -111,7 +87,7 @@ fn zero_length_id_and_symbol_array_boundary() {
     assert_eq!(contexts.len(), IAID_BASE + 1);
     let mut source = Source::new(&[0x7f, 0xff, 0xac]);
     let span = source.span();
-    let mut decoder = ready(MqDecoder::new(
+    let mut decoder = MqDecoder::new(
         &mut source,
         span,
         &table,
@@ -119,12 +95,12 @@ fn zero_length_id_and_symbol_array_boundary() {
         &limits,
         &NeverCancel,
         budget,
-    ))
+    )
     .unwrap();
     let before = decoder.snapshot();
-    assert_eq!(ready(decode_iaid(&mut decoder, 0)).unwrap(), 0);
+    assert_eq!(decode_iaid(&mut decoder, 0).unwrap(), 0);
     assert_eq!(decoder.snapshot(), before);
-    ready(decoder.finish(0)).unwrap();
+    decoder.finish(0).unwrap();
 
     assert_eq!(checked_symbol_index(0, 1, 1), Ok(0));
     assert_eq!(checked_symbol_index(2, 3, 3), Ok(2));
@@ -194,7 +170,7 @@ fn iaid_and_a2_use_distinct_adaptive_banks_on_one_stream() {
     let mut source = Source::new(&bytes);
     let span = source.span();
     let mut contexts = coding_unit(1, &limits, &budget);
-    let mut decoder = ready(MqDecoder::new(
+    let mut decoder = MqDecoder::new(
         &mut source,
         span,
         &table,
@@ -202,21 +178,21 @@ fn iaid_and_a2_use_distinct_adaptive_banks_on_one_stream() {
         &limits,
         &NeverCancel,
         budget,
-    ))
+    )
     .unwrap();
-    let first = ready(decode_iaid(&mut decoder, 1)).unwrap();
+    let first = decode_iaid(&mut decoder, 1).unwrap();
     let iaid_after_first = decoder.context(IAID_BASE + 1).unwrap();
     assert_ne!(iaid_after_first, ContextState::default());
-    let _integer = ready(decode_integer(&mut decoder, IntegerProcedure::Iaai)).unwrap();
+    let _integer = decode_integer(&mut decoder, IntegerProcedure::Iaai).unwrap();
     assert_eq!(decoder.context(IAID_BASE + 1), Some(iaid_after_first));
     assert_ne!(decoder.context(1), Some(ContextState::default()));
     assert_eq!(decoder.context(BITMAP_BASE), Some(ContextState::default()));
-    let second = ready(decode_iaid(&mut decoder, 1)).unwrap();
+    let second = decode_iaid(&mut decoder, 1).unwrap();
     assert_eq!((first, second), (0, 1));
     assert_ne!(decoder.context(IAID_BASE + 1), Some(iaid_after_first));
     let symbols = decoder.snapshot().symbols_decoded;
     assert!(symbols >= 6);
-    ready(decoder.finish(symbols)).unwrap();
+    decoder.finish(symbols).unwrap();
     assert!(
         source
             .reads
@@ -234,7 +210,7 @@ fn the_full_iaid_range_is_checked_before_a_decision() {
     let mut source = Source::new(&bytes);
     let span = source.span();
     let mut contexts = coding_unit(1, &limits, &budget);
-    let mut decoder = ready(MqDecoder::new(
+    let mut decoder = MqDecoder::new(
         &mut source,
         span,
         &table,
@@ -242,15 +218,15 @@ fn the_full_iaid_range_is_checked_before_a_decision() {
         &limits,
         &NeverCancel,
         budget,
-    ))
+    )
     .unwrap();
     for code_len in [2, 63, 64, u32::MAX] {
         let before = decoder.snapshot();
-        let error = ready(decode_iaid(&mut decoder, code_len)).unwrap_err();
+        let error = decode_iaid(&mut decoder, code_len).unwrap_err();
         assert!(matches!(error.kind, ArithmeticErrorKind::InvalidContext));
         assert_eq!(decoder.snapshot(), before);
     }
-    ready(decoder.finish(0)).unwrap();
+    decoder.finish(0).unwrap();
 }
 
 #[test]
@@ -268,7 +244,7 @@ fn symbol_and_work_limits_and_cancellation_propagate() {
     let mut source = Source::new(&bytes);
     let span = source.span();
     let mut contexts = coding_unit(2, &limits, &budget);
-    let mut decoder = ready(MqDecoder::new(
+    let mut decoder = MqDecoder::new(
         &mut source,
         span,
         &table,
@@ -276,9 +252,9 @@ fn symbol_and_work_limits_and_cancellation_propagate() {
         &limits,
         &NeverCancel,
         budget,
-    ))
+    )
     .unwrap();
-    let error = ready(decode_iaid(&mut decoder, 2)).unwrap_err();
+    let error = decode_iaid(&mut decoder, 2).unwrap_err();
     assert!(matches!(
         error.kind,
         ArithmeticErrorKind::LimitExceeded {
@@ -295,7 +271,7 @@ fn symbol_and_work_limits_and_cancellation_propagate() {
     let mut source = Source::new(&bytes);
     let span = source.span();
     let mut contexts = coding_unit(1, &limits, &budget);
-    let mut decoder = ready(MqDecoder::new(
+    let mut decoder = MqDecoder::new(
         &mut source,
         span,
         &table,
@@ -303,9 +279,9 @@ fn symbol_and_work_limits_and_cancellation_propagate() {
         &limits,
         &NeverCancel,
         budget,
-    ))
+    )
     .unwrap();
-    let error = ready(decode_iaid(&mut decoder, 1)).unwrap_err();
+    let error = decode_iaid(&mut decoder, 1).unwrap_err();
     assert!(matches!(
         error.kind,
         ArithmeticErrorKind::LimitExceeded {
@@ -320,7 +296,7 @@ fn symbol_and_work_limits_and_cancellation_propagate() {
     let mut source = Source::new(&bytes);
     let span = source.span();
     let mut contexts = coding_unit(0, &limits, &budget);
-    let mut decoder = ready(MqDecoder::new(
+    let mut decoder = MqDecoder::new(
         &mut source,
         span,
         &table,
@@ -328,10 +304,10 @@ fn symbol_and_work_limits_and_cancellation_propagate() {
         &limits,
         &flag,
         budget,
-    ))
+    )
     .unwrap();
     cancelled.set(true);
-    let error = ready(decode_iaid(&mut decoder, 0)).unwrap_err();
+    let error = decode_iaid(&mut decoder, 0).unwrap_err();
     assert!(matches!(error.kind, ArithmeticErrorKind::Cancelled));
     assert_eq!(decoder.snapshot().symbols_decoded, 0);
 }
@@ -348,7 +324,7 @@ fn truncated_source_marker_and_dropped_future_are_located() {
     source.advertised = 4;
     let span = source.span();
     let mut contexts = coding_unit(2, &limits, &budget);
-    let mut decoder = ready(MqDecoder::new(
+    let mut decoder = MqDecoder::new(
         &mut source,
         span,
         &table,
@@ -356,9 +332,9 @@ fn truncated_source_marker_and_dropped_future_are_located() {
         &limits,
         &NeverCancel,
         budget,
-    ))
+    )
     .unwrap();
-    let error = ready(decode_iaid(&mut decoder, 2)).unwrap_err();
+    let error = decode_iaid(&mut decoder, 2).unwrap_err();
     assert!(matches!(
         error.kind,
         ArithmeticErrorKind::Source(caj2pdf_core::Error::TruncatedInput { .. })
@@ -372,7 +348,7 @@ fn truncated_source_marker_and_dropped_future_are_located() {
         let mut source = Source::new(bytes);
         let span = source.span();
         let mut contexts = coding_unit(2, &limits, &budget);
-        let mut decoder = ready(MqDecoder::new(
+        let mut decoder = MqDecoder::new(
             &mut source,
             span,
             &table,
@@ -380,9 +356,9 @@ fn truncated_source_marker_and_dropped_future_are_located() {
             &limits,
             &NeverCancel,
             budget,
-        ))
+        )
         .unwrap();
-        let error = ready(decode_iaid(&mut decoder, 2)).unwrap_err();
+        let error = decode_iaid(&mut decoder, 2).unwrap_err();
         if invalid_marker {
             assert!(matches!(
                 error.kind,
@@ -397,7 +373,7 @@ fn truncated_source_marker_and_dropped_future_are_located() {
     let mut source = Source::new(&[0x80, 0, 0xff, 0x90]);
     let span = source.span();
     let mut contexts = coding_unit(0, &limits, &budget);
-    let mut decoder = ready(MqDecoder::new(
+    let mut decoder = MqDecoder::new(
         &mut source,
         span,
         &table,
@@ -405,70 +381,14 @@ fn truncated_source_marker_and_dropped_future_are_located() {
         &limits,
         &NeverCancel,
         budget,
-    ))
+    )
     .unwrap();
-    assert_eq!(ready(decode_iaid(&mut decoder, 0)).unwrap(), 0);
-    let error = ready(decoder.finish(0)).unwrap_err();
+    assert_eq!(decode_iaid(&mut decoder, 0).unwrap(), 0);
+    let error = decoder.finish(0).unwrap_err();
     assert!(matches!(
         error.kind,
         ArithmeticErrorKind::InvalidMarker(0x90)
     ));
-
-    let mut source = Source::new(&[0x80, 0, 0, 0xff, 0xac]);
-    source.pending_at = Some(2);
-    let span = source.span();
-    let mut contexts = coding_unit(2, &limits, &budget);
-    let mut decoder = ready(MqDecoder::new(
-        &mut source,
-        span,
-        &table,
-        &mut contexts,
-        &limits,
-        &NeverCancel,
-        budget,
-    ))
-    .unwrap();
-    {
-        let mut future = pin!(decode_iaid(&mut decoder, 2));
-        let mut task = Context::from_waker(Waker::noop());
-        assert!(matches!(future.as_mut().poll(&mut task), Poll::Pending));
-    }
-    let error = ready(decode_iaid(&mut decoder, 2)).unwrap_err();
-    assert!(matches!(error.kind, ArithmeticErrorKind::Poisoned));
-    assert!(decoder.snapshot().poisoned);
-}
-
-#[test]
-fn zero_bit_call_rejects_a_poisoned_shared_decoder() {
-    let limits = Limits {
-        io_chunk_bytes: 1,
-        ..Limits::default()
-    };
-    let budget = MqBudget::default();
-    let table = table();
-    let mut source = Source::new(&[0x80, 0, 0, 0xff, 0xac]);
-    source.pending_at = Some(2);
-    let span = source.span();
-    let mut contexts = coding_unit(0, &limits, &budget);
-    let mut decoder = ready(MqDecoder::new(
-        &mut source,
-        span,
-        &table,
-        &mut contexts,
-        &limits,
-        &NeverCancel,
-        budget,
-    ))
-    .unwrap();
-    assert!(!ready(decoder.decode_bit(0)).unwrap());
-    {
-        let mut future = pin!(decoder.decode_bit(0));
-        let mut task = Context::from_waker(Waker::noop());
-        assert!(matches!(future.as_mut().poll(&mut task), Poll::Pending));
-    }
-    let error = ready(decode_iaid(&mut decoder, 0)).unwrap_err();
-    assert!(matches!(error.kind, ArithmeticErrorKind::Poisoned));
-    assert_eq!(decoder.snapshot().symbols_decoded, 1);
 }
 
 #[test]
@@ -491,7 +411,7 @@ fn bounded_mutation_smoke_keeps_work_and_reads_within_limits() {
         let mut source = Source::new(&[seed, seed ^ 0x55, 0, 0xff, 0xac]);
         let span = source.span();
         let mut contexts = coding_unit(3, &limits, &budget);
-        if let Ok(mut decoder) = ready(MqDecoder::new(
+        if let Ok(mut decoder) = MqDecoder::new(
             &mut source,
             span,
             &table,
@@ -499,8 +419,8 @@ fn bounded_mutation_smoke_keeps_work_and_reads_within_limits() {
             &limits,
             &NeverCancel,
             budget,
-        )) {
-            let _ = ready(decode_iaid(&mut decoder, 3));
+        ) {
+            let _ = decode_iaid(&mut decoder, 3);
             let snapshot = decoder.snapshot();
             assert!(snapshot.work_done <= budget.max_work);
             assert!(snapshot.symbols_decoded <= budget.max_symbols);

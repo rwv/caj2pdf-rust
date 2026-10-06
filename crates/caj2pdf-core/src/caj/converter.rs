@@ -51,12 +51,10 @@ impl<S: RangedSource> RangedSource for ExtendedSource<'_, S> {
         self.base + self.suffix.len() as u64
     }
 
-    async fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> Result<usize> {
+    fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> Result<usize> {
         if offset < self.base {
             let available = (self.base - offset).min(destination.len() as u64) as usize;
-            self.source
-                .read_at(offset, &mut destination[..available])
-                .await
+            self.source.read_at(offset, &mut destination[..available])
         } else if offset < self.size() {
             let start = (offset - self.base) as usize;
             let length = (self.suffix.len() - start).min(destination.len());
@@ -360,7 +358,7 @@ fn push_synthetic(
 /// Retry a malformed fragment using only independently parsed page-table
 /// spans. No payload is searched for headers, and the full scan must confirm
 /// every candidate used.
-async fn scan_caj_objects<S: RangedSource, C: Cancellation>(
+fn scan_caj_objects<S: RangedSource, C: Cancellation>(
     source: &mut S,
     metadata: &super::CajMetadata,
     limits: &Limits,
@@ -374,9 +372,7 @@ async fn scan_caj_objects<S: RangedSource, C: Cancellation>(
         limits,
         cancellation,
         &mut [],
-    )
-    .await
-    {
+    ) {
         Ok(scan) => return Ok(scan),
         Err(
             error @ Error::Pdf {
@@ -399,9 +395,7 @@ async fn scan_caj_objects<S: RangedSource, C: Cancellation>(
             row.offset + row.length,
             limits,
             cancellation,
-        )
-        .await
-        {
+        ) {
             Ok(objects) => objects,
             Err(Error::Pdf { .. }) => continue,
             Err(error) => return Err(error),
@@ -433,23 +427,19 @@ async fn scan_caj_objects<S: RangedSource, C: Cancellation>(
         limits,
         cancellation,
         &mut candidates,
-    )
-    .await;
+    );
     match result {
         Err(Error::Pdf {
             kind: PdfErrorKind::Malformed,
             ..
-        }) if allow_damaged => {
-            scan_damaged_fragment(
-                source,
-                &metadata.page_rows,
-                metadata.body_end_hint,
-                limits,
-                cancellation,
-                &mut candidates,
-            )
-            .await
-        }
+        }) if allow_damaged => scan_damaged_fragment(
+            source,
+            &metadata.page_rows,
+            metadata.body_end_hint,
+            limits,
+            cancellation,
+            &mut candidates,
+        ),
         other => other,
     }
 }
@@ -460,7 +450,7 @@ async fn scan_caj_objects<S: RangedSource, C: Cancellation>(
 /// dictionaries are retained. All PDF object validation precedes output.
 /// Each source object is parsed once by the fragment scan, whose inspection
 /// carries through page-tree reconstruction and link repair.
-pub async fn convert_caj<S: RangedSource, W: SequentialSink, C: Cancellation>(
+pub fn convert_caj<S: RangedSource, W: SequentialSink, C: Cancellation>(
     source: &mut S,
     sink: &mut W,
     options: ConversionOptions,
@@ -470,17 +460,16 @@ pub async fn convert_caj<S: RangedSource, W: SequentialSink, C: Cancellation>(
     let mut input_bytes_read = 0;
     let mut counted =
         CountingSource::new(source, &mut input_bytes_read).rejecting_overread(OVERREAD);
-    let metadata = parse_metadata(&mut counted, limits, cancellation).await?;
+    let metadata = parse_metadata(&mut counted, limits, cancellation)?;
     let mut scan = scan_caj_objects(
         &mut counted,
         &metadata,
         limits,
         cancellation,
         options.allow_damaged,
-    )
-    .await?;
+    )?;
     let (damaged_suffix, omitted_pages) = if options.allow_damaged && !scan.damaged.is_empty() {
-        substitute_damaged_pages(&mut counted, &metadata, &mut scan, limits, cancellation).await?
+        substitute_damaged_pages(&mut counted, &metadata, &mut scan, limits, cancellation)?
     } else {
         (Vec::new(), Vec::new())
     };
@@ -737,8 +726,7 @@ pub async fn convert_caj<S: RangedSource, W: SequentialSink, C: Cancellation>(
                 .map(|inspected| inspected.object)
                 .ok_or_else(failure)?;
             let candidate =
-                inspect_link_destination_candidate(&mut patched, fragment, limits, cancellation)
-                    .await?
+                inspect_link_destination_candidate(&mut patched, fragment, limits, cancellation)?
                     .ok_or_else(failure)?;
             let LinkDestinationTarget::DirectPage(target) = candidate.target else {
                 return Err(failure());
@@ -784,8 +772,7 @@ pub async fn convert_caj<S: RangedSource, W: SequentialSink, C: Cancellation>(
                     *fragment,
                     limits,
                     cancellation,
-                )
-                .await?
+                )?
                 .ok_or_else(|| missing_reference(&objects, fragment.reference))?;
                 if candidate.kind != LinkRepairKind::Link
                     || candidate.target != LinkDestinationTarget::IndirectArray(scalar)
@@ -827,7 +814,7 @@ pub async fn convert_caj<S: RangedSource, W: SequentialSink, C: Cancellation>(
         pages_root: root,
     };
     let mut report =
-        reconstruct_inspected(&mut extended, sink, plan, bookmarks, limits, cancellation).await?;
+        reconstruct_inspected(&mut extended, sink, plan, bookmarks, limits, cancellation)?;
     report.input_bytes_read = input_bytes_read;
     report.omitted_pages = omitted_pages;
     Ok(report)
@@ -837,7 +824,6 @@ pub async fn convert_caj<S: RangedSource, W: SequentialSink, C: Cancellation>(
 mod tests {
     use super::*;
     use crate::native::SeekableSource;
-    use crate::test_support::ready;
     use std::io::Cursor;
 
     #[test]
@@ -946,12 +932,12 @@ mod tests {
 
         let mut buffer = [0u8; 8];
         // A read crossing the boundary stops at the immutable source end.
-        assert_eq!(ready(extended.read_at(1, &mut buffer)).unwrap(), 2);
+        assert_eq!(extended.read_at(1, &mut buffer).unwrap(), 2);
         assert_eq!(&buffer[..2], b"bc");
-        assert_eq!(ready(extended.read_at(4, &mut buffer)).unwrap(), 2);
+        assert_eq!(extended.read_at(4, &mut buffer).unwrap(), 2);
         assert_eq!(&buffer[..2], b"YZ");
-        assert_eq!(ready(extended.read_at(6, &mut buffer)).unwrap(), 0);
-        assert_eq!(ready(extended.read_at(u64::MAX, &mut buffer)).unwrap(), 0);
+        assert_eq!(extended.read_at(6, &mut buffer).unwrap(), 0);
+        assert_eq!(extended.read_at(u64::MAX, &mut buffer).unwrap(), 0);
     }
 
     #[test]

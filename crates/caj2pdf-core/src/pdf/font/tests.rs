@@ -2,20 +2,6 @@
 
 use super::*;
 use crate::NeverCancel;
-use std::{
-    future::Future,
-    task::{Context, Poll, Waker},
-};
-
-fn run<F: Future>(future: F) -> F::Output {
-    match std::pin::pin!(future)
-        .as_mut()
-        .poll(&mut Context::from_waker(Waker::noop()))
-    {
-        Poll::Ready(value) => value,
-        Poll::Pending => panic!("unexpected pending fixture"),
-    }
-}
 
 struct Source {
     bytes: Vec<u8>,
@@ -27,7 +13,7 @@ impl RangedSource for Source {
     fn size(&self) -> u64 {
         self.bytes.len() as u64
     }
-    async fn read_at(&mut self, offset: u64, out: &mut [u8]) -> Result<usize> {
+    fn read_at(&mut self, offset: u64, out: &mut [u8]) -> Result<usize> {
         assert!(
             offset + out.len() as u64 <= self.outline,
             "outline payload must remain unread"
@@ -67,13 +53,8 @@ fn fixture() -> Source {
 fn postscript_names_are_bounded_and_validated_before_embedding() {
     for case in 0..6 {
         let mut source = fixture();
-        let mut font = run(OpenTypeFont::read(
-            &mut source,
-            0,
-            &Limits::default(),
-            &NeverCancel,
-        ))
-        .unwrap();
+        let mut font =
+            OpenTypeFont::read(&mut source, 0, &Limits::default(), &NeverCancel).unwrap();
         assert_eq!(font.postscript_name().unwrap(), "CajFixture");
         let name = &mut font.tables[7];
         match case {
@@ -100,7 +81,7 @@ fn ranged_metadata_maps_unicode_without_reading_outlines() {
             io_chunk_bytes: chunk,
             ..Limits::default()
         };
-        let font = run(OpenTypeFont::read(&mut source, 0, &limits, &NeverCancel)).unwrap();
+        let font = OpenTypeFont::read(&mut source, 0, &limits, &NeverCancel).unwrap();
         assert_eq!(font.outlines[0], Some((outline, 2 * 1024 * 1024)));
         assert_eq!(font.outlines[2..], [None; 4]);
         assert_eq!(font.units_per_em().unwrap(), 1000);
@@ -186,13 +167,7 @@ fn metadata_and_directory_fail_closed() {
         let mut source = fixture();
         mutation(&mut source);
         assert!(
-            run(OpenTypeFont::read(
-                &mut source,
-                0,
-                &Limits::default(),
-                &NeverCancel
-            ))
-            .is_err(),
+            OpenTypeFont::read(&mut source, 0, &Limits::default(), &NeverCancel).is_err(),
             "mutation {index}"
         );
     }
@@ -208,13 +183,7 @@ fn the_least_restrictive_embedding_bit_applies() {
         let (at, _) = span(source.bytes[i..i + 16].try_into().unwrap());
         put16(&mut source.bytes, at as usize + 8, fs_type);
         assert!(
-            run(OpenTypeFont::read(
-                &mut source,
-                0,
-                &Limits::default(),
-                &NeverCancel
-            ))
-            .is_ok(),
+            OpenTypeFont::read(&mut source, 0, &Limits::default(), &NeverCancel).is_ok(),
             "{fs_type:#x}"
         );
     }
@@ -236,15 +205,7 @@ fn the_least_restrictive_embedding_bit_applies() {
     let (at, _) = span(source.bytes[i..i + 16].try_into().unwrap());
     put16(&mut source.bytes, at as usize, 1);
     put16(&mut source.bytes, at as usize + 8, 0x304);
-    assert!(
-        run(OpenTypeFont::read(
-            &mut source,
-            0,
-            &Limits::default(),
-            &NeverCancel
-        ))
-        .is_ok()
-    );
+    assert!(OpenTypeFont::read(&mut source, 0, &Limits::default(), &NeverCancel).is_ok());
 }
 
 #[test]
@@ -257,12 +218,7 @@ fn budget_and_cancellation_precede_payload_reads() {
     }
     let mut source = fixture();
     assert!(matches!(
-        run(OpenTypeFont::read(
-            &mut source,
-            0,
-            &Limits::default(),
-            &Cancel
-        )),
+        OpenTypeFont::read(&mut source, 0, &Limits::default(), &Cancel),
         Err(Error::Cancelled)
     ));
     assert_eq!(source.requested, 0);
@@ -271,7 +227,7 @@ fn budget_and_cancellation_precede_payload_reads() {
         ..Limits::default()
     };
     assert!(matches!(
-        run(OpenTypeFont::read(&mut source, 0, &limits, &NeverCancel)),
+        OpenTypeFont::read(&mut source, 0, &limits, &NeverCancel),
         Err(Error::LimitExceeded {
             resource: "input bytes",
             ..
@@ -283,7 +239,7 @@ fn budget_and_cancellation_precede_payload_reads() {
         ..Limits::default()
     };
     assert!(matches!(
-        run(OpenTypeFont::read(&mut source, 0, &limits, &NeverCancel)),
+        OpenTypeFont::read(&mut source, 0, &limits, &NeverCancel),
         Err(Error::LimitExceeded {
             resource: "allocation bytes",
             ..
@@ -291,12 +247,7 @@ fn budget_and_cancellation_precede_payload_reads() {
     ));
     source.bytes.truncate(11);
     assert!(matches!(
-        run(OpenTypeFont::read(
-            &mut source,
-            0,
-            &Limits::default(),
-            &NeverCancel
-        )),
+        OpenTypeFont::read(&mut source, 0, &Limits::default(), &NeverCancel),
         Err(Error::TruncatedInput { .. })
     ));
 }
@@ -314,12 +265,7 @@ fn oversized_metadata_is_rejected_without_reading_or_allocating_it() {
         MAX_FONT_METADATA_BYTES as u32 + 1,
     );
     assert!(matches!(
-        run(OpenTypeFont::read(
-            &mut source,
-            0,
-            &Limits::default(),
-            &NeverCancel
-        )),
+        OpenTypeFont::read(&mut source, 0, &Limits::default(), &NeverCancel),
         Err(Error::LimitExceeded {
             resource: "font metadata bytes",
             ..
@@ -349,12 +295,7 @@ fn many_character_maps_cannot_multiply_mapping_work_without_a_bound() {
     put32(&mut source.bytes, glyf + 12, 0);
     source.outline += table.len() as u64;
     assert!(matches!(
-        run(OpenTypeFont::read(
-            &mut source,
-            0,
-            &Limits::default(),
-            &NeverCancel
-        )),
+        OpenTypeFont::read(&mut source, 0, &Limits::default(), &NeverCancel),
         Err(Error::LimitExceeded {
             resource: "font character maps",
             limit: 16,
@@ -385,12 +326,7 @@ fn shared_cross_runtime_font_matches_original_generator() {
 
 fn read_face(bytes: Vec<u8>, face: u32) -> Result<(char, u16)> {
     let mut source = crate::native::SeekableSource::new(std::io::Cursor::new(bytes)).unwrap();
-    let font = run(OpenTypeFont::read(
-        &mut source,
-        face,
-        &Limits::default(),
-        &NeverCancel,
-    ))?;
+    let font = OpenTypeFont::read(&mut source, face, &Limits::default(), &NeverCancel)?;
     let face = font.face()?;
     let mapped = [' ', 'A']
         .into_iter()
@@ -412,7 +348,7 @@ fn collection_faces_are_selected_by_index() {
     let fingerprint = |face| {
         let mut source =
             crate::native::SeekableSource::new(std::io::Cursor::new(collection_font())).unwrap();
-        run(OpenTypeFont::read(&mut source, face, &limits, &NeverCancel))
+        OpenTypeFont::read(&mut source, face, &limits, &NeverCancel)
             .unwrap()
             .fingerprint()
     };
@@ -472,11 +408,7 @@ fn collection_headers_and_face_indices_fail_closed() {
 fn face_counts_read_only_the_header() {
     let count = |bytes: Vec<u8>| {
         let mut source = crate::native::SeekableSource::new(std::io::Cursor::new(bytes)).unwrap();
-        run(OpenTypeFont::face_count(
-            &mut source,
-            &Limits::default(),
-            &NeverCancel,
-        ))
+        OpenTypeFont::face_count(&mut source, &Limits::default(), &NeverCancel)
     };
     let mut apple = drawing_font();
     apple[..4].copy_from_slice(b"true");
@@ -510,7 +442,7 @@ fn face_counts_read_only_the_header() {
         ..Limits::default()
     };
     assert!(matches!(
-        run(OpenTypeFont::face_count(&mut source, &limits, &NeverCancel)),
+        OpenTypeFont::face_count(&mut source, &limits, &NeverCancel),
         Err(Error::LimitExceeded { .. })
     ));
 }

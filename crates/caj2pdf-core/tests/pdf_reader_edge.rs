@@ -7,22 +7,7 @@ use caj2pdf_core::{
     native::{SeekableSource, WriteSink},
     pdf::{PdfIndex, PdfRange, PdfRef, copy_pdf},
 };
-use std::{
-    cell::Cell,
-    future::Future,
-    io::Cursor,
-    pin::pin,
-    task::{Context, Poll, Waker},
-};
-
-fn run<F: Future>(future: F) -> F::Output {
-    let mut context = Context::from_waker(Waker::noop());
-    let mut future = pin!(future);
-    match future.as_mut().poll(&mut context) {
-        Poll::Ready(result) => result,
-        Poll::Pending => panic!("immediate test source unexpectedly yielded"),
-    }
-}
+use std::{cell::Cell, io::Cursor};
 
 struct Fixture {
     bytes: Vec<u8>,
@@ -93,7 +78,7 @@ fn ordinary_fixture() -> Fixture {
 fn inspect(bytes: Vec<u8>, limits: &Limits) -> Result<PdfIndex> {
     let size = bytes.len() as u64;
     let mut source = SeekableSource::new(Cursor::new(bytes))?;
-    run(PdfIndex::open(
+    PdfIndex::open(
         &mut source,
         PdfRange {
             offset: 0,
@@ -101,7 +86,7 @@ fn inspect(bytes: Vec<u8>, limits: &Limits) -> Result<PdfIndex> {
         },
         limits,
         &NeverCancel,
-    ))
+    )
 }
 
 fn assert_pdf_error(bytes: Vec<u8>, kind: PdfErrorKind) -> Error {
@@ -146,7 +131,7 @@ fn one_byte_ranged_reads_preserve_binary_stream_markers_and_absolute_offset() {
         max_request: 0,
         fail_after: None,
     };
-    let index = run(PdfIndex::open(
+    let index = PdfIndex::open(
         &mut source,
         PdfRange {
             offset: prefix.len() as u64,
@@ -154,7 +139,7 @@ fn one_byte_ranged_reads_preserve_binary_stream_markers_and_absolute_offset() {
         },
         &Limits::default(),
         &NeverCancel,
-    ))
+    )
     .unwrap();
     assert_eq!(
         index.pages(),
@@ -239,14 +224,9 @@ fn source_range_and_index_access_are_checked() {
         ),
     ] {
         let mut source = SeekableSource::new(Cursor::new(pdf.bytes.clone())).unwrap();
-        let error = run(PdfIndex::open(
-            &mut source,
-            range,
-            &Limits::default(),
-            &NeverCancel,
-        ))
-        .err()
-        .expect("out-of-bounds range should fail");
+        let error = PdfIndex::open(&mut source, range, &Limits::default(), &NeverCancel)
+            .err()
+            .expect("out-of-bounds range should fail");
         assert!(error.to_string().contains(expected), "{error}");
     }
     let input_limit = Limits {
@@ -763,13 +743,7 @@ fn cancelled_and_stalled_ranged_sources_never_produce_a_copy() {
         fail_after: Some(3),
     };
     let mut sink = WriteSink::new(Vec::<u8>::new());
-    let error = run(copy_pdf(
-        &mut source,
-        &mut sink,
-        &Limits::default(),
-        &NeverCancel,
-    ))
-    .unwrap_err();
+    let error = copy_pdf(&mut source, &mut sink, &Limits::default(), &NeverCancel).unwrap_err();
     assert!(matches!(error, Error::TruncatedInput { .. }), "{error}");
     assert!(sink.into_inner().is_empty());
 
@@ -785,13 +759,7 @@ fn cancelled_and_stalled_ranged_sources_never_produce_a_copy() {
         limit: 4,
     };
     let mut sink = WriteSink::new(Vec::<u8>::new());
-    let error = run(copy_pdf(
-        &mut source,
-        &mut sink,
-        &Limits::default(),
-        &signal,
-    ))
-    .unwrap_err();
+    let error = copy_pdf(&mut source, &mut sink, &Limits::default(), &signal).unwrap_err();
     assert!(matches!(error, Error::Cancelled));
     assert!(sink.into_inner().is_empty());
 }
@@ -831,7 +799,7 @@ impl RangedSource for SmallReads {
         self.bytes.len() as u64
     }
 
-    async fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> Result<usize> {
+    fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> Result<usize> {
         self.calls += 1;
         self.max_request = self.max_request.max(destination.len());
         if self.fail_after.is_some_and(|after| self.calls > after) {

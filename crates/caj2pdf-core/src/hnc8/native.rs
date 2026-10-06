@@ -170,9 +170,8 @@ pub fn decode_native_image_coordinate(words: &[u16; 13]) -> Option<super::RawTex
 /// Receives one record at a time in source order, including all known controls.
 /// A callback is awaited before the next record is read. Events delivered before
 /// a later error are an incomplete prefix and must not be published as a page.
-#[allow(async_fn_in_trait)]
 pub trait NativeRecordVisitor {
-    async fn visit(&mut self, offset: u64, record: NativeRecord) -> crate::Result<()>;
+    fn visit(&mut self, offset: u64, record: NativeRecord) -> crate::Result<()>;
 }
 
 impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
@@ -186,7 +185,7 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
     /// `TextBudget` caps span bytes, records, images and fixed working storage.
     /// Raw span bytes also count against its decoded-byte ceiling. The 4 KiB
     /// reservation accounts for fixed parser state, not process/visitor memory.
-    pub async fn visit_native_records<V: NativeRecordVisitor>(
+    pub fn visit_native_records<V: NativeRecordVisitor>(
         &mut self,
         budget: TextBudget,
         visitor: &mut V,
@@ -207,7 +206,7 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
             .ok_or_else(|| loc.error(ErrorKind::NoCurrentPage))?
             .page;
         self.poisoned = true;
-        let result = async {
+        let result = (|| {
             if !matches!(self.header.variant, Variant::C8 | Variant::HnB) {
                 return Err(loc.error(ErrorKind::Unsupported {
                     field: "native record variant",
@@ -261,8 +260,7 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
                 let mut bytes = [0_u8; 28];
                 let bare_end = self.header.variant == Variant::HnB && end - position == 2;
                 let mut length = if bare_end { 2 } else { 4 };
-                self.native_bytes(position, end, &mut bytes[..length], at)
-                    .await?;
+                self.native_bytes(position, end, &mut bytes[..length], at)?;
                 let tag = word(&bytes[..2]);
                 if bare_end && tag != 0x8004 {
                     return Err(at.error(ErrorKind::Truncated {
@@ -351,8 +349,7 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
                                 && (tag, value) == (0xc052, 0xa385)) =>
                     {
                         length = 8;
-                        self.native_bytes(position + 4, end, &mut bytes[4..8], at)
-                            .await?;
+                        self.native_bytes(position + 4, end, &mut bytes[4..8], at)?;
                         NativeRecord::ExtendedControl {
                             tag,
                             value,
@@ -369,8 +366,7 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
                                 end,
                                 &mut bytes[..count],
                                 at,
-                            )
-                            .await?;
+                            )?;
                             for (index, pair) in
                                 bytes[..count].as_chunks::<2>().0.iter().enumerate()
                             {
@@ -401,8 +397,7 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
                     ) =>
                     {
                         length = 12;
-                        self.native_bytes(position + 4, end, &mut bytes[4..length], at)
-                            .await?;
+                        self.native_bytes(position + 4, end, &mut bytes[4..length], at)?;
                         NativeRecord::Drawing {
                             tag,
                             style: value,
@@ -414,8 +409,7 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
                     }
                     0x800a if value == 0xd300 => {
                         length = 28;
-                        self.native_bytes(position + 4, end, &mut bytes[4..length], at)
-                            .await?;
+                        self.native_bytes(position + 4, end, &mut bytes[4..length], at)?;
                         if images == page.image_count {
                             return Err(
                                 at.malformed("native image records", "exceed declared image count")
@@ -429,8 +423,7 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
                         NativeRecord::Image { words }
                     }
                     0x810a if value == 0xd300 => {
-                        self.native_bytes(position + 4, end, &mut bytes[4..16], at)
-                            .await?;
+                        self.native_bytes(position + 4, end, &mut bytes[4..16], at)?;
                         let flags = word(&bytes[12..14]);
                         if flags != 0 {
                             return Err(at.at(position + 12).error(ErrorKind::Unsupported {
@@ -457,8 +450,7 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
                                 end,
                                 &mut bytes[..count],
                                 at,
-                            )
-                            .await?;
+                            )?;
                             for (index, &byte) in bytes[..count].iter().enumerate() {
                                 if consumed + index >= 16 + name_bytes && byte != 0 {
                                     return Err(at
@@ -538,7 +530,7 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
                 if matches!(tag, 0x8070 | 0x8071) {
                     explicit_axes[usize::from(tag - 0x8070)] = Some(value);
                 }
-                visitor.visit(position, record).await.map_err(|source| {
+                visitor.visit(position, record).map_err(|source| {
                     at.error(ErrorKind::Source {
                         field: "native record visitor",
                         source,
@@ -556,15 +548,14 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
             Err(loc
                 .at(end)
                 .malformed("native page end", "missing end record"))
-        }
-        .await;
+        })();
         if result.is_ok() {
             self.poisoned = false;
         }
         result
     }
 
-    async fn native_bytes(
+    fn native_bytes(
         &mut self,
         offset: u64,
         end: u64,
@@ -588,7 +579,6 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
             loc.at(offset),
             "native record",
         )
-        .await
     }
 }
 

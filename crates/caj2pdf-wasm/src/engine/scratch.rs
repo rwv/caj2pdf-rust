@@ -35,7 +35,7 @@ impl RandomAccessScratch for Scratch {
         Ok(self.size)
     }
 
-    async fn set_len(&mut self, bytes: u64) -> Result<()> {
+    fn set_len(&mut self, bytes: u64) -> Result<()> {
         if bytes > self.max_bytes {
             return Err(Error::LimitExceeded {
                 resource: "WASM scratch bytes",
@@ -59,10 +59,9 @@ impl RandomAccessScratch for Scratch {
             });
             Poll::Pending
         })
-        .await
     }
 
-    async fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> Result<usize> {
+    fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> Result<usize> {
         self.check_range(offset, destination.len())?;
         if destination.is_empty() {
             return Ok(0);
@@ -85,10 +84,9 @@ impl RandomAccessScratch for Scratch {
             });
             Poll::Pending
         })
-        .await
     }
 
-    async fn write_at(&mut self, offset: u64, bytes: &[u8]) -> Result<usize> {
+    fn write_at(&mut self, offset: u64, bytes: &[u8]) -> Result<usize> {
         self.check_range(offset, bytes.len())?;
         if bytes.is_empty() {
             return Ok(0);
@@ -113,10 +111,9 @@ impl RandomAccessScratch for Scratch {
             }
             Poll::Pending
         })
-        .await
     }
 
-    async fn flush(&mut self) -> Result<()> {
+    fn flush(&mut self) -> Result<()> {
         poll_fn(|_| {
             let mut shared = self.shared.borrow_mut();
             if shared.cancelled {
@@ -129,6 +126,5 @@ impl RandomAccessScratch for Scratch {
             shared.request = Some(Request::ScratchFlush { store: self.store });
             Poll::Pending
         })
-        .await
     }
 }

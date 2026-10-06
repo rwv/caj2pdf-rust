@@ -7,22 +7,7 @@ use caj2pdf_core::{
     caj::convert_caj,
     native::{SeekableSource, WriteSink},
 };
-use std::{
-    env,
-    fs::File,
-    future::Future,
-    pin::pin,
-    task::{Context, Poll, Waker},
-};
-
-fn poll_native<F: Future>(future: F) -> F::Output {
-    let mut context = Context::from_waker(Waker::noop());
-    let mut future = pin!(future);
-    match future.as_mut().poll(&mut context) {
-        Poll::Ready(value) => value,
-        Poll::Pending => unreachable!("native adapters never suspend"),
-    }
-}
+use std::{env, fs::File};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = env::args_os().skip(1);
@@ -37,13 +22,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     let mut source = SeekableSource::new(File::open(input)?)?;
     let mut sink = WriteSink::new(File::create(output)?);
-    let report = poll_native(convert_caj(
+    let report = convert_caj(
         &mut source,
         &mut sink,
         ConversionOptions::default(),
         &Limits::default(),
         &NeverCancel,
-    ))?;
+    )?;
     eprintln!(
         "converted {} pages and {} bookmarks; read {} bytes; wrote {} bytes",
         report.pages_converted,

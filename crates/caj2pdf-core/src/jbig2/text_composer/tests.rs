@@ -25,23 +25,9 @@ use crate::jbig2::{
 use std::{
     cell::{Cell, RefCell},
     error::Error as StdError,
-    future::Future,
     io,
-    pin::pin,
     rc::Rc,
-    task::{Context, Poll, Waker},
 };
-
-fn ready<F: Future>(future: F) -> F::Output {
-    let mut future = pin!(future);
-    match future
-        .as_mut()
-        .poll(&mut Context::from_waker(Waker::noop()))
-    {
-        Poll::Ready(value) => value,
-        Poll::Pending => panic!("unexpected pending test I/O"),
-    }
-}
 
 /// Raw text-region flags with the top-left reference corner.
 fn flags(default_pixel: bool, combination: SymbolCombination) -> u16 {
@@ -357,7 +343,7 @@ impl Region {
         let mut source = Bytes::new(&text_data(width, height, flags, instances, body));
         let text_segment = segment(3, 6, vec![2], 0, source.size());
         let dictionary_segment = segment(2, 0, vec![1], 100, 2);
-        let header = ready(read_text_region_header_with_policy(
+        let header = read_text_region_header_with_policy(
             &mut source,
             &text_segment,
             &dictionary_segment,
@@ -365,7 +351,7 @@ impl Region {
             TextRegionBudget::default(),
             &NeverCancel,
             TextHeaderPolicy::HnC8UnusedRefinementTemplate,
-        ))
+        )
         .unwrap();
         (header, source, text_segment, dictionary_segment)
     }
@@ -393,7 +379,7 @@ impl Region {
         temporary: &'r mut Appender,
         cancellation: &'r C,
     ) -> TextInstanceDecoder<'r, Bytes, Bytes, Bytes, Appender, C> {
-        ready(TextInstanceDecoder::new_with_header_policy(
+        TextInstanceDecoder::new_with_header_policy(
             &mut self.source,
             &self.text_segment,
             self.header,
@@ -414,7 +400,7 @@ impl Region {
             RefinementBudget::default(),
             self.budget,
             TextHeaderPolicy::HnC8UnusedRefinementTemplate,
-        ))
+        )
         .unwrap()
     }
 }
@@ -452,7 +438,7 @@ impl RangedSource for Bytes {
             .unwrap_or(self.data.borrow().len() as u64)
     }
 
-    async fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> crate::Result<usize> {
+    fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> crate::Result<usize> {
         self.calls += 1;
         let mut data = self.data.borrow_mut();
         if self.shrink_at_call == Some(self.calls) {
@@ -481,12 +467,12 @@ impl RangedSource for Bytes {
 struct Appender(Rc<RefCell<Vec<u8>>>);
 
 impl SequentialSink for Appender {
-    async fn write(&mut self, bytes: &[u8]) -> crate::Result<usize> {
+    fn write(&mut self, bytes: &[u8]) -> crate::Result<usize> {
         self.0.borrow_mut().extend_from_slice(bytes);
         Ok(bytes.len())
     }
 
-    async fn flush(&mut self) -> crate::Result<()> {
+    fn flush(&mut self) -> crate::Result<()> {
         Ok(())
     }
 }
@@ -540,7 +526,7 @@ impl RandomAccessScratch for Scratch {
         }
     }
 
-    async fn set_len(&mut self, bytes: u64) -> crate::Result<()> {
+    fn set_len(&mut self, bytes: u64) -> crate::Result<()> {
         if self.fail_set_len {
             return Err(Error::Io(io::Error::other("set_len")));
         }
@@ -549,7 +535,7 @@ impl RandomAccessScratch for Scratch {
         Ok(())
     }
 
-    async fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> crate::Result<usize> {
+    fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> crate::Result<usize> {
         self.read_calls += 1;
         if self.zero_read_at == Some(self.read_calls) {
             return Ok(0);
@@ -572,7 +558,7 @@ impl RandomAccessScratch for Scratch {
         Ok(n)
     }
 
-    async fn write_at(&mut self, offset: u64, bytes: &[u8]) -> crate::Result<usize> {
+    fn write_at(&mut self, offset: u64, bytes: &[u8]) -> crate::Result<usize> {
         self.write_calls += 1;
         if self.zero_write_at == Some(self.write_calls) {
             return Ok(0);
@@ -597,7 +583,7 @@ impl RandomAccessScratch for Scratch {
         Ok(n)
     }
 
-    async fn flush(&mut self) -> crate::Result<()> {
+    fn flush(&mut self) -> crate::Result<()> {
         self.flushes += 1;
         if self.fail_flush_at == Some(self.flushes) {
             Err(Error::Io(io::Error::other("scratch flush")))
@@ -616,7 +602,6 @@ struct Sink {
     zero_at_call: Option<usize>,
     over_at_call: Option<usize>,
     fail_flush: bool,
-    pending_flush: Option<Rc<Cell<bool>>>,
     change_size_on_flush: Option<Rc<Cell<bool>>>,
 }
 
@@ -630,7 +615,7 @@ impl Sink {
 }
 
 impl SequentialSink for Sink {
-    async fn write(&mut self, bytes: &[u8]) -> crate::Result<usize> {
+    fn write(&mut self, bytes: &[u8]) -> crate::Result<usize> {
         self.calls += 1;
         if self.zero_at_call == Some(self.calls) {
             return Ok(0);
@@ -643,13 +628,10 @@ impl SequentialSink for Sink {
         Ok(n)
     }
 
-    async fn flush(&mut self) -> crate::Result<()> {
+    fn flush(&mut self) -> crate::Result<()> {
         self.flushes += 1;
         if let Some(flag) = &self.change_size_on_flush {
             flag.set(true);
-        }
-        if self.pending_flush.as_ref().is_some_and(|flag| flag.get()) {
-            std::future::pending::<()>().await;
         }
         if self.fail_flush {
             Err(Error::Io(io::Error::other("output flush")))
@@ -693,7 +675,7 @@ fn compose(
         &NeverCancel,
         budget,
     )?;
-    ready(composer.compose())
+    composer.compose()
 }
 
 fn one_pixel_run(
@@ -1125,62 +1107,12 @@ fn cancellation_after_partial_initialization_poisoned_without_final_output() {
         TextComposeBudget::default(),
     )
     .unwrap();
-    let error = ready(composer.compose()).unwrap_err();
+    let error = composer.compose().unwrap_err();
     assert!(matches!(error.kind, TextComposeErrorKind::Cancelled));
     assert_eq!(error.progress.scratch_bytes_written, 1);
     assert_eq!(error.progress.output_bytes_written, 0);
     assert!(matches!(
-        ready(composer.compose()).unwrap_err().kind,
-        TextComposeErrorKind::Poisoned
-    ));
-}
-
-#[test]
-fn dropped_pending_final_flush_poisoned_and_never_reports_completion() {
-    let mut region = Region::one_pixel();
-    let catalog = region.catalog();
-    let header = region.header;
-    let mut imported = Bytes::new(&[0x80]);
-    let mut new = Bytes::new(&[]);
-    let mut refined = Bytes::new(&[]);
-    let mut scratch = Scratch::new();
-    let flag = Rc::new(Cell::new(true));
-    let mut output = Sink::new();
-    output.pending_flush = Some(Rc::clone(&flag));
-    let limits = Limits::default();
-    let mut temporary = refined.appender();
-    let mut decoder = region.decoder(&mut temporary, &NeverCancel);
-    let mut composer = TextComposer::new(
-        3,
-        header,
-        &catalog,
-        &mut decoder,
-        &mut imported,
-        0,
-        &mut new,
-        0,
-        &mut refined,
-        0,
-        &mut scratch,
-        &mut output,
-        &limits,
-        &NeverCancel,
-        TextComposeBudget::default(),
-    )
-    .unwrap();
-    let mut future = Box::pin(composer.compose());
-    assert!(matches!(
-        future
-            .as_mut()
-            .poll(&mut Context::from_waker(Waker::noop())),
-        Poll::Pending
-    ));
-    drop(future);
-    assert_eq!(composer.progress().output_bytes_written, 2);
-    assert!(composer.progress().poisoned);
-    flag.set(false);
-    assert!(matches!(
-        ready(composer.compose()).unwrap_err().kind,
+        composer.compose().unwrap_err().kind,
         TextComposeErrorKind::Poisoned
     ));
 }
@@ -1216,7 +1148,7 @@ fn compose_with_catalog(
         &NeverCancel,
         TextComposeBudget::default(),
     )?;
-    ready(composer.compose())
+    composer.compose()
 }
 
 #[test]
@@ -1966,11 +1898,11 @@ fn internal_io_error_mapping_and_pre_io_size_guards_are_located() {
         }
     ));
     assert!(matches!(
-        ready(composer.scratch_write(0, &[0])).unwrap_err().kind,
+        composer.scratch_write(0, &[0]).unwrap_err().kind,
         TextComposeErrorKind::Malformed("scratch size changed")
     ));
     assert!(matches!(
-        ready(composer.scratch_read(0, &mut [0])).unwrap_err().kind,
+        composer.scratch_read(0, &mut [0]).unwrap_err().kind,
         TextComposeErrorKind::Malformed("scratch size changed")
     ));
     composer.imported.data.borrow_mut().clear();
@@ -1985,7 +1917,8 @@ fn internal_io_error_mapping_and_pre_io_size_guards_are_located() {
         }
     ));
     assert!(matches!(
-        ready(composer.source_read(BitmapStore::Imported, 1, 0, &mut [0]))
+        composer
+            .source_read(BitmapStore::Imported, 1, 0, &mut [0])
             .unwrap_err()
             .kind,
         TextComposeErrorKind::StoreMutation {
@@ -2230,7 +2163,7 @@ fn resident_capacity_and_output_accounting_are_checked_after_preflight() {
         }
     ));
     composer.progress.output_bytes_written = 2;
-    let error = ready(composer.output_write(2, &[0])).unwrap_err();
+    let error = composer.output_write(2, &[0]).unwrap_err();
     assert!(matches!(
         error.kind,
         TextComposeErrorKind::LimitExceeded {

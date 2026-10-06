@@ -70,7 +70,7 @@ impl<S: RangedSource, C: Cancellation> Cursor<'_, S, C> {
         self.location.at(offset)
     }
 
-    async fn fill(&mut self, field: &'static str) -> Result<()> {
+    fn fill(&mut self, field: &'static str) -> Result<()> {
         if self.position == self.end {
             return Err(self.at(self.position).error(ErrorKind::Truncated {
                 field,
@@ -97,7 +97,6 @@ impl<S: RangedSource, C: Cancellation> Cursor<'_, S, C> {
             self.limits,
             self.cancellation,
         )
-        .await
         .map_err(|error| match error {
             Error::Cancelled => self.at(offset).error(ErrorKind::Cancelled),
             Error::TruncatedInput { available, .. } => self
@@ -115,9 +114,9 @@ impl<S: RangedSource, C: Cancellation> Cursor<'_, S, C> {
         Ok(())
     }
 
-    async fn byte(&mut self, field: &'static str) -> Result<u8> {
+    fn byte(&mut self, field: &'static str) -> Result<u8> {
         if self.used == self.buffered {
-            self.fill(field).await?;
+            self.fill(field)?;
         }
         let value = self.buffer[self.used];
         self.used += 1;
@@ -125,14 +124,14 @@ impl<S: RangedSource, C: Cancellation> Cursor<'_, S, C> {
         Ok(value)
     }
 
-    async fn skip(&mut self, length: u64, field: &'static str) -> Result<()> {
+    fn skip(&mut self, length: u64, field: &'static str) -> Result<()> {
         // Every caller derives `length` from a checked segment end or calls
         // `require_remaining` first.
         debug_assert!(length <= self.end - self.position);
         let target = self.position + length;
         while self.position < target {
             if self.used == self.buffered {
-                self.fill(field).await?;
+                self.fill(field)?;
             }
             let count = (target - self.position).min((self.buffered - self.used) as u64) as usize;
             self.used += count;
@@ -141,13 +140,13 @@ impl<S: RangedSource, C: Cancellation> Cursor<'_, S, C> {
         Ok(())
     }
 
-    async fn marker(&mut self, field: &'static str) -> Result<(u64, u8)> {
+    fn marker(&mut self, field: &'static str) -> Result<(u64, u8)> {
         let offset = self.position;
-        if self.byte(field).await? != 0xff {
+        if self.byte(field)? != 0xff {
             return Err(self.at(offset).malformed(field, "expected marker prefix"));
         }
         let code = loop {
-            let code = self.byte(field).await?;
+            let code = self.byte(field)?;
             if code != 0xff {
                 break code;
             }
@@ -160,10 +159,10 @@ impl<S: RangedSource, C: Cancellation> Cursor<'_, S, C> {
         Ok((offset, code))
     }
 
-    async fn segment_end(&mut self, field: &'static str) -> Result<u64> {
+    fn segment_end(&mut self, field: &'static str) -> Result<u64> {
         let offset = self.position;
-        let high = self.byte(field).await?;
-        let low = self.byte(field).await?;
+        let high = self.byte(field)?;
+        let low = self.byte(field)?;
         let length = u16::from_be_bytes([high, low]);
         if length < 2 {
             return Err(self
@@ -232,14 +231,14 @@ impl<S: RangedSource, C: Cancellation> Parser<'_, S, C> {
         Ok(())
     }
 
-    async fn next_marker(&mut self) -> Result<(u64, u8)> {
-        let (offset, code) = self.cursor.marker("JPEG marker").await?;
+    fn next_marker(&mut self) -> Result<(u64, u8)> {
+        let (offset, code) = self.cursor.marker("JPEG marker")?;
         self.charge_marker(offset)?;
         Ok((offset, code))
     }
 
-    async fn app(&mut self, marker: u8, marker_offset: u64) -> Result<()> {
-        let end = self.cursor.segment_end("JPEG APP segment").await?;
+    fn app(&mut self, marker: u8, marker_offset: u64) -> Result<()> {
+        let end = self.cursor.segment_end("JPEG APP segment")?;
         if marker == 0xee {
             return Err(self.cursor.at(marker_offset).error(ErrorKind::Unsupported {
                 field: "JPEG APP14 marker",
@@ -250,7 +249,7 @@ impl<S: RangedSource, C: Cancellation> Parser<'_, S, C> {
         if marker == 0xe0 && remaining >= 5 {
             let mut name = [0; 5];
             for value in &mut name {
-                *value = self.cursor.byte("JPEG APP0 identifier").await?;
+                *value = self.cursor.byte("JPEG APP0 identifier")?;
             }
             if &name == b"JFIF\0" {
                 if self.app0_jfif {
@@ -269,7 +268,7 @@ impl<S: RangedSource, C: Cancellation> Parser<'_, S, C> {
                 let fields_offset = self.cursor.position;
                 let mut fields = [0; 9];
                 for value in &mut fields {
-                    *value = self.cursor.byte("JFIF APP0 fields").await?;
+                    *value = self.cursor.byte("JFIF APP0 fields")?;
                 }
                 if fields[0] != 1 || fields[1] > 2 || fields[2] > 2 {
                     return Err(self.cursor.at(fields_offset).error(ErrorKind::Unsupported {
@@ -295,17 +294,16 @@ impl<S: RangedSource, C: Cancellation> Parser<'_, S, C> {
         }
         self.cursor
             .skip(end - self.cursor.position, "JPEG APP segment")
-            .await
     }
 
-    async fn dqt(&mut self) -> Result<()> {
-        let end = self.cursor.segment_end("JPEG DQT").await?;
+    fn dqt(&mut self) -> Result<()> {
+        let end = self.cursor.segment_end("JPEG DQT")?;
         if self.cursor.position == end {
             return Err(self.cursor.at(end).malformed("JPEG DQT", "empty segment"));
         }
         while self.cursor.position < end {
             let at = self.cursor.position;
-            let selector = self.cursor.byte("JPEG DQT selector").await?;
+            let selector = self.cursor.byte("JPEG DQT selector")?;
             if selector >> 4 != 0 || selector & 15 > 3 {
                 return Err(self.cursor.at(at).error(ErrorKind::Unsupported {
                     field: "JPEG DQT selector",
@@ -313,20 +311,20 @@ impl<S: RangedSource, C: Cancellation> Parser<'_, S, C> {
                 }));
             }
             self.cursor.require_remaining(end, 64, "JPEG DQT values")?;
-            self.cursor.skip(64, "JPEG DQT values").await?;
+            self.cursor.skip(64, "JPEG DQT values")?;
             self.quant_mask |= 1 << (selector & 15);
         }
         Ok(())
     }
 
-    async fn dht(&mut self) -> Result<()> {
-        let end = self.cursor.segment_end("JPEG DHT").await?;
+    fn dht(&mut self) -> Result<()> {
+        let end = self.cursor.segment_end("JPEG DHT")?;
         if self.cursor.position == end {
             return Err(self.cursor.at(end).malformed("JPEG DHT", "empty segment"));
         }
         while self.cursor.position < end {
             let at = self.cursor.position;
-            let selector = self.cursor.byte("JPEG DHT selector").await?;
+            let selector = self.cursor.byte("JPEG DHT selector")?;
             let class = selector >> 4;
             let table = selector & 15;
             if class > 1 || table > 3 {
@@ -338,7 +336,7 @@ impl<S: RangedSource, C: Cancellation> Parser<'_, S, C> {
             self.cursor.require_remaining(end, 16, "JPEG DHT counts")?;
             let mut symbols = 0_u16;
             for _ in 0..16 {
-                symbols += u16::from(self.cursor.byte("JPEG DHT counts").await?);
+                symbols += u16::from(self.cursor.byte("JPEG DHT counts")?);
             }
             if symbols > 256 {
                 return Err(self
@@ -348,9 +346,7 @@ impl<S: RangedSource, C: Cancellation> Parser<'_, S, C> {
             }
             self.cursor
                 .require_remaining(end, u64::from(symbols), "JPEG DHT symbols")?;
-            self.cursor
-                .skip(u64::from(symbols), "JPEG DHT symbols")
-                .await?;
+            self.cursor.skip(u64::from(symbols), "JPEG DHT symbols")?;
             if class == 0 {
                 self.dc_mask |= 1 << table;
             } else {
@@ -360,41 +356,41 @@ impl<S: RangedSource, C: Cancellation> Parser<'_, S, C> {
         Ok(())
     }
 
-    async fn dri(&mut self, marker_offset: u64) -> Result<()> {
-        let end = self.cursor.segment_end("JPEG DRI").await?;
+    fn dri(&mut self, marker_offset: u64) -> Result<()> {
+        let end = self.cursor.segment_end("JPEG DRI")?;
         if end - self.cursor.position != 2 {
             return Err(self
                 .cursor
                 .at(marker_offset)
                 .malformed("JPEG DRI", "expected two-byte restart interval"));
         }
-        let high = self.cursor.byte("JPEG DRI").await?;
-        let low = self.cursor.byte("JPEG DRI").await?;
+        let high = self.cursor.byte("JPEG DRI")?;
+        let low = self.cursor.byte("JPEG DRI")?;
         self.restart_interval = Some(u16::from_be_bytes([high, low]));
         Ok(())
     }
 
-    async fn sof0(&mut self, marker_offset: u64) -> Result<()> {
+    fn sof0(&mut self, marker_offset: u64) -> Result<()> {
         if self.frame.is_some() {
             return Err(self
                 .cursor
                 .at(marker_offset)
                 .malformed("JPEG frame", "duplicate frame header"));
         }
-        let end = self.cursor.segment_end("JPEG SOF0").await?;
+        let end = self.cursor.segment_end("JPEG SOF0")?;
         self.cursor.require_remaining(end, 6, "JPEG SOF0 fields")?;
         let precision_offset = self.cursor.position;
-        let precision = self.cursor.byte("JPEG precision").await?;
+        let precision = self.cursor.byte("JPEG precision")?;
         let height = u16::from_be_bytes([
-            self.cursor.byte("JPEG height").await?,
-            self.cursor.byte("JPEG height").await?,
+            self.cursor.byte("JPEG height")?,
+            self.cursor.byte("JPEG height")?,
         ]);
         let width = u16::from_be_bytes([
-            self.cursor.byte("JPEG width").await?,
-            self.cursor.byte("JPEG width").await?,
+            self.cursor.byte("JPEG width")?,
+            self.cursor.byte("JPEG width")?,
         ]);
         let components_offset = self.cursor.position;
-        let components = self.cursor.byte("JPEG components").await?;
+        let components = self.cursor.byte("JPEG components")?;
         if end - self.cursor.position != u64::from(components) * 3 {
             return Err(self.cursor.at(components_offset).malformed(
                 "JPEG SOF0",
@@ -439,9 +435,9 @@ impl<S: RangedSource, C: Cancellation> Parser<'_, S, C> {
         let mut blocks = 0_u16;
         for index in 0..usize::from(components) {
             let at = self.cursor.position;
-            let id = self.cursor.byte("JPEG component ID").await?;
-            let sampling = self.cursor.byte("JPEG sampling").await?;
-            let quant = self.cursor.byte("JPEG quantization selector").await?;
+            let id = self.cursor.byte("JPEG component ID")?;
+            let sampling = self.cursor.byte("JPEG sampling")?;
+            let quant = self.cursor.byte("JPEG quantization selector")?;
             if ids[..index].contains(&id) {
                 return Err(self
                     .cursor
@@ -484,17 +480,17 @@ impl<S: RangedSource, C: Cancellation> Parser<'_, S, C> {
         Ok(())
     }
 
-    async fn sos(&mut self, marker_offset: u64) -> Result<()> {
+    fn sos(&mut self, marker_offset: u64) -> Result<()> {
         let frame = self.frame.ok_or_else(|| {
             self.cursor
                 .at(marker_offset)
                 .malformed("JPEG SOS", "scan precedes frame")
         })?;
-        let end = self.cursor.segment_end("JPEG SOS").await?;
+        let end = self.cursor.segment_end("JPEG SOS")?;
         self.cursor
             .require_remaining(end, 1, "JPEG SOS components")?;
         let components_offset = self.cursor.position;
-        let components = self.cursor.byte("JPEG SOS components").await?;
+        let components = self.cursor.byte("JPEG SOS components")?;
         if end - self.cursor.position != u64::from(components) * 2 + 3 {
             return Err(self
                 .cursor
@@ -512,8 +508,8 @@ impl<S: RangedSource, C: Cancellation> Parser<'_, S, C> {
         }
         for index in 0..usize::from(components) {
             let at = self.cursor.position;
-            let id = self.cursor.byte("JPEG SOS component ID").await?;
-            let selectors = self.cursor.byte("JPEG Huffman selectors").await?;
+            let id = self.cursor.byte("JPEG SOS component ID")?;
+            let selectors = self.cursor.byte("JPEG Huffman selectors")?;
             if id != frame.ids[index] {
                 return Err(self.cursor.at(at).malformed(
                     "JPEG SOS component ID",
@@ -539,9 +535,9 @@ impl<S: RangedSource, C: Cancellation> Parser<'_, S, C> {
             }
         }
         let spectral_offset = self.cursor.position;
-        let start = self.cursor.byte("JPEG spectral start").await?;
-        let end_spectral = self.cursor.byte("JPEG spectral end").await?;
-        let approximation = self.cursor.byte("JPEG approximation").await?;
+        let start = self.cursor.byte("JPEG spectral start")?;
+        let end_spectral = self.cursor.byte("JPEG spectral end")?;
+        let approximation = self.cursor.byte("JPEG approximation")?;
         if (start, end_spectral, approximation) != (0, 63, 0) {
             return Err(self
                 .cursor
@@ -554,17 +550,17 @@ impl<S: RangedSource, C: Cancellation> Parser<'_, S, C> {
         Ok(())
     }
 
-    async fn entropy_end(&mut self) -> Result<(u64, u8)> {
+    fn entropy_end(&mut self) -> Result<(u64, u8)> {
         let mut expected_restart = 0_u8;
         loop {
             let at = self.cursor.position;
-            let byte = self.cursor.byte("JPEG entropy data").await?;
+            let byte = self.cursor.byte("JPEG entropy data")?;
             if byte != 0xff {
                 continue;
             }
             let mut fill = false;
             let code = loop {
-                let code = self.cursor.byte("JPEG entropy marker").await?;
+                let code = self.cursor.byte("JPEG entropy marker")?;
                 if code != 0xff {
                     break code;
                 }
@@ -600,8 +596,8 @@ impl<S: RangedSource, C: Cancellation> Parser<'_, S, C> {
         }
     }
 
-    async fn run(mut self, payload: Span) -> Result<JpegInfo> {
-        let (soi_offset, soi) = self.next_marker().await?;
+    fn run(mut self, payload: Span) -> Result<JpegInfo> {
+        let (soi_offset, soi) = self.next_marker()?;
         if soi != 0xd8 {
             return Err(self
                 .cursor
@@ -609,22 +605,20 @@ impl<S: RangedSource, C: Cancellation> Parser<'_, S, C> {
                 .malformed("JPEG SOI", "expected start-of-image marker"));
         }
         loop {
-            let (offset, marker) = self.next_marker().await?;
+            let (offset, marker) = self.next_marker()?;
             match marker {
-                0xe0..=0xef => self.app(marker, offset).await?,
+                0xe0..=0xef => self.app(marker, offset)?,
                 0xfe => {
-                    let end = self.cursor.segment_end("JPEG COM").await?;
-                    self.cursor
-                        .skip(end - self.cursor.position, "JPEG COM")
-                        .await?;
+                    let end = self.cursor.segment_end("JPEG COM")?;
+                    self.cursor.skip(end - self.cursor.position, "JPEG COM")?;
                 }
-                0xdb => self.dqt().await?,
-                0xc4 => self.dht().await?,
-                0xdd => self.dri(offset).await?,
-                0xc0 => self.sof0(offset).await?,
+                0xdb => self.dqt()?,
+                0xc4 => self.dht()?,
+                0xdd => self.dri(offset)?,
+                0xc0 => self.sof0(offset)?,
                 0xda => {
-                    self.sos(offset).await?;
-                    let (next_offset, next) = self.entropy_end().await?;
+                    self.sos(offset)?;
+                    let (next_offset, next) = self.entropy_end()?;
                     if next == 0xd9 {
                         if self.cursor.position != self.cursor.end {
                             return Err(self
@@ -718,7 +712,7 @@ impl<S: RangedSource, C: Cancellation> Parser<'_, S, C> {
 /// Traverse one checked type-1 or type-2 JPEG descriptor without copying its complete JPEG.
 /// A successful result proves only the documented marker/profile subset;
 /// entropy code validity and PDF pixel parity require later checks.
-pub async fn read_type2_jpeg_info<S: RangedSource, C: Cancellation>(
+pub fn read_type2_jpeg_info<S: RangedSource, C: Cancellation>(
     source: &mut S,
     record: ImageRecord,
     limits: &Limits,
@@ -815,5 +809,4 @@ pub async fn read_type2_jpeg_info<S: RangedSource, C: Cancellation>(
         restart_interval: None,
     }
     .run(record.payload)
-    .await
 }

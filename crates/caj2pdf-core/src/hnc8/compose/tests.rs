@@ -9,25 +9,11 @@ use crate::hnc8::{OutlineDefect, OutlineRepair};
 use flate2::{Compression, write::ZlibEncoder};
 use std::{
     cell::Cell,
-    future::Future,
     io::{self, Write},
-    pin::pin,
     rc::Rc,
-    task::{Context, Poll, Waker},
 };
 
 const PREFIX: [u8; 20] = *b"\x03\x80\x64\x00\x03\x80\xc8\x00COMPRESSTEXT";
-
-fn ready<F: Future>(future: F) -> F::Output {
-    let mut future = pin!(future);
-    match future
-        .as_mut()
-        .poll(&mut Context::from_waker(Waker::noop()))
-    {
-        Poll::Ready(value) => value,
-        Poll::Pending => panic!("synthetic adapters must complete immediately"),
-    }
-}
 
 struct Flag(Rc<Cell<bool>>);
 
@@ -359,7 +345,7 @@ impl RangedSource for Source {
         self.bytes.len() as u64
     }
 
-    async fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> crate::Result<usize> {
+    fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> crate::Result<usize> {
         self.max_request = self.max_request.max(destination.len());
         if self.fault_at.is_some_and(|(at, _)| offset >= at) {
             return fault(self.fault_at.unwrap().1, destination.len());
@@ -393,7 +379,7 @@ struct Sink {
 }
 
 impl SequentialSink for Sink {
-    async fn write(&mut self, bytes: &[u8]) -> crate::Result<usize> {
+    fn write(&mut self, bytes: &[u8]) -> crate::Result<usize> {
         self.max_request = self.max_request.max(bytes.len());
         if self.fail_after.is_some_and(|at| self.bytes.len() >= at) {
             return Err(Error::Io(io::Error::other("synthetic PDF sink failure")));
@@ -406,7 +392,7 @@ impl SequentialSink for Sink {
         Ok(count)
     }
 
-    async fn flush(&mut self) -> crate::Result<()> {
+    fn flush(&mut self) -> crate::Result<()> {
         if self.fail_flush {
             Err(Error::Io(io::Error::other("synthetic PDF flush failure")))
         } else {
@@ -437,7 +423,7 @@ impl RandomAccessScratch for Scratch {
         Ok(self.bytes.len() as u64)
     }
 
-    async fn set_len(&mut self, bytes: u64) -> crate::Result<()> {
+    fn set_len(&mut self, bytes: u64) -> crate::Result<()> {
         if (bytes > 0 && self.fail_initialize) || (bytes == 0 && self.fail_cleanup && self.peak > 0)
         {
             return Err(Error::Io(io::Error::other(
@@ -449,7 +435,7 @@ impl RandomAccessScratch for Scratch {
         Ok(())
     }
 
-    async fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> crate::Result<usize> {
+    fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> crate::Result<usize> {
         self.max_request = self.max_request.max(destination.len());
         if let Some(mode) = self.read_fault {
             return fault(mode, destination.len());
@@ -468,7 +454,7 @@ impl RandomAccessScratch for Scratch {
         Ok(count)
     }
 
-    async fn write_at(&mut self, offset: u64, bytes: &[u8]) -> crate::Result<usize> {
+    fn write_at(&mut self, offset: u64, bytes: &[u8]) -> crate::Result<usize> {
         self.max_request = self.max_request.max(bytes.len());
         if let Some(mode) = self.write_fault {
             return fault(mode, bytes.len());
@@ -484,7 +470,7 @@ impl RandomAccessScratch for Scratch {
         Ok(count)
     }
 
-    async fn flush(&mut self) -> crate::Result<()> {
+    fn flush(&mut self) -> crate::Result<()> {
         if self.fail_flush {
             Err(Error::Io(io::Error::other(
                 "synthetic scratch flush failure",
@@ -505,7 +491,7 @@ struct Visitor {
 }
 
 impl ComposeVisitor for Visitor {
-    async fn page(&mut self, page: ComposePage<'_>) -> crate::Result<()> {
+    fn page(&mut self, page: ComposePage<'_>) -> crate::Result<()> {
         self.mappings
             .push((page.source.page_number, page.output_page));
         self.sizes.push(page.size);
@@ -537,7 +523,7 @@ fn convert(
     options: ComposeOptions,
     limits: &Limits,
 ) -> Result<ComposeReport, ComposeError> {
-    ready(convert_source_pages_pdf(
+    convert_source_pages_pdf(
         source,
         sink,
         table,
@@ -546,7 +532,7 @@ fn convert(
         options,
         limits,
         &NeverCancel,
-    ))
+    )
 }
 
 /// Type-0 and JPEG images use no store.
@@ -598,7 +584,7 @@ impl Harness {
     }
 
     fn cancelled(&mut self, flag: Rc<Cell<bool>>) -> Result<ComposeReport, ComposeError> {
-        ready(convert_source_pages_pdf(
+        convert_source_pages_pdf(
             &mut self.source,
             &mut self.sink,
             Some(&table()),
@@ -607,7 +593,7 @@ impl Harness {
             ComposeOptions::default(),
             &Limits::default(),
             &Flag(flag),
-        ))
+        )
     }
 }
 
@@ -636,7 +622,7 @@ fn hnb_maps_all_six_rows_without_a_table() {
     let mut source = Source::new(built.bytes);
     let mut sink = Sink::default();
     let mut visitor = Visitor::default();
-    let report = ready(convert_source_pages_pdf(
+    let report = convert_source_pages_pdf(
         &mut source,
         &mut sink,
         None,
@@ -645,7 +631,7 @@ fn hnb_maps_all_six_rows_without_a_table() {
         ComposeOptions::default(),
         &Limits::default(),
         &NeverCancel,
-    ))
+    )
     .unwrap();
     assert_eq!(
         visitor.mappings,
@@ -815,7 +801,7 @@ fn invalid_text_marker_is_rejected_without_emitting_images() {
     for variant in [Variant::C8, Variant::HnA] {
         let mut case = Harness::new(variant, &[vec![Record::jpeg(8, 8, 128, 0, 0)]]);
         case.source.bytes[case.fixture.text_offsets[0] + 8] ^= 1;
-        let error = ready(convert_source_pages_pdf(
+        let error = convert_source_pages_pdf(
             &mut case.source,
             &mut case.sink,
             None,
@@ -824,7 +810,7 @@ fn invalid_text_marker_is_rejected_without_emitting_images() {
             ComposeOptions::default(),
             &Limits::default(),
             &NeverCancel,
-        ))
+        )
         .unwrap_err();
         located(&error, variant, Some(1), None);
         assert_eq!(error.stage, ComposeStage::Text);
@@ -1165,12 +1151,12 @@ fn resource_arithmetic_and_noop_visitor_are_checked_at_boundaries() {
         image_count: 0,
         unknown: [0; 10],
     };
-    ready(().page(ComposePage {
+    ().page(ComposePage {
         source: page,
         output_page: None,
         size: None,
         images: &[],
-    }))
+    })
     .unwrap();
 }
 
@@ -1632,7 +1618,7 @@ fn type3_complete_mixed_pages_reuse_stores_and_keep_top_first_pixels() {
     let mut second = Scratch::default();
     let mut refined = Scratch::default();
     let mut visitor = Visitor::default();
-    let report = ready(convert_source_pages_pdf(
+    let report = convert_source_pages_pdf(
         &mut source,
         &mut sink,
         Some(&table()),
@@ -1656,7 +1642,7 @@ fn type3_complete_mixed_pages_reuse_stores_and_keep_top_first_pixels() {
         },
         &limits,
         &NeverCancel,
-    ))
+    )
     .unwrap();
     assert_eq!(
         (report.output_pages, report.type3_images, report.jpeg_images),
@@ -1724,7 +1710,7 @@ fn type3_failures_keep_location_and_cleanup_all_stores() {
             10 => sink.fail_after = Some(20),
             _ => (),
         }
-        let error = ready(convert_source_pages_pdf(
+        let error = convert_source_pages_pdf(
             &mut source,
             &mut sink,
             Some(&table()),
@@ -1739,7 +1725,7 @@ fn type3_failures_keep_location_and_cleanup_all_stores() {
             options,
             &limits,
             &Flag(flag),
-        ))
+        )
         .unwrap_err();
         located(&error, Variant::C8, Some(1), Some(1));
         if mode == 0 {
@@ -1794,7 +1780,7 @@ fn each_payload_is_read_at_most_twice_per_conversion() {
             Scratch::default(),
         );
         let mut sink = Sink::default();
-        ready(convert_source_pages_pdf(
+        convert_source_pages_pdf(
             &mut source,
             &mut sink,
             Some(&table()),
@@ -1809,7 +1795,7 @@ fn each_payload_is_read_at_most_twice_per_conversion() {
             ComposeOptions::default(),
             &limits,
             &NeverCancel,
-        ))
+        )
         .unwrap();
         assert!(
             source.payload_bytes_read <= 2 * length,
@@ -1824,7 +1810,7 @@ fn type3_anomaly_is_explicitly_opted_in_and_reported_per_image() {
     use crate::jbig2::text::TextHeaderPolicy;
     struct Anomalies(Vec<Option<TextHeaderAnomaly>>);
     impl ComposeVisitor for Anomalies {
-        async fn page(&mut self, page: ComposePage<'_>) -> crate::Result<()> {
+        fn page(&mut self, page: ComposePage<'_>) -> crate::Result<()> {
             self.0
                 .extend(page.images.iter().map(|i| i.type3_text_header_anomaly));
             Ok(())
@@ -1844,7 +1830,7 @@ fn type3_anomaly_is_explicitly_opted_in_and_reported_per_image() {
         let mut stores: [Scratch; 4] = Default::default();
         let [text, first, second, refined] = &mut stores;
         let mut visitor = Anomalies(Vec::new());
-        let result = ready(convert_source_pages_pdf(
+        let result = convert_source_pages_pdf(
             &mut source,
             &mut sink,
             None,
@@ -1865,7 +1851,7 @@ fn type3_anomaly_is_explicitly_opted_in_and_reported_per_image() {
             },
             &limits,
             &NeverCancel,
-        ));
+        );
         if policy == TextHeaderPolicy::Strict {
             assert!(result.is_err());
             assert!(visitor.0.is_empty());
@@ -1891,7 +1877,7 @@ fn repeated_direct(records: &[Record]) -> Vec<u8> {
 fn repeated_payload_groups_collapse_to_identical_pdf_with_explicit_aliases() {
     struct Aliases(Vec<Option<u32>>);
     impl ComposeVisitor for Aliases {
-        async fn page(&mut self, page: ComposePage<'_>) -> crate::Result<()> {
+        fn page(&mut self, page: ComposePage<'_>) -> crate::Result<()> {
             assert_eq!(page.output_page, Some(1));
             for image in page.images {
                 self.0.push(image.duplicate_of);
@@ -1927,7 +1913,7 @@ fn repeated_payload_groups_collapse_to_identical_pdf_with_explicit_aliases() {
             let mut stores: [Scratch; 4] = Default::default();
             let [text, first, second, refined] = &mut stores;
             let mut aliases = Aliases(Vec::new());
-            let report = ready(convert_source_pages_pdf(
+            let report = convert_source_pages_pdf(
                 &mut source,
                 &mut sink,
                 None,
@@ -1942,7 +1928,7 @@ fn repeated_payload_groups_collapse_to_identical_pdf_with_explicit_aliases() {
                 ComposeOptions::default(),
                 &limits,
                 &NeverCancel,
-            ))
+            )
             .unwrap();
             assert_eq!(
                 (
@@ -2073,14 +2059,14 @@ fn repeated_payload_comparison_cancels_and_propagates_first_read_failures() {
     let mut completed = false;
     for checkpoints in 0..50 {
         let mut source = Source::new(bytes.clone());
-        let result = ready(verify_repeated_image(
+        let result = verify_repeated_image(
             &mut source,
             first,
             second,
             at,
             &limits,
             &Stop(Cell::new(checkpoints)),
-        ));
+        );
         match result {
             Ok(()) => {
                 completed = true;
@@ -2092,15 +2078,8 @@ fn repeated_payload_comparison_cancels_and_propagates_first_read_failures() {
     assert!(completed);
     let mut source = Source::new(bytes);
     source.fault_at = Some((0, Fault::Io));
-    let error = ready(verify_repeated_image(
-        &mut source,
-        first,
-        second,
-        at,
-        &limits,
-        &NeverCancel,
-    ))
-    .unwrap_err();
+    let error =
+        verify_repeated_image(&mut source, first, second, at, &limits, &NeverCancel).unwrap_err();
     assert!(matches!(error.kind, ComposeErrorKind::Io(Error::Io(_))));
 }
 
@@ -2196,7 +2175,7 @@ fn mixed_codec_content_page() -> Vec<u8> {
     #[derive(Default)]
     struct Plan(Vec<ComposedImage>);
     impl ComposeVisitor for Plan {
-        async fn page(&mut self, page: ComposePage<'_>) -> crate::Result<()> {
+        fn page(&mut self, page: ComposePage<'_>) -> crate::Result<()> {
             self.0.extend_from_slice(page.images);
             Ok(())
         }
@@ -2235,7 +2214,7 @@ fn mixed_codec_content_page() -> Vec<u8> {
     let mut plan = Plan::default();
     let mut baseline = Sink::default();
     let stores = workspaces.as_mut().unwrap();
-    let mut report = ready(convert_source_pages_pdf(
+    let mut report = convert_source_pages_pdf(
         &mut source,
         &mut baseline,
         Some(&qm),
@@ -2250,21 +2229,18 @@ fn mixed_codec_content_page() -> Vec<u8> {
         options,
         &limits,
         &NeverCancel,
-    ))
+    )
     .unwrap();
     assert_eq!(plan.0.len(), 3);
     let mut sink = Sink {
         short: Some(7),
         ..Default::default()
     };
-    ready(async {
+    {
         let mut font_source = Source::new(crate::pdf::drawing_font());
-        let mut font = crate::pdf::OpenTypeFont::read(&mut font_source, 0, &limits, &NeverCancel)
-            .await
-            .unwrap();
-        let mut document = PdfDocument::new(&mut sink, &limits, &NeverCancel)
-            .await
-            .unwrap();
+        let mut font =
+            crate::pdf::OpenTypeFont::read(&mut font_source, 0, &limits, &NeverCancel).unwrap();
+        let mut document = PdfDocument::new(&mut sink, &limits, &NeverCancel).unwrap();
         let handle = document.add_font(&font).unwrap();
         let mut handles = Vec::new();
         let mut contexts = None;
@@ -2281,7 +2257,6 @@ fn mixed_codec_content_page() -> Vec<u8> {
                         &limits,
                         &NeverCancel,
                     )
-                    .await
                     .unwrap(),
                 ),
                 _ => None,
@@ -2301,7 +2276,6 @@ fn mixed_codec_content_page() -> Vec<u8> {
                     &NeverCancel,
                     &mut report,
                 )
-                .await
                 .unwrap(),
             );
         }
@@ -2315,31 +2289,21 @@ fn mixed_codec_content_page() -> Vec<u8> {
                 &fonts,
                 &handles,
             )
-            .await
             .unwrap();
         page.glyph(0, 'A', [20.0, 0.0, 0.0, 20.0, 10.0, 50.0])
-            .await
             .unwrap();
-        page.image(0, [18.0, 0.0, 0.0, 6.0, 12.0, 54.0])
-            .await
-            .unwrap();
-        page.segment([10.0, 55.0], [90.0, 55.0], 2.0).await.unwrap();
-        page.image(1, [16.0, 0.0, 0.0, 16.0, 20.0, 48.0])
-            .await
-            .unwrap();
+        page.image(0, [18.0, 0.0, 0.0, 6.0, 12.0, 54.0]).unwrap();
+        page.segment([10.0, 55.0], [90.0, 55.0], 2.0).unwrap();
+        page.image(1, [16.0, 0.0, 0.0, 16.0, 20.0, 48.0]).unwrap();
         page.glyph(0, '中', [20.0, 0.0, 0.0, 20.0, 30.0, 50.0])
-            .await
             .unwrap();
-        page.image(2, [6.0, 0.0, 0.0, 10.0, 34.0, 54.0])
-            .await
-            .unwrap();
+        page.image(2, [6.0, 0.0, 0.0, 10.0, 34.0, 54.0]).unwrap();
         page.fill_polygon(&[[32.0, 52.0], [42.0, 52.0], [37.0, 62.0]])
-            .await
             .unwrap();
-        page.finish().await.unwrap();
-        document.embed_font(&handle, &mut font).await.unwrap();
-        assert_eq!(document.finish().await.unwrap().pages_converted, 1);
-    });
+        page.finish().unwrap();
+        document.embed_font(&handle, &mut font).unwrap();
+        assert_eq!(document.finish().unwrap().pages_converted, 1);
+    };
     assert_eq!(
         (report.type0_images, report.jpeg_images, report.type3_images),
         (2, 2, 2)

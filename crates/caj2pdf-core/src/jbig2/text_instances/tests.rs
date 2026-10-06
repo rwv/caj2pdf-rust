@@ -12,10 +12,7 @@ use crate::NeverCancel;
 use std::{
     cell::{Cell, RefCell},
     error::Error as _,
-    future::Future,
-    pin::pin,
     rc::Rc,
-    task::{Context, Poll, Waker},
 };
 
 struct ToggleCancel(Cell<bool>);
@@ -23,17 +20,6 @@ struct ToggleCancel(Cell<bool>);
 impl Cancellation for ToggleCancel {
     fn is_cancelled(&self) -> bool {
         self.0.get()
-    }
-}
-
-fn ready<F: Future>(future: F) -> F::Output {
-    let mut future = pin!(future);
-    match future
-        .as_mut()
-        .poll(&mut Context::from_waker(Waker::noop()))
-    {
-        Poll::Ready(value) => value,
-        Poll::Pending => panic!("unexpected pending test I/O"),
     }
 }
 
@@ -69,7 +55,7 @@ impl RangedSource for Bytes {
         self.data.len() as u64
     }
 
-    async fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> crate::Result<usize> {
+    fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> crate::Result<usize> {
         if offset >= self.body_start {
             self.body_reads += 1;
         }
@@ -99,11 +85,11 @@ impl RangedSource for Bytes {
 struct Sink(Vec<u8>);
 
 impl SequentialSink for Sink {
-    async fn write(&mut self, bytes: &[u8]) -> crate::Result<usize> {
+    fn write(&mut self, bytes: &[u8]) -> crate::Result<usize> {
         self.0.extend_from_slice(bytes);
         Ok(bytes.len())
     }
-    async fn flush(&mut self) -> crate::Result<()> {
+    fn flush(&mut self) -> crate::Result<()> {
         Ok(())
     }
 }
@@ -113,32 +99,13 @@ struct BufferingSink {
     visible: Rc<RefCell<Vec<u8>>>,
 }
 
-struct PendingFlushSink {
-    bytes: Vec<u8>,
-    pending: Rc<Cell<bool>>,
-}
-
-impl SequentialSink for PendingFlushSink {
-    async fn write(&mut self, bytes: &[u8]) -> crate::Result<usize> {
-        self.bytes.extend_from_slice(bytes);
-        Ok(bytes.len())
-    }
-
-    async fn flush(&mut self) -> crate::Result<()> {
-        if self.pending.get() {
-            std::future::pending::<()>().await;
-        }
-        Ok(())
-    }
-}
-
 impl SequentialSink for BufferingSink {
-    async fn write(&mut self, bytes: &[u8]) -> crate::Result<usize> {
+    fn write(&mut self, bytes: &[u8]) -> crate::Result<usize> {
         self.pending.extend_from_slice(bytes);
         Ok(bytes.len())
     }
 
-    async fn flush(&mut self) -> crate::Result<()> {
+    fn flush(&mut self) -> crate::Result<()> {
         self.visible.borrow_mut().extend(self.pending.drain(..));
         Ok(())
     }
@@ -272,14 +239,14 @@ impl Fixture {
         let mut source = Bytes::new(text_data(flags, instances, body));
         let text_segment = segment(3, 6, vec![2], 0, source.size());
         let dictionary_segment = segment(2, 0, vec![1], 100, 2);
-        let parsed = ready(read_text_region_header(
+        let parsed = read_text_region_header(
             &mut source,
             &text_segment,
             &dictionary_segment,
             &Limits::default(),
             TextRegionBudget::default(),
             &NeverCancel,
-        ))
+        )
         .unwrap();
         let length = symbols
             .iter()
@@ -316,7 +283,7 @@ impl Fixture {
         let limits = Limits::default();
         let table = MqTable::standard();
         let mut contexts = coding_unit(self.code_len, &limits, &self.mq_budget);
-        let decoder = ready(TextInstanceDecoder::new(
+        let decoder = TextInstanceDecoder::new(
             &mut self.source,
             &self.text_segment,
             self.parsed,
@@ -336,7 +303,7 @@ impl Fixture {
             self.header_budget,
             self.refinement_budget,
             self.budget,
-        ))?;
+        )?;
         Ok(decoder.progress())
     }
 
@@ -351,7 +318,7 @@ impl Fixture {
         let limits = Limits::default();
         let table = MqTable::standard();
         let mut contexts = coding_unit(self.code_len, &limits, &self.mq_budget);
-        let mut decoder = ready(TextInstanceDecoder::new_with_header_policy(
+        let mut decoder = TextInstanceDecoder::new_with_header_policy(
             &mut self.source,
             &self.text_segment,
             self.parsed,
@@ -372,9 +339,9 @@ impl Fixture {
             self.refinement_budget,
             self.budget,
             policy,
-        ))?;
+        )?;
         let mut instances = Vec::new();
-        while let Some(instance) = ready(decoder.next())? {
+        while let Some(instance) = decoder.next()? {
             instances.push(instance);
             assert!(
                 instances.len() <= 8,
@@ -718,7 +685,7 @@ fn hn_c8_unused_template_policy_decodes_same_instances_as_canonical_header() {
 
     let mut anomaly = Fixture::new(0x240c, 1, BODY, &[ONE_PIXEL]);
     anomaly.source.data[17..19].copy_from_slice(&0xa40cu16.to_be_bytes());
-    anomaly.parsed = ready(read_text_region_header_with_policy(
+    anomaly.parsed = read_text_region_header_with_policy(
         &mut anomaly.source,
         &anomaly.text_segment,
         &anomaly.dictionary_segment,
@@ -726,7 +693,7 @@ fn hn_c8_unused_template_policy_decodes_same_instances_as_canonical_header() {
         anomaly.header_budget,
         &NeverCancel,
         TextHeaderPolicy::HnC8UnusedRefinementTemplate,
-    ))
+    )
     .unwrap();
     assert_eq!(anomaly.parsed.flags.raw, 0xa40c);
     assert_eq!(
@@ -770,14 +737,14 @@ fn valid_huffman_and_template_zero_headers_are_typed_refusals() {
         data.splice(19..19, optional);
         fixture.source.data = data;
         fixture.text_segment.data.length = fixture.source.size();
-        fixture.parsed = ready(read_text_region_header(
+        fixture.parsed = read_text_region_header(
             &mut fixture.source,
             &fixture.text_segment,
             &fixture.dictionary_segment,
             &Limits::default(),
             TextRegionBudget::default(),
             &NeverCancel,
-        ))
+        )
         .unwrap();
         fixture.source.body_start = fixture.parsed.body.offset;
         fixture.source.body_reads = 0;
@@ -1086,7 +1053,7 @@ fn cancellation_and_repeated_pull_report_poisoned_progress() {
     let table = MqTable::standard();
     let mut contexts = coding_unit(0, &limits, &f.mq_budget);
     let cancellation = ToggleCancel(Cell::new(false));
-    let mut decoder = ready(TextInstanceDecoder::new(
+    let mut decoder = TextInstanceDecoder::new(
         &mut f.source,
         &f.text_segment,
         f.parsed,
@@ -1106,69 +1073,16 @@ fn cancellation_and_repeated_pull_report_poisoned_progress() {
         f.header_budget,
         f.refinement_budget,
         f.budget,
-    ))
+    )
     .unwrap();
     cancellation.0.set(true);
-    let cancelled = ready(decoder.next()).unwrap_err();
+    let cancelled = decoder.next().unwrap_err();
     assert!(matches!(cancelled.kind, TextInstanceErrorKind::Cancelled));
     assert!(cancelled.progress.poisoned);
     cancellation.0.set(false);
-    let repeated = ready(decoder.next()).unwrap_err();
+    let repeated = decoder.next().unwrap_err();
     assert!(matches!(repeated.kind, TextInstanceErrorKind::Poisoned));
     assert_eq!(repeated.progress.completed_instances, 0);
-}
-
-#[test]
-fn dropped_pending_refinement_flush_poisoned_and_requires_discard() {
-    const BODY: [u8; 11] = [138, 19, 228, 1, 154, 208, 119, 233, 63, 255, 172];
-    let mut f = Fixture::new(0x8012, 1, &BODY, &[ONE_PIXEL]);
-    let limits = Limits::default();
-    let table = MqTable::standard();
-    let mut contexts = coding_unit(0, &limits, &f.mq_budget);
-    let pending = Rc::new(Cell::new(false));
-    let mut sink = PendingFlushSink {
-        bytes: Vec::new(),
-        pending: Rc::clone(&pending),
-    };
-    let mut decoder = ready(TextInstanceDecoder::new(
-        &mut f.source,
-        &f.text_segment,
-        f.parsed,
-        &f.dictionary_segment,
-        &f.dictionary,
-        &mut f.imported,
-        0,
-        &mut f.fresh,
-        0,
-        &mut sink,
-        0,
-        &table,
-        &mut contexts,
-        &limits,
-        &NeverCancel,
-        f.mq_budget,
-        f.header_budget,
-        f.refinement_budget,
-        f.budget,
-    ))
-    .unwrap();
-    pending.set(true);
-    let mut future = Box::pin(decoder.next());
-    assert!(matches!(
-        future
-            .as_mut()
-            .poll(&mut Context::from_waker(Waker::noop())),
-        Poll::Pending
-    ));
-    drop(future);
-    let progress = decoder.progress();
-    assert!(progress.poisoned);
-    assert_eq!(progress.refinement.output_bytes_written, 4);
-    assert_eq!(progress.refinement.flushes, 1);
-    let error = ready(decoder.next()).unwrap_err();
-    assert!(matches!(error.kind, TextInstanceErrorKind::Poisoned));
-    drop(decoder);
-    assert_eq!(sink.bytes, [0xe0, 0x70, 0x50, 0x10]);
 }
 
 #[test]
@@ -1178,7 +1092,7 @@ fn poisoned_prior_refinement_progress_cannot_resume_a_temporary_store() {
     let limits = Limits::default();
     let table = MqTable::standard();
     let mut contexts = coding_unit(0, &limits, &f.mq_budget);
-    let mut decoder = ready(TextInstanceDecoder::new(
+    let mut decoder = TextInstanceDecoder::new(
         &mut f.source,
         &f.text_segment,
         f.parsed,
@@ -1198,10 +1112,10 @@ fn poisoned_prior_refinement_progress_cannot_resume_a_temporary_store() {
         f.header_budget,
         f.refinement_budget,
         f.budget,
-    ))
+    )
     .unwrap();
     decoder.progress.refinement.poisoned = true;
-    let error = ready(decoder.next()).unwrap_err();
+    let error = decoder.next().unwrap_err();
     assert!(matches!(error.kind, TextInstanceErrorKind::Refinement(_)));
     assert!(error.progress.poisoned);
     drop(decoder);
@@ -1355,16 +1269,16 @@ fn real_mq_single_unmodified_instance_and_exact_terminal() {
     let mut imported = Bytes::new(vec![0x80]);
     let mut fresh = Bytes::new(vec![]);
     let mut temporary = Sink::default();
-    let parsed = ready(read_text_region_header(
+    let parsed = read_text_region_header(
         &mut source,
         &text_segment,
         &dictionary_segment,
         &limits,
         TextRegionBudget::default(),
         &NeverCancel,
-    ))
+    )
     .unwrap();
-    let mut decoder = ready(TextInstanceDecoder::new(
+    let mut decoder = TextInstanceDecoder::new(
         &mut source,
         &text_segment,
         parsed,
@@ -1384,9 +1298,9 @@ fn real_mq_single_unmodified_instance_and_exact_terminal() {
         TextRegionBudget::default(),
         RefinementBudget::default(),
         TextInstanceBudget::default(),
-    ))
+    )
     .unwrap();
-    let first = ready(decoder.next()).unwrap().unwrap();
+    let first = decoder.next().unwrap().unwrap();
     assert_eq!(
         (first.index, first.strip, first.symbol_id, first.x, first.y),
         (0, 0, 0, 0, 4)
@@ -1396,8 +1310,8 @@ fn real_mq_single_unmodified_instance_and_exact_terminal() {
         TextBitmap::Stored(dictionary.catalog.exported_symbols[0])
     );
     assert!(!first.ri);
-    assert!(ready(decoder.next()).unwrap().is_none());
-    assert!(ready(decoder.next()).unwrap().is_none());
+    assert!(decoder.next().unwrap().is_none());
+    assert!(decoder.next().unwrap().is_none());
     let progress = decoder.progress();
     assert_eq!(
         (
@@ -1425,16 +1339,16 @@ fn real_mq_refinement_reads_reference_and_writes_packed_rows() {
     let mut imported = Bytes::new(vec![0x80]);
     let mut fresh = Bytes::new(vec![]);
     let mut temporary = Sink::default();
-    let parsed = ready(read_text_region_header(
+    let parsed = read_text_region_header(
         &mut source,
         &text_segment,
         &dictionary_segment,
         &limits,
         TextRegionBudget::default(),
         &NeverCancel,
-    ))
+    )
     .unwrap();
-    let mut decoder = ready(TextInstanceDecoder::new(
+    let mut decoder = TextInstanceDecoder::new(
         &mut source,
         &text_segment,
         parsed,
@@ -1454,9 +1368,9 @@ fn real_mq_refinement_reads_reference_and_writes_packed_rows() {
         TextRegionBudget::default(),
         RefinementBudget::default(),
         TextInstanceBudget::default(),
-    ))
+    )
     .unwrap();
-    let instance = ready(decoder.next()).unwrap().unwrap();
+    let instance = decoder.next().unwrap().unwrap();
     assert_eq!(
         (
             instance.index,
@@ -1481,7 +1395,7 @@ fn real_mq_refinement_reads_reference_and_writes_packed_rows() {
             },
         }
     );
-    assert!(ready(decoder.next()).unwrap().is_none());
+    assert!(decoder.next().unwrap().is_none());
     let progress = decoder.progress();
     assert_eq!(
         (
@@ -1512,7 +1426,7 @@ fn a_text_region_resets_dirty_integer_iaid_and_gr_statistics() {
             },
         );
     }
-    let mut decoder = ready(TextInstanceDecoder::new(
+    let mut decoder = TextInstanceDecoder::new(
         &mut f.source,
         &f.text_segment,
         f.parsed,
@@ -1532,13 +1446,13 @@ fn a_text_region_resets_dirty_integer_iaid_and_gr_statistics() {
         f.header_budget,
         f.refinement_budget,
         f.budget,
-    ))
+    )
     .unwrap();
     for index in indices {
         assert_eq!(decoder.mq.context(index), Some(ContextState::default()));
     }
-    assert!(ready(decoder.next()).unwrap().unwrap().ri);
-    assert!(ready(decoder.next()).unwrap().is_none());
+    assert!(decoder.next().unwrap().unwrap().ri);
+    assert!(decoder.next().unwrap().is_none());
 }
 
 #[test]
@@ -1557,7 +1471,7 @@ fn public_mq_negative_half_deltas_and_contexts_continue_across_refined_instances
     let limits = Limits::default();
     let table = MqTable::standard();
     let mut contexts = coding_unit(1, &limits, &f.mq_budget);
-    let mut decoder = ready(TextInstanceDecoder::new(
+    let mut decoder = TextInstanceDecoder::new(
         &mut f.source,
         &f.text_segment,
         f.parsed,
@@ -1577,9 +1491,9 @@ fn public_mq_negative_half_deltas_and_contexts_continue_across_refined_instances
         f.header_budget,
         f.refinement_budget,
         f.budget,
-    ))
+    )
     .unwrap();
-    let first = ready(decoder.next()).unwrap().unwrap();
+    let first = decoder.next().unwrap().unwrap();
     assert!(first.ri);
     assert_eq!(first.symbol_id, 1);
     assert_eq!(
@@ -1619,7 +1533,7 @@ fn public_mq_negative_half_deltas_and_contexts_continue_across_refined_instances
     assert!(iaid_after_first.state_index > 0);
     assert!(gr_after_first.iter().any(|state| state.state_index > 0));
 
-    let second = ready(decoder.next()).unwrap().unwrap();
+    let second = decoder.next().unwrap().unwrap();
     assert!(second.ri);
     assert_eq!(second.symbol_id, 1);
     assert_eq!(
@@ -1647,7 +1561,7 @@ fn public_mq_negative_half_deltas_and_contexts_continue_across_refined_instances
         decoder.mq.context(BITMAP_BASE + index).unwrap().state_index
             > gr_after_first[index].state_index
     }));
-    assert!(ready(decoder.next()).unwrap().is_none());
+    assert!(decoder.next().unwrap().is_none());
     assert_eq!(decoder.progress().ri_one, 2);
     drop(decoder);
     assert_eq!(f.temporary.0, [0, 160, 224, 224, 192, 192, 96, 96]);
@@ -1671,16 +1585,16 @@ fn refined_handle_is_visible_to_a_reopened_view_before_next_pull() {
         pending: Vec::new(),
         visible: Rc::clone(&visible),
     };
-    let parsed = ready(read_text_region_header(
+    let parsed = read_text_region_header(
         &mut source,
         &text_segment,
         &dictionary_segment,
         &limits,
         TextRegionBudget::default(),
         &NeverCancel,
-    ))
+    )
     .unwrap();
-    let mut decoder = ready(TextInstanceDecoder::new(
+    let mut decoder = TextInstanceDecoder::new(
         &mut source,
         &text_segment,
         parsed,
@@ -1700,13 +1614,13 @@ fn refined_handle_is_visible_to_a_reopened_view_before_next_pull() {
         TextRegionBudget::default(),
         RefinementBudget::default(),
         TextInstanceBudget::default(),
-    ))
+    )
     .unwrap();
-    let instance = ready(decoder.next()).unwrap().unwrap();
+    let instance = decoder.next().unwrap().unwrap();
     assert!(matches!(instance.bitmap, TextBitmap::Refined { .. }));
     assert_eq!(*visible.borrow(), [0xe0, 0x70, 0x50, 0x10]);
     assert_eq!(decoder.progress().refinement.flushes, 1);
-    assert!(ready(decoder.next()).unwrap().is_none());
+    assert!(decoder.next().unwrap().is_none());
 }
 
 #[test]
@@ -1734,16 +1648,16 @@ fn real_mq_multistrip_oob_and_subsequent_s_with_ds_offset() {
         let mut imported = Bytes::new(vec![0x80]);
         let mut fresh = Bytes::new(vec![]);
         let mut temporary = Sink::default();
-        let parsed = ready(read_text_region_header(
+        let parsed = read_text_region_header(
             &mut source,
             &text_segment,
             &dictionary_segment,
             &limits,
             TextRegionBudget::default(),
             &NeverCancel,
-        ))
+        )
         .unwrap();
-        let mut decoder = ready(TextInstanceDecoder::new(
+        let mut decoder = TextInstanceDecoder::new(
             &mut source,
             &text_segment,
             parsed,
@@ -1766,10 +1680,10 @@ fn real_mq_multistrip_oob_and_subsequent_s_with_ds_offset() {
                 max_strips: 4,
                 ..TextInstanceBudget::default()
             },
-        ))
+        )
         .unwrap();
         for (index, expected) in expected.into_iter().enumerate() {
-            let instance = ready(decoder.next()).unwrap().unwrap();
+            let instance = decoder.next().unwrap().unwrap();
             assert_eq!((instance.x, instance.y, instance.strip), expected);
             assert_eq!(instance.index, index as u32);
             assert_eq!(
@@ -1777,7 +1691,7 @@ fn real_mq_multistrip_oob_and_subsequent_s_with_ds_offset() {
                 TextBitmap::Stored(dictionary.catalog.exported_symbols[0])
             );
         }
-        assert!(ready(decoder.next()).unwrap().is_none());
+        assert!(decoder.next().unwrap().is_none());
         let progress = decoder.progress();
         assert_eq!(progress.completed_instances, 2);
         assert_eq!(progress.ri_zero, 2);

@@ -64,7 +64,7 @@ pub enum IntegerValue {
     OutOfBand,
 }
 
-async fn take<S: RangedSource, C: Cancellation>(
+fn take<S: RangedSource, C: Cancellation>(
     decoder: &mut MqDecoder<'_, S, C>,
     base: usize,
     prev: &mut u16,
@@ -83,7 +83,7 @@ async fn take<S: RangedSource, C: Cancellation>(
             },
         });
     }
-    let bit = decoder.decode_bit(context).await?;
+    let bit = decoder.decode_bit(context)?;
     *decisions += 1;
     let next = (*prev << 1) | u16::from(bit);
     *prev = if *prev < 256 {
@@ -100,7 +100,7 @@ async fn take<S: RangedSource, C: Cancellation>(
 /// banks. Missing capacity is rejected before any decision. One invocation
 /// consumes at most 38 MQ symbols; source, budget, and cancellation errors
 /// are returned unchanged. The caller decides whether OOB is legal here.
-pub async fn decode_integer<S: RangedSource, C: Cancellation>(
+pub fn decode_integer<S: RangedSource, C: Cancellation>(
     decoder: &mut MqDecoder<'_, S, C>,
     procedure: IntegerProcedure,
 ) -> ArithmeticResult<IntegerValue> {
@@ -116,15 +116,15 @@ pub async fn decode_integer<S: RangedSource, C: Cancellation>(
     let base = procedure.base();
     let mut prev = 1u16;
     let mut decisions = 0u8;
-    let negative = take(decoder, base, &mut prev, &mut decisions).await?;
+    let negative = take(decoder, base, &mut prev, &mut decisions)?;
     let mut band = 0usize;
-    while band < BANDS.len() - 1 && take(decoder, base, &mut prev, &mut decisions).await? {
+    while band < BANDS.len() - 1 && take(decoder, base, &mut prev, &mut decisions)? {
         band += 1;
     }
     let (payload_bits, band_base) = BANDS[band];
     let mut payload = 0u64;
     for _ in 0..payload_bits {
-        let bit = take(decoder, base, &mut prev, &mut decisions).await?;
+        let bit = take(decoder, base, &mut prev, &mut decisions)?;
         payload = payload * 2 + u64::from(bit);
     }
     // Bounded by the `BANDS` assertion above.
@@ -144,7 +144,7 @@ pub async fn decode_integer<S: RangedSource, C: Cancellation>(
 mod tests {
     use super::*;
     use crate::jbig2::mq::{CodedSpan, ContextBank, ContextState, MqBudget, MqTable};
-    use crate::test_support::{mq_encoder, ready};
+    use crate::test_support::mq_encoder;
     use crate::{Limits, NeverCancel, native::SeekableSource};
     use std::{cell::Cell, io::Cursor, rc::Rc};
 
@@ -178,7 +178,7 @@ mod tests {
         let mut bank = ContextBank::new(INTEGER_CONTEXT_COUNT, &limits).unwrap();
         let mut source = vec_source(&bytes);
         let table = MqTable::standard();
-        let mut decoder = ready(MqDecoder::new(
+        let mut decoder = MqDecoder::new(
             &mut source,
             whole(&bytes),
             &table,
@@ -186,15 +186,15 @@ mod tests {
             &limits,
             &NeverCancel,
             MqBudget::default(),
-        ))
+        )
         .unwrap();
-        let value = ready(decode_integer(&mut decoder, procedure)).unwrap();
+        let value = decode_integer(&mut decoder, procedure).unwrap();
         assert_eq!(
             decoder.snapshot().symbols_decoded,
             decisions.len() as u64,
             "one integer consumes exactly its decisions"
         );
-        ready(decoder.finish(decisions.len() as u64)).unwrap();
+        decoder.finish(decisions.len() as u64).unwrap();
         let states = (0..INTEGER_CONTEXT_COUNT)
             .map(|index| bank.get(index).unwrap())
             .collect();
@@ -376,7 +376,7 @@ mod tests {
             let mut bank = ContextBank::new(INTEGER_CONTEXT_COUNT, &limits).unwrap();
             let mut source = vec_source(bytes);
             let table = MqTable::standard();
-            let mut decoder = ready(MqDecoder::new(
+            let mut decoder = MqDecoder::new(
                 &mut source,
                 whole(bytes),
                 &table,
@@ -384,9 +384,9 @@ mod tests {
                 &limits,
                 &NeverCancel,
                 MqBudget::default(),
-            ))
+            )
             .unwrap();
-            let error = ready(decode_integer(&mut decoder, IntegerProcedure::Iadw)).unwrap_err();
+            let error = decode_integer(&mut decoder, IntegerProcedure::Iadw).unwrap_err();
             assert!(matches!(error.kind, ArithmeticErrorKind::MissingTerminator));
             assert_eq!(error.offset, Some(bytes.len() as u64));
             let base = IntegerProcedure::Iadw.base();
@@ -403,7 +403,7 @@ mod tests {
         let mut bank = ContextBank::new(INTEGER_CONTEXT_COUNT, &limits).unwrap();
         let mut source = vec_source(&bytes);
         let table = MqTable::standard();
-        let mut decoder = ready(MqDecoder::new(
+        let mut decoder = MqDecoder::new(
             &mut source,
             whole(&bytes),
             &table,
@@ -411,11 +411,11 @@ mod tests {
             &limits,
             &NeverCancel,
             MqBudget::default(),
-        ))
+        )
         .unwrap();
         let mut prev = 1;
         let mut count = MAX_DECISIONS;
-        let error = ready(take(&mut decoder, 0, &mut prev, &mut count)).unwrap_err();
+        let error = take(&mut decoder, 0, &mut prev, &mut count).unwrap_err();
         assert!(matches!(
             error.kind,
             ArithmeticErrorKind::LimitExceeded {
@@ -449,7 +449,7 @@ mod tests {
         let table = MqTable::standard();
         let mut bank = ContextBank::new(INTEGER_CONTEXT_COUNT, &limits).unwrap();
         let mut source = vec_source(&bytes);
-        let mut decoder = ready(MqDecoder::new(
+        let mut decoder = MqDecoder::new(
             &mut source,
             whole(&bytes),
             &table,
@@ -457,17 +457,14 @@ mod tests {
             &limits,
             &NeverCancel,
             MqBudget::default(),
-        ))
+        )
         .unwrap();
         for (procedure, value) in values {
             let expected = value.map_or(IntegerValue::OutOfBand, IntegerValue::Signed);
-            assert_eq!(
-                ready(decode_integer(&mut decoder, procedure)).unwrap(),
-                expected
-            );
+            assert_eq!(decode_integer(&mut decoder, procedure).unwrap(), expected);
         }
         assert_eq!(decoder.snapshot().symbols_decoded, symbols);
-        ready(decoder.finish(symbols)).unwrap();
+        decoder.finish(symbols).unwrap();
     }
 
     #[test]
@@ -477,7 +474,7 @@ mod tests {
         let mut contexts = ContextBank::new(INTEGER_CONTEXT_COUNT - 1, &limits).unwrap();
         let bytes = [0xff, 0xac];
         let mut source = vec_source(&bytes);
-        let mut decoder = ready(MqDecoder::new(
+        let mut decoder = MqDecoder::new(
             &mut source,
             whole(&bytes),
             &table,
@@ -485,14 +482,14 @@ mod tests {
             &limits,
             &NeverCancel,
             MqBudget::default(),
-        ))
+        )
         .unwrap();
         let before = decoder.snapshot();
-        let error = ready(decode_integer(&mut decoder, IntegerProcedure::Iaai)).unwrap_err();
+        let error = decode_integer(&mut decoder, IntegerProcedure::Iaai).unwrap_err();
         assert!(matches!(error.kind, ArithmeticErrorKind::InvalidContext));
         assert_eq!(error.context, Some(INTEGER_CONTEXT_COUNT - 1));
         assert_eq!(decoder.snapshot(), before);
-        ready(decoder.finish(0)).unwrap();
+        decoder.finish(0).unwrap();
     }
 
     struct Flag(Rc<Cell<bool>>);
@@ -516,7 +513,7 @@ mod tests {
         };
         let mut bank = ContextBank::new(INTEGER_CONTEXT_COUNT, &limits).unwrap();
         let mut source = vec_source(&bytes);
-        let mut decoder = ready(MqDecoder::new(
+        let mut decoder = MqDecoder::new(
             &mut source,
             whole(&bytes),
             &table,
@@ -524,9 +521,9 @@ mod tests {
             &limits,
             &NeverCancel,
             budget,
-        ))
+        )
         .unwrap();
-        let error = ready(decode_integer(&mut decoder, IntegerProcedure::Iaai)).unwrap_err();
+        let error = decode_integer(&mut decoder, IntegerProcedure::Iaai).unwrap_err();
         assert!(matches!(
             error.kind,
             ArithmeticErrorKind::LimitExceeded {
@@ -540,7 +537,7 @@ mod tests {
         let flag = Flag(cancelled.clone());
         let mut bank = ContextBank::new(INTEGER_CONTEXT_COUNT, &limits).unwrap();
         let mut source = vec_source(&bytes);
-        let mut decoder = ready(MqDecoder::new(
+        let mut decoder = MqDecoder::new(
             &mut source,
             whole(&bytes),
             &table,
@@ -548,10 +545,10 @@ mod tests {
             &limits,
             &flag,
             MqBudget::default(),
-        ))
+        )
         .unwrap();
         cancelled.set(true);
-        let error = ready(decode_integer(&mut decoder, IntegerProcedure::Iaai)).unwrap_err();
+        let error = decode_integer(&mut decoder, IntegerProcedure::Iaai).unwrap_err();
         assert!(matches!(error.kind, ArithmeticErrorKind::Cancelled));
         assert_eq!(decoder.snapshot().symbols_decoded, 0);
 
@@ -563,7 +560,7 @@ mod tests {
         invalid.extend_from_slice(&[0xff, 0x90]);
         let mut bank = ContextBank::new(INTEGER_CONTEXT_COUNT, &limits).unwrap();
         let mut source = vec_source(&invalid);
-        let mut decoder = ready(MqDecoder::new(
+        let mut decoder = MqDecoder::new(
             &mut source,
             whole(&invalid),
             &table,
@@ -571,14 +568,14 @@ mod tests {
             &limits,
             &NeverCancel,
             MqBudget::default(),
-        ))
+        )
         .unwrap();
         assert_eq!(
-            ready(decode_integer(&mut decoder, IntegerProcedure::Iaai)).unwrap(),
+            decode_integer(&mut decoder, IntegerProcedure::Iaai).unwrap(),
             IntegerValue::Signed(3)
         );
         let symbols = decoder.snapshot().symbols_decoded;
-        let error = ready(decoder.finish(symbols)).unwrap_err();
+        let error = decoder.finish(symbols).unwrap_err();
         assert!(matches!(
             error.kind,
             ArithmeticErrorKind::InvalidMarker(0x90)
@@ -587,7 +584,7 @@ mod tests {
         let short = [0x80, 0];
         let mut bank = ContextBank::new(INTEGER_CONTEXT_COUNT, &limits).unwrap();
         let mut source = vec_source(&short);
-        let mut decoder = ready(MqDecoder::new(
+        let mut decoder = MqDecoder::new(
             &mut source,
             whole(&short),
             &table,
@@ -595,9 +592,9 @@ mod tests {
             &limits,
             &NeverCancel,
             MqBudget::default(),
-        ))
+        )
         .unwrap();
-        let error = ready(decode_integer(&mut decoder, IntegerProcedure::Iaai)).unwrap_err();
+        let error = decode_integer(&mut decoder, IntegerProcedure::Iaai).unwrap_err();
         assert!(matches!(error.kind, ArithmeticErrorKind::MissingTerminator));
         assert_eq!(error.offset, Some(short.len() as u64));
     }

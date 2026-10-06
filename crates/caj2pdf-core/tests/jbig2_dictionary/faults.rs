@@ -73,7 +73,7 @@ fn observe_custom(
         .context_bank(context_count, &Limits::default())
         .unwrap();
     let mut unread = Unread::default();
-    let created = ready(SymbolDictionaryDecoder::new(
+    let created = SymbolDictionaryDecoder::new(
         &mut source,
         header,
         None,
@@ -86,12 +86,12 @@ fn observe_custom(
         budget,
         RefinementBudget::default(),
         RefinementDictionaryBudget::default(),
-    ));
+    );
     let (result, retry_poisoned) = match created {
         Ok(mut decoder) => {
-            let result = ready(decoder.decode());
+            let result = decoder.decode();
             let retry_poisoned = result.as_ref().err().map(|_| {
-                let retry = ready(decoder.decode()).unwrap_err();
+                let retry = decoder.decode().unwrap_err();
                 assert!(retry.to_string().contains("poisoned"));
                 matches!(retry.kind, DictionaryErrorKind::Poisoned)
             });
@@ -218,13 +218,13 @@ fn cancellation_at_dictionary_entry_reads_no_header_or_body() {
     let mut input = source(&ONE_SYMBOL, 1, 1, (2, -1), &[]);
     let segment = header(&mut input);
     input.read_calls = 0;
-    let error = ready(read_dictionary_data_header(
+    let error = read_dictionary_data_header(
         &mut input,
         &segment,
         &Limits::default(),
         DictionaryBudget::default(),
         &CancelAfter::new(0),
-    ))
+    )
     .unwrap_err();
     assert!(matches!(error.kind, DictionaryErrorKind::Cancelled));
     assert!(error.to_string().contains("cancelled"));
@@ -241,13 +241,13 @@ fn cancellation_after_one_header_byte_preserves_partial_progress() {
     let cancelled = Rc::new(Cell::new(false));
     input.max_read = 1;
     input.cancel_after_read = Some((segment.data.offset, Rc::clone(&cancelled)));
-    let error = ready(read_dictionary_data_header(
+    let error = read_dictionary_data_header(
         &mut input,
         &segment,
         &Limits::default(),
         DictionaryBudget::default(),
         &CancelAfter::While(cancelled),
-    ))
+    )
     .unwrap_err();
     assert!(matches!(error.kind, DictionaryErrorKind::Cancelled));
     assert_eq!(error.offset, segment.data.offset + 1);

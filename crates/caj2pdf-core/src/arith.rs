@@ -353,7 +353,7 @@ impl InputBuffer {
     /// a cancellation fails the refill; the error is located at the first
     /// byte not read.
     #[allow(clippy::too_many_arguments)]
-    pub(crate) async fn refill<S: RangedSource, C: Cancellation>(
+    pub(crate) fn refill<S: RangedSource, C: Cancellation>(
         &mut self,
         source: &mut S,
         span: CodedSpan,
@@ -372,7 +372,6 @@ impl InputBuffer {
             limits,
             cancellation,
         )
-        .await
         .map_err(|source| {
             let failed_at = match source {
                 Error::TruncatedInput {

@@ -31,7 +31,7 @@ pub(super) struct Trailer<'a> {
 /// without an entry, and object 0, is a free entry on the free list.
 /// Otherwise only the given entries are written, in subsections of
 /// consecutive numbers, as an incremental update does.
-pub(super) async fn write_xref<W, C, I>(
+pub(super) fn write_xref<W, C, I>(
     out: &mut Output<'_, W, C>,
     entries: I,
     dense: bool,
@@ -45,8 +45,7 @@ where
     let start = out.position;
     let mut rows = Rows::default();
     if dense {
-        out.write(format!("xref\n0 {}\n", trailer.size).as_bytes())
-            .await?;
+        out.write(format!("xref\n0 {}\n", trailer.size).as_bytes())?;
         let mut used = entries.peekable();
         for number in 0..trailer.size {
             let row = match used.peek() {
@@ -62,32 +61,30 @@ where
                     row(next, generation, b'f')
                 }
             };
-            rows.push(out, &row).await?;
+            rows.push(out, &row)?;
         }
     } else {
-        out.write(b"xref\n").await?;
+        out.write(b"xref\n")?;
         let mut entries = entries.peekable();
         while let Some(&(first, _)) = entries.peek() {
             let count = run_length(entries.clone());
-            out.write(format!("{} {count}\n", first.number).as_bytes())
-                .await?;
+            out.write(format!("{} {count}\n", first.number).as_bytes())?;
             for _ in 0..count {
                 let (reference, offset) = entries.next().ok_or(Error::InvalidInput {
                     reason: "PDF xref entry disappeared",
                 })?;
-                rows.push(out, &in_use_row(offset, reference.generation)?)
-                    .await?;
+                rows.push(out, &in_use_row(offset, reference.generation)?)?;
             }
-            rows.flush(out).await?;
+            rows.flush(out)?;
         }
     }
-    rows.flush(out).await?;
-    out.write(trailer_text(trailer).as_bytes()).await?;
+    rows.flush(out)?;
+    out.write(trailer_text(trailer).as_bytes())?;
     if let Some((first, _)) = trailer.id {
         // The kept ID string is copied as the input wrote it.
-        out.write(first).await?;
+        out.write(first)?;
     }
-    out.write(trailer_end(trailer, start).as_bytes()).await
+    out.write(trailer_end(trailer, start).as_bytes())
 }
 
 /// The byte length of a dense [`write_xref`] section that starts at `start`.
@@ -221,25 +218,25 @@ impl Default for Rows {
 }
 
 impl Rows {
-    async fn push<W: SequentialSink, C: Cancellation>(
+    fn push<W: SequentialSink, C: Cancellation>(
         &mut self,
         out: &mut Output<'_, W, C>,
         row: &[u8; 20],
     ) -> Result<()> {
         if self.used == self.bytes.len() {
-            self.flush(out).await?;
+            self.flush(out)?;
         }
         self.bytes[self.used..self.used + 20].copy_from_slice(row);
         self.used += 20;
         Ok(())
     }
 
-    async fn flush<W: SequentialSink, C: Cancellation>(
+    fn flush<W: SequentialSink, C: Cancellation>(
         &mut self,
         out: &mut Output<'_, W, C>,
     ) -> Result<()> {
         if self.used != 0 {
-            out.write(&self.bytes[..self.used]).await?;
+            out.write(&self.bytes[..self.used])?;
             self.used = 0;
         }
         Ok(())
@@ -251,7 +248,7 @@ mod tests {
     use super::*;
     use crate::Limits;
     use crate::native::WriteSink;
-    use crate::test_support::{NEVER, run};
+    use crate::test_support::NEVER;
 
     fn reference(number: u32, generation: u16) -> PdfRef {
         PdfRef { number, generation }
@@ -260,11 +257,11 @@ mod tests {
     fn written(entries: &[(PdfRef, u64)], dense: bool, trailer: &Trailer<'_>) -> Result<Vec<u8>> {
         let mut sink = WriteSink::new(Vec::new());
         let limits = Limits::default();
-        run(async {
+        {
             let mut out = Output::new(&mut sink, &limits, &NEVER);
             out.position = 7;
-            write_xref(&mut out, entries.iter().copied(), dense, trailer).await
-        })?;
+            write_xref(&mut out, entries.iter().copied(), dense, trailer)
+        }?;
         Ok(sink.into_inner())
     }
 

@@ -11,10 +11,7 @@ use sha2::{Digest, Sha256};
 use std::{
     env,
     fs::File,
-    future::Future,
     io::{Cursor, Read},
-    pin::pin,
-    task::{Context, Poll, Waker},
 };
 
 const OFFICIAL_FIXTURE_SHA256: &str =
@@ -130,15 +127,6 @@ fn bit_at(bytes: &[u8], index: usize) -> bool {
     bytes[index / 8] & (0x80 >> (index % 8)) != 0
 }
 
-fn run_ready<F: Future>(future: F) -> F::Output {
-    let mut future = pin!(future);
-    let mut task = Context::from_waker(Waker::noop());
-    match future.as_mut().poll(&mut task) {
-        Poll::Ready(result) => result,
-        Poll::Pending => panic!("local native source unexpectedly yielded"),
-    }
-}
-
 #[test]
 #[ignore = "requires CAJ2PDF_T82_VECTOR_FILE with external official T.82 data"]
 fn official_1993_vector_and_register_checkpoints() {
@@ -166,7 +154,7 @@ fn official_1993_vector_and_register_checkpoints() {
     let limits = Limits::default();
     let mut contexts = ContextBank::new(2, &limits).expect("context bank allocation failed");
     let mut source = SeekableSource::new(Cursor::new(fixture.scd.clone())).unwrap();
-    let mut decoder = run_ready(ArithmeticDecoder::new(
+    let mut decoder = ArithmeticDecoder::new(
         &mut source,
         CodedSpan {
             offset: 0,
@@ -180,7 +168,7 @@ fn official_1993_vector_and_register_checkpoints() {
             max_symbols: 256,
             max_work: 100_000,
         },
-    ))
+    )
     .expect("standard stripe initialization failed");
 
     for symbol in 0..256 {
@@ -199,7 +187,8 @@ fn official_1993_vector_and_register_checkpoints() {
             }
         }
         let context = usize::from(bit_at(&fixture.contexts, symbol));
-        let actual = run_ready(decoder.decode_symbol(context))
+        let actual = decoder
+            .decode_symbol(context)
             .unwrap_or_else(|error| panic!("standard decode failed at symbol {symbol}: {error}"));
         assert_eq!(actual, bit_at(&fixture.expected, symbol), "symbol {symbol}");
     }

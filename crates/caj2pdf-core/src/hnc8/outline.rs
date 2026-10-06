@@ -100,7 +100,7 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
     /// counted in the returned report. Read errors, limits and cancellation
     /// still fail. Visitor failure or a dropped future poisons the reader,
     /// preventing an accidental retry of partial output.
-    pub async fn visit_bookmarks<V: BookmarkVisitor, F: FnMut(u32) -> Option<u32>>(
+    pub fn visit_bookmarks<V: BookmarkVisitor, F: FnMut(u32) -> Option<u32>>(
         &mut self,
         max_depth: u32,
         output_pages: u32,
@@ -117,16 +117,14 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
             return Err(loc.error(ErrorKind::Poisoned));
         }
         self.poisoned = true;
-        let result = self
-            .bookmarks(max_depth, output_pages, map_page, visitor, loc)
-            .await;
+        let result = self.bookmarks(max_depth, output_pages, map_page, visitor, loc);
         if result.is_ok() {
             self.poisoned = false;
         }
         result
     }
 
-    async fn bookmarks<V: BookmarkVisitor, F: FnMut(u32) -> Option<u32>>(
+    fn bookmarks<V: BookmarkVisitor, F: FnMut(u32) -> Option<u32>>(
         &mut self,
         max_depth: u32,
         output_pages: u32,
@@ -183,8 +181,7 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
                 &mut record,
                 at,
                 "outline record",
-            )
-            .await?;
+            )?;
             let level = u32::from_le_bytes(record[304..308].try_into().expect("fixed field width"));
             let entry = 'entry: {
                 let Some(title_end) = record[..256].iter().position(|&byte| byte == 0) else {
@@ -266,7 +263,6 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
                     depth: written - 1,
                     page_index,
                 })
-                .await
                 .map_err(|source| match source {
                     Error::Cancelled => at.error(ErrorKind::Cancelled),
                     source => at.error(ErrorKind::Source {

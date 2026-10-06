@@ -721,28 +721,25 @@ fn scratch_engine() -> Engine {
     use caj2pdf_core::jbig2::text_composer::RandomAccessScratch;
     let mut engine = Engine::start(0, limits(3), convert_op(None)).unwrap();
     let shared = Rc::clone(&engine.shared);
-    engine.task = Box::pin(async move {
+    engine.task = Box::pin((move || {
         for id in 1..=4 {
             let mut store = scratch::Scratch::new(Rc::clone(&shared), id, 8);
             assert_eq!(store.size()?, 0);
-            assert!(matches!(
-                store.set_len(9).await,
-                Err(Error::LimitExceeded { .. })
-            ));
-            store.set_len(8).await?;
-            assert!(store.read_at(u64::MAX, &mut [0]).await.is_err());
-            assert!(store.write_at(7, &[0; 2]).await.is_err());
-            assert_eq!(store.read_at(8, &mut []).await?, 0);
-            assert_eq!(store.write_at(8, &[]).await?, 0);
-            assert_eq!(store.write_at(2, &[1, 2, 3, 4]).await?, 3);
+            assert!(matches!(store.set_len(9), Err(Error::LimitExceeded { .. })));
+            store.set_len(8)?;
+            assert!(store.read_at(u64::MAX, &mut [0]).is_err());
+            assert!(store.write_at(7, &[0; 2]).is_err());
+            assert_eq!(store.read_at(8, &mut [])?, 0);
+            assert_eq!(store.write_at(8, &[])?, 0);
+            assert_eq!(store.write_at(2, &[1, 2, 3, 4])?, 3);
             let mut bytes = [0; 4];
-            assert_eq!(store.read_at(2, &mut bytes).await?, 3);
+            assert_eq!(store.read_at(2, &mut bytes)?, 3);
             assert_eq!(bytes, [1, 2, 3, 0]);
-            store.flush().await?;
-            store.set_len(0).await?;
+            store.flush()?;
+            store.set_len(0)?;
         }
         Ok(Outcome::default())
-    });
+    })());
     engine
 }
 

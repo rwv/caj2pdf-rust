@@ -101,7 +101,7 @@ impl Fonts {
 
 struct CompletePages;
 impl ComposeVisitor for CompletePages {
-    async fn page(&mut self, page: ComposePage<'_>) -> Result<()> {
+    fn page(&mut self, page: ComposePage<'_>) -> Result<()> {
         if page.output_page.is_none() {
             return Err(Error::InvalidInput {
                 reason: "HN/C8 conversion cannot omit source pages without image content",
@@ -111,7 +111,7 @@ impl ComposeVisitor for CompletePages {
     }
 }
 
-pub(super) async fn convert(
+pub(super) fn convert(
     source: &mut BridgeSource,
     sink: &mut BridgeSink,
     options: ConversionOptions,
@@ -174,14 +174,13 @@ pub(super) async fn convert(
         limits,
         cancellation,
     )
-    .await
     .map(|report| (report.conversion, report.outline))
     .map_err(|error| Error::Hnc8(Box::new(error)))
 }
 
 struct IgnoreBookmarks;
 impl caj2pdf_core::BookmarkVisitor for IgnoreBookmarks {
-    async fn visit(&mut self, _: caj2pdf_core::Bookmark) -> Result<()> {
+    fn visit(&mut self, _: caj2pdf_core::Bookmark) -> Result<()> {
         Ok(())
     }
 }
@@ -198,16 +197,16 @@ pub(super) struct Inspected {
     pub application_info: Option<ApplicationInfo>,
 }
 
-pub(super) async fn inspect<S: RangedSource, C: Cancellation>(
+pub(super) fn inspect<S: RangedSource, C: Cancellation>(
     source: &mut S,
     limits: &Limits,
     cancellation: &C,
 ) -> Result<Inspected> {
     use caj2pdf_core::hnc8::{Budget, Hnc8Reader};
-    let result: caj2pdf_core::hnc8::Result<_> = async {
-        let mut reader = Hnc8Reader::open(source, limits, cancellation, Budget::default()).await?;
+    let result: caj2pdf_core::hnc8::Result<_> = (|| {
+        let mut reader = Hnc8Reader::open(source, limits, cancellation, Budget::default())?;
         let pages = reader.header().page_count;
-        let application_info = reader.application_info_report().await?.info;
+        let application_info = reader.application_info_report()?.info;
         let mut inspected = Inspected {
             pages,
             bookmarks: None,
@@ -215,14 +214,12 @@ pub(super) async fn inspect<S: RangedSource, C: Cancellation>(
             application_info,
         };
         if reader.declared_bookmark_count().is_some() {
-            let outline = reader
-                .visit_bookmarks(64, pages, |page| Some(page - 1), &mut IgnoreBookmarks)
-                .await?;
+            let outline =
+                reader.visit_bookmarks(64, pages, |page| Some(page - 1), &mut IgnoreBookmarks)?;
             inspected.bookmarks = Some(outline.written);
             inspected.outline_warnings = outline.defects;
         }
         Ok(inspected)
-    }
-    .await;
+    })();
     result.map_err(|error| Error::Hnc8Metadata(Box::new(error)))
 }

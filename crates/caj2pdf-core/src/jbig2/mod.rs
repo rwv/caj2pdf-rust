@@ -273,26 +273,25 @@ impl HeaderCursor {
             .map_err(|fault| self.fault(fault, "segment header"))
     }
 
-    async fn read_into<S: RangedSource, C: Cancellation>(
+    fn read_into<S: RangedSource, C: Cancellation>(
         &mut self,
         source: &mut S,
         destination: &mut [u8],
         field: &'static str,
         cancellation: &C,
     ) -> HeaderResult<()> {
-        let result = self.fields.fill(source, cancellation, destination).await;
+        let result = self.fields.fill(source, cancellation, destination);
         result.map_err(|fault| self.fault(fault, field))
     }
 
-    async fn read<const N: usize, S: RangedSource, C: Cancellation>(
+    fn read<const N: usize, S: RangedSource, C: Cancellation>(
         &mut self,
         source: &mut S,
         field: &'static str,
         cancellation: &C,
     ) -> HeaderResult<[u8; N]> {
         let mut bytes = [0; N];
-        self.read_into(source, &mut bytes, field, cancellation)
-            .await?;
+        self.read_into(source, &mut bytes, field, cancellation)?;
         Ok(bytes)
     }
 }
@@ -383,7 +382,7 @@ pub(super) fn validate_enclosing_span<S: RangedSource>(
 
 // One parser serves both an exact segment span and a bounded embedded scan.
 // The caller validates the enclosing span before calling this function.
-pub(super) async fn read_header_prefix<S: RangedSource, C: Cancellation>(
+pub(super) fn read_header_prefix<S: RangedSource, C: Cancellation>(
     source: &mut S,
     start: u64,
     end: u64,
@@ -400,11 +399,9 @@ pub(super) async fn read_header_prefix<S: RangedSource, C: Cancellation>(
     );
     cursor.check_cancelled(cancellation)?;
 
-    let number = u32::from_be_bytes(cursor.read(source, "segment number", cancellation).await?);
+    let number = u32::from_be_bytes(cursor.read(source, "segment number", cancellation)?);
     cursor.segment = Some(number);
-    let flags = cursor
-        .read::<1, _, _>(source, "segment flags", cancellation)
-        .await?[0];
+    let flags = cursor.read::<1, _, _>(source, "segment flags", cancellation)?[0];
     let segment_type = flags & 0x3f;
     if !allowed_type(segment_type) {
         return Err(cursor.error(HeaderErrorKind::Unsupported {
@@ -412,16 +409,12 @@ pub(super) async fn read_header_prefix<S: RangedSource, C: Cancellation>(
             value: u64::from(segment_type),
         }));
     }
-    let first = cursor
-        .read::<1, _, _>(source, "reference count and retention", cancellation)
-        .await?[0];
+    let first = cursor.read::<1, _, _>(source, "reference count and retention", cancellation)?[0];
     let count_tag = first >> 5;
     let (reference_count, retention_bytes, short_retention) = match count_tag {
         0..=4 => (u32::from(count_tag), 1_u64, Some(first & 0x1f)),
         7 => {
-            let tail = cursor
-                .read::<3, _, _>(source, "long reference count", cancellation)
-                .await?;
+            let tail = cursor.read::<3, _, _>(source, "long reference count", cancellation)?;
             let count = u32::from_be_bytes([first, tail[0], tail[1], tail[2]]) & 0x1fff_ffff;
             if count <= 4 {
                 return Err(cursor.error(HeaderErrorKind::Malformed(
@@ -497,9 +490,7 @@ pub(super) async fn read_header_prefix<S: RangedSource, C: Cancellation>(
         }
     } else {
         retention.resize(retention_length, 0);
-        cursor
-            .read_into(source, &mut retention, "long retention flags", cancellation)
-            .await?;
+        cursor.read_into(source, &mut retention, "long retention flags", cancellation)?;
         let used = ((reference_count + 1) % 8) as u8;
         if used != 0 && retention[retention_length - 1] & !((1_u8 << used) - 1) != 0 {
             return Err(cursor.error(HeaderErrorKind::Malformed("unused long retention bits")));
@@ -512,21 +503,13 @@ pub(super) async fn read_header_prefix<S: RangedSource, C: Cancellation>(
     reserve_exact(&mut referred_to, count, failed)?;
     for _ in 0..count {
         let reference = match reference_width {
-            1 => u32::from(
-                cursor
-                    .read::<1, _, _>(source, "reference number", cancellation)
-                    .await?[0],
-            ),
-            2 => u32::from(u16::from_be_bytes(
-                cursor
-                    .read(source, "reference number", cancellation)
-                    .await?,
-            )),
-            _ => u32::from_be_bytes(
-                cursor
-                    .read(source, "reference number", cancellation)
-                    .await?,
-            ),
+            1 => u32::from(cursor.read::<1, _, _>(source, "reference number", cancellation)?[0]),
+            2 => u32::from(u16::from_be_bytes(cursor.read(
+                source,
+                "reference number",
+                cancellation,
+            )?)),
+            _ => u32::from_be_bytes(cursor.read(source, "reference number", cancellation)?),
         };
         if reference >= number {
             return Err(cursor.error(HeaderErrorKind::Malformed(
@@ -536,28 +519,17 @@ pub(super) async fn read_header_prefix<S: RangedSource, C: Cancellation>(
         referred_to.push(reference);
     }
     let page_association = if association_width == 1 {
-        u32::from(
-            cursor
-                .read::<1, _, _>(source, "page association", cancellation)
-                .await?[0],
-        )
+        u32::from(cursor.read::<1, _, _>(source, "page association", cancellation)?[0])
     } else {
-        u32::from_be_bytes(
-            cursor
-                .read(source, "page association", cancellation)
-                .await?,
-        )
+        u32::from_be_bytes(cursor.read(source, "page association", cancellation)?)
     };
     if !valid_page_association(segment_type, page_association) {
         return Err(cursor.error(HeaderErrorKind::Malformed(
             "page association for segment type",
         )));
     }
-    let data_length = u32::from_be_bytes(
-        cursor
-            .read(source, "segment data length", cancellation)
-            .await?,
-    );
+    let data_length =
+        u32::from_be_bytes(cursor.read(source, "segment data length", cancellation)?);
     if data_length == u32::MAX {
         return Err(cursor.error(HeaderErrorKind::Unsupported {
             feature: "unknown segment data length",
@@ -602,7 +574,7 @@ pub(super) async fn read_header_prefix<S: RangedSource, C: Cancellation>(
 ///
 /// Source reads never pass the supplied span. Returned data bytes are not read
 /// or decoded. Cross-segment rules are checked by [`read_embedded_directory`].
-pub async fn read_segment_header<S: RangedSource, C: Cancellation>(
+pub fn read_segment_header<S: RangedSource, C: Cancellation>(
     source: &mut S,
     span: SegmentSpan,
     limits: &Limits,
@@ -618,8 +590,7 @@ pub async fn read_segment_header<S: RangedSource, C: Cancellation>(
         header_limits,
         None,
         cancellation,
-    )
-    .await?;
+    )?;
     if next != end {
         return Err(HeaderError {
             offset: header.data.offset,

@@ -88,7 +88,7 @@ fn native_document_streams_text_and_all_shared_image_codecs() {
         let mut first = Scratch::default();
         let mut second = Scratch::default();
         let mut refined = Scratch::default();
-        let report = ready(convert_c8_native_pdf(
+        let report = convert_c8_native_pdf(
             &mut source,
             &mut sink,
             C8FontSources {
@@ -106,7 +106,7 @@ fn native_document_streams_text_and_all_shared_image_codecs() {
             ComposeOptions::default(),
             &limits,
             &NeverCancel,
-        ))
+        )
         .unwrap();
         assert_eq!(report.output_pages, 3);
         assert_eq!(report.conversion.pages_converted, 3);
@@ -147,7 +147,7 @@ fn native_document_checks_resource_contract_before_output() {
             role.latin = 1;
         }
         let mut sink = Sink::default();
-        let error = ready(convert_c8_native_pdf(
+        let error = convert_c8_native_pdf(
             &mut Source::new(vec![]),
             &mut sink,
             C8FontSources {
@@ -159,7 +159,7 @@ fn native_document_checks_resource_contract_before_output() {
             ComposeOptions::default(),
             &Limits::default(),
             &NeverCancel,
-        ))
+        )
         .unwrap_err();
         assert!(matches!(error.kind, ComposeErrorKind::InvalidOptions(_)));
         assert!(sink.bytes.is_empty());
@@ -176,7 +176,7 @@ fn native_document_late_unknown_record_cannot_finish_pdf() {
         source: Source::new(crate::pdf::drawing_font()),
         face: 0,
     }];
-    let error = ready(convert_c8_native_pdf(
+    let error = convert_c8_native_pdf(
         &mut Source::new(fixture.bytes),
         &mut sink,
         C8FontSources {
@@ -188,7 +188,7 @@ fn native_document_late_unknown_record_cannot_finish_pdf() {
         ComposeOptions::default(),
         &Limits::default(),
         &NeverCancel,
-    ))
+    )
     .unwrap_err();
     assert_eq!(error.page, Some(2));
     assert!(!sink.bytes.ends_with(b"%%EOF\n"));
@@ -210,7 +210,7 @@ fn native_c8_bookmark_request_is_reported_not_written_or_failed() {
         let mut role = roles();
         role.decoration = Some((0, 'A'));
         let mut sink = Sink::default();
-        let report = ready(convert_c8_native_pdf(
+        let report = convert_c8_native_pdf(
             &mut Source::new(fixture.bytes),
             &mut sink,
             C8FontSources {
@@ -225,7 +225,7 @@ fn native_c8_bookmark_request_is_reported_not_written_or_failed() {
             },
             &Limits::default(),
             &NeverCancel,
-        ))
+        )
         .unwrap();
         assert_eq!(report.outline.unverified, include_bookmarks);
         assert_eq!(report.conversion.bookmarks_written, 0);
@@ -276,7 +276,7 @@ fn native_document_errors_preserve_preflight_and_source_locations() {
             _ => unreachable!(),
         }
         let mut sink = Sink::default();
-        let result = ready(convert_c8_native_pdf(
+        let result = convert_c8_native_pdf(
             &mut Source::new(fixture.bytes),
             &mut sink,
             C8FontSources {
@@ -288,7 +288,7 @@ fn native_document_errors_preserve_preflight_and_source_locations() {
             options,
             &Limits::default(),
             &NeverCancel,
-        ));
+        );
         let error = result.unwrap_err();
         assert!(!sink.bytes.ends_with(b"%%EOF\n"), "mode {mode}");
         if matches!(mode, 2 | 3 | 5 | 6 | 7) {
@@ -317,7 +317,7 @@ fn native_document_font_io_output_and_cancellation_fail_explicitly() {
             3 => sink.fail_flush = true,
             _ => unreachable!(),
         }
-        let result = ready(convert_c8_native_pdf(
+        let result = convert_c8_native_pdf(
             &mut Source::new(fixture.bytes),
             &mut sink,
             C8FontSources {
@@ -329,7 +329,7 @@ fn native_document_font_io_output_and_cancellation_fail_explicitly() {
             ComposeOptions::default(),
             &Limits::default(),
             &Flag(flag),
-        ));
+        );
         assert!(result.is_err(), "mode {mode}");
         if mode != 3 {
             assert!(!sink.bytes.ends_with(b"%%EOF\n"));
@@ -393,7 +393,7 @@ fn hnb_native_document_streams_every_compact_page_and_keeps_late_errors_located(
             short: Some(7),
             ..Default::default()
         };
-        let result = ready(convert_c8_native_pdf(
+        let result = convert_c8_native_pdf(
             &mut source,
             &mut sink,
             C8FontSources {
@@ -405,7 +405,7 @@ fn hnb_native_document_streams_every_compact_page_and_keeps_late_errors_located(
             ComposeOptions::default(),
             &Limits::default(),
             &NeverCancel,
-        ));
+        );
         if corrupt {
             assert_eq!(result.unwrap_err().page, Some(3));
             assert!(!sink.bytes.ends_with(b"%%EOF\n"));

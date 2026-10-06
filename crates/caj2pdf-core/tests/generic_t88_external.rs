@@ -14,31 +14,12 @@ use caj2pdf_core::{
     native::SeekableSource,
 };
 use sha2::{Digest, Sha256};
-use std::{
-    env,
-    fs::File,
-    future::Future,
-    io::Read,
-    path::Path,
-    pin::pin,
-    task::{Context, Poll, Waker},
-};
+use std::{env, fs::File, io::Read, path::Path};
 
 const TABLE_FIXTURE_SHA: &str = "bdf6eeeca3bc5d5a8dc1a13acc7698ec356c886b27f6526f3e09fc2c8520ac57";
 
 fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
-}
-
-fn ready<F: Future>(future: F) -> F::Output {
-    let mut future = pin!(future);
-    match future
-        .as_mut()
-        .poll(&mut Context::from_waker(Waker::noop()))
-    {
-        Poll::Ready(value) => value,
-        Poll::Pending => panic!("local file unexpectedly pending"),
-    }
 }
 
 fn sha_file(path: &Path) -> String {
@@ -109,12 +90,12 @@ impl HashSink {
     }
 }
 impl SequentialSink for HashSink {
-    async fn write(&mut self, bytes: &[u8]) -> caj2pdf_core::Result<usize> {
+    fn write(&mut self, bytes: &[u8]) -> caj2pdf_core::Result<usize> {
         self.hash.update(bytes);
         self.bytes += bytes.len() as u64;
         Ok(bytes.len())
     }
-    async fn flush(&mut self) -> caj2pdf_core::Result<()> {
+    fn flush(&mut self) -> caj2pdf_core::Result<()> {
         Ok(())
     }
 }
@@ -155,18 +136,18 @@ fn generic_only_spots_match_black_box_pixel_hashes() {
         let path = Path::new(&root).join(name);
         assert_eq!(sha_file(&path), source_sha, "source changed: {name}");
         let mut source = SeekableSource::new(File::open(path).unwrap()).unwrap();
-        let header = ready(read_segment_header(
+        let header = read_segment_header(
             &mut source,
             SegmentSpan { offset, length },
             &limits,
             HeaderLimits::default(),
             &NeverCancel,
-        ))
+        )
         .unwrap();
         assert_eq!(header.segment_type, 38);
         let mut contexts = ContextBank::new(1024, &limits).unwrap();
         let mut sink = HashSink::new();
-        let mut decoder = ready(GenericRegionDecoder::new(
+        let mut decoder = GenericRegionDecoder::new(
             &mut source,
             &header,
             &table,
@@ -176,7 +157,7 @@ fn generic_only_spots_match_black_box_pixel_hashes() {
             &NeverCancel,
             mq_budget,
             GenericBudget::default(),
-        ))
+        )
         .unwrap();
         assert_eq!(
             (
@@ -186,10 +167,10 @@ fn generic_only_spots_match_black_box_pixel_hashes() {
             (width, height)
         );
         for _ in 0..height {
-            assert!(ready(decoder.decode_next_row()).unwrap());
+            assert!(decoder.decode_next_row().unwrap());
         }
-        assert!(!ready(decoder.decode_next_row()).unwrap());
-        let report = ready(decoder.finish()).unwrap();
+        assert!(!decoder.decode_next_row().unwrap());
+        let report = decoder.finish().unwrap();
         assert_eq!(
             report.progress.pixels_decoded,
             u64::from(width) * u64::from(height)

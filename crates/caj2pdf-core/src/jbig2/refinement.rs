@@ -387,13 +387,13 @@ impl<'a, 'mq, M: RangedSource, C: Cancellation, W: SequentialSink>
     /// symbols as references. This does not finish MQ or reset GR statistics.
     /// An error or dropped pending flush poisons the session and coding unit;
     /// a successful flush leaves both usable for more interleaved decisions.
-    pub async fn flush_store(&mut self) -> RefinementResult<()> {
+    pub fn flush_store(&mut self) -> RefinementResult<()> {
         if self.progress.poisoned || self.mq.snapshot().poisoned {
             self.progress.poisoned = true;
             return Err(self.error(RefinementErrorKind::Poisoned, None, 0, 0));
         }
         self.progress.poisoned = true;
-        let result = self.flush_store_inner().await;
+        let result = self.flush_store_inner();
         match result {
             Ok(()) => {
                 self.progress.poisoned = false;
@@ -406,7 +406,7 @@ impl<'a, 'mq, M: RangedSource, C: Cancellation, W: SequentialSink>
         }
     }
 
-    async fn flush_store_inner(&mut self) -> RefinementResult<()> {
+    fn flush_store_inner(&mut self) -> RefinementResult<()> {
         self.check_cancelled(0, 0)?;
         // `flushes <= max_flushes <= MAX_BUDGET_COUNT`.
         let attempted = self.progress.flushes + 1;
@@ -416,7 +416,6 @@ impl<'a, 'mq, M: RangedSource, C: Cancellation, W: SequentialSink>
         self.progress.flushes = attempted;
         self.sink
             .flush()
-            .await
             .map_err(|error| self.error(RefinementErrorKind::Sink(error), None, 0, 0))?;
         self.check_cancelled(0, 0)?;
         Ok(())
@@ -686,7 +685,7 @@ impl<'a, 'mq, M: RangedSource, C: Cancellation, W: SequentialSink>
         Ok(row)
     }
 
-    async fn read_reference_row<R: RangedSource>(
+    fn read_reference_row<R: RangedSource>(
         &mut self,
         source: &mut R,
         geometry: Geometry,
@@ -732,7 +731,6 @@ impl<'a, 'mq, M: RangedSource, C: Cancellation, W: SequentialSink>
             self.progress.reference_reads = attempted;
             let read = source
                 .read_at(current, &mut row[done..done + count])
-                .await
                 .map_err(|error| {
                     self.error(
                         RefinementErrorKind::ReferenceSource(error),
@@ -766,7 +764,7 @@ impl<'a, 'mq, M: RangedSource, C: Cancellation, W: SequentialSink>
         Ok(())
     }
 
-    async fn write_row(&mut self, row: &[u8], y: u32) -> RefinementResult<()> {
+    fn write_row(&mut self, row: &[u8], y: u32) -> RefinementResult<()> {
         let mut done = 0usize;
         while done < row.len() {
             self.check_cancelled(y, 0)?;
@@ -788,7 +786,6 @@ impl<'a, 'mq, M: RangedSource, C: Cancellation, W: SequentialSink>
             let written = self
                 .sink
                 .write(&row[done..done + count])
-                .await
                 .map_err(|error| self.error(RefinementErrorKind::Sink(error), None, y, 0))?;
             if written > count {
                 return Err(self.error(
@@ -823,7 +820,7 @@ impl<'a, 'mq, M: RangedSource, C: Cancellation, W: SequentialSink>
     /// next bitmap while restarting target-row history at zero. On failure,
     /// discard the partial store output and enclosing coding unit. Dropping a
     /// pending future leaves this host poisoned; dropping the host poisons MQ.
-    pub async fn decode_bitmap<R: RangedSource>(
+    pub fn decode_bitmap<R: RangedSource>(
         &mut self,
         reference_source: &mut R,
         request: RefinementRequest,
@@ -833,7 +830,7 @@ impl<'a, 'mq, M: RangedSource, C: Cancellation, W: SequentialSink>
             return Err(self.error(RefinementErrorKind::Poisoned, None, 0, 0));
         }
         self.progress.poisoned = true;
-        let result = self.decode_bitmap_inner(reference_source, request).await;
+        let result = self.decode_bitmap_inner(reference_source, request);
         match result {
             Ok(target) => {
                 self.progress.poisoned = false;
@@ -849,7 +846,7 @@ impl<'a, 'mq, M: RangedSource, C: Cancellation, W: SequentialSink>
         }
     }
 
-    async fn decode_bitmap_inner<R: RangedSource>(
+    fn decode_bitmap_inner<R: RangedSource>(
         &mut self,
         reference_source: &mut R,
         request: RefinementRequest,
@@ -886,8 +883,7 @@ impl<'a, 'mq, M: RangedSource, C: Cancellation, W: SequentialSink>
                     row_id,
                     &mut reference_rows[slot],
                     y,
-                )
-                .await?;
+                )?;
                 cached[slot] = Some(row_id);
             }
             for x in 0..request.width {
@@ -904,21 +900,17 @@ impl<'a, 'mq, M: RangedSource, C: Cancellation, W: SequentialSink>
                     reference_y,
                     x,
                 );
-                let bit = self
-                    .mq
-                    .decode_bit(BITMAP_BASE + context)
-                    .await
-                    .map_err(|error| {
-                        let offset = error.offset;
-                        self.error(RefinementErrorKind::Mq(Box::new(error)), offset, y, x)
-                    })?;
+                let bit = self.mq.decode_bit(BITMAP_BASE + context).map_err(|error| {
+                    let offset = error.offset;
+                    self.error(RefinementErrorKind::Mq(Box::new(error)), offset, y, x)
+                })?;
                 if bit {
                     current[(x / 8) as usize] |= 0x80 >> (x % 8);
                 }
                 self.progress.pixels_decoded += 1;
                 self.progress.context_work += 10;
             }
-            self.write_row(&current, y).await?;
+            self.write_row(&current, y)?;
             mem::swap(&mut previous, &mut current);
         }
         let target = SymbolDescriptor {
@@ -1047,7 +1039,6 @@ mod tests {
     use crate::jbig2::iaid::IAID_BASE;
     use crate::jbig2::mq::{CodedSpan, ContextBank, MqBudget, MqTable};
     use crate::native::{SeekableSource, WriteSink};
-    use crate::test_support::ready;
     use crate::{MAX_BUDGET_COUNT, NeverCancel};
     use std::io::Cursor;
 
@@ -1058,7 +1049,7 @@ mod tests {
         let table = MqTable::standard();
         let mut banks = ContextBank::new(IAID_BASE + 2, &limits).unwrap();
         let mut source = SeekableSource::new(Cursor::new(vec![0, 0xff, 0xac])).unwrap();
-        let mut mq = ready(MqDecoder::new(
+        let mut mq = MqDecoder::new(
             &mut source,
             CodedSpan {
                 offset: 0,
@@ -1069,7 +1060,7 @@ mod tests {
             &limits,
             &NeverCancel,
             mq_budget,
-        ))
+        )
         .unwrap();
         let mut sink = WriteSink::new(Vec::new());
         let budget = RefinementBudget {
@@ -1099,7 +1090,7 @@ mod tests {
             },
         };
         let mut reference = SeekableSource::new(Cursor::new(vec![0])).unwrap();
-        let error = ready(decoder.decode_bitmap(&mut reference, request)).unwrap_err();
+        let error = decoder.decode_bitmap(&mut reference, request).unwrap_err();
         assert_eq!(error.bitmap_index, u32::MAX);
         assert!(matches!(
             error.kind,

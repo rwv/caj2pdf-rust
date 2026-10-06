@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::jbig2::mq::{CodedSpan, ContextBank, ContextState, MqBudget, MqTable};
-use crate::test_support::{mq_encoder, ready};
+use crate::test_support::mq_encoder;
 use crate::{Limits, NeverCancel, native::SeekableSource};
 use std::io::Cursor;
 
@@ -23,7 +23,7 @@ fn round_trip(code_len: u32, values: &[u64]) -> (Vec<u64>, Vec<ContextState>) {
     let mut bank = ContextBank::new(contexts, &limits).unwrap();
     let mut source = Source::new(Cursor::new(bytes.clone())).unwrap();
     let table = MqTable::standard();
-    let mut decoder = ready(MqDecoder::new(
+    let mut decoder = MqDecoder::new(
         &mut source,
         CodedSpan {
             offset: 0,
@@ -34,15 +34,15 @@ fn round_trip(code_len: u32, values: &[u64]) -> (Vec<u64>, Vec<ContextState>) {
         &limits,
         &NeverCancel,
         MqBudget::default(),
-    ))
+    )
     .unwrap();
     let decoded = values
         .iter()
-        .map(|_| ready(decode_iaid(&mut decoder, code_len)).unwrap())
+        .map(|_| decode_iaid(&mut decoder, code_len).unwrap())
         .collect();
     assert_eq!(decoder.snapshot().symbols_decoded, symbols);
     assert_eq!(symbols, u64::from(code_len) * values.len() as u64);
-    ready(decoder.finish(symbols)).unwrap();
+    decoder.finish(symbols).unwrap();
     let states = (0..contexts)
         .map(|index| bank.get(index).unwrap())
         .collect();
@@ -85,7 +85,7 @@ fn largest_default_width_and_truncated_stream_error() {
     let mut bank = ContextBank::new(IAID_BASE + 32_768, &limits).unwrap();
     let mut source = Source::new(Cursor::new(bytes)).unwrap();
     let table = MqTable::standard();
-    let mut decoder = ready(MqDecoder::new(
+    let mut decoder = MqDecoder::new(
         &mut source,
         CodedSpan {
             offset: 0,
@@ -96,9 +96,9 @@ fn largest_default_width_and_truncated_stream_error() {
         &limits,
         &NeverCancel,
         MqBudget::default(),
-    ))
+    )
     .unwrap();
-    let error = ready(decode_iaid(&mut decoder, 15)).unwrap_err();
+    let error = decode_iaid(&mut decoder, 15).unwrap_err();
     assert!(matches!(error.kind, ArithmeticErrorKind::MissingTerminator));
     assert_eq!(error.offset, Some(2));
     assert!(
@@ -115,7 +115,7 @@ fn widths_beyond_the_bank_or_the_address_space_are_refused_before_input() {
     let mut bank = ContextBank::new(IAID_BASE + 8, &limits).unwrap();
     let mut source = Source::new(Cursor::new(bytes)).unwrap();
     let table = MqTable::standard();
-    let mut decoder = ready(MqDecoder::new(
+    let mut decoder = MqDecoder::new(
         &mut source,
         CodedSpan {
             offset: 0,
@@ -126,7 +126,7 @@ fn widths_beyond_the_bank_or_the_address_space_are_refused_before_input() {
         &limits,
         &NeverCancel,
         MqBudget::default(),
-    ))
+    )
     .unwrap();
     let before = decoder.snapshot();
     // This is 32 on wasm32 and 64 on x86_64: the first invalid `usize`
@@ -136,12 +136,12 @@ fn widths_beyond_the_bank_or_the_address_space_are_refused_before_input() {
         (usize::BITS, None),
         (u32::MAX, None),
     ] {
-        let error = ready(decode_iaid(&mut decoder, len)).unwrap_err();
+        let error = decode_iaid(&mut decoder, len).unwrap_err();
         assert!(matches!(error.kind, ArithmeticErrorKind::InvalidContext));
         assert_eq!(error.context, context, "width {len}");
         assert_eq!(decoder.snapshot(), before);
     }
-    assert_eq!(ready(decode_iaid(&mut decoder, 0)).unwrap(), 0);
+    assert_eq!(decode_iaid(&mut decoder, 0).unwrap(), 0);
     assert_eq!(decoder.snapshot(), before);
-    ready(decoder.finish(0)).unwrap();
+    decoder.finish(0).unwrap();
 }

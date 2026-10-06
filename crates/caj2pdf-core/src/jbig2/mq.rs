@@ -154,7 +154,7 @@ impl<'a, S: RangedSource, C: Cancellation> MqDecoder<'a, S, C> {
     /// Start a coding unit over `contexts`, which keep their states: the
     /// caller resets them as its coding procedure requires.
     #[allow(clippy::too_many_arguments)]
-    pub async fn new(
+    pub fn new(
         source: &'a mut S,
         span: CodedSpan,
         table: &'a MqTable,
@@ -174,13 +174,12 @@ impl<'a, S: RangedSource, C: Cancellation> MqDecoder<'a, S, C> {
             budget,
             &mut ignored_fetched,
         )
-        .await
     }
 
     /// Keep the physical prefetch count when initialization returns an error
     /// before a decoder and its regular snapshot can be returned.
     #[allow(clippy::too_many_arguments)]
-    pub(crate) async fn new_with_init_progress(
+    pub(crate) fn new_with_init_progress(
         source: &'a mut S,
         span: CodedSpan,
         table: &'a MqTable,
@@ -241,22 +240,21 @@ impl<'a, S: RangedSource, C: Cancellation> MqDecoder<'a, S, C> {
             code: 0,
             bit_counter: 0,
         };
-        let initialized = async {
+        let initialized = (|| {
             decoder.check_cancelled(None)?;
-            decoder.current_byte = decoder.read_byte(0, None).await?;
+            decoder.current_byte = decoder.read_byte(0, None)?;
             decoder.code = u32::from(decoder.current_byte) << 16;
-            decoder.byte_in(None).await?;
+            decoder.byte_in(None)?;
             decoder.code <<= 7;
             decoder.bit_counter -= 7;
             Ok::<(), ArithmeticError>(())
-        }
-        .await;
+        })();
         *fetched = decoder.counters.source_bytes_fetched;
         initialized?;
         Ok(decoder)
     }
 
-    pub async fn decode_bit(&mut self, context: usize) -> ArithmeticResult<bool> {
+    pub fn decode_bit(&mut self, context: usize) -> ArithmeticResult<bool> {
         if self.counters.poisoned {
             return Err(self.at(Some(context), ArithmeticErrorKind::Poisoned));
         }
@@ -270,7 +268,7 @@ impl<'a, S: RangedSource, C: Cancellation> MqDecoder<'a, S, C> {
             .map_err(|kind| self.at(Some(context), kind))?;
         // A source future can be dropped after a partial register update.
         self.counters.poisoned = true;
-        let bit = self.decode_bit_inner(context).await?;
+        let bit = self.decode_bit_inner(context)?;
         self.counters.complete_symbol(symbols);
         Ok(bit)
     }
@@ -300,25 +298,23 @@ impl<'a, S: RangedSource, C: Cancellation> MqDecoder<'a, S, C> {
     }
 
     /// Verify the caller's symbol count and the exact terminal pair.
-    pub async fn finish(self, expected_symbols: u64) -> ArithmeticResult<()> {
-        self.finish_with_snapshot(expected_symbols)
-            .await
-            .map(|_| ())
+    pub fn finish(self, expected_symbols: u64) -> ArithmeticResult<()> {
+        self.finish_with_snapshot(expected_symbols).map(|_| ())
     }
 
     /// Verify the tail and return a snapshot including any physical bytes
     /// fetched while checking it. The semantic input offset can remain earlier.
-    pub async fn finish_with_snapshot(
+    pub fn finish_with_snapshot(
         mut self,
         expected_symbols: u64,
     ) -> ArithmeticResult<ArithmeticSnapshot> {
-        self.finish_with_snapshot_mut(expected_symbols).await
+        self.finish_with_snapshot_mut(expected_symbols)
     }
 
     /// Verify the one coding-unit tail while retaining an inspectable decoder.
     /// A failed or dropped pending check poisons this decoder; its snapshot
     /// still reports the bytes and work reached before failure.
-    pub(crate) async fn finish_with_snapshot_mut(
+    pub(crate) fn finish_with_snapshot_mut(
         &mut self,
         expected_symbols: u64,
     ) -> ArithmeticResult<ArithmeticSnapshot> {
@@ -337,8 +333,8 @@ impl<'a, S: RangedSource, C: Cancellation> MqDecoder<'a, S, C> {
         }
         self.counters.poisoned = true;
         let tail = self.span.length - 2;
-        let first = self.read_byte(tail, None).await?;
-        let second = self.read_byte(tail + 1, None).await?;
+        let first = self.read_byte(tail, None)?;
+        let second = self.read_byte(tail + 1, None)?;
         if first != 0xFF {
             return Err(self.located(
                 self.span.offset + tail,
@@ -390,7 +386,7 @@ impl<'a, S: RangedSource, C: Cancellation> MqDecoder<'a, S, C> {
             .map_err(|kind| self.at(context, kind))
     }
 
-    async fn read_byte(&mut self, relative: u64, context: Option<usize>) -> ArithmeticResult<u8> {
+    fn read_byte(&mut self, relative: u64, context: Option<usize>) -> ArithmeticResult<u8> {
         self.check_cancelled(context)?;
         if relative >= self.span.length {
             return Err(self.located(
@@ -429,16 +425,15 @@ impl<'a, S: RangedSource, C: Cancellation> MqDecoder<'a, S, C> {
                 self.limits,
                 self.cancellation,
             )
-            .await
             .map_err(|(offset, kind)| self.located(offset, context, kind))?;
         Ok(self.input.get(relative).expect("refilled byte"))
     }
 
-    async fn byte_in(&mut self, context: Option<usize>) -> ArithmeticResult<()> {
+    fn byte_in(&mut self, context: Option<usize>) -> ArithmeticResult<()> {
         self.check_cancelled(context)?;
         self.charge(1, context)?;
         let next = self.bp + 1;
-        let next_byte = self.read_byte(next, context).await?;
+        let next_byte = self.read_byte(next, context)?;
         if self.current_byte == 0xFF {
             if next_byte > 0x8F {
                 if next_byte != 0xAC || self.bp != self.span.length - 2 {
@@ -478,11 +473,11 @@ impl<'a, S: RangedSource, C: Cancellation> MqDecoder<'a, S, C> {
         Ok(())
     }
 
-    async fn renormalize(&mut self, context: usize) -> ArithmeticResult<()> {
+    fn renormalize(&mut self, context: usize) -> ArithmeticResult<()> {
         while self.interval < 0x8000 {
             self.check_cancelled(Some(context))?;
             if self.bit_counter == 0 {
-                self.byte_in(Some(context)).await?;
+                self.byte_in(Some(context))?;
             }
             self.charge(1, Some(context))?;
             self.interval <<= 1;
@@ -492,7 +487,7 @@ impl<'a, S: RangedSource, C: Cancellation> MqDecoder<'a, S, C> {
         Ok(())
     }
 
-    async fn decode_bit_inner(&mut self, context: usize) -> ArithmeticResult<bool> {
+    fn decode_bit_inner(&mut self, context: usize) -> ArithmeticResult<bool> {
         self.charge(1, Some(context))?;
         let current = self.contexts.state(context);
         let state = self.table.state(current.state_index);
@@ -546,7 +541,7 @@ impl<'a, S: RangedSource, C: Cancellation> MqDecoder<'a, S, C> {
                 )
             }
         };
-        self.renormalize(context).await?;
+        self.renormalize(context)?;
         self.contexts.update(context, updated);
         Ok(bit)
     }
@@ -555,7 +550,6 @@ impl<'a, S: RangedSource, C: Cancellation> MqDecoder<'a, S, C> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::ready;
     use crate::{NeverCancel, native::SeekableSource};
     use std::io::Cursor;
 
@@ -572,7 +566,7 @@ mod tests {
         let table = MqTable::standard();
         let mut contexts = ContextBank::new(1, &limits).unwrap();
         let mut source = SeekableSource::new(Cursor::new(bytes.to_vec())).unwrap();
-        test(ready(MqDecoder::new(
+        test(MqDecoder::new(
             &mut source,
             CodedSpan {
                 offset: 0,
@@ -583,7 +577,7 @@ mod tests {
             &limits,
             &NeverCancel,
             budget,
-        )))
+        ))
     }
 
     /// Runs `test` on a decoder over a three-byte span with one context
@@ -632,7 +626,7 @@ mod tests {
     fn decisions_reject_unknown_contexts_excess_work_and_a_poisoned_decoder() {
         with_decoder(MqBudget::default(), |decoder| {
             assert!(matches!(
-                ready(decoder.decode_bit(1)).unwrap_err().kind,
+                decoder.decode_bit(1).unwrap_err().kind,
                 ArithmeticErrorKind::InvalidContext
             ));
             let limit = decoder.budget.max_work;
@@ -648,7 +642,7 @@ mod tests {
             ));
             decoder.counters.poisoned = true;
             assert!(matches!(
-                ready(decoder.decode_bit(0)).unwrap_err().kind,
+                decoder.decode_bit(0).unwrap_err().kind,
                 ArithmeticErrorKind::Poisoned
             ));
         });
@@ -675,7 +669,7 @@ mod tests {
             decoder.counters.work_done = 0;
             decoder.counters.synthesized_inputs = MAX_BUDGET_COUNT;
             assert!(matches!(
-                ready(decoder.byte_in(None)).unwrap_err().kind,
+                decoder.byte_in(None).unwrap_err().kind,
                 ArithmeticErrorKind::LimitExceeded {
                     resource: "MQ terminal inputs",
                     limit: MAX_BUDGET_COUNT,
@@ -686,7 +680,7 @@ mod tests {
         with_decoder(ceiling, |decoder| {
             decoder.counters.symbols_decoded = MAX_BUDGET_COUNT;
             let before = decoder.snapshot();
-            let error = ready(decoder.decode_bit(0)).unwrap_err();
+            let error = decoder.decode_bit(0).unwrap_err();
             assert_eq!(error.context, Some(0));
             assert!(matches!(
                 error.kind,

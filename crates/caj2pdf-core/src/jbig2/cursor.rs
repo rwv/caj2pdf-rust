@@ -62,7 +62,7 @@ impl FieldCursor {
 
     /// Fill `bytes` from the cursor and advance past them. Not generic over
     /// the field width, so every field shares one instantiation per source.
-    pub(super) async fn fill<S: RangedSource, C: Cancellation>(
+    pub(super) fn fill<S: RangedSource, C: Cancellation>(
         &mut self,
         source: &mut S,
         cancellation: &C,
@@ -75,10 +75,7 @@ impl FieldCursor {
                 return Err(FieldFault::Cancelled);
             }
             let request = (bytes.len() - done).min(self.request_bytes);
-            let got = match source
-                .read_at(self.at, &mut bytes[done..done + request])
-                .await
-            {
+            let got = match source.read_at(self.at, &mut bytes[done..done + request]) {
                 Ok(got) => got,
                 Err(Error::Cancelled) => return Err(FieldFault::Cancelled),
                 Err(error) => return Err(FieldFault::Source(error)),

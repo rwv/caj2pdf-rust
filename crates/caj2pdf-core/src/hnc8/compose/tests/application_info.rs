@@ -108,7 +108,7 @@ fn cancellation_while_reading_the_package_still_fails() {
     let mut bytes = Harness::type0().source.bytes;
     append_package(&mut bytes, XML.as_bytes(), XML.len() as u32);
     let run = |cancellation: &CancelAfter| {
-        ready(convert_source_pages_pdf(
+        convert_source_pages_pdf(
             &mut Source::new(bytes.clone()),
             &mut Sink::default(),
             Some(&table()),
@@ -117,7 +117,7 @@ fn cancellation_while_reading_the_package_still_fails() {
             ComposeOptions::default(),
             &Limits::default(),
             cancellation,
-        ))
+        )
     };
     let counter = CancelAfter::never();
     run(&counter).unwrap();
@@ -153,7 +153,7 @@ fn native_c8_package_is_written_to_the_info_dictionary() {
             face: 0,
         }];
         let mut sink = Sink::default();
-        let report = ready(convert_c8_native_pdf(
+        let report = convert_c8_native_pdf(
             &mut Source::new(fixture.bytes),
             &mut sink,
             C8FontSources {
@@ -165,7 +165,7 @@ fn native_c8_package_is_written_to_the_info_dictionary() {
             ComposeOptions::default(),
             &Limits::default(),
             &NeverCancel,
-        ))
+        )
         .unwrap();
         assert_eq!(report.application_info == ApplicationInfoStatus::Read, tail);
         pdfs.push(sink.bytes);

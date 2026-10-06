@@ -2,7 +2,7 @@
 use super::*;
 use crate::native::SeekableSource;
 use crate::pdf::input::recovery::{damaged_page_anchor, damaged_stream_end};
-use crate::test_support::{NEVER, run};
+use crate::test_support::NEVER;
 use std::io::Cursor;
 
 fn anchor(bytes: &[u8], limits: &Limits) -> Result<u64> {
@@ -16,14 +16,14 @@ fn anchor(bytes: &[u8], limits: &Limits) -> Result<u64> {
         limits,
         &NEVER,
     )?;
-    run(damaged_page_anchor(
+    damaged_page_anchor(
         &mut reader,
         &crate::caj::CajPageRow {
             offset: 0,
             length: bytes.len() as u64,
             page_object_id: 1,
         },
-    ))
+    )
 }
 
 #[test]
@@ -81,7 +81,7 @@ fn discarded_stream_boundaries_use_only_parsed_lengths_and_existing_tail_rules()
             &NEVER,
         )
         .unwrap();
-        let result = run(damaged_stream_end(&mut reader, 0, &BTreeMap::new())).unwrap();
+        let result = damaged_stream_end(&mut reader, 0, &BTreeMap::new()).unwrap();
         assert_eq!(result.is_some(), bytes.contains("\nXX\n"));
     }
     let header = b"1 0 obj << /Length 10000 >> stream\n";
@@ -107,7 +107,7 @@ fn discarded_stream_boundaries_use_only_parsed_lengths_and_existing_tail_rules()
     )
     .unwrap();
     assert!(matches!(
-        run(damaged_stream_end(&mut reader, 0, &BTreeMap::new())),
+        damaged_stream_end(&mut reader, 0, &BTreeMap::new()),
         Err(Error::Io(_))
     ));
 }
@@ -130,7 +130,7 @@ fn partial_scan_resumes_at_pages_and_tracks_unresolved_prefixes_and_lengths() {
         },
     ];
     let mut source = SeekableSource::new(Cursor::new(&bytes)).unwrap();
-    let scan = run(scan_damaged_fragment(
+    let scan = scan_damaged_fragment(
         &mut source,
         &rows,
         bytes.len() as u64,
@@ -149,7 +149,7 @@ fn partial_scan_resumes_at_pages_and_tracks_unresolved_prefixes_and_lengths() {
             },
             used: true,
         }],
-    ))
+    )
     .unwrap();
     assert_eq!(scan.objects.len(), 2);
     assert_eq!(scan.damaged.len(), 1);
@@ -160,14 +160,14 @@ fn partial_scan_resumes_at_pages_and_tracks_unresolved_prefixes_and_lengths() {
         length: prefix.len() as u64,
         page_object_id: 8,
     }];
-    let scan = run(scan_damaged_fragment(
+    let scan = scan_damaged_fragment(
         &mut source,
         &rows,
         prefix.len() as u64,
         &Limits::default(),
         &NEVER,
         &mut [],
-    ))
+    )
     .unwrap();
     assert_eq!(scan.damaged[0].0.unwrap().number, 7);
     let mut encoder = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
@@ -185,14 +185,14 @@ fn partial_scan_resumes_at_pages_and_tracks_unresolved_prefixes_and_lengths() {
         page_object_id: 1,
     }];
     let mut source = SeekableSource::new(Cursor::new(&bytes)).unwrap();
-    let scan = run(scan_damaged_fragment(
+    let scan = scan_damaged_fragment(
         &mut source,
         &rows,
         bytes.len() as u64,
         &Limits::default(),
         &NEVER,
         &mut [],
-    ))
+    )
     .unwrap();
     assert_eq!(scan.damaged[0].0.unwrap().number, 2);
     assert_eq!(scan.objects.len(), 1);
@@ -208,14 +208,14 @@ fn discarded_final_object_does_not_reuse_prior_stream_tail_state() {
         page_object_id: 1,
     }];
     let mut source = SeekableSource::new(Cursor::new(&bytes)).unwrap();
-    let scan = run(scan_damaged_fragment(
+    let scan = scan_damaged_fragment(
         &mut source,
         &rows,
         body.len() as u64,
         &Limits::default(),
         &NEVER,
         &mut [],
-    ))
+    )
     .unwrap();
     assert_eq!(scan.objects.len(), 1);
     assert_eq!(scan.damaged.len(), 1);

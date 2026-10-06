@@ -19,25 +19,7 @@ use caj2pdf_core::{
     },
 };
 use common::CancelAfter;
-use std::{
-    cell::Cell,
-    future::Future,
-    io,
-    pin::pin,
-    rc::Rc,
-    task::{Context, Poll, Waker},
-};
-
-fn ready<F: Future>(future: F) -> F::Output {
-    let mut future = pin!(future);
-    match future
-        .as_mut()
-        .poll(&mut Context::from_waker(Waker::noop()))
-    {
-        Poll::Ready(value) => value,
-        Poll::Pending => panic!("unexpected pending test I/O"),
-    }
-}
+use std::{cell::Cell, io, rc::Rc};
 
 struct Source {
     bytes: Vec<u8>,
@@ -74,11 +56,7 @@ impl RangedSource for Source {
             _ => self.advertised,
         }
     }
-    async fn read_at(
-        &mut self,
-        offset: u64,
-        destination: &mut [u8],
-    ) -> caj2pdf_core::Result<usize> {
+    fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> caj2pdf_core::Result<usize> {
         self.read_calls += 1;
         if self.overreport {
             return Ok(destination.len() + 1);
@@ -112,7 +90,6 @@ struct Sink {
     max_write: usize,
     zero: bool,
     overreport: bool,
-    pending: bool,
     cancel: Option<Rc<Cell<bool>>>,
     flushed: bool,
     flush_fail: bool,
@@ -125,7 +102,6 @@ impl Default for Sink {
             max_write: usize::MAX,
             zero: false,
             overreport: false,
-            pending: false,
             cancel: None,
             flushed: false,
             flush_fail: false,
@@ -134,10 +110,7 @@ impl Default for Sink {
     }
 }
 impl SequentialSink for Sink {
-    async fn write(&mut self, bytes: &[u8]) -> caj2pdf_core::Result<usize> {
-        if self.pending {
-            std::future::pending::<()>().await;
-        }
+    fn write(&mut self, bytes: &[u8]) -> caj2pdf_core::Result<usize> {
         if self.overreport {
             return Ok(bytes.len() + 1);
         }
@@ -151,7 +124,7 @@ impl SequentialSink for Sink {
         }
         Ok(count)
     }
-    async fn flush(&mut self) -> caj2pdf_core::Result<()> {
+    fn flush(&mut self) -> caj2pdf_core::Result<()> {
         if self.flush_fail {
             return Err(caj2pdf_core::Error::Io(io::Error::other(
                 "test flush failure",
@@ -186,7 +159,7 @@ fn record(
     Source::new(bytes)
 }
 fn header(source: &mut Source) -> SegmentHeader {
-    ready(read_segment_header(
+    read_segment_header(
         source,
         SegmentSpan {
             offset: 0,
@@ -195,7 +168,7 @@ fn header(source: &mut Source) -> SegmentHeader {
         &Limits::default(),
         HeaderLimits::default(),
         &CancelAfter::Never,
-    ))
+    )
     .unwrap()
 }
 fn table() -> MqTable {
@@ -212,21 +185,21 @@ fn page_preflight_detects_a_changed_generic_header_before_any_output() {
     let mq_budget = MqBudget::default();
     let mut source = record(3, 2, 0, 4, (2, -1), SHORT_STREAM);
     let hdr = header(&mut source);
-    let inspected = ready(read_generic_region_header(
+    let inspected = read_generic_region_header(
         &mut source,
         &hdr,
         &limits,
         &CancelAfter::Never,
         mq_budget,
         GenericBudget::default(),
-    ))
+    )
     .expect("read-only header preflight");
     assert_eq!(inspected.info.width, 3);
 
     let table = table();
     let mut bank = contexts(&limits, &mq_budget);
     let mut sink = Sink::default();
-    let same = ready(GenericRegionDecoder::new(
+    let same = GenericRegionDecoder::new(
         &mut source,
         &hdr,
         &table,
@@ -236,14 +209,14 @@ fn page_preflight_detects_a_changed_generic_header_before_any_output() {
         &CancelAfter::Never,
         mq_budget,
         GenericBudget::default(),
-    ))
+    )
     .expect("same checked header");
     assert_eq!(same.checked_header(), inspected);
     drop(same);
     assert!(sink.bytes.is_empty());
 
     source.bytes[hdr.data.offset as usize + 3] = 4;
-    let changed = ready(GenericRegionDecoder::new(
+    let changed = GenericRegionDecoder::new(
         &mut source,
         &hdr,
         &table,
@@ -253,7 +226,7 @@ fn page_preflight_detects_a_changed_generic_header_before_any_output() {
         &CancelAfter::Never,
         mq_budget,
         GenericBudget::default(),
-    ))
+    )
     .expect("changed but still valid header");
     assert_ne!(changed.checked_header(), inspected);
     drop(changed);
@@ -277,7 +250,7 @@ fn streams_packed_rows_and_distinguishes_semantic_from_physical_input() {
     let mut earlier = record(3, 2, 0, 4, (2, -1), SHORT_STREAM);
     let earlier_header = header(&mut earlier);
     let mut discard = Sink::default();
-    let mut decoder = ready(GenericRegionDecoder::new(
+    let mut decoder = GenericRegionDecoder::new(
         &mut earlier,
         &earlier_header,
         &table,
@@ -287,16 +260,16 @@ fn streams_packed_rows_and_distinguishes_semantic_from_physical_input() {
         &CancelAfter::Never,
         mq_budget,
         GenericBudget::default(),
-    ))
+    )
     .unwrap();
-    while ready(decoder.decode_next_row()).unwrap() {}
-    ready(decoder.finish()).unwrap();
+    while decoder.decode_next_row().unwrap() {}
+    decoder.finish().unwrap();
     assert!((0..bank.len()).any(|index| bank.get(index).unwrap().state_index != 0));
     let mut sink = Sink {
         max_write: 1,
         ..Sink::default()
     };
-    let mut decoder = ready(GenericRegionDecoder::new(
+    let mut decoder = GenericRegionDecoder::new(
         &mut source,
         &hdr,
         &table,
@@ -306,10 +279,10 @@ fn streams_packed_rows_and_distinguishes_semantic_from_physical_input() {
         &CancelAfter::Never,
         mq_budget,
         GenericBudget::default(),
-    ))
+    )
     .unwrap();
     assert_eq!(decoder.progress().info.row_stride, 1);
-    assert!(ready(decoder.decode_next_row()).unwrap());
+    assert!(decoder.decode_next_row().unwrap());
     assert_eq!(
         (
             decoder.progress().rows_written,
@@ -317,9 +290,9 @@ fn streams_packed_rows_and_distinguishes_semantic_from_physical_input() {
         ),
         (1, 3)
     );
-    assert!(ready(decoder.decode_next_row()).unwrap());
-    assert!(!ready(decoder.decode_next_row()).unwrap());
-    let report = ready(decoder.finish()).unwrap();
+    assert!(decoder.decode_next_row().unwrap());
+    assert!(!decoder.decode_next_row().unwrap());
+    let report = decoder.finish().unwrap();
     assert_eq!(sink.bytes, [0xe0, 0xe0]); // three one-bits, then five zero padding bits per row
     assert!(sink.flushed);
     assert_eq!(report.progress.output_bytes_written, 2);
@@ -339,7 +312,7 @@ fn third_row_uses_both_prior_rows_after_rotation() {
     let table = table();
     let mut bank = contexts(&limits, &mq_budget);
     let mut sink = Sink::default();
-    let mut decoder = ready(GenericRegionDecoder::new(
+    let mut decoder = GenericRegionDecoder::new(
         &mut source,
         &hdr,
         &table,
@@ -349,12 +322,12 @@ fn third_row_uses_both_prior_rows_after_rotation() {
         &CancelAfter::Never,
         mq_budget,
         GenericBudget::default(),
-    ))
+    )
     .unwrap();
     for _ in 0..3 {
-        assert!(ready(decoder.decode_next_row()).unwrap());
+        assert!(decoder.decode_next_row().unwrap());
     }
-    ready(decoder.finish()).unwrap();
+    decoder.finish().unwrap();
     assert_eq!(sink.bytes, [0xe0, 0xe0, 0xe0]);
     // At (x=0,y=2): prior-two bits are 011 and prior-one bits are
     // 00111, with current-left 00: 0b011_00111_00 = 412.
@@ -382,7 +355,7 @@ fn rejects_header_modes_at_placement_and_truncation_before_mq() {
         let hdr = header(&mut source);
         let mut bank = contexts(&limits, &mq_budget);
         let mut sink = Sink::default();
-        let err = match ready(GenericRegionDecoder::new(
+        let err = match GenericRegionDecoder::new(
             &mut source,
             &hdr,
             &table,
@@ -392,7 +365,7 @@ fn rejects_header_modes_at_placement_and_truncation_before_mq() {
             &CancelAfter::Never,
             mq_budget,
             GenericBudget::default(),
-        )) {
+        ) {
             Ok(_) => panic!("accepted invalid {expected}"),
             Err(e) => e,
         };
@@ -404,7 +377,7 @@ fn rejects_header_modes_at_placement_and_truncation_before_mq() {
     hdr.segment_type = 4;
     let mut bank = contexts(&limits, &mq_budget);
     let mut sink = Sink::default();
-    let err = match ready(GenericRegionDecoder::new(
+    let err = match GenericRegionDecoder::new(
         &mut source,
         &hdr,
         &table,
@@ -414,7 +387,7 @@ fn rejects_header_modes_at_placement_and_truncation_before_mq() {
         &CancelAfter::Never,
         mq_budget,
         GenericBudget::default(),
-    )) {
+    ) {
         Ok(_) => panic!("accepted type 4"),
         Err(e) => e,
     };
@@ -430,7 +403,7 @@ fn rejects_header_modes_at_placement_and_truncation_before_mq() {
     let hdr = header(&mut source);
     let mut bank = contexts(&limits, &mq_budget);
     let mut sink = Sink::default();
-    let err = match ready(GenericRegionDecoder::new(
+    let err = match GenericRegionDecoder::new(
         &mut source,
         &hdr,
         &table,
@@ -440,7 +413,7 @@ fn rejects_header_modes_at_placement_and_truncation_before_mq() {
         &CancelAfter::Never,
         mq_budget,
         GenericBudget::default(),
-    )) {
+    ) {
         Ok(_) => panic!("accepted overflowing region x"),
         Err(e) => e,
     };
@@ -456,7 +429,7 @@ fn rejects_header_modes_at_placement_and_truncation_before_mq() {
     let hdr = header(&mut source);
     let mut bank = contexts(&limits, &mq_budget);
     let mut sink = Sink::default();
-    let err = match ready(GenericRegionDecoder::new(
+    let err = match GenericRegionDecoder::new(
         &mut source,
         &hdr,
         &table,
@@ -466,7 +439,7 @@ fn rejects_header_modes_at_placement_and_truncation_before_mq() {
         &CancelAfter::Never,
         mq_budget,
         GenericBudget::default(),
-    )) {
+    ) {
         Ok(_) => panic!("accepted missing adaptive coordinate"),
         Err(e) => e,
     };
@@ -560,7 +533,7 @@ fn preflights_area_output_allocation_and_input_budgets() {
     for (limits, region_budget, mq_budget, expected) in cases {
         let mut bank = contexts(&Limits::default(), &MqBudget::default());
         let mut sink = Sink::default();
-        let err = match ready(GenericRegionDecoder::new(
+        let err = match GenericRegionDecoder::new(
             &mut source,
             &hdr,
             &table,
@@ -570,7 +543,7 @@ fn preflights_area_output_allocation_and_input_budgets() {
             &CancelAfter::Never,
             mq_budget,
             region_budget,
-        )) {
+        ) {
             Ok(_) => panic!("accepted low {expected} budget"),
             Err(e) => e,
         };
@@ -615,7 +588,7 @@ fn additional_constructor_bounds_and_located_source_errors() {
     for (region_budget, selected_mq_budget, count, expected) in cases {
         let mut bank = ContextBank::new(count, &limits).unwrap();
         let mut sink = Sink::default();
-        let err = match ready(GenericRegionDecoder::new(
+        let err = match GenericRegionDecoder::new(
             &mut source,
             &hdr,
             &table,
@@ -625,7 +598,7 @@ fn additional_constructor_bounds_and_located_source_errors() {
             &CancelAfter::Never,
             selected_mq_budget,
             region_budget,
-        )) {
+        ) {
             Ok(_) => panic!("accepted invalid {expected}"),
             Err(e) => e,
         };
@@ -638,7 +611,7 @@ fn additional_constructor_bounds_and_located_source_errors() {
     let hdr = header(&mut source);
     let mut bank = contexts(&limits, &mq_budget);
     let mut sink = Sink::default();
-    let err = match ready(GenericRegionDecoder::new(
+    let err = match GenericRegionDecoder::new(
         &mut source,
         &hdr,
         &table,
@@ -656,7 +629,7 @@ fn additional_constructor_bounds_and_located_source_errors() {
             max_pixels: u64::MAX,
             max_context_work: u64::MAX,
         },
-    )) {
+    ) {
         Ok(_) => panic!("accepted overflowing work"),
         Err(e) => e,
     };
@@ -670,7 +643,7 @@ fn additional_constructor_bounds_and_located_source_errors() {
     let hdr = header(&mut source);
     let mut bank = contexts(&limits, &mq_budget);
     let mut sink = Sink::default();
-    let err = match ready(GenericRegionDecoder::new(
+    let err = match GenericRegionDecoder::new(
         &mut source,
         &hdr,
         &table,
@@ -680,7 +653,7 @@ fn additional_constructor_bounds_and_located_source_errors() {
         &CancelAfter::Never,
         mq_budget,
         GenericBudget::default(),
-    )) {
+    ) {
         Ok(_) => panic!("accepted overflowing y"),
         Err(e) => e,
     };
@@ -694,7 +667,7 @@ fn additional_constructor_bounds_and_located_source_errors() {
     hdr.data.offset = u64::MAX - 1;
     let mut bank = contexts(&limits, &mq_budget);
     let mut sink = Sink::default();
-    let err = match ready(GenericRegionDecoder::new(
+    let err = match GenericRegionDecoder::new(
         &mut source,
         &hdr,
         &table,
@@ -704,7 +677,7 @@ fn additional_constructor_bounds_and_located_source_errors() {
         &CancelAfter::Never,
         mq_budget,
         GenericBudget::default(),
-    )) {
+    ) {
         Ok(_) => panic!("accepted overflowing span"),
         Err(e) => e,
     };
@@ -718,7 +691,7 @@ fn additional_constructor_bounds_and_located_source_errors() {
     source.advertised -= 1;
     let mut bank = contexts(&limits, &mq_budget);
     let mut sink = Sink::default();
-    let err = match ready(GenericRegionDecoder::new(
+    let err = match GenericRegionDecoder::new(
         &mut source,
         &hdr,
         &table,
@@ -728,7 +701,7 @@ fn additional_constructor_bounds_and_located_source_errors() {
         &CancelAfter::Never,
         mq_budget,
         GenericBudget::default(),
-    )) {
+    ) {
         Ok(_) => panic!("accepted outside-source span"),
         Err(e) => e,
     };
@@ -738,7 +711,7 @@ fn additional_constructor_bounds_and_located_source_errors() {
     ));
     source.advertised += 1;
     hdr.data.length = 17;
-    let err = match ready(GenericRegionDecoder::new(
+    let err = match GenericRegionDecoder::new(
         &mut source,
         &hdr,
         &table,
@@ -748,7 +721,7 @@ fn additional_constructor_bounds_and_located_source_errors() {
         &CancelAfter::Never,
         mq_budget,
         GenericBudget::default(),
-    )) {
+    ) {
         Ok(_) => panic!("accepted short generic header"),
         Err(e) => e,
     };
@@ -763,7 +736,7 @@ fn additional_constructor_bounds_and_located_source_errors() {
     let cancellation = CancelAfter::While(flag);
     let mut bank = contexts(&limits, &mq_budget);
     let mut sink = Sink::default();
-    let err = match ready(GenericRegionDecoder::new(
+    let err = match GenericRegionDecoder::new(
         &mut source,
         &hdr,
         &table,
@@ -773,7 +746,7 @@ fn additional_constructor_bounds_and_located_source_errors() {
         &cancellation,
         mq_budget,
         GenericBudget::default(),
-    )) {
+    ) {
         Ok(_) => panic!("accepted pre-cancelled region"),
         Err(e) => e,
     };
@@ -789,7 +762,7 @@ fn additional_constructor_bounds_and_located_source_errors() {
         }
         let mut bank = contexts(&limits, &mq_budget);
         let mut sink = Sink::default();
-        let err = match ready(GenericRegionDecoder::new(
+        let err = match GenericRegionDecoder::new(
             &mut source,
             &hdr,
             &table,
@@ -799,7 +772,7 @@ fn additional_constructor_bounds_and_located_source_errors() {
             &CancelAfter::Never,
             mq_budget,
             GenericBudget::default(),
-        )) {
+        ) {
             Ok(_) => panic!("accepted failing source"),
             Err(e) => e,
         };
@@ -826,7 +799,7 @@ fn a_source_that_shrinks_after_the_header_read_is_rejected_before_mq() {
     source.shrink_to = Some(hdr.data.offset + 20);
     let mut bank = contexts(&limits, &mq_budget);
     let mut sink = Sink::default();
-    let err = match ready(GenericRegionDecoder::new(
+    let err = match GenericRegionDecoder::new(
         &mut source,
         &hdr,
         &table,
@@ -836,7 +809,7 @@ fn a_source_that_shrinks_after_the_header_read_is_rejected_before_mq() {
         &CancelAfter::Never,
         mq_budget,
         GenericBudget::default(),
-    )) {
+    ) {
         Ok(_) => panic!("accepted an MQ span outside the shrunken source"),
         Err(e) => e,
     };
@@ -865,7 +838,7 @@ fn source_short_overreported_and_sink_failure_are_typed() {
         }
         let mut bank = contexts(&limits, &mq_budget);
         let mut sink = Sink::default();
-        let err = match ready(GenericRegionDecoder::new(
+        let err = match GenericRegionDecoder::new(
             &mut source,
             &hdr,
             &table,
@@ -875,7 +848,7 @@ fn source_short_overreported_and_sink_failure_are_typed() {
             &CancelAfter::Never,
             mq_budget,
             GenericBudget::default(),
-        )) {
+        ) {
             Ok(_) => panic!("accepted bad source"),
             Err(e) => e,
         };
@@ -893,7 +866,7 @@ fn source_short_overreported_and_sink_failure_are_typed() {
     source.stop_at = Some(hdr.data.offset + 21);
     let mut bank = contexts(&limits, &mq_budget);
     let mut sink = Sink::default();
-    let err = match ready(GenericRegionDecoder::new(
+    let err = match GenericRegionDecoder::new(
         &mut source,
         &hdr,
         &table,
@@ -903,7 +876,7 @@ fn source_short_overreported_and_sink_failure_are_typed() {
         &CancelAfter::Never,
         mq_budget,
         GenericBudget::default(),
-    )) {
+    ) {
         Ok(_) => panic!("accepted short MQ source"),
         Err(e) => e,
     };
@@ -918,7 +891,7 @@ fn source_short_overreported_and_sink_failure_are_typed() {
             overreport,
             ..Sink::default()
         };
-        let mut decoder = ready(GenericRegionDecoder::new(
+        let mut decoder = GenericRegionDecoder::new(
             &mut source,
             &hdr,
             &table,
@@ -928,15 +901,15 @@ fn source_short_overreported_and_sink_failure_are_typed() {
             &CancelAfter::Never,
             mq_budget,
             GenericBudget::default(),
-        ))
+        )
         .unwrap();
-        let err = ready(decoder.decode_next_row()).unwrap_err();
+        let err = decoder.decode_next_row().unwrap_err();
         assert!(matches!(err.kind, GenericErrorKind::Sink(_)));
         assert!(err.to_string().contains("sink"));
         assert!(std::error::Error::source(&err).is_some());
         assert!(decoder.progress().poisoned);
         assert!(matches!(
-            ready(decoder.decode_next_row()).unwrap_err().kind,
+            decoder.decode_next_row().unwrap_err().kind,
             GenericErrorKind::Poisoned
         ));
     }
@@ -960,7 +933,7 @@ fn retries_partial_row_writes_and_reports_flush_failure() {
         flush_fail: true,
         ..Sink::default()
     };
-    let mut decoder = ready(GenericRegionDecoder::new(
+    let mut decoder = GenericRegionDecoder::new(
         &mut source,
         &hdr,
         &table,
@@ -970,10 +943,10 @@ fn retries_partial_row_writes_and_reports_flush_failure() {
         &never,
         mq_budget,
         GenericBudget::default(),
-    ))
+    )
     .unwrap();
-    assert!(ready(decoder.decode_next_row()).unwrap());
-    let err = ready(decoder.finish()).unwrap_err();
+    assert!(decoder.decode_next_row().unwrap());
+    let err = decoder.finish().unwrap_err();
     assert!(matches!(err.kind, GenericErrorKind::Sink(_)), "{err}");
     assert_eq!(err.output_bytes_written, 2);
     assert_eq!(sink.bytes, [0xff, 0x80]);
@@ -981,7 +954,7 @@ fn retries_partial_row_writes_and_reports_flush_failure() {
 }
 
 #[test]
-fn cancellation_and_dropped_pending_row_poison_decoder() {
+fn cancellation_poisons_decoder() {
     let limits = Limits::default();
     let mq_budget = MqBudget::default();
     let table = table();
@@ -994,7 +967,7 @@ fn cancellation_and_dropped_pending_row_poison_decoder() {
         ..Sink::default()
     };
     let cancellation = CancelAfter::While(flag);
-    let mut decoder = ready(GenericRegionDecoder::new(
+    let mut decoder = GenericRegionDecoder::new(
         &mut source,
         &hdr,
         &table,
@@ -1004,48 +977,14 @@ fn cancellation_and_dropped_pending_row_poison_decoder() {
         &cancellation,
         mq_budget,
         GenericBudget::default(),
-    ))
+    )
     .unwrap();
-    let err = ready(decoder.decode_next_row()).unwrap_err();
+    let err = decoder.decode_next_row().unwrap_err();
     assert!(matches!(err.kind, GenericErrorKind::Cancelled));
     assert_eq!(err.output_bytes_written, 1);
     assert!(decoder.progress().poisoned);
     drop(decoder);
     assert_eq!(sink.bytes, [0xe0]);
-
-    let mut source = record(3, 1, 0, 4, (2, -1), SHORT_STREAM);
-    let hdr = header(&mut source);
-    let mut bank = contexts(&limits, &mq_budget);
-    let mut sink = Sink {
-        pending: true,
-        ..Sink::default()
-    };
-    let mut decoder = ready(GenericRegionDecoder::new(
-        &mut source,
-        &hdr,
-        &table,
-        &mut bank,
-        &mut sink,
-        &limits,
-        &CancelAfter::Never,
-        mq_budget,
-        GenericBudget::default(),
-    ))
-    .unwrap();
-    {
-        let mut future = pin!(decoder.decode_next_row());
-        assert!(matches!(
-            future
-                .as_mut()
-                .poll(&mut Context::from_waker(Waker::noop())),
-            Poll::Pending
-        ));
-    }
-    assert!(decoder.progress().poisoned);
-    assert!(matches!(
-        ready(decoder.decode_next_row()).unwrap_err().kind,
-        GenericErrorKind::Poisoned
-    ));
 }
 
 #[test]
@@ -1059,7 +998,7 @@ fn cancellation_before_next_row_and_during_flush_never_reports_success() {
     let hdr = header(&mut source);
     let mut bank = contexts(&limits, &mq_budget);
     let mut sink = Sink::default();
-    let mut decoder = ready(GenericRegionDecoder::new(
+    let mut decoder = GenericRegionDecoder::new(
         &mut source,
         &hdr,
         &table,
@@ -1069,10 +1008,10 @@ fn cancellation_before_next_row_and_during_flush_never_reports_success() {
         &cancellation,
         mq_budget,
         GenericBudget::default(),
-    ))
+    )
     .unwrap();
     flag.set(true);
-    let err = ready(decoder.decode_next_row()).unwrap_err();
+    let err = decoder.decode_next_row().unwrap_err();
     assert!(matches!(err.kind, GenericErrorKind::Cancelled));
     assert_eq!(err.pixels_decoded, 0);
     drop(decoder);
@@ -1086,7 +1025,7 @@ fn cancellation_before_next_row_and_during_flush_never_reports_success() {
         cancel_on_flush: Some(flag),
         ..Sink::default()
     };
-    let mut decoder = ready(GenericRegionDecoder::new(
+    let mut decoder = GenericRegionDecoder::new(
         &mut source,
         &hdr,
         &table,
@@ -1096,10 +1035,10 @@ fn cancellation_before_next_row_and_during_flush_never_reports_success() {
         &cancellation,
         mq_budget,
         GenericBudget::default(),
-    ))
+    )
     .unwrap();
-    ready(decoder.decode_next_row()).unwrap();
-    let err = ready(decoder.finish()).unwrap_err();
+    decoder.decode_next_row().unwrap();
+    let err = decoder.finish().unwrap_err();
     assert!(matches!(err.kind, GenericErrorKind::Cancelled));
     assert_eq!(
         (
@@ -1123,7 +1062,7 @@ fn rejects_terminal_errors_and_incomplete_finish() {
     let hdr = header(&mut source);
     let mut bank = contexts(&limits, &mq_budget);
     let mut sink = Sink::default();
-    let decoder = ready(GenericRegionDecoder::new(
+    let decoder = GenericRegionDecoder::new(
         &mut source,
         &hdr,
         &table,
@@ -1133,9 +1072,9 @@ fn rejects_terminal_errors_and_incomplete_finish() {
         &never,
         mq_budget,
         GenericBudget::default(),
-    ))
+    )
     .unwrap();
-    let err = ready(decoder.finish()).unwrap_err();
+    let err = decoder.finish().unwrap_err();
     assert!(matches!(err.kind, GenericErrorKind::Incomplete));
     assert!(err.to_string().contains("not all rows"));
     assert!(std::error::Error::source(&err).is_none());
@@ -1147,7 +1086,7 @@ fn rejects_terminal_errors_and_incomplete_finish() {
         let hdr = header(&mut source);
         let mut bank = contexts(&limits, &mq_budget);
         let mut sink = Sink::default();
-        let mut decoder = ready(GenericRegionDecoder::new(
+        let mut decoder = GenericRegionDecoder::new(
             &mut source,
             &hdr,
             &table,
@@ -1157,10 +1096,10 @@ fn rejects_terminal_errors_and_incomplete_finish() {
             &never,
             mq_budget,
             GenericBudget::default(),
-        ))
+        )
         .unwrap();
-        ready(decoder.decode_next_row()).unwrap();
-        let err = ready(decoder.finish()).unwrap_err();
+        decoder.decode_next_row().unwrap();
+        let err = decoder.finish().unwrap_err();
         assert!(matches!(err.kind, GenericErrorKind::Mq(_)), "{err}");
         assert!(err.to_string().contains("MQ: "), "{err}");
         assert!(std::error::Error::source(&err).is_some());
@@ -1177,7 +1116,7 @@ fn unexpected_internal_marker_keeps_the_mq_source_location() {
     let hdr = header(&mut source);
     let mut bank = contexts(&limits, &mq_budget);
     let mut sink = Sink::default();
-    let mut decoder = ready(GenericRegionDecoder::new(
+    let mut decoder = GenericRegionDecoder::new(
         &mut source,
         &hdr,
         &table,
@@ -1187,9 +1126,9 @@ fn unexpected_internal_marker_keeps_the_mq_source_location() {
         &CancelAfter::Never,
         mq_budget,
         GenericBudget::default(),
-    ))
+    )
     .unwrap();
-    let err = ready(decoder.decode_next_row()).unwrap_err();
+    let err = decoder.decode_next_row().unwrap_err();
     match &err.kind {
         GenericErrorKind::Mq(inner) => {
             assert!(matches!(
@@ -1218,7 +1157,7 @@ fn malformed_short_mq_smoke_is_bounded() {
         let hdr = header(&mut source);
         let mut bank = contexts(&limits, &mq_budget);
         let mut sink = Sink::default();
-        if let Ok(mut decoder) = ready(GenericRegionDecoder::new(
+        if let Ok(mut decoder) = GenericRegionDecoder::new(
             &mut source,
             &hdr,
             &table,
@@ -1228,9 +1167,9 @@ fn malformed_short_mq_smoke_is_bounded() {
             &CancelAfter::Never,
             mq_budget,
             GenericBudget::default(),
-        )) {
+        ) {
             for _ in 0..2 {
-                if ready(decoder.decode_next_row()).is_err() {
+                if decoder.decode_next_row().is_err() {
                     break;
                 }
             }
@@ -1253,7 +1192,7 @@ fn cancellation_at_every_checkpoint_never_reports_success() {
         let hdr = header(&mut source);
         let mut bank = contexts(&limits, &mq_budget);
         let mut sink = Sink::default();
-        let result = ready(async {
+        let result = (|| {
             let mut decoder = GenericRegionDecoder::new(
                 &mut source,
                 &hdr,
@@ -1264,11 +1203,10 @@ fn cancellation_at_every_checkpoint_never_reports_success() {
                 &cancellation,
                 mq_budget,
                 GenericBudget::default(),
-            )
-            .await?;
-            while decoder.decode_next_row().await? {}
-            decoder.finish().await
-        });
+            )?;
+            while decoder.decode_next_row()? {}
+            decoder.finish()
+        })();
         match result {
             Ok(report) => {
                 assert_eq!(sink.bytes, [0xe0, 0xe0]);
@@ -1310,7 +1248,7 @@ fn working_allocation_cap_counts_three_rows_at_the_exact_boundary() {
         let hdr = header(&mut source);
         let mut bank = contexts(&Limits::default(), &mq_budget);
         let mut sink = Sink::default();
-        let result = ready(GenericRegionDecoder::new(
+        let result = GenericRegionDecoder::new(
             &mut source,
             &hdr,
             &table,
@@ -1320,7 +1258,7 @@ fn working_allocation_cap_counts_three_rows_at_the_exact_boundary() {
             &CancelAfter::Never,
             mq_budget,
             GenericBudget::default(),
-        ))
+        )
         .map(|_| ());
         (result, source.read_calls)
     };
@@ -1356,49 +1294,6 @@ fn working_allocation_cap_counts_three_rows_at_the_exact_boundary() {
 }
 
 #[test]
-fn rows_and_finish_after_a_dropped_row_future_are_poisoned_without_flush() {
-    let limits = Limits::default();
-    let never = CancelAfter::Never;
-    let mq_budget = MqBudget::default();
-    let table = table();
-    let mut source = record(3, 1, 0, 4, (2, -1), SHORT_STREAM);
-    let hdr = header(&mut source);
-    let mut bank = contexts(&limits, &mq_budget);
-    let mut sink = Sink {
-        pending: true,
-        ..Sink::default()
-    };
-    let mut decoder = ready(GenericRegionDecoder::new(
-        &mut source,
-        &hdr,
-        &table,
-        &mut bank,
-        &mut sink,
-        &limits,
-        &never,
-        mq_budget,
-        GenericBudget::default(),
-    ))
-    .unwrap();
-    {
-        let mut future = pin!(decoder.decode_next_row());
-        assert!(
-            future
-                .as_mut()
-                .poll(&mut Context::from_waker(Waker::noop()))
-                .is_pending()
-        );
-    }
-    let err = ready(decoder.decode_next_row()).unwrap_err();
-    assert!(matches!(err.kind, GenericErrorKind::Poisoned));
-    let err = ready(decoder.finish()).unwrap_err();
-    assert!(matches!(err.kind, GenericErrorKind::Poisoned));
-    assert!(err.to_string().contains("decoder state is poisoned"));
-    assert_eq!((err.rows_written, err.pixels_decoded), (0, 3));
-    assert!(!sink.flushed);
-}
-
-#[test]
 fn span_errors_and_unreachable_allocation_failure_have_stable_messages() {
     let limits = Limits::default();
     let mq_budget = MqBudget::default();
@@ -1408,7 +1303,7 @@ fn span_errors_and_unreachable_allocation_failure_have_stable_messages() {
     source.advertised -= 1;
     let mut bank = contexts(&limits, &mq_budget);
     let mut sink = Sink::default();
-    let err = match ready(GenericRegionDecoder::new(
+    let err = match GenericRegionDecoder::new(
         &mut source,
         &hdr,
         &table,
@@ -1418,7 +1313,7 @@ fn span_errors_and_unreachable_allocation_failure_have_stable_messages() {
         &CancelAfter::Never,
         mq_budget,
         GenericBudget::default(),
-    )) {
+    ) {
         Ok(_) => panic!("accepted a segment beyond the source"),
         Err(err) => err,
     };

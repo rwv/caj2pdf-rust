@@ -17,29 +17,13 @@ use caj2pdf_core::{
     qm::QmTable,
 };
 use flate2::{Compression, write::ZlibEncoder};
-use std::{
-    future::Future,
-    io::{self, Write},
-    pin::pin,
-    task::{Context, Poll, Waker},
-};
+use std::io::{self, Write};
 
 /// Source units per image pixel when every image fits in a 16-bit extent.
 /// At [`RENDER_DPI`] one image pixel is then one device pixel:
 /// `1000 × 240 / 2473` points at `0.7419 / 72` pixels per point.
 pub const UNITS_PER_PIXEL: u32 = 1000;
 pub const RENDER_DPI: &str = "0.7419";
-
-pub fn ready<F: Future>(future: F) -> F::Output {
-    let mut future = pin!(future);
-    match future
-        .as_mut()
-        .poll(&mut Context::from_waker(Waker::noop()))
-    {
-        Poll::Ready(value) => value,
-        Poll::Pending => panic!("test adapters complete immediately"),
-    }
-}
 
 /// One image record and the pixel extent the text frame declares for it.
 pub struct Image {
@@ -179,12 +163,12 @@ impl RandomAccessScratch for Store {
         Ok(self.bytes.len() as u64)
     }
 
-    async fn set_len(&mut self, length: u64) -> caj2pdf_core::Result<()> {
+    fn set_len(&mut self, length: u64) -> caj2pdf_core::Result<()> {
         self.bytes.resize(length as usize, 0);
         Ok(())
     }
 
-    async fn read_at(&mut self, offset: u64, bytes: &mut [u8]) -> caj2pdf_core::Result<usize> {
+    fn read_at(&mut self, offset: u64, bytes: &mut [u8]) -> caj2pdf_core::Result<usize> {
         self.read_calls += 1;
         if self
             .fail_read_after
@@ -198,13 +182,13 @@ impl RandomAccessScratch for Store {
         Ok(count)
     }
 
-    async fn write_at(&mut self, offset: u64, bytes: &[u8]) -> caj2pdf_core::Result<usize> {
+    fn write_at(&mut self, offset: u64, bytes: &[u8]) -> caj2pdf_core::Result<usize> {
         let start = offset as usize;
         self.bytes[start..start + bytes.len()].copy_from_slice(bytes);
         Ok(bytes.len())
     }
 
-    async fn flush(&mut self) -> caj2pdf_core::Result<()> {
+    fn flush(&mut self) -> caj2pdf_core::Result<()> {
         Ok(())
     }
 }
@@ -229,7 +213,7 @@ where
 {
     let mq = MqTable::standard();
     let [text, first, second, refined] = stores;
-    ready(convert_source_pages_pdf(
+    convert_source_pages_pdf(
         source,
         sink,
         table,
@@ -244,5 +228,5 @@ where
         options,
         limits,
         cancellation,
-    ))
+    )
 }

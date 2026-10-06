@@ -29,7 +29,7 @@ use crate::hnc8::{ErrorKind, TextFraming};
 /// or cancellation is returned. Reads are ranged and bounded by
 /// `options.container` and `options.text`; no image payload is read and no
 /// text is retained.
-pub async fn uses_native_text<S, C>(
+pub fn uses_native_text<S, C>(
     source: &mut S,
     options: ComposeOptions,
     limits: &Limits,
@@ -40,19 +40,19 @@ where
     C: Cancellation,
 {
     validate(options, limits)?;
-    let mut reader = match Hnc8Reader::open(source, limits, cancellation, options.container).await {
+    let mut reader = match Hnc8Reader::open(source, limits, cancellation, options.container) {
         Ok(reader) if !admits_native_mode(reader.header()) => return Ok(false),
         Ok(reader) => reader,
         Err(error) => return image_unless_fatal(error, ComposeStage::Container),
     };
     loop {
-        let page = match reader.next_page().await {
+        let page = match reader.next_page() {
             Ok(Some(page)) => page,
             Ok(None) => return Ok(false),
             Err(error) => return image_unless_fatal(error, ComposeStage::Container),
         };
         loop {
-            match reader.next_image().await {
+            match reader.next_image() {
                 Ok(Some(_)) => {}
                 Ok(None) => break,
                 Err(error) => return image_unless_fatal(error, ComposeStage::Container),
@@ -64,7 +64,7 @@ where
         if reader.header().variant == Variant::HnB {
             return Ok(true);
         }
-        return match reader.inspect_text(options.text).await {
+        return match reader.inspect_text(options.text) {
             Ok(text) => Ok(text.framing == TextFraming::Native),
             Err(error) => image_unless_fatal(error, ComposeStage::Text).map(|_| true),
         };
@@ -90,7 +90,7 @@ fn image_unless_fatal(error: Hnc8Error, stage: ComposeStage) -> Result<bool, Com
 /// routing reads are added to `conversion.input_bytes_read`. The CLI, Node
 /// and browser adapters all route through this function.
 #[allow(clippy::too_many_arguments)]
-pub async fn convert_document_pdf<'a, S, F, W, T, V, C>(
+pub fn convert_document_pdf<'a, S, F, W, T, V, C>(
     source: &mut S,
     sink: &mut W,
     fonts: Option<C8FontSources<'_, F>>,
@@ -112,38 +112,32 @@ where
     let mut routing = 0;
     let mut counted = CountingSource::new(&mut *source, &mut routing);
     let native = match fonts {
-        Some(fonts) if uses_native_text(&mut counted, options, limits, cancellation).await? => {
+        Some(fonts) if uses_native_text(&mut counted, options, limits, cancellation)? => {
             Some(fonts)
         }
         _ => None,
     };
     let mut report = match native {
-        Some(fonts) => {
-            convert_c8_native_pdf(
-                source,
-                sink,
-                fonts,
-                table,
-                type3,
-                options,
-                limits,
-                cancellation,
-            )
-            .await?
-        }
-        None => {
-            convert_source_pages_pdf(
-                source,
-                sink,
-                table,
-                type3,
-                visitor,
-                options,
-                limits,
-                cancellation,
-            )
-            .await?
-        }
+        Some(fonts) => convert_c8_native_pdf(
+            source,
+            sink,
+            fonts,
+            table,
+            type3,
+            options,
+            limits,
+            cancellation,
+        )?,
+        None => convert_source_pages_pdf(
+            source,
+            sink,
+            table,
+            type3,
+            visitor,
+            options,
+            limits,
+            cancellation,
+        )?,
     };
     report.conversion.input_bytes_read = report.conversion.input_bytes_read.saturating_add(routing);
     Ok(report)

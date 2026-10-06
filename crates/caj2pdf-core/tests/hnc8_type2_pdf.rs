@@ -225,11 +225,7 @@ impl RangedSource for Source {
         self.bytes.len() as u64
     }
 
-    async fn read_at(
-        &mut self,
-        offset: u64,
-        destination: &mut [u8],
-    ) -> caj2pdf_core::Result<usize> {
+    fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> caj2pdf_core::Result<usize> {
         self.max_request = self.max_request.max(destination.len());
         if self.payload_start == Some(offset) {
             self.payload_passes += 1;
@@ -260,7 +256,7 @@ struct Sink {
 }
 
 impl SequentialSink for Sink {
-    async fn write(&mut self, bytes: &[u8]) -> caj2pdf_core::Result<usize> {
+    fn write(&mut self, bytes: &[u8]) -> caj2pdf_core::Result<usize> {
         self.writes += 1;
         if self.fail_at == Some(self.writes) {
             return Err(Error::Io(io::Error::other("injected sink failure")));
@@ -269,7 +265,7 @@ impl SequentialSink for Sink {
         Ok(bytes.len())
     }
 
-    async fn flush(&mut self) -> caj2pdf_core::Result<()> {
+    fn flush(&mut self) -> caj2pdf_core::Result<()> {
         Ok(())
     }
 }

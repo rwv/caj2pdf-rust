@@ -2,23 +2,7 @@
 
 use super::*;
 use crate::{Error, Limits};
-use std::{
-    cell::Cell,
-    future::Future,
-    rc::Rc,
-    task::{Context, Poll, Waker},
-};
-
-fn run<T>(future: impl Future<Output = T>) -> T {
-    let mut future = std::pin::pin!(future);
-    match future
-        .as_mut()
-        .poll(&mut Context::from_waker(Waker::noop()))
-    {
-        Poll::Ready(value) => value,
-        Poll::Pending => panic!("unexpected suspension"),
-    }
-}
+use std::{cell::Cell, rc::Rc};
 
 #[derive(Clone, Default)]
 struct Cancel(Rc<Cell<bool>>);
@@ -40,7 +24,7 @@ impl RangedSource for Source {
     fn size(&self) -> u64 {
         self.bytes.len() as u64
     }
-    async fn read_at(&mut self, offset: u64, out: &mut [u8]) -> crate::Result<usize> {
+    fn read_at(&mut self, offset: u64, out: &mut [u8]) -> crate::Result<usize> {
         self.reads.set(self.reads.get() + 1);
         self.max_request = self.max_request.max(out.len());
         if self.fault {
@@ -86,16 +70,12 @@ struct Visitor {
     events: Vec<(u64, NativeRecord)>,
     fail: bool,
     cancel: Option<Cancel>,
-    suspend: bool,
 }
 impl NativeRecordVisitor for Visitor {
-    async fn visit(&mut self, offset: u64, record: NativeRecord) -> crate::Result<()> {
+    fn visit(&mut self, offset: u64, record: NativeRecord) -> crate::Result<()> {
         self.events.push((offset, record));
         if let Some(cancel) = &self.cancel {
             cancel.0.set(true);
-        }
-        if self.suspend {
-            std::future::pending::<()>().await;
         }
         if self.fail {
             return Err(Error::InvalidInput {
@@ -106,13 +86,13 @@ impl NativeRecordVisitor for Visitor {
     }
 }
 fn parse(source: &mut Source, budget: TextBudget, visitor: &mut Visitor) -> Result<u32> {
-    run(async {
+    (|| {
         let limits = Limits::default();
         let cancel = Cancel::default();
-        let mut reader = Hnc8Reader::open(source, &limits, &cancel, Default::default()).await?;
-        reader.next_page().await?;
-        reader.visit_native_records(budget, visitor).await
-    })
+        let mut reader = Hnc8Reader::open(source, &limits, &cancel, Default::default())?;
+        reader.next_page()?;
+        reader.visit_native_records(budget, visitor)
+    })()
 }
 
 #[test]
@@ -378,56 +358,18 @@ fn budgets_and_protected_index_fail_before_emitting_records() {
 }
 
 #[test]
-fn reader_state_errors_failure_and_abandonment_poison_the_cursor() {
+fn native_records_require_a_current_page() {
     let limits = Limits::default();
     let cancel = Cancel::default();
     let mut source = fixture(&[[0x8004, 0]], 0);
-    let mut reader = run(Hnc8Reader::open(
-        &mut source,
-        &limits,
-        &cancel,
-        Default::default(),
-    ))
-    .unwrap();
+    let mut reader = Hnc8Reader::open(&mut source, &limits, &cancel, Default::default()).unwrap();
     let mut visitor = Visitor::default();
     assert!(matches!(
-        run(reader.visit_native_records(TextBudget::default(), &mut visitor))
+        reader
+            .visit_native_records(TextBudget::default(), &mut visitor)
             .unwrap_err()
             .kind,
         ErrorKind::NoCurrentPage
-    ));
-    run(reader.next_page()).unwrap();
-    visitor.suspend = true;
-    let reads = reader.source.reads.clone();
-    let before = reads.get();
-    {
-        let mut future =
-            std::pin::pin!(reader.visit_native_records(TextBudget::default(), &mut visitor));
-        assert!(
-            future
-                .as_mut()
-                .poll(&mut Context::from_waker(Waker::noop()))
-                .is_pending()
-        );
-        let after = reads.get();
-        assert_eq!(after, before + 1);
-        assert!(
-            future
-                .as_mut()
-                .poll(&mut Context::from_waker(Waker::noop()))
-                .is_pending()
-        );
-        assert_eq!(reads.get(), after);
-    }
-    assert!(matches!(
-        run(reader.visit_native_records(TextBudget::default(), &mut visitor))
-            .unwrap_err()
-            .kind,
-        ErrorKind::Poisoned
-    ));
-    assert!(matches!(
-        run(reader.next_page()).unwrap_err().kind,
-        ErrorKind::Poisoned
     ));
 }
 
@@ -437,14 +379,9 @@ fn cancellation_source_and_visitor_failures_are_located() {
         let limits = Limits::default();
         let cancel = Cancel::default();
         let mut source = fixture(&[[0x8004, 0]], 0);
-        let mut reader = run(Hnc8Reader::open(
-            &mut source,
-            &limits,
-            &cancel,
-            Default::default(),
-        ))
-        .unwrap();
-        run(reader.next_page()).unwrap();
+        let mut reader =
+            Hnc8Reader::open(&mut source, &limits, &cancel, Default::default()).unwrap();
+        reader.next_page().unwrap();
         let mut visitor = Visitor::default();
         match fault {
             0 => cancel.0.set(true),
@@ -453,8 +390,9 @@ fn cancellation_source_and_visitor_failures_are_located() {
             3 => reader.source.fault = true,
             _ => visitor.fail = true,
         }
-        let error =
-            run(reader.visit_native_records(TextBudget::default(), &mut visitor)).unwrap_err();
+        let error = reader
+            .visit_native_records(TextBudget::default(), &mut visitor)
+            .unwrap_err();
         assert_eq!(error.offset, 100);
         if fault < 3 {
             assert!(matches!(error.kind, ErrorKind::Cancelled));
@@ -480,22 +418,16 @@ fn current_variant_is_enforced_and_success_releases_poison() {
             ],
             0,
         );
-        let mut reader = run(Hnc8Reader::open(
-            &mut source,
-            &limits,
-            &cancel,
-            Default::default(),
-        ))
-        .unwrap();
-        run(reader.next_page()).unwrap();
+        let mut reader =
+            Hnc8Reader::open(&mut source, &limits, &cancel, Default::default()).unwrap();
+        reader.next_page().unwrap();
         reader.header.variant = variant;
-        let result =
-            run(reader.visit_native_records(TextBudget::default(), &mut Visitor::default()));
+        let result = reader.visit_native_records(TextBudget::default(), &mut Visitor::default());
         if variant == Variant::C8 {
             assert_eq!(result.unwrap(), 5);
             assert!(!reader.poisoned);
-            assert_eq!(run(reader.next_image()).unwrap(), None);
-            assert_eq!(run(reader.next_page()).unwrap(), None);
+            assert_eq!(reader.next_image().unwrap(), None);
+            assert_eq!(reader.next_page().unwrap(), None);
         } else {
             assert!(matches!(
                 result.unwrap_err().kind,
@@ -562,7 +494,7 @@ fn maps_verified_alphanumeric_and_gbk_codes_without_inventing_unknowns() {
 fn a_text_consumer_rejects_unmapped_glyphs_at_their_source_record() {
     struct Text;
     impl NativeRecordVisitor for Text {
-        async fn visit(&mut self, _: u64, record: NativeRecord) -> crate::Result<()> {
+        fn visit(&mut self, _: u64, record: NativeRecord) -> crate::Result<()> {
             if let NativeRecord::Glyph { code, .. } = record {
                 decode_native_character(code).ok_or(Error::UnsupportedFormat)?;
             }
@@ -573,15 +505,10 @@ fn a_text_consumer_rejects_unmapped_glyphs_at_their_source_record() {
         let mut source = fixture(&[[0x8001, 3], [0x8002, 5], [11, code], [0x8004, 0]], 0);
         let limits = Limits::default();
         let cancel = Cancel::default();
-        let mut reader = run(Hnc8Reader::open(
-            &mut source,
-            &limits,
-            &cancel,
-            Default::default(),
-        ))
-        .unwrap();
-        run(reader.next_page()).unwrap();
-        let result = run(reader.visit_native_records(TextBudget::default(), &mut Text));
+        let mut reader =
+            Hnc8Reader::open(&mut source, &limits, &cancel, Default::default()).unwrap();
+        reader.next_page().unwrap();
+        let result = reader.visit_native_records(TextBudget::default(), &mut Text);
         if matches!(code, 0xcec4 | 0xa0da) {
             assert_eq!(result.unwrap(), 4);
         } else {
@@ -920,17 +847,13 @@ fn encoded_strings_reject_unknown_lengths_and_embedded_markers() {
         source.bytes[140..142].copy_from_slice(&word.to_le_bytes());
         let limits = Limits::default();
         let cancel = Cancel::default();
-        let mut reader = run(Hnc8Reader::open(
-            &mut source,
-            &limits,
-            &cancel,
-            Default::default(),
-        ))
-        .unwrap();
-        run(reader.next_page()).unwrap();
+        let mut reader =
+            Hnc8Reader::open(&mut source, &limits, &cancel, Default::default()).unwrap();
+        reader.next_page().unwrap();
         let mut visitor = Visitor::default();
-        let error =
-            run(reader.visit_native_records(TextBudget::default(), &mut visitor)).unwrap_err();
+        let error = reader
+            .visit_native_records(TextBudget::default(), &mut visitor)
+            .unwrap_err();
         assert_eq!(error.offset, 140);
         assert!(matches!(
             error.kind,
@@ -941,7 +864,7 @@ fn encoded_strings_reject_unknown_lengths_and_embedded_markers() {
         ));
         assert_eq!(visitor.events.len(), 2);
         assert!(matches!(
-            run(reader.next_page()).unwrap_err().kind,
+            reader.next_page().unwrap_err().kind,
             ErrorKind::Poisoned
         ));
     }
@@ -1244,14 +1167,14 @@ fn image_reference_mid_payload_failure_and_cancellation_poison_the_cursor() {
         fn size(&self) -> u64 {
             self.source.size()
         }
-        async fn read_at(&mut self, offset: u64, bytes: &mut [u8]) -> crate::Result<usize> {
+        fn read_at(&mut self, offset: u64, bytes: &mut [u8]) -> crate::Result<usize> {
             if offset >= 144 {
                 self.source.fault = self.fail;
                 if !self.fail {
                     self.source.cancel_on_read = Some(self.cancel.clone());
                 }
             }
-            self.source.read_at(offset, bytes).await
+            self.source.read_at(offset, bytes)
         }
     }
     for fail in [false, true] {
@@ -1262,24 +1185,20 @@ fn image_reference_mid_payload_failure_and_cancellation_poison_the_cursor() {
             cancel: cancel.clone(),
             fail,
         };
-        let mut reader = run(Hnc8Reader::open(
-            &mut source,
-            &limits,
-            &cancel,
-            Default::default(),
-        ))
-        .unwrap();
-        run(reader.next_page()).unwrap();
+        let mut reader =
+            Hnc8Reader::open(&mut source, &limits, &cancel, Default::default()).unwrap();
+        reader.next_page().unwrap();
         let mut visitor = Visitor::default();
-        let error =
-            run(reader.visit_native_records(TextBudget::default(), &mut visitor)).unwrap_err();
+        let error = reader
+            .visit_native_records(TextBudget::default(), &mut visitor)
+            .unwrap_err();
         assert!(matches!(
             error.kind,
             ErrorKind::Cancelled | ErrorKind::Source { .. }
         ));
         assert!(visitor.events.is_empty());
         assert!(matches!(
-            run(reader.next_image()).unwrap_err().kind,
+            reader.next_image().unwrap_err().kind,
             ErrorKind::Poisoned
         ));
     }
@@ -1373,24 +1292,21 @@ fn hnb_glyph_runs_use_both_verified_indexes_without_crossing_pages() {
         for short in [1, 3, 7, 28] {
             let mut source = hnb_source(width, &[&first, &second]);
             source.short = short;
-            run(async {
+            {
                 let limits = Limits::default();
                 let cancel = Cancel::default();
                 let mut reader =
-                    Hnc8Reader::open(&mut source, &limits, &cancel, Default::default())
-                        .await
-                        .unwrap();
+                    Hnc8Reader::open(&mut source, &limits, &cancel, Default::default()).unwrap();
                 assert_eq!(reader.header().variant, Variant::HnB);
                 for (page, words) in [&first[..], &second[..]].into_iter().enumerate() {
                     assert_eq!(
-                        reader.next_page().await.unwrap().unwrap().page_number,
+                        reader.next_page().unwrap().unwrap().page_number,
                         page as u32 + 1
                     );
                     let mut visitor = Visitor::default();
                     assert_eq!(
                         reader
                             .visit_native_records(TextBudget::default(), &mut visitor)
-                            .await
                             .unwrap(),
                         words.len() as u32
                     );
@@ -1417,8 +1333,8 @@ fn hnb_glyph_runs_use_both_verified_indexes_without_crossing_pages() {
                         ))
                     );
                 }
-                assert!(reader.next_page().await.unwrap().is_none());
-            });
+                assert!(reader.next_page().unwrap().is_none());
+            };
             assert!(source.max_request <= 28);
         }
     }
@@ -1461,28 +1377,25 @@ fn hnb_truncated_record_keeps_the_next_page_unread_and_poisons_cursor() {
         for length in 1..4_u32 {
             let mut source = hnb_source(width, &[&[[0x8001, 4700]], &[[0x8004, 2]]]);
             source.bytes[220..224].copy_from_slice(&length.to_le_bytes());
-            run(async {
+            {
                 let limits = Limits::default();
                 let cancel = Cancel::default();
                 let mut reader =
-                    Hnc8Reader::open(&mut source, &limits, &cancel, Default::default())
-                        .await
-                        .unwrap();
-                reader.next_page().await.unwrap();
+                    Hnc8Reader::open(&mut source, &limits, &cancel, Default::default()).unwrap();
+                reader.next_page().unwrap();
                 let mut visitor = Visitor::default();
                 let error = reader
                     .visit_native_records(TextBudget::default(), &mut visitor)
-                    .await
                     .unwrap_err();
                 assert!(
                     matches!(error.kind, ErrorKind::Truncated { expected: 4, available, .. } if available == u64::from(length))
                 );
                 assert!(visitor.events.is_empty());
                 assert!(matches!(
-                    reader.next_page().await.unwrap_err().kind,
+                    reader.next_page().unwrap_err().kind,
                     ErrorKind::Poisoned
                 ));
-            });
+            };
         }
     }
 }
@@ -1855,17 +1768,15 @@ fn hnb_truncated_image_does_not_consume_the_following_page() {
         );
         source.bytes[220..224].copy_from_slice(&(length as u32).to_le_bytes());
         source.bytes[224..226].copy_from_slice(&1_u16.to_le_bytes());
-        run(async {
+        {
             let limits = Limits::default();
             let cancel = Cancel::default();
-            let mut reader = Hnc8Reader::open(&mut source, &limits, &cancel, Default::default())
-                .await
-                .unwrap();
-            reader.next_page().await.unwrap();
+            let mut reader =
+                Hnc8Reader::open(&mut source, &limits, &cancel, Default::default()).unwrap();
+            reader.next_page().unwrap();
             let mut visitor = Visitor::default();
             let error = reader
                 .visit_native_records(TextBudget::default(), &mut visitor)
-                .await
                 .unwrap_err();
             assert!(
                 matches!(error.kind, ErrorKind::Truncated { expected: 24, available, .. }
@@ -1874,10 +1785,10 @@ fn hnb_truncated_image_does_not_consume_the_following_page() {
             assert_eq!(error.page, Some(1));
             assert!(visitor.events.is_empty());
             assert!(matches!(
-                reader.next_page().await.unwrap_err().kind,
+                reader.next_page().unwrap_err().kind,
                 ErrorKind::Poisoned
             ));
-        });
+        };
     }
 }
 
@@ -1894,20 +1805,17 @@ fn hnb_bare_end_tags_stay_inside_each_indexed_page() {
                 .copy_from_slice(&((start + 2) as u32).to_le_bytes());
             source.bytes[220 + width..224 + width].copy_from_slice(&2u32.to_le_bytes());
             source.short = short;
-            run(async {
+            {
                 let limits = Limits::default();
                 let cancel = Cancel::default();
                 let mut reader =
-                    Hnc8Reader::open(&mut source, &limits, &cancel, Default::default())
-                        .await
-                        .unwrap();
+                    Hnc8Reader::open(&mut source, &limits, &cancel, Default::default()).unwrap();
                 for page in 0..2 {
-                    reader.next_page().await.unwrap().unwrap();
+                    reader.next_page().unwrap().unwrap();
                     let mut visitor = Visitor::default();
                     assert_eq!(
                         reader
                             .visit_native_records(TextBudget::default(), &mut visitor)
-                            .await
                             .unwrap(),
                         1
                     );
@@ -1916,8 +1824,8 @@ fn hnb_bare_end_tags_stay_inside_each_indexed_page() {
                         [(start as u64 + page * 2, NativeRecord::End { value: None })]
                     );
                 }
-                assert!(reader.next_page().await.unwrap().is_none());
-            });
+                assert!(reader.next_page().unwrap().is_none());
+            };
         }
     }
     let mut source = hnb_source(12, &[&[[0x8074, 0xb7bd]]]);
@@ -1964,24 +1872,20 @@ fn hnb_end_stops_before_opaque_tail_and_next_page_uses_its_index() {
         source.bytes[216 + width..220 + width]
             .copy_from_slice(&((second_at + 3) as u32).to_le_bytes());
         source.short = 1;
-        run(async {
+        {
             let limits = Limits::default();
             let cancel = Cancel::default();
-            let mut reader = Hnc8Reader::open(&mut source, &limits, &cancel, Default::default())
-                .await
-                .unwrap();
+            let mut reader =
+                Hnc8Reader::open(&mut source, &limits, &cancel, Default::default()).unwrap();
             for (code, value) in [(0xd6d0, 44), (0xcec4, 45)] {
-                reader.next_page().await.unwrap().unwrap();
+                reader.next_page().unwrap().unwrap();
                 let mut visitor = Visitor::default();
                 let budget = TextBudget {
                     max_records: 4,
                     ..Default::default()
                 };
                 assert_eq!(
-                    reader
-                        .visit_native_records(budget, &mut visitor)
-                        .await
-                        .unwrap(),
+                    reader.visit_native_records(budget, &mut visitor).unwrap(),
                     4
                 );
                 assert!(
@@ -1992,8 +1896,8 @@ fn hnb_end_stops_before_opaque_tail_and_next_page_uses_its_index() {
                     NativeRecord::End { value: Some(value) }
                 );
             }
-            assert!(reader.next_page().await.unwrap().is_none());
-        });
+            assert!(reader.next_page().unwrap().is_none());
+        };
     }
     // C8 retains its independently established strict terminal position.
     let mut c8 = fixture(&[[0x8004, 1], [0x8099, 0xffff]], 0);

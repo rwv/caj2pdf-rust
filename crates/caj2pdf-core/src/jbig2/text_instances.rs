@@ -443,7 +443,7 @@ impl<'a, S: RangedSource, RI: RangedSource, RN: RangedSource, W: SequentialSink,
     /// The supplied temporary sink must append to the store represented by
     /// `temporary_store_base`; that identity is owned by the caller.
     #[allow(clippy::too_many_arguments)]
-    pub async fn new(
+    pub fn new(
         source: &'a mut S,
         segment: &SegmentHeader,
         parsed: TextRegionHeader,
@@ -486,13 +486,12 @@ impl<'a, S: RangedSource, RI: RangedSource, RN: RangedSource, W: SequentialSink,
             budget,
             TextHeaderPolicy::Strict,
         )
-        .await
     }
 
     /// Revalidate a text header using an explicit HN/C8 compatibility policy.
     /// The original `new` constructor always keeps strict T.88 validation.
     #[allow(clippy::too_many_arguments)]
-    pub async fn new_with_header_policy(
+    pub fn new_with_header_policy(
         source: &'a mut S,
         segment: &SegmentHeader,
         parsed: TextRegionHeader,
@@ -523,7 +522,6 @@ impl<'a, S: RangedSource, RI: RangedSource, RN: RangedSource, W: SequentialSink,
             cancellation,
             policy,
         )
-        .await
         .map_err(|error| {
             let offset = error.offset;
             let fetched = error.bytes_fetched;
@@ -798,7 +796,6 @@ impl<'a, S: RangedSource, RI: RangedSource, RN: RangedSource, W: SequentialSink,
             mq_budget,
             &mut init_fetched,
         )
-        .await
         .map_err(|error| {
             let offset = error.offset.unwrap_or(at);
             let mut located = preflight_error(
@@ -889,13 +886,13 @@ impl<'a, S: RangedSource, RI: RangedSource, RN: RangedSource, W: SequentialSink,
         }
     }
 
-    async fn signed(
+    fn signed(
         &mut self,
         procedure: IntegerProcedure,
         decision: TextDecision,
     ) -> TextInstanceResult<i64> {
         self.progress.decision = decision;
-        match decode_integer(&mut self.mq, procedure).await {
+        match decode_integer(&mut self.mq, procedure) {
             Ok(IntegerValue::Signed(value)) => Ok(value),
             Ok(IntegerValue::OutOfBand) => Err(self.error(TextInstanceErrorKind::Malformed(
                 "unexpected arithmetic OOB",
@@ -904,7 +901,7 @@ impl<'a, S: RangedSource, RI: RangedSource, RN: RangedSource, W: SequentialSink,
         }
     }
 
-    async fn decode_refined(
+    fn decode_refined(
         &mut self,
         reference: StoredSymbol,
         request: RefinementRequest,
@@ -920,18 +917,18 @@ impl<'a, S: RangedSource, RI: RangedSource, RN: RangedSource, W: SequentialSink,
             &mut self.progress.refinement,
         )?;
         let report = match reference.store {
-            SymbolStore::Imported => host.decode_bitmap(self.imported_source, request).await,
-            SymbolStore::New => host.decode_bitmap(self.new_source, request).await,
+            SymbolStore::Imported => host.decode_bitmap(self.imported_source, request),
+            SymbolStore::New => host.decode_bitmap(self.new_source, request),
         }?;
         // Pull consumers may reopen the temporary store as soon as this
         // handle is returned. Make the appended rows visible first.
-        host.flush_store().await?;
+        host.flush_store()?;
         Ok(report.target)
     }
 
     /// Decode one placement. `None` means the declared count and exact MQ
     /// terminal were checked; subsequent calls return `None` without I/O.
-    pub async fn next(&mut self) -> TextInstanceResult<Option<TextInstance>> {
+    pub fn next(&mut self) -> TextInstanceResult<Option<TextInstance>> {
         if self.complete {
             return Ok(None);
         }
@@ -939,19 +936,17 @@ impl<'a, S: RangedSource, RI: RangedSource, RN: RangedSource, W: SequentialSink,
             return Err(self.error(TextInstanceErrorKind::Poisoned));
         }
         self.poisoned = true;
-        let result = self.next_inner().await;
+        let result = self.next_inner();
         if result.is_ok() {
             self.poisoned = false;
         }
         result
     }
 
-    async fn next_inner(&mut self) -> TextInstanceResult<Option<TextInstance>> {
+    fn next_inner(&mut self) -> TextInstanceResult<Option<TextInstance>> {
         self.check_cancelled()?;
         if !self.initialized {
-            let initial = self
-                .signed(IntegerProcedure::Iadt, TextDecision::InitialStripT)
-                .await?;
+            let initial = self.signed(IntegerProcedure::Iadt, TextDecision::InitialStripT)?;
             self.strip_t = self.coordinate(initial.checked_neg())?;
             self.initialized = true;
         }
@@ -962,7 +957,6 @@ impl<'a, S: RangedSource, RI: RangedSource, RN: RangedSource, W: SequentialSink,
                 let snapshot = self
                     .mq
                     .finish_with_snapshot_mut(expected)
-                    .await
                     .map_err(|error| self.error(TextInstanceErrorKind::Mq(Box::new(error))))?;
                 self.progress.mq = Some(snapshot);
                 self.check_cancelled()?;
@@ -975,9 +969,7 @@ impl<'a, S: RangedSource, RI: RangedSource, RN: RangedSource, W: SequentialSink,
                 self.cap("text strips", u64::from(self.budget.max_strips), strips)?;
                 // This branch implies strips <= max_strips <= u32::MAX.
                 self.progress.strips = strips as u32;
-                let dt = self
-                    .signed(IntegerProcedure::Iadt, TextDecision::StripDeltaT)
-                    .await?;
+                let dt = self.signed(IntegerProcedure::Iadt, TextDecision::StripDeltaT)?;
                 // Annex A.2 emits <2^33 magnitude and SBSTRIPS <= 8, so
                 // multiplication stays below 2^36. The accumulated T still
                 // requires a checked add and the configured signed cap.
@@ -985,15 +977,13 @@ impl<'a, S: RangedSource, RI: RangedSource, RN: RangedSource, W: SequentialSink,
                     self.strip_t
                         .checked_add(dt * i64::from(self.header.flags.strips())),
                 )?;
-                let dfs = self
-                    .signed(IntegerProcedure::Iafs, TextDecision::FirstS)
-                    .await?;
+                let dfs = self.signed(IntegerProcedure::Iafs, TextDecision::FirstS)?;
                 self.first_s = self.coordinate(self.first_s.checked_add(dfs))?;
                 self.current_s = self.first_s;
                 self.strip_open = true;
             } else {
                 self.progress.decision = TextDecision::DeltaS;
-                match decode_integer(&mut self.mq, IntegerProcedure::Iads).await {
+                match decode_integer(&mut self.mq, IntegerProcedure::Iads) {
                     Ok(IntegerValue::OutOfBand) => {
                         self.strip_open = false;
                         continue;
@@ -1012,9 +1002,7 @@ impl<'a, S: RangedSource, RI: RangedSource, RN: RangedSource, W: SequentialSink,
             let within = if self.header.flags.strips() == 1 {
                 0
             } else {
-                let value = self
-                    .signed(IntegerProcedure::Iait, TextDecision::WithinStripT)
-                    .await?;
+                let value = self.signed(IntegerProcedure::Iait, TextDecision::WithinStripT)?;
                 if value < 0 || value >= i64::from(self.header.flags.strips()) {
                     return Err(self.error(TextInstanceErrorKind::Malformed("IAIT outside strip")));
                 }
@@ -1023,7 +1011,6 @@ impl<'a, S: RangedSource, RI: RangedSource, RN: RangedSource, W: SequentialSink,
             let t = self.coordinate(self.strip_t.checked_add(within))?;
             self.progress.decision = TextDecision::SymbolId;
             let raw_id = decode_iaid(&mut self.mq, self.code_len)
-                .await
                 .map_err(|error| self.error(TextInstanceErrorKind::Mq(Box::new(error))))?;
             let id =
                 checked_symbol_index(raw_id, self.dictionary.len() as u64, self.dictionary.len())
@@ -1038,8 +1025,7 @@ impl<'a, S: RangedSource, RI: RangedSource, RN: RangedSource, W: SequentialSink,
             let mut height = reference.symbol.height;
             let mut refinement_request = None;
             let ri = if self.header.flags.refine {
-                self.signed(IntegerProcedure::Iari, TextDecision::RefinementFlag)
-                    .await?
+                self.signed(IntegerProcedure::Iari, TextDecision::RefinementFlag)?
             } else {
                 0
             };
@@ -1047,18 +1033,10 @@ impl<'a, S: RangedSource, RI: RangedSource, RN: RangedSource, W: SequentialSink,
                 return Err(self.error(TextInstanceErrorKind::Malformed("IARI is not a bit")));
             }
             if ri == 1 {
-                let rdw = self
-                    .signed(IntegerProcedure::Iardw, TextDecision::DeltaWidth)
-                    .await?;
-                let rdh = self
-                    .signed(IntegerProcedure::Iardh, TextDecision::DeltaHeight)
-                    .await?;
-                let rdx = self
-                    .signed(IntegerProcedure::Iardx, TextDecision::DeltaX)
-                    .await?;
-                let rdy = self
-                    .signed(IntegerProcedure::Iardy, TextDecision::DeltaY)
-                    .await?;
+                let rdw = self.signed(IntegerProcedure::Iardw, TextDecision::DeltaWidth)?;
+                let rdh = self.signed(IntegerProcedure::Iardh, TextDecision::DeltaHeight)?;
+                let rdx = self.signed(IntegerProcedure::Iardx, TextDecision::DeltaX)?;
+                let rdy = self.signed(IntegerProcedure::Iardy, TextDecision::DeltaY)?;
                 let (target_width, target_height, reference_dx, reference_dy) =
                     refined_geometry(reference.symbol, rdw, rdh, rdx, rdy)
                         .map_err(|kind| self.error(kind))?;
@@ -1103,12 +1081,9 @@ impl<'a, S: RangedSource, RI: RangedSource, RN: RangedSource, W: SequentialSink,
             .map_err(|kind| self.error(kind))?;
             if let Some(request) = refinement_request {
                 self.progress.decision = TextDecision::RefinementBitmap;
-                let descriptor =
-                    self.decode_refined(reference, request)
-                        .await
-                        .map_err(|error| {
-                            self.error(TextInstanceErrorKind::Refinement(Box::new(error)))
-                        })?;
+                let descriptor = self.decode_refined(reference, request).map_err(|error| {
+                    self.error(TextInstanceErrorKind::Refinement(Box::new(error)))
+                })?;
                 bitmap = TextBitmap::Refined {
                     store_base: self.temporary_store_base,
                     symbol: descriptor,

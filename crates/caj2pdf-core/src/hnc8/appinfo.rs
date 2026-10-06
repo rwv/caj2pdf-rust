@@ -94,8 +94,8 @@ pub struct ApplicationInfoReport {
 impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
     /// Like [`Self::application_info`], but a defect becomes
     /// [`ApplicationInfoStatus::Ignored`]. Only cancellation is an error.
-    pub async fn application_info_report(&mut self) -> Result<ApplicationInfoReport> {
-        Ok(match self.application_info().await {
+    pub fn application_info_report(&mut self) -> Result<ApplicationInfoReport> {
+        Ok(match self.application_info() {
             Ok(Some(info)) => ApplicationInfoReport {
                 info: Some(info),
                 status: ApplicationInfoStatus::Read,
@@ -117,7 +117,7 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
     /// are inflated, within `Limits::max_allocation_bytes`. Callers should
     /// treat every error except cancellation as a warning. Independent of the
     /// page cursor.
-    pub async fn application_info(&mut self) -> Result<Option<ApplicationInfo>> {
+    pub fn application_info(&mut self) -> Result<Option<ApplicationInfo>> {
         if self.header.variant != Variant::C8 {
             return Ok(None);
         }
@@ -130,10 +130,10 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
         if self.cancellation.is_cancelled() {
             return Err(loc.error(ErrorKind::Cancelled));
         }
-        let Some(package) = self.find_package(loc).await? else {
+        let Some(package) = self.find_package(loc)? else {
             return Ok(None);
         };
-        let xml = self.inflate(package, loc.at(package.offset)).await?;
+        let xml = self.inflate(package, loc.at(package.offset))?;
         scan(&xml, loc.at(package.offset)).map(Some)
     }
 
@@ -142,7 +142,7 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
     /// marker name; a marker that is not followed by a final decimal offset
     /// fitting 64 bits is malformed. Shared by the package reader and the
     /// structure report. Independent of the page cursor.
-    pub(super) async fn application_info_trailer(&mut self) -> Result<Option<Trailer>> {
+    pub(super) fn application_info_trailer(&mut self) -> Result<Option<Trailer>> {
         let loc = Location {
             variant: Some(self.header.variant),
             offset: 0,
@@ -162,8 +162,7 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
             window,
             loc.at(window_start),
             field,
-        )
-        .await?;
+        )?;
         let digits = window
             .iter()
             .rev()
@@ -190,8 +189,8 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
     }
 
     /// Locate the trailer and return the zlib stream it frames.
-    async fn find_package(&mut self, loc: Location) -> Result<Option<Package>> {
-        let Some(Trailer { marker, start }) = self.application_info_trailer().await? else {
+    fn find_package(&mut self, loc: Location) -> Result<Option<Package>> {
+        let Some(Trailer { marker, start }) = self.application_info_trailer()? else {
             return Ok(None);
         };
         let lengths = "application-info lengths";
@@ -216,8 +215,7 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
             &mut header,
             loc.at(start),
             lengths,
-        )
-        .await?;
+        )?;
         let decoded = u32::from_le_bytes(header[..4].try_into().expect("fixed field width"));
         let compressed = u32::from_le_bytes(header[4..].try_into().expect("fixed field width"));
         for (resource, value) in [
@@ -249,7 +247,7 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
     }
 
     /// Inflate exactly the declared stream into exactly the declared length.
-    async fn inflate(&mut self, package: Package, loc: Location) -> Result<Vec<u8>> {
+    fn inflate(&mut self, package: Package, loc: Location) -> Result<Vec<u8>> {
         let Package {
             compressed,
             decoded,
@@ -293,8 +291,7 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
                     &mut input[..length],
                     loc.at(at),
                     field,
-                )
-                .await?;
+                )?;
             }
             let window = &mut output[inflate.total_out() as usize..];
             let step = inflate.step(&input, window).map_err(fault)?;

@@ -55,7 +55,7 @@ fn decode_error(
     let mut contexts = direct_contexts();
     let table = table();
     let mut unread = Unread::default();
-    let mut decoder = match ready(SymbolDictionaryDecoder::new(
+    let mut decoder = match SymbolDictionaryDecoder::new(
         &mut source,
         &hdr,
         None,
@@ -68,11 +68,11 @@ fn decode_error(
         budget,
         RefinementBudget::default(),
         RefinementDictionaryBudget::default(),
-    )) {
+    ) {
         Ok(decoder) => decoder,
         Err(error) => panic!("decoder construction failed: {error}"),
     };
-    ready(decoder.decode()).unwrap_err()
+    decoder.decode().unwrap_err()
 }
 
 fn assert_resource(error: DictionaryError, expected: &str) {
@@ -99,7 +99,7 @@ fn constructor_error(
     let mut contexts = direct_contexts();
     let table = table();
     let mut unread = Unread::default();
-    let error = match ready(SymbolDictionaryDecoder::new(
+    let error = match SymbolDictionaryDecoder::new(
         &mut source,
         &hdr,
         None,
@@ -112,7 +112,7 @@ fn constructor_error(
         budget,
         RefinementBudget::default(),
         RefinementDictionaryBudget::default(),
-    )) {
+    ) {
         Ok(_) => panic!("unsupported dictionary accepted"),
         Err(error) => error,
     };
@@ -135,7 +135,7 @@ fn zero_symbol_dictionary_consumes_one_zero_iaex_run_and_finishes() {
     let table = self::table();
     let limits = Limits::default();
     let mut unread = Unread::default();
-    let mut decoder = ready(SymbolDictionaryDecoder::new(
+    let mut decoder = SymbolDictionaryDecoder::new(
         &mut source,
         &hdr,
         None,
@@ -148,9 +148,9 @@ fn zero_symbol_dictionary_consumes_one_zero_iaex_run_and_finishes() {
         DictionaryBudget::default(),
         RefinementBudget::default(),
         RefinementDictionaryBudget::default(),
-    ))
+    )
     .unwrap();
-    let report = ready(decoder.decode()).unwrap();
+    let report = decoder.decode().unwrap();
     assert_eq!(report.header.mode, DictionaryMode::ArithmeticDirect);
     assert_eq!(report.header.body.length, 3);
     assert!(report.catalog.new_symbols.is_empty());
@@ -191,7 +191,7 @@ fn one_symbol_uses_a_single_mq_unit_and_stores_an_unexported_bitmap() {
         ..Limits::default()
     };
     let mut unread = Unread::default();
-    let mut decoder = ready(SymbolDictionaryDecoder::new(
+    let mut decoder = SymbolDictionaryDecoder::new(
         &mut source,
         &hdr,
         None,
@@ -204,9 +204,9 @@ fn one_symbol_uses_a_single_mq_unit_and_stores_an_unexported_bitmap() {
         DictionaryBudget::default(),
         RefinementBudget::default(),
         RefinementDictionaryBudget::default(),
-    ))
+    )
     .unwrap();
-    let report = ready(decoder.decode()).unwrap();
+    let report = decoder.decode().unwrap();
     assert_eq!(report.progress.completed_symbols, 1);
     assert_eq!(
         (report.progress.height_classes, report.progress.export_runs),
@@ -244,7 +244,7 @@ fn descriptor_offset_is_relative_to_the_first_append_in_a_prefilled_store() {
     let table = table();
     let limits = Limits::default();
     let mut unread = Unread::default();
-    let mut decoder = match ready(SymbolDictionaryDecoder::new(
+    let mut decoder = match SymbolDictionaryDecoder::new(
         &mut source,
         &hdr,
         None,
@@ -257,11 +257,11 @@ fn descriptor_offset_is_relative_to_the_first_append_in_a_prefilled_store() {
         DictionaryBudget::default(),
         RefinementBudget::default(),
         RefinementDictionaryBudget::default(),
-    )) {
+    ) {
         Ok(decoder) => decoder,
         Err(error) => panic!("first append was rejected: {error}"),
     };
-    let report = ready(decoder.decode()).unwrap();
+    let report = decoder.decode().unwrap();
     assert_eq!(report.catalog.new_symbols[0].relative_store_offset, 0);
     assert_eq!(report.catalog.new_symbols[0].stored_bytes, 1);
     assert_eq!(report.progress.stored_bitmap_bytes, 1);
@@ -285,7 +285,7 @@ fn successive_symbols_share_bitmap_statistics_but_reset_row_history() {
     let table = table();
     let limits = Limits::default();
     let mut unread = Unread::default();
-    let mut decoder = ready(SymbolDictionaryDecoder::new(
+    let mut decoder = SymbolDictionaryDecoder::new(
         &mut source,
         &hdr,
         None,
@@ -298,9 +298,9 @@ fn successive_symbols_share_bitmap_statistics_but_reset_row_history() {
         DictionaryBudget::default(),
         RefinementBudget::default(),
         RefinementDictionaryBudget::default(),
-    ))
+    )
     .unwrap();
-    let report = ready(decoder.decode()).unwrap();
+    let report = decoder.decode().unwrap();
     assert_eq!(report.progress.completed_symbols, 2);
     assert_eq!(
         (report.progress.height_classes, report.progress.export_runs),
@@ -346,7 +346,7 @@ fn zero_length_export_run_toggles_flag_and_catalog_keeps_store_offset() {
     let table = table();
     let limits = Limits::default();
     let mut unread = Unread::default();
-    let mut decoder = ready(SymbolDictionaryDecoder::new(
+    let mut decoder = SymbolDictionaryDecoder::new(
         &mut source,
         &hdr,
         None,
@@ -359,9 +359,9 @@ fn zero_length_export_run_toggles_flag_and_catalog_keeps_store_offset() {
         DictionaryBudget::default(),
         RefinementBudget::default(),
         RefinementDictionaryBudget::default(),
-    ))
+    )
     .unwrap();
-    let report = ready(decoder.decode()).unwrap();
+    let report = decoder.decode().unwrap();
     assert_eq!(
         (
             report.progress.completed_symbols,
@@ -391,7 +391,7 @@ fn empty_height_class_then_zero_delta_class_decodes_one_symbol() {
     let table = table();
     let limits = Limits::default();
     let mut unread = Unread::default();
-    let mut decoder = ready(SymbolDictionaryDecoder::new(
+    let mut decoder = SymbolDictionaryDecoder::new(
         &mut source,
         &hdr,
         None,
@@ -404,9 +404,9 @@ fn empty_height_class_then_zero_delta_class_decodes_one_symbol() {
         DictionaryBudget::default(),
         RefinementBudget::default(),
         RefinementDictionaryBudget::default(),
-    ))
+    )
     .unwrap();
-    let report = ready(decoder.decode()).unwrap();
+    let report = decoder.decode().unwrap();
     assert_eq!(
         (
             report.progress.completed_symbols,
@@ -442,7 +442,7 @@ fn signed_negative_height_delta_can_follow_a_taller_empty_class() {
     let table = table();
     let limits = Limits::default();
     let mut unread = Unread::default();
-    let mut decoder = ready(SymbolDictionaryDecoder::new(
+    let mut decoder = SymbolDictionaryDecoder::new(
         &mut source,
         &hdr,
         None,
@@ -455,9 +455,9 @@ fn signed_negative_height_delta_can_follow_a_taller_empty_class() {
         DictionaryBudget::default(),
         RefinementBudget::default(),
         RefinementDictionaryBudget::default(),
-    ))
+    )
     .unwrap();
-    let report = ready(decoder.decode()).unwrap();
+    let report = decoder.decode().unwrap();
     assert_eq!(
         (
             report.progress.height_classes,
@@ -492,7 +492,7 @@ fn packed_width_nine_uses_partial_writes_and_zero_padding() {
     let table = table();
     let limits = Limits::default();
     let mut unread = Unread::default();
-    let mut decoder = ready(SymbolDictionaryDecoder::new(
+    let mut decoder = SymbolDictionaryDecoder::new(
         &mut source,
         &hdr,
         None,
@@ -505,9 +505,9 @@ fn packed_width_nine_uses_partial_writes_and_zero_padding() {
         DictionaryBudget::default(),
         RefinementBudget::default(),
         RefinementDictionaryBudget::default(),
-    ))
+    )
     .unwrap();
-    let report = ready(decoder.decode()).unwrap();
+    let report = decoder.decode().unwrap();
     assert_eq!(
         (
             report.progress.completed_symbols,
@@ -545,7 +545,7 @@ fn alternating_export_runs_select_second_symbol_in_original_order() {
     let table = table();
     let limits = Limits::default();
     let mut unread = Unread::default();
-    let mut decoder = ready(SymbolDictionaryDecoder::new(
+    let mut decoder = SymbolDictionaryDecoder::new(
         &mut source,
         &hdr,
         None,
@@ -558,9 +558,9 @@ fn alternating_export_runs_select_second_symbol_in_original_order() {
         DictionaryBudget::default(),
         RefinementBudget::default(),
         RefinementDictionaryBudget::default(),
-    ))
+    )
     .unwrap();
-    let report = ready(decoder.decode()).unwrap();
+    let report = decoder.decode().unwrap();
     assert_eq!(
         (
             report.progress.completed_symbols,
@@ -580,13 +580,13 @@ fn alternating_export_runs_select_second_symbol_in_original_order() {
 fn refinement_header_without_its_imported_report_is_refused_before_mq_or_output() {
     let mut source = segment(0x1802, &[(2, -1)], &[], 8, 2, &[0, 0, 0xff, 0xac], &[1]);
     let hdr = header(&mut source);
-    let parsed = ready(read_dictionary_data_header(
+    let parsed = read_dictionary_data_header(
         &mut source,
         &hdr,
         &Limits::default(),
         DictionaryBudget::default(),
         &CancelAfter::Never,
-    ))
+    )
     .unwrap();
     assert_eq!(parsed.mode, DictionaryMode::ArithmeticRefinementAggregate);
     assert_eq!(parsed.refinement_template, 1);
@@ -599,7 +599,7 @@ fn refinement_header_without_its_imported_report_is_refused_before_mq_or_output(
     };
     let mut contexts = direct_contexts();
     let mut unread = Unread::default();
-    let error = match ready(SymbolDictionaryDecoder::new(
+    let error = match SymbolDictionaryDecoder::new(
         &mut source,
         &hdr,
         None,
@@ -612,7 +612,7 @@ fn refinement_header_without_its_imported_report_is_refused_before_mq_or_output(
         DictionaryBudget::default(),
         RefinementBudget::default(),
         RefinementDictionaryBudget::default(),
-    )) {
+    ) {
         Ok(_) => panic!("refinement/aggregate accepted"),
         Err(error) => error,
     };
@@ -671,13 +671,13 @@ fn malformed_and_bounded_headers_never_enter_mq() {
     for (flags, at, rat, exported, new, body, expected) in cases {
         let mut source = segment(flags, &at, &rat, exported, new, &body, &[]);
         let hdr = header(&mut source);
-        let error = ready(read_dictionary_data_header(
+        let error = read_dictionary_data_header(
             &mut source,
             &hdr,
             &Limits::default(),
             DictionaryBudget::default(),
             &CancelAfter::Never,
-        ))
+        )
         .unwrap_err();
         assert!(error.to_string().contains(expected), "{error}");
         if flags == 0x8800 || flags == 0x0804 || flags == 0x1800 {
@@ -693,13 +693,13 @@ fn malformed_and_bounded_headers_never_enter_mq() {
         ..DictionaryBudget::default()
     };
     let before = source.read_calls;
-    let error = ready(read_dictionary_data_header(
+    let error = read_dictionary_data_header(
         &mut source,
         &hdr,
         &Limits::default(),
         budget,
         &CancelAfter::Never,
-    ))
+    )
     .unwrap_err();
     assert!(matches!(
         error.kind,
@@ -717,13 +717,13 @@ fn malformed_and_bounded_headers_never_enter_mq() {
         max_exported_symbols: 2,
         ..DictionaryBudget::default()
     };
-    let error = ready(read_dictionary_data_header(
+    let error = read_dictionary_data_header(
         &mut source,
         &hdr,
         &Limits::default(),
         budget,
         &CancelAfter::Never,
-    ))
+    )
     .unwrap_err();
     assert_eq!(error.offset, hdr.data.offset + 4);
     assert!(matches!(
@@ -737,13 +737,13 @@ fn malformed_and_bounded_headers_never_enter_mq() {
         max_new_symbols: 2,
         ..DictionaryBudget::default()
     };
-    let error = ready(read_dictionary_data_header(
+    let error = read_dictionary_data_header(
         &mut source,
         &hdr,
         &Limits::default(),
         budget,
         &CancelAfter::Never,
-    ))
+    )
     .unwrap_err();
     assert_eq!(error.offset, hdr.data.offset + 8);
     assert!(matches!(
@@ -778,7 +778,7 @@ fn terminal_failure_reports_extra_physical_fetch_and_poison() {
     let table = table();
     let limits = Limits::default();
     let mut unread = Unread::default();
-    let mut decoder = ready(SymbolDictionaryDecoder::new(
+    let mut decoder = SymbolDictionaryDecoder::new(
         &mut source,
         &hdr,
         None,
@@ -791,10 +791,10 @@ fn terminal_failure_reports_extra_physical_fetch_and_poison() {
         DictionaryBudget::default(),
         RefinementBudget::default(),
         RefinementDictionaryBudget::default(),
-    ))
+    )
     .unwrap();
     assert_eq!(decoder.progress().mq.unwrap().source_bytes_fetched, 256);
-    let error = ready(decoder.decode()).unwrap_err();
+    let error = decoder.decode().unwrap_err();
     assert!(
         matches!(error.kind, DictionaryErrorKind::Mq(ref mq) if matches!(mq.kind, ArithmeticErrorKind::InvalidMarker(0xab)))
     );
@@ -802,60 +802,7 @@ fn terminal_failure_reports_extra_physical_fetch_and_poison() {
     assert!(error.progress.poisoned);
     assert_eq!(decoder.progress().mq.unwrap().source_bytes_fetched, 258);
     assert!(matches!(
-        ready(decoder.decode()).unwrap_err().kind,
-        DictionaryErrorKind::Poisoned
-    ));
-    drop(decoder);
-    assert!(store.bytes.is_empty());
-    assert!(!store.flushed);
-}
-
-#[test]
-fn dropped_pending_finish_keeps_live_mq_progress_and_poison() {
-    let mut body = zero_run_data();
-    body.resize(298, 0);
-    body.extend_from_slice(&[0xff, 0xac]);
-    let mut source = segment(0x0800, &[(2, -1)], &[], 0, 0, &body, &[]);
-    let hdr = header(&mut source);
-    source.max_read = 1;
-    source.pending_at = Some(hdr.data.offset + 12 + 299);
-    let mut store = Store {
-        max_write: 1,
-        ..Store::default()
-    };
-    let mut contexts = direct_contexts();
-    let table = table();
-    let limits = Limits::default();
-    let mut unread = Unread::default();
-    let mut decoder = ready(SymbolDictionaryDecoder::new(
-        &mut source,
-        &hdr,
-        None,
-        direct_stores(&mut unread, &mut store),
-        &table,
-        &mut contexts,
-        &limits,
-        &CancelAfter::Never,
-        MqBudget::default(),
-        DictionaryBudget::default(),
-        RefinementBudget::default(),
-        RefinementDictionaryBudget::default(),
-    ))
-    .unwrap();
-    let mut future = Box::pin(decoder.decode());
-    assert!(matches!(
-        future
-            .as_mut()
-            .poll(&mut Context::from_waker(Waker::noop())),
-        Poll::Pending
-    ));
-    drop(future);
-    let progress = decoder.progress();
-    assert!(progress.poisoned);
-    assert!(progress.mq.unwrap().poisoned);
-    assert_eq!(progress.mq.unwrap().source_bytes_fetched, 257);
-    assert!(matches!(
-        ready(decoder.decode()).unwrap_err().kind,
+        decoder.decode().unwrap_err().kind,
         DictionaryErrorKind::Poisoned
     ));
     drop(decoder);
@@ -879,7 +826,7 @@ fn failed_zero_and_overreported_store_writes_poison_partial_catalog() {
         let table = table();
         let limits = Limits::default();
         let mut unread = Unread::default();
-        let mut decoder = ready(SymbolDictionaryDecoder::new(
+        let mut decoder = SymbolDictionaryDecoder::new(
             &mut source,
             &hdr,
             None,
@@ -892,9 +839,9 @@ fn failed_zero_and_overreported_store_writes_poison_partial_catalog() {
             DictionaryBudget::default(),
             RefinementBudget::default(),
             RefinementDictionaryBudget::default(),
-        ))
+        )
         .unwrap();
-        let error = ready(decoder.decode()).unwrap_err();
+        let error = decoder.decode().unwrap_err();
         assert!(matches!(
             error.kind,
             DictionaryErrorKind::Sink(_) | DictionaryErrorKind::Malformed("sink write length")
@@ -902,7 +849,7 @@ fn failed_zero_and_overreported_store_writes_poison_partial_catalog() {
         assert_eq!(error.progress.completed_symbols, 0);
         assert!(error.progress.poisoned);
         assert!(matches!(
-            ready(decoder.decode()).unwrap_err().kind,
+            decoder.decode().unwrap_err().kind,
             DictionaryErrorKind::Poisoned
         ));
         drop(decoder);
@@ -912,50 +859,8 @@ fn failed_zero_and_overreported_store_writes_poison_partial_catalog() {
 }
 
 #[test]
-fn dropped_pending_store_and_cancellation_after_partial_row_are_terminal() {
-    let body = [0x94, 0x7f, 0xff, 0xac];
-    let mut source = segment(0x0800, &[(2, -1)], &[], 0, 1, &body, &[]);
-    let hdr = header(&mut source);
-    let mut store = Store {
-        max_write: 1,
-        pending: true,
-        ..Store::default()
-    };
-    let mut contexts = direct_contexts();
-    let table = table();
+fn cancellation_after_partial_row_is_terminal() {
     let limits = Limits::default();
-    let mut unread = Unread::default();
-    let mut decoder = ready(SymbolDictionaryDecoder::new(
-        &mut source,
-        &hdr,
-        None,
-        direct_stores(&mut unread, &mut store),
-        &table,
-        &mut contexts,
-        &limits,
-        &CancelAfter::Never,
-        MqBudget::default(),
-        DictionaryBudget::default(),
-        RefinementBudget::default(),
-        RefinementDictionaryBudget::default(),
-    ))
-    .unwrap();
-    let mut future = Box::pin(decoder.decode());
-    assert!(matches!(
-        future
-            .as_mut()
-            .poll(&mut Context::from_waker(Waker::noop())),
-        Poll::Pending
-    ));
-    drop(future);
-    assert!(decoder.progress().poisoned);
-    assert!(matches!(
-        ready(decoder.decode()).unwrap_err().kind,
-        DictionaryErrorKind::Poisoned
-    ));
-    drop(decoder);
-    assert!(store.bytes.is_empty());
-
     let body = [0x90, 0x26, 0x08, 0xff, 0xac];
     let mut source = segment(0x0800, &[(2, -1)], &[], 0, 1, &body, &[]);
     let hdr = header(&mut source);
@@ -969,7 +874,7 @@ fn dropped_pending_store_and_cancellation_after_partial_row_are_terminal() {
     let mut contexts = direct_contexts();
     let table = self::table();
     let mut unread = Unread::default();
-    let mut decoder = ready(SymbolDictionaryDecoder::new(
+    let mut decoder = SymbolDictionaryDecoder::new(
         &mut source,
         &hdr,
         None,
@@ -982,9 +887,9 @@ fn dropped_pending_store_and_cancellation_after_partial_row_are_terminal() {
         DictionaryBudget::default(),
         RefinementBudget::default(),
         RefinementDictionaryBudget::default(),
-    ))
+    )
     .unwrap();
-    let error = ready(decoder.decode()).unwrap_err();
+    let error = decoder.decode().unwrap_err();
     assert!(matches!(error.kind, DictionaryErrorKind::Cancelled));
     assert_eq!(
         (
@@ -1015,13 +920,13 @@ fn conditional_dictionary_headers_classify_each_mode_and_field_layout() {
         let refinement_at = vec![(-1, -2); refinement_count];
         let mut source = segment(flags, &at, &refinement_at, 2, 3, &[0xff, 0xac], &[]);
         let hdr = header(&mut source);
-        let parsed = ready(read_dictionary_data_header(
+        let parsed = read_dictionary_data_header(
             &mut source,
             &hdr,
             &Limits::default(),
             DictionaryBudget::default(),
             &CancelAfter::Never,
-        ))
+        )
         .unwrap();
         assert_eq!(parsed.mode, expected_mode, "flags {flags:#06x}");
         assert_eq!(parsed.at_count, at_count as u8);
@@ -1050,13 +955,13 @@ fn invalid_flag_combinations_are_located_at_flags_before_mq() {
     for (flags, expected) in cases {
         let mut source = segment(flags, &[], &[], 0, 0, &[0xff, 0xac], &[]);
         let hdr = header(&mut source);
-        let error = ready(read_dictionary_data_header(
+        let error = read_dictionary_data_header(
             &mut source,
             &hdr,
             &Limits::default(),
             DictionaryBudget::default(),
             &CancelAfter::Never,
-        ))
+        )
         .unwrap_err();
         assert_eq!(error.offset, hdr.data.offset);
         assert!(error.to_string().contains(expected), "{error}");
@@ -1309,7 +1214,7 @@ fn preflight_resource_limits_are_typed_and_count_header_io() {
 fn dictionary_body_limit_uses_the_parsed_body_length() {
     let mut source = segment(0x0800, &[(2, -1)], &[], 0, 1, &ONE_SYMBOL, &[]);
     let hdr = header(&mut source);
-    let error = ready(read_dictionary_data_header(
+    let error = read_dictionary_data_header(
         &mut source,
         &hdr,
         &Limits::default(),
@@ -1318,7 +1223,7 @@ fn dictionary_body_limit_uses_the_parsed_body_length() {
             ..DictionaryBudget::default()
         },
         &CancelAfter::Never,
-    ))
+    )
     .unwrap_err();
     assert!(matches!(
         error.kind,
@@ -1337,7 +1242,7 @@ fn invalid_limits_and_zero_io_request_bound_are_rejected_before_framing_io() {
     let mut source = segment(0x0800, &[(2, -1)], &[], 0, 1, &ONE_SYMBOL, &[]);
     let hdr = header(&mut source);
     let before = source.read_calls;
-    let error = ready(read_dictionary_data_header(
+    let error = read_dictionary_data_header(
         &mut source,
         &hdr,
         &Limits::default(),
@@ -1346,7 +1251,7 @@ fn invalid_limits_and_zero_io_request_bound_are_rejected_before_framing_io() {
             ..DictionaryBudget::default()
         },
         &CancelAfter::Never,
-    ))
+    )
     .unwrap_err();
     assert!(matches!(
         error.kind,
@@ -1355,7 +1260,7 @@ fn invalid_limits_and_zero_io_request_bound_are_rejected_before_framing_io() {
     assert_eq!(source.read_calls, before);
     assert_eq!(error.progress.header_bytes_fetched, 0);
 
-    let error = ready(read_dictionary_data_header(
+    let error = read_dictionary_data_header(
         &mut source,
         &hdr,
         &Limits {
@@ -1364,7 +1269,7 @@ fn invalid_limits_and_zero_io_request_bound_are_rejected_before_framing_io() {
         },
         DictionaryBudget::default(),
         &CancelAfter::Never,
-    ))
+    )
     .unwrap_err();
     assert_eq!(error.offset, hdr.data.offset);
     assert!(matches!(
@@ -1388,7 +1293,7 @@ fn integer_decision_budget_failure_poisoned_before_any_bitmap() {
     let table = table();
     let limits = Limits::default();
     let mut unread = Unread::default();
-    let mut decoder = match ready(SymbolDictionaryDecoder::new(
+    let mut decoder = match SymbolDictionaryDecoder::new(
         &mut source,
         &hdr,
         None,
@@ -1404,11 +1309,11 @@ fn integer_decision_budget_failure_poisoned_before_any_bitmap() {
         DictionaryBudget::default(),
         RefinementBudget::default(),
         RefinementDictionaryBudget::default(),
-    )) {
+    ) {
         Ok(decoder) => decoder,
         Err(error) => panic!("small decision budget prevented construction: {error}"),
     };
-    let error = ready(decoder.decode()).unwrap_err();
+    let error = decoder.decode().unwrap_err();
     assert!(matches!(error.kind, DictionaryErrorKind::Mq(_)));
     assert_eq!(error.progress.completed_symbols, 0);
     assert_eq!(error.progress.mq.unwrap().symbols_decoded, 1);
@@ -1429,7 +1334,7 @@ fn bitmap_decision_budget_failure_reports_bitmap_context_and_no_store_bytes() {
     let table = table();
     let limits = Limits::default();
     let mut unread = Unread::default();
-    let mut decoder = match ready(SymbolDictionaryDecoder::new(
+    let mut decoder = match SymbolDictionaryDecoder::new(
         &mut source,
         &hdr,
         None,
@@ -1445,11 +1350,11 @@ fn bitmap_decision_budget_failure_reports_bitmap_context_and_no_store_bytes() {
         DictionaryBudget::default(),
         RefinementBudget::default(),
         RefinementDictionaryBudget::default(),
-    )) {
+    ) {
         Ok(decoder) => decoder,
         Err(error) => panic!("bitmap decision budget prevented construction: {error}"),
     };
-    let error = ready(decoder.decode()).unwrap_err();
+    let error = decoder.decode().unwrap_err();
     assert!(
         matches!(&error.kind, DictionaryErrorKind::Mq(mq) if mq.context.is_some_and(|context| context >= INTEGER_CONTEXT_COUNT)),
         "{error}"
@@ -1571,7 +1476,7 @@ fn fewer_exported_symbols_than_declared_are_rejected_after_the_final_run() {
     let table = table();
     let limits = Limits::default();
     let mut unread = Unread::default();
-    let mut decoder = ready(SymbolDictionaryDecoder::new(
+    let mut decoder = SymbolDictionaryDecoder::new(
         &mut source,
         &hdr,
         None,
@@ -1584,9 +1489,9 @@ fn fewer_exported_symbols_than_declared_are_rejected_after_the_final_run() {
         DictionaryBudget::default(),
         RefinementBudget::default(),
         RefinementDictionaryBudget::default(),
-    ))
+    )
     .unwrap();
-    let error = ready(decoder.decode()).unwrap_err();
+    let error = decoder.decode().unwrap_err();
     assert!(
         matches!(
             error.kind,
@@ -1598,7 +1503,7 @@ fn fewer_exported_symbols_than_declared_are_rejected_after_the_final_run() {
     assert_eq!(error.progress.export_runs, 1);
     assert!(error.progress.poisoned);
     assert!(matches!(
-        ready(decoder.decode()).unwrap_err().kind,
+        decoder.decode().unwrap_err().kind,
         DictionaryErrorKind::Poisoned
     ));
     drop(decoder);
@@ -1615,13 +1520,13 @@ fn count_field_cut_by_the_segment_length_is_truncated_before_reading_it() {
     source.advertised = source.bytes.len() as u64;
     let hdr = header(&mut source);
     let reads = source.read_calls;
-    let error = ready(read_dictionary_data_header(
+    let error = read_dictionary_data_header(
         &mut source,
         &hdr,
         &Limits::default(),
         DictionaryBudget::default(),
         &CancelAfter::Never,
-    ))
+    )
     .unwrap_err();
     assert!(
         matches!(
@@ -1646,11 +1551,7 @@ impl RangedSource for AddressSpaceEnd {
     fn size(&self) -> u64 {
         u64::MAX
     }
-    async fn read_at(
-        &mut self,
-        offset: u64,
-        destination: &mut [u8],
-    ) -> caj2pdf_core::Result<usize> {
+    fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> caj2pdf_core::Result<usize> {
         let start = usize::try_from(offset - self.base).unwrap();
         let count = self
             .bytes
@@ -1670,7 +1571,7 @@ fn header_field_at_the_end_of_the_address_space_is_an_invalid_span() {
     bytes[7..11].copy_from_slice(&1u32.to_be_bytes());
     let base = u64::MAX - bytes.len() as u64;
     let mut source = AddressSpaceEnd { base, bytes };
-    let hdr = ready(read_segment_header(
+    let hdr = read_segment_header(
         &mut source,
         SegmentSpan {
             offset: base,
@@ -1679,16 +1580,16 @@ fn header_field_at_the_end_of_the_address_space_is_an_invalid_span() {
         &Limits::default(),
         HeaderLimits::default(),
         &CancelAfter::Never,
-    ))
+    )
     .unwrap();
     assert_eq!(hdr.data.offset + hdr.data.length, u64::MAX);
-    let error = ready(read_dictionary_data_header(
+    let error = read_dictionary_data_header(
         &mut source,
         &hdr,
         &Limits::default(),
         DictionaryBudget::default(),
         &CancelAfter::Never,
-    ))
+    )
     .unwrap_err();
     assert!(
         matches!(
@@ -1715,7 +1616,7 @@ fn cancellation_at_every_checkpoint_never_reports_a_catalog() {
         };
         let mut contexts = direct_contexts();
         let limits = Limits::default();
-        let result = ready(async {
+        let result = (|| {
             let mut unread = Unread::default();
             let mut decoder = SymbolDictionaryDecoder::new(
                 &mut source,
@@ -1730,10 +1631,9 @@ fn cancellation_at_every_checkpoint_never_reports_a_catalog() {
                 DictionaryBudget::default(),
                 RefinementBudget::default(),
                 RefinementDictionaryBudget::default(),
-            )
-            .await?;
-            decoder.decode().await
-        });
+            )?;
+            decoder.decode()
+        })();
         match result {
             Ok(report) => {
                 assert_eq!(report.progress.completed_symbols, 1);

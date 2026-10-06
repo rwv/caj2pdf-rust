@@ -27,7 +27,7 @@ pub const IAID_BASE: usize = BITMAP_BASE + BITMAP_CONTEXT_COUNT;
 /// consumes exactly `code_len` MQ symbols. A zero-bit call still checks
 /// cancellation and poisoned state. Context adaptation persists across calls
 /// until the caller resets the bank.
-pub async fn decode_iaid<S: RangedSource, C: Cancellation>(
+pub fn decode_iaid<S: RangedSource, C: Cancellation>(
     decoder: &mut MqDecoder<'_, S, C>,
     code_len: u32,
 ) -> ArithmeticResult<u64> {
@@ -47,7 +47,7 @@ pub async fn decode_iaid<S: RangedSource, C: Cancellation>(
         // Before each decision `prev < 2^code_len`, and the last context was
         // checked above. After the last one `prev < 2^(code_len + 1) <= 2^64`.
         let context = IAID_BASE + prev as usize;
-        let bit = decoder.decode_bit(context).await?;
+        let bit = decoder.decode_bit(context)?;
         prev = prev * 2 + u64::from(bit);
     }
     // `ids` is a checked `usize`, so it fits u64.

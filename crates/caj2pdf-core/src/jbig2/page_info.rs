@@ -310,7 +310,7 @@ fn checked_info(
 ///
 /// The caller owns the range source. Reads are positioned, at most 19 bytes,
 /// and may complete through several short reads. No heap allocation occurs.
-pub async fn read_page_info<S: RangedSource, C: Cancellation>(
+pub fn read_page_info<S: RangedSource, C: Cancellation>(
     source: &mut S,
     header: &SegmentHeader,
     limits: &Limits,
@@ -353,9 +353,7 @@ pub async fn read_page_info<S: RangedSource, C: Cancellation>(
         let request = (bytes.len() - done).min(request_bound);
         max_request = max_request.max(request);
         calls += 1;
-        let result = source
-            .read_at(offset, &mut bytes[done..done + request])
-            .await;
+        let result = source.read_at(offset, &mut bytes[done..done + request]);
         let count = result.map_err(|error| {
             let kind = match error {
                 Error::Cancelled => PageInfoErrorKind::Cancelled,

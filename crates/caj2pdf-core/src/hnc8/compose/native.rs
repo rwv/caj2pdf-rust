@@ -32,7 +32,7 @@ pub struct C8FontSource<F> {
 /// The caller must discard partial output on error or a dropped future.
 /// Bookmarks remain unsupported. CLI/JavaScript transport is separate.
 #[allow(clippy::too_many_arguments)]
-pub async fn convert_c8_native_pdf<'a, S, F, W, T, C>(
+pub fn convert_c8_native_pdf<'a, S, F, W, T, C>(
     source: &mut S,
     sink: &mut W,
     fonts: C8FontSources<'_, F>,
@@ -73,7 +73,6 @@ where
     let mut input_bytes_read = 0;
     let mut counted = CountingSource::new(source, &mut input_bytes_read);
     let mut reader = Hnc8Reader::open(&mut counted, limits, cancellation, options.container)
-        .await
         .map_err(|error| container(error, ComposeStage::Container))?;
     let header = reader.header();
     let at = At {
@@ -87,16 +86,14 @@ where
             ComposeErrorKind::Unsupported("native composition requires C8 or HN-B"),
         )));
     }
-    let mut document = PdfDocument::new(sink, limits, cancellation)
-        .await
-        .map_err(at.io(ComposeStage::Pdf))?;
+    let mut document =
+        PdfDocument::new(sink, limits, cancellation).map_err(at.io(ComposeStage::Pdf))?;
     let mut handles: Vec<FontObject> =
         page_vector(count, limits, "C8 font handles").map_err(at.io(ComposeStage::Preflight))?;
     let mut font_bytes = 0u64;
     for C8FontSource { source, face } in fonts.sources.iter_mut() {
         let mut counted_font = CountingSource::new(source, &mut font_bytes);
         let font = OpenTypeFont::read(&mut counted_font, *face, limits, cancellation)
-            .await
             .map_err(at.io(ComposeStage::Preflight))?;
         handles.push(document.add_font(&font).map_err(at.io(ComposeStage::Pdf))?);
     }
@@ -127,7 +124,6 @@ where
     let mut contexts = None;
     while let Some(page) = reader
         .next_page()
-        .await
         .map_err(|error| container(error, ComposeStage::Container))?
     {
         let at = At::page(header, page);
@@ -147,7 +143,6 @@ where
         check_metadata(bytes, options.budget).map_err(at.io(ComposeStage::Preflight))?;
         while let Some(record) = reader
             .next_image()
-            .await
             .map_err(|error| container(error, ComposeStage::Container))?
         {
             let image_at = at.image(record);
@@ -161,8 +156,7 @@ where
                 options,
                 limits,
                 cancellation,
-            )
-            .await?;
+            )?;
             top_first.push(!matches!(checked, CheckedImage::Jpeg(_)));
             // Native placement comes from the record visitor, after resources
             // are emitted. The codec emitter does not consume this transform.
@@ -176,23 +170,20 @@ where
                 duplicate_of: None,
                 type3_text_header_anomaly: None,
             };
-            images.push(
-                emit_image(
-                    reader.source_mut(),
-                    &mut document,
-                    &mut image,
-                    plan,
-                    image_at,
-                    &mut contexts,
-                    &mut type3,
-                    table,
-                    options,
-                    limits,
-                    cancellation,
-                    &mut report,
-                )
-                .await?,
-            );
+            images.push(emit_image(
+                reader.source_mut(),
+                &mut document,
+                &mut image,
+                plan,
+                image_at,
+                &mut contexts,
+                &mut type3,
+                table,
+                options,
+                limits,
+                cancellation,
+                &mut report,
+            )?);
         }
         report.output_pages = write_c8_native_page(
             &mut reader,
@@ -203,7 +194,6 @@ where
             &top_first,
             options.text,
         )
-        .await
         .map_err(|error| container(error, ComposeStage::Text))?
             + 1;
         report.no_image_pages += u32::from(count == 0);
@@ -213,14 +203,12 @@ where
     for (handle, C8FontSource { source, face }) in handles.iter().zip(fonts.sources.iter_mut()) {
         let mut counted_font = CountingSource::new(source, &mut font_bytes);
         let mut font = OpenTypeFont::read(&mut counted_font, *face, limits, cancellation)
-            .await
             .map_err(at.io(ComposeStage::Pdf))?;
         document
             .embed_font(handle, &mut font)
-            .await
             .map_err(at.io(ComposeStage::Pdf))?;
     }
-    report.conversion = finish_document(&mut reader, document, &mut report, at).await?;
+    report.conversion = finish_document(&mut reader, document, &mut report, at)?;
     report.conversion.input_bytes_read = input_bytes_read.saturating_add(font_bytes);
     Ok(report)
 }

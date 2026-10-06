@@ -81,7 +81,7 @@ impl<'a, S: RangedSource, C: Cancellation> ArithmeticDecoder<'a, S, C> {
     /// span are virtual zero; a short read *inside* the span is an error.
     /// Every stripe starts from reset contexts.
     #[allow(clippy::too_many_arguments)]
-    pub async fn new(
+    pub fn new(
         source: &'a mut S,
         span: CodedSpan,
         table: &'a QmTable,
@@ -116,17 +116,17 @@ impl<'a, S: RangedSource, C: Cancellation> ArithmeticDecoder<'a, S, C> {
             code: 0,
             bit_counter: 0,
         };
-        decoder.byte_in(None).await?;
+        decoder.byte_in(None)?;
         decoder.code <<= 8;
-        decoder.byte_in(None).await?;
+        decoder.byte_in(None)?;
         decoder.code <<= 8;
-        decoder.byte_in(None).await?;
+        decoder.byte_in(None)?;
         Ok(decoder)
     }
 
     /// Decode one bit for a checked context. Any error after work starts
     /// poisons this stripe so a partial register update cannot be reused.
-    pub async fn decode_symbol(&mut self, context: usize) -> ArithmeticResult<bool> {
+    pub fn decode_symbol(&mut self, context: usize) -> ArithmeticResult<bool> {
         if self.counters.poisoned {
             return Err(self.at(Some(context), ArithmeticErrorKind::Poisoned));
         }
@@ -141,7 +141,7 @@ impl<'a, S: RangedSource, C: Cancellation> ArithmeticDecoder<'a, S, C> {
         // A caller may drop this future while source I/O is pending. Mark the
         // partially advanced registers unusable before the first await.
         self.counters.poisoned = true;
-        let bit = self.decode_symbol_inner(context).await?;
+        let bit = self.decode_symbol_inner(context)?;
         self.counters.complete_symbol(symbols);
         Ok(bit)
     }
@@ -202,7 +202,7 @@ impl<'a, S: RangedSource, C: Cancellation> ArithmeticDecoder<'a, S, C> {
             .map_err(|kind| self.at(context, kind))
     }
 
-    async fn next_byte(&mut self, context: Option<usize>) -> ArithmeticResult<u8> {
+    fn next_byte(&mut self, context: Option<usize>) -> ArithmeticResult<u8> {
         self.check_cancelled(context)?;
         let relative = self.physical_bytes_consumed;
         if relative == self.span.length {
@@ -227,7 +227,6 @@ impl<'a, S: RangedSource, C: Cancellation> ArithmeticDecoder<'a, S, C> {
                         self.limits,
                         self.cancellation,
                     )
-                    .await
                     .map_err(|(offset, kind)| ArithmeticError {
                         coder: Some(Coder::T82),
                         offset: Some(offset),
@@ -241,19 +240,19 @@ impl<'a, S: RangedSource, C: Cancellation> ArithmeticDecoder<'a, S, C> {
         Ok(byte)
     }
 
-    async fn byte_in(&mut self, context: Option<usize>) -> ArithmeticResult<()> {
+    fn byte_in(&mut self, context: Option<usize>) -> ArithmeticResult<()> {
         self.charge(context)?;
-        let byte = self.next_byte(context).await?;
+        let byte = self.next_byte(context)?;
         self.code = self.code.wrapping_add(u32::from(byte) << 8);
         self.bit_counter = 8;
         Ok(())
     }
 
-    async fn renormalize(&mut self, context: usize) -> ArithmeticResult<()> {
+    fn renormalize(&mut self, context: usize) -> ArithmeticResult<()> {
         loop {
             self.check_cancelled(Some(context))?;
             if self.bit_counter == 0 {
-                self.byte_in(Some(context)).await?;
+                self.byte_in(Some(context))?;
             }
             self.charge(Some(context))?;
             self.interval <<= 1;
@@ -264,12 +263,12 @@ impl<'a, S: RangedSource, C: Cancellation> ArithmeticDecoder<'a, S, C> {
             }
         }
         if self.bit_counter == 0 {
-            self.byte_in(Some(context)).await?;
+            self.byte_in(Some(context))?;
         }
         Ok(())
     }
 
-    async fn decode_symbol_inner(&mut self, context: usize) -> ArithmeticResult<bool> {
+    fn decode_symbol_inner(&mut self, context: usize) -> ArithmeticResult<bool> {
         self.charge(Some(context))?;
         let current = self.contexts.state(context);
         let state = self.table.get(current.state_index);
@@ -297,7 +296,7 @@ impl<'a, S: RangedSource, C: Cancellation> ArithmeticDecoder<'a, S, C> {
                         mps: current.mps,
                     }
                 };
-                self.renormalize(context).await?;
+                self.renormalize(context)?;
                 (current.mps ^ exchange, next)
             } else {
                 (current.mps, current)
@@ -318,7 +317,7 @@ impl<'a, S: RangedSource, C: Cancellation> ArithmeticDecoder<'a, S, C> {
                     mps: current.mps,
                 }
             };
-            self.renormalize(context).await?;
+            self.renormalize(context)?;
             (current.mps ^ exchange, next)
         };
         self.contexts.update(context, next);
@@ -329,14 +328,8 @@ impl<'a, S: RangedSource, C: Cancellation> ArithmeticDecoder<'a, S, C> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::run;
     use crate::{Error, MAX_BUDGET_COUNT};
-    use std::{
-        cell::Cell,
-        future::Future,
-        rc::Rc,
-        task::{Context, Poll, Waker},
-    };
+    use std::{cell::Cell, rc::Rc};
 
     #[derive(Debug)]
     struct MockSource {
@@ -366,7 +359,7 @@ mod tests {
             self.advertised_size
         }
 
-        async fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> crate::Result<usize> {
+        fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> crate::Result<usize> {
             self.calls += 1;
             if self.overreport_at == Some(offset) {
                 return Ok(destination.len() + 1);
@@ -383,22 +376,6 @@ mod tests {
                 flag.set(true);
             }
             Ok(count)
-        }
-    }
-
-    struct PendingSource([u8; 4]);
-
-    impl RangedSource for PendingSource {
-        fn size(&self) -> u64 {
-            4
-        }
-
-        async fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> crate::Result<usize> {
-            if offset == 3 {
-                std::future::pending::<()>().await;
-            }
-            destination[0] = self.0[offset as usize];
-            Ok(1)
         }
     }
 
@@ -431,7 +408,7 @@ mod tests {
         let table = QmTable::standard();
         let mut contexts = ContextBank::new(2, &limits).unwrap();
         let mut source = MockSource::new(&[0, 0, 0]);
-        let invalid_span = run(ArithmeticDecoder::new(
+        let invalid_span = ArithmeticDecoder::new(
             &mut source,
             CodedSpan {
                 offset: u64::MAX,
@@ -442,7 +419,7 @@ mod tests {
             &limits,
             &NEVER,
             budget(),
-        ));
+        );
         assert!(matches!(
             invalid_span.err().unwrap().kind,
             ArithmeticErrorKind::InvalidSpan(_)
@@ -450,7 +427,7 @@ mod tests {
         assert_eq!(source.calls, 0);
         let mut overreport = MockSource::new(&[0, 0, 0]);
         overreport.overreport_at = Some(0);
-        let error = run(ArithmeticDecoder::new(
+        let error = ArithmeticDecoder::new(
             &mut overreport,
             span(3),
             &table,
@@ -458,7 +435,7 @@ mod tests {
             &limits,
             &NEVER,
             budget(),
-        ))
+        )
         .err()
         .unwrap();
         assert_eq!(error.offset, Some(0));
@@ -469,7 +446,7 @@ mod tests {
         assert_eq!(overreport.calls, 1);
         let mut small_input = limits;
         small_input.max_input_bytes = 2;
-        let input_limit = run(ArithmeticDecoder::new(
+        let input_limit = ArithmeticDecoder::new(
             &mut source,
             CodedSpan {
                 offset: 1,
@@ -480,7 +457,7 @@ mod tests {
             &small_input,
             &NEVER,
             budget(),
-        ))
+        )
         .err()
         .unwrap();
         assert_eq!(input_limit.offset, Some(1));
@@ -489,7 +466,7 @@ mod tests {
             ArithmeticErrorKind::Source(Error::LimitExceeded { .. })
         ));
         assert_eq!(source.calls, 0);
-        let invalid_budget = run(ArithmeticDecoder::new(
+        let invalid_budget = ArithmeticDecoder::new(
             &mut source,
             span(3),
             &table,
@@ -500,13 +477,13 @@ mod tests {
                 max_symbols: 0,
                 max_work: 1,
             },
-        ));
+        );
         assert!(matches!(
             invalid_budget.err().unwrap().kind,
             ArithmeticErrorKind::InvalidBudget
         ));
         for (max_symbols, max_work) in [(MAX_BUDGET_COUNT + 1, 1), (1, MAX_BUDGET_COUNT + 1)] {
-            let above_ceiling = run(ArithmeticDecoder::new(
+            let above_ceiling = ArithmeticDecoder::new(
                 &mut source,
                 span(3),
                 &table,
@@ -517,14 +494,14 @@ mod tests {
                     max_symbols,
                     max_work,
                 },
-            ));
+            );
             assert!(matches!(
                 above_ceiling.err().unwrap().kind,
                 ArithmeticErrorKind::InvalidBudget
             ));
         }
         assert_eq!(source.calls, 0);
-        run(ArithmeticDecoder::new(
+        ArithmeticDecoder::new(
             &mut source,
             span(3),
             &table,
@@ -535,7 +512,7 @@ mod tests {
                 max_symbols: MAX_BUDGET_COUNT,
                 max_work: MAX_BUDGET_COUNT,
             },
-        ))
+        )
         .unwrap();
     }
 
@@ -546,7 +523,7 @@ mod tests {
         let mut contexts = ContextBank::new(2, &limits).unwrap();
         // An LPS in context 1 switches its MPS and moves it to state 1.
         let mut source = MockSource::new(&[0xc0, 0, 0]);
-        let mut decoder = run(ArithmeticDecoder::new(
+        let mut decoder = ArithmeticDecoder::new(
             &mut source,
             span(3),
             &table,
@@ -554,9 +531,9 @@ mod tests {
             &limits,
             &NEVER,
             budget(),
-        ))
+        )
         .unwrap();
-        assert!(run(decoder.decode_symbol(1)).unwrap());
+        assert!(decoder.decode_symbol(1).unwrap());
         decoder.finish(1).unwrap();
         let adapted = ContextState {
             state_index: 1,
@@ -575,7 +552,7 @@ mod tests {
                 length: 0,
             },
         ] {
-            let error = run(ArithmeticDecoder::new(
+            let error = ArithmeticDecoder::new(
                 &mut source,
                 span,
                 &table,
@@ -583,7 +560,7 @@ mod tests {
                 &limits,
                 &NEVER,
                 budget(),
-            ))
+            )
             .err()
             .unwrap();
             assert_eq!(error.offset, Some(span.offset));
@@ -614,7 +591,7 @@ mod tests {
 
         let mut short = MockSource::new(&[0, 0]);
         short.advertised_size = 3;
-        let source_error = run(ArithmeticDecoder::new(
+        let source_error = ArithmeticDecoder::new(
             &mut short,
             span(3),
             &table,
@@ -622,7 +599,7 @@ mod tests {
             &limits,
             &NEVER,
             budget(),
-        ))
+        )
         .err()
         .unwrap();
         assert_eq!(source_error.offset, Some(2));
@@ -645,7 +622,7 @@ mod tests {
         );
 
         let mut source = MockSource::new(&[0, 0, 0]);
-        let mut decoder = run(ArithmeticDecoder::new(
+        let mut decoder = ArithmeticDecoder::new(
             &mut source,
             span(3),
             &table,
@@ -656,16 +633,16 @@ mod tests {
                 max_symbols: 1,
                 max_work: 100,
             },
-        ))
+        )
         .unwrap();
-        let invalid_context = run(decoder.decode_symbol(1)).unwrap_err();
+        let invalid_context = decoder.decode_symbol(1).unwrap_err();
         assert_eq!(
             invalid_context.to_string(),
             "T.82 arithmetic decoder at source byte 3, context 1: invalid context index or count"
         );
         assert!(std::error::Error::source(&invalid_context).is_none());
-        assert!(!run(decoder.decode_symbol(0)).unwrap());
-        let limit = run(decoder.decode_symbol(0)).unwrap_err();
+        assert!(!decoder.decode_symbol(0).unwrap());
+        let limit = decoder.decode_symbol(0).unwrap_err();
         assert_eq!(
             limit.to_string(),
             "T.82 arithmetic decoder at source byte 3, context 0: symbols limit 1 exceeded by 2"
@@ -688,7 +665,7 @@ mod tests {
         let mut contexts = ContextBank::new(1, &limits).unwrap();
         let mut source = MockSource::new(&[0x12, 0x34, 0x56, 0x78]);
         source.max_read = 1;
-        let decoder = run(ArithmeticDecoder::new(
+        let decoder = ArithmeticDecoder::new(
             &mut source,
             span(3),
             &table,
@@ -696,7 +673,7 @@ mod tests {
             &limits,
             &NEVER,
             budget(),
-        ))
+        )
         .unwrap();
         let snapshot = decoder.snapshot();
         assert_eq!(snapshot.interval, 0x10000);
@@ -708,7 +685,7 @@ mod tests {
         assert_eq!(source.calls, 3);
 
         let mut empty = MockSource::new(&[0xff]);
-        let decoder = run(ArithmeticDecoder::new(
+        let decoder = ArithmeticDecoder::new(
             &mut empty,
             span(0),
             &table,
@@ -716,7 +693,7 @@ mod tests {
             &limits,
             &NEVER,
             budget(),
-        ))
+        )
         .unwrap();
         assert_eq!(decoder.snapshot().code, 0);
         assert_eq!(decoder.snapshot().synthesized_inputs, 3);
@@ -726,7 +703,7 @@ mod tests {
 
         let mut short = MockSource::new(&[0xaa, 0xbb]);
         short.advertised_size = 3;
-        let error = run(ArithmeticDecoder::new(
+        let error = ArithmeticDecoder::new(
             &mut short,
             span(3),
             &table,
@@ -734,7 +711,7 @@ mod tests {
             &limits,
             &NEVER,
             budget(),
-        ))
+        )
         .err()
         .unwrap();
         assert_eq!(error.offset, Some(2));
@@ -753,7 +730,7 @@ mod tests {
         let mut contexts = ContextBank::new(1, &limits).unwrap();
         let mut decode = |bytes: &[u8], symbols: usize| {
             let mut source = MockSource::new(bytes);
-            let mut decoder = run(ArithmeticDecoder::new(
+            let mut decoder = ArithmeticDecoder::new(
                 &mut source,
                 span(3),
                 &table,
@@ -761,11 +738,11 @@ mod tests {
                 &limits,
                 &NEVER,
                 budget(),
-            ))
+            )
             .unwrap();
             let mut trace = Vec::new();
             for _ in 0..symbols {
-                let bit = run(decoder.decode_symbol(0)).unwrap();
+                let bit = decoder.decode_symbol(0).unwrap();
                 let snapshot = decoder.snapshot();
                 trace.push((
                     bit,
@@ -819,7 +796,7 @@ mod tests {
         };
         let mut contexts = ContextBank::new(1, &limits).unwrap();
         let mut source = MockSource::new(&[0, 0, 0, 0xff]);
-        let mut decoder = run(ArithmeticDecoder::new(
+        let mut decoder = ArithmeticDecoder::new(
             &mut source,
             span(4),
             &table,
@@ -827,21 +804,21 @@ mod tests {
             &limits,
             &NEVER,
             budget(),
-        ))
+        )
         .unwrap();
         decoder.code = 0xffff_ff00;
-        run(decoder.byte_in(None)).unwrap();
+        decoder.byte_in(None).unwrap();
         assert_eq!(decoder.snapshot().code, 0x0000_fe00);
         assert_eq!(decoder.snapshot().input_offset, 4);
         decoder.interval = 0x7fff;
         decoder.bit_counter = 8;
-        run(decoder.renormalize(0)).unwrap();
+        decoder.renormalize(0).unwrap();
         assert_eq!(decoder.snapshot().interval, 0xfffe);
         assert_eq!(decoder.snapshot().bit_counter, 7);
         decoder.budget.max_symbols = MAX_BUDGET_COUNT;
         decoder.counters.symbols_decoded = MAX_BUDGET_COUNT;
         assert!(matches!(
-            run(decoder.decode_symbol(0)).unwrap_err().kind,
+            decoder.decode_symbol(0).unwrap_err().kind,
             ArithmeticErrorKind::LimitExceeded {
                 resource: "symbols",
                 limit: MAX_BUDGET_COUNT,
@@ -864,7 +841,7 @@ mod tests {
 
         let broad_limits = Limits::default();
         let mut large_span = MockSource::new(&[0; INPUT_BUFFER_BYTES]);
-        let mut decoder = run(ArithmeticDecoder::new(
+        let mut decoder = ArithmeticDecoder::new(
             &mut large_span,
             span(INPUT_BUFFER_BYTES as u64),
             &table,
@@ -875,11 +852,11 @@ mod tests {
                 max_symbols: 1,
                 max_work: 4,
             },
-        ))
+        )
         .unwrap();
-        assert!(!run(decoder.decode_symbol(0)).unwrap());
+        assert!(!decoder.decode_symbol(0).unwrap());
         assert_eq!(decoder.snapshot().work_done, 4);
-        let error = run(decoder.decode_symbol(0)).unwrap_err();
+        let error = decoder.decode_symbol(0).unwrap_err();
         assert!(matches!(
             error.kind,
             ArithmeticErrorKind::LimitExceeded {
@@ -904,7 +881,7 @@ mod tests {
         let cancelled = Rc::new(Cell::new(true));
         let flag = Flag(Some(cancelled.clone()));
         let mut before_start = MockSource::new(&[0, 0, 0]);
-        let error = run(ArithmeticDecoder::new(
+        let error = ArithmeticDecoder::new(
             &mut before_start,
             span(3),
             &table,
@@ -912,7 +889,7 @@ mod tests {
             &limits,
             &flag,
             budget(),
-        ))
+        )
         .err()
         .unwrap();
         assert!(matches!(error.kind, ArithmeticErrorKind::Cancelled));
@@ -921,7 +898,7 @@ mod tests {
         cancelled.set(false);
         let mut during_symbol = MockSource::new(&[0xff, 0xff, 0, 0x55]);
         during_symbol.cancel_at = Some((3, cancelled.clone()));
-        let mut decoder = run(ArithmeticDecoder::new(
+        let mut decoder = ArithmeticDecoder::new(
             &mut during_symbol,
             span(4),
             &table,
@@ -929,7 +906,7 @@ mod tests {
             &limits,
             &flag,
             budget(),
-        ))
+        )
         .unwrap();
         // The fourth byte enters C during the renormalization of a later
         // symbol; the symbols before it complete.
@@ -941,7 +918,7 @@ mod tests {
         assert_eq!(decoder.snapshot().symbols_decoded, decoded);
         assert_eq!(decoder.context_state(0), Some(before));
         assert!(matches!(
-            run(decoder.decode_symbol(0)).unwrap_err().kind,
+            decoder.decode_symbol(0).unwrap_err().kind,
             ArithmeticErrorKind::Poisoned
         ));
         assert!(matches!(
@@ -952,7 +929,7 @@ mod tests {
 
         let mut short = MockSource::new(&[0xff, 0xff, 0]);
         short.advertised_size = 4;
-        let mut decoder = run(ArithmeticDecoder::new(
+        let mut decoder = ArithmeticDecoder::new(
             &mut short,
             span(4),
             &table,
@@ -960,7 +937,7 @@ mod tests {
             &limits,
             &NEVER,
             budget(),
-        ))
+        )
         .unwrap();
         let (decoded, _, error) = decode_until_error(&mut decoder);
         assert_eq!(error.offset, Some(3));
@@ -971,7 +948,7 @@ mod tests {
         ));
         assert!(decoder.snapshot().poisoned);
         assert!(matches!(
-            run(decoder.decode_symbol(0)).unwrap_err().kind,
+            decoder.decode_symbol(0).unwrap_err().kind,
             ArithmeticErrorKind::Poisoned
         ));
         assert!(matches!(
@@ -988,52 +965,11 @@ mod tests {
     ) -> (u64, ContextState, ArithmeticError) {
         for decoded in 0..16 {
             let before = decoder.context_state(0).unwrap();
-            if let Err(error) = run(decoder.decode_symbol(0)) {
+            if let Err(error) = decoder.decode_symbol(0) {
                 return (decoded, before, error);
             }
         }
         panic!("the fixture never failed");
-    }
-
-    #[test]
-    fn dropping_a_pending_symbol_future_poisons_the_decoder() {
-        let table = QmTable::standard();
-        let limits = Limits {
-            io_chunk_bytes: 1,
-            ..Limits::default()
-        };
-        let mut contexts = ContextBank::new(1, &limits).unwrap();
-        let mut source = PendingSource([0xff, 0xff, 0, 0x55]);
-        let mut decoder = run(ArithmeticDecoder::new(
-            &mut source,
-            span(4),
-            &table,
-            &mut contexts,
-            &limits,
-            &NEVER,
-            budget(),
-        ))
-        .unwrap();
-        // The symbol whose renormalization reads the fourth byte stays
-        // pending; the symbols before it complete.
-        let mut task_context = Context::from_waker(Waker::noop());
-        let mut completed = 0;
-        loop {
-            let mut pending = Box::pin(decoder.decode_symbol(0));
-            match pending.as_mut().poll(&mut task_context) {
-                Poll::Ready(bit) => {
-                    bit.unwrap();
-                    completed += 1;
-                    assert!(completed < 16, "the fixture never reached byte 3");
-                }
-                Poll::Pending => break,
-            }
-        }
-        assert!(decoder.snapshot().poisoned);
-        assert!(matches!(
-            run(decoder.decode_symbol(0)).unwrap_err().kind,
-            ArithmeticErrorKind::Poisoned
-        ));
     }
 
     #[test]
@@ -1042,7 +978,7 @@ mod tests {
         let limits = Limits::default();
         let mut contexts = ContextBank::new(1, &limits).unwrap();
         let mut source = MockSource::new(&[0, 0, 0]);
-        let mut decoder = run(ArithmeticDecoder::new(
+        let mut decoder = ArithmeticDecoder::new(
             &mut source,
             span(3),
             &table,
@@ -1050,17 +986,17 @@ mod tests {
             &limits,
             &NEVER,
             budget(),
-        ))
+        )
         .unwrap();
-        let error = run(decoder.decode_symbol(1)).unwrap_err();
+        let error = decoder.decode_symbol(1).unwrap_err();
         assert_eq!(error.context, Some(1));
         assert!(matches!(error.kind, ArithmeticErrorKind::InvalidContext));
         assert!(!decoder.snapshot().poisoned);
-        assert!(!run(decoder.decode_symbol(0)).unwrap());
+        assert!(!decoder.decode_symbol(0).unwrap());
         decoder.finish(1).unwrap();
 
         let mut source = MockSource::new(&[0xc0, 0, 0]);
-        let mut decoder = run(ArithmeticDecoder::new(
+        let mut decoder = ArithmeticDecoder::new(
             &mut source,
             span(3),
             &table,
@@ -1071,9 +1007,9 @@ mod tests {
                 max_symbols: 1,
                 max_work: 4,
             },
-        ))
+        )
         .unwrap();
-        let error = run(decoder.decode_symbol(0)).unwrap_err();
+        let error = decoder.decode_symbol(0).unwrap_err();
         assert_eq!(error.context, Some(0));
         assert!(matches!(
             error.kind,
@@ -1094,7 +1030,7 @@ mod tests {
         let limits = Limits::default();
         let mut contexts = ContextBank::new(1, &limits).unwrap();
         let mut first = MockSource::new(&[0xc0, 0, 0]);
-        let mut decoder = run(ArithmeticDecoder::new(
+        let mut decoder = ArithmeticDecoder::new(
             &mut first,
             span(3),
             &table,
@@ -1102,9 +1038,9 @@ mod tests {
             &limits,
             &NEVER,
             budget(),
-        ))
+        )
         .unwrap();
-        assert!(run(decoder.decode_symbol(0)).unwrap());
+        assert!(decoder.decode_symbol(0).unwrap());
         assert!(matches!(
             decoder.finish(2).unwrap_err().kind,
             ArithmeticErrorKind::SymbolCount {
@@ -1114,7 +1050,7 @@ mod tests {
         ));
 
         let mut first = MockSource::new(&[0xc0, 0, 0]);
-        let mut decoder = run(ArithmeticDecoder::new(
+        let mut decoder = ArithmeticDecoder::new(
             &mut first,
             span(3),
             &table,
@@ -1122,9 +1058,9 @@ mod tests {
             &limits,
             &NEVER,
             budget(),
-        ))
+        )
         .unwrap();
-        assert!(run(decoder.decode_symbol(0)).unwrap());
+        assert!(decoder.decode_symbol(0).unwrap());
         decoder.finish(1).unwrap();
         assert_eq!(
             contexts.get(0),
@@ -1135,7 +1071,7 @@ mod tests {
         );
 
         let mut second = MockSource::new(&[0, 0, 0]);
-        let mut decoder = run(ArithmeticDecoder::new(
+        let mut decoder = ArithmeticDecoder::new(
             &mut second,
             span(3),
             &table,
@@ -1143,10 +1079,10 @@ mod tests {
             &limits,
             &NEVER,
             budget(),
-        ))
+        )
         .unwrap();
         assert_eq!(decoder.context_state(0), Some(ContextState::default()));
-        assert!(!run(decoder.decode_symbol(0)).unwrap());
+        assert!(!decoder.decode_symbol(0).unwrap());
         contexts.reset();
         assert_eq!(contexts.get(0), Some(ContextState::default()));
     }
@@ -1158,7 +1094,7 @@ mod tests {
             let limits = Limits::default();
             let mut contexts = ContextBank::new(2, &limits).unwrap();
             let mut source = MockSource::new(input);
-            let mut decoder = run(ArithmeticDecoder::new(
+            let mut decoder = ArithmeticDecoder::new(
                 &mut source,
                 span(input.len() as u64),
                 &table,
@@ -1169,11 +1105,11 @@ mod tests {
                     max_symbols: 64,
                     max_work: 512,
                 },
-            ))
+            )
             .unwrap();
             let mut bits = Vec::new();
             for symbol in 0..64 {
-                bits.push(run(decoder.decode_symbol(symbol % 2)).unwrap());
+                bits.push(decoder.decode_symbol(symbol % 2).unwrap());
             }
             let snapshot = decoder.snapshot();
             assert_eq!(snapshot.symbols_decoded, 64);
@@ -1208,7 +1144,7 @@ mod tests {
         let table = QmTable::standard();
         let mut contexts = ContextBank::new(2, &limits).unwrap();
         let mut source = MockSource::new(&[0, 0, 0]);
-        let zero_budget = run(ArithmeticDecoder::new(
+        let zero_budget = ArithmeticDecoder::new(
             &mut source,
             span(3),
             &table,
@@ -1219,14 +1155,14 @@ mod tests {
                 max_symbols: 1,
                 max_work: 0,
             },
-        ))
+        )
         .err()
         .unwrap();
         assert_eq!(
             zero_budget.to_string(),
             "T.82 arithmetic decoder: invalid budget"
         );
-        let cancelled = run(ArithmeticDecoder::new(
+        let cancelled = ArithmeticDecoder::new(
             &mut source,
             span(3),
             &table,
@@ -1234,7 +1170,7 @@ mod tests {
             &limits,
             &Flag(Some(Rc::new(Cell::new(true)))),
             budget(),
-        ))
+        )
         .err()
         .unwrap();
         assert_eq!(

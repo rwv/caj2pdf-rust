@@ -5,7 +5,7 @@
 
 use super::*;
 use crate::hnc8::{Budget, Hnc8Reader};
-use crate::test_support::{CancelAfter, NEVER, ready};
+use crate::test_support::{CancelAfter, NEVER};
 use crate::{Limits, native::SeekableSource};
 use flate2::{Compression, write::ZlibEncoder};
 use std::io::{Cursor, Write};
@@ -54,12 +54,11 @@ fn read_with(
     limits: &Limits,
     cancellation: &CancelAfter,
 ) -> Result<Option<ApplicationInfo>> {
-    ready(async {
+    (|| {
         let mut source = SeekableSource::new(Cursor::new(bytes)).unwrap();
-        let mut reader =
-            Hnc8Reader::open(&mut source, limits, cancellation, Budget::default()).await?;
-        reader.application_info().await
-    })
+        let mut reader = Hnc8Reader::open(&mut source, limits, cancellation, Budget::default())?;
+        reader.application_info()
+    })()
 }
 
 fn read(bytes: Vec<u8>) -> Result<Option<ApplicationInfo>> {
@@ -263,15 +262,13 @@ fn allocation_limits_and_cancellation_are_reported() {
         }
     }
     assert!(cancelled > 2, "{cancelled} of {total}");
-    let error = ready(async {
+    let error = {
         let mut source = SeekableSource::new(Cursor::new(package(VALID))).unwrap();
         let limits = Limits::default();
-        let mut reader = Hnc8Reader::open(&mut source, &limits, &NEVER, Budget::default())
-            .await
-            .unwrap();
+        let mut reader = Hnc8Reader::open(&mut source, &limits, &NEVER, Budget::default()).unwrap();
         reader.cancellation = &ALWAYS;
-        reader.application_info().await
-    })
+        reader.application_info()
+    }
     .unwrap_err();
     assert_eq!((error.offset, error.kind.as_str()), (0, "cancelled"));
 }

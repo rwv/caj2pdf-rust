@@ -362,22 +362,21 @@ struct SyntheticObjects<'o, 'a, 'r, W: SequentialSink, C: Cancellation> {
 impl<W: SequentialSink, C: Cancellation> ObjectSink for SyntheticObjects<'_, '_, '_, W, C> {
     type Ref = PdfRef;
 
-    async fn begin_object(&mut self, reference: PdfRef) -> Result<()> {
+    fn begin_object(&mut self, reference: PdfRef) -> Result<()> {
         let index = object_index(self.records, reference).ok_or(Error::InvalidInput {
             reason: "synthetic PDF object was not indexed",
         })?;
         self.records[index].output_offset = self.out.position;
         self.out
             .write(format!("{} {} obj\n", reference.number, reference.generation).as_bytes())
-            .await
     }
 
-    async fn write(&mut self, bytes: &[u8]) -> Result<()> {
-        self.out.write(bytes).await
+    fn write(&mut self, bytes: &[u8]) -> Result<()> {
+        self.out.write(bytes)
     }
 
-    async fn end_object(&mut self) -> Result<()> {
-        self.out.write(b"\nendobj\n").await
+    fn end_object(&mut self) -> Result<()> {
+        self.out.write(b"\nendobj\n")
     }
 }
 
@@ -392,11 +391,7 @@ impl<W: SequentialSink, C: Cancellation> ObjectSink for SyntheticObjects<'_, '_,
 /// Bookmark entries are depth-first and name zero-based positions in
 /// `plan.pages`. All titles and links are checked before the first sink write;
 /// title hex is then emitted in bounded chunks.
-pub async fn reconstruct_fragment_with_bookmarks<
-    R: RangedSource,
-    W: SequentialSink,
-    C: Cancellation,
->(
+pub fn reconstruct_fragment_with_bookmarks<R: RangedSource, W: SequentialSink, C: Cancellation>(
     source: &mut R,
     sink: &mut W,
     plan: &FragmentPlan<'_>,
@@ -404,7 +399,7 @@ pub async fn reconstruct_fragment_with_bookmarks<
     limits: &Limits,
     cancellation: &C,
 ) -> Result<ConversionReport> {
-    reconstruct(source, sink, plan, None, bookmarks, limits, cancellation).await
+    reconstruct(source, sink, plan, None, bookmarks, limits, cancellation)
 }
 
 /// A reconstruction plan whose objects the caller already inspected, such as
@@ -416,7 +411,7 @@ pub(crate) struct InspectedPlan<'a> {
 }
 
 /// Reconstruct from an [`InspectedPlan`] without parsing its objects again.
-pub(crate) async fn reconstruct_inspected<R: RangedSource, W: SequentialSink, C: Cancellation>(
+pub(crate) fn reconstruct_inspected<R: RangedSource, W: SequentialSink, C: Cancellation>(
     source: &mut R,
     sink: &mut W,
     plan: InspectedPlan<'_>,
@@ -457,10 +452,9 @@ pub(crate) async fn reconstruct_inspected<R: RangedSource, W: SequentialSink, C:
         limits,
         cancellation,
     )
-    .await
 }
 
-async fn reconstruct<R: RangedSource, W: SequentialSink, C: Cancellation>(
+fn reconstruct<R: RangedSource, W: SequentialSink, C: Cancellation>(
     source: &mut R,
     sink: &mut W,
     plan: &FragmentPlan<'_>,
@@ -569,8 +563,7 @@ async fn reconstruct<R: RangedSource, W: SequentialSink, C: Cancellation>(
         &sorted_pages,
         limits,
         cancellation,
-    )
-    .await?;
+    )?;
     drop(sorted_pages);
 
     let outline = if bookmarks.is_empty() {
@@ -622,50 +615,50 @@ async fn reconstruct<R: RangedSource, W: SequentialSink, C: Cancellation>(
     reserve_exact(&mut buffer, limits.io_chunk_bytes, refused)?;
     buffer.resize(limits.io_chunk_bytes, 0_u8);
     let mut out = Output::new(sink, limits, cancellation);
-    out.write(HEADER).await?;
+    out.write(HEADER)?;
     for record in records.iter_mut().filter(|record| record.range.length != 0) {
         record.output_offset = out.position;
-        copy_object(source, &mut out, record.range, &mut buffer).await?;
-        out.write(b"\n").await?;
+        copy_object(source, &mut out, record.range, &mut buffer)?;
+        out.write(b"\n")?;
     }
     if let Some(prefix) = pages_prefix {
         let index = object_index(&records, plan.pages_root).ok_or(Error::InvalidInput {
             reason: "synthetic page tree root was not indexed",
         })?;
         records[index].output_offset = out.position;
-        out.write(prefix.as_bytes()).await?;
+        out.write(prefix.as_bytes())?;
         buffer.clear();
         for page in plan.pages {
             let mut encoded = [0_u8; 16];
             let bytes = page_reference(*page, &mut encoded);
             if bytes.len() > limits.io_chunk_bytes {
-                out.write(&buffer).await?;
+                out.write(&buffer)?;
                 buffer.clear();
-                out.write(bytes).await?;
+                out.write(bytes)?;
                 continue;
             }
             if buffer.len() + bytes.len() > limits.io_chunk_bytes {
-                out.write(&buffer).await?;
+                out.write(&buffer)?;
                 buffer.clear();
             }
             buffer.extend_from_slice(bytes);
         }
-        out.write(&buffer).await?;
-        out.write(pages_suffix).await?;
+        out.write(&buffer)?;
+        out.write(pages_suffix)?;
     }
     let index = object_index(&records, catalog).ok_or(Error::InvalidInput {
         reason: "synthetic catalog was not indexed",
     })?;
     records[index].output_offset = out.position;
-    out.write(catalog_text.as_bytes()).await?;
+    out.write(catalog_text.as_bytes())?;
     if let Some((root, nodes, first, last)) = &outline {
         let mut objects = SyntheticObjects {
             out: &mut out,
             records: &mut records,
         };
-        write_root(&mut objects, *root, *first, *last, bookmark_count).await?;
+        write_root(&mut objects, *root, *first, *last, bookmark_count)?;
         for (bookmark, node) in bookmarks.iter().zip(nodes) {
-            write_item(&mut objects, &node.item, &bookmark.title).await?;
+            write_item(&mut objects, &node.item, &bookmark.title)?;
         }
     }
     let largest = records
@@ -685,8 +678,8 @@ async fn reconstruct<R: RangedSource, W: SequentialSink, C: Cancellation>(
     let entries = records
         .iter()
         .map(|record| (record.reference, record.output_offset));
-    write_xref(&mut out, entries, true, &trailer).await?;
-    out.flush().await?;
+    write_xref(&mut out, entries, true, &trailer)?;
+    out.flush()?;
     Ok(ConversionReport {
         input_bytes_read,
         output_bytes_written: out.position,
@@ -790,7 +783,7 @@ fn index_spans(
     Ok(records)
 }
 
-async fn copy_object<R: RangedSource, W: SequentialSink, C: Cancellation>(
+fn copy_object<R: RangedSource, W: SequentialSink, C: Cancellation>(
     source: &mut R,
     out: &mut Output<'_, W, C>,
     range: PdfRange,
@@ -806,9 +799,8 @@ async fn copy_object<R: RangedSource, W: SequentialSink, C: Cancellation>(
             &mut buffer[..length],
             out.limits,
             out.cancellation,
-        )
-        .await?;
-        out.write(&buffer[..length]).await?;
+        )?;
+        out.write(&buffer[..length])?;
         copied += length as u64;
     }
     Ok(())
@@ -835,7 +827,7 @@ fn page_reference(reference: PdfRef, buffer: &mut [u8; 16]) -> &[u8] {
 
 /// Parse every source record once, in object-number order. Integer values
 /// are kept for indirect stream lengths; streams are framed afterwards.
-async fn parse_records<R: RangedSource, C: Cancellation>(
+fn parse_records<R: RangedSource, C: Cancellation>(
     source: &mut R,
     records: &[Record],
     limits: &Limits,
@@ -852,16 +844,19 @@ async fn parse_records<R: RangedSource, C: Cancellation>(
         planned.push(if record.range.length == 0 {
             None
         } else {
-            Some(
-                parse_planned_object(source, record.range, record.reference, limits, cancellation)
-                    .await?,
-            )
+            Some(parse_planned_object(
+                source,
+                record.range,
+                record.reference,
+                limits,
+                cancellation,
+            )?)
         });
     }
     Ok(planned)
 }
 
-async fn validate_fragment_structure<R: RangedSource, C: Cancellation>(
+fn validate_fragment_structure<R: RangedSource, C: Cancellation>(
     source: &mut R,
     plan: &FragmentPlan<'_>,
     given: Option<Vec<Option<FragmentInspection>>>,
@@ -873,7 +868,7 @@ async fn validate_fragment_structure<R: RangedSource, C: Cancellation>(
     let mut given = given;
     let mut planned = match given {
         Some(_) => Vec::new(),
-        None => parse_records(source, records, limits, cancellation).await?,
+        None => parse_records(source, records, limits, cancellation)?,
     };
     let scalars: Vec<Option<u64>> = planned
         .iter()
@@ -911,18 +906,15 @@ async fn validate_fragment_structure<R: RangedSource, C: Cancellation>(
                             .flatten()
                     })
                 };
-                Some(
-                    finish_planned_object(
-                        source,
-                        record.range,
-                        record.reference,
-                        item,
-                        limits,
-                        cancellation,
-                        resolve,
-                    )
-                    .await?,
-                )
+                Some(finish_planned_object(
+                    source,
+                    record.range,
+                    record.reference,
+                    item,
+                    limits,
+                    cancellation,
+                    resolve,
+                )?)
             }
         };
         let Some(inspection) = inspection else {

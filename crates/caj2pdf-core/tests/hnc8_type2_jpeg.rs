@@ -7,23 +7,7 @@ use caj2pdf_core::{
         Span, Variant, read_type2_jpeg_info,
     },
 };
-use std::{
-    future::Future,
-    pin::pin,
-    sync::atomic::{AtomicUsize, Ordering},
-    task::{Context, Poll, Waker},
-};
-
-fn ready<F: Future>(future: F) -> F::Output {
-    let mut future = pin!(future);
-    match future
-        .as_mut()
-        .poll(&mut Context::from_waker(Waker::noop()))
-    {
-        Poll::Ready(result) => result,
-        Poll::Pending => panic!("test source unexpectedly pending"),
-    }
-}
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 struct Source {
     bytes: Vec<u8>,
@@ -54,11 +38,7 @@ impl RangedSource for Source {
         self.size
     }
 
-    async fn read_at(
-        &mut self,
-        offset: u64,
-        destination: &mut [u8],
-    ) -> caj2pdf_core::Result<usize> {
+    fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> caj2pdf_core::Result<usize> {
         self.reads += 1;
         self.max_request = self.max_request.max(destination.len());
         if self.overreport {
@@ -168,9 +148,7 @@ fn parse_with(
     cancel: &Flag,
     budget: JpegBudget,
 ) -> Result<JpegInfo, Hnc8Error> {
-    ready(read_type2_jpeg_info(
-        source, record, &limits, cancel, budget,
-    ))
+    read_type2_jpeg_info(source, record, &limits, cancel, budget)
 }
 
 fn parse(payload: &[u8]) -> Result<JpegInfo, Hnc8Error> {
@@ -228,23 +206,17 @@ fn checked_first_and_last_images_in_each_container_profile_are_bounded() {
             io_chunk_bytes: 7,
             ..Limits::default()
         };
-        let mut reader = ready(Hnc8Reader::open(
-            &mut source,
-            &limits,
-            &NEVER,
-            Budget::default(),
-        ))
-        .unwrap();
+        let mut reader = Hnc8Reader::open(&mut source, &limits, &NEVER, Budget::default()).unwrap();
         assert_eq!(reader.header().variant, variant);
-        assert_eq!(ready(reader.next_page()).unwrap().unwrap().image_count, 2);
-        let first = ready(reader.next_image()).unwrap().unwrap();
-        let first_info = ready(read_type2_jpeg_info(
+        assert_eq!(reader.next_page().unwrap().unwrap().image_count, 2);
+        let first = reader.next_image().unwrap().unwrap();
+        let first_info = read_type2_jpeg_info(
             reader.source_mut(),
             first,
             &limits,
             &NEVER,
             JpegBudget::default(),
-        ))
+        )
         .unwrap();
         assert_eq!((first_info.width, first_info.height), (9, 7));
         assert_eq!(
@@ -254,20 +226,20 @@ fn checked_first_and_last_images_in_each_container_profile_are_bounded() {
         assert!(first_info.app0_jfif);
         assert_eq!(first_info.scans, 1);
         assert_eq!(first_info.payload, first.payload);
-        let last = ready(reader.next_image()).unwrap().unwrap();
-        let last_info = ready(read_type2_jpeg_info(
+        let last = reader.next_image().unwrap().unwrap();
+        let last_info = read_type2_jpeg_info(
             reader.source_mut(),
             last,
             &limits,
             &NEVER,
             JpegBudget::default(),
-        ))
+        )
         .unwrap();
         assert_eq!(
             (last_info.components, last_info.color),
             (3, JpegColor::Ycbcr)
         );
-        assert_eq!(ready(reader.next_image()).unwrap(), None);
+        assert_eq!(reader.next_image().unwrap(), None);
         assert!(source.max_request <= 7);
         assert!(source.reads > gray.len() + color.len());
     }

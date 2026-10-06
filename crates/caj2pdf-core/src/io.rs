@@ -11,10 +11,9 @@ use std::io;
 /// more than its length. All callers bound each request to `MAX_IO_CHUNK`.
 /// The mutable receiver allows adapters to use a seekable handle or await a
 /// JavaScript range read without requiring thread-safe futures.
-#[allow(async_fn_in_trait)]
 pub trait RangedSource {
     fn size(&self) -> u64;
-    async fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> Result<usize>;
+    fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> Result<usize>;
 }
 
 /// A [`RangedSource`] adapter that adds each count its source returns to a
@@ -58,8 +57,8 @@ impl<S: RangedSource> RangedSource for CountingSource<'_, S> {
         self.source.size()
     }
 
-    async fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> Result<usize> {
-        let read = self.source.read_at(offset, destination).await?;
+    fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> Result<usize> {
+        let read = self.source.read_at(offset, destination)?;
         if read <= destination.len() {
             *self.bytes_read = self.bytes_read.saturating_add(len_u64(read));
         } else if let Some(reason) = self.overread {
@@ -74,10 +73,9 @@ impl<S: RangedSource> RangedSource for CountingSource<'_, S> {
 /// As with `std::io::Write`, `write` may accept only a prefix of the supplied
 /// bytes. Zero progress for a nonempty write is a `WriteZero` error in the
 /// checked `write_all` helper.
-#[allow(async_fn_in_trait)]
 pub trait SequentialSink {
-    async fn write(&mut self, bytes: &[u8]) -> Result<usize>;
-    async fn flush(&mut self) -> Result<()>;
+    fn write(&mut self, bytes: &[u8]) -> Result<usize>;
+    fn flush(&mut self) -> Result<()>;
 }
 
 /// A platform-provided cancellation signal checked between awaited I/O calls.
@@ -128,7 +126,7 @@ fn check_range(source_size: u64, offset: u64, length: u64) -> Result<()> {
 /// format handler must process larger ranges in a loop.
 /// The caller checks the selected operation size; unrelated source bytes do
 /// not count against this individual read.
-pub async fn read_exact_at<S: RangedSource, C: Cancellation>(
+pub fn read_exact_at<S: RangedSource, C: Cancellation>(
     source: &mut S,
     offset: u64,
     destination: &mut [u8],
@@ -156,7 +154,7 @@ pub async fn read_exact_at<S: RangedSource, C: Cancellation>(
                 reason: "read offset overflows 64-bit offset",
             })?;
         let remaining = &mut destination[done..];
-        let read = source.read_at(current, remaining).await?;
+        let read = source.read_at(current, remaining)?;
         if read > remaining.len() {
             return Err(Error::InvalidInput {
                 reason: "source reported more bytes than requested",
@@ -179,7 +177,7 @@ pub async fn read_exact_at<S: RangedSource, C: Cancellation>(
 ///
 /// `output_bytes_written` is an operation-wide counter. It is updated after
 /// every successful write, including when a later write or cancellation fails.
-pub async fn write_all<S: SequentialSink, C: Cancellation>(
+pub fn write_all<S: SequentialSink, C: Cancellation>(
     sink: &mut S,
     bytes: &[u8],
     output_bytes_written: &mut u64,
@@ -209,7 +207,7 @@ pub async fn write_all<S: SequentialSink, C: Cancellation>(
             reason: "output slice offset overflows address space",
         })?;
         let chunk = &bytes[done..end];
-        let written = sink.write(chunk).await?;
+        let written = sink.write(chunk)?;
         if written > chunk.len() {
             return Err(Error::InvalidInput {
                 reason: "sink reported more bytes than supplied",

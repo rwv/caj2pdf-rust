@@ -12,11 +12,8 @@ use sha2::{Digest, Sha256};
 use std::{
     env,
     fs::File,
-    future::Future,
     io::{Cursor, Read},
     path::Path,
-    pin::pin,
-    task::{Context, Poll, Waker},
 };
 
 // Digest of the local, official-PDF-derived text fixture; the normative rows,
@@ -122,15 +119,6 @@ fn bit_at(bytes: &[u8], index: usize) -> bool {
     bytes[index / 8] & (0x80 >> (index % 8)) != 0
 }
 
-fn run_ready<F: Future>(future: F) -> F::Output {
-    let mut future = pin!(future);
-    let mut task = Context::from_waker(Waker::noop());
-    match future.as_mut().poll(&mut task) {
-        Poll::Ready(result) => result,
-        Poll::Pending => panic!("local fixture source unexpectedly yielded"),
-    }
-}
-
 #[test]
 #[ignore = "NOT_RUN in ordinary CI; set CAJ2PDF_T88_H2_FIXTURE_FILE for a requested official Annex H.2 check"]
 fn official_2000_h2_decisions_and_h1_register_checkpoints() {
@@ -172,7 +160,7 @@ fn official_2000_h2_decisions_and_h1_register_checkpoints() {
     let table = MqTable::standard();
     let mut contexts = ContextBank::new(1, &limits).unwrap();
     let mut source = SeekableSource::new(Cursor::new(fixture.compressed)).unwrap();
-    let mut decoder = run_ready(MqDecoder::new(
+    let mut decoder = MqDecoder::new(
         &mut source,
         CodedSpan {
             offset: 0,
@@ -183,7 +171,7 @@ fn official_2000_h2_decisions_and_h1_register_checkpoints() {
         &limits,
         &NeverCancel,
         budget,
-    ))
+    )
     .expect("Annex H.2 initialization failed");
     for symbol in 0..H2_SYMBOLS {
         for point in &fixture.checkpoints {
@@ -200,7 +188,8 @@ fn official_2000_h2_decisions_and_h1_register_checkpoints() {
                 );
             }
         }
-        let actual = run_ready(decoder.decode_bit(0))
+        let actual = decoder
+            .decode_bit(0)
             .unwrap_or_else(|error| panic!("H.2 decode failed at symbol {symbol}: {error}"));
         assert_eq!(
             actual,
@@ -208,6 +197,8 @@ fn official_2000_h2_decisions_and_h1_register_checkpoints() {
             "H.2 symbol {symbol}"
         );
     }
-    run_ready(decoder.finish(H2_SYMBOLS as u64)).expect("H.2 terminal marker mismatch");
+    decoder
+        .finish(H2_SYMBOLS as u64)
+        .expect("H.2 terminal marker mismatch");
     println!("PASS: 256 official H.2 decisions and four H.1 A/C/CT checkpoints");
 }

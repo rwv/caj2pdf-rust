@@ -68,7 +68,7 @@ pub struct ApplicationInfoTail {
 struct Discard;
 
 impl NativeRecordVisitor for Discard {
-    async fn visit(&mut self, _offset: u64, _record: NativeRecord) -> crate::Result<()> {
+    fn visit(&mut self, _offset: u64, _record: NativeRecord) -> crate::Result<()> {
         Ok(())
     }
 }
@@ -89,7 +89,7 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
     /// the first located error of the deciding reader. Like
     /// [`Hnc8Reader::visit_native_records`], a failed native framing poisons
     /// the reader; open a fresh cursor to continue with later pages.
-    pub async fn inspect_text(&mut self, budget: TextBudget) -> Result<TextStructure> {
+    pub fn inspect_text(&mut self, budget: TextBudget) -> Result<TextStructure> {
         let header = self.header;
         let loc = Location {
             variant: Some(header.variant),
@@ -119,9 +119,7 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
                 self.limits,
                 self.cancellation,
                 budget,
-            )
-            .await
-            {
+            ) {
                 Ok(PageText::Framed(text)) => {
                     let framing = match text.zlib_frame {
                         None if text.page_size.is_some() => TextFraming::RawPaired,
@@ -142,7 +140,7 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
                 Ok(PageText::Unframed(error)) | Err(error) => return Err(error),
             }
         }
-        let records = self.visit_native_records(budget, &mut Discard).await?;
+        let records = self.visit_native_records(budget, &mut Discard)?;
         Ok(TextStructure {
             framing: TextFraming::Native,
             records,
@@ -155,9 +153,9 @@ impl<S: RangedSource, C: Cancellation> Hnc8Reader<'_, S, C> {
     /// extent are reported; the section itself is neither validated nor
     /// decoded, and a marker without a usable offset is reported as absent.
     /// This does not affect the cursor.
-    pub async fn application_info_tail(&mut self) -> Result<Option<ApplicationInfoTail>> {
+    pub fn application_info_tail(&mut self) -> Result<Option<ApplicationInfoTail>> {
         let size = self.source.size();
-        match self.application_info_trailer().await {
+        match self.application_info_trailer() {
             Ok(trailer) => Ok(trailer.map(|Trailer { start, .. }| ApplicationInfoTail {
                 offset: start,
                 length: (start < size).then(|| size - start),

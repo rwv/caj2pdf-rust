@@ -3,24 +3,10 @@
 use super::*;
 use crate::NeverCancel;
 use flate2::{Compression, write::ZlibEncoder};
-use std::{
-    cell::Cell,
-    future::Future,
-    io::Write,
-    task::{Context, Poll, Waker},
-};
+use std::{cell::Cell, io::Write};
 
 // Format tags with invented payload words, not a copied document header.
 const INVENTED_PREFIX: [u8; 20] = *b"\x03\x80\x01\x00\x03\x80\x02\x00COMPRESSTEXT";
-
-fn block_on<T>(future: impl Future<Output = T>) -> T {
-    let mut future = std::pin::pin!(future);
-    let mut context = Context::from_waker(Waker::noop());
-    match future.as_mut().poll(&mut context) {
-        Poll::Ready(value) => value,
-        Poll::Pending => panic!("the synthetic source never suspends"),
-    }
-}
 
 #[derive(Clone, Copy)]
 enum Fault {
@@ -45,7 +31,7 @@ impl RangedSource for Source {
         self.size
     }
 
-    async fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> crate::Result<usize> {
+    fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> crate::Result<usize> {
         self.requests += 1;
         self.max_request = self.max_request.max(destination.len());
         if offset >= self.fault_at {
@@ -167,14 +153,14 @@ impl Fixture {
         budget: TextBudget,
         cancel: &C,
     ) -> Result<TextCoordinates> {
-        block_on(read_coordinates(
+        read_coordinates(
             &mut self.source,
             self.header,
             self.page,
             &limits,
             cancel,
             budget,
-        ))
+        )
     }
 
     fn normal(&mut self) -> Result<TextCoordinates> {
@@ -311,14 +297,14 @@ fn both_variants_reject_unknown_compression_markers() {
             fixture.page.row_offset = 0x15c;
         }
         fixture.source.bytes[520] ^= 1;
-        let error = block_on(read_coordinates(
+        let error = read_coordinates(
             &mut fixture.source,
             fixture.header,
             fixture.page,
             &Limits::default(),
             &NeverCancel,
             TextBudget::default(),
-        ))
+        )
         .unwrap_err();
         assert_eq!(error.kind.field(), "page text prefix");
         assert_eq!(error.variant, Some(variant));
@@ -333,14 +319,14 @@ fn hn_a_outline_aligned_index_is_supported_and_hn_b_is_not() {
     fixture.page.row_offset = 0x15c;
     assert_eq!(fixture.normal().unwrap().coordinates.len(), 3);
     fixture.header.variant = Variant::HnB;
-    let error = block_on(read_coordinates(
+    let error = read_coordinates(
         &mut fixture.source,
         fixture.header,
         fixture.page,
         &Limits::default(),
         &NeverCancel,
         TextBudget::default(),
-    ))
+    )
     .unwrap_err();
     assert_eq!(error.kind.as_str(), "unsupported");
     assert_eq!(error.kind.field(), "text framing variant");
@@ -1424,7 +1410,7 @@ fn raw_hna_composition_decodes_only_verified_image_markers() {
             f.source.bytes[image + 4..image + 6].copy_from_slice(&x.to_le_bytes());
             f.source.bytes[image + 8..image + 10].copy_from_slice(&width.to_le_bytes());
             f.source.short = 2;
-            let composed = block_on(read_coordinates(
+            let composed = read_coordinates(
                 &mut f.source,
                 f.header,
                 f.page,
@@ -1434,7 +1420,7 @@ fn raw_hna_composition_decodes_only_verified_image_markers() {
                 },
                 &NeverCancel,
                 TextBudget::default(),
-            ))
+            )
             .unwrap();
             assert_eq!(
                 composed.coordinates,
@@ -1480,7 +1466,7 @@ fn compressed_hna_markers_preserve_other_profiles() {
                 }
                 f.recompress();
                 f.source.short = 2;
-                let composed = block_on(read_coordinates(
+                let composed = read_coordinates(
                     &mut f.source,
                     f.header,
                     f.page,
@@ -1490,7 +1476,7 @@ fn compressed_hna_markers_preserve_other_profiles() {
                     },
                     &NeverCancel,
                     TextBudget::default(),
-                ))
+                )
                 .unwrap();
                 let expected = if variant == Variant::HnA {
                     RawTextCoordinate {

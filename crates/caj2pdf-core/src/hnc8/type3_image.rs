@@ -164,10 +164,10 @@ fn composed_stage<T>(result: Result<T, TextComposeError>, at: At) -> Result<T, C
 struct DiscardSink;
 
 impl SequentialSink for DiscardSink {
-    async fn write(&mut self, bytes: &[u8]) -> crate::Result<usize> {
+    fn write(&mut self, bytes: &[u8]) -> crate::Result<usize> {
         Ok(bytes.len())
     }
-    async fn flush(&mut self) -> crate::Result<()> {
+    fn flush(&mut self) -> crate::Result<()> {
         Ok(())
     }
 }
@@ -215,7 +215,7 @@ pub(super) struct PreparedType3<'a, T> {
 /// Check one type-3 record's DIB wrapper and JBIG2 metadata without decoding
 /// pixels. `image_at` locates the descriptor; failures are anchored at the
 /// payload or the failing segment.
-pub(super) async fn preflight_type3<S: RangedSource, C: Cancellation>(
+pub(super) fn preflight_type3<S: RangedSource, C: Cancellation>(
     source: &mut S,
     image: ImageRecord,
     image_at: At,
@@ -230,7 +230,6 @@ pub(super) async fn preflight_type3<S: RangedSource, C: Cancellation>(
     }
     let mut dib = [0_u8; DIB_BYTES as usize];
     read_exact_at(source, image.payload.offset, &mut dib, limits, cancellation)
-        .await
         .map_err(|source| at.error((ComposeStage::Headers, ComposeErrorKind::Io(source))))?;
     if u32::from_le_bytes(dib[0..4].try_into().expect("fixed DIB field")) != 40 {
         return Err(at.dib("header size differs from 40 bytes"));
@@ -267,7 +266,6 @@ pub(super) async fn preflight_type3<S: RangedSource, C: Cancellation>(
         options.directory,
         cancellation,
     )
-    .await
     .map_err(|error| {
         let offset = error.offset;
         at.with_offset(offset).stage(Type3Stage::Directory, error)
@@ -291,7 +289,6 @@ pub(super) async fn preflight_type3<S: RangedSource, C: Cancellation>(
         options.page,
         cancellation,
     )
-    .await
     .map_err(|error| {
         let offset = error.offset;
         at.with_offset(offset).stage(Type3Stage::PageInfo, error)
@@ -310,7 +307,6 @@ pub(super) async fn preflight_type3<S: RangedSource, C: Cancellation>(
         cancellation,
         options.text_header_policy,
     )
-    .await
     .map_err(|error| {
         let offset = error.offset;
         at.with_offset(offset).stage(Type3Stage::TextHeader, error)
@@ -323,7 +319,6 @@ pub(super) async fn preflight_type3<S: RangedSource, C: Cancellation>(
         options.mq,
         options.generic,
     )
-    .await
     .map_err(|error| {
         let offset = error.offset;
         at.with_offset(offset)
@@ -353,7 +348,7 @@ pub(super) async fn preflight_type3<S: RangedSource, C: Cancellation>(
 /// Decode symbol dictionaries and the text layer before the image's PDF
 /// stream is opened, so their failures leave no partial image object.
 #[allow(clippy::too_many_arguments)]
-pub(super) async fn prepare_type3_image<'a, S, R, W, T, C>(
+pub(super) fn prepare_type3_image<'a, S, R, W, T, C>(
     source: &mut S,
     table: &MqTable,
     workspaces: &'a mut Type3Workspaces<'_, R, W, T>,
@@ -398,31 +393,27 @@ where
         options.refinement,
         options.refinement_dictionary,
     )
-    .await
     .map_err(|error| {
         let offset = error.offset;
         at.with_offset(offset)
             .stage(Type3Stage::FirstDictionary, error)
     })?;
     let first_report = source_stage(
-        first_decoder.decode().await,
+        first_decoder.decode(),
         at,
         Type3Stage::FirstDictionary,
         |error| error.offset,
     )?;
     drop(first_decoder);
     let imported_count = u64::from(first_report.header.exported_symbols);
-    let second_count = u64::from(
-        read_second_new_symbol_count(
-            directory,
-            source,
-            limits,
-            cancellation,
-            options.dictionary,
-            at,
-        )
-        .await?,
-    );
+    let second_count = u64::from(read_second_new_symbol_count(
+        directory,
+        source,
+        limits,
+        cancellation,
+        options.dictionary,
+        at,
+    )?);
     let second_contexts = context_bank(
         symbol_code_length(imported_count + second_count),
         limits,
@@ -453,14 +444,13 @@ where
         options.refinement,
         options.refinement_dictionary,
     )
-    .await
     .map_err(|error| {
         let offset = error.offset;
         at.with_offset(offset)
             .stage(Type3Stage::SecondDictionary, error)
     })?;
     let second_report = source_stage(
-        second_decoder.decode().await,
+        second_decoder.decode(),
         at,
         Type3Stage::SecondDictionary,
         |error| error.offset,
@@ -494,8 +484,7 @@ where
         options.refinement,
         options.text_instance,
         options.text_header_policy,
-    )
-    .await;
+    );
     let mut text_decoder = source_stage(text_decoder, at, Type3Stage::TextInstances, |error| {
         error.offset
     })?;
@@ -529,7 +518,7 @@ where
             text_compose_budget,
         );
         let mut composer = work_stage(composer_result, at, Type3Stage::TextCompose)?;
-        composed_stage(composer.compose().await, at)?
+        composed_stage(composer.compose(), at)?
     };
     drop(text_decoder);
     Ok(PreparedType3 {
@@ -542,7 +531,7 @@ where
 /// Append one image to an existing PDF. Page creation/placement belongs to
 /// the caller; the decoder never opens or finishes another document.
 #[allow(clippy::too_many_arguments)]
-pub(super) async fn emit_type3_xobject<S, W, T, C>(
+pub(super) fn emit_type3_xobject<S, W, T, C>(
     source: &mut S,
     document: &mut PdfDocument<'_, W, C>,
     table: &MqTable,
@@ -577,7 +566,6 @@ where
             pixel_height: page.height,
             row_stride: (display_width as usize).div_ceil(8),
         })
-        .await
         .map_err(at.pdf())?;
     let mut padded = PaddedRows {
         sink: &mut rows,
@@ -598,7 +586,7 @@ where
     let generic_result = options.mq.context_bank(1024, limits);
     let generic_at = at.with_offset(directory.segments[4].data.offset);
     let mut generic_contexts = work_stage(generic_result, generic_at, Type3Stage::Contexts)?;
-    let generic_result = async {
+    let generic_result = (|| {
         let mut decoder = GenericRegionDecoder::new(
             source,
             &directory.segments[4],
@@ -609,13 +597,11 @@ where
             cancellation,
             options.mq,
             options.generic,
-        )
-        .await?;
+        )?;
         decoder.arm_page_output(profile.generic_header())?;
-        while decoder.decode_next_row().await? {}
-        decoder.finish().await
-    }
-    .await;
+        while decoder.decode_next_row()? {}
+        decoder.finish()
+    })();
     let generic_report = generic_result.map_err(|error| {
         if let Some(failure) = page_sink.take_failure() {
             at.stage(Type3Stage::PageCompose, failure)
@@ -626,10 +612,9 @@ where
     })?;
     let page_compose = page_sink
         .finish(&generic_report)
-        .await
         .map_err(|error| at.stage(Type3Stage::PageCompose, error))?;
     drop(page_sink);
-    let object = rows.finish().await.map_err(at.pdf())?;
+    let object = rows.finish().map_err(at.pdf())?;
     Ok((object, page_compose))
 }
 
@@ -643,20 +628,20 @@ struct PaddedRows<'a, W> {
 }
 
 impl<W: SequentialSink> SequentialSink for PaddedRows<'_, W> {
-    async fn write(&mut self, bytes: &[u8]) -> crate::Result<usize> {
+    fn write(&mut self, bytes: &[u8]) -> crate::Result<usize> {
         let count = bytes.len().min(self.stride - self.column);
-        let written = self.sink.write(&bytes[..count]).await?;
+        let written = self.sink.write(&bytes[..count])?;
         self.column += written;
         if self.column == self.stride {
             // Only BilevelImageWriter is wrapped: it accepts the complete
             // slice or fails, including its own bounded/partial sink writes.
-            self.sink.write(&[0; 3][..self.padding]).await?;
+            self.sink.write(&[0; 3][..self.padding])?;
             self.column = 0;
         }
         Ok(written)
     }
-    async fn flush(&mut self) -> crate::Result<()> {
-        self.sink.flush().await
+    fn flush(&mut self) -> crate::Result<()> {
+        self.sink.flush()
     }
 }
 
@@ -675,7 +660,7 @@ fn context_bank(
     budget.context_bank(count, limits)
 }
 
-async fn read_second_new_symbol_count<S: RangedSource, C: Cancellation>(
+fn read_second_new_symbol_count<S: RangedSource, C: Cancellation>(
     directory: &crate::jbig2::SegmentDirectory,
     source: &mut S,
     limits: &Limits,
@@ -685,8 +670,7 @@ async fn read_second_new_symbol_count<S: RangedSource, C: Cancellation>(
 ) -> Result<u32, ComposeError> {
     use crate::jbig2::dictionary::read_dictionary_data_header;
     let result = source_stage(
-        read_dictionary_data_header(source, &directory.segments[2], limits, budget, cancellation)
-            .await,
+        read_dictionary_data_header(source, &directory.segments[2], limits, budget, cancellation),
         at,
         Type3Stage::SecondDictionary,
         |error| error.offset,
@@ -704,7 +688,6 @@ mod tests {
         text_instances::{TextInstanceError, TextInstanceErrorKind, TextInstanceProgress},
     };
     use crate::pdf::PageSpec;
-    use crate::test_support::ready;
     use std::error::Error as _;
 
     fn invalid_input() -> Error {
@@ -820,7 +803,7 @@ mod tests {
             self.0.len() as u64
         }
 
-        async fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> crate::Result<usize> {
+        fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> crate::Result<usize> {
             let start = offset as usize;
             let count = destination.len().min(self.0.len().saturating_sub(start));
             destination[..count].copy_from_slice(&self.0[start..start + count]);
@@ -841,7 +824,7 @@ mod tests {
         fn size(&self) -> u64 {
             self.0.borrow().len() as u64
         }
-        async fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> crate::Result<usize> {
+        fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> crate::Result<usize> {
             let bytes = self.0.borrow();
             let start = offset as usize;
             let count = destination
@@ -854,12 +837,12 @@ mod tests {
     }
 
     impl SequentialSink for Memory {
-        async fn write(&mut self, bytes: &[u8]) -> crate::Result<usize> {
+        fn write(&mut self, bytes: &[u8]) -> crate::Result<usize> {
             let count = bytes.len().min(3);
             self.0.borrow_mut().extend_from_slice(&bytes[..count]);
             Ok(count)
         }
-        async fn flush(&mut self) -> crate::Result<()> {
+        fn flush(&mut self) -> crate::Result<()> {
             Ok(())
         }
     }
@@ -868,19 +851,19 @@ mod tests {
         fn size(&self) -> crate::Result<u64> {
             Ok(RangedSource::size(self))
         }
-        async fn set_len(&mut self, length: u64) -> crate::Result<()> {
+        fn set_len(&mut self, length: u64) -> crate::Result<()> {
             self.0.borrow_mut().resize(length as usize, 0);
             Ok(())
         }
-        async fn read_at(&mut self, offset: u64, bytes: &mut [u8]) -> crate::Result<usize> {
-            RangedSource::read_at(self, offset, bytes).await
+        fn read_at(&mut self, offset: u64, bytes: &mut [u8]) -> crate::Result<usize> {
+            RangedSource::read_at(self, offset, bytes)
         }
-        async fn write_at(&mut self, offset: u64, bytes: &[u8]) -> crate::Result<usize> {
+        fn write_at(&mut self, offset: u64, bytes: &[u8]) -> crate::Result<usize> {
             let start = offset as usize;
             self.0.borrow_mut()[start..start + bytes.len()].copy_from_slice(bytes);
             Ok(bytes.len())
         }
-        async fn flush(&mut self) -> crate::Result<()> {
+        fn flush(&mut self) -> crate::Result<()> {
             Ok(())
         }
     }
@@ -893,7 +876,7 @@ mod tests {
         let table = MqTable::standard();
         let mut sink = Memory::default();
         let output = sink.clone();
-        let mut document = ready(PdfDocument::new(&mut sink, &limits, &NeverCancel)).unwrap();
+        let mut document = PdfDocument::new(&mut sink, &limits, &NeverCancel).unwrap();
         let size = PageSpec {
             width_points: 30.0,
             height_points: 20.0,
@@ -913,15 +896,9 @@ mod tests {
                 },
             };
             let mut source = ByteReader(bytes);
-            let checked = ready(preflight_type3(
-                &mut source,
-                image,
-                At::NONE,
-                options,
-                &limits,
-                &NeverCancel,
-            ))
-            .unwrap();
+            let checked =
+                preflight_type3(&mut source, image, At::NONE, options, &limits, &NeverCancel)
+                    .unwrap();
             assert_eq!(
                 (checked.page().width, checked.page().height),
                 (width, height)
@@ -950,7 +927,7 @@ mod tests {
                 text: &mut scratch,
             };
             let before = output.0.borrow().len();
-            let prepared = ready(prepare_type3_image(
+            let prepared = prepare_type3_image(
                 &mut source,
                 &table,
                 &mut workspaces,
@@ -959,14 +936,14 @@ mod tests {
                 options,
                 &limits,
                 &NeverCancel,
-            ))
+            )
             .unwrap();
             assert_eq!(
                 output.0.borrow().len(),
                 before,
                 "preparation must not write PDF bytes"
             );
-            let (object, report) = ready(emit_type3_xobject(
+            let (object, report) = emit_type3_xobject(
                 &mut source,
                 &mut document,
                 &table,
@@ -976,11 +953,11 @@ mod tests {
                 options,
                 &limits,
                 &NeverCancel,
-            ))
+            )
             .unwrap();
             assert_eq!(report.text_header_anomaly, None);
             if number == 1 {
-                ready(document.add_page(size, &[object])).unwrap();
+                document.add_page(size, &[object]).unwrap();
             }
             placements.push(crate::pdf::ImagePlacement {
                 image: object,
@@ -993,10 +970,10 @@ mod tests {
                     0.0,
                 ],
             });
-            ready(scratch.set_len(0)).unwrap();
+            scratch.set_len(0).unwrap();
         }
-        ready(document.add_placed_page(size, &placements)).unwrap();
-        let report = ready(document.finish()).unwrap();
+        document.add_placed_page(size, &placements).unwrap();
+        let report = document.finish().unwrap();
         assert_eq!(report.pages_converted, 2);
         let bytes = output.0.borrow();
         assert_eq!(report.output_bytes_written, bytes.len() as u64);

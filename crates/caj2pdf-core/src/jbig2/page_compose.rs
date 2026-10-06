@@ -450,10 +450,7 @@ impl<'a, T: RandomAccessScratch, W: SequentialSink, C: Cancellation> PageOrSink<
     /// Verify a complete generic-region report, then flush the final output.
     /// The successful report proves neither external corpus parity nor PDF
     /// generation; it proves this bounded bytewise composition only.
-    pub async fn finish(
-        &mut self,
-        generic: &GenericReport,
-    ) -> PageComposeResult<PageComposeReport> {
+    pub fn finish(&mut self, generic: &GenericReport) -> PageComposeResult<PageComposeReport> {
         if self.progress.poisoned || self.progress.completed {
             return Err(self.failure.take().unwrap_or_else(|| {
                 self.error(
@@ -463,7 +460,7 @@ impl<'a, T: RandomAccessScratch, W: SequentialSink, C: Cancellation> PageOrSink<
             }));
         }
         self.progress.poisoned = true;
-        let result = self.finish_inner(generic).await;
+        let result = self.finish_inner(generic);
         match result {
             Ok(()) => {
                 self.progress.poisoned = false;
@@ -484,7 +481,7 @@ impl<'a, T: RandomAccessScratch, W: SequentialSink, C: Cancellation> PageOrSink<
         }
     }
 
-    async fn finish_inner(&mut self, generic: &GenericReport) -> PageComposeResult<()> {
+    fn finish_inner(&mut self, generic: &GenericReport) -> PageComposeResult<()> {
         self.validate_generic_info(generic.progress.info)?;
         if generic.data != self.profile.generic_header().data
             || generic.mq_span != self.profile.generic_header().mq_span
@@ -524,7 +521,6 @@ impl<'a, T: RandomAccessScratch, W: SequentialSink, C: Cancellation> PageOrSink<
         }
         self.output
             .flush()
-            .await
             .map_err(|error| self.error(self.progress.output_bytes_written, output_error(error)))?;
         if self.cancellation.is_cancelled() {
             return Err(self.error(
@@ -535,7 +531,7 @@ impl<'a, T: RandomAccessScratch, W: SequentialSink, C: Cancellation> PageOrSink<
         Ok(())
     }
 
-    async fn accept_chunk(&mut self, bytes: &[u8]) -> Result<usize, Error> {
+    fn accept_chunk(&mut self, bytes: &[u8]) -> Result<usize, Error> {
         let page = self.profile.page();
         let offset = self.progress.generic_bytes_accepted;
         self.check_cancelled(offset)?;
@@ -579,7 +575,6 @@ impl<'a, T: RandomAccessScratch, W: SequentialSink, C: Cancellation> PageOrSink<
             let read = match self
                 .scratch
                 .read_at(offset + done as u64, &mut self.chunk[done..count])
-                .await
             {
                 Ok(read) => read,
                 Err(error) => return Err(self.fail(offset + done as u64, scratch_error(error))),
@@ -632,7 +627,7 @@ impl<'a, T: RandomAccessScratch, W: SequentialSink, C: Cancellation> PageOrSink<
             // remains within the packed-byte cap checked in new().
             self.progress.output_write_calls += 1;
             self.note_request(requested);
-            let written = match self.output.write(&self.chunk[sent..sent + requested]).await {
+            let written = match self.output.write(&self.chunk[sent..sent + requested]) {
                 Ok(written) => written,
                 Err(error) => return Err(self.fail(offset + sent as u64, output_error(error))),
             };
@@ -666,7 +661,7 @@ impl<'a, T: RandomAccessScratch, W: SequentialSink, C: Cancellation> PageOrSink<
 impl<T: RandomAccessScratch, W: SequentialSink, C: Cancellation> SequentialSink
     for PageOrSink<'_, T, W, C>
 {
-    async fn write(&mut self, bytes: &[u8]) -> crate::Result<usize> {
+    fn write(&mut self, bytes: &[u8]) -> crate::Result<usize> {
         if !self.armed
             || self.progress.poisoned
             || self.progress.completed
@@ -681,14 +676,14 @@ impl<T: RandomAccessScratch, W: SequentialSink, C: Cancellation> SequentialSink
             return Ok(0);
         }
         self.progress.poisoned = true;
-        let result = self.accept_chunk(bytes).await;
+        let result = self.accept_chunk(bytes);
         if result.is_ok() {
             self.progress.poisoned = false;
         }
         result
     }
 
-    async fn flush(&mut self) -> crate::Result<()> {
+    fn flush(&mut self) -> crate::Result<()> {
         if !self.armed || self.progress.poisoned || self.progress.completed {
             return Err(self.fail(
                 self.progress.generic_bytes_accepted,

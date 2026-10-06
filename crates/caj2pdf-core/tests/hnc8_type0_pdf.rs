@@ -21,7 +21,7 @@ use caj2pdf_core::{
 };
 use common::{
     CancelAfter,
-    hnc8_document::{Image, RENDER_DPI, convert as compose, document, ready},
+    hnc8_document::{Image, RENDER_DPI, convert as compose, document},
 };
 use std::{
     error::Error as _,
@@ -142,11 +142,7 @@ impl RangedSource for Source {
         self.bytes.len() as u64
     }
 
-    async fn read_at(
-        &mut self,
-        offset: u64,
-        destination: &mut [u8],
-    ) -> caj2pdf_core::Result<usize> {
+    fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> caj2pdf_core::Result<usize> {
         self.largest_request = self.largest_request.max(destination.len());
         let start = (offset as usize).min(self.bytes.len());
         let count = (self.bytes.len() - start)
@@ -165,7 +161,7 @@ struct Sink {
 }
 
 impl SequentialSink for Sink {
-    async fn write(&mut self, bytes: &[u8]) -> caj2pdf_core::Result<usize> {
+    fn write(&mut self, bytes: &[u8]) -> caj2pdf_core::Result<usize> {
         self.writes += 1;
         if self.fail_at == Some(self.writes) {
             return Err(Error::Io(io::Error::other("injected sink failure")));
@@ -174,7 +170,7 @@ impl SequentialSink for Sink {
         Ok(bytes.len())
     }
 
-    async fn flush(&mut self) -> caj2pdf_core::Result<()> {
+    fn flush(&mut self) -> caj2pdf_core::Result<()> {
         Ok(())
     }
 }
@@ -774,22 +770,22 @@ fn bilevel(width: u32, height: u32, row_stride: usize) -> BilevelImageSpec {
 fn bilevel_writer_drops_stride_padding_across_split_writes() {
     let limits = Limits::default();
     let mut sink = Sink::default();
-    ready(async {
-        let mut document = PdfDocument::new(&mut sink, &limits, &NeverCancel).await?;
-        let mut image = document.begin_bilevel_image(bilevel(12, 2, 5)).await?;
+    (|| {
+        let mut document = PdfDocument::new(&mut sink, &limits, &NeverCancel)?;
+        let mut image = document.begin_bilevel_image(bilevel(12, 2, 5))?;
         // Row 1 = aa bb | pad x3, row 2 = cc dd | pad x3, split unevenly.
         for chunk in [&[0xaa][..], &[0xbb, 1, 2], &[3, 0xcc, 0xdd, 4], &[5, 6]] {
-            assert_eq!(image.write(chunk).await?, chunk.len());
+            assert_eq!(image.write(chunk)?, chunk.len());
         }
-        image.flush().await?;
-        let object = image.finish().await?;
+        image.flush()?;
+        let object = image.finish()?;
         let page = PageSpec {
             width_points: 12.0,
             height_points: 2.0,
         };
-        assert_eq!(document.add_page(page, &[object, object]).await?, 0);
-        document.finish().await
-    })
+        assert_eq!(document.add_page(page, &[object, object])?, 0);
+        document.finish()
+    })()
     .unwrap();
     assert_eq!(
         image_streams(&sink.bytes),
@@ -807,8 +803,8 @@ fn bilevel_writer_checks_geometry_and_row_counts() {
         height_points: 1.0,
     };
     let mut sink = Sink::default();
-    ready(async {
-        let mut document = PdfDocument::new(&mut sink, &limits, &NeverCancel).await?;
+    (|| {
+        let mut document = PdfDocument::new(&mut sink, &limits, &NeverCancel)?;
         for (spec, message) in [
             (bilevel(0, 1, 1), "image width and height must be nonzero"),
             (bilevel(1, 0, 1), "image width and height must be nonzero"),
@@ -821,8 +817,7 @@ fn bilevel_writer_checks_geometry_and_row_counts() {
                 "bilevel input byte count overflows",
             ),
         ] {
-            let Err(Error::InvalidInput { reason }) = document.begin_bilevel_image(spec).await
-            else {
+            let Err(Error::InvalidInput { reason }) = document.begin_bilevel_image(spec) else {
                 panic!("{spec:?} was accepted");
             };
             assert_eq!(reason, message);
@@ -833,36 +828,31 @@ fn bilevel_writer_checks_geometry_and_row_counts() {
             (bilevel(1 << 30, 1 << 5, 1 << 27), "PDF image stream bytes"),
         ] {
             let Err(Error::LimitExceeded { resource: got, .. }) =
-                document.begin_bilevel_image(spec).await
+                document.begin_bilevel_image(spec)
             else {
                 panic!("{spec:?} was accepted");
             };
             assert_eq!(got, resource);
         }
-        let Err(Error::InvalidInput { reason }) = document.add_page(page, &[]).await else {
+        let Err(Error::InvalidInput { reason }) = document.add_page(page, &[]) else {
             panic!("an empty page was accepted");
         };
         assert_eq!(reason, "PDF page requires at least one image");
 
-        let mut image = document.begin_bilevel_image(bilevel(8, 2, 1)).await?;
-        image.write(&[1]).await?;
-        let Err(Error::InvalidInput { reason }) = image.write(&[2, 3]).await else {
+        let mut image = document.begin_bilevel_image(bilevel(8, 2, 1))?;
+        image.write(&[1])?;
+        let Err(Error::InvalidInput { reason }) = image.write(&[2, 3]) else {
             panic!("an extra row was accepted");
         };
         assert_eq!(reason, "bilevel image rows exceed the declared height");
-        let Err(Error::InvalidInput { reason }) = image.finish().await else {
+        let Err(Error::InvalidInput { reason }) = image.finish() else {
             panic!("a short image was accepted");
         };
         assert_eq!(reason, "bilevel image ended before its declared height");
         // The unfinished stream blocks later objects instead of corrupting them.
-        assert!(
-            document
-                .begin_bilevel_image(bilevel(8, 1, 1))
-                .await
-                .is_err()
-        );
+        assert!(document.begin_bilevel_image(bilevel(8, 1, 1)).is_err());
         Ok::<_, Error>(())
-    })
+    })()
     .unwrap();
 }
 
@@ -872,13 +862,13 @@ fn bilevel_padding_writes_still_observe_cancellation() {
     for allowed in 0.. {
         let cancellation = CancelAfter::new(allowed);
         let mut sink = Sink::default();
-        let result = ready(async {
-            let mut document = PdfDocument::new(&mut sink, &limits, &cancellation).await?;
-            let mut image = document.begin_bilevel_image(bilevel(8, 1, 4)).await?;
-            image.write(&[0x81]).await?;
+        let result = (|| {
+            let mut document = PdfDocument::new(&mut sink, &limits, &cancellation)?;
+            let mut image = document.begin_bilevel_image(bilevel(8, 1, 4))?;
+            image.write(&[0x81])?;
             // The next check is reached only by this padding-only write.
-            Ok::<_, Error>(image.write(&[0, 0, 0]).await)
-        });
+            Ok::<_, Error>(image.write(&[0, 0, 0]))
+        })();
         if let Ok(padding) = result {
             assert!(matches!(padding, Err(Error::Cancelled)), "{padding:?}");
             break;

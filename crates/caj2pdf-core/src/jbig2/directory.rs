@@ -354,7 +354,7 @@ fn validate_graph<C: Cancellation>(
 /// checked offset arithmetic. Physical segment order may differ from number
 /// order, as allowed by T.88 Annex D.3. The caller must identify the enclosing
 /// embedded span; this API does not discover HN/C8 records or standalone files.
-pub async fn read_embedded_directory<S: RangedSource, C: Cancellation>(
+pub fn read_embedded_directory<S: RangedSource, C: Cancellation>(
     source: &mut S,
     span: SegmentSpan,
     limits: &Limits,
@@ -437,8 +437,7 @@ pub async fn read_embedded_directory<S: RangedSource, C: Cancellation>(
             header_limits,
             Some(budget),
             cancellation,
-        )
-        .await?;
+        )?;
         // A parsed header consumes at least its fixed number, flag, count,
         // page, and length fields, and its data end is not before them. The
         // segment limit above bounds this loop regardless.

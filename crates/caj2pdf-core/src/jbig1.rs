@@ -450,7 +450,7 @@ fn check_span(
     Ok(())
 }
 
-async fn read_info<S: RangedSource, C: Cancellation>(
+fn read_info<S: RangedSource, C: Cancellation>(
     source: &mut S,
     image: Type0Span,
     limits: &Limits,
@@ -470,7 +470,6 @@ async fn read_info<S: RangedSource, C: Cancellation>(
             limits,
             cancellation,
         )
-        .await
         .map_err(|error| {
             at(
                 absolute,
@@ -492,7 +491,7 @@ async fn read_info<S: RangedSource, C: Cancellation>(
 /// caller can use the returned geometry to prepare a destination (for
 /// example a PDF image dictionary) before constructing the decoder. It reads
 /// only the 48 wrapper bytes, in chunks of at most `Limits::io_chunk_bytes`.
-pub async fn read_type0_info<S: RangedSource, C: Cancellation>(
+pub fn read_type0_info<S: RangedSource, C: Cancellation>(
     source: &mut S,
     image: Type0Span,
     limits: &Limits,
@@ -509,7 +508,6 @@ pub async fn read_type0_info<S: RangedSource, C: Cancellation>(
         arithmetic_budget,
         budget,
     )
-    .await
 }
 
 /// One image with one arithmetic SCD. A failed or dropped row future poisons
@@ -532,7 +530,7 @@ pub struct Type0Decoder<'a, S: RangedSource, W: SequentialSink, C: Cancellation>
 
 impl<'a, S: RangedSource, W: SequentialSink, C: Cancellation> Type0Decoder<'a, S, W, C> {
     #[allow(clippy::too_many_arguments)]
-    pub async fn new(
+    pub fn new(
         source: &'a mut S,
         image: Type0Span,
         table: &'a QmTable,
@@ -557,8 +555,7 @@ impl<'a, S: RangedSource, W: SequentialSink, C: Cancellation> Type0Decoder<'a, S
             cancellation,
             arithmetic_budget,
             budget,
-        )
-        .await?;
+        )?;
         let previous_two = blank_row(info.dib_stride, image.offset)?;
         let previous = blank_row(info.dib_stride, image.offset)?;
         let current = blank_row(info.dib_stride, image.offset)?;
@@ -575,7 +572,6 @@ impl<'a, S: RangedSource, W: SequentialSink, C: Cancellation> Type0Decoder<'a, S
             cancellation,
             arithmetic_budget,
         )
-        .await
         .map_err(|error| at(error.offset.unwrap_or(coded.offset), arithmetic_kind(error)))?;
         Ok(Self {
             arithmetic,
@@ -624,7 +620,7 @@ impl<'a, S: RangedSource, W: SequentialSink, C: Cancellation> Type0Decoder<'a, S
     }
 
     /// Decode and write exactly one display-order DIB-stride row.
-    pub async fn decode_next_row(&mut self) -> Type0Result<bool> {
+    pub fn decode_next_row(&mut self) -> Type0Result<bool> {
         if self.poisoned {
             return Err(self.failed(Type0ErrorKind::Poisoned));
         }
@@ -641,7 +637,6 @@ impl<'a, S: RangedSource, W: SequentialSink, C: Cancellation> Type0Decoder<'a, S
         let copy_previous = self
             .arithmetic
             .decode_symbol(CONTROL_CONTEXT)
-            .await
             .map_err(|error| self.arithmetic_failure(error))?;
         if copy_previous {
             self.current.copy_from_slice(&self.previous);
@@ -657,7 +652,6 @@ impl<'a, S: RangedSource, W: SequentialSink, C: Cancellation> Type0Decoder<'a, S
                 let bit = self
                     .arithmetic
                     .decode_symbol(cx)
-                    .await
                     .map_err(|error| self.arithmetic_failure(error))?;
                 if bit {
                     let x = x as usize;
@@ -672,7 +666,6 @@ impl<'a, S: RangedSource, W: SequentialSink, C: Cancellation> Type0Decoder<'a, S
             self.limits,
             self.cancellation,
         )
-        .await
         .map_err(|error| match error {
             Error::Cancelled => self.failed(Type0ErrorKind::Cancelled),
             other => self.failed(Type0ErrorKind::Sink(other)),
@@ -685,7 +678,7 @@ impl<'a, S: RangedSource, W: SequentialSink, C: Cancellation> Type0Decoder<'a, S
     }
 
     /// Validate row count and flush only after all rows were written.
-    pub async fn finish(mut self) -> Type0Result<Type0Report> {
+    pub fn finish(mut self) -> Type0Result<Type0Report> {
         if self.poisoned {
             return Err(self.failed(Type0ErrorKind::Poisoned));
         }
@@ -711,7 +704,7 @@ impl<'a, S: RangedSource, W: SequentialSink, C: Cancellation> Type0Decoder<'a, S
                 output_bytes_written,
                 kind: arithmetic_kind(error),
             })?;
-        self.sink.flush().await.map_err(|error| Type0Error {
+        self.sink.flush().map_err(|error| Type0Error {
             offset,
             rows_written,
             output_bytes_written,

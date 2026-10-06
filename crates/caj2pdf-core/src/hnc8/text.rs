@@ -110,7 +110,7 @@ pub(super) enum PageText {
 /// byte offset cannot identify the corresponding expanded record byte.
 /// Composition may receive fewer coordinates than descriptors; it must prove
 /// all additional descriptor payloads repeat that coordinate group.
-pub(super) async fn read_coordinates<S: RangedSource, C: Cancellation>(
+pub(super) fn read_coordinates<S: RangedSource, C: Cancellation>(
     source: &mut S,
     header: Header,
     page: PageRecord,
@@ -118,14 +118,14 @@ pub(super) async fn read_coordinates<S: RangedSource, C: Cancellation>(
     cancellation: &C,
     budget: TextBudget,
 ) -> Result<TextCoordinates> {
-    match read_page_text(source, header, page, limits, cancellation, budget).await? {
+    match read_page_text(source, header, page, limits, cancellation, budget)? {
         PageText::Framed(text) => Ok(text),
         PageText::Unframed(error) => Err(error),
     }
 }
 
 /// [`read_coordinates`], reporting unframed text apart from other errors.
-pub(super) async fn read_page_text<S: RangedSource, C: Cancellation>(
+pub(super) fn read_page_text<S: RangedSource, C: Cancellation>(
     source: &mut S,
     header: Header,
     page: PageRecord,
@@ -158,8 +158,7 @@ pub(super) async fn read_page_text<S: RangedSource, C: Cancellation>(
         cancellation,
         loc,
         &mut 0,
-    )
-    .await?;
+    )?;
     let tag = u16::from_le_bytes([prefix[0], prefix[1]]);
     // The same paired page-prefix records also precede uncompressed HN-A
     // records. Decide only at the indexed start, never by marker searching.
@@ -175,8 +174,7 @@ pub(super) async fn read_page_text<S: RangedSource, C: Cancellation>(
             cancellation,
             loc,
             &mut 0,
-        )
-        .await?;
+        )?;
         if following[..2] == [0x03, 0x80] {
             page_size = Some([
                 u16::from_le_bytes([prefix[2], prefix[3]]),
@@ -197,9 +195,9 @@ pub(super) async fn read_page_text<S: RangedSource, C: Cancellation>(
         } else {
             Records::ordered(budget.max_records)
         };
-        raw::read(source, page, limits, cancellation, budget, loc, records).await?
+        raw::read(source, page, limits, cancellation, budget, loc, records)?
     } else {
-        match read_compressed_text(source, header, page, limits, cancellation, budget).await? {
+        match read_compressed_text(source, header, page, limits, cancellation, budget)? {
             PageText::Framed(text) => text,
             unframed => return Ok(unframed),
         }
@@ -307,7 +305,7 @@ fn validate_budget(page: PageRecord, budget: TextBudget, loc: Location) -> Resul
     Ok(())
 }
 
-async fn read_chunks<S: RangedSource, C: Cancellation>(
+fn read_chunks<S: RangedSource, C: Cancellation>(
     source: &mut S,
     offset: u64,
     bytes: &mut [u8],
@@ -319,9 +317,8 @@ async fn read_chunks<S: RangedSource, C: Cancellation>(
     let mut current = offset;
     for chunk in bytes.chunks_mut(limits.io_chunk_bytes.min(CHUNK_BYTES)) {
         *max_request = (*max_request).max(chunk.len());
-        read_exact_at(source, current, chunk, limits, cancellation)
-            .await
-            .map_err(|error| match error {
+        read_exact_at(source, current, chunk, limits, cancellation).map_err(
+            |error| match error {
                 Error::Cancelled => loc.at(current).error(ErrorKind::Cancelled),
                 Error::TruncatedInput { available, .. } => loc
                     .at(current.saturating_add(available))
@@ -334,7 +331,8 @@ async fn read_chunks<S: RangedSource, C: Cancellation>(
                     field: "page text read",
                     source,
                 }),
-            })?;
+            },
+        )?;
         // All callers validated the containing span, so this addition fits.
         current += len_u64(chunk.len());
     }
@@ -366,7 +364,7 @@ fn check_working(owned: u64, compressed: bool, budget: TextBudget, loc: Location
     Ok(working)
 }
 
-async fn read_compressed_text<S: RangedSource, C: Cancellation>(
+fn read_compressed_text<S: RangedSource, C: Cancellation>(
     source: &mut S,
     header: Header,
     page: PageRecord,
@@ -386,8 +384,7 @@ async fn read_compressed_text<S: RangedSource, C: Cancellation>(
         cancellation,
         loc,
         &mut max_source_request_bytes,
-    )
-    .await?;
+    )?;
     // A direct marker selects compact records. The older tagged prefix
     // selects the fixed glyph/tail layout; its +2/+6 payload words vary.
     // Both paths validate the declared length and complete zlib frame.
@@ -524,8 +521,7 @@ async fn read_compressed_text<S: RangedSource, C: Cancellation>(
                 cancellation,
                 loc,
                 &mut max_source_request_bytes,
-            )
-            .await?;
+            )?;
         }
         let writable = inflate.writable(output.len());
         let step = inflate

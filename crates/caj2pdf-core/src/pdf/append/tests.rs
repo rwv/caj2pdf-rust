@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::pdf::MAX_CLASSIC_PDF_BYTES;
-use crate::test_support::{CancelAfter, NEVER, run};
+use crate::test_support::{CancelAfter, NEVER};
 use crate::{
     native::{SeekableSource, WriteSink},
     pdf::{ImageEncoding, ImageSpec, PageSpec, PdfDocument},
@@ -13,8 +13,8 @@ fn unoutlined_pdf() -> Result<Vec<u8>> {
     let mut image = SeekableSource::new(Cursor::new(vec![0x7f]))?;
     let mut output = WriteSink::new(Vec::<u8>::new());
     let limits = Limits::default();
-    run(async {
-        let mut pdf = PdfDocument::new(&mut output, &limits, &NEVER).await?;
+    (|| {
+        let mut pdf = PdfDocument::new(&mut output, &limits, &NEVER)?;
         pdf.add_image_page(
             &mut image,
             0,
@@ -28,11 +28,10 @@ fn unoutlined_pdf() -> Result<Vec<u8>> {
                 pixel_height: 1,
                 encoding: ImageEncoding::Gray8,
             },
-        )
-        .await?;
-        pdf.finish().await?;
+        )?;
+        pdf.finish()?;
         Ok::<(), Error>(())
-    })?;
+    })()?;
     Ok(output.into_inner())
 }
 
@@ -55,7 +54,7 @@ fn import_one(pdf: &[u8], title: &str) -> Result<Vec<u8>> {
     let mut source = SeekableSource::new(Cursor::new(pdf))?;
     let mut output = WriteSink::new(Vec::<u8>::new());
     let limits = Limits::default();
-    run(async {
+    (|| {
         let index = PdfIndex::open(
             &mut source,
             PdfRange {
@@ -64,22 +63,19 @@ fn import_one(pdf: &[u8], title: &str) -> Result<Vec<u8>> {
             },
             &limits,
             &NEVER,
-        )
-        .await?;
+        )?;
         let mut appender =
-            PdfOutlineAppender::begin(&mut source, &mut output, &index, &limits, &NEVER).await?;
-        appender
-            .add_bookmark(Bookmark {
-                depth: 0,
-                title: title.into(),
-                page_index: 0,
-            })
-            .await?;
-        let report = appender.finish().await?;
+            PdfOutlineAppender::begin(&mut source, &mut output, &index, &limits, &NEVER)?;
+        appender.add_bookmark(Bookmark {
+            depth: 0,
+            title: title.into(),
+            page_index: 0,
+        })?;
+        let report = appender.finish()?;
         assert_eq!(report.pages_converted, 1);
         assert_eq!(report.bookmarks_written, 1);
         Ok::<(), Error>(())
-    })?;
+    })()?;
     Ok(output.into_inner())
 }
 
@@ -110,12 +106,7 @@ fn clean_existing_outline_is_copied_byte_for_byte() -> Result<()> {
     let original = include_bytes!("../../../../../tests/fixtures/valid_nested_outline.pdf");
     let mut source = SeekableSource::new(Cursor::new(original.as_slice()))?;
     let mut output = WriteSink::new(Vec::<u8>::new());
-    let report = run(copy_pdf(
-        &mut source,
-        &mut output,
-        &Limits::default(),
-        &NEVER,
-    ))?;
+    let report = copy_pdf(&mut source, &mut output, &Limits::default(), &NEVER)?;
     assert_eq!(output.into_inner(), original);
     assert_eq!(report.output_bytes_written, original.len() as u64);
     assert!(report.input_bytes_read >= original.len() as u64);
@@ -130,7 +121,7 @@ fn importing_into_existing_outline_preserves_original_navigation() -> Result<()>
     let mut source = SeekableSource::new(Cursor::new(original.as_slice()))?;
     let mut output = WriteSink::new(Vec::<u8>::new());
     let limits = Limits::default();
-    let report = run(async {
+    let report = (|| {
         let index = PdfIndex::open(
             &mut source,
             PdfRange {
@@ -139,20 +130,17 @@ fn importing_into_existing_outline_preserves_original_navigation() -> Result<()>
             },
             &limits,
             &NEVER,
-        )
-        .await?;
+        )?;
         let mut appender =
-            PdfOutlineAppender::begin(&mut source, &mut output, &index, &limits, &NEVER).await?;
+            PdfOutlineAppender::begin(&mut source, &mut output, &index, &limits, &NEVER)?;
         assert!(appender.preserves_existing_outlines());
-        appender
-            .add_bookmark(Bookmark {
-                depth: 0,
-                title: "New title".into(),
-                page_index: 999,
-            })
-            .await?;
-        appender.finish().await
-    })?;
+        appender.add_bookmark(Bookmark {
+            depth: 0,
+            title: "New title".into(),
+            page_index: 999,
+        })?;
+        appender.finish()
+    })()?;
     assert_eq!(report.bookmarks_written, 0);
     assert_eq!(output.into_inner(), original);
     Ok(())
@@ -167,7 +155,7 @@ fn embedded_pdf_range_is_copied_without_container_bytes() -> Result<()> {
     container.extend_from_slice(b"container suffix");
     let mut source = SeekableSource::new(Cursor::new(container))?;
     let mut output = WriteSink::new(Vec::<u8>::new());
-    let report = run(copy_pdf_range(
+    let report = copy_pdf_range(
         &mut source,
         &mut output,
         PdfRange {
@@ -176,7 +164,7 @@ fn embedded_pdf_range_is_copied_without_container_bytes() -> Result<()> {
         },
         &Limits::default(),
         &NEVER,
-    ))?;
+    )?;
     assert_eq!(output.into_inner(), original);
     assert_eq!(report.pages_converted, 2);
     Ok(())
@@ -202,7 +190,7 @@ fn nested_siblings_and_long_title_reopen_as_one_outline_tree() -> Result<()> {
     let mut source = SeekableSource::new(Cursor::new(original.as_slice()))?;
     let mut output = WriteSink::new(Vec::<u8>::new());
     let limits = Limits::default();
-    let report = run(async {
+    let report = (|| {
         let index = PdfIndex::open(
             &mut source,
             PdfRange {
@@ -211,26 +199,23 @@ fn nested_siblings_and_long_title_reopen_as_one_outline_tree() -> Result<()> {
             },
             &limits,
             &NEVER,
-        )
-        .await?;
+        )?;
         let mut appender =
-            PdfOutlineAppender::begin(&mut source, &mut output, &index, &limits, &NEVER).await?;
+            PdfOutlineAppender::begin(&mut source, &mut output, &index, &limits, &NEVER)?;
         for (depth, title) in [
             (0, "Root".to_owned()),
             (1, "A".repeat(3000)),
             (1, "第二章".to_owned()),
             (0, "After".to_owned()),
         ] {
-            appender
-                .add_bookmark(Bookmark {
-                    depth,
-                    title,
-                    page_index: 0,
-                })
-                .await?;
+            appender.add_bookmark(Bookmark {
+                depth,
+                title,
+                page_index: 0,
+            })?;
         }
-        appender.finish().await
-    })?;
+        appender.finish()
+    })()?;
     assert_eq!(report.bookmarks_written, 4);
     let pdf = output.into_inner();
     let text = String::from_utf8_lossy(&pdf);
@@ -238,7 +223,7 @@ fn nested_siblings_and_long_title_reopen_as_one_outline_tree() -> Result<()> {
     assert_eq!(text.matches(" /Next ").count(), 2);
     assert_eq!(text.matches(" /Prev ").count(), 3); // two item links + trailer
     let mut source = SeekableSource::new(Cursor::new(pdf.as_slice()))?;
-    let index = run(PdfIndex::open(
+    let index = PdfIndex::open(
         &mut source,
         PdfRange {
             offset: 0,
@@ -246,7 +231,7 @@ fn nested_siblings_and_long_title_reopen_as_one_outline_tree() -> Result<()> {
         },
         &limits,
         &NEVER,
-    ))?;
+    )?;
     assert!(index.has_outlines());
     assert_eq!(index.pages().len(), 1);
     Ok(())
@@ -262,7 +247,7 @@ fn bookmark_limits_reject_input_before_new_objects() -> Result<()> {
         max_allocation_bytes: 256 * 1024,
         ..Limits::default()
     };
-    run(async {
+    (|| {
         let index = PdfIndex::open(
             &mut source,
             PdfRange {
@@ -271,75 +256,62 @@ fn bookmark_limits_reject_input_before_new_objects() -> Result<()> {
             },
             &limits,
             &NEVER,
-        )
-        .await?;
+        )?;
         let mut appender =
-            PdfOutlineAppender::begin(&mut source, &mut output, &index, &limits, &NEVER).await?;
+            PdfOutlineAppender::begin(&mut source, &mut output, &index, &limits, &NEVER)?;
         assert!(matches!(
-            appender
-                .add_bookmark(Bookmark {
-                    depth: 0,
-                    title: "too far".into(),
-                    page_index: 1,
-                })
-                .await,
+            appender.add_bookmark(Bookmark {
+                depth: 0,
+                title: "too far".into(),
+                page_index: 1,
+            }),
             Err(Error::InvalidInput { .. })
         ));
         assert!(matches!(
-            appender
-                .add_bookmark(Bookmark {
-                    depth: 0,
-                    title: "".into(),
-                    page_index: 0,
-                })
-                .await,
+            appender.add_bookmark(Bookmark {
+                depth: 0,
+                title: "".into(),
+                page_index: 0,
+            }),
             Err(Error::InvalidInput { .. })
         ));
         assert!(matches!(
-            appender
-                .add_bookmark(Bookmark {
-                    depth: MAX_OUTLINE_DEPTH as u32,
-                    title: "deep".into(),
-                    page_index: 0,
-                })
-                .await,
+            appender.add_bookmark(Bookmark {
+                depth: MAX_OUTLINE_DEPTH as u32,
+                title: "deep".into(),
+                page_index: 0,
+            }),
             Err(Error::LimitExceeded {
                 resource: "PDF outline depth",
                 ..
             })
         ));
         assert!(matches!(
-            appender
-                .add_bookmark(Bookmark {
-                    depth: 0,
-                    title: "X".repeat(300_000),
-                    page_index: 0,
-                })
-                .await,
+            appender.add_bookmark(Bookmark {
+                depth: 0,
+                title: "X".repeat(300_000),
+                page_index: 0,
+            }),
             Err(Error::LimitExceeded { .. })
         ));
-        appender
-            .add_bookmark(Bookmark {
-                depth: 0,
-                title: "Allowed".into(),
-                page_index: 0,
-            })
-            .await?;
+        appender.add_bookmark(Bookmark {
+            depth: 0,
+            title: "Allowed".into(),
+            page_index: 0,
+        })?;
         assert!(matches!(
-            appender
-                .add_bookmark(Bookmark {
-                    depth: 0,
-                    title: "second".into(),
-                    page_index: 0,
-                })
-                .await,
+            appender.add_bookmark(Bookmark {
+                depth: 0,
+                title: "second".into(),
+                page_index: 0,
+            }),
             Err(Error::LimitExceeded {
                 resource: "bookmarks",
                 ..
             })
         ));
         Ok::<(), Error>(())
-    })
+    })()
 }
 
 #[test]
@@ -352,7 +324,7 @@ fn copy_output_limit_is_checked_before_sink_writes() -> Result<()> {
         ..Limits::default()
     };
     assert!(matches!(
-        run(copy_pdf(&mut source, &mut output, &limits, &NEVER)),
+        copy_pdf(&mut source, &mut output, &limits, &NEVER),
         Err(Error::PdfLimitExceeded {
             resource: "output bytes",
             object: Some((1, 0)),
@@ -369,7 +341,7 @@ fn invalid_bookmark_rejects_without_claiming_success() -> Result<()> {
     let mut source = SeekableSource::new(Cursor::new(original.as_slice()))?;
     let mut output = WriteSink::new(Vec::<u8>::new());
     let limits = Limits::default();
-    run(async {
+    (|| {
         let index = PdfIndex::open(
             &mut source,
             PdfRange {
@@ -378,22 +350,19 @@ fn invalid_bookmark_rejects_without_claiming_success() -> Result<()> {
             },
             &limits,
             &NEVER,
-        )
-        .await?;
+        )?;
         let mut appender =
-            PdfOutlineAppender::begin(&mut source, &mut output, &index, &limits, &NEVER).await?;
+            PdfOutlineAppender::begin(&mut source, &mut output, &index, &limits, &NEVER)?;
         assert!(matches!(
-            appender
-                .add_bookmark(Bookmark {
-                    depth: 1,
-                    title: "orphan".into(),
-                    page_index: 0,
-                })
-                .await,
+            appender.add_bookmark(Bookmark {
+                depth: 1,
+                title: "orphan".into(),
+                page_index: 0,
+            }),
             Err(Error::InvalidInput { .. })
         ));
         Ok::<(), Error>(())
-    })
+    })()
 }
 
 #[test]
@@ -403,20 +372,16 @@ fn new_outline_objects_stop_at_the_pdf_object_number_limit() -> Result<()> {
     let index = open_index(&original, &limits)?;
     let mut source = SeekableSource::new(Cursor::new(original.as_slice()))?;
     let mut output = WriteSink::new(Vec::<u8>::new());
-    let result = run(async {
+    let result = (|| {
         let mut appender =
-            PdfOutlineAppender::begin(&mut source, &mut output, &index, &limits, &NEVER).await?;
+            PdfOutlineAppender::begin(&mut source, &mut output, &index, &limits, &NEVER)?;
         appender.writer.next_number = Some(MAX_PDF_OBJECTS + 1);
-        Ok::<_, Error>(
-            appender
-                .add_bookmark(Bookmark {
-                    depth: 0,
-                    title: "late".into(),
-                    page_index: 0,
-                })
-                .await,
-        )
-    })?;
+        Ok::<_, Error>(appender.add_bookmark(Bookmark {
+            depth: 0,
+            title: "late".into(),
+            page_index: 0,
+        }))
+    })()?;
     assert!(matches!(
         result,
         Err(Error::LimitExceeded {
@@ -461,7 +426,7 @@ impl TestSink {
 }
 
 impl SequentialSink for TestSink {
-    async fn write(&mut self, bytes: &[u8]) -> Result<usize> {
+    fn write(&mut self, bytes: &[u8]) -> Result<usize> {
         if self.remaining == 0 {
             return Err(Error::Io(io::Error::new(
                 io::ErrorKind::BrokenPipe,
@@ -474,7 +439,7 @@ impl SequentialSink for TestSink {
         Ok(count)
     }
 
-    async fn flush(&mut self) -> Result<()> {
+    fn flush(&mut self) -> Result<()> {
         if self.fail_flush {
             return Err(Error::Io(io::Error::new(
                 io::ErrorKind::BrokenPipe,
@@ -491,7 +456,7 @@ fn sink_failure_has_no_success_report() -> Result<()> {
     let original = include_bytes!("../../../../../tests/fixtures/valid_nested_outline.pdf");
     let mut source = SeekableSource::new(Cursor::new(original.as_slice()))?;
     let mut sink = TestSink::failing(35, false);
-    let result = run(copy_pdf(&mut source, &mut sink, &Limits::default(), &NEVER));
+    let result = copy_pdf(&mut source, &mut sink, &Limits::default(), &NEVER);
     assert!(matches!(result, Err(Error::Io(_))));
     assert_eq!(sink.bytes.len(), 35);
     Ok(())
@@ -502,13 +467,13 @@ fn flush_failure_has_no_success_report() -> Result<()> {
     let original = include_bytes!("../../../../../tests/fixtures/valid_nested_outline.pdf");
     let mut source = SeekableSource::new(Cursor::new(original.as_slice()))?;
     let mut sink = TestSink::failing(original.len(), true);
-    let result = run(copy_pdf(&mut source, &mut sink, &Limits::default(), &NEVER));
+    let result = copy_pdf(&mut source, &mut sink, &Limits::default(), &NEVER);
     assert!(matches!(result, Err(Error::Io(_))));
     assert_eq!(sink.bytes.len(), original.len());
 
     // The same short-write sink succeeds once its flush does.
     let mut sink = TestSink::failing(original.len(), false);
-    let report = run(copy_pdf(&mut source, &mut sink, &Limits::default(), &NEVER))?;
+    let report = copy_pdf(&mut source, &mut sink, &Limits::default(), &NEVER)?;
     assert_eq!(report.output_bytes_written, original.len() as u64);
     assert_eq!(sink.bytes.len(), original.len());
     Ok(())
@@ -548,7 +513,7 @@ const PAGE: &str = "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 200] >>";
 
 fn open_index(pdf: &[u8], limits: &Limits) -> Result<PdfIndex> {
     let mut source = SeekableSource::new(Cursor::new(pdf))?;
-    run(PdfIndex::open(
+    PdfIndex::open(
         &mut source,
         PdfRange {
             offset: 0,
@@ -556,7 +521,7 @@ fn open_index(pdf: &[u8], limits: &Limits) -> Result<PdfIndex> {
         },
         limits,
         &NEVER,
-    ))
+    )
 }
 
 #[test]
@@ -577,19 +542,17 @@ fn update_keeps_trailer_info_and_replaces_an_empty_outline_root() -> Result<()> 
     assert!(!index.has_outlines());
     let mut source = SeekableSource::new(Cursor::new(original.as_slice()))?;
     let mut output = WriteSink::new(Vec::<u8>::new());
-    let report = run(async {
+    let report = (|| {
         let mut appender =
-            PdfOutlineAppender::begin(&mut source, &mut output, &index, &limits, &NEVER).await?;
+            PdfOutlineAppender::begin(&mut source, &mut output, &index, &limits, &NEVER)?;
         assert!(!appender.preserves_existing_outlines());
-        appender
-            .add_bookmark(Bookmark {
-                depth: 0,
-                title: "Only".into(),
-                page_index: 0,
-            })
-            .await?;
-        appender.finish().await
-    })?;
+        appender.add_bookmark(Bookmark {
+            depth: 0,
+            title: "Only".into(),
+            page_index: 0,
+        })?;
+        appender.finish()
+    })()?;
     assert_eq!(report.bookmarks_written, 1);
     assert_eq!(report.input_bytes_read, original.len() as u64);
     let pdf = output.into_inner();
@@ -653,7 +616,7 @@ fn orphan_gap_scrubbing_spans_small_copy_chunks() -> Result<()> {
     assert!(patch.original.len() > 8);
     let mut source = SeekableSource::new(Cursor::new(original.as_slice()))?;
     let mut output = WriteSink::new(Vec::<u8>::new());
-    let report = run(copy_pdf(&mut source, &mut output, &limits, &NEVER))?;
+    let report = copy_pdf(&mut source, &mut output, &limits, &NEVER)?;
     let mut expected = original.clone();
     expected[start..end].fill(b' ');
     let copied = output.into_inner();
@@ -675,24 +638,24 @@ fn writer_refuses_new_bookmarks_after_an_output_failure() -> Result<()> {
     let index = open_index(&original, &limits)?;
     let mut source = SeekableSource::new(Cursor::new(original.as_slice()))?;
     let mut sink = TestSink::failing(original.len() + 3, false);
-    let poisoned = run(async {
+    let poisoned = (|| {
         let mut appender =
-            PdfOutlineAppender::begin(&mut source, &mut sink, &index, &limits, &NEVER).await?;
+            PdfOutlineAppender::begin(&mut source, &mut sink, &index, &limits, &NEVER)?;
         let bookmark = |title: &str| Bookmark {
             depth: 0,
             title: title.into(),
             page_index: 0,
         };
-        appender.add_bookmark(bookmark("first")).await?;
+        appender.add_bookmark(bookmark("first"))?;
         // The second sibling emits the first item and exhausts the sink.
         assert!(matches!(
-            appender.add_bookmark(bookmark("second")).await,
+            appender.add_bookmark(bookmark("second")),
             Err(Error::Io(_))
         ));
-        let retry = appender.add_bookmark(bookmark("third")).await;
-        let finish = appender.finish().await;
+        let retry = appender.add_bookmark(bookmark("third"));
+        let finish = appender.finish();
         Ok::<_, Error>((retry, finish))
-    })?;
+    })()?;
     for result in [poisoned.0.map(|_| ()), poisoned.1.map(|_| ())] {
         assert!(matches!(
             result,
@@ -712,12 +675,7 @@ fn cancellation_around_the_final_flush_prevents_a_success_report() -> Result<()>
         let mut source = SeekableSource::new(Cursor::new(original.as_slice())).unwrap();
         let mut sink = TestSink::recording();
         let cancellation = CancelAfter::new(allowed);
-        let result = run(copy_pdf(
-            &mut source,
-            &mut sink,
-            &Limits::default(),
-            &cancellation,
-        ));
+        let result = copy_pdf(&mut source, &mut sink, &Limits::default(), &cancellation);
         (result, sink, cancellation.queries())
     };
     let (result, sink, checks) = copy(u64::MAX);
@@ -750,26 +708,22 @@ fn append_writer_rejects_misordered_object_calls() -> Result<()> {
         number: 7,
         generation: 0,
     };
-    run(async {
+    (|| {
         let mut writer = AppendWriter::new(&mut sink, &index, &limits, &NEVER);
         let misuse = invalid("invalid PDF append object state or number");
-        assert!(misuse(
-            &writer
-                .begin_object(PdfRef {
-                    number: 0,
-                    generation: 0,
-                })
-                .await
-        ));
+        assert!(misuse(&writer.begin_object(PdfRef {
+            number: 0,
+            generation: 0,
+        })));
         assert!(invalid("no PDF append object is open")(
-            &writer.end_object().await
+            &writer.end_object()
         ));
-        writer.begin_object(reference).await?;
-        assert!(misuse(&writer.begin_object(reference).await));
+        writer.begin_object(reference)?;
+        assert!(misuse(&writer.begin_object(reference)));
         let open = invalid("PDF append object remains open");
-        assert!(open(&writer.finish_copy().await));
-        writer.end_object().await
-    })?;
+        assert!(open(&writer.finish_copy()));
+        writer.end_object()
+    })()?;
     assert_eq!(sink.bytes, b"\n7 0 obj\n\nendobj\n");
     Ok(())
 }
@@ -783,27 +737,27 @@ fn append_update_rejects_open_duplicate_and_oversized_state() -> Result<()> {
         generation: 0,
     };
     let mut sink = WriteSink::new(Vec::new());
-    run(async {
+    (|| {
         let mut writer = AppendWriter::new(&mut sink, &index, &limits, &NEVER);
-        writer.begin_object(reference).await?;
+        writer.begin_object(reference)?;
         assert!(invalid("PDF append object remains open")(
-            &writer.finish_update().await
+            &writer.finish_update()
         ));
-        writer.end_object().await?;
-        writer.begin_object(reference).await?;
-        writer.end_object().await?;
+        writer.end_object()?;
+        writer.begin_object(reference)?;
+        writer.end_object()?;
         assert!(invalid("PDF update defines an object twice")(
-            &writer.finish_update().await
+            &writer.finish_update()
         ));
         Ok::<_, Error>(())
-    })?;
+    })()?;
 
     let mut sink = WriteSink::new(Vec::new());
-    let oversized = run(async {
+    let oversized = {
         let mut writer = AppendWriter::new(&mut sink, &index, &limits, &NEVER);
         writer.out.position = MAX_CLASSIC_PDF_BYTES;
-        writer.begin_object(reference).await
-    });
+        writer.begin_object(reference)
+    };
     assert!(matches!(
         oversized,
         Err(Error::LimitExceeded {
@@ -814,14 +768,14 @@ fn append_update_rejects_open_duplicate_and_oversized_state() -> Result<()> {
     ));
 
     let mut sink = WriteSink::new(Vec::new());
-    let far_object = run(async {
+    let far_object = {
         let mut writer = AppendWriter::new(&mut sink, &index, &limits, &NEVER);
         writer.entries.push(XrefEntry {
             reference,
             offset: MAX_CLASSIC_PDF_BYTES + 1,
         });
-        writer.finish_update().await
-    });
+        writer.finish_update()
+    };
     assert!(matches!(
         far_object,
         Err(Error::LimitExceeded {
@@ -919,27 +873,27 @@ fn a_bookmark_that_fails_while_closing_items_stops_the_outline() -> Result<()> {
     let index = open_index(&original, &limits)?;
     let mut source = SeekableSource::new(Cursor::new(original.as_slice()))?;
     let mut sink = TestSink::recording();
-    let (failed, retry, finish) = run(async {
+    let (failed, retry, finish) = (|| {
         let mut appender =
-            PdfOutlineAppender::begin(&mut source, &mut sink, &index, &limits, &NEVER).await?;
+            PdfOutlineAppender::begin(&mut source, &mut sink, &index, &limits, &NEVER)?;
         let bookmark = |depth: u32, title: &str| Bookmark {
             depth,
             title: title.into(),
             page_index: 0,
         };
-        appender.add_bookmark(bookmark(0, "A")).await?;
-        appender.add_bookmark(bookmark(1, "B")).await?;
+        appender.add_bookmark(bookmark(0, "A"))?;
+        appender.add_bookmark(bookmark(1, "B"))?;
         // Writing the closed items would pass the classic xref limit, which
         // fails before the sink sees a byte and so leaves the writer usable.
         // Restoring the position afterwards makes the failure transient, as
         // an allocator refusal would be.
         let position = appender.writer.out.position;
         appender.writer.out.position = MAX_CLASSIC_PDF_BYTES;
-        let failed = appender.add_bookmark(bookmark(0, "C")).await;
+        let failed = appender.add_bookmark(bookmark(0, "C"));
         appender.writer.out.position = position;
-        let retry = appender.add_bookmark(bookmark(0, "D")).await;
-        Ok::<_, Error>((failed, retry, appender.finish().await))
-    })?;
+        let retry = appender.add_bookmark(bookmark(0, "D"));
+        Ok::<_, Error>((failed, retry, appender.finish()))
+    })()?;
     assert!(matches!(
         failed,
         Err(Error::LimitExceeded {

@@ -36,7 +36,7 @@ impl<R: Read + Seek> RangedSource for SeekableSource<R> {
         self.size
     }
 
-    async fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> Result<usize> {
+    fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> Result<usize> {
         if destination.len() > MAX_IO_CHUNK {
             return Err(Error::LimitExceeded {
                 resource: "I/O request bytes",
@@ -75,7 +75,7 @@ impl<W: Write> WriteSink<W> {
 }
 
 impl<W: Write> SequentialSink for WriteSink<W> {
-    async fn write(&mut self, bytes: &[u8]) -> Result<usize> {
+    fn write(&mut self, bytes: &[u8]) -> Result<usize> {
         if bytes.len() > MAX_IO_CHUNK {
             return Err(Error::LimitExceeded {
                 resource: "I/O request bytes",
@@ -86,7 +86,7 @@ impl<W: Write> SequentialSink for WriteSink<W> {
         Ok(self.inner.write(bytes)?)
     }
 
-    async fn flush(&mut self) -> Result<()> {
+    fn flush(&mut self) -> Result<()> {
         Ok(self.inner.flush()?)
     }
 }

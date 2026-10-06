@@ -2,13 +2,11 @@
 
 use super::*;
 use crate::native::SeekableSource;
-use crate::test_support::{CancelAfter, ready};
+use crate::test_support::CancelAfter;
 use std::{
     cell::Cell,
     io::{Cursor, Read, Seek, SeekFrom},
-    pin::pin,
     rc::Rc,
-    task::{Context, Waker},
 };
 
 /// The one source type of these tests, so every decoder path shares a
@@ -122,7 +120,7 @@ struct BytesSink {
 }
 
 impl SequentialSink for BytesSink {
-    async fn write(&mut self, bytes: &[u8]) -> crate::Result<usize> {
+    fn write(&mut self, bytes: &[u8]) -> crate::Result<usize> {
         if self.fail {
             return Err(Error::InvalidInput {
                 reason: "synthetic sink failure",
@@ -132,7 +130,7 @@ impl SequentialSink for BytesSink {
         self.bytes.extend_from_slice(&bytes[..n]);
         Ok(n)
     }
-    async fn flush(&mut self) -> crate::Result<()> {
+    fn flush(&mut self) -> crate::Result<()> {
         if let Some(flag) = &self.cancel_on_flush {
             flag.set(true);
         }
@@ -191,7 +189,7 @@ fn zero_rows_at_boundary_widths_are_stride_padded_and_sequential() {
             ..BytesSink::default()
         };
         let table = table();
-        let mut decoder = ready(Type0Decoder::new(
+        let mut decoder = Type0Decoder::new(
             &mut source,
             Type0Span {
                 record_type: 0,
@@ -205,16 +203,16 @@ fn zero_rows_at_boundary_widths_are_stride_padded_and_sequential() {
             &Cancel::Never,
             arithmetic_budget(),
             Type0Budget::default(),
-        ))
+        )
         .unwrap();
         let stride = (width.div_ceil(32) * 4) as usize;
         assert_eq!(decoder.progress().info.dib_stride, stride);
         for row in 1..=3 {
-            assert!(ready(decoder.decode_next_row()).unwrap());
+            assert!(decoder.decode_next_row().unwrap());
             assert_eq!(decoder.progress().rows_written, row);
         }
-        assert!(!ready(decoder.decode_next_row()).unwrap());
-        let report = ready(decoder.finish()).unwrap();
+        assert!(!decoder.decode_next_row().unwrap());
+        let report = decoder.finish().unwrap();
         assert_eq!(
             report.progress.arithmetic.symbols_decoded,
             3 * (u64::from(width) + 1)
@@ -237,7 +235,7 @@ fn hand_derived_first_lps_produces_one_black_pixel() {
     let mut contexts = ContextBank::new(CONTEXT_COUNT, &limits).unwrap();
     let mut sink = BytesSink::default();
     let table = table();
-    let mut decoder = ready(Type0Decoder::new(
+    let mut decoder = Type0Decoder::new(
         &mut source,
         Type0Span {
             record_type: 0,
@@ -251,10 +249,10 @@ fn hand_derived_first_lps_produces_one_black_pixel() {
         &Cancel::Never,
         arithmetic_budget(),
         Type0Budget::default(),
-    ))
+    )
     .unwrap();
-    assert!(ready(decoder.decode_next_row()).unwrap());
-    let report = ready(decoder.finish()).unwrap();
+    assert!(decoder.decode_next_row().unwrap());
+    let report = decoder.finish().unwrap();
     assert_eq!(report.progress.arithmetic.symbols_decoded, 2);
     assert_eq!(sink.bytes, [0x80, 0, 0, 0]);
 }
@@ -269,7 +267,7 @@ fn black_row_is_copied_without_decoding_its_pixels() {
     let mut contexts = ContextBank::new(CONTEXT_COUNT, &limits).unwrap();
     let mut source = intact(bytes.clone());
     let mut sink = BytesSink::default();
-    let mut decoder = ready(Type0Decoder::new(
+    let mut decoder = Type0Decoder::new(
         &mut source,
         Type0Span {
             record_type: 0,
@@ -283,11 +281,11 @@ fn black_row_is_copied_without_decoding_its_pixels() {
         &Cancel::Never,
         arithmetic_budget(),
         Type0Budget::default(),
-    ))
+    )
     .unwrap();
-    assert!(ready(decoder.decode_next_row()).unwrap());
-    assert!(ready(decoder.decode_next_row()).unwrap());
-    let report = ready(decoder.finish()).unwrap();
+    assert!(decoder.decode_next_row().unwrap());
+    assert!(decoder.decode_next_row().unwrap());
+    let report = decoder.finish().unwrap();
     assert_eq!(report.progress.arithmetic.symbols_decoded, 3);
     assert_eq!(sink.bytes, [0x80, 0, 0, 0, 0x80, 0, 0, 0]);
 }
@@ -303,7 +301,7 @@ fn image_contexts_reset_and_first_row_copy_is_blank() {
     let mut contexts = ContextBank::new(CONTEXT_COUNT, &limits).unwrap();
     // An LPS at state zero switches the control context's MPS to one.
     let mut earlier = intact(vec![0xc0, 0, 0]);
-    let mut decoder = ready(crate::qm::ArithmeticDecoder::new(
+    let mut decoder = crate::qm::ArithmeticDecoder::new(
         &mut earlier,
         crate::qm::CodedSpan {
             offset: 0,
@@ -314,15 +312,15 @@ fn image_contexts_reset_and_first_row_copy_is_blank() {
         &limits,
         &Cancel::Never,
         arithmetic_budget(),
-    ))
+    )
     .unwrap();
-    assert!(ready(decoder.decode_symbol(CONTROL_CONTEXT)).unwrap());
+    assert!(decoder.decode_symbol(CONTROL_CONTEXT).unwrap());
     decoder.finish(1).unwrap();
     assert!(contexts.get(CONTROL_CONTEXT).unwrap().mps);
     for _ in 0..2 {
         let mut source = intact(bytes.clone());
         let mut sink = BytesSink::default();
-        let mut decoder = ready(Type0Decoder::new(
+        let mut decoder = Type0Decoder::new(
             &mut source,
             Type0Span {
                 record_type: 0,
@@ -336,10 +334,10 @@ fn image_contexts_reset_and_first_row_copy_is_blank() {
             &Cancel::Never,
             arithmetic_budget(),
             Type0Budget::default(),
-        ))
+        )
         .unwrap();
-        assert!(ready(decoder.decode_next_row()).unwrap());
-        let report = ready(decoder.finish()).unwrap();
+        assert!(decoder.decode_next_row().unwrap());
+        let report = decoder.finish().unwrap();
         assert_eq!(report.progress.arithmetic.symbols_decoded, 1);
         assert_eq!(sink.bytes, [0, 0, 0, 0]);
     }
@@ -461,7 +459,7 @@ fn non_type_zero_outer_record_is_rejected_at_image_start() {
     for record_type in [1, 2, 3, u32::MAX] {
         let mut source = intact(bytes.clone());
         let mut sink = BytesSink::default();
-        let error = ready(Type0Decoder::new(
+        let error = Type0Decoder::new(
             &mut source,
             Type0Span {
                 record_type,
@@ -475,7 +473,7 @@ fn non_type_zero_outer_record_is_rejected_at_image_start() {
             &Cancel::Never,
             arithmetic_budget(),
             Type0Budget::default(),
-        ))
+        )
         .err()
         .expect("non-type-zero image must be rejected");
         assert_eq!(error.offset, 0);
@@ -632,7 +630,7 @@ fn sink_failure_poison_and_incomplete_finish_are_explicit() {
         fail: true,
         ..BytesSink::default()
     };
-    let mut decoder = ready(Type0Decoder::new(
+    let mut decoder = Type0Decoder::new(
         &mut source,
         Type0Span {
             record_type: 0,
@@ -646,21 +644,21 @@ fn sink_failure_poison_and_incomplete_finish_are_explicit() {
         &Cancel::Never,
         arithmetic_budget(),
         Type0Budget::default(),
-    ))
+    )
     .unwrap();
     assert!(matches!(
-        ready(decoder.decode_next_row()).unwrap_err().kind,
+        decoder.decode_next_row().unwrap_err().kind,
         Type0ErrorKind::Sink(_)
     ));
     assert!(matches!(
-        ready(decoder.decode_next_row()).unwrap_err().kind,
+        decoder.decode_next_row().unwrap_err().kind,
         Type0ErrorKind::Poisoned
     ));
 
     let mut contexts = ContextBank::new(CONTEXT_COUNT, &limits).unwrap();
     let mut source = intact(bytes.clone());
     let mut sink = BytesSink::default();
-    let decoder = ready(Type0Decoder::new(
+    let decoder = Type0Decoder::new(
         &mut source,
         Type0Span {
             record_type: 0,
@@ -674,10 +672,10 @@ fn sink_failure_poison_and_incomplete_finish_are_explicit() {
         &Cancel::Never,
         arithmetic_budget(),
         Type0Budget::default(),
-    ))
+    )
     .unwrap();
     assert!(matches!(
-        ready(decoder.finish()).unwrap_err().kind,
+        decoder.finish().unwrap_err().kind,
         Type0ErrorKind::Incomplete
     ));
 }
@@ -687,10 +685,10 @@ struct BadSink {
 }
 
 impl SequentialSink for BadSink {
-    async fn write(&mut self, bytes: &[u8]) -> crate::Result<usize> {
+    fn write(&mut self, bytes: &[u8]) -> crate::Result<usize> {
         Ok(if self.overreport { bytes.len() + 1 } else { 0 })
     }
-    async fn flush(&mut self) -> crate::Result<()> {
+    fn flush(&mut self) -> crate::Result<()> {
         Ok(())
     }
 }
@@ -704,7 +702,7 @@ fn zero_and_overreported_sink_writes_are_typed_errors() {
         let mut contexts = ContextBank::new(CONTEXT_COUNT, &limits).unwrap();
         let mut source = intact(bytes.clone());
         let mut sink = BadSink { overreport };
-        let mut decoder = ready(Type0Decoder::new(
+        let mut decoder = Type0Decoder::new(
             &mut source,
             Type0Span {
                 record_type: 0,
@@ -718,9 +716,9 @@ fn zero_and_overreported_sink_writes_are_typed_errors() {
             &Cancel::Never,
             arithmetic_budget(),
             Type0Budget::default(),
-        ))
+        )
         .unwrap();
-        let error = ready(decoder.decode_next_row()).unwrap_err();
+        let error = decoder.decode_next_row().unwrap_err();
         assert!(matches!(error.kind, Type0ErrorKind::Sink(_)));
         assert_eq!((error.rows_written, error.output_bytes_written), (0, 0));
     }
@@ -735,7 +733,7 @@ fn short_and_overreported_reads_and_span_bounds_are_rejected() {
         let mut source = disrupted(bytes.clone(), stop_at, overreport);
         let mut contexts = ContextBank::new(CONTEXT_COUNT, &limits).unwrap();
         let mut sink = BytesSink::default();
-        let error = ready(Type0Decoder::new(
+        let error = Type0Decoder::new(
             &mut source,
             Type0Span {
                 record_type: 0,
@@ -749,7 +747,7 @@ fn short_and_overreported_reads_and_span_bounds_are_rejected() {
             &Cancel::Never,
             arithmetic_budget(),
             Type0Budget::default(),
-        ))
+        )
         .err()
         .unwrap();
         assert!(matches!(
@@ -760,7 +758,7 @@ fn short_and_overreported_reads_and_span_bounds_are_rejected() {
     let mut source = intact(bytes.clone());
     let mut contexts = ContextBank::new(CONTEXT_COUNT, &limits).unwrap();
     let mut sink = BytesSink::default();
-    let error = ready(Type0Decoder::new(
+    let error = Type0Decoder::new(
         &mut source,
         Type0Span {
             record_type: 0,
@@ -774,7 +772,7 @@ fn short_and_overreported_reads_and_span_bounds_are_rejected() {
         &Cancel::Never,
         arithmetic_budget(),
         Type0Budget::default(),
-    ))
+    )
     .err()
     .unwrap();
     assert!(matches!(error.kind, Type0ErrorKind::InvalidSpan(_)));
@@ -782,7 +780,7 @@ fn short_and_overreported_reads_and_span_bounds_are_rejected() {
     let mut source = intact(bytes.clone());
     let mut contexts = ContextBank::new(CONTEXT_COUNT, &limits).unwrap();
     let mut sink = BytesSink::default();
-    let error = ready(Type0Decoder::new(
+    let error = Type0Decoder::new(
         &mut source,
         Type0Span {
             record_type: 0,
@@ -796,7 +794,7 @@ fn short_and_overreported_reads_and_span_bounds_are_rejected() {
         &Cancel::Never,
         arithmetic_budget(),
         Type0Budget::default(),
-    ))
+    )
     .err()
     .unwrap();
     assert!(matches!(error.kind, Type0ErrorKind::InvalidSpan(_)));
@@ -805,7 +803,7 @@ fn short_and_overreported_reads_and_span_bounds_are_rejected() {
         let mut source = intact(bytes.clone());
         let mut contexts = ContextBank::new(count, &limits).unwrap();
         let mut sink = BytesSink::default();
-        let error = ready(Type0Decoder::new(
+        let error = Type0Decoder::new(
             &mut source,
             Type0Span {
                 record_type: 0,
@@ -819,7 +817,7 @@ fn short_and_overreported_reads_and_span_bounds_are_rejected() {
             &Cancel::Never,
             arithmetic_budget(),
             Type0Budget::default(),
-        ))
+        )
         .err()
         .unwrap();
         assert!(matches!(
@@ -829,60 +827,14 @@ fn short_and_overreported_reads_and_span_bounds_are_rejected() {
     }
 }
 
-struct PendingSink;
-
-impl SequentialSink for PendingSink {
-    async fn write(&mut self, _bytes: &[u8]) -> crate::Result<usize> {
-        std::future::pending().await
-    }
-    async fn flush(&mut self) -> crate::Result<()> {
-        Ok(())
-    }
-}
-
-#[test]
-fn dropped_pending_row_future_poisoned_the_decoder() {
-    let bytes = image(7, 1, &white(7, 1));
-    let limits = Limits::default();
-    let table = table();
-    let mut contexts = ContextBank::new(CONTEXT_COUNT, &limits).unwrap();
-    let mut source = intact(bytes.clone());
-    let mut sink = PendingSink;
-    let mut decoder = ready(Type0Decoder::new(
-        &mut source,
-        Type0Span {
-            record_type: 0,
-            offset: 0,
-            length: bytes.len() as u64,
-        },
-        &table,
-        &mut contexts,
-        &mut sink,
-        &limits,
-        &Cancel::Never,
-        arithmetic_budget(),
-        Type0Budget::default(),
-    ))
-    .unwrap();
-    {
-        let mut future = pin!(decoder.decode_next_row());
-        let mut task = Context::from_waker(Waker::noop());
-        assert!(future.as_mut().poll(&mut task).is_pending());
-    }
-    assert!(matches!(
-        ready(decoder.decode_next_row()).unwrap_err().kind,
-        Type0ErrorKind::Poisoned
-    ));
-}
-
 struct CancellingSink(Rc<Cell<bool>>);
 
 impl SequentialSink for CancellingSink {
-    async fn write(&mut self, bytes: &[u8]) -> crate::Result<usize> {
+    fn write(&mut self, bytes: &[u8]) -> crate::Result<usize> {
         self.0.set(true);
         Ok(bytes.len())
     }
-    async fn flush(&mut self) -> crate::Result<()> {
+    fn flush(&mut self) -> crate::Result<()> {
         Ok(())
     }
 }
@@ -897,7 +849,7 @@ fn cancellation_after_row_write_preserves_byte_progress() {
     let flag = Rc::new(Cell::new(false));
     let cancel = Cancel::Flag(flag.clone());
     let mut sink = CancellingSink(flag);
-    let mut decoder = ready(Type0Decoder::new(
+    let mut decoder = Type0Decoder::new(
         &mut source,
         Type0Span {
             record_type: 0,
@@ -911,9 +863,9 @@ fn cancellation_after_row_write_preserves_byte_progress() {
         &cancel,
         arithmetic_budget(),
         Type0Budget::default(),
-    ))
+    )
     .unwrap();
-    let error = ready(decoder.decode_next_row()).unwrap_err();
+    let error = decoder.decode_next_row().unwrap_err();
     assert!(matches!(error.kind, Type0ErrorKind::Cancelled));
     assert_eq!((error.rows_written, error.output_bytes_written), (0, 4));
     assert!(decoder.progress().poisoned);
@@ -927,7 +879,7 @@ fn arithmetic_virtual_padding_and_work_limit_remain_bounded() {
     let mut contexts = ContextBank::new(CONTEXT_COUNT, &limits).unwrap();
     let mut source = intact(bytes.clone());
     let mut sink = BytesSink::default();
-    let mut decoder = ready(Type0Decoder::new(
+    let mut decoder = Type0Decoder::new(
         &mut source,
         Type0Span {
             record_type: 0,
@@ -941,12 +893,12 @@ fn arithmetic_virtual_padding_and_work_limit_remain_bounded() {
         &Cancel::Never,
         arithmetic_budget(),
         Type0Budget::default(),
-    ))
+    )
     .unwrap();
     for _ in 0..3 {
-        assert!(ready(decoder.decode_next_row()).unwrap());
+        assert!(decoder.decode_next_row().unwrap());
     }
-    let report = ready(decoder.finish()).unwrap();
+    let report = decoder.finish().unwrap();
     assert!(report.progress.arithmetic.synthesized_inputs > 0);
     assert_eq!(report.progress.arithmetic.input_offset, DIB_BYTES + 1);
 
@@ -957,7 +909,7 @@ fn arithmetic_virtual_padding_and_work_limit_remain_bounded() {
         max_symbols: 102,
         max_work: 3,
     };
-    let error = match ready(Type0Decoder::new(
+    let error = match Type0Decoder::new(
         &mut source,
         Type0Span {
             record_type: 0,
@@ -971,8 +923,8 @@ fn arithmetic_virtual_padding_and_work_limit_remain_bounded() {
         &Cancel::Never,
         low,
         Type0Budget::default(),
-    )) {
-        Ok(mut decoder) => ready(decoder.decode_next_row()).unwrap_err(),
+    ) {
+        Ok(mut decoder) => decoder.decode_next_row().unwrap_err(),
         Err(error) => error,
     };
     assert!(matches!(error.kind, Type0ErrorKind::Arithmetic(_)));
@@ -986,7 +938,7 @@ fn report_separates_source_prefetch_from_consumed_and_virtual_bytes() {
     let mut contexts = ContextBank::new(CONTEXT_COUNT, &limits).unwrap();
     let mut source = intact(bytes.clone());
     let mut sink = BytesSink::default();
-    let mut decoder = ready(Type0Decoder::new(
+    let mut decoder = Type0Decoder::new(
         &mut source,
         Type0Span {
             record_type: 0,
@@ -1000,10 +952,10 @@ fn report_separates_source_prefetch_from_consumed_and_virtual_bytes() {
         &Cancel::Never,
         arithmetic_budget(),
         Type0Budget::default(),
-    ))
+    )
     .unwrap();
-    assert!(ready(decoder.decode_next_row()).unwrap());
-    let snapshot = ready(decoder.finish()).unwrap().progress.arithmetic;
+    assert!(decoder.decode_next_row().unwrap());
+    let snapshot = decoder.finish().unwrap().progress.arithmetic;
     assert_eq!(snapshot.input_offset, DIB_BYTES + 3);
     assert_eq!(snapshot.source_bytes_fetched, 10);
     assert_eq!(snapshot.synthesized_inputs, 0);
@@ -1025,7 +977,7 @@ fn fixed_budget_mutations_return_without_panic_or_unbounded_work() {
         let mut contexts = ContextBank::new(CONTEXT_COUNT, &limits).unwrap();
         let mut source = intact(bytes.clone());
         let mut sink = BytesSink::default();
-        if let Ok(mut decoder) = ready(Type0Decoder::new(
+        if let Ok(mut decoder) = Type0Decoder::new(
             &mut source,
             Type0Span {
                 record_type: 0,
@@ -1039,9 +991,9 @@ fn fixed_budget_mutations_return_without_panic_or_unbounded_work() {
             &Cancel::Never,
             budget,
             Type0Budget::default(),
-        )) {
+        ) {
             for _ in 0..2 {
-                if ready(decoder.decode_next_row()).is_err() {
+                if decoder.decode_next_row().is_err() {
                     break;
                 }
             }
@@ -1095,7 +1047,7 @@ fn preflight_rejects_invalid_limits_cancelled_short_and_oversized_spans_before_r
         } else {
             CancelAfter::never()
         };
-        let error = ready(Type0Decoder::new(
+        let error = Type0Decoder::new(
             &mut source,
             span,
             &table,
@@ -1105,7 +1057,7 @@ fn preflight_rejects_invalid_limits_cancelled_short_and_oversized_spans_before_r
             &Cancel::Checks(&cancellation),
             arithmetic_budget(),
             Type0Budget::default(),
-        ))
+        )
         .err()
         .expect("preflight must fail");
         assert!(sink.bytes.is_empty());
@@ -1172,8 +1124,8 @@ fn maximal_dimensions_report_context_work_overflow_without_allocating() {
 fn decode_every_row<S: RangedSource, W: SequentialSink, C: Cancellation>(
     mut decoder: Type0Decoder<'_, S, W, C>,
 ) -> Type0Result<Type0Report> {
-    while ready(decoder.decode_next_row())? {}
-    ready(decoder.finish())
+    while decoder.decode_next_row()? {}
+    decoder.finish()
 }
 
 fn decode_with_checks(bytes: &[u8], cancel: &CancelAfter) -> (Type0Result<Type0Report>, Vec<u8>) {
@@ -1185,7 +1137,7 @@ fn decode_with_checks(bytes: &[u8], cancel: &CancelAfter) -> (Type0Result<Type0R
     let mut contexts = ContextBank::new(CONTEXT_COUNT, &limits).unwrap();
     let mut source = intact(bytes.to_vec());
     let mut sink = BytesSink::default();
-    let result = ready(Type0Decoder::new(
+    let result = Type0Decoder::new(
         &mut source,
         span_of(bytes),
         &table,
@@ -1195,7 +1147,7 @@ fn decode_with_checks(bytes: &[u8], cancel: &CancelAfter) -> (Type0Result<Type0R
         &Cancel::Checks(cancel),
         arithmetic_budget(),
         Type0Budget::default(),
-    ))
+    )
     .and_then(decode_every_row);
     (result, sink.bytes)
 }
@@ -1244,7 +1196,7 @@ fn early_and_poisoned_finish_are_refused_before_the_terminal_check() {
             fail,
             ..BytesSink::default()
         };
-        let mut decoder = ready(Type0Decoder::new(
+        let mut decoder = Type0Decoder::new(
             &mut source,
             span_of(&bytes),
             &table,
@@ -1254,12 +1206,12 @@ fn early_and_poisoned_finish_are_refused_before_the_terminal_check() {
             &cancel,
             arithmetic_budget(),
             Type0Budget::default(),
-        ))
+        )
         .unwrap();
-        let row = ready(decoder.decode_next_row());
+        let row = decoder.decode_next_row();
         (
             row.map_err(|error| error.kind),
-            ready(decoder.finish()).unwrap_err(),
+            decoder.finish().unwrap_err(),
         )
     };
     let (row, incomplete) = decoder(false);
@@ -1298,7 +1250,7 @@ fn final_flush_failure_and_late_cancellation_keep_row_progress() {
             cancel_on_flush: cancel_on_flush.then_some(flag),
             ..BytesSink::default()
         };
-        let mut decoder = ready(Type0Decoder::new(
+        let mut decoder = Type0Decoder::new(
             &mut source,
             span_of(&bytes),
             &table,
@@ -1308,10 +1260,10 @@ fn final_flush_failure_and_late_cancellation_keep_row_progress() {
             &cancel,
             arithmetic_budget(),
             Type0Budget::default(),
-        ))
+        )
         .unwrap();
-        assert!(ready(decoder.decode_next_row()).unwrap());
-        let error = ready(decoder.finish()).unwrap_err();
+        assert!(decoder.decode_next_row().unwrap());
+        let error = decoder.finish().unwrap_err();
         assert_eq!((error.rows_written, error.output_bytes_written), (1, 4));
         // The all-MPS row consumed exactly the three initialization bytes.
         assert_eq!(error.offset, DIB_BYTES + 3);
@@ -1340,7 +1292,7 @@ fn finish_rejects_a_poisoned_decoder_and_cancellation_before_flush() {
         fail: true,
         ..BytesSink::default()
     };
-    let mut decoder = ready(Type0Decoder::new(
+    let mut decoder = Type0Decoder::new(
         &mut source,
         span_of(&bytes),
         &table,
@@ -1350,13 +1302,13 @@ fn finish_rejects_a_poisoned_decoder_and_cancellation_before_flush() {
         &Cancel::Never,
         arithmetic_budget(),
         Type0Budget::default(),
-    ))
+    )
     .unwrap();
     assert!(matches!(
-        ready(decoder.decode_next_row()).unwrap_err().kind,
+        decoder.decode_next_row().unwrap_err().kind,
         Type0ErrorKind::Sink(_)
     ));
-    let error = ready(decoder.finish()).unwrap_err();
+    let error = decoder.finish().unwrap_err();
     assert!(matches!(error.kind, Type0ErrorKind::Poisoned));
     assert_eq!(error.rows_written, 0);
 
@@ -1371,7 +1323,7 @@ fn finish_rejects_a_poisoned_decoder_and_cancellation_before_flush() {
         }),
         ..BytesSink::default()
     };
-    let mut decoder = ready(Type0Decoder::new(
+    let mut decoder = Type0Decoder::new(
         &mut source,
         span_of(&bytes),
         &table,
@@ -1381,11 +1333,11 @@ fn finish_rejects_a_poisoned_decoder_and_cancellation_before_flush() {
         &cancel,
         arithmetic_budget(),
         Type0Budget::default(),
-    ))
+    )
     .unwrap();
-    assert!(ready(decoder.decode_next_row()).unwrap());
+    assert!(decoder.decode_next_row().unwrap());
     flag.set(true);
-    let error = ready(decoder.finish()).unwrap_err();
+    let error = decoder.finish().unwrap_err();
     assert!(matches!(error.kind, Type0ErrorKind::Cancelled));
     assert_eq!((error.rows_written, error.output_bytes_written), (1, 4));
 }

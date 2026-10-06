@@ -7,23 +7,7 @@ use caj2pdf_core::{
         HeaderLimits, SegmentDirectory, SegmentSpan, read_embedded_directory, read_segment_header,
     },
 };
-use std::{
-    cell::Cell,
-    future::Future,
-    io,
-    pin::pin,
-    rc::Rc,
-    task::{Context, Poll, Waker},
-};
-
-fn run<F: Future>(future: F) -> F::Output {
-    let mut context = Context::from_waker(Waker::noop());
-    let mut future = pin!(future);
-    match future.as_mut().poll(&mut context) {
-        Poll::Ready(value) => value,
-        Poll::Pending => panic!("in-memory source unexpectedly yielded"),
-    }
-}
+use std::{cell::Cell, io, rc::Rc};
 
 struct TestSource {
     bytes: Vec<u8>,
@@ -56,11 +40,7 @@ impl RangedSource for TestSource {
         self.size
     }
 
-    async fn read_at(
-        &mut self,
-        offset: u64,
-        destination: &mut [u8],
-    ) -> caj2pdf_core::Result<usize> {
+    fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> caj2pdf_core::Result<usize> {
         self.reads.push((offset, destination.len()));
         if self.source_cancel_at == Some(offset) {
             return Err(Error::Cancelled);
@@ -102,7 +82,7 @@ fn parse(
     bytes: &[u8],
 ) -> Result<caj2pdf_core::jbig2::SegmentHeader, caj2pdf_core::jbig2::HeaderError> {
     let mut source = TestSource::new(bytes);
-    run(read_segment_header(
+    read_segment_header(
         &mut source,
         SegmentSpan {
             offset: 0,
@@ -111,7 +91,7 @@ fn parse(
         &Limits::default(),
         HeaderLimits::default(),
         &NeverCancel,
-    ))
+    )
 }
 
 // Original synthetic fields: global tables segment 0, no references or data.
@@ -259,7 +239,7 @@ fn bounded_reads_use_absolute_offsets_and_ignore_data_bytes() {
         io_chunk_bytes: 1,
         ..Limits::default()
     };
-    let header = run(read_segment_header(
+    let header = read_segment_header(
         &mut source,
         SegmentSpan {
             offset: 7,
@@ -268,7 +248,7 @@ fn bounded_reads_use_absolute_offsets_and_ignore_data_bytes() {
         &limits,
         HeaderLimits::default(),
         &NeverCancel,
-    ))
+    )
     .unwrap();
     assert_eq!(
         header.data,
@@ -291,7 +271,7 @@ fn truncated_fields_never_read_beyond_declared_span() {
     let mut source = TestSource::new(LONG_FIVE);
     for length in 0..LONG_FIVE.len() {
         source.reads.clear();
-        let error = run(read_segment_header(
+        let error = read_segment_header(
             &mut source,
             SegmentSpan {
                 offset: 0,
@@ -300,7 +280,7 @@ fn truncated_fields_never_read_beyond_declared_span() {
             &Limits::default(),
             HeaderLimits::default(),
             &NeverCancel,
-        ))
+        )
         .unwrap_err();
         assert!(
             matches!(error.kind, HeaderErrorKind::Truncated(_)),
@@ -316,7 +296,7 @@ fn truncated_fields_never_read_beyond_declared_span() {
     }
     let mut physically_short = TestSource::new(&LONG_FIVE[..12]);
     physically_short.size = LONG_FIVE.len() as u64;
-    let error = run(read_segment_header(
+    let error = read_segment_header(
         &mut physically_short,
         SegmentSpan {
             offset: 0,
@@ -325,7 +305,7 @@ fn truncated_fields_never_read_beyond_declared_span() {
         &Limits::default(),
         HeaderLimits::default(),
         &NeverCancel,
-    ))
+    )
     .unwrap_err();
     assert!(matches!(
         error.kind,
@@ -451,7 +431,7 @@ fn single_header_reference_and_page_rules() {
 fn span_data_and_allocation_limits_fail_before_unbounded_work() {
     let mut source = TestSource::new(GLOBAL_EMPTY);
     source.size = u64::MAX;
-    let error = run(read_segment_header(
+    let error = read_segment_header(
         &mut source,
         SegmentSpan {
             offset: u64::MAX - 2,
@@ -460,7 +440,7 @@ fn span_data_and_allocation_limits_fail_before_unbounded_work() {
         &Limits::default(),
         HeaderLimits::default(),
         &NeverCancel,
-    ))
+    )
     .unwrap_err();
     assert!(matches!(error.kind, HeaderErrorKind::InvalidSpan(_)));
     assert!(source.reads.is_empty());
@@ -482,7 +462,7 @@ fn span_data_and_allocation_limits_fail_before_unbounded_work() {
     huge[4] = 0;
     huge[5..9].copy_from_slice(&[0xe0, 0xff, 0xff, 0xff]);
     let mut source = TestSource::new(&huge);
-    let error = run(read_segment_header(
+    let error = read_segment_header(
         &mut source,
         SegmentSpan {
             offset: 0,
@@ -491,7 +471,7 @@ fn span_data_and_allocation_limits_fail_before_unbounded_work() {
         &Limits::default(),
         HeaderLimits::default(),
         &NeverCancel,
-    ))
+    )
     .unwrap_err();
     assert!(matches!(
         error.kind,
@@ -508,7 +488,7 @@ fn span_data_and_allocation_limits_fail_before_unbounded_work() {
         max_allocation_bytes: 20,
         ..Limits::default()
     };
-    let error = run(read_segment_header(
+    let error = read_segment_header(
         &mut source,
         SegmentSpan {
             offset: 0,
@@ -517,7 +497,7 @@ fn span_data_and_allocation_limits_fail_before_unbounded_work() {
         &limits,
         HeaderLimits::default(),
         &NeverCancel,
-    ))
+    )
     .unwrap_err();
     assert!(matches!(
         error.kind,
@@ -534,7 +514,7 @@ fn span_data_and_allocation_limits_fail_before_unbounded_work() {
         ..HeaderLimits::default()
     };
     assert!(matches!(
-        run(read_segment_header(
+        read_segment_header(
             &mut source,
             SegmentSpan {
                 offset: 0,
@@ -543,7 +523,7 @@ fn span_data_and_allocation_limits_fail_before_unbounded_work() {
             &Limits::default(),
             header_limits,
             &NeverCancel,
-        ))
+        )
         .unwrap_err()
         .kind,
         HeaderErrorKind::LimitExceeded {
@@ -558,7 +538,7 @@ fn span_data_and_allocation_limits_fail_before_unbounded_work() {
         ..HeaderLimits::default()
     };
     assert!(matches!(
-        run(read_segment_header(
+        read_segment_header(
             &mut source,
             SegmentSpan {
                 offset: 0,
@@ -567,7 +547,7 @@ fn span_data_and_allocation_limits_fail_before_unbounded_work() {
             &Limits::default(),
             header_limits,
             &NeverCancel,
-        ))
+        )
         .unwrap_err()
         .kind,
         HeaderErrorKind::LimitExceeded {
@@ -581,7 +561,7 @@ fn span_data_and_allocation_limits_fail_before_unbounded_work() {
 fn cancellation_and_source_failures_keep_locations() {
     let active = Rc::new(Cell::new(true));
     let mut source = TestSource::new(GLOBAL_EMPTY);
-    let error = run(read_segment_header(
+    let error = read_segment_header(
         &mut source,
         SegmentSpan {
             offset: 0,
@@ -590,7 +570,7 @@ fn cancellation_and_source_failures_keep_locations() {
         &Limits::default(),
         HeaderLimits::default(),
         &Flag(active),
-    ))
+    )
     .unwrap_err();
     assert!(matches!(error.kind, HeaderErrorKind::Cancelled));
     assert!(source.reads.is_empty());
@@ -599,7 +579,7 @@ fn cancellation_and_source_failures_keep_locations() {
     let mut source = TestSource::new(SHORT_FOUR);
     source.max_read = 1;
     source.cancel_after = Some((4, active.clone()));
-    let error = run(read_segment_header(
+    let error = read_segment_header(
         &mut source,
         SegmentSpan {
             offset: 0,
@@ -608,7 +588,7 @@ fn cancellation_and_source_failures_keep_locations() {
         &Limits::default(),
         HeaderLimits::default(),
         &Flag(active),
-    ))
+    )
     .unwrap_err();
     assert!(matches!(error.kind, HeaderErrorKind::Cancelled));
     assert_eq!(error.offset, 4);
@@ -618,7 +598,7 @@ fn cancellation_and_source_failures_keep_locations() {
     let mut source = TestSource::new(LONG_FIVE);
     source.max_read = 1;
     source.cancel_after = Some((14, active.clone()));
-    let error = run(read_segment_header(
+    let error = read_segment_header(
         &mut source,
         SegmentSpan {
             offset: 0,
@@ -627,7 +607,7 @@ fn cancellation_and_source_failures_keep_locations() {
         &Limits::default(),
         HeaderLimits::default(),
         &Flag(active),
-    ))
+    )
     .unwrap_err();
     assert!(matches!(error.kind, HeaderErrorKind::Cancelled));
     assert_eq!(error.segment, Some(257));
@@ -639,7 +619,7 @@ fn cancellation_and_source_failures_keep_locations() {
     source.bytes.truncate(5);
     source.max_read = 1;
     source.cancel_after = Some((6, active.clone()));
-    let error = run(read_segment_header(
+    let error = read_segment_header(
         &mut source,
         SegmentSpan {
             offset: 0,
@@ -648,7 +628,7 @@ fn cancellation_and_source_failures_keep_locations() {
         &Limits::default(),
         HeaderLimits::default(),
         &Flag(active),
-    ))
+    )
     .unwrap_err();
     assert!(matches!(error.kind, HeaderErrorKind::Cancelled));
     assert_eq!(error.offset, 5);
@@ -656,7 +636,7 @@ fn cancellation_and_source_failures_keep_locations() {
 
     let mut source = TestSource::new(GLOBAL_EMPTY);
     source.source_cancel_at = Some(5);
-    let error = run(read_segment_header(
+    let error = read_segment_header(
         &mut source,
         SegmentSpan {
             offset: 0,
@@ -665,14 +645,14 @@ fn cancellation_and_source_failures_keep_locations() {
         &Limits::default(),
         HeaderLimits::default(),
         &NeverCancel,
-    ))
+    )
     .unwrap_err();
     assert_eq!(error.offset, 5);
     assert!(matches!(error.kind, HeaderErrorKind::Cancelled));
 
     let mut source = TestSource::new(GLOBAL_EMPTY);
     source.fail_at = Some(5);
-    let error = run(read_segment_header(
+    let error = read_segment_header(
         &mut source,
         SegmentSpan {
             offset: 0,
@@ -681,7 +661,7 @@ fn cancellation_and_source_failures_keep_locations() {
         &Limits::default(),
         HeaderLimits::default(),
         &NeverCancel,
-    ))
+    )
     .unwrap_err();
     assert_eq!(error.offset, 5);
     assert!(matches!(error.kind, HeaderErrorKind::Source(Error::Io(_))));
@@ -689,7 +669,7 @@ fn cancellation_and_source_failures_keep_locations() {
     let mut source = TestSource::new(GLOBAL_EMPTY);
     source.overreport = true;
     assert!(matches!(
-        run(read_segment_header(
+        read_segment_header(
             &mut source,
             SegmentSpan {
                 offset: 0,
@@ -698,7 +678,7 @@ fn cancellation_and_source_failures_keep_locations() {
             &Limits::default(),
             HeaderLimits::default(),
             &NeverCancel,
-        ))
+        )
         .unwrap_err()
         .kind,
         HeaderErrorKind::Malformed("source returned more bytes than requested")
@@ -767,7 +747,7 @@ fn parse_directory(
     directory_limits: DirectoryLimits,
 ) -> Result<SegmentDirectory, DirectoryError> {
     let mut source = TestSource::new(bytes);
-    run(read_embedded_directory(
+    read_embedded_directory(
         &mut source,
         SegmentSpan {
             offset: 0,
@@ -777,7 +757,7 @@ fn parse_directory(
         HeaderLimits::default(),
         directory_limits,
         &NeverCancel,
-    ))
+    )
 }
 
 #[test]

@@ -24,13 +24,12 @@ use std::{error, fmt};
 /// sparse allocation must not expose uninitialized pixels.
 /// The caller grants this handle exclusive access for the session: no other
 /// writer may change the scratch bytes, including same-length rewrites.
-#[allow(async_fn_in_trait)]
 pub trait RandomAccessScratch {
     fn size(&self) -> crate::Result<u64>;
-    async fn set_len(&mut self, bytes: u64) -> crate::Result<()>;
-    async fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> crate::Result<usize>;
-    async fn write_at(&mut self, offset: u64, bytes: &[u8]) -> crate::Result<usize>;
-    async fn flush(&mut self) -> crate::Result<()>;
+    fn set_len(&mut self, bytes: u64) -> crate::Result<()>;
+    fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> crate::Result<usize>;
+    fn write_at(&mut self, offset: u64, bytes: &[u8]) -> crate::Result<usize>;
+    fn flush(&mut self) -> crate::Result<()>;
 }
 
 /// Independent composition bounds. Counters are also limited to
@@ -677,7 +676,7 @@ where
         self.note_resident(target, row)
     }
 
-    async fn scratch_write(&mut self, offset: u64, bytes: &[u8]) -> TextComposeResult<()> {
+    fn scratch_write(&mut self, offset: u64, bytes: &[u8]) -> TextComposeResult<()> {
         if self.scratch_size(offset)? != self.packed_bytes {
             return Err(self.error(
                 offset,
@@ -704,7 +703,6 @@ where
             let written = self
                 .scratch
                 .write_at(at, &bytes[done..done + len])
-                .await
                 .map_err(|error| self.scratch_error(at, error))?;
             if written > len {
                 return Err(self.error(
@@ -731,7 +729,7 @@ where
         Ok(())
     }
 
-    async fn scratch_read(&mut self, offset: u64, bytes: &mut [u8]) -> TextComposeResult<()> {
+    fn scratch_read(&mut self, offset: u64, bytes: &mut [u8]) -> TextComposeResult<()> {
         if self.scratch_size(offset)? != self.packed_bytes {
             return Err(self.error(
                 offset,
@@ -758,7 +756,6 @@ where
             let read = self
                 .scratch
                 .read_at(at, &mut bytes[done..done + len])
-                .await
                 .map_err(|error| self.scratch_error(at, error))?;
             if read > len {
                 return Err(self.error(
@@ -786,7 +783,7 @@ where
         Ok(())
     }
 
-    async fn source_read(
+    fn source_read(
         &mut self,
         store: BitmapStore,
         expected_size: u64,
@@ -812,15 +809,9 @@ where
             self.note_request(len);
             self.progress.source_read_calls += 1;
             let result = match store {
-                BitmapStore::Imported => {
-                    self.imported
-                        .read_at(at, &mut bytes[done..done + len])
-                        .await
-                }
-                BitmapStore::New => self.new.read_at(at, &mut bytes[done..done + len]).await,
-                BitmapStore::Refined => {
-                    self.refined.read_at(at, &mut bytes[done..done + len]).await
-                }
+                BitmapStore::Imported => self.imported.read_at(at, &mut bytes[done..done + len]),
+                BitmapStore::New => self.new.read_at(at, &mut bytes[done..done + len]),
+                BitmapStore::Refined => self.refined.read_at(at, &mut bytes[done..done + len]),
             };
             let read = result.map_err(|error| self.source_error(at, store, error))?;
             if read > len {
@@ -850,7 +841,7 @@ where
         Ok(())
     }
 
-    async fn output_write(&mut self, offset: u64, bytes: &[u8]) -> TextComposeResult<()> {
+    fn output_write(&mut self, offset: u64, bytes: &[u8]) -> TextComposeResult<()> {
         let mut done = 0;
         while done < bytes.len() {
             let at = offset + done as u64;
@@ -873,7 +864,6 @@ where
             let written = self
                 .output
                 .write(&bytes[done..done + len])
-                .await
                 .map_err(|error| self.output_error(at, error))?;
             if written > len {
                 return Err(self.error(
@@ -1032,7 +1022,7 @@ where
         }))
     }
 
-    async fn compose_event(
+    fn compose_event(
         &mut self,
         instance: TextInstance,
         target: &mut Vec<u8>,
@@ -1068,10 +1058,9 @@ where
                 source_size,
                 source_offset,
                 &mut source[..source_stride],
-            )
-            .await?;
+            )?;
             let target_offset = y * self.row_stride as u64;
-            self.scratch_read(target_offset, target).await?;
+            self.scratch_read(target_offset, target)?;
             for x in x0..x1 {
                 let sx = (x as i64 - instance.x) as usize;
                 let source_pixel = source[sx / 8] & (0x80 >> (sx % 8)) != 0;
@@ -1086,7 +1075,7 @@ where
                 }
             }
             target[self.row_stride - 1] &= padding_mask(self.header.region.width);
-            self.scratch_write(target_offset, target).await?;
+            self.scratch_write(target_offset, target)?;
         }
         let touched = (x1 - x0) * (y1 - y0);
         self.progress.touched_pixels += touched;
@@ -1095,14 +1084,13 @@ where
         Ok(())
     }
 
-    async fn compose_inner(&mut self) -> TextComposeResult<TextComposeReport> {
+    fn compose_inner(&mut self) -> TextComposeResult<TextComposeReport> {
         let mut target = self.make_target_row()?;
         let mut source = Vec::new();
         self.progress.stage = TextComposeStage::Initialize;
         self.check_cancelled(0)?;
         self.scratch
             .set_len(self.packed_bytes)
-            .await
             .map_err(|error| self.scratch_error(0, error))?;
         if self.scratch_size(0)? != self.packed_bytes {
             return Err(self.error(
@@ -1123,28 +1111,23 @@ where
         )?;
         for y in 0..self.header.region.height {
             self.progress.current_row = y;
-            self.scratch_write(u64::from(y) * self.row_stride as u64, &target)
-                .await?;
+            self.scratch_write(u64::from(y) * self.row_stride as u64, &target)?;
             self.progress.work_units += self.row_stride as u64;
         }
         self.check_cancelled(self.packed_bytes)?;
         self.scratch
             .flush()
-            .await
             .map_err(|error| self.scratch_error(self.packed_bytes, error))?;
         loop {
             self.progress.stage = TextComposeStage::Instance;
             self.check_cancelled(self.packed_bytes)?;
-            let event = self.instances.next().await.map_err(|error| {
+            let event = self.instances.next().map_err(|error| {
                 let offset = error.offset;
                 self.error(offset, TextComposeErrorKind::Instance(Box::new(error)))
             })?;
             self.check_views_after_next(event.as_ref())?;
             match event {
-                Some(instance) => {
-                    self.compose_event(instance, &mut target, &mut source)
-                        .await?
-                }
+                Some(instance) => self.compose_event(instance, &mut target, &mut source)?,
                 None if self.progress.completed_instances == self.header.instances => break,
                 None => {
                     return Err(self.error(
@@ -1159,7 +1142,6 @@ where
         self.check_cancelled(self.packed_bytes)?;
         self.scratch
             .flush()
-            .await
             .map_err(|error| self.scratch_error(self.packed_bytes, error))?;
         self.progress.stage = TextComposeStage::Readback;
         self.check_cap(
@@ -1170,10 +1152,10 @@ where
         for y in 0..self.header.region.height {
             self.progress.current_row = y;
             let offset = u64::from(y) * self.row_stride as u64;
-            self.scratch_read(offset, &mut target).await?;
+            self.scratch_read(offset, &mut target)?;
             // A malformed or mutating store must not leak padding bits.
             target[self.row_stride - 1] &= padding_mask(self.header.region.width);
-            self.output_write(offset, &target).await?;
+            self.output_write(offset, &target)?;
             self.progress.work_units += self.row_stride as u64;
             self.progress.output_rows += 1;
         }
@@ -1181,7 +1163,6 @@ where
         self.check_cancelled(self.packed_bytes)?;
         self.output
             .flush()
-            .await
             .map_err(|error| self.output_error(self.packed_bytes, error))?;
         self.check_cancelled(self.packed_bytes)?;
         if self.scratch_size(self.packed_bytes)? != self.packed_bytes {
@@ -1204,13 +1185,13 @@ where
 
     /// Run once. Dropping the pending future or any failure poisons this
     /// session, its scratch contents, and any partial final output.
-    pub async fn compose(&mut self) -> TextComposeResult<TextComposeReport> {
+    pub fn compose(&mut self) -> TextComposeResult<TextComposeReport> {
         if self.started || self.poisoned || self.complete {
             return Err(self.error(0, TextComposeErrorKind::Poisoned));
         }
         self.started = true;
         self.poisoned = true;
-        let result = self.compose_inner().await;
+        let result = self.compose_inner();
         if result.is_ok() {
             self.poisoned = false;
             self.complete = true;

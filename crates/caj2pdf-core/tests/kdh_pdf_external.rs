@@ -11,22 +11,10 @@ use caj2pdf_core::{
 use sha2::{Digest, Sha256};
 use std::{
     fs::{File, remove_file},
-    future::Future,
     io::Write,
     path::Path,
-    pin::pin,
     process::Command,
-    task::{Context, Poll, Waker},
 };
-
-fn run_native<F: Future>(future: F) -> F::Output {
-    let mut context = Context::from_waker(Waker::noop());
-    let mut future = pin!(future);
-    match future.as_mut().poll(&mut context) {
-        Poll::Ready(value) => value,
-        Poll::Pending => panic!("native PDF adapters unexpectedly yielded"),
-    }
-}
 
 fn render_hash(path: &Path, page: u32) -> [u8; 32] {
     let output = Command::new("mutool")
@@ -66,12 +54,12 @@ fn independently_decoded_kdh_pdf_bodies_normalize_and_preserve_74_pages() {
         ));
         let mut source = SeekableSource::new(File::open(&input).unwrap()).unwrap();
         let mut file = File::create(&output).unwrap();
-        let report = run_native(copy_pdf(
+        let report = copy_pdf(
             &mut source,
             &mut WriteSink::new(&mut file),
             &Limits::default(),
             &NeverCancel,
-        ))
+        )
         .unwrap();
         file.flush().unwrap();
         assert_eq!(report.pages_converted, pages, "issue-{issue} page count");

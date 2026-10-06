@@ -210,7 +210,7 @@ impl RangedSource for BridgeSource {
         self.size
     }
 
-    async fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> Result<usize> {
+    fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> Result<usize> {
         // The host rejects any request outside the source, while the
         // `RangedSource` contract allows a read that runs past the end. Clamp
         // such a read here so it becomes a short read, as on native sources.
@@ -244,7 +244,6 @@ impl RangedSource for BridgeSource {
             });
             Poll::Pending
         })
-        .await
     }
 }
 
@@ -253,7 +252,7 @@ struct BridgeSink {
 }
 
 impl SequentialSink for BridgeSink {
-    async fn write(&mut self, bytes: &[u8]) -> Result<usize> {
+    fn write(&mut self, bytes: &[u8]) -> Result<usize> {
         poll_fn(|_| {
             let mut shared = self.shared.borrow_mut();
             if shared.cancelled {
@@ -271,10 +270,9 @@ impl SequentialSink for BridgeSink {
             }
             Poll::Pending
         })
-        .await
     }
 
-    async fn flush(&mut self) -> Result<()> {
+    fn flush(&mut self) -> Result<()> {
         poll_fn(|_| {
             let mut shared = self.shared.borrow_mut();
             if shared.cancelled {
@@ -287,7 +285,6 @@ impl SequentialSink for BridgeSink {
             shared.request = Some(Request::Flush);
             Poll::Pending
         })
-        .await
     }
 }
 
@@ -521,7 +518,7 @@ fn bounded_message(error: &Error) -> String {
     message
 }
 
-async fn run(
+fn run(
     mut source: BridgeSource,
     mut sink: BridgeSink,
     cancellation: BridgeCancellation,
@@ -535,7 +532,7 @@ async fn run(
     } = match operation {
         Operation::Convert { format, .. } | Operation::Inspect { format } => {
             limits.check_input_size(source.size)?;
-            resolve_format(&mut source, format, &limits, &cancellation).await?
+            resolve_format(&mut source, format, &limits, &cancellation)?
         }
     };
     if source.shared.borrow().fonts.count() != 0
@@ -552,21 +549,20 @@ async fn run(
                 InputFormat::Pdf => {
                     let range = pdf_range(source.size, header_offset);
                     (
-                        copy_pdf_range(&mut source, &mut sink, range, &limits, &cancellation)
-                            .await?,
+                        copy_pdf_range(&mut source, &mut sink, range, &limits, &cancellation)?,
                         OutlineReport::default(),
                     )
                 }
                 InputFormat::Caj => (
-                    convert_caj(&mut source, &mut sink, options, &limits, &cancellation).await?,
+                    convert_caj(&mut source, &mut sink, options, &limits, &cancellation)?,
                     OutlineReport::default(),
                 ),
                 InputFormat::Kdh => (
-                    convert_kdh(&mut source, &mut sink, &limits, &cancellation).await?,
+                    convert_kdh(&mut source, &mut sink, &limits, &cancellation)?,
                     OutlineReport::default(),
                 ),
                 InputFormat::Hn | InputFormat::C8 => {
-                    hnc8::convert(&mut source, &mut sink, options, &limits, &cancellation).await?
+                    hnc8::convert(&mut source, &mut sink, options, &limits, &cancellation)?
                 }
                 _ => return Err(Error::UnsupportedFormat),
             };
@@ -578,7 +574,7 @@ async fn run(
                 application_info: None,
             }
         }
-        _ => inspect(&mut source, format, header_offset, &limits, &cancellation).await?,
+        _ => inspect(&mut source, format, header_offset, &limits, &cancellation)?,
     };
     outcome.report.input_bytes_read = outcome
         .report
@@ -589,7 +585,7 @@ async fn run(
 
 /// An explicit format skips detection, so an explicit PDF must start with
 /// its `%PDF-` header.
-async fn resolve_format(
+fn resolve_format(
     source: &mut BridgeSource,
     format: Option<InputFormat>,
     limits: &Limits,
@@ -602,9 +598,7 @@ async fn resolve_format(
             bytes_read: 0,
         });
     }
-    detect_source(source, limits, cancellation)
-        .await?
-        .ok_or(Error::UnsupportedFormat)
+    detect_source(source, limits, cancellation)?.ok_or(Error::UnsupportedFormat)
 }
 
 /// The PDF viewed from its `%PDF-` header, which may follow leading bytes.
@@ -615,7 +609,7 @@ fn pdf_range(size: u64, header_offset: u64) -> PdfRange {
     }
 }
 
-async fn inspect(
+fn inspect(
     source: &mut BridgeSource,
     format: InputFormat,
     header_offset: u64,
@@ -629,13 +623,13 @@ async fn inspect(
         InputFormat::Pdf => {
             let range = pdf_range(counted.size(), header_offset);
             (
-                pdf_pages(&mut counted, range, limits, cancellation).await?,
+                pdf_pages(&mut counted, range, limits, cancellation)?,
                 None,
                 0,
             )
         }
         InputFormat::Caj => {
-            let metadata = parse_metadata(&mut counted, limits, cancellation).await?;
+            let metadata = parse_metadata(&mut counted, limits, cancellation)?;
             (
                 metadata.page_count,
                 Some(metadata.bookmarks.len() as u32),
@@ -643,16 +637,16 @@ async fn inspect(
             )
         }
         InputFormat::Kdh => {
-            let mut decoded = KdhPdfSource::open(&mut counted, limits, cancellation).await?;
+            let mut decoded = KdhPdfSource::open(&mut counted, limits, cancellation)?;
             let range = pdf_range(decoded.size(), 0);
             (
-                pdf_pages(&mut decoded, range, limits, cancellation).await?,
+                pdf_pages(&mut decoded, range, limits, cancellation)?,
                 None,
                 0,
             )
         }
         InputFormat::Hn | InputFormat::C8 => {
-            let inspected = hnc8::inspect(&mut counted, limits, cancellation).await?;
+            let inspected = hnc8::inspect(&mut counted, limits, cancellation)?;
             application_info = inspected.application_info;
             (
                 inspected.pages,
@@ -678,13 +672,13 @@ async fn inspect(
     })
 }
 
-async fn pdf_pages<S: RangedSource>(
+fn pdf_pages<S: RangedSource>(
     source: &mut S,
     range: PdfRange,
     limits: &Limits,
     cancellation: &BridgeCancellation,
 ) -> Result<u32> {
-    let index = PdfIndex::open(source, range, limits, cancellation).await?;
+    let index = PdfIndex::open(source, range, limits, cancellation)?;
     // The PDF index enforces `Limits::max_pages`, a u32.
     Ok(index.pages().len() as u32)
 }

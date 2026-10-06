@@ -2,7 +2,6 @@
 
 use super::*;
 use crate::NeverCancel;
-use crate::test_support::ready;
 
 #[test]
 fn every_symbol_size_budget_is_checked_before_bitmap_work() {
@@ -105,7 +104,7 @@ impl RangedSource for TinySource {
         2
     }
 
-    async fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> crate::Result<usize> {
+    fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> crate::Result<usize> {
         let source = [0xff, 0xac];
         let offset = usize::try_from(offset).unwrap_or(usize::MAX);
         let count = source.len().saturating_sub(offset).min(destination.len());
@@ -119,10 +118,10 @@ impl RangedSource for TinySource {
 struct DiscardSink;
 
 impl SequentialSink for DiscardSink {
-    async fn write(&mut self, bytes: &[u8]) -> crate::Result<usize> {
+    fn write(&mut self, bytes: &[u8]) -> crate::Result<usize> {
         Ok(bytes.len())
     }
-    async fn flush(&mut self) -> crate::Result<()> {
+    fn flush(&mut self) -> crate::Result<()> {
         Ok(())
     }
 }
@@ -142,7 +141,7 @@ fn corrupted_internal_counters_refuse_overflow_with_poisoned_progress() {
         let limits = Limits::default();
         let table = MqTable::standard();
         let mut contexts = ContextBank::new(IAID_BASE + 1, &limits).unwrap();
-        let mq = ready(MqDecoder::new(
+        let mq = MqDecoder::new(
             &mut source,
             CodedSpan {
                 offset: 0,
@@ -153,7 +152,7 @@ fn corrupted_internal_counters_refuse_overflow_with_poisoned_progress() {
             &limits,
             &NeverCancel,
             MqBudget::default(),
-        ))
+        )
         .unwrap();
         let header = DictionaryDataHeader {
             flags: if refine { 0x1802 } else { 0x0800 },
@@ -213,7 +212,7 @@ fn corrupted_internal_counters_refuse_overflow_with_poisoned_progress() {
             poisoned: false,
             complete: false,
         };
-        let error = ready(decoder.decode()).unwrap_err();
+        let error = decoder.decode().unwrap_err();
         assert!(
             matches!(error.kind, DictionaryErrorKind::InvalidSpan(reason) if reason == field),
             "{error}"

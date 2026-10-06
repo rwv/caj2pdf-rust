@@ -5,22 +5,7 @@ use caj2pdf_core::{
     hnc8::{Budget, ErrorKind, Hnc8Reader, OutlineRepair, OutlineReport},
     native::SeekableSource,
 };
-use std::{
-    future::Future,
-    io::Cursor,
-    pin::pin,
-    task::{Context, Poll, Waker},
-};
-
-fn run_native<F: Future>(future: F) -> F::Output {
-    match pin!(future)
-        .as_mut()
-        .poll(&mut Context::from_waker(Waker::noop()))
-    {
-        Poll::Ready(output) => output,
-        Poll::Pending => panic!("in-memory adapters must be ready"),
-    }
-}
+use std::io::Cursor;
 
 fn source(records: &[(&[u8], &[u8], u32)]) -> Vec<u8> {
     let end = 348 + records.len() * 308 + 3 * 20;
@@ -40,7 +25,7 @@ fn source(records: &[(&[u8], &[u8], u32)]) -> Vec<u8> {
 #[derive(Default)]
 struct Entries(Vec<Bookmark>);
 impl BookmarkVisitor for Entries {
-    async fn visit(&mut self, bookmark: Bookmark) -> caj2pdf_core::Result<()> {
+    fn visit(&mut self, bookmark: Bookmark) -> caj2pdf_core::Result<()> {
         self.0.push(bookmark);
         Ok(())
     }
@@ -52,14 +37,13 @@ fn read(
     depth: u32,
     map: impl FnMut(u32) -> Option<u32>,
 ) -> Result<(Vec<Bookmark>, OutlineReport), caj2pdf_core::hnc8::Hnc8Error> {
-    run_native(async {
+    (|| {
         let mut input = SeekableSource::new(Cursor::new(bytes)).unwrap();
-        let mut reader =
-            Hnc8Reader::open(&mut input, &limits, &NeverCancel, Budget::default()).await?;
+        let mut reader = Hnc8Reader::open(&mut input, &limits, &NeverCancel, Budget::default())?;
         let mut entries = Entries::default();
-        let report = reader.visit_bookmarks(depth, 3, map, &mut entries).await?;
+        let report = reader.visit_bookmarks(depth, 3, map, &mut entries)?;
         Ok((entries.0, report))
-    })
+    })()
 }
 
 #[test]
@@ -196,7 +180,7 @@ fn count_depth_and_title_budgets_are_checked_before_visiting() {
 
 struct FailedVisitor(bool);
 impl BookmarkVisitor for FailedVisitor {
-    async fn visit(&mut self, _: Bookmark) -> caj2pdf_core::Result<()> {
+    fn visit(&mut self, _: Bookmark) -> caj2pdf_core::Result<()> {
         Err(if self.0 {
             Error::Cancelled
         } else {
@@ -210,15 +194,13 @@ impl BookmarkVisitor for FailedVisitor {
 #[test]
 fn visitor_failure_poisoning_prevents_replaying_partial_output() {
     for cancelled in [false, true] {
-        run_native(async {
+        {
             let mut input = SeekableSource::new(Cursor::new(source(&[(b"x", b"1", 1)]))).unwrap();
             let limits = Limits::default();
-            let mut reader = Hnc8Reader::open(&mut input, &limits, &NeverCancel, Budget::default())
-                .await
-                .unwrap();
+            let mut reader =
+                Hnc8Reader::open(&mut input, &limits, &NeverCancel, Budget::default()).unwrap();
             let error = reader
                 .visit_bookmarks(64, 3, |p| Some(p - 1), &mut FailedVisitor(cancelled))
-                .await
                 .unwrap_err();
             assert_eq!(error.offset, 348);
             assert_eq!(
@@ -232,11 +214,10 @@ fn visitor_failure_poisoning_prevents_replaying_partial_output() {
             let mut entries = Entries::default();
             let again = reader
                 .visit_bookmarks(64, 3, |p| Some(p - 1), &mut entries)
-                .await
                 .unwrap_err();
             assert!(matches!(again.kind, ErrorKind::Poisoned));
             assert!(entries.0.is_empty());
-        });
+        };
     }
 }
 
@@ -260,7 +241,7 @@ impl RangedSource for TruncatedRecord {
     fn size(&self) -> u64 {
         self.0.len() as u64
     }
-    async fn read_at(&mut self, offset: u64, bytes: &mut [u8]) -> caj2pdf_core::Result<usize> {
+    fn read_at(&mut self, offset: u64, bytes: &mut [u8]) -> caj2pdf_core::Result<usize> {
         if offset >= 348 {
             return Ok(0);
         }
@@ -271,21 +252,19 @@ impl RangedSource for TruncatedRecord {
 }
 #[test]
 fn a_short_record_read_is_not_a_partial_bookmark() {
-    run_native(async {
+    {
         let mut input = TruncatedRecord(source(&[(b"x", b"1", 1)]));
         let limits = Limits::default();
-        let mut reader = Hnc8Reader::open(&mut input, &limits, &NeverCancel, Budget::default())
-            .await
-            .unwrap();
+        let mut reader =
+            Hnc8Reader::open(&mut input, &limits, &NeverCancel, Budget::default()).unwrap();
         let mut entries = Entries::default();
         let error = reader
             .visit_bookmarks(64, 3, |p| Some(p - 1), &mut entries)
-            .await
             .unwrap_err();
         assert_eq!(error.offset, 348);
         assert!(entries.0.is_empty());
         assert!(matches!(error.kind, ErrorKind::Truncated { .. }));
-    });
+    };
 }
 
 #[test]
@@ -297,34 +276,28 @@ fn cancellation_and_output_page_limit_are_checked_even_before_records() {
             self.0.get()
         }
     }
-    run_native(async {
+    {
         let flag = Flag(Cell::new(false));
         let mut input = SeekableSource::new(Cursor::new(source(&[]))).unwrap();
         let limits = Limits {
             max_pages: 3,
             ..Limits::default()
         };
-        let mut reader = Hnc8Reader::open(&mut input, &limits, &flag, Budget::default())
-            .await
-            .unwrap();
+        let mut reader = Hnc8Reader::open(&mut input, &limits, &flag, Budget::default()).unwrap();
         let mut entries = Entries::default();
         flag.0.set(true);
         assert!(matches!(
             reader
                 .visit_bookmarks(64, 3, |p| Some(p - 1), &mut entries)
-                .await
                 .unwrap_err()
                 .kind,
             ErrorKind::Cancelled
         ));
         flag.0.set(false);
-        let mut reader = Hnc8Reader::open(&mut input, &limits, &flag, Budget::default())
-            .await
-            .unwrap();
+        let mut reader = Hnc8Reader::open(&mut input, &limits, &flag, Budget::default()).unwrap();
         assert!(matches!(
             reader
                 .visit_bookmarks(64, 4, |p| Some(p - 1), &mut entries)
-                .await
                 .unwrap_err()
                 .kind,
             ErrorKind::LimitExceeded {
@@ -332,39 +305,7 @@ fn cancellation_and_output_page_limit_are_checked_even_before_records() {
                 ..
             }
         ));
-    });
-}
-
-#[test]
-fn dropping_a_pending_visitor_poisoned_the_reader() {
-    struct Pending;
-    impl BookmarkVisitor for Pending {
-        async fn visit(&mut self, _: Bookmark) -> caj2pdf_core::Result<()> {
-            std::future::pending().await
-        }
-    }
-    run_native(async {
-        let mut input = SeekableSource::new(Cursor::new(source(&[(b"x", b"1", 1)]))).unwrap();
-        let limits = Limits::default();
-        let mut reader = Hnc8Reader::open(&mut input, &limits, &NeverCancel, Budget::default())
-            .await
-            .unwrap();
-        {
-            let mut visitor = Pending;
-            let mut future = pin!(reader.visit_bookmarks(64, 3, |p| Some(p - 1), &mut visitor));
-            assert!(
-                future
-                    .as_mut()
-                    .poll(&mut Context::from_waker(Waker::noop()))
-                    .is_pending()
-            );
-        }
-        let error = reader
-            .visit_bookmarks(64, 3, |p| Some(p - 1), &mut Entries::default())
-            .await
-            .unwrap_err();
-        assert!(matches!(error.kind, ErrorKind::Poisoned));
-    });
+    };
 }
 
 #[test]
@@ -379,10 +320,8 @@ fn independent_pdf_reader_checks_native_outline_titles_hierarchy_and_targets() {
     };
     struct Xyz<'a, 'b>(&'a mut PdfDocument<'b, WriteSink<Vec<u8>>, NeverCancel>);
     impl BookmarkVisitor for Xyz<'_, '_> {
-        async fn visit(&mut self, bookmark: Bookmark) -> caj2pdf_core::Result<()> {
-            self.0
-                .add_bookmark_with_view(bookmark, BookmarkView::Xyz)
-                .await
+        fn visit(&mut self, bookmark: Bookmark) -> caj2pdf_core::Result<()> {
+            self.0.add_bookmark_with_view(bookmark, BookmarkView::Xyz)
         }
     }
     let mut input = SeekableSource::new(Cursor::new(source(&[
@@ -393,13 +332,10 @@ fn independent_pdf_reader_checks_native_outline_titles_hierarchy_and_targets() {
     .unwrap();
     let limits = Limits::default();
     let mut sink = WriteSink::new(Vec::new());
-    run_native(async {
-        let mut reader = Hnc8Reader::open(&mut input, &limits, &NeverCancel, Budget::default())
-            .await
-            .unwrap();
-        let mut doc = PdfDocument::new(&mut sink, &limits, &NeverCancel)
-            .await
-            .unwrap();
+    {
+        let mut reader =
+            Hnc8Reader::open(&mut input, &limits, &NeverCancel, Budget::default()).unwrap();
+        let mut doc = PdfDocument::new(&mut sink, &limits, &NeverCancel).unwrap();
         let mut white = SeekableSource::new(Cursor::new([255_u8])).unwrap();
         let image = doc
             .add_image(
@@ -412,7 +348,6 @@ fn independent_pdf_reader_checks_native_outline_titles_hierarchy_and_targets() {
                     encoding: ImageEncoding::Gray8,
                 },
             )
-            .await
             .unwrap();
         for _ in 0..3 {
             doc.add_page(
@@ -422,16 +357,14 @@ fn independent_pdf_reader_checks_native_outline_titles_hierarchy_and_targets() {
                 },
                 &[image],
             )
-            .await
             .unwrap();
         }
         reader
             .visit_bookmarks(64, 3, |page| Some(3 - page), &mut Xyz(&mut doc))
-            .await
             .unwrap();
-        let report = doc.finish().await.unwrap();
+        let report = doc.finish().unwrap();
         assert_eq!(report.bookmarks_written, 3);
-    });
+    };
     struct Temp(std::path::PathBuf);
     impl Drop for Temp {
         fn drop(&mut self) {

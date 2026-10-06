@@ -87,24 +87,24 @@ impl RandomAccessScratch for FileScratch {
         Ok(self.len)
     }
 
-    async fn set_len(&mut self, bytes: u64) -> Result<()> {
+    fn set_len(&mut self, bytes: u64) -> Result<()> {
         self.check_size(bytes)?;
         self.file.set_len(bytes)?;
         self.len = bytes;
         Ok(())
     }
 
-    async fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> Result<usize> {
+    fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> Result<usize> {
         self.check_request(offset, destination.len())?;
         Ok(read_at(&self.file, offset, destination)?)
     }
 
-    async fn write_at(&mut self, offset: u64, bytes: &[u8]) -> Result<usize> {
+    fn write_at(&mut self, offset: u64, bytes: &[u8]) -> Result<usize> {
         self.check_request(offset, bytes.len())?;
         Ok(write_at(&self.file, offset, bytes)?)
     }
 
-    async fn flush(&mut self) -> Result<()> {
+    fn flush(&mut self) -> Result<()> {
         Ok(self.file.flush()?)
     }
 }

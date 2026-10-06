@@ -187,7 +187,7 @@ fn font_face(path: &Path) -> Result<(PathBuf, u32), CliError> {
 
 struct CompletePages;
 impl ComposeVisitor for CompletePages {
-    async fn page(&mut self, page: ComposePage<'_>) -> caj2pdf_core::Result<()> {
+    fn page(&mut self, page: ComposePage<'_>) -> caj2pdf_core::Result<()> {
         if page.output_page.is_none() {
             return Err(Error::InvalidInput {
                 reason: "HN/C8 conversion cannot omit source pages without image content",
@@ -210,7 +210,7 @@ pub fn compose_options(include_bookmarks: bool) -> ComposeOptions {
     }
 }
 
-pub async fn convert<S: RangedSource, W: SequentialSink>(
+pub fn convert<S: RangedSource, W: SequentialSink>(
     source: &mut S,
     sink: &mut W,
     resources: &mut Resources,
@@ -268,7 +268,6 @@ pub async fn convert<S: RangedSource, W: SequentialSink>(
         limits,
         &ProcessCancellation,
     )
-    .await
     .map(|report| (report.outline, report.application_info))
     .map_err(|e| e.to_string())
 }
@@ -287,31 +286,26 @@ pub struct Inspected {
 /// Keep only bounded outline and application-info metadata; image payloads
 /// are never read here. `structure` also reports the page-index layout and
 /// application-info tail.
-pub async fn inspect<S: RangedSource>(
+pub fn inspect<S: RangedSource>(
     source: &mut S,
     limits: &Limits,
     structure: bool,
 ) -> Result<Inspected, String> {
     use caj2pdf_core::hnc8::{Budget, Hnc8Reader};
     let mut reader = Hnc8Reader::open(source, limits, &ProcessCancellation, Budget::default())
-        .await
         .map_err(|e| e.to_string())?;
     let header = reader.header();
     let structure = if structure {
         Some(crate::document::Structure::Hnc8 {
             header,
             page_row_bytes: reader.page_row_bytes(),
-            application_info: reader
-                .application_info_tail()
-                .await
-                .map_err(|e| e.to_string())?,
+            application_info: reader.application_info_tail().map_err(|e| e.to_string())?,
         })
     } else {
         None
     };
     let application_info = reader
         .application_info_report()
-        .await
         .map_err(|e| e.to_string())?;
     let mut inspected = Inspected {
         header,
@@ -339,7 +333,6 @@ pub async fn inspect<S: RangedSource>(
         .map_err(|_| "cannot allocate HN-A outline metadata")?;
     inspected.outline = reader
         .visit_bookmarks(64, header.page_count, |page| Some(page - 1), &mut collected)
-        .await
         .map_err(|e| e.to_string())?;
     inspected.bookmarks = Some(collected.items);
     Ok(inspected)
@@ -367,7 +360,7 @@ fn fatal(error: caj2pdf_core::hnc8::Hnc8Error) -> Result<String, PagesError> {
 /// a malformed page is reported and later pages are still inspected; only
 /// one page's row, the current descriptor and bounded text-reader state are
 /// held at a time. Image payloads and text content are never reported.
-pub async fn write_pages<S: RangedSource, W: std::io::Write>(
+pub fn write_pages<S: RangedSource, W: std::io::Write>(
     source: &mut S,
     limits: &Limits,
     page_count: u32,
@@ -383,9 +376,8 @@ pub async fn write_pages<S: RangedSource, W: std::io::Write>(
             Budget::default(),
             number,
         )
-        .await
         .map_err(|e| PagesError::Input(e.to_string()))?;
-        let row = match reader.next_page().await {
+        let row = match reader.next_page() {
             Ok(row) => row.expect("a probe opens at a declared page"),
             Err(error) => {
                 let message = fatal(error)?;
@@ -397,7 +389,7 @@ pub async fn write_pages<S: RangedSource, W: std::io::Write>(
         };
         out.page(number, Some(&row)).map_err(PagesError::Output)?;
         let error = loop {
-            match reader.next_image().await {
+            match reader.next_image() {
                 Ok(Some(image)) => out.image(&image).map_err(PagesError::Output)?,
                 Ok(None) => break None,
                 Err(error) => break Some(fatal(error)?),
@@ -408,7 +400,7 @@ pub async fn write_pages<S: RangedSource, W: std::io::Write>(
                 .map_err(PagesError::Output)?;
             continue;
         }
-        match reader.inspect_text(TextBudget::default()).await {
+        match reader.inspect_text(TextBudget::default()) {
             Ok(text) => out.end_page(Some(&text), None, None),
             Err(error) => out.end_page(None, Some(&fatal(error)?), None),
         }
@@ -424,7 +416,7 @@ struct CollectedBookmarks {
 }
 
 impl caj2pdf_core::BookmarkVisitor for CollectedBookmarks {
-    async fn visit(&mut self, bookmark: caj2pdf_core::Bookmark) -> caj2pdf_core::Result<()> {
+    fn visit(&mut self, bookmark: caj2pdf_core::Bookmark) -> caj2pdf_core::Result<()> {
         self.bytes += bookmark.title.capacity() as u64;
         self.limits.check_allocation(self.bytes)?;
         self.items.push(bookmark);
@@ -462,7 +454,6 @@ mod tests {
 
     #[test]
     fn outline_collection_accounts_for_records_and_retained_titles() {
-        use crate::document::block_on;
         use caj2pdf_core::native::SeekableSource;
         let mut bytes = vec![0; 0x15c + 308 + 20];
         bytes[..8].copy_from_slice(&[72, 78, 0, 0, 0x90, 1, 0, 0]);
@@ -483,7 +474,7 @@ mod tests {
                 io_chunk_bytes: 1,
                 ..Limits::default()
             };
-            let error = block_on(inspect(&mut source, &limits, false)).unwrap_err();
+            let error = inspect(&mut source, &limits, false).unwrap_err();
             assert!(error.contains("limit"), "{error}");
         }
     }

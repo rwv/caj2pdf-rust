@@ -16,7 +16,7 @@ fn route(bytes: &[u8], fonts: bool) -> (Result<ComposeReport, ComposeError>, Vec
     let limits = Limits::default();
     let mq = MqTable::standard();
     let (mut text, mut first, mut second, mut refined) = Default::default();
-    let result = ready(convert_document_pdf(
+    let result = convert_document_pdf(
         &mut source,
         &mut sink,
         fonts.then(|| C8FontSources {
@@ -29,7 +29,7 @@ fn route(bytes: &[u8], fonts: bool) -> (Result<ComposeReport, ComposeError>, Vec
         ComposeOptions::default(),
         &limits,
         &NeverCancel,
-    ));
+    );
     (result, sink.bytes)
 }
 
@@ -62,12 +62,7 @@ fn native_with(
     limits: &Limits,
     cancellation: &impl Cancellation,
 ) -> Result<bool, ComposeError> {
-    ready(uses_native_text(
-        &mut source,
-        ComposeOptions::default(),
-        limits,
-        cancellation,
-    ))
+    uses_native_text(&mut source, ComposeOptions::default(), limits, cancellation)
 }
 
 /// The image path's PDF and read count, with no fonts supplied.
@@ -134,7 +129,7 @@ fn native_documents_use_native_composition_only_with_fonts() {
         let limits = Limits::default();
         let mq = MqTable::standard();
         let (mut text, mut first, mut second, mut refined) = Default::default();
-        let direct = ready(convert_c8_native_pdf(
+        let direct = convert_c8_native_pdf(
             &mut source,
             &mut sink,
             C8FontSources {
@@ -146,7 +141,7 @@ fn native_documents_use_native_composition_only_with_fonts() {
             ComposeOptions::default(),
             &limits,
             &NeverCancel,
-        ))
+        )
         .unwrap();
         let (report, pdf) = route(&fixture.bytes, true);
         let report = report.unwrap();
@@ -251,7 +246,7 @@ fn source_failures_cancellation_and_invalid_limits_are_returned() {
         face: 0,
     }];
     let mut sink = Sink::default();
-    let error = ready(convert_document_pdf(
+    let error = convert_document_pdf(
         &mut source,
         &mut sink,
         Some(C8FontSources {
@@ -264,7 +259,7 @@ fn source_failures_cancellation_and_invalid_limits_are_returned() {
         ComposeOptions::default(),
         &Limits::default(),
         &NeverCancel,
-    ))
+    )
     .unwrap_err();
     assert_eq!(error.stage, ComposeStage::Container);
     assert!(sink.bytes.is_empty());

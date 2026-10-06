@@ -6,7 +6,7 @@
 use crate::CliError;
 use crate::args::{Command, Endpoint, Topic, parse};
 use crate::cli::default_output;
-use crate::document::{Inspection, Structure, block_on, format_name, unsupported};
+use crate::document::{Inspection, Structure, format_name, unsupported};
 use crate::files::{
     Input, NEXT_TEMP, Output, SpoolError, TEMP_ATTEMPTS, open_input, open_input_spooling_in,
     open_output, refuse_terminal, spool,
@@ -264,11 +264,6 @@ fn default_output_is_a_distinct_sibling_pdf() {
     assert!(error.message.contains("-o OUTPUT"));
 }
 
-#[test]
-fn block_on_returns_a_ready_value() {
-    assert_eq!(block_on(async { 7 }), 7);
-}
-
 fn json_string(value: &str) -> String {
     let mut out = Vec::new();
     write_string(&mut out, value).unwrap();
@@ -482,7 +477,7 @@ fn outline_warnings_list_bounded_locations_then_a_summary() {
         bytes[at + 304] = 1;
     }
     let mut source = SeekableSource::new(io::Cursor::new(&bytes)).unwrap();
-    let inspected = block_on(crate::hnc8::inspect(&mut source, &Limits::default(), false)).unwrap();
+    let inspected = crate::hnc8::inspect(&mut source, &Limits::default(), false).unwrap();
     assert_eq!(inspected.bookmarks.unwrap().len(), 1);
     assert_eq!(inspected.application_info, ApplicationInfoReport::default());
     let outline = inspected.outline;
@@ -1103,29 +1098,6 @@ fn every_format_has_a_name() {
     }
 }
 
-/// A future that is pending once before it completes.
-struct PendingOnce(bool);
-
-impl std::future::Future for PendingOnce {
-    type Output = u8;
-
-    fn poll(
-        mut self: std::pin::Pin<&mut Self>,
-        _: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<u8> {
-        if std::mem::replace(&mut self.0, true) {
-            std::task::Poll::Ready(1)
-        } else {
-            std::task::Poll::Pending
-        }
-    }
-}
-
-#[test]
-fn block_on_polls_again_after_pending() {
-    assert_eq!(block_on(PendingOnce(false)), 1);
-}
-
 #[test]
 fn a_forward_only_input_is_bounded_while_spooling() {
     let error = match open_input(&path("/dev/zero"), 10) {
@@ -1440,11 +1412,7 @@ impl caj2pdf_core::RangedSource for Bytes {
         self.0.len() as u64
     }
 
-    async fn read_at(
-        &mut self,
-        offset: u64,
-        destination: &mut [u8],
-    ) -> caj2pdf_core::Result<usize> {
+    fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> caj2pdf_core::Result<usize> {
         if offset > self.size() {
             return Err(caj2pdf_core::Error::InvalidInput {
                 reason: "test read past end",
@@ -1464,12 +1432,12 @@ fn progress_reports_the_furthest_input_byte_once_per_percent() {
     let mut out = Vec::new();
     let mut source = Progress::new(Bytes(vec![7; 200]), Some(&mut out));
     let mut buffer = [0; 100];
-    assert_eq!(block_on(source.read_at(0, &mut buffer)).unwrap(), 100);
+    assert_eq!(source.read_at(0, &mut buffer).unwrap(), 100);
     assert_eq!(buffer, [7; 100]);
-    block_on(source.read_at(0, &mut buffer[..10])).unwrap();
-    block_on(source.read_at(100, &mut buffer[..1])).unwrap();
-    block_on(source.read_at(150, &mut buffer)).unwrap();
-    assert!(block_on(source.read_at(201, &mut buffer)).is_err());
+    source.read_at(0, &mut buffer[..10]).unwrap();
+    source.read_at(100, &mut buffer[..1]).unwrap();
+    source.read_at(150, &mut buffer).unwrap();
+    assert!(source.read_at(201, &mut buffer).is_err());
     assert_eq!(source.size(), 200);
     source.finish();
     assert_eq!(
@@ -1489,11 +1457,6 @@ fn progress_without_a_terminal_or_reads_writes_nothing() {
     assert!(out.is_empty());
     let mut source = Progress::new(Bytes(vec![1; 4]), None);
     let mut buffer = [0; 4];
-    block_on(caj2pdf_core::RangedSource::read_at(
-        &mut source,
-        0,
-        &mut buffer,
-    ))
-    .unwrap();
+    caj2pdf_core::RangedSource::read_at(&mut source, 0, &mut buffer).unwrap();
     source.finish();
 }

@@ -260,12 +260,9 @@ impl<S: RangedSource, C: Cancellation> Cursor<'_, S, C> {
     }
 
     /// Read exactly `N` header bytes with bounded requests.
-    async fn read<const N: usize>(&mut self, field: &'static str) -> TextRegionResult<[u8; N]> {
+    fn read<const N: usize>(&mut self, field: &'static str) -> TextRegionResult<[u8; N]> {
         let mut bytes = [0u8; N];
-        let result = self
-            .fields
-            .fill(self.source, self.cancellation, &mut bytes)
-            .await;
+        let result = self.fields.fill(self.source, self.cancellation, &mut bytes);
         result.map_err(|fault| self.fault(fault, field))?;
         Ok(bytes)
     }
@@ -300,7 +297,7 @@ fn be32(bytes: &[u8]) -> u32 {
 /// `dictionary` is the validated header of the single symbol dictionary this
 /// region refers to. Framing, reference, page, and span checks complete before
 /// any source read; the returned `body` range is never read or allocated.
-pub async fn read_text_region_header<S: RangedSource, C: Cancellation>(
+pub fn read_text_region_header<S: RangedSource, C: Cancellation>(
     source: &mut S,
     header: &SegmentHeader,
     dictionary: &SegmentHeader,
@@ -317,13 +314,12 @@ pub async fn read_text_region_header<S: RangedSource, C: Cancellation>(
         cancellation,
         TextHeaderPolicy::Strict,
     )
-    .await
 }
 
 /// Parse a text-region header with an explicit interoperability policy.
 /// `HnC8UnusedRefinementTemplate` accepts only raw `0xa40c`; it does not
 /// normalize the returned flags or skip any framing, size, or body checks.
-pub async fn read_text_region_header_with_policy<S: RangedSource, C: Cancellation>(
+pub fn read_text_region_header_with_policy<S: RangedSource, C: Cancellation>(
     source: &mut S,
     header: &SegmentHeader,
     dictionary: &SegmentHeader,
@@ -431,7 +427,7 @@ pub async fn read_text_region_header_with_policy<S: RangedSource, C: Cancellatio
         },
     };
     let start = header.data.offset;
-    let prefix: [u8; PREFIX_BYTES] = cursor.read("text region header").await?;
+    let prefix: [u8; PREFIX_BYTES] = cursor.read("text region header")?;
     let region = parse_region(&prefix, &cursor, budget)?;
     let (flags, anomaly) = parse_flags(
         u16::from_be_bytes([prefix[REGION_INFO_BYTES], prefix[REGION_INFO_BYTES + 1]]),
@@ -441,20 +437,20 @@ pub async fn read_text_region_header_with_policy<S: RangedSource, C: Cancellatio
 
     let huffman_flags = if flags.huffman {
         let offset = cursor.fields.at;
-        let raw = u16::from_be_bytes(cursor.read("text region Huffman flags").await?);
+        let raw = u16::from_be_bytes(cursor.read("text region Huffman flags")?);
         check_huffman_flags(raw, flags.refine).map_err(|kind| cursor.error_at(offset, kind))?;
         Some(raw)
     } else {
         None
     };
     let refinement_at = if flags.refine && flags.refinement_template == 0 {
-        let [x1, y1, x2, y2] = cursor.read("text region refinement AT").await?;
+        let [x1, y1, x2, y2] = cursor.read("text region refinement AT")?;
         Some([(x1 as i8, y1 as i8), (x2 as i8, y2 as i8)])
     } else {
         None
     };
     let instances_offset = cursor.fields.at;
-    let instances = u32::from_be_bytes(cursor.read("SBNUMINSTANCES").await?);
+    let instances = u32::from_be_bytes(cursor.read("SBNUMINSTANCES")?);
     if instances > budget.max_instances {
         return Err(cursor.error_at(
             instances_offset,

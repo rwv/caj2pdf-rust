@@ -7,28 +7,10 @@ use caj2pdf_core::{
     kdh::{KdhPdfSource, convert_kdh},
     native::WriteSink,
 };
-use std::{
-    cell::Cell,
-    fs::read,
-    future::Future,
-    io,
-    path::Path,
-    pin::pin,
-    rc::Rc,
-    task::{Context, Poll, Waker},
-};
+use std::{cell::Cell, fs::read, io, path::Path, rc::Rc};
 
 const PDF_START: usize = 254;
 const KEY: &[u8; 6] = b"FZHMEI";
-
-fn run<F: Future>(future: F) -> F::Output {
-    let mut context = Context::from_waker(Waker::noop());
-    let mut future = pin!(future);
-    match future.as_mut().poll(&mut context) {
-        Poll::Ready(value) => value,
-        Poll::Pending => panic!("native test source unexpectedly yielded"),
-    }
-}
 
 fn fixture_pdf() -> Vec<u8> {
     read(
@@ -79,11 +61,7 @@ impl RangedSource for MeasuredSource {
         self.bytes.len() as u64 + self.zero_tail
     }
 
-    async fn read_at(
-        &mut self,
-        offset: u64,
-        destination: &mut [u8],
-    ) -> caj2pdf_core::Result<usize> {
+    fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> caj2pdf_core::Result<usize> {
         self.max_request = self.max_request.max(destination.len());
         self.reads.set(self.reads.get() + 1);
         if self.fail_reads.get() {
@@ -112,20 +90,15 @@ fn a_later_zero_read_reports_the_absolute_kdh_offset() {
     let pdf = fixture_pdf();
     let mut source = MeasuredSource::new(kdh_bytes(&pdf, b""));
     let fail_reads = Rc::clone(&source.fail_reads);
-    let mut decoded = run(KdhPdfSource::open(
-        &mut source,
-        &Limits::default(),
-        &NeverCancel,
-    ))
-    .unwrap();
+    let mut decoded = KdhPdfSource::open(&mut source, &Limits::default(), &NeverCancel).unwrap();
     fail_reads.set(true);
     let mut output = Vec::new();
-    let error = run(caj2pdf_core::pdf::copy_pdf(
+    let error = caj2pdf_core::pdf::copy_pdf(
         &mut decoded,
         &mut WriteSink::new(&mut output),
         &Limits::default(),
         &NeverCancel,
-    ))
+    )
     .unwrap_err();
     assert!(matches!(
         error,
@@ -154,7 +127,7 @@ struct FailingSink {
 }
 
 impl SequentialSink for FailingSink {
-    async fn write(&mut self, bytes: &[u8]) -> caj2pdf_core::Result<usize> {
+    fn write(&mut self, bytes: &[u8]) -> caj2pdf_core::Result<usize> {
         if self.remaining == 0 {
             return Err(Error::Io(io::Error::other("injected KDH sink failure")));
         }
@@ -163,7 +136,7 @@ impl SequentialSink for FailingSink {
         Ok(count)
     }
 
-    async fn flush(&mut self) -> caj2pdf_core::Result<()> {
+    fn flush(&mut self) -> caj2pdf_core::Result<()> {
         Ok(())
     }
 }
@@ -179,12 +152,12 @@ fn bounded_kdh_source_discards_a_large_tail_and_false_eof() {
         ..Limits::default()
     };
     {
-        let mut decoded = run(KdhPdfSource::open(&mut source, &limits, &NeverCancel)).unwrap();
+        let mut decoded = KdhPdfSource::open(&mut source, &limits, &NeverCancel).unwrap();
         assert_eq!(decoded.pdf_len(), pdf.len() as u64);
         assert_eq!(decoded.trailing_len(), tail.len() as u64 + 2 * 1024 * 1024);
         let mut actual = vec![0; pdf.len()];
         for (offset, chunk) in actual.chunks_mut(97).enumerate() {
-            let count = run(decoded.read_at((offset * 97) as u64, chunk)).unwrap();
+            let count = decoded.read_at((offset * 97) as u64, chunk).unwrap();
             assert_eq!(count, chunk.len());
         }
         assert_eq!(actual, pdf);
@@ -200,13 +173,9 @@ fn a_second_plausible_xref_end_is_rejected_as_ambiguous() {
         pdf.len()
     );
     let mut source = MeasuredSource::new(kdh_bytes(&pdf, tail.as_bytes()));
-    let error = run(KdhPdfSource::open(
-        &mut source,
-        &Limits::default(),
-        &NeverCancel,
-    ))
-    .err()
-    .unwrap();
+    let error = KdhPdfSource::open(&mut source, &Limits::default(), &NeverCancel)
+        .err()
+        .unwrap();
     assert!(matches!(
         error,
         Error::Kdh {
@@ -226,7 +195,7 @@ fn full_kdh_input_size_limit_includes_trailing_bytes() {
         ..Limits::default()
     };
     assert!(matches!(
-        run(KdhPdfSource::open(&mut source, &limits, &NeverCancel)),
+        KdhPdfSource::open(&mut source, &limits, &NeverCancel),
         Err(Error::LimitExceeded {
             resource: "input bytes",
             ..
@@ -240,12 +209,12 @@ fn kdh_conversion_uses_the_shared_pdf_reader_and_sink() {
     let pdf = fixture_pdf();
     let mut source = MeasuredSource::new(kdh_bytes(&pdf, b"metadata"));
     let mut output = Vec::new();
-    let report = run(convert_kdh(
+    let report = convert_kdh(
         &mut source,
         &mut WriteSink::new(&mut output),
         &Limits::default(),
         &NeverCancel,
-    ))
+    )
     .unwrap();
     assert_eq!(output, pdf);
     assert_eq!(report.pages_converted, 2);
@@ -262,12 +231,12 @@ fn kdh_conversion_accepts_short_positioned_reads() {
         ..Limits::default()
     };
     let mut output = Vec::new();
-    let report = run(convert_kdh(
+    let report = convert_kdh(
         &mut source,
         &mut WriteSink::new(&mut output),
         &limits,
         &NeverCancel,
-    ))
+    )
     .unwrap();
     assert_eq!(output, pdf);
     assert_eq!(report.pages_converted, 2);
@@ -289,12 +258,12 @@ fn kdh_scan_observes_cancellation_before_writing_output() {
         ..Limits::default()
     };
     let mut output = Vec::new();
-    let result = run(convert_kdh(
+    let result = convert_kdh(
         &mut source,
         &mut WriteSink::new(&mut output),
         &limits,
         &cancellation,
-    ));
+    );
     assert!(matches!(result, Err(Error::Cancelled)));
     assert!(output.is_empty());
     assert!(source.max_request <= limits.io_chunk_bytes);
@@ -308,12 +277,12 @@ fn kdh_conversion_propagates_sink_failure() {
         io_chunk_bytes: 97,
         ..Limits::default()
     };
-    let error = run(convert_kdh(
+    let error = convert_kdh(
         &mut source,
         &mut FailingSink { remaining: 128 },
         &limits,
         &NeverCancel,
-    ))
+    )
     .unwrap_err();
     assert!(matches!(error, Error::Io(_)));
 }
@@ -324,7 +293,7 @@ fn kdh_header_payload_and_eof_fail_with_locations() {
     let limits = Limits::default();
     let mut truncated = MeasuredSource::new(vec![0; 40]);
     assert!(matches!(
-        run(KdhPdfSource::open(&mut truncated, &limits, &NeverCancel)),
+        KdhPdfSource::open(&mut truncated, &limits, &NeverCancel),
         Err(Error::TruncatedInput {
             offset: 0,
             expected: 254,
@@ -335,11 +304,11 @@ fn kdh_header_payload_and_eof_fail_with_locations() {
     let mut bad_signature = kdh_bytes(&pdf, b"");
     bad_signature[0] = b'!';
     assert!(matches!(
-        run(KdhPdfSource::open(
+        KdhPdfSource::open(
             &mut MeasuredSource::new(bad_signature),
             &limits,
             &NeverCancel
-        )),
+        ),
         Err(Error::Kdh {
             offset: 0,
             reason: "KDH signature is invalid"
@@ -348,11 +317,11 @@ fn kdh_header_payload_and_eof_fail_with_locations() {
 
     let short_payload = kdh_bytes(&pdf, b"")[..PDF_START + 7].to_vec();
     assert!(matches!(
-        run(KdhPdfSource::open(
+        KdhPdfSource::open(
             &mut MeasuredSource::new(short_payload),
             &limits,
             &NeverCancel
-        )),
+        ),
         Err(Error::TruncatedInput {
             offset: 254,
             expected: 8,
@@ -363,22 +332,18 @@ fn kdh_header_payload_and_eof_fail_with_locations() {
     let mut bad_version = kdh_bytes(&pdf, b"");
     bad_version[0x28] = 1;
     assert!(matches!(
-        run(KdhPdfSource::open(
-            &mut MeasuredSource::new(bad_version),
-            &limits,
-            &NeverCancel
-        )),
+        KdhPdfSource::open(&mut MeasuredSource::new(bad_version), &limits, &NeverCancel),
         Err(Error::Kdh { offset: 0x28, .. })
     ));
 
     let mut bad_payload = pdf.clone();
     bad_payload[0] = b'!';
     assert!(matches!(
-        run(KdhPdfSource::open(
+        KdhPdfSource::open(
             &mut MeasuredSource::new(kdh_bytes(&bad_payload, b"")),
             &limits,
             &NeverCancel
-        )),
+        ),
         Err(Error::Kdh { offset: 254, .. })
     ));
 
@@ -389,11 +354,11 @@ fn kdh_header_payload_and_eof_fail_with_locations() {
         .unwrap();
     missing_eof[at] = b'!';
     assert!(matches!(
-        run(KdhPdfSource::open(
+        KdhPdfSource::open(
             &mut MeasuredSource::new(kdh_bytes(&missing_eof, b"")),
             &limits,
             &NeverCancel
-        )),
+        ),
         Err(Error::Kdh {
             reason: "decoded PDF startxref and EOF were not found",
             ..
@@ -411,12 +376,12 @@ fn corrupt_pdf_object_is_reported_at_kdh_absolute_offset() {
     pdf[at + 7] = b'8';
     let mut source = MeasuredSource::new(kdh_bytes(&pdf, b""));
     let mut output = Vec::new();
-    let error = run(convert_kdh(
+    let error = convert_kdh(
         &mut source,
         &mut WriteSink::new(&mut output),
         &Limits::default(),
         &NeverCancel,
-    ))
+    )
     .unwrap_err();
     assert!(matches!(error, Error::Pdf { offset, .. } if offset >= PDF_START as u64));
 }
@@ -430,12 +395,12 @@ fn pdf_output_limit_preserves_kdh_absolute_error_location() {
         max_output_bytes: pdf.len() as u64 - 1,
         ..Limits::default()
     };
-    let error = run(convert_kdh(
+    let error = convert_kdh(
         &mut source,
         &mut WriteSink::new(&mut output),
         &limits,
         &NeverCancel,
-    ))
+    )
     .unwrap_err();
     assert!(
         matches!(error, Error::PdfLimitExceeded { offset, resource: "output bytes", .. } if offset >= PDF_START as u64),
@@ -446,11 +411,7 @@ fn pdf_output_limit_preserves_kdh_absolute_error_location() {
 
 fn open_lengths(bytes: Vec<u8>) -> Result<(u64, u64), Error> {
     let mut source = MeasuredSource::new(bytes);
-    let decoded = run(KdhPdfSource::open(
-        &mut source,
-        &Limits::default(),
-        &NeverCancel,
-    ))?;
+    let decoded = KdhPdfSource::open(&mut source, &Limits::default(), &NeverCancel)?;
     Ok((decoded.pdf_len(), decoded.trailing_len()))
 }
 
@@ -526,21 +487,16 @@ fn decoded_reads_are_bounded_by_the_pdf_end_and_the_source_contract() {
     let pdf = fixture_pdf();
     let mut source = MeasuredSource::new(kdh_bytes(&pdf, b"tail bytes"));
     let overreport = Rc::clone(&source.overreport);
-    let mut decoded = run(KdhPdfSource::open(
-        &mut source,
-        &Limits::default(),
-        &NeverCancel,
-    ))
-    .unwrap();
+    let mut decoded = KdhPdfSource::open(&mut source, &Limits::default(), &NeverCancel).unwrap();
     let end = decoded.pdf_len();
     assert_eq!(decoded.size(), pdf.len() as u64);
 
     let mut buffer = [0_u8; 16];
-    assert_eq!(run(decoded.read_at(end - 3, &mut buffer)).unwrap(), 3);
+    assert_eq!(decoded.read_at(end - 3, &mut buffer).unwrap(), 3);
     assert_eq!(&buffer[..3], &pdf[pdf.len() - 3..]);
-    assert_eq!(run(decoded.read_at(end, &mut buffer)).unwrap(), 0);
+    assert_eq!(decoded.read_at(end, &mut buffer).unwrap(), 0);
     assert!(matches!(
-        run(decoded.read_at(end + 1, &mut buffer)),
+        decoded.read_at(end + 1, &mut buffer),
         Err(Error::InvalidInput {
             reason: "KDH PDF read starts beyond payload end"
         })
@@ -548,7 +504,7 @@ fn decoded_reads_are_bounded_by_the_pdf_end_and_the_source_contract() {
 
     overreport.set(true);
     assert!(matches!(
-        run(decoded.read_at(0, &mut buffer)),
+        decoded.read_at(0, &mut buffer),
         Err(Error::InvalidInput {
             reason: "KDH source reported more bytes than requested"
         })

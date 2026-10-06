@@ -5,21 +5,7 @@ use caj2pdf_core::{
     native::{SeekableSource, WriteSink},
     pdf::{ImageEncoding, ImageSpec, PageSpec, PdfDocument},
 };
-use std::{
-    future::Future,
-    io::{self, Cursor},
-    pin::pin,
-    task::{Context, Poll, Waker},
-};
-
-fn run<F: Future>(future: F) -> F::Output {
-    let mut future = pin!(future);
-    let mut context = Context::from_waker(Waker::noop());
-    match future.as_mut().poll(&mut context) {
-        Poll::Ready(value) => value,
-        Poll::Pending => panic!("native test adapters must complete immediately"),
-    }
-}
+use std::io::{self, Cursor};
 
 fn page() -> PageSpec {
     PageSpec {
@@ -67,34 +53,30 @@ fn two_pages_and_nested_unicode_outline_have_checked_report_and_stream_bytes() -
     let mut rgb_source = SeekableSource::new(Cursor::new(vec![255, 0, 0, 0, 255, 0]))?;
     let mut output = WriteSink::new(Vec::<u8>::new());
     let limits = Limits::default();
-    let report = run(async {
-        let mut document = PdfDocument::new(&mut output, &limits, &NeverCancel).await?;
+    let report = (|| {
+        let mut document = PdfDocument::new(&mut output, &limits, &NeverCancel)?;
         assert_eq!(
-            document
-                .add_image_page(
-                    &mut gray_source,
-                    0,
-                    raw.len() as u64,
-                    page(),
-                    gray(raw.len() as u32)
-                )
-                .await?,
+            document.add_image_page(
+                &mut gray_source,
+                0,
+                raw.len() as u64,
+                page(),
+                gray(raw.len() as u32)
+            )?,
             0
         );
         assert_eq!(
-            document
-                .add_image_page(
-                    &mut rgb_source,
-                    0,
-                    6,
-                    page(),
-                    ImageSpec {
-                        pixel_width: 2,
-                        pixel_height: 1,
-                        encoding: ImageEncoding::Rgb8,
-                    }
-                )
-                .await?,
+            document.add_image_page(
+                &mut rgb_source,
+                0,
+                6,
+                page(),
+                ImageSpec {
+                    pixel_width: 2,
+                    pixel_height: 1,
+                    encoding: ImageEncoding::Rgb8,
+                }
+            )?,
             1
         );
         for (depth, title, page_index) in [
@@ -105,16 +87,14 @@ fn two_pages_and_nested_unicode_outline_have_checked_report_and_stream_bytes() -
             (1, "Second child", 0),
             (0, "Last root", 1),
         ] {
-            document
-                .add_bookmark(Bookmark {
-                    depth,
-                    title: title.into(),
-                    page_index,
-                })
-                .await?;
+            document.add_bookmark(Bookmark {
+                depth,
+                title: title.into(),
+                page_index,
+            })?;
         }
-        document.finish().await
-    })?;
+        document.finish()
+    })()?;
     let pdf = output.into_inner();
     assert_eq!(report.input_bytes_read, raw.len() as u64 + 6);
     assert_eq!(report.output_bytes_written, pdf.len() as u64);
@@ -152,16 +132,14 @@ fn page_tree_crosses_256_page_leaf_boundary() -> Result<()> {
     let mut source = one_byte_source();
     let mut output = WriteSink::new(Vec::<u8>::new());
     let limits = Limits::default();
-    let report = run(async {
-        let mut document = PdfDocument::new(&mut output, &limits, &NeverCancel).await?;
+    let report = (|| {
+        let mut document = PdfDocument::new(&mut output, &limits, &NeverCancel)?;
         for expected in 0..257 {
-            let page_index = document
-                .add_image_page(&mut source, 0, 1, page(), gray(1))
-                .await?;
+            let page_index = document.add_image_page(&mut source, 0, 1, page(), gray(1))?;
             assert_eq!(page_index, expected);
         }
-        document.finish().await
-    })?;
+        document.finish()
+    })()?;
     let pdf = output.into_inner();
     let text = String::from_utf8_lossy(&pdf);
     assert_eq!(report.pages_converted, 257);
@@ -175,8 +153,8 @@ fn rejects_invalid_page_and_image_specs_before_reading() -> Result<()> {
     let mut source = CountingBytes::new(vec![0; 4]);
     let mut output = WriteSink::new(Vec::<u8>::new());
     let limits = Limits::default();
-    run(async {
-        let mut document = PdfDocument::new(&mut output, &limits, &NeverCancel).await?;
+    (|| {
+        let mut document = PdfDocument::new(&mut output, &limits, &NeverCancel)?;
         for width in [0.0, f64::NAN, f64::INFINITY, 14_401.0] {
             let error = document
                 .add_image_page(
@@ -189,13 +167,11 @@ fn rejects_invalid_page_and_image_specs_before_reading() -> Result<()> {
                     },
                     gray(1),
                 )
-                .await
                 .unwrap_err();
             assert!(matches!(error, Error::InvalidInput { .. }));
         }
         let error = document
             .add_image_page(&mut source, 0, 3, page(), gray(4))
-            .await
             .unwrap_err();
         assert!(matches!(error, Error::InvalidInput { .. }));
         let error = document
@@ -210,7 +186,6 @@ fn rejects_invalid_page_and_image_specs_before_reading() -> Result<()> {
                     encoding: ImageEncoding::JpegGray8,
                 },
             )
-            .await
             .unwrap_err();
         assert!(matches!(
             error,
@@ -231,7 +206,6 @@ fn rejects_invalid_page_and_image_specs_before_reading() -> Result<()> {
                     encoding: ImageEncoding::JpegRgb8,
                 },
             )
-            .await
             .unwrap_err();
         assert!(matches!(
             error,
@@ -241,7 +215,7 @@ fn rejects_invalid_page_and_image_specs_before_reading() -> Result<()> {
             }
         ));
         Ok::<_, Error>(())
-    })?;
+    })()?;
     assert_eq!(source.reads, 0);
     Ok(())
 }
@@ -251,8 +225,8 @@ fn rejects_unavailable_image_ranges_zero_pixels_and_empty_jpeg_before_reading() 
     let mut source = CountingBytes::new(vec![0x7f]);
     let mut output = WriteSink::new(Vec::<u8>::new());
     let limits = Limits::default();
-    run(async {
-        let mut document = PdfDocument::new(&mut output, &limits, &NeverCancel).await?;
+    (|| {
+        let mut document = PdfDocument::new(&mut output, &limits, &NeverCancel)?;
         for image in [
             ImageSpec {
                 pixel_width: 0,
@@ -267,7 +241,6 @@ fn rejects_unavailable_image_ranges_zero_pixels_and_empty_jpeg_before_reading() 
         ] {
             let error = document
                 .add_image_page(&mut source, 0, 1, page(), image)
-                .await
                 .unwrap_err();
             assert!(matches!(error, Error::InvalidInput { .. }));
         }
@@ -283,17 +256,14 @@ fn rejects_unavailable_image_ranges_zero_pixels_and_empty_jpeg_before_reading() 
                     encoding: ImageEncoding::JpegGray8,
                 },
             )
-            .await
             .unwrap_err();
         assert!(matches!(empty_jpeg, Error::InvalidInput { .. }));
         let beyond_source = document
             .add_image_page(&mut source, 2, 1, page(), gray(1))
-            .await
             .unwrap_err();
         assert!(matches!(beyond_source, Error::InvalidInput { .. }));
         let short_range = document
             .add_image_page(&mut source, 0, 2, page(), gray(2))
-            .await
             .unwrap_err();
         assert!(matches!(short_range, Error::TruncatedInput { .. }));
         // The PDF integer ceiling is checked before the source range.
@@ -309,7 +279,6 @@ fn rejects_unavailable_image_ranges_zero_pixels_and_empty_jpeg_before_reading() 
                     encoding: ImageEncoding::JpegGray8,
                 },
             )
-            .await
             .unwrap_err();
         assert!(matches!(
             too_long,
@@ -320,7 +289,7 @@ fn rejects_unavailable_image_ranges_zero_pixels_and_empty_jpeg_before_reading() 
             }
         ));
         Ok::<_, Error>(())
-    })?;
+    })()?;
     assert_eq!(source.reads, 0);
     Ok(())
 }
@@ -329,29 +298,20 @@ fn rejects_unavailable_image_ranges_zero_pixels_and_empty_jpeg_before_reading() 
 fn rejects_empty_document_and_missing_bookmark_links() -> Result<()> {
     let mut output = WriteSink::new(Vec::<u8>::new());
     let limits = Limits::default();
-    let error = run(async {
-        PdfDocument::new(&mut output, &limits, &NeverCancel)
-            .await?
-            .finish()
-            .await
-    })
-    .unwrap_err();
+    let error = (|| PdfDocument::new(&mut output, &limits, &NeverCancel)?.finish())().unwrap_err();
     assert!(matches!(error, Error::InvalidInput { .. }));
 
     let mut source = one_byte_source();
     let mut output = WriteSink::new(Vec::<u8>::new());
-    run(async {
-        let mut document = PdfDocument::new(&mut output, &limits, &NeverCancel).await?;
-        document
-            .add_image_page(&mut source, 0, 1, page(), gray(1))
-            .await?;
+    (|| {
+        let mut document = PdfDocument::new(&mut output, &limits, &NeverCancel)?;
+        document.add_image_page(&mut source, 0, 1, page(), gray(1))?;
         let missing_page = document
             .add_bookmark(Bookmark {
                 depth: 0,
                 title: "future page".into(),
                 page_index: 1,
             })
-            .await
             .unwrap_err();
         assert!(matches!(missing_page, Error::InvalidInput { .. }));
         let missing_parent = document
@@ -360,11 +320,10 @@ fn rejects_empty_document_and_missing_bookmark_links() -> Result<()> {
                 title: "orphan".into(),
                 page_index: 0,
             })
-            .await
             .unwrap_err();
         assert!(matches!(missing_parent, Error::InvalidInput { .. }));
-        document.finish().await
-    })?;
+        document.finish()
+    })()?;
     Ok(())
 }
 
@@ -377,14 +336,11 @@ fn applies_page_bookmark_and_retained_title_limits() -> Result<()> {
         max_bookmarks: 1,
         ..Limits::default()
     };
-    run(async {
-        let mut document = PdfDocument::new(&mut output, &limits, &NeverCancel).await?;
-        document
-            .add_image_page(&mut source, 0, 1, page(), gray(1))
-            .await?;
+    (|| {
+        let mut document = PdfDocument::new(&mut output, &limits, &NeverCancel)?;
+        document.add_image_page(&mut source, 0, 1, page(), gray(1))?;
         let second = document
             .add_image_page(&mut source, 0, 1, page(), gray(1))
-            .await
             .unwrap_err();
         assert!(matches!(
             second,
@@ -393,20 +349,17 @@ fn applies_page_bookmark_and_retained_title_limits() -> Result<()> {
                 ..
             }
         ));
-        document
-            .add_bookmark(Bookmark {
-                depth: 0,
-                title: "first".into(),
-                page_index: 0,
-            })
-            .await?;
+        document.add_bookmark(Bookmark {
+            depth: 0,
+            title: "first".into(),
+            page_index: 0,
+        })?;
         let second = document
             .add_bookmark(Bookmark {
                 depth: 0,
                 title: "second".into(),
                 page_index: 0,
             })
-            .await
             .unwrap_err();
         assert!(matches!(
             second,
@@ -415,8 +368,8 @@ fn applies_page_bookmark_and_retained_title_limits() -> Result<()> {
                 ..
             }
         ));
-        document.finish().await
-    })?;
+        document.finish()
+    })()?;
 
     let tiny = Limits {
         io_chunk_bytes: 1,
@@ -424,7 +377,7 @@ fn applies_page_bookmark_and_retained_title_limits() -> Result<()> {
         ..Limits::default()
     };
     let mut output = WriteSink::new(Vec::<u8>::new());
-    let error = run(PdfDocument::new(&mut output, &tiny, &NeverCancel))
+    let error = PdfDocument::new(&mut output, &tiny, &NeverCancel)
         .err()
         .unwrap();
     assert!(matches!(
@@ -441,31 +394,25 @@ fn applies_page_bookmark_and_retained_title_limits() -> Result<()> {
     };
     let mut source = one_byte_source();
     let mut output = WriteSink::new(Vec::<u8>::new());
-    run(async {
-        let mut document = PdfDocument::new(&mut output, &bounded, &NeverCancel).await?;
-        document
-            .add_image_page(&mut source, 0, 1, page(), gray(1))
-            .await?;
+    (|| {
+        let mut document = PdfDocument::new(&mut output, &bounded, &NeverCancel)?;
+        document.add_image_page(&mut source, 0, 1, page(), gray(1))?;
         let mut first = String::with_capacity(3000);
         first.push_str("first");
-        document
-            .add_bookmark(Bookmark {
-                depth: 0,
-                title: first,
-                page_index: 0,
-            })
-            .await?;
+        document.add_bookmark(Bookmark {
+            depth: 0,
+            title: first,
+            page_index: 0,
+        })?;
         // The previous sibling is emitted before the replacement title is
         // retained, so the two large capacities need not coexist.
         let mut second = String::with_capacity(3000);
         second.push_str("second");
-        document
-            .add_bookmark(Bookmark {
-                depth: 0,
-                title: second,
-                page_index: 0,
-            })
-            .await?;
+        document.add_bookmark(Bookmark {
+            depth: 0,
+            title: second,
+            page_index: 0,
+        })?;
         let mut title = String::with_capacity(8192);
         title.push('x');
         let error = document
@@ -474,7 +421,6 @@ fn applies_page_bookmark_and_retained_title_limits() -> Result<()> {
                 title,
                 page_index: 0,
             })
-            .await
             .unwrap_err();
         assert!(matches!(
             error,
@@ -483,10 +429,10 @@ fn applies_page_bookmark_and_retained_title_limits() -> Result<()> {
                 ..
             }
         ));
-        let report = document.finish().await?;
+        let report = document.finish()?;
         assert_eq!(report.bookmarks_written, 2);
         Ok::<_, Error>(())
-    })?;
+    })()?;
     let pdf = output.into_inner();
     let text = String::from_utf8_lossy(&pdf);
     let (first_id, first) = outline_for_title(&text, "first");
@@ -502,36 +448,30 @@ fn reports_truncated_source_and_failing_sink_without_success() -> Result<()> {
     let mut short = ShortSource { calls: 0 };
     let mut output = WriteSink::new(Vec::<u8>::new());
     let limits = Limits::default();
-    let error = run(async {
-        let mut document = PdfDocument::new(&mut output, &limits, &NeverCancel).await?;
-        document
-            .add_image_page(&mut short, 0, 4, page(), gray(4))
-            .await
-    })
+    let error = (|| {
+        let mut document = PdfDocument::new(&mut output, &limits, &NeverCancel)?;
+        document.add_image_page(&mut short, 0, 4, page(), gray(4))
+    })()
     .unwrap_err();
     assert!(matches!(error, Error::TruncatedInput { .. }));
     assert_eq!(short.calls, 2);
 
     let mut failing_source = FailingSource { calls: 0 };
     let mut output = WriteSink::new(Vec::<u8>::new());
-    let error = run(async {
-        let mut document = PdfDocument::new(&mut output, &limits, &NeverCancel).await?;
-        document
-            .add_image_page(&mut failing_source, 0, 4, page(), gray(4))
-            .await
-    })
+    let error = (|| {
+        let mut document = PdfDocument::new(&mut output, &limits, &NeverCancel)?;
+        document.add_image_page(&mut failing_source, 0, 4, page(), gray(4))
+    })()
     .unwrap_err();
     assert!(matches!(error, Error::Io(_)));
     assert_eq!(failing_source.calls, 2);
 
     let mut source = one_byte_source();
     let mut sink = FailingSink { budget: 60 };
-    let error = run(async {
-        let mut document = PdfDocument::new(&mut sink, &limits, &NeverCancel).await?;
-        document
-            .add_image_page(&mut source, 0, 1, page(), gray(1))
-            .await
-    })
+    let error = (|| {
+        let mut document = PdfDocument::new(&mut sink, &limits, &NeverCancel)?;
+        document.add_image_page(&mut source, 0, 1, page(), gray(1))
+    })()
     .unwrap_err();
     assert!(matches!(error, Error::Io(_)));
     Ok(())
@@ -543,13 +483,11 @@ fn large_image_reads_remain_bounded_and_do_not_require_output_vec() -> Result<()
     let mut source = CountingBytes::generated(SIZE);
     let mut sink = CountingSink::default();
     let limits = Limits::default();
-    let report = run(async {
-        let mut document = PdfDocument::new(&mut sink, &limits, &NeverCancel).await?;
-        document
-            .add_image_page(&mut source, 0, SIZE, page(), gray(SIZE as u32))
-            .await?;
-        document.finish().await
-    })?;
+    let report = (|| {
+        let mut document = PdfDocument::new(&mut sink, &limits, &NeverCancel)?;
+        document.add_image_page(&mut source, 0, SIZE, page(), gray(SIZE as u32))?;
+        document.finish()
+    })()?;
     assert_eq!(report.input_bytes_read, SIZE);
     assert_eq!(report.output_bytes_written, sink.bytes);
     assert!(source.max_request <= limits.io_chunk_bytes);
@@ -587,7 +525,7 @@ impl RangedSource for CountingBytes {
     fn size(&self) -> u64 {
         self.size
     }
-    async fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> Result<usize> {
+    fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> Result<usize> {
         self.reads += 1;
         self.max_request = self.max_request.max(destination.len());
         let available = (self.size - offset) as usize;
@@ -609,7 +547,7 @@ impl RangedSource for ShortSource {
     fn size(&self) -> u64 {
         4
     }
-    async fn read_at(&mut self, _: u64, destination: &mut [u8]) -> Result<usize> {
+    fn read_at(&mut self, _: u64, destination: &mut [u8]) -> Result<usize> {
         self.calls += 1;
         if self.calls == 1 {
             destination[0] = 1;
@@ -628,7 +566,7 @@ impl RangedSource for FailingSource {
     fn size(&self) -> u64 {
         4
     }
-    async fn read_at(&mut self, _: u64, destination: &mut [u8]) -> Result<usize> {
+    fn read_at(&mut self, _: u64, destination: &mut [u8]) -> Result<usize> {
         self.calls += 1;
         if self.calls == 1 {
             destination[0] = 1;
@@ -644,7 +582,7 @@ struct FailingSink {
 }
 
 impl SequentialSink for FailingSink {
-    async fn write(&mut self, bytes: &[u8]) -> Result<usize> {
+    fn write(&mut self, bytes: &[u8]) -> Result<usize> {
         if self.budget == 0 {
             return Err(Error::Io(io::Error::other("injected sink failure")));
         }
@@ -652,7 +590,7 @@ impl SequentialSink for FailingSink {
         self.budget -= accepted;
         Ok(accepted)
     }
-    async fn flush(&mut self) -> Result<()> {
+    fn flush(&mut self) -> Result<()> {
         Ok(())
     }
 }
@@ -663,11 +601,11 @@ struct CountingSink {
 }
 
 impl SequentialSink for CountingSink {
-    async fn write(&mut self, bytes: &[u8]) -> Result<usize> {
+    fn write(&mut self, bytes: &[u8]) -> Result<usize> {
         self.bytes += bytes.len() as u64;
         Ok(bytes.len())
     }
-    async fn flush(&mut self) -> Result<()> {
+    fn flush(&mut self) -> Result<()> {
         Ok(())
     }
 }

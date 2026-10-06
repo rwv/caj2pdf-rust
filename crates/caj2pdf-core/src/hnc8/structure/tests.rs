@@ -4,7 +4,7 @@
 
 use super::*;
 use crate::hnc8::{Budget, Hnc8Error};
-use crate::test_support::{NEVER, run};
+use crate::test_support::NEVER;
 use crate::{Error, Limits};
 use flate2::{Compression, write::ZlibEncoder};
 use std::io::Write;
@@ -20,7 +20,7 @@ impl RangedSource for Memory {
         self.bytes.len() as u64
     }
 
-    async fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> crate::Result<usize> {
+    fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> crate::Result<usize> {
         if offset >= self.fail_at {
             return Err(Error::InvalidInput {
                 reason: "synthetic read failure",
@@ -143,9 +143,8 @@ fn inspect(bytes: Vec<u8>) -> Vec<Outcome> {
         fail_at: u64::MAX,
     };
     let limits = Limits::default();
-    run(async {
+    {
         let pages = Hnc8Reader::open(&mut source, &limits, &NEVER, Budget::default())
-            .await
             .unwrap()
             .header()
             .page_count;
@@ -153,14 +152,13 @@ fn inspect(bytes: Vec<u8>) -> Vec<Outcome> {
         for number in 1..=pages {
             let mut reader =
                 Hnc8Reader::probe_at_page(&mut source, &limits, &NEVER, Budget::default(), number)
-                    .await
                     .unwrap();
-            reader.next_page().await.unwrap().unwrap();
-            while reader.next_image().await.unwrap().is_some() {}
-            outcomes.push(reader.inspect_text(TextBudget::default()).await);
+            reader.next_page().unwrap().unwrap();
+            while reader.next_image().unwrap().is_some() {}
+            outcomes.push(reader.inspect_text(TextBudget::default()));
         }
         outcomes
-    })
+    }
 }
 
 fn structure(framing: TextFraming, records: u32, decoded: Option<u32>) -> TextStructure {
@@ -258,27 +256,16 @@ fn inspect_text_requires_a_current_unpoisoned_page() {
         fail_at: u64::MAX,
     };
     let limits = Limits::default();
-    run(async {
-        let mut reader = Hnc8Reader::open(&mut source, &limits, &NEVER, Budget::default())
-            .await
-            .unwrap();
+    {
+        let mut reader = Hnc8Reader::open(&mut source, &limits, &NEVER, Budget::default()).unwrap();
         assert_eq!(reader.page_row_bytes(), 20);
-        let error = reader
-            .inspect_text(TextBudget::default())
-            .await
-            .unwrap_err();
+        let error = reader.inspect_text(TextBudget::default()).unwrap_err();
         assert!(matches!(error.kind, ErrorKind::NoCurrentPage));
-        reader.next_page().await.unwrap();
-        reader
-            .inspect_text(TextBudget::default())
-            .await
-            .unwrap_err();
-        let error = reader
-            .inspect_text(TextBudget::default())
-            .await
-            .unwrap_err();
+        reader.next_page().unwrap();
+        reader.inspect_text(TextBudget::default()).unwrap_err();
+        let error = reader.inspect_text(TextBudget::default()).unwrap_err();
         assert!(matches!(error.kind, ErrorKind::Poisoned));
-    });
+    };
 }
 
 #[test]
@@ -290,12 +277,11 @@ fn compact_hn_b_rows_are_reported() {
         fail_at: u64::MAX,
     };
     let limits = Limits::default();
-    let rows = run(async {
+    let rows = {
         Hnc8Reader::open(&mut source, &limits, &NEVER, Budget::default())
-            .await
             .unwrap()
             .page_row_bytes()
-    });
+    };
     assert_eq!(rows, 12);
 }
 
@@ -304,13 +290,11 @@ fn tail(trailer: &[u8], fail_at: u64) -> crate::hnc8::Result<Option<ApplicationI
     bytes.extend(trailer);
     let mut source = Memory { bytes, fail_at };
     let limits = Limits::default();
-    run(async {
+    {
         Hnc8Reader::open(&mut source, &limits, &NEVER, Budget::default())
-            .await
             .unwrap()
             .application_info_tail()
-            .await
-    })
+    }
 }
 
 #[test]

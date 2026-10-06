@@ -67,16 +67,16 @@ impl<T: RandomAccessScratch> RandomAccessScratch for &Store<'_, T> {
     fn size(&self) -> crate::Result<u64> {
         Ok(self.length.get())
     }
-    async fn set_len(&mut self, bytes: u64) -> crate::Result<()> {
+    fn set_len(&mut self, bytes: u64) -> crate::Result<()> {
         let total = self.meter.resize(self.length.get(), bytes)?;
-        self.inner.borrow_mut().set_len(bytes).await?;
+        self.inner.borrow_mut().set_len(bytes)?;
         self.length.set(bytes);
         self.meter.resized(total);
         Ok(())
     }
-    async fn read_at(&mut self, offset: u64, bytes: &mut [u8]) -> crate::Result<usize> {
+    fn read_at(&mut self, offset: u64, bytes: &mut [u8]) -> crate::Result<usize> {
         self.meter.charge(bytes.len())?;
-        let read = self.inner.borrow_mut().read_at(offset, bytes).await?;
+        let read = self.inner.borrow_mut().read_at(offset, bytes)?;
         if read > bytes.len() {
             return Err(Error::InvalidInput {
                 reason: "type-3 store overreported read",
@@ -84,7 +84,7 @@ impl<T: RandomAccessScratch> RandomAccessScratch for &Store<'_, T> {
         }
         Ok(read)
     }
-    async fn write_at(&mut self, offset: u64, bytes: &[u8]) -> crate::Result<usize> {
+    fn write_at(&mut self, offset: u64, bytes: &[u8]) -> crate::Result<usize> {
         self.meter.charge(bytes.len())?;
         let end = offset
             .checked_add(bytes.len() as u64)
@@ -96,7 +96,7 @@ impl<T: RandomAccessScratch> RandomAccessScratch for &Store<'_, T> {
                 reason: "type-3 write escapes declared store extent",
             });
         }
-        let written = self.inner.borrow_mut().write_at(offset, bytes).await?;
+        let written = self.inner.borrow_mut().write_at(offset, bytes)?;
         if written > bytes.len() {
             return Err(Error::InvalidInput {
                 reason: "type-3 store overreported write",
@@ -104,40 +104,40 @@ impl<T: RandomAccessScratch> RandomAccessScratch for &Store<'_, T> {
         }
         Ok(written)
     }
-    async fn flush(&mut self) -> crate::Result<()> {
-        self.inner.borrow_mut().flush().await
+    fn flush(&mut self) -> crate::Result<()> {
+        self.inner.borrow_mut().flush()
     }
 }
 impl<T: RandomAccessScratch> RangedSource for &Store<'_, T> {
     fn size(&self) -> u64 {
         self.length.get()
     }
-    async fn read_at(&mut self, offset: u64, bytes: &mut [u8]) -> crate::Result<usize> {
-        RandomAccessScratch::read_at(self, offset, bytes).await
+    fn read_at(&mut self, offset: u64, bytes: &mut [u8]) -> crate::Result<usize> {
+        RandomAccessScratch::read_at(self, offset, bytes)
     }
 }
 impl<T: RandomAccessScratch> SequentialSink for &Store<'_, T> {
-    async fn write(&mut self, bytes: &[u8]) -> crate::Result<usize> {
+    fn write(&mut self, bytes: &[u8]) -> crate::Result<usize> {
         let start = self.length.get();
         let end = start
             .checked_add(bytes.len() as u64)
             .ok_or(Error::InvalidInput {
                 reason: "type-3 append extent overflow",
             })?;
-        RandomAccessScratch::set_len(self, end).await?;
-        let written = RandomAccessScratch::write_at(self, start, bytes).await?;
+        RandomAccessScratch::set_len(self, end)?;
+        let written = RandomAccessScratch::write_at(self, start, bytes)?;
         if written < bytes.len() {
-            RandomAccessScratch::set_len(self, start + written as u64).await?;
+            RandomAccessScratch::set_len(self, start + written as u64)?;
         }
         Ok(written)
     }
-    async fn flush(&mut self) -> crate::Result<()> {
-        RandomAccessScratch::flush(self).await
+    fn flush(&mut self) -> crate::Result<()> {
+        RandomAccessScratch::flush(self)
     }
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(super) async fn emit<S, W, T, C>(
+pub(super) fn emit<S, W, T, C>(
     source: &mut S,
     document: &mut PdfDocument<'_, W, C>,
     at: At,
@@ -158,17 +158,14 @@ where
         work: Cell::new(0),
         budget: options.budget,
     };
-    let result = async {
+    let result = (|| {
         for store in [
             &mut *stores.first,
             &mut *stores.second,
             &mut *stores.refined,
             &mut *stores.text,
         ] {
-            store
-                .set_len(0)
-                .await
-                .map_err(at.io(ComposeStage::Scratch))?;
+            store.set_len(0).map_err(at.io(ComposeStage::Scratch))?;
         }
         let page = checked.page();
         let first = Store::new(stores.first, &meter);
@@ -201,8 +198,7 @@ where
             options.type3,
             limits,
             cancellation,
-        )
-        .await?;
+        )?;
         let (object, report) = emit_type3_xobject(
             source,
             document,
@@ -213,11 +209,9 @@ where
             options.type3,
             limits,
             cancellation,
-        )
-        .await?;
+        )?;
         Ok((object, report.text_header_anomaly))
-    }
-    .await;
+    })();
     // Try every cleanup even if an earlier one fails. The caller still owns
     // the stores and must dispose them when a pending future is dropped.
     let mut cleanup = None;
@@ -227,7 +221,7 @@ where
         &mut *stores.refined,
         &mut *stores.text,
     ] {
-        if let Err(error) = store.set_len(0).await {
+        if let Err(error) = store.set_len(0) {
             cleanup.get_or_insert(error);
         }
     }
@@ -248,7 +242,6 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::ready;
 
     #[derive(Default)]
     struct Memory {
@@ -260,11 +253,11 @@ mod tests {
         fn size(&self) -> crate::Result<u64> {
             Ok(self.bytes.len() as u64)
         }
-        async fn set_len(&mut self, bytes: u64) -> crate::Result<()> {
+        fn set_len(&mut self, bytes: u64) -> crate::Result<()> {
             self.bytes.resize(bytes as usize, 0);
             Ok(())
         }
-        async fn read_at(&mut self, offset: u64, bytes: &mut [u8]) -> crate::Result<usize> {
+        fn read_at(&mut self, offset: u64, bytes: &mut [u8]) -> crate::Result<usize> {
             if self.overread {
                 return Ok(bytes.len() + 1);
             }
@@ -272,7 +265,7 @@ mod tests {
             bytes[..count].copy_from_slice(&self.bytes[offset as usize..offset as usize + count]);
             Ok(count)
         }
-        async fn write_at(&mut self, offset: u64, bytes: &[u8]) -> crate::Result<usize> {
+        fn write_at(&mut self, offset: u64, bytes: &[u8]) -> crate::Result<usize> {
             if self.overwrite {
                 return Ok(bytes.len() + 1);
             }
@@ -280,7 +273,7 @@ mod tests {
             self.bytes[offset as usize..offset as usize + count].copy_from_slice(&bytes[..count]);
             Ok(count)
         }
-        async fn flush(&mut self) -> crate::Result<()> {
+        fn flush(&mut self) -> crate::Result<()> {
             Ok(())
         }
     }
@@ -301,34 +294,28 @@ mod tests {
         let mut writer = &store;
         let mut reader = &store;
         assert_eq!(
-            ready(SequentialSink::write(&mut writer, &[0xab, 0xcd])).unwrap(),
+            SequentialSink::write(&mut writer, &[0xab, 0xcd]).unwrap(),
             1
         );
         assert_eq!(RangedSource::size(&reader), 1);
         assert_eq!(store.inner.borrow().size().unwrap(), 1);
         assert_eq!(RandomAccessScratch::size(&reader).unwrap(), 1);
-        assert_eq!(
-            ready(SequentialSink::write(&mut writer, &[0xcd])).unwrap(),
-            1
-        );
+        assert_eq!(SequentialSink::write(&mut writer, &[0xcd]).unwrap(), 1);
         let mut byte = [0];
-        assert_eq!(
-            ready(RangedSource::read_at(&mut reader, 1, &mut byte)).unwrap(),
-            1
-        );
+        assert_eq!(RangedSource::read_at(&mut reader, 1, &mut byte).unwrap(), 1);
         assert_eq!(byte, [0xcd]);
-        ready(SequentialSink::flush(&mut writer)).unwrap();
-        ready(RandomAccessScratch::set_len(&mut &second, 3)).unwrap();
-        assert!(ready(RandomAccessScratch::set_len(&mut writer, 3)).is_err());
-        ready(RandomAccessScratch::set_len(&mut writer, 0)).unwrap();
+        SequentialSink::flush(&mut writer).unwrap();
+        RandomAccessScratch::set_len(&mut &second, 3).unwrap();
+        assert!(RandomAccessScratch::set_len(&mut writer, 3).is_err());
+        RandomAccessScratch::set_len(&mut writer, 0).unwrap();
         assert_eq!(RangedSource::size(&reader), 0);
         store.inner.borrow_mut().overread = true;
-        assert!(ready(RangedSource::read_at(&mut reader, 0, &mut byte)).is_err());
+        assert!(RangedSource::read_at(&mut reader, 0, &mut byte).is_err());
         store.inner.borrow_mut().overwrite = true;
-        assert!(ready(SequentialSink::write(&mut writer, &[1])).is_err());
-        assert!(ready(RandomAccessScratch::write_at(&mut writer, u64::MAX, &[1])).is_err());
-        assert!(ready(RandomAccessScratch::write_at(&mut writer, 1, &[1])).is_err());
+        assert!(SequentialSink::write(&mut writer, &[1]).is_err());
+        assert!(RandomAccessScratch::write_at(&mut writer, u64::MAX, &[1]).is_err());
+        assert!(RandomAccessScratch::write_at(&mut writer, 1, &[1]).is_err());
         store.length.set(u64::MAX);
-        assert!(ready(SequentialSink::write(&mut writer, &[1])).is_err());
+        assert!(SequentialSink::write(&mut writer, &[1]).is_err());
     }
 }

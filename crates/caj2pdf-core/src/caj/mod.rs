@@ -96,7 +96,7 @@ fn check_allocation<T>(
     Ok(usize_from_u32(count))
 }
 
-async fn read_field<S: RangedSource, C: Cancellation>(
+fn read_field<S: RangedSource, C: Cancellation>(
     source: &mut S,
     offset: u64,
     destination: &mut [u8],
@@ -119,8 +119,7 @@ async fn read_field<S: RangedSource, C: Cancellation>(
             &mut destination[read..read + chunk],
             limits,
             cancellation,
-        )
-        .await?;
+        )?;
         read += chunk;
     }
     Ok(())
@@ -181,7 +180,7 @@ fn parse_page_number(
 /// The returned vectors are bounded by `Limits`; no PDF payload is copied or
 /// buffered. Unknown header flags are accepted because their meaning has not
 /// been established by the public format observations.
-pub async fn parse_metadata<S: RangedSource, C: Cancellation>(
+pub fn parse_metadata<S: RangedSource, C: Cancellation>(
     source: &mut S,
     limits: &Limits,
     cancellation: &C,
@@ -189,7 +188,7 @@ pub async fn parse_metadata<S: RangedSource, C: Cancellation>(
     limits.validate()?;
 
     let mut magic = [0u8; 4];
-    read_field(source, 0, &mut magic, None, limits, cancellation).await?;
+    read_field(source, 0, &mut magic, None, limits, cancellation)?;
     if &magic != MAGIC {
         return Err(Error::UnsupportedFormat);
     }
@@ -202,8 +201,7 @@ pub async fn parse_metadata<S: RangedSource, C: Cancellation>(
         None,
         limits,
         cancellation,
-    )
-    .await?;
+    )?;
     let raw_page_count = i32::from_le_bytes(page_header[..4].try_into().expect("four bytes"));
     if raw_page_count <= 0 {
         return Err(malformed(
@@ -232,8 +230,7 @@ pub async fn parse_metadata<S: RangedSource, C: Cancellation>(
         None,
         limits,
         cancellation,
-    )
-    .await?;
+    )?;
     let raw_toc_count = i32::from_le_bytes(toc_count_bytes);
     if raw_toc_count < 0 {
         return Err(malformed(
@@ -303,8 +300,7 @@ pub async fn parse_metadata<S: RangedSource, C: Cancellation>(
             Some(batch_start + 1),
             limits,
             cancellation,
-        )
-        .await?;
+        )?;
         for local_index in 0..batch_count {
             let index = batch_start + local_index;
             let row_offset = table_start + u64::from(index) * PAGE_ROW_BYTES;
@@ -409,8 +405,7 @@ pub async fn parse_metadata<S: RangedSource, C: Cancellation>(
             Some(record),
             limits,
             cancellation,
-        )
-        .await?;
+        )?;
         let title_end = bytes[..256]
             .iter()
             .position(|byte| *byte == 0)
@@ -482,7 +477,6 @@ pub async fn parse_metadata<S: RangedSource, C: Cancellation>(
 mod tests {
     use super::*;
     use crate::NeverCancel;
-    use crate::test_support::ready;
 
     struct Source {
         bytes: Vec<u8>,
@@ -496,7 +490,7 @@ mod tests {
             self.bytes.len() as u64
         }
 
-        async fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> Result<usize> {
+        fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> Result<usize> {
             self.read_calls += 1;
             self.largest_request = self.largest_request.max(destination.len());
             let start = offset as usize;
@@ -579,7 +573,7 @@ mod tests {
     }
 
     fn parse(source: &mut Source, limits: &Limits) -> Result<CajMetadata> {
-        ready(parse_metadata(source, limits, &NeverCancel))
+        parse_metadata(source, limits, &NeverCancel)
     }
 
     #[test]

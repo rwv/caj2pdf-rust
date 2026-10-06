@@ -32,28 +32,10 @@ use caj2pdf_core::{
     },
 };
 use common::CancelAfter;
-use std::{
-    cell::Cell,
-    future::{Future, pending},
-    io,
-    pin::pin,
-    rc::Rc,
-    task::{Context, Poll, Waker},
-};
+use std::{cell::Cell, io, rc::Rc};
 
 const ONE_SYMBOL: [u8; 5] = [0x94, 0xa7, 0x7f, 0xff, 0xac];
 const TWO_SYMBOLS: [u8; 5] = [0x94, 0x3a, 0x5d, 0xff, 0xac];
-
-fn ready<F: Future>(future: F) -> F::Output {
-    let mut future = pin!(future);
-    match future
-        .as_mut()
-        .poll(&mut Context::from_waker(Waker::noop()))
-    {
-        Poll::Ready(value) => value,
-        Poll::Pending => panic!("unexpected pending test I/O"),
-    }
-}
 
 #[derive(Clone, Copy)]
 enum Fault {
@@ -81,7 +63,6 @@ struct Source {
     max_read: usize,
     overreport_from: Option<u64>,
     fault_from: Option<(u64, Fault)>,
-    pending_at: Option<u64>,
     cancel_after_read: Option<(u64, Rc<Cell<bool>>)>,
     max_request: usize,
     max_offset: u64,
@@ -97,7 +78,6 @@ impl Source {
             max_read: usize::MAX,
             overreport_from: None,
             fault_from: None,
-            pending_at: None,
             cancel_after_read: None,
             max_request: 0,
             max_offset: 0,
@@ -111,11 +91,7 @@ impl RangedSource for Source {
         self.advertised
     }
 
-    async fn read_at(
-        &mut self,
-        offset: u64,
-        destination: &mut [u8],
-    ) -> caj2pdf_core::Result<usize> {
+    fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> caj2pdf_core::Result<usize> {
         self.read_calls += 1;
         self.max_request = self.max_request.max(destination.len());
         self.max_offset = self.max_offset.max(offset);
@@ -126,9 +102,6 @@ impl RangedSource for Source {
         }
         if self.overreport_from.is_some_and(|from| offset >= from) {
             return Ok(destination.len() + 1);
-        }
-        if self.pending_at.is_some_and(|start| offset >= start) {
-            pending::<()>().await;
         }
         let start = usize::try_from(offset).unwrap_or(usize::MAX);
         let count = self
@@ -156,7 +129,6 @@ struct Store {
     bytes: Vec<u8>,
     max_write: usize,
     fail: bool,
-    pending: bool,
     overreport: bool,
     cancel_after_write: Option<Rc<Cell<bool>>>,
     write_fault: Option<Fault>,
@@ -175,7 +147,7 @@ impl Store {
 }
 
 impl SequentialSink for Store {
-    async fn write(&mut self, bytes: &[u8]) -> caj2pdf_core::Result<usize> {
+    fn write(&mut self, bytes: &[u8]) -> caj2pdf_core::Result<usize> {
         if let Some(fault) = self.write_fault {
             return Err(fault.error());
         }
@@ -183,9 +155,6 @@ impl SequentialSink for Store {
             return Err(caj2pdf_core::Error::Io(io::Error::other(
                 "test store failure",
             )));
-        }
-        if self.pending {
-            pending::<()>().await;
         }
         if self.overreport {
             return Ok(bytes.len() + 1);
@@ -198,7 +167,7 @@ impl SequentialSink for Store {
         Ok(count)
     }
 
-    async fn flush(&mut self) -> caj2pdf_core::Result<()> {
+    fn flush(&mut self) -> caj2pdf_core::Result<()> {
         if let Some(fault) = self.flush_fault {
             return Err(fault.error());
         }
@@ -208,7 +177,7 @@ impl SequentialSink for Store {
 }
 
 fn header(source: &mut Source) -> SegmentHeader {
-    ready(read_segment_header(
+    read_segment_header(
         source,
         SegmentSpan {
             offset: 0,
@@ -217,7 +186,7 @@ fn header(source: &mut Source) -> SegmentHeader {
         &Limits::default(),
         HeaderLimits::default(),
         &CancelAfter::Never,
-    ))
+    )
     .unwrap()
 }
 

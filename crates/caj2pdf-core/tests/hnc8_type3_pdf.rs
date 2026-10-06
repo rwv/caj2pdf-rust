@@ -17,7 +17,7 @@ use caj2pdf_core::{
 };
 use common::{
     CancelAfter,
-    hnc8_document::{Image, RENDER_DPI, Store, convert as compose, document, ready},
+    hnc8_document::{Image, RENDER_DPI, Store, convert as compose, document},
     mq_encoder,
 };
 use std::{
@@ -99,11 +99,7 @@ impl RangedSource for Source {
         self.advertised_size.unwrap_or(self.bytes.len() as u64)
     }
 
-    async fn read_at(
-        &mut self,
-        offset: u64,
-        destination: &mut [u8],
-    ) -> caj2pdf_core::Result<usize> {
+    fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> caj2pdf_core::Result<usize> {
         self.calls += 1;
         self.max_request = self.max_request.max(destination.len());
         if self.fail_at == Some(offset) {
@@ -152,7 +148,7 @@ struct Sink {
 }
 
 impl SequentialSink for Sink {
-    async fn write(&mut self, bytes: &[u8]) -> caj2pdf_core::Result<usize> {
+    fn write(&mut self, bytes: &[u8]) -> caj2pdf_core::Result<usize> {
         self.writes += 1;
         if self.fail_at == Some(self.writes) {
             return Err(Error::Io(io::Error::other("injected sink failure")));
@@ -166,7 +162,7 @@ impl SequentialSink for Sink {
         Ok(count)
     }
 
-    async fn flush(&mut self) -> caj2pdf_core::Result<()> {
+    fn flush(&mut self) -> caj2pdf_core::Result<()> {
         Ok(())
     }
 }
@@ -183,7 +179,7 @@ fn type3_options(type3: Type3PdfOptions) -> ComposeOptions {
 struct Anomalies(Vec<Option<TextHeaderAnomaly>>);
 
 impl ComposeVisitor for Anomalies {
-    async fn page(&mut self, page: ComposePage<'_>) -> caj2pdf_core::Result<()> {
+    fn page(&mut self, page: ComposePage<'_>) -> caj2pdf_core::Result<()> {
         self.0.extend(
             page.images
                 .iter()
@@ -1022,28 +1018,24 @@ fn bilevel_pdf_rows_are_top_down_black_one_and_drop_low_padding() {
     let expected = [0x81, 0x80, 0x42, 0x00, 0x24, 0x80];
     let mut output = Sink::default();
     let limits = Limits::default();
-    let report = ready(async {
-        let mut document = PdfDocument::new(&mut output, &limits, &NeverCancel).await?;
-        let mut image = document
-            .begin_bilevel_image(BilevelImageSpec {
-                pixel_width: 9,
-                pixel_height: 3,
-                row_stride: 2,
-            })
-            .await?;
-        image.write(&expected).await?;
-        let image = image.finish().await?;
-        document
-            .add_page(
-                PageSpec {
-                    width_points: 9.0,
-                    height_points: 3.0,
-                },
-                &[image],
-            )
-            .await?;
-        document.finish().await
-    })
+    let report = (|| {
+        let mut document = PdfDocument::new(&mut output, &limits, &NeverCancel)?;
+        let mut image = document.begin_bilevel_image(BilevelImageSpec {
+            pixel_width: 9,
+            pixel_height: 3,
+            row_stride: 2,
+        })?;
+        image.write(&expected)?;
+        let image = image.finish()?;
+        document.add_page(
+            PageSpec {
+                width_points: 9.0,
+                height_points: 3.0,
+            },
+            &[image],
+        )?;
+        document.finish()
+    })()
     .unwrap();
     assert_eq!(report.pages_converted, 1);
     assert_eq!(embedded_image(&output.bytes), expected);

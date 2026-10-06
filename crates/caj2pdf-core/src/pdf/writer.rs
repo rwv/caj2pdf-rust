@@ -79,7 +79,7 @@ impl<'a, W: SequentialSink, C: Cancellation> Output<'a, W, C> {
     }
 
     /// Write `bytes`, which must end within [`MAX_CLASSIC_PDF_BYTES`].
-    pub(super) async fn write(&mut self, bytes: &[u8]) -> Result<()> {
+    pub(super) fn write(&mut self, bytes: &[u8]) -> Result<()> {
         self.ensure_healthy()?;
         let attempted =
             self.position
@@ -88,12 +88,12 @@ impl<'a, W: SequentialSink, C: Cancellation> Output<'a, W, C> {
                     reason: "PDF output byte count overflows 64 bits",
                 })?;
         check_classic_pdf_bytes(attempted)?;
-        self.write_unbounded(bytes).await
+        self.write_unbounded(bytes)
     }
 
     /// Write `bytes` without the classic-xref ceiling, to copy an inspected
     /// input PDF unchanged.
-    pub(super) async fn write_unbounded(&mut self, bytes: &[u8]) -> Result<()> {
+    pub(super) fn write_unbounded(&mut self, bytes: &[u8]) -> Result<()> {
         self.ensure_healthy()?;
         let result = write_all(
             self.sink,
@@ -101,8 +101,7 @@ impl<'a, W: SequentialSink, C: Cancellation> Output<'a, W, C> {
             &mut self.position,
             self.limits,
             self.cancellation,
-        )
-        .await;
+        );
         if result.is_err() {
             self.poisoned = true;
         }
@@ -111,12 +110,12 @@ impl<'a, W: SequentialSink, C: Cancellation> Output<'a, W, C> {
 
     /// Flush the sink, checking cancellation on both sides because a flush
     /// can itself await sink backpressure.
-    pub(super) async fn flush(&mut self) -> Result<()> {
+    pub(super) fn flush(&mut self) -> Result<()> {
         self.ensure_healthy()?;
         if self.cancellation.is_cancelled() {
             return Err(Error::Cancelled);
         }
-        self.sink.flush().await.inspect_err(|_| {
+        self.sink.flush().inspect_err(|_| {
             self.poisoned = true;
         })?;
         if self.cancellation.is_cancelled() {
@@ -152,10 +151,10 @@ pub struct PdfWriter<'a, W: SequentialSink, C: Cancellation> {
 
 impl<'a, W: SequentialSink, C: Cancellation> PdfWriter<'a, W, C> {
     /// Start a PDF 1.7 file, including its binary-content marker.
-    pub async fn new(sink: &'a mut W, limits: &'a Limits, cancellation: &'a C) -> Result<Self> {
+    pub fn new(sink: &'a mut W, limits: &'a Limits, cancellation: &'a C) -> Result<Self> {
         limits.validate()?;
         let mut out = Output::new(sink, limits, cancellation);
-        out.write(HEADER).await?;
+        out.write(HEADER)?;
         Ok(Self {
             out,
             offsets: Vec::new(),
@@ -229,12 +228,12 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfWriter<'a, W, C> {
 
     /// Begin one previously reserved object. Follow with `write_bytes` and
     /// `end_object`; each object must be emitted exactly once.
-    pub async fn begin_object(&mut self, id: ObjectId) -> Result<()> {
+    pub fn begin_object(&mut self, id: ObjectId) -> Result<()> {
         self.ensure_idle()?;
         let index = self.unwritten_index(id)?;
         let offset = self.out.position;
         let header = format!("{} 0 obj\n", id.number());
-        self.out.write(header.as_bytes()).await?;
+        self.out.write(header.as_bytes())?;
         self.offsets[index] = offset;
         self.state = State::Object;
         Ok(())
@@ -242,41 +241,41 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfWriter<'a, W, C> {
 
     /// Emit bytes inside an ordinary indirect object. Large slices are split
     /// into configured chunks before reaching the sink.
-    pub async fn write_bytes(&mut self, bytes: &[u8]) -> Result<()> {
+    pub fn write_bytes(&mut self, bytes: &[u8]) -> Result<()> {
         self.out.ensure_healthy()?;
         if self.state != State::Object {
             return Err(Error::InvalidInput {
                 reason: "PDF bytes require an open ordinary object",
             });
         }
-        self.out.write(bytes).await
+        self.out.write(bytes)
     }
 
     /// Close an ordinary indirect object.
-    pub async fn end_object(&mut self) -> Result<()> {
+    pub fn end_object(&mut self) -> Result<()> {
         self.out.ensure_healthy()?;
         if self.state != State::Object {
             return Err(Error::InvalidInput {
                 reason: "no ordinary PDF object is open",
             });
         }
-        self.out.write(b"\nendobj\n").await?;
+        self.out.write(b"\nendobj\n")?;
         self.state = State::Idle;
         Ok(())
     }
 
     /// Convenience for one small plain object body.
-    pub async fn write_object(&mut self, id: ObjectId, body: &[u8]) -> Result<()> {
-        self.begin_object(id).await?;
-        self.write_bytes(body).await?;
-        self.end_object().await
+    pub fn write_object(&mut self, id: ObjectId, body: &[u8]) -> Result<()> {
+        self.begin_object(id)?;
+        self.write_bytes(body)?;
+        self.end_object()
     }
 
     /// Begin an unknown-length stream and put an indirect `/Length` reference
     /// in its dictionary. `dictionary_entries` contains only inner entries,
     /// excluding `/Length` and the surrounding `<<` and `>>` delimiters.
     /// The length object is emitted by `end_stream` after the payload.
-    pub async fn begin_stream(
+    pub fn begin_stream(
         &mut self,
         stream_id: ObjectId,
         length_id: ObjectId,
@@ -289,16 +288,15 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfWriter<'a, W, C> {
             });
         }
         self.unwritten_index(length_id)?;
-        self.begin_object(stream_id).await?;
-        self.write_bytes(b"<<\n/Length ").await?;
-        self.write_bytes(length_id.number().to_string().as_bytes())
-            .await?;
-        self.write_bytes(b" 0 R\n").await?;
-        self.write_bytes(dictionary_entries).await?;
+        self.begin_object(stream_id)?;
+        self.write_bytes(b"<<\n/Length ")?;
+        self.write_bytes(length_id.number().to_string().as_bytes())?;
+        self.write_bytes(b" 0 R\n")?;
+        self.write_bytes(dictionary_entries)?;
         if !dictionary_entries.is_empty() && !dictionary_entries.ends_with(b"\n") {
-            self.write_bytes(b"\n").await?;
+            self.write_bytes(b"\n")?;
         }
-        self.write_bytes(b">>\nstream\n").await?;
+        self.write_bytes(b">>\nstream\n")?;
         self.state = State::Stream {
             length_id,
             data_start: self.out.position,
@@ -308,7 +306,7 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfWriter<'a, W, C> {
 
     /// Write raw stream payload, unchanged. Delimiter-like binary bytes are
     /// safe because `/Length` records this exact payload byte count.
-    pub async fn write_stream_bytes(&mut self, bytes: &[u8]) -> Result<()> {
+    pub fn write_stream_bytes(&mut self, bytes: &[u8]) -> Result<()> {
         self.out.ensure_healthy()?;
         let State::Stream { data_start, .. } = self.state else {
             return Err(Error::InvalidInput {
@@ -335,12 +333,12 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfWriter<'a, W, C> {
                 attempted,
             });
         }
-        self.out.write(bytes).await
+        self.out.write(bytes)
     }
 
     /// Close a stream and write its measured length as a separate indirect
     /// object. The separator newline after the payload is not in `/Length`.
-    pub async fn end_stream(&mut self) -> Result<()> {
+    pub fn end_stream(&mut self) -> Result<()> {
         self.out.ensure_healthy()?;
         let State::Stream {
             length_id,
@@ -358,26 +356,21 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfWriter<'a, W, C> {
             .ok_or(Error::InvalidInput {
                 reason: "PDF stream position moved backwards",
             })?;
-        self.out.write(b"\nendstream\nendobj\n").await?;
+        self.out.write(b"\nendstream\nendobj\n")?;
         self.state = State::Idle;
         self.write_object(length_id, length.to_string().as_bytes())
-            .await
     }
 
     /// Emit the classic cross-reference table and trailer, flush the sink,
     /// and return the final byte count. Every reserved object must have been
     /// written exactly once, including any stream length object.
-    pub async fn finish(self, root_id: ObjectId) -> Result<u64> {
-        self.finish_with_info(root_id, None).await
+    pub fn finish(self, root_id: ObjectId) -> Result<u64> {
+        self.finish_with_info(root_id, None)
     }
 
     /// Like [`Self::finish`], also naming a written document information
     /// dictionary in the trailer when `info_id` is present.
-    pub async fn finish_with_info(
-        mut self,
-        root_id: ObjectId,
-        info_id: Option<ObjectId>,
-    ) -> Result<u64> {
+    pub fn finish_with_info(mut self, root_id: ObjectId, info_id: Option<ObjectId>) -> Result<u64> {
         self.ensure_idle()?;
         let root_index = self.index(root_id)?;
         if let Some(id) = info_id {
@@ -422,8 +415,8 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfWriter<'a, W, C> {
                 attempted: final_size,
             });
         }
-        write_xref(&mut self.out, entries, true, &trailer).await?;
-        self.out.flush().await?;
+        write_xref(&mut self.out, entries, true, &trailer)?;
+        self.out.flush()?;
         Ok(self.out.position)
     }
 
@@ -466,16 +459,16 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfWriter<'a, W, C> {
 impl<W: SequentialSink, C: Cancellation> ObjectSink for PdfWriter<'_, W, C> {
     type Ref = ObjectId;
 
-    async fn begin_object(&mut self, reference: ObjectId) -> Result<()> {
-        PdfWriter::begin_object(self, reference).await
+    fn begin_object(&mut self, reference: ObjectId) -> Result<()> {
+        PdfWriter::begin_object(self, reference)
     }
 
-    async fn write(&mut self, bytes: &[u8]) -> Result<()> {
-        self.write_bytes(bytes).await
+    fn write(&mut self, bytes: &[u8]) -> Result<()> {
+        self.write_bytes(bytes)
     }
 
-    async fn end_object(&mut self) -> Result<()> {
-        PdfWriter::end_object(self).await
+    fn end_object(&mut self) -> Result<()> {
+        PdfWriter::end_object(self)
     }
 }
 
@@ -514,7 +507,6 @@ mod tests {
     use super::*;
     use crate::NeverCancel;
     use crate::native::WriteSink;
-    use crate::test_support::run;
 
     /// Every test uses this one sink type, so their paths share one
     /// instantiation of the generic writer.
@@ -526,7 +518,7 @@ mod tests {
     fn preflighted_objects_do_not_mint_ids_and_overflow_is_recoverable() {
         let mut sink = vec_sink();
         let limits = Limits::default();
-        let mut writer = run(PdfWriter::new(&mut sink, &limits, &NeverCancel)).unwrap();
+        let mut writer = PdfWriter::new(&mut sink, &limits, &NeverCancel).unwrap();
         let before = writer.position();
         writer.prepare_objects(5).unwrap();
         assert!(writer.offsets.is_empty());
@@ -572,34 +564,34 @@ mod tests {
 
     #[test]
     fn output_ceiling_is_checked_before_writing() {
-        run(async {
+        (|| {
             let mut sink = vec_sink();
             let limits = Limits::default();
-            let mut pdf = PdfWriter::new(&mut sink, &limits, &NeverCancel).await?;
+            let mut pdf = PdfWriter::new(&mut sink, &limits, &NeverCancel)?;
             let object = pdf.reserve_object()?;
-            pdf.begin_object(object).await?;
+            pdf.begin_object(object)?;
             pdf.set_position_for_test(MAX_CLASSIC_PDF_BYTES);
             assert!(matches!(
-                pdf.write_bytes(b"x").await,
+                pdf.write_bytes(b"x"),
                 Err(Error::LimitExceeded {
                     resource: "classic PDF file bytes",
                     ..
                 })
             ));
             Ok::<(), Error>(())
-        })
+        })()
         .unwrap();
     }
 
     #[test]
     fn stream_integer_limit_is_checked_before_writing() {
-        run(async {
+        (|| {
             let mut sink = vec_sink();
             let limits = Limits::default();
-            let mut pdf = PdfWriter::new(&mut sink, &limits, &NeverCancel).await?;
+            let mut pdf = PdfWriter::new(&mut sink, &limits, &NeverCancel)?;
             let stream = pdf.reserve_object()?;
             let length = pdf.reserve_object()?;
-            pdf.begin_stream(stream, length, b"").await?;
+            pdf.begin_stream(stream, length, b"")?;
             assert!(
                 matches!(pdf.state, State::Stream { .. }),
                 "stream should be open"
@@ -608,37 +600,37 @@ mod tests {
                 pdf.set_position_for_test(data_start + MAX_PDF_INTEGER);
             }
             assert!(matches!(
-                pdf.write_stream_bytes(b"x").await,
+                pdf.write_stream_bytes(b"x"),
                 Err(Error::LimitExceeded {
                     resource: "PDF stream length",
                     ..
                 })
             ));
             Ok::<(), Error>(())
-        })
+        })()
         .unwrap();
     }
 
     #[test]
     fn stream_bytes_need_an_open_stream_and_are_written_verbatim() {
         let mut sink = vec_sink();
-        run(async {
+        (|| {
             let limits = Limits::default();
-            let mut pdf = PdfWriter::new(&mut sink, &limits, &NeverCancel).await?;
+            let mut pdf = PdfWriter::new(&mut sink, &limits, &NeverCancel)?;
             assert!(matches!(
-                pdf.write_stream_bytes(b"x").await,
+                pdf.write_stream_bytes(b"x"),
                 Err(Error::InvalidInput {
                     reason: "no PDF stream is open"
                 })
             ));
             let stream = pdf.reserve_object()?;
             let length = pdf.reserve_object()?;
-            pdf.begin_stream(stream, length, b"").await?;
+            pdf.begin_stream(stream, length, b"")?;
             let start = pdf.position();
-            pdf.write_stream_bytes(b"endstream\0").await?;
+            pdf.write_stream_bytes(b"endstream\0")?;
             assert_eq!(pdf.position(), start + 10);
             Ok::<(), Error>(())
-        })
+        })()
         .unwrap();
         assert!(sink.into_inner().ends_with(b"stream\nendstream\0"));
     }
@@ -646,14 +638,14 @@ mod tests {
     #[test]
     fn minimal_pdf_byte_count_includes_xref_and_trailer() {
         let mut sink = vec_sink();
-        let written = run(async {
+        let written = (|| {
             let limits = Limits::default();
-            let mut pdf = PdfWriter::new(&mut sink, &limits, &NeverCancel).await?;
+            let mut pdf = PdfWriter::new(&mut sink, &limits, &NeverCancel)?;
             let catalog = pdf.reserve_object()?;
-            pdf.write_object(catalog, b"<< >>").await?;
+            pdf.write_object(catalog, b"<< >>")?;
             assert_eq!(pdf.position(), 15 + 21);
-            pdf.finish(catalog).await
-        })
+            pdf.finish(catalog)
+        })()
         .unwrap();
         let output = sink.into_inner();
         assert_eq!(written, output.len() as u64);
@@ -672,19 +664,19 @@ mod tests {
 
     #[test]
     fn finish_requires_a_written_catalog() {
-        run(async {
+        (|| {
             let mut sink = vec_sink();
             let limits = Limits::default();
-            let mut pdf = PdfWriter::new(&mut sink, &limits, &NeverCancel).await?;
+            let mut pdf = PdfWriter::new(&mut sink, &limits, &NeverCancel)?;
             let catalog = pdf.reserve_object()?;
             assert!(matches!(
-                pdf.finish(catalog).await,
+                pdf.finish(catalog),
                 Err(Error::InvalidInput {
                     reason: "PDF catalog object has not been written"
                 })
             ));
             Ok::<(), Error>(())
-        })
+        })()
         .unwrap();
     }
 
@@ -692,19 +684,19 @@ mod tests {
     fn finish_requires_every_reserved_object_and_fits_the_output_limit() {
         let mut sink = vec_sink();
         let limits = Limits::default();
-        run(async {
-            let mut pdf = PdfWriter::new(&mut sink, &limits, &NeverCancel).await?;
+        (|| {
+            let mut pdf = PdfWriter::new(&mut sink, &limits, &NeverCancel)?;
             let catalog = pdf.reserve_object()?;
             pdf.reserve_object()?;
-            pdf.write_object(catalog, b"<< >>").await?;
+            pdf.write_object(catalog, b"<< >>")?;
             assert!(matches!(
-                pdf.finish(catalog).await,
+                pdf.finish(catalog),
                 Err(Error::InvalidInput {
                     reason: "a reserved PDF object has not been written"
                 })
             ));
             Ok::<(), Error>(())
-        })
+        })()
         .unwrap();
 
         let mut sink = vec_sink();
@@ -712,13 +704,13 @@ mod tests {
             max_output_bytes: 100,
             ..Limits::default()
         };
-        let written = run(async {
-            let mut pdf = PdfWriter::new(&mut sink, &limits, &NeverCancel).await?;
+        let written = (|| {
+            let mut pdf = PdfWriter::new(&mut sink, &limits, &NeverCancel)?;
             let catalog = pdf.reserve_object()?;
-            pdf.write_object(catalog, b"<< >>").await?;
+            pdf.write_object(catalog, b"<< >>")?;
             let written = pdf.position();
             assert!(matches!(
-                pdf.finish(catalog).await,
+                pdf.finish(catalog),
                 Err(Error::LimitExceeded {
                     resource: "output bytes",
                     limit: 100,
@@ -726,7 +718,7 @@ mod tests {
                 }) if attempted > 100
             ));
             Ok::<u64, Error>(written)
-        })
+        })()
         .unwrap();
         assert_eq!(sink.into_inner().len() as u64, written);
     }
@@ -735,15 +727,15 @@ mod tests {
     fn the_xref_preflight_length_matches_the_written_table() {
         let mut sink = vec_sink();
         let limits = Limits::default();
-        let (start, written) = run(async {
-            let mut pdf = PdfWriter::new(&mut sink, &limits, &NeverCancel).await?;
+        let (start, written) = (|| {
+            let mut pdf = PdfWriter::new(&mut sink, &limits, &NeverCancel)?;
             let catalog = pdf.reserve_object()?;
             let info = pdf.reserve_object()?;
-            pdf.write_object(catalog, b"<< >>").await?;
-            pdf.write_object(info, b"<< >>").await?;
+            pdf.write_object(catalog, b"<< >>")?;
+            pdf.write_object(info, b"<< >>")?;
             let start = pdf.position();
-            Ok::<_, Error>((start, pdf.finish_with_info(catalog, Some(info)).await?))
-        })
+            Ok::<_, Error>((start, pdf.finish_with_info(catalog, Some(info))?))
+        })()
         .unwrap();
         let trailer = Trailer {
             size: 3,
@@ -757,58 +749,57 @@ mod tests {
 
     #[test]
     fn info_reference_must_be_reserved() {
-        run(async {
+        (|| {
             let mut sink = vec_sink();
             let limits = Limits::default();
-            let mut pdf = PdfWriter::new(&mut sink, &limits, &NeverCancel).await?;
+            let mut pdf = PdfWriter::new(&mut sink, &limits, &NeverCancel)?;
             let catalog = pdf.reserve_object()?;
-            pdf.write_object(catalog, b"<< /Type /Catalog >>").await?;
+            pdf.write_object(catalog, b"<< /Type /Catalog >>")?;
             assert!(matches!(
-                pdf.finish_with_info(catalog, Some(ObjectId(catalog.number() + 1)))
-                    .await,
+                pdf.finish_with_info(catalog, Some(ObjectId(catalog.number() + 1))),
                 Err(Error::InvalidInput {
                     reason: "PDF object number was not reserved"
                 })
             ));
             Ok::<(), Error>(())
-        })
+        })()
         .unwrap();
     }
 
     #[test]
     fn unreserved_object_numbers_are_rejected() {
-        run(async {
+        (|| {
             let mut sink = vec_sink();
             let limits = Limits::default();
-            let mut pdf = PdfWriter::new(&mut sink, &limits, &NeverCancel).await?;
+            let mut pdf = PdfWriter::new(&mut sink, &limits, &NeverCancel)?;
             let reserved = pdf.reserve_object()?;
             let before = pdf.position();
             assert!(matches!(
-                pdf.begin_object(ObjectId(reserved.number() + 1)).await,
+                pdf.begin_object(ObjectId(reserved.number() + 1)),
                 Err(Error::InvalidInput {
                     reason: "PDF object number was not reserved"
                 })
             ));
             assert_eq!(pdf.position(), before);
             Ok::<(), Error>(())
-        })
+        })()
         .unwrap();
     }
 
     #[test]
     fn xref_and_trailer_are_checked_against_the_classic_ceiling() {
-        run(async {
+        (|| {
             let mut sink = vec_sink();
             let limits = Limits {
                 max_output_bytes: u64::MAX,
                 ..Limits::default()
             };
-            let mut pdf = PdfWriter::new(&mut sink, &limits, &NeverCancel).await?;
+            let mut pdf = PdfWriter::new(&mut sink, &limits, &NeverCancel)?;
             let catalog = pdf.reserve_object()?;
-            pdf.write_object(catalog, b"<< >>").await?;
+            pdf.write_object(catalog, b"<< >>")?;
             pdf.set_position_for_test(MAX_CLASSIC_PDF_BYTES - 20);
             assert!(matches!(
-                pdf.finish(catalog).await,
+                pdf.finish(catalog),
                 Err(Error::LimitExceeded {
                     resource: "classic PDF file bytes",
                     limit: MAX_CLASSIC_PDF_BYTES,
@@ -816,22 +807,22 @@ mod tests {
                 }) if attempted > MAX_CLASSIC_PDF_BYTES
             ));
             Ok::<(), Error>(())
-        })
+        })()
         .unwrap();
     }
 
     #[test]
     fn object_zero_cannot_be_referenced() {
-        run(async {
+        (|| {
             let mut sink = vec_sink();
             let limits = Limits::default();
-            let pdf = PdfWriter::new(&mut sink, &limits, &NeverCancel).await?;
+            let pdf = PdfWriter::new(&mut sink, &limits, &NeverCancel)?;
             assert!(matches!(
                 pdf.index(ObjectId(0)),
                 Err(Error::InvalidInput { .. })
             ));
             Ok::<(), Error>(())
-        })
+        })()
         .unwrap();
     }
 }

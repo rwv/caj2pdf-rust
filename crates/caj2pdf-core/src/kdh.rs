@@ -34,7 +34,7 @@ pub struct KdhPdfSource<'a, S> {
 }
 
 impl<'a, S: RangedSource> KdhPdfSource<'a, S> {
-    pub async fn open<C: Cancellation>(
+    pub fn open<C: Cancellation>(
         source: &'a mut S,
         limits: &Limits,
         cancellation: &C,
@@ -51,7 +51,7 @@ impl<'a, S: RangedSource> KdhPdfSource<'a, S> {
         }
 
         let mut header = [0_u8; PDF_START as usize];
-        read_in_chunks(source, 0, &mut header, limits, cancellation).await?;
+        read_in_chunks(source, 0, &mut header, limits, cancellation)?;
         if &header[..HEADER_SIGNATURE.len()] != HEADER_SIGNATURE {
             return Err(Error::Kdh {
                 offset: 0,
@@ -72,7 +72,7 @@ impl<'a, S: RangedSource> KdhPdfSource<'a, S> {
             });
         }
         let mut pdf_header = [0_u8; 8];
-        read_in_chunks(source, PDF_START, &mut pdf_header, limits, cancellation).await?;
+        read_in_chunks(source, PDF_START, &mut pdf_header, limits, cancellation)?;
         xor_at(0, &mut pdf_header);
         if !pdf_header.starts_with(b"%PDF-") {
             return Err(Error::Kdh {
@@ -88,7 +88,7 @@ impl<'a, S: RangedSource> KdhPdfSource<'a, S> {
         let mut at = PDF_START;
         while at < size {
             let count = min(size - at, buffer.len() as u64) as usize;
-            read_exact_at(source, at, &mut buffer[..count], limits, cancellation).await?;
+            read_exact_at(source, at, &mut buffer[..count], limits, cancellation)?;
             xor_at(at - PDF_START, &mut buffer[..count]);
             for (index, &byte) in buffer[..count].iter().enumerate() {
                 history.push(byte);
@@ -99,8 +99,7 @@ impl<'a, S: RangedSource> KdhPdfSource<'a, S> {
                         && eof.is_none_or(|(previous, _)| xref > previous - PDF_START)
                     {
                         let (valid, bytes_read) =
-                            xref_target_is_plausible(source, xref, size, limits, cancellation)
-                                .await?;
+                            xref_target_is_plausible(source, xref, size, limits, cancellation)?;
                         let overflow = Error::InvalidInput {
                             reason: "KDH input byte count overflows",
                         };
@@ -135,8 +134,7 @@ impl<'a, S: RangedSource> KdhPdfSource<'a, S> {
                 &mut eol[..eol_read],
                 limits,
                 cancellation,
-            )
-            .await?;
+            )?;
             xor_at(after_marker - PDF_START, &mut eol[..eol_read]);
         }
         let eol_len = if eol_read >= 2 && eol == *b"\r\n" {
@@ -177,7 +175,7 @@ impl<'a, S: RangedSource> KdhPdfSource<'a, S> {
     }
 }
 
-async fn xref_target_is_plausible<S: RangedSource, C: Cancellation>(
+fn xref_target_is_plausible<S: RangedSource, C: Cancellation>(
     source: &mut S,
     relative_offset: u64,
     size: u64,
@@ -190,7 +188,7 @@ async fn xref_target_is_plausible<S: RangedSource, C: Cancellation>(
     let count = min(size - absolute, 32) as usize;
     debug_assert!(count > 5);
     let mut prefix = [0_u8; 32];
-    read_in_chunks(source, absolute, &mut prefix[..count], limits, cancellation).await?;
+    read_in_chunks(source, absolute, &mut prefix[..count], limits, cancellation)?;
     xor_at(relative_offset, &mut prefix[..count]);
     let prefix = &prefix[..count];
     if prefix.starts_with(b"xref") && prefix.get(4).is_some_and(u8::is_ascii_whitespace) {
@@ -219,7 +217,7 @@ impl<S: RangedSource> RangedSource for KdhPdfSource<'_, S> {
         self.pdf_len
     }
 
-    async fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> Result<usize> {
+    fn read_at(&mut self, offset: u64, destination: &mut [u8]) -> Result<usize> {
         if offset > self.pdf_len {
             return Err(Error::InvalidInput {
                 reason: "KDH PDF read starts beyond payload end",
@@ -231,8 +229,7 @@ impl<S: RangedSource> RangedSource for KdhPdfSource<'_, S> {
         }
         let read = self
             .source
-            .read_at(PDF_START + offset, &mut destination[..count])
-            .await?;
+            .read_at(PDF_START + offset, &mut destination[..count])?;
         if read > count {
             return Err(Error::InvalidInput {
                 reason: "KDH source reported more bytes than requested",
@@ -251,17 +248,15 @@ impl<S: RangedSource> RangedSource for KdhPdfSource<'_, S> {
 }
 
 /// Decode KDH and normalize its PDF through the shared bounded PDF path.
-pub async fn convert_kdh<S: RangedSource, W: SequentialSink, C: Cancellation>(
+pub fn convert_kdh<S: RangedSource, W: SequentialSink, C: Cancellation>(
     source: &mut S,
     sink: &mut W,
     limits: &Limits,
     cancellation: &C,
 ) -> Result<ConversionReport> {
-    let mut decoded = KdhPdfSource::open(source, limits, cancellation).await?;
+    let mut decoded = KdhPdfSource::open(source, limits, cancellation)?;
     let scan_bytes_read = decoded.scan_bytes_read();
-    let mut report = copy_pdf(&mut decoded, sink, limits, cancellation)
-        .await
-        .map_err(map_pdf_offset)?;
+    let mut report = copy_pdf(&mut decoded, sink, limits, cancellation).map_err(map_pdf_offset)?;
     report.input_bytes_read =
         report
             .input_bytes_read
@@ -302,7 +297,7 @@ fn map_pdf_offset(error: Error) -> Error {
     }
 }
 
-async fn read_in_chunks<S: RangedSource, C: Cancellation>(
+fn read_in_chunks<S: RangedSource, C: Cancellation>(
     source: &mut S,
     offset: u64,
     destination: &mut [u8],
@@ -318,8 +313,7 @@ async fn read_in_chunks<S: RangedSource, C: Cancellation>(
             &mut destination[done..done + count],
             limits,
             cancellation,
-        )
-        .await?;
+        )?;
         done += count;
     }
     Ok(())

@@ -52,15 +52,15 @@ impl<'w, 'a, W: SequentialSink, C: Cancellation> FontStream<'w, 'a, W, C> {
         Self { writer, deflate }
     }
 
-    async fn finish(self) -> Result<()> {
-        self.deflate.finish(self.writer).await?;
-        self.writer.end_stream().await
+    fn finish(self) -> Result<()> {
+        self.deflate.finish(self.writer)?;
+        self.writer.end_stream()
     }
 }
 
 impl<W: SequentialSink, C: Cancellation> SubsetOutput for FontStream<'_, '_, W, C> {
-    async fn put(&mut self, bytes: &[u8]) -> Result<()> {
-        self.deflate.put(self.writer, bytes).await
+    fn put(&mut self, bytes: &[u8]) -> Result<()> {
+        self.deflate.put(self.writer, bytes)
     }
 }
 
@@ -161,7 +161,7 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
     /// [`Limits::max_allocation_bytes`]. Planning only
     /// reads, so a failure there can be retried; a failure after emission
     /// starts poisons the document.
-    pub async fn embed_font<S: RangedSource>(
+    pub fn embed_font<S: RangedSource>(
         &mut self,
         handle: &FontObject,
         font: &mut OpenTypeFont<'_, S>,
@@ -180,21 +180,19 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
         let [file, file_length, descriptor, descendant, object] = pending.ids;
         let mapping = pending.mapping;
         let before = font.subset_bytes_read();
-        let plan = font
-            .subset(
-                &pending.used,
-                MAX_PDF_INTEGER,
-                self.limits,
-                self.cancellation,
-            )
-            .await?;
+        let plan = font.subset(
+            &pending.used,
+            MAX_PDF_INTEGER,
+            self.limits,
+            self.cancellation,
+        )?;
         self.count_font_input(font.subset_bytes_read() - before)?;
         let pending = &self.fonts[handle.slot];
         let name = format!("{}+{}", plan.tag(&pending.name), pending.name);
         let mut deflate = self.take_deflate()?;
         let before = font.subset_bytes_read();
         self.image_page_failed = true;
-        let unicode = self.unicode_cmap(&mut deflate).await?;
+        let unicode = self.unicode_cmap(&mut deflate)?;
         let (program, file_key, subtype) = match &plan {
             Subset::TrueType(_) => (
                 format!("/Length1 {}", plan.length()),
@@ -207,25 +205,21 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
                 "CIDFontType0",
             ),
         };
-        self.writer
-            .begin_stream(
-                file,
-                file_length,
-                format!("{program}\n/Filter /FlateDecode").as_bytes(),
-            )
-            .await?;
+        self.writer.begin_stream(
+            file,
+            file_length,
+            format!("{program}\n/Filter /FlateDecode").as_bytes(),
+        )?;
         let mut stream = FontStream::new(&mut self.writer, &mut deflate);
-        font.write(&plan, &mut stream, self.limits, self.cancellation)
-            .await?;
-        stream.finish().await?;
+        font.write(&plan, &mut stream, self.limits, self.cancellation)?;
+        stream.finish()?;
         self.count_font_input(font.subset_bytes_read() - before)?;
 
         let face = font.face()?;
         let mut cid_map = String::new();
         if let (Subset::TrueType(plan), Some([mapping, mapping_length])) = (&plan, mapping) {
             self.writer
-                .begin_stream(mapping, mapping_length, b"/Filter /FlateDecode")
-                .await?;
+                .begin_stream(mapping, mapping_length, b"/Filter /FlateDecode")?;
             let mut stream = FontStream::new(&mut self.writer, &mut deflate);
             let used = &self.fonts[handle.slot].used;
             // CID-to-glyph entries up to the highest drawn CID.
@@ -234,9 +228,9 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
                 let glyph = char::from_u32(code as u32)
                     .filter(|_| has_code(used, code))
                     .map_or(0, |character| plan.glyph(&face, character));
-                stream.put(&glyph.to_be_bytes()).await?;
+                stream.put(&glyph.to_be_bytes())?;
             }
-            stream.finish().await?;
+            stream.finish()?;
             cid_map = format!(" /CIDToGIDMap {} 0 R", mapping.number());
         }
 
@@ -255,11 +249,9 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
             f64::from(face.capital_height().unwrap_or(face.ascender())) * scale,
             file.number()
         );
-        self.writer
-            .write_object(descriptor, desc.as_bytes())
-            .await?;
-        self.writer.begin_object(descendant).await?;
-        self.writer.write_bytes(format!("<< /Type /Font /Subtype /{subtype} /BaseFont /{name} /CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> /FontDescriptor {} 0 R{cid_map} /DW 1000 /W [", descriptor.number()).as_bytes()).await?;
+        self.writer.write_object(descriptor, desc.as_bytes())?;
+        self.writer.begin_object(descendant)?;
+        self.writer.write_bytes(format!("<< /Type /Font /Subtype /{subtype} /BaseFont /{name} /CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> /FontDescriptor {} 0 R{cid_map} /DW 1000 /W [", descriptor.number()).as_bytes())?;
         // One width array per 256-character block that contains drawn
         // characters, spanning its first to last drawn character. Both the
         // outer and inner arrays stay below PDF's recommended size limit.
@@ -281,11 +273,11 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
                 widths += &format!(" {width}");
             }
             widths.push_str(" ]");
-            self.writer.write_bytes(widths.as_bytes()).await?;
+            self.writer.write_bytes(widths.as_bytes())?;
         }
-        self.writer.write_bytes(b" ] >>").await?;
-        self.writer.end_object().await?;
-        self.writer.write_object(object, format!("<< /Type /Font /Subtype /Type0 /BaseFont /{name} /Encoding /Identity-H /DescendantFonts [{} 0 R] /ToUnicode {} 0 R >>", descendant.number(), unicode.number()).as_bytes()).await?;
+        self.writer.write_bytes(b" ] >>")?;
+        self.writer.end_object()?;
+        self.writer.write_object(object, format!("<< /Type /Font /Subtype /Type0 /BaseFont /{name} /Encoding /Identity-H /DescendantFonts [{} 0 R] /ToUnicode {} 0 R >>", descendant.number(), unicode.number()).as_bytes())?;
         self.fonts[handle.slot].embedded = true;
         self.deflate = Some(deflate);
         self.image_page_failed = false;
@@ -294,7 +286,7 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
 
     /// The document's identity ToUnicode CMap for BMP CIDs, written once
     /// and shared by every font.
-    async fn unicode_cmap(&mut self, deflate: &mut Deflate) -> Result<ObjectId> {
+    fn unicode_cmap(&mut self, deflate: &mut Deflate) -> Result<ObjectId> {
         if let Some(unicode) = self.to_unicode {
             return Ok(unicode);
         }
@@ -302,8 +294,7 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
         let unicode = self.writer.reserve_object()?;
         let length = self.writer.reserve_object()?;
         self.writer
-            .begin_stream(unicode, length, b"/Filter /FlateDecode")
-            .await?;
+            .begin_stream(unicode, length, b"/Filter /FlateDecode")?;
         let mut stream = FontStream::new(&mut self.writer, deflate);
         let mut cmap = String::from(
             "/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def\n/CMapName /CajUnicode def\n/CMapType 2 def\n1 begincodespacerange\n<0000> <FFFF>\nendcodespacerange\n",
@@ -319,8 +310,8 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
             cmap += "endbfrange\n";
         }
         cmap += "endcmap\nCMapName currentdict /CMap defineresource pop\nend\nend\n";
-        stream.put(cmap.as_bytes()).await?;
-        stream.finish().await?;
+        stream.put(cmap.as_bytes())?;
+        stream.finish()?;
         self.to_unicode = Some(unicode);
         Ok(unicode)
     }
@@ -330,7 +321,7 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
     /// Resources are borrowed and bounded to 128 fonts and 8192 images. Draws
     /// are awaited in source order; no page-sized content list is retained.
     /// An abandoned or failed page prevents finishing the document.
-    pub async fn begin_content_page<'d, 'r>(
+    pub fn begin_content_page<'d, 'r>(
         &'d mut self,
         page: PageSpec,
         fonts: &'r [&'r FontObject],
@@ -358,13 +349,12 @@ impl<'a, W: SequentialSink, C: Cancellation> PdfDocument<'a, W, C> {
         self.reserve_page_index_slot()?;
         self.prepare_page_objects()?;
         self.image_page_failed = true;
-        self.ensure_leaf().await?;
+        self.ensure_leaf()?;
         let content = self.writer.reserve_object()?;
         let length = self.writer.reserve_object()?;
         let page = self.writer.reserve_object()?;
         self.writer
-            .begin_stream(content, length, b"/Filter /FlateDecode")
-            .await?;
+            .begin_stream(content, length, b"/Filter /FlateDecode")?;
         Ok(ContentPageWriter {
             deflate,
             document: self,
@@ -415,33 +405,32 @@ pub struct ContentPageWriter<'d, 'a, 'r, W: SequentialSink, C: Cancellation> {
 
 impl<W: SequentialSink, C: Cancellation> ContentPageWriter<'_, '_, '_, W, C> {
     /// Append content bytes to the compressed page stream.
-    async fn emit(&mut self, bytes: &[u8]) -> Result<()> {
-        self.deflate.put(&mut self.document.writer, bytes).await
+    fn emit(&mut self, bytes: &[u8]) -> Result<()> {
+        self.deflate.put(&mut self.document.writer, bytes)
     }
 
     /// Refuse a failed page, then report cancellation or a failed writer
     /// once per draw; buffered output itself is checked as it is written.
-    async fn start_draw(&mut self) -> Result<()> {
+    fn start_draw(&mut self) -> Result<()> {
         if self.failed {
             return Err(Error::InvalidInput {
                 reason: "PDF content page cannot continue after a failed draw",
             });
         }
         self.failed = true;
-        self.document.writer.write_stream_bytes(&[]).await
+        self.document.writer.write_stream_bytes(&[])
     }
 
     /// Draw one BMP character using a font resource index and text matrix.
     /// Font size is one; matrix scales are in PDF points per em. For example,
     /// `[12, 0, 0, 12, x, y]` draws an upright 12-point glyph at its baseline.
-    pub async fn glyph(&mut self, font: usize, character: char, transform: [f64; 6]) -> Result<()> {
+    pub fn glyph(&mut self, font: usize, character: char, transform: [f64; 6]) -> Result<()> {
         self.draw_glyph(font, character, transform, None, None, false)
-            .await
     }
 
     /// Draw a glyph in DeviceGray: zero is black and 255 is white.
     /// The color is local to this glyph; later content retains its prior color.
-    pub async fn glyph_with_gray(
+    pub fn glyph_with_gray(
         &mut self,
         font: usize,
         character: char,
@@ -449,14 +438,13 @@ impl<W: SequentialSink, C: Cancellation> ContentPageWriter<'_, '_, '_, W, C> {
         gray: u8,
     ) -> Result<()> {
         self.draw_glyph(font, character, transform, Some(gray), None, false)
-            .await
     }
 
     /// Draw one glyph clipped to `[left, bottom, width, height]` in PDF points.
     /// Extents must be positive. Clipping is local to this draw and does not
     /// affect later content. This retains the ordinary glyph's Unicode mapping;
     /// it does not by itself mark a font alias as nonsemantic decoration.
-    pub async fn glyph_with_clip(
+    pub fn glyph_with_clip(
         &mut self,
         font: usize,
         character: char,
@@ -464,7 +452,6 @@ impl<W: SequentialSink, C: Cancellation> ContentPageWriter<'_, '_, '_, W, C> {
         clip: [f64; 4],
     ) -> Result<()> {
         self.draw_glyph(font, character, transform, None, Some(clip), false)
-            .await
     }
 
     /// Draw a clipped decorative font glyph without semantic replacement text.
@@ -472,7 +459,7 @@ impl<W: SequentialSink, C: Cancellation> ContentPageWriter<'_, '_, '_, W, C> {
     /// The draw is an Artifact containing a Span with empty ActualText. This
     /// preserves visible outlines while excluding the alias from extractors
     /// that honor ActualText. It does not make the document PDF/UA conformant.
-    pub async fn decoration_glyph(
+    pub fn decoration_glyph(
         &mut self,
         font: usize,
         character: char,
@@ -480,10 +467,9 @@ impl<W: SequentialSink, C: Cancellation> ContentPageWriter<'_, '_, '_, W, C> {
         clip: [f64; 4],
     ) -> Result<()> {
         self.draw_glyph(font, character, transform, None, Some(clip), true)
-            .await
     }
 
-    async fn draw_glyph(
+    fn draw_glyph(
         &mut self,
         font: usize,
         character: char,
@@ -492,7 +478,7 @@ impl<W: SequentialSink, C: Cancellation> ContentPageWriter<'_, '_, '_, W, C> {
         clip: Option<[f64; 4]>,
         decorative: bool,
     ) -> Result<()> {
-        self.start_draw().await?;
+        self.start_draw()?;
         let resource = self.fonts.get(font).ok_or(Error::InvalidInput {
             reason: "PDF page font index is out of range",
         })?;
@@ -507,7 +493,7 @@ impl<W: SequentialSink, C: Cancellation> ContentPageWriter<'_, '_, '_, W, C> {
         );
         let matrix = decimals(&transform)?;
         if gray.is_some() || clip.is_some() {
-            self.emit(b"q ").await?;
+            self.emit(b"q ")?;
         }
         if let Some([left, bottom, width, height]) = clip {
             decimals(&[left, bottom, width, height, left + width, bottom + height])?;
@@ -516,51 +502,46 @@ impl<W: SequentialSink, C: Cancellation> ContentPageWriter<'_, '_, '_, W, C> {
                     reason: "PDF glyph clipping extents must be positive",
                 });
             }
-            self.emit(format!("{left} {bottom} {width} {height} re W n\n").as_bytes())
-                .await?;
+            self.emit(format!("{left} {bottom} {width} {height} re W n\n").as_bytes())?;
         }
         if let Some(gray) = gray {
-            self.emit(format!("{:.6} g\n", f64::from(gray) / 255.0).as_bytes())
-                .await?;
+            self.emit(format!("{:.6} g\n", f64::from(gray) / 255.0).as_bytes())?;
         }
         if decorative {
-            self.emit(b"/Artifact BMC\n/Span << /ActualText () >> BDC\n")
-                .await?;
+            self.emit(b"/Artifact BMC\n/Span << /ActualText () >> BDC\n")?;
         }
-        self.emit(format!("BT /F{font} 1 Tf\n").as_bytes()).await?;
-        self.emit(matrix.as_bytes()).await?;
-        self.emit(format!(" Tm <{:04X}> Tj ET\n", character as u32).as_bytes())
-            .await?;
+        self.emit(format!("BT /F{font} 1 Tf\n").as_bytes())?;
+        self.emit(matrix.as_bytes())?;
+        self.emit(format!(" Tm <{:04X}> Tj ET\n", character as u32).as_bytes())?;
         if decorative {
-            self.emit(b"EMC\nEMC\n").await?;
+            self.emit(b"EMC\nEMC\n")?;
         }
         if gray.is_some() || clip.is_some() {
-            self.emit(b"Q\n").await?;
+            self.emit(b"Q\n")?;
         }
         self.failed = false;
         Ok(())
     }
 
-    pub async fn image(&mut self, index: usize, transform: [f64; 6]) -> Result<()> {
-        self.start_draw().await?;
+    pub fn image(&mut self, index: usize, transform: [f64; 6]) -> Result<()> {
+        self.start_draw()?;
         if index >= self.images.len() {
             return Err(Error::InvalidInput {
                 reason: "PDF page image index is out of range",
             });
         }
         let matrix = decimals(&transform)?;
-        self.emit(b"q\n").await?;
-        self.emit(matrix.as_bytes()).await?;
-        self.emit(format!(" cm /Im{index} Do Q\n").as_bytes())
-            .await?;
+        self.emit(b"q\n")?;
+        self.emit(matrix.as_bytes())?;
+        self.emit(format!(" cm /Im{index} Do Q\n").as_bytes())?;
         self.failed = false;
         Ok(())
     }
 
     /// Stroke one black segment in page coordinates. Zero width is PDF's
     /// device-dependent hairline; negative or nonfinite widths are rejected.
-    pub async fn segment(&mut self, from: [f64; 2], to: [f64; 2], width: f64) -> Result<()> {
-        self.start_draw().await?;
+    pub fn segment(&mut self, from: [f64; 2], to: [f64; 2], width: f64) -> Result<()> {
+        self.start_draw()?;
         decimals(&[from[0], from[1], to[0], to[1], width, 0.0])?;
         if width < 0.0 {
             return Err(Error::InvalidInput {
@@ -571,36 +552,35 @@ impl<W: SequentialSink, C: Cancellation> ContentPageWriter<'_, '_, '_, W, C> {
             "q {width} w {} {} m {} {} l S Q\n",
             from[0], from[1], to[0], to[1]
         );
-        self.emit(command.as_bytes()).await?;
+        self.emit(command.as_bytes())?;
         self.failed = false;
         Ok(())
     }
 
     /// Stroke a bounded continuous path with butt caps and miter joins.
     /// Sequential per-point writes avoid retaining page paths.
-    pub(crate) async fn stroke_polyline(
+    pub(crate) fn stroke_polyline(
         &mut self,
         points: &[[f64; 2]],
         width: f64,
         gray: u8,
     ) -> Result<()> {
-        self.start_draw().await?;
+        self.start_draw()?;
         if !(2..=8).contains(&points.len()) || width < 0.0 {
             return Err(Error::InvalidInput {
                 reason: "PDF polyline requires two to eight points and nonnegative width",
             });
         }
         let width = decimals(&[width])?;
-        self.emit(b"q 0 J 0 j 10 M ").await?;
-        self.emit(width.as_bytes()).await?;
-        self.emit(format!(" w {:.6} G\n", f64::from(gray) / 255.0).as_bytes())
-            .await?;
+        self.emit(b"q 0 J 0 j 10 M ")?;
+        self.emit(width.as_bytes())?;
+        self.emit(format!(" w {:.6} G\n", f64::from(gray) / 255.0).as_bytes())?;
         for (index, point) in points.iter().enumerate() {
-            self.emit(decimals(point)?.as_bytes()).await?;
+            self.emit(decimals(point)?.as_bytes())?;
             let operator = if index == 0 { b" m\n" } else { b" l\n" };
-            self.emit(operator).await?;
+            self.emit(operator)?;
         }
-        self.emit(b"S Q\n").await?;
+        self.emit(b"S Q\n")?;
         self.failed = false;
         Ok(())
     }
@@ -609,25 +589,25 @@ impl<W: SequentialSink, C: Cancellation> ContentPageWriter<'_, '_, '_, W, C> {
     /// Three to eight vertices cover small native decorations without retaining
     /// an unbounded path. Points are written one at a time;
     /// failure or cancellation invalidates this content page.
-    pub async fn fill_polygon(&mut self, points: &[[f64; 2]]) -> Result<()> {
-        self.start_draw().await?;
+    pub fn fill_polygon(&mut self, points: &[[f64; 2]]) -> Result<()> {
+        self.start_draw()?;
         if !(3..=8).contains(&points.len()) {
             return Err(Error::InvalidInput {
                 reason: "PDF polygon must have three to eight vertices",
             });
         }
-        self.emit(b"q 0 g\n").await?;
+        self.emit(b"q 0 g\n")?;
         for (index, point) in points.iter().enumerate() {
-            self.emit(decimals(point)?.as_bytes()).await?;
+            self.emit(decimals(point)?.as_bytes())?;
             let operator = if index == 0 { b" m\n" } else { b" l\n" };
-            self.emit(operator).await?;
+            self.emit(operator)?;
         }
-        self.emit(b"h f Q\n").await?;
+        self.emit(b"h f Q\n")?;
         self.failed = false;
         Ok(())
     }
 
-    pub async fn finish(self) -> Result<u32> {
+    pub fn finish(self) -> Result<u32> {
         if self.failed {
             return Err(Error::InvalidInput {
                 reason: "PDF content page cannot finish after a failed draw",
@@ -635,8 +615,8 @@ impl<W: SequentialSink, C: Cancellation> ContentPageWriter<'_, '_, '_, W, C> {
         }
         let document = self.document;
         let mut deflate = self.deflate;
-        deflate.finish(&mut document.writer).await?;
-        document.writer.end_stream().await?;
+        deflate.finish(&mut document.writer)?;
+        document.writer.end_stream()?;
         document.deflate = Some(deflate);
         let parent = document
             .leaf
@@ -645,37 +625,31 @@ impl<W: SequentialSink, C: Cancellation> ContentPageWriter<'_, '_, '_, W, C> {
                 reason: "PDF page-tree leaf is missing",
             })?
             .id;
-        document.writer.begin_object(self.page).await?;
-        document
-            .writer
-            .write_bytes(
-                format!(
-                    "<< /Type /Page /Parent {} 0 R /MediaBox [0 0 {} {}] /Resources << /Font <<",
-                    parent.number(),
-                    self.width,
-                    self.height
-                )
-                .as_bytes(),
+        document.writer.begin_object(self.page)?;
+        document.writer.write_bytes(
+            format!(
+                "<< /Type /Page /Parent {} 0 R /MediaBox [0 0 {} {}] /Resources << /Font <<",
+                parent.number(),
+                self.width,
+                self.height
             )
-            .await?;
+            .as_bytes(),
+        )?;
         for (index, font) in self.fonts.iter().enumerate() {
             document
                 .writer
-                .write_bytes(format!(" /F{index} {} 0 R", font.object.number()).as_bytes())
-                .await?;
+                .write_bytes(format!(" /F{index} {} 0 R", font.object.number()).as_bytes())?;
         }
-        document.writer.write_bytes(b" >> /XObject <<").await?;
+        document.writer.write_bytes(b" >> /XObject <<")?;
         for (index, image) in self.images.iter().enumerate() {
             document
                 .writer
-                .write_bytes(format!(" /Im{index} {} 0 R", image.object.number()).as_bytes())
-                .await?;
+                .write_bytes(format!(" /Im{index} {} 0 R", image.object.number()).as_bytes())?;
         }
         document
             .writer
-            .write_bytes(format!(" >> >> /Contents {} 0 R >>", self.content.number()).as_bytes())
-            .await?;
-        document.writer.end_object().await?;
+            .write_bytes(format!(" >> >> /Contents {} 0 R >>", self.content.number()).as_bytes())?;
+        document.writer.end_object()?;
         let index = document.register_page(self.page)?;
         document.image_page_failed = false;
         Ok(index)

@@ -85,7 +85,7 @@ pub(crate) fn admits_native_mode(header: super::Header) -> bool {
     }
 }
 
-pub async fn write_c8_native_page<S, W, C>(
+pub fn write_c8_native_page<S, W, C>(
     reader: &mut Hnc8Reader<'_, S, C>,
     document: &mut PdfDocument<'_, W, C>,
     fonts: &[&FontObject],
@@ -154,7 +154,6 @@ where
         .ok_or_else(|| source_error(invalid("native page origin is missing")))?;
     let mut page = document
         .begin_content_page(geometry.size, fonts, images)
-        .await
         .map_err(source_error)?;
     let mut writer = PageWriter {
         page: &mut page,
@@ -174,8 +173,8 @@ where
         variant: header.variant,
         legacy,
     };
-    reader.visit_native_records(budget, &mut writer).await?;
-    page.finish().await.map_err(source_error)
+    reader.visit_native_records(budget, &mut writer)?;
+    page.finish().map_err(source_error)
 }
 
 fn invalid(reason: &'static str) -> Error {
@@ -203,9 +202,9 @@ struct PageWriter<'p, 'd, 'a, 'r, W: SequentialSink, C: Cancellation> {
 }
 
 impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, '_, '_, '_, W, C> {
-    async fn visit(&mut self, _: u64, record: NativeRecord) -> crate::Result<()> {
+    fn visit(&mut self, _: u64, record: NativeRecord) -> crate::Result<()> {
         if self.legacy {
-            return self.visit_mode_zero(record).await;
+            return self.visit_mode_zero(record);
         }
         if matches!(
             record,
@@ -614,8 +613,7 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
                 // Keep the verified current gray local to each glyph draw.
                 let font = self.font(font, character);
                 self.page
-                    .glyph_with_gray(font, character, transform, self.gray)
-                    .await?;
+                    .glyph_with_gray(font, character, transform, self.gray)?;
             }
             NativeRecord::Drawing { .. }
             | NativeRecord::Image { .. }
@@ -656,9 +654,7 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
                     [x + width + 20.0, y],
                 ]
                 .map(|[x, y]| [left + x * unit, top - y * unit]);
-                self.page
-                    .stroke_polyline(&path, 4.0 * unit, self.gray)
-                    .await?;
+                self.page.stroke_polyline(&path, 4.0 * unit, self.gray)?;
             }
             NativeRecord::Drawing {
                 tag: 0x8006,
@@ -666,7 +662,7 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
                 points,
             } => {
                 let [from, to] = empirical_c8_segment(self.geometry, self.origin, points, style)?;
-                self.page.segment(from, to, 0.0).await?;
+                self.page.segment(from, to, 0.0)?;
             }
             NativeRecord::Drawing {
                 tag: 0x8010,
@@ -692,8 +688,7 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
                     let mut transform = decoration.first_glyph;
                     transform[4] += f64::from(index) * transform[0];
                     self.page
-                        .decoration_glyph(font, alias, transform, decoration.clip)
-                        .await?;
+                        .decoration_glyph(font, alias, transform, decoration.clip)?;
                 }
             }
             NativeRecord::Image { words } => {
@@ -710,12 +705,12 @@ impl<W: SequentialSink, C: Cancellation> NativeRecordVisitor for PageWriter<'_, 
                 if words[5..].iter().any(|word| word & 0xff00 != 0xc000) {
                     return Err(invalid("unverified C8 native image payload"));
                 }
-                self.draw_image(coordinate).await?;
+                self.draw_image(coordinate)?;
             }
             NativeRecord::ImageReference { coordinate, .. } if self.variant == Variant::C8 => {
                 // Independent swapped-name controls establish descriptor order.
                 // The bounded reference span remains opaque; never open it.
-                self.draw_image(coordinate).await?;
+                self.draw_image(coordinate)?;
             }
             NativeRecord::Control {
                 tag: 0xffff,
@@ -740,7 +735,7 @@ impl<W: SequentialSink, C: Cancellation> PageWriter<'_, '_, '_, '_, W, C> {
         }
     }
 
-    async fn draw_image(&mut self, coordinate: super::RawTextCoordinate) -> crate::Result<()> {
+    fn draw_image(&mut self, coordinate: super::RawTextCoordinate) -> crate::Result<()> {
         if coordinate.width == 0 || coordinate.height == 0 {
             return Err(invalid("native image extents must be nonzero"));
         }
@@ -755,12 +750,12 @@ impl<W: SequentialSink, C: Cancellation> PageWriter<'_, '_, '_, '_, W, C> {
             transform[3] = height;
             transform[5] -= height;
         }
-        self.page.image(self.image, transform).await?;
+        self.page.image(self.image, transform)?;
         self.image += 1;
         Ok(())
     }
 
-    async fn visit_mode_zero(&mut self, record: NativeRecord) -> crate::Result<()> {
+    fn visit_mode_zero(&mut self, record: NativeRecord) -> crate::Result<()> {
         match record {
             NativeRecord::Control { tag: 0x8001, .. }
             // Original paired rows preserve resources, geometry and explicit axes.
@@ -804,7 +799,7 @@ impl<W: SequentialSink, C: Cancellation> PageWriter<'_, '_, '_, '_, W, C> {
                 for end in &mut ends {
                     end[1] += 5.0 * super::EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
                 }
-                self.page.segment(ends[0], ends[1], 0.0).await?;
+                self.page.segment(ends[0], ends[1], 0.0)?;
             }
             NativeRecord::Glyph { x, y, style, code } => {
                 let character = decode_native_character_for_mode(0, code)
@@ -871,8 +866,7 @@ impl<W: SequentialSink, C: Cancellation> PageWriter<'_, '_, '_, '_, W, C> {
                     transform[4] -= left * super::EMPIRICAL_COORDINATE_POINTS_PER_UNIT;
                 }
                 self.page
-                    .glyph_with_gray(font, character, transform, 68)
-                    .await?;
+                    .glyph_with_gray(font, character, transform, 68)?;
             }
             _ => return Err(invalid("unverified HN-B mode-0 rendering record")),
         }

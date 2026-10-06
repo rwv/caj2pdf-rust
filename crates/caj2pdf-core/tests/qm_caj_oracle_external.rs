@@ -15,11 +15,8 @@ use std::{
     env,
     error::Error,
     fs::{File, OpenOptions, remove_file},
-    future::Future,
     io::{Read, Seek, SeekFrom, Write},
     path::{Component, Path, PathBuf},
-    pin::pin,
-    task::{Context, Poll, Waker},
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -55,15 +52,6 @@ struct Sample {
     path: String,
     source_sha256: String,
     images: Vec<Image>,
-}
-
-fn run_ready<F: Future>(future: F) -> F::Output {
-    let mut future = pin!(future);
-    let mut task = Context::from_waker(Waker::noop());
-    match future.as_mut().poll(&mut task) {
-        Poll::Ready(value) => value,
-        Poll::Pending => panic!("native positioned I/O unexpectedly yielded"),
-    }
 }
 
 fn hex(bytes: &[u8]) -> String {
@@ -319,11 +307,11 @@ impl Drop for Spool {
 }
 
 impl SequentialSink for Spool {
-    async fn write(&mut self, bytes: &[u8]) -> caj2pdf_core::Result<usize> {
+    fn write(&mut self, bytes: &[u8]) -> caj2pdf_core::Result<usize> {
         Ok(self.file().write(bytes)?)
     }
 
-    async fn flush(&mut self) -> caj2pdf_core::Result<()> {
+    fn flush(&mut self) -> caj2pdf_core::Result<()> {
         Ok(self.file().flush()?)
     }
 }
@@ -377,7 +365,7 @@ fn run_image(
     let mut contexts = ContextBank::new(CONTEXT_COUNT, &limits)?;
     // Decode from the same open file whose encoded span was just hashed.
     let mut ranged = SeekableSource::new(source)?;
-    let mut decoder = run_ready(Type0Decoder::new(
+    let mut decoder = Type0Decoder::new(
         &mut ranged,
         Type0Span {
             // The pinned #22 manifest contains only catalogued type-0 rows;
@@ -401,17 +389,17 @@ fn run_image(
             max_pixels: MAX_SYMBOLS,
             max_context_work: MAX_SYMBOLS * 10 + 20_000,
         },
-    ))?;
+    )?;
     let info = decoder.progress().info;
     if (info.width as usize, info.height as usize, info.dib_stride) != (width, height, stride) {
         return Err("decoded DIB dimensions differ from the pinned manifest".into());
     }
     for _ in 0..height {
-        if !run_ready(decoder.decode_next_row())? {
+        if !decoder.decode_next_row()? {
             return Err("row decoder ended before the declared DIB height".into());
         }
     }
-    let report = run_ready(decoder.finish())?;
+    let report = decoder.finish()?;
     if report.progress.rows_written as usize != height
         || report.progress.output_bytes_written != raw_bytes as u64
     {
