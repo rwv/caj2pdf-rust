@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- The research tooling moved to
+  [caj2pdf-samples `research/`](https://github.com/rwv/caj2pdf-samples/tree/main/research/README.md)
+  (#360): the oracle, probe and conformance scripts, `tests/conformance/`
+  harnesses and baselines, `tools/cajviewer/`, the parity examples and the
+  `docs/research/` notes. CI no longer reports those external checks as
+  `NOT_RUN`; `docs/provenance.md` keeps this repository's own source,
+  fixtures, fonts and dependencies. No product behavior changes.
+
 - **Breaking:** removed dead API and experimental codec-table switches
   (#348). HN/C8 conversion always uses the built-in standard T.82/T.88
   states. Removed: the CLI flags `--qm-states` and `--mq-states`; the WASM
@@ -458,7 +466,7 @@ page geometry/order and bookmarks are unchanged; compressed PDF bytes and hashes
 change. Regenerate byte snapshots and use a PDF decoder when inspecting image
 streams. Set `max_allocation_bytes` / `maxAllocationBytes` to at least 512 KiB
 for bilevel output; this conservative fixed compressor reservation is checked
-before opening the image. See [measurements and limits](docs/research/bilevel-compression.md).
+before opening the image. See [measurements and limits](https://github.com/rwv/caj2pdf-samples/tree/main/research/notes/bilevel-compression.md).
 
 ### Built-in codec states
 
@@ -477,14 +485,14 @@ breaking commits on main; links retain detailed API and diagnostic scope.
 | --- | --- |
 | PDF input (#19) and CAJ conversion | Rust `Error` gains located PDF, `Caj` and `CajLimitExceeded` variants; raw WASM gains error categories. Update exhaustive matches and use the current [error API](crates/caj2pdf-core/src/error.rs). |
 | Streaming JavaScript API | `copyRangeProof` / `convertKdhProof` become `copyRange` / `convert`; raw `caj2pdf_kdh_start` becomes `caj2pdf_start`. Replace `convertKdhProof(instance, source, sink)` with `convert(instance, source, sink, { format: "kdh" })`. |
-| Type-0 row decoding | `ArithmeticSnapshot` gains `source_bytes_fetched`. Add that field to explicit literals; use a rest pattern when inspecting snapshots. See [row API](docs/research/jbig1-type0-rows.md). |
+| Type-0 row decoding | `ArithmeticSnapshot` gains `source_bytes_fetched`. Add that field to explicit literals; use a rest pattern when inspecting snapshots. See [row API](https://github.com/rwv/caj2pdf-samples/tree/main/research/notes/jbig1-type0-rows.md). |
 | Arithmetic budgets | Counter budgets above `MAX_BUDGET_COUNT` (2^48) are rejected. Replace native `u64::MAX` sentinel values with `MAX_BUDGET_COUNT`, e.g. `MqBudget { max_work: MAX_BUDGET_COUNT, ..Default::default() }`. CLI/JS do not expose these budgets. |
-| JBIG2 header policy (#92) and page composition (#96) | `TextRegionHeader` / `TextComposeReport` gain source identity, raw flags, anomaly and complete-header metadata; mismatched identities fail. Update explicit literals from the parsed header. Strict parsing stays default; the narrow anomaly needs an explicit native policy. See [page profile](docs/research/t88-observed-page-composition.md). |
-| Selected type-0 PDF (#101) | Exhaustive `Type0PdfErrorKind` matches must handle `InvalidSelection`; ordinary `convert_type0_pdf` does not emit it. See [selection API](docs/research/hnc8-type0-pdf.md). |
-| Outline observation tool | Opt-in diagnostic contracts/reports move from schema 1 to schema 2 with a three-profile field scope. Replace old contracts with reviewed schema-2 contracts; production Rust APIs are unchanged. See [observation record](docs/research/hnc8-outline-observation.md). |
-| HN-A outlines (#162) | `ComposeOptions` gains `include_bookmarks`; set it explicitly or use defaults. HN-A output can carry source outlines; C8/HN-B require `false`. See [outline fields](docs/research/hnc8-outline-fields.md). |
+| JBIG2 header policy (#92) and page composition (#96) | `TextRegionHeader` / `TextComposeReport` gain source identity, raw flags, anomaly and complete-header metadata; mismatched identities fail. Update explicit literals from the parsed header. Strict parsing stays default; the narrow anomaly needs an explicit native policy. See [page profile](https://github.com/rwv/caj2pdf-samples/tree/main/research/notes/t88-observed-page-composition.md). |
+| Selected type-0 PDF (#101) | Exhaustive `Type0PdfErrorKind` matches must handle `InvalidSelection`; ordinary `convert_type0_pdf` does not emit it. See [selection API](https://github.com/rwv/caj2pdf-samples/tree/main/research/notes/hnc8-type0-pdf.md). |
+| Outline observation tool | Opt-in diagnostic contracts/reports move from schema 1 to schema 2 with a three-profile field scope. Replace old contracts with reviewed schema-2 contracts; production Rust APIs are unchanged. See [observation record](https://github.com/rwv/caj2pdf-samples/tree/main/research/notes/hnc8-outline-observation.md). |
+| HN-A outlines (#162) | `ComposeOptions` gains `include_bookmarks`; set it explicitly or use defaults. HN-A output can carry source outlines; C8/HN-B require `false`. See [outline fields](https://github.com/rwv/caj2pdf-samples/tree/main/research/notes/hnc8-outline-fields.md). |
 | Raw HN composition (#164) | Additional uncompressed text profiles are parsed, and image-width behavior changes. Reconvert affected documents; update explicit coordinate/report literals from the current API. The later #184 geometry rule below supersedes intermediate padded-width behavior. |
-| Type-3 composition (#174) | `ComposeOptions` gains `type3`, and reports add type-3 counts/anomalies. Use `type3: Type3PdfOptions::default()` or `..Default::default()`. Existing scratch calls remain valid; see [migration](docs/research/hnc8-page-composition.md#v0x-api-migration). |
+| Type-3 composition (#174) | `ComposeOptions` gains `type3`, and reports add type-3 counts/anomalies. Use `type3: Type3PdfOptions::default()` or `..Default::default()`. Existing scratch calls remain valid; see [migration](https://github.com/rwv/caj2pdf-samples/tree/main/research/notes/hnc8-page-composition.md#v0x-api-migration). |
 | Repeated image groups (#176) | Verified aliases no longer become extra draws/pages. `ComposedImage` gains `duplicate_of`; count draws with `duplicate_of.is_none()`. Reports add `duplicate_image_records`; update exhaustive literals/patterns and regenerate old duplicate-page outputs. |
 | WASM (#179) and CLI (#180) HN/C8 routing | HN/C8 now attempt supported conversion instead of unconditional rejection. Supply needed states and bounded scratch, handle located HN/C8/configuration errors, and explicitly omit unknown outlines. Raw WASM hosts must implement scratch statuses 6–9; use [the JS migration guide](js/README.md#v0x-migration). |
 | Metadata inspection (#181) | Valid HN-A outlines are reported instead of unknown values; malformed outlines fail with location. Known empty HN-A outlines return zero/false/empty entries; C8/HN-B remain unknown. `conversion_supported` means a route exists, not that a document will convert. Update consumers of [CLI JSON](docs/cli.md#v0x-migration) and JS error matches. |
@@ -528,7 +536,7 @@ artifact reports version 0.1.0 and passes a synthetic PDF conversion/qpdf check.
 #196/#197 passed all four hosted quality gates, including Node 22/24, Chromium,
 MIT dependency/source/advisory audits and 100% Rust line coverage (30,539/30,539
 at #197). [The support matrix](docs/conformance.md#v01-support-and-release-status)
-records profile limits and known Python differences; [compression evidence](docs/research/bilevel-compression.md)
+records profile limits and known Python differences; [compression evidence](https://github.com/rwv/caj2pdf-samples/tree/main/research/notes/bilevel-compression.md)
 records new PDF hashes and memory observations. Optional missing corpus checks
 remain NOT_RUN, never compatibility passes.
 

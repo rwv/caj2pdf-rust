@@ -180,7 +180,7 @@ unchanged. PDF byte snapshots/hashes change even when pixels and layout do not.
 For bilevel conversion, `limits.maxAllocationBytes` must be at least `512n *
 1024n` for the fixed compressor reservation (the default 64 MiB already covers
 this). This is a per-allocation requirement, not a whole-process memory budget.
-See the [compression measurements](../docs/research/bilevel-compression.md).
+See the [compression measurements](https://github.com/rwv/caj2pdf-samples/tree/main/research/notes/bilevel-compression.md).
 
 ## Scoped HN/C8 scratch
 
@@ -285,7 +285,7 @@ files in its own `finally`; cleanup cannot guarantee removal after host failure.
 HN-A/C8 type-1 and type-2 JPEG images share the bounded validation/emission
 path. The HN/C8 adapter also selects the documented unused-refinement-template
 interoperability policy; generic JBIG2 parsing remains strict. See the
-[type-1 profile and checks](../docs/research/hnc8-type1.md).
+[type-1 profile and checks](https://github.com/rwv/caj2pdf-samples/tree/main/research/notes/hnc8-type1.md).
 
 HN-A outlines are supported. C8/HN-B currently require explicit
 `includeBookmarks: false`. Admitted native C8/HN-B text pages use the
@@ -293,7 +293,7 @@ HN-A outlines are supported. C8/HN-B currently require explicit
 unverified content is rejected rather than silently omitted. The shared HN/C8
 route admits only the documented unused-refinement-template anomaly. Other
 malformed JBIG2 headers remain errors. Image-only pages receive no OCR text
-layer; [Unicode, whitespace and reading-order limits](../docs/research/hnc8-text-fidelity.md)
+layer; [Unicode, whitespace and reading-order limits](https://github.com/rwv/caj2pdf-samples/tree/main/research/notes/hnc8-text-fidelity.md)
 remain separate from native glyph rendering. HN/C8 inspection validates metadata without implying
 that the document can be converted. Located conversion and metadata failures use error code
 `HNC8`. Standard numeric state adoption is recorded in #189.
@@ -405,7 +405,7 @@ CAJ2PDF_CORPUS_DIR=/path/to/CAJSamples node js/scripts/corpus.mjs \
 The repository records no per-sample Rust outcome, so each entry's
 expectation comes from the API's format contract and the matrix's
 `expected_outcome`, classified as
-[`scripts/conformance.py`](../scripts/conformance.py) does:
+[`scripts/conformance.py`](https://github.com/rwv/caj2pdf-samples/tree/main/research/scripts/conformance.py) does:
 
 | Entry | `expectation` | Requirement | Outcome when met |
 | --- | --- | --- | --- |
@@ -438,7 +438,7 @@ typed input rejection (`Caj2PdfError` other than `CANCELLED`, `IO`,
 `LIMIT_EXCEEDED`, or `UNKNOWN`) or a validated output is recorded in
 `observed`; a timeout, I/O error, WASM trap, or invalid output still fails.
 A qpdf warning fails, as in `check_qpdf_log` in
-[`scripts/jbig2_oracle.py`](../scripts/jbig2_oracle.py) and the Rust KDH
+[`scripts/jbig2_oracle.py`](https://github.com/rwv/caj2pdf-samples/tree/main/research/scripts/jbig2_oracle.py) and the Rust KDH
 corpus test. After all conversions it re-verifies every source by path.
 
 Progress goes to stderr and a JSON report to stdout:
@@ -459,7 +459,7 @@ Each `results` row has `id`, `format`, `reference` (`expected_outcome`),
 do not block `PASS`. Page counts and `qpdf --check` do not compare page
 order, rendering, or outlines with the reference PDFs, so the known
 reference differences (`issue-40`/`issue-44` page order and
-`issue-49`/`issue-73` outlines; see [CAJ format notes](../docs/research/caj-format.md))
+`issue-49`/`issue-73` outlines; see [CAJ format notes](https://github.com/rwv/caj2pdf-samples/tree/main/research/notes/caj-format.md))
 are outside this check. A timeout aborts at the next I/O call; a WASM loop
 that never returns to I/O is not interrupted. The CI WASM job runs the
 script with an empty `CAJ2PDF_CORPUS_DIR` and asserts `NOT_RUN` with zero
@@ -580,7 +580,7 @@ may instead be `{ source, face }` to use face `face` of a collection
 work for fonts too. Reuse the same source object across roles to embed it
 once. Character coverage alone does not guarantee compatible widths or
 bearings, or prevent overlap at fixed source positions. See the
-[same-resource controls](../docs/research/c8-real-font-fidelity.md#same-resource-control-follow-up).
+[same-resource controls](https://github.com/rwv/caj2pdf-samples/tree/main/research/notes/c8-real-font-fidelity.md#same-resource-control-follow-up).
 The optional decoration character is a nonsemantic BMP alias, not document
 text. Roles exist because source role selection differs from Unicode/script
 selection.

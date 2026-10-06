@@ -29,9 +29,15 @@ the review in the [provenance inventory](docs/provenance.md).
 
 User documentation lives in `docs/` (CLI, support matrix, platforms, Docker,
 I/O architecture, PDF input, provenance and release policy). Format
-investigations, oracles and validation runs live in `docs/research/`; add a
-new note there and list it in [its index](docs/research/README.md). Notes whose
-bytes are hash-pinned by a script must not be edited.
+investigations, oracles and validation runs, with the scripts, conformance
+harnesses and CAJViewer automation that produce them, live in the
+[`research/` directory of caj2pdf-samples](https://github.com/rwv/caj2pdf-samples/tree/main/research/README.md); add a new note under
+`research/notes/` there and list it in its index.
+[docs/research/README.md](docs/research/README.md) points to them. Notes whose
+bytes are hash-pinned by a script must not be edited. This repository keeps
+only the product, its own fixtures and fonts, and the scripts its workflows
+run (`scripts/check-*`, `scripts/generate_fixtures.py` and the packaging and
+cross-build helpers).
 
 ## Commit and release policy
 
@@ -102,8 +108,8 @@ check (`python3 scripts/check-doc-links.py`), and the line-coverage gate in
 the native LCOV report to stay at or above `COVERAGE_THRESHOLD_PERCENT` in
 that script; it is a floor, not a per-file target, and it is raised only when
 the measured total moves up. Run `bash scripts/check-coverage.sh` locally (it
-needs `cargo-llvm-cov` and the PDF validators listed in
-[the PDF writer notes](docs/research/pdf-writer.md)).
+needs `cargo-llvm-cov` and the PDF validators the `native` job of
+[`ci.yml`](.github/workflows/ci.yml) installs).
 
 The merge gate is these `ci.yml` jobs plus the Linux x86_64/ARM64 glibc and
 musl `native` jobs of `platforms.yml` (see the
@@ -119,6 +125,7 @@ report readable.
 
 ## Optional CAJViewer setup
 
-Use the [pinned binary mirror setup](docs/cajviewer-setup.md) to acquire the
-external Linux viewer installer. Normal tests do not download vendor binaries;
-the manual installer-integrity workflow does not count as viewer compatibility.
+The viewer tooling and its manual installer-integrity workflow moved to
+caj2pdf-samples; see [CAJViewer setup](docs/cajviewer-setup.md). Normal tests
+do not download vendor binaries, and viewer checks never count as converter
+tests.

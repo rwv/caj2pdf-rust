@@ -6,9 +6,9 @@
 //
 // Optional external-corpus run of the JavaScript API over every entry of
 // tests/conformance/matrix.json. Each entry's expectation comes from the
-// matrix's `expected_outcome` (classified as scripts/conformance.py does) and
-// the API's format contract (HN, C8, and TEB are rejected); see
-// `expectationFor`. It never fetches the corpus. With CAJ2PDF_CORPUS_DIR
+// matrix's `expected_outcome` (classified as conformance.py, now in
+// caj2pdf-samples research/scripts/, does) and the API's format contract
+// (HN, C8, and TEB are rejected); see `expectationFor`. It never fetches the corpus. With CAJ2PDF_CORPUS_DIR
 // unset or empty the report is NOT_RUN with zero counts; a requested but
 // missing or changed corpus FAILs.
 // Exit codes: 0 for PASS or NOT_RUN, 1 for FAIL, 2 for a setup error, and
@@ -32,7 +32,7 @@ export const DEFAULT_WASM = fileURLToPath(
 const API_UNSUPPORTED = new Set(["TEB"]);
 const API_CALLER_TABLE = new Set(["HN", "C8"]);
 const API_CONVERTED = new Set(["CAJ", "KDH", "PDF"]);
-/** `expected_outcome` classes, as in scripts/conformance.py `audit_pdfs`. */
+/** `expected_outcome` classes, as in conformance.py `audit_pdfs` (caj2pdf-samples research/scripts/). */
 const REFERENCE_EXPECTATION = Object.freeze({
   success: "convert",
   error: "excluded",
@@ -169,8 +169,8 @@ function warningLine(text) {
 
 /**
  * Validate a PDF with qpdf and return the page count it reports. Like
- * `check_qpdf_log` in scripts/jbig2_oracle.py and the Rust KDH corpus test,
- * a qpdf warning fails: `qpdf --check` must exit 0 (exit 3 means warnings)
+ * `check_qpdf_log` in jbig2_oracle.py (caj2pdf-samples research/scripts/)
+ * and the Rust KDH corpus test, a qpdf warning fails: `qpdf --check` must exit 0 (exit 3 means warnings)
  * and print no `WARNING:` line.
  */
 async function qpdfPages(context, path, signal) {
